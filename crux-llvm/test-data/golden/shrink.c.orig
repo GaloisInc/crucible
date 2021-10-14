@@ -17,6 +17,11 @@ unsigned int addflt(unsigned int a , unsigned int b )
   return ((unsigned int) ea);
 }
 
-int main() {
-  return 0;
+int main(void)
+{
+  if (addflt(2,2)) {
+    return 0;
+  } else {
+    return 1;
+  }
 }

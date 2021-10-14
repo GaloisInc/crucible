@@ -33,6 +33,7 @@ import Data.Parameterized.Context (pattern Empty, pattern (:>))
 
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
+import qualified Text.LLVM.PP as LLVM
 import Prettyprinter
 
 -- what4
@@ -72,8 +73,8 @@ import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap
-        , llvmPtrWidth, llvmTypeCtx
+        , transContext, cfgMap, llvmPtrWidth, llvmTypeCtx
+        , LLVMTranslationWarning(..)
         )
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, register_llvm_overrides )
@@ -225,8 +226,9 @@ prepLLVMModule :: IsSymInterface sym
                -> IO (PreppedLLVM sym)
 prepLLVMModule llvmOpts halloc sym bcFile memVar = do
     llvmMod <- parseLLVM bcFile
-    Some trans <- let ?transOpts = transOpts llvmOpts
-                  in translateModule halloc memVar llvmMod
+    (Some trans, warns) <-
+        let ?transOpts = transOpts llvmOpts
+         in translateModule halloc memVar llvmMod
     mem <- let llvmCtxt = trans ^. transContext in
              let ?lc = llvmCtxt ^. llvmTypeCtx
                  ?memOpts = memOpts llvmOpts
@@ -235,8 +237,17 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
                Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))
                populateAllGlobals sym (globalInitMap trans)
                  =<< initializeAllMemory sym llvmCtxt llvmMod
+    mapM_ sayTranslationWarning warns
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
+sayTranslationWarning ::
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  Crux.Logs msgs =>
+  LLVMTranslationWarning -> IO ()
+sayTranslationWarning = Log.sayCruxLLVM . f
+  where
+    f (LLVMTranslationWarning s p msg) =
+        Log.TranslationWarning (Text.pack (show (LLVM.ppSymbol s))) (Text.pack (show p)) msg
 
 checkFun ::
   forall arch msgs personality sym.

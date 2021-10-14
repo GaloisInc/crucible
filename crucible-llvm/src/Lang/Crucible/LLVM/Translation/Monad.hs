@@ -24,11 +24,15 @@ module Lang.Crucible.LLVM.Translation.Monad
   , LLVMState(..)
   , identMap
   , blockInfoMap
-  , buildBlockInfoMap
+  , translationWarnings
+  , functionSymbol
+  , addWarning
+  , LLVMTranslationWarning(..)
   , IdentMap
   , LLVMBlockInfo(..)
+  , LLVMBlockInfoMap
+  , buildBlockInfoMap
   , initialState
-
   , getMemVar
 
     -- * Malformed modules
@@ -40,16 +44,17 @@ module Lang.Crucible.LLVM.Translation.Monad
   , LLVMContext(..)
   , llvmTypeCtx
   , mkLLVMContext
+
+  , useTypedVal
   ) where
 
-import Control.Lens hiding (op, (:>) )
+import Control.Lens hiding (op, (:>), to, from )
 import Control.Monad.State.Strict
-import Data.Maybe
+import Data.IORef (IORef, modifyIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import Data.Set (Set)
+import Data.Text (Text)
 
 import qualified Text.LLVM.AST as L
 
@@ -65,6 +70,7 @@ import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MalformedLLVMModule
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
+import           Lang.Crucible.LLVM.Translation.BlockInfo
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
@@ -140,64 +146,44 @@ getMemVar = llvmMemVar . llvmContext <$> get
 -- | Maps identifiers to an associated register or defined expression.
 type IdentMap s = Map L.Ident (Either (Some (Reg s)) (Some (Atom s)))
 
+-- | A warning generated during translation
+data LLVMTranslationWarning =
+  LLVMTranslationWarning
+    L.Symbol  -- ^ Function name in which the warning was generated
+    Position  -- ^ Source position where the warning was generated
+    Text      -- ^ Description of the warning
+
 data LLVMState arch s
    = LLVMState
    { -- | Map from identifiers to associated register shape
      _identMap :: !(IdentMap s)
-   , _blockInfoMap :: !(Map L.BlockLabel (LLVMBlockInfo s))
+   , _blockInfoMap :: !(LLVMBlockInfoMap s)
    , llvmContext :: LLVMContext arch
+   , _translationWarnings :: IORef [LLVMTranslationWarning]
+   , _functionSymbol :: L.Symbol
    }
 
-identMap :: Simple Lens (LLVMState arch s) (IdentMap s)
+identMap :: Lens' (LLVMState arch s) (IdentMap s)
 identMap = lens _identMap (\s v -> s { _identMap = v })
 
-blockInfoMap :: Simple Lens (LLVMState arch s) (Map L.BlockLabel (LLVMBlockInfo s))
+blockInfoMap :: Lens' (LLVMState arch s) (LLVMBlockInfoMap s)
 blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
 
--- | Information about an LLVM basic block
-data LLVMBlockInfo s
-  = LLVMBlockInfo
-    {
-      -- The crucible block label corresponding to this LLVM block
-      block_label    :: Label s
+translationWarnings :: Lens' (LLVMState arch s) (IORef [LLVMTranslationWarning])
+translationWarnings = lens _translationWarnings (\s v -> s { _translationWarnings = v })
 
-      -- map from labels to assignments that must be made before
-      -- jumping.  If this is the block info for label l',
-      -- and the map has [(i1,v1),(i2,v2)] in the phi_map for block l,
-      -- then basic block l is required to assign i1 = v1 and i2 = v2
-      -- before jumping to block l'.
-    , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
-    }
+functionSymbol :: Lens' (LLVMState arch s) L.Symbol
+functionSymbol = lens _functionSymbol (\s v -> s{ _functionSymbol = v })
 
-buildBlockInfoMap :: L.Define -> LLVMGenerator s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
-buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
-
-buildBlockInfo :: L.BasicBlock -> LLVMGenerator s arch ret (L.BlockLabel, LLVMBlockInfo s)
-buildBlockInfo bb = do
-  let phi_map = buildPhiMap (L.bbStmts bb)
-  let blk_lbl = case L.bbLabel bb of
-                  Just l -> l
-                  Nothing -> panic "crucible-llvm:Translation.buildBlockInfo"
-                             [ "unable to obtain label from BasicBlock" ]
-  lab <- newLabel
-  return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
-                                , block_label = lab
-                                })
-
--- Given the statements in a basic block, find all the phi instructions and
--- compute the list of assignments that must be made for each predecessor block.
-buildPhiMap :: [L.Stmt] -> Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value))
-buildPhiMap ss = go ss Map.empty
- where go (L.Result ident (L.Phi tp xs) _ : stmts) m = go stmts (go' ident tp xs m)
-       go _ m = m
-
-       f x mseq = Just (fromMaybe Seq.empty mseq Seq.|> x)
-
-       go' ident tp ((v, lbl) : xs) m = go' ident tp xs (Map.alter (f (ident,tp,v)) lbl m)
-       go' _ _ [] m = m
+addWarning :: Text -> LLVMGenerator s arch ret ()
+addWarning warn =
+  do r <- use translationWarnings
+     s <- use functionSymbol
+     p <- getPosition
+     liftIO (modifyIORef r ((LLVMTranslationWarning s p warn):))
 
 
--- Given a list of LLVM formal parameters and a corresponding crucible
+-- | Given a list of LLVM formal parameters and a corresponding crucible
 -- register assignment, build an IdentMap mapping LLVM identifiers to
 -- corresponding crucible registers.
 buildIdentMap :: (?lc :: TypeContext, HasPtrWidth wptr)
@@ -232,10 +218,16 @@ initialState :: (?lc :: TypeContext, HasPtrWidth wptr)
              -> LLVMContext arch
              -> CtxRepr args
              -> Ctx.Assignment (Atom s) args
+             -> IORef [LLVMTranslationWarning]
              -> LLVMState arch s
-initialState d llvmctx args asgn =
+initialState d llvmctx args asgn warnRef =
    let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
-     LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
+     LLVMState { _identMap = m
+               , _blockInfoMap = Map.empty
+               , llvmContext = llvmctx
+               , _translationWarnings = warnRef
+               , _functionSymbol = L.defName d
+               }
 
 -- | Given an LLVM type and a type context and a register assignment,
 --   peel off the rightmost register from the assignment, which is

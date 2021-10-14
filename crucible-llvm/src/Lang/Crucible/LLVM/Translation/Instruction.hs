@@ -32,7 +32,7 @@ module Lang.Crucible.LLVM.Translation.Instruction
   , generateInstr
   , definePhiBlock
   , assignLLVMReg
-  , callFunction
+  , callOrdinaryFunction
   ) where
 
 import           Prelude hiding (exp, pred)
@@ -47,6 +47,8 @@ import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.String
@@ -57,6 +59,7 @@ import           Prettyprinter (pretty)
 import GHC.Exts ( Proxy#, proxy# )
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as L
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
@@ -1384,6 +1387,7 @@ generateInstr :: forall s arch ret a.
    (?transOpts :: TranslationOptions) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
+   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr        {- ^ The instruction to translate -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
@@ -1392,7 +1396,7 @@ generateInstr :: forall s arch ret a.
           Straightline instructions should enter this continuation,
           but block-terminating instructions should not. -} ->
    LLVMGenerator s arch ret a
-generateInstr retType lab instr assign_f k =
+generateInstr retType lab defSet instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
     L.Phi _ _ -> k
@@ -1575,12 +1579,13 @@ generateInstr retType lab instr assign_f k =
          k
 
     L.Call tailcall (L.PtrTo fnTy) fn args ->
-      callFunctionWithCont instr tailcall fnTy fn args assign_f k
+      callFunction defSet instr tailcall fnTy fn args assign_f >> k
     L.Call _ ty _ _ ->
       fail $ unwords ["unexpected function type in call:", show ty]
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
-        callFunctionWithCont instr False fnTy fn args assign_f $ definePhiBlock lab normLabel
+      do callFunction defSet instr False fnTy fn args assign_f
+         definePhiBlock lab normLabel
 
     L.Bit op x y ->
       do tp <- liftMemType' (L.typedType x)
@@ -1836,8 +1841,9 @@ unaryArithOp op _ x =
        L.FNeg ->
          return $ App $ FloatNeg fi a
 
--- | Generate a call to an LLVM function.
-callFunction ::
+-- | Generate a call to an LLVM function, without any special
+--   handling for debug intrinsics or breakpoints.
+callOrdinaryFunction ::
    Maybe L.Instr {- ^ The instruction causing this call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
@@ -1845,7 +1851,7 @@ callFunction ::
    [L.Typed L.Value] {- ^ argument list -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret ()
-callFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args assign_f = do
+callOrdinaryFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args assign_f = do
   let err :: String -> a
       err = \msg -> malformedLLVMModule "Invalid type in function call" $
                        [ fromString msg ]
@@ -1868,56 +1874,66 @@ callFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args ass
           assign_f (BaseExpr retTy ret)
         _ -> fail $ unwords ["unsupported function value", show fn]
 
-callFunction instr _tailCall fnTy _fn _args _assign_f =
+callOrdinaryFunction instr _tailCall fnTy _fn _args _assign_f =
   reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $ unlines $
     [ "[callFunction] Unsupported function type: " ++ show fnTy ]
     ++
     maybe [] ( (:[]) . show) instr
 
 
--- | Generate a call to an LLVM function, with a continuation to fetch more
--- instructions.
-callFunctionWithCont :: forall s arch ret a.
+-- | Generate a call to an LLVM function, generating special support
+-- for debugging intrinsics and breakpoint functions.
+callFunction :: forall s arch ret.
    (?transOpts :: TranslationOptions) =>
-   L.Instr {- ^ Source instruction o the call -} ->
+   Set L.Ident {- ^ Set of usable identifiers -} ->
+   L.Instr {- ^ Source instruction of the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
    [L.Typed L.Value] {- ^ argument list -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
-   LLVMGenerator s arch ret a {- ^ continuation for next instructions -} ->
-   LLVMGenerator s arch ret a
-callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
+   LLVMGenerator s arch ret ()
+callFunction defSet instr tailCall_ fnTy fn args assign_f
 
      -- Supports LLVM 4-12
-     | L.ValSymbol "llvm.dbg.declare" <- fn =
-       do mbArgs <- dbgArgs args
+     | L.ValSymbol "llvm.dbg.declare" <- fn
+     , debugIntrinsics ?transOpts =
+       do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
-              extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
-            _ -> k
+              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di))
+                 return ()
+            Left msg -> addWarning (Text.pack msg)
+            _ -> addWarning "Unexpected argument in llvm.dbg.declare"
 
      -- Supports LLVM 6-12
-     | L.ValSymbol "llvm.dbg.addr" <- fn =
-       do mbArgs <- dbgArgs args
+     | L.ValSymbol "llvm.dbg.addr" <- fn
+     , debugIntrinsics ?transOpts =
+       do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
-              extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
-            _ -> k
+              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di))
+                 return ()
+            Left msg -> addWarning (Text.pack msg)
+            _ -> addWarning "Unexpected argument in llvm.dbg.addr"
 
      -- Supports LLVM 6-12 (earlier versions had an extra argument)
-     | L.ValSymbol "llvm.dbg.value" <- fn =
-       do mbArgs <- dbgArgs args
+     | L.ValSymbol "llvm.dbg.value" <- fn
+     , debugIntrinsics ?transOpts =
+       do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ repr val, lv, di) ->
-              extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di)) >> k
-            _ -> k
+              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di))
+                 return ()
+            Left msg -> addWarning (Text.pack msg)
+            _ -> addWarning "Unexpected argument in llvm.dbg.value"
 
-     -- Skip calls to other debugging intrinsics.  We might want to support these in some way
-     -- in the future.  However, they take metadata values as arguments, which
-     -- would require some work to support.
+     -- Skip calls to other debugging intrinsics.
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.label"
+                 , "llvm.dbg.declare"
+                 , "llvm.dbg.addr"
+                 , "llvm.dbg.value"
                  , "llvm.lifetime.start"
                  , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"
@@ -1926,7 +1942,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
                  , "llvm.invariant.start.p0i8"
                  , "llvm.invariant.end"
                  , "llvm.invariant.end.p0i8"
-                 ] = k
+                 ] = return ()
 
      | L.ValSymbol (L.Symbol nm) <- fn
      , testBreakpointFunction nm = do
@@ -1934,23 +1950,16 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
         case Ctx.fromList some_val_args of
           Some val_args -> do
             addBreakpointStmt (Text.pack nm) val_args
-            k
 
-     | otherwise = callFunction (Just instr) tailCall_ fnTy fn args assign_f >> k
+     | otherwise = callOrdinaryFunction (Just instr) tailCall_ fnTy fn args assign_f
 
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
 dbgArgs ::
-  (?transOpts :: TranslationOptions) =>
+  Set L.Ident {- ^ Set of usable identifiers -} ->
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs args
-  | -- Why guard translating llvm.dbg statements behind its own option? It's
-    -- because Clang can sometimes generate llvm.dbg statements with improperly
-    -- scoped arguments—see https://bugs.llvm.org/show_bug.cgi?id=51155. This
-    -- wreaks all sorts of havoc on Crucible's later analyses, so one can work
-    -- around the issue by not translating the llvm.dbg statements at all.
-    debugIntrinsics ?transOpts
-  = case args of
+dbgArgs defSet args =
+    case args of
       [valArg, lvArg, diArg] ->
         case valArg of
           L.Typed _ (L.ValMd (L.ValMdValue val)) ->
@@ -1958,14 +1967,18 @@ dbgArgs args
               L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
                 case diArg of
                   L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) ->
-                    do v <- transTypedValue val
-                       pure (Right (v, lv, di))
+                    let unusableIdents = Set.difference (useTypedVal val) defSet
+                    in if Set.null unusableIdents then
+                         do v <- transTypedValue val
+                            pure (Right (v, lv, di))
+                       else
+                         do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
+                                       map (show . L.ppIdent) (Set.toList unusableIdents))
+                            pure (Left msg)
                   _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
               _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
           _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
       _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
-  | otherwise
-  = pure (Left ("Not translating llvm.dbg statement due to debugIntrinsics not being enabled"))
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->
