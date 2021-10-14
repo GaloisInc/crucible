@@ -41,7 +41,7 @@ import           Data.Maybe (fromMaybe)
 
 import qualified Text.LLVM.AST as L
 
-import           Lang.Crucible.LLVM.Translation.Instruction (callFunction)
+import           Lang.Crucible.LLVM.Translation.Instruction (callOrdinaryFunction)
 import           Lang.Crucible.LLVM.Translation.Monad (LLVMGenerator, LLVMState(..))
 
 -- Generating CFGs
@@ -142,7 +142,7 @@ callCtors select mod_ = do
 
   ctors <- either err (pure . filter select) (globalCtors mod_)
   forM_ ctors $ \ctor ->
-    callFunction Nothing False ty (L.ValSymbol (ctorFunction ctor)) [] (const (pure ()))
+    callOrdinaryFunction Nothing False ty (L.ValSymbol (ctorFunction ctor)) [] (const (pure ()))
   return (App EmptyApp)
 
 -- | Call each function in @llvm.global_ctors@ in order of decreasing priority
