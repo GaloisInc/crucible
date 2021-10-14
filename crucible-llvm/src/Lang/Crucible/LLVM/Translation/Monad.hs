@@ -148,7 +148,10 @@ type IdentMap s = Map L.Ident (Either (Some (Reg s)) (Some (Atom s)))
 
 -- | A warning generated during translation
 data LLVMTranslationWarning =
-  LLVMTranslationWarning L.Symbol Position Text
+  LLVMTranslationWarning
+    L.Symbol  -- ^ Function name in which the warning was generated
+    Position  -- ^ Source position where the warning was generated
+    Text      -- ^ Description of the warning
 
 data LLVMState arch s
    = LLVMState
