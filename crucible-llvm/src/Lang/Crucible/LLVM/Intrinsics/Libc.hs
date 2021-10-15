@@ -39,8 +39,9 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Interface
-import           What4.InterpretedFloatingPoint (iFloatToReal)
+import           What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder(..))
 import           What4.ProgramLoc (plSourceLoc)
+import qualified What4.SpecialFunctions as W4
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
@@ -675,6 +676,514 @@ printfOps sym valist =
                 "Out-of-bounds argument access in printf:"
                 (unwords ["Index:", show i])
   }
+
+------------------------------------------------------------------------
+-- *** Math
+
+llvmSqrtOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmSqrtOverride =
+  [llvmOvr| double @sqrt( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSqrt sym) args)
+
+llvmSqrtfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmSqrtfOverride =
+  [llvmOvr| float @sqrtf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSqrt sym) args)
+
+callSpecialFunction1 ::
+  forall fi p sym ext r args ret.
+  (IsSymInterface sym, KnownRepr FloatInfoRepr fi) =>
+  sym ->
+  W4.SpecialFunction (EmptyCtx ::> W4.R) ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callSpecialFunction1 sym fn (regValue -> x) = liftIO $
+  iFloatSpecialFunction1 sym (knownRepr :: FloatInfoRepr fi) fn x
+
+callSpecialFunction2 ::
+  forall fi p sym ext r args ret.
+  (IsSymInterface sym, KnownRepr FloatInfoRepr fi) =>
+  sym ->
+  W4.SpecialFunction (EmptyCtx ::> W4.R ::> W4.R) ->
+  RegEntry sym (FloatType fi) ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callSpecialFunction2 sym fn (regValue -> x) (regValue -> y) = liftIO $
+  iFloatSpecialFunction2 sym (knownRepr :: FloatInfoRepr fi) fn x y
+
+callSqrt ::
+  forall fi p sym ext r args ret.
+  IsSymInterface sym =>
+  sym ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callSqrt sym (regValue -> x) = liftIO $ iFloatSqrt @_ @fi sym RNE x
+
+------------------------------------------------------------------------
+-- **** Circular trigonometry functions
+
+-- sin(f)
+
+llvmSinOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmSinOverride =
+  [llvmOvr| double @sin( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sin) args)
+
+llvmSinfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmSinfOverride =
+  [llvmOvr| float @sinf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sin) args)
+
+-- cos(f)
+
+llvmCosOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCosOverride =
+  [llvmOvr| double @cos( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cos) args)
+
+llvmCosfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCosfOverride =
+  [llvmOvr| float @cosf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cos) args)
+
+-- tan(f)
+
+llvmTanOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmTanOverride =
+  [llvmOvr| double @tan( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tan) args)
+
+llvmTanfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmTanfOverride =
+  [llvmOvr| float @tanf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tan) args)
+
+-- asin(f)
+
+llvmAsinOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAsinOverride =
+  [llvmOvr| double @asin( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsin) args)
+
+llvmAsinfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAsinfOverride =
+  [llvmOvr| float @asinf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsin) args)
+
+-- acos(f)
+
+llvmAcosOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAcosOverride =
+  [llvmOvr| double @acos( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccos) args)
+
+llvmAcosfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAcosfOverride =
+  [llvmOvr| float @acosf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccos) args)
+
+-- atan(f)
+
+llvmAtanOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAtanOverride =
+  [llvmOvr| double @atan( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctan) args)
+
+llvmAtanfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAtanfOverride =
+  [llvmOvr| float @atanf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctan) args)
+
+------------------------------------------------------------------------
+-- **** Hyperbolic trigonometry functions
+
+-- sinh(f)
+
+llvmSinhOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmSinhOverride =
+  [llvmOvr| double @sinh( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sinh) args)
+
+llvmSinhfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmSinhfOverride =
+  [llvmOvr| float @sinhf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sinh) args)
+
+-- cosh(f)
+
+llvmCoshOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCoshOverride =
+  [llvmOvr| double @cosh( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cosh) args)
+
+llvmCoshfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCoshfOverride =
+  [llvmOvr| float @coshf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cosh) args)
+
+-- tanh(f)
+
+llvmTanhOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmTanhOverride =
+  [llvmOvr| double @tanh( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tanh) args)
+
+llvmTanhfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmTanhfOverride =
+  [llvmOvr| float @tanhf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tanh) args)
+
+-- asinh(f)
+
+llvmAsinhOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAsinhOverride =
+  [llvmOvr| double @asinh( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsinh) args)
+
+llvmAsinhfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAsinhfOverride =
+  [llvmOvr| float @asinhf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsinh) args)
+
+-- acosh(f)
+
+llvmAcoshOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAcoshOverride =
+  [llvmOvr| double @acosh( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccosh) args)
+
+llvmAcoshfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAcoshfOverride =
+  [llvmOvr| float @acoshf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccosh) args)
+
+-- atanh(f)
+
+llvmAtanhOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAtanhOverride =
+  [llvmOvr| double @atanh( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctanh) args)
+
+llvmAtanhfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAtanhfOverride =
+  [llvmOvr| float @atanhf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctanh) args)
+
+------------------------------------------------------------------------
+-- **** Rectangular to polar coordinate conversion
+
+-- hypot(f)
+
+llvmHypotOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmHypotOverride =
+  [llvmOvr| double @hypot( double, double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Hypot) args)
+
+llvmHypotfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmHypotfOverride =
+  [llvmOvr| float @hypotf( float, float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Hypot) args)
+
+-- atan2(f)
+
+llvmAtan2Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAtan2Override =
+  [llvmOvr| double @atan2( double, double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Arctan2) args)
+
+llvmAtan2fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAtan2fOverride =
+  [llvmOvr| float @atan2f( float, float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Arctan2) args)
+
+------------------------------------------------------------------------
+-- **** Natural exponential and logarithm
+
+-- exp(f)
+
+llvmExpOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmExpOverride =
+  [llvmOvr| double @exp( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp) args)
+
+llvmExpfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmExpfOverride =
+  [llvmOvr| float @expf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp) args)
+
+-- log(f)
+
+llvmLogOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLogOverride =
+  [llvmOvr| double @log( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log) args)
+
+llvmLogfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLogfOverride =
+  [llvmOvr| float @logf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log) args)
+
+-- expm1(f)
+
+llvmExpm1Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmExpm1Override =
+  [llvmOvr| double @expm1( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Expm1) args)
+
+llvmExpm1fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmExpm1fOverride =
+  [llvmOvr| float @expm1f( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Expm1) args)
+
+-- log1p(f)
+
+llvmLog1pOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLog1pOverride =
+  [llvmOvr| double @log1p( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log1p) args)
+
+llvmLog1pfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLog1pfOverride =
+  [llvmOvr| float @log1pf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log1p) args)
+
+------------------------------------------------------------------------
+-- **** Base 2 exponential and logarithm
+
+-- exp2(f)
+
+llvmExp2Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmExp2Override =
+  [llvmOvr| double @exp2( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp2) args)
+
+llvmExp2fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmExp2fOverride =
+  [llvmOvr| float @exp2f( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp2) args)
+
+-- log2(f)
+
+llvmLog2Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLog2Override =
+  [llvmOvr| double @log2( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log2) args)
+
+llvmLog2fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLog2fOverride =
+  [llvmOvr| float @log2f( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log2) args)
+
+------------------------------------------------------------------------
+-- **** Base 10 exponential and logarithm
+
+-- exp10(f)
+
+llvmExp10Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmExp10Override =
+  [llvmOvr| double @exp10( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp10) args)
+
+llvmExp10fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmExp10fOverride =
+  [llvmOvr| float @exp10f( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp10) args)
+
+-- log10(f)
+
+llvmLog10Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLog10Override =
+  [llvmOvr| double @log10( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log10) args)
+
+llvmLog10fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLog10fOverride =
+  [llvmOvr| float @log10f( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log10) args)
 
 ------------------------------------------------------------------------
 -- *** Other
