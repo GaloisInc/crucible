@@ -3,7 +3,6 @@
 {-# Language OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
-import           Control.Lens (over)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isSpace)
@@ -79,12 +78,11 @@ runCrux rustFile outHandle mode =
     -- regression (#627).  This keeps CI from breaking while we investigate.
     -- TODO: revert the timeout to 180 once performance is fixed
     let quiet = True
-    let outOpts = over Crux.outputOptions
-                    (\o -> o { Crux.simVerbose = 0,
-                               Crux.quietMode = quiet
-                             })
-                    defaultCruxOptions
-    let options = (defaultCruxOptions { Crux._outputOptions = outOpts,
+    let outOpts = (Crux.outputOptions defaultCruxOptions)
+                    { Crux.simVerbose = 0
+                    , Crux.quietMode = quiet
+                    }
+    let options = (defaultCruxOptions { Crux.outputOptions = outOpts,
                                         Crux.inputFiles = [rustFile],
                                         Crux.globalTimeout = Just 600,
                                         Crux.goalTimeout = Just 600,
@@ -96,7 +94,7 @@ runCrux rustFile outHandle mode =
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
     let ?outputConfig = Crux.mkOutputConfig (outHandle, False) (outHandle, False) Mir.mirLoggingToSayWhat $
-                        Just (fst options)
+                        Just (Crux.outputOptions (fst options))
     _exitCode <- Mir.runTests options
     return ()
 
