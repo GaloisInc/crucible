@@ -52,7 +52,7 @@ import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, LLVMPointerType)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (basic_llvm_override)
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
@@ -60,6 +60,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 -- uc-crux-llvm
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
+import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride, ForAllSymArch, makeForAllSymArch)
 {- ORMOLU_ENABLE -}
 
 newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Text}
@@ -73,27 +74,28 @@ newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Tex
 -- verification. They unsoundly under-approximate the environment. This helps
 -- symbolic execution reach more code.
 unsoundOverrides ::
-  ( IsSymInterface sym,
-    HasLLVMAnn sym,
-    ArchOk arch,
-    ?lc :: TypeContext
-  ) =>
-  proxy arch ->
+  (?lc :: TypeContext) =>
   IORef (Set UnsoundOverrideName) ->
-  [OverrideTemplate (personality sym) sym arch rtp l a]
-unsoundOverrides arch usedRef =
-  [ basic_llvm_override $
-      [llvmOvr| i32 @gethostname( i8* , size_t ) |]
-        ( \memOps sym args ->
-            liftIO (used "gethostname")
-              >> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args
-        ),
-    basic_llvm_override $
-      [llvmOvr| i8* @getenv( i8* ) |]
-        ( \memOps sym args ->
-            liftIO (used "getenv")
-              >> Ctx.uncurryAssignment (callGetEnv arch sym memOps) args
-        )
+  [ForAllSymArch PolymorphicLLVMOverride]
+unsoundOverrides usedRef =
+  [ makeForAllSymArch $
+      \arch ->
+        makePolymorphicLLVMOverride $
+          basic_llvm_override $
+            [llvmOvr| i32 @gethostname( i8* , size_t ) |]
+              ( \memOps sym args ->
+                  liftIO (used "gethostname")
+                    >> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args
+              ),
+    makeForAllSymArch $
+      \arch ->
+        makePolymorphicLLVMOverride $
+          basic_llvm_override $
+            [llvmOvr| i8* @getenv( i8* ) |]
+              ( \memOps sym args ->
+                  liftIO (used "getenv")
+                    >> Ctx.uncurryAssignment (callGetEnv arch sym memOps) args
+              )
   ]
   where
     used :: Text -> IO ()

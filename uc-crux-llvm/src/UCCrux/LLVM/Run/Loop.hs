@@ -89,11 +89,12 @@ bugfindingLoop ::
   CruxOptions ->
   LLVMOptions ->
   Crucible.HandleAllocator ->
+  [Sim.CreateOverrideFn arch] ->
   IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes))
-bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
+bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc overrideFns =
   do
     let runSim preconds =
-          Sim.runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts llvmOpts
+          Sim.runSimulator appCtx modCtx funCtx halloc overrideFns preconds cfg cruxOpts llvmOpts
 
     -- Loop, learning preconditions and reporting errors
     let loop constraints results unsoundness =
@@ -220,6 +221,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
                           cruxOpts
                           llOpts
                           halloc
+                          []
             )
       )
 
