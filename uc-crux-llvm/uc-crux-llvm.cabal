@@ -59,6 +59,7 @@ library
     UCCrux.LLVM.Module
     UCCrux.LLVM.Newtypes.FunctionName
     UCCrux.LLVM.Newtypes.Seconds
+    UCCrux.LLVM.Overrides.Polymorphic
     UCCrux.LLVM.Overrides.Skip
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP

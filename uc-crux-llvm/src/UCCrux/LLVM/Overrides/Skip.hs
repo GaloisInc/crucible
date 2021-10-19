@@ -56,7 +56,7 @@ import           Lang.Crucible.LLVM.Extension (LLVM)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemImpl)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx, llvmDeclToFunHandleRepr')
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), LLVMOverride(..), basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), basic_llvm_override)
 
 import           Crux.Types (OverM)
 
@@ -71,6 +71,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.Translation (FunctionTypes, ftRetType)
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug)
+import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, resultAnnotations)
@@ -109,7 +110,7 @@ unsoundSkipOverrides ::
   -- | Postconditions of each override (constraints on return values)
   Map (FuncSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
-  OverM personality sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
+  OverM personality sym LLVM [PolymorphicLLVMOverride (personality sym) sym arch]
 unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
@@ -148,7 +149,7 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decl
 -- function would probably need to take an IORef in which to insert annotations
 -- for values it creates.
 createSkipOverride ::
-  forall m arch sym argTypes personality rtp l a.
+  forall m arch sym argTypes personality.
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
@@ -162,29 +163,30 @@ createSkipOverride ::
   Maybe (ConstrainedTypedValue m) ->
   L.Declare ->
   FuncSymbol m ->
-  Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
+  Maybe (PolymorphicLLVMOverride (personality sym) sym arch)
 createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
   llvmDeclToFunHandleRepr' decl $
     \args ret ->
       Just $
-        basic_llvm_override $
-          LLVMOverride
-            { llvmOverride_declare = decl,
-              llvmOverride_args = args,
-              llvmOverride_ret = ret,
-              llvmOverride_def =
-                \mvar _sym _args ->
-                  do
-                    liftIO $
-                      modifyIORef usedRef (Set.insert (SkipOverrideName name))
-                    Override.modifyGlobal mvar $ \mem ->
-                      liftIO
-                        ( returnValue
-                            mem
-                            ret
-                            (modCtx ^. funcTypes . funcSymbol funcSym)
-                        )
-            }
+        makePolymorphicLLVMOverride $
+          basic_llvm_override $
+            LLVMOverride
+              { llvmOverride_declare = decl,
+                llvmOverride_args = args,
+                llvmOverride_ret = ret,
+                llvmOverride_def =
+                  \mvar _sym _args ->
+                    do
+                      liftIO $
+                        modifyIORef usedRef (Set.insert (SkipOverrideName name))
+                      Override.modifyGlobal mvar $ \mem ->
+                        liftIO
+                          ( returnValue
+                              mem
+                              ret
+                              (modCtx ^. funcTypes . funcSymbol funcSym)
+                          )
+              }
   where
     name = declName decl
     symbolName = L.decName decl

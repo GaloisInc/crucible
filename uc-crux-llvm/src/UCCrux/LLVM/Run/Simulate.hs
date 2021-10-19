@@ -83,6 +83,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
+import           UCCrux.LLVM.Overrides.Polymorphic (getPolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
@@ -163,7 +164,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   register_llvm_overrides
                     (modCtx ^. llvmModule . to getModule)
                     []
-                    (uOverrides ++ sOverrides)
+                    (map getPolymorphicLLVMOverride (uOverrides ++ sOverrides))
                     llvmCtxt
                   liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                   printed <- ppRegMap modCtx funCtx sym mem args
