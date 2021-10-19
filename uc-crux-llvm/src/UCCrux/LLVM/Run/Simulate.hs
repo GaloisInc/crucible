@@ -19,6 +19,8 @@ Stability    : provisional
 
 module UCCrux.LLVM.Run.Simulate
   ( UCCruxSimulationResult (..),
+    CreateOverrideFn(..),
+    createUnsoundOverrides,
     runSimulator,
   )
 where
@@ -58,6 +60,7 @@ import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.Intrinsics (register_llvm_overrides)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx)
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
 import           Lang.Crucible.LLVM.Extension (LLVM)
@@ -86,7 +89,7 @@ import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
-import           UCCrux.LLVM.Overrides.Unsound (unsoundOverrides)
+import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
@@ -248,6 +251,21 @@ data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimula
     explanations :: [Located (Explanation m arch argTypes)]
   }
 
+createUnsoundOverrides ::
+  (?lc :: TypeContext) =>
+  ArchOk arch =>
+  proxy arch ->
+  IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn arch])
+createUnsoundOverrides proxy =
+  do unsoundOverrideRef <- newIORef Set.empty
+     return
+       ( unsoundOverrideRef
+       , map (\ov ->
+                CreateOverrideFn
+                  (\_sym -> pure (getForAllSymArch ov proxy)))
+             (unsoundOverrides unsoundOverrideRef)
+       )
+
 runSimulator ::
   ( Crux.Logs msgs,
     Crux.SupportsCruxLogMessage msgs,
@@ -257,20 +275,19 @@ runSimulator ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
+  [CreateOverrideFn arch] ->
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
   LLVMOptions ->
   IO (UCCruxSimulationResult m arch argTypes)
-runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts =
+runSimulator appCtx modCtx funCtx halloc overrideFns preconditions cfg cruxOpts llvmOpts =
   do
     explRef <- newIORef []
     skipOverrideRef <- newIORef Set.empty
-    unsoundOverrideRef <- newIORef Set.empty
     let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
-    let createUnsoundOverrides =
-          map (\ov -> CreateOverrideFn (\_sym -> pure (getForAllSymArch ov modCtx)))
-              (unsoundOverrides unsoundOverrideRef)
+    (unsoundOverrideRef, mkUnsoundOverrides) <-
+      createUnsoundOverrides modCtx
     cruxResult <-
       Crux.runSimulator
         cruxOpts
@@ -281,7 +298,7 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts =
             halloc
             explRef
             skipOverrideRef
-            createUnsoundOverrides
+            (mkUnsoundOverrides ++ overrideFns)
             preconditions
             cfg
             llvmOpts

@@ -30,7 +30,7 @@ import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
 import           Crux.LLVM.Overrides (ArchOk)
 {- ORMOLU_ENABLE -}
 
--- | An override that is compatible with any suitable symbolic backend.
+-- | An LLVM override that can be registered in a Crucible override of any type.
 newtype PolymorphicLLVMOverride p sym arch =
   PolymorphicLLVMOverride
     { getPolymorphicLLVMOverride ::
