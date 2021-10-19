@@ -35,6 +35,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import           Data.Set (Set)
 import qualified Data.Text as Text
+import           Data.Traversable (for)
 
 import qualified Text.LLVM.AST as L
 
@@ -47,6 +48,7 @@ import qualified What4.ProgramLoc as What4
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
 import qualified Lang.Crucible.Backend as Crucible
+import           Lang.Crucible.Backend (IsSymInterface)
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
@@ -54,7 +56,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 import           Lang.Crucible.LLVM (llvmGlobalsToCtx)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.Intrinsics (register_llvm_overrides)
-import           Lang.Crucible.LLVM.MemModel (LLVMAnnMap)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
@@ -83,14 +85,24 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
-import           UCCrux.LLVM.Overrides.Polymorphic (getPolymorphicLLVMOverride)
-import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
+import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
+import           UCCrux.LLVM.Overrides.Unsound (unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult))
 import           UCCrux.LLVM.Setup.Assume (assume)
 {- ORMOLU_ENABLE -}
+
+newtype CreateOverrideFn arch =
+  CreateOverrideFn
+    { runCreateOverrideFn ::
+        forall sym.
+        IsSymInterface sym =>
+        HasLLVMAnn sym =>
+        sym ->
+        IO (PolymorphicLLVMOverride (Crux.Crux sym) sym arch)
+    }
 
 simulateLLVM ::
   ArchOk arch =>
@@ -100,12 +112,12 @@ simulateLLVM ::
   Crucible.HandleAllocator ->
   IORef [Located (Explanation m arch argTypes)] ->
   IORef (Set SkipOverrideName) ->
-  IORef (Set UnsoundOverrideName) ->
+  [CreateOverrideFn arch] ->
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   LLVMOptions ->
   Crux.SimulatorCallback msgs
-simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverrideRef constraints cfg llvmOpts =
+simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef overrideFns constraints cfg llvmOpts =
   Crux.SimulatorCallback $ \sym _maybeOnline ->
     do
       let trans = modCtx ^. moduleTranslation
@@ -151,7 +163,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   -- called from any particular function. Needs some
                   -- benchmarking.
                   registerFunctions llvmOpts (modCtx ^. llvmModule . to getModule) trans Nothing
-                  let uOverrides = unsoundOverrides trans unsoundOverrideRef
+                  overrides <- liftIO $ for overrideFns (($ sym) . runCreateOverrideFn)
                   sOverrides <-
                     unsoundSkipOverrides
                       modCtx
@@ -164,7 +176,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   register_llvm_overrides
                     (modCtx ^. llvmModule . to getModule)
                     []
-                    (map getPolymorphicLLVMOverride (uOverrides ++ sOverrides))
+                    (map getPolymorphicLLVMOverride (overrides ++ sOverrides))
                     llvmCtxt
                   liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                   printed <- ppRegMap modCtx funCtx sym mem args
@@ -255,6 +267,10 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts =
     explRef <- newIORef []
     skipOverrideRef <- newIORef Set.empty
     unsoundOverrideRef <- newIORef Set.empty
+    let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
+    let createUnsoundOverrides =
+          map (\ov -> CreateOverrideFn (\_sym -> pure (getForAllSymArch ov modCtx)))
+              (unsoundOverrides unsoundOverrideRef)
     cruxResult <-
       Crux.runSimulator
         cruxOpts
@@ -265,7 +281,7 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts =
             halloc
             explRef
             skipOverrideRef
-            unsoundOverrideRef
+            createUnsoundOverrides
             preconditions
             cfg
             llvmOpts
