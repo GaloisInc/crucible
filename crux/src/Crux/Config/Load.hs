@@ -35,10 +35,7 @@ data ColorOptions = ColorOptions
   deriving (Generic)
 
 defaultColorOptions :: ColorOptions
-defaultColorOptions = ColorOptions
-  { noColorsErr = False
-  , noColorsOut = False
-  }
+defaultColorOptions = allColors
 
 allColors :: ColorOptions
 allColors = ColorOptions

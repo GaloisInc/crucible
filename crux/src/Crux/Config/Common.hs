@@ -27,7 +27,7 @@ import GHC.Generics (Generic)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
-import Crux.Config.Load (ColorOptions, defaultColorOptions)
+import Crux.Config.Load (ColorOptions(..))
 import Crux.Log as Log
 import Config.Schema
 
