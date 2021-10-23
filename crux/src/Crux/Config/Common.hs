@@ -330,6 +330,18 @@ cruxOptions = Config
             section "skip-incomplete-reports" yesOrNoSpec False
             "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
 
+          noColors <-
+            section "no-colors" yesOrNoSpec False
+            "Suppress color codes in both the output and the errors"
+
+          noColorsErr <-
+            section "no-colors-err" yesOrNoSpec False
+            "Suppress color codes in the errors"
+
+          noColorsOut <-
+            section "no-colors-out" yesOrNoSpec False
+            "Suppress color codes in the output"
+
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
             "If true, produce minimal output"
@@ -341,11 +353,14 @@ cruxOptions = Config
           onlineProblemFeatures <- pure noFeatures
 
           pure CruxOptions
-            { outputOptions = OutputOptions {
-                colorOptions = defaultColorOptions
-              , ..
-              }
-            , ..
+            { outputOptions = OutputOptions
+              { colorOptions = ColorOptions
+                { noColorsErr = noColorsErr || noColors
+                , noColorsOut = noColorsOut || noColors
+                },
+                ..
+              },
+              ..
             }
 
 
