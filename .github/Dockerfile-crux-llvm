@@ -47,6 +47,12 @@ ADD crux-llvm/c-src c-src
 # Use LLVM 7 bitcode file for libcxx until LLVM version is available
 RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-11.0.1.bc
 
+# (Temporary) fix for
+# https://github.com/galoisinc/crucible/issues/887: the libDir default
+# is relative to the executable or failing that, the data dir as
+# reported by the build process, but neither matches WORKDIR/c-src.
+RUN cp -r c-src /usr/local/
+
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen
 ENV LD_LIBRARY_PATH=/usr/local/lib
