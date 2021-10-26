@@ -3,6 +3,9 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- TODO: Delete
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Lang.Crucible.Syntax.Prog where
 
 import Control.Lens (view)
@@ -99,7 +102,7 @@ simulateProgram fn theInput outh profh opts setup =
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
-              Right cs ->
+              Right (cs :: _) ->
                 case find isMain cs of
                   Just (ACFG Ctx.Empty retType mn) ->
                     do let mainHdl = cfgHandle mn
