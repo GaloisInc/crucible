@@ -15,6 +15,7 @@ import Lang.Crucible.Simulator
 
 -- crux
 import qualified Crux
+import qualified Crux.Config.Common as Crux
 
 -- Go
 import Language.Go.Parser
@@ -40,7 +41,7 @@ cruxGoConfig = Crux.Config
 simulateGo :: Crux.CruxOptions -> GoOptions -> Crux.SimulatorCallback msgs
 simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let files = Crux.inputFiles copts
-   let verbosity = Crux.simVerbose copts
+   let verbosity = Crux.simVerbose (Crux.outputOptions copts)
    file <- case files of
              [f] -> return f
              _ -> fail "crux-go requires a single file name as an argument"

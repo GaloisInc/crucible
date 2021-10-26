@@ -34,6 +34,7 @@ library
     crucible,
     directory,
     filepath,
+    generic-lens,
     haskeline >= 0.7,
     lens,
     libBF >= 0.6 && < 0.7,

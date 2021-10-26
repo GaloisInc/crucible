@@ -78,12 +78,15 @@ runCrux rustFile outHandle mode =
     -- regression (#627).  This keeps CI from breaking while we investigate.
     -- TODO: revert the timeout to 180 once performance is fixed
     let quiet = True
-    let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
-                                        Crux.simVerbose = 0,
+    let outOpts = (Crux.outputOptions defaultCruxOptions)
+                    { Crux.simVerbose = 0
+                    , Crux.quietMode = quiet
+                    }
+    let options = (defaultCruxOptions { Crux.outputOptions = outOpts,
+                                        Crux.inputFiles = [rustFile],
                                         Crux.globalTimeout = Just 600,
                                         Crux.goalTimeout = Just 600,
                                         Crux.solver = "z3",
-                                        Crux.quietMode = quiet,
                                         Crux.checkPathSat = (mode == RcmCoverage),
                                         Crux.outDir = case mode of
                                             RcmCoverage -> getOutputDir rustFile
@@ -91,7 +94,7 @@ runCrux rustFile outHandle mode =
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
     let ?outputConfig = Crux.mkOutputConfig (outHandle, False) (outHandle, False) Mir.mirLoggingToSayWhat $
-                        Just (fst options)
+                        Just (Crux.outputOptions (fst options))
     _exitCode <- Mir.runTests options
     return ()
 

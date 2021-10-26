@@ -35,6 +35,7 @@ library
                      , crucible
                      , crucible-syntax
                      , crux
+                     , generic-lens
                      , lens
                      , megaparsec
                      , mtl

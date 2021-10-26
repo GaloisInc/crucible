@@ -2,7 +2,7 @@ module RealMain (makeMain) where
 
 import Control.Monad (void)
 import Crux.Log ( OutputConfig )
-import Crux.Config.Common (CruxOptions)
+import Crux.Config.Common (OutputOptions)
 import CruxLLVMMain ( CruxLLVMLogging, defaultOutputConfig )
 import System.Exit (ExitCode, exitWith)
 import System.Posix.Process (getProcessGroupID)
@@ -25,7 +25,7 @@ installSIGTERMHandler =
     handler gid = signalProcessGroup sigTERM gid
 
 makeMain ::
-  ((Maybe CruxOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode) ->
+  ((Maybe OutputOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode) ->
   IO ()
 makeMain mainWithOutputConfig =
   do

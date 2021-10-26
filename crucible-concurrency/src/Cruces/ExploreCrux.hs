@@ -4,15 +4,19 @@ Description      : Wrappers for driving Crucibles with Crux
 Copyright        : (c) Galois, Inc 2021
 Maintainer       : Alexander Bakst <abakst@galois.com>
 -}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
+
 module Cruces.ExploreCrux where
 
 import           Control.Monad.IO.Class
 import           Control.Monad (when)
 import           Control.Lens
+import           Data.Generics.Product.Fields (field, setField)
 import qualified Data.Vector as V
 import qualified Data.Map.Strict as Map
 import           System.IO (Handle)
@@ -29,6 +33,7 @@ import           Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import           Lang.Crucible.Backend
 
 import qualified Crux
+import qualified Crux.Config.Common as Crux
 
 import           Crucibles.SchedulingAlgorithm hiding (_exec, exec)
 import           Crucibles.Execution
@@ -120,9 +125,9 @@ exploreOvr symOnline cruxOpts mainAct =
         do sym <- getSymInterface
            ctx <- use stateContext
            todo <- liftIO $ getProofObligations sym
-           let cruxOpts' = cruxOpts { Crux.quietMode = True, Crux.simVerbose = 0 }
+           let cruxOpts' = over (field @"outputOptions") (setField @"quietMode" True . setField @"simVerbose" 0) cruxOpts
            mkOutCfg <- liftIO $ Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
-           let ?outputConfig = mkOutCfg (Just cruxOpts')
+           let ?outputConfig = mkOutCfg (Just (Crux.outputOptions cruxOpts'))
            (processed, _) <- liftIO $ proveGoalsOnline sym cruxOpts' ctx (\_ _ -> return mempty) todo
            let provedAll = totalProcessedGoals processed == provedGoals processed
            when provedAll $ liftIO $ clearProofObligations sym

@@ -51,7 +51,7 @@ import Lang.Crucible.Backend ( CrucibleEvent(..) )
 
 -- crux
 import qualified Crux
-import Crux.Config.Common ( CruxOptions(..) )
+import Crux.Config.Common ( CruxOptions(..), outputOptions )
 import qualified Crux.Log as Log
 import Crux.Report
 import Crux.SVCOMP hiding (SVCompLanguage(..))
@@ -134,7 +134,7 @@ processInputFiles cruxOpts llvmOpts svOpts =
     evaluateBitCode :: FilePath -> FilePath -> IO ()
     evaluateBitCode inputFile bcFile = withSVCompLogging $ do
       mkOutCfg <- Crux.defaultOutputConfig svCompLoggingToSayWhat
-      let ?outputConfig = mkOutCfg (Just cruxOpts)
+      let ?outputConfig = mkOutCfg (Just (outputOptions cruxOpts))
       mres <- try $
                do res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
                   generateReport cruxOpts res
