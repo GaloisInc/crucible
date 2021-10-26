@@ -39,7 +39,7 @@ RUN echo "deb http://deb.debian.org/debian buster-backports main" >> /etc/apt/so
 RUN apt-get update
 RUN apt-get install -y libgmp10 zlibc zlib1g clang-11 llvm-11-tools unzip locales
 
-COPY --from=build /usr/local/bin/* /usr/local/bin
+COPY --from=build /usr/local/bin/* /usr/local/bin/
 
 ARG DIR=/crux-llvm
 WORKDIR ${DIR}
