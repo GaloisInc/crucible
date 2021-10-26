@@ -29,6 +29,7 @@ module Lang.Crucible.Syntax.Concrete
     ExprErr(..)
   -- * Parsing and Results
   , ACFG(..)
+  , ParserHooks(..)
   , top
   , cfgs
   , prog
@@ -1427,18 +1428,26 @@ reading m = get >>= runReaderT m
 
 --------------------------------------------------------------------------
 
-atomSetter :: ( MonadSyntax Atomic m
+atomSetter :: forall m ext s
+            . ( MonadSyntax Atomic m
               , MonadWriter [Posd (Stmt ext s)] m
               , MonadState (SyntaxState s) m
               , MonadIO m
               , IsSyntaxExtension ext )
            => AtomName -- ^ The name of the atom being set, used for fresh name internals
+           -> ParserHooks ext
            -> m (Pair TypeRepr (Atom s))
-atomSetter (AtomName anText) =
+atomSetter (AtomName anText) hooks =
   -- TODO: I think the record needs to contain one of these bad boys
-  call (newref <|> emptyref <|> fresh <|> funcall <|> evaluated)
+  call ( newref
+     <|> emptyref
+     <|> fresh
+     <|> funcall
+     <|> evaluated
+     <|> stmtExtension
+     <|> exprExtension )
   where
-    fresh, emptyref, newref
+    fresh, emptyref, newref, stmtExtension, exprExtension
       :: ( MonadSyntax Atomic m
          , MonadWriter [Posd (Stmt ext s)] m
          , MonadState (SyntaxState s) m
@@ -1459,6 +1468,20 @@ atomSetter (AtomName anText) =
          loc <- position
          anAtom <- freshAtom loc (NewEmptyRef t')
          return $ Pair (ReferenceRepr t') anAtom
+
+    stmtExtension =
+      do stmtExt <- reading (stmtExtensionReader hooks)
+         loc <- position
+         anAtom <- freshAtom loc (EvalExt stmtExt)
+         return $ Pair (appType stmtExt) anAtom
+
+    -- TODO: Maybe this should be renamed because it technically takes an App,
+    -- which may itself be (but doesn't have to be) an ExprExtension
+    exprExtension =
+      do exprExt <- reading (exprExtensionReader hooks)
+         loc <- position
+         anAtom <- freshAtom loc (EvalApp exprExt)
+         return $ Pair (appType exprExt) anAtom
 
     fresh =
       do t <- reading (unary Fresh isType)
@@ -1523,8 +1546,9 @@ located p = Posd <$> position <*> p
 
 normStmt' :: forall s m ext
            . (MonadWriter [Posd (Stmt ext s)] m, MonadSyntax Atomic m, MonadState (SyntaxState s) m, MonadIO m, IsSyntaxExtension ext) =>
+             ParserHooks ext ->
              m ()
-normStmt' =
+normStmt' hooks =
   call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
         assertion <|> assumption <|> breakpoint)
@@ -1545,7 +1569,7 @@ normStmt' =
       followedBy (kw Let) $
       depCons uniqueAtom $
         \x ->
-          do setter <- fst <$> cons (atomSetter x) emptyList
+          do setter <- fst <$> cons (atomSetter x hooks) emptyList
              stxAtoms %= Map.insert x setter
 
     setGlobal =
@@ -1641,12 +1665,13 @@ blockBody' :: forall s ret m ext
               , MonadIO m
               , IsSyntaxExtension ext )
            => TypeRepr ret
+           -> ParserHooks ext
            -> m (Posd (TermStmt s ret), [Posd (Stmt ext s)])
-blockBody' ret = runWriterT go
+blockBody' ret hooks = runWriterT go
  where
  go :: WriterT [Posd (Stmt ext s)] m (Posd (TermStmt s ret))
  go = (fst <$> (cons (later (termStmt' ret)) emptyList)) <|>
-      (snd <$> (cons (later normStmt') go))
+      (snd <$> (cons (later (normStmt' hooks)) go))
 
 termStmt' :: forall m s ret ext.
    ( MonadWriter [Posd (Stmt ext s)] m
@@ -1913,11 +1938,15 @@ type BlockTodo s ret =
   (LabelName, BlockID s, Progress, AST s)
 
 -- TODO: Move this elsewhere
-{-
 data ParserHooks ext = ParserHooks {
+    stmtExtensionReader
+      :: forall s m tp
+       . ReaderT (SyntaxState s) m (StmtExtension ext (Atom s) tp)
 
+  , exprExtensionReader
+      :: forall s m tp
+       . ReaderT (SyntaxState s) m (App ext (Atom s) tp)
 }
--}
 
 blocks :: forall s ret m ext
         . ( MonadState (SyntaxState s) m
@@ -1926,13 +1955,14 @@ blocks :: forall s ret m ext
           , TraverseExt ext
           , IsSyntaxExtension ext )
         => TypeRepr ret
+        -> ParserHooks ext
         -> m [Block ext s ret]
-blocks ret =
+blocks ret hooks =
       depCons startBlock' $
       \ startContents ->
         do todo <- rep blockLabel'
-           forM (startContents : todo) $ \(_, bid, pr, (stmts :: _)) ->
-             do (term, stmts') <- withProgress (const pr) $ parse stmts (call (blockBody' ret))
+           forM (startContents : todo) $ \(_, bid, pr, stmts) ->
+             do (term, stmts') <- withProgress (const pr) $ parse stmts (call (blockBody' ret hooks))
                 pure $ mkBlock bid mempty (Seq.fromList stmts') term
 
 
@@ -2057,15 +2087,17 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
 
 cfgs :: ( IsSyntaxExtension ext )
-     => [AST s]
+     => ParserHooks ext
+     -> [AST s]
      -> TopParser s [ACFG ext]
-cfgs = fmap snd <$> prog
+cfgs hooks = fmap snd <$> (prog hooks)
 
 prog :: ( TraverseExt ext
         , IsSyntaxExtension ext )
-     => [AST s]
+     => ParserHooks ext
+     -> [AST s]
      -> TopParser s (Map GlobalName (Pair TypeRepr GlobalVar), [ACFG ext])
-prog defuns =
+prog hooks defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
        \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
@@ -2074,7 +2106,7 @@ prog defuns =
             args <- toList <$> use stxAtoms
             let ?returnType = ret
             st <- get
-            (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
+            (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret hooks) st) body
             put st'
             let vs = Set.fromList [ Some (AtomValue a) | Pair _ a <- args ]
             case theBlocks of
