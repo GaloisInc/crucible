@@ -7,6 +7,7 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -22,6 +23,8 @@ module UCCrux.LLVM.Run.Simulate
     CreateOverrideFn(..),
     SimulatorHooks(..),
     SimulatorCallbacks(..),
+    defaultCallbacks,
+    addOverrides,
     createUnsoundOverrides,
     runSimulatorWithCallbacks,
     runSimulator,
@@ -151,6 +154,7 @@ data SimulatorHooks sym m arch argTypes r =
         UCCruxSimulationResult m arch argTypes ->
         IO r
     }
+  deriving Functor
 
 -- | Based on 'Crux.SimulatorCallbacks'
 newtype SimulatorCallbacks m arch argTypes r =
@@ -162,6 +166,35 @@ newtype SimulatorCallbacks m arch argTypes r =
           HasLLVMAnn sym =>
           IO (SimulatorHooks sym m arch argTypes r)
     }
+  deriving Functor
+
+defaultCallbacks ::
+  SimulatorCallbacks m arch argTypes ( Crux.CruxSimulationResult
+                                     , UCCruxSimulationResult m arch argTypes
+                                     )
+defaultCallbacks =
+  SimulatorCallbacks $
+   return $
+     SimulatorHooks
+       { createOverrideHooks = []
+       , resultHook =
+           \_sym cruxResult ucCruxResult ->
+             return (cruxResult, ucCruxResult)
+       }
+
+addOverrides ::
+  [CreateOverrideFn arch] ->
+  SimulatorCallbacks m arch argTypes r ->
+  SimulatorCallbacks m arch argTypes r
+addOverrides newOverrides cbs =
+  SimulatorCallbacks $
+    do SimulatorHooks oldOverrides resHook <- getSimulatorCallbacks cbs
+       return $
+         SimulatorHooks
+           { createOverrideHooks =
+               oldOverrides ++ map symCreateOverrideFn newOverrides
+           , resultHook = resHook
+           }
 
 createUnsoundOverrides ::
   (?lc :: TypeContext) =>
