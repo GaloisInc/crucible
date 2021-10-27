@@ -115,7 +115,38 @@ newtype CreateOverrideFn arch =
         IsSymInterface sym =>
         HasLLVMAnn sym =>
         sym ->
-        IO (PolymorphicLLVMOverride (Crux.Crux sym) sym arch)
+        IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
+    }
+
+newtype SymCreateOverrideFn sym arch =
+  SymCreateOverrideFn
+    { runSymCreateOverrideFn ::
+        sym -> IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
+    }
+
+symCreateOverrideFn ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  CreateOverrideFn arch ->
+  SymCreateOverrideFn sym arch
+symCreateOverrideFn = SymCreateOverrideFn . runCreateOverrideFn
+
+-- | Based on 'Crux.SimulatorHooks'
+data SimulatorHooks sym arch r =
+  SimulatorHooks
+    { createOverrideHooks :: [SymCreateOverrideFn sym arch]
+    , resultHook :: sym -> Crux.CruxSimulationResult -> IO r
+    }
+
+-- | Based on 'Crux.SimulatorCallbacks'
+newtype SimulatorCallbacks arch r =
+  SimulatorCallbacks
+    { getSimulatorCallbacks ::
+        forall sym t st fs.
+          IsSymInterface sym =>
+          (sym ~ What4.ExprBuilder t st fs) =>
+          HasLLVMAnn sym =>
+          IO (SimulatorHooks sym arch r)
     }
 
 registerOverrides ::
@@ -154,7 +185,7 @@ registerOverrides appCtx modCtx overrides =
           "functions with names containing " <> Text.pack (show nms)
 
 simulateLLVM ::
-  forall m arch argTypes blocks ret msgs.
+  forall r m arch argTypes blocks ret msgs.
   ArchOk arch =>
   AppContext ->
   ModuleContext m arch ->
@@ -162,49 +193,57 @@ simulateLLVM ::
   Crucible.HandleAllocator ->
   IORef [Located (Explanation m arch argTypes)] ->
   IORef (Set SkipOverrideName) ->
-  [CreateOverrideFn arch] ->
+  SimulatorCallbacks arch r ->
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   LLVMOptions ->
-  Crux.SimulatorCallbacks msgs Crux.CruxSimulationResult
-simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef overrideFns constraints cfg llvmOpts =
+  Crux.SimulatorCallbacks msgs r
+simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef callbacks constraints cfg llvmOpts =
   Crux.SimulatorCallbacks $
     do -- References written to during setup
        memRef <- IORef.newIORef Nothing
        argRef <- IORef.newIORef Nothing
        argAnnRef <- IORef.newIORef Nothing
        argShapeRef <- IORef.newIORef Nothing
+
        -- References written to during simulation
        bbMapRef <- IORef.newIORef (Map.empty :: LLVMAnnMap sym)
        skipReturnValueAnns <- IORef.newIORef Map.empty
+
+       -- Hooks
+       let ?recordLLVMAnnotation =
+             \an bb -> IORef.modifyIORef bbMapRef (Map.insert an bb)
+       SimulatorHooks overrides resHook <-
+         getSimulatorCallbacks callbacks
+
        return $
          Crux.SimulatorHooks
            { Crux.setupHook =
              \sym _symOnline ->
-               setupHook sym memRef argRef argAnnRef argShapeRef bbMapRef skipReturnValueAnns
+               setupHook sym overrides memRef argRef argAnnRef argShapeRef skipReturnValueAnns
            , Crux.onErrorHook =
              \sym -> return (onErrorHook sym memRef argRef argAnnRef argShapeRef bbMapRef skipReturnValueAnns)
-           , Crux.resultHook = \_sym result -> return result
+           , Crux.resultHook = resHook
            }
   where
     setupHook ::
       Crux.Logs msgs =>
       IsSymInterface sym =>
+      HasLLVMAnn sym =>
       sym ->
+      [SymCreateOverrideFn sym arch] ->
       IORef (Maybe (MemImpl sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
       IORef (Maybe (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)))) ->
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
-      IORef (LLVMAnnMap sym) ->
       IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
       IO (Crux.RunnableState sym)
-    setupHook sym memRef argRef argAnnRef argShapeRef bbMapRef skipReturnValueAnnotations =
+    setupHook sym overrideFns memRef argRef argAnnRef argShapeRef skipReturnValueAnnotations =
       do
         let trans = modCtx ^. moduleTranslation
         let llvmCtxt = trans ^. transContext
         let memOptions = memOpts llvmOpts
         let ?lc = llvmCtxt ^. llvmTypeCtx
-        let ?recordLLVMAnnotation = \an bb -> IORef.modifyIORef bbMapRef (Map.insert an bb)
         let ?intrinsicsOpts = intrinsicsOpts llvmOpts
         let ?memOpts = memOptions
         let simctx =
@@ -246,7 +285,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef overrideFns con
                     -- called from any particular function. Needs some
                     -- benchmarking.
                     registerFunctions llvmOpts (modCtx ^. llvmModule . to getModule) trans Nothing
-                    overrides <- liftIO $ for overrideFns (($ sym) . runCreateOverrideFn)
+                    overrides <- liftIO $ for overrideFns (($ sym) . runSymCreateOverrideFn)
                     sOverrides <-
                       unsoundSkipOverrides
                         modCtx
@@ -383,31 +422,39 @@ runSimulator appCtx modCtx funCtx halloc overrideFns preconditions cfg cruxOpts 
     let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
     (unsoundOverrideRef, mkUnsoundOverrides) <-
       createUnsoundOverrides modCtx
-    cruxResult <-
-      Crux.runSimulator
-        cruxOpts
-        ( simulateLLVM
-            appCtx
-            modCtx
-            funCtx
-            halloc
-            explRef
-            skipOverrideRef
-            (mkUnsoundOverrides ++ overrideFns)
-            preconditions
-            cfg
-            llvmOpts
-        )
-    unsoundness' <-
-      Unsoundness
-        <$> IORef.readIORef unsoundOverrideRef
-          <*> IORef.readIORef skipOverrideRef
-    UCCruxSimulationResult unsoundness'
-      <$> case cruxResult of
-        Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->
-          pure
-            [ Located
-                What4.initializationLoc
-                (ExUncertain (UTimeout (funCtx ^. functionName)))
-            ]
-        _ -> IORef.readIORef explRef
+    let callbacks =
+          SimulatorCallbacks $
+           return $
+             SimulatorHooks
+               { createOverrideHooks =
+                   (map symCreateOverrideFn (mkUnsoundOverrides ++ overrideFns))
+               , resultHook =
+                   \_sym cruxResult ->
+                     do unsoundness' <-
+                          Unsoundness
+                            <$> IORef.readIORef unsoundOverrideRef
+                              <*> IORef.readIORef skipOverrideRef
+                        UCCruxSimulationResult unsoundness'
+                          <$> case cruxResult of
+                            Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->
+                              pure
+                                [ Located
+                                    What4.initializationLoc
+                                    (ExUncertain (UTimeout (funCtx ^. functionName)))
+                                ]
+                            _ -> IORef.readIORef explRef
+               }
+    Crux.runSimulator
+      cruxOpts
+      ( simulateLLVM
+          appCtx
+          modCtx
+          funCtx
+          halloc
+          explRef
+          skipOverrideRef
+          callbacks
+          preconditions
+          cfg
+          llvmOpts
+      )
