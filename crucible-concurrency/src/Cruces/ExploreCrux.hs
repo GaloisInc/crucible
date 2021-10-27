@@ -34,6 +34,7 @@ import           Lang.Crucible.Backend
 
 import qualified Crux
 import qualified Crux.Config.Common as Crux
+import qualified Crux.Types
 
 import           Crucibles.SchedulingAlgorithm hiding (_exec, exec)
 import           Crucibles.Execution
@@ -60,19 +61,32 @@ exploreCallback :: forall alg.
            , [Pair C.TypeRepr C.GlobalVar]
            , FunctionBindings (ThreadExec alg s () C.UnitType) s ())
            ) ->
-  Crux.SimulatorCallback Crux.CruxLogMessage
+  Crux.SimulatorCallbacks Crux.CruxLogMessage Crux.Types.CruxSimulationResult
 exploreCallback cruxOpts ha outh mkSym =
   Crux.withCruxLogMessage $
-  Crux.SimulatorCallback $ \sym symOnline -> do
-    (mainHdl, prims, globs, fns) <- mkSym sym
-    let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
+  Crux.SimulatorCallbacks $
+    return $
+      Crux.SimulatorHooks
+        { Crux.setupHook =
+            \sym symOnline ->
+              do (mainHdl, prims, globs, fns) <- mkSym sym
+                 let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
 
-        st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
-                   runOverrideSim C.UnitRepr (exploreOvr symOnline cruxOpts (regValue <$> callFnVal mainHdl emptyRegMap))
+                     st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
+                                runOverrideSim
+                                  C.UnitRepr
+                                  (exploreOvr
+                                     symOnline
+                                     cruxOpts
+                                     (regValue <$> callFnVal mainHdl emptyRegMap))
 
-        feats = [scheduleFeature prims globs]
+                     feats = [scheduleFeature prims globs]
 
-    return (Crux.RunnableStateWithExtensions st0 feats, \_ _ -> return mempty)
+                 return $ Crux.RunnableStateWithExtensions st0 feats
+        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_sym result -> return result
+        }
+
 
 -- | Empty exploration state
 emptyExploration :: SchedulingAlgorithm alg => Exploration alg ext C.UnitType sym

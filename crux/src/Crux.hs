@@ -16,7 +16,8 @@ module Crux
   , loadOptions
   , mkOutputConfig
   , defaultOutputConfig
-  , SimulatorCallback(..)
+  , SimulatorCallbacks(..)
+  , SimulatorHooks(..)
   , RunnableState(..)
   , pattern RunnableState
   , Explainer
@@ -104,24 +105,35 @@ data RunnableState sym where
                               -> [ExecutionFeature (personality sym) sym ext (RegEntry sym UnitType)]
                               -> RunnableState sym
 
--- | Individual crux tools will generally call the @runSimulator@ combinator
---   to handle the nitty-gritty of setting up and running the simulator.
---   During that process, crux needs to know how to setup the initial state
---   for the simulator.  To do that, crux tools will provide a @SimulatorCallback@,
---   which is provided a symbolic interface object and is responsible for setting up
---   global variables, registering override functions, constructing the initial
---   program entry point, and generally doing any necessary language-specific setup.
-newtype SimulatorCallback msgs
-  = SimulatorCallback
-    { initSimulatorState ::
+-- | Individual crux tools will generally call the @runSimulator@ combinator to
+--   handle the nitty-gritty of setting up and running the simulator. Tools
+--   provide @SimulatorCallbacks@ to hook into the simulation process at three
+--   points:
+--
+--   * Before simulation begins, to set up global variables, register override
+--     functions, construct the initial program entry point, and generally do
+--     any necessary language-specific setup (i.e., to produce a 'RunnableState')
+--   * When simulation ends with an assertion failure ('Explainer')
+--   * When simulation ends, regardless of the outcome, to interpret the results.
+--
+--   All of these callbacks have access to the symbolic backend.
+newtype SimulatorCallbacks msgs r
+  = SimulatorCallbacks
+    { getSimulatorCallbacks ::
         forall sym t st fs.
           ( IsSymInterface sym
           , Logs msgs
           , sym ~ WEB.ExprBuilder t st fs
           ) =>
-          sym ->
-          Maybe (SomeOnlineSolver sym) ->
-          IO (RunnableState sym, Explainer sym t Void)
+          IO (SimulatorHooks sym t r)
+    }
+
+-- | See 'SimulatorCallbacks'
+data SimulatorHooks sym t r =
+  SimulatorHooks
+    { setupHook :: sym -> Maybe (SomeOnlineSolver sym) -> IO (RunnableState sym)
+    , onErrorHook :: sym -> IO (Explainer sym t Void)
+    , resultHook :: sym -> CruxSimulationResult -> IO r
     }
 
 -- | Given the result of a simulation and proof run, report the overall
@@ -544,8 +556,8 @@ runSimulator ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallback msgs ->
-  IO CruxSimulationResult
+  SimulatorCallbacks msgs r ->
+  IO r
 runSimulator cruxOpts simCallback = do
   sayCrux (Log.Checking (inputFiles cruxOpts))
   createDirectoryIfMissing True (outDir cruxOpts)
@@ -614,7 +626,7 @@ doSimWithResults ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallback msgs ->
+  SimulatorCallbacks msgs r ->
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
@@ -622,15 +634,19 @@ doSimWithResults ::
   ProverCallback sym
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
-  IO CruxSimulationResult
+  IO r
 doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProver = do
   compRef <- newIORef ProgramComplete
   glsRef <- newIORef Seq.empty
 
   frm <- pushAssumptionFrame sym
+
+  SimulatorHooks setup onError interpretResult <-
+    getSimulatorCallbacks simCallback
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
-    (RunnableStateWithExtensions initSt exts, explainFailure) <- initSimulatorState simCallback sym monline
+    RunnableStateWithExtensions initSt exts <- setup sym monline
+    explainFailure <- onError sym
 
     -- execute the simulator
     case pathStrategy cruxOpts of
@@ -648,7 +664,8 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
 
   sayCrux Log.SimulationComplete
   when (isProfiling cruxOpts) $ writeProf profInfo
-  CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
+  result <- CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
+  interpretResult sym result
 
  where
  failfast = proofGoalsFailFast cruxOpts

@@ -17,6 +17,7 @@ import Lang.Crucible.FunctionHandle
 import Lang.Crucible.LLVM.MemModel
 
 import qualified Crux
+import qualified Crux.Types
 
 import qualified Language.Wasm as Wasm
 
@@ -49,23 +50,34 @@ setupWasmState sym memOptions s =
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))
 
-simulateWasm :: Crux.CruxOptions -> WasmOptions -> Crux.SimulatorCallback msgs
-simulateWasm cruxOpts _wasmOpts = Crux.SimulatorCallback $ \sym _mOnline ->
-   do let files = Crux.inputFiles cruxOpts
+simulateWasm ::
+  Crux.CruxOptions ->
+  WasmOptions ->
+  Crux.SimulatorCallbacks msgs Crux.Types.CruxSimulationResult
+simulateWasm cruxOpts _wasmOpts =
+  Crux.SimulatorCallbacks $
+    return $
+      Crux.SimulatorHooks
+        { Crux.setupHook =
+            \sym _mOnline ->
+              do let files = Crux.inputFiles cruxOpts
 
-      fl <- case files of
-              [fl] -> return fl
-              _ -> fail "crux-wasm requires one script file"
+                 fl <- case files of
+                         [fl] -> return fl
+                         _ -> fail "crux-wasm requires one script file"
 
-      script <-
-        do escript <- Wasm.parseScript <$> LBS.readFile fl
-           case escript of
-             Left msg -> fail msg
-             Right s -> return s
+                 script <-
+                   do escript <- Wasm.parseScript <$> LBS.readFile fl
+                      case escript of
+                        Left msg -> fail msg
+                        Right s -> return s
 
-      initSt <- setupWasmState sym defaultMemOptions script
+                 initSt <- setupWasmState sym defaultMemOptions script
 
-      return (Crux.RunnableState initSt, \_ _ -> return mempty)
+                 return (Crux.RunnableState initSt)
+        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_sym result -> return result
+        }
 
 main :: IO ()
 main = do

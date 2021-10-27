@@ -151,14 +151,24 @@ registerFunctions llvmOpts llvm_module mtrans fs0 =
 simulateLLVMFile ::
   Crux.Logs msgs =>
   Log.SupportsCruxLLVMLogMessage msgs =>
-  FilePath -> LLVMOptions -> Crux.SimulatorCallback msgs
-simulateLLVMFile llvm_file llvmOpts = do
-  Crux.SimulatorCallback $ \sym maybeOnline -> do
-    halloc <- newHandleAllocator
-    bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
-    let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
-    runnableState <- setupFileSim halloc llvm_file llvmOpts sym maybeOnline
-    return (runnableState, explainFailure sym bbMapRef)
+  -- | Path to the LLVM module
+  FilePath ->
+  LLVMOptions ->
+  Crux.SimulatorCallbacks msgs Crux.Types.CruxSimulationResult
+simulateLLVMFile llvm_file llvmOpts =
+  Crux.SimulatorCallbacks $
+    do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+       let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
+       return $
+         Crux.SimulatorHooks
+           { Crux.setupHook =
+               \sym maybeOnline ->
+                 do halloc <- newHandleAllocator
+                    setupFileSim halloc llvm_file llvmOpts sym maybeOnline
+           , Crux.onErrorHook =
+               \sym -> return (explainFailure sym bbMapRef)
+           , Crux.resultHook = \_sym result -> return result
+           }
 
 setupFileSim :: Crux.Logs msgs
              => Log.SupportsCruxLLVMLogMessage msgs

@@ -353,18 +353,25 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             , testPersonality = Crux.CruxPersonality
             }
 
-    let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline ->
-          case simTest symOnline fnName of
-            SomeTestOvr testFn features personality -> do
-              let outH = view outputHandle ?outputConfig
-              setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
-              let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
-                      (C.FnBindings C.emptyHandleMap) mirExtImpl personality
-              return (Crux.RunnableStateWithExtensions
-                      (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-                       C.runOverrideSim C.UnitRepr $ testFn) features
-                     , \_ _ -> return mempty
-                     )
+    let simCallbacks fnName =
+          Crux.SimulatorCallbacks $
+            return $
+              Crux.SimulatorHooks
+                { Crux.setupHook =
+                    \sym symOnline ->
+                      case simTest symOnline fnName of
+                        SomeTestOvr testFn features personality -> do
+                          let outH = view outputHandle ?outputConfig
+                          setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
+                          let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
+                                  (C.FnBindings C.emptyHandleMap) mirExtImpl personality
+                          return (Crux.RunnableStateWithExtensions
+                                  (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
+                                   C.runOverrideSim C.UnitRepr $ testFn) features
+                                 )
+                , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
+                , Crux.resultHook = \_sym result -> return result
+                }
 
     let outputResult (CruxSimulationResult cmpl gls)
           | disproved > 0 = output "FAILED"
@@ -393,7 +400,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             -- same `outDir`.
             Aeson.encodeFile path (mir ^. rmTransInfo)
 
-        res <- Crux.runSimulator cruxOpts' $ simCallback fnName
+        res <- Crux.runSimulator cruxOpts' $ simCallbacks fnName
         when (not $ printResultOnly mirOpts) $ do
             clearFromCursorToLineEnd
             outputResult res
