@@ -14,6 +14,10 @@ module UCCrux.LLVM.Overrides.Polymorphic
   ( PolymorphicLLVMOverride,
     makePolymorphicLLVMOverride,
     getPolymorphicLLVMOverride,
+    ForAllSym,
+    makeForAllSym,
+    getForAllSym,
+    withForAllSym,
     ForAllSymArch,
     makeForAllSymArch,
     getForAllSymArch,
@@ -31,7 +35,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 {- ORMOLU_ENABLE -}
 
 -- | An LLVM override that can be registered in a Crucible override of any type.
-newtype PolymorphicLLVMOverride p sym arch =
+newtype PolymorphicLLVMOverride arch p sym =
   PolymorphicLLVMOverride
     { getPolymorphicLLVMOverride ::
         forall rtp l a.
@@ -40,8 +44,33 @@ newtype PolymorphicLLVMOverride p sym arch =
 
 makePolymorphicLLVMOverride ::
   (forall rtp l a. OverrideTemplate p sym arch rtp l a) ->
-  PolymorphicLLVMOverride p sym arch
+  PolymorphicLLVMOverride arch p sym
 makePolymorphicLLVMOverride = PolymorphicLLVMOverride
+
+newtype ForAllSym f =
+  ForAllSym
+    { getForAllSym ::
+        forall p sym.
+        IsSymInterface sym =>
+        HasLLVMAnn sym =>
+        f p sym
+    }
+
+makeForAllSym ::
+  (forall p sym.
+   IsSymInterface sym =>
+   HasLLVMAnn sym =>
+   f p sym) ->
+  ForAllSym f
+makeForAllSym = ForAllSym
+
+withForAllSym ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ForAllSym f ->
+  (f p sym -> r) ->
+  r
+withForAllSym (ForAllSym f) g = g f
 
 newtype ForAllSymArch f =
   ForAllSymArch
@@ -51,7 +80,7 @@ newtype ForAllSymArch f =
         HasLLVMAnn sym =>
         ArchOk arch =>
         proxy arch ->
-        f p sym arch
+        f arch p sym
     }
 
 makeForAllSymArch ::
@@ -60,7 +89,7 @@ makeForAllSymArch ::
    HasLLVMAnn sym =>
    ArchOk arch =>
    proxy arch ->
-   f p sym arch) ->
+   f arch p sym) ->
   ForAllSymArch f
 makeForAllSymArch = ForAllSymArch
 
@@ -70,6 +99,6 @@ withForAllSymArch ::
   ArchOk arch =>
   ForAllSymArch f ->
   proxy arch ->
-  (f p sym arch -> r) ->
+  (f arch p sym -> r) ->
   r
 withForAllSymArch (ForAllSymArch f) proxy g = g (f proxy)
