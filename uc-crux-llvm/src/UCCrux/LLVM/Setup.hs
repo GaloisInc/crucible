@@ -179,7 +179,8 @@ generate ::
   forall arch sym m atTy inTy argTypes.
   ( ArchOk arch,
     LLVMMem.HasLLVMAnn sym,
-    Crucible.IsSymInterface sym
+    Crucible.IsSymInterface sym,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   sym ->
   ModuleContext m arch ->
@@ -322,7 +323,8 @@ generateArgs ::
   forall m arch sym argTypes.
   ( Crucible.IsSymInterface sym,
     LLVMMem.HasLLVMAnn sym,
-    ArchOk arch
+    ArchOk arch,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   AppContext ->
   ModuleContext m arch ->
@@ -371,7 +373,8 @@ populateNonConstGlobals ::
   forall m arch sym argTypes.
   ( Crucible.IsSymInterface sym,
     LLVMMem.HasLLVMAnn sym,
-    ArchOk arch
+    ArchOk arch,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   ModuleContext m arch ->
   sym ->
@@ -436,7 +439,8 @@ setupExecution ::
   ( Crucible.IsSymInterface sym,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
-    MonadIO f
+    MonadIO f,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   AppContext ->
   ModuleContext m arch ->

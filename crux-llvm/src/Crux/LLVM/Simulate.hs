@@ -264,7 +264,9 @@ sayTranslationWarning = Log.sayCruxLLVM . f
 
 checkFun ::
   forall arch msgs personality sym.
-  (IsSymInterface sym, ArchOk arch) =>
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
   Crux.Logs msgs =>
   Log.SupportsCruxLLVMLogMessage msgs =>
   LLVMOptions ->
@@ -320,6 +322,7 @@ checkFun llvmOpts trans memVar =
       OverM personality sym LLVM ()
     checkMainWithArguments anyCfg = do
       ctx <- getContext
+      let ?memOpts  = memOpts llvmOpts
       let w         = knownNat @32
           sym       = ctx^.ctxSymInterface
           dl        = llvmDataLayout (trans^.transContext.llvmTypeCtx)

@@ -773,13 +773,16 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
       LLVMPtr sym w ->
       ReadMem sym (PartLLVMVal sym)
     fallback0 tp _l =
-      do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
-         -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
-         -- and we can be relatively sure the annotation will survive.
-         liftIO $ do
-           b <- freshConstant sym emptySymbol BaseBoolRepr
-           Partial.Err <$>
-             Partial.annotateME sym mop (NoSatisfyingWrite tp) b
+      liftIO $
+        if laxLoadsAndStores ?memOpts
+           && indeterminateLoadBehavior ?memOpts == UnstableSymbolic
+        then Partial.totalLLVMVal sym <$> freshLLVMVal sym tp
+        else do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
+                -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
+                -- and we can be relatively sure the annotation will survive.
+                b <- freshConstant sym emptySymbol BaseBoolRepr
+                Partial.Err <$>
+                  Partial.annotateME sym mop (NoSatisfyingWrite tp) b
 
     go :: (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
           LLVMPtr sym w ->

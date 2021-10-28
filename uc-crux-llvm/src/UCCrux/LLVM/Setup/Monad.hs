@@ -11,6 +11,7 @@ Stability    : provisional
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -287,7 +288,9 @@ mallocLocation = "uc-crux-llvm bugfinding auto-setup"
 malloc ::
   forall m sym arch argTypes inTy atTy.
   ( Crucible.IsSymInterface sym,
-    ArchOk arch
+    LLVMMem.HasLLVMAnn sym,
+    ArchOk arch,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   sym ->
   FullTypeRepr m ('FTPtr atTy) ->

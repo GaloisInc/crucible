@@ -53,7 +53,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
 import           Lang.Crucible.LLVM.Extension (LLVM)
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemImpl)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemImpl, MemOptions)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx, llvmDeclToFunHandleRepr')
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), basic_llvm_override)
@@ -98,7 +98,8 @@ unsoundSkipOverrides ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
-    ?lc :: TypeContext
+    ?lc :: TypeContext,
+    ?memOpts :: MemOptions
   ) =>
   ModuleContext m arch ->
   sym ->
@@ -153,7 +154,8 @@ createSkipOverride ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
-    ?lc :: TypeContext
+    ?lc :: TypeContext,
+    ?memOpts :: MemOptions
   ) =>
   ModuleContext m arch ->
   sym ->

@@ -12,6 +12,7 @@ Synopsis:      Support for translating and executing LLVM code in Crucible
 Description:
    Library providing LLVM-specific extensions to the crucible core library
    for Crucible-based simulation and verification of LLVM-compiled applications.
+extra-source-files: CHANGELOG.md, README.md
 
 common bldflags
   ghc-options: -Wall

@@ -171,7 +171,8 @@ llvmMemsetChkOverride =
 -- *** Allocation
 
 llvmCallocOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?lc :: TypeContext, ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> BVType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
@@ -182,7 +183,8 @@ llvmCallocOverride =
 
 
 llvmReallocOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?lc :: TypeContext, ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
@@ -192,7 +194,8 @@ llvmReallocOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callRealloc sym memOps alignment) args)
 
 llvmMallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?lc :: TypeContext, ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> BVType wptr)
          (LLVMPointerType wptr)
@@ -202,7 +205,8 @@ llvmMallocOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
 posixMemalignOverride ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
   LLVMOverride p sym
       (EmptyCtx ::> LLVMPointerType wptr
                 ::> BVType wptr
@@ -280,7 +284,8 @@ llvmStrlenOverride =
 -- *** Allocation
 
 callRealloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> Alignment
@@ -321,7 +326,8 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
 
 
 callPosixMemalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?lc :: TypeContext, ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -345,7 +351,8 @@ callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue ->
                 return (z, mem'')
 
 callMalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> Alignment
@@ -358,7 +365,8 @@ callMalloc sym mvar alignment (regValue -> sz) =
        doMalloc sym G.HeapAlloc G.Mutable displayString mem sz alignment
 
 callCalloc
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> Alignment

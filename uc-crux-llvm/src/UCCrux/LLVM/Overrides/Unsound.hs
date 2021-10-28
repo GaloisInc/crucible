@@ -74,7 +74,7 @@ newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Tex
 -- verification. They unsoundly under-approximate the environment. This helps
 -- symbolic execution reach more code.
 unsoundOverrides ::
-  (?lc :: TypeContext) =>
+  (?lc :: TypeContext, ?memOpts :: LLVMMem.MemOptions) =>
   IORef (Set UnsoundOverrideName) ->
   [ForAllSymArch PolymorphicLLVMOverride]
 unsoundOverrides usedRef =
@@ -165,7 +165,8 @@ callGetEnv ::
     HasLLVMAnn sym,
     wptr ~ ArchWidth arch,
     ArchOk arch,
-    ?lc :: TypeContext
+    ?lc :: TypeContext,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   proxy arch ->
   sym ->

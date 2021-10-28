@@ -149,7 +149,8 @@ testArrayStride = testCase "array stride" $ withMem LLVMD.BigEndian $ \sym mem0 
 
 
 allocFreshArray ::
-  (CB.IsSymInterface sym, LLVMMem.HasLLVMAnn sym, LLVMMem.HasPtrWidth wptr) =>
+  ( CB.IsSymInterface sym, LLVMMem.HasLLVMAnn sym, LLVMMem.HasPtrWidth wptr
+  , ?memOpts :: LLVMMem.MemOptions ) =>
   sym ->
   LLVMMem.MemImpl sym ->
   Integer ->
