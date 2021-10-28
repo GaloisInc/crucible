@@ -184,7 +184,23 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
   newuse = loop (block_body bi)
 
   loop [] = mempty
-  loop (L.Result nm i _md:ss) = Set.union (instrUse lab i bim) (Set.delete nm (loop ss))
+
+  loop (L.Result nm i _md:ss) =
+    -- NB, invoke is a special case when its return value is assigned to a register
+    case i of
+      L.Invoke _tp f args l_normal l_unwind ->
+            -- the use sets from the function value, arguments, and unwind label
+        let uss = [useVal f, useLabel lab l_unwind bim] ++ map useTypedVal args
+            -- the use set from the normal return label, note that nm is in scope here
+            u_normal = Set.delete nm (useLabel lab l_normal bim)
+            -- invoke is a block terminator, we can ignore the tail of the list
+         in Set.unions (u_normal : uss)
+
+      -- In other cases, combine the use set of the instruction with
+      -- the use set of following instructions, after deleting the register
+      -- defined here
+      _ -> Set.union (instrUse lab i bim) (Set.delete nm (loop ss))
+
   loop (L.Effect i _md:ss) = Set.union (instrUse lab i bim) (loop ss)
 
 instrUse :: L.BlockLabel -> L.Instr -> Map L.BlockLabel (LLVMBlockInfo s) -> Set L.Ident
@@ -214,6 +230,7 @@ instrUse from i bim = Set.unions $ case i of
   L.ShuffleVector x y z -> [useTypedVal x, useVal y, useTypedVal z]
   L.Jump l -> [useLabel from l bim]
   L.Br c l1 l2 -> [useTypedVal c, useLabel from l1 bim, useLabel from l2 bim]
+  -- NB, this is only correct for "invoke" instructions that don't assign the return value
   L.Invoke _tp f args l1 l2 -> [useVal f, useLabel from l1 bim, useLabel from l2 bim] ++ map useTypedVal args
   L.Comment{} -> []
   L.Unreachable -> []
