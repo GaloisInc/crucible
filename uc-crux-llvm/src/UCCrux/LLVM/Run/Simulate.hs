@@ -31,6 +31,7 @@ import           Prelude hiding (log)
 import           Control.Lens ((^.), view, to)
 import           Control.Monad (void, unless)
 import           Control.Monad.IO.Class (liftIO)
+import           Data.Foldable (for_)
 import qualified Data.IORef as IORef
 import           Data.IORef (IORef)
 import           Data.List (isInfixOf)
@@ -40,6 +41,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import           Data.Set (Set)
 import qualified Data.Text as Text
+import           Data.Text (Text)
 import           Data.Traversable (for)
 import           Data.Void (Void)
 
@@ -64,8 +66,8 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 -- crucible-llvm
 import           Lang.Crucible.LLVM (llvmGlobalsToCtx)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
-import           Lang.Crucible.LLVM.Intrinsics (register_llvm_overrides)
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemImpl)
+import qualified Lang.Crucible.LLVM.Intrinsics as LLVMIntrinsics
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemImpl, MemOptions)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
@@ -115,6 +117,41 @@ newtype CreateOverrideFn arch =
         sym ->
         IO (PolymorphicLLVMOverride (Crux.Crux sym) sym arch)
     }
+
+registerOverrides ::
+  (?intrinsicsOpts :: LLVMIntrinsics.IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
+  ArchOk arch =>
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  AppContext ->
+  ModuleContext m arch ->
+  [PolymorphicLLVMOverride p sym arch] ->
+  Crucible.OverrideSim p sym LLVM rtp l a ()
+registerOverrides appCtx modCtx overrides =
+  do for_ overrides $
+       \override ->
+         liftIO $
+           (appCtx ^. log) Hi $
+             Text.unwords
+               [ "Registering override for",
+                 describeOverride (getPolymorphicLLVMOverride override)
+               ]
+
+     LLVMIntrinsics.register_llvm_overrides
+       (modCtx ^. llvmModule . to getModule)
+       []
+       (map getPolymorphicLLVMOverride overrides)
+       (modCtx ^. moduleTranslation . transContext)
+  where
+    describeOverride :: LLVMIntrinsics.OverrideTemplate p sym arch rtp l a -> Text
+    describeOverride override =
+      case LLVMIntrinsics.overrideTemplateMatcher override of
+        LLVMIntrinsics.ExactMatch nm -> Text.pack nm
+        LLVMIntrinsics.PrefixMatch nm ->
+          "functions with prefix " <> Text.pack nm
+        LLVMIntrinsics.SubstringsMatch nms ->
+          "functions with names containing " <> Text.pack (show nms)
 
 simulateLLVM ::
   forall m arch argTypes blocks ret msgs.
@@ -219,11 +256,8 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef overrideFns con
                         skipReturnValueAnnotations
                         (constraints ^. returnConstraints)
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
-                    register_llvm_overrides
-                      (modCtx ^. llvmModule . to getModule)
-                      []
-                      (map getPolymorphicLLVMOverride (overrides ++ sOverrides))
-                      llvmCtxt
+                    registerOverrides appCtx modCtx (overrides ++ sOverrides)
+
                     liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                     printed <- ppRegMap modCtx funCtx sym mem args
                     mapM_ (liftIO . (appCtx ^. log) Hi . Text.pack . show) printed
