@@ -175,28 +175,37 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
-simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback msgs
-simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
-   let files = Crux.inputFiles copts
-   let verbosity = Crux.simVerbose (Crux.outputOptions copts)
-   file <- case files of
-             [file] -> return file
-             _ -> fail "crux-jvm requires a single file name as an argument"
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallbacks msgs Crux.CruxSimulationResult
+simulateJVM copts opts =
+  Crux.SimulatorCallbacks $
+    return $
+      Crux.SimulatorHooks
+        { Crux.setupHook =
+            \sym _maybeOnline -> do
+              let files = Crux.inputFiles copts
+              let verbosity = Crux.simVerbose (Crux.outputOptions copts)
+              file <- case files of
+                        [file] -> return file
+                        _ -> fail "crux-jvm requires a single file name as an argument"
 
-   cb <- JCB.loadCodebase (jarList opts) (classPath opts) (javaBinDirs opts)
+              cb <- JCB.loadCodebase (jarList opts) (classPath opts) (javaBinDirs opts)
 
-   let cname = takeBaseName file
-   let mname = mainMethod opts
+              let cname = takeBaseName file
+              let mname = mainMethod opts
 
-   -- create a null array of strings for `args`
-   -- TODO: figure out how to allocate an empty array
-   let nullstr = RegEntry refRepr W4.Unassigned
-   let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
+              -- create a null array of strings for `args`
+              -- TODO: figure out how to allocate an empty array
+              let nullstr = RegEntry refRepr W4.Unassigned
+              let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.CruxPersonality
-     cname mname regmap
+              Crux.RunnableState <$>
+                setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.CruxPersonality
+                  cname mname regmap
 
-   return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
+        -- TODO add failure explanations
+        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_sym result -> return result
+        }
 
 
 -- | Entry point, parse command line options
