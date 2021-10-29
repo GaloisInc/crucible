@@ -1017,7 +1017,27 @@ llvmAtan2fOverride =
   (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Arctan2) args)
 
 ------------------------------------------------------------------------
--- **** Natural exponential and logarithm
+-- **** Exponential and logarithm functions
+
+-- pow(f)
+
+llvmPowfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmPowfOverride =
+  [llvmOvr| float @powf( float, float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Pow) args)
+
+llvmPowOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmPowOverride =
+  [llvmOvr| double @pow( double, double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Pow) args)
 
 -- exp(f)
 

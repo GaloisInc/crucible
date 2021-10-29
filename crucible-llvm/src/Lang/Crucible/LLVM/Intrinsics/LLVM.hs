@@ -669,6 +669,24 @@ llvmCosOverride_F64 =
   [llvmOvr| double @llvm.cos.f64( double ) |]
   (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Cos) args)
 
+llvmPowOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmPowOverride_F32 =
+  [llvmOvr| float @llvm.pow.f32( float, float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction2 sym W4.Pow) args)
+
+llvmPowOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmPowOverride_F64 =
+  [llvmOvr| double @llvm.pow.f64( double, double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction2 sym W4.Pow) args)
+
 llvmExpOverride_F32 ::
   IsSymInterface sym =>
   LLVMOverride p sym
