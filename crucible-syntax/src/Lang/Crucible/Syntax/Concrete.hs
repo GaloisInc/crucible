@@ -1405,8 +1405,8 @@ newUnassignedReg t =
                    , typeOfReg = t
                    }
 
-regRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState s) m) => ParserHooks ext -> m (Pair TypeRepr (Reg (SomeExpr ext s)))
-regRef' hooks =
+regRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState s) m) => m (Pair TypeRepr (Reg s))
+regRef' =
   describe "known register name" $
   do rn <- regName
      perhapsReg <- view (stxRegisters . at rn)
