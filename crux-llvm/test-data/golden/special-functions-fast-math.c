@@ -7,6 +7,7 @@ int main() {
   // doubles //
   /////////////
   double dx = crucible_double("dx");
+  double dy = crucible_double("dy");
 
   double d01 = exp(dx);
   double d02 = exp2(dx);
@@ -15,6 +16,7 @@ int main() {
   double d05 = log10(dx);
   double d06 = sin(dx);
   double d07 = cos(dx);
+  double d08 = pow(dx, dy);
 
   // sqrt unit tests
   check(sqrt(+0) == +0);
@@ -26,7 +28,8 @@ int main() {
   ////////////
   // floats //
   ////////////
-  float fx = crucible_double("fx");
+  float fx = crucible_float("fx");
+  float fy = crucible_float("fy");
 
   float f01 = expf(fx);
   float f02 = exp2f(fx);
@@ -35,6 +38,7 @@ int main() {
   float f05 = log10f(fx);
   float f06 = sinf(fx);
   float f07 = cosf(fx);
+  float f08 = powf(dx, dy);
 
   // sqrt unit tests
   check(sqrtf(+0) == +0);

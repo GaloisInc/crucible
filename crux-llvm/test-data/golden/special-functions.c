@@ -47,6 +47,7 @@ int main() {
   double d20 = acosh(dx);
   double d21 = hypot(dx, dy);
   double d22 = atan2(dx, dy);
+  double d23 = pow(dx, dy);
 
   // sqrt unit tests
   check(sqrt(+0) == +0);
@@ -57,8 +58,8 @@ int main() {
   ////////////
   // floats //
   ////////////
-  float fx = crucible_double("fx");
-  float fy = crucible_double("fy");
+  float fx = crucible_float("fx");
+  float fy = crucible_float("fy");
 
   float f01 = expf(fx);
   float f02 = expm1f(fx);
@@ -82,6 +83,7 @@ int main() {
   float f20 = acoshf(fx);
   float f21 = hypotf(fx, fy);
   float f22 = atan2f(fx, fy);
+  float f23 = powf(dx, dy);
 
   // sqrt unit tests
   check(sqrtf(+0) == +0);

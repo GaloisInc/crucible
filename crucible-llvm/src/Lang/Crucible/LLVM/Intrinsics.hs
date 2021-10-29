@@ -243,6 +243,8 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmSinOverride_F64
   , basic_llvm_override LLVM.llvmCosOverride_F32
   , basic_llvm_override LLVM.llvmCosOverride_F64
+  , basic_llvm_override LLVM.llvmPowOverride_F32
+  , basic_llvm_override LLVM.llvmPowOverride_F64
   , basic_llvm_override LLVM.llvmExpOverride_F32
   , basic_llvm_override LLVM.llvmExpOverride_F64
   , basic_llvm_override LLVM.llvmLogOverride_F32
@@ -313,6 +315,8 @@ declare_overrides =
   , basic_llvm_override Libc.llvmHypotfOverride
   , basic_llvm_override Libc.llvmAtan2Override
   , basic_llvm_override Libc.llvmAtan2fOverride
+  , basic_llvm_override Libc.llvmPowfOverride
+  , basic_llvm_override Libc.llvmPowOverride
   , basic_llvm_override Libc.llvmExpOverride
   , basic_llvm_override Libc.llvmExpfOverride
   , basic_llvm_override Libc.llvmLogOverride
