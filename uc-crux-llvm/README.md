@@ -8,6 +8,8 @@ It can be used to:
 - deduce sufficient function preconditions to avoid undefined behavior, and
 - check two versions of a program for crash-equivalence.
 
+Read more about UC-Crux at https://galois.com/blog/2021/10/under-constrained-symbolic-execution-with-crucible/.
+
 **UC-Crux-LLVM is still in development.**
 
 ## Demo
@@ -107,6 +109,8 @@ iteratively expand it:
 
 This approach is fairly different from UC-KLEE, which uses "lazy
 initialization", i.e., allocating memory *as it's used* by the program.
+
+See this blog post for more details: https://galois.com/blog/2021/10/under-constrained-symbolic-execution-with-crucible/.
 
 ## Building
 
