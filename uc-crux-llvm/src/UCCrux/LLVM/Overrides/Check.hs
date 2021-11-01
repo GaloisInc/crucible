@@ -40,9 +40,10 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), (%~))
 import           Control.Monad (foldM, unless)
 import           Control.Monad.IO.Class (liftIO)
+import           Data.Function ((&))
 import           Data.Foldable.WithIndex (FoldableWithIndex, ifoldrM)
 import           Data.Functor.Compose (Compose(Compose))
 import           Data.IORef (IORef, modifyIORef)
@@ -64,6 +65,8 @@ import           Data.Parameterized.Classes (IndexF)
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Fin as Fin
 import           Data.Parameterized.TraversableFC.WithIndex (FoldableFCWithIndex, ifoldrMFC)
+import           Data.Parameterized.Some (Some(Some), viewSome)
+import qualified Data.Parameterized.Vector as PVec
 
 -- what4
 import           What4.Interface (Pred)
@@ -84,9 +87,11 @@ import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), basic_ll
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (Constraint, Constraints, ConstrainedShape(..), argConstraints, globalConstraints, ppConstraints)
+import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), Constraints, ConstrainedShape(..), argConstraints, globalConstraints, ppConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls, moduleTypes)
+import           UCCrux.LLVM.Cursor (Selector, selectorCursor)
+import qualified UCCrux.LLVM.Cursor as Cursor
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(SomeIndex), translateIndex, toCrucibleType)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
@@ -108,9 +113,27 @@ declName decl =
   let L.Symbol name = L.decName decl
    in Text.pack name
 
+-- | A constraint, together with where it was applied and the resulting 'Pred'
+-- it was \"compiled\" to.
+data CheckedConstraint m sym argTypes inTy atTy
+  = CheckedConstraint
+      { -- | The 'Constraint' that was applied at this 'Selector' to yield this
+        -- 'Pred'
+        checkedConstraint :: Either (ShapeConstraint m atTy) (Constraint m atTy),
+        -- | The location in an argument or global variable where this
+        -- 'Constraint' was applied
+        checkedSelector :: Selector m argTypes inTy atTy,
+        -- | The \"compiled\"/applied form of the 'Constraint'
+        checkedPred :: Pred sym
+      }
+
+data SomeCheckedConstraint m sym argTypes =
+  forall inTy atTy.
+    SomeCheckedConstraint (CheckedConstraint m sym argTypes inTy atTy)
+
 -- TODO: Alignment...?
 doLoad ::
-  forall arch m sym ft.
+  forall arch m sym atTy.
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   ArchOk arch =>
@@ -118,9 +141,9 @@ doLoad ::
   ModuleContext m arch ->
   sym ->
   LLVMMem.MemImpl sym ->
-  Crucible.RegValue sym (ToCrucibleType arch ('FTPtr ft)) ->
-  FullTypeRepr m ('FTPtr ft) ->
-  IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch ft)))
+  Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
+  FullTypeRepr m ('FTPtr atTy) ->
+  IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
 doLoad modCtx sym mem val fullTypeRepr =
   do let pointedToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
          typeRepr = toCrucibleType modCtx pointedToRepr
@@ -153,10 +176,8 @@ ifoldMapMFC f = ifoldrMFC (\i x acc -> fmap (<> acc) (f i x)) mempty
 
 -- | Create a predicate that checks that a Crucible(-LLVM) value conforms to the
 -- 'ConstrainedShape'.
---
--- TODO: Add selector for provenance
 checkConstraints ::
-  forall arch m sym ft.
+  forall arch m sym argTypes inTy atTy.
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   ArchOk arch =>
@@ -164,18 +185,24 @@ checkConstraints ::
   ModuleContext m arch ->
   sym ->
   LLVMMem.MemImpl sym ->
-  ConstrainedShape m ft ->
-  FullTypeRepr m ft ->
-  Crucible.RegValue sym (ToCrucibleType arch ft) ->
-  IO (Seq (Pred sym))
-checkConstraints modCtx sym mem cShape fullTypeRepr val =
+  -- | Selector for provenance information
+  Selector m argTypes inTy atTy ->
+  ConstrainedShape m atTy ->
+  FullTypeRepr m atTy ->
+  Crucible.RegValue sym (ToCrucibleType arch atTy) ->
+  IO (Seq (Some (CheckedConstraint m sym argTypes inTy)))
+checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
   case getConstrainedShape cShape of
-    Shape.ShapeInt (Compose cs) -> constraintsToPreds fullTypeRepr cs val
-    Shape.ShapeFloat (Compose cs) -> constraintsToPreds fullTypeRepr cs val
+    Shape.ShapeInt (Compose cs) ->
+      constraintsToSomePreds fullTypeRepr selector cs val
+    Shape.ShapeFloat (Compose cs) ->
+      constraintsToSomePreds fullTypeRepr selector cs val
     Shape.ShapePtr (Compose cs) Shape.ShapeUnallocated ->
-      constraintsToPreds fullTypeRepr cs val
+      constraintsToSomePreds fullTypeRepr selector cs val
     Shape.ShapePtr (Compose cs) Shape.ShapeAllocated{} ->
-      constraintsToPreds fullTypeRepr cs val
+      -- TODO: How to actually tell if the pointer points to something of the
+      -- right size? Might be something in MemModel.* that could help?
+      constraintsToSomePreds fullTypeRepr selector cs val
     Shape.ShapePtr (Compose cs) (Shape.ShapeInitialized subShapes) ->
       do -- TODO: Is there code from Setup that helps with the other addresses?
          unless (Seq.length subShapes == 1) $
@@ -185,44 +212,64 @@ checkConstraints modCtx sym mem cShape fullTypeRepr val =
          (ptdToPred, mbPtdToVal) <- doLoad modCtx sym mem val fullTypeRepr
          let shape = ConstrainedShape (subShapes `Seq.index` 0)
          let ptdToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
+         let ptdToSelector =
+               selector & selectorCursor %~ Cursor.deepenPtr (modCtx ^. moduleTypes)
          subs <-
            case mbPtdToVal of
              Nothing -> pure Seq.empty
              Just ptdToVal ->
-               checkConstraints modCtx sym mem shape ptdToRepr ptdToVal
-         here <- constraintsToPreds fullTypeRepr cs val
-         return (ptdToPred Seq.<| here <> subs)
-    Shape.ShapeFuncPtr (Compose cs) -> constraintsToPreds fullTypeRepr cs val
-    Shape.ShapeOpaquePtr (Compose cs) -> constraintsToPreds fullTypeRepr cs val
+               checkConstraints modCtx sym mem ptdToSelector shape ptdToRepr ptdToVal
+         here <- constraintsToSomePreds fullTypeRepr selector cs val
+         let ptdToConstraint =
+               CheckedConstraint
+                 { checkedConstraint =
+                     Left (Initialized (Seq.length subShapes)),
+                   checkedSelector = selector,
+                   checkedPred = ptdToPred
+                 }
+         return (Some ptdToConstraint Seq.<| here <> subs)
+    Shape.ShapeFuncPtr (Compose cs) ->
+      constraintsToSomePreds fullTypeRepr selector cs val
+    Shape.ShapeOpaquePtr (Compose cs) ->
+      constraintsToSomePreds fullTypeRepr selector cs val
     Shape.ShapeArray (Compose cs) _ subShapes ->
       (<>)
-      <$> constraintsToPreds fullTypeRepr cs val
+      <$> constraintsToSomePreds fullTypeRepr selector cs val
       <*> ifoldMapM
             (\i shape ->
                checkConstraints
                  modCtx
                  sym
                  mem
+                 (selector &
+                  selectorCursor %~
+                  (\c ->
+                    Fin.viewFin
+                      (\i' -> Cursor.deepenArray i' (PVec.length subShapes) c)
+                      i))
                  (ConstrainedShape shape)
                  (arrayElementType fullTypeRepr)
                  (val Vec.! fromIntegral (Fin.finToNat i)))
             subShapes
     Shape.ShapeUnboundedArray (Compose cs) subShapes ->
       (<>)
-      <$> constraintsToPreds fullTypeRepr cs val
+      <$> constraintsToSomePreds fullTypeRepr selector cs val
       <*> ifoldMapM
             (\i shape ->
                checkConstraints
                  modCtx
                  sym
                  mem
+                 (Unimplemented.unimplemented
+                    "checkConstraints"
+                    Unimplemented.NonEmptyUnboundedSizeArrays)
                  (ConstrainedShape shape)
                  (arrayElementType fullTypeRepr)
                  (val Vec.! i))
             subShapes
     Shape.ShapeStruct (Compose cs) _ ->
       (<>)
-      <$> constraintsToPreds fullTypeRepr cs val
+      <$> constraintsToSomePreds fullTypeRepr selector cs val
       <*> Unimplemented.unimplemented
             "checkConstraints"
             Unimplemented.CheckConstraintsStruct
@@ -231,14 +278,29 @@ checkConstraints modCtx sym mem cShape fullTypeRepr val =
     foldMapM :: forall t f m' a. Foldable t => Monoid m' => Monad f => (a -> f m') -> t a -> f m'
     foldMapM f = foldM (\acc -> fmap (<> acc) . f) mempty
 
+    constraintsToSomePreds ::
+      forall atTy'.
+      FullTypeRepr m atTy' ->
+      Selector m argTypes inTy atTy' ->
+      [Constraint m atTy'] ->
+      Crucible.RegValue sym (ToCrucibleType arch atTy') ->
+      IO (Seq (Some (CheckedConstraint m sym argTypes inTy)))
+    constraintsToSomePreds ftRepr selector_ cs v =
+      fmap (fmap Some) (constraintsToPreds ftRepr selector_ cs v)
+
     constraintsToPreds ::
-      forall ft'.
-      FullTypeRepr m ft' ->
-      [Constraint m ft'] ->
-      Crucible.RegValue sym (ToCrucibleType arch ft') ->
-      IO (Seq (Pred sym))
-    constraintsToPreds ftRepr cs v =
-      foldMapM (\c -> Seq.singleton <$> constraintToPred modCtx sym c ftRepr v) cs
+      forall atTy'.
+      FullTypeRepr m atTy' ->
+      Selector m argTypes inTy atTy' ->
+      [Constraint m atTy'] ->
+      Crucible.RegValue sym (ToCrucibleType arch atTy') ->
+      IO (Seq (CheckedConstraint m sym argTypes inTy atTy'))
+    constraintsToPreds ftRepr selector_ cs v =
+      foldMapM
+        (\c ->
+          Seq.singleton . CheckedConstraint (Right c) selector_ <$>
+            constraintToPred modCtx sym c ftRepr v)
+        cs
 
 createCheckOverride ::
   forall arch p sym m argTypes ret blocks.
@@ -249,9 +311,7 @@ createCheckOverride ::
   AppContext ->
   ModuleContext m arch ->
   -- | Set of check overrides encountered during execution
-  --
-  -- TODO: Add constraint, selector for provenance
-  IORef (Map CheckOverrideName [Pred sym]) ->
+  IORef (Map CheckOverrideName [SomeCheckedConstraint m sym argTypes]) ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function contract to check
@@ -295,7 +355,7 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
       sym ->
       LLVMMem.MemImpl sym ->
       Ctx.Assignment (Crucible.RegEntry sym) (MapToCrucibleType arch argTypes) ->
-      IO (Seq (Pred sym))
+      IO (Seq (SomeCheckedConstraint m sym argTypes))
     getArgConstraints sym mem args =
       ifoldMapMFC
          (\idx constraint ->
@@ -304,20 +364,23 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                   let sz = Ctx.size (constraints ^. argConstraints)
                   in translateIndex modCtx sz idx
               let arg = args Ctx.! idx'
-              checkConstraints
-                modCtx
-                sym
-                mem
-                constraint
-                (argFTys Ctx.! idx)
-                (Crucible.regValue arg))
+              let fTy = argFTys Ctx.! idx
+              fmap (viewSome SomeCheckedConstraint) <$>
+                checkConstraints
+                  modCtx
+                  sym
+                  mem
+                  (Cursor.SelectArgument idx (Cursor.Here fTy))
+                  constraint
+                  fTy
+                  (Crucible.regValue arg))
          (constraints ^. argConstraints)
 
     getGlobalConstraints ::
       IsSymInterface sym =>
       sym ->
       LLVMMem.MemImpl sym ->
-      IO (Seq (Pred sym))
+      IO (Seq (SomeCheckedConstraint m sym argTypes))
     getGlobalConstraints _sym _mem =
       ifoldMapM
         (Unimplemented.unimplemented
@@ -333,7 +396,7 @@ checkOverrideFromResult ::
   (?memOpts :: LLVMMem.MemOptions) =>
   AppContext ->
   ModuleContext m arch ->
-  IORef (Map CheckOverrideName [Pred sym]) ->
+  IORef (Map CheckOverrideName [SomeCheckedConstraint m sym argTypes]) ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function implementation
