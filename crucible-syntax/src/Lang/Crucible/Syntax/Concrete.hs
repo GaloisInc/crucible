@@ -121,7 +121,7 @@ data E s ext t where
   EDeref :: !Position -> !(E s ext (ReferenceType t)) -> E s ext t
   EApp   :: !(App ext (E s ext) t) -> E s ext t
 
-data SomeExpr :: * -> * -> * where
+data SomeExpr ext s where
   SomeE :: TypeRepr t -> E s ext t -> SomeExpr ext s
   SomeOverloaded :: AST s -> Keyword -> [SomeExpr ext s] -> SomeExpr ext s
   SomeIntLiteral :: AST s -> Integer -> SomeExpr ext s
@@ -434,7 +434,7 @@ synthExpr :: forall m s ext. (MonadReader (SyntaxState s) m, MonadSyntax Atomic 
        => Maybe (Some TypeRepr)
        -> ParserHooks ext
        -> m (SomeExpr ext s)
-synthExpr typeHint extRepr =
+synthExpr typeHint hooks =
   describe "expression" $
     call (the <|> crucibleAtom <|> regRef <|> globRef <|> deref <|>
      bvExpr <|>
@@ -499,7 +499,7 @@ synthExpr typeHint extRepr =
       do let newhint = case typeHint of
                          Just (Some t) -> Just (Some (ReferenceRepr t))
                          _ -> Nothing
-         unary Deref (forceSynth =<< synthExpr newhint extRepr) >>= \case
+         unary Deref (forceSynth =<< synthExpr newhint hooks) >>= \case
            Pair (ReferenceRepr t') e ->
              do loc <- position
                 return (SomeE t' (EDeref loc e))
@@ -1815,7 +1815,7 @@ termStmt' retTy =
 
 
 
-data Rand s t = forall ext. Rand (AST s) (E s ext t)
+data Rand s t ext = Rand (AST s) (E s ext t)
 
 
 
