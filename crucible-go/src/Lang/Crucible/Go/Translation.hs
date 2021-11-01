@@ -75,7 +75,8 @@ import           Data.Functor.Const
 import           Data.Functor.Product
 import           Data.HashMap.Strict as HM hiding (foldl)
 import           Data.Maybe (fromJust, fromMaybe, maybeToList)
-import           Data.Text as T hiding (foldl, length, zip)
+import qualified Data.Text as T hiding (foldl, length, zip)
+import           Data.Text (Text)
 import qualified Data.Vector as V
 
 import           Data.Parameterized.Context as Ctx
