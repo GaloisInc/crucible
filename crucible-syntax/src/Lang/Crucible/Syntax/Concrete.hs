@@ -1106,7 +1106,7 @@ synthBV widthHint hooks =
       do let newhint = case hint of
                          NatHint w -> Just (Some (BVRepr w))
                          _ -> Nothing
-         (Pair t x) <- forceSynth =<< synthExpr newhint
+         (Pair t x) <- forceSynth =<< synthExpr newhint hooks
          case t of
            BVRepr w -> return (SomeBVExpr w x)
            _ -> later $ describe "bitvector expression" $ empty
@@ -1149,7 +1149,7 @@ synthBV widthHint hooks =
            (SomeBVExpr wx x:xs) -> SomeBVExpr wx <$> go wx x xs
 
      where
-     go :: forall w ext. NatRepr w -> E s ext (BVType w) -> [SomeBVExpr ext s] -> m (E s ext (BVType w))
+     go :: forall w. NatRepr w -> E s ext (BVType w) -> [SomeBVExpr ext s] -> m (E s ext (BVType w))
      go _wx x [] = return x
      go wx x (SomeBVExpr wy y : ys) =
        case testEquality wx wy of
@@ -1205,7 +1205,7 @@ check :: forall m t s ext . (MonadReader (SyntaxState s) m, MonadSyntax Atomic m
        => TypeRepr t -> ParserHooks ext -> m (E s ext t)
 check t hooks =
   describe ("inhabitant of " <> T.pack (show t)) $
-    do Pair t' e <- forceSynth =<< synthExpr (Just (Some t))
+    do Pair t' e <- forceSynth =<< synthExpr (Just (Some t)) hooks
        later $ describe ("a " <> T.pack (show t) <> " rather than a " <> T.pack (show t')) $
          case testEquality t t' of
            Nothing -> later empty
@@ -1468,7 +1468,7 @@ atomSetter (AtomName anText) hooks =
       => m (Pair TypeRepr (Atom s))
 
     newref =
-      do Pair t e <- reading $ unary Ref synth
+      do Pair t e <- reading $ unary Ref (synth hooks)
          loc <- position
          anAtom <- eval loc e
          anotherAtom <- freshAtom loc (NewRef anAtom)
@@ -1513,7 +1513,7 @@ atomSetter (AtomName anText) hooks =
                       | otherwise -> describe "atomic type" $ empty
 
     evaluated =
-       do Pair tp e' <- reading synth
+       do Pair tp e' <- reading (synth hooks)
           loc <- position
           anAtom <- eval loc e'
           return $ Pair tp anAtom
@@ -1529,7 +1529,7 @@ funcall
   => m (Pair TypeRepr (Atom s))
 funcall =
   followedBy (kw Funcall) $
-  depConsCond (reading synth) $
+  depConsCond (reading (synth hooks)) $
     \x ->
       case x of
         (Pair (FunctionHandleRepr funArgs ret) fun) ->
@@ -1609,7 +1609,7 @@ normStmt' hooks =
     setRef =
       do stmtLoc <- position
          followedBy (kw SetRef) $
-           depConsCond (located $ reading $ synth) $
+           depConsCond (located $ reading $ synth hooks) $
            \case
              (Posd refLoc (Pair (ReferenceRepr t') refE)) ->
                depCons (located $ reading $ check t' hooks) $
@@ -1625,7 +1625,7 @@ normStmt' hooks =
     dropRef =
       do loc <- position
          followedBy (kw DropRef_) $
-           depConsCond (located $ reading synth) $
+           depConsCond (located $ reading (synth hooks)) $
             \(Posd eLoc (Pair t refE)) ->
                emptyList *>
                case t of
@@ -1664,7 +1664,7 @@ normStmt' hooks =
            Some args -> tell [Posd loc $ Breakpoint nm args]
       where
         ra_value :: m (Some (Value s))
-        ra_value = (reading synth) >>= \case
+        ra_value = (reading (synth hooks)) >>= \case
           Pair _ (EReg _ reg) -> pure $ Some $ RegValue reg
           Pair _ (EAtom atm) -> pure $ Some $ AtomValue atm
           _ -> empty
@@ -1743,7 +1743,7 @@ termStmt' retTy =
     maybeBranch =
       followedBy (kw MaybeBranch_) $
       describe "valid arguments to maybe-branch" $
-      depCons (located (reading synth)) $
+      depCons (located (reading (synth hooks))) $
         \(Posd sloc (Pair ty scrut)) ->
           case ty of
             MaybeRepr ty' ->
@@ -1758,7 +1758,7 @@ termStmt' retTy =
     cases :: m (TermStmt s ret)
     cases =
       followedBy (kw Case) $
-      depCons (located (reading synth)) $
+      depCons (located (reading (synth hooks))) $
         \(Posd tgtloc (Pair ty tgt)) ->
           describe ("cases for variant type " <> T.pack (show ty)) $
           case ty of
@@ -1787,7 +1787,7 @@ termStmt' retTy =
       followedBy (kw TailCall_) $
         describe "function atom and arguments" $
           do -- commit
-             depCons (located (reading synth)) $
+             depCons (located (reading (synth hooks))) $
                \case
                  Posd loc (Pair (FunctionHandleRepr argumentTypes retTy') funExpr) ->
                    case testEquality retTy retTy' of
