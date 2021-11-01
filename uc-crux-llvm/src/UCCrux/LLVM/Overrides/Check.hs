@@ -62,6 +62,7 @@ import qualified Prettyprinter.Render.Text as PP
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Classes (IndexF)
+import           Data.Parameterized.Ctx (Ctx)
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Fin as Fin
 import           Data.Parameterized.TraversableFC.WithIndex (FoldableFCWithIndex, ifoldrMFC)
@@ -115,7 +116,10 @@ declName decl =
 
 -- | A constraint, together with where it was applied and the resulting 'Pred'
 -- it was \"compiled\" to.
-data CheckedConstraint m sym argTypes inTy atTy
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data CheckedConstraint m sym (argTypes :: Ctx (FullType m)) inTy atTy
   = CheckedConstraint
       { -- | The 'Constraint' that was applied at this 'Selector' to yield this
         -- 'Pred'
@@ -127,7 +131,9 @@ data CheckedConstraint m sym argTypes inTy atTy
         checkedPred :: Pred sym
       }
 
-data SomeCheckedConstraint m sym argTypes =
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data SomeCheckedConstraint m sym (argTypes :: Ctx (FullType m)) =
   forall inTy atTy.
     SomeCheckedConstraint (CheckedConstraint m sym argTypes inTy atTy)
 

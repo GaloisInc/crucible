@@ -129,6 +129,7 @@ newtype CreateOverrideFn arch =
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
 
+-- | Used in 'SimulatorHooks' to register caller-specified overrides.
 newtype SymCreateOverrideFn sym arch =
   SymCreateOverrideFn
     { runSymCreateOverrideFn ::
@@ -150,7 +151,10 @@ data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimula
   }
 
 -- | Based on 'Crux.SimulatorHooks'
-data SimulatorHooks sym m arch argTypes r =
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.6
+-- compatibility.
+data SimulatorHooks sym m arch (argTypes :: Ctx (FullType m)) r =
   SimulatorHooks
     { createOverrideHooks :: [SymCreateOverrideFn sym arch]
     , resultHook ::
@@ -162,7 +166,7 @@ data SimulatorHooks sym m arch argTypes r =
   deriving Functor
 
 -- | Based on 'Crux.SimulatorCallbacks'
-newtype SimulatorCallbacks m arch argTypes r =
+newtype SimulatorCallbacks m arch (argTypes :: Ctx (FullType m)) r =
   SimulatorCallbacks
     { getSimulatorCallbacks ::
         forall sym t st fs.
