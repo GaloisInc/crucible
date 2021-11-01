@@ -1453,7 +1453,7 @@ atomSetter (AtomName anText) hooks =
   call ( newref
      <|> emptyref
      <|> fresh
-     <|> funcall
+     <|> (funcall hooks)
      <|> evaluated
      <|> stmtExtension
      <|> exprExtension )
@@ -1520,14 +1520,16 @@ atomSetter (AtomName anText) hooks =
 
 
 funcall
-  :: ( MonadSyntax Atomic m
+  :: forall ext s m
+   . ( MonadSyntax Atomic m
      , MonadWriter [Posd (Stmt ext s)] m
      , MonadState (SyntaxState s) m
      , MonadIO m
      , IsSyntaxExtension ext
      )
-  => m (Pair TypeRepr (Atom s))
-funcall =
+  => ParserHooks ext
+  -> m (Pair TypeRepr (Atom s))
+funcall hooks =
   followedBy (kw Funcall) $
   depConsCond (reading (synth hooks)) $
     \x ->
@@ -1543,7 +1545,7 @@ funcall =
   where
     go :: (MonadState (SyntaxState s) m, MonadSyntax Atomic m)
        => Ctx.AssignView TypeRepr args
-       -> m (Ctx.Assignment (Rand s) args)
+       -> m (Ctx.Assignment (Rand s ext) args)
     go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
     go (Ctx.AssignExtend ctx' ty) =
       depCons (reading $ check ty hooks) $ \e ->
@@ -1560,7 +1562,7 @@ normStmt' :: forall s m ext
              ParserHooks ext ->
              m ()
 normStmt' hooks =
-  call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
+  call (printStmt <|> printLnStmt <|> letStmt <|> (void (funcall hooks)) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
         assertion <|> assumption <|> breakpoint)
 
@@ -1681,7 +1683,7 @@ blockBody' :: forall s ret m ext
 blockBody' ret hooks = runWriterT go
  where
  go :: WriterT [Posd (Stmt ext s)] m (Posd (TermStmt s ret))
- go = (fst <$> (cons (later (termStmt' ret)) emptyList)) <|>
+ go = (fst <$> (cons (later (termStmt' ret hooks)) emptyList)) <|>
       (snd <$> (cons (later (normStmt' hooks)) go))
 
 termStmt' :: forall m s ret ext.
@@ -1690,8 +1692,8 @@ termStmt' :: forall m s ret ext.
    , MonadState (SyntaxState s) m
    , MonadIO m
    , IsSyntaxExtension ext ) =>
-   TypeRepr ret -> m (Posd (TermStmt s ret))
-termStmt' retTy =
+   TypeRepr ret -> ParserHooks ext -> m (Posd (TermStmt s ret))
+termStmt' retTy hooks =
   do stx <- anything
      call (withPosFrom stx <$>
        (jump <|> branch <|> maybeBranch <|> cases <|> ret <|> err <|> tailCall <|> out))
@@ -1824,7 +1826,7 @@ termStmt' retTy =
 
 
 
-data Rand s t ext = Rand (AST s) (E s ext t)
+data Rand s ext t = Rand (AST s) (E s ext t)
 
 
 
