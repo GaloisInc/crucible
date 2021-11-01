@@ -237,6 +237,10 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmFabsF32
   , basic_llvm_override LLVM.llvmFabsF64
 
+  , basic_llvm_override LLVM.llvmCeilOverride_F32
+  , basic_llvm_override LLVM.llvmCeilOverride_F64
+  , basic_llvm_override LLVM.llvmFloorOverride_F32
+  , basic_llvm_override LLVM.llvmFloorOverride_F64
   , basic_llvm_override LLVM.llvmSqrtOverride_F32
   , basic_llvm_override LLVM.llvmSqrtOverride_F64
   , basic_llvm_override LLVM.llvmSinOverride_F32
@@ -285,6 +289,10 @@ declare_overrides =
   , basic_llvm_override Libc.llvmLAbsOverride_64
   , basic_llvm_override Libc.llvmLLAbsOverride
 
+  , basic_llvm_override Libc.llvmCeilOverride
+  , basic_llvm_override Libc.llvmCeilfOverride
+  , basic_llvm_override Libc.llvmFloorOverride
+  , basic_llvm_override Libc.llvmFloorfOverride
   , basic_llvm_override Libc.llvmSqrtOverride
   , basic_llvm_override Libc.llvmSqrtfOverride
   , basic_llvm_override Libc.llvmSinOverride
