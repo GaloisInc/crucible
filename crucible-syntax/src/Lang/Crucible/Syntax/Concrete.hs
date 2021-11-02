@@ -122,6 +122,7 @@ data E s ext t where
   EGlob  :: !Position -> !(GlobalVar t) -> E s ext t
   EDeref :: !Position -> !(E s ext (ReferenceType t)) -> E s ext t
   EApp   :: !(App ext (E s ext) t) -> E s ext t
+  EExt   :: !FunctionName -> E s ext t
 
 data SomeExpr ext s where
   SomeE :: TypeRepr t -> E s ext t -> SomeExpr ext s
@@ -491,7 +492,6 @@ synthExpr typeHint hooks =
                        return $ SomeE t e)
 
     okAtom theAtoms x =
-      trace ("okAtom: " ++ (show x)) $
       case Map.lookup x theAtoms of
         Nothing -> Nothing
         Just (Pair t anAtom) -> Just $ SomeE t (EAtom anAtom)
@@ -563,7 +563,10 @@ synthExpr typeHint hooks =
          fh <- view $ stxFunctions . at fn
          describe "known function name" $
            case fh of
-             Nothing -> trace ("404 function " ++ (show fn) ++ " not found") empty
+             Nothing ->
+               case extensionTypes hooks fn of
+                 Nothing -> empty
+                 Just args -> return $ SomeE args (EExt fn)
              Just (FunctionHeader _ funArgs ret handle _) ->
                return $ SomeE (FunctionHandleRepr (argTypes funArgs) ret) (EApp $ HandleLit handle)
 
@@ -1462,7 +1465,7 @@ atomSetter (AtomName anText) hooks =
      <|> stmtExtension
      <|> exprExtension -} )
   where
-    fresh, emptyref, newref, stmtExtension, exprExtension
+    fresh, emptyref, newref--, stmtExtension, exprExtension
       :: ( MonadSyntax Atomic m
          , MonadWriter [Posd (Stmt ext s)] m
          , MonadState (SyntaxState s) m
@@ -1484,6 +1487,7 @@ atomSetter (AtomName anText) hooks =
          anAtom <- freshAtom loc (NewEmptyRef t')
          return $ Pair (ReferenceRepr t') anAtom
 
+    {-
     stmtExtension =
       do stmtExt <- reading (stmtExtensionReader hooks)
          loc <- position
@@ -1497,6 +1501,7 @@ atomSetter (AtomName anText) hooks =
          loc <- position
          anAtom <- freshAtom loc (EvalApp exprExt)
          return $ Pair (appType exprExt) anAtom
+         -}
 
     fresh =
       do t <- reading (unary Fresh isType)
@@ -1545,6 +1550,13 @@ funcall hooks =
              operandAtoms <- traverseFC (\(Rand a ex) -> eval (syntaxPos a) ex) operandExprs
              endAtom <- freshAtom loc $ Call funAtom operandAtoms ret
              return $ Right $ Pair ret endAtom
+        (Pair (StructRepr args) (EExt symbol)) ->
+          do loc <- position
+             operandExprs <- backwards $ go $ Ctx.viewAssign args
+             operandAtoms <- traverseFC (\(Rand a ex) -> eval (syntaxPos a) ex) operandExprs
+             (repr, atomVal) <- handleExtension hooks symbol operandAtoms
+             endAtom <- freshAtom loc atomVal
+             return $ Right $ Pair repr endAtom
         _ -> return $ Left "a function"
   where
     go :: (MonadState (SyntaxState s) m, MonadSyntax Atomic m)
@@ -1956,13 +1968,20 @@ type BlockTodo s ret =
 
 -- TODO: Move this elsewhere
 data ParserHooks ext = ParserHooks {
-    stmtExtensionReader
-      :: forall s m tp
-       . ReaderT (SyntaxState s) m (StmtExtension ext (Atom s) tp)
+    handleExtension
+      :: forall s tp m ctx
+       . ( MonadSyntax Atomic m
+         , MonadWriter [Posd (Stmt ext s)] m
+         , MonadState (SyntaxState s) m
+         , MonadIO m )
+      => FunctionName
+      -> Ctx.Assignment (Atom s) ctx
+      -> m (TypeRepr tp, AtomValue ext s tp)
 
-  , exprExtensionReader
-      :: forall s m tp
-       . ReaderT (SyntaxState s) m (App ext (Atom s) tp)
+  , extensionTypes
+      :: forall tp
+       . FunctionName
+      -> Maybe (TypeRepr tp)
 }
 
 blocks :: forall s ret m ext
@@ -2030,6 +2049,7 @@ eval loc (EApp e)         = freshAtom loc . EvalApp =<< traverseFC (eval loc) e
 eval _   (EReg loc reg)   = freshAtom loc (ReadReg reg)
 eval _   (EGlob loc glob) = freshAtom loc (ReadGlobal glob)
 eval loc (EDeref eloc e)  = freshAtom loc . ReadRef =<< eval eloc e
+eval _   (EExt{})         = error "TODO: I don't think this case is possible"
 
 newtype TopParser s a =
   TopParser { runTopParser :: ExceptT (ExprErr s)

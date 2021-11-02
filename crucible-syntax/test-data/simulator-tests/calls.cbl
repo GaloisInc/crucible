@@ -2,7 +2,6 @@
   (start start:
     (let x (fresh Integer))
     (let y (funcall @f x))
-    (let z (funcall @nosuchfn))
     (println (show x))
     (println (show y))
     (assert! (equal? x y) "bogus")

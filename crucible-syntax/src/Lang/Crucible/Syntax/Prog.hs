@@ -47,7 +47,7 @@ import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
 
 hooks :: ParserHooks ()
-hooks = ParserHooks undefined undefined
+hooks = ParserHooks undefined (\_ -> Nothing)
 
 -- | The main loop body, useful for both the program and for testing.
 doParseCheck
