@@ -100,6 +100,7 @@ import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, MapTo
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
+import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
 import           UCCrux.LLVM.Run.Result (BugfindingResult)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
@@ -316,8 +317,8 @@ createCheckOverride ::
   (?memOpts :: LLVMMem.MemOptions) =>
   AppContext ->
   ModuleContext m arch ->
-  -- | Set of check overrides encountered during execution
-  IORef (Map CheckOverrideName [SomeCheckedConstraint m sym argTypes]) ->
+  -- | Predicates checked during simulation
+  IORef (Map CheckOverrideName [(Stack sym, Seq (SomeCheckedConstraint m sym argTypes))]) ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function contract to check
@@ -344,14 +345,14 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                      let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
                      liftIO $ (appCtx ^. log) Hi "Constraints:"
                      liftIO $ (appCtx ^. log) Hi $ pp (ppConstraints constraints)
-
+                     stack <- collectStack
                      argCs <- liftIO $ getArgConstraints sym mem args
                      globCs <- liftIO $ getGlobalConstraints sym mem
                      let cs = argCs <> globCs
                      let nm = CheckOverrideName name
                      liftIO $
                        modifyIORef usedRef $
-                         \m -> foldr (Map.insertWith (++) nm . (:[])) m cs
+                         Map.alter (Just . maybe [] ((stack, cs):)) nm
                      retEntry <- Crucible.callCFG cfg (Crucible.RegMap args)
                      return (Crucible.regValue retEntry, mem)
            }
@@ -402,7 +403,8 @@ checkOverrideFromResult ::
   (?memOpts :: LLVMMem.MemOptions) =>
   AppContext ->
   ModuleContext m arch ->
-  IORef (Map CheckOverrideName [SomeCheckedConstraint m sym argTypes]) ->
+  -- | Predicates checked during simulation
+  IORef (Map CheckOverrideName [(Stack sym, Seq (SomeCheckedConstraint m sym argTypes))]) ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function implementation
