@@ -615,6 +615,42 @@ llvmFabsF64 =
   [llvmOvr| double @llvm.fabs.f64( double ) |]
   (\_memOps sym (Empty :> (regValue -> x)) -> liftIO (iFloatAbs @_ @DoubleFloat sym x))
 
+llvmCeilOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCeilOverride_F32 =
+  [llvmOvr| float @llvm.ceil.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callCeil sym) args)
+
+llvmCeilOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCeilOverride_F64 =
+  [llvmOvr| double @llvm.ceil.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callCeil sym) args)
+
+llvmFloorOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmFloorOverride_F32 =
+  [llvmOvr| float @llvm.floor.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callFloor sym) args)
+
+llvmFloorOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmFloorOverride_F64 =
+  [llvmOvr| double @llvm.floor.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callFloor sym) args)
+
 llvmSqrtOverride_F32 ::
   IsSymInterface sym =>
   LLVMOverride p sym

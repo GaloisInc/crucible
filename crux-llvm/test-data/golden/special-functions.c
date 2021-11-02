@@ -49,6 +49,32 @@ int main() {
   double d22 = atan2(dx, dy);
   double d23 = pow(dx, dy);
 
+  // ceil unit tests
+  check(ceil(-0.4) == 0);
+  check(ceil(-0.5) == 0);
+  check(ceil(-0.6) == 0);
+  check(ceil(0.4) == 1);
+  check(ceil(0.5) == 1);
+  check(ceil(0.6) == 1);
+  check(ceil(+0) == +0);
+  check(ceil(-0) == -0);
+  check(ceil(+INFINITY) == +INFINITY);
+  check(ceil(-INFINITY) == -INFINITY);
+  check(isnan(ceil(NAN)));
+
+  // floor unit tests
+  check(floor(-0.4) == -1);
+  check(floor(-0.5) == -1);
+  check(floor(-0.6) == -1);
+  check(floor(0.4) == 0);
+  check(floor(0.5) == 0);
+  check(floor(0.6) == 0);
+  check(floor(+0) == +0);
+  check(floor(-0) == -0);
+  check(floor(+INFINITY) == +INFINITY);
+  check(floor(-INFINITY) == -INFINITY);
+  check(isnan(floor(NAN)));
+
   // sqrt unit tests
   check(sqrt(+0) == +0);
   check(sqrt(-0) == -0);
@@ -85,7 +111,33 @@ int main() {
   float f22 = atan2f(fx, fy);
   float f23 = powf(dx, dy);
 
-  // sqrt unit tests
+  // ceilf unit tests
+  check(ceilf(-0.4) == 0);
+  check(ceilf(-0.5) == 0);
+  check(ceilf(-0.6) == 0);
+  check(ceilf(0.4) == 1);
+  check(ceilf(0.5) == 1);
+  check(ceilf(0.6) == 1);
+  check(ceilf(+0) == +0);
+  check(ceilf(-0) == -0);
+  check(ceilf(+INFINITY) == +INFINITY);
+  check(ceilf(-INFINITY) == -INFINITY);
+  check(isnan(ceilf(NAN)));
+
+  // floorf unit tests
+  check(floorf(-0.4) == -1);
+  check(floorf(-0.5) == -1);
+  check(floorf(-0.6) == -1);
+  check(floorf(0.4) == 0);
+  check(floorf(0.5) == 0);
+  check(floorf(0.6) == 0);
+  check(floorf(+0) == +0);
+  check(floorf(-0) == -0);
+  check(floorf(+INFINITY) == +INFINITY);
+  check(floorf(-INFINITY) == -INFINITY);
+  check(isnan(floorf(NAN)));
+
+  // sqrtf unit tests
   check(sqrtf(+0) == +0);
   check(sqrtf(-0) == -0);
   check(sqrtf(INFINITY) == INFINITY);

@@ -680,6 +680,43 @@ printfOps sym valist =
 ------------------------------------------------------------------------
 -- *** Math
 
+llvmCeilOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCeilOverride =
+  [llvmOvr| double @ceil( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callCeil sym) args)
+
+llvmCeilfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCeilfOverride =
+  [llvmOvr| float @ceilf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callCeil sym) args)
+
+
+llvmFloorOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmFloorOverride =
+  [llvmOvr| double @floor( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callFloor sym) args)
+
+llvmFloorfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmFloorfOverride =
+  [llvmOvr| float @floorf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callFloor sym) args)
+
 llvmSqrtOverride ::
   IsSymInterface sym =>
   LLVMOverride p sym
@@ -718,6 +755,22 @@ callSpecialFunction2 ::
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
 callSpecialFunction2 sym fn (regValue -> x) (regValue -> y) = liftIO $
   iFloatSpecialFunction2 sym (knownRepr :: FloatInfoRepr fi) fn x y
+
+callCeil ::
+  forall fi p sym ext r args ret.
+  IsSymInterface sym =>
+  sym ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callCeil sym (regValue -> x) = liftIO $ iFloatRound @_ @fi sym RTP x
+
+callFloor ::
+  forall fi p sym ext r args ret.
+  IsSymInterface sym =>
+  sym ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callFloor sym (regValue -> x) = liftIO $ iFloatRound @_ @fi sym RTN x
 
 callSqrt ::
   forall fi p sym ext r args ret.
