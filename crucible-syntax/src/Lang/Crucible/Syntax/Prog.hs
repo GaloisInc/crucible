@@ -46,6 +46,8 @@ import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
 
+hooks :: ParserHooks ()
+hooks = ParserHooks undefined undefined
 
 -- | The main loop body, useful for both the program and for testing.
 doParseCheck
@@ -65,7 +67,7 @@ doParseCheck fn theInput pprint outh =
          do when pprint $
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
-            cs <- top ng ha [] $ cfgs v
+            cs <- top ng ha [] $ (cfgs hooks) v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
@@ -98,11 +100,11 @@ simulateProgram fn theInput outh profh opts setup =
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
-            parseResult <- top ng ha hdls $ cfgs v
+            parseResult <- top ng ha hdls $ (cfgs hooks) v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
-              Right (cs :: _) ->
+              Right cs ->
                 case find isMain cs of
                   Just (ACFG Ctx.Empty retType mn) ->
                     do let mainHdl = cfgHandle mn

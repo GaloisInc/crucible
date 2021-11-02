@@ -94,6 +94,8 @@ import Lang.Crucible.FunctionHandle
 import Numeric.Natural ()
 import qualified Data.Set as Set
 
+import Debug.Trace
+
 
 liftSyntaxParse :: (MonadError (ExprErr s) m, MonadIO m)
                   => SyntaxParse Atomic a -> AST s -> m a
@@ -489,6 +491,7 @@ synthExpr typeHint hooks =
                        return $ SomeE t e)
 
     okAtom theAtoms x =
+      trace ("okAtom: " ++ (show x)) $
       case Map.lookup x theAtoms of
         Nothing -> Nothing
         Just (Pair t anAtom) -> Just $ SomeE t (EAtom anAtom)
@@ -560,7 +563,7 @@ synthExpr typeHint hooks =
          fh <- view $ stxFunctions . at fn
          describe "known function name" $
            case fh of
-             Nothing -> empty
+             Nothing -> trace ("404 function " ++ (show fn) ++ " not found") empty
              Just (FunctionHeader _ funArgs ret handle _) ->
                return $ SomeE (FunctionHandleRepr (argTypes funArgs) ret) (EApp $ HandleLit handle)
 
@@ -1455,8 +1458,9 @@ atomSetter (AtomName anText) hooks =
      <|> fresh
      <|> (funcall hooks)
      <|> evaluated
+     {- TODO: Maybe remove these
      <|> stmtExtension
-     <|> exprExtension )
+     <|> exprExtension -} )
   where
     fresh, emptyref, newref, stmtExtension, exprExtension
       :: ( MonadSyntax Atomic m
@@ -2022,11 +2026,7 @@ blocks ret hooks =
 eval :: (MonadWriter [Posd (Stmt ext s)] m, MonadState (SyntaxState s) m, MonadIO m, IsSyntaxExtension ext)
      => Position -> E s ext t -> m (Atom s t)
 eval _   (EAtom theAtom)  = pure theAtom -- The expression is already evaluated
--- TODO: This EApp case might be painful.  or maybe not.  Perhaps I can
--- deconstruct the App and just throw an error on the Expression Extension case
--- because it shouldn't show up here anyway (is that true?) and it's the only
--- case that has an `ext`
-eval loc (EApp e)         = undefined --freshAtom loc . EvalApp =<< traverseFC (eval loc) e
+eval loc (EApp e)         = freshAtom loc . EvalApp =<< traverseFC (eval loc) e
 eval _   (EReg loc reg)   = freshAtom loc (ReadReg reg)
 eval _   (EGlob loc glob) = freshAtom loc (ReadGlobal glob)
 eval loc (EDeref eloc e)  = freshAtom loc . ReadRef =<< eval eloc e
