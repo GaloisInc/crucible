@@ -70,6 +70,7 @@ module UCCrux.LLVM.FullType.Type
     asFullType',
     asFullType,
     pointedToType,
+    arrayElementType,
   )
 where
 
@@ -463,6 +464,14 @@ pointedToType ::
   FullTypeRepr m ('FTPtr ft) ->
   FullTypeRepr m ft
 pointedToType mts (FTPtrRepr ptRepr) = asFullType mts ptRepr
+
+arrayElementType ::
+  FullTypeRepr m ('FTArray sz ft) ->
+  FullTypeRepr m ft
+arrayElementType =
+  \case
+    FTArrayRepr _ subRepr -> subRepr
+    FTUnboundedArrayRepr subRepr -> subRepr
 
 -- ------------------------------------------------------------------------------
 -- Instances

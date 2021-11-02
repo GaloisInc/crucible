@@ -13,7 +13,8 @@ Stability    : provisional
 {-# LANGUAGE TypeFamilies #-}
 
 module UCCrux.LLVM.Run.Loop
-  ( bugfindingLoop,
+  ( bugfindingLoopWithCallbacks,
+    bugfindingLoop,
     loopOnFunction,
     loopOnFunctions,
     zipResults,
@@ -76,9 +77,10 @@ import           UCCrux.LLVM.Run.Unsoundness (Unsoundness)
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
 --
 -- Also returns the individual 'UCCruxSimulationResult' results in the order in
--- which they were encountered.
-bugfindingLoop ::
-  forall m msgs arch argTypes blocks ret.
+-- which they were encountered, along with any data returned by the result
+-- hook.
+bugfindingLoopWithCallbacks ::
+  forall r m msgs arch argTypes blocks ret.
   ArchOk arch =>
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
@@ -89,32 +91,32 @@ bugfindingLoop ::
   CruxOptions ->
   LLVMOptions ->
   Crucible.HandleAllocator ->
-  [Sim.CreateOverrideFn arch] ->
-  IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes))
-bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc overrideFns =
+  Sim.SimulatorCallbacks m arch argTypes (Sim.UCCruxSimulationResult m arch argTypes, r) ->
+  IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes, r))
+bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc callbacks =
   do
     let runSim preconds =
-          Sim.runSimulator appCtx modCtx funCtx halloc overrideFns preconds cfg cruxOpts llvmOpts
+          Sim.runSimulatorWithCallbacks appCtx modCtx funCtx halloc preconds cfg cruxOpts llvmOpts callbacks
 
     -- Loop, learning preconditions and reporting errors
     let loop constraints results unsoundness =
           do
             -- TODO(lb) We basically ignore symbolic assertion failures. Maybe
             -- configurably don't?
-            simResult <- runSim constraints
+            (simResult, r) <- runSim constraints
             let newExpls = Sim.explanations simResult
             let (_, newConstraints, _, _) =
                   partitionExplanations locatedValue newExpls
             let (_, newConstraints') = unzip (map locatedValue newConstraints)
             let allConstraints = addConstraints constraints (concat newConstraints')
             let allUnsoundness = unsoundness <> Sim.unsoundness simResult
-            let allResults = results Seq.|> simResult
+            let allResults = results Seq.|> (simResult, r)
             if shouldStop newExpls
               then
                 pure
                   ( makeResult
                       allConstraints
-                      (concatMap Sim.explanations (toList allResults))
+                      (concatMap (Sim.explanations . fst) (toList allResults))
                       allUnsoundness,
                     allResults
                   )
@@ -187,6 +189,29 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc overrideFns =
                 unsoundness
             )
 
+-- | Run the simulator in a loop, creating a 'BugfindingResult'
+--
+-- Also returns the individual 'UCCruxSimulationResult' results in the order in
+-- which they were encountered.
+bugfindingLoop ::
+  ArchOk arch =>
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
+  AppContext ->
+  ModuleContext m arch ->
+  FunctionContext m arch argTypes ->
+  Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
+  CruxOptions ->
+  LLVMOptions ->
+  Crucible.HandleAllocator ->
+  IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes))
+bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
+  post <$>
+    bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc (fmap swap Sim.defaultCallbacks)
+  where
+    swap (cruxResult, ucCruxResult) = (ucCruxResult, cruxResult)
+    post (result, results) = (result, fmap fst results)
+
 loopOnFunction ::
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
@@ -221,7 +246,6 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
                           cruxOpts
                           llOpts
                           halloc
-                          []
             )
       )
 

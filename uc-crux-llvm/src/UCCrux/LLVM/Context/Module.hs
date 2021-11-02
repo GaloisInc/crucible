@@ -24,8 +24,10 @@ module UCCrux.LLVM.Context.Module
     defnTypes,
     declTypes,
     moduleTranslation,
+    moduleDecls,
     dataLayout,
     withTypeContext,
+    withModulePtrWidth,
 
     -- * Looking up CFGs
     CFGWithTypes (..),
@@ -48,7 +50,8 @@ import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
 import           Lang.Crucible.LLVM.DataLayout (DataLayout)
-import           Lang.Crucible.LLVM.Extension (LLVM)
+import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
+import           Lang.Crucible.LLVM.MemModel (HasPtrWidth, withPtrWidth)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext, llvmDataLayout)
@@ -63,7 +66,7 @@ import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTran
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
-import           UCCrux.LLVM.Module (Module, FuncSymbol, DeclMap, DefnMap, FuncMap, GlobalMap, funcSymbol, getFuncSymbol, funcMapDecls, funcMapDefns)
+import           UCCrux.LLVM.Module (Module, FuncSymbol, DeclMap, DefnMap, FuncMap, GlobalMap, funcSymbol, getFuncSymbol, funcMapDecls, funcMapDefns, allModuleDeclMap)
 {- ORMOLU_ENABLE -}
 
 -- | The @m@ type parameter represents a specific LLVM module
@@ -73,7 +76,8 @@ data ModuleContext m arch = ModuleContext
     _moduleTypes :: ModuleTypes m,
     _globalTypes :: GlobalMap m (Some (FullTypeRepr m)),
     _funcTypes :: FuncMap m (FunctionTypes m arch),
-    _moduleTranslation :: ModuleTranslation arch
+    _moduleTranslation :: ModuleTranslation arch,
+    _moduleDecls :: FuncMap m L.Declare
   }
 
 moduleFilePath :: Simple Lens (ModuleContext m arch) FilePath
@@ -100,6 +104,9 @@ defnTypes = funcTypes . funcMapDefns
 moduleTranslation :: Simple Lens (ModuleContext m arch) (ModuleTranslation arch)
 moduleTranslation = lens _moduleTranslation (\s v -> s {_moduleTranslation = v})
 
+moduleDecls :: Simple Lens (ModuleContext m arch) (FuncMap m L.Declare)
+moduleDecls = lens _moduleDecls (\s v -> s {_moduleDecls = v})
+
 dataLayout :: Getter (ModuleContext m arch) DataLayout
 dataLayout = moduleTranslation . LLVMTrans.transContext . LLVMTrans.llvmTypeCtx . to llvmDataLayout
 
@@ -121,7 +128,16 @@ makeModuleContext path llvmMod trans =
         Right (TranslatedTypes llvmMod' modTypes globTypes decTypes) ->
           Right $
             SomeModuleContext $
-              ModuleContext path llvmMod' modTypes globTypes decTypes trans
+              ModuleContext path llvmMod' modTypes globTypes decTypes trans (allModuleDeclMap llvmMod')
+
+withModulePtrWidth ::
+  ModuleContext m arch ->
+  (HasPtrWidth (ArchWidth arch) => a) ->
+  a
+withModulePtrWidth modCtx computation =
+  LLVMTrans.llvmPtrWidth
+    (modCtx ^. moduleTranslation . LLVMTrans.transContext)
+    (\ptrW -> withPtrWidth ptrW computation)
 
 -- ------------------------------------------------------------------------------
 -- Looking up CFGs

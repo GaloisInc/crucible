@@ -61,6 +61,7 @@ module UCCrux.LLVM.Module
     moduleDeclMap,
     moduleDefnMap,
     moduleGlobalMap,
+    allModuleDeclMap,
   )
 where
 
@@ -79,6 +80,7 @@ import qualified Text.LLVM as L
 import           Data.Parameterized.Some (Some(Some))
 
 import           Lang.Crucible.LLVM.MalformedLLVMModule (malformedLLVMModule)
+import           Lang.Crucible.LLVM.Translation (declareFromDefine)
 
 import           UCCrux.LLVM.Errors.Panic (panic)
 
@@ -418,3 +420,13 @@ moduleGlobalMap (Module m) =
     (SymbolMap
       (Map.fromList
         [(Symbol (L.globalSym glob), glob) | glob <- L.modGlobals m]))
+
+-- | A map of declarations for every declaration and definition in the module.
+--
+-- This function will exclude debug intrinsics because debug types are not yet
+-- supported.
+allModuleDeclMap :: Module m -> FuncMap m L.Declare
+allModuleDeclMap m =
+  makeFuncMap
+    (moduleDeclMap m)
+    (fmap declareFromDefine (moduleDefnMap m))

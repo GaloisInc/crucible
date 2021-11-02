@@ -110,7 +110,7 @@ unsoundSkipOverrides ::
   -- | Postconditions of each override (constraints on return values)
   Map (FuncSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
-  OverM personality sym LLVM [PolymorphicLLVMOverride (personality sym) sym arch]
+  OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
 unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
@@ -163,7 +163,7 @@ createSkipOverride ::
   Maybe (ConstrainedTypedValue m) ->
   L.Declare ->
   FuncSymbol m ->
-  Maybe (PolymorphicLLVMOverride (personality sym) sym arch)
+  Maybe (PolymorphicLLVMOverride arch (personality sym) sym)
 createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
   llvmDeclToFunHandleRepr' decl $
     \args ret ->
