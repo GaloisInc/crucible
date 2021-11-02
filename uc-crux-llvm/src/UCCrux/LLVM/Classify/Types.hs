@@ -71,7 +71,7 @@ import           Data.Parameterized.Some (Some)
 import qualified Lang.Crucible.Simulator as Crucible
 
 import           UCCrux.LLVM.Constraints (NewConstraint)
-import           UCCrux.LLVM.Cursor (Where(..))
+import           UCCrux.LLVM.Cursor (Where, ppWhere)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
 {- ORMOLU_ENABLE -}
@@ -208,13 +208,8 @@ diagnoseTag =
     DiagnoseSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int"
     DiagnoseNonZero -> "Division or remainder by zero"
 
-diagnose :: Diagnosis -> Text
-diagnose (Diagnosis tag which) =
-  diagnoseTag tag
-    <> case which of
-      Arg n -> "in argument #" <> Text.pack (show n)
-      Global g -> "in global " <> Text.pack g
-      ReturnValue f -> "in return value of skipped function " <> Text.pack f
+diagnose :: Diagnosis -> PP.Doc ann
+diagnose (Diagnosis tag which) = PP.pretty (diagnoseTag tag) PP.<+> ppWhere which
 
 prescribe :: DiagnosisTag -> Text
 prescribe =

@@ -36,13 +36,14 @@ module UCCrux.LLVM.Cursor
     selectorCursor,
     Where (..),
     selectWhere,
+    ppWhere,
+    ppSelector
   )
 where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Lens, lens, (^.))
 import           Data.Semigroupoid (Semigroupoid(o))
-import           Data.Void (Void)
 import           Data.Type.Equality
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
@@ -211,12 +212,12 @@ ppCursor ::
   -- | Top level, e.g. the name of a variable
   String ->
   Cursor m inTy atTy ->
-  Doc Void
+  Doc ann
 ppCursor top =
   \case
     Here _ft -> PP.pretty top
     Dereference 0 (Field _fieldTypes idx cursor) ->
-      ppCursor top cursor <> PP.pretty "->" <> PP.pretty (show idx)
+      ppCursor top cursor <> PP.pretty "->" <> PP.viaShow idx
     Dereference 0 what -> PP.pretty "*" <> ppCursor top what
     Dereference idx what -> ppCursor top what <> PP.pretty ("[" ++ show idx ++ "]")
     Index idx _len cursor -> ppCursor top cursor <> PP.pretty ("[" ++ show idx ++ "]")
@@ -253,6 +254,20 @@ selectWhere =
     SelectReturn fSymb _ ->
       let L.Symbol f = getFuncSymbol fSymb
        in ReturnValue f
+
+ppWhere :: Where -> PP.Doc ann
+ppWhere =
+  \case
+    Arg n -> PP.pretty "in argument #" <> PP.viaShow n
+    Global g -> PP.pretty "in global" PP.<+> PP.pretty g
+    ReturnValue f ->
+      PP.pretty "in return value of skipped function" PP.<+> PP.pretty f
+
+ppSelector :: Selector m argTypes inTy atTy -> PP.Doc ann
+ppSelector selector =
+  ppWhere (selectWhere selector) PP.<+>
+    PP.pretty "at" PP.<+>
+    ppCursor "<top>" (selector ^. selectorCursor)
 
 -- | For documentation of the type parameters, see the comment on 'Cursor'.
 --

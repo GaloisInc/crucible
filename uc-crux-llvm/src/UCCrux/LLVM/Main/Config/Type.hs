@@ -29,7 +29,7 @@ import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 
 data RunConfig
   = Explore ExConfig.ExploreConfig
-  | RunOn (NonEmpty FunctionName)
+  | RunOn (NonEmpty FunctionName) [FunctionName]
   | CrashEquivalence EqConfig.EquivalenceConfig
   deriving (Eq, Ord, Show)
 

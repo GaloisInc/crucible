@@ -53,6 +53,7 @@ import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
 -- Processed into a 'TopLevelConfig'.
 data UCCruxLLVMOptions = UCCruxLLVMOptions
   { ucLLVMOptions :: LLVMOptions,
+    checkFrom :: [FunctionName],
     crashOrder :: FilePath,
     crashEquivalence :: Bool,
     doExplore :: Bool,
@@ -122,7 +123,7 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
             { Config.ucLLVMOptions = finalLLOpts,
               Config.runConfig =
                 case entries of
-                  Just ents -> Config.RunOn ents
+                  Just ents -> Config.RunOn ents (checkFrom initUCOpts)
                   Nothing ->
                     if doExplore initUCOpts
                     then
@@ -147,6 +148,9 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
             }
 
     return (appCtx, finalCOpts, topConf)
+
+checkFromDoc :: Text
+checkFromDoc = "Check inferred contracts by symbolically executing from this function"
 
 crashOrderDoc :: Text
 crashOrderDoc = "Check crash-ordering with another LLVM bitcode module"
@@ -186,6 +190,9 @@ ucCruxLLVMConfig = do
       { Crux.cfgFile =
           UCCruxLLVMOptions
             <$> Crux.cfgFile llvmOpts
+            <*>
+              (map functionNameFromString <$>
+                Crux.section "check-from" (Crux.listSpec Crux.stringSpec) [] checkFromDoc)
             <*> Crux.section "crash-order" Crux.fileSpec "" crashOrderDoc
             <*> Crux.section "crash-equivalence" Crux.yesOrNoSpec False crashEquivalenceDoc
             <*> Crux.section "explore" Crux.yesOrNoSpec False exploreDoc
@@ -207,6 +214,17 @@ ucCruxLLVMConfig = do
         Crux.cfgCmdLineFlag =
           (Crux.liftOptDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgCmdLineFlag llvmOpts)
             ++ [ Crux.Option
+                   []
+                   ["check-from"]
+                   (Text.unpack checkFromDoc)
+                   $ Crux.ReqArg "FUN" $
+                     \v opts ->
+                       Right
+                         opts
+                         { checkFrom =
+                            functionNameFromString v : checkFrom opts
+                         },
+                 Crux.Option
                    []
                    ["crash-order"]
                    (Text.unpack crashOrderDoc)

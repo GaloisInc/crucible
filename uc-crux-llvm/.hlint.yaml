@@ -37,6 +37,11 @@
     lhs: "undefined"
     rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
 
+- error:
+    name: Use PP.viaShow
+    lhs: "Prettyprinter.pretty (show x)"
+    rhs: 'Prettyprinter.viaShow x'
+
 # Ignored
 # -------
 

@@ -722,7 +722,7 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
           (appCtx ^. log) Hi $
             Text.unwords
               [ "Diagnosis: ",
-                diagnose diagnosis,
+                Text.pack (show (diagnose diagnosis)),
                 "at",
                 Text.pack (show (ppCursor "<top>" (selector ^. selectorCursor)))
               ]

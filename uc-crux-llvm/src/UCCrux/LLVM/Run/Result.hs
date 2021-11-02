@@ -17,6 +17,7 @@ Stability    : provisional
 module UCCrux.LLVM.Run.Result
   ( BugfindingResult (..),
     SomeBugfindingResult (..),
+    SomeBugfindingResult' (..),
     FunctionSummary (..),
     FunctionSummaryTag (..),
     DidHitBounds (..),
@@ -40,10 +41,11 @@ import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Ctx (Ctx)
+import           Data.Parameterized.Context (Assignment)
 
 import           UCCrux.LLVM.Classify.Types (Located, ppLocated, TruePositive, ppTruePositive, Uncertainty, ppUncertainty, Diagnosis)
 import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
-import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
 import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
 {- ORMOLU_ENABLE -}
@@ -77,6 +79,9 @@ ppFunctionSummaryTag =
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
 -- compatibility.
+--
+-- TODO: It would be great to have more provenance information for the
+-- 'Constraints'. What bug does a given constraint help avoid? On what line?
 data FunctionSummary m (argTypes :: Ctx (FullType m))
   = Unclear (NonEmpty (Located Uncertainty))
   | FoundBugs (NonEmpty (Located TruePositive))
@@ -84,11 +89,19 @@ data FunctionSummary m (argTypes :: Ctx (FullType m))
   | SafeUpToBounds Unsoundness
   | AlwaysSafe Unsoundness
 
-data SomeBugfindingResult
-  = forall m arch argTypes.
+-- | The result of running the bugfinding/contract inference main loop. Contains
+-- both the final, summary result ('BugfindingResult'), as well as the sequence
+-- of simulation results that led to it ('UCCruxSimulationResult'), which is
+-- consumed in particular during crash-equivalence checking.
+data SomeBugfindingResult m arch
+  = forall argTypes.
     SomeBugfindingResult
+      (Assignment (FullTypeRepr m) argTypes)
       (BugfindingResult m arch argTypes)
       (Seq (UCCruxSimulationResult m arch argTypes))
+
+data SomeBugfindingResult'
+  = forall m arch. SomeBugfindingResult' (SomeBugfindingResult m arch)
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
 -- compatibility.

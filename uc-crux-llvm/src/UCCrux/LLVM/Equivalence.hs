@@ -221,7 +221,7 @@ getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
 
     pure $
       foldMap
-        ( \(funcName, (SomeBugfindingResult _ trace1, SomeBugfindingResult _ trace2)) ->
+        ( \(funcName, (SomeBugfindingResult _ _ trace1, SomeBugfindingResult _ _ trace2)) ->
             let (diff12, diff21) = computeDiffs trace1 trace2
              in ( map (funcName,) (maybeToList (crashDiffNonEmpty diff12)),
                   map (funcName,) (maybeToList (crashDiffNonEmpty diff21))

@@ -12,6 +12,7 @@ Synopsis:      A bugfinding tool for C programs, using under-constrained symboli
 
 common bldflags
   ghc-options: -Wall
+               -Werror=duplicate-exports
                -Werror=identities
                -Werror=incomplete-patterns
                -Werror=incomplete-record-updates
@@ -65,6 +66,7 @@ library
     UCCrux.LLVM.Overrides.Stack
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
+    UCCrux.LLVM.Run.Check
     UCCrux.LLVM.Run.EntryPoints
     UCCrux.LLVM.Run.Explore
     UCCrux.LLVM.Run.Explore.Config

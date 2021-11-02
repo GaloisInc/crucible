@@ -34,7 +34,14 @@ presence of bugs (when the contract really *should* hold).
 module UCCrux.LLVM.Overrides.Check
   ( CheckOverrideName (..),
     createCheckOverride,
-    checkOverrideFromResult
+    checkOverrideFromResult,
+    CheckedConstraint(..),
+    SomeCheckedConstraint(..),
+    SomeCheckedConstraint'(..),
+    CheckedCall,
+    checkedCallContext,
+    checkedCallArgs,
+    checkedCallConstraints
   )
 where
 
@@ -47,8 +54,6 @@ import           Data.Function ((&))
 import           Data.Foldable.WithIndex (FoldableWithIndex, ifoldrM)
 import           Data.Functor.Compose (Compose(Compose))
 import           Data.IORef (IORef, modifyIORef)
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Text (Text)
@@ -65,6 +70,7 @@ import           Data.Parameterized.Classes (IndexF)
 import           Data.Parameterized.Ctx (Ctx)
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Fin as Fin
+import           Data.Parameterized.TraversableFC (fmapFC)
 import           Data.Parameterized.TraversableFC.WithIndex (FoldableFCWithIndex, ifoldrMFC)
 import           Data.Parameterized.Some (Some(Some), viewSome)
 import qualified Data.Parameterized.Vector as PVec
@@ -137,6 +143,29 @@ data CheckedConstraint m sym (argTypes :: Ctx (FullType m)) inTy atTy
 data SomeCheckedConstraint m sym (argTypes :: Ctx (FullType m)) =
   forall inTy atTy.
     SomeCheckedConstraint (CheckedConstraint m sym argTypes inTy atTy)
+
+data SomeCheckedConstraint' m =
+  forall sym argTypes inTy atTy.
+    SomeCheckedConstraint' (CheckedConstraint m sym argTypes inTy atTy)
+
+-- | This is what a check override (see 'createCheckOverride') records when it
+-- is called during execution, consisting of the calling context, the arguments,
+-- and the results of checking all of the constraints on arguments and global
+-- variables.
+--
+-- TODO(lb): Might be nice to add the values of global variables that were
+-- constrained.
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data CheckedCall m sym arch (argTypes :: Ctx (FullType m)) =
+  CheckedCall
+    { -- | Call stack, including the checked function
+      checkedCallContext :: Stack sym,
+      -- | Function arguments
+      checkedCallArgs :: Ctx.Assignment (Crucible.RegValue' sym) (MapToCrucibleType arch argTypes),
+      checkedCallConstraints :: Seq (SomeCheckedConstraint m sym argTypes)
+    }
 
 -- TODO: Alignment...?
 doLoad ::
@@ -309,6 +338,11 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
             constraintToPred modCtx sym c ftRepr v)
         cs
 
+-- TODO: Split out the part that simply wraps a call to an existing LLVM CFG
+-- with additional Override actions before and after into its own module.
+
+-- | Create an override which checks the given 'Constraints' during symbolic
+-- execution (basically, compiles them to 'Pred's).
 createCheckOverride ::
   forall arch p sym m argTypes ret blocks.
   IsSymInterface sym =>
@@ -317,8 +351,11 @@ createCheckOverride ::
   (?memOpts :: LLVMMem.MemOptions) =>
   AppContext ->
   ModuleContext m arch ->
-  -- | Predicates checked during simulation
-  IORef (Map CheckOverrideName [(Stack sym, Seq (SomeCheckedConstraint m sym argTypes))]) ->
+  -- | When this override is called during symbolic execution, it will stash the
+  -- predictes/constraints it checks (see 'CheckedCall') in this 'IORef'. The
+  -- order of the calls will be the reverse of the order they were encountered
+  -- during symbolic execution.
+  IORef [CheckedCall m sym arch argTypes] ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function contract to check
@@ -349,10 +386,9 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                      argCs <- liftIO $ getArgConstraints sym mem args
                      globCs <- liftIO $ getGlobalConstraints sym mem
                      let cs = argCs <> globCs
-                     let nm = CheckOverrideName name
+                     let args' = fmapFC (Crucible.RV . Crucible.regValue) args
                      liftIO $
-                       modifyIORef usedRef $
-                         Map.alter (Just . maybe [] ((stack, cs):)) nm
+                       modifyIORef usedRef (CheckedCall stack args' cs:)
                      retEntry <- Crucible.callCFG cfg (Crucible.RegMap args)
                      return (Crucible.regValue retEntry, mem)
            }
@@ -404,7 +440,7 @@ checkOverrideFromResult ::
   AppContext ->
   ModuleContext m arch ->
   -- | Predicates checked during simulation
-  IORef (Map CheckOverrideName [(Stack sym, Seq (SomeCheckedConstraint m sym argTypes))]) ->
+  IORef [CheckedCall m sym arch argTypes] ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function implementation
