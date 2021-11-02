@@ -62,7 +62,7 @@ import Crux.LLVM.Config (LLVMOptions)
  -- local
 import           UCCrux.LLVM.Classify.Types (Located(location, locatedValue), Explanation, partitionExplanations, TruePositive, Unfixed, Unfixable, partitionUncertainty)
 import           UCCrux.LLVM.Equivalence.Config (OrderOrEquivalence(..))
-import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext)
 import           UCCrux.LLVM.Logging (Verbosity(Low))
@@ -202,7 +202,7 @@ getCrashDiffs ::
   LLVMOptions ->
   -- | Entry points. If empty, check functions that are in both modules.
   [FunctionName] ->
-  IO ([(String, NonEmptyCrashDiff)], [(String, NonEmptyCrashDiff)])
+  IO ([(FunctionName, NonEmptyCrashDiff)], [(FunctionName, NonEmptyCrashDiff)])
 getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
   do
     results <-
@@ -231,8 +231,8 @@ getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
 
 reportDiffs ::
   AppContext ->
-  [(String, NonEmptyCrashDiff)] ->
-  [(String, NonEmptyCrashDiff)] ->
+  [(FunctionName, NonEmptyCrashDiff)] ->
+  [(FunctionName, NonEmptyCrashDiff)] ->
   IO ()
 reportDiffs appCtx diffs12 diffs21 =
   do
@@ -244,7 +244,7 @@ reportDiffs appCtx diffs12 diffs21 =
               Low
               ( Text.unlines
                   [ "Version 2 had more/different crashes than version 1 on "
-                      <> Text.pack funcName,
+                      <> Text.pack (functionNameToString funcName),
                     renderCrashDiff diff12
                   ]
               )
@@ -256,7 +256,7 @@ reportDiffs appCtx diffs12 diffs21 =
             Low
             ( Text.unlines
                 [ "Version 1 had more/different crashes than version 2 on "
-                    <> Text.pack funcName,
+                    <> Text.pack (functionNameToString funcName),
                   renderCrashDiff diff21
                 ]
             )

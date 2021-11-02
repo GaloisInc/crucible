@@ -58,7 +58,7 @@ import Crux.LLVM.Overrides
 
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
 import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
-import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString, functionNameFromString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, defnTypes)
@@ -66,7 +66,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
-import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), getDefnSymbol, makeDefnSymbol, getModule)
+import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), defnSymbolToString, makeDefnSymbol, getModule)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
@@ -260,7 +260,7 @@ loopOnFunctions ::
   CruxOptions ->
   LLVMOptions ->
   EntryPoints m ->
-  IO (Map.Map String SomeBugfindingResult)
+  IO (Map.Map (DefnSymbol m) SomeBugfindingResult)
 loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries =
   Map.fromList
     <$> llvmPtrWidth
@@ -270,9 +270,8 @@ loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries =
             ptrW
             ( for (getEntryPoints entries) $
                 \entry ->
-                  let L.Symbol name = getDefnSymbol entry
-                  in (name,) . either throw id
-                       <$> loopOnFunction appCtx modCtx halloc cruxOpts llOpts entry
+                  (entry,) . either throw id
+                    <$> loopOnFunction appCtx modCtx halloc cruxOpts llOpts entry
             )
       )
 
@@ -290,7 +289,7 @@ zipResults ::
   LLVMOptions ->
   -- | Entry points. If empty, check functions that are in both modules.
   [FunctionName] ->
-  IO (Map.Map String (SomeBugfindingResult, SomeBugfindingResult))
+  IO (Map.Map FunctionName (SomeBugfindingResult, SomeBugfindingResult))
 zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
   do
     let getFuncs modc =
@@ -319,6 +318,7 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
     entries2 <- makeEntries modCtx2
     results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts llOpts entries1
     results2 <- loopOnFunctions appCtx modCtx2 halloc cruxOpts llOpts entries2
+    let mkFunName = functionNameFromString . defnSymbolToString
     pure $
       -- Note: It's a postcondition of loopOnFunctions that these two maps
       -- have the same keys.
@@ -326,5 +326,5 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
         Map.dropMissing
         Map.dropMissing
         (Map.zipWithMatched (const (,)))
-        results1
-        results2
+        (Map.mapKeys mkFunName results1)
+        (Map.mapKeys mkFunName results2)

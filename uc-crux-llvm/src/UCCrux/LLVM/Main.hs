@@ -86,6 +86,7 @@ import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
 import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
+import           UCCrux.LLVM.Module (defnSymbolToString)
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
@@ -188,7 +189,7 @@ mainWithConfigs appCtx cruxOpts topConf =
                \func (SomeBugfindingResult result _) ->
                  Log.sayUCCruxLLVM
                    ( Log.Results
-                       (Text.pack func)
+                       (Text.pack (defnSymbolToString func))
                        (Result.printFunctionSummary (summary result))
                    )
       Config.CrashEquivalence eqConfig ->
