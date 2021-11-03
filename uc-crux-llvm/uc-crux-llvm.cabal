@@ -62,6 +62,7 @@ library
     UCCrux.LLVM.Overrides.Check
     UCCrux.LLVM.Overrides.Polymorphic
     UCCrux.LLVM.Overrides.Skip
+    UCCrux.LLVM.Overrides.Stack
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
     UCCrux.LLVM.Run.EntryPoints
