@@ -159,6 +159,10 @@ data SimulatorHooks sym m arch (argTypes :: Ctx (FullType m)) r =
     { createOverrideHooks :: [SymCreateOverrideFn sym arch]
     , resultHook ::
         sym ->
+        -- | Pre-simulation memory
+        MemImpl sym ->
+        -- | Arguments passed to the entry point
+        Assignment (Shape m (SymValue sym arch)) argTypes ->
         Crux.CruxSimulationResult ->
         UCCruxSimulationResult m arch argTypes ->
         IO r
@@ -187,7 +191,7 @@ defaultCallbacks =
      SimulatorHooks
        { createOverrideHooks = []
        , resultHook =
-           \_sym cruxResult ucCruxResult ->
+           \_sym _mem _args cruxResult ucCruxResult ->
              return (cruxResult, ucCruxResult)
        }
 
@@ -318,7 +322,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                return (onErrorHook sym skipOverrideRef memRef argRef argAnnRef argShapeRef bbMapRef explRef skipReturnValueAnns)
            , Crux.resultHook =
              \sym result ->
-               mkResultHook sym skipOverrideRef unsoundOverrideRef explRef result resHook
+               mkResultHook sym skipOverrideRef unsoundOverrideRef explRef memRef argShapeRef result resHook
            }
   where
     setupHook ::
@@ -455,7 +459,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       Crux.Explainer sym t Void
     onErrorHook sym skipOverrideRef memRef argRef argAnnRef argShapeRef bbMapRef explRef skipReturnValueAnnotations _groundEvalFn gl =
       do
-        let rd = panic "onErrorHook" []
+        let rd = panic "onErrorHook" ["IORef not written during simulation"]
         -- Read info from initial state
         mem <- fromMaybe rd <$> IORef.readIORef memRef
         args <- fromMaybe rd <$> IORef.readIORef argRef
@@ -521,13 +525,17 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IORef (Set SkipOverrideName) ->
       IORef (Set UnsoundOverrideName) ->
       IORef [Located (Explanation m arch argTypes)] ->
+      IORef (Maybe (MemImpl sym)) ->
+      IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
       Crux.CruxSimulationResult ->
       (sym ->
+        MemImpl sym ->
+        Assignment (Shape m (SymValue sym arch)) argTypes ->
         Crux.CruxSimulationResult ->
         UCCruxSimulationResult m arch argTypes ->
         IO r) ->
       IO r
-    mkResultHook sym skipOverrideRef unsoundOverrideRef explRef cruxResult resHook =
+    mkResultHook sym skipOverrideRef unsoundOverrideRef explRef memRef argShapeRef cruxResult resHook =
       do unsoundness' <-
            Unsoundness
              <$> IORef.readIORef unsoundOverrideRef
@@ -542,7 +550,10 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                        (ExUncertain (UTimeout (funCtx ^. functionName)))
                    ]
                _ -> IORef.readIORef explRef
-         resHook sym cruxResult ucCruxResult
+         let rd = panic "mkResultHook" ["IORef not written during simulation"]
+         mem <- fromMaybe rd <$> IORef.readIORef memRef
+         argShapes <- fromMaybe rd <$> IORef.readIORef argShapeRef
+         resHook sym mem argShapes cruxResult ucCruxResult
 
 
 runSimulatorWithCallbacks ::
@@ -601,5 +612,6 @@ runSimulator appCtx modCtx funCtx halloc overrides preconditions cfg cruxOpts ll
       return $
         SimulatorHooks
           { createOverrideHooks = map symCreateOverrideFn overrides
-          , resultHook = \_sym _cruxResult ucCruxResult -> return ucCruxResult
+          , resultHook =
+              \_sym _mem _args _cruxResult ucCruxResult -> return ucCruxResult
           })
