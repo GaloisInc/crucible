@@ -120,7 +120,7 @@ checkOverrideTests =
                                                      result
                                          ]
                                      , Sim.resultHook =
-                                       \_sym _cruxResult _ucCruxResult ->
+                                       \_sym _mem _args _cruxResult _ucCruxResult ->
                                          -- TODO: Confirm that the values
                                          -- indicate a precondition violation
                                          do mp <- IORef.readIORef ref
