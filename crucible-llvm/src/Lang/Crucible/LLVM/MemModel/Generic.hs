@@ -770,7 +770,7 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
       StorageType ->
       LLVMPtr sym w ->
       ReadMem sym (PartLLVMVal sym)
-    fallback0 tp l =
+    fallback0 tp _l =
       liftIO $
         if laxLoadsAndStores ?memOpts
         then Partial.totalLLVMVal sym <$> freshLLVMVal sym tp
@@ -779,7 +779,7 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
                 -- and we can be relatively sure the annotation will survive.
                 b <- freshConstant sym emptySymbol BaseBoolRepr
                 Partial.Err <$>
-                  Partial.annotateME sym mop (NoSatisfyingWrite tp l) b
+                  Partial.annotateME sym mop (NoSatisfyingWrite tp) b
 
     go :: (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
           LLVMPtr sym w ->

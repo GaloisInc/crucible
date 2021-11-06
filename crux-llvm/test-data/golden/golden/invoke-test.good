@@ -2,9 +2,9 @@
 [Crux]   internal: error: in _ZN3std2rt10lang_start17h4f32aa1279b9079fE
 [Crux]   Failed to load function handle
 [Crux]   Details:
-[Crux]     No implementation or override found for pointer: "_ZN3std2rt19lang_start_internal17h3dc68cf5532522d7E"
+[Crux]     No implementation or override found for pointer
 [Crux]     The given pointer could not be resolved to a callable function
-[Crux]     No implementation or override found for pointer: "_ZN3std2rt19lang_start_internal17h3dc68cf5532522d7E"
+[Crux]     No implementation or override found for pointer
 [Crux]     Attempting to load callable function with type: i64({ }*, [3 x i64]*, i64, i8**)
 [Crux]       Via pointer: Global symbol "_ZN3std2rt19lang_start_internal17h3dc68cf5532522d7E" (1, 0x0:[64])
 [Crux]     In memory state:

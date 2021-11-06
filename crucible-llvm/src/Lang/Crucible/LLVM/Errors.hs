@@ -106,7 +106,7 @@ undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryError :: (1 <= w) => ME.MemoryOp sym w -> ME.MemoryErrorReason sym w -> Pred sym -> LLVMSafetyAssertion sym
+memoryError :: (1 <= w) => ME.MemoryOp sym w -> ME.MemoryErrorReason -> Pred sym -> LLVMSafetyAssertion sym
 memoryError mop rsn pred =
   LLVMSafetyAssertion (BBMemoryError (ME.MemoryError mop rsn)) pred Nothing
 
