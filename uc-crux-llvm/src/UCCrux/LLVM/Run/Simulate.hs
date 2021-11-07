@@ -40,13 +40,14 @@ import           Prelude hiding (log)
 import           Control.Lens ((^.), view, to)
 import           Control.Monad (void, unless)
 import           Control.Monad.IO.Class (liftIO)
-import           Data.Foldable (for_)
+import           Data.Foldable (for_, toList)
 import qualified Data.IORef as IORef
 import           Data.IORef (IORef)
 import           Data.List (isInfixOf)
 import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import           Data.Sequence (Seq)
 import qualified Data.Set as Set
 import           Data.Set (Set)
 import qualified Data.Text as Text
@@ -87,10 +88,10 @@ import           Lang.Crucible.LLVM.Extension (LLVM)
 
 -- crux
 import qualified Crux
-import qualified Crux.Types as Crux
-
 import           Crux.Config.Common (CruxOptions)
 import           Crux.Log (outputHandle)
+import qualified Crux.Report as Crux (provedGoalTraces)
+import qualified Crux.Types as Crux
 
  -- crux-llvm
 import           Crux.LLVM.Config (LLVMOptions(..))
@@ -99,7 +100,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt)
 
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
-import           UCCrux.LLVM.Classify.Types (Located(Located), Explanation(..), Uncertainty(..))
+import           UCCrux.LLVM.Classify.Types (Located(Located), Explanation(..), Uncertainty(..), ppProgramLoc)
 import           UCCrux.LLVM.Constraints (Constraints, returnConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
@@ -536,7 +537,15 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
         IO r) ->
       IO r
     mkResultHook sym skipOverrideRef unsoundOverrideRef explRef memRef argShapeRef cruxResult resHook =
-      do unsoundness' <-
+      do for_ (traces cruxResult) $
+           \trace ->
+             do liftIO $ (appCtx ^. log) Hi "Trace:"
+                for_ trace $
+                  \loc ->
+                    unless (What4.InternalPos == What4.plSourceLoc loc) $
+                      liftIO $ (appCtx ^. log) Hi ("  " <> ppProgramLoc loc)
+
+         unsoundness' <-
            Unsoundness
              <$> IORef.readIORef unsoundOverrideRef
                <*> IORef.readIORef skipOverrideRef
@@ -554,6 +563,16 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
          mem <- fromMaybe rd <$> IORef.readIORef memRef
          argShapes <- fromMaybe rd <$> IORef.readIORef argShapeRef
          resHook sym mem argShapes cruxResult ucCruxResult
+
+    traces :: Crux.CruxSimulationResult -> Set (Seq What4.ProgramLoc)
+    traces =
+      Set.fromList .
+        toList .
+        mconcat .
+        toList .
+        fmap (Crux.provedGoalTraces . snd) .
+        Crux.cruxSimResultGoals
+
 
 
 runSimulatorWithCallbacks ::
