@@ -469,8 +469,8 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
         requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (summarizeOp -> (_expl, _ptr, mem))
-          (MemError.NoSatisfyingWrite _storageType ptr)
+          (summarizeOp -> (_expl, ptr, mem))
+          (MemError.NoSatisfyingWrite _storageType)
         ) ->
         do
           ann <- liftIO $ getPtrBlockOrOffsetAnn ptr

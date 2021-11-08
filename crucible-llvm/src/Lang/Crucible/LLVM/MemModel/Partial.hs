@@ -244,7 +244,7 @@ annotateUB sym ub p =
 annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   MemoryOp sym w ->
-  MemoryErrorReason sym w ->
+  MemoryErrorReason ->
   Pred sym ->
   IO (Pred sym)
 annotateME sym mop rsn p =
@@ -271,7 +271,7 @@ data PartLLVMVal sym where
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
 partErr :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
-  sym -> MemoryOp sym w -> MemoryErrorReason sym w -> IO (PartLLVMVal sym)
+  sym -> MemoryOp sym w -> MemoryErrorReason -> IO (PartLLVMVal sym)
 partErr sym errCtx rsn =
   do p <- annotateME sym errCtx rsn (falsePred sym)
      pure (Err p)
@@ -295,7 +295,7 @@ attachMemoryError ::
   sym ->
   Pred sym ->
   MemoryOp sym w ->
-  MemoryErrorReason sym w ->
+  MemoryErrorReason ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 attachMemoryError sym pnew mop rsn pv =

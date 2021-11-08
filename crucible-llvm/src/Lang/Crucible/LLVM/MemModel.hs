@@ -67,6 +67,8 @@ module Lang.Crucible.LLVM.MemModel
   , G.AllocType(..)
   , G.Mutability(..)
   , doMallocHandle
+  , ME.FuncLookupError(..)
+  , ME.ppFuncLookupError
   , doLookupHandle
   , doInstallHandle
   , doMemcpy
@@ -202,7 +204,6 @@ import           Data.Text (Text)
 import           Data.Word
 import           GHC.TypeNats
 import           Numeric.Natural
-import           Prettyprinter
 import           System.IO (Handle, hPutStrLn)
 
 import qualified Data.BitVector.Sized as BV
@@ -233,6 +234,7 @@ import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.Errors.MemoryError
    (MemErrContext, MemoryErrorReason(..), MemoryOp(..), ppMemoryErrorReason)
+import qualified Lang.Crucible.LLVM.Errors.MemoryError as ME
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
@@ -315,7 +317,7 @@ assertStoreError ::
   (IsSymInterface sym, Partial.HasLLVMAnn sym, 1 <= wptr) =>
   sym ->
   MemErrContext sym wptr ->
-  MemoryErrorReason sym wptr ->
+  MemoryErrorReason ->
   Pred sym ->
   IO ()
 assertStoreError sym errCtx rsn p =
@@ -428,14 +430,14 @@ evalStmt sym = eval
   eval (LLVM_LoadHandle mvar ltp (regValue -> ptr) args ret) =
      do mem <- getMem mvar
         let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
-        mhandle <- liftIO $ doLookupHandle sym mem ptr gsym
+        mhandle <- liftIO $ doLookupHandle sym mem ptr
         let mop = MemLoadHandleOp ltp gsym ptr (memImplHeap mem)
         let expectedTp = FunctionHandleRepr args ret
         case mhandle of
-           Left doc -> lift $
-             do p <- Partial.annotateME sym mop (BadFunctionPointer doc) (falsePred sym)
+           Left lookupErr -> lift $
+             do p <- Partial.annotateME sym mop (BadFunctionPointer lookupErr) (falsePred sym)
                 loc <- getCurrentProgramLoc sym
-                let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show doc))
+                let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show (ME.ppFuncLookupError lookupErr)))
                 addProofObligation sym (LabeledPred p err)
                 abortExecBecause (AssertionFailure err)
 
@@ -748,29 +750,19 @@ doLookupHandle
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr
-  -> Maybe String
-  -> IO (Either (Doc ann) a)
-doLookupHandle _sym mem ptr gsym = do
+  -> IO (Either ME.FuncLookupError a)
+doLookupHandle _sym mem ptr = do
   let LLVMPointer blk _ = ptr
-  let ptrDoc = hang 2 $
-         case gsym of
-           Just s  -> viaShow s
-           Nothing -> ppPtr ptr
   case asNat blk of
-    Nothing -> return (Left ("Cannot resolve a symbolic pointer to a function handle:" <+> ptrDoc))
+    Nothing -> return (Left ME.SymbolicPointer)
     Just i
-      | i == 0 -> return (Left ("Cannot treat raw bitvector as function pointer:" <+> ptrDoc))
+      | i == 0 -> return (Left ME.RawBitvector)
       | otherwise ->
           case Map.lookup i (memImplHandleMap mem) of
-            Nothing -> return (Left ("No implementation or override found for pointer:" <+> ptrDoc))
+            Nothing -> return (Left ME.NoOverride)
             Just x ->
               case fromDynamic x of
-                Nothing ->
-                  return $ Left $ vcat
-                  [ "Data associated with the pointer found, but was not a callable function:"
-                  , hang 2 (viaShow (dynTypeRep x))
-                  , ptrDoc
-                  ]
+                Nothing -> return (Left (ME.Uncallable (dynTypeRep x)))
                 Just a  -> return (Right a)
 
 -- | Free the memory region pointed to by the given pointer.
