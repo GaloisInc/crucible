@@ -12,6 +12,8 @@ import qualified Data.Foldable as Fold
 import Data.Functor.Const
 import Data.List (partition)
 import Data.Maybe (fromMaybe)
+import qualified Data.Sequence as Seq
+import           Data.Sequence (Seq)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Control.Exception (catch, SomeException(..))
@@ -84,10 +86,21 @@ maybeGenerateSource opts files =
 -- | Return a list of all program locations referenced in a set of
 -- proved goals.
 provedGoalLocs :: ProvedGoals -> [ProgramLoc]
-provedGoalLocs (Branch goals1 goals2) = provedGoalLocs goals1 ++
-                                        provedGoalLocs goals2
-provedGoalLocs (ProvedGoal _ err locs _) = locs ++ [simErrorLoc err]
-provedGoalLocs (NotProvedGoal _ err _ locs _) = locs ++ [simErrorLoc err]
+provedGoalLocs = concatMap Fold.toList . provedGoalTraces
+
+-- | Return a list of all of the traces referenced in a set of proved goals.
+--
+-- This returns a sequence-of-sequences because a single 'ProvedGoals' can
+-- involve many 'Branch'es, which mirror the branching structure of the program
+-- execution that led to each individual 'ProvedGoal' or 'NotProvedGoal'.
+provedGoalTraces :: ProvedGoals -> Seq (Seq ProgramLoc)
+provedGoalTraces =
+  \case
+    Branch pgs1 pgs2 -> provedGoalTraces pgs1 <> provedGoalTraces pgs2
+    ProvedGoal _ err locs _ ->
+      Seq.singleton (Seq.fromList locs Seq.|> simErrorLoc err)
+    NotProvedGoal _ err _ locs _ ->
+      Seq.singleton (Seq.fromList locs Seq.|> simErrorLoc err)
 
 -- | Return a list of all files referenced in a set of proved goals.
 provedGoalFiles :: ProvedGoals -> Set.Set FilePath
