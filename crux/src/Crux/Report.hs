@@ -91,7 +91,7 @@ provedGoalLocs = concatMap Fold.toList . provedGoalTraces
 -- | Return a list of all of the traces referenced in a set of proved goals.
 --
 -- This returns a sequence-of-sequences because a single 'ProvedGoals' can
--- involve many 'Branch', which mirror the branching structure of the program
+-- involve many 'Branch'es, which mirror the branching structure of the program
 -- execution that led to each individual 'ProvedGoal' or 'NotProvedGoal'.
 provedGoalTraces :: ProvedGoals -> Seq (Seq ProgramLoc)
 provedGoalTraces =
