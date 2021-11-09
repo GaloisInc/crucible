@@ -1,3 +1,6 @@
+use core::num::Wrapping;
+
+
 pub trait Symbolic: Sized {
     /// Create a new symbolic value of this type.  `desc` is used to refer to this symbolic value
     /// when printing counterexamples.
@@ -104,6 +107,8 @@ array_impls! {
     10 11 12 13 14 15 16 17 18 19
     20 21 22 23 24 25 26 27 28 29
     30 31 32
+    // Some common larger sizes
+    40 48 64 80 96 128 160 256
 }
 
 macro_rules! tuple_impls {
@@ -135,6 +140,13 @@ tuple_impls! {
     A B C D E F G H I J;
     A B C D E F G H I J K;
     A B C D E F G H I J K L;
+}
+
+
+impl<T: Symbolic> Symbolic for Wrapping<T> {
+    fn symbolic(desc: &'static str) -> Wrapping<T> {
+        Wrapping(T::symbolic(desc))
+    }
 }
 
 

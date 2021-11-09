@@ -77,15 +77,23 @@ impl Folder {
 
         let path = &self.subject_function_path;
         let add_args = call.args.iter().map(|arg| {
-            quote!(__crux_msb.add_arg(&#arg);)
+            quote!(__crux_msb.add_arg(&(#arg));)
         }).collect::<Vec<_>>();
+        let plain_args = call.args.iter().cloned().collect::<Vec<_>>();
         let tokens = if self.spec_mode {
             let func_name_str = format!("{}_result", path.segments.last().unwrap().ident);
             quote_spanned!(call.span()=> {
-                __crux_msb = crucible::method_spec::MethodSpecBuilder::new(#path);
+                let __crux_func = #path;
+                __crux_msb = crucible::method_spec::MethodSpecBuilder::new(__crux_func);
                 #(#add_args)*
                 __crux_msb.gather_assumes();
-                let result = crucible::Symbolic::symbolic(#func_name_str);
+                let result = if false {
+                    // Force the output of `Symbolic::symbolic` to unify with the return type of
+                    // the original function call.
+                    __crux_func(#(#plain_args),*)
+                } else {
+                    crucible::Symbolic::symbolic(#func_name_str)
+                };
                 // TODO: is it correct to call `set_return` this early?
                 __crux_msb.set_return(&result);
                 result
@@ -115,7 +123,20 @@ impl Fold for Folder {
             Expr::Verbatim(x) => report_error(x.span(), "unparsed expressions are not supported"),
 
             Expr::Macro(x) => {
-                if !self.allow_macros {
+                // Whitelist crux-mir macros
+                let mut allowed = false;
+                if let Some(seg) = x.mac.path.segments.last() {
+                    let ident = seg.ident.to_string();
+                    match &ident as &str {
+                        "crucible_assert" |
+                        "crucible_assume" => {
+                            allowed = true;
+                        },
+                        _ => {},
+                    }
+                }
+
+                if !self.allow_macros && !allowed {
                     report_error(x.span(), "macro expressions are not supported")
                 } else {
                     Expr::Macro(fold::fold_expr_macro(self, x))
@@ -241,7 +262,7 @@ pub fn crux_spec_for(args: TokenStream, input: TokenStream) -> TokenStream {
         );
 
         let block = parse_quote!({
-            let mut __crux_msb: crucible::method_spec::MethodSpec;
+            let mut __crux_msb: crucible::method_spec::MethodSpecBuilder;
             #block
             __crux_msb.gather_asserts();
             __crux_msb.finish()
