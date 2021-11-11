@@ -77,11 +77,12 @@ import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
+import           UCCrux.LLVM.Module (defnSymbolToString)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
-import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
+import           UCCrux.LLVM.Run.Result (SomeBugfindingResult', DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 
@@ -112,24 +113,25 @@ findBugs ::
   Maybe L.Module ->
   FilePath ->
   [FunctionName] ->
-  IO (Map.Map String Result.SomeBugfindingResult)
+  IO (Map.Map String Result.SomeBugfindingResult')
 findBugs llvmModule file fns =
   Utils.withOptions llvmModule file $
     \appCtx modCtx halloc cruxOpts llOpts ->
-      loopOnFunctions
-        appCtx
-        modCtx
-        halloc
-        cruxOpts
-        llOpts
-        =<< makeEntryPointsOrThrow (modCtx ^. defnTypes) fns
+      fmap (Map.mapKeys defnSymbolToString . Map.map Result.SomeBugfindingResult') <$>
+        loopOnFunctions
+          appCtx
+          modCtx
+          halloc
+          cruxOpts
+          llOpts
+          =<< makeEntryPointsOrThrow (modCtx ^. defnTypes) fns
 
 getCrashDiff ::
   FilePath ->
   L.Module ->
   FilePath ->
   L.Module ->
-  IO (AppContext, ([(String, NonEmptyCrashDiff)], [(String, NonEmptyCrashDiff)]))
+  IO (AppContext, ([(FunctionName, NonEmptyCrashDiff)], [(FunctionName, NonEmptyCrashDiff)]))
 getCrashDiff path1 mod1 path2 mod2 =
   Utils.withOptions (Just mod1) path1 $
     \_ modCtx1 _ _ _ ->
@@ -181,7 +183,7 @@ checkCrashDiff path1 mod1 path2 mod2 equivalent invert =
               ]
           )
 
-inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
+inFile :: FilePath -> [(String, String -> SomeBugfindingResult' -> IO ())] -> TT.TestTree
 inFile file specs =
   TH.testCase file $
     do
@@ -189,9 +191,11 @@ inFile file specs =
         findBugs Nothing file (map (functionNameFromString . fst) specs)
       for_ specs $
         \(fn, spec) ->
-          spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
+          spec fn $
+            fromMaybe (error ("Couldn't find result for function" ++ fn)) $
+              Map.lookup fn results
 
-inModule :: FilePath -> L.Module -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
+inModule :: FilePath -> L.Module -> [(String, String -> SomeBugfindingResult' -> IO ())] -> TT.TestTree
 inModule fakePath llvmModule specs =
   TH.testCase fakePath $
     do
@@ -202,16 +206,16 @@ inModule fakePath llvmModule specs =
           spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
 
 -- | TODO: Take a list of TruePositiveTag, verify that those are the bugs.
-hasBugs :: String -> Result.SomeBugfindingResult -> IO ()
-hasBugs fn (Result.SomeBugfindingResult result _) =
+hasBugs :: String -> SomeBugfindingResult' -> IO ()
+hasBugs fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
       Result.FoundBugs _bugs -> pure ()
       _ -> TH.assertFailure (unwords ["Expected", fn, "to have bugs"])
 
-isSafe :: Unsoundness -> String -> Result.SomeBugfindingResult -> IO ()
-isSafe unsoundness fn (Result.SomeBugfindingResult result _) =
+isSafe :: Unsoundness -> String -> SomeBugfindingResult' -> IO ()
+isSafe unsoundness fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -226,8 +230,8 @@ isSafe unsoundness fn (Result.SomeBugfindingResult result _) =
               ]
           )
 
-isSafeToBounds :: Unsoundness -> String -> Result.SomeBugfindingResult -> IO ()
-isSafeToBounds unsoundness fn (Result.SomeBugfindingResult result _) =
+isSafeToBounds :: Unsoundness -> String -> SomeBugfindingResult' -> IO ()
+isSafeToBounds unsoundness fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -243,8 +247,8 @@ isSafeToBounds unsoundness fn (Result.SomeBugfindingResult result _) =
           )
 
 -- | TODO: Take a list of MissingPreconditionTag, check that they match.
-isSafeWithPreconditions :: Unsoundness -> DidHitBounds -> String -> Result.SomeBugfindingResult -> IO ()
-isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult result _) =
+isSafeWithPreconditions :: Unsoundness -> DidHitBounds -> String -> SomeBugfindingResult' -> IO ()
+isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -262,8 +266,8 @@ isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult re
               ]
           )
 
-_isUnannotated :: String -> Result.SomeBugfindingResult -> IO ()
-_isUnannotated fn (Result.SomeBugfindingResult result _) =
+_isUnannotated :: String -> SomeBugfindingResult' -> IO ()
+_isUnannotated fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -281,8 +285,8 @@ _isUnannotated fn (Result.SomeBugfindingResult result _) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
-_hasFailedAssert :: String -> Result.SomeBugfindingResult -> IO ()
-_hasFailedAssert fn (Result.SomeBugfindingResult result _) =
+_hasFailedAssert :: String -> SomeBugfindingResult' -> IO ()
+_hasFailedAssert fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -300,8 +304,8 @@ _hasFailedAssert fn (Result.SomeBugfindingResult result _) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
-isUnclassified :: String -> Result.SomeBugfindingResult -> IO ()
-isUnclassified fn (Result.SomeBugfindingResult result _) =
+isUnclassified :: String -> SomeBugfindingResult' -> IO ()
+isUnclassified fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -319,8 +323,8 @@ isUnclassified fn (Result.SomeBugfindingResult result _) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
-isUnfixed :: String -> Result.SomeBugfindingResult -> IO ()
-isUnfixed fn (Result.SomeBugfindingResult result _) =
+isUnfixed :: String -> SomeBugfindingResult' -> IO ()
+isUnfixed fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -338,8 +342,8 @@ isUnfixed fn (Result.SomeBugfindingResult result _) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
-hasMissingAnn :: String -> Result.SomeBugfindingResult -> IO ()
-hasMissingAnn fn (Result.SomeBugfindingResult result _) =
+hasMissingAnn :: String -> SomeBugfindingResult' -> IO ()
+hasMissingAnn fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -364,7 +368,7 @@ isUnimplemented file fn =
     catchUnimplemented
       ( do
           results <- findBugs Nothing file [functionNameFromString fn]
-          Result.SomeBugfindingResult result _ <-
+          Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _) <-
             pure $ fromMaybe (error "No result") (Map.lookup fn results)
           let (_unclass, _missingAnn, _failedAssert, unimpl, _unfixed, _unfixable, _timeouts) =
                 partitionUncertainty (Result.uncertainResults result)

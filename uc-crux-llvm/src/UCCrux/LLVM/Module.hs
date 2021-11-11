@@ -40,6 +40,7 @@ module UCCrux.LLVM.Module
     defnSymbol,
     makeDefnSymbol,
     getDefnSymbol,
+    defnSymbolToString,
     isEmptyDefnMap,
     makeFuncMap,
     funcMapDecls,
@@ -321,6 +322,10 @@ makeDefnSymbol symbol (DefnMap (SymbolMap mp)) =
 
 getDefnSymbol :: DefnSymbol m -> L.Symbol
 getDefnSymbol (DefnSymbol (Symbol s)) = s
+
+defnSymbolToString :: DefnSymbol m -> String
+defnSymbolToString = (\(L.Symbol s) -> s) . getDefnSymbol
+
 
 isEmptyDefnMap :: DefnMap m a -> Bool
 isEmptyDefnMap (DefnMap (SymbolMap m)) = Map.null m

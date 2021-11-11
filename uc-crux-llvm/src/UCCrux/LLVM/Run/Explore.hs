@@ -95,7 +95,7 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir defnSym =
             (secondsToMicroseconds (ExConfig.exploreTimeout exOpts))
             (loopOnFunction appCtx modCtx halloc cruxOpts llOpts defnSym)
         case maybeResult of
-          Right (Right (SomeBugfindingResult result _trace)) ->
+          Right (Right (SomeBugfindingResult _types result _trace)) ->
             do
               writeFile logFilePath (Result.printFunctionSummary (Result.summary result))
               pure (getStats result)

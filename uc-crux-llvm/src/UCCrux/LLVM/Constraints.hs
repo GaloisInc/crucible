@@ -20,6 +20,7 @@ Stability    : provisional
 module UCCrux.LLVM.Constraints
   ( -- * Types of constraints
     ShapeConstraint (..),
+    ppShapeConstraint,
     Constraint (..),
     ppConstraint,
     RelationalConstraint (..),
@@ -116,6 +117,18 @@ data ShapeConstraint (m :: Type) (atTy :: FullType m) where
 
 deriving instance Eq (ShapeConstraint m atTy)
 
+ppShapeConstraint :: ShapeConstraint m atTy -> Doc ann
+ppShapeConstraint =
+  \case
+    Allocated sz ->
+      PP.pretty "points to allocated space for"
+      PP.<+> PP.viaShow sz
+      PP.<+> PP.pretty "elements"
+    Initialized sz ->
+      PP.pretty "points to"
+      PP.<+> PP.viaShow sz
+      PP.<+> PP.pretty "initialized elements"
+
 -- | A 'Constraint' is in general, something that can be \"applied\" to a
 -- symbolic value to produce a predicate. In practice, these represent
 -- \"missing\" function preconditions that are deduced by
@@ -134,7 +147,7 @@ instance Eq (Constraint m atTy) where
       (Aligned n1, Aligned n2) -> n1 == n2
       (BVCmp op1 _ bv1, BVCmp op2 _ bv2) -> op1 == op2 && bv1 == bv2
 
-ppConstraint :: Constraint m ft -> Doc Void
+ppConstraint :: Constraint m ft -> Doc ann
 ppConstraint =
   \case
     Aligned alignment ->
@@ -150,10 +163,10 @@ ppConstraint =
     BVCmp L.Isgt w bv -> PP.pretty "is (signed) greater than " <> signed w bv
     BVCmp L.Isge w bv -> PP.pretty "is (signed) greater than or equal to " <> signed w bv
   where
-    signed :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
+    signed :: forall ann w. (1 <= w) => NatRepr w -> BV w -> PP.Doc ann
     signed w bv =
       PP.viaShow (BV.asSigned w bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
-    unsigned :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
+    unsigned :: forall ann w. (1 <= w) => NatRepr w -> BV w -> PP.Doc ann
     unsigned w bv =
       PP.viaShow (BV.asUnsigned bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
 

@@ -40,14 +40,19 @@ where
 import           Prelude hiding (log)
 
 import           Control.Lens ((^.))
-import           Control.Monad (void)
+import           Control.Monad (forM_, void)
 import           Data.Aeson (ToJSON)
+import           Data.Foldable (for_)
 import qualified Data.List.NonEmpty as NonEmpty
 import           GHC.Generics (Generic)
 import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
+import qualified Data.Text.IO as Text.IO
+
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
 
 import qualified Text.LLVM.AST as L
 
@@ -77,7 +82,7 @@ import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation, defnTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -86,6 +91,8 @@ import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
 import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
+import           UCCrux.LLVM.Module (defnSymbolToString)
+import           UCCrux.LLVM.Run.Check (inferThenCheck, ppSomeCheckResult)
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
@@ -156,41 +163,43 @@ mainWithConfigs appCtx cruxOpts topConf =
     SomeModuleContext' modCtx <- translateFile llOpts halloc memVar path
     case Config.runConfig topConf of
       Config.Explore exConfig ->
-        llvmPtrWidth
-          (modCtx ^. moduleTranslation . transContext)
-          ( \ptrW ->
-              withPtrWidth
-                ptrW
-                ( explore
-                    appCtx
-                    modCtx
-                    cruxOpts
-                    llOpts
-                    exConfig
-                    halloc
-                )
-          )
-      Config.RunOn ents ->
+        withModulePtrWidth
+          modCtx
+          (explore appCtx modCtx cruxOpts llOpts exConfig halloc)
+      Config.RunOn ents checkFrom ->
         do entries <-
              makeEntryPointsOrThrow
                (modCtx ^. defnTypes)
                (NonEmpty.toList ents)
-           results <-
-             loopOnFunctions
-               appCtx
-               modCtx
-               halloc
-               cruxOpts
-               llOpts
-               entries
-           void $
-             flip Map.traverseWithKey results $
-               \func (SomeBugfindingResult result _) ->
-                 Log.sayUCCruxLLVM
-                   ( Log.Results
-                       (Text.pack func)
-                       (Result.printFunctionSummary (summary result))
-                   )
+           let printResult results =
+                 forM_ (Map.toList results) $
+                   \(func, SomeBugfindingResult _types result _trace) ->
+                     Log.sayUCCruxLLVM
+                       ( Log.Results
+                           (Text.pack (defnSymbolToString func))
+                           (Result.printFunctionSummary (summary result))
+                       )
+           case checkFrom of
+             [] ->
+               printResult =<<
+                 loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries
+             _ ->
+               withModulePtrWidth
+                 modCtx
+                 ( do checkFromEntries <-
+                        makeEntryPointsOrThrow
+                          (modCtx ^. defnTypes)
+                          checkFrom
+                      (result, checkResult) <-
+                        inferThenCheck appCtx modCtx halloc cruxOpts llOpts entries checkFromEntries
+                      printResult result
+                      for_ (Map.toList checkResult) $
+                        \(checkedFunc, checkedResult) ->
+                          Text.IO.putStrLn .
+                            PP.renderStrict .
+                              PP.layoutPretty PP.defaultLayoutOptions =<<
+                                ppSomeCheckResult appCtx checkedFunc checkedResult
+                 )
       Config.CrashEquivalence eqConfig ->
         do path' <-
              genBitCode
