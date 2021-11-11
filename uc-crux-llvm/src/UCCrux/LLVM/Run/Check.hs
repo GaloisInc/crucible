@@ -55,7 +55,7 @@ import qualified Lang.Crucible.Simulator.RegMap as Crucible
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM.MemModel (MemImpl, HasLLVMAnn)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
 import           Lang.Crucible.LLVM.Extension (LLVM)
 
 -- crux
@@ -78,6 +78,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType (FullType, FullTypeRepr, MapToCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FT
 import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(FuncDefnSymbol), defnSymbolToString)
+import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPreSimulationMem)
 import qualified UCCrux.LLVM.Overrides.Check as Check
 import qualified UCCrux.LLVM.Overrides.Stack as Stack
 import           UCCrux.LLVM.PP (ppRegMap)
@@ -120,7 +121,7 @@ newtype CheckResult m arch (argTypes :: Ctx (FullType m)) =
          IsSymInterface sym =>
          sym ->
          -- | Pre-simulation memory
-         MemImpl sym ->
+         PreSimulationMem sym ->
          -- | Arguments passed to the entry point
          Assignment (Shape m (SymValue sym arch)) argTypes ->
          Crux.CruxSimulationResult ->
@@ -351,7 +352,7 @@ ppSomeCheckResult _appCtx entry proxy@(SomeCheckResult _ftReprs (CheckResult k))
       forall sym.
       IsSymInterface sym =>
       sym ->
-      MemImpl sym ->
+      PreSimulationMem sym ->
       SomeCheckedCalls m sym arch ->
       IO (Maybe (PP.Doc ann))
     ppOne sym mem (SomeCheckedCalls k') =
@@ -370,7 +371,7 @@ ppSomeCheckResult _appCtx entry proxy@(SomeCheckResult _ftReprs (CheckResult k))
       IsSymInterface sym =>
       FunctionContext m arch argTypes ->
       sym ->
-      MemImpl sym ->
+      PreSimulationMem sym ->
       Check.CheckedCall m sym arch argTypes ->
       IO (PP.Doc ann)
     ppCheckedCall funCtx sym mem call =
@@ -383,7 +384,7 @@ ppSomeCheckResult _appCtx entry proxy@(SomeCheckResult _ftReprs (CheckResult k))
                     Crucible.RegEntry
                       (argFTys ^. ixF' i . to (FT.toCrucibleType proxy))
                       (Check.checkedCallArgs call ^. ixF' i' . to Crucible.unRV))
-         prettyArgs <- ppRegMap proxy funCtx sym mem (Crucible.RegMap args)
+         prettyArgs <- ppRegMap proxy funCtx sym (getPreSimulationMem mem) (Crucible.RegMap args)
          prettyChecked <-
            mapM (ppCheckedConstraint sym) (Check.checkedCallConstraints call)
          return $
