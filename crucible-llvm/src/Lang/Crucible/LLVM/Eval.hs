@@ -45,7 +45,7 @@ llvmExtensionEval sym _iTypes _logFn eval e =
   case e of
     X86Expr ex -> X86.eval sym eval ex
 
-    LLVM_SideConditions _tp conds val ->
+    LLVM_SideConditions _ _tp conds val ->
       do conds' <- traverse (traverseF (\x -> RV @sym <$> eval x)) (NE.toList conds)
          forM_ conds' (assertSideCondition sym)
          eval val

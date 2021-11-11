@@ -986,10 +986,12 @@ type EvalStmtFunc p sym ext =
 data ExtensionImpl p sym ext
   = ExtensionImpl
     { extensionEval ::
+        forall rtp blocks r ctx.
         IsSymInterface sym =>
         sym ->
         IntrinsicTypes sym ->
         (Int -> String -> IO ()) ->
+        CrucibleState p sym ext rtp blocks r ctx ->
         EvalAppFunc sym (ExprExtension ext)
 
     , extensionExec :: EvalStmtFunc p sym ext
@@ -1000,7 +1002,7 @@ data ExtensionImpl p sym ext
 emptyExtensionImpl :: ExtensionImpl p sym ()
 emptyExtensionImpl =
   ExtensionImpl
-  { extensionEval = \_sym _iTypes _log _f -> \case
+  { extensionEval = \_sym _iTypes _log _f _state -> \case
   , extensionExec = \case
   }
 
