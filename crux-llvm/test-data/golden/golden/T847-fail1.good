@@ -8,6 +8,8 @@
 [Crux]       The C language standard, version C11
 [Crux]       §7.22.6 Integer arithmetic functions, ¶1
 [Crux]       Document URL: http://www.iso-9899.info/n1570.html
+[Crux]     in context:
+[Crux]       main
 [Crux] Found counterexample for verification goal
 [Crux]   internal: error: in main
 [Crux]   Undefined behavior encountered
@@ -18,6 +20,8 @@
 [Crux]       The C language standard, version C11
 [Crux]       §7.22.6 Integer arithmetic functions, ¶1
 [Crux]       Document URL: http://www.iso-9899.info/n1570.html
+[Crux]     in context:
+[Crux]       main
 [Crux] Found counterexample for verification goal
 [Crux]   internal: error: in main
 [Crux]   Undefined behavior encountered
@@ -28,4 +32,6 @@
 [Crux]       The C language standard, version C11
 [Crux]       §7.22.6 Integer arithmetic functions, ¶1
 [Crux]       Document URL: http://www.iso-9899.info/n1570.html
+[Crux]     in context:
+[Crux]       main
 [Crux] Overall status: Invalid.

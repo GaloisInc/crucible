@@ -66,7 +66,7 @@ withMem ::
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
   CBO.withZ3OnlineBackend W4B.FloatIEEERepr nonce_gen CBO.NoUnsatFeatures noFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
-    let ?recordLLVMAnnotation = \_ _ -> pure ()
+    let ?recordLLVMAnnotation = \_ _ _ -> pure ()
     let ?memOpts = LLVMMem.defaultMemOptions
     mem <- LLVMMem.emptyMem endianess
     action sym mem

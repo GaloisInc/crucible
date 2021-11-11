@@ -237,6 +237,7 @@ import           Lang.Crucible.LLVM.Errors.MemoryError
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as ME
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemType
+import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack, getCallStack)
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
 import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
@@ -250,7 +251,7 @@ import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Panic (panic)
 
 
-import           GHC.Stack
+import           GHC.Stack (HasCallStack)
 
 ----------------------------------------------------------------------
 -- The MemImpl type
@@ -305,11 +306,12 @@ doDumpMem h mem = do
 assertUndefined ::
   (IsSymInterface sym, Partial.HasLLVMAnn sym) =>   -- HasPtrWidth wptr)
   sym ->
+  CallStack ->
   Pred sym ->
   (UB.UndefinedBehavior (RegValue' sym)) {- ^ The undesirable behavior -} ->
   IO ()
-assertUndefined sym p ub =
-  do p' <- Partial.annotateUB sym ub p
+assertUndefined sym callStack p ub =
+  do p' <- Partial.annotateUB sym callStack ub p
      assert sym p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
 
 
@@ -474,9 +476,10 @@ evalStmt sym = eval
         v2 <- isValidPointer sym y mem
         v3 <- G.notAliasable sym x y (memImplHeap mem)
 
-        assertUndefined sym v1 $
+        let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+        assertUndefined sym callStack v1 $
           UB.CompareInvalidPointer UB.Eq (RV x) (RV y)
-        assertUndefined sym v2 $
+        assertUndefined sym callStack v2 $
           UB.CompareInvalidPointer UB.Eq (RV x) (RV y)
 
         unless (laxConstantEquality ?memOpts) $
@@ -498,13 +501,15 @@ evalStmt sym = eval
     liftIO $ do
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
-       assertUndefined sym v1
+
+       let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+       assertUndefined sym callStack v1
         (UB.CompareInvalidPointer UB.Leq (RV x) (RV y))
-       assertUndefined sym v2
+       assertUndefined sym callStack v2
         (UB.CompareInvalidPointer UB.Leq (RV x) (RV y))
 
        (le, valid) <- ptrLe sym PtrWidth x y
-       assertUndefined sym valid
+       assertUndefined sym callStack valid
          (UB.CompareDifferentAllocs (RV x) (RV y))
 
        pure le
@@ -791,9 +796,10 @@ doFree sym mem ptr = do
   p1'       <- orPred sym p1 isNull
   p2'       <- orPred sym p2 isNull
   notFreed' <- orPred sym notFreed isNull
-  assertUndefined sym p1' (UB.FreeBadOffset (RV ptr))
-  assertUndefined sym p2' (UB.FreeUnallocated (RV ptr))
-  assertUndefined sym notFreed' (UB.DoubleFree (RV ptr))
+  let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+  assertUndefined sym callStack p1' (UB.FreeBadOffset (RV ptr))
+  assertUndefined sym callStack p2' (UB.FreeUnallocated (RV ptr))
+  assertUndefined sym callStack notFreed' (UB.DoubleFree (RV ptr))
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
@@ -814,7 +820,8 @@ doMemset sym w mem dest val len = do
 
   (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
-  assertUndefined sym p $
+  let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+  assertUndefined sym callStack p $
     UB.MemsetInvalidRegion (RV dest) (RV val) (RV len)
 
   return mem{ memImplHeap = heap' }
@@ -885,7 +892,8 @@ doArrayStoreSize len sym mem ptr alignment arr = do
   let mop = MemStoreBytesOp gsym ptr len (memImplHeap mem)
 
   assertStoreError sym mop UnwritableRegion p1
-  assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
+  let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+  assertUndefined sym callStack p2 (UB.WriteBadAlignment (RV ptr) alignment)
 
   return mem { memImplHeap = heap' }
 
@@ -910,7 +918,8 @@ doArrayConstStore sym mem ptr alignment arr len = do
   let mop = MemStoreBytesOp gsym ptr (Just len) (memImplHeap mem)
 
   assertStoreError sym mop UnwritableRegion p1
-  assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
+  let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+  assertUndefined sym callStack p2 (UB.WriteBadAlignment (RV ptr) alignment)
 
   return mem { memImplHeap = heap' }
 
@@ -975,9 +984,10 @@ doPtrSubtract ::
   LLVMPtr sym wptr ->
   LLVMPtr sym wptr ->
   IO (SymBV sym wptr)
-doPtrSubtract sym _m x y = do
+doPtrSubtract sym mem x y = do
   (diff, valid) <- ptrDiff sym PtrWidth x y
-  assertUndefined sym valid $
+  let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+  assertUndefined sym callStack valid $
     UB.PtrSubDifferentAllocs (RV x) (RV y)
   pure diff
 
@@ -997,7 +1007,8 @@ doPtrAddOffset sym m x@(LLVMPointer blk _) off = do
          Just True  -> return isBV
          _ -> orPred sym isBV =<< G.isValidPointer sym PtrWidth x' (memImplHeap m)
   unless (laxLoadsAndStores ?memOpts) $
-    assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
+    let callStack = getCallStack (m ^. to memImplHeap . ML.memState)
+    in assertUndefined sym callStack v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
   return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer
@@ -1176,7 +1187,8 @@ storeRaw sym mem ptr valType alignment val = do
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
     assertStoreError sym mop UnwritableRegion p1
-    assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
+    let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+    assertUndefined sym callStack p2 (UB.WriteBadAlignment (RV ptr) alignment)
 
     return mem{ memImplHeap = heap' }
 
@@ -1256,7 +1268,8 @@ condStoreRaw sym mem cond ptr valType alignment val = do
      assertStoreError sym mop UnwritableRegion condIsAllocated
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
-     assertUndefined sym condIsAligned (UB.WriteBadAlignment (RV ptr) alignment)
+     let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+     assertUndefined sym callStack condIsAligned (UB.WriteBadAlignment (RV ptr) alignment)
   -- Merge the write heap and non-write heap
   let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
   -- Return new memory
@@ -1280,7 +1293,8 @@ storeConstRaw sym mem ptr valType alignment val = do
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
     assertStoreError sym mop UnwritableRegion p1
-    assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
+    let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
+    assertUndefined sym callStack p2 (UB.WriteBadAlignment (RV ptr) alignment)
 
     return mem{ memImplHeap = heap' }
 

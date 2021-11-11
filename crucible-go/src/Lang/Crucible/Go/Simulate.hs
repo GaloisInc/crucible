@@ -72,10 +72,22 @@ setSimulatorVerbosity verbosity sym = do
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
 
+goExtensionEval ::
+  forall sym p ext rtp blocks r ctx.
+  (IsSymInterface sym) =>
+  sym ->
+  C.IntrinsicTypes sym ->
+  (Int -> String -> IO ()) ->
+  EvalAppFunc sym (ExprExtension Go)
+goExtensionEval _sym _iTypes _logFn _f x = case x of
+
 -- | No syntax extensions.
 goExtensionImpl :: C.ExtensionImpl p sym Go
 goExtensionImpl =
-  C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+  C.ExtensionImpl
+    (\sym iTypes logFn _ f ->
+       goExtensionEval sym iTypes logFn f)
+    (\x -> case x of)
 
 failIfNotEqual :: forall k f m a (b :: k).
                   (MonadFail m, Show (f a), Show (f b), TestEquality f)
@@ -127,7 +139,7 @@ doAppGo :: IsSymInterface sym
         -> IO (C.RegValue sym tp)
 doAppGo sym =
   evalApp sym goIntrinsicTypes out
-  (C.extensionEval goExtensionImpl sym goIntrinsicTypes out) $
+  (goExtensionEval sym goIntrinsicTypes out) $
   flip asApp $ doAppGo sym
   where
     out = const putStrLn

@@ -74,4 +74,7 @@
 [Crux]                      ,base+32 = (10, 0x0:[64])
 [Crux]                      ,base+40 = (11, 0x0:[64])}
 [Crux]             46 |->   *(46, 0x0:[64]) := {base+0 = "\n"}
+[Crux]     in context:
+[Crux]       _ZN3std2rt10lang_start17h4f32aa1279b9079fE
+[Crux]       main
 [Crux] Overall status: Invalid.

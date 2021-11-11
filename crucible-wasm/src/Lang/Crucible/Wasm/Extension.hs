@@ -139,7 +139,7 @@ extImpl mo =
   let ?memOpts = mo in
   ExtensionImpl
   { -- There are no interesting extension expression formers
-    extensionEval = \_ _ _ _ -> \case{}
+    extensionEval = \_ _ _ _ _ -> \case{}
   , extensionExec = evalWasmExt
   }
 

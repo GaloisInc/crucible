@@ -69,7 +69,7 @@ import           Lang.Crucible.Utils.MonadVerbosity
 import qualified Lang.Crucible.Utils.MuxTree as C (toMuxTree)
 
 import qualified Lang.Crucible.Simulator as C
-import qualified Lang.Crucible.Simulator.Evaluation as C (evalApp)
+import qualified Lang.Crucible.Simulator.Evaluation as C (EvalAppFunc, evalApp)
 import qualified Lang.Crucible.Simulator.GlobalState as C
 import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
@@ -439,8 +439,21 @@ mkDelayedBindings ctx verbosity =
 jvmIntrinsicTypes :: C.IntrinsicTypes sym
 jvmIntrinsicTypes = C.emptyIntrinsicTypes
 
+jvmExtensionEval ::
+  forall sym.
+  (IsSymInterface sym) =>
+  sym ->
+  C.IntrinsicTypes sym ->
+  (Int -> String -> IO ()) ->
+  C.EvalAppFunc sym (ExprExtension JVM)
+jvmExtensionEval _sym _iTypes _logFn _f x = case x of
+
 jvmExtensionImpl :: C.ExtensionImpl p sym JVM
-jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+jvmExtensionImpl =
+  C.ExtensionImpl
+    (\sym iTypes logFn _ f ->
+       jvmExtensionEval sym iTypes logFn f)
+    (\x -> case x of)
 
 -- | Create a new 'C.SimContext' containing the bindings from the given 'JVMContext'.
 jvmSimContext ::
@@ -808,7 +821,7 @@ doAppJVM ::
   sym -> App JVM (C.RegValue' sym) tp -> IO (C.RegValue sym tp)
 doAppJVM sym =
   C.evalApp sym jvmIntrinsicTypes out
-    (C.extensionEval jvmExtensionImpl sym jvmIntrinsicTypes out) (return . C.unRV)
+    (jvmExtensionEval sym jvmIntrinsicTypes out) (return . C.unRV)
   where
     out _verbosity _msg = return () --putStrLn
 

@@ -573,7 +573,9 @@ llvmAbsOverride ::
 llvmAbsOverride w =
   let nm = L.Symbol ("llvm.abs.i" ++ show (natValue w)) in
     [llvmOvr| #w $nm( #w, i1 ) |]
-    (\_memOpts sym args -> Ctx.uncurryAssignment (Libc.callLLVMAbs sym w) args)
+    (\mvar sym args ->
+     do callStack <- callStackFromMemVar' mvar
+        Ctx.uncurryAssignment (Libc.callLLVMAbs sym callStack w) args)
 
 llvmCopysignOverride_F32 ::
   IsSymInterface sym =>
