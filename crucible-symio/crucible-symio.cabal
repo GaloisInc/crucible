@@ -35,7 +35,6 @@ library
   exposed-modules:
       Lang.Crucible.SymIO
       Lang.Crucible.SymIO.Loader
-  other-modules:
       Lang.Crucible.SymIO.Types
       What4.CachedArray
       Data.Parameterized.IntervalsMap

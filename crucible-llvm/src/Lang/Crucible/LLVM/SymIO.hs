@@ -50,7 +50,8 @@
 module Lang.Crucible.LLVM.SymIO
   ( llvmSymIOIntrinsicTypes
   , symio_overrides
-  , LLVMFileSystem
+  , LLVMFileSystem(..)
+  , FDescMap(..)
   , SomeOverrideSim(..)
   , initialLLVMFileSystem
   , openFile
