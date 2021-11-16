@@ -73,7 +73,7 @@ withLLVMCtx mod' action =
         case assertLeq (knownNat @16) width of { LeqProof      -> do
           let ?ptrWidth = width
           let ?lc = LLVMTr._llvmTypeCtx ctx
-          let ?recordLLVMAnnotation = \_ _ -> pure ()
+          let ?recordLLVMAnnotation = \_ _ _ -> pure ()
           action ctx sym
         }}}
   in withIONonceGenerator $ \nonceGen ->
