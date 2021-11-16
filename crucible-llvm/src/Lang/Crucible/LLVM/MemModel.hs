@@ -706,7 +706,9 @@ doMallocSize sz sym allocType mut loc mem alignment = do
   let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   let mem'  = mem{ memImplHeap = heap' }
-  mem'' <- if laxLoadsAndStores ?memOpts && mut == G.Mutable
+  mem'' <- if laxLoadsAndStores ?memOpts
+                && mut == G.Mutable
+                && allocType == G.HeapAlloc
                 && indeterminateLoadBehavior ?memOpts == StableSymbolic
            then do bytes <- freshConstant sym emptySymbol
                               (BaseArrayRepr (Ctx.singleton $ BaseBVRepr ?ptrWidth)
