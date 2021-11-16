@@ -94,7 +94,8 @@ import           Lang.Crucible.Types
 --
 -- Allows for effectful computation of the predicates and expressions.
 sideConditionsA :: forall f ty s. Applicative f
-                => TypeRepr ty
+                => GlobalVar Mem
+                -> TypeRepr ty
                 -> Expr LLVM s ty
                     -- ^ Expression with side-condition
                 -> [( Bool
@@ -103,7 +104,7 @@ sideConditionsA :: forall f ty s. Applicative f
                     )]
                     -- ^ Conditions to (conditionally) assert
                 -> f (Expr LLVM s ty)
-sideConditionsA tyRepr expr conds =
+sideConditionsA mvar tyRepr expr conds =
   let middle :: Applicative g => (a, g b, c) -> g (a, b, c)
       middle (a, fb, c) = (,,) <$> pure a <*> fb <*> pure c
 
@@ -117,18 +118,19 @@ sideConditionsA tyRepr expr conds =
   in flip fmap conds' $
       \case
         []     -> expr -- No assertions left, nothing to do.
-        (x:xs) -> App $ ExtensionApp $ LLVM_SideConditions tyRepr (x :| xs) expr
+        (x:xs) -> App $ ExtensionApp $ LLVM_SideConditions mvar tyRepr (x :| xs) expr
 
 -- | Assert that evaluation doesn't result in a poison value
-poisonSideCondition :: TypeRepr ty
+poisonSideCondition :: GlobalVar Mem
+                    -> TypeRepr ty
                     -> Poison.Poison (Expr LLVM s)
                     -> Expr LLVM s ty
                        -- ^ Expression with side-condition
                     -> Expr LLVM s BoolType
                        -- ^ Condition to assert
                     -> Expr LLVM s ty
-poisonSideCondition tyRepr poison expr cond =
-  runIdentity $ sideConditionsA tyRepr expr [(True, pure cond, UB.PoisonValueCreated poison)]
+poisonSideCondition mvar tyRepr poison expr cond =
+  runIdentity $ sideConditionsA mvar tyRepr expr [(True, pure cond, UB.PoisonValueCreated poison)]
 
 --------------------------------------------------------------------------------
 -- Translation
@@ -257,12 +259,14 @@ extractElt instr ty n (VecExpr _ vs) i = do
    llvmTypeAsRepr ty $ \tyr -> unpackVec (proxy# :: Proxy# arch) tyr (toList vs) $
       \ex -> extractElt instr ty n (BaseExpr (VectorRepr tyr) ex) i
 extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
-  do idx <- case asScalar i of
+  do mvar <- getMemVar
+     idx <- case asScalar i of
                    Scalar _archProxy (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         -- The value is poisoned if the index is out of bounds.
                         let poison = Poison.ExtractElementIndex bv
                         return $ poisonSideCondition
+                                   mvar
                                    NatRepr
                                    poison
                                    -- returned expression
@@ -313,13 +317,17 @@ insertElt instr ty n (VecExpr _ vs) a i = do
         \ex -> insertElt instr ty n (BaseExpr (VectorRepr tyr) ex) a i
 
 insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
-  do (idx :: Expr LLVM s NatType)
+  do mvar <- getMemVar
+     (idx :: Expr LLVM s NatType)
          <- case asScalar i of
                    Scalar _archProxy (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         -- The value is poisoned if the index is out of bounds.
                         let poison = Poison.InsertElementIndex bv
-                        return $ poisonSideCondition NatRepr
+                        return $
+                          poisonSideCondition
+                            mvar
+                            NatRepr
                             poison
                             -- returned expression
                             (App (BvToNat w bv))
@@ -499,6 +507,7 @@ calcGEP_array typ base idx =
        (fail $ unwords ["Type size too large for pointer width:", show typ])
 
      -- Perform the multiply
+     mvar <- getMemVar
      off0 <- AtomExpr <$> (mkAtom $ app $ BVMul PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth isz)) idx')
      let off  =
            if isz == 0
@@ -524,7 +533,7 @@ calcGEP_array typ base idx =
                -- bounds" for the given allocation. We translate all GEP
                -- instructions as if they had the `inbounds` flag set, so the
                -- result would be a poison value.
-               poisonSideCondition (BVRepr PtrWidth) poison off0 cond
+               poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
 
      -- Perform the pointer offset arithmetic
      callPtrAddOffset base off
@@ -846,66 +855,66 @@ raw_bitop :: (?transOpts :: TranslationOptions, 1 <= w) =>
   Expr LLVM s (BVType w) ->
   LLVMGenerator s arch ret (Expr LLVM s (BVType w))
 raw_bitop op w a b =
-  let withSideConds val lst = sideConditionsA (BVRepr w) val lst
-      noLaxArith = not (laxArith ?transOpts)
-  in
-    case op of
-      L.And -> return $ App (BVAnd w a b)
-      L.Or  -> return $ App (BVOr w a b)
-      L.Xor -> return $ App (BVXor w a b)
+  do mvar <- getMemVar
+     let withSideConds val lst = sideConditionsA mvar (BVRepr w) val lst
+     let noLaxArith = not (laxArith ?transOpts)
+     case op of
+       L.And -> return $ App (BVAnd w a b)
+       L.Or  -> return $ App (BVOr w a b)
+       L.Xor -> return $ App (BVXor w a b)
 
-      L.Shl nuw nsw -> do
-        let wlit = App (BVLit w (BV.width w))
-        result <- AtomExpr <$> mkAtom (App (BVShl w a b))
-        withSideConds result
-          [ ( noLaxArith
-            , pure  $ App (BVUlt w b wlit) -- TODO: is this the right condition?
-            , UB.PoisonValueCreated $ Poison.ShlOp2Big a b
-            )
-          , ( nuw && noLaxArith
-            , fmap (App . BVEq w a . AtomExpr)
-                   (mkAtom (App (BVLshr w result b)))
-            , UB.PoisonValueCreated $ Poison.ShlNoUnsignedWrap a b
-            )
-          , ( nsw && noLaxArith
-            , fmap (App . BVEq w a . AtomExpr)
-                   (mkAtom (App (BVAshr w result b)))
-            , UB.PoisonValueCreated $ Poison.ShlNoSignedWrap a b
-            )
-          ]
+       L.Shl nuw nsw -> do
+         let wlit = App (BVLit w (BV.width w))
+         result <- AtomExpr <$> mkAtom (App (BVShl w a b))
+         withSideConds result
+           [ ( noLaxArith
+             , pure  $ App (BVUlt w b wlit) -- TODO: is this the right condition?
+             , UB.PoisonValueCreated $ Poison.ShlOp2Big a b
+             )
+           , ( nuw && noLaxArith
+             , fmap (App . BVEq w a . AtomExpr)
+                    (mkAtom (App (BVLshr w result b)))
+             , UB.PoisonValueCreated $ Poison.ShlNoUnsignedWrap a b
+             )
+           , ( nsw && noLaxArith
+             , fmap (App . BVEq w a . AtomExpr)
+                    (mkAtom (App (BVAshr w result b)))
+             , UB.PoisonValueCreated $ Poison.ShlNoSignedWrap a b
+             )
+           ]
 
-      L.Lshr exact -> do
-        let wlit = App (BVLit w (BV.width w))
-        result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
-        withSideConds result
-          [ ( noLaxArith
-            , pure  $ App (BVUlt w b wlit)
-            , UB.PoisonValueCreated $ Poison.LshrOp2Big a b
-            )
-          , ( exact && noLaxArith
-            , fmap (App . BVEq w a . AtomExpr)
-                   (mkAtom (App (BVShl w result b)))
-            , UB.PoisonValueCreated $ Poison.LshrExact a b
-            )
-          ]
+       L.Lshr exact -> do
+         let wlit = App (BVLit w (BV.width w))
+         result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
+         withSideConds result
+           [ ( noLaxArith
+             , pure  $ App (BVUlt w b wlit)
+             , UB.PoisonValueCreated $ Poison.LshrOp2Big a b
+             )
+           , ( exact && noLaxArith
+             , fmap (App . BVEq w a . AtomExpr)
+                    (mkAtom (App (BVShl w result b)))
+             , UB.PoisonValueCreated $ Poison.LshrExact a b
+             )
+           ]
 
-      L.Ashr exact
-        | Just LeqProof <- isPosNat w -> do
-            let wlit = App (BVLit w (BV.width w))
-            result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
-            withSideConds result
-              [ ( noLaxArith
-                , pure  $ App (BVUlt w b wlit)
-                , UB.PoisonValueCreated $ Poison.AshrOp2Big a b
-                )
-              , ( exact && noLaxArith
-                , fmap (App . BVEq w a)
-                       (AtomExpr <$> mkAtom (App (BVShl w result b)))
-                , UB.PoisonValueCreated $ Poison.AshrExact a b
-                )
-              ]
+       L.Ashr exact
+         | Just LeqProof <- isPosNat w -> do
+             let wlit = App (BVLit w (BV.width w))
+             result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
+             withSideConds result
+               [ ( noLaxArith
+                 , pure  $ App (BVUlt w b wlit)
+                 , UB.PoisonValueCreated $ Poison.AshrOp2Big a b
+                 )
+               , ( exact && noLaxArith
+                 , fmap (App . BVEq w a)
+                        (AtomExpr <$> mkAtom (App (BVShl w result b)))
+                 , UB.PoisonValueCreated $ Poison.AshrExact a b
+                 )
+               ]
 
-        | otherwise -> fail "cannot arithmetic right shift a 0-width integer"
+         | otherwise -> fail "cannot arithmetic right shift a 0-width integer"
 
 
 -- | Translate an LLVM integer operation into a Crucible CFG expression.
@@ -918,17 +927,17 @@ intop :: forall w s arch ret. (?transOpts :: TranslationOptions, 1 <= w)
       -> Expr LLVM s (BVType w)
       -> LLVMGenerator s arch ret (Expr LLVM s (BVType w))
 intop op w a b =
-  let withSideConds val lst = sideConditionsA (BVRepr w) val lst
-      withPoison val xs =
-        do v <- AtomExpr <$> mkAtom val
-           withSideConds v $ map (\(d, e, c) -> (d, pure e, UB.PoisonValueCreated c)) xs
-
-      z        = App (BVLit w (BV.zero w))
-      bNeqZero = \ub -> (True, pure (notExpr (App (BVEq w z b))), ub)
-      neg1     = App (BVLit w (BV.mkBV w (-1)))
-      minInt   = App (BVLit w (BV.minSigned w))
-      noLaxArith = not (laxArith ?transOpts)
-  in case op of
+  do mvar <- getMemVar
+     let withSideConds val lst = sideConditionsA mvar (BVRepr w) val lst
+     let withPoison val xs =
+           do v <- AtomExpr <$> mkAtom val
+              withSideConds v $ map (\(d, e, c) -> (d, pure e, UB.PoisonValueCreated c)) xs
+     let z        = App (BVLit w (BV.zero w))
+     let bNeqZero = \ub -> (True, pure (notExpr (App (BVEq w z b))), ub)
+     let neg1     = App (BVLit w (BV.mkBV w (-1)))
+     let minInt   = App (BVLit w (BV.minSigned w))
+     let noLaxArith = not (laxArith ?transOpts)
+     case op of
        L.Add nuw nsw -> withPoison (App (BVAdd w a b))
          [ ( nuw && noLaxArith
            , notExpr (App (BVCarry w a b))

@@ -70,6 +70,7 @@ import Lang.Crucible.LLVM.MemModel
         , pattern LLVMPointer, pattern LLVMPointerRepr, LLVMPointerType
         , pattern PtrRepr, pattern PtrWidth
         )
+import Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
 import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
@@ -158,7 +159,9 @@ simulateLLVMFile ::
 simulateLLVMFile llvm_file llvmOpts =
   Crux.SimulatorCallbacks $
     do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
-       let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
+       let ?recordLLVMAnnotation =
+             \callStack an bb ->
+               modifyIORef bbMapRef (Map.insert an (callStack, bb))
        return $
          Crux.SimulatorHooks
            { Crux.setupHook =
@@ -382,7 +385,7 @@ explainFailure sym bbMapRef evalFn gl =
            case ex of
              NoExplanation -> mempty
              DisjOfFailures xs ->
-               case ppBB <$> xs of
+               case ppBBPair <$> xs of
                  []  -> mempty
                  [x] -> indent 2 x
                  xs' ->
@@ -397,3 +400,8 @@ explainFailure sym bbMapRef evalFn gl =
                               else "Total failed conditions:" <+> pretty xs'l
                    in nest 2 $ vcat $ msg1 : xs'' <> [msg2]
      return $ vcat [ ppSimError (gl^. labeledPredMsg), details ]
+  where ppBBPair (callStack, bb) =
+          vsep [ ppBB bb
+               , "in context:"
+               , indent 2 (ppCallStack callStack)
+               ]

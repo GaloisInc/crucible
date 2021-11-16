@@ -75,6 +75,7 @@ library
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.MalformedLLVMModule
     Lang.Crucible.LLVM.MemModel
+    Lang.Crucible.LLVM.MemModel.CallStack
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Partial
     Lang.Crucible.LLVM.MemModel.Pointer

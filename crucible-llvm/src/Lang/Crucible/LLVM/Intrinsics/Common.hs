@@ -25,6 +25,7 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , llvmSSizeT
   , OverrideTemplate(..)
   , TemplateMatcher(..)
+  , callStackFromMemVar'
     -- ** register_llvm_override
   , basic_llvm_override
   , polymorphic1_llvm_override
@@ -65,7 +66,9 @@ import           Lang.Crucible.Types
 import           What4.FunctionName
 
 import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.Eval (callStackFromMemVar)
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 
@@ -113,6 +116,11 @@ data TemplateMatcher
 type RegOverrideM p sym arch rtp l a =
   ReaderT (L.Declare, Maybe ABI.DecodedName, LLVMContext arch)
     (MaybeT (OverrideSim p sym LLVM rtp l a))
+
+callStackFromMemVar' ::
+  GlobalVar Mem ->
+  OverrideSim p sym ext r args ret CallStack
+callStackFromMemVar' mvar = use (to (flip callStackFromMemVar mvar))
 
 ------------------------------------------------------------------------
 -- ** register_llvm_override

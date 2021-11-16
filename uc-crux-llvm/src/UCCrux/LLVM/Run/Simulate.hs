@@ -57,6 +57,9 @@ import           Data.Void (Void)
 
 import           GHC.Exts (proxy#)
 
+import           Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
+
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Ctx (Ctx)
@@ -79,6 +82,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerModuleFn)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Intrinsics as LLVMIntrinsics
+import           Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemImpl, MemOptions)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx, cfgMap, allModuleDeclares)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
@@ -309,7 +313,8 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
 
        -- Hooks
        let ?recordLLVMAnnotation =
-             \an bb -> IORef.modifyIORef bbMapRef (Map.insert an bb)
+             \callStack an bb ->
+               IORef.modifyIORef bbMapRef (Map.insert an (callStack, bb))
        SimulatorHooks overrides resHook <-
          getSimulatorCallbacks callbacks
 
@@ -495,13 +500,17 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                       Located
                         loc
                         (ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg)))
-          Just badBehavior ->
+          Just (callStack, badBehavior) ->
             do
               -- Helpful for debugging:
               -- putStrLn "~~~~~~~~~~~"
               -- putStrLn (show (LLVMErrors.ppBB badBehavior))
 
               liftIO $ (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
+              let render =  PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
+
+              liftIO $ (appCtx ^. log) Hi "Error call stack:"
+              liftIO $ (appCtx ^. log) Hi (render (ppCallStack callStack))
               skipped <- IORef.readIORef skipOverrideRef
               retAnns <- IORef.readIORef skipReturnValueAnnotations
               classifyBadBehavior

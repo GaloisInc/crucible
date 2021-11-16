@@ -41,7 +41,7 @@ setupWasmState :: IsSymInterface sym =>
 setupWasmState sym memOptions s =
   do halloc <- newHandleAllocator
 
-     let ?recordLLVMAnnotation = \_ _ -> pure ()
+     let ?recordLLVMAnnotation = \_ _ _ -> pure ()
      let ?memOpts = memOptions
      let globals = emptyGlobals
      let bindings = emptyHandleMap

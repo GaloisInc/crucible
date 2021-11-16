@@ -70,9 +70,12 @@ instance TraversableF LLVMSideCondition where
 
 data LLVMExtensionExpr :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
 
-  X86Expr :: !(X86.ExtX86 f t) -> LLVMExtensionExpr f t
+  X86Expr ::
+    !(X86.ExtX86 f t) ->
+    LLVMExtensionExpr f t
 
   LLVM_SideConditions ::
+    !(GlobalVar Mem) {- Memory global variable -} ->
     !(TypeRepr tp) ->
     !(NonEmpty (LLVMSideCondition f)) ->
     !(f tp) ->
@@ -235,7 +238,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
 -- | Debug statement variants - these have no semantic meaning
 data LLVM_Dbg f c where
   -- | Annotates a value pointed to by a pointer with local-variable debug information
-  -- 
+  --
   -- <https://llvm.org/docs/SourceLevelDebugging.html#llvm-dbg-addr>
   LLVM_Dbg_Addr ::
     HasPtrWidth wptr =>
@@ -245,7 +248,7 @@ data LLVM_Dbg f c where
     LLVM_Dbg f (LLVMPointerType wptr)
 
   -- | Annotates a value pointed to by a pointer with local-variable debug information
-  -- 
+  --
   -- <https://llvm.org/docs/SourceLevelDebugging.html#llvm-dbg-declare>
   LLVM_Dbg_Declare ::
     HasPtrWidth wptr =>
@@ -270,7 +273,7 @@ instance TypeApp LLVMExtensionExpr where
   appType e =
     case e of
       X86Expr ex             -> appType ex
-      LLVM_SideConditions tpr _ _ -> tpr
+      LLVM_SideConditions _ tpr _ _ -> tpr
       LLVM_PointerExpr w _ _ -> LLVMPointerRepr w
       LLVM_PointerBlock _ _  -> NatRepr
       LLVM_PointerOffset w _ -> BVRepr w
@@ -280,7 +283,7 @@ instance PrettyApp LLVMExtensionExpr where
   ppApp pp e =
     case e of
       X86Expr ex -> ppApp pp ex
-      LLVM_SideConditions _ _conds ex ->
+      LLVM_SideConditions _ _ _conds ex ->
         pretty "sideConditions" <+> pp ex -- TODO? Print the conditions?
       LLVM_PointerExpr _ blk off ->
         pretty "pointerExpr" <+> pp blk <+> pp off
@@ -297,6 +300,7 @@ instance TestEqualityFC LLVMExtensionExpr where
        [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
        , (U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType)
          , [| \x y -> if liftEq (testEqualityC testSubterm) x y then Just Refl else Nothing |]
@@ -309,6 +313,7 @@ instance OrdFC LLVMExtensionExpr where
        [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
        , (U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType)
          , [| \x y -> fromOrdering (liftCompare (compareC testSubterm) x y) |]

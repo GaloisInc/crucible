@@ -47,7 +47,7 @@ main =
     Just (AnyCFG cfg) ->
       case (cfgArgTypes cfg, cfgReturnType cfg) of
         (Empty, UnitRepr) ->
-          let ?recordLLVMAnnotation = \_ _ -> pure () in
+          let ?recordLLVMAnnotation = \_ _ _ -> pure () in
                pure Setup
                  { cruxOutput = stdout
                  , cruxBackend = sym

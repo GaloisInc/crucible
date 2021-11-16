@@ -88,6 +88,8 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
+import           Lang.Crucible.LLVM.MemModel.MemLog (memState)
+import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack, getCallStack)
 import           Lang.Crucible.LLVM.MemModel.Pointer ( pattern LLVMPointer, LLVMPtr )
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
@@ -95,7 +97,7 @@ import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.Errors
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
-import           Lang.Crucible.LLVM.Errors.MemoryError (MemoryError(..), MemoryErrorReason(..), MemoryOp(..))
+import           Lang.Crucible.LLVM.Errors.MemoryError (MemoryError(..), MemoryErrorReason(..), MemoryOp(..), memOpMem)
 import           Lang.Crucible.Panic (panic)
 
 import           What4.Expr
@@ -113,12 +115,12 @@ instance IsSymInterface sym => Eq (BoolAnn sym) where
 instance IsSymInterface sym => Ord (BoolAnn sym) where
   compare (BoolAnn x) (BoolAnn y) = toOrdering $ compareF x y
 
-type LLVMAnnMap sym = Map (BoolAnn sym) (BadBehavior sym)
-type HasLLVMAnn sym = (?recordLLVMAnnotation :: BoolAnn sym -> BadBehavior sym -> IO ())
+type LLVMAnnMap sym = Map (BoolAnn sym) (CallStack, BadBehavior sym)
+type HasLLVMAnn sym = (?recordLLVMAnnotation :: CallStack -> BoolAnn sym -> BadBehavior sym -> IO ())
 
 data CexExplanation sym (tp :: BaseType) where
   NoExplanation  :: CexExplanation sym tp
-  DisjOfFailures :: [ BadBehavior sym ] -> CexExplanation sym BaseBoolType
+  DisjOfFailures :: [ (CallStack, BadBehavior sym) ] -> CexExplanation sym BaseBoolType
 
 instance Semigroup (CexExplanation sym BaseBoolType) where
   NoExplanation <> y = y
@@ -148,11 +150,11 @@ explainCex sym bbMap evalFn =
       (asNonceApp -> Just (Annotation BaseBoolRepr annId e')) ->
         case Map.lookup (BoolAnn annId) bbMap of
           Nothing -> evalPos posCache negCache e'
-          Just bb ->
+          Just (callStack, bb) ->
             do bb' <- case evalFn of
                         Just f  -> concBadBehavior sym (groundEval f) bb
                         Nothing -> pure bb
-               pure (DisjOfFailures [ bb' ])
+               pure (DisjOfFailures [ (callStack, bb') ])
 
       (asApp -> Just (BaseIte BaseBoolRepr _ c x y))
          | Just f <- evalFn ->
@@ -233,13 +235,17 @@ explainCex sym bbMap evalFn =
 
 annotateUB :: (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
+  CallStack ->
   UB.UndefinedBehavior (RegValue' sym) ->
   Pred sym ->
   IO (Pred sym)
-annotateUB sym ub p =
+annotateUB sym callStack ub p =
   do (n, p') <- annotateTerm sym p
-     ?recordLLVMAnnotation (BoolAnn n) (BBUndefinedBehavior ub)
+     ?recordLLVMAnnotation callStack (BoolAnn n) (BBUndefinedBehavior ub)
      return p'
+
+memOpCallStack :: MemoryOp sym w -> CallStack
+memOpCallStack = getCallStack . view memState . memOpMem
 
 annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
@@ -249,7 +255,10 @@ annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   IO (Pred sym)
 annotateME sym mop rsn p =
   do (n, p') <- annotateTerm sym p
-     ?recordLLVMAnnotation (BoolAnn n) (BBMemoryError (MemoryError mop rsn))
+     ?recordLLVMAnnotation
+       (memOpCallStack mop)
+       (BoolAnn n)
+       (BBMemoryError (MemoryError mop rsn))
      return p'
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
@@ -270,8 +279,12 @@ data PartLLVMVal sym where
   Err :: Pred sym -> PartLLVMVal sym
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
-partErr :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
-  sym -> MemoryOp sym w -> MemoryErrorReason -> IO (PartLLVMVal sym)
+partErr ::
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
+  sym ->
+  MemoryOp sym w ->
+  MemoryErrorReason ->
+  IO (PartLLVMVal sym)
 partErr sym errCtx rsn =
   do p <- annotateME sym errCtx rsn (falsePred sym)
      pure (Err p)
@@ -279,15 +292,16 @@ partErr sym errCtx rsn =
 attachSideCondition ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
+  CallStack ->
   Pred sym ->
   UB.UndefinedBehavior (RegValue' sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-attachSideCondition sym pnew ub pv =
+attachSideCondition sym callStack pnew ub pv =
   case pv of
     Err p -> pure (Err p)
     NoErr p v ->
-      do p' <- andPred sym p =<< annotateUB sym ub pnew
+      do p' <- andPred sym p =<< annotateUB sym callStack ub pnew
          return $ NoErr p' v
 
 attachMemoryError ::
@@ -333,7 +347,6 @@ assertSafe sym (Err p) = do
      let err = SimError loc rsn
      addProofObligation sym (LabeledPred p err)
      abortExecBecause (AssertionFailure err)
-
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface
@@ -429,11 +442,11 @@ bvToFloat sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
     (W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr =<<
        W4I.bvLit sym (knownNat @32) (BV.zero knownNat))
 
-bvToFloat sym _ (NoErr p (LLVMValInt blk off))
+bvToFloat sym errCtx (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @32) = do
       pz <- natEq sym blk =<< natLit sym 0
       let ub = UB.PointerFloatCast (RV (LLVMPointer blk off)) Type.floatType
-      p' <- andPred sym p =<< annotateUB sym ub pz
+      p' <- andPred sym p =<< annotateUB sym (memOpCallStack errCtx) ub pz
       NoErr p' . LLVMValFloat Value.SingleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
 
@@ -457,11 +470,11 @@ bvToDouble sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
     (W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr =<<
        W4I.bvLit sym (knownNat @64) (BV.zero knownNat))
 
-bvToDouble sym _ (NoErr p (LLVMValInt blk off))
+bvToDouble sym errCtx (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @64) = do
       pz <- natEq sym blk =<< natLit sym 0
       let ub = UB.PointerFloatCast (RV (LLVMPointer blk off)) Type.doubleType
-      p' <- andPred sym p =<< annotateUB sym ub pz
+      p' <- andPred sym p =<< annotateUB sym (memOpCallStack errCtx) ub pz
       NoErr p' .
         LLVMValFloat Value.DoubleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
@@ -486,11 +499,11 @@ bvToX86_FP80 sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
     (W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr =<<
        W4I.bvLit sym (knownNat @80) (BV.zero knownNat))
 
-bvToX86_FP80 sym _ (NoErr p (LLVMValInt blk off))
+bvToX86_FP80 sym errCtx (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @80) =
       do pz <- natEq sym blk =<< natLit sym 0
          let ub = UB.PointerFloatCast (RV (LLVMPointer blk off)) Type.x86_fp80Type
-         p' <- andPred sym p =<< annotateUB sym ub pz
+         p' <- andPred sym p =<< annotateUB sym (memOpCallStack errCtx) ub pz
          NoErr p' . LLVMValFloat Value.X86_FP80Size <$>
            W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
 
@@ -546,8 +559,9 @@ bvConcat sym errCtx (NoErr p1 v1) (NoErr p2 v2) =
          Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
          let ub1 = UB.PointerIntCast (RV (LLVMPointer blk_low low))   low_tp
              ub2 = UB.PointerIntCast (RV (LLVMPointer blk_high high)) high_tp
-         predLow       <- annotateUB sym ub1 =<< natEq sym blk_low blk0
-         predHigh      <- annotateUB sym ub2 =<< natEq sym blk_high blk0
+             annUB = annotateUB sym (memOpCallStack errCtx)
+         predLow       <- annUB ub1 =<< natEq sym blk_low blk0
+         predHigh      <- annUB ub2 =<< natEq sym blk_high blk0
          bv            <- W4I.bvConcat sym high low
 
          p' <- andPred sym p1 =<< andPred sym p2 =<< andPred sym predLow predHigh
@@ -732,7 +746,7 @@ selectLowBv _sym _ low hi (NoErr p (LLVMValZero (StorageType (Bitvector bytes) _
   | low + hi == bytes =
       return $ NoErr p $ LLVMValZero (Type.bitvectorType low)
 
-selectLowBv sym _ low hi (NoErr p (LLVMValInt blk bv))
+selectLowBv sym errCtx low hi (NoErr p (LLVMValInt blk bv))
   | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
   , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof       <- isPosNat low_w
@@ -741,7 +755,7 @@ selectLowBv sym _ low hi (NoErr p (LLVMValInt blk bv))
       do pz  <- natEq sym blk =<< natLit sym 0
          bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
          let ub = UB.PointerIntCast (RV (LLVMPointer blk bv)) tp
-         p' <- andPred sym p =<< annotateUB sym ub pz
+         p' <- andPred sym p =<< annotateUB sym (memOpCallStack errCtx) ub pz
          return $ NoErr p' $ LLVMValInt blk bv'
  where w = bvWidth bv
        tp = Type.bitvectorType (Bytes.bitsToBytes (natValue w))
@@ -768,7 +782,7 @@ selectHighBv _sym _ low hi (NoErr p (LLVMValZero (StorageType (Bitvector bytes) 
   | low + hi == bytes =
       return $ NoErr p $ LLVMValZero (Type.bitvectorType hi)
 
-selectHighBv sym _ low hi (NoErr p (LLVMValInt blk bv))
+selectHighBv sym errCtx low hi (NoErr p (LLVMValInt blk bv))
   | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
   , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof <- isPosNat hi_w
@@ -776,7 +790,7 @@ selectHighBv sym _ low hi (NoErr p (LLVMValInt blk bv))
     do pz <-  natEq sym blk =<< natLit sym 0
        bv' <- bvSelect sym low_w hi_w bv
        let ub = UB.PointerIntCast (RV (LLVMPointer blk bv)) tp
-       p' <- andPred sym p =<< annotateUB sym ub pz
+       p' <- andPred sym p =<< annotateUB sym (memOpCallStack errCtx) ub pz
        return $ NoErr p' $ LLVMValInt blk bv'
   where w = bvWidth bv
         tp = Type.bitvectorType (Bytes.bitsToBytes (natValue w))

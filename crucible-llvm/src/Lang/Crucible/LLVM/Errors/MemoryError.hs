@@ -22,6 +22,7 @@ module Lang.Crucible.LLVM.Errors.MemoryError
 , details
 , ppMemoryError
 , MemoryOp(..)
+, memOpMem
 , ppMemoryOp
 , MemoryErrorReason(..)
 , ppMemoryErrorReason
@@ -60,6 +61,16 @@ data MemoryOp sym w
   | MemLoadHandleOp L.Type (Maybe String) (LLVMPtr sym w) (Mem sym)
   | forall wlen. (1 <= wlen) => MemInvalidateOp
        Text (Maybe String) (LLVMPtr sym w) (SymBV sym wlen) (Mem sym)
+
+memOpMem :: MemoryOp sym w -> Mem sym
+memOpMem =
+  \case
+    MemLoadOp _ _ _ mem -> mem
+    MemStoreOp _ _ _ mem -> mem
+    MemStoreBytesOp _ _ _ mem -> mem
+    MemCopyOp _ _ _ mem -> mem
+    MemLoadHandleOp _ _ _ mem -> mem
+    MemInvalidateOp _ _ _ _ mem -> mem
 
 data MemoryError sym where
   MemoryError :: (1 <= w) =>

@@ -103,6 +103,7 @@ import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..), MemoryOp(..))
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MemModel.CallStack (getCallStack)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.MemLog
@@ -719,8 +720,9 @@ readMem sym w gsym l tp alignment m = do
     -- Otherwise, fall back to the less-optimized read case
     _ -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
+  let stack = getCallStack (m ^. memState)
   part_val' <- applyUnless (laxLoadsAndStores ?memOpts)
-                           (Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment))
+                           (Partial.attachSideCondition sym stack p2 (UB.ReadBadAlignment (RV l) alignment))
                            part_val
   applyUnless (laxLoadsAndStores ?memOpts)
               (Partial.attachMemoryError sym p1 mop UnreadableRegion)

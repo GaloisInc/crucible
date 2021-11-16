@@ -117,7 +117,7 @@ evalExpr verb (App a) = ReaderT $ \s ->
      let sym = s^.stateSymInterface
      let logFn = evalLogFn verb s
      r <- evalApp sym iteFns logFn
-            (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn)
+            (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn s)
             (\r -> runReaderT (evalReg r) s)
             a
      return $! r
