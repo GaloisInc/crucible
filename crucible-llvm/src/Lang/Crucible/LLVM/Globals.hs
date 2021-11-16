@@ -350,7 +350,7 @@ populateGlobal sym gl memty cval giMap mem =
                     , show glob
                     ]
                   Just (glob, Right (memty_, Just cval_)) ->
-                    liftIO $ populateGlobal sym glob memty_ cval_ giMap mem
+                    liftIO $ populateGlobal sym glob memty_ cval_ giMap memimpl0
            put memimpl
            liftIO $ doResolveGlobal sym memimpl symbol
 
