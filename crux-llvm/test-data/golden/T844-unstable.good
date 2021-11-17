@@ -1,4 +1,4 @@
 [Crux] Found counterexample for verification goal
-[Crux]   test-data/golden/T844-unstable.c:6:5: error: in main
+[Crux]   test-data/golden/T844-unstable.c:9:5: error: in main
 [Crux]   Call to abort
 [Crux] Overall status: Invalid.
