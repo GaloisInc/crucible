@@ -719,6 +719,8 @@ doMallocSize sz sym allocType mut loc mem alignment = do
            else pure mem'
   return (ptr, mem'')
 
+
+
 bindLLVMFunPtr ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
