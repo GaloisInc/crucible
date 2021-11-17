@@ -16,6 +16,8 @@ class Tool(benchexec.tools.template.BaseTool2):
     Tool info for Crux (https://crux.galois.com/).
     """
 
+    REQUIRED_PATHS = ["."]
+
     def executable(self, tool_locator):
         return tool_locator.find_executable("crux-llvm-svcomp-driver.sh")
 
@@ -30,14 +32,16 @@ class Tool(benchexec.tools.template.BaseTool2):
         )
         if data_model_param:
             options += ["--svcomp-arch", data_model_param]
-        return [executable] + options + list(task.input_files_or_identifier)
+        return [executable] + options + list(task.input_files)
 
     def version(self, executable):
         s = self._version_from_tool(executable)
-        return s[s.find("version:"):]
+        return s[s.find("version:") :]
 
     def determine_result(self, run):
-        override_pat = re.compile("No implementation or override found for pointer: \"(.+?)\"")
+        override_pat = re.compile(
+            'No implementation or override found for pointer: "(.+?)"'
+        )
 
         for line in run.output:
             # There are still a good number of functions for which Crux lacks
@@ -80,7 +84,4 @@ class Tool(benchexec.tools.template.BaseTool2):
                 return result.RESULT_UNKNOWN + "(incomplete)"
             elif "Verification result: ERROR" in line:
                 return result.RESULT_ERROR
-        return result.RESULT_UNKNOWN
-
-    def program_files(self, executable):
-        return [executable] + self.REQUIRED_PATHS
+        return result.RESULT_ERROR
