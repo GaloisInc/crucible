@@ -62,7 +62,7 @@ doParseCheck fn theInput pprint outh =
          do when pprint $
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
-            cs <- top ng ha [] $ (cfgs defaultParserHooks) v
+            cs <- top ng ha [] $ cfgs defaultParserHooks v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
@@ -95,7 +95,7 @@ simulateProgram fn theInput outh profh opts setup =
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
-            parseResult <- top ng ha hdls $ (cfgs defaultParserHooks) v
+            parseResult <- top ng ha hdls $ cfgs defaultParserHooks v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err

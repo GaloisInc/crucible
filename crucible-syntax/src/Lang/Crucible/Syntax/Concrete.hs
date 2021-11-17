@@ -284,7 +284,7 @@ repUntilLast sp = describe "zero or more followed by one" $ repUntilLast' sp
 _isBaseType :: MonadSyntax Atomic m => ParserHooks ext -> m (Some BaseTypeRepr)
 _isBaseType hooks =
   describe "base type" $
-  do Some tp <- (isType hooks)
+  do Some tp <- isType hooks
      case asBaseType tp of
        NotBaseType -> empty
        AsBaseType bt -> return (Some bt)
@@ -294,7 +294,7 @@ _isFloatingType :: MonadSyntax Atomic m
                 -> m (Some FloatInfoRepr)
 _isFloatingType hooks =
   describe "floating-point type" $
-  do Some tp <- (isType hooks)
+  do Some tp <- isType hooks
      case tp of
        FloatRepr fi -> return (Some fi)
        _ -> empty
