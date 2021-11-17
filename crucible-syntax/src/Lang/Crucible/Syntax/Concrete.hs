@@ -1878,7 +1878,7 @@ data ACFG ext :: * where
           CFG ext s init ret ->
           ACFG ext
 
-deriving instance Show (ACFG ())
+deriving instance Show (ACFG ext)
 
 data Arg t = Arg AtomName Position (TypeRepr t)
 
