@@ -29,9 +29,16 @@ module Lang.Crucible.Syntax.Concrete
     ExprErr(..)
   -- * Parsing and Results
   , ACFG(..)
+  , ParserHooks(..)
+  , defaultParserHooks
   , top
   , cfgs
   , prog
+  -- * Low level parsing operations
+  , SyntaxState(..)
+  , atomName
+  , freshAtom
+  , operands
   -- * Rules for pretty-printing language syntax
   , printExpr
   )
@@ -73,6 +80,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Numeric.Natural
 
+import qualified Lang.Crucible.CFG.Extension as LCCE
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import qualified Lang.Crucible.Syntax.ExprParse as SP
 
@@ -112,20 +120,20 @@ printExpr = toText (PrintRules rules)
         rules (Kw Registers) = Just (Special 0)
         rules _ = Nothing
 
-data E s t where
-  EAtom  :: !(Atom s t) -> E s t
-  EReg   :: !Position -> !(Reg s t) -> E s t
-  EGlob  :: !Position -> !(GlobalVar t) -> E s t
-  EDeref :: !Position -> !(E s (ReferenceType t)) -> E s t
-  EApp   :: !(App () (E s) t) -> E s t
+data E ext s t where
+  EAtom  :: !(Atom s t) -> E ext s t
+  EReg   :: !Position -> !(Reg s t) -> E ext s t
+  EGlob  :: !Position -> !(GlobalVar t) -> E ext s t
+  EDeref :: !Position -> !(E ext s (ReferenceType t)) -> E ext s t
+  EApp   :: !(App ext (E ext s) t) -> E ext s t
 
-data SomeExpr :: * -> * where
-  SomeE :: TypeRepr t -> E s t -> SomeExpr s
-  SomeOverloaded :: AST s -> Keyword -> [SomeExpr s] -> SomeExpr s
-  SomeIntLiteral :: AST s -> Integer -> SomeExpr s
+data SomeExpr ext s where
+  SomeE :: TypeRepr t -> E ext s t -> SomeExpr ext s
+  SomeOverloaded :: AST s -> Keyword -> [SomeExpr ext s] -> SomeExpr ext s
+  SomeIntLiteral :: AST s -> Integer -> SomeExpr ext s
 
-data SomeBVExpr :: * -> * where
-  SomeBVExpr :: (1 <= w) => NatRepr w -> E s (BVType w) -> SomeBVExpr s
+data SomeBVExpr ext s where
+  SomeBVExpr :: (1 <= w) => NatRepr w -> E ext s (BVType w) -> SomeBVExpr ext s
 
 data ExprErr s where
   TrivialErr :: Position -> ExprErr s
@@ -146,6 +154,35 @@ instance Monoid (ExprErr s) where
   mempty = TrivialErr (OtherPos "mempty")
   mappend = Errs
 
+-- | ParserHooks enables support for arbitrary syntax extensions by allowing
+-- users to supply their own parsers for types and syntax extensions.
+data ParserHooks ext = ParserHooks {
+    -- | extensionTypeParser is called for all type specifications and enables
+    -- the addition of new types to crucible-syntax.
+    extensionTypeParser :: forall m. MonadSyntax Atomic m => m (Some TypeRepr)
+
+    -- | extensionParser is called when parsing statements and let bindings
+    -- (everywhere function calls are supported) and enables the addition of
+    -- syntax extensions to crucible-syntax.
+  , extensionParser
+    :: forall s m
+     . ( MonadSyntax Atomic m
+       , MonadWriter [Posd (Stmt ext s)] m
+       , MonadState (SyntaxState s) m
+       , MonadIO m
+       , IsSyntaxExtension ext
+       , ?parserHooks :: ParserHooks ext
+       -- ^ ParserHooks instance to use recursively when parsing.
+       )
+    => m (Pair TypeRepr (Atom s))
+    -- ^ A pair containing a type and an atom of that type from evaluation of
+    -- syntax extension.
+}
+
+-- | A ParserHooks instance that adds no extensions to the crucible-syntax
+-- language.
+defaultParserHooks :: ParserHooks ()
+defaultParserHooks = ParserHooks empty empty
 
 
 kw :: MonadSyntax Atomic m => Keyword -> m ()
@@ -244,7 +281,8 @@ repUntilLast sp = describe "zero or more followed by one" $ repUntilLast' sp
           (cons p emptyList <&> \(x, ()) -> ([], x)) <|>
           (cons p (repUntilLast' p) <&> \(x, (xs, lst)) -> (x:xs, lst))
 
-_isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
+_isBaseType :: ( ?parserHooks :: ParserHooks ext, MonadSyntax Atomic m )
+            => m (Some BaseTypeRepr)
 _isBaseType =
   describe "base type" $
   do Some tp <- isType
@@ -252,7 +290,8 @@ _isBaseType =
        NotBaseType -> empty
        AsBaseType bt -> return (Some bt)
 
-_isFloatingType :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
+_isFloatingType :: ( ?parserHooks :: ParserHooks ext, MonadSyntax Atomic m )
+                => m (Some FloatInfoRepr)
 _isFloatingType =
   describe "floating-point type" $
   do Some tp <- isType
@@ -285,10 +324,11 @@ stringSort =
          , kw Char8_   $> Some Char8Repr
          ]
 
-isType :: MonadSyntax Atomic m => m (Some TypeRepr)
+isType :: ( ?parserHooks :: ParserHooks ext, MonadSyntax Atomic m )
+       => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> stringT <|> vector <|> seqt <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var <|> struct)
+    (atomicType <|> stringT <|> vector <|> seqt <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var <|> struct <|> (extensionTypeParser ?parserHooks))
 
   where
     atomicType =
@@ -327,18 +367,18 @@ isType =
     struct ::  MonadSyntax Atomic m => m (Some TypeRepr)
     struct = cons (kw StructT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (StructRepr tys)
 
-someExprType :: SomeExpr s -> Maybe (Some TypeRepr)
+someExprType :: SomeExpr ext s -> Maybe (Some TypeRepr)
 someExprType (SomeE tpr _) = Just (Some tpr)
 someExprType _ = Nothing
 
 
-findJointType :: Maybe (Some TypeRepr) -> [SomeExpr s] -> Maybe (Some TypeRepr)
+findJointType :: Maybe (Some TypeRepr) -> [SomeExpr ext s] -> Maybe (Some TypeRepr)
 findJointType = foldr (\y x -> f x (someExprType y))
  where
  f Nothing y    = y
  f x@(Just _) _ = x
 
-evalOverloaded :: forall m s t. MonadSyntax Atomic m => AST s -> TypeRepr t -> Keyword -> [SomeExpr s] -> m (E s t)
+evalOverloaded :: forall m s t ext. MonadSyntax Atomic m => AST s -> TypeRepr t -> Keyword -> [SomeExpr ext s] -> m (E ext s t)
 evalOverloaded ast tpr k = withFocus ast .
   case (k, tpr) of
     (Plus, NatRepr)     -> nary NatAdd    (NatLit 0)
@@ -374,15 +414,15 @@ evalOverloaded ast tpr k = withFocus ast .
 
     _ -> \_ -> later $ describe ("operation at type " <> T.pack (show tpr)) $ empty
  where
- u :: (E s t -> App () (E s) t) -> [SomeExpr s] -> m (E s t)
+ u :: (E ext s t -> App ext (E ext s) t) -> [SomeExpr ext s] -> m (E ext s t)
  u f [x] = EApp . f <$> evalSomeExpr tpr x
  u _ _ = later $ describe "one argument" $ empty
 
- bin :: (E s t -> E s t -> App () (E s) t) -> [SomeExpr s] -> m (E s t)
+ bin :: (E ext s t -> E ext s t -> App ext (E ext s) t) -> [SomeExpr ext s] -> m (E ext s t)
  bin f [x,y] = EApp <$> (f <$> evalSomeExpr tpr x <*> evalSomeExpr tpr y)
  bin _ _ = later $ describe "two arguments" $ empty
 
- nary :: (E s t -> E s t -> App () (E s) t) -> App () (E s) t -> [SomeExpr s] -> m (E s t)
+ nary :: (E ext s t -> E ext s t -> App ext (E ext s) t) -> App ext (E ext s) t -> [SomeExpr ext s] -> m (E ext s t)
  nary _ z []     = return $ EApp z
  nary _ _ [x]    = evalSomeExpr tpr x
  nary f _ (x:xs) = go f <$> evalSomeExpr tpr x <*> mapM (evalSomeExpr tpr) xs
@@ -391,7 +431,7 @@ evalOverloaded ast tpr k = withFocus ast .
  go _ x []     = x
 
 
-evalSomeExpr :: MonadSyntax Atomic m => TypeRepr t -> SomeExpr s -> m (E s t)
+evalSomeExpr :: MonadSyntax Atomic m => TypeRepr t -> SomeExpr ext s -> m (E ext s t)
 evalSomeExpr tpr (SomeE tpr' e)
   | Just Refl <- testEquality tpr tpr' = return e
   | otherwise = later $ describe ("matching types (" <> T.pack (show tpr)
@@ -400,36 +440,47 @@ evalSomeExpr tpr (SomeOverloaded ast k args) = evalOverloaded ast tpr k args
 evalSomeExpr tpr (SomeIntLiteral ast i) = evalIntLiteral ast tpr i
 
 applyOverloaded ::
-  MonadSyntax Atomic m => AST s -> Keyword -> Maybe (Some TypeRepr) -> [SomeExpr s] -> m (SomeExpr s)
+  MonadSyntax Atomic m => AST s -> Keyword -> Maybe (Some TypeRepr) -> [SomeExpr ext s] -> m (SomeExpr ext s)
 applyOverloaded ast k mtp args =
   case findJointType mtp args of
     Nothing -> return $ SomeOverloaded ast k args
     Just (Some tp) -> SomeE tp <$> evalOverloaded ast tp k args
 
-evalIntLiteral :: MonadSyntax Atomic m => AST s -> TypeRepr tpr -> Integer -> m (E s tpr)
+evalIntLiteral :: MonadSyntax Atomic m => AST s -> TypeRepr tpr -> Integer -> m (E ext s tpr)
 evalIntLiteral _ NatRepr i | i >= 0 = return $ EApp $ NatLit (fromInteger i)
 evalIntLiteral _ IntegerRepr i = return $ EApp $ IntLit i
 evalIntLiteral _ RealValRepr i = return $ EApp $ RationalLit (fromInteger i)
 evalIntLiteral ast tpr _i =
   withFocus ast $ later $ describe ("literal " <> T.pack (show tpr) <> " value") empty
 
-forceSynth :: MonadSyntax Atomic m => SomeExpr s -> m (Pair TypeRepr (E s))
+forceSynth :: MonadSyntax Atomic m => SomeExpr ext s -> m (Pair TypeRepr (E ext s))
 forceSynth (SomeE tp e) = return $ Pair tp e
 forceSynth (SomeOverloaded ast _ _) =
   withFocus ast $ later (describe "unambiguous expression (add type annotation to disambiguate)" empty)
 forceSynth (SomeIntLiteral ast _) =
   withFocus ast $ later (describe "unambiguous numeric literal (add type annotation to disambiguate)" empty)
 
-synth :: forall m s.
-  (MonadReader (SyntaxState s) m, MonadSyntax Atomic m) => m (Pair TypeRepr (E s))
+synth
+  :: forall m s ext
+   . ( MonadReader (SyntaxState s) m
+     , MonadSyntax Atomic m
+     , ?parserHooks :: ParserHooks ext )
+  => m (Pair TypeRepr (E ext s))
 synth = forceSynth =<< synth'
 
-synth' :: forall m s.
-  (MonadReader (SyntaxState s) m, MonadSyntax Atomic m) => m (SomeExpr s)
+synth' :: forall m s ext
+        .  ( MonadReader (SyntaxState s) m
+           , MonadSyntax Atomic m
+           , ?parserHooks :: ParserHooks ext )
+       => m (SomeExpr ext s)
 synth' = synthExpr Nothing
 
-synthExpr :: forall m s . (MonadReader (SyntaxState s) m, MonadSyntax Atomic m)
-       => Maybe (Some TypeRepr) -> m (SomeExpr s)
+synthExpr :: forall m s ext
+           . ( MonadReader (SyntaxState s) m
+             , MonadSyntax Atomic m
+             , ?parserHooks :: ParserHooks ext )
+          => Maybe (Some TypeRepr)
+          -> m (SomeExpr ext s)
 synthExpr typeHint =
   describe "expression" $
     call (the <|> crucibleAtom <|> regRef <|> globRef <|> deref <|>
@@ -471,7 +522,7 @@ synthExpr typeHint =
 -- BVUndef ????
 
   where
-    the :: m (SomeExpr s)
+    the :: m (SomeExpr ext s)
     the = do describe "type-annotated expression" $
                kw The `followedBy`
                  (depCons isType $
@@ -484,13 +535,13 @@ synthExpr typeHint =
         Nothing -> Nothing
         Just (Pair t anAtom) -> Just $ SomeE t (EAtom anAtom)
 
-    regRef :: m (SomeExpr s)
+    regRef :: m (SomeExpr ext s)
     regRef =
       do Pair t r <- regRef'
          loc <- position
          return (SomeE t (EReg loc r))
 
-    deref :: m (SomeExpr s)
+    deref :: m (SomeExpr ext s)
     deref =
       do let newhint = case typeHint of
                          Just (Some t) -> Just (Some (ReferenceRepr t))
@@ -501,13 +552,13 @@ synthExpr typeHint =
                 return (SomeE t' (EDeref loc e))
            Pair notRef _ -> later $ describe ("reference type (provided a "<> T.pack (show notRef) <>")") empty
 
-    globRef :: m (SomeExpr s)
+    globRef :: m (SomeExpr ext s)
     globRef =
       do Pair t g <- globRef'
          loc <- position
          return (SomeE t (EGlob loc g))
 
-    crucibleAtom :: m (SomeExpr s)
+    crucibleAtom :: m (SomeExpr ext s)
     crucibleAtom =
       do theAtoms <- view stxAtoms
          sideCondition "known atom" (okAtom theAtoms) atomName
@@ -536,7 +587,7 @@ synthExpr typeHint =
       go x [] = return $ SomeE BoolRepr x
       go x (y:ys) = go (EApp $ f x y) ys
 
-    bvExpr :: m (SomeExpr s)
+    bvExpr :: m (SomeExpr ext s)
     bvExpr =
       do let nathint = case typeHint of Just (Some (BVRepr w)) -> NatHint w; _ -> NoHint
          SomeBVExpr w x <- synthBV nathint
@@ -560,8 +611,8 @@ synthExpr typeHint =
          return $ SomeE BoolRepr $ EApp $ Not e
 
     matchingExprs ::
-      Maybe (Some TypeRepr) -> SomeExpr s -> SomeExpr s ->
-      (forall tp. TypeRepr tp -> E s tp -> E s tp -> m a) ->
+      Maybe (Some TypeRepr) -> SomeExpr ext s -> SomeExpr ext s ->
+      (forall tp. TypeRepr tp -> E ext s tp -> E ext s tp -> m a) ->
       m a
     matchingExprs h e1 e2 k =
       case findJointType h [e1,e2] of
@@ -572,7 +623,7 @@ synthExpr typeHint =
         Nothing ->
           later $ describe ("type annotation required to disambiguate types") empty
 
-    equalp :: m (SomeExpr s)
+    equalp :: m (SomeExpr ext s)
     equalp =
       do (e1, e2) <- describe "equality test" $ binary Equalp synth' synth'
          matchingExprs Nothing e1 e2 $ \tp e1' e2' ->
@@ -590,8 +641,8 @@ synthExpr typeHint =
 
     compareBV ::
       Keyword ->
-      (forall w. (1 <= w) => NatRepr w -> E s (BVType w) -> E s (BVType w) -> App () (E s) BoolType) ->
-      m (SomeExpr s)
+      (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> E ext s (BVType w) -> App ext (E ext s) BoolType) ->
+      m (SomeExpr ext s)
     compareBV k f =
       do (e1, e2) <- describe "bitvector compaprison" $ binary k synth' synth'
          matchingExprs Nothing e1 e2 $ \tp e1' e2' ->
@@ -601,7 +652,7 @@ synthExpr typeHint =
              _ ->
                later $ describe ("a bitvector type (got " <> T.pack (show tp) <> ")") empty
 
-    lessThan :: m (SomeExpr s)
+    lessThan :: m (SomeExpr ext s)
     lessThan =
       do (e1, e2) <- describe "less-than test" $ binary Lt synth' synth'
          matchingExprs Nothing e1 e2 $ \tp e1' e2' ->
@@ -613,7 +664,7 @@ synthExpr typeHint =
              other ->
                describe ("valid comparison type (got " <> T.pack (show other) <> ")") empty
 
-    lessThanEq :: m (SomeExpr s)
+    lessThanEq :: m (SomeExpr ext s)
     lessThanEq =
       do (e1, e2) <- describe "less-than-or-equal test" $ binary Le synth' synth'
          matchingExprs Nothing e1 e2 $ \tp e1' e2' ->
@@ -625,19 +676,19 @@ synthExpr typeHint =
              other ->
                describe ("valid comparison type (got " <> T.pack (show other) <> ")") empty
 
-    naryArith :: Keyword -> m (SomeExpr s)
+    naryArith :: Keyword -> m (SomeExpr ext s)
     naryArith k =
       do ast <- anything
          args <- followedBy (kw k) (commit *> (rep (synthExpr typeHint)))
          applyOverloaded ast k typeHint args
 
-    binaryArith :: Keyword -> m (SomeExpr s)
+    binaryArith :: Keyword -> m (SomeExpr ext s)
     binaryArith k =
       do ast <- anything
          (x, y) <- binary k (synthExpr typeHint) (synthExpr typeHint)
          applyOverloaded ast k typeHint [x,y]
 
-    unaryArith :: Keyword -> m (SomeExpr s)
+    unaryArith :: Keyword -> m (SomeExpr ext s)
     unaryArith k =
       do ast <- anything
          x <- unary k (synthExpr typeHint)
@@ -645,15 +696,15 @@ synthExpr typeHint =
 
     unaryBV ::
       Keyword ->
-      (forall w. (1 <= w) => NatRepr w -> E s (BVType w) -> App () (E s) BoolType) ->
-      m (SomeExpr s)
+      (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> App ext (E ext s) BoolType) ->
+      m (SomeExpr ext s)
     unaryBV k f =
       do Pair t x <- unary k synth
          case t of
            BVRepr w ->return $ SomeE BoolRepr $ EApp $ f w x
            _ -> later $ describe "bitvector argument" empty
 
-    just :: m (SomeExpr s)
+    just :: m (SomeExpr ext s)
     just =
       do let newhint = case typeHint of
                          Just (Some (MaybeRepr t)) -> Just (Some t)
@@ -661,7 +712,7 @@ synthExpr typeHint =
          Pair t x <- unary Just_ (forceSynth =<< synthExpr newhint)
          return $ SomeE (MaybeRepr t) $ EApp $ JustValue t x
 
-    nothing :: m (SomeExpr s)
+    nothing :: m (SomeExpr ext s)
     nothing =
       do Some t <- unary Nothing_ isType
          return $ SomeE (MaybeRepr t) $ EApp $ NothingValue t
@@ -675,7 +726,7 @@ synthExpr typeHint =
         Nothing ->
           later $ describe ("unambiguous nothing value") empty
 
-    fromJust_ :: m (SomeExpr s)
+    fromJust_ :: m (SomeExpr ext s)
     fromJust_ =
       do let newhint = case typeHint of
                          Just (Some t) -> Just (Some (MaybeRepr t))
@@ -690,7 +741,7 @@ synthExpr typeHint =
                       return $ SomeE elemT $ EApp $ FromJustValue elemT e str
                _ -> later $ describe "maybe expression" nothing
 
-    projection :: m (SomeExpr s)
+    projection :: m (SomeExpr ext s)
     projection =
       do (n, Pair t e) <- describe "projection from variant type" $ binary Proj int synth
          case t of
@@ -703,7 +754,7 @@ synthExpr typeHint =
                     return $ SomeE ty $ EApp $ ProjectVariant ts idx e
            _ -> describe ("variant type (got " <> T.pack (show t) <> ")") empty
 
-    injection :: m (SomeExpr s)
+    injection :: m (SomeExpr ext s)
     injection =
       do (n, e) <- describe "injection into variant type" $ binary Inj int anything
          case typeHint of
@@ -721,7 +772,7 @@ synthExpr typeHint =
            Nothing ->
              describe ("unambiguous variant") empty
 
-    fpToBinary :: m (SomeExpr s)
+    fpToBinary :: m (SomeExpr ext s)
     fpToBinary =
        kw FPToBinary_ `followedBy`
        (depConsCond synth $ \(Pair tp x) ->
@@ -732,14 +783,14 @@ synthExpr typeHint =
                  emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToBinary fpi x)
            _ -> pure $ Left $ "floating-point value")
 
-    binaryToFp :: m (SomeExpr s)
+    binaryToFp :: m (SomeExpr ext s)
     binaryToFp =
        kw BinaryToFP_ `followedBy`
        (depCons fpinfo $ \(Some fpi) ->
         depCons (check (baseToType (floatInfoToBVTypeRepr fpi))) $ \x ->
         emptyList $> (SomeE (FloatRepr fpi) $ EApp $ FloatFromBinary fpi x))
 
-    fpToReal :: m (SomeExpr s)
+    fpToReal :: m (SomeExpr ext s)
     fpToReal =
        kw FPToReal_ `followedBy`
        (depConsCond synth $ \(Pair tp x) ->
@@ -747,7 +798,7 @@ synthExpr typeHint =
            FloatRepr _fpi -> emptyList $> (Right $ SomeE RealValRepr $ EApp $ FloatToReal x)
            _ -> pure $ Left "floating-point value")
 
-    realToFp :: m (SomeExpr s)
+    realToFp :: m (SomeExpr ext s)
     realToFp =
        kw RealToFP_ `followedBy`
        (depCons fpinfo $ \(Some fpi) ->
@@ -755,7 +806,7 @@ synthExpr typeHint =
         depCons (check RealValRepr) $ \x ->
         emptyList $> (SomeE (FloatRepr fpi) $ EApp $ FloatFromReal fpi rm x))
 
-    ubvToFloat :: m (SomeExpr s)
+    ubvToFloat :: m (SomeExpr ext s)
     ubvToFloat =
        kw UBVToFP_ `followedBy`
        (depCons fpinfo $ \(Some fpi) ->
@@ -767,7 +818,7 @@ synthExpr typeHint =
             _ -> pure $ Left $ "bitvector value"
         )
 
-    sbvToFloat :: m (SomeExpr s)
+    sbvToFloat :: m (SomeExpr ext s)
     sbvToFloat =
        kw SBVToFP_ `followedBy`
        (depCons fpinfo $ \(Some fpi) ->
@@ -779,7 +830,7 @@ synthExpr typeHint =
             _ -> pure $ Left $ "bitvector value"
        )
 
-    floatToUBV :: m (SomeExpr s)
+    floatToUBV :: m (SomeExpr ext s)
     floatToUBV =
        kw FPToUBV_ `followedBy`
        (depCons posNat $ \(BoundedNat w) ->
@@ -790,7 +841,7 @@ synthExpr typeHint =
               emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToBV w rm x)
             _ -> pure $ Left $ "floating-point value")
 
-    floatToSBV :: m (SomeExpr s)
+    floatToSBV :: m (SomeExpr ext s)
     floatToSBV =
        kw FPToSBV_ `followedBy`
        (depCons posNat $ \(BoundedNat w) ->
@@ -801,7 +852,7 @@ synthExpr typeHint =
               emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToSBV w rm x)
             _ -> pure $ Left $ "floating-point value")
 
-    ite :: m (SomeExpr s)
+    ite :: m (SomeExpr ext s)
     ite =
       do (c, (et, (ef, ()))) <-
            followedBy (kw If) $
@@ -830,7 +881,7 @@ synthExpr typeHint =
       (binary FromAny isType (check AnyRepr)) <&>
         \(Some ty, e) -> SomeE (MaybeRepr ty) (EApp (UnpackAny ty e))
 
-    stringLength :: m (SomeExpr s)
+    stringLength :: m (SomeExpr ext s)
     stringLength =
       do unary StringLength_
            (do (Pair ty e) <- forceSynth =<< synthExpr Nothing
@@ -841,6 +892,7 @@ synthExpr typeHint =
     stringEmpty =
       unary StringEmpty_ stringSort <&> \(Some si) -> SomeE (StringRepr si) $ EApp $ StringEmpty si
 
+    stringAppend :: m (SomeExpr ext s)
     stringAppend =
       do (e1,(e2,())) <-
            followedBy (kw StringConcat_) $
@@ -852,6 +904,7 @@ synthExpr typeHint =
              StringRepr si -> return $ SomeE (StringRepr si) $ EApp $ StringConcat si s1 s2
              _ -> later $ describe "string expressions" empty
 
+    vecRep :: m (SomeExpr ext s)
     vecRep =
       do let newhint = case typeHint of
                          Just (Some (VectorRepr t)) -> Just (Some t)
@@ -860,21 +913,21 @@ synthExpr typeHint =
            binary VectorReplicate_ (check NatRepr) (forceSynth =<< synthExpr newhint)
          return $ SomeE (VectorRepr t) $ EApp $ VectorReplicate t n e
 
-    vecLen :: m (SomeExpr s)
+    vecLen :: m (SomeExpr ext s)
     vecLen =
       do Pair t e <- unary VectorSize_ synth
          case t of
            VectorRepr _ -> return $ SomeE NatRepr $ EApp $ VectorSize e
            other -> later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
 
-    vecEmptyP :: m (SomeExpr s)
+    vecEmptyP :: m (SomeExpr ext s)
     vecEmptyP =
       do Pair t e <- unary VectorIsEmpty_ synth
          case t of
            VectorRepr _ -> return $ SomeE BoolRepr $ EApp $ VectorIsEmpty e
            other -> later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
 
-    vecLit :: m (SomeExpr s)
+    vecLit :: m (SomeExpr ext s)
     vecLit =
       let newhint = case typeHint of
                        Just (Some (VectorRepr t)) -> Just (Some t)
@@ -887,7 +940,7 @@ synthExpr typeHint =
                  SomeE (VectorRepr t) . EApp . VectorLit t . V.fromList
                    <$> mapM (evalSomeExpr t) ls
 
-    vecCons :: m (SomeExpr s)
+    vecCons :: m (SomeExpr ext s)
     vecCons =
       do let newhint = case typeHint of
                          Just (Some (VectorRepr t)) -> Just (Some t)
@@ -900,7 +953,7 @@ synthExpr typeHint =
              SomeE (VectorRepr t) . EApp <$> (VectorCons t <$> evalSomeExpr t a <*> evalSomeExpr (VectorRepr t) d)
            _ -> later $ describe "unambiguous vector cons (add a type ascription to disambiguate)" empty
 
-    vecGet :: m (SomeExpr s)
+    vecGet :: m (SomeExpr ext s)
     vecGet =
       do let newhint = case typeHint of
                          Just (Some t) -> Just (Some (VectorRepr t))
@@ -911,7 +964,7 @@ synthExpr typeHint =
            VectorRepr elemT -> return $ SomeE elemT $ EApp $ VectorGetEntry elemT e n
            other -> later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
 
-    vecSet :: m (SomeExpr s)
+    vecSet :: m (SomeExpr ext s)
     vecSet =
       do (kw VectorSetEntry_) `followedBy` (
            depCons (forceSynth =<< synthExpr typeHint) $
@@ -924,7 +977,7 @@ synthExpr typeHint =
                      return $ SomeE (VectorRepr elemT) $ EApp $ VectorSetEntry elemT vec n elt
                 _ -> later $ describe "argument with vector type" empty)
 
-    struct :: m (SomeExpr s)
+    struct :: m (SomeExpr ext s)
     struct = describe "struct literal" $ followedBy (kw MkStruct_) (commit *>
       do ls <- case typeHint of
                   Just (Some (StructRepr ctx)) ->
@@ -933,7 +986,7 @@ synthExpr typeHint =
                   Nothing -> rep (forceSynth =<< synthExpr Nothing)
          pure $! buildStruct ls)
 
-    getField :: m (SomeExpr s)
+    getField :: m (SomeExpr ext s)
     getField =
       describe "struct field projection" $
       followedBy (kw GetField_) (commit *>
@@ -949,7 +1002,7 @@ synthExpr typeHint =
                     return $ SomeE ty $ EApp $ GetStruct e idx ty
            _ -> describe ("struct type (got " <> T.pack (show t) <> ")") empty)))
 
-    setField :: m (SomeExpr s)
+    setField :: m (SomeExpr ext s)
     setField = describe "update to a struct type" $
       followedBy (kw SetField_) (commit *>
       depConsCond (forceSynth =<< synthExpr typeHint) (\ (Pair tp e) ->
@@ -964,7 +1017,7 @@ synthExpr typeHint =
                      pure $ SomeE (StructRepr ts) $ EApp $ SetStruct ts e idx v)
           _ -> pure $ Left $ ("struct type, but got " <> T.pack (show tp))))
 
-    seqNil :: m (SomeExpr s)
+    seqNil :: m (SomeExpr ext s)
     seqNil =
       do Some t <- unary SequenceNil_ isType
          return $ SomeE (SequenceRepr t) $ EApp $ SequenceNil t
@@ -978,7 +1031,7 @@ synthExpr typeHint =
         Nothing ->
           later $ describe ("unambiguous nil value") empty
 
-    seqCons :: m (SomeExpr s)
+    seqCons :: m (SomeExpr ext s)
     seqCons =
       do let newhint = case typeHint of
                          Just (Some (SequenceRepr t)) -> Just (Some t)
@@ -991,7 +1044,7 @@ synthExpr typeHint =
              SomeE (SequenceRepr t) . EApp <$> (SequenceCons t <$> evalSomeExpr t a <*> evalSomeExpr (SequenceRepr t) d)
            _ -> later $ describe "unambiguous sequence cons (add a type ascription to disambiguate)" empty
 
-    seqAppend :: m (SomeExpr s)
+    seqAppend :: m (SomeExpr ext s)
     seqAppend =
       do (x, y) <- binary SequenceAppend_ (later (synthExpr typeHint)) (later (synthExpr typeHint))
          case join (find isJust [ typeHint, someExprType x, someExprType y ]) of
@@ -1000,21 +1053,21 @@ synthExpr typeHint =
                (SequenceAppend t <$> evalSomeExpr (SequenceRepr t) x <*> evalSomeExpr (SequenceRepr t) y)
            _ -> later $ describe "unambiguous sequence append (add a type ascription to disambiguate)" empty
 
-    seqNilP :: m (SomeExpr s)
+    seqNilP :: m (SomeExpr ext s)
     seqNilP =
       do Pair t e <- unary SequenceIsNil_ synth
          case t of
            SequenceRepr t' -> return $ SomeE BoolRepr $ EApp $ SequenceIsNil t' e
            other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
-    seqLen :: m (SomeExpr s)
+    seqLen :: m (SomeExpr ext s)
     seqLen =
       do Pair t e <- unary SequenceLength_ synth
          case t of
            SequenceRepr t' -> return $ SomeE NatRepr $ EApp $ SequenceLength t' e
            other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
-    seqHead :: m (SomeExpr s)
+    seqHead :: m (SomeExpr ext s)
     seqHead =
       do let newhint = case typeHint of
                          Just (Some (MaybeRepr t)) -> Just (Some (SequenceRepr t))
@@ -1025,7 +1078,7 @@ synthExpr typeHint =
            SequenceRepr elemT -> return $ SomeE (MaybeRepr elemT) $ EApp $ SequenceHead elemT e
            other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
-    seqTail :: m (SomeExpr s)
+    seqTail :: m (SomeExpr ext s)
     seqTail =
       do let newhint = case typeHint of
                          Just (Some (MaybeRepr t)) -> Just (Some t)
@@ -1036,7 +1089,7 @@ synthExpr typeHint =
            SequenceRepr elemT -> return $ SomeE (MaybeRepr (SequenceRepr elemT)) $ EApp $ SequenceTail elemT e
            other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
-    seqUncons :: m (SomeExpr s)
+    seqUncons :: m (SomeExpr ext s)
     seqUncons =
       do let newhint = case typeHint of
                          Just (Some (MaybeRepr (StructRepr (Ctx.Empty Ctx.:> t Ctx.:> _)))) ->
@@ -1050,7 +1103,7 @@ synthExpr typeHint =
                EApp $ SequenceUncons elemT e
            other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
-    showExpr :: m (SomeExpr s)
+    showExpr :: m (SomeExpr ext s)
     showExpr =
       do Pair t1 e <- unary Show synth
          case t1 of
@@ -1065,10 +1118,10 @@ synthExpr typeHint =
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
 
-buildStruct :: [Pair TypeRepr (E s)] -> SomeExpr s
+buildStruct :: [Pair TypeRepr (E ext s)] -> SomeExpr ext s
 buildStruct = loop Ctx.Empty Ctx.Empty
   where
-    loop :: Ctx.Assignment TypeRepr ctx -> Ctx.Assignment (E s) ctx -> [Pair TypeRepr (E s)] -> SomeExpr s
+    loop :: Ctx.Assignment TypeRepr ctx -> Ctx.Assignment (E ext s) ctx -> [Pair TypeRepr (E ext s)] -> SomeExpr ext s
     loop tps vs [] = SomeE (StructRepr tps) (EApp (MkStruct tps vs))
     loop tps vs (Pair tp x:xs) = loop (tps Ctx.:> tp) (vs Ctx.:> x) xs
 
@@ -1076,10 +1129,12 @@ data NatHint
   = NoHint
   | forall w. (1 <= w) => NatHint (NatRepr w)
 
-synthBV :: forall m s .
-  (MonadReader (SyntaxState s) m, MonadSyntax Atomic m) =>
+synthBV :: forall m s ext.
+  ( MonadReader (SyntaxState s) m
+  , MonadSyntax Atomic m
+  , ?parserHooks :: ParserHooks ext ) =>
   NatHint ->
-  m (SomeBVExpr s)
+  m (SomeBVExpr ext s)
 synthBV widthHint =
    bvLit <|> bvConcat <|> bvSelect <|> bvTrunc <|>
    bvZext <|> bvSext <|> boolToBV <|>
@@ -1089,7 +1144,7 @@ synthBV widthHint =
    unaryBV Negate BVNeg <|> unaryBV BVNot_ BVNot
 
  where
-    bvSubterm :: NatHint -> m (SomeBVExpr s)
+    bvSubterm :: NatHint -> m (SomeBVExpr ext s)
     bvSubterm hint =
       do let newhint = case hint of
                          NatHint w -> Just (Some (BVRepr w))
@@ -1099,22 +1154,22 @@ synthBV widthHint =
            BVRepr w -> return (SomeBVExpr w x)
            _ -> later $ describe "bitvector expression" $ empty
 
-    bvLit :: m (SomeBVExpr s)
+    bvLit :: m (SomeBVExpr ext s)
     bvLit =
       describe "bitvector literal" $
       do (BoundedNat w, i) <- binary BV posNat int
          return $ SomeBVExpr w $ EApp $ BVLit w (BV.mkBV w i)
 
     unaryBV :: Keyword
-          -> (forall w. (1 <= w) => NatRepr w -> E s (BVType w) -> App () (E s) (BVType w))
-          -> m (SomeBVExpr s)
+          -> (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> App ext (E ext s) (BVType w))
+          -> m (SomeBVExpr ext s)
     unaryBV k f =
       do SomeBVExpr wx x <- unary k (bvSubterm widthHint)
          return $ SomeBVExpr wx $ EApp $ f wx x
 
     binaryBV :: Keyword
-          -> (forall w. (1 <= w) => NatRepr w -> E s (BVType w) -> E s (BVType w) -> App () (E s) (BVType w))
-          -> m (SomeBVExpr s)
+          -> (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> E ext s (BVType w) -> App ext (E ext s) (BVType w))
+          -> m (SomeBVExpr ext s)
     binaryBV k f =
       do (SomeBVExpr wx x, SomeBVExpr wy y) <- binary k (bvSubterm widthHint) (bvSubterm widthHint)
          case testEquality wx wy of
@@ -1125,9 +1180,9 @@ synthBV widthHint =
                       empty
 
     naryBV :: Keyword
-          -> (forall w. (1 <= w) => NatRepr w -> E s (BVType w) -> E s (BVType w) -> App () (E s) (BVType w))
+          -> (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> E ext s (BVType w) -> App ext (E ext s) (BVType w))
           -> Integer
-          -> m (SomeBVExpr s)
+          -> m (SomeBVExpr ext s)
     naryBV k f u =
       do args <- kw k `followedBy` rep (later (bvSubterm widthHint))
          case args of
@@ -1137,7 +1192,7 @@ synthBV widthHint =
            (SomeBVExpr wx x:xs) -> SomeBVExpr wx <$> go wx x xs
 
      where
-     go :: forall w. NatRepr w -> E s (BVType w) -> [SomeBVExpr s] -> m (E s (BVType w))
+     go :: forall w. NatRepr w -> E ext s (BVType w) -> [SomeBVExpr ext s] -> m (E ext s (BVType w))
      go _wx x [] = return x
      go wx x (SomeBVExpr wy y : ys) =
        case testEquality wx wy of
@@ -1147,12 +1202,12 @@ synthBV widthHint =
                         T.pack (show wx) <> " /= " <> T.pack (show wy) <> ")")
                        empty
 
-    boolToBV :: m (SomeBVExpr s)
+    boolToBV :: m (SomeBVExpr ext s)
     boolToBV =
       do (BoundedNat w, x) <- binary BoolToBV_ posNat (check BoolRepr)
          return $ SomeBVExpr w $ EApp $ BoolToBV w x
 
-    bvSelect :: m (SomeBVExpr s)
+    bvSelect :: m (SomeBVExpr ext s)
     bvSelect =
       do (Some idx, (BoundedNat len, (SomeBVExpr w x, ()))) <-
              followedBy (kw BVSelect_) (commit *> cons natRepr (cons posNat (cons (bvSubterm NoHint) emptyList)))
@@ -1160,27 +1215,27 @@ synthBV widthHint =
            Just LeqProof -> return $ SomeBVExpr len $ EApp $ BVSelect idx len w x
            _ -> later $ describe ("valid bitvector select") $ empty
 
-    bvConcat :: m (SomeBVExpr s)
+    bvConcat :: m (SomeBVExpr ext s)
     bvConcat =
       do (SomeBVExpr wx x, SomeBVExpr wy y) <- binary BVConcat_ (bvSubterm NoHint) (bvSubterm NoHint)
          withLeqProof (leqAdd (leqProof (knownNat @1) wx) wy) $
            return $ SomeBVExpr (addNat wx wy) (EApp $ BVConcat wx wy x y)
 
-    bvTrunc :: m (SomeBVExpr s)
+    bvTrunc :: m (SomeBVExpr ext s)
     bvTrunc =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVTrunc_ posNat (bvSubterm NoHint)
          case testLeq (incNat r) w of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVTrunc r w x)
            _ -> later $ describe "valid bitvector truncation" $ empty
 
-    bvZext :: m (SomeBVExpr s)
+    bvZext :: m (SomeBVExpr ext s)
     bvZext =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVZext_ posNat (bvSubterm NoHint)
          case testLeq (incNat w) r of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVZext r w x)
            _ -> later $ describe "valid zero extension" $ empty
 
-    bvSext :: m (SomeBVExpr s)
+    bvSext :: m (SomeBVExpr ext s)
     bvSext =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVSext_ posNat (bvSubterm NoHint)
          case testLeq (incNat w) r of
@@ -1188,8 +1243,11 @@ synthBV widthHint =
            _ -> later $ describe "valid zero extension" $ empty
 
 
-check :: forall m t s . (MonadReader (SyntaxState s) m, MonadSyntax Atomic m)
-       => TypeRepr t -> m (E s t)
+check :: forall m t s ext
+       . ( MonadReader (SyntaxState s) m
+         , MonadSyntax Atomic m
+         , ?parserHooks :: ParserHooks ext )
+       => TypeRepr t -> m (E ext s t)
 check t =
   describe ("inhabitant of " <> T.pack (show t)) $
     do Pair t' e <- forceSynth =<< synthExpr (Just (Some t))
@@ -1319,8 +1377,11 @@ freshId =
 freshLabel :: (MonadState (SyntaxState s) m, MonadIO m) => m (Label s)
 freshLabel = Label <$> freshId
 
-freshAtom :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState s) m, MonadIO m )
-          => Position -> AtomValue () s t -> m (Atom s t)
+freshAtom :: ( MonadWriter [Posd (Stmt ext s)] m
+             , MonadState (SyntaxState s) m
+             , MonadIO m
+             , IsSyntaxExtension ext )
+          => Position -> AtomValue ext s t -> m (Atom s t)
 freshAtom loc v =
   do i <- freshId
      let theAtom = Atom { atomPosition = OtherPos "Parser internals"
@@ -1356,7 +1417,10 @@ with :: MonadState s m => Lens' s a -> (a -> m b) -> m b
 with l act = do x <- use l; act x
 
 
-lambdaLabelBinding :: (MonadSyntax Atomic m, MonadState (SyntaxState s) m, MonadIO m)
+lambdaLabelBinding :: ( MonadSyntax Atomic m
+                      , MonadState (SyntaxState s) m
+                      , MonadIO m
+                      , ?parserHooks :: ParserHooks ext )
                    => m (LabelName, (Pair TypeRepr (LambdaLabel s)))
 lambdaLabelBinding =
   call $
@@ -1423,17 +1487,29 @@ reading m = get >>= runReaderT m
 
 --------------------------------------------------------------------------
 
-atomSetter :: (MonadSyntax Atomic m, MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState s) m, MonadIO m)
+atomSetter :: forall m ext s
+            . ( MonadSyntax Atomic m
+              , MonadWriter [Posd (Stmt ext s)] m
+              , MonadState (SyntaxState s) m
+              , MonadIO m
+              , IsSyntaxExtension ext
+              , ?parserHooks :: ParserHooks ext )
            => AtomName -- ^ The name of the atom being set, used for fresh name internals
            -> m (Pair TypeRepr (Atom s))
 atomSetter (AtomName anText) =
-  call (newref <|> emptyref <|> fresh <|> funcall <|> evaluated)
+  call ( newref
+     <|> emptyref
+     <|> fresh
+     <|> funcall
+     <|> evaluated
+     <|> (extensionParser ?parserHooks) )
   where
     fresh, emptyref, newref
       :: ( MonadSyntax Atomic m
-         , MonadWriter [Posd (Stmt () s)] m
+         , MonadWriter [Posd (Stmt ext s)] m
          , MonadState (SyntaxState s) m
          , MonadIO m
+         , IsSyntaxExtension ext
          )
       => m (Pair TypeRepr (Atom s))
 
@@ -1474,12 +1550,41 @@ atomSetter (AtomName anText) =
           anAtom <- eval loc e'
           return $ Pair tp anAtom
 
+-- | Parse a list of operands (for example, the arguments to a function)
+operands :: forall s ext m tps
+          . ( MonadState (SyntaxState s) m
+            , MonadWriter [Posd (Stmt ext s)] m
+            , MonadIO m
+            , MonadSyntax Atomic m
+            , IsSyntaxExtension ext
+            , ?parserHooks :: ParserHooks ext )
+            -- ^ ParserHooks to use for syntax extensions
+         => Ctx.Assignment TypeRepr tps
+         -- ^ Types of the operands
+         -> m (Ctx.Assignment (Atom s) tps)
+         -- ^ Atoms for the operands
+operands args = do
+  operandExprs <- backwards $ go $ Ctx.viewAssign args
+  traverseFC (\(Rand a ex) -> eval (syntaxPos a) ex) operandExprs
+  where
+    go :: (MonadState (SyntaxState s) m, MonadSyntax Atomic m)
+       => Ctx.AssignView TypeRepr args
+       -> m (Ctx.Assignment (Rand ext s) args)
+    go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
+    go (Ctx.AssignExtend ctx' ty) =
+      depCons (reading $ check ty) $ \e ->
+        do rest <- go (Ctx.viewAssign ctx')
+           this <- anything
+           return $ Ctx.extend rest $ Rand this e
 
 funcall
-  :: ( MonadSyntax Atomic m
-     , MonadWriter [Posd (Stmt () s)] m
+  :: forall ext s m
+   . ( MonadSyntax Atomic m
+     , MonadWriter [Posd (Stmt ext s)] m
      , MonadState (SyntaxState s) m
      , MonadIO m
+     , IsSyntaxExtension ext
+     , ?parserHooks :: ParserHooks ext
      )
   => m (Pair TypeRepr (Atom s))
 funcall =
@@ -1490,33 +1595,28 @@ funcall =
         (Pair (FunctionHandleRepr funArgs ret) fun) ->
           do loc <- position
              funAtom <- eval loc fun
-             operandExprs <- backwards $ go $ Ctx.viewAssign funArgs
-             operandAtoms <- traverseFC (\(Rand a ex) -> eval (syntaxPos a) ex) operandExprs
+             operandAtoms <- operands funArgs
              endAtom <- freshAtom loc $ Call funAtom operandAtoms ret
              return $ Right $ Pair ret endAtom
         _ -> return $ Left "a function"
-  where
-    go :: (MonadState (SyntaxState s) m, MonadSyntax Atomic m)
-       => Ctx.AssignView TypeRepr args
-       -> m (Ctx.Assignment (Rand s) args)
-    go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
-    go (Ctx.AssignExtend ctx' ty) =
-      depCons (reading $ check ty) $ \e ->
-        do rest <- go (Ctx.viewAssign ctx')
-           this <- anything
-           return $ Ctx.extend rest $ Rand this e
 
 
 located :: MonadSyntax atom m => m a -> m (Posd a)
 located p = Posd <$> position <*> p
 
-normStmt' :: forall s m
-           . (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState s) m, MonadIO m) =>
+normStmt' :: forall s m ext
+           . ( MonadWriter [Posd (Stmt ext s)] m
+             , MonadSyntax Atomic m
+             , MonadState (SyntaxState s) m
+             , MonadIO m
+             , IsSyntaxExtension ext
+             , ?parserHooks :: ParserHooks ext) =>
              m ()
 normStmt' =
   call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
-        assertion <|> assumption <|> breakpoint)
+        assertion <|> assumption <|> breakpoint <|>
+        (void (extensionParser ?parserHooks)))
 
   where
     printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion, breakpoint :: m ()
@@ -1624,18 +1724,27 @@ normStmt' =
           _ -> empty
 
 
-blockBody' :: forall s ret m
-            . (MonadSyntax Atomic m, MonadState (SyntaxState s) m, MonadIO m)
+blockBody' :: forall s ret m ext
+            . ( MonadSyntax Atomic m
+              , MonadState (SyntaxState s) m
+              , MonadIO m
+              , IsSyntaxExtension ext
+              , ?parserHooks :: ParserHooks ext )
            => TypeRepr ret
-           -> m (Posd (TermStmt s ret), [Posd (Stmt () s)])
+           -> m (Posd (TermStmt s ret), [Posd (Stmt ext s)])
 blockBody' ret = runWriterT go
  where
- go :: WriterT [Posd (Stmt () s)] m (Posd (TermStmt s ret))
+ go :: WriterT [Posd (Stmt ext s)] m (Posd (TermStmt s ret))
  go = (fst <$> (cons (later (termStmt' ret)) emptyList)) <|>
       (snd <$> (cons (later normStmt') go))
 
-termStmt' :: forall m s ret.
-   (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState s) m, MonadIO m) =>
+termStmt' :: forall m s ret ext.
+   ( MonadWriter [Posd (Stmt ext s)] m
+   , MonadSyntax Atomic m
+   , MonadState (SyntaxState s) m
+   , MonadIO m
+   , IsSyntaxExtension ext
+   , ?parserHooks :: ParserHooks ext ) =>
    TypeRepr ret -> m (Posd (TermStmt s ret))
 termStmt' retTy =
   do stx <- anything
@@ -1770,7 +1879,7 @@ termStmt' retTy =
 
 
 
-data Rand s t = Rand (AST s) (E s t)
+data Rand ext s t = Rand (AST s) (E ext s t)
 
 
 
@@ -1778,19 +1887,22 @@ data Rand s t = Rand (AST s) (E s t)
 --------------------------------------------------------------------------
 
 -- | Any CFG, regardless of its arguments and return type, with its helpers
-data ACFG :: * where
-  ACFG :: forall (s :: *) (init :: Ctx CrucibleType) (ret :: CrucibleType) .
+data ACFG ext :: * where
+  ACFG :: forall (s :: *) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
+          ( LCCE.IsSyntaxExtension ext ) =>
           CtxRepr init -> TypeRepr ret ->
-          CFG () s init ret ->
-          ACFG
+          CFG ext s init ret ->
+          ACFG ext
 
-deriving instance Show ACFG
+deriving instance Show (ACFG ext)
 
 data Arg t = Arg AtomName Position (TypeRepr t)
 
 
 
-arguments' :: forall m . MonadSyntax Atomic m => m (Some (Ctx.Assignment Arg))
+arguments' :: forall m ext
+            . ( MonadSyntax Atomic m, ?parserHooks :: ParserHooks ext )
+           => m (Some (Ctx.Assignment Arg))
 arguments' = call (go (Some Ctx.empty))
   where
     go ::  Some (Ctx.Assignment Arg) -> m (Some (Ctx.Assignment Arg))
@@ -1839,7 +1951,7 @@ data FunctionSource s =
                  , _functionBody :: AST s
                  }
 
-functionHeader' :: MonadSyntax Atomic m
+functionHeader' :: ( MonadSyntax Atomic m, ?parserHooks :: ParserHooks ext )
                 => m ( (FunctionName, Some (Ctx.Assignment Arg), Some TypeRepr, Position)
                      , FunctionSource s
                      )
@@ -1855,7 +1967,9 @@ functionHeader' =
   where
     registers = call $ kw Registers `followedBy` anyList
 
-functionHeader :: AST s -> TopParser s (FunctionHeader, FunctionSource s)
+functionHeader :: (?parserHooks :: ParserHooks ext)
+               => AST s
+               -> TopParser s (FunctionHeader, FunctionSource s)
 functionHeader defun =
   do ((fnName, Some theArgs, Some ret, loc), src) <- liftSyntaxParse functionHeader' defun
      ha <- use $ stxProgState  . progHandleAlloc
@@ -1871,7 +1985,9 @@ functionHeader defun =
 
 
 
-global :: AST s -> TopParser s (Pair TypeRepr GlobalVar)
+global :: (?parserHooks :: ParserHooks ext)
+       => AST s
+       -> TopParser s (Pair TypeRepr GlobalVar)
 global stx =
   do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary DefGlobal globalName isType)) stx
      ha <- use $ stxProgState  . progHandleAlloc
@@ -1879,7 +1995,9 @@ global stx =
      stxGlobals %= Map.insert var (Pair t v)
      return $ Pair t v
 
-topLevel :: AST s -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
+topLevel :: (?parserHooks :: ParserHooks ext)
+         => AST s
+         -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
 topLevel ast =
   catchError (Just <$> functionHeader ast) $
     \e ->
@@ -1893,7 +2011,15 @@ argTypes  = fmapFC (\(Arg _ _ t) -> t)
 type BlockTodo s ret =
   (LabelName, BlockID s, Progress, AST s)
 
-blocks :: forall s ret m . (MonadState (SyntaxState s) m, MonadSyntax Atomic m, MonadIO m) => TypeRepr ret -> m [Block () s ret]
+blocks :: forall s ret m ext
+        . ( MonadState (SyntaxState s) m
+          , MonadSyntax Atomic m
+          , MonadIO m
+          , TraverseExt ext
+          , IsSyntaxExtension ext
+          , ?parserHooks :: ParserHooks ext )
+        => TypeRepr ret
+        -> m [Block ext s ret]
 blocks ret =
       depCons startBlock' $
       \ startContents ->
@@ -1937,14 +2063,14 @@ blocks ret =
                       return $ Right (l, LabelID theLbl, pr, body)
         argBlock =
           call $
-          depConsCond (lambdaLabelBinding) $
+          depConsCond lambdaLabelBinding $
           \ (l, (Pair _ lbl)) ->
             do pr <- progress
                body <- anything
                return $ Right (l, LambdaID lbl, pr, body)
 
-eval :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState s) m, MonadIO m)
-     => Position -> E s t -> m (Atom s t)
+eval :: (MonadWriter [Posd (Stmt ext s)] m, MonadState (SyntaxState s) m, MonadIO m, IsSyntaxExtension ext)
+     => Position -> E ext s t -> m (Atom s t)
 eval _   (EAtom theAtom)  = pure theAtom -- The expression is already evaluated
 eval loc (EApp e)         = freshAtom loc . EvalApp =<< traverseFC (eval loc) e
 eval _   (EReg loc reg)   = freshAtom loc (ReadReg reg)
@@ -1997,8 +2123,11 @@ instance MonadIO (TopParser s) where
   liftIO = TopParser . lift . lift
 
 
-initParser :: forall s m
-            . (MonadState (SyntaxState s) m, MonadError (ExprErr s) m, MonadIO m)
+initParser :: forall s m ext
+            . ( MonadState (SyntaxState s) m
+              , MonadError (ExprErr s) m
+              , MonadIO m
+              , ?parserHooks :: ParserHooks ext )
            => FunctionHeader
            -> FunctionSource s
            -> m ()
@@ -2019,10 +2148,17 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
          stxRegisters %= Map.insert x (Pair ty r)
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
 
-cfgs :: [AST s] -> TopParser s [ACFG]
+cfgs :: ( IsSyntaxExtension ext
+        , ?parserHooks :: ParserHooks ext )
+     => [AST s]
+     -> TopParser s [ACFG ext]
 cfgs = fmap snd <$> prog
 
-prog :: [AST s] -> TopParser s (Map GlobalName (Pair TypeRepr GlobalVar), [ACFG])
+prog :: ( TraverseExt ext
+        , IsSyntaxExtension ext
+        , ?parserHooks :: ParserHooks ext )
+     => [AST s]
+     -> TopParser s (Map GlobalName (Pair TypeRepr GlobalVar), [ACFG ext])
 prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
