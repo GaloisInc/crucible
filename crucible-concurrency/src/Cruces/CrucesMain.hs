@@ -93,7 +93,7 @@ cruciblesConfig = Crux.Config
       ]
   }
 
-findMain :: FunctionName -> [ACFG] -> FnVal sym Ctx.EmptyCtx C.UnitType
+findMain :: FunctionName -> [ACFG ()] -> FnVal sym Ctx.EmptyCtx C.UnitType
 findMain mainName cs =
   case find (isFn mainName) cs of
     Just (ACFG Ctx.Empty C.UnitRepr m) ->
@@ -130,6 +130,7 @@ run (cruxOpts, opts) =
                 mkSym _sym =
                   do exploreBuiltins <- mkExplorePrims ha (pedantic opts) (Some nonceGen)
                      let builtins = [ (SomeHandle h, InternalPos) | FnBinding h _ <- exploreBuiltins ]
+                     let ?parserHooks = defaultParserHooks
                      parseResult <- top nonceGen ha builtins $ prog v
                      case parseResult of
                        Left (SyntaxParseError e) -> error $ show $ printSyntaxError e
