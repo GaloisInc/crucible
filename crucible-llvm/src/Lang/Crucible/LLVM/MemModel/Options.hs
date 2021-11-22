@@ -92,6 +92,12 @@ data IndeterminateLoadBehavior
     --   distinct. That is, the symbolic values are \"unstable\". Contrast this
     --   with 'StableSymbolic', in which multiple reads from the same section
     --   of uninitialized memory will all yield the same symbolic value.
+    --
+    --   One consequence of the 'UnstableSymbolic' approach is that any
+    --   pointer can be derefenced, even if it does not actually point to
+    --   anything. Dereferencing such a pointer will simply yield a fresh
+    --   symbolic value. On the other hand, dereferencing such a pointer
+    --   continues to be a Crucible error in 'StableSymbolic'.
   deriving (Eq, Show)
 
 -- | The default memory model options:

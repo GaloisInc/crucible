@@ -9,7 +9,8 @@
   As a result of this change, `?memOpts :: MemOptions` constraints have been
   added to the following functions:
   * `Lang.Crucible.LLVM.Globals`:
-    `initializeAllMemory` and `initializeMemoryConstGlobals`
+    `initializeAllMemory`, `initializeMemoryConstGlobals`, `populateGlobals`,
+    `populateAllGlobals`, and `populateConstGlobals`
   * `Lang.Crucible.LLVM.MemModel`:
     `doAlloca`, `doCalloc`, `doMalloc`, `doMallocUnbounded`, `mallocRaw`,
     `mallocConstRaw`, `allocGlobals`, and `allocGlobal`
