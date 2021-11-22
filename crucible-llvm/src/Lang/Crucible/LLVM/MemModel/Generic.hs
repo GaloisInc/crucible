@@ -775,6 +775,7 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
     fallback0 tp _l =
       liftIO $
         if laxLoadsAndStores ?memOpts
+           && indeterminateLoadBehavior ?memOpts == UnstableSymbolic
         then Partial.totalLLVMVal sym <$> freshLLVMVal sym tp
         else do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
                 -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
@@ -1269,7 +1270,17 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
                   idx <- bvAdd sym (llvmPointerOffset ptr)
                     =<< bvLit sym w (bytesToBV w off)
                   arrayUpdate sym acc_arr (Ctx.singleton idx) byte
-              _ -> return acc_arr
+
+              LLVMValZero _ -> do
+                  byte <- bvLit sym knownRepr (BV.zero knownRepr)
+                  idx <- bvAdd sym (llvmPointerOffset ptr)
+                    =<< bvLit sym w (bytesToBV w off)
+                  arrayUpdate sym acc_arr (Ctx.singleton idx) byte
+
+              _ -> panic "wrietMemWithAllocationCheck"
+                         [ "Expected byte value when updating SMT array, but got:"
+                         , show v
+                         ]
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
       overwriteArrayMem sym w ptr res_arr arr_sz mem
 

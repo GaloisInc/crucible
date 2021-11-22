@@ -216,6 +216,7 @@ addOverrides newOverrides cbs =
 
 createUnsoundOverrides ::
   (?lc :: TypeContext) =>
+  (?memOpts :: MemOptions) =>
   ArchOk arch =>
   proxy arch ->
   IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn arch])
@@ -231,7 +232,6 @@ createUnsoundOverrides proxy =
 
 registerOverrides ::
   (?intrinsicsOpts :: LLVMIntrinsics.IntrinsicsOptions) =>
-  (?memOpts :: MemOptions) =>
   ArchOk arch =>
   IsSymInterface sym =>
   HasLLVMAnn sym =>
@@ -265,7 +265,6 @@ registerOverrides appCtx modCtx kind overrides =
 
 registerDefinedFns ::
   (?intrinsicsOpts :: LLVMIntrinsics.IntrinsicsOptions) =>
-  (?memOpts :: MemOptions) =>
   ArchOk arch =>
   IsSymInterface sym =>
   HasLLVMAnn sym =>
@@ -308,6 +307,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
        skipReturnValueAnns <- IORef.newIORef Map.empty
        skipOverrideRef <- IORef.newIORef Set.empty
        let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
+           ?memOpts = memOpts llvmOpts
        (unsoundOverrideRef, uOverrides) <-
          createUnsoundOverrides modCtx
 

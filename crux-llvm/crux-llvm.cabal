@@ -39,6 +39,7 @@ data-files:
    c-src/print-model.c
    c-src/libcxx-3.6.2.bc
    c-src/libcxx-7.1.0.bc
+extra-source-files: CHANGELOG.md, README.md
 
 common bldflags
   ghc-options: -Wall

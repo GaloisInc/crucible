@@ -17,7 +17,7 @@ import           System.FilePath ( (</>), joinPath, normalise, splitPath, takeDi
 import qualified Data.LLVM.BitCode as LLVM
 
 import           Lang.Crucible.LLVM.Intrinsics ( IntrinsicsOptions(..), AbnormalExitBehavior(..) )
-import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
+import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), IndeterminateLoadBehavior(..), laxPointerMemOptions )
 import           Lang.Crucible.LLVM.Translation ( TranslationOptions(..) )
 
 import qualified Crux
@@ -93,6 +93,11 @@ supplyMainArgumentsSpec :: ValueSpec SupplyMainArguments
 supplyMainArgumentsSpec =
   (NoArguments <$ atomSpec "none") <!>
   (EmptyArguments <$ atomSpec "empty")
+
+indeterminateLoadBehaviorSpec :: ValueSpec IndeterminateLoadBehavior
+indeterminateLoadBehaviorSpec =
+  (StableSymbolic <$ atomSpec "stable-symbolic") <!>
+  (UnstableSymbolic <$ atomSpec "unstable-symbolic")
 
 data LLVMOptions = LLVMOptions
   { clangBin   :: FilePath
@@ -192,6 +197,17 @@ llvmCruxConfig = do
                        laxLoadsAndStores <-
                          Crux.section "lax-loads-and-stores" Crux.yesOrNoSpec False
                            "Relax some of Crucible's validity checks for memory loads and stores"
+                       indeterminateLoadBehavior <-
+                         Crux.section "indeterminate-load-behavior" indeterminateLoadBehaviorSpec StableSymbolic
+                           (Text.unwords
+                             [ "(Only takes effect is 'lax-loads-and-stores' is enabled.)"
+                             , "What should the semantics of reading from uninitialized"
+                             , "memory be? Possible options are:"
+                             , "'stable-symbolic' (default), which causes all allocations to"
+                             , "be initialized with a fresh symbolic value; and"
+                             , "'unstable-symbolic', which causes each read from uninitialized"
+                             , "memory to return a fresh symbolic value."
+                             ])
                        return MemOptions{..}
 
          transOpts <- do laxArith <-

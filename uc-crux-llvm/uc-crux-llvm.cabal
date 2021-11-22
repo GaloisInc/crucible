@@ -9,6 +9,7 @@ License-file:  LICENSE
 Build-type:    Simple
 Category:      Language
 Synopsis:      A bugfinding tool for C programs, using under-constrained symbolic execution.
+extra-source-files: CHANGELOG.md, README.md
 
 common bldflags
   ghc-options: -Wall

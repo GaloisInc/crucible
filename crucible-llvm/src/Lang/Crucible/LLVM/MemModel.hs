@@ -44,6 +44,7 @@ module Lang.Crucible.LLVM.MemModel
   , BlockSource(..)
   , nextBlock
   , MemOptions(..)
+  , IndeterminateLoadBehavior(..)
   , defaultMemOptions
   , laxPointerMemOptions
 
@@ -547,7 +548,8 @@ ptrMessage msg ptr ty =
 
 -- | Allocate memory on the stack frame of the currently executing function.
 doAlloca ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym ->
   SymBV sym wptr {- ^ allocation size -} ->
@@ -562,7 +564,14 @@ doAlloca sym mem sz alignment loc = do
   let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   let mem'  = mem{ memImplHeap = heap' }
-  pure (ptr, mem')
+  mem'' <- if laxLoadsAndStores ?memOpts
+                && indeterminateLoadBehavior ?memOpts == StableSymbolic
+           then do bytes <- freshConstant sym emptySymbol
+                              (BaseArrayRepr (Ctx.singleton $ BaseBVRepr ?ptrWidth)
+                                             (BaseBVRepr (knownNat @8)))
+                   doArrayStore sym mem' ptr alignment bytes sz
+           else pure mem'
+  pure (ptr, mem'')
 
 -- | Load a 'RegValue' from memory. Both the 'StorageType' and 'TypeRepr'
 -- arguments should be computed from a single 'MemType' using
@@ -630,7 +639,8 @@ sextendBVTo sym w w' x
 --
 -- Precondition: the multiplication /size * number/ does not overflow.
 doCalloc ::
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym ->
   SymBV sym wptr {- ^ size   -} ->
@@ -653,7 +663,8 @@ doCalloc sym mem sz num alignment = do
 
 -- | Allocate a memory region.
 doMalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> G.AllocType {- ^ stack, heap, or global -}
   -> G.Mutability {- ^ whether region is read-only -}
@@ -666,7 +677,8 @@ doMalloc sym allocType mut loc mem sz alignment = doMallocSize (Just sz) sym all
 
 -- | Allocate a memory region of unbounded size.
 doMallocUnbounded
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> G.AllocType {- ^ stack, heap, or global -}
   -> G.Mutability {- ^ whether region is read-only -}
@@ -677,7 +689,8 @@ doMallocUnbounded
 doMallocUnbounded = doMallocSize Nothing
 
 doMallocSize
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => Maybe (SymBV sym wptr) {- ^ allocation size -}
   -> sym
   -> G.AllocType {- ^ stack, heap, or global -}
@@ -692,7 +705,21 @@ doMallocSize sz sym allocType mut loc mem alignment = do
   z      <- bvLit sym PtrWidth (BV.zero PtrWidth)
   let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
-  return (ptr, mem{ memImplHeap = heap' })
+  let mem'  = mem{ memImplHeap = heap' }
+  mem'' <- if laxLoadsAndStores ?memOpts
+                && mut == G.Mutable
+                && allocType == G.HeapAlloc
+                && indeterminateLoadBehavior ?memOpts == StableSymbolic
+           then do bytes <- freshConstant sym emptySymbol
+                              (BaseArrayRepr (Ctx.singleton $ BaseBVRepr ?ptrWidth)
+                                             (BaseBVRepr (knownNat @8)))
+                   case sz of
+                     Just sz' -> doArrayStore sym mem' ptr alignment bytes sz'
+                     Nothing  -> doArrayStoreUnbounded sym mem' ptr alignment bytes
+           else pure mem'
+  return (ptr, mem'')
+
+
 
 bindLLVMFunPtr ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
@@ -1300,7 +1327,8 @@ storeConstRaw sym mem ptr valType alignment val = do
 
 -- | Allocate a memory region on the heap, with no source location info.
 mallocRaw
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> MemImpl sym
   -> SymBV sym wptr {- ^ size in bytes -}
@@ -1311,7 +1339,8 @@ mallocRaw sym mem sz alignment =
 
 -- | Allocate a read-only memory region on the heap, with no source location info.
 mallocConstRaw
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> MemImpl sym
   -> SymBV sym wptr
@@ -1683,14 +1712,16 @@ registerGlobal (MemImpl blockSource gMap sMap hMap mem) symbols ptr =
 
 -- | Allocate memory for each global, and register all the resulting
 -- pointers in the global map.
-allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
+allocGlobals :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+                , ?memOpts :: MemOptions )
              => sym
              -> [(L.Global, [L.Symbol], Bytes, Alignment)]
              -> MemImpl sym
              -> IO (MemImpl sym)
 allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
 
-allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
+allocGlobal :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+               , ?memOpts :: MemOptions )
             => sym
             -> MemImpl sym
             -> (L.Global, [L.Symbol], Bytes, Alignment)
