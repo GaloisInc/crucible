@@ -3,7 +3,23 @@
 The `crux-llvm` tool (and corresponding C library) are intended for
 verifying C programs containing inline specifications (in the form of
 function calls to create non-deterministic values and assert
-properties).
+properties). For more information about Crux itself, refer to the
+[official website](https://crux.galois.com).
+
+# Licensing and bundled tools
+
+`crux-llvm` is licensed under the 3-Clause BSD license. For more details, refer
+to the `LICENSE` file. Some binary distributions of `crux-llvm` come bundled
+with external compilers and SMT solvers:
+
+* `clang` and `llvm-link` (Apache v2.0 licensed)
+* CVC4 (BSD-3 licensed)
+* Yices (GPLv3 licensed)
+* Z3 (MIT licensed)
+
+These tools are only invoked by `crux-llvm` as subprocesses. That is,
+`crux-llvm` does not link against any of these tools directly. As a result,
+`crux-llvm` adheres to the GPLv3 licensing terms in Yices.
 
 # Prerequisites
 
