@@ -566,10 +566,7 @@ doAlloca sym mem sz alignment loc = do
   let mem'  = mem{ memImplHeap = heap' }
   mem'' <- if laxLoadsAndStores ?memOpts
                 && indeterminateLoadBehavior ?memOpts == StableSymbolic
-           then do bytes <- freshConstant sym emptySymbol
-                              (BaseArrayRepr (Ctx.singleton $ BaseBVRepr ?ptrWidth)
-                                             (BaseBVRepr (knownNat @8)))
-                   doArrayStore sym mem' ptr alignment bytes sz
+           then doStoreStableSymbolic sym mem' ptr (Just sz) alignment
            else pure mem'
   pure (ptr, mem'')
 
@@ -710,12 +707,7 @@ doMallocSize sz sym allocType mut loc mem alignment = do
                 && mut == G.Mutable
                 && allocType == G.HeapAlloc
                 && indeterminateLoadBehavior ?memOpts == StableSymbolic
-           then do bytes <- freshConstant sym emptySymbol
-                              (BaseArrayRepr (Ctx.singleton $ BaseBVRepr ?ptrWidth)
-                                             (BaseBVRepr (knownNat @8)))
-                   case sz of
-                     Just sz' -> doArrayStore sym mem' ptr alignment bytes sz'
-                     Nothing  -> doArrayStoreUnbounded sym mem' ptr alignment bytes
+           then doStoreStableSymbolic sym mem' ptr sz alignment
            else pure mem'
   return (ptr, mem'')
 
@@ -854,7 +846,8 @@ doMemset sym w mem dest val len = do
   return mem{ memImplHeap = heap' }
 
 doInvalidate ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( 1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   NatRepr w ->
   MemImpl sym ->
@@ -865,7 +858,12 @@ doInvalidate ::
 doInvalidate sym w mem dest msg len = do
   len' <- sextendBVTo sym w PtrWidth len
 
-  (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
+  (heap', p) <- if laxLoadsAndStores ?memOpts &&
+                   indeterminateLoadBehavior ?memOpts == StableSymbolic
+                then do p <- G.isAllocatedMutable sym PtrWidth noAlignment dest (Just len') (memImplHeap mem)
+                        mem' <- doStoreStableSymbolic sym mem dest (Just len') noAlignment
+                        pure (memImplHeap mem', p)
+                else G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) dest
   let mop = MemInvalidateOp msg gsym dest len (memImplHeap mem)
@@ -1037,6 +1035,25 @@ doPtrAddOffset sym m x@(LLVMPointer blk _) off = do
     let callStack = getCallStack (m ^. to memImplHeap . ML.memState)
     in assertUndefined sym callStack v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
   return x'
+
+-- | Store a fresh symbolic value of the appropriate size in the supplied
+-- pointer. This is used in various spots whenever 'laxLoadsAndStores' is
+-- enabled and 'indeterminateLoadBehavior' is set to 'StableSymbolic'.
+doStoreStableSymbolic ::
+   (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr       {- ^ destination       -} ->
+  Maybe (SymBV sym wptr) {- ^ allocation size   -} ->
+  Alignment              {- ^ pointer alignment -} ->
+  IO (MemImpl sym)
+doStoreStableSymbolic sym mem ptr mbSz alignment = do
+  bytes <- freshConstant sym emptySymbol
+             (BaseArrayRepr (Ctx.singleton (BaseBVRepr ?ptrWidth))
+                            (BaseBVRepr (knownNat @8)))
+  case mbSz of
+    Just sz -> doArrayStore sym mem ptr alignment bytes sz
+    Nothing -> doArrayStoreUnbounded sym mem ptr alignment bytes
 
 -- | This predicate tests if the pointer is a valid, live pointer
 --   into the heap, OR is the distinguished NULL pointer.

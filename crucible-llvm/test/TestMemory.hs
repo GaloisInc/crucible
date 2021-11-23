@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module TestMemory
@@ -36,6 +38,7 @@ import           Lang.Crucible.LLVM.DataLayout ( noAlignment )
 import qualified Lang.Crucible.LLVM.DataLayout as LLVMD
 import           Lang.Crucible.LLVM.MemModel ( doLoad, doStore, projectLLVM_bv, ptrAdd )
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
+import qualified Lang.Crucible.LLVM.MemModel.Generic as LLVMMemG
 
 
 memoryTests :: T.TestTree
@@ -49,6 +52,7 @@ memoryTests = T.testGroup "Memory"
   , testPointerStore
   , testMemArrayCopy
   , testMemArraySet
+  , testMemInvalidate
   ]
 
 
@@ -428,6 +432,68 @@ testMemAllocs =
      assertion <- foldM (What4.andPred sym) (What4.truePred sym) assertions
      res <- checkSat sym =<< What4.notPred sym assertion
      True @=? W4Sat.isUnsat res
+
+-- | This test case checks that 'doInvalidate' behaves as expected with and
+-- without 'laxLoadsAndStores' enabled.
+testMemInvalidate :: T.TestTree
+testMemInvalidate =
+  testCase "memory invalidation" $ withMem LLVMD.BigEndian $ \(sym :: sym) mem0 ->
+  do sz <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth 64
+     let long_type_repr = Crucible.baseToType $ What4.BaseBVRepr $ knownNat @64
+         long_storage_type = LLVMMem.bitvectorType 8
+     zero_val <- What4.bvLit sym (knownNat @64) (BV.zero knownNat)
+
+     let withInvalidatedReadVal :: LLVMMem.MemOptions
+                                -> (LLVMMem.PartLLVMVal sym -> IO a)
+                                -> IO a
+         withInvalidatedReadVal memOpts k = do
+           let ?memOpts = memOpts
+           -- First, allocate some memory on the stack...
+           (ptr, mem1) <- LLVMMem.doAlloca sym mem0 sz noAlignment "<alloca>"
+           -- ...write some value to it (the exact value is unimportant)...
+           mem2 <- LLVMMem.doStore sym mem1 ptr
+                                   long_type_repr long_storage_type
+                                   noAlignment zero_val
+           -- ...invalidate the memory...
+           mem3 <- LLVMMem.doInvalidate sym ?ptrWidth mem2 ptr "<invalidate>" sz
+           -- ...and finally, read from the invalidated memory.
+           partVal <- LLVMMemG.readMem sym ?ptrWidth Nothing ptr
+                                       long_storage_type noAlignment
+                                       (LLVMMem.memImplHeap mem3)
+           k partVal
+
+         testLaxInvalidatedRead :: String -> LLVMMem.IndeterminateLoadBehavior -> IO ()
+         testLaxInvalidatedRead stability indeterminateLoadBehavior =
+           withInvalidatedReadVal (?memOpts{ LLVMMem.laxLoadsAndStores = True
+                                           , LLVMMem.indeterminateLoadBehavior = indeterminateLoadBehavior
+                                           }) $ \partVal ->
+           case partVal of
+             LLVMMem.NoErr p _val -> do
+               res <- checkSat sym p
+               True @=? W4Sat.isSat res
+             LLVMMem.Err p -> assertFailure $ unlines
+               [ "Reading from invalidated, " ++ stability ++ "-symbolic memory unexpectedly failed"
+               , "Predicate: " ++ show p
+               ]
+
+     -- Test with laxLoadsAndStores disabled, where reading from invalidated
+     -- memory should result in an error.
+     withInvalidatedReadVal (?memOpts{LLVMMem.laxLoadsAndStores = False}) $ \partVal ->
+       case partVal of
+         LLVMMem.Err p -> do
+           res <- checkSat sym p
+           True @=? W4Sat.isUnsat res
+         LLVMMem.NoErr p val -> assertFailure $ unlines
+           [ "Reading from invalidated memory unexpectedly succeeded"
+           , "Predicate: " ++ show p
+           , "LLVM value read: " ++ show val
+           ]
+
+     -- Test with laxLoadsAndStores enabled, using both the
+     -- StableSymbolic and UnstableSymbolic settings for
+     -- indeterminateLoadBehavior. Here, reading from invalidated memory should succeed.
+     testLaxInvalidatedRead "stable" LLVMMem.StableSymbolic
+     testLaxInvalidatedRead "unstable" LLVMMem.UnstableSymbolic
 
 -- | Test storing and retrieving pointer in an SMT-backed array memory model
 testPointerStore :: T.TestTree
