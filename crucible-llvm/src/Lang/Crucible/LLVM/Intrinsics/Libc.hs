@@ -726,6 +726,45 @@ llvmFloorfOverride =
   [llvmOvr| float @floorf( float ) |]
   (\_memOps sym args -> Ctx.uncurryAssignment (callFloor sym) args)
 
+
+-- math.h defines isnan() as a macro, so you might think it unusual to provide
+-- a function override for it. However, if you write (isnan)(x) instead of
+-- isnan(x), Clang will compile the former as a direct function call rather
+-- than as a macro application. Some experimentation reveals that the isnan
+-- function's argument is always a double, so we give its argument the type
+-- double here to match this unstated convention.
+llvmIsnanOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (BVType 32)
+llvmIsnanOverride =
+  [llvmOvr| i32 @isnan( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
+
+-- __isnan and __isnanf are like the isnan macro, except their arguments are
+-- known to be double or float, respectively. They are not mentioned in the
+-- POSIX source standard, only the binary standard. See
+-- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isnan.html
+llvm__isnanOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (BVType 32)
+llvm__isnanOverride =
+  [llvmOvr| i32 @__isnan( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
+
+llvm__isnanfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (BVType 32)
+llvm__isnanfOverride =
+  [llvmOvr| i32 @__isnanf( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
+
+
 llvmSqrtOverride ::
   IsSymInterface sym =>
   LLVMOverride p sym
@@ -780,6 +819,21 @@ callFloor ::
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
 callFloor sym (regValue -> x) = liftIO $ iFloatRound @_ @fi sym RTN x
+
+callIsnan ::
+  forall fi p sym ext r args ret.
+  IsSymInterface sym =>
+  sym ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
+callIsnan sym (regValue -> x) = liftIO $ do
+  isnan  <- iFloatIsNaN @_ @fi sym x
+  let w = knownNat @32
+  bvOne  <- bvLit sym w (BV.one w)
+  bvZero <- bvLit sym w (BV.zero w)
+  -- isnan() is allowed to return any nonzero value if the argument is NaN, and
+  -- out of all the possible nonzero values, `1` is certainly one of them.
+  bvIte sym isnan bvOne bvZero
 
 callSqrt ::
   forall fi p sym ext r args ret.

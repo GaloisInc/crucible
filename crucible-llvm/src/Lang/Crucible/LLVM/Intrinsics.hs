@@ -293,6 +293,9 @@ declare_overrides =
   , basic_llvm_override Libc.llvmCeilfOverride
   , basic_llvm_override Libc.llvmFloorOverride
   , basic_llvm_override Libc.llvmFloorfOverride
+  , basic_llvm_override Libc.llvmIsnanOverride
+  , basic_llvm_override Libc.llvm__isnanOverride
+  , basic_llvm_override Libc.llvm__isnanfOverride
   , basic_llvm_override Libc.llvmSqrtOverride
   , basic_llvm_override Libc.llvmSqrtfOverride
   , basic_llvm_override Libc.llvmSinOverride
