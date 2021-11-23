@@ -53,6 +53,7 @@ import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.CFG.Reg as R
+import Lang.Crucible.Panic
 
 import qualified What4.ProgramLoc as PL
 
@@ -979,16 +980,66 @@ mem_transmute ::  (ExplodedDefId, CustomRHS)
 mem_transmute = (["core", "intrinsics", "", "transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e@(MirExp argTy _)] -> do
-            Some retTy <- tyToReprM tyU
-            case testEquality argTy retTy of
-                Just Refl -> return e
-                Nothing -> mirFail $
-                    "representation mismatch in transmute: " ++ show argTy ++ " != " ++ show retTy
+        [e@(MirExp argTy argExpr)] -> do
+          Some retTy <- tyToReprM tyU
+          case (argTy, retTy) of
+            -- Splitting an integer into pieces (usually bytes)
+            (C.BVRepr w1, MirVectorRepr (C.BVRepr w2))
+              | natValue w1 `mod` natValue w2 == 0 -> do
+                let n = natValue w1 `div` natValue w2
+                pieces <- forM [0 .. n - 1] $ \i -> do
+                  Some i' <- return $ mkNatRepr i
+                  let offset = natMultiply i' w2
+                  LeqProof <- case testLeq (addNat offset w2) w1 of
+                    Just x -> return x
+                    Nothing -> panic "transmute" ["impossible: (w1 / w2 - 1) * w2 + w2 > w1?"]
+                  return $ R.App $ E.BVSelect (natMultiply i' w2) w2 w1 argExpr
+                let v = R.App $ E.VectorLit (C.BVRepr w2) (V.fromList pieces)
+                mv <- mirVector_fromVector (C.BVRepr w2) v
+                return $ MirExp retTy mv
+
+            -- Reconstructing an integer from pieces (usually bytes)
+            (MirVectorRepr (C.BVRepr w1), C.BVRepr w2)
+              | natValue w2 `mod` natValue w1 == 0 -> do
+                let n = natValue w2 `div` natValue w1
+                vecRef <- constMirRef (MirVectorRepr (C.BVRepr w1)) argExpr
+                pieces <- forM [0 .. n - 1] $ \i -> do
+                  let idx = R.App $ usizeLit (fromIntegral i)
+                  elemRef <- subindexRef (C.BVRepr w1) vecRef idx
+                  readMirRef (C.BVRepr w1) elemRef
+                let go :: (1 <= wp) =>
+                      NatRepr wp ->
+                      [R.Expr MIR s (C.BVType wp)] ->
+                      (forall wr. (1 <= wr) => NatRepr wr -> R.Expr MIR s (C.BVType wr) -> a) ->
+                      a
+                    go _ [] _ = panic "transmute" ["impossible: w2/w1 == 0?"]
+                    go wp [x] k = k wp x
+                    go wp (x:xs) k = go wp xs (\wr rest ->
+                      case leqAdd (leqProof (knownNat @1) wr) wp of
+                        LeqProof -> k (addNat wr wp) (R.App $ E.BVConcat wr wp rest x))
+                concatExpr <- go w1 pieces $ \wr result -> do
+                  Refl <- case testEquality wr w2 of
+                    Just x -> return x
+                    Nothing -> panic "transmute" ["impossible: w1 * (w2/w1) != w2?"]
+                  return result
+                return $ MirExp retTy concatExpr
+
+            -- Transmuting between values of the same Crucible repr
+            _ | Just Refl <- testEquality argTy retTy -> return e
+
+            _ -> mirFail $
+              "can't transmute " ++ show argTy ++ " to " ++ show retTy
         _ -> mirFail $ "bad arguments to transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing)
-
+  where
+    sizeBytes sz = case sz of
+      USize -> intValue (knownNat @SizeBits) `div` 8
+      B8 -> 1
+      B16 -> 2
+      B32 -> 4
+      B64 -> 8
+      B128 -> 16
 
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
 intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
