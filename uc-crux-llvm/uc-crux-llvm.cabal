@@ -33,6 +33,8 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    UCCrux.LLVM.Bug
+    UCCrux.LLVM.Bug.UndefinedBehaviorTag
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types
