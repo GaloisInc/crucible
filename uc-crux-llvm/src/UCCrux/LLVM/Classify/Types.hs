@@ -27,7 +27,6 @@ module UCCrux.LLVM.Classify.Types
     diagnose,
     diagnoseTag,
     prescribe,
-    ppProgramLoc,
     ppTruePositive,
     ppTruePositiveTag,
     Unclassified (..),
@@ -74,6 +73,7 @@ import           UCCrux.LLVM.Constraints (NewConstraint)
 import           UCCrux.LLVM.Cursor (Where, ppWhere)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.PP (ppProgramLoc)
 {- ORMOLU_ENABLE -}
 
 data Located a = Located
@@ -81,9 +81,6 @@ data Located a = Located
     locatedValue :: a
   }
   deriving (Eq, Ord, Functor, Generic, Show)
-
-ppProgramLoc :: What4.ProgramLoc -> Text
-ppProgramLoc = Text.pack . show . What4.plSourceLoc
 
 ppLocated :: (a -> Text) -> Located a -> Text
 ppLocated ppVal (Located loc val) =
