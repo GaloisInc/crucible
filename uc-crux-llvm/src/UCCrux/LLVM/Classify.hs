@@ -68,6 +68,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
+import           UCCrux.LLVM.Bug (makeBug)
 import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
@@ -142,14 +143,7 @@ unclass appCtx badBehavior errorLoc =
       (appCtx ^. log)
         Hi
         ("Couldn't classify error. At: " <> ppProgramLoc errorLoc)
-    pure $
-      ExUncertain $
-        UUnclassified $
-          case badBehavior of
-            LLVMErrors.BBUndefinedBehavior ub ->
-              UnclassifiedUndefinedBehavior errorLoc (UB.explain ub) (Some ub)
-            LLVMErrors.BBMemoryError memoryError ->
-              UnclassifiedMemoryError errorLoc (MemError.explain memoryError)
+    pure $ ExUncertain $ UUnclassified $ makeBug badBehavior errorLoc
 
 unfixed ::
   MonadIO f =>
