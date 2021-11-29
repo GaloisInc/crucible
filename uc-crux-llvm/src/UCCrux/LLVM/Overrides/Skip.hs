@@ -14,9 +14,15 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Overrides.Skip
   ( SkipOverrideName (..),
+    ClobberSpecs (..),
+    ClobberSpec (..),
+    emptyClobberSpecs,
+    unionClobberSpecs,
+    SomeClobberSpec (..),
     unsoundSkipOverrides,
   )
 where
@@ -25,7 +31,7 @@ where
 import           Control.Lens ((^.), use, to)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef (IORef, modifyIORef)
-import           Data.Maybe (mapMaybe)
+import           Data.Maybe (mapMaybe, fromMaybe)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -37,11 +43,13 @@ import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
 import qualified Text.LLVM.AST as L
 
+import           Data.Parameterized.Ctx (Ctx)
 import           Data.Parameterized.Some (Some(Some))
 
 -- what4
 import qualified What4.Interface as What4
 import           What4.FunctionName (functionName)
+import           What4.ProgramLoc (ProgramLoc)
 
 -- crucible
 import           Lang.Crucible.Backend (IsSymInterface)
@@ -64,12 +72,14 @@ import           Crux.Types (OverM)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape)
+-- uc-crux-llvm
+import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape, ConstrainedShape)
 import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes)
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.Translation (FunctionTypes, ftRetType)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
@@ -108,11 +118,13 @@ unsoundSkipOverrides ::
   IORef (Set SkipOverrideName) ->
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | What data should get clobbered by this override?
+  Map (FuncSymbol m) (ClobberSpecs m argTypes) ->
   -- | Postconditions of each override (constraints on return values)
   Map (FuncSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
   OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
-unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
+unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
     let ?lc = llvmCtx ^. llvmTypeCtx
@@ -134,6 +146,7 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decl
                 sym
                 usedRef
                 annotationRef
+                (fromMaybe emptyClobberSpecs $ Map.lookup funcSym clobbers)
                 (Map.lookup funcSym postconditions)
                 decl
                 funcSym
@@ -144,6 +157,46 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decl
             ((`Set.notMember` alreadyDefined) . declName)
             (filter (not . isDebug) decls)
         )
+
+-- | When and where should this override clobber its arguments?
+data ClobberSpecs m argTypes
+  = ClobberSpecs
+      { -- | Stuff to clobber at each call
+        alwaysClobber :: [SomeClobberSpec m argTypes],
+        -- | Stuff to clobber at particular callsites
+        sometimesClobber :: Map ProgramLoc [SomeClobberSpec m argTypes]
+      }
+
+emptyClobberSpecs :: ClobberSpecs m argTypes
+emptyClobberSpecs =
+  ClobberSpecs { alwaysClobber = mempty, sometimesClobber = mempty }
+
+-- | Left-biased union
+unionClobberSpecs ::
+  ClobberSpecs m argTypes ->
+  ClobberSpecs m argTypes ->
+  ClobberSpecs m argTypes
+unionClobberSpecs cs1 cs2 =
+  ClobberSpecs
+    { alwaysClobber = alwaysClobber cs1 <> alwaysClobber cs2,
+      sometimesClobber = sometimesClobber cs1 <> sometimesClobber cs2
+    }
+
+-- | What data should this override clobber?
+data ClobberSpec m (argTypes :: Ctx (FullType m)) inTy atTy atTy'
+  = ClobberSpec
+      { -- | NB: A 'Selector' points to a specific part of an argument or global
+        -- variable
+        clobberSelector :: Selector m argTypes inTy atTy,
+        -- | Type of data to write. Useful for specifying a type for a @void*@.
+        clobberType :: FullTypeRepr m atTy',
+        -- | Constraints on data to write
+        clobberShape :: ConstrainedShape m atTy'
+      }
+  deriving Eq
+
+data SomeClobberSpec m (argTypes :: Ctx (FullType m))
+  = forall inTy atTy atTy'. SomeClobberSpec (ClobberSpec m argTypes inTy atTy atTy')
 
 -- TODO(lb): At some point, it'd be nice to apply heuristics to the manufactured
 -- return values, similar to those for function arguments. To do this, this
@@ -162,11 +215,14 @@ createSkipOverride ::
   IORef (Set SkipOverrideName) ->
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | What data should get clobbered by this override?
+  ClobberSpecs m argTypes ->
+  -- | Constraints on the return value
   Maybe (ConstrainedTypedValue m) ->
   L.Declare ->
   FuncSymbol m ->
   Maybe (PolymorphicLLVMOverride arch (personality sym) sym)
-createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
+createSkipOverride modCtx sym usedRef annotationRef _clobbers postcondition decl funcSym =
   llvmDeclToFunHandleRepr' decl $
     \args ret ->
       Just $

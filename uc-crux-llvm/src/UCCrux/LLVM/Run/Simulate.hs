@@ -436,6 +436,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                         trans
                         skipOverrideRef
                         skipReturnValueAnnotations
+                        Map.empty
                         (constraints ^. returnConstraints)
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
                     let sOverrides' = map getPolymorphicLLVMOverride sOverrides
