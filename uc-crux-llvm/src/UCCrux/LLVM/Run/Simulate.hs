@@ -104,7 +104,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt)
 
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
-import           UCCrux.LLVM.Classify.Types (Located(Located), Explanation(..), Uncertainty(..), ppProgramLoc)
+import           UCCrux.LLVM.Classify.Types (Located(Located), Explanation(..), Uncertainty(..))
 import           UCCrux.LLVM.Constraints (Constraints, returnConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
@@ -116,7 +116,7 @@ import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverri
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
-import           UCCrux.LLVM.PP (ppRegMap)
+import           UCCrux.LLVM.PP (ppRegMap, ppProgramLoc)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SymValue)
 import           UCCrux.LLVM.Setup.Assume (assume)
