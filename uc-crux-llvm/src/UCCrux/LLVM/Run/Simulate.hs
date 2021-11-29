@@ -525,6 +525,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                 (Map.union argAnnotations retAnns)
                 argShapes
                 badBehavior
+                callStack
                 >>= IORef.modifyIORef explRef . (:)
         return mempty
 

@@ -9,6 +9,7 @@ Stability        : provisional
 
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE PolyKinds #-}
 
 module UCCrux.LLVM.Bug
   ( Bug,
@@ -29,6 +30,7 @@ import qualified Prettyprinter as PP
 
 import qualified What4.ProgramLoc as What4
 
+import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack, ppCallStack)
 import           Lang.Crucible.LLVM.Errors (BadBehavior)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.Errors.MemoryError (MemoryErrorReason)
@@ -42,7 +44,7 @@ import           UCCrux.LLVM.PP (ppProgramLoc)
 -- | This is different from 'Lang.Crucible.LLVM.Errors.BadBehavior' in that
 -- it stores less data.
 data BugBehavior
-  = BBUndefinedBehaviorTag UndefinedBehaviorTag
+  = BBUndefinedBehaviorTag !UndefinedBehaviorTag
   | BBMemoryErrorReason MemoryErrorReason
   deriving (Eq, Ord)
 
@@ -60,15 +62,12 @@ data Bug =
   Bug
     { bugBehavior :: BugBehavior
     , bugLoc :: !What4.ProgramLoc
+    , bugCallStack :: !CallStack
     }
   deriving (Eq, Ord)
 
--- | Invalid instance, only for testing
-instance Show Bug where
-  show = show . ppBug
-
-makeBug :: BadBehavior sym -> What4.ProgramLoc -> Bug
-makeBug bb loc =
+makeBug :: BadBehavior sym -> What4.ProgramLoc -> CallStack -> Bug
+makeBug bb loc callStack =
   Bug
     { bugBehavior =
         case bb of
@@ -76,12 +75,22 @@ makeBug bb loc =
             BBUndefinedBehaviorTag (makeUndefinedBehaviorTag ub)
           LLVMErrors.BBMemoryError (MemErrors.MemoryError _ rsn) ->
             BBMemoryErrorReason rsn,
-      bugLoc = loc
+      bugLoc = loc,
+      bugCallStack = callStack
     }
 
 ppBug :: Bug -> PP.Doc ann
-ppBug (Bug bb loc) =
+ppBug (Bug bb loc callStack) =
   PP.vsep
     [ ppBugBehavior bb
     , PP.pretty "at" <> PP.pretty (ppProgramLoc loc)
+    , PP.pretty "in context:"
+    , PP.indent 2 (ppCallStack callStack)
     ]
+
+-- | Non-lawful instance, only to be used in tests.
+instance Show Bug where
+  show = show . ppBug
+
+instance PP.Pretty Bug where
+  pretty = ppBug
