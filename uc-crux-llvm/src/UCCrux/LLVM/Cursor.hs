@@ -43,6 +43,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Lens, lens, (^.))
+import           Data.Maybe (isJust)
 import           Data.Semigroupoid (Semigroupoid(o))
 import           Data.Type.Equality
 import           Prettyprinter (Doc)
@@ -91,6 +92,9 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     Ctx.Index fields inTy ->
     Cursor m inTy atTy ->
     Cursor m ('FTStruct fields) atTy
+
+instance Eq (Cursor m inTy atTy) where
+  c1 == c2 = isJust (testEquality c1 c2)
 
 instance Semigroupoid (Cursor m) where
   o cursor1 cursor2 =
@@ -235,6 +239,7 @@ data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   = SelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
   | SelectGlobal !(GlobalSymbol m) (Cursor m inTy atTy)
   | SelectReturn !(FuncSymbol m) (Cursor m inTy atTy)
+  deriving Eq
 
 -- | A non-parameterized summary of a 'Selector'
 data Where
