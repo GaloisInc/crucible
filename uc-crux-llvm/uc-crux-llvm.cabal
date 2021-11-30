@@ -154,6 +154,7 @@ test-suite uc-crux-llvm-test
   main-is: Test.hs
   other-modules:
     Check
+    Clobber
     Logging
     Paths_uc_crux_llvm
     Utils

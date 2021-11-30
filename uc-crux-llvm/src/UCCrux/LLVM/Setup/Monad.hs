@@ -373,5 +373,5 @@ storeGlobal sym ftRepr selector symb regValue =
       \mem' ->
         do
           mem'' <-
-            liftIO $ Mem.store (Proxy :: Proxy arch) sym mem ftRepr ptr' regValue
+            liftIO $ Mem.store (Proxy :: Proxy arch) sym mem' ftRepr ptr' regValue
           pure (ptr', mem'')

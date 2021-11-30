@@ -36,6 +36,7 @@ module UCCrux.LLVM.Module
     declSymbol,
     makeDeclSymbol,
     getDeclSymbol,
+    declSymbolToString,
     isEmptyDeclMap,
     defnSymbol,
     makeDefnSymbol,
@@ -48,6 +49,7 @@ module UCCrux.LLVM.Module
     makeFuncSymbol,
     funcSymbol,
     getFuncSymbol,
+    funcSymbolToString,
     globalSymbol,
     makeGlobalSymbol,
     getGlobalSymbol,
@@ -296,6 +298,9 @@ makeDeclSymbol symbol (DeclMap (SymbolMap mp)) =
 getDeclSymbol :: DeclSymbol m -> L.Symbol
 getDeclSymbol (DeclSymbol (Symbol s)) = s
 
+declSymbolToString :: DeclSymbol m -> String
+declSymbolToString = (\(L.Symbol s) -> s) . getDeclSymbol
+
 isEmptyDeclMap :: DeclMap m a -> Bool
 isEmptyDeclMap (DeclMap (SymbolMap m)) = Map.null m
 
@@ -326,7 +331,6 @@ getDefnSymbol (DefnSymbol (Symbol s)) = s
 defnSymbolToString :: DefnSymbol m -> String
 defnSymbolToString = (\(L.Symbol s) -> s) . getDefnSymbol
 
-
 isEmptyDefnMap :: DefnMap m a -> Bool
 isEmptyDefnMap (DefnMap (SymbolMap m)) = Map.null m
 
@@ -354,6 +358,9 @@ getFuncSymbol =
   \case
     FuncDeclSymbol declSymb -> getDeclSymbol declSymb
     FuncDefnSymbol defnSymb -> getDefnSymbol defnSymb
+
+funcSymbolToString :: FuncSymbol m -> String
+funcSymbolToString = (\(L.Symbol s) -> s) . getFuncSymbol
 
 globalSymbol :: GlobalSymbol m -> Lens' (GlobalMap m a) a
 globalSymbol (GlobalSymbol sym) =

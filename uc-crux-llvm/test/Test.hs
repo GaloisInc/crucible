@@ -87,6 +87,7 @@ import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 
 import qualified Check
+import qualified Clobber
 import qualified Utils
 {- ORMOLU_ENABLE -}
 
@@ -477,6 +478,7 @@ inFileTests =
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("memset_func_ptr.c", [("memset_func_ptr", isUnclassified)]), -- goal: hasBugs
+        ("memset_void_ptr.c", [("memset_void_ptr", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
@@ -1530,6 +1532,7 @@ main =
     TT.testGroup
       "uc-crux-llvm"
       [ Check.checkOverrideTests,
+        Clobber.clobberTests,
         inFileTests,
         moduleTests,
         isUnimplemented

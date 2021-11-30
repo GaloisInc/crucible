@@ -25,12 +25,23 @@ module UCCrux.LLVM.Mem
     store,
     store',
     storeGlobal,
-    storeGlobal'
+    storeGlobal',
+    seekPtr
   )
 where
 
 {- ORMOLU_DISABLE -}
+import           Control.Lens ((^.), to)
+import           Control.Monad (unless)
+import           Data.Type.Equality ((:~:)(Refl))
+import qualified Data.Vector as Vec
+
 import qualified Text.LLVM.AST as L
+
+-- parameterized-utils
+import           Data.Parameterized.Classes (ixF')
+import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.NatRepr (intValue)
 
 -- what4
 import           What4.Interface (Pred)
@@ -42,16 +53,19 @@ import qualified Lang.Crucible.Simulator as Crucible
 -- crucible-llvm
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
-import           Lang.Crucible.LLVM.MemModel (MemImpl, MemOptions, HasLLVMAnn)
+import           Lang.Crucible.LLVM.MemModel (LLVMPointerType, MemImpl, MemOptions, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
+import           UCCrux.LLVM.Cursor (Cursor(..))
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SeekOffset))
+import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(..), toCrucibleType, translateIndex)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
-import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr, ToCrucibleType, pointedToType)
+import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, asFullType)
 {- ORMOLU_ENABLE -}
 
 loadRaw ::
@@ -185,3 +199,41 @@ storeGlobal' ::
 storeGlobal' proxy sym mem mts fullTypeRepr symb regValue =
   do let pointedToRepr = pointedToType mts fullTypeRepr
      storeGlobal proxy sym mem pointedToRepr symb regValue
+
+-- | Find a pointer inside of a value
+seekPtr ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  (?memOpts :: LLVMMem.MemOptions) =>
+  ModuleContext m arch ->
+  sym ->
+  -- | Program memory
+  MemImpl sym ->
+  -- | Type of value that contains pointer
+  FullTypeRepr m inTy ->
+  -- | Value containing pointer
+  Crucible.RegValue sym (ToCrucibleType arch inTy) ->
+  -- | Where the pointer is inside the value
+  Cursor m inTy ('FTPtr atTy) ->
+  IO (Crucible.RegValue sym (LLVMPointerType (ArchWidth arch)))
+seekPtr modCtx sym mem fullTypeRepr regVal cursor =
+  case (fullTypeRepr, cursor) of
+    (FTArrayRepr _n fullTypeRepr', Index i _ cur) ->
+      -- TODO(lb): overflow...?
+      let val = regVal Vec.! fromIntegral (intValue i)
+      in seekPtr modCtx sym mem fullTypeRepr' val cur
+    (FTStructRepr _structInfo fields, Field _fieldTypes idx cur) ->
+      let ty = fields ^. ixF' idx
+      in case translateIndex modCtx (Ctx.size fields) idx of
+           SomeIndex idx' Refl ->
+             let val = regVal ^. ixF' idx' . to Crucible.unRV
+             in seekPtr modCtx sym mem ty val cur
+    (FTPtrRepr ptRepr, Dereference i cur) ->
+      do unless (i == 0) $
+           unimplemented "seekPtr" SeekOffset
+         newVal <-
+           load' modCtx sym mem (modCtx ^. moduleTypes) regVal fullTypeRepr
+         let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptRepr
+         seekPtr modCtx sym mem ftPtdTo newVal cur
+    (FTPtrRepr _ptRepr, Here _) -> return regVal

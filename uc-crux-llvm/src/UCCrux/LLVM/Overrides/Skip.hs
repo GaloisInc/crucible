@@ -14,21 +14,27 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Overrides.Skip
   ( SkipOverrideName (..),
-    ClobberSpecs (..),
+    ClobberSpecs,
+    makeClobberSpecs,
     ClobberSpec (..),
+    ClobberSpecError (..),
+    ppClobberSpecError,
+    ClobberSelector (..),
     emptyClobberSpecs,
-    unionClobberSpecs,
     SomeClobberSpec (..),
     unsoundSkipOverrides,
+    createSkipOverride,
   )
 where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.), use, to)
+import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef (IORef, modifyIORef)
 import           Data.Maybe (mapMaybe, fromMaybe)
@@ -41,9 +47,14 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
+import qualified Prettyprinter as PP
+
 import qualified Text.LLVM.AST as L
 
+-- parameterized-utils
 import           Data.Parameterized.Ctx (Ctx)
+import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Classes (ixF')
 import           Data.Parameterized.Some (Some(Some))
 
 -- what4
@@ -72,15 +83,16 @@ import           Crux.Types (OverM)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
--- uc-crux-llvm
 import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape, ConstrainedShape)
-import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes)
-import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleTypes, moduleDecls)
+import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), deepenPtr, seekType)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SometimesClobber))
+import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType, testCompatibility)
 import           UCCrux.LLVM.FullType.Translation (FunctionTypes, ftRetType)
-import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
-import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug)
+import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType)
+import qualified UCCrux.LLVM.Mem as Mem
+import           UCCrux.LLVM.Module (GlobalSymbol, FuncSymbol, funcSymbol, makeFuncSymbol, isDebug, funcSymbolToString)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Assume (assume)
@@ -101,9 +113,8 @@ declName decl =
 --
 -- Mostly useful for functions that are declared but not defined.
 --
--- Note that this won't register overrides for functions that already have
--- associated CFGs, like if you already registered a normal override for `free`
--- or similar.
+-- This won't register overrides for functions that already have associated
+-- CFGs, like if you already registered a normal override for `free` or similar.
 unsoundSkipOverrides ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
@@ -119,11 +130,11 @@ unsoundSkipOverrides ::
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   -- | What data should get clobbered by this override?
-  Map (FuncSymbol m) (ClobberSpecs m argTypes) ->
+  Map (FuncSymbol m) (ClobberSpecs m) ->
   -- | Postconditions of each override (constraints on return values)
   Map (FuncSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
-  OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
+  OverM personality sym LLVM [Either (ClobberSpecError m) (PolymorphicLLVMOverride arch (personality sym) sym)]
 unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
@@ -148,7 +159,6 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postcondit
                 annotationRef
                 (fromMaybe emptyClobberSpecs $ Map.lookup funcSym clobbers)
                 (Map.lookup funcSym postconditions)
-                decl
                 funcSym
     pure $
       mapMaybe
@@ -158,50 +168,197 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postcondit
             (filter (not . isDebug) decls)
         )
 
--- | When and where should this override clobber its arguments?
-data ClobberSpecs m argTypes
+-- | A 'ClobberSelector' points to a spot inside an argument or global variable
+data ClobberSelector m (argTypes :: Ctx (FullType m)) inTy atTy
+  = ClobberSelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
+  | ClobberSelectGlobal !(GlobalSymbol m) (Cursor m inTy atTy)
+  deriving Eq
+
+_clobberSelectorToSelector ::
+  ClobberSelector m argTypes inTy atTy ->
+  Selector m argTypes inTy atTy
+_clobberSelectorToSelector =
+  \case
+    ClobberSelectArgument idx cursor -> SelectArgument idx cursor
+    ClobberSelectGlobal glob cursor -> SelectGlobal glob cursor
+
+clobberSelectorCursor ::
+  ClobberSelector m argTypes inTy atTy ->
+  Cursor m inTy atTy
+clobberSelectorCursor =
+  \case
+    ClobberSelectArgument _idx cursor -> cursor
+    ClobberSelectGlobal _glob cursor -> cursor
+
+-- | What data should this override clobber?
+--
+-- These specs can explicitly set a type of data to generate (@argTypes@,
+-- @inTy@, @atTy@), which may or may not actually match the declared type of the
+-- data in question. This is useful for clobbering e.g. a @char*@ or @void*@
+-- with structured data. However, it yields some API and implementation
+-- complexity due to possible type mismatches (see 'ClobberSpecError').
+data ClobberSpec m (argTypes :: Ctx (FullType m)) inTy atTy
+  = ClobberSpec
+      { clobberSelector :: ClobberSelector m argTypes inTy ('FTPtr atTy),
+        -- | Type of value that contains the pointer
+        clobberType :: FullTypeRepr m inTy,
+        -- | Constraints on data to write
+        clobberShape :: ConstrainedShape m atTy
+      }
+  deriving Eq
+
+data SomeClobberSpec m
+  = forall (argTypes :: Ctx (FullType m)) inTy atTy.
+      SomeClobberSpec (ClobberSpec m argTypes inTy atTy)
+
+data ClobberSpecError m
+  = ClobberMismatchedSize !(FuncSymbol m)
+  | ClobberMismatchedType !(FuncSymbol m)
+  deriving (Eq, Ord)
+
+ppClobberSpecError :: ClobberSpecError m -> PP.Doc ann
+ppClobberSpecError =
+  \case
+    ClobberMismatchedSize f ->
+      PP.hsep
+        [ "Specification for values clobbered by the skipped function",
+          PP.pretty (funcSymbolToString f),
+          "included an argument index that is out of range for that function."
+        ]
+    ClobberMismatchedType f ->
+      PP.hsep
+        [ "Specification for values clobbered by the skipped function",
+          PP.pretty (funcSymbolToString f),
+          "included a value that was ill-typed with respect to that function's",
+          "arguments."
+        ]
+
+-- | Retrieve the value specified by a 'ClobberSelector'.
+--
+-- 'makeGetter' returns this sort of callback because we want to produce
+-- 'ClobberSpecError's statically, that is, before executing the override, and
+-- this is a relatively simple way to encapsulate the type information learned
+-- by GADT case splits in 'makeGetter'.
+newtype ClobberGetter arch args inTy =
+  ClobberGetter
+    { getClobberGetter ::
+        forall sym.
+        MemImpl sym ->
+        Ctx.Assignment (Crucible.RegEntry sym) args ->
+        IO (Crucible.RegValue sym (ToCrucibleType arch inTy))
+    }
+
+-- | Retrieve a getter for the value with the pointer to be clobbered.
+--
+-- See comment on 'ClobberGetter'.
+makeGetter ::
+  forall proxy m arch args argTypes inTy atTy.
+  ArchOk arch =>
+  proxy arch ->
+  FuncSymbol m ->
+  Ctx.Assignment CrucibleTypes.TypeRepr args ->
+  ClobberSpec m argTypes inTy atTy ->
+  Either (ClobberSpecError m) (ClobberGetter arch args inTy)
+makeGetter proxy funcSymb argTys spec = go (clobberType spec) (clobberSelector spec)
+  where
+    go ::
+      FullTypeRepr m inTy ->
+      ClobberSelector m argTypes inTy ('FTPtr atTy) ->
+      Either (ClobberSpecError m) (ClobberGetter arch args inTy)
+    go ftRepr =
+      \case
+        ClobberSelectArgument idx _ ->
+          case Ctx.intIndex (Ctx.indexVal idx) (Ctx.size argTys) of
+            Nothing -> Left (ClobberMismatchedSize funcSymb)
+            Just (Some idx') ->
+              let ty = argTys ^. ixF' idx'
+              in case testCompatibility proxy ftRepr ty of
+                  Nothing -> Left (ClobberMismatchedType funcSymb)
+                  Just Refl ->
+                    Right $
+                      ClobberGetter $
+                        \_mem args ->
+                          return (args ^. ixF' idx' . to Crucible.regValue)
+        ClobberSelectGlobal _glob _cursor ->
+          -- TODO(lb): look at code that puts constraints on globals
+          error "TODO(lb): unimpl?"
+
+clobberAtType ::
+  ModuleTypes m ->
+  ClobberSpec m argTypes inTy atTy ->
+  FullTypeRepr m atTy
+clobberAtType modTys spec =
+  pointedToType
+    modTys
+    (seekType
+      modTys
+      (clobberSelectorCursor (clobberSelector spec))
+      (clobberType spec))
+
+-- | When and where should this override clobber its arguments or globals?
+data ClobberSpecs' m a
   = ClobberSpecs
       { -- | Stuff to clobber at each call
-        alwaysClobber :: [SomeClobberSpec m argTypes],
+        alwaysClobber :: [a],
         -- | Stuff to clobber at particular callsites
-        sometimesClobber :: Map ProgramLoc [SomeClobberSpec m argTypes]
+        sometimesClobber :: Map ProgramLoc [a]
       }
 
-emptyClobberSpecs :: ClobberSpecs m argTypes
+type ClobberSpecs m = ClobberSpecs' m (SomeClobberSpec m)
+
+makeClobberSpecs ::
+  -- | Stuff to clobber at each call
+  [SomeClobberSpec m] ->
+  -- | Stuff to clobber at particular callsites
+  Map ProgramLoc [SomeClobberSpec m] ->
+  ClobberSpecs m
+makeClobberSpecs = ClobberSpecs
+
+emptyClobberSpecs :: ClobberSpecs' m a
 emptyClobberSpecs =
   ClobberSpecs { alwaysClobber = mempty, sometimesClobber = mempty }
 
 -- | Left-biased union
-unionClobberSpecs ::
-  ClobberSpecs m argTypes ->
-  ClobberSpecs m argTypes ->
-  ClobberSpecs m argTypes
-unionClobberSpecs cs1 cs2 =
-  ClobberSpecs
-    { alwaysClobber = alwaysClobber cs1 <> alwaysClobber cs2,
-      sometimesClobber = sometimesClobber cs1 <> sometimesClobber cs2
-    }
-
--- | What data should this override clobber?
-data ClobberSpec m (argTypes :: Ctx (FullType m)) inTy atTy atTy'
-  = ClobberSpec
-      { -- | NB: A 'Selector' points to a specific part of an argument or global
-        -- variable
-        clobberSelector :: Selector m argTypes inTy atTy,
-        -- | Type of data to write. Useful for specifying a type for a @void*@.
-        clobberType :: FullTypeRepr m atTy',
-        -- | Constraints on data to write
-        clobberShape :: ConstrainedShape m atTy'
+instance Semigroup (ClobberSpecs' m a) where
+  cs1 <> cs2 =
+    ClobberSpecs
+      { alwaysClobber = alwaysClobber cs1 <> alwaysClobber cs2,
+        sometimesClobber = sometimesClobber cs1 <> sometimesClobber cs2
       }
-  deriving Eq
 
-data SomeClobberSpec m (argTypes :: Ctx (FullType m))
-  = forall inTy atTy atTy'. SomeClobberSpec (ClobberSpec m argTypes inTy atTy atTy')
+instance Monoid (ClobberSpecs' m a) where
+  mempty = emptyClobberSpecs
 
--- TODO(lb): At some point, it'd be nice to apply heuristics to the manufactured
--- return values, similar to those for function arguments. To do this, this
--- function would probably need to take an IORef in which to insert annotations
--- for values it creates.
+-- | @args@ and @argTypes@ are not necessarily related, see comment on
+-- 'ClobberGetter'.
+data SomeClobberSpecAndGetter m arch args
+  = forall (argTypes :: Ctx (FullType m)) inTy atTy.
+      SomeClobberSpecAndGetter
+        (ClobberSpec m argTypes inTy atTy)
+        (ClobberGetter arch args inTy)
+
+makeGetters ::
+  ArchOk arch =>
+  proxy arch ->
+  FuncSymbol m ->
+  Ctx.Assignment CrucibleTypes.TypeRepr args ->
+  ClobberSpecs m ->
+  Either (ClobberSpecError m) (ClobberSpecs' m (SomeClobberSpecAndGetter m arch args))
+makeGetters proxy funcSymb args specs =
+  ClobberSpecs
+  <$> traverse mk (alwaysClobber specs)
+  <*> traverse (traverse mk) (sometimesClobber specs)
+  where mk (SomeClobberSpec spec) =
+          SomeClobberSpecAndGetter spec <$> makeGetter proxy funcSymb args spec
+
+
+-- | Create an override that takes the place of a given defined or even
+-- declared/external function, and instead of executing that function,
+-- instead manufactures a fresh symbolic return value and optionally clobbers
+-- some parts of its arguments or global variables with fresh symbolic values.
+--
+-- Useful for continuing symbolic execution in the presence of external/library
+-- functions.
 createSkipOverride ::
   forall m arch sym argTypes personality.
   ( IsSymInterface sym,
@@ -216,38 +373,96 @@ createSkipOverride ::
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   -- | What data should get clobbered by this override?
-  ClobberSpecs m argTypes ->
+  ClobberSpecs m ->
   -- | Constraints on the return value
   Maybe (ConstrainedTypedValue m) ->
-  L.Declare ->
+  -- | Function to be overridden
   FuncSymbol m ->
-  Maybe (PolymorphicLLVMOverride arch (personality sym) sym)
-createSkipOverride modCtx sym usedRef annotationRef _clobbers postcondition decl funcSym =
+  Maybe (Either (ClobberSpecError m) (PolymorphicLLVMOverride arch (personality sym) sym))
+createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcSymb =
   llvmDeclToFunHandleRepr' decl $
-    \args ret ->
+    \argTys retTy ->
       Just $
-        makePolymorphicLLVMOverride $
-          basic_llvm_override $
-            LLVMOverride
-              { llvmOverride_declare = decl,
-                llvmOverride_args = args,
-                llvmOverride_ret = ret,
-                llvmOverride_def =
-                  \mvar _sym _args ->
-                    do
-                      liftIO $
-                        modifyIORef usedRef (Set.insert (SkipOverrideName name))
-                      Override.modifyGlobal mvar $ \mem ->
-                        liftIO
-                          ( returnValue
-                              mem
-                              ret
-                              (modCtx ^. funcTypes . funcSymbol funcSym)
-                          )
-              }
+        case makeGetters modCtx funcSymb argTys clobbers of
+          Left err -> Left err
+          Right clobbers' ->
+            Right $
+              makePolymorphicLLVMOverride $
+                basic_llvm_override $
+                  LLVMOverride
+                    { llvmOverride_declare = decl,
+                      llvmOverride_args = argTys,
+                      llvmOverride_ret = retTy,
+                      llvmOverride_def =
+                        \mvar _sym args ->
+                          do
+                            liftIO $
+                              modifyIORef usedRef (Set.insert (SkipOverrideName name))
+                            Override.modifyGlobal mvar $
+                              \mem ->
+                                liftIO $
+                                  do mem' <- clobberAll mem args clobbers'
+                                     returnValue
+                                       mem'
+                                       retTy
+                                       (modCtx ^. funcTypes . funcSymbol funcSymb)
+                    }
   where
+    decl = modCtx ^. moduleDecls . funcSymbol funcSymb
     name = declName decl
     symbolName = L.decName decl
+
+    clobberOne ::
+      MemImpl sym ->
+      Ctx.Assignment (Crucible.RegEntry sym) args ->
+      ClobberSpec m args' inTy atTy ->
+      ClobberGetter arch args inTy ->
+      IO (MemImpl sym)
+    clobberOne mem args spec getter =
+      let mts = modCtx ^. moduleTypes
+      in
+        runSetup
+          modCtx
+          mem
+          ( generate
+              sym
+              modCtx
+              (clobberAtType mts spec)
+              (SelectClobbered
+                 funcSymb
+                 (deepenPtr mts (clobberSelectorCursor (clobberSelector spec))))
+              (clobberShape spec)
+          )
+          >>=
+            \case
+              (result, value) ->
+                do
+                  assume name sym (resultAssumptions result)
+                  -- The keys are nonces, so they'll never clash, so the
+                  -- bias of the union is unimportant.
+                  modifyIORef annotationRef (Map.union (resultAnnotations result))
+                  container <- getClobberGetter getter mem args
+                  let cursor = clobberSelectorCursor (clobberSelector spec)
+                  ptr <- Mem.seekPtr modCtx sym mem (clobberType spec) container cursor
+                  let mem' = resultMem result
+                  let val = value ^. Shape.tag . to getSymValue
+                  Mem.store modCtx sym mem' (clobberAtType mts spec) ptr val
+
+
+    clobberAll ::
+      MemImpl sym ->
+      Ctx.Assignment (Crucible.RegEntry sym) args ->
+      ClobberSpecs' m (SomeClobberSpecAndGetter m arch args) ->
+      IO (MemImpl sym)
+    clobberAll mem args clobbers' =
+      if not (Map.null (sometimesClobber clobbers'))
+      then unimplemented "doClobber" SometimesClobber
+      else
+        foldM
+          (\mem' (SomeClobberSpecAndGetter spec getter) ->
+             clobberOne mem' args spec getter)
+          mem
+          (alwaysClobber clobbers')
 
     returnValue ::
       MemImpl sym ->
