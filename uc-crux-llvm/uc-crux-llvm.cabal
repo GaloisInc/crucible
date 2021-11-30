@@ -46,6 +46,7 @@ library
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType
+    UCCrux.LLVM.FullType.Compatibility
     UCCrux.LLVM.FullType.CrucibleType
     UCCrux.LLVM.FullType.MemType
     UCCrux.LLVM.FullType.Memory
