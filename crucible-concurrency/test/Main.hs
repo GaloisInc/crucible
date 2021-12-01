@@ -58,8 +58,11 @@ testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
      withFile outFile WriteMode $ \outh ->
-       do let options = (defaultCruxOptions { Crux.inputFiles = [inFile],
-                                              Crux.simVerbose = 0,
+       do let outOpts = (Crux.outputOptions defaultCruxOptions)
+                          { Crux.simVerbose = 0
+                          }
+              options = (defaultCruxOptions { Crux.outputOptions = outOpts,
+                                              Crux.inputFiles = [inFile],
                                               Crux.globalTimeout = Just 600,
                                               Crux.goalTimeout = Just 600,
                                               Crux.solver = "yices",
@@ -67,5 +70,5 @@ testSimulator inFile outFile =
                                             },
                          defaultCrucesOptions)
           let ?outputConfig = Crux.mkOutputConfig (outh, False) (outh, False)
-                                Crux.cruxLogMessageToSayWhat $ Just (fst options)
+                                Crux.cruxLogMessageToSayWhat $ Just (Crux.outputOptions (fst options))
           run options
