@@ -26,6 +26,8 @@ module UCCrux.LLVM.Mem
     store',
     storeGlobal,
     storeGlobal',
+    loadGlobal,
+    loadGlobal',
     seekPtr
   )
 where
@@ -143,7 +145,9 @@ store ::
   sym ->
   MemImpl sym ->
   FullTypeRepr m ft ->
+  -- | Pointer to store at
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
+  -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
 store proxy sym mem fullTypeRepr ptr regValue =
@@ -160,7 +164,9 @@ store' ::
   MemImpl sym ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
+  -- | Pointer to store at
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
+  -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
 store' proxy sym mem mts fullTypeRepr ptr regValue =
@@ -175,14 +181,14 @@ storeGlobal ::
   sym ->
   MemImpl sym ->
   FullTypeRepr m ft ->
+  -- | Name of global variable
   L.Symbol ->
+  -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
 storeGlobal proxy sym mem fullTypeRepr symb regValue =
   do ptr <- LLVMMem.doResolveGlobal sym mem symb
-     let storageType = toStorageType fullTypeRepr
-     let cType = toCrucibleType proxy fullTypeRepr
-     LLVMMem.doStore sym mem ptr cType storageType noAlignment regValue
+     store proxy sym mem fullTypeRepr ptr regValue
 
 storeGlobal' ::
   IsSymInterface sym =>
@@ -193,12 +199,47 @@ storeGlobal' ::
   MemImpl sym ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
+  -- | Name of global variable
   L.Symbol ->
+  -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
 storeGlobal' proxy sym mem mts fullTypeRepr symb regValue =
   do let pointedToRepr = pointedToType mts fullTypeRepr
      storeGlobal proxy sym mem pointedToRepr symb regValue
+
+loadGlobal ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  (?memOpts :: MemOptions) =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  FullTypeRepr m ft ->
+  -- | Name of global variable
+  L.Symbol ->
+  IO (Crucible.RegValue sym (ToCrucibleType arch ft))
+loadGlobal proxy sym mem fullTypeRepr symb =
+  do ptr <- LLVMMem.doResolveGlobal sym mem symb
+     load proxy sym mem ptr fullTypeRepr
+
+loadGlobal' ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  (?memOpts :: MemOptions) =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  ModuleTypes m ->
+  FullTypeRepr m ('FTPtr ft) ->
+  -- | Name of global variable
+  L.Symbol ->
+  IO (Crucible.RegValue sym (ToCrucibleType arch ft))
+loadGlobal' proxy sym mem mts fullTypeRepr symb =
+  do let pointedToRepr = pointedToType mts fullTypeRepr
+     loadGlobal proxy sym mem pointedToRepr symb
 
 -- | Find a pointer inside of a value
 seekPtr ::
