@@ -61,16 +61,32 @@ loadRaw ::
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m ('FTPtr atTy) ->
   IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
-loadRaw proxy sym mem mts val fullTypeRepr =
+loadRaw proxy sym mem mts ptr fullTypeRepr =
   do let pointedToRepr = pointedToType mts fullTypeRepr
          typeRepr = toCrucibleType proxy pointedToRepr
-     -- TODO Is this alignment right?
      partVal <-
-       LLVMMem.loadRaw sym mem val (toStorageType pointedToRepr) noAlignment
+       LLVMMem.loadRaw sym mem ptr (toStorageType pointedToRepr) noAlignment
      case partVal of
        LLVMMem.Err p -> return (p, Nothing)
        LLVMMem.NoErr p ptdToVal ->
          (p,) . Just <$> LLVMMem.unpackMemValue sym typeRepr ptdToVal
+
+load ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  (?memOpts :: MemOptions) =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  ModuleTypes m ->
+  Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
+  FullTypeRepr m ('FTPtr atTy) ->
+  IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
+load proxy sym mem mts ptr fullTypeRepr =
+  do let pointedToRepr = pointedToType mts fullTypeRepr
+         typeRepr = toCrucibleType proxy pointedToRepr
+     LLVMMem.doLoad sym mem ptr (toStorageType pointedToRepr) typeRepr noAlignment
 
 store ::
   IsSymInterface sym =>
