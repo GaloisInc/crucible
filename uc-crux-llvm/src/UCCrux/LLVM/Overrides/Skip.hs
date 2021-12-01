@@ -14,8 +14,6 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Overrides.Skip
   ( SkipOverrideName (..),
@@ -87,7 +85,7 @@ import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalCons
 import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleTypes, moduleDecls)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), deepenPtr, seekType)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SometimesClobber))
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SometimesClobber, ClobberGlobal))
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType, testCompatibility)
 import           UCCrux.LLVM.FullType.Translation (FunctionTypes, ftRetType)
 import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType)
@@ -280,8 +278,7 @@ makeGetter proxy funcSymb argTys spec = go (clobberType spec) (clobberSelector s
                         \_mem args ->
                           return (args ^. ixF' idx' . to Crucible.regValue)
         ClobberSelectGlobal _glob _cursor ->
-          -- TODO(lb): look at code that puts constraints on globals
-          error "TODO(lb): unimpl?"
+          unimplemented "makeGetter" ClobberGlobal
 
 clobberAtType ::
   ModuleTypes m ->

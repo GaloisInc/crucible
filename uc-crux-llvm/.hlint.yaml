@@ -65,7 +65,7 @@
     within: ["UCCrux.LLVM.Config"]
 - ignore:  # No need for this in the test suite
     name: "Use panic"
-    within: ["Check", "Main", "Utils"]
+    within: ["Check", "Clobber", "Main", "Utils"]
 - ignore:  # Guide to further implementation
     name: "Redundant if"
     within: ["UCCrux.LLVM.Classify.Poison"]

@@ -5,6 +5,7 @@ Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 -}
 
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -12,12 +13,15 @@ Stability        : provisional
 
 module Utils
   ( testDir,
-    withOptions
+    withOptions,
+    simulateFunc
   ) where
 
 {- ORMOLU_DISABLE -}
+import           Control.Lens ((^.))
 import           Control.Exception (try)
 import           Data.Maybe (fromMaybe, isNothing)
+import qualified Data.Text as Text
 import           System.Environment (lookupEnv)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
@@ -26,6 +30,7 @@ import qualified Text.LLVM.AST as L
 
 import qualified What4.ProblemFeatures as What4 (noFeatures)
 
+import qualified Lang.Crucible.CFG.Core as Crucible
 import           Lang.Crucible.FunctionHandle (HandleAllocator, newHandleAllocator)
 
 import           Lang.Crucible.LLVM.Intrinsics as CLLVM (defaultIntrinsicsOptions)
@@ -40,11 +45,18 @@ import qualified Crux.Log as Log
 import           Crux.LLVM.Config (LLVMOptions)
 import qualified Crux.LLVM.Config as CruxLLVM
 import           Crux.LLVM.Compile (genBitCode)
+import           Crux.LLVM.Overrides (ArchOk)
 
+import           UCCrux.LLVM.Constraints (emptyConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext)
+import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), defnTypes, findFun, withModulePtrWidth)
+import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext, ppFunctionContextError)
+import           UCCrux.LLVM.Module (FuncSymbol(FuncDefnSymbol))
+import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString)
 import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main as Main
+import qualified UCCrux.LLVM.Run.EntryPoints as EntryPoints
+import qualified UCCrux.LLVM.Run.Simulate as Sim
 
 import qualified Logging as Log
 {- ORMOLU_ENABLE -}
@@ -182,3 +194,54 @@ withOptions llvmModule file k =
           , Crux.simVerbose = 0
           }
         }
+
+simulateFunc ::
+  FilePath ->
+  -- | Function name
+  String ->
+  (forall m arch argTypes.
+    ArchOk arch =>
+    Log.Logs Log.UCCruxLLVMTestLogging =>
+    Log.SupportsCruxLogMessage Log.UCCruxLLVMTestLogging =>
+    AppContext ->
+    ModuleContext m arch ->
+    HandleAllocator ->
+    Crux.CruxOptions ->
+    LLVMOptions ->
+    FunctionContext m arch argTypes ->
+    IO (Sim.SimulatorCallbacks m arch argTypes r)) ->
+  IO r
+simulateFunc file func makeCallbacks =
+  withOptions
+    Nothing
+    file
+    ( \appCtx modCtx halloc cruxOpts llOpts ->
+        do [entry] <-
+            EntryPoints.getEntryPoints <$>
+              EntryPoints.makeEntryPointsOrThrow
+                (modCtx ^. defnTypes)
+                [functionNameFromString func]
+           withModulePtrWidth modCtx $
+             do CFGWithTypes cfg argFTys _retTy _varArgs <-
+                   pure (findFun modCtx (FuncDefnSymbol entry))
+                funCtx <-
+                  case makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg) of
+                    Left err ->
+                      error (Text.unpack (ppFunctionContextError err))
+                    Right funCtx -> return funCtx
+                -- TODO(lb): also provide these
+                -- let ?memOpts = CruxLLVM.memOpts llOpts
+                -- let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
+                cbs <- makeCallbacks appCtx modCtx halloc cruxOpts llOpts funCtx
+                Sim.runSimulatorWithCallbacks
+                  appCtx
+                  modCtx
+                  funCtx
+                  halloc
+                  (emptyConstraints argFTys)
+                  cfg
+                  cruxOpts
+                  llOpts
+                  cbs
+    )
+  

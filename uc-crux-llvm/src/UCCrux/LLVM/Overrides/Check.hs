@@ -29,7 +29,6 @@ presence of bugs (when the contract really *should* hold).
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 
 module UCCrux.LLVM.Overrides.Check
   ( CheckOverrideName (..),
@@ -93,7 +92,7 @@ import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), basic_ll
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), Constraints, ConstrainedShape(..), argConstraints, globalConstraints, ppConstraints)
+import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), Constraints, ConstrainedShape(..), argConstraints, globalConstraints, ppConstraints, ConstrainedTypedValue(..))
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector, selectorCursor)
@@ -102,8 +101,8 @@ import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(SomeIndex), translateIndex)
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType, ToCrucibleType, pointedToType, arrayElementType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
-import           UCCrux.LLVM.Mem (loadRaw')
-import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol)
+import qualified UCCrux.LLVM.Mem as Mem
+import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getGlobalSymbol)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
 import           UCCrux.LLVM.Run.Result (BugfindingResult)
@@ -215,12 +214,13 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
       constraintsToSomePreds fullTypeRepr selector cs val
     Shape.ShapePtr (Compose cs) (Shape.ShapeInitialized subShapes) ->
       do -- TODO: Is there code from Setup that helps with the other addresses?
+         -- (Look at 'pointerRange'?)
          unless (Seq.length subShapes == 1) $
            Unimplemented.unimplemented
              "checkConstraints"
              Unimplemented.CheckConstraintsPtrArray
          let mts = modCtx ^. moduleTypes
-         (ptdToPred, mbPtdToVal) <- loadRaw' modCtx sym mem mts val fullTypeRepr
+         (ptdToPred, mbPtdToVal) <- Mem.loadRaw' modCtx sym mem mts val fullTypeRepr
          let shape = ConstrainedShape (subShapes `Seq.index` 0)
          let ptdToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
          let ptdToSelector = selector & selectorCursor %~ Cursor.deepenPtr mts
@@ -398,11 +398,23 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
       sym ->
       LLVMMem.MemImpl sym ->
       IO (Seq (SomeCheckedConstraint m sym argTypes))
-    getGlobalConstraints _sym _mem =
+    getGlobalConstraints sym mem =
       ifoldMapM
-        (Unimplemented.unimplemented
-          "createCheckOverride"
-          Unimplemented.CheckConstraintsGlobal)
+        (\gSymb (ConstrainedTypedValue globTy shape) ->
+           do -- 'loadGlobal' will make some safety assertions, but if they fail
+              -- that indicates a bug in UC-Crux or the constraints themselves
+              -- rather than a constraint failure, so we don't collect them.
+              glob <- Mem.loadGlobal modCtx sym mem globTy (getGlobalSymbol gSymb)
+              fmap (viewSome SomeCheckedConstraint) <$>
+                checkConstraints
+                  modCtx
+                  sym
+                  mem
+                  (Cursor.SelectGlobal gSymb (Cursor.Here globTy))
+                  shape
+                  globTy
+                  glob
+           )
         (constraints ^. globalConstraints)
 
 -- | Create an override for checking deduced preconditions

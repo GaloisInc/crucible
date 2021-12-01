@@ -38,9 +38,9 @@ data Unimplemented
   | CastIntegerToPointer
   | CheckConstraintsPtrArray
   | CheckConstraintsStruct
-  | CheckConstraintsGlobal
   | SometimesClobber
   | ClobberConstraints
+  | ClobberGlobal
   | SeekOffset
   deriving (Eq, Ord)
 
@@ -58,9 +58,9 @@ ppUnimplemented =
     CastIntegerToPointer -> "Value of integer type treated as/cast to a pointer"
     CheckConstraintsPtrArray -> "Checking inferred precondition on an array"
     CheckConstraintsStruct -> "Checking inferred precondition on a struct"
-    CheckConstraintsGlobal -> "Checking inferred precondition on a global"
     SometimesClobber -> "Selective clobbering"
     ClobberConstraints -> "Constraints on clobbered values"
+    ClobberGlobal -> "Clobbering global variables"
     SeekOffset -> "Seeking a pointer at a non-zero offset"
 
 instance PanicComponent Unimplemented where

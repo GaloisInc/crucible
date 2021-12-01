@@ -194,8 +194,8 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 
 data ConstrainedTypedValue m = forall ft.
   ConstrainedTypedValue
-  { constrainedValue :: FullTypeRepr m ft,
-    constrainedType :: ConstrainedShape m ft
+  { constrainedType :: FullTypeRepr m ft,
+    constrainedValue :: ConstrainedShape m ft
   }
 
 -- | A collection of constraints on the state of a program. These are used to
@@ -484,9 +484,9 @@ addConstraint modCtx argTypes constraints =
             )
     NewRelationalConstraint relationalConstraint ->
       Right $ constraints & relationalConstraints %~ (relationalConstraint :)
-    NewConstraint (SomeInSelector (SelectClobbered {})) _ ->
+    NewConstraint (SomeInSelector SelectClobbered {}) _ ->
       unimplemented "addConstraint" ClobberConstraints
-    NewShapeConstraint (SomeInSelector (SelectClobbered {})) _ ->
+    NewShapeConstraint (SomeInSelector SelectClobbered {}) _ ->
       unimplemented "addConstraint" ClobberConstraints
   where
     addOneConstraint ::
