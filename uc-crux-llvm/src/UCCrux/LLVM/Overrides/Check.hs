@@ -85,7 +85,6 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Simulator.OverrideSim as Override
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM.DataLayout (noAlignment)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), basic_llvm_override)
@@ -100,10 +99,10 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls, moduleT
 import           UCCrux.LLVM.Cursor (Selector, selectorCursor)
 import qualified UCCrux.LLVM.Cursor as Cursor
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
-import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(SomeIndex), translateIndex, toCrucibleType)
-import           UCCrux.LLVM.FullType.StorageType (toStorageType)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, MapToCrucibleType, ToCrucibleType, pointedToType, arrayElementType)
+import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(SomeIndex), translateIndex)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType, ToCrucibleType, pointedToType, arrayElementType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
+import           UCCrux.LLVM.Mem (loadRaw)
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
@@ -167,31 +166,6 @@ data CheckedCall m sym arch (argTypes :: Ctx (FullType m)) =
       checkedCallConstraints :: Seq (SomeCheckedConstraint m sym argTypes)
     }
 
--- TODO: Alignment...?
-doLoad ::
-  forall arch m sym atTy.
-  IsSymInterface sym =>
-  HasLLVMAnn sym =>
-  ArchOk arch =>
-  (?memOpts :: LLVMMem.MemOptions) =>
-  ModuleContext m arch ->
-  sym ->
-  LLVMMem.MemImpl sym ->
-  Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
-  FullTypeRepr m ('FTPtr atTy) ->
-  IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
-doLoad modCtx sym mem val fullTypeRepr =
-  do let pointedToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
-         typeRepr = toCrucibleType modCtx pointedToRepr
-     -- TODO Is this alignment right?
-     partVal <-
-       LLVMMem.loadRaw sym mem val (toStorageType pointedToRepr) noAlignment
-     case partVal of
-       LLVMMem.Err p -> return (p, Nothing)
-       LLVMMem.NoErr p ptdToVal ->
-         (p,) . Just <$> LLVMMem.unpackMemValue sym typeRepr ptdToVal
-
-
 ifoldMapM ::
   FoldableWithIndex i t =>
   Monoid m =>
@@ -245,7 +219,7 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
            Unimplemented.unimplemented
              "checkConstraints"
              Unimplemented.CheckConstraintsPtrArray
-         (ptdToPred, mbPtdToVal) <- doLoad modCtx sym mem val fullTypeRepr
+         (ptdToPred, mbPtdToVal) <- loadRaw modCtx sym mem val fullTypeRepr
          let shape = ConstrainedShape (subShapes `Seq.index` 0)
          let ptdToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
          let ptdToSelector =

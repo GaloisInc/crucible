@@ -58,6 +58,7 @@ library
     UCCrux.LLVM.Main
     UCCrux.LLVM.Main.Config.FromEnv
     UCCrux.LLVM.Main.Config.Type
+    UCCrux.LLVM.Mem
     UCCrux.LLVM.Module
     UCCrux.LLVM.Newtypes.FunctionName
     UCCrux.LLVM.Newtypes.Seconds
