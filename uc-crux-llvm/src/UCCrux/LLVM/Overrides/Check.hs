@@ -102,7 +102,7 @@ import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(SomeIndex), translateIndex)
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType, ToCrucibleType, pointedToType, arrayElementType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
-import           UCCrux.LLVM.Mem (loadRaw)
+import           UCCrux.LLVM.Mem (loadRaw')
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
@@ -220,7 +220,7 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
              "checkConstraints"
              Unimplemented.CheckConstraintsPtrArray
          let mts = modCtx ^. moduleTypes
-         (ptdToPred, mbPtdToVal) <- loadRaw modCtx sym mem mts val fullTypeRepr
+         (ptdToPred, mbPtdToVal) <- loadRaw' modCtx sym mem mts val fullTypeRepr
          let shape = ConstrainedShape (subShapes `Seq.index` 0)
          let ptdToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
          let ptdToSelector = selector & selectorCursor %~ Cursor.deepenPtr mts

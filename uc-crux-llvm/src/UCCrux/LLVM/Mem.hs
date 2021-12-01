@@ -19,8 +19,13 @@ TODO(lb): All of these need a review on how they handle alignment.
 
 module UCCrux.LLVM.Mem
   ( loadRaw,
+    loadRaw',
+    load,
+    load',
     store,
+    store',
     storeGlobal,
+    storeGlobal'
   )
 where
 
@@ -57,21 +62,50 @@ loadRaw ::
   proxy arch ->
   sym ->
   MemImpl sym ->
-  ModuleTypes m ->
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
-  FullTypeRepr m ('FTPtr atTy) ->
+  FullTypeRepr m atTy ->
   IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
-loadRaw proxy sym mem mts ptr fullTypeRepr =
-  do let pointedToRepr = pointedToType mts fullTypeRepr
-         typeRepr = toCrucibleType proxy pointedToRepr
+loadRaw proxy sym mem ptr fullTypeRepr =
+  do let typeRepr = toCrucibleType proxy fullTypeRepr
      partVal <-
-       LLVMMem.loadRaw sym mem ptr (toStorageType pointedToRepr) noAlignment
+       LLVMMem.loadRaw sym mem ptr (toStorageType fullTypeRepr) noAlignment
      case partVal of
        LLVMMem.Err p -> return (p, Nothing)
        LLVMMem.NoErr p ptdToVal ->
          (p,) . Just <$> LLVMMem.unpackMemValue sym typeRepr ptdToVal
 
+loadRaw' ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  (?memOpts :: MemOptions) =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  ModuleTypes m ->
+  Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
+  FullTypeRepr m ('FTPtr atTy) ->
+  IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
+loadRaw' proxy sym mem mts ptr fullTypeRepr =
+  let pointedToRepr = pointedToType mts fullTypeRepr
+  in loadRaw proxy sym mem ptr pointedToRepr
+
 load ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  (?memOpts :: MemOptions) =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
+  FullTypeRepr m atTy ->
+  IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
+load proxy sym mem ptr fullTypeRepr =
+  do let typeRepr = toCrucibleType proxy fullTypeRepr
+     LLVMMem.doLoad sym mem ptr (toStorageType fullTypeRepr) typeRepr noAlignment
+
+load' ::
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   ArchOk arch =>
@@ -83,10 +117,9 @@ load ::
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m ('FTPtr atTy) ->
   IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
-load proxy sym mem mts ptr fullTypeRepr =
+load' proxy sym mem mts ptr fullTypeRepr =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-         typeRepr = toCrucibleType proxy pointedToRepr
-     LLVMMem.doLoad sym mem ptr (toStorageType pointedToRepr) typeRepr noAlignment
+     load proxy sym mem ptr pointedToRepr
 
 store ::
   IsSymInterface sym =>
@@ -99,10 +132,26 @@ store ::
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-store proxy sym mem ftRepr ptr regValue =
-  do let storageType = toStorageType ftRepr
-     let cType = toCrucibleType proxy ftRepr
+store proxy sym mem fullTypeRepr ptr regValue =
+  do let storageType = toStorageType fullTypeRepr
+     let cType = toCrucibleType proxy fullTypeRepr
      LLVMMem.doStore sym mem ptr cType storageType noAlignment regValue
+
+store' ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  ModuleTypes m ->
+  FullTypeRepr m ('FTPtr ft) ->
+  LLVMMem.LLVMPtr sym (ArchWidth arch) ->
+  Crucible.RegValue sym (ToCrucibleType arch ft) ->
+  IO (MemImpl sym)
+store' proxy sym mem mts fullTypeRepr ptr regValue =
+  do let pointedToRepr = pointedToType mts fullTypeRepr
+     store proxy sym mem pointedToRepr ptr regValue
 
 storeGlobal ::
   IsSymInterface sym =>
@@ -115,8 +164,24 @@ storeGlobal ::
   L.Symbol ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-storeGlobal proxy sym mem ftRepr symb regValue =
+storeGlobal proxy sym mem fullTypeRepr symb regValue =
   do ptr <- LLVMMem.doResolveGlobal sym mem symb
-     let storageType = toStorageType ftRepr
-     let cType = toCrucibleType proxy ftRepr
+     let storageType = toStorageType fullTypeRepr
+     let cType = toCrucibleType proxy fullTypeRepr
      LLVMMem.doStore sym mem ptr cType storageType noAlignment regValue
+
+storeGlobal' ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  ModuleTypes m ->
+  FullTypeRepr m ('FTPtr ft) ->
+  L.Symbol ->
+  Crucible.RegValue sym (ToCrucibleType arch ft) ->
+  IO (MemImpl sym)
+storeGlobal' proxy sym mem mts fullTypeRepr symb regValue =
+  do let pointedToRepr = pointedToType mts fullTypeRepr
+     storeGlobal proxy sym mem pointedToRepr symb regValue

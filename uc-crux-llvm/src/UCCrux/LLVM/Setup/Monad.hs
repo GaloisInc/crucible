@@ -77,7 +77,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
 import           UCCrux.LLVM.FullType.Memory (sizeBv)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType, ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, ToBaseType, ModuleTypes)
 import           UCCrux.LLVM.Constraints (Constraint)
 import qualified UCCrux.LLVM.Mem as Mem
 {- ORMOLU_ENABLE -}
@@ -342,14 +342,13 @@ store ::
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-store sym mts ptrRepr@(FTPtrRepr ptPtdTo) selector ptr regValue =
+store sym mts ptrRepr selector ptr regValue =
   modifyMem $
     \mem ->
       do
-        let ftPtdTo = asFullType mts ptPtdTo
         ptr' <- annotatePointer sym selector ptrRepr ptr
-        mem' <-
-          liftIO $ Mem.store (Proxy :: Proxy arch) sym mem ftPtdTo ptr' regValue
+        let proxy = Proxy :: Proxy arch
+        mem' <- liftIO $ Mem.store' proxy sym mem mts ptrRepr ptr' regValue
         pure (ptr', mem')
 
 storeGlobal ::
