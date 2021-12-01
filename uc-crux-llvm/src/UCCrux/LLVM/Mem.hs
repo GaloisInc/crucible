@@ -5,21 +5,27 @@ Copyright    : (c) Galois, Inc 2021
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
+
+Mostly provides wrappers that use 'FullType' instead of Crucible-LLVM's
+@MemType@ and @StorageType@ and Crucible's @TypeRepr@.
+
+TODO(lb): All of these need a review on how they handle alignment.
 -}
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module UCCrux.LLVM.Mem
   ( loadRaw,
+    store,
+    storeGlobal,
   )
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.))
+import qualified Text.LLVM.AST as L
 
 -- what4
 import           What4.Interface (Pred)
@@ -30,35 +36,34 @@ import qualified Lang.Crucible.Simulator as Crucible
 
 -- crucible-llvm
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
+import           Lang.Crucible.LLVM.Extension (ArchWidth)
+import           Lang.Crucible.LLVM.MemModel (MemImpl, MemOptions, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, pointedToType)
+import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr, ToCrucibleType, pointedToType)
 {- ORMOLU_ENABLE -}
 
--- TODO: Alignment...?
 loadRaw ::
-  forall arch m sym atTy.
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   ArchOk arch =>
-  (?memOpts :: LLVMMem.MemOptions) =>
-  ModuleContext m arch ->
+  (?memOpts :: MemOptions) =>
+  proxy arch ->
   sym ->
-  LLVMMem.MemImpl sym ->
+  MemImpl sym ->
+  ModuleTypes m ->
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m ('FTPtr atTy) ->
   IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
-loadRaw modCtx sym mem val fullTypeRepr =
-  do let pointedToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
-         typeRepr = toCrucibleType modCtx pointedToRepr
+loadRaw proxy sym mem mts val fullTypeRepr =
+  do let pointedToRepr = pointedToType mts fullTypeRepr
+         typeRepr = toCrucibleType proxy pointedToRepr
      -- TODO Is this alignment right?
      partVal <-
        LLVMMem.loadRaw sym mem val (toStorageType pointedToRepr) noAlignment
@@ -66,3 +71,36 @@ loadRaw modCtx sym mem val fullTypeRepr =
        LLVMMem.Err p -> return (p, Nothing)
        LLVMMem.NoErr p ptdToVal ->
          (p,) . Just <$> LLVMMem.unpackMemValue sym typeRepr ptdToVal
+
+store ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  FullTypeRepr m ft ->
+  LLVMMem.LLVMPtr sym (ArchWidth arch) ->
+  Crucible.RegValue sym (ToCrucibleType arch ft) ->
+  IO (MemImpl sym)
+store proxy sym mem ftRepr ptr regValue =
+  do let storageType = toStorageType ftRepr
+     let cType = toCrucibleType proxy ftRepr
+     LLVMMem.doStore sym mem ptr cType storageType noAlignment regValue
+
+storeGlobal ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  ArchOk arch =>
+  proxy arch ->
+  sym ->
+  MemImpl sym ->
+  FullTypeRepr m ft ->
+  L.Symbol ->
+  Crucible.RegValue sym (ToCrucibleType arch ft) ->
+  IO (MemImpl sym)
+storeGlobal proxy sym mem ftRepr symb regValue =
+  do ptr <- LLVMMem.doResolveGlobal sym mem symb
+     let storageType = toStorageType ftRepr
+     let cType = toCrucibleType proxy ftRepr
+     LLVMMem.doStore sym mem ptr cType storageType noAlignment regValue

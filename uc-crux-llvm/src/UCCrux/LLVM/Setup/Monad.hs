@@ -65,7 +65,7 @@ import qualified What4.Interface as What4
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 
-import           Lang.Crucible.LLVM.DataLayout (noAlignment, maxAlignment)
+import           Lang.Crucible.LLVM.DataLayout (maxAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
@@ -76,11 +76,10 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
-import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.Memory (sizeBv)
-import           UCCrux.LLVM.FullType.StorageType (toStorageType)
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Constraints (Constraint)
+import qualified UCCrux.LLVM.Mem as Mem
 {- ORMOLU_ENABLE -}
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
@@ -344,15 +343,14 @@ store ::
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
 store sym mts ptrRepr@(FTPtrRepr ptPtdTo) selector ptr regValue =
-  do
-    let ftPtdTo = asFullType mts ptPtdTo
-    let storageType = toStorageType ftPtdTo
-    modifyMem $
-      \mem ->
-        do
-          ptr' <- annotatePointer sym selector ptrRepr ptr
-          mem' <- liftIO $ LLVMMem.doStore sym mem ptr' (toCrucibleType (Proxy :: Proxy arch) ftPtdTo) storageType noAlignment regValue
-          pure (ptr', mem')
+  modifyMem $
+    \mem ->
+      do
+        let ftPtdTo = asFullType mts ptPtdTo
+        ptr' <- annotatePointer sym selector ptrRepr ptr
+        mem' <-
+          liftIO $ Mem.store (Proxy :: Proxy arch) sym mem ftPtdTo ptr' regValue
+        pure (ptr', mem')
 
 storeGlobal ::
   forall m arch sym argTypes inTy ft.
@@ -369,12 +367,12 @@ storeGlobal ::
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
 storeGlobal sym ftRepr selector symb regValue =
   do
-    let storageType = toStorageType ftRepr
     mem <- gets (view setupMem)
     ptr <- liftIO $ LLVMMem.doResolveGlobal sym mem symb
     ptr' <- annotatePointer sym selector ftRepr ptr
     modifyMem $
       \mem' ->
         do
-          mem'' <- liftIO $ LLVMMem.doStore sym mem' ptr' (toCrucibleType (Proxy :: Proxy arch) ftRepr) storageType noAlignment regValue
+          mem'' <-
+            liftIO $ Mem.store (Proxy :: Proxy arch) sym mem ftRepr ptr' regValue
           pure (ptr', mem'')

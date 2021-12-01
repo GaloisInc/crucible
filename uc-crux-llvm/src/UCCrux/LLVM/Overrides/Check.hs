@@ -219,11 +219,11 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
            Unimplemented.unimplemented
              "checkConstraints"
              Unimplemented.CheckConstraintsPtrArray
-         (ptdToPred, mbPtdToVal) <- loadRaw modCtx sym mem val fullTypeRepr
+         let mts = modCtx ^. moduleTypes
+         (ptdToPred, mbPtdToVal) <- loadRaw modCtx sym mem mts val fullTypeRepr
          let shape = ConstrainedShape (subShapes `Seq.index` 0)
          let ptdToRepr = pointedToType (modCtx ^. moduleTypes) fullTypeRepr
-         let ptdToSelector =
-               selector & selectorCursor %~ Cursor.deepenPtr (modCtx ^. moduleTypes)
+         let ptdToSelector = selector & selectorCursor %~ Cursor.deepenPtr mts
          subs <-
            case mbPtdToVal of
              Nothing -> pure Seq.empty
