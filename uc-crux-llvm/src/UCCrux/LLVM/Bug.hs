@@ -7,6 +7,7 @@ Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 -}
 
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
@@ -28,6 +29,7 @@ where
 {- ORMOLU_DISABLE -}
 import qualified Prettyprinter as PP
 
+import           What4.Interface (IsExpr, SymExpr)
 import qualified What4.ProgramLoc as What4
 
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack, ppCallStack)
@@ -66,7 +68,12 @@ data Bug =
     }
   deriving (Eq, Ord)
 
-makeBug :: BadBehavior sym -> What4.ProgramLoc -> CallStack -> Bug
+makeBug ::
+  IsExpr (SymExpr sym) =>
+  BadBehavior sym ->
+  What4.ProgramLoc ->
+  CallStack ->
+  Bug
 makeBug bb loc callStack =
   Bug
     { bugBehavior =
