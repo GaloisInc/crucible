@@ -12,6 +12,7 @@ Mostly provides wrappers that use 'FullType' instead of Crucible-LLVM's
 TODO(lb): All of these need a review on how they handle alignment.
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -68,6 +69,11 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(..), toCrucibleType, translateIndex)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
 import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, asFullType)
+
+#if __GLASGOW_HASKELL__ <= 810
+-- See other CPP block
+import           UCCrux.LLVM.Errors.Panic (panic)
+#endif
 {- ORMOLU_ENABLE -}
 
 loadRaw ::
@@ -278,3 +284,8 @@ seekPtr modCtx sym mem fullTypeRepr regVal cursor =
          let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptRepr
          seekPtr modCtx sym mem ftPtdTo newVal cur
     (FTPtrRepr _ptRepr, Here _) -> return regVal
+#if __GLASGOW_HASKELL__ <= 810
+-- The pattern match coverage checker was improved in GHC 8.10 and can tell that
+-- this case is redundant
+    _ -> panic "seekPtr" ["Impossible case"]
+#endif
