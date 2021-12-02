@@ -38,6 +38,7 @@ module Lang.Crucible.Syntax.Concrete
   , SyntaxState(..)
   , atomName
   , freshAtom
+  , nat
   , operands
   -- * Rules for pretty-printing language syntax
   , printExpr
