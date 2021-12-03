@@ -41,6 +41,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocAndWriteMem
   , readMem
   , isValidPointer
+  , isAllocatedMutable
   , isAllocatedAlignedPointer
   , notAliasable
   , writeMem
@@ -634,7 +635,8 @@ readMemArrayStore sym w end mop (LLVMPointer blk read_off) tp write_off arr size
 
 readMemInvalidate ::
   forall sym w .
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym -> NatRepr w ->
   EndianForm ->
   MemoryOp sym w ->
@@ -656,8 +658,8 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
                 subFn (OutOfRange o tp') = do
                   o' <- liftIO $ bvLit sym w (bytesToBV w o)
                   readPrev tp' (LLVMPointer blk o')
-                subFn (InRange _o _tp') =
-                  liftIO (Partial.partErr sym mop $ Invalidated msg)
+                subFn (InRange _o tp') =
+                  readInRange tp'
             case BV.asUnsigned <$> asBV sz of
               Just csz -> do
                 let s = R (fromInteger so) (fromInteger (so + csz))
@@ -671,8 +673,8 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
                 subFn (OutOfRange o tp') = do
                   o' <- liftIO $ genOffsetExpr sym w varFn o
                   readPrev tp' (LLVMPointer blk o')
-                subFn (InRange _o _tp') =
-                  liftIO (Partial.partErr sym mop $ Invalidated msg)
+                subFn (InRange _o tp') =
+                  readInRange tp'
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -681,6 +683,14 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
                      | otherwise =
                          symbolicRangeLoad pref tp
             evalMuxValueCtor sym w end mop varFn subFn mux0
+  where
+    readInRange :: StorageType -> ReadMem sym (PartLLVMVal sym)
+    readInRange tp'
+      | laxLoadsAndStores ?memOpts &&
+        indeterminateLoadBehavior ?memOpts == UnstableSymbolic
+      = liftIO (Partial.totalLLVMVal sym <$> freshLLVMVal sym tp')
+      | otherwise
+      = liftIO (Partial.partErr sym mop $ Invalidated msg)
 
 -- | Read a value from memory.
 readMem :: forall sym w.

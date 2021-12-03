@@ -12,5 +12,5 @@
     `initializeAllMemory`, `initializeMemoryConstGlobals`, `populateGlobals`,
     `populateAllGlobals`, and `populateConstGlobals`
   * `Lang.Crucible.LLVM.MemModel`:
-    `doAlloca`, `doCalloc`, `doMalloc`, `doMallocUnbounded`, `mallocRaw`,
-    `mallocConstRaw`, `allocGlobals`, and `allocGlobal`
+    `doAlloca`, `doCalloc`, `doInvalidate`, `doMalloc`, `doMallocUnbounded`,
+    `mallocRaw`, `mallocConstRaw`, `allocGlobals`, and `allocGlobal`
