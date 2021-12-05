@@ -101,3 +101,20 @@ memory yield arbitrary values. Since LLVM often passes loaded values
 from uninitialized memory to `freeze` to ensure that the result is not
 `undef`, this will ensure that a sizable number of use cases for
 `freeze` will be handled as expected.
+
+LLVM poison limitations
+=======================
+`crucible-llvm` has limited support for tracking
+[poison values](https://releases.llvm.org/13.0.0/docs/LangRef.html#poisonvalues).
+Certain LLVM instructions and intrinsics can return poison values under
+certain circumstances, and `crucible-llvm` makes an effort to generate failing
+assertions whenever such poison values are returned. For instance, LLVM's
+`add` instruction can return poison if the result overflows, which
+`crucible-llvm` is able to detect and simulate by throwing an appropriate
+assertion failure.
+
+There are other ways to create and propagate poison that `crucible-llvm` is
+unable to track, however. There is no support for LLVM's `poison` constant
+values, and `crucible-llvm` will throw an error if it encounters such a
+`poison` constant. LLVM also permits values where only certain bits of the
+value are poison, but `crucible-llvm` is unable to reason about this.
