@@ -284,6 +284,7 @@ useVal v = Set.unions $ case v of
   L.ValLabel _ -> []
   L.ValZeroInit -> []
   L.ValAsm{} -> [] -- TODO! inline asm ...
+  L.ValPoison{} -> []
 
   -- NB! metadata values are not considered as part of our use analysis
   L.ValMd _md -> []
