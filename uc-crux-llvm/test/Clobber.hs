@@ -18,7 +18,6 @@ import           Control.Lens ((^.))
 import           Data.Functor.Compose (Compose(Compose))
 import qualified Data.IORef as IORef
 import qualified Data.Map as Map
-import           Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 
 import qualified Test.Tasty as TT
@@ -55,7 +54,7 @@ clobberTests =
         ( Utils.simulateFunc
             "clobbers_arg.c"
             "calls_clobbers_arg"
-            ( \_appCtx modCtx _halloc _cruxOpts llOpts funCtx ->
+            ( \_appCtx modCtx _halloc _cruxOpts llOpts _funCtx ->
                 do let Just callee =
                          makeDeclSymbol
                            (L.Symbol "clobbers_arg")
@@ -81,7 +80,7 @@ clobberTests =
                          Map.empty
 
                      msg = "Test failure: 'clobbers_arg'"
-                     get = either (error msg) id . fromMaybe (error msg)
+                     get = either (error msg) id
 
                    return $
                      Sim.SimulatorCallbacks $
@@ -123,7 +122,7 @@ clobberTests =
         ( Utils.simulateFunc
             "clobbers_arg_void_ptr.c"
             "calls_clobbers_arg_void_ptr"
-            ( \_appCtx modCtx _halloc _cruxOpts llOpts funCtx ->
+            ( \_appCtx modCtx _halloc _cruxOpts llOpts _funCtx ->
                 do let Just callee =
                          makeDeclSymbol
                            (L.Symbol "clobbers_arg_void_ptr")
@@ -149,7 +148,7 @@ clobberTests =
                          Map.empty
 
                      msg = "Test failure: 'clobbers_arg'"
-                     get = either (error msg) id . fromMaybe (error msg)
+                     get = either (error msg) id
 
                    return $
                      Sim.SimulatorCallbacks $

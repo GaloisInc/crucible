@@ -35,7 +35,7 @@ import           Control.Lens ((^.), use, to)
 import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef (IORef, modifyIORef)
-import           Data.Maybe (mapMaybe, fromMaybe)
+import           Data.Maybe (fromMaybe)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -70,6 +70,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
 import           Lang.Crucible.LLVM.Extension (LLVM)
+import           Lang.Crucible.LLVM.MalformedLLVMModule (malformedLLVMModule)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemImpl, MemOptions)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx, llvmDeclToFunHandleRepr')
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
@@ -159,7 +160,7 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postcondit
                 (Map.lookup funcSym postconditions)
                 funcSym
     pure $
-      mapMaybe
+      map
         create
         ( filter
             ((`Set.notMember` alreadyDefined) . declName)
@@ -375,35 +376,36 @@ createSkipOverride ::
   Maybe (ConstrainedTypedValue m) ->
   -- | Function to be overridden
   FuncSymbol m ->
-  Maybe (Either (ClobberSpecError m) (PolymorphicLLVMOverride arch (personality sym) sym))
+  Either (ClobberSpecError m) (PolymorphicLLVMOverride arch (personality sym) sym)
 createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcSymb =
-  llvmDeclToFunHandleRepr' decl $
-    \argTys retTy ->
-      Just $
-        case makeGetters modCtx funcSymb argTys clobbers of
-          Left err -> Left err
-          Right clobbers' ->
-            Right $
-              makePolymorphicLLVMOverride $
-                basic_llvm_override $
-                  LLVMOverride
-                    { llvmOverride_declare = decl,
-                      llvmOverride_args = argTys,
-                      llvmOverride_ret = retTy,
-                      llvmOverride_def =
-                        \mvar _sym args ->
-                          do
-                            liftIO $
-                              modifyIORef usedRef (Set.insert (SkipOverrideName name))
-                            Override.modifyGlobal mvar $
-                              \mem ->
-                                liftIO $
-                                  do mem' <- applyClobbers mem args clobbers'
-                                     returnValue
-                                       mem'
-                                       retTy
-                                       (modCtx ^. funcTypes . funcSymbol funcSymb)
-                    }
+  fromMaybe (malformedLLVMModule "createSkipOverride" []) $
+    llvmDeclToFunHandleRepr' decl $
+      \argTys retTy ->
+        Just $
+          case makeGetters modCtx funcSymb argTys clobbers of
+            Left err -> Left err
+            Right clobbers' ->
+              Right $
+                makePolymorphicLLVMOverride $
+                  basic_llvm_override $
+                    LLVMOverride
+                      { llvmOverride_declare = decl,
+                        llvmOverride_args = argTys,
+                        llvmOverride_ret = retTy,
+                        llvmOverride_def =
+                          \mvar _sym args ->
+                            do
+                              liftIO $
+                                modifyIORef usedRef (Set.insert (SkipOverrideName name))
+                              Override.modifyGlobal mvar $
+                                \mem ->
+                                  liftIO $
+                                    do mem' <- applyClobbers mem args clobbers'
+                                       returnValue
+                                         mem'
+                                         retTy
+                                         (modCtx ^. funcTypes . funcSymbol funcSymb)
+                      }
   where
     decl = modCtx ^. moduleDecls . funcSymbol funcSymb
     name = declName decl
