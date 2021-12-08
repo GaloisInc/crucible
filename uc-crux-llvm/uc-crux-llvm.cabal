@@ -58,6 +58,7 @@ library
     UCCrux.LLVM.Main
     UCCrux.LLVM.Main.Config.FromEnv
     UCCrux.LLVM.Main.Config.Type
+    UCCrux.LLVM.Mem
     UCCrux.LLVM.Module
     UCCrux.LLVM.Newtypes.FunctionName
     UCCrux.LLVM.Newtypes.Seconds
@@ -153,6 +154,7 @@ test-suite uc-crux-llvm-test
   main-is: Test.hs
   other-modules:
     Check
+    Clobber
     Logging
     Paths_uc_crux_llvm
     Utils

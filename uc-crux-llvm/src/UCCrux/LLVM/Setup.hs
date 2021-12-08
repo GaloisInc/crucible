@@ -168,9 +168,11 @@ generateM' h1 gen =
           LeqProof -> gen n
     )
 
--- | Generate and constrain all the symbolic values. This is currently only used
--- for arguments, but once global constraints are collected/supported, it can be
--- used for those as well.
+-- | Generate and constrain symbolic values. This is used by
+-- "UCCrux.LLVM.Run.Simulate" to generate arguments and global variables when
+-- simulating a single function, and is also used by
+-- "UCCrux.LLVM.Overrides.Skip" to generate return values of skipped (external)
+-- functions.
 --
 -- Traverses the input 'ConstrainedShape' and replaces the lists of constraints
 -- with a 'SymValue' that conforms to those constraints. Allocates memory along

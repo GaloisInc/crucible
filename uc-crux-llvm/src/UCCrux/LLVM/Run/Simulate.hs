@@ -112,7 +112,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTr
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
-import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
+import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides, ppClobberSpecError)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
@@ -436,9 +436,20 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                         trans
                         skipOverrideRef
                         skipReturnValueAnnotations
+                        Map.empty  -- clobber specs
                         (constraints ^. returnConstraints)
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
-                    let sOverrides' = map getPolymorphicLLVMOverride sOverrides
+                    let sOverrides' =
+                          map
+                            getPolymorphicLLVMOverride
+                            (case sequence sOverrides of
+                               Left err ->
+                                 panic
+                                   "setupHook"
+                                   [ "Error with empty clobber specs?"
+                                   , show (ppClobberSpecError err)
+                                   ]
+                               Right ovs -> ovs)
                     registerOverrides appCtx modCtx sSkip sOverrides'
 
                     liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."

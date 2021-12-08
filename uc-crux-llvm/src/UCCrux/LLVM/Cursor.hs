@@ -43,6 +43,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Lens, lens, (^.))
+import           Data.Maybe (isJust)
 import           Data.Semigroupoid (Semigroupoid(o))
 import           Data.Type.Equality
 import           Prettyprinter (Doc)
@@ -91,6 +92,9 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     Ctx.Index fields inTy ->
     Cursor m inTy atTy ->
     Cursor m ('FTStruct fields) atTy
+
+instance Eq (Cursor m inTy atTy) where
+  c1 == c2 = isJust (testEquality c1 c2)
 
 instance Semigroupoid (Cursor m) where
   o cursor1 cursor2 =
@@ -227,14 +231,29 @@ ppCursor top =
 -- | A 'Selector' points to a spot inside
 --
 -- * an argument,
--- * a global variable, or
--- * the manufactured return value from a \"skipped\" function
+-- * a global variable,
+-- * the manufactured return value from a \"skipped\" function, or
+-- * the manufactured value used to clobber something from a \"skipped\"
+--   function.
 --
 -- For documentation of the type parameters, see the comment on 'Cursor'.
 data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   = SelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
   | SelectGlobal !(GlobalSymbol m) (Cursor m inTy atTy)
+    -- TODO(lb): This doesn't really have enough information - it should contain
+    --
+    -- (1) which function was called,
+    -- (2) which call it was - maybe a callstack plus a counter that gets
+    --     incremented at each call
   | SelectReturn !(FuncSymbol m) (Cursor m inTy atTy)
+    -- TODO(lb): This doesn't really have enough information - it should contain
+    --
+    -- (1) which function was called,
+    -- (2) which call it was - maybe a callstack plus a counter that gets
+    --     incremented at each call
+    -- (3) what got clobbered, i.e., a 'ClobberSelector'
+  | SelectClobbered !(FuncSymbol m) (Cursor m inTy atTy)
+  deriving Eq
 
 -- | A non-parameterized summary of a 'Selector'
 data Where
@@ -242,6 +261,8 @@ data Where
   | Global !String
   | -- | Name of the skipped function
     ReturnValue !String
+    -- | Name of the skipped function
+  | ClobberedValue !String
   deriving (Eq, Ord)
 
 selectWhere :: Selector m argTypes inTy atTy -> Where
@@ -254,6 +275,9 @@ selectWhere =
     SelectReturn fSymb _ ->
       let L.Symbol f = getFuncSymbol fSymb
        in ReturnValue f
+    SelectClobbered fSymb _ ->
+      let L.Symbol f = getFuncSymbol fSymb
+       in ClobberedValue f
 
 ppWhere :: Where -> PP.Doc ann
 ppWhere =
@@ -262,6 +286,8 @@ ppWhere =
     Global g -> PP.pretty "in global" PP.<+> PP.pretty g
     ReturnValue f ->
       PP.pretty "in return value of skipped function" PP.<+> PP.pretty f
+    ClobberedValue f ->
+      PP.pretty "in value clobbered by skipped function" PP.<+> PP.pretty f
 
 ppSelector :: Selector m argTypes inTy atTy -> PP.Doc ann
 ppSelector selector =
@@ -296,12 +322,14 @@ selectorCursor =
         SelectArgument _ cursor -> cursor
         SelectGlobal _ cursor -> cursor
         SelectReturn _ cursor -> cursor
+        SelectClobbered _ cursor -> cursor
     )
     ( \s v ->
         case s of
           SelectArgument arg _ -> SelectArgument arg v
           SelectGlobal glob _ -> SelectGlobal glob v
           SelectReturn func _ -> SelectReturn func v
+          SelectClobbered func _ -> SelectClobbered func v
     )
 
 $(return [])

@@ -83,6 +83,7 @@ import           Data.Kind (Type)
 import           Data.Functor.Const (Const(Const))
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe (isJust)
 import           Data.Type.Equality (TestEquality(testEquality), (:~:)(Refl))
 import qualified Data.Vector as Vec
 import           Unsafe.Coerce (unsafeCoerce)
@@ -209,6 +210,9 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
     FullTypeRepr m ('FTFuncPtr varArgs ('Just ret) args)
   -- TODO(lb): This could have a symbol repr for the name
   FTOpaquePtrRepr :: L.Ident -> FullTypeRepr m 'FTOpaquePtr
+
+instance Eq (FullTypeRepr m ft) where
+  ft1 == ft2 = isJust (testEquality ft1 ft2)
 
 -- | This functions similarly to 'MemType.SymType'
 data PartTypeRepr (m :: Type) (ft :: FullType m) where

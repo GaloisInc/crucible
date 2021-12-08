@@ -82,6 +82,7 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberConstraints))
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.FullType.Translation (ftRetType)
@@ -193,8 +194,8 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 
 data ConstrainedTypedValue m = forall ft.
   ConstrainedTypedValue
-  { constrainedValue :: FullTypeRepr m ft,
-    constrainedType :: ConstrainedShape m ft
+  { constrainedType :: FullTypeRepr m ft,
+    constrainedValue :: ConstrainedShape m ft
   }
 
 -- | A collection of constraints on the state of a program. These are used to
@@ -483,6 +484,10 @@ addConstraint modCtx argTypes constraints =
             )
     NewRelationalConstraint relationalConstraint ->
       Right $ constraints & relationalConstraints %~ (relationalConstraint :)
+    NewConstraint (SomeInSelector SelectClobbered {}) _ ->
+      unimplemented "addConstraint" ClobberConstraints
+    NewShapeConstraint (SomeInSelector SelectClobbered {}) _ ->
+      unimplemented "addConstraint" ClobberConstraints
   where
     addOneConstraint ::
       Constraint m atTy ->
