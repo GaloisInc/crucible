@@ -298,7 +298,7 @@ data ClobberSpecs' m a
       { -- | Stuff to clobber at each call
         alwaysClobber :: [a],
         -- | Stuff to clobber at particular callsites
-        sometimesClobber :: Map ProgramLoc [a]
+        clobberAt :: Map ProgramLoc [a]
       }
 
 type ClobberSpecs m = ClobberSpecs' m (SomeClobberSpec m)
@@ -313,14 +313,14 @@ makeClobberSpecs = ClobberSpecs
 
 emptyClobberSpecs :: ClobberSpecs' m a
 emptyClobberSpecs =
-  ClobberSpecs { alwaysClobber = mempty, sometimesClobber = mempty }
+  ClobberSpecs { alwaysClobber = mempty, clobberAt = mempty }
 
 -- | Left-biased union
 instance Semigroup (ClobberSpecs' m a) where
   cs1 <> cs2 =
     ClobberSpecs
       { alwaysClobber = alwaysClobber cs1 <> alwaysClobber cs2,
-        sometimesClobber = sometimesClobber cs1 <> sometimesClobber cs2
+        clobberAt = clobberAt cs1 <> clobberAt cs2
       }
 
 instance Monoid (ClobberSpecs' m a) where
@@ -344,7 +344,7 @@ makeGetters ::
 makeGetters proxy funcSymb args specs =
   ClobberSpecs
   <$> traverse mk (alwaysClobber specs)
-  <*> traverse (traverse mk) (sometimesClobber specs)
+  <*> traverse (traverse mk) (clobberAt specs)
   where mk (SomeClobberSpec spec) =
           SomeClobberSpecAndGetter spec <$> makeGetter proxy funcSymb args spec
 
@@ -398,7 +398,7 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
                             Override.modifyGlobal mvar $
                               \mem ->
                                 liftIO $
-                                  do mem' <- clobberAll mem args clobbers'
+                                  do mem' <- applyClobbers mem args clobbers'
                                      returnValue
                                        mem'
                                        retTy
@@ -416,43 +416,38 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
       ClobberGetter arch args inTy ->
       IO (MemImpl sym)
     clobberOne mem args spec getter =
-      let mts = modCtx ^. moduleTypes
-      in
-        runSetup
-          modCtx
-          mem
-          ( generate
-              sym
-              modCtx
-              (clobberAtType mts spec)
-              (SelectClobbered
-                 funcSymb
-                 (deepenPtr mts (clobberSelectorCursor (clobberSelector spec))))
-              (clobberShape spec)
-          )
-          >>=
-            \case
-              (result, value) ->
-                do
-                  assume name sym (resultAssumptions result)
-                  -- The keys are nonces, so they'll never clash, so the
-                  -- bias of the union is unimportant.
-                  modifyIORef annotationRef (Map.union (resultAnnotations result))
-                  container <- getClobberGetter getter mem args
-                  let cursor = clobberSelectorCursor (clobberSelector spec)
-                  ptr <- Mem.seekPtr modCtx sym mem (clobberType spec) container cursor
-                  let mem' = resultMem result
-                  let val = value ^. Shape.tag . to getSymValue
-                  Mem.store modCtx sym mem' (clobberAtType mts spec) ptr val
+      do let mts = modCtx ^. moduleTypes
+         (result, value) <-
+           runSetup
+             modCtx
+             mem
+             ( generate
+                 sym
+                 modCtx
+                 (clobberAtType mts spec)
+                 (SelectClobbered
+                    funcSymb
+                    (deepenPtr mts (clobberSelectorCursor (clobberSelector spec))))
+                 (clobberShape spec)
+             )
+         assume name sym (resultAssumptions result)
+         -- The keys are nonces, so they'll never clash, so the
+         -- bias of the union is unimportant.
+         modifyIORef annotationRef (Map.union (resultAnnotations result))
+         container <- getClobberGetter getter mem args
+         let cursor = clobberSelectorCursor (clobberSelector spec)
+         ptr <- Mem.seekPtr modCtx sym mem (clobberType spec) container cursor
+         let mem' = resultMem result
+         let val = value ^. Shape.tag . to getSymValue
+         Mem.store modCtx sym mem' (clobberAtType mts spec) ptr val
 
-
-    clobberAll ::
+    applyClobbers ::
       MemImpl sym ->
       Ctx.Assignment (Crucible.RegEntry sym) args ->
       ClobberSpecs' m (SomeClobberSpecAndGetter m arch args) ->
       IO (MemImpl sym)
-    clobberAll mem args clobbers' =
-      if not (Map.null (sometimesClobber clobbers'))
+    applyClobbers mem args clobbers' =
+      if not (Map.null (clobberAt clobbers'))
       then unimplemented "doClobber" SometimesClobber
       else
         foldM
@@ -484,44 +479,42 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
                 "createSkipOverride"
                 ["Mismatched return types"]
             Just Refl ->
-              runSetup
-                modCtx
-                mem
-                ( generate
-                    sym
-                    modCtx
-                    retFullType
-                    ( SelectReturn
-                        ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of
-                            Nothing ->
-                              panic
-                                "createSkipOverride"
-                                [ "Precondition violation:",
-                                  "Declaration not found in module:",
-                                  show symbolName
-                                ]
-                            Just s -> s
-                        )
-                        (Here retFullType)
-                    )
-                    ( case postcondition of
-                        Just (ConstrainedTypedValue ft shape) ->
-                          case testEquality ft retFullType of
-                            Just Refl -> shape
-                            Nothing ->
-                              panic
-                                "createSkipOverride"
-                                [ "Ill-typed constraints on return value for override "
-                                    <> Text.unpack name
-                                ]
-                        Nothing -> minimalConstrainedShape retFullType
-                    )
-                )
-                >>= \case
-                  (result, value) ->
-                    do
-                      assume name sym (resultAssumptions result)
-                      -- The keys are nonces, so they'll never clash, so the
-                      -- bias of the union is unimportant.
-                      modifyIORef annotationRef (Map.union (resultAnnotations result))
-                      pure (value ^. Shape.tag . to getSymValue, resultMem result)
+              do (result, value) <-
+                   runSetup
+                     modCtx
+                     mem
+                     ( generate
+                         sym
+                         modCtx
+                         retFullType
+                         ( SelectReturn
+                             ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of
+                                 Nothing ->
+                                   panic
+                                     "createSkipOverride"
+                                     [ "Precondition violation:",
+                                       "Declaration not found in module:",
+                                       show symbolName
+                                     ]
+                                 Just s -> s
+                             )
+                             (Here retFullType)
+                         )
+                         ( case postcondition of
+                             Just (ConstrainedTypedValue ft shape) ->
+                               case testEquality ft retFullType of
+                                 Just Refl -> shape
+                                 Nothing ->
+                                   panic
+                                     "createSkipOverride"
+                                     [ "Ill-typed constraints on return value for override "
+                                         <> Text.unpack name
+                                     ]
+                             Nothing -> minimalConstrainedShape retFullType
+                         )
+                     )
+                 assume name sym (resultAssumptions result)
+                 -- The keys are nonces, so they'll never clash, so the
+                 -- bias of the union is unimportant.
+                 modifyIORef annotationRef (Map.union (resultAnnotations result))
+                 pure (value ^. Shape.tag . to getSymValue, resultMem result)

@@ -9,6 +9,11 @@ Stability    : provisional
 Mostly provides wrappers that use 'FullType' instead of Crucible-LLVM's
 @MemType@ and @StorageType@ and Crucible's @TypeRepr@.
 
+The difference between the ticked and unticked variants of each function is just
+about convenience, for both the case where the caller has a 'FullTypeRepr' for
+the pointer type or one for the pointee type. These are inter-convertible in the
+presence of a 'ModuleTypes'.
+
 TODO(lb): All of these need a review on how they handle alignment.
 -}
 
@@ -36,6 +41,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.), to)
 import           Control.Monad (unless)
+import           Data.Maybe (fromMaybe)
 import           Data.Type.Equality ((:~:)(Refl))
 import qualified Data.Vector as Vec
 
@@ -268,7 +274,7 @@ seekPtr modCtx sym mem fullTypeRepr regVal cursor =
   case (fullTypeRepr, cursor) of
     (FTArrayRepr _n fullTypeRepr', Index i _ cur) ->
       -- TODO(lb): overflow...?
-      let val = regVal Vec.! fromIntegral (intValue i)
+      let val = regVal !!! fromIntegral (intValue i)
       in seekPtr modCtx sym mem fullTypeRepr' val cur
     (FTStructRepr _structInfo fields, Field _fieldTypes idx cur) ->
       let ty = fields ^. ixF' idx
@@ -289,3 +295,4 @@ seekPtr modCtx sym mem fullTypeRepr regVal cursor =
 -- this case is redundant
     _ -> panic "seekPtr" ["Impossible case"]
 #endif
+  where v !!! i = fromMaybe (panic "seekPtr" ["Impossible"]) (v Vec.!? i)
