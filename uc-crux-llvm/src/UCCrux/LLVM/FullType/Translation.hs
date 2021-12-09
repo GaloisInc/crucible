@@ -24,9 +24,10 @@ module UCCrux.LLVM.FullType.Translation
   ( FunctionTypes (..),
     MatchingAssign (..),
     TranslatedTypes (..),
-    TypeTranslationError (..),
+    TypeTranslationError,
     translateModuleDefines,
     ppTypeTranslationError,
+    throwTypeTranslationError,
   )
 where
 
@@ -39,6 +40,9 @@ import           Control.Monad.State (State, runState)
 import           Data.Functor ((<&>))
 import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Map as Map
+
+import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
 
 import qualified Text.LLVM.AST as L
 
@@ -55,6 +59,7 @@ import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Crux.LLVM.Overrides (ArchOk)
+import           UCCrux.LLVM.Errors.MalformedLLVMModule (malformedLLVMModule)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign'(..), testCompatibilityAssign, assignmentToCrucibleType)
 import           UCCrux.LLVM.FullType.Type
@@ -102,15 +107,29 @@ data TypeTranslationError
     BadLiftArgs !L.Symbol
   | FullTypeTranslation L.Ident
 
-ppTypeTranslationError :: TypeTranslationError -> String
+ppTypeTranslationError :: TypeTranslationError -> Doc ann
 ppTypeTranslationError =
-  \case
-    NoCFG (L.Symbol name) -> "Couldn't find definition of function " <> name
-    BadLift name -> "Couldn't lift argument/return types to MemTypes for " <> name
-    BadLiftArgs (L.Symbol name) ->
-      "Wrong number of arguments after lifting declaration of " <> name
-    FullTypeTranslation (L.Ident ident) ->
-      "Couldn't find or couldn't translate type: " <> ident
+  PP.pretty .
+    \case
+      NoCFG (L.Symbol name) -> "Couldn't find definition of function " <> name
+      BadLift name -> "Couldn't lift argument/return types to MemTypes for " <> name
+      BadLiftArgs (L.Symbol name) ->
+        "Wrong number of arguments after lifting declaration of " <> name
+      FullTypeTranslation (L.Ident ident) ->
+        "Couldn't find or couldn't translate type: " <> ident
+
+throwTypeTranslationError :: TypeTranslationError -> a
+throwTypeTranslationError err =
+  case err of
+    NoCFG {} -> doPanic
+    BadLift {} -> isMalformed
+    BadLiftArgs {} -> doPanic
+    FullTypeTranslation {} -> doPanic
+  where
+    nm = "throwTypeTranslationError"
+    doPanic = panic nm [show (ppTypeTranslationError err)]
+    isMalformed = malformedLLVMModule nm (ppTypeTranslationError err) []
+
 
 -- | Precondition: The 'TypeContext' must correspond to the 'L.Module'.
 translateModuleDefines ::

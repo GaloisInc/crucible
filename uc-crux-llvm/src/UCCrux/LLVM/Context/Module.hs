@@ -63,7 +63,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines)
+import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, throwTypeTranslationError)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -116,13 +116,26 @@ withTypeContext context computation =
   let ?lc = context ^. moduleTranslation . LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
    in computation
 
+-- | Any errors encountered in this function are bugs in UC-Crux or results of a
+-- malformed LLVM module, and are thrown as exceptions.
 makeModuleContext ::
   ArchOk arch =>
   FilePath ->
   L.Module ->
   ModuleTranslation arch ->
-  Either TypeTranslationError (SomeModuleContext arch)
+  SomeModuleContext arch
 makeModuleContext path llvmMod trans =
+  case tryMakeModuleContext path llvmMod trans of
+    Left err -> throwTypeTranslationError err
+    Right modCtx -> modCtx
+
+tryMakeModuleContext ::
+  ArchOk arch =>
+  FilePath ->
+  L.Module ->
+  ModuleTranslation arch ->
+  Either TypeTranslationError (SomeModuleContext arch)
+tryMakeModuleContext path llvmMod trans =
   let ?lc = trans ^. LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
    in case translateModuleDefines llvmMod trans of
         Left err -> Left err

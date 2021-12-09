@@ -121,20 +121,16 @@ ppFunctionContextError =
     BadMemType _ -> "Bad MemType"
 
 throwFunctionContextError :: FunctionContextError -> a
-throwFunctionContextError =
-  \case
-    err@(BadMemType {}) ->
-      malformedLLVMModule
-        "loopOnFunction"
-        (PP.pretty (ppFunctionContextError err))
-        []
-    err@(BadLift {}) ->
-      malformedLLVMModule
-        "loopOnFunction"
-        (PP.pretty (ppFunctionContextError err))
-        []
-    err@(BadLiftArgs {}) ->
-      panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
+throwFunctionContextError err =
+  case err of
+    BadMemType {} -> isMalformed
+    BadLift {} -> isMalformed
+    BadLiftArgs {} -> doPanic
+  where
+    nm = "throwFunctionContextError"
+    doPanic = panic nm [Text.unpack (ppFunctionContextError err)]
+    isMalformed =
+      malformedLLVMModule nm (PP.pretty (ppFunctionContextError err)) []
 
 withPtrWidthOf ::
   LLVMTrans.ModuleTranslation arch ->

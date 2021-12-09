@@ -85,8 +85,6 @@ import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
-import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
 import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
@@ -237,14 +235,7 @@ translateLLVMModule llOpts halloc memVar moduleFilePath llvmMod =
           withPtrWidth
             ptrW
             ( case makeModuleContext moduleFilePath llvmMod trans of
-                Left err ->
-                  panic
-                    "translateLLVMModule"
-                    [ "Type translation failed",
-                      ppTypeTranslationError err
-                    ]
-                Right (SomeModuleContext modCtx) ->
-                  pure (SomeModuleContext' modCtx)
+                SomeModuleContext modCtx -> pure (SomeModuleContext' modCtx)
             )
       )
 
