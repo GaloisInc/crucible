@@ -27,11 +27,8 @@ module UCCrux.LLVM.Classify.Types
     diagnose,
     diagnoseTag,
     prescribe,
-    ppProgramLoc,
     ppTruePositive,
     ppTruePositiveTag,
-    Unclassified (..),
-    doc,
     Uncertainty (..),
     partitionUncertainty,
     ppUncertainty,
@@ -45,10 +42,8 @@ where
 {- ORMOLU_DISABLE -}
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Void (Void)
 import           GHC.Generics (Generic)
 
-import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
@@ -58,22 +53,19 @@ import           Data.Parameterized.Ctx (Ctx)
 
 import qualified What4.ProgramLoc as What4
 
-import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
-
 import           Prelude hiding (log)
 
 import           Control.Exception (displayException)
-import           Control.Lens (Lens', lens, to, (^.))
 import           Panic (Panic)
-
-import           Data.Parameterized.Some (Some)
 
 import qualified Lang.Crucible.Simulator as Crucible
 
+import           UCCrux.LLVM.Bug (Bug, ppBug)
 import           UCCrux.LLVM.Constraints (NewConstraint)
 import           UCCrux.LLVM.Cursor (Where, ppWhere)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.PP (ppProgramLoc)
 {- ORMOLU_ENABLE -}
 
 data Located a = Located
@@ -81,9 +73,6 @@ data Located a = Located
     locatedValue :: a
   }
   deriving (Eq, Ord, Functor, Generic, Show)
-
-ppProgramLoc :: What4.ProgramLoc -> Text
-ppProgramLoc = Text.pack . show . What4.plSourceLoc
 
 ppLocated :: (a -> Text) -> Located a -> Text
 ppLocated ppVal (Located loc val) =
@@ -260,52 +249,11 @@ ppUnfixed =
     UnfixedFunctionPtrInInput ->
       "Called function pointer in argument, global, or return value of skipped function"
 
--- | We don't (yet) know what to do about this error, so we can't continue
--- executing this function.
-data Unclassified
-  = UnclassifiedUndefinedBehavior !What4.ProgramLoc (Doc Void) (Some UB.UndefinedBehavior)
-  | UnclassifiedMemoryError !What4.ProgramLoc (Doc Void)
-
-loc :: Lens' Unclassified What4.ProgramLoc
-loc =
-  lens
-    ( \case
-        UnclassifiedUndefinedBehavior loc' _ _ -> loc'
-        UnclassifiedMemoryError loc' _ -> loc'
-    )
-    ( \s loc' ->
-        case s of
-          UnclassifiedUndefinedBehavior _ doc' val ->
-            UnclassifiedUndefinedBehavior loc' doc' val
-          UnclassifiedMemoryError _ doc' ->
-            UnclassifiedMemoryError loc' doc'
-    )
-
-doc :: Lens' Unclassified (Doc Void)
-doc =
-  lens
-    ( \case
-        UnclassifiedUndefinedBehavior _ doc' _ -> doc'
-        UnclassifiedMemoryError _ doc' -> doc'
-    )
-    ( \s doc' ->
-        case s of
-          UnclassifiedUndefinedBehavior loc' _ val ->
-            UnclassifiedUndefinedBehavior loc' doc' val
-          UnclassifiedMemoryError loc' _ ->
-            UnclassifiedMemoryError loc' doc'
-    )
-
--- | Only used in tests, not a valid 'Show' instance.
-instance Show Unclassified where
-  show =
-    \case
-      UnclassifiedUndefinedBehavior {} -> "Undefined behavior"
-      UnclassifiedMemoryError {} -> "Memory error"
-
 -- | Possible sources of uncertainty, these might be true or false positives
+--
+-- Invalid 'Show' instance, only to be used in tests.
 data Uncertainty
-  = UUnclassified Unclassified
+  = UUnclassified !Bug
   | UUnfixable Unfixable
   | UUnfixed Unfixed
   | -- | Simulation, input generation, or classification encountered
@@ -320,7 +268,7 @@ data Uncertainty
   deriving (Show)
 
 partitionUncertainty ::
-  [Located Uncertainty] -> ([Located Crucible.SimError], [Located ()], [Located (Panic Unimplemented)], [Located Unclassified], [Located Unfixed], [Located Unfixable], [Located Text])
+  [Located Uncertainty] -> ([Located Crucible.SimError], [Located ()], [Located (Panic Unimplemented)], [Located Bug], [Located Unfixed], [Located Unfixable], [Located Text])
 partitionUncertainty = go [] [] [] [] [] [] []
   where
     go ms fs ns us ufd ufa ts =
@@ -383,13 +331,14 @@ partitionExplanations project = go [] [] [] []
           let (ts', cs', ds', es') = go ts cs ds es xs
            in (ts', cs', ds', fmap (const e) x : es')
 
+-- TODO(lb): Make this return a Doc ann
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
   \case
     UUnclassified unclass ->
       Text.unlines
         [ "Unclassified error:",
-          unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict
+          PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (ppBug unclass))
         ]
     UUnfixable unfix ->
       Text.unlines

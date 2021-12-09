@@ -12,6 +12,7 @@ Stability    : provisional
 module UCCrux.LLVM.PP
   ( ppRegValue,
     ppRegMap,
+    ppProgramLoc,
   )
 where
 
@@ -20,10 +21,14 @@ import           Control.Lens (to, (^.))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Functor.Const (Const(Const, getConst))
 import           Data.Proxy (Proxy(Proxy))
+import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:) (Refl))
 
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
+
+import qualified What4.ProgramLoc as What4
 
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
@@ -95,3 +100,9 @@ ppRegMap _proxy funCtx sym mem (Crucible.RegMap regmap) =
                       ]
       )
       (funCtx ^. argumentStorageTypes)
+
+
+-- TODO(lb): Make this return a Doc ann
+-- TODO(lb): Also print the function name?
+ppProgramLoc :: What4.ProgramLoc -> Text
+ppProgramLoc = Text.pack . show . What4.plSourceLoc

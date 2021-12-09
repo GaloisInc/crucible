@@ -45,6 +45,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , llvmPointerView
   , llvmPointerBlock
   , llvmPointerOffset
+  , llvmPointerType
   , muxLLVMPtr
   , llvmPointer_bv
   , mkNullPointer
@@ -113,6 +114,11 @@ llvmPointerBlock (LLVMPointer blk _) = blk
 
 llvmPointerOffset :: LLVMPtr sym w -> SymBV sym w
 llvmPointerOffset (LLVMPointer _ off) = off
+
+llvmPointerType :: IsExpr (SymExpr sym) => LLVMPtr sym w -> TypeRepr (LLVMPointerType w)
+llvmPointerType ptr =
+  case exprType (llvmPointerOffset ptr) of
+    BaseBVRepr w -> LLVMPointerRepr w
 
 -- | Type family defining how @LLVMPointerType@ unfolds.
 type family LLVMPointerImpl sym ctx where
