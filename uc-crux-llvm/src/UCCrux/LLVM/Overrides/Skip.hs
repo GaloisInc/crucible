@@ -14,6 +14,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module UCCrux.LLVM.Overrides.Skip
   ( SkipOverrideName (..),
@@ -475,7 +476,7 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
             "createSkipOverride"
             ["Mismatched return types - CFG was non-void"]
         (_, Just (Some retFullType)) ->
-          case testEquality (toCrucibleType (Proxy :: Proxy arch) retFullType) ret of
+          case testEquality (toCrucibleType (Proxy @arch) retFullType) ret of
             Nothing ->
               panic
                 "createSkipOverride"

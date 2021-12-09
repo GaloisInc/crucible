@@ -8,6 +8,7 @@ Stability    : provisional
 -}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module UCCrux.LLVM.PP
   ( ppRegValue,
@@ -82,13 +83,13 @@ ppRegMap _proxy funCtx sym mem (Crucible.RegMap regmap) =
   toListFC getConst
     <$> Ctx.traverseWithIndex
       ( \index (Const storageType) ->
-          case translateIndex (Proxy :: Proxy arch) (Ctx.size (funCtx ^. argumentStorageTypes)) index of
+          case translateIndex (Proxy @arch) (Ctx.size (funCtx ^. argumentStorageTypes)) index of
             SomeIndex idx Refl ->
               do
                 let regEntry = regmap Ctx.! idx
                 arg <-
                   liftIO $
-                    ppRegValue (Proxy :: Proxy arch) sym mem storageType regEntry
+                    ppRegValue (Proxy @arch) sym mem storageType regEntry
                 pure $
                   Const $
                     PP.hsep

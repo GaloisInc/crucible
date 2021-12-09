@@ -42,6 +42,11 @@
     lhs: "Prettyprinter.pretty (show x)"
     rhs: 'Prettyprinter.viaShow x'
 
+- error:
+    name: Use TypeApplications
+    lhs: "Proxy :: a"
+    rhs: 'Proxy @Whatever'
+
 # Ignored
 # -------
 

@@ -17,6 +17,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -347,8 +348,7 @@ store sym mts ptrRepr selector ptr regValue =
     \mem ->
       do
         ptr' <- annotatePointer sym selector ptrRepr ptr
-        let proxy = Proxy :: Proxy arch
-        mem' <- liftIO $ Mem.store' proxy sym mem mts ptrRepr ptr' regValue
+        mem' <- liftIO $ Mem.store' (Proxy @arch) sym mem mts ptrRepr ptr' regValue
         pure (ptr', mem')
 
 storeGlobal ::
@@ -373,5 +373,5 @@ storeGlobal sym ftRepr selector symb regValue =
       \mem' ->
         do
           mem'' <-
-            liftIO $ Mem.store (Proxy :: Proxy arch) sym mem' ftRepr ptr' regValue
+            liftIO $ Mem.store (Proxy @arch) sym mem' ftRepr ptr' regValue
           pure (ptr', mem'')
