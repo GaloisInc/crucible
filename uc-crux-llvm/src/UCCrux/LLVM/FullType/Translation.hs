@@ -16,6 +16,7 @@ Stability        : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -208,7 +209,7 @@ translateModuleDefines llvmModule trans =
             if isVarArgs
               then removeVarArgsRepr crucibleTypes
               else Some crucibleTypes
-        case testCompatibilityAssign (Proxy :: Proxy arch) fullTypes crucibleTypes' of
+        case testCompatibilityAssign (Proxy @arch) fullTypes crucibleTypes' of
           Just Refl ->
             pure $
               FunctionTypes
@@ -252,7 +253,7 @@ translateModuleDefines llvmModule trans =
             (withExceptT FullTypeTranslation . toFullTypeM)
             (fdRetType liftedDecl)
         SomeAssign' crucibleTypes Refl _ <-
-          pure $ assignmentToCrucibleType (Proxy :: Proxy arch) fullTypes
+          pure $ assignmentToCrucibleType (Proxy @arch) fullTypes
         pure $
           FunctionTypes
             { ftArgTypes = MatchingAssign fullTypes crucibleTypes,

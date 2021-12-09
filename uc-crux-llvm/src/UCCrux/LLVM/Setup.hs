@@ -13,6 +13,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -107,7 +108,7 @@ constrainHere ::
   Crucible.RegEntry sym (ToCrucibleType arch atTy) ->
   Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
 constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry _typeRepr regValue) =
-  liftIO (constraintToPred (Proxy :: Proxy arch) sym constraint fullTypeRepr regValue) >>=
+  liftIO (constraintToPred (Proxy @arch) sym constraint fullTypeRepr regValue) >>=
     assume constraint >>
     return regEntry
 
@@ -163,7 +164,7 @@ generateM' h1 gen =
     ( \(n :: NatRepr n) ->
         case NatRepr.leqAdd2
                (LeqProof :: LeqProof n h)
-               (NatRepr.leqRefl (Proxy :: Proxy 1) :: LeqProof 1 1) ::
+               (NatRepr.leqRefl (Proxy @1) :: LeqProof 1 1) ::
                LeqProof (n + 1) (h + 1) of
           LeqProof -> gen n
     )
@@ -306,11 +307,11 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                   (selector & selectorCursor %~ deepenStruct idx)
                   (ConstrainedShape (fields ^. ixF' idx))
           let fieldVals =
-                FTCT.generate (Proxy :: Proxy arch) (Ctx.size fields) $
+                FTCT.generate proxy (Ctx.size fields) $
                   \idx _ Refl -> fields' ^. ixF' idx . Shape.tag . to getSymValue . to Crucible.RV
           pure $ Shape.ShapeStruct (SymValue fieldVals) fields'
   where
-    proxy = Proxy :: Proxy arch
+    proxy = Proxy @arch
     constrain ::
       Compose [] (Constraint m) atTy ->
       Shape m (SymValue sym arch) atTy ->
@@ -360,7 +361,7 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
       ( shapes,
         Crucible.RegMap $
           FTCT.generate
-            (Proxy :: Proxy arch)
+            (Proxy @arch)
             (Ctx.size (funCtx ^. argumentFullTypes))
             ( \index index' Refl ->
                 Crucible.RegEntry

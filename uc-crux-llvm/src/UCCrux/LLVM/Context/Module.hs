@@ -11,6 +11,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module UCCrux.LLVM.Context.Module
   ( ModuleContext,
@@ -204,7 +205,7 @@ findFun modCtx funcSym =
                        case retTy of
                          Nothing -> panic "findFun" ["Missing return type"]
                          Just (Some retTy') ->
-                           case testCompatibility (Proxy :: Proxy arch) retTy' cRetTy of
+                           case testCompatibility (Proxy @arch) retTy' cRetTy of
                              Just Refl ->
                                CFGWithTypes
                                  { cfgWithTypes = cfg,
