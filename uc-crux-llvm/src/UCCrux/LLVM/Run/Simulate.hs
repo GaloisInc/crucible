@@ -83,7 +83,7 @@ import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerModuleFn)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Intrinsics as LLVMIntrinsics
 import           Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemImpl, MemOptions)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemOptions)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx, cfgMap, allModuleDeclares)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
@@ -112,6 +112,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTr
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
+import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, makePreSimulationMem)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides, ppClobberSpecError)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
@@ -165,7 +166,7 @@ data SimulatorHooks sym m arch (argTypes :: Ctx (FullType m)) r =
     , resultHook ::
         sym ->
         -- | Pre-simulation memory
-        MemImpl sym ->
+        PreSimulationMem sym ->
         -- | Arguments passed to the entry point
         Assignment (Shape m (SymValue sym arch)) argTypes ->
         Crux.CruxSimulationResult ->
@@ -341,7 +342,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       -- | Overrides that were passed in as arguments
       [SymCreateOverrideFn sym arch] ->
       IORef (Set SkipOverrideName) ->
-      IORef (Maybe (MemImpl sym)) ->
+      IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
       IORef (Maybe (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)))) ->
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
@@ -371,7 +372,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
               pure (mem, anns, assumptions, argShapes, args)
 
         -- Save initial state so that it can be used during classification
-        IORef.writeIORef memRef (Just mem)
+        IORef.writeIORef memRef (Just (makePreSimulationMem mem))
         IORef.writeIORef argRef (Just args)
         IORef.writeIORef argAnnRef (Just argAnnotations)
         IORef.writeIORef argShapeRef (Just argShapes)
@@ -466,7 +467,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       (sym ~ What4.ExprBuilder t st fs) =>
       sym ->
       IORef (Set SkipOverrideName) ->
-      IORef (Maybe (MemImpl sym)) ->
+      IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
       IORef (Maybe (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)))) ->
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
@@ -546,11 +547,11 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IORef (Set SkipOverrideName) ->
       IORef (Set UnsoundOverrideName) ->
       IORef [Located (Explanation m arch argTypes)] ->
-      IORef (Maybe (MemImpl sym)) ->
+      IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
       Crux.CruxSimulationResult ->
       (sym ->
-        MemImpl sym ->
+        PreSimulationMem sym ->
         Assignment (Shape m (SymValue sym arch)) argTypes ->
         Crux.CruxSimulationResult ->
         UCCruxSimulationResult m arch argTypes ->

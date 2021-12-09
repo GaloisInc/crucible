@@ -79,6 +79,7 @@ import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullT
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (makeFuncSymbol, makeGlobalSymbol, globalSymbol)
+import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPreSimulationMem)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
@@ -208,7 +209,7 @@ classifyBadBehavior ::
   FunctionContext m arch argTypes ->
   sym ->
   -- | Initial LLVM memory (containing globals and functions)
-  LLVMMem.MemImpl sym ->
+  PreSimulationMem sym ->
   -- | Functions skipped during execution
   Set SkipOverrideName ->
   -- | Simulation error (including source position)
@@ -250,7 +251,7 @@ doClassifyBadBehavior ::
   FunctionContext m arch argTypes ->
   sym ->
   -- | Program memory
-  LLVMMem.MemImpl sym ->
+  PreSimulationMem sym ->
   -- | Functions skipped during execution
   Set SkipOverrideName ->
   -- | Simulation error (including source position)
@@ -529,7 +530,7 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
                       then unclass appCtx badBehavior errorLoc
                       else truePositive (ReadUninitializedHeap loc)
                   Just (G.AllocInfo G.GlobalAlloc _sz _mut _align _loc) ->
-                    case flip Map.lookup (LLVMMem.memImplSymbolMap memImpl) =<< blk of
+                    case flip Map.lookup (LLVMMem.memImplSymbolMap (getPreSimulationMem memImpl)) =<< blk of
                       Nothing -> requirePossiblePointer ReadNonPointer ptr
                       Just glob ->
                         case ( makeFuncSymbol glob (modCtx ^. funcTypes),

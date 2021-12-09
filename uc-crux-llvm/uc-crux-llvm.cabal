@@ -61,6 +61,7 @@ library
     UCCrux.LLVM.Mem
     UCCrux.LLVM.Module
     UCCrux.LLVM.Newtypes.FunctionName
+    UCCrux.LLVM.Newtypes.PreSimulationMem
     UCCrux.LLVM.Newtypes.Seconds
     UCCrux.LLVM.Overrides.Check
     UCCrux.LLVM.Overrides.Polymorphic
