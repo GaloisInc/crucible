@@ -35,7 +35,6 @@ import qualified Data.IORef as IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (catMaybes)
-import qualified Data.Text as Text
 import           Data.Traversable (for)
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
@@ -73,7 +72,7 @@ import           UCCrux.LLVM.Constraints (Constraints, emptyConstraints, ppConst
 import           UCCrux.LLVM.Cursor (ppSelector)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), findFun)
-import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext, ppFunctionContextError, argumentFullTypes)
+import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext, argumentFullTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType (FullType, FullTypeRepr, MapToCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FT
@@ -201,15 +200,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
            do CFGWithTypes ovCfg argFTys _retTy _varArgs <-
                 pure (findFun modCtx (FuncDefnSymbol func))
               let argCTys = Crucible.cfgArgTypes ovCfg
-              ovFunCtx <-
-                case makeFunctionContext modCtx func argFTys argCTys of
-                  Left err ->
-                    panic
-                      "checkInferredContracts"
-                      [ "Function: " ++ defnSymbolToString func
-                      , Text.unpack (ppFunctionContextError err)
-                      ]
-                  Right funCtx' -> return funCtx'
+              let ovFunCtx = makeFunctionContext modCtx func argFTys argCTys
               let ?memOpts = CruxLLVM.memOpts llOpts
               case testEquality argFTys types of
                 Nothing ->
@@ -261,13 +252,8 @@ checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entri
         do CFGWithTypes cfg argFTys _retTy _varArgs <-
              pure (findFun modCtx (FuncDefnSymbol entry))
 
-           funCtx <-
-             case makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg) of
-               Left err ->
-                 panic
-                   "checkInferredContracts"
-                   [Text.unpack (ppFunctionContextError err)]
-               Right funCtxF -> return funCtxF
+           let funCtx =
+                 makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg)
            result <-
             checkInferredContracts
               appCtx

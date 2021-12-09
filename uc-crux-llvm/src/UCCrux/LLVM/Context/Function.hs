@@ -17,9 +17,11 @@ Stability    : provisional
 
 module UCCrux.LLVM.Context.Function
   ( FunctionContext (..),
-    FunctionContextError (..),
+    FunctionContextError,
     ppFunctionContextError,
+    throwFunctionContextError,
     makeFunctionContext,
+    tryMakeFunctionContext,
     functionName,
     argumentNames,
     argumentCrucibleTypes,
@@ -39,6 +41,8 @@ import           Data.Monoid (getFirst, First(First))
 import           Data.Text (Text)
 import qualified Data.Text as Text
 
+import qualified Prettyprinter as PP
+
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Ctx (Ctx)
@@ -53,6 +57,8 @@ import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, withTypeContext, llvmModule, moduleTranslation)
+import           UCCrux.LLVM.Errors.MalformedLLVMModule (malformedLLVMModule)
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(VarArgsFunction))
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType)
 import           UCCrux.LLVM.Module (DefnSymbol, defnSymbol, getDefnSymbol, moduleDefnMap, getModule)
@@ -88,9 +94,7 @@ argumentStorageTypes :: Simple Lens (FunctionContext m arch argTypes) (Ctx.Assig
 argumentStorageTypes = lens _argumentStorageTypes (\s v -> s {_argumentStorageTypes = v})
 
 data FunctionContextError
-  = -- | Couldn't find 'L.Define' of entrypoint
-    MissingEntrypoint Text
-  | -- | Couldn't lift types in declaration to 'MemType'
+  = -- | Couldn't lift types in declaration to 'MemType'
     BadLift Text
   | -- | Wrong number of arguments after lifting declaration
     BadLiftArgs !Int !Int !Int
@@ -100,7 +104,6 @@ data FunctionContextError
 ppFunctionContextError :: FunctionContextError -> Text
 ppFunctionContextError =
   \case
-    MissingEntrypoint name -> "Couldn't find definition of function " <> name
     BadLift name -> "Couldn't lift argument/return types to MemTypes for " <> name
     BadLiftArgs decl tys idx ->
       Text.unwords
@@ -117,6 +120,22 @@ ppFunctionContextError =
         ]
     BadMemType _ -> "Bad MemType"
 
+throwFunctionContextError :: FunctionContextError -> a
+throwFunctionContextError =
+  \case
+    err@(BadMemType {}) ->
+      malformedLLVMModule
+        "loopOnFunction"
+        (PP.pretty (ppFunctionContextError err))
+        []
+    err@(BadLift {}) ->
+      malformedLLVMModule
+        "loopOnFunction"
+        (PP.pretty (ppFunctionContextError err))
+        []
+    err@(BadLiftArgs {}) ->
+      panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
+
 withPtrWidthOf ::
   LLVMTrans.ModuleTranslation arch ->
   (ArchOk arch => b) ->
@@ -124,8 +143,10 @@ withPtrWidthOf ::
 withPtrWidthOf trans k =
   LLVMTrans.llvmPtrWidth (trans ^. LLVMTrans.transContext) (\ptrW -> withPtrWidth ptrW k)
 
--- | This function does some precomputation of ubiquitously used values, and
--- some handling of what should generally be very rare errors.
+-- | This function does some precomputation of ubiquitously used values.
+--
+-- Any errors encountered in this process are bugs in UC-Crux or results of a
+-- malformed LLVM module, and are thrown as exceptions.
 makeFunctionContext ::
   forall m arch fullTypes.
   ArchOk arch =>
@@ -133,8 +154,21 @@ makeFunctionContext ::
   DefnSymbol m ->
   Ctx.Assignment (FullTypeRepr m) fullTypes ->
   Ctx.Assignment CrucibleTypes.TypeRepr (MapToCrucibleType arch fullTypes) ->
-  Either FunctionContextError (FunctionContext m arch fullTypes)
+  FunctionContext m arch fullTypes
 makeFunctionContext modCtx defnSymb argFullTypes argTypes =
+  case tryMakeFunctionContext modCtx defnSymb argFullTypes argTypes of
+    Left err -> throwFunctionContextError err
+    Right funCtx -> funCtx
+
+tryMakeFunctionContext ::
+  forall m arch fullTypes.
+  ArchOk arch =>
+  ModuleContext m arch ->
+  DefnSymbol m ->
+  Ctx.Assignment (FullTypeRepr m) fullTypes ->
+  Ctx.Assignment CrucibleTypes.TypeRepr (MapToCrucibleType arch fullTypes) ->
+  Either FunctionContextError (FunctionContext m arch fullTypes)
+tryMakeFunctionContext modCtx defnSymb argFullTypes argTypes =
   do
     let llvmMod = modCtx ^. llvmModule
     let L.Symbol strName = getDefnSymbol defnSymb
