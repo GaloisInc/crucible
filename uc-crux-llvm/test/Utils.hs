@@ -21,7 +21,6 @@ module Utils
 import           Control.Lens ((^.))
 import           Control.Exception (try)
 import           Data.Maybe (fromMaybe, isNothing)
-import qualified Data.Text as Text
 import           System.Environment (lookupEnv)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
@@ -50,7 +49,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Constraints (emptyConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), defnTypes, findFun, withModulePtrWidth)
-import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext, ppFunctionContextError)
+import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext)
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDefnSymbol))
 import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString)
 import qualified UCCrux.LLVM.Logging as Log
@@ -224,11 +223,8 @@ simulateFunc file func makeCallbacks =
            withModulePtrWidth modCtx $
              do CFGWithTypes cfg argFTys _retTy _varArgs <-
                    pure (findFun modCtx (FuncDefnSymbol entry))
-                funCtx <-
-                  case makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg) of
-                    Left err ->
-                      error (Text.unpack (ppFunctionContextError err))
-                    Right funCtx -> return funCtx
+                let funCtx =
+                      makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg)
                 -- TODO(lb): also provide these
                 -- let ?memOpts = CruxLLVM.memOpts llOpts
                 -- let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
@@ -244,4 +240,3 @@ simulateFunc file func makeCallbacks =
                   llOpts
                   cbs
     )
-  

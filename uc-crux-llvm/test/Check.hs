@@ -19,7 +19,6 @@ import           Control.Lens ((^.))
 import           Data.Foldable (toList)
 import qualified Data.IORef as IORef
 import           Data.Maybe (fromMaybe)
-import qualified Data.Text as Text
 
 import qualified Lang.Crucible.CFG.Core as Crucible
 
@@ -31,7 +30,7 @@ import qualified Test.Tasty.HUnit as TH
 import qualified What4.Interface as What4
 
 import           UCCrux.LLVM.Constraints (emptyConstraints)
-import           UCCrux.LLVM.Context.Function (makeFunctionContext, ppFunctionContextError)
+import           UCCrux.LLVM.Context.Function (makeFunctionContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), defnTypes, findFun, withModulePtrWidth)
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDefnSymbol), DefnSymbol, defnSymbolToString)
 import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString)
@@ -87,11 +86,7 @@ checkOverrideTests =
                         CFGWithTypes fcgf fArgFTys _retTy _varArgs <-
                           pure (findFun modCtx (FuncDefnSymbol f))
 
-                        funCtxF <-
-                          case makeFunctionContext modCtx f fArgFTys (Crucible.cfgArgTypes fcgf) of
-                            Left err ->
-                              error (Text.unpack (ppFunctionContextError err))
-                            Right funCtxF -> return funCtxF
+                        let funCtxF = makeFunctionContext modCtx f fArgFTys (Crucible.cfgArgTypes fcgf)
 
                         -- Run main loop on f, to deduce the precondition
                         -- that y should be nonnull
@@ -152,11 +147,7 @@ checkOverrideTests =
                         CFGWithTypes gcfg gArgFTys _retTy _varArgs <-
                           pure (findFun modCtx (FuncDefnSymbol g))
 
-                        funCtxG <-
-                          case makeFunctionContext modCtx g gArgFTys (Crucible.cfgArgTypes gcfg) of
-                            Left err ->
-                              error (Text.unpack (ppFunctionContextError err))
-                            Right funCtxG -> return funCtxG
+                        let funCtxG = makeFunctionContext modCtx g gArgFTys (Crucible.cfgArgTypes gcfg)
 
                         () <-
                           Sim.runSimulatorWithCallbacks

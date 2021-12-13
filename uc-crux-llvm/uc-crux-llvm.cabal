@@ -45,6 +45,7 @@ library
     UCCrux.LLVM.Cursor
     UCCrux.LLVM.Equivalence
     UCCrux.LLVM.Equivalence.Config
+    UCCrux.LLVM.Errors.MalformedLLVMModule
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType

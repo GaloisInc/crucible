@@ -40,6 +40,7 @@ where
 import           Control.Lens ((^.), Simple, Getter, Lens, lens, to, at)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
+import           GHC.Stack (HasCallStack)
 
 import           Text.LLVM.AST (Symbol(Symbol))
 import qualified Text.LLVM.AST as L
@@ -63,7 +64,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines)
+import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, throwTypeTranslationError)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -116,13 +117,27 @@ withTypeContext context computation =
   let ?lc = context ^. moduleTranslation . LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
    in computation
 
+-- | Any errors encountered in this function are bugs in UC-Crux or results of a
+-- malformed LLVM module, and are thrown as exceptions.
 makeModuleContext ::
+  HasCallStack =>
+  ArchOk arch =>
+  FilePath ->
+  L.Module ->
+  ModuleTranslation arch ->
+  SomeModuleContext arch
+makeModuleContext path llvmMod trans =
+  case tryMakeModuleContext path llvmMod trans of
+    Left err -> throwTypeTranslationError err
+    Right modCtx -> modCtx
+
+tryMakeModuleContext ::
   ArchOk arch =>
   FilePath ->
   L.Module ->
   ModuleTranslation arch ->
   Either TypeTranslationError (SomeModuleContext arch)
-makeModuleContext path llvmMod trans =
+tryMakeModuleContext path llvmMod trans =
   let ?lc = trans ^. LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
    in case translateModuleDefines llvmMod trans of
         Left err -> Left err

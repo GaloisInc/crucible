@@ -65,7 +65,7 @@ import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation,
 import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString, functionNameFromString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
+import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
@@ -237,20 +237,18 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
             ( do
                 CFGWithTypes cfg argFTys _retTy _varArgs <-
                   pure (findFun modCtx (FuncDefnSymbol fn))
-                case makeFunctionContext modCtx fn argFTys (Crucible.cfgArgTypes cfg) of
-                  Left err -> panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
-                  Right funCtx ->
-                    do
-                      (appCtx ^. log) Hi $ "Checking function " <> (funCtx ^. functionName)
-                      uncurry (SomeBugfindingResult argFTys)
-                        <$> bugfindingLoop
-                          appCtx
-                          modCtx
-                          funCtx
-                          cfg
-                          cruxOpts
-                          llOpts
-                          halloc
+                let funCtx =
+                      makeFunctionContext modCtx fn argFTys (Crucible.cfgArgTypes cfg)
+                (appCtx ^. log) Hi $ "Checking function " <> (funCtx ^. functionName)
+                uncurry (SomeBugfindingResult argFTys)
+                  <$> bugfindingLoop
+                    appCtx
+                    modCtx
+                    funCtx
+                    cfg
+                    cruxOpts
+                    llOpts
+                    halloc
             )
       )
 
