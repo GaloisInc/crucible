@@ -40,6 +40,7 @@ import           Control.Monad.State (State, runState)
 import           Data.Functor ((<&>))
 import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Map as Map
+import           GHC.Stack (HasCallStack)
 
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
@@ -118,17 +119,17 @@ ppTypeTranslationError =
       FullTypeTranslation (L.Ident ident) ->
         "Couldn't find or couldn't translate type: " <> ident
 
-throwTypeTranslationError :: TypeTranslationError -> a
+-- | Callers should also be annotated with 'HasCallStack'
+throwTypeTranslationError :: HasCallStack => TypeTranslationError -> a
 throwTypeTranslationError err =
   case err of
-    NoCFG {} -> doPanic
-    BadLift {} -> isMalformed
-    BadLiftArgs {} -> doPanic
-    FullTypeTranslation {} -> doPanic
+    NoCFG {} -> panic nm [show prettyErr]
+    BadLift {} -> malformedLLVMModule prettyErr []
+    BadLiftArgs {} -> panic nm [show prettyErr]
+    FullTypeTranslation {} -> panic nm [show prettyErr]
   where
+    prettyErr = ppTypeTranslationError err
     nm = "throwTypeTranslationError"
-    doPanic = panic nm [show (ppTypeTranslationError err)]
-    isMalformed = malformedLLVMModule nm (ppTypeTranslationError err) []
 
 
 -- | Precondition: The 'TypeContext' must correspond to the 'L.Module'.

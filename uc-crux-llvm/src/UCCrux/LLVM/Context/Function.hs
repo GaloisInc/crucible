@@ -40,6 +40,7 @@ import           Data.Map (Map)
 import           Data.Monoid (getFirst, First(First))
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import           GHC.Stack (HasCallStack)
 
 import qualified Prettyprinter as PP
 
@@ -120,17 +121,17 @@ ppFunctionContextError =
         ]
     BadMemType _ -> "Bad MemType"
 
-throwFunctionContextError :: FunctionContextError -> a
+-- | Callers should also be annotated with 'HasCallStack'
+throwFunctionContextError :: HasCallStack => FunctionContextError -> a
 throwFunctionContextError err =
   case err of
-    BadMemType {} -> isMalformed
-    BadLift {} -> isMalformed
-    BadLiftArgs {} -> doPanic
+    BadMemType {} -> malformedLLVMModule (PP.pretty prettyErr) []
+    BadLift {} -> malformedLLVMModule (PP.pretty prettyErr) []
+    BadLiftArgs {} -> panic nm [Text.unpack prettyErr]
   where
+    prettyErr = ppFunctionContextError err
     nm = "throwFunctionContextError"
-    doPanic = panic nm [Text.unpack (ppFunctionContextError err)]
-    isMalformed =
-      malformedLLVMModule nm (PP.pretty (ppFunctionContextError err)) []
+
 
 withPtrWidthOf ::
   LLVMTrans.ModuleTranslation arch ->
@@ -145,6 +146,7 @@ withPtrWidthOf trans k =
 -- malformed LLVM module, and are thrown as exceptions.
 makeFunctionContext ::
   forall m arch fullTypes.
+  HasCallStack =>
   ArchOk arch =>
   ModuleContext m arch ->
   DefnSymbol m ->

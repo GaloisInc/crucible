@@ -40,6 +40,7 @@ where
 import           Control.Lens ((^.), Simple, Getter, Lens, lens, to, at)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
+import           GHC.Stack (HasCallStack)
 
 import           Text.LLVM.AST (Symbol(Symbol))
 import qualified Text.LLVM.AST as L
@@ -119,6 +120,7 @@ withTypeContext context computation =
 -- | Any errors encountered in this function are bugs in UC-Crux or results of a
 -- malformed LLVM module, and are thrown as exceptions.
 makeModuleContext ::
+  HasCallStack =>
   ArchOk arch =>
   FilePath ->
   L.Module ->

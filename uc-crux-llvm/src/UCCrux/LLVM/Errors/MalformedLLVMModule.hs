@@ -14,6 +14,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Data.Void (Void)
+import           GHC.Stack (HasCallStack, prettyCallStack, callStack)
 
 import           Prettyprinter (Doc, pretty)
 
@@ -23,17 +24,18 @@ import qualified Lang.Crucible.LLVM.MalformedLLVMModule as M
 -- | Throw a 'Lang.Crucible.LLVM.MalformedLLVMModule.MalformedLLVMModule'
 -- exception.
 malformedLLVMModule ::
-  -- | Function name
-  String ->
+  HasCallStack =>
   -- | Short explanation
   Doc Void ->
   -- | Details
   [Doc Void] ->
   a
-malformedLLVMModule nm short details =
+malformedLLVMModule short details =
   M.malformedLLVMModule short $
     concat
-      [ [ pretty ("In function: " ++ nm) ]
+      [ [ pretty "Call stack:"
+        , pretty (prettyCallStack callStack)
+        ]
       , details
       , map
           pretty
