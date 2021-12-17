@@ -158,27 +158,25 @@ mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w (BV.zero w)
 concBV ::
   (IsExprBuilder sym, 1 <= w) =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   SymBV sym w -> IO (SymBV sym w)
-concBV sym conc bv =
-  do bv' <- conc bv
-     bvLit sym (bvWidth bv) bv'
+concBV sym conc bv = conc bv
 
 concPtr ::
   (IsExprBuilder sym, 1 <= w) =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   RegValue sym (LLVMPointerType w) ->
   IO (RegValue sym (LLVMPointerType w))
 concPtr sym conc (LLVMPointer blk off) =
-  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
+  do blk' <- integerToNat sym =<< conc =<< natToInteger sym blk
      off' <- concBV sym conc off
      pure (LLVMPointer blk' off')
 
 concPtr' ::
   (IsExprBuilder sym, 1 <= w) =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   RegValue' sym (LLVMPointerType w) ->
   IO (RegValue' sym (LLVMPointerType w))
 concPtr' sym conc (RV ptr) = RV <$> concPtr sym conc ptr

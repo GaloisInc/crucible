@@ -290,7 +290,7 @@ ppReg = pp details
 concPoison :: forall sym.
   W4I.IsExprBuilder sym =>
   sym ->
-  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. W4I.SymExpr sym tp -> IO (W4I.SymExpr sym tp)) ->
   Poison (RegValue' sym) -> IO (Poison (RegValue' sym))
 concPoison sym conc poison =
   let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))

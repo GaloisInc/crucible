@@ -85,7 +85,6 @@ import           Prettyprinter
 import           Data.Parameterized.Ctx (SingleCtx)
 
 import           What4.Interface
-import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment, EndianForm(..))
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -516,7 +515,7 @@ ppMem m = ppMemState ppMemChanges (m^.memState)
 concAllocInfo ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   AllocInfo sym -> IO (AllocInfo sym)
 concAllocInfo sym conc (AllocInfo atp sz m a nm) =
   do sz' <- traverse (concBV sym conc) sz
@@ -525,23 +524,28 @@ concAllocInfo sym conc (AllocInfo atp sz m a nm) =
 concAlloc ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemAlloc sym -> IO (MemAllocs sym)
 concAlloc sym conc (Allocations m) =
   do m' <- traverse (concAllocInfo sym conc) m
      pure (MemAllocs [Allocations m'])
 concAlloc sym conc (MemFree blk loc) =
-  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
+  do blk' <- integerToNat sym =<< conc =<< natToInteger sym blk
      pure (MemAllocs [MemFree blk' loc])
 concAlloc sym conc (AllocMerge p m1 m2) =
   do b <- conc p
-     if b then concMemAllocs sym conc m1
-          else concMemAllocs sym conc m2
+     case asConstantPred b of
+       Just True ->  concMemAllocs sym conc m1
+       Just False -> concMemAllocs sym conc m2
+       Nothing ->
+         do m1' <- concMemAllocs sym conc m1
+            m2' <- concMemAllocs sym conc m2
+            pure (MemAllocs [AllocMerge b m1' m2'])
 
 concMemAllocs ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemAllocs sym -> IO (MemAllocs sym)
 concMemAllocs sym conc (MemAllocs cs) =
   fold <$> traverse (concAlloc sym conc) cs
@@ -549,10 +553,10 @@ concMemAllocs sym conc (MemAllocs cs) =
 concLLVMVal ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   LLVMVal sym -> IO (LLVMVal sym)
 concLLVMVal sym conc (LLVMValInt blk off) =
-  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
+  do blk' <- integerToNat sym =<< conc =<< natToInteger sym blk
      off' <- concBV sym conc off
      pure (LLVMValInt blk' off')
 concLLVMVal _sym _conc (LLVMValFloat fs fi) =
@@ -570,7 +574,7 @@ concLLVMVal _ _ (LLVMValUndef st) =
 concWriteSource ::
   (IsExprBuilder sym, 1 <= w) =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   WriteSource sym w -> IO (WriteSource sym w)
 concWriteSource sym conc (MemCopy src len) =
   MemCopy <$> (concPtr sym conc src) <*> (concBV sym conc len)
@@ -592,7 +596,7 @@ concWriteSource sym conc (MemInvalidate nm len) =
 concMemWrite ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemWrite sym -> IO (MemWrites sym)
 concMemWrite sym conc (MemWrite ptr wsrc) =
   do ptr' <- concPtr sym conc ptr
@@ -600,13 +604,18 @@ concMemWrite sym conc (MemWrite ptr wsrc) =
      pure $ memWritesSingleton ptr' wsrc'
 concMemWrite sym conc (WriteMerge p m1 m2) =
   do b <- conc p
-     if b then concMemWrites sym conc m1
-          else concMemWrites sym conc m2
+     case asConstantPred b of
+       Just True  -> concMemWrites sym conc m1
+       Just False -> concMemWrites sym conc m2
+       Nothing ->
+         do m1' <- concMemWrites sym conc m1
+            m2' <- concMemWrites sym conc m2
+            pure $ (MemWrites [MemWritesChunkFlat [WriteMerge b m1' m2']])
 
 concMemWrites ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemWrites sym -> IO (MemWrites sym)
 concMemWrites sym conc (MemWrites cs) =
   fold <$> mapM (concMemWritesChunk sym conc) cs
@@ -614,7 +623,7 @@ concMemWrites sym conc (MemWrites cs) =
 concMemWritesChunk ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemWritesChunk sym -> IO (MemWrites sym)
 concMemWritesChunk sym conc (MemWritesChunkFlat ws) =
   fold <$> mapM (concMemWrite sym conc) ws
@@ -624,7 +633,7 @@ concMemWritesChunk sym conc (MemWritesChunkIndexed mp) =
 concMemChanges ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemChanges sym -> IO (MemChanges sym)
 concMemChanges sym conc (as, ws) =
   (,) <$> concMemAllocs sym conc as <*> concMemWrites sym conc ws
@@ -633,7 +642,7 @@ concMemChanges sym conc (as, ws) =
 concMemState ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemState sym -> IO (MemState sym)
 concMemState sym conc (EmptyMem a w chs) =
   EmptyMem a w <$> concMemChanges sym conc chs
@@ -645,7 +654,7 @@ concMemState sym conc (BranchFrame a w frm stk) =
 concMem ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   Mem sym -> IO (Mem sym)
 concMem sym conc (Mem endian st) =
   Mem endian <$> concMemState sym conc st

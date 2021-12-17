@@ -561,7 +561,7 @@ instance TraversableF UndefinedBehavior where
 concUB :: forall sym.
   W4I.IsExprBuilder sym =>
   sym ->
-  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. W4I.SymExpr sym tp -> IO (W4I.SymExpr sym tp)) ->
   UndefinedBehavior (RegValue' sym) -> IO (UndefinedBehavior (RegValue' sym))
 concUB sym conc ub =
   let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))

@@ -69,7 +69,7 @@ data BadBehavior sym where
 concBadBehavior ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   BadBehavior sym -> IO (BadBehavior sym)
 concBadBehavior sym conc (BBUndefinedBehavior ub) =
   BBUndefinedBehavior <$> UB.concUB sym conc ub

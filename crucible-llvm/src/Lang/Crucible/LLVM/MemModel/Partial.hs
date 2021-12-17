@@ -152,7 +152,7 @@ explainCex sym bbMap evalFn =
           Nothing -> evalPos posCache negCache e'
           Just (callStack, bb) ->
             do bb' <- case evalFn of
-                        Just f  -> concBadBehavior sym (groundEval f) bb
+                        Just f  -> concBadBehavior sym (undefined $ groundEval f) bb -- TODO!!!
                         Nothing -> pure bb
                pure (DisjOfFailures [ (callStack, bb') ])
 

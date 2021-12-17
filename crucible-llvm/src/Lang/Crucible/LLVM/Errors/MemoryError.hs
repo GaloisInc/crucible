@@ -222,7 +222,7 @@ ppMemoryErrorReason =
 concMemoryError ::
   IsExprBuilder sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemoryError sym -> IO (MemoryError sym)
 concMemoryError sym conc (MemoryError mop rsn) =
   MemoryError <$> concMemoryOp sym conc mop <*> pure rsn
@@ -230,7 +230,7 @@ concMemoryError sym conc (MemoryError mop rsn) =
 concMemoryOp ::
   (1 <= w, IsExprBuilder sym) =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemoryOp sym w -> IO (MemoryOp sym w)
 concMemoryOp sym conc (MemLoadOp tp gsym ptr mem) =
   MemLoadOp tp gsym <$> concPtr sym conc ptr <*> concMem sym conc mem

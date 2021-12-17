@@ -1756,7 +1756,7 @@ allocGlobal sym mem (g, aliases, sz, alignment) = do
 concSomePointer ::
   IsSymInterface sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   SomePointer sym -> IO (SomePointer sym)
 concSomePointer sym conc (SomePointer ptr) =
   SomePointer <$> ML.concPtr sym conc ptr
@@ -1764,7 +1764,7 @@ concSomePointer sym conc (SomePointer ptr) =
 concMemImpl ::
   IsSymInterface sym =>
   sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  (forall tp. SymExpr sym tp -> IO (SymExpr sym tp)) ->
   MemImpl sym -> IO (MemImpl sym)
 concMemImpl sym conc mem =
   do heap' <- ML.concMem sym conc (memImplHeap mem)
