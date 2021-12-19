@@ -32,7 +32,8 @@ module Lang.Crucible.LLVM.MemModel.MemLog
     AllocType(..)
   , Mutability(..)
   , AllocInfo(..)
-  , MemAllocs
+  , MemAllocs(..)
+  , MemAlloc(..)
   , sizeMemAllocs
   , allocMemAllocs
   , freeMemAllocs
