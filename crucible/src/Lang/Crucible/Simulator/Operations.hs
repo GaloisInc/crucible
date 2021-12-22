@@ -403,10 +403,10 @@ runErrorHandler ::
 runErrorHandler msg st =
   let ctx = st^.stateContext
       sym = ctx^.ctxSymInterface
-   in ctxSolverProof ctx $
+   in withBackend ctx $ \bak ->
       do loc <- getCurrentProgramLoc sym
          let err = SimError loc msg
-         addProofObligation sym (LabeledPred (falsePred sym) err)
+         addProofObligation bak (LabeledPred (falsePred sym) err)
          return (AbortState (AssertionFailure err) st)
 
 -- | Abort the current thread of execution with an error.
@@ -553,15 +553,15 @@ checkForIntraFrameMerge tgt =
 
 
 assumeInNewFrame ::
-  IsSymInterface sym =>
-  sym ->
+  IsBoolSolver sym bak => IsSymInterface sym =>
+  bak ->
   Assumption sym ->
   IO FrameIdentifier
-assumeInNewFrame sym asm =
-  do frm <- pushAssumptionFrame sym
-     Ex.try @Ex.SomeException (addAssumption sym asm) >>= \case
+assumeInNewFrame bak asm =
+  do frm <- pushAssumptionFrame bak
+     Ex.try @Ex.SomeException (addAssumption bak asm) >>= \case
        Left ex ->
-         do void $ popAssumptionFrame sym frm
+         do void $ popAssumptionFrame bak frm
             Ex.throw ex
        Right () -> return frm
 
@@ -578,65 +578,67 @@ performIntraFrameMerge ::
 
 performIntraFrameMerge tgt = do
   ActiveTree ctx0 er <- view stateTree
+  simCtx <- view stateContext
   sym <- view stateSymInterface
-  case ctx0 of
-    VFFBranch ctx assume_frame loc pred other_branch tgt'
+  withBackend simCtx $ \bak ->
+    case ctx0 of
+      VFFBranch ctx assume_frame loc pred other_branch tgt'
 
-      -- Did we get to our merge point (i.e., we are finished with this branch)
-      | Just Refl <- testEquality tgt tgt' ->
-        case other_branch of
+        -- Did we get to our merge point (i.e., we are finished with this branch)
+        | Just Refl <- testEquality tgt tgt' ->
+          case other_branch of
 
-          -- We still have some more work to do, reactivate the other, postponed branch
-          VFFActivePath next ->
-            do pathAssumes      <- liftIO $ popAssumptionFrame sym assume_frame
-               pnot             <- liftIO $ notPred sym pred
-               new_assume_frame <-
-                  liftIO $ assumeInNewFrame sym (BranchCondition loc (pausedLoc next) pnot)
+            -- We still have some more work to do, reactivate the other, postponed branch
+            VFFActivePath next ->
+              do pathAssumes      <- liftIO $ popAssumptionFrame bak assume_frame
+                 pnot             <- liftIO $ notPred sym pred
+                 new_assume_frame <-
+                    liftIO $ assumeInNewFrame bak (BranchCondition loc (pausedLoc next) pnot)
 
-               -- The current branch is done
-               let new_other = VFFCompletePath pathAssumes er
-               resumeFrame next (VFFBranch ctx new_assume_frame loc pnot new_other tgt)
+                 -- The current branch is done
+                 let new_other = VFFCompletePath pathAssumes er
+                 resumeFrame next (VFFBranch ctx new_assume_frame loc pnot new_other tgt)
 
-          -- We are done with both branches, pop-off back to the outer context.
-          VFFCompletePath otherAssumes other ->
-            do ar <- ReaderT $ \s ->
-                 mergePartialResult s tgt pred er other
+            -- We are done with both branches, pop-off back to the outer context.
+            VFFCompletePath otherAssumes other ->
+              do ar <- ReaderT $ \s ->
+                   mergePartialResult s tgt pred er other
 
-               -- Merge the assumptions from each branch and add to the
-               -- current assumption frame
-               pathAssumes <- liftIO $ popAssumptionFrame sym assume_frame
+                 -- Merge the assumptions from each branch and add to the
+                 -- current assumption frame
+                 pathAssumes <- liftIO $ popAssumptionFrame bak assume_frame
 
-               liftIO $ addAssumptions sym
-                 =<< mergeAssumptions sym pred pathAssumes otherAssumes
+                 liftIO $ addAssumptions bak
+                   =<< mergeAssumptions sym pred pathAssumes otherAssumes
 
-               -- Check for more potential merge targets.
-               withReaderT
-                 (stateTree .~ ActiveTree ctx ar)
-                 (checkForIntraFrameMerge tgt)
+                 -- Check for more potential merge targets.
+                 withReaderT
+                   (stateTree .~ ActiveTree ctx ar)
+                   (checkForIntraFrameMerge tgt)
 
-    -- Since the other branch aborted before it got to the merge point,
-    -- we merge-in the partiality on our current path and keep going.
-    VFFPartial ctx loc pred ar needsAborting ->
-      do er'  <- case needsAborting of
-                   NoNeedToAbort    -> return er
-                   NeedsToBeAborted -> ReaderT $ \s -> abortPartialResult s tgt er
-         er'' <- liftIO $
-           mergePartialAndAbortedResult sym loc pred er' ar
-         withReaderT
-           (stateTree .~ ActiveTree ctx er'')
-           (checkForIntraFrameMerge tgt)
+      -- Since the other branch aborted before it got to the merge point,
+      -- we merge-in the partiality on our current path and keep going.
+      VFFPartial ctx loc pred ar needsAborting ->
+        do er'  <- case needsAborting of
+                     NoNeedToAbort    -> return er
+                     NeedsToBeAborted -> ReaderT $ \s -> abortPartialResult s tgt er
+           er'' <- liftIO $
+             mergePartialAndAbortedResult sym loc pred er' ar
+           withReaderT
+             (stateTree .~ ActiveTree ctx er'')
+             (checkForIntraFrameMerge tgt)
 
-    -- There are no pending merges to deal with.  Instead, complete
-    -- the transfer of control by either transitioning into an ordinary
-    -- running state, or by returning a value to the calling context.
-    _ -> case tgt of
-           BlockTarget bid ->
-             continue (RunPostBranchMerge bid)
-           ReturnTarget ->
-             handleSimReturn
-               (er^.partialValue.gpValue.frameFunctionName)
-               (returnContext ctx0)
-               (er^.partialValue.gpValue.to fromReturnFrame)
+      -- There are no pending merges to deal with.  Instead, complete
+      -- the transfer of control by either transitioning into an ordinary
+      -- running state, or by returning a value to the calling context.
+      _ -> case tgt of
+             BlockTarget bid ->
+               continue (RunPostBranchMerge bid)
+             ReturnTarget ->
+               handleSimReturn
+                 (er^.partialValue.gpValue.frameFunctionName)
+                 (returnContext ctx0)
+                 (er^.partialValue.gpValue.to fromReturnFrame)
 
 ---------------------------------------------------------------------
 -- Abort handling
@@ -696,43 +698,45 @@ resumeValueFromFrameAbort ::
   AbortedResult sym ext {- ^ The execution that is being aborted. -} ->
   ExecCont p sym ext r g args
 resumeValueFromFrameAbort ctx0 ar0 = do
+  simCtx <- view stateContext
   sym <- view stateSymInterface
-  case ctx0 of
+  withBackend simCtx $ \bak ->
+    case ctx0 of
 
-    -- This is the first abort.
-    VFFBranch ctx assume_frame loc pred other_branch tgt ->
-      do pnot <- liftIO $ notPred sym pred
-         let nextCtx = VFFPartial ctx loc pnot ar0 NeedsToBeAborted
+      -- This is the first abort.
+      VFFBranch ctx assume_frame loc pred other_branch tgt ->
+        do pnot <- liftIO $ notPred sym pred
+           let nextCtx = VFFPartial ctx loc pnot ar0 NeedsToBeAborted
 
-         -- Reset the backend path state
-         _assumes <- liftIO $ popAssumptionFrame sym assume_frame
+           -- Reset the backend path state
+           _assumes <- liftIO $ popAssumptionFrame bak assume_frame
 
-         case other_branch of
+           case other_branch of
 
-           -- We have some more work to do.
-           VFFActivePath n ->
-             do liftIO $ addAssumption sym (BranchCondition loc (pausedLoc n) pnot)
-                resumeFrame n nextCtx
+             -- We have some more work to do.
+             VFFActivePath n ->
+               do liftIO $ addAssumption bak (BranchCondition loc (pausedLoc n) pnot)
+                  resumeFrame n nextCtx
 
-           -- The other branch had finished successfully;
-           -- Since this one aborted, then the other one is really the only
-           -- viable option we have, and so we commit to it.
-           VFFCompletePath otherAssumes er ->
-             do -- We are committed to the other path,
-                -- assume all of its suspended assumptions
-                liftIO $ addAssumptions sym otherAssumes
+             -- The other branch had finished successfully;
+             -- Since this one aborted, then the other one is really the only
+             -- viable option we have, and so we commit to it.
+             VFFCompletePath otherAssumes er ->
+               do -- We are committed to the other path,
+                  -- assume all of its suspended assumptions
+                  liftIO $ addAssumptions bak otherAssumes
 
-                -- check for further merges, then continue onward.
-                withReaderT
-                  (stateTree .~ ActiveTree nextCtx er)
-                  (checkForIntraFrameMerge tgt)
+                  -- check for further merges, then continue onward.
+                  withReaderT
+                    (stateTree .~ ActiveTree nextCtx er)
+                    (checkForIntraFrameMerge tgt)
 
-    -- Both branches aborted
-    VFFPartial ctx loc pred ay _ ->
-      resumeValueFromFrameAbort ctx $ AbortedBranch loc pred ar0 ay
+      -- Both branches aborted
+      VFFPartial ctx loc pred ay _ ->
+        resumeValueFromFrameAbort ctx $ AbortedBranch loc pred ar0 ay
 
-    VFFEnd ctx ->
-      ReaderT $ return . UnwindCallState ctx ar0
+      VFFEnd ctx ->
+        ReaderT $ return . UnwindCallState ctx ar0
 
 -- | Run rest of execution given a value from value context and an aborted
 -- result.
@@ -903,18 +907,19 @@ intra_branch ::
 
 intra_branch p t_label f_label tgt = do
   ctx <- asContFrame <$> view stateTree
+  simCtx <- view stateContext
   sym <- view stateSymInterface
+  withBackend simCtx $ \bak ->
+    case asConstantPred p of
+      Nothing ->
+        ReaderT $ return . SymbolicBranchState p t_label f_label tgt
 
-  case asConstantPred p of
-    Nothing ->
-      ReaderT $ return . SymbolicBranchState p t_label f_label tgt
-
-    Just chosen_branch ->
-      do p' <- liftIO $ predEqConst sym p chosen_branch
-         let a_frame = if chosen_branch then t_label else f_label
-         loc <- liftIO $ getCurrentProgramLoc sym
-         liftIO $ addAssumption sym (BranchCondition loc (pausedLoc a_frame) p')
-         resumeFrame a_frame ctx
+      Just chosen_branch ->
+        do p' <- liftIO $ predEqConst sym p chosen_branch
+           let a_frame = if chosen_branch then t_label else f_label
+           loc <- liftIO $ getCurrentProgramLoc sym
+           liftIO $ addAssumption bak (BranchCondition loc (pausedLoc a_frame) p')
+           resumeFrame a_frame ctx
 {-# INLINABLE intra_branch #-}
 
 -- | Branch with a merge point inside this frame.
@@ -935,14 +940,14 @@ performIntraFrameSplit ::
   ExecCont p sym ext rtp f ('Just dc_args)
 performIntraFrameSplit p a_frame o_frame tgt =
   do ctx <- asContFrame <$> view stateTree
+     simCtx <- view stateContext
      sym <- view stateSymInterface
      loc <- liftIO $ getCurrentProgramLoc sym
-
      a_frame' <- pushPausedFrame a_frame
      o_frame' <- pushPausedFrame o_frame
 
-     assume_frame <-
-       liftIO $ assumeInNewFrame sym (BranchCondition loc (pausedLoc a_frame') p)
+     assume_frame <- withBackend simCtx $ \bak ->
+       liftIO $ assumeInNewFrame bak (BranchCondition loc (pausedLoc a_frame') p)
 
      -- Create context for paused frame.
      let todo = VFFActivePath o_frame'
@@ -950,7 +955,6 @@ performIntraFrameSplit p a_frame o_frame tgt =
 
      -- Start a_state (where branch pred is p)
      resumeFrame a_frame' ctx'
-
 
 performFunctionCall ::
   IsSymInterface sym =>

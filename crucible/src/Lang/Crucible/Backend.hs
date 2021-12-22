@@ -1,6 +1,6 @@
 {-|
 Module      : Lang.Crucible.Backend
-Copyright   : (c) Galois, Inc 2014-2016
+Copyright   : (c) Galois, Inc 2014-2022
 License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
@@ -28,6 +28,7 @@ obligations with a solver backend.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -378,15 +379,25 @@ ppLoc :: ProgramLoc -> PP.Doc ann
 ppLoc l = PP.pretty (plSourceLoc l)
 
 type IsSymInterface sym =
-  ( IsBoolSolver sym
-  , IsSymExprBuilder sym
+  ( IsSymExprBuilder sym
   , IsInterpretedFloatSymExprBuilder sym
   )
 
 -- | This class provides operations that interact with the symbolic simulator.
 --   It allows for logical assumptions/assertions to be added to the current
 --   path condition, and allows queries to be asked about branch conditions.
-class IsBoolSolver sym where
+--
+--   The `bak` type contains all the datastructures necessary to
+--   maintain the current program path conditions, and keep track of
+--   assumptions and assertions made during program execution.  The `sym`
+--   type is expected to satisfy the `IsSymInterface` constraints, which
+--   provide access to the What4 expression language. A `sym` is uniquely
+--   determined by a `bak`.
+class IsBoolSolver sym bak | bak -> sym where
+
+  -- | Retrive the symbolic expression builder corresponding to this
+  --   simulator backend.
+  backendGetSym :: bak -> sym
 
   ----------------------------------------------------------------------
   -- Branch manipulations
@@ -394,18 +405,18 @@ class IsBoolSolver sym where
   -- | Push a new assumption frame onto the stack.  Assumptions and assertions
   --   made will now be associated with this frame on the stack until a new
   --   frame is pushed onto the stack, or until this one is popped.
-  pushAssumptionFrame :: sym -> IO AS.FrameIdentifier
+  pushAssumptionFrame :: bak -> IO AS.FrameIdentifier
 
   -- | Pop an assumption frame from the stack.  The collected assumptions
   --   in this frame are returned.  Pops are required to be well-bracketed
   --   with pushes.  In particular, if the given frame identifier is not
   --   the identifier of the top frame on the stack, an error will be raised.
-  popAssumptionFrame :: sym -> AS.FrameIdentifier -> IO (Assumptions sym)
+  popAssumptionFrame :: bak -> AS.FrameIdentifier -> IO (Assumptions sym)
 
   -- | Pop all assumption frames up to and including the frame with the given
   --   frame identifier.  This operation will panic if the named frame does
   --   not exist on the stack.
-  popUntilAssumptionFrame :: sym -> AS.FrameIdentifier -> IO ()
+  popUntilAssumptionFrame :: bak -> AS.FrameIdentifier -> IO ()
 
   -- | Pop an assumption frame from the stack.  The collected assummptions
   --   in this frame are returned, along with any proof obligations that were
@@ -413,23 +424,23 @@ class IsBoolSolver sym where
   --   with pushes.  In particular, if the given frame identifier is not
   --   the identifier of the top frame on the stack, an error will be raised.
   popAssumptionFrameAndObligations ::
-    sym -> AS.FrameIdentifier -> IO (Assumptions sym, ProofObligations sym)
+    bak -> AS.FrameIdentifier -> IO (Assumptions sym, ProofObligations sym)
 
   ----------------------------------------------------------------------
   -- Assertions
 
   -- | Add an assumption to the current state.
-  addAssumption :: sym -> Assumption sym -> IO ()
+  addAssumption :: bak -> Assumption sym -> IO ()
 
   -- | Add a collection of assumptions to the current state.
-  addAssumptions :: sym -> Assumptions sym -> IO ()
+  addAssumptions :: bak -> Assumptions sym -> IO ()
 
   -- | Get the current path condition as a predicate.  This consists of the conjunction
   --   of all the assumptions currently in scope.
-  getPathCondition :: sym -> IO (Pred sym)
+  getPathCondition :: bak -> IO (Pred sym)
 
   -- | Collect all the assumptions currently in scope
-  collectAssumptions :: sym -> IO (Assumptions sym)
+  collectAssumptions :: bak -> IO (Assumptions sym)
 
   -- | Add a new proof obligation to the system.
   -- The proof may use the current path condition and assumptions. Note
@@ -438,39 +449,38 @@ class IsBoolSolver sym where
   -- to True will be silently discarded. See 'addDurableProofObligation'
   -- to avoid discarding goals.
   addProofObligation ::
-    (IsExprBuilder sym) =>
-    sym -> Assertion sym -> IO ()
-  addProofObligation sym a =
+    IsExprBuilder sym => bak -> Assertion sym -> IO ()
+  addProofObligation bak a =
     case asConstantPred (a ^. labeledPred) of
       Just True -> return ()
-      _ -> addDurableProofObligation sym a
+      _ -> addDurableProofObligation bak a
 
   -- | Add a new proof obligation to the system which will persist
   -- throughout symbolic execution even if it is concretely valid.
   -- The proof may use the current path condition and assumptions. Note
   -- that this *DOES NOT* add the goal as an assumption. See also
   -- 'addDurableAssertion'.
-  addDurableProofObligation :: sym -> Assertion sym -> IO ()
+  addDurableProofObligation :: bak -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
-  getProofObligations :: sym -> IO (ProofObligations sym)
+  getProofObligations :: bak -> IO (ProofObligations sym)
 
   -- | Forget the current collection of proof obligations.
   -- Presumably, we've already used 'getProofObligations' to save them
   -- somewhere else.
-  clearProofObligations :: sym -> IO ()
+  clearProofObligations :: bak -> IO ()
 
   -- | Create a snapshot of the current assumption state, that may later be restored.
   --   This is useful for supporting control-flow patterns that don't neatly fit into
   --   the stack push/pop model.
-  saveAssumptionState :: sym -> IO (AssumptionState sym)
+  saveAssumptionState :: bak -> IO (AssumptionState sym)
 
   -- | Restore the assumption state to a previous snapshot.
-  restoreAssumptionState :: sym -> AssumptionState sym -> IO ()
+  restoreAssumptionState :: bak -> AssumptionState sym -> IO ()
 
   -- | Reset the assumption state to a fresh, blank state
-  resetAssumptionState :: sym -> IO ()
-  resetAssumptionState sym = restoreAssumptionState sym PG.emptyGoalCollector
+  resetAssumptionState :: bak -> IO ()
+  resetAssumptionState bak = restoreAssumptionState bak PG.emptyGoalCollector
 
 assertThenAssumeConfigOption :: ConfigOption BaseBoolType
 assertThenAssumeConfigOption = configOption knownRepr "assertThenAssume"
@@ -490,32 +500,33 @@ backendOptions = [assertThenAssumeOption]
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
 addAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym -> Assertion sym -> IO ()
-addAssertion sym a =
-  do addProofObligation sym a
-     assumeAssertion sym a
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak -> Assertion sym -> IO ()
+addAssertion bak a =
+  do addProofObligation bak a
+     assumeAssertion bak a
 
 -- | Add a durable proof obligation for the given predicate, and then
 -- assume it (when the assertThenAssume option is true).
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
 addDurableAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym -> Assertion sym -> IO ()
-addDurableAssertion sym a =
-  do addDurableProofObligation sym a
-     assumeAssertion sym a
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak -> Assertion sym -> IO ()
+addDurableAssertion bak a =
+  do addDurableProofObligation bak a
+     assumeAssertion bak a
 
 -- | Assume assertion when the assertThenAssume option is true.
 assumeAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym -> Assertion sym -> IO ()
-assumeAssertion sym (LabeledPred p msg) =
-  do assert_then_assume_opt <- getOpt
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak -> Assertion sym -> IO ()
+assumeAssertion bak (LabeledPred p msg) =
+  do let sym = backendGetSym bak
+     assert_then_assume_opt <- getOpt
        =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
      when assert_then_assume_opt $
-       addAssumption sym (AssumingNoError msg p)
+       addAssumption bak (AssumingNoError msg p)
 
 -- | Throw an exception, thus aborting the current execution path.
 abortExecBecause :: AbortExecReason -> IO a
@@ -524,60 +535,64 @@ abortExecBecause err = throwIO err
 -- | Add a proof obligation using the current program location.
 --   Afterwards, assume the given fact.
 assert ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym ->
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak ->
   Pred sym ->
   SimErrorReason ->
   IO ()
-assert sym p msg =
-  do loc <- getCurrentProgramLoc sym
-     addAssertion sym (LabeledPred p (SimError loc msg))
+assert bak p msg =
+  do let sym = backendGetSym bak
+     loc <- getCurrentProgramLoc sym
+     addAssertion bak (LabeledPred p (SimError loc msg))
 
 -- | Add a proof obligation for False. This always aborts execution
 -- of the current path, because after asserting false, we get to assume it,
 -- and so there is no need to check anything after.  This is why the resulting
 -- IO computation can have the fully polymorphic type.
-addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
-addFailedAssertion sym msg =
-  do loc <- getCurrentProgramLoc sym
+addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym bak) => bak -> SimErrorReason -> IO a
+addFailedAssertion bak msg =
+  do let sym = backendGetSym bak
+     loc <- getCurrentProgramLoc sym
      let err = SimError loc msg
-     addProofObligation sym (LabeledPred (falsePred sym) err)
+     addProofObligation bak (LabeledPred (falsePred sym) err)
      abortExecBecause (AssertionFailure err)
 
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym ->
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak ->
   IO (Pred sym) ->
   SimErrorReason ->
   IO ()
-addAssertionM sym pf msg = do
+addAssertionM bak pf msg = do
   p <- pf
-  assert sym p msg
+  assert bak p msg
 
 -- | Assert that the given real-valued expression is an integer.
 assertIsInteger ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym ->
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak ->
   SymReal sym ->
   SimErrorReason ->
   IO ()
-assertIsInteger sym v msg = do
-  addAssertionM sym (isInteger sym v) msg
+assertIsInteger bak v msg = do
+  let sym = backendGetSym bak
+  addAssertionM bak (isInteger sym v) msg
 
 -- | Given a partial expression, assert that it is defined
 --   and return the underlying value.
 readPartExpr ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym ->
+  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  bak ->
   PartExpr (Pred sym) v ->
   SimErrorReason ->
   IO v
-readPartExpr sym Unassigned msg = do
-  addFailedAssertion sym msg
-readPartExpr sym (PE p v) msg = do
+readPartExpr bak Unassigned msg = do
+  addFailedAssertion bak msg
+readPartExpr bak (PE p v) msg = do
+  let sym = backendGetSym bak
   loc <- getCurrentProgramLoc sym
-  addAssertion sym (LabeledPred p (SimError loc msg))
+  addAssertion bak (LabeledPred p (SimError loc msg))
   return v
 
 ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> IO (PP.Doc ann)

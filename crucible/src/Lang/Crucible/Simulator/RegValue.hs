@@ -52,6 +52,7 @@ module Lang.Crucible.Simulator.RegValue
 
 import           Control.Monad
 import           Control.Monad.Trans.Class
+import           Control.Exception (throwIO)
 import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -161,13 +162,14 @@ class CanMux sym (tp :: CrucibleType) where
 -- | Merge function that checks if two values are equal, and
 -- fails if they are not.
 {-# INLINE eqMergeFn #-}
-eqMergeFn :: (IsSymInterface sym, Eq v) => sym -> String -> MuxFn p v
+eqMergeFn :: (IsExprBuilder sym, Eq v) => sym -> String -> MuxFn p v
 eqMergeFn sym nm = \_ x y ->
   if x == y then
     return x
   else
-    addFailedAssertion sym
-      $ Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
+    do loc <- getCurrentProgramLoc sym
+       throwIO $ SimError loc $
+         Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
 
 ------------------------------------------------------------------------
 -- RegValue AnyType instance
@@ -219,13 +221,14 @@ instance IsExprBuilder sym => CanMux sym (IEEEFloatType fpp) where
 -- RegValue Vector instance
 
 {-# INLINE muxVector #-}
-muxVector :: IsSymInterface sym =>
+muxVector :: IsExprBuilder sym =>
              sym -> MuxFn p e -> MuxFn p (V.Vector e)
 muxVector sym f p x y
   | V.length x == V.length y = V.zipWithM (f p) x y
   | otherwise =
-    addFailedAssertion sym
-      $ Unsupported "Cannot merge vectors with different dimensions."
+      do loc <- getCurrentProgramLoc sym 
+         throwIO $ SimError loc $
+           Unsupported "Cannot merge vectors with different dimensions."
 
 instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}

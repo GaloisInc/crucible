@@ -82,10 +82,10 @@ pathSatisfiabilityFeature sym considerSatisfiability =
           considerSatisfiability ploc p >>= \case
                IndeterminateBranchResult ->
                  return ExecutionFeatureNoChange
-               NoBranch chosen_branch ->
+               NoBranch chosen_branch -> withBackend (st ^. stateContext) $ \bak ->
                  do p' <- if chosen_branch then return p else notPred sym p
                     let frm = if chosen_branch then tp else fp
-                    addAssumption sym (BranchCondition loc (pausedLoc frm) p')
+                    addAssumption bak (BranchCondition loc (pausedLoc frm) p')
                     ExecutionFeatureNewState <$> runReaderT (resumeFrame frm (asContFrame (st^.stateTree))) st
                UnsatisfiableContext ->
                  return (ExecutionFeatureNewState (AbortState (InfeasibleBranch loc) st))
