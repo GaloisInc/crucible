@@ -263,11 +263,12 @@ annotateME sym mop rsn p =
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv ::
-  IsSymInterface sym =>
-  sym -> LLVMPtr sym w -> IO (SymBV sym w)
-projectLLVM_bv sym (LLVMPointer blk bv) =
-  do p <- natEq sym blk =<< natLit sym 0
-     assert sym p $ AssertFailureSimError "Pointer value coerced to bitvector" ""
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak -> LLVMPtr sym w -> IO (SymBV sym w)
+projectLLVM_bv bak (LLVMPointer blk bv) =
+  do let sym = backendGetSym bak
+     p <- natEq sym blk =<< natLit sym 0
+     assert bak p $ AssertFailureSimError "Pointer value coerced to bitvector" ""
      return bv
 
 ------------------------------------------------------------------------
@@ -332,20 +333,21 @@ totalLLVMVal :: (IsExprBuilder sym)
 totalLLVMVal sym = NoErr (truePred sym)
 
 -- | Take a partial value and assert its safety
-assertSafe :: (IsSymInterface sym)
-           => sym
+assertSafe :: (IsSymInterface sym, IsBoolSolver sym bak)
+           => bak
            -> PartLLVMVal sym
            -> IO (LLVMVal sym)
-assertSafe sym (NoErr p v) =
+assertSafe bak (NoErr p v) =
   do let rsn = AssertFailureSimError "Error during memory load" ""
-     assert sym p rsn
+     assert bak p rsn
      return v
 
-assertSafe sym (Err p) = do
-  do let rsn = AssertFailureSimError "Error during memory load" ""
+assertSafe bak (Err p) = do
+  do let sym = backendGetSym bak
+     let rsn = AssertFailureSimError "Error during memory load" ""
      loc <- getCurrentProgramLoc sym
      let err = SimError loc rsn
-     addProofObligation sym (LabeledPred p err)
+     addProofObligation bak (LabeledPred p err)
      abortExecBecause (AssertionFailure err)
 
 ------------------------------------------------------------------------

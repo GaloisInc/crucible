@@ -277,9 +277,12 @@ closeFileHandle' ::
 closeFileHandle' fvar fhdl = closeFileHandle fvar fhdl $ \merr ->
   case merr of
     Nothing -> return ()
-    Just FileHandleClosed -> do
-      sym <- C.getSymInterface
-      liftIO $ addFailedAssertion sym $ AssertFailureSimError "Attempted to close already closed file handle." "closeFileHandle': Unassigned file handle."
+    Just FileHandleClosed ->
+      C.ovrWithBackend $ \bak ->
+        liftIO $ addFailedAssertion bak $
+          AssertFailureSimError
+            "Attempted to close already closed file handle."
+            "closeFileHandle': Unassigned file handle."
 
 eitherToMaybeL :: Either a b -> Maybe a
 eitherToMaybeL (Left a) = Just a
@@ -304,9 +307,12 @@ openFile' ::
   FileIdent sym ->
   C.OverrideSim p sym arch r args ret (FileHandle sym wptr)
 openFile' fsVar ident = openFile fsVar ident $ \case
-  Left FileNotFound -> do
-      sym <- C.getSymInterface
-      liftIO $ addFailedAssertion sym $ AssertFailureSimError "Could not open file." ("openFile': Invalid file identifier: " ++ show (W4.printSymExpr ident))
+  Left FileNotFound ->
+    C.ovrWithBackend $ \bak ->
+      liftIO $ addFailedAssertion bak $
+        AssertFailureSimError
+          "Could not open file."
+          ("openFile': Invalid file identifier: " ++ show (W4.printSymExpr ident))
   Right fhdl -> return fhdl
 
 -- | Write a single byte to the given 'FileHandle' and increment it
@@ -337,9 +343,12 @@ writeByte' ::
   W4.SymBV sym 8 ->
   C.OverrideSim p sym arch r args ret ()
 writeByte' fsVar fhdl byte = writeByte fsVar fhdl byte $ \case
-  Just FileHandleClosed -> do
-    sym <- C.getSymInterface
-    liftIO $ addFailedAssertion sym $ AssertFailureSimError "Failed to write byte due to closed file handle." "writeByte': Closed file handle"
+  Just FileHandleClosed ->
+    C.ovrWithBackend $ \bak ->
+      liftIO $ addFailedAssertion bak $
+        AssertFailureSimError
+          "Failed to write byte due to closed file handle."
+          "writeByte': Closed file handle"
   Nothing -> return ()
 
 -- | Write a chunk to the given 'FileHandle' and increment it to the end of
@@ -369,9 +378,12 @@ writeChunk' ::
   W4.SymBV sym wptr ->
   C.OverrideSim p sym arch r args ret (W4.SymBV sym wptr)
 writeChunk' fsVar fhdl chunk sz = writeChunk fsVar fhdl chunk sz $ \case
-  Left FileHandleClosed -> do
-    sym <- C.getSymInterface
-    liftIO $ addFailedAssertion sym $ AssertFailureSimError "Failed to write array due to closed file handle." "writeArray': Closed file handle"
+  Left FileHandleClosed ->
+    C.ovrWithBackend $ \bak ->
+      liftIO $ addFailedAssertion bak $
+        AssertFailureSimError
+          "Failed to write array due to closed file handle."
+          "writeArray': Closed file handle"
   Right sz' -> return sz'
 
 -- | Read a byte from a given 'FileHandle' and increment it.
@@ -399,9 +411,12 @@ readByte' ::
   FileHandle sym wptr ->
   C.OverrideSim p sym arch r args ret (PartExpr (W4.Pred sym) (W4.SymBV sym 8))
 readByte' fsVar fhdl = readByte fsVar fhdl $ \case
-  Left FileHandleClosed -> do
-    sym <- C.getSymInterface
-    liftIO $ addFailedAssertion sym $ AssertFailureSimError "Failed to read byte due to closed file handle." "readByte': Closed file handle"
+  Left FileHandleClosed ->
+    C.ovrWithBackend $ \bak ->
+      liftIO $ addFailedAssertion bak $
+        AssertFailureSimError
+          "Failed to read byte due to closed file handle."
+          "readByte': Closed file handle"
   Right r -> return r
 
 -- | Read a chunk from a given 'FileHandle' of the given size, and increment the
@@ -431,9 +446,12 @@ readChunk' ::
   W4.SymBV sym wptr ->
   C.OverrideSim p sym arch r args ret (DataChunk sym wptr, W4.SymBV sym wptr)
 readChunk' fsVar fhdl sz = readChunk fsVar fhdl sz $ \case
-  Left FileHandleClosed -> do
-    sym <- C.getSymInterface
-    liftIO $ addFailedAssertion sym $ AssertFailureSimError "Failed to read array due to closed file handle." "readArray': Closed file handle"
+  Left FileHandleClosed ->
+    C.ovrWithBackend $ \bak ->
+      liftIO $ addFailedAssertion bak $
+        AssertFailureSimError
+          "Failed to read array due to closed file handle."
+          "readArray': Closed file handle"
   Right arr -> return arr
 
 -- | Returns a predicate indicating whether or not the file handle is still open.
@@ -591,6 +609,14 @@ runFileMIdentCont fvar ident cont f = do
 getSym :: FileM p arch r args ret sym wptr sym
 getSym = liftOV C.getSymInterface
 
+withBackend ::
+  (forall bak. IsBoolSolver sym bak => bak -> FileM p arch r args ret sym wptr a) ->
+  FileM p arch r args ret sym wptr a
+withBackend k =
+  FileM $ CMS.StateT $ \st ->
+    C.ovrWithBackend $ \bak ->
+      CMS.runStateT (_unFM (k bak)) st
+
 getPtrSz :: FileM p arch r args ret sym wptr (NatRepr wptr)
 getPtrSz = CMS.gets fsPtrSize
 
@@ -606,21 +632,27 @@ readHandle ::
   FileHandle sym wptr ->
   FileM p arch r args ret sym wptr (FilePointer sym wptr, W4.Pred sym)
 readHandle fhandle = do
-  sym <- getSym
   repr <- getPtrSz
   liftOV (C.readMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhandle) >>= \case
     PE p v -> return (v, p)
-    Unassigned -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "Read from closed file handle." "readHandle: Unassigned file handle."
-
+    Unassigned ->
+      withBackend $ \bak ->
+        liftIO $ addFailedAssertion bak $
+          AssertFailureSimError
+            "Read from closed file handle."
+            "readHandle: Unassigned file handle."
 
 -- | Retrieve the pointer that the handle is currently at
 getHandle ::
   FileHandle sym wptr ->
   FileM p arch r args ret sym wptr (FilePointer sym wptr)
 getHandle fhandle = do
-  sym <- getSym
   (v, p) <- readHandle fhandle
-  liftIO $ assert sym p $ AssertFailureSimError "Read from closed file handle." "getHandle: File handle assertion failed."
+  withBackend $ \bak ->
+    liftIO $ assert bak p $
+      AssertFailureSimError
+        "Read from closed file handle."
+        "getHandle: File handle assertion failed."
   return v
 
 
@@ -634,17 +666,18 @@ resolveFileIdent ::
   FileIdent sym ->
   FileM p arch r args ret sym wptr (File sym wptr)
 resolveFileIdent ident = do
-  sym <- getSym
   m <- CMS.gets fsFileNames
-  let missingErr = AssertFailureSimError "missing file" "resolveFileIdent attempted to lookup a file handle that does not exist"
-  case W4.asString ident of
-    Just (W4.Char8Literal i')
-      | Right str <- Text.decodeUtf8' i'
-      -> case Map.lookup str m of
-      Just n -> liftIO $ readPartExpr sym n missingErr
-      Nothing -> liftIO $ addFailedAssertion sym missingErr
-    _ -> liftIO $ addFailedAssertion sym $
-      Unsupported "Unsupported string in resolveFileIdent"
+  let missingErr = AssertFailureSimError "missing file"
+                     "resolveFileIdent attempted to lookup a file handle that does not exist"
+  withBackend $ \bak ->
+    case W4.asString ident of
+      Just (W4.Char8Literal i')
+        | Right str <- Text.decodeUtf8' i'
+        -> case Map.lookup str m of
+        Just n -> liftIO $ readPartExpr bak n missingErr
+        Nothing -> liftIO $ addFailedAssertion bak missingErr
+      _ -> liftIO $ addFailedAssertion bak $
+             Unsupported "Unsupported string in resolveFileIdent"
 
 
 openResolvedFile ::

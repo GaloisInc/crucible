@@ -50,33 +50,35 @@ callStackFromMemVar state mvar =
            ]
 
 assertSideCondition ::
-  (HasLLVMAnn sym, IsSymInterface sym) =>
-  sym ->
+  (HasLLVMAnn sym, IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   CallStack ->
   LLVMSideCondition (RegValue' sym) ->
   IO ()
-assertSideCondition sym callStack (LLVMSideCondition (RV p) ub) =
-  do p' <- annotateUB sym callStack ub p
+assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
+  do let sym = backendGetSym bak
+     p' <- annotateUB sym callStack ub p
      let err = AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
-     assert sym p' err
+     assert bak p' err
 
 llvmExtensionEval ::
-  forall sym p ext rtp blocks r ctx.
-  (HasLLVMAnn sym, IsSymInterface sym) =>
-  sym ->
+  forall sym bak p ext rtp blocks r ctx.
+  (HasLLVMAnn sym, IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
   CrucibleState p sym ext rtp blocks r ctx ->
   EvalAppFunc sym LLVMExtensionExpr
 
-llvmExtensionEval sym _iTypes _logFn state eval e =
+llvmExtensionEval bak _iTypes _logFn state eval e =
+  let sym = backendGetSym bak in
   case e of
     X86Expr ex -> X86.eval sym eval ex
 
     LLVM_SideConditions mvar _tp conds val ->
       do let callStack = callStackFromMemVar state mvar
          conds' <- traverse (traverseF (\x -> RV @sym <$> eval x)) (NE.toList conds)
-         forM_ conds' (assertSideCondition sym callStack)
+         forM_ conds' (assertSideCondition bak callStack)
          eval val
 
     LLVM_PointerExpr _w blk off ->
