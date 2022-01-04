@@ -119,15 +119,15 @@ run (cruxOpts, opts) =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do let mkSym :: forall s.
-                  (IsSymInterface s, IsExprBuilder s) =>
-                  s ->
+         do let mkSym :: forall s bak.
+                  (IsSymInterface s, IsBoolSolver s bak, IsExprBuilder s) =>
+                  bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
                      , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()
                      , [Pair C.TypeRepr GlobalVar]
                      , FunctionBindings (ThreadExec DPOR s () C.UnitType) s ()
                      )
-                mkSym _sym =
+                mkSym _bak =
                   do exploreBuiltins <- mkExplorePrims ha (pedantic opts) (Some nonceGen)
                      let builtins = [ (SomeHandle h, InternalPos) | FnBinding h _ <- exploreBuiltins ]
                      let ?parserHooks = defaultParserHooks
