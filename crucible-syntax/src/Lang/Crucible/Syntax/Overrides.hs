@@ -42,13 +42,14 @@ setupOverrides _ ha =
 proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
   OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
 proveObligations =
-  do sym <- getSymInterface
+  ovrWithBackend $ \bak ->
+  do let sym = backendGetSym bak
      h <- printHandle <$> getContext
      liftIO $ do
        hPutStrLn h "Attempting to prove all outstanding obligations!\n"
 
-       obls <- maybe [] goalsToList <$> getProofObligations sym
-       clearProofObligations sym
+       obls <- maybe [] goalsToList <$> getProofObligations bak
+       clearProofObligations bak
 
        forM_ obls $ \o ->
          do asms <- assumptionsPred sym (proofAssumptions o)
