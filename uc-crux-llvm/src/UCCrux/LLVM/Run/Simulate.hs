@@ -163,11 +163,11 @@ data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimula
 data SimulatorHooks sym m arch (argTypes :: Ctx (FullType m)) r =
   SimulatorHooks
     { createOverrideHooks :: [SymCreateOverrideFn sym arch]
+    -- | The 'PreSimulationMem sym' parameter is the Pre-simulation memory.
+    -- The 'Assignment' specifies the Arguments passed to the entry point.
     , resultHook ::
         sym ->
-        -- | Pre-simulation memory
         PreSimulationMem sym ->
-        -- | Arguments passed to the entry point
         Assignment (Shape m (SymValue sym arch)) argTypes ->
         Crux.CruxSimulationResult ->
         UCCruxSimulationResult m arch argTypes ->

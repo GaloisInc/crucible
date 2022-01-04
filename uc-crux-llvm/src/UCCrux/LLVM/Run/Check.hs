@@ -119,15 +119,15 @@ newtype CheckResult m arch (argTypes :: Ctx (FullType m)) =
         (forall sym.
          IsSymInterface sym =>
          sym ->
-         -- | Pre-simulation memory
          PreSimulationMem sym ->
-         -- | Arguments passed to the entry point
          Assignment (Shape m (SymValue sym arch)) argTypes ->
          Crux.CruxSimulationResult ->
          Sim.UCCruxSimulationResult m arch argTypes ->
          [SomeCheckedCalls m sym arch] ->
          r) ->
         r
+    -- ^ The 'PreSimulationMem sym' parameter is the Pre-simulation memory.
+    -- The 'Assignment' specifies the Arguments passed to the entry point.
     }
 
 data SomeCheckResult m arch =
