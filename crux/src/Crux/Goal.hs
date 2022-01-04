@@ -26,8 +26,8 @@ import           Prettyprinter
 import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
 
-import What4.Interface (notPred, getConfiguration)
-import What4.Config (setOpt, getOptionSetting)
+import What4.Interface (notPred, getConfiguration, IsExprBuilder)
+import What4.Config (setOpt, getOptionSetting, Opt, ConfigOption)
 import What4.ProgramLoc (ProgramLoc)
 import What4.SatResult(SatResult(..))
 import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, GroundValueWrapper(..))
@@ -38,7 +38,7 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( OnlineBackend, withSolverProcess, enableOnlineBackend )
+        ( OnlineBackend, withSolverProcess, enableOnlineBackend, solverInteractionFile )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
@@ -50,6 +50,13 @@ import Crux.Model
 import Crux.Log as Log
 import Crux.Config.Common
 import Crux.ProgressBar
+
+
+symCfg :: (IsExprBuilder sym, Opt t a) => sym -> ConfigOption t -> a -> IO ()
+symCfg sym x y =
+  do opt <- getOptionSetting x (getConfiguration sym)
+     _   <- setOpt opt y
+     pure ()
 
 
 -- | Simplify the proved goals.
@@ -340,14 +347,12 @@ proverMilestoneCallbacks goals = do
 -- 'SimCtxt'.  We do that so that we can use separate solvers for path
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
-  ( sym ~ OnlineBackend s solver fs
-  , OnlineSolver solver
-  , goalSym ~ OnlineBackend s goalSolver fs
+  ( sym ~ ExprBuilder s st fs
   , OnlineSolver goalSolver
   , Logs msgs
   , SupportsCruxLogMessage msgs
   ) =>
-  goalSym ->
+  OnlineBackend goalSolver s st fs ->
   CruxOptions ->
   SimCtxt personality sym p ->
   (Maybe (GroundEvalFn s) -> Assertion sym -> IO (Doc Void)) ->
@@ -357,8 +362,11 @@ proveGoalsOnline ::
 proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
-proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
-  do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
+proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
+  do -- send solver interactions to the correct file
+     mapM_ (symCfg sym solverInteractionFile) (fmap Text.pack (onlineSolverOutput opts))
+
+     goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
        sayCrux Log.SkippingUnsatCoresBecauseMCSatEnabled
@@ -368,12 +376,14 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      _ <- setOpt enableOpt True
 
-     res <- withSolverProcess sym (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
+     res <- withSolverProcess bak (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
               inNewFrame sp (go (start,end) sp mempty goalNum gs0 nameMap)
      nms <- readIORef goalNum
      finish
      return (nms, Just res)
+
   where
+  sym = backendGetSym bak
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
 

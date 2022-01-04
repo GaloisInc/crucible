@@ -71,7 +71,7 @@ import           Lang.Crucible.Simulator.Profiling
 import           Lang.Crucible.Types
 
 
-import           What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
+import           What4.Config (setOpt, getOptionSetting, verbosity, extendConfig)
 import qualified What4.Expr.Builder as WEB
 import           What4.FunctionName (FunctionName)
 import           What4.Interface (IsExprBuilder, getConfiguration)
@@ -97,6 +97,8 @@ import           Crux.Types
 pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext) => ExecState (personality sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
 pattern RunnableState es = RunnableStateWithExtensions es []
 
+data CruxState t = CruxState
+
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
 data RunnableState sym where
@@ -120,20 +122,30 @@ data RunnableState sym where
 newtype SimulatorCallbacks msgs r
   = SimulatorCallbacks
     { getSimulatorCallbacks ::
-        forall sym t st fs.
+        forall sym bak t st fs.
           ( IsSymInterface sym
+          , IsBoolSolver sym bak
           , Logs msgs
           , sym ~ WEB.ExprBuilder t st fs
           ) =>
-          IO (SimulatorHooks sym t r)
+          IO (SimulatorHooks sym bak t r)
     }
 
+
+
+-- | A GADT to capture the online solver constraints when we need them
+data SomeOnlineSolver sym bak where
+  SomeOnlineSolver :: ( sym ~ WEB.ExprBuilder scope st fs
+                      , bak ~ OnlineBackend solver scope st fs
+                      , OnlineSolver solver
+                      ) => bak -> SomeOnlineSolver sym bak
+
 -- | See 'SimulatorCallbacks'
-data SimulatorHooks sym t r =
+data SimulatorHooks sym bak t r =
   SimulatorHooks
-    { setupHook :: sym -> Maybe (SomeOnlineSolver sym) -> IO (RunnableState sym)
-    , onErrorHook :: sym -> IO (Explainer sym t Void)
-    , resultHook :: sym -> CruxSimulationResult -> IO r
+    { setupHook   :: bak -> Maybe (SomeOnlineSolver sym bak) -> IO (RunnableState sym)
+    , onErrorHook :: bak -> IO (Explainer sym t Void)
+    , resultHook  :: bak -> CruxSimulationResult -> IO r
     }
 
 -- | Given the result of a simulation and proof run, report the overall
@@ -301,29 +313,30 @@ defaultOutputConfig logMessagesToSayWhat = do
 withFloatRepr ::
   CCS.HasDefaultFloatRepr solver =>
   proxy s ->
+  proxy' st ->
   CruxOptions ->
   [solver] ->
   (forall fm .
-    IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (Flags fm)) =>
-    FloatModeRepr fm ->
+    IsInterpretedFloatExprBuilder (WEB.ExprBuilder s st (WEB.Flags fm)) =>
+    WEB.FloatModeRepr fm ->
     IO a) ->
   IO a
-withFloatRepr proxy cruxOpts selectedSolvers k =
+withFloatRepr proxy proxy' cruxOpts selectedSolvers k =
   case floatMode cruxOpts of
-    "real" -> k FloatRealRepr
-    "ieee" -> k FloatIEEERepr
-    "uninterpreted" -> k FloatUninterpretedRepr
+    "real" -> k WEB.FloatRealRepr
+    "ieee" -> k WEB.FloatIEEERepr
+    "uninterpreted" -> k WEB.FloatUninterpretedRepr
     "default" -> case selectedSolvers of
-                   [oneSolver] -> CCS.withDefaultFloatRepr proxy oneSolver k
-                   _           -> k FloatUninterpretedRepr
+                   [oneSolver] -> CCS.withDefaultFloatRepr proxy proxy' oneSolver k
+                   _           -> k WEB.FloatUninterpretedRepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
 
-floatReprString :: FloatModeRepr fm -> String
-floatReprString floatRepr =
+_floatReprString :: WEB.FloatModeRepr fm -> String
+_floatReprString floatRepr =
   case floatRepr of
-    FloatRealRepr -> "real"
-    FloatIEEERepr -> "ieee"
-    FloatUninterpretedRepr -> "uninterpreted"
+    WEB.FloatRealRepr -> "real"
+    WEB.FloatIEEERepr -> "ieee"
+    WEB.FloatUninterpretedRepr -> "uninterpreted"
 
 -- | Parse through the options structure to determine which online backend to
 -- instantiate (including the chosen floating point mode).
@@ -335,70 +348,85 @@ floatReprString floatRepr =
 -- and duplicated because it is very hard to quantify over 'FloatModeRepr's in
 -- such a way that captures the necessary 'IsInterpretedFloatExprBuilder'
 -- constraints.
-withSelectedOnlineBackend ::
+withSelectedOnlineBackend :: forall msgs scope st a.
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
   NonceGenerator IO scope ->
   CCS.SolverOnline ->
   Maybe String ->
+  st scope ->
   -- The string is an optional explicitly-requested float mode that supersedes the choice in
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
     ( OnlineSolver solver
-    , IsInterpretedFloatExprBuilder (OnlineBackend scope solver (Flags fm))
+    , IsInterpretedFloatExprBuilder (WEB.ExprBuilder scope st (WEB.Flags fm))
     ) =>
-    FloatModeRepr fm -> OnlineBackend scope solver (Flags fm) -> IO a) -> IO a
-withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMode k =
+    (OnlineBackend solver scope st (WEB.Flags fm) -> IO a)) ->
+    IO a
+withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMode initSt k =
   case fromMaybe (floatMode cruxOpts) maybeExplicitFloatMode of
-    "real" -> withOnlineBackendFM FloatRealRepr
-    "ieee" -> withOnlineBackendFM FloatIEEERepr
-    "uninterpreted" -> withOnlineBackendFM FloatUninterpretedRepr
+    "real" -> withOnlineBackendFM WEB.FloatRealRepr
+    "ieee" -> withOnlineBackendFM WEB.FloatIEEERepr
+    "uninterpreted" -> withOnlineBackendFM WEB.FloatUninterpretedRepr
     "default" ->
       case selectedSolver of
-        CCS.Yices -> withOnlineBackendFM FloatRealRepr
-        CCS.CVC4 -> withOnlineBackendFM FloatRealRepr
-        CCS.STP -> withOnlineBackendFM FloatRealRepr
-        CCS.Z3 -> withOnlineBackendFM FloatIEEERepr
+        CCS.Yices -> withOnlineBackendFM WEB.FloatRealRepr
+        CCS.CVC4 -> withOnlineBackendFM WEB.FloatRealRepr
+        CCS.STP -> withOnlineBackendFM WEB.FloatRealRepr
+        CCS.Z3 -> withOnlineBackendFM WEB.FloatIEEERepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
+
   where
-    unsatCoreFeat | unsatCores cruxOpts
-                  , not (yicesMCSat cruxOpts) = ProduceUnsatCores
-                  | otherwise                 = NoUnsatFeatures
+    withOnlineBackendFM ::
+      IsInterpretedFloatExprBuilder (WEB.ExprBuilder scope st (WEB.Flags fm)) =>
+      WEB.FloatModeRepr fm ->
+      IO a
+    withOnlineBackendFM fm =
+      do sym <- WEB.newExprBuilder fm initSt nonceGen
+         withSelectedOnlineBackend' cruxOpts selectedSolver sym k
 
-    extraFeatures = onlineProblemFeatures cruxOpts
+withSelectedOnlineBackend' ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  IsInterpretedFloatExprBuilder (WEB.ExprBuilder scope st fs) =>
 
-    withOnlineBackendFM floatRepr =
-      case selectedSolver of
-        CCS.Yices -> withYicesOnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
-          symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
-          case goalTimeout cruxOpts of
-            Just s -> symCfg sym yicesGoalTimeout (floor s)
-            Nothing -> return ()
-          k floatRepr sym
-        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
-          case goalTimeout cruxOpts of
-            Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
-            Nothing -> return ()
-          k floatRepr sym
-        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
-          case goalTimeout cruxOpts of
-            Just s -> symCfg sym z3Timeout (floor (s * 1000))
-            Nothing -> return ()
-          k floatRepr sym
-        CCS.STP -> do
-          -- We don't have a timeout option for STP
-          case goalTimeout cruxOpts of
-            Just _ -> sayCrux (Log.UnsupportedTimeoutFor "STP")
-            Nothing -> return ()
-          withSTPOnlineBackend floatRepr nonceGen (k floatRepr)
+  CruxOptions ->
+  CCS.SolverOnline ->
+  WEB.ExprBuilder scope st fs ->
+  (forall solver.
+    OnlineSolver solver =>
+    (OnlineBackend solver scope st fs -> IO a)) ->
+    IO a
+withSelectedOnlineBackend' cruxOpts selectedSolver sym k =
+  let unsatCoreFeat | unsatCores cruxOpts
+                    , not (yicesMCSat cruxOpts) = ProduceUnsatCores
+                    | otherwise                 = NoUnsatFeatures
+      extraFeatures = onlineProblemFeatures cruxOpts
 
-symCfg :: (IsExprBuilder sym, Opt t a) => sym -> ConfigOption t -> a -> IO ()
-symCfg sym x y =
-  do opt <- getOptionSetting x (getConfiguration sym)
-     _   <- setOpt opt y
-     pure ()
-
+   in case selectedSolver of
+     CCS.Yices -> withYicesOnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
+       symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
+       case goalTimeout cruxOpts of
+         Just s -> symCfg sym yicesGoalTimeout (floor s)
+         Nothing -> return ()
+       k bak
+     CCS.CVC4 -> withCVC4OnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
+       case goalTimeout cruxOpts of
+         Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
+         Nothing -> return ()
+       k bak
+     CCS.Z3 -> withZ3OnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
+       case goalTimeout cruxOpts of
+         Just s -> symCfg sym z3Timeout (floor (s * 1000))
+         Nothing -> return ()
+       k bak
+     CCS.STP -> do
+       -- We don't have a timeout option for STP
+       case goalTimeout cruxOpts of
+         Just _ -> sayCrux (Log.UnsupportedTimeoutFor "STP")
+         Nothing -> return ()
+       withSTPOnlineBackend sym k
 
 data ProfData sym = ProfData
   { inFrame          :: forall a. FunctionName -> IO a -> IO a
@@ -477,12 +505,6 @@ setupSolver cruxOpts mInteractionFile sym = do
                                        then simVerbose outOpts - 1
                                        else 0
 
--- | A GADT to capture the online solver constraints when we need them
-data SomeOnlineSolver sym where
-  SomeOnlineSolver :: (sym ~ OnlineBackend scope solver fs
-                      , OnlineSolver solver
-                      ) => SomeOnlineSolver sym
-
 -- | Common code for initializing all of the requested execution features
 --
 -- This function is a bit funny because one feature, path satisfiability
@@ -490,13 +512,14 @@ data SomeOnlineSolver sym where
 -- maximally reuse code, we pass in the necessary online constraints as an extra
 -- argument when we have them available (i.e., when we build an online solver)
 -- and elide them otherwise.
-setupExecutionFeatures :: (IsSymInterface sym)
+setupExecutionFeatures :: (IsSymInterface sym, IsBoolSolver sym bak)
                        => CruxOptions
-                       -> sym
-                       -> Maybe (SomeOnlineSolver sym)
+                       -> bak
+                       -> Maybe (SomeOnlineSolver sym bak)
                        -> IO
                        ([GenericExecutionFeature sym], ProfData sym)
-setupExecutionFeatures cruxOpts sym maybeOnline = do
+setupExecutionFeatures cruxOpts bak maybeOnline = do
+  let sym = backendGetSym bak
   -- Setup profiling
   let profiling = isProfiling cruxOpts
   profInfo <- if profiling then setupProfiling sym cruxOpts
@@ -515,11 +538,11 @@ setupExecutionFeatures cruxOpts sym maybeOnline = do
 
   -- Check path satisfiability
   psat_fs <- case maybeOnline of
-    Just SomeOnlineSolver ->
+    Just (SomeOnlineSolver _bak) ->
       do enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
          _ <- setOpt enableOpt (checkPathSat cruxOpts)
          execFeatureIf (checkPathSat cruxOpts)
-           $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
+           $ pathSatisfiabilityFeature sym (considerSatisfiability bak)
     Nothing -> return []
 
   -- Position tracking
@@ -563,50 +586,49 @@ runSimulator cruxOpts simCallback = do
   createDirectoryIfMissing True (outDir cruxOpts)
   Some (nonceGen :: NonceGenerator IO s) <- newIONonceGenerator
   case CCS.parseSolverConfig cruxOpts of
+
     Right (CCS.SingleOnlineSolver onSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
-        let monline = Just SomeOnlineSolver
-        setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym monline
-        doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline (proveGoalsOnline sym)
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing CruxState $ \bak -> do
+        let monline = Just (SomeOnlineSolver bak)
+        setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
+        doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOnline bak)
+
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
-        let monline = Just SomeOnlineSolver
-        setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym monline
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing CruxState $ \bak -> do
+        let monline = Just (SomeOnlineSolver bak)
+        setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
         withSolverAdapter offSolver $ \adapter -> do
           -- We have to add the configuration options from the solver adapter,
           -- since they weren't included in the symbolic backend configuration
           -- with the initial setup of the online solver (since it could have
           -- been a different solver)
-          extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline (proveGoalsOffline [adapter])
+          extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration (backendGetSym bak))
+          doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
+
     Right (CCS.OnlyOfflineSolvers offSolvers) -> do
-      withFloatRepr (Proxy @s) cruxOpts offSolvers $ \floatRepr -> do
+      withFloatRepr (Proxy @s) (Proxy @CruxState) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
-          sym <- CBS.newSimpleBackend floatRepr nonceGen
+          sym <- WEB.newExprBuilder floatRepr CruxState nonceGen 
+          bak <- CBS.newSimpleBackend sym
           setupSolver cruxOpts Nothing sym
           -- Since we have a bare SimpleBackend here, we have to initialize it
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options =<< adapters) (getConfiguration sym)
-          (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults cruxOpts simCallback sym execFeatures profInfo Nothing (proveGoalsOffline adapters)
+          (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak Nothing
+          doSimWithResults cruxOpts simCallback bak execFeatures profInfo Nothing (proveGoalsOffline adapters)
+
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
       -- mode.
-      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing $ \floatRepr1 pathSatSym -> do
-        setupSolver cruxOpts (pathSatSolverOutput cruxOpts) pathSatSym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatSym (Just SomeOnlineSolver)
-        withSelectedOnlineBackend cruxOpts nonceGen goalSolver (Just (floatReprString floatRepr1)) $ \floatRepr2 goalSym -> do
-          setupSolver cruxOpts (onlineSolverOutput cruxOpts) goalSym
-          -- NOTE: We pass in an explicit requested float mode in our second
-          -- online solver connection instantiation to ensure that both solvers
-          -- use the same float mode, so no mismatch here should be possible.
-          case testEquality floatRepr1 floatRepr2 of
-            Just Refl ->
-              doSimWithResults cruxOpts simCallback pathSatSym execFeatures profInfo (Just SomeOnlineSolver) (proveGoalsOnline goalSym)
-            Nothing -> fail "Impossible: the argument interpretation produced two different float modes"
+      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing CruxState $ \pathSatBak -> do
+        let sym = backendGetSym pathSatBak
+        setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatBak (Just (SomeOnlineSolver pathSatBak))
+        withSelectedOnlineBackend' cruxOpts goalSolver sym $ \goalBak -> do
+          doSimWithResults cruxOpts simCallback pathSatBak execFeatures profInfo (Just (SomeOnlineSolver pathSatBak)) (proveGoalsOnline goalBak)
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
 
@@ -622,31 +644,31 @@ runSimulator cruxOpts simCallback = do
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
   sym ~ WEB.ExprBuilder t st fs =>
-  IsSymInterface sym =>
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
   SimulatorCallbacks msgs r ->
-  sym ->
+  bak ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
-  Maybe (SomeOnlineSolver sym) ->
+  Maybe (SomeOnlineSolver sym bak) ->
   ProverCallback sym
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO r
-doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProver = do
+doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProver = do
   compRef <- newIORef ProgramComplete
   glsRef <- newIORef Seq.empty
 
-  frm <- pushAssumptionFrame sym
+  frm <- pushAssumptionFrame bak
 
   SimulatorHooks setup onError interpretResult <-
     getSimulatorCallbacks simCallback
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
-    RunnableStateWithExtensions initSt exts <- setup sym monline
-    explainFailure <- onError sym
+    RunnableStateWithExtensions initSt exts <- setup bak monline
+    explainFailure <- onError bak
 
     -- execute the simulator
     case pathStrategy cruxOpts of
@@ -665,7 +687,7 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
   sayCrux Log.SimulationComplete
   when (isProfiling cruxOpts) $ writeProf profInfo
   result <- CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
-  interpretResult sym result
+  interpretResult bak result
 
  where
  failfast = proofGoalsFailFast cruxOpts
@@ -678,14 +700,14 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
                writeIORef compRef ProgramIncomplete
                return True
           _ -> return False
-      popUntilAssumptionFrame sym frm
+      popUntilAssumptionFrame bak frm
       let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
-        todo <- getProofObligations sym
+        todo <- getProofObligations bak
         sayCrux $ Log.ProofObligations (LogProofObligation <$> maybe [] goalsToList todo)
         when (isJust todo) $ sayCrux Log.AttemptingProvingVCs
         (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
-        mgt <- provedGoalsTree sym proved
+        mgt <- provedGoalsTree (backendGetSym bak) proved
         case mgt of
           Nothing -> return (not timedOut)
           Just gt ->
