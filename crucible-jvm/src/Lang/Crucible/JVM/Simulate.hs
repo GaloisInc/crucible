@@ -435,9 +435,9 @@ jvmIntrinsicTypes :: C.IntrinsicTypes sym
 jvmIntrinsicTypes = C.emptyIntrinsicTypes
 
 jvmExtensionEval ::
-  forall sym.
-  (IsSymInterface sym) =>
-  sym ->
+  forall sym bak.
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
   C.EvalAppFunc sym (ExprExtension JVM)
@@ -446,30 +446,30 @@ jvmExtensionEval _sym _iTypes _logFn _f x = case x of
 jvmExtensionImpl :: C.ExtensionImpl p sym JVM
 jvmExtensionImpl =
   C.ExtensionImpl
-    (\sym iTypes logFn _ f ->
-       jvmExtensionEval sym iTypes logFn f)
+    (\bak iTypes logFn _ f ->
+       jvmExtensionEval bak iTypes logFn f)
     (\x -> case x of)
 
 -- | Create a new 'C.SimContext' containing the bindings from the given 'JVMContext'.
 jvmSimContext ::
-  IsSymInterface sym =>
-  sym {- ^ Symbolic backend -} ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak {- ^ Symbolic backend -} ->
   C.HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
   JVMContext ->
   Verbosity ->
   personality {- ^ Initial value for custom user state -} ->
   C.SimContext personality sym JVM
-jvmSimContext sym halloc handle ctx verbosity p =
-  C.initSimContext sym jvmIntrinsicTypes halloc handle bindings jvmExtensionImpl p
+jvmSimContext bak halloc handle ctx verbosity p =
+  C.initSimContext bak jvmIntrinsicTypes halloc handle bindings jvmExtensionImpl p
   where bindings = mkDelayedBindings ctx verbosity
 
 -- | Make the initial state for the simulator, binding the function handles so that
 -- they translate method bodies when they are accessed.
 mkSimSt ::
-  forall sym p ret.
-  (IsSymInterface sym) =>
-  sym ->
+  forall sym bak p ret.
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   p ->
   C.HandleAllocator ->
   JVMContext ->
@@ -477,10 +477,12 @@ mkSimSt ::
   TypeRepr ret ->
   C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
   IO (C.ExecState p sym JVM (C.RegEntry sym ret))
-mkSimSt sym p halloc ctx verbosity ret k =
+mkSimSt bak p halloc ctx verbosity ret k =
   do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
      return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
+    sym = backendGetSym bak
+
     initField :: J.FieldId -> StaticFieldInfo -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
     initField fi info m =
       do gs <- m
@@ -490,7 +492,7 @@ mkSimSt sym p halloc ctx verbosity ret k =
          let gs2 = C.insertGlobal (staticFieldWritable info) writable gs1
          pure gs2
 
-    simctx = jvmSimContext sym halloc stdout ctx verbosity p
+    simctx = jvmSimContext bak halloc stdout ctx verbosity p
     globals0 = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
 
 -- | Construct a zero value of the appropriate type. This is used for
@@ -532,8 +534,8 @@ runClassInit halloc ctx verbosity name = do
 
 -- | Install the standard overrides and run a Java method in the simulator.
 setupMethodHandleCrux
-  :: IsSymInterface sym
-  => sym
+  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  => bak
   -> p
   -> C.HandleAllocator
   -> JVMContext
@@ -542,17 +544,17 @@ setupMethodHandleCrux
   -> FnHandle args ret
   -> C.RegMap sym args
   -> IO (C.ExecState p sym JVM (C.RegEntry sym ret))
-setupMethodHandleCrux sym p halloc ctx verbosity _classname h args = do
+setupMethodHandleCrux bak p halloc ctx verbosity _classname h args = do
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  mkSimSt sym p halloc ctx verbosity (handleReturnType h) (C.runOverrideSim (handleReturnType h) overrideSim)
+  mkSimSt bak p halloc ctx verbosity (handleReturnType h) (C.runOverrideSim (handleReturnType h) overrideSim)
 
 
 runMethodHandle
-  :: IsSymInterface sym
-  => sym
+  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  => bak
   -> p
   -> C.HandleAllocator
   -> JVMContext
@@ -561,8 +563,8 @@ runMethodHandle
   -> FnHandle args ret
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandle sym p halloc ctx verbosity classname h args =
-  do exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
+runMethodHandle bak p halloc ctx verbosity classname h args =
+  do exst <- setupMethodHandleCrux bak p halloc ctx verbosity classname h args
      C.executeCrucible [] exst
 
 --------------------------------------------------------------------------------
@@ -603,17 +605,18 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
 
 
 setupCrucibleJVMCrux
-  :: forall ret args sym p cb
-   . (IsSymInterface sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+  :: forall ret args sym bak p cb
+   . (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
   => cb
   -> Int               -- ^ Verbosity level
-  -> sym               -- ^ Simulator state
+  -> bak               -- ^ Simulator state
   -> p                 -- ^ Personality
   -> String            -- ^ Dot-separated class name
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecState p sym JVM (C.RegEntry sym ret))
-setupCrucibleJVMCrux cb verbosity sym p cname mname args = do
+setupCrucibleJVMCrux cb verbosity bak p cname mname args = do
+     let sym = backendGetSym bak
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
@@ -650,22 +653,22 @@ setupCrucibleJVMCrux cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
 
-     setupMethodHandleCrux sym p halloc ctx verbosity (J.className mcls) h args
+     setupMethodHandleCrux bak p halloc ctx verbosity (J.className mcls) h args
 
 
 executeCrucibleJVM
-  :: forall ret args sym p cb
-   . (IsSymInterface sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+  :: forall ret args sym bak p cb
+   . (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
   => cb
   -> Int               -- ^ Verbosity level
-  -> sym               -- ^ Simulator state
+  -> bak               -- ^ Simulator state
   -> p                 -- ^ Personality
   -> String            -- ^ Dot-separated class name
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVM cp v sym p classname methname args =
-  do exst <- setupCrucibleJVMCrux cp v sym p classname methname args
+executeCrucibleJVM cp v bak p classname methname args =
+  do exst <- setupCrucibleJVMCrux cp v bak p classname methname args
      C.executeCrucible [] exst
 
 getGlobalPair ::
@@ -791,9 +794,10 @@ refIsNull sym ref =
 
 -- | Test whether two JVM references are equal.
 refIsEqual ::
-  IsSymInterface sym =>
-  sym -> C.RegValue sym JVMRefType -> C.RegValue sym JVMRefType -> IO (W4.Pred sym)
-refIsEqual sym ref1 ref2 =
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak -> C.RegValue sym JVMRefType -> C.RegValue sym JVMRefType -> IO (W4.Pred sym)
+refIsEqual bak ref1 ref2 =
+  let sym = backendGetSym bak in
   case ref1 of
     W4.Unassigned ->
       case ref2 of
@@ -807,16 +811,16 @@ refIsEqual sym ref1 ref2 =
              n2 <- W4.notPred sym p2
              n <- W4.andPred sym n1 n2
              p <- W4.andPred sym p1 p2
-             e <- doAppJVM sym (ReferenceEq W4.knownRepr (C.RV r1) (C.RV r2))
+             e <- doAppJVM bak (ReferenceEq W4.knownRepr (C.RV r1) (C.RV r2))
              W4.orPred sym n =<< W4.andPred sym p e
 
 -- | Evaluate a Crucible 'App' node in the @IO@ monad, using run-time values.
 doAppJVM ::
-  IsSymInterface sym =>
-  sym -> App JVM (C.RegValue' sym) tp -> IO (C.RegValue sym tp)
-doAppJVM sym =
-  C.evalApp sym jvmIntrinsicTypes out
-    (jvmExtensionEval sym jvmIntrinsicTypes out) (return . C.unRV)
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak -> App JVM (C.RegValue' sym) tp -> IO (C.RegValue sym tp)
+doAppJVM bak =
+  C.evalApp bak jvmIntrinsicTypes out
+    (jvmExtensionEval bak jvmIntrinsicTypes out) (return . C.unRV)
   where
     out _verbosity _msg = return () --putStrLn
 
@@ -824,19 +828,20 @@ doAppJVM sym =
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
 -- The writability permission of the field is not checked.
 doFieldStore ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
   J.FieldId ->
   C.RegValue sym JVMValueType ->
   IO (C.SymGlobalState sym)
-doFieldStore sym globals ref fid val =
-  do let msg1 = C.GenericSimError "Field store: null reference"
-     ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+doFieldStore bak globals ref fid val =
+  do let sym = backendGetSym bak
+     let msg1 = C.GenericSimError "Field store: null reference"
+     ref' <- C.readPartExpr bak ref msg1
+     obj <- EvalStmt.readRef bak jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field store: object is not a class instance"
-     inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
+     inst <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let tab' = Map.insert (fieldIdText fid) (W4.justPartExpr sym val) tab
      let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of3) (C.RV tab') inst
@@ -847,16 +852,16 @@ doFieldStore sym globals ref fid val =
 -- have already been resolved (see §5.4.3.2 of the JVM spec). Note
 -- that the writability permission of the field is not checked.
 doStaticFieldStore ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   JVMContext ->
   C.SymGlobalState sym ->
   J.FieldId ->
   C.RegValue sym JVMValueType ->
   IO (C.SymGlobalState sym)
-doStaticFieldStore sym jc globals fid val =
+doStaticFieldStore bak jc globals fid val =
   case Map.lookup fid (staticFields jc) of
-    Nothing -> C.addFailedAssertion sym msg
+    Nothing -> C.addFailedAssertion bak msg
     Just info -> pure (C.insertGlobal (staticFieldValue info) val globals)
   where
     msg = C.GenericSimError $ "Static field store: field not found: " ++ ppFieldId fid
@@ -864,16 +869,16 @@ doStaticFieldStore sym jc globals fid val =
 -- | Set the write permission on a static field. The 'FieldId' must
 -- have already been resolved (see §5.4.3.2 of the JVM spec).
 doStaticFieldWritable ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   JVMContext ->
   C.SymGlobalState sym ->
   J.FieldId ->
   W4.Pred sym ->
   IO (C.SymGlobalState sym)
-doStaticFieldWritable sym jc globals fid val =
+doStaticFieldWritable bak jc globals fid val =
   case Map.lookup fid (staticFields jc) of
-    Nothing -> C.addFailedAssertion sym msg
+    Nothing -> C.addFailedAssertion bak msg
     Just info -> pure (C.insertGlobal (staticFieldWritable info) val globals)
   where
     msg = C.GenericSimError $ "Static field writable: field not found: " ++ ppFieldId fid
@@ -884,19 +889,20 @@ ppFieldId fid = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
 -- | Write a value at an index of an array reference. The write
 -- permission bit is not checked.
 doArrayStore ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
   Int {- ^ array index -} ->
   C.RegValue sym JVMValueType ->
   IO (C.SymGlobalState sym)
-doArrayStore sym globals ref idx val =
-  do let msg1 = C.GenericSimError "Array store: null reference"
-     ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+doArrayStore bak globals ref idx val =
+  do let sym = backendGetSym bak
+     let msg1 = C.GenericSimError "Array store: null reference"
+     ref' <- C.readPartExpr bak ref msg1
+     obj <- EvalStmt.readRef bak jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Object is not an array"
-     arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
+     arr <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
      let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let vec' = vec V.// [(idx, val)]
      let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
@@ -906,75 +912,76 @@ doArrayStore sym globals ref idx val =
 -- | Read a value from a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
 doFieldLoad ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
   J.FieldId ->
   IO (C.RegValue sym JVMValueType)
-doFieldLoad sym globals ref fid =
+doFieldLoad bak globals ref fid =
   do let msg1 = C.GenericSimError "Field load: null reference"
-     ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     ref' <- C.readPartExpr bak ref msg1
+     obj <- EvalStmt.readRef bak jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field load: object is not a class instance"
-     inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
+     inst <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let msg3 = C.GenericSimError $ "Field load: field not found: " ++ J.fieldIdName fid
      let key = fieldIdText fid
-     C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
+     C.readPartExpr bak (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
 
 -- | Read a value from a static field of a class. The 'FieldId' must
 -- have already been resolved (see §5.4.3.2 of the JVM spec).
 doStaticFieldLoad ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   JVMContext ->
   C.SymGlobalState sym ->
   J.FieldId ->
   IO (C.RegValue sym JVMValueType)
-doStaticFieldLoad sym jc globals fid =
+doStaticFieldLoad bak jc globals fid =
   case Map.lookup fid (staticFields jc) of
-    Nothing -> C.addFailedAssertion sym msg
+    Nothing -> C.addFailedAssertion bak msg
     Just info ->
       case C.lookupGlobal (staticFieldValue info) globals of
-        Nothing -> C.addFailedAssertion sym msg
+        Nothing -> C.addFailedAssertion bak msg
         Just v -> pure v
   where
     msg = C.GenericSimError $ "Static field load: field not found: " ++ ppFieldId fid
 
 -- | Read a value at an index of an array reference.
 doArrayLoad ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType -> Int {- ^ array index -} ->
   IO (C.RegValue sym JVMValueType)
-doArrayLoad sym globals ref idx =
+doArrayLoad bak globals ref idx =
   do let msg1 = C.GenericSimError "Array load: null reference"
-     ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     ref' <- C.readPartExpr bak ref msg1
+     obj <- EvalStmt.readRef bak jvmIntrinsicTypes objectRepr ref' globals
      -- TODO: define a 'projectVariant' function in the OverrideSim monad
      let msg2 = C.GenericSimError "Array load: object is not an array"
-     arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
+     arr <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
      let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let msg3 = C.GenericSimError $ "Array load: index out of bounds: " ++ show idx
      case vec V.!? idx of
        Just val -> return val
-       Nothing -> C.addFailedAssertion sym msg3
+       Nothing -> C.addFailedAssertion bak msg3
 
 -- | Allocate an instance of the given class in the global state. All
 -- of the fields are initialized to 'unassignedJVMValue'.
 doAllocateObject ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.HandleAllocator ->
   JVMContext ->
   J.ClassName {- ^ class of object to allocate -} ->
   (J.FieldId -> Bool) {- ^ which fields are writable -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
-doAllocateObject sym halloc jc cname mut globals =
-  do cls <- lookupJVMClassByName sym globals jc cname
+doAllocateObject bak halloc jc cname mut globals =
+  do let sym = backendGetSym bak
+     cls <- lookupJVMClassByName bak globals jc cname
      let fieldIds = fieldsOfClassName jc cname
      let pval = W4.justPartExpr sym unassignedJVMValue
      let fields = Map.fromList [ (fieldIdText f, pval) | f <- fieldIds ]
@@ -990,15 +997,16 @@ doAllocateObject sym halloc jc cname mut globals =
 -- | Allocate an array in the global state. All of the elements are
 -- initialized to 'unassignedJVMValue'.
 doAllocateArray ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.HandleAllocator ->
   JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
   (Int -> Bool) {- ^ per-index writability -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
-doAllocateArray sym halloc jc len elemTy mut globals =
-  do len' <- liftIO $ W4.bvLit sym w32 (BV.mkBV w32 (toInteger len))
+doAllocateArray bak halloc jc len elemTy mut globals =
+  do let sym = backendGetSym bak
+     len' <- liftIO $ W4.bvLit sym w32 (BV.mkBV w32 (toInteger len))
      let vec = V.replicate len unassignedJVMValue
      rep <- makeJVMTypeRep sym globals jc elemTy
      let ws = V.generate len (W4.backendPred sym . mut)
@@ -1011,22 +1019,22 @@ doAllocateArray sym halloc jc len elemTy mut globals =
 
 -- | Lookup the data structure associated with a class.
 lookupJVMClassByName ::
-  IsSymInterface sym =>
-  sym ->
+  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak ->
   C.SymGlobalState sym ->
   JVMContext ->
   J.ClassName ->
   IO (C.RegValue sym JVMClassType)
-lookupJVMClassByName sym globals jc cname =
+lookupJVMClassByName bak globals jc cname =
   do let key = classNameText cname
      let msg1 = C.GenericSimError "Class table not found"
      let msg2 = C.GenericSimError $ "Class was not found in class table: " ++ J.unClassName cname
      classtab <-
        case C.lookupGlobal (dynamicClassTable jc) globals of
          Just x -> return x
-         Nothing -> C.addFailedAssertion sym msg1
+         Nothing -> C.addFailedAssertion bak msg1
      let pcls = fromMaybe W4.Unassigned (Map.lookup key classtab)
-     C.readPartExpr sym pcls msg2
+     C.readPartExpr bak pcls msg2
 
 -- | A degenerate value of the variant type, where every branch is
 -- unassigned. This is used to model uninitialized array elements.
