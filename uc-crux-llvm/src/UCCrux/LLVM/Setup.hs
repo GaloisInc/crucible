@@ -179,13 +179,14 @@ generateM' h1 gen =
 -- with a 'SymValue' that conforms to those constraints. Allocates memory along
 -- the way as required by the form of the 'ConstrainedShape'.
 generate ::
-  forall arch sym m atTy inTy argTypes.
+  forall arch sym bak m atTy inTy argTypes.
   ( ArchOk arch,
     LLVMMem.HasLLVMAnn sym,
     Crucible.IsSymInterface sym,
+    Crucible.IsBoolSolver sym bak,
     ?memOpts :: LLVMMem.MemOptions
   ) =>
-  sym ->
+  bak ->
   ModuleContext m arch ->
   FullTypeRepr m atTy ->
   -- | The argument or global variable to be generated
@@ -193,7 +194,7 @@ generate ::
   -- | The set of constraints and memory layout of the value to be generated
   ConstrainedShape m atTy ->
   Setup m arch sym argTypes (Shape m (SymValue sym arch) atTy)
-generate sym modCtx ftRepr selector (ConstrainedShape shape) =
+generate bak modCtx ftRepr selector (ConstrainedShape shape) =
   constrain
     (shape ^. Shape.tag)
     =<< case (shape, ftRepr) of
@@ -219,7 +220,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
           <$> annotatedLLVMPtr sym ?ptrWidth ftRepr selector
       (Shape.ShapePtr _constraints (Shape.ShapeAllocated n), FTPtrRepr _ptdTo) ->
         Shape.ShapePtr
-          <$> (SymValue <$> malloc sym ftRepr selector (toEnum n))
+          <$> (SymValue <$> malloc bak ftRepr selector (toEnum n))
           <*> pure (Shape.ShapeAllocated n)
       (Shape.ShapePtr _constraints (Shape.ShapeInitialized vec), FTPtrRepr ptPtdTo) ->
         do
@@ -231,7 +232,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                 case NatRepr.isZeroNat nr of
                   NatRepr.ZeroNat -> panic "generate" ["Empty vector"]
                   NatRepr.NonZeroNat -> return (Some (NatRepr.predNat nr))
-          ptr <- malloc sym ftRepr selector (toEnum num)
+          ptr <- malloc bak ftRepr selector (toEnum num)
           let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptPtdTo
           size <- liftIO $ sizeBv modCtx sym ftPtdTo 1
           -- For each offset, generate a value and store it there.
@@ -242,7 +243,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                 let selector' = selector & selectorCursor %~ deepenPtr (modCtx ^. moduleTypes)
                 pointedTo <-
                   generate
-                    sym
+                    bak
                     modCtx
                     ftPtdTo
                     selector'
@@ -251,7 +252,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                         fromIntegral (Fin.finToNat i)))
                 annotatedPtrAtOffset <-
                   store
-                    sym
+                    bak
                     (modCtx ^. moduleTypes)
                     ftRepr
                     selector
@@ -272,7 +273,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
               elems' <-
                 generateM' n $ \idx ->
                   generate
-                    sym
+                    bak
                     modCtx
                     ftRepr'
                     (selector & selectorCursor %~ deepenArray idx n)
@@ -301,7 +302,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
             Ctx.generateM (Ctx.size fields) $
               \idx ->
                 generate
-                  sym
+                  bak
                   modCtx
                   (fieldTypes ^. ixF' idx)
                   (selector & selectorCursor %~ deepenStruct idx)
@@ -311,6 +312,8 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                   \idx _ Refl -> fields' ^. ixF' idx . Shape.tag . to getSymValue . to Crucible.RV
           pure $ Shape.ShapeStruct (SymValue fieldVals) fields'
   where
+    sym = Crucible.backendGetSym bak
+
     proxy = Proxy @arch
     constrain ::
       Compose [] (Constraint m) atTy ->
@@ -323,8 +326,9 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
         pure s
 
 generateArgs ::
-  forall m arch sym argTypes.
+  forall m arch sym bak argTypes.
   ( Crucible.IsSymInterface sym,
+    Crucible.IsBoolSolver sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     ?memOpts :: LLVMMem.MemOptions
@@ -332,7 +336,7 @@ generateArgs ::
   AppContext ->
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
-  sym ->
+  bak ->
   Ctx.Assignment (ConstrainedShape m) argTypes ->
   Setup
     m
@@ -342,7 +346,7 @@ generateArgs ::
     ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
       Crucible.RegMap sym (MapToCrucibleType arch argTypes)
     )
-generateArgs _appCtx modCtx funCtx sym argSpecs =
+generateArgs _appCtx modCtx funCtx bak argSpecs =
   do
     let argTypesRepr = funCtx ^. argumentCrucibleTypes
     shapes <-
@@ -351,7 +355,7 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
         ( \index ->
             let ft = funCtx ^. argumentFullTypes . ixF' index
              in generate
-                  sym
+                  bak
                   modCtx
                   ft
                   (SelectArgument index (Here ft))
@@ -373,17 +377,18 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
 -- | Populate non-constant global variables with symbolic data, constrained
 -- according to the given preconditions.
 populateNonConstGlobals ::
-  forall m arch sym argTypes.
+  forall m arch sym bak argTypes.
   ( Crucible.IsSymInterface sym,
+    Crucible.IsBoolSolver sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     ?memOpts :: LLVMMem.MemOptions
   ) =>
   ModuleContext m arch ->
-  sym ->
+  bak ->
   Map (GlobalSymbol m) (ConstrainedTypedValue m) ->
   Setup m arch sym argTypes ()
-populateNonConstGlobals modCtx sym constrainedGlobals =
+populateNonConstGlobals modCtx bak constrainedGlobals =
   for_
     (modCtx ^. llvmModule . to getModule . to L.modGlobals . to (filter (not . isConstGlobal)))
     populateNonConstGlobal
@@ -405,7 +410,7 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
               do
                 val <-
                   generate
-                    sym
+                    bak
                     modCtx
                     fullTy
                     (SelectGlobal gSymb (Here fullTy))
@@ -421,7 +426,7 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
                     )
                 void $
                   storeGlobal
-                    sym
+                    bak
                     fullTy
                     (SelectGlobal gSymb (Here fullTy))
                     symb
@@ -440,6 +445,7 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
 -- with reading from the Crucible-LLVM memory model.
 setupExecution ::
   ( Crucible.IsSymInterface sym,
+    Crucible.IsBoolSolver sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     MonadIO f,
@@ -448,7 +454,7 @@ setupExecution ::
   AppContext ->
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
-  sym ->
+  bak ->
   -- | Constraints and memory layouts of each argument and global
   Constraints m argTypes ->
   f
@@ -457,7 +463,7 @@ setupExecution ::
         Crucible.RegMap sym (MapToCrucibleType arch argTypes)
       )
     )
-setupExecution appCtx modCtx funCtx sym constraints = do
+setupExecution appCtx modCtx funCtx bak constraints = do
   let moduleTrans = modCtx ^. moduleTranslation
   let llvmCtxt = moduleTrans ^. LLVMTrans.transContext
   -- TODO(lb): This could be more lazy: We could initialize and allocate only
@@ -468,9 +474,9 @@ setupExecution appCtx modCtx funCtx sym constraints = do
   mem <-
     withTypeContext modCtx $
       liftIO $
-        LLVMGlobals.populateConstGlobals sym (LLVMTrans.globalInitMap moduleTrans)
-          =<< LLVMGlobals.initializeAllMemory sym llvmCtxt (modCtx ^. llvmModule . to getModule)
+        LLVMGlobals.populateConstGlobals bak (LLVMTrans.globalInitMap moduleTrans)
+          =<< LLVMGlobals.initializeAllMemory bak llvmCtxt (modCtx ^. llvmModule . to getModule)
   runSetup modCtx mem $
     do
-      populateNonConstGlobals modCtx sym (constraints ^. globalConstraints)
-      generateArgs appCtx modCtx funCtx sym (constraints ^. argConstraints)
+      populateNonConstGlobals modCtx bak (constraints ^. globalConstraints)
+      generateArgs appCtx modCtx funCtx bak (constraints ^. argConstraints)

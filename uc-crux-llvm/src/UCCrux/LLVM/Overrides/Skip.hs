@@ -62,7 +62,7 @@ import           What4.FunctionName (functionName)
 import           What4.ProgramLoc (ProgramLoc)
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver)
 import           Lang.Crucible.FunctionHandle (SomeHandle(..), handleMapToHandles, handleName)
 import           Lang.Crucible.Simulator.ExecutionTree (functionBindings, stateContext, fnBindings)
 import qualified Lang.Crucible.Simulator as Crucible
@@ -117,13 +117,14 @@ declName decl =
 -- CFGs, like if you already registered a normal override for `free` or similar.
 unsoundSkipOverrides ::
   ( IsSymInterface sym,
+    IsBoolSolver sym bak,
     HasLLVMAnn sym,
     ArchOk arch,
     ?lc :: TypeContext,
     ?memOpts :: MemOptions
   ) =>
   ModuleContext m arch ->
-  sym ->
+  bak ->
   ModuleTranslation arch ->
   -- | Set of skip overrides encountered during execution
   IORef (Set SkipOverrideName) ->
@@ -135,7 +136,7 @@ unsoundSkipOverrides ::
   Map (FuncSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
   OverM personality sym LLVM [Either (ClobberSpecError m) (PolymorphicLLVMOverride arch (personality sym) sym)]
-unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postconditions decls =
+unsoundSkipOverrides modCtx bak mtrans usedRef annotationRef clobbers postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
     let ?lc = llvmCtx ^. llvmTypeCtx
@@ -154,7 +155,7 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef clobbers postcondit
             Just funcSym ->
               createSkipOverride
                 modCtx
-                sym
+                bak
                 usedRef
                 annotationRef
                 (fromMaybe emptyClobberSpecs $ Map.lookup funcSym clobbers)
@@ -359,15 +360,16 @@ makeGetters proxy funcSymb args specs =
 -- Useful for continuing symbolic execution in the presence of external/library
 -- functions.
 createSkipOverride ::
-  forall m arch sym argTypes personality.
+  forall m arch sym bak argTypes personality.
   ( IsSymInterface sym,
+    IsBoolSolver sym bak,
     HasLLVMAnn sym,
     ArchOk arch,
     ?lc :: TypeContext,
     ?memOpts :: MemOptions
   ) =>
   ModuleContext m arch ->
-  sym ->
+  bak ->
   IORef (Set SkipOverrideName) ->
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
@@ -378,7 +380,7 @@ createSkipOverride ::
   -- | Function to be overridden
   FuncSymbol m ->
   Either (ClobberSpecError m) (PolymorphicLLVMOverride arch (personality sym) sym)
-createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcSymb =
+createSkipOverride modCtx bak usedRef annotationRef clobbers postcondition funcSymb =
   fromMaybe (malformedLLVMModule "createSkipOverride" []) $
     llvmDeclToFunHandleRepr' decl $
       \argTys retTy ->
@@ -425,7 +427,7 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
              modCtx
              mem
              ( generate
-                 sym
+                 bak
                  modCtx
                  (clobberAtType mts spec)
                  (SelectClobbered
@@ -433,16 +435,16 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
                     (deepenPtr mts (clobberSelectorCursor (clobberSelector spec))))
                  (clobberShape spec)
              )
-         assume name sym (resultAssumptions result)
+         assume name bak (resultAssumptions result)
          -- The keys are nonces, so they'll never clash, so the
          -- bias of the union is unimportant.
          modifyIORef annotationRef (Map.union (resultAnnotations result))
          container <- getClobberGetter getter mem args
          let cursor = clobberSelectorCursor (clobberSelector spec)
-         ptr <- Mem.seekPtr modCtx sym mem (clobberType spec) container cursor
+         ptr <- Mem.seekPtr modCtx bak mem (clobberType spec) container cursor
          let mem' = resultMem result
          let val = value ^. Shape.tag . to getSymValue
-         Mem.store modCtx sym mem' (clobberAtType mts spec) ptr val
+         Mem.store modCtx bak mem' (clobberAtType mts spec) ptr val
 
     applyClobbers ::
       MemImpl sym ->
@@ -487,7 +489,7 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
                      modCtx
                      mem
                      ( generate
-                         sym
+                         bak
                          modCtx
                          retFullType
                          ( SelectReturn
@@ -516,7 +518,7 @@ createSkipOverride modCtx sym usedRef annotationRef clobbers postcondition funcS
                              Nothing -> minimalConstrainedShape retFullType
                          )
                      )
-                 assume name sym (resultAssumptions result)
+                 assume name bak (resultAssumptions result)
                  -- The keys are nonces, so they'll never clash, so the
                  -- bias of the union is unimportant.
                  modifyIORef annotationRef (Map.union (resultAnnotations result))

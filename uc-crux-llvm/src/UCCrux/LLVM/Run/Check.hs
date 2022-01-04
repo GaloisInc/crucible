@@ -48,7 +48,7 @@ import           Data.Parameterized.Some (Some(Some))
 import qualified What4.Interface as What4
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.Simulator.RegMap as Crucible
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
@@ -116,9 +116,10 @@ newtype CheckResult m arch (argTypes :: Ctx (FullType m)) =
   CheckResult
     { getCheckResult ::
         forall r.
-        (forall sym.
+        (forall sym bak.
          IsSymInterface sym =>
-         sym ->
+         IsBoolSolver sym bak =>
+         bak ->
          PreSimulationMem sym ->
          Assignment (Shape m (SymValue sym arch)) argTypes ->
          Crux.CruxSimulationResult ->
@@ -178,18 +179,19 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
             Sim.SimulatorHooks
               { Sim.createOverrideHooks = map fst ovs
               , Sim.resultHook =
-                \sym mem args cruxResult ucResult ->
+                \bak mem args cruxResult ucResult ->
                   return $
                     CheckResult $
-                      \k -> k sym mem args cruxResult ucResult (map snd ovs)
+                      \k -> k bak mem args cruxResult ucResult (map snd ovs)
               })
   where
     -- Create one override for each function with preconditions we want to
     -- check, as well as a way to get the results ('SomeCheckedCalls').
     overrides ::
       IsSymInterface sym =>
+      IsBoolSolver sym bak =>
       HasLLVMAnn sym =>
-      IO [ ( Sim.SymCreateOverrideFn sym arch
+      IO [ ( Sim.SymCreateOverrideFn sym bak arch
            , SomeCheckedCalls m sym arch
            )
          ]
@@ -213,7 +215,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
                   do ref <- IORef.newIORef []
                      return
                        ( Sim.SymCreateOverrideFn $
-                           \_sym ->
+                           \_bak ->
                              return $
                                Check.createCheckOverride
                                  appCtx
@@ -323,14 +325,14 @@ ppSomeCheckResult ::
   IO (PP.Doc ann)
 ppSomeCheckResult _appCtx entry proxy@(SomeCheckResult _ftReprs (CheckResult k)) =
   k $
-    \sym mem _args _cruxResult _ucCruxResult checkOvResults ->
+    \bak mem _args _cruxResult _ucCruxResult checkOvResults ->
       -- TODO: Print args with ppRegMap
       PP.vsep .
         ([ "When executing from " <> PP.pretty (defnSymbolToString entry) <> ",",
           "encountered these calls to functions which had inferred contracts:"
          ] ++) .
         catMaybes <$>
-          mapM (ppOne sym mem) checkOvResults
+          mapM (ppOne (backendGetSym bak) mem) checkOvResults
   where
     bullets = map ("-" PP.<+>)
 
