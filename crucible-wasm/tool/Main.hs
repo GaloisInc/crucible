@@ -36,16 +36,16 @@ cruxWasmConfig = Crux.Config
   , Crux.cfgCmdLineFlag = []
   }
 
-setupWasmState :: IsSymInterface sym =>
-  sym -> MemOptions -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
-setupWasmState sym memOptions s =
+setupWasmState :: (IsSymInterface sym, IsBoolSolver sym bak) =>
+  bak -> MemOptions -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
+setupWasmState bak memOptions s =
   do halloc <- newHandleAllocator
 
      let ?recordLLVMAnnotation = \_ _ _ -> pure ()
      let ?memOpts = memOptions
      let globals = emptyGlobals
      let bindings = emptyHandleMap
-     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) (extImpl memOptions) Crux.CruxPersonality
+     let simctx = initSimContext bak wasmIntrinsicTypes halloc stdout (FnBindings bindings) (extImpl memOptions) Crux.CruxPersonality
      let m = execScript s emptyScriptState >> pure ()
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))
@@ -59,7 +59,7 @@ simulateWasm cruxOpts _wasmOpts =
     return $
       Crux.SimulatorHooks
         { Crux.setupHook =
-            \sym _mOnline ->
+            \bak _mOnline ->
               do let files = Crux.inputFiles cruxOpts
 
                  fl <- case files of
@@ -72,11 +72,11 @@ simulateWasm cruxOpts _wasmOpts =
                         Left msg -> fail msg
                         Right s -> return s
 
-                 initSt <- setupWasmState sym defaultMemOptions script
+                 initSt <- setupWasmState bak defaultMemOptions script
 
                  return (Crux.RunnableState initSt)
-        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
-        , Crux.resultHook = \_sym result -> return result
+        , Crux.onErrorHook = \_bak -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_bak result -> return result
         }
 
 main :: IO ()
