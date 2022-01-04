@@ -159,9 +159,9 @@ mainWithOutputConfig mkOutCfg bindExtra =
     Crux.loadOptions mkOutCfg "crux-mir" version mirConfig
         $ runTestsWithExtraOverrides bindExtra
 
-type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
+type BindExtraOverridesFn = forall sym bak p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    Maybe (Crux.SomeOnlineSolver sym) ->
+    Maybe (Crux.SomeOnlineSolver sym bak) ->
     CollectionState ->
     Text ->
     C.CFG MIR blocks args ret ->
@@ -260,7 +260,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
     -- Simulate each test case
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (p sym) sym MIR rtp a r ()
+            Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
                 case bindExtra symOnline (mir ^. rmCS) fn cfg of
@@ -285,20 +285,22 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     -- for tests that failed.
 
     let ?bound = 0
-    let simTestBody :: forall sym p t st fs.
+    let simTestBody :: forall sym bak p t st fs.
             ( C.IsSymInterface sym
+            , C.IsBoolSolver sym bak
             , sym ~ W4.ExprBuilder t st fs
             ) =>
-            Maybe (Crux.SomeOnlineSolver sym) ->
+            bak ->
+            Maybe (Crux.SomeOnlineSolver sym bak) ->
             DefId ->
             Fun p sym MIR Ctx.EmptyCtx C.UnitType
-        simTestBody symOnline fnName =
+        simTestBody bak symOnline fnName =
           do linkOverrides symOnline
              _ <- C.callCFG staticInitCfg C.emptyRegMap
 
              -- Label the current path for later use
-             sym <- C.getSymInterface
-             liftIO $ C.addAssumption sym $
+             let sym = C.backendGetSym bak
+             liftIO $ C.addAssumption bak $
                  C.BranchCondition entry (Just $ testStartLoc fnName) (W4.truePred sym)
 
              -- Find and run the target function
@@ -329,26 +331,28 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
           when (not $ printResultOnly mirOpts) $
             liftIO $ output $ "test " ++ show fnName ++ ": "
 
-    let simTest :: forall sym t st fs msgs.
+    let simTest :: forall sym bak t st fs msgs.
             ( C.IsSymInterface sym
+            , C.IsBoolSolver sym bak
             , sym ~ W4.ExprBuilder t st fs
             , Logs msgs
             , Log.SupportsCruxLogMessage msgs
             , Log.SupportsMirLogMessage msgs
             ) =>
-            Maybe (Crux.SomeOnlineSolver sym) ->
+            bak ->
+            Maybe (Crux.SomeOnlineSolver sym bak) ->
             DefId ->
             SomeTestOvr sym Ctx.EmptyCtx C.UnitType
-        simTest symOnline fnName
+        simTest bak symOnline fnName
           | concurrency mirOpts = SomeTestOvr
             { testOvr = do printTest fnName
-                           exploreOvr symOnline cruxOpts $ simTestBody symOnline fnName
+                           exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
             , testFeatures = [scheduleFeature mirExplorePrimitives []]
             , testPersonality = emptyExploration @DPOR
             }
           | otherwise = SomeTestOvr
             { testOvr = do printTest fnName
-                           simTestBody symOnline fnName
+                           simTestBody bak symOnline fnName
             , testFeatures = []
             , testPersonality = Crux.CruxPersonality
             }
@@ -358,19 +362,20 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             return $
               Crux.SimulatorHooks
                 { Crux.setupHook =
-                    \sym symOnline ->
-                      case simTest symOnline fnName of
+                    \bak symOnline ->
+                      case simTest bak symOnline fnName of
                         SomeTestOvr testFn features personality -> do
                           let outH = view outputHandle ?outputConfig
+                          let sym = C.backendGetSym bak
                           setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
-                          let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
+                          let simCtx = C.initSimContext bak mirIntrinsicTypes halloc outH
                                   (C.FnBindings C.emptyHandleMap) mirExtImpl personality
                           return (Crux.RunnableStateWithExtensions
                                   (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
                                    C.runOverrideSim C.UnitRepr $ testFn) features
                                  )
-                , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
-                , Crux.resultHook = \_sym result -> return result
+                , Crux.onErrorHook = \_bak -> return (\_ _ -> return mempty)
+                , Crux.resultHook = \_bak result -> return result
                 }
 
     let outputResult (CruxSimulationResult cmpl gls)
