@@ -17,6 +17,8 @@ import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import qualified Text.LLVM.AST as L
 
+import qualified What4.Expr.Builder as WEB
+
 import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.Backend.Simple as CBS
 import           Lang.Crucible.FunctionHandle ( withHandleAllocator, HandleAllocator )
@@ -48,14 +50,16 @@ withInitializedMemory mod' action =
 
 -- | Create an LLVM context from a module and make some assertions about it.
 withLLVMCtx :: forall a. L.Module
-            -> (forall arch sym. ( ?lc :: TypeContext
-                                 , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
-                                 , CB.IsSymInterface sym
-                                 , LLVMMem.HasLLVMAnn sym
-                                 , ?memOpts :: LLVMMem.MemOptions
-                                 )
+            -> (forall arch sym bak.
+                   ( ?lc :: TypeContext
+                   , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
+                   , CB.IsSymInterface sym
+                   , CB.IsBoolSolver sym bak
+                   , LLVMMem.HasLLVMAnn sym
+                   , ?memOpts :: LLVMMem.MemOptions
+                   )
                 => LLVMTr.LLVMContext arch
-                -> sym
+                -> bak
                 -> IO a)
             -> IO a
 withLLVMCtx mod' action =
@@ -63,7 +67,8 @@ withLLVMCtx mod' action =
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
-        sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
+        sym <- WEB.newExprBuilder WEB.FloatRealRepr CrucibleLLVMTestData nonceGen
+        bak <- CBS.newSimpleBackend sym
         let ?memOpts = LLVMMem.defaultMemOptions
         let ?transOpts = LLVMTr.defaultTranslationOptions
         memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
@@ -74,11 +79,12 @@ withLLVMCtx mod' action =
           let ?ptrWidth = width
           let ?lc = LLVMTr._llvmTypeCtx ctx
           let ?recordLLVMAnnotation = \_ _ _ -> pure ()
-          action ctx sym
+          action ctx bak
         }}}
   in withIONonceGenerator $ \nonceGen ->
      withHandleAllocator  $ \halloc   -> with nonceGen halloc
 
+data CrucibleLLVMTestData t = CrucibleLLVMTestData
 
 
 assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
