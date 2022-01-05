@@ -61,13 +61,16 @@ sameSolver o f =
 data SolverConfig = SingleOnlineSolver SolverOnline
                   -- ^ Use a single online solver for both path satisfiability
                   -- checking and goal discharge
+
                   | OnlineSolverWithOfflineGoals SolverOnline SolverOffline
                   -- ^ Use an online solver for path satisfiability checking and
                   -- use an offline solver for goal discharge
+
                   | OnlineSolverWithSeparateOnlineGoals SolverOnline SolverOnline
                   -- ^ Use one online solver connection for path satisfiability
                   -- checking and a separate online solver connection for goal
-                  -- discharge
+                  -- discharge.  INVARIANT: the solvers must be distinct.
+
                   | OnlyOfflineSolvers [SolverOffline]
                   -- ^ Try any of a number of offline solvers with no support
                   -- for path satisfiability checking
@@ -197,7 +200,8 @@ parseSolverConfig cruxOpts = validatedToEither $
       (OnlineSolverWithOfflineGoals <$> asOnlineSolver onSolver <*> asOnlyOfflineSolver (CCC.solver cruxOpts)) <|>
         -- In this case, the requested solver can be used in online mode so we
         -- use it as such
-       (OnlineSolverWithSeparateOnlineGoals <$> asOnlineSolver onSolver <*> asOnlineSolver (CCC.solver cruxOpts))
+        (onlineWithOnlineGoals <$> asOnlineSolver onSolver <*> asOnlineSolver (CCC.solver cruxOpts))
+
     (Just onSolver, True, True) ->
       -- In this case, the user requested separate solvers for path sat checking
       -- and goal discharge, but further requested that we force goals to be
@@ -208,3 +212,7 @@ parseSolverConfig cruxOpts = validatedToEither $
     tryOnlyOffline = OnlyOfflineSolvers . pure <$> asOnlyOfflineSolver (CCC.solver cruxOpts)
     trySingleOnline = SingleOnlineSolver <$> asOnlineSolver (CCC.solver cruxOpts)
     tryManyOffline = OnlyOfflineSolvers <$> asManyOfflineSolvers (CCC.solver cruxOpts)
+
+    onlineWithOnlineGoals s1 s2
+      | s1 == s2  = SingleOnlineSolver s1
+      | otherwise = OnlineSolverWithSeparateOnlineGoals s1 s2

@@ -604,10 +604,11 @@ runSimulator cruxOpts simCallback = do
           -- since they weren't included in the symbolic backend configuration
           -- with the initial setup of the online solver (since it could have
           -- been a different solver)
-          extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration (backendGetSym bak))
+          unless (CCS.sameSolver onSolver offSolver) $
+            extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration (backendGetSym bak))
           doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
 
-    Right (CCS.OnlyOfflineSolvers offSolvers) -> do
+    Right (CCS.OnlyOfflineSolvers offSolvers) ->
       withFloatRepr (Proxy @s) (Proxy @CruxState) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
           sym <- WEB.newExprBuilder floatRepr CruxState nonceGen 
@@ -619,7 +620,7 @@ runSimulator cruxOpts simCallback = do
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak Nothing
           doSimWithResults cruxOpts simCallback bak execFeatures profInfo Nothing (proveGoalsOffline adapters)
 
-    Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
+    Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) ->
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
       -- mode.
