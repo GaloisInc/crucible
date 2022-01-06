@@ -136,6 +136,31 @@ Testing with coverage tracking is currently only available via
 Use `scripts/stack-test-coverage.sh` to generate a coverage
 report for all test suites.
 
+Notes on Freeze Files
+---------------------
+
+We use the `cabal.GHC-*.config` files to constrain dependency versions in CI.
+We recommand using the following command for best results before building
+locally:
+
+```
+ln -s cabal.GHC-<VER>.config cabal.project.freeze
+```
+
+These configuration files were generated using
+`cabal freeze --enable-tests --enable-benchmarks`. Note that at present, these
+configuration files assume a Unix-like operating system, as we do not currently
+test Windows on CI. If you would like to use these configuration files on
+Windows, you will need to make some manual changes to remove certain packages
+and flags:
+
+```
+regex-posix
+tasty +unix
+unix
+unix-compat
+```
+
 Acknowledgements
 ----------------
 
