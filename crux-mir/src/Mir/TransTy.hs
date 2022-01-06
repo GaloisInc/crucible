@@ -256,6 +256,7 @@ tyToReprM ty = do
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
     -- Custom types
+    CTyAny -> False
     CTyMethodSpec -> False
     CTyMethodSpecBuilder -> False
 
