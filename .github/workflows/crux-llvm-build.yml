@@ -45,7 +45,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-20.04, ubuntu-18.04] # , macos-10.15] # , windows-latest]
-        ghc: ["8.6.5", "8.8.4", "8.10.4"]
+        ghc: ["8.6.5", "8.8.4", "8.10.7"]
         allow-failure: [false]
         include:
           - os: macos-10.15
@@ -55,13 +55,13 @@ jobs:
             ghc: 8.8.4
             allow-failure: true
           - os: macos-10.15
-            ghc: 8.10.2
+            ghc: 8.10.7
             allow-failure: true
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
         exclude:
           - os: windows-latest
-            ghc: 8.10.2
+            ghc: 8.10.7
           - os: windows-latest
             ghc: 8.8.4
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}

@@ -42,13 +42,12 @@ jobs:
       matrix:
         # We want Windows soon, but it doesn't need to be now
         os: [ubuntu-latest, macos-10.15] #, windows-latest]
-        # We want GHC 8.10 soon, but it doesn't need to be now
-        ghc: ["8.6.5", "8.8.4"] # "8.10.2"]
+        ghc: ["8.6.5", "8.8.4", "8.10.7"]
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
         exclude:
           - os: windows-latest
-            ghc: 8.10.2
+            ghc: 8.10.7
           - os: windows-latest
             ghc: 8.8.4
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
