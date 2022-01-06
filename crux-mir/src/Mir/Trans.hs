@@ -1525,6 +1525,10 @@ initialValue (CTyArray t) = tyToReprM t >>= \(Some tpr) -> case tpr of
 initialValue ty@(CTyBv _sz) = tyToReprM ty >>= \(Some tpr) -> case tpr of
     C.BVRepr w -> return $ Just $ MirExp (C.BVRepr w) $ S.app $ eBVLit w 0
     _ -> mirFail $ "Bv type " ++ show ty ++ " does not have BVRepr"
+-- `Any` values have no reasonable default.  Any default we provide might get
+-- muxed with actual non-default values, which will fail (unless the concrete
+-- type happens to match exactly).
+initialValue CTyAny = return Nothing
 initialValue CTyMethodSpec = return Nothing
 initialValue CTyMethodSpecBuilder = return Nothing
 
