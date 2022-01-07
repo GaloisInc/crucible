@@ -38,7 +38,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.8 && < 4.15,
+    base >= 4.8 && < 4.16,
     bimap,
     bv-sized >= 1.0.0 && < 1.1,
     bytestring,

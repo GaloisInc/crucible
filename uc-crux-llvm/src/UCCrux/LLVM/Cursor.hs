@@ -93,6 +93,56 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     Cursor m inTy atTy ->
     Cursor m ('FTStruct fields) atTy
 
+$(return [])
+
+instance TestEquality (Cursor m inTy) where
+  testEquality =
+    $( U.structuralTypeEquality
+         [t|Cursor|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|testEquality|]
+                 )
+               ]
+         )
+     )
+
+instance OrdF (Cursor m inTy) where
+  compareF =
+    $( U.structuralTypeOrd
+         [t|Cursor|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|compareF|]
+                 )
+               ]
+         )
+     )
+
 instance Eq (Cursor m inTy atTy) where
   c1 == c2 = isJust (testEquality c1 c2)
 
@@ -255,6 +305,62 @@ data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   | SelectClobbered !(FuncSymbol m) (Cursor m inTy atTy)
   deriving Eq
 
+$(return [])
+
+instance TestEquality (Selector m argTypes inTy) where
+  testEquality =
+    $( U.structuralTypeEquality
+         [t|Selector|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|testEquality|]
+                 )
+               ]
+         )
+     )
+
+instance OrdF (Selector m argTypes inTy) where
+  compareF =
+    $( U.structuralTypeOrd
+         [t|Selector|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|FuncSymbol|]),
+                   [|\x y -> fromOrdering (compare x y)|]
+                 ),
+                 ( appAny (U.ConType [t|GlobalSymbol|]),
+                   [|\x y -> fromOrdering (compare x y)|]
+                 )
+               ]
+         )
+     )
+
 -- | A non-parameterized summary of a 'Selector'
 data Where
   = Arg !Int
@@ -331,107 +437,3 @@ selectorCursor =
           SelectReturn func _ -> SelectReturn func v
           SelectClobbered func _ -> SelectClobbered func v
     )
-
-$(return [])
-
-instance TestEquality (Cursor m inTy) where
-  testEquality =
-    $( U.structuralTypeEquality
-         [t|Cursor|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
-                   [|testEquality|]
-                 )
-               ]
-         )
-     )
-
-instance OrdF (Cursor m inTy) where
-  compareF =
-    $( U.structuralTypeOrd
-         [t|Cursor|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
-                   [|compareF|]
-                 )
-               ]
-         )
-     )
-
-instance TestEquality (Selector m argTypes inTy) where
-  testEquality =
-    $( U.structuralTypeEquality
-         [t|Selector|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
-                   [|testEquality|]
-                 )
-               ]
-         )
-     )
-
-instance OrdF (Selector m argTypes inTy) where
-  compareF =
-    $( U.structuralTypeOrd
-         [t|Selector|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (U.ConType [t|FuncSymbol|]),
-                   [|\x y -> fromOrdering (compare x y)|]
-                 ),
-                 ( appAny (U.ConType [t|GlobalSymbol|]),
-                   [|\x y -> fromOrdering (compare x y)|]
-                 )
-               ]
-         )
-     )

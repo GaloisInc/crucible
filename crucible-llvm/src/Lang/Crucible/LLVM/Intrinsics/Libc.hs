@@ -509,7 +509,8 @@ callAssert
                   ::> LLVMPointerType wptr
                   ::> BVType 32
                   ::> LLVMPointerType wptr)
-  -> OverrideSim p sym ext r args reg (RegValue sym UnitType)
+  -> forall r args reg.
+     OverrideSim p sym ext r args reg (RegValue sym UnitType)
 callAssert assert_fail mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
   do when failUponExit $
        do mem <- readGlobal mvar

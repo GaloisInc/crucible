@@ -239,7 +239,7 @@ initFS sym ptrSize initContents = do
                                  ]
     , fsFileSizes = sizes_arr
     , fsSymData = initArray
-    , fsConstraints = id
+    , fsConstraints = \x -> x
     }
 
   where
@@ -745,7 +745,7 @@ writeBytePointer fptr bv = do
   let idx = filePointerIdx fptr
   sym <- getSym
   dataArr <- CMS.gets fsSymData
-  dataArr' <- liftIO $ CA.writeSingle sym idx bv dataArr  
+  dataArr' <- liftIO $ CA.writeSingle sym idx bv dataArr
   CMS.modify' $ \fs -> fs { fsSymData = dataArr' }
 
 readBytePointer ::
