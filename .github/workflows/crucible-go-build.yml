@@ -63,17 +63,10 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
 
-      - name: Nix unstable base
-        if: matrix.ghc == '9.0.2'
+      - name: Install Nix
         uses: cachix/install-nix-action@v16
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          install_url: https://releases.nixos.org/nix/nix-2.4/install
-      - name: Nix 20.09 base
-        if: matrix.ghc != '9.0.2'
-        uses: cachix/install-nix-action@v16
-        with:
-          nix_path: nixpkgs=channel:nixos-20.09
+          nix_path: nixpkgs=channel:21.11
           install_url: https://releases.nixos.org/nix/nix-2.4/install
 
       - uses: actions/cache@v2
@@ -92,16 +85,15 @@ jobs:
           SOLVER_PKG_VERSION: "snapshot-20210917"
           BUILD_TARGET_OS: ${{ matrix.os }}
 
-      - name: Setup Environment Vars (GHC 8.6.5)
-        if: matrix.ghc == '8.6.5'
-        run: |
-          GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
-          echo NS="nix shell github:nixos/nixpkgs/20.09#cabal-install github:nixos/nixpkgs/20.09#$GHC nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
       - name: Setup Environment Vars
-        if: matrix.ghc != '8.6.5'
         run: |
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
-          echo NS="nix shell github:nixos/nixpkgs/21.05#cabal-install nixpkgs#$GHC nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
+          case ${{ matrix.ghc }} in
+            8.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/20.09 ;;
+            9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
+          esac
+          echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
 
       - name: Package's Cabal/GHC compatibility
         shell: bash
