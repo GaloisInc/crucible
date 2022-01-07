@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# Language ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -62,7 +63,11 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , ppAllocInfo
   , ppAllocs
   , ppMem
+  , ppMemWrites
   , ppWrite
+
+    -- * Write ranges
+  , writeRangesMem
 
     -- * Concretization
   , concPtr
@@ -72,6 +77,8 @@ module Lang.Crucible.LLVM.MemModel.MemLog
 
 import           Control.Applicative ((<|>))
 import           Control.Lens
+import           Control.Monad.State
+import           Control.Monad.Trans.Maybe
 import           Data.Foldable
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -83,6 +90,7 @@ import           Data.Text (Text)
 import           Numeric.Natural
 import           Prettyprinter
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Ctx (SingleCtx)
 
 import           What4.Interface
@@ -510,6 +518,92 @@ ppMemState f (BranchFrame _ _ d ms) =
 
 ppMem :: IsExpr (SymExpr sym) => Mem sym -> Doc ann
 ppMem m = ppMemState ppMemChanges (m^.memState)
+
+
+------------------------------------------------------------------------------
+-- Write ranges
+
+multiUnion :: (Ord k, Semigroup a) => Map k a -> Map k a -> Map k a
+multiUnion = Map.unionWith (<>)
+
+writeSourceSize ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  WriteSource sym w ->
+  MaybeT IO (SymBV sym w)
+writeSourceSize sym = \case
+  MemCopy _src sz -> pure sz
+  MemSet _val sz -> pure sz
+  MemStore _val st _align ->
+    liftIO $ bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth $ toInteger $ typeEnd 0 st
+  MemArrayStore _arr Nothing -> MaybeT $ pure Nothing
+  MemArrayStore _arr (Just sz) -> pure sz
+  MemInvalidate _nm sz -> pure sz
+
+writeRangesMemWrite ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  MemWrite sym ->
+  MaybeT IO (Map Natural [(SymBV sym w, SymBV sym w)])
+writeRangesMemWrite sym = \case
+  MemWrite ptr wsrc
+    | Just Refl <- testEquality ?ptrWidth (ptrWidth ptr) ->
+      case asNat (llvmPointerBlock ptr) of
+        Just blk -> do
+          sz <- writeSourceSize sym wsrc
+          pure $ Map.singleton blk [(llvmPointerOffset ptr, sz)]
+        Nothing -> MaybeT $ pure Nothing
+    | otherwise -> fail "foo"
+  WriteMerge _p ws1 ws2 ->
+    multiUnion <$> writeRangesMemWrites sym ws1 <*> writeRangesMemWrites sym ws2
+
+writeRangesMemWritesChunk ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  MemWritesChunk sym ->
+  MaybeT IO (Map Natural [(SymBV sym w, SymBV sym w)])
+writeRangesMemWritesChunk sym = \case
+  MemWritesChunkFlat ws -> foldl multiUnion Map.empty <$> mapM (writeRangesMemWrite sym) ws
+  MemWritesChunkIndexed mp ->
+    foldl multiUnion Map.empty <$> mapM (writeRangesMemWrite sym) (concat $ IntMap.elems mp)
+
+writeRangesMemWrites ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  MemWrites sym ->
+  MaybeT IO (Map Natural [(SymBV sym w, SymBV sym w)])
+writeRangesMemWrites sym (MemWrites ws) =
+  foldl multiUnion Map.empty <$> mapM (writeRangesMemWritesChunk sym) ws
+
+writeRangesMemChanges ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  MemChanges sym ->
+  MaybeT IO (Map Natural [(SymBV sym w, SymBV sym w)])
+writeRangesMemChanges sym (_as, ws) = writeRangesMemWrites sym ws
+
+writeRangesMemState ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  MemState sym ->
+  MaybeT IO (Map Natural [(SymBV sym w, SymBV sym w)])
+writeRangesMemState sym = \case
+  EmptyMem _a _w chs -> writeRangesMemChanges sym chs
+  StackFrame _a _w _nm chs st ->
+    multiUnion <$> writeRangesMemChanges sym chs <*> writeRangesMemState sym st
+  BranchFrame _a _w chs st ->
+    multiUnion <$> writeRangesMemChanges sym chs <*> writeRangesMemState sym st
+
+-- | Compute the ranges (pairs of the form pointer offset and size) for all
+-- memory writes, indexed by the pointer base. The result is Nothing if the
+-- memory contains any writes with symbolic pointer base, or without size.
+writeRangesMem ::
+  (IsExprBuilder sym, HasPtrWidth w) =>
+  sym ->
+  Mem sym ->
+  MaybeT IO ((Map Natural [(SymBV sym w, SymBV sym w)]))
+writeRangesMem sym mem = writeRangesMemState sym $ mem ^. memState
+
 
 ------------------------------------------------------------------------------
 -- Concretization
