@@ -63,16 +63,12 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
 
-      - name: Nix unstable base
-        if: matrix.ghc == '9.0.2'
+      - name: Install Nix
         uses: cachix/install-nix-action@v16
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-      - name: Nix 20.09 base
-        if: matrix.ghc != '9.0.2'
-        uses: cachix/install-nix-action@v16
-        with:
-          nix_path: nixpkgs=channel:nixos-20.09
+          nix_path: nixpkgs=channel:21.11
+          install_url: https://releases.nixos.org/nix/nix-2.4/install
+
       - uses: actions/cache@v2
         name: Cache cabal store
         with:
@@ -92,7 +88,12 @@ jobs:
       - name: Setup Environment Vars
         run: |
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
-          echo GHC=$GHC >> $GITHUB_ENV
+          case ${{ matrix.ghc }} in
+            8.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/20.09 ;;
+            9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
+          esac
+          echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
 
       - name: Package's Cabal/GHC compatibility
         shell: bash
@@ -107,7 +108,7 @@ jobs:
           defsetup()  { echo import Distribution.Simple; echo main = defaultMain; }
           setup_src() { if [ ! -f Setup.hs ] ; then defsetup > DefSetup.hs; fi; ls *Setup.hs; }
           setup_bin() { echo setup.${{ matrix.ghc }}; }
-          with_ghc()  { nix-shell -p $GHC --run "$(echo ${@})"; }
+          with_ghc()  { $NS -c ${@}; }
           (cd crucible-jvm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
       - run: cabal update
       - run: cabal configure crucible-jvm --enable-tests
