@@ -148,6 +148,7 @@ module Lang.Crucible.LLVM.MemModel
     -- * Disjointness
   , assertDisjointRegions
   , buildDisjointRegionsAssertion
+  , buildDisjointRegionsAssertionWithSub
 
     -- * Globals
   , GlobalSymbol(..)
@@ -1583,6 +1584,35 @@ buildDisjointRegionsAssertion sym w dest dlen src slen = do
 
   orPred sym diffBlk =<< orPred sym destfirst srcfirst
 
+-- | Build the condition that two memory regions are disjoint, using
+-- subtraction and comparison to zero instead of direct comparison (that is,
+-- 0 <= y - x instead of x <= y). This enables semiring and abstract domain
+-- simplifications. The result if false if any offset is not positive when
+-- interpreted as signed bitvector.
+buildDisjointRegionsAssertionWithSub ::
+  (HasPtrWidth wptr, IsSymInterface sym) =>
+  sym ->
+  LLVMPtr sym wptr {- ^ pointer to region 1 -} ->
+  SymBV sym wptr   {- ^ length of region 1  -} ->
+  LLVMPtr sym wptr {- ^ pointer to region 2 -} ->
+  SymBV sym wptr   {- ^ length of region 2  -} ->
+  IO (Pred sym)
+buildDisjointRegionsAssertionWithSub sym dest dlen src slen = do
+  let LLVMPointer dblk doff = dest
+  let LLVMPointer sblk soff = src
+
+  dend <- bvAdd sym doff dlen
+  send <- bvAdd sym soff slen
+
+  zero_bv <- bvLit sym PtrWidth $ BV.zero PtrWidth
+
+  diffBlk <- notPred sym =<< natEq sym dblk sblk
+
+  allPos <- andAllOf sym folded =<< mapM (bvSle sym zero_bv) [doff, dend, soff, send]
+  destfirst <- bvSle sym zero_bv =<< bvSub sym soff dend
+  srcfirst <- bvSle sym zero_bv =<< bvSub sym doff send
+
+  orPred sym diffBlk =<< andPred sym allPos =<< orPred sym destfirst srcfirst
 
 ----------------------------------------------------------------------
 -- constToLLVMVal
