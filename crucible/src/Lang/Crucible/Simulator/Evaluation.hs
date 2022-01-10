@@ -9,7 +9,6 @@
 --
 -- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -34,10 +33,6 @@ module Lang.Crucible.Simulator.Evaluation
   ) where
 
 import           Prelude hiding (pred)
-
-#if !MIN_VERSION_base(4,13,0)
-import Control.Monad.Fail( MonadFail )
-#endif
 
 import qualified Control.Exception as Ex
 import           Control.Lens

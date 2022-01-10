@@ -403,14 +403,14 @@ ppSelector selector =
 
 -- | For documentation of the type parameters, see the comment on 'Cursor'.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SomeSelector m (argTypes :: Ctx (FullType m))
   = forall inTy atTy. SomeSelector (Selector m argTypes inTy atTy)
 
 -- | For documentation of the type parameters, see the comment on 'Cursor'.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SomeInSelector m (argTypes :: Ctx (FullType m)) atTy
   = forall inTy. SomeInSelector (Selector m argTypes inTy atTy)

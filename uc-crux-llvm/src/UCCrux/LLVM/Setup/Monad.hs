@@ -83,7 +83,7 @@ import           UCCrux.LLVM.Constraints (Constraint)
 import qualified UCCrux.LLVM.Mem as Mem
 {- ORMOLU_ENABLE -}
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data TypedSelector m arch (argTypes :: Ctx (FullType m)) (ft :: FullType m)
   = TypedSelector (FullTypeRepr m ft) (SomeInSelector m argTypes ft)
@@ -93,7 +93,7 @@ data SetupAssumption m sym = SetupAssumption
     assumptionPred :: What4.Pred sym
   }
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SetupState m arch sym (argTypes :: Ctx (FullType m)) = SetupState
   { _setupMem :: LLVMMem.MemImpl sym,
@@ -115,7 +115,7 @@ setupAnnotations = lens _setupAnnotations (\s v -> s {_setupAnnotations = v})
 symbolCounter :: Simple Lens (SetupState m arch sym argTypes) Int
 symbolCounter = lens _symbolCounter (\s v -> s {_symbolCounter = v})
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 newtype Setup m arch sym (argTypes :: Ctx (FullType m)) a
   = Setup
@@ -137,7 +137,7 @@ deriving instance MonadWriter [SetupAssumption m sym] (Setup m arch sym argTypes
 instance LJ.HasLog Text (Setup m arch sym argTypes) where
   getLogAction = pure $ LJ.LogAction (liftIO . TextIO.putStrLn . ("[Crux] " <>))
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SetupResult m arch sym (argTypes :: Ctx (FullType m)) = SetupResult
   { resultMem :: LLVMMem.MemImpl sym,

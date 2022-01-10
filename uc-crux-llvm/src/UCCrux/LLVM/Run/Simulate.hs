@@ -149,18 +149,13 @@ symCreateOverrideFn ::
   SymCreateOverrideFn sym arch
 symCreateOverrideFn ov = SymCreateOverrideFn $ runCreateOverrideFn ov
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.6
--- compatibility.
-data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimulationResult
+data UCCruxSimulationResult m arch argTypes = UCCruxSimulationResult
   { unsoundness :: Unsoundness,
     explanations :: [Located (Explanation m arch argTypes)]
   }
 
 -- | Based on 'Crux.SimulatorHooks'
---
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.6
--- compatibility.
-data SimulatorHooks sym m arch (argTypes :: Ctx (FullType m)) r =
+data SimulatorHooks sym m arch argTypes r =
   SimulatorHooks
     { createOverrideHooks :: [SymCreateOverrideFn sym arch]
     -- | The 'PreSimulationMem sym' parameter is the Pre-simulation memory.

@@ -52,7 +52,7 @@ executable crucible-jvm
 library
 
   build-depends:
-    base >= 4 && < 5,
+    base >= 4.13 && < 5,
     aig,
     array,
     base16-bytestring >= 0.1 && < 1.1,

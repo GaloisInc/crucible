@@ -7,7 +7,6 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -78,10 +77,6 @@ module Lang.Crucible.Simulator.OverrideSim
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad hiding (fail)
-#if !(MIN_VERSION_base(4,13,0))
-import qualified Control.Monad.Fail as Fail (fail)
-import           Control.Monad.Fail (MonadFail)
-#endif
 import qualified Control.Monad.Catch as X
 import           Control.Monad.Reader hiding (fail)
 import           Control.Monad.ST
@@ -166,9 +161,6 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-#if !(MIN_VERSION_base(4,13,0))
-  fail = Fail.fail
-#endif
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang ret) ('Just args))
                              (OverrideSim p sym ext rtp args ret)

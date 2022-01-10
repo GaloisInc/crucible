@@ -6,7 +6,6 @@ License          : BSD3
 Maintainer       : sweirich@galois.com
 Stability        : provisional
 -}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -23,10 +22,6 @@ Stability        : provisional
 module Lang.Crucible.JVM.Simulate where
 
 -- base
-#if !MIN_VERSION_base(4,13,0)
-import Control.Monad.Fail( MonadFail )
-#endif
-
 import           Data.Maybe (maybeToList)
 import           Control.Monad.State.Strict
 import           Data.Map.Strict (Map)

@@ -24,7 +24,7 @@ README][mir-json-readme].
 
 ## Installation
 
-Use GHC 8.6.5 or 8.8.4.  From the `crux-mir` directory, run:
+Use GHC 8.8.4, 8.10.7, or 9.0.2.  From the `crux-mir` directory, run:
 
     $ cabal v2-install exe:crux-mir --overwrite-policy=always
 

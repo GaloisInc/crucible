@@ -38,7 +38,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.8 && < 4.16,
+    base >= 4.13 && < 4.16,
     bimap,
     bv-sized >= 1.0.0 && < 1.1,
     bytestring,
@@ -67,6 +67,7 @@ library
 
   default-extensions:
      NondecreasingIndentation
+     NoStarIsType
 
   hs-source-dirs: src
 
@@ -127,9 +128,6 @@ library
 
   if flag(unsafe-operations)
     cpp-options: -DUNSAFE_OPS
-
-  if impl(ghc >= 8.6)
-    default-extensions: NoStarIsType
 
 test-suite absint-tests
   import: bldflags

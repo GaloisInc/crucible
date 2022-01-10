@@ -122,7 +122,7 @@ declName decl =
 -- | A constraint, together with where it was applied and the resulting 'Pred'
 -- it was \"compiled\" to.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data CheckedConstraint m sym (argTypes :: Ctx (FullType m)) inTy atTy
   = CheckedConstraint
@@ -136,7 +136,7 @@ data CheckedConstraint m sym (argTypes :: Ctx (FullType m)) inTy atTy
         checkedPred :: Pred sym
       }
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SomeCheckedConstraint m sym (argTypes :: Ctx (FullType m)) =
   forall inTy atTy.
@@ -154,7 +154,7 @@ data SomeCheckedConstraint' m =
 -- TODO(lb): Might be nice to add the values of global variables that were
 -- constrained.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data CheckedCall m sym arch (argTypes :: Ctx (FullType m)) =
   CheckedCall

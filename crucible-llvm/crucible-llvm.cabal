@@ -28,7 +28,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.7 && < 4.16,
+    base >= 4.13 && < 4.16,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,
@@ -113,8 +113,7 @@ library
     Lang.Crucible.LLVM.Types
     Lang.Crucible.LLVM.Utils
 
-  if impl(ghc >= 8.6)
-    default-extensions: NoStarIsType
+  default-extensions: NoStarIsType
 
 
 test-suite crucible-llvm-tests
