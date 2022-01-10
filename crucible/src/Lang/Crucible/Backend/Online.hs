@@ -64,6 +64,7 @@ module Lang.Crucible.Backend.Online
   ) where
 
 
+import           Control.Lens ( (^.) )
 import           Control.Monad
 import           Control.Monad.Fix (mfix)
 import           Control.Monad.Catch
@@ -172,12 +173,12 @@ newOnlineBackend ::
   ProblemFeatures ->
   IO (OnlineBackend solver scope st fs)
 newOnlineBackend sym feats =
-  do stk <- initAssumptionStack (B.exprCounter sym)
+  do stk <- initAssumptionStack (sym ^. B.exprCounter)
      procref <- newIORef SolverNotStarted
      featref <- newIORef feats
 
      mfix $ \bak ->
-       do extendConfig
+       do tryExtendConfig
             (backendOptions ++ onlineBackendOptions bak)
             (getConfiguration sym)
 
@@ -238,7 +239,7 @@ withYicesOnlineBackend ::
 withYicesOnlineBackend sym unsatFeat extraFeatures action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat  .|. extraFeatures in
   withOnlineBackend sym feat $ \bak ->
-    do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
+    do liftIO $ tryExtendConfig Yices.yicesOptions (getConfiguration sym)
        action bak
 
 type Z3OnlineBackend scope st fs = OnlineBackend (SMT2.Writer Z3.Z3) scope st fs
@@ -264,7 +265,7 @@ withZ3OnlineBackend ::
 withZ3OnlineBackend sym unsatFeat extraFeatures action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
   withOnlineBackend sym feat $ \bak ->
-    do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
+    do liftIO $ tryExtendConfig Z3.z3Options (getConfiguration sym)
        action bak
 
 type BoolectorOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Boolector.Boolector) scope st fs
@@ -285,7 +286,7 @@ withBoolectorOnlineBackend ::
 withBoolectorOnlineBackend sym unsatFeat action =
   let feat = (SMT2.defaultFeatures Boolector.Boolector .|. unsatFeaturesToProblemFeatures unsatFeat) in
   withOnlineBackend sym feat $ \bak -> do
-    liftIO $ extendConfig Boolector.boolectorOptions (getConfiguration sym)
+    liftIO $ tryExtendConfig Boolector.boolectorOptions (getConfiguration sym)
     action bak
 
 type CVC4OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC4.CVC4) scope st fs
@@ -311,7 +312,7 @@ withCVC4OnlineBackend ::
 withCVC4OnlineBackend sym unsatFeat extraFeatures action =
   let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
   withOnlineBackend sym feat $ \bak -> do
-    liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
+    liftIO $ tryExtendConfig CVC4.cvc4Options (getConfiguration sym)
     action bak
 
 type STPOnlineBackend scope st fs = OnlineBackend (SMT2.Writer STP.STP) scope st fs
@@ -334,7 +335,7 @@ withSTPOnlineBackend ::
   m a
 withSTPOnlineBackend sym action =
   withOnlineBackend sym (SMT2.defaultFeatures STP.STP) $ \bak -> do
-    liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
+    liftIO $ tryExtendConfig STP.stpOptions (getConfiguration sym)
     action bak
 
 -- | Shutdown any currently-active solver process.

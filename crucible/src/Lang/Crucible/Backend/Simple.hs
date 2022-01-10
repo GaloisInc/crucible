@@ -29,6 +29,7 @@ module Lang.Crucible.Backend.Simple
   , B.Flags
   ) where
 
+import           Control.Lens ( (^.) )
 import           Control.Monad (void)
 
 import           What4.Config
@@ -59,8 +60,8 @@ newSimpleBackend ::
   B.ExprBuilder t st fs ->
   IO (SimpleBackend t st fs)
 newSimpleBackend sym =
-  do as <- AS.initAssumptionStack (B.exprCounter sym)
-     extendConfig backendOptions (getConfiguration sym)
+  do as <- AS.initAssumptionStack (sym ^. B.exprCounter)
+     tryExtendConfig backendOptions (getConfiguration sym)
      return SimpleBackend
             { sbAssumptionStack = as
             , sbExprBuilder = sym

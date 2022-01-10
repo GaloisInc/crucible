@@ -64,7 +64,7 @@ pathSatisfiabilityFeature :: forall sym.
         we can determine about the given predicate. -} ->
   IO (GenericExecutionFeature sym)
 pathSatisfiabilityFeature sym considerSatisfiability =
-  do extendConfig pathSatOptions (getConfiguration sym)
+  do tryExtendConfig pathSatOptions (getConfiguration sym)
      pathSatOpt <- liftIO $ getOptionSetting checkPathSatisfiability (getConfiguration sym)
      return $ GenericExecutionFeature $ onStep pathSatOpt
 
