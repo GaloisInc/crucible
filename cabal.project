@@ -26,7 +26,6 @@ optional-packages:
   dependencies/golang/
   dependencies/jvm-parser/
   dependencies/haskell-wasm/
-  dependencies/hpb/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/
   dependencies/what4/what4/

@@ -62,13 +62,6 @@ In addition, there are the following library/executable packages:
    simulator.  This is the backend for the `cargo crux-test` command provided
    by `mir-json`.  See the [`crux-mir` README](crux-mir/README.md) for details.
 
- * **`crucible-server`**, a standalone process that allows constructing
-   and symbolically executing Crucible programs via [Protocol Buffers][pb].
-   The crucible-server directory also contains a Java API for
-   connecting to and working with the `crucible-server`.
-
-[pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
-
  * **`uc-crux-llvm`**, another standalone frontend for executing C and C++
    programs in the Crucible symbolic simulator, using "under-constrained"
    symbolic execution. Essentially, this technique can start at any function in
@@ -114,19 +107,6 @@ cabal new-build all
 ```
 
 Alternately, you can target a more specific sub-package instead of `all`.
-
-If you wish to build `crucible-server` (which will be built if you
-build all packages, as above), then the build depends on having `hpb`
-in your path. After fetching the dependencies, this can be arranged by
-entering `dependencies/hpb/` and running the following commands:
-
-```
-cabal sandbox init
-cabal install --dependencies-only
-cabal install
-cp ./cabal-sandbox/bin/hpb ⟨EXE_PATH⟩
-```
-where `⟨EXE_PATH⟩` is a directory on your `$PATH`.
 
 Testing and Coverage
 --------------------
