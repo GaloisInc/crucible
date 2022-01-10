@@ -299,7 +299,7 @@ partitionUncertainty = go [] [] [] [] [] [] []
 -- | An error is either a true positive, a false positive due to some missing
 -- preconditions, or unknown.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data Explanation m arch (argTypes :: Ctx (FullType m))
   = ExTruePositive TruePositive

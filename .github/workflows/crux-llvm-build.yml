@@ -45,12 +45,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-20.04, ubuntu-18.04] # , macos-10.15] # , windows-latest]
-        ghc: ["8.6.5", "8.8.4", "8.10.7", "9.0.2"]
+        ghc: ["8.8.4", "8.10.7", "9.0.2"]
         allow-failure: [false]
         include:
-          - os: macos-10.15
-            ghc: 8.6.5
-            allow-failure: true
           - os: macos-10.15
             ghc: 8.8.4
             allow-failure: true
@@ -106,7 +103,6 @@ jobs:
         run: |
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
           case ${{ matrix.ghc }} in
-            8.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/20.09 ;;
             9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac

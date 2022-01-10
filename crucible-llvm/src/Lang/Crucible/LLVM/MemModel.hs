@@ -9,7 +9,6 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -186,10 +185,6 @@ module Lang.Crucible.LLVM.MemModel
   ) where
 
 import           Prelude hiding (seq)
-
-#if !MIN_VERSION_base(4,13,0)
-import Control.Monad.Fail( MonadFail )
-#endif
 
 import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad

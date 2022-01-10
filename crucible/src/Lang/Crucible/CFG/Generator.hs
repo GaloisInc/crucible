@@ -18,7 +18,6 @@
 -- converts the CFGs produced by this interface into Core CFGs in SSA
 -- form.
 ------------------------------------------------------------------------
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -268,13 +267,6 @@ instance MonadTrans (Generator ext s t ret) where
 instance Monad m => Monad (Generator ext s t ret m) where
   return  = Generator . return
   x >>= f = Generator (unGenerator x >>= unGenerator . f)
-#if !MIN_VERSION_base(4,13,0)
-  fail msg = Generator $ do
-     p <- use gsPosition
-     fail $ unwords [ "Failure encountered while generating a Crucible CFG:"
-                    , "at " ++ show p ++ ": " ++ msg
-                    ]
-#endif
 
 instance F.MonadFail m => F.MonadFail (Generator ext s t ret m) where
   fail msg = Generator $ do

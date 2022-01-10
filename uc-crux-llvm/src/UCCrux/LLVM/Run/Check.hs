@@ -110,7 +110,7 @@ newtype SomeCheckedCalls m sym arch =
 
 -- | The result of checking inferred contracts
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 newtype CheckResult m arch (argTypes :: Ctx (FullType m)) =
   CheckResult
@@ -137,7 +137,7 @@ data SomeCheckResult m arch =
       checkResult :: CheckResult m arch argTypes
     }
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data TypedConstraints m (argTypes :: Ctx (FullType m))
   = TypedConstraints

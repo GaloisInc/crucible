@@ -9,7 +9,6 @@
 --
 -- A rewrite engine for registerized CFGs.
 ------------------------------------------------------------------------
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -176,11 +175,7 @@ renameAll cfg = do
   where
     rename :: NonceGenerator (ST h) s
            -> Nonce s0 (tp :: CrucibleType)
-#if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
-           -> StateT (MapF (Nonce s0) (Nonce s)) (ST h) (Nonce s tp)
-#else
            -> StateT (MapF @CrucibleType (Nonce s0) (Nonce s)) (ST h) (Nonce s tp)
-#endif
     rename ng n = do
       mapping <- get
       case MapF.lookup n mapping of

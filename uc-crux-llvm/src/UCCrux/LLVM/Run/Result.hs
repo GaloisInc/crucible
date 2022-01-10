@@ -7,8 +7,6 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
--- Needed for GHC 8.6
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -77,7 +75,7 @@ ppFunctionSummaryTag =
     TagSafeUpToBounds -> "Function is safe up to the specified bounds on loops/recursion"
     TagAlwaysSafe -> "Function is always safe"
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 --
 -- TODO: It would be great to have more provenance information for the
@@ -103,7 +101,7 @@ data SomeBugfindingResult m arch
 data SomeBugfindingResult'
   = forall m arch. SomeBugfindingResult' (SomeBugfindingResult m arch)
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data BugfindingResult m arch (argTypes :: Ctx (FullType m)) = BugfindingResult
   { uncertainResults :: [Located Uncertainty],
