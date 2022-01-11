@@ -1,4 +1,4 @@
------------------------------------------------------------------------
+----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Simulator.RegMap
 -- Description      : Runtime representation of CFG registers
@@ -40,6 +40,7 @@ module Lang.Crucible.Simulator.RegMap
   , unconsReg
   , muxRegForType
   , muxReference
+  , eqReference
   , pushBranchForType
   , abortBranchForType
   , pushBranchRegs
@@ -150,10 +151,18 @@ muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
                       , show tpx, show tpy
                       ]
 
-muxReference :: IsSymInterface sym
-             => sym
-             -> ValMuxFn sym (ReferenceType tp)
+muxReference ::
+  IsSymInterface sym => sym -> ValMuxFn sym (ReferenceType tp)
 muxReference s = mergeMuxTree s
+
+eqReference ::
+  IsSymInterface sym =>
+  sym ->
+  RegValue sym (ReferenceType tp) ->
+  RegValue sym (ReferenceType tp) ->
+  IO (Pred sym)
+eqReference sym = muxTreeEq sym
+
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp

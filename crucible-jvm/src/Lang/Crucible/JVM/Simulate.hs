@@ -62,11 +62,12 @@ import           Lang.Crucible.Backend
 
 import           Lang.Crucible.Utils.MonadVerbosity
 import qualified Lang.Crucible.Utils.MuxTree as C (toMuxTree)
+import qualified Lang.Crucible.Analysis.Postdom as C
 
 import qualified Lang.Crucible.Simulator as C
-import qualified Lang.Crucible.Simulator.Evaluation as C (EvalAppFunc, evalApp)
+import qualified Lang.Crucible.Simulator.Evaluation as C (EvalAppFunc)
 import qualified Lang.Crucible.Simulator.GlobalState as C
-import qualified Lang.Crucible.Analysis.Postdom as C
+import qualified Lang.Crucible.Simulator.RegMap as C (eqReference)
 import qualified Lang.Crucible.Simulator.CallFrame as C
 import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
 
@@ -794,10 +795,9 @@ refIsNull sym ref =
 
 -- | Test whether two JVM references are equal.
 refIsEqual ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
-  bak -> C.RegValue sym JVMRefType -> C.RegValue sym JVMRefType -> IO (W4.Pred sym)
-refIsEqual bak ref1 ref2 =
-  let sym = backendGetSym bak in
+  IsSymInterface sym =>
+  sym -> C.RegValue sym JVMRefType -> C.RegValue sym JVMRefType -> IO (W4.Pred sym)
+refIsEqual sym ref1 ref2 =
   case ref1 of
     W4.Unassigned ->
       case ref2 of
@@ -811,18 +811,8 @@ refIsEqual bak ref1 ref2 =
              n2 <- W4.notPred sym p2
              n <- W4.andPred sym n1 n2
              p <- W4.andPred sym p1 p2
-             e <- doAppJVM bak (ReferenceEq W4.knownRepr (C.RV r1) (C.RV r2))
+             e <- C.eqReference sym r1 r2
              W4.orPred sym n =<< W4.andPred sym p e
-
--- | Evaluate a Crucible 'App' node in the @IO@ monad, using run-time values.
-doAppJVM ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
-  bak -> App JVM (C.RegValue' sym) tp -> IO (C.RegValue sym tp)
-doAppJVM bak =
-  C.evalApp bak jvmIntrinsicTypes out
-    (jvmExtensionEval bak jvmIntrinsicTypes out) (return . C.unRV)
-  where
-    out _verbosity _msg = return () --putStrLn
 
 -- | Write a value to a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).

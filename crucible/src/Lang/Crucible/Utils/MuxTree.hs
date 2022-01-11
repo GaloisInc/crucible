@@ -27,6 +27,11 @@ module Lang.Crucible.Utils.MuxTree
   , muxTreeBinOp
   , muxTreeCmpOp
   , collapseMuxTree
+  , muxTreeEq
+  , muxTreeLe
+  , muxTreeLt
+  , muxTreeGe
+  , muxTreeGt
   ) where
 
 import           Control.Lens (folded)
@@ -58,7 +63,7 @@ _conditionMuxTree :: IsExprBuilder sym => sym -> Pred sym -> MuxTree sym a -> IO
 _conditionMuxTree sym p (MuxTree m) = MuxTree <$> Map.traverseMaybeWithKey (conditionMuxTreeLeaf sym p) m
 
 -- | Compute a binary boolean predicate between two mux trees.
---   This operation decomposes the mux trees and compares the
+--   This operation decomposes the mux trees and compares
 --   all combinations of the underlying values, conditional on
 --   the path conditions leading to those values.
 muxTreeCmpOp ::
@@ -77,6 +82,78 @@ muxTreeCmpOp sym f xt yt = orOneOf sym folded =<< sequence zs
        ]
   xs = viewMuxTree xt
   ys = viewMuxTree yt
+
+
+-- | Compute an equality predicate on mux trees.
+--
+--   NOTE! This assumes the equality relation
+--   defined by `Eq` is the semantic equality
+--   relation on `a`.
+muxTreeEq ::
+  (Eq a, IsExprBuilder sym) =>
+  sym ->
+  MuxTree sym a ->
+  MuxTree sym a ->
+  IO (Pred sym)
+muxTreeEq sym = muxTreeCmpOp sym f
+  where f x y = pure (backendPred sym (x == y))
+
+-- | Compute a less-than predicate on mux trees.
+--
+--   NOTE! This assumes the order relation
+--   defined by `Ord` is the semantic order
+--   relation on `a`.
+muxTreeLt ::
+  (Ord a, IsExprBuilder sym) =>
+  sym ->
+  MuxTree sym a ->
+  MuxTree sym a ->
+  IO (Pred sym)
+muxTreeLt sym = muxTreeCmpOp sym f
+  where f x y = pure (backendPred sym (x < y))
+
+-- | Compute a less-than-or-equal predicate on mux trees.
+--
+--   NOTE! This assumes the order relation
+--   defined by `Ord` is the semantic order
+--   relation on `a`.
+muxTreeLe ::
+  (Ord a, IsExprBuilder sym) =>
+  sym ->
+  MuxTree sym a ->
+  MuxTree sym a ->
+  IO (Pred sym)
+muxTreeLe sym = muxTreeCmpOp sym f
+  where f x y = pure (backendPred sym (x <= y))
+
+-- | Compute a greater-than predicate on mux trees.
+--
+--   NOTE! This assumes the order relation
+--   defined by `Ord` is the semantic order
+--   relation on `a`.
+muxTreeGt ::
+  (Ord a, IsExprBuilder sym) =>
+  sym ->
+  MuxTree sym a ->
+  MuxTree sym a ->
+  IO (Pred sym)
+muxTreeGt sym = muxTreeCmpOp sym f
+  where f x y = pure (backendPred sym (x > y))
+
+-- | Compute a greater-than-or-equal predicate on mux trees.
+--
+--   NOTE! This assumes the order relation
+--   defined by `Ord` is the semantic order
+--   relation on `a`.
+muxTreeGe ::
+  (Ord a, IsExprBuilder sym) =>
+  sym ->
+  MuxTree sym a ->
+  MuxTree sym a ->
+  IO (Pred sym)
+muxTreeGe sym = muxTreeCmpOp sym f
+  where f x y = pure (backendPred sym (x >= y))
+
 
 -- | Use the provided if-then-else operation to collapse the given mux tree
 --   into its underlying type.

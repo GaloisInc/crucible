@@ -63,7 +63,6 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.SymSequence
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -1004,5 +1003,4 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ReferenceEq _ ref1 ref2 -> do
       cell1 <- evalSub ref1
       cell2 <- evalSub ref2
-      let f r1 r2 = return (backendPred sym (r1 == r2))
-      muxTreeCmpOp sym f cell1 cell2
+      eqReference sym cell1 cell2
