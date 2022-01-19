@@ -1071,7 +1071,7 @@ withBackend ctx f = case _ctxBackend ctx of SomeBackend bak -> ctxSolverProof ct
 ctxSymInterface :: Getter (SimContext p sym ext) sym
 ctxSymInterface = to (\ctx ->
   case _ctxBackend ctx of
-    SomeBackend bak -> (backendGetSym bak))
+    SomeBackend bak -> backendGetSym bak)
 
 -- | A map from function handles to their semantics.
 functionBindings :: Lens' (SimContext p sym ext) (FunctionBindings p sym ext)

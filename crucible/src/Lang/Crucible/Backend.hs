@@ -387,12 +387,12 @@ type IsSymInterface sym =
 --   It allows for logical assumptions/assertions to be added to the current
 --   path condition, and allows queries to be asked about branch conditions.
 --
---   The `bak` type contains all the datastructures necessary to
+--   The @bak@ type contains all the datastructures necessary to
 --   maintain the current program path conditions, and keep track of
---   assumptions and assertions made during program execution.  The `sym`
+--   assumptions and assertions made during program execution.  The @sym@
 --   type is expected to satisfy the `IsSymInterface` constraints, which
---   provide access to the What4 expression language. A `sym` is uniquely
---   determined by a `bak`.
+--   provide access to the What4 expression language. A @sym@ is uniquely
+--   determined by a @bak@.
 class IsBoolSolver sym bak | bak -> sym where
 
   -- | Retrive the symbolic expression builder corresponding to this

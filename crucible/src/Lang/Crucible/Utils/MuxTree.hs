@@ -88,7 +88,7 @@ muxTreeCmpOp sym f xt yt = orOneOf sym folded =<< sequence zs
 --
 --   NOTE! This assumes the equality relation
 --   defined by `Eq` is the semantic equality
---   relation on `a`.
+--   relation on @a@.
 muxTreeEq ::
   (Eq a, IsExprBuilder sym) =>
   sym ->
@@ -102,7 +102,7 @@ muxTreeEq sym = muxTreeCmpOp sym f
 --
 --   NOTE! This assumes the order relation
 --   defined by `Ord` is the semantic order
---   relation on `a`.
+--   relation on @a@.
 muxTreeLt ::
   (Ord a, IsExprBuilder sym) =>
   sym ->
@@ -116,7 +116,7 @@ muxTreeLt sym = muxTreeCmpOp sym f
 --
 --   NOTE! This assumes the order relation
 --   defined by `Ord` is the semantic order
---   relation on `a`.
+--   relation on @a@.
 muxTreeLe ::
   (Ord a, IsExprBuilder sym) =>
   sym ->
@@ -130,7 +130,7 @@ muxTreeLe sym = muxTreeCmpOp sym f
 --
 --   NOTE! This assumes the order relation
 --   defined by `Ord` is the semantic order
---   relation on `a`.
+--   relation on @a@.
 muxTreeGt ::
   (Ord a, IsExprBuilder sym) =>
   sym ->
@@ -144,7 +144,7 @@ muxTreeGt sym = muxTreeCmpOp sym f
 --
 --   NOTE! This assumes the order relation
 --   defined by `Ord` is the semantic order
---   relation on `a`.
+--   relation on @a@.
 muxTreeGe ::
   (Ord a, IsExprBuilder sym) =>
   sym ->
