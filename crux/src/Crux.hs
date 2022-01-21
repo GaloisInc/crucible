@@ -38,7 +38,6 @@ import           Data.Functor.Contravariant.Divisible ( divide )
 import           Data.Generics.Product.Fields (field)
 import           Data.IORef
 import           Data.Maybe ( fromMaybe )
-import           Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -309,8 +308,7 @@ defaultOutputConfig logMessagesToSayWhat = do
 -- to capture in this CPS-ed style.
 withFloatRepr ::
   CCS.HasDefaultFloatRepr solver =>
-  proxy s ->
-  proxy' st ->
+  st s ->
   CruxOptions ->
   [solver] ->
   (forall fm .
@@ -318,13 +316,13 @@ withFloatRepr ::
     WE.FloatModeRepr fm ->
     IO a) ->
   IO a
-withFloatRepr proxy proxy' cruxOpts selectedSolvers k =
+withFloatRepr st cruxOpts selectedSolvers k =
   case floatMode cruxOpts of
     "real" -> k WE.FloatRealRepr
     "ieee" -> k WE.FloatIEEERepr
     "uninterpreted" -> k WE.FloatUninterpretedRepr
     "default" -> case selectedSolvers of
-                   [oneSolver] -> CCS.withDefaultFloatRepr proxy proxy' oneSolver k
+                   [oneSolver] -> CCS.withDefaultFloatRepr st oneSolver k
                    _           -> k WE.FloatUninterpretedRepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
 
@@ -599,7 +597,7 @@ runSimulator cruxOpts simCallback = do
           doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
 
     Right (CCS.OnlyOfflineSolvers offSolvers) ->
-      withFloatRepr (Proxy @s) (Proxy @WE.EmptyExprBuilderState) cruxOpts offSolvers $ \floatRepr -> do
+      withFloatRepr (WE.EmptyExprBuilderState @s) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
           sym <- WE.newExprBuilder floatRepr WE.EmptyExprBuilderState nonceGen 
           bak <- CBS.newSimpleBackend sym

@@ -30,14 +30,13 @@ data SolverOffline = SolverOnline SolverOnline | Boolector | DReal
 
 class HasDefaultFloatRepr solver where
   withDefaultFloatRepr ::
-    proxy s ->
-    proxy' st ->
+    st s ->
     solver ->
     (forall fm. (WIF.IsInterpretedFloatExprBuilder (WEB.ExprBuilder s st (WEB.Flags fm))) => WEB.FloatModeRepr fm -> a) ->
     a
 
 instance HasDefaultFloatRepr SolverOnline where
-  withDefaultFloatRepr _ _ s k =
+  withDefaultFloatRepr _ s k =
     case s of
       CVC4 -> k WEB.FloatRealRepr
       STP -> k WEB.FloatRealRepr
@@ -45,9 +44,9 @@ instance HasDefaultFloatRepr SolverOnline where
       Z3 -> k WEB.FloatIEEERepr
 
 instance HasDefaultFloatRepr SolverOffline where
-  withDefaultFloatRepr proxy proxy' s k =
+  withDefaultFloatRepr st s k =
     case s of
-      SolverOnline s' -> withDefaultFloatRepr proxy proxy' s' k
+      SolverOnline s' -> withDefaultFloatRepr st s' k
       Boolector -> k WEB.FloatUninterpretedRepr
       DReal -> k WEB.FloatRealRepr
 
