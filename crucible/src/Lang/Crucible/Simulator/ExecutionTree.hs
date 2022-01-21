@@ -111,7 +111,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , IsSymInterfaceProof
   , SimContext(..)
   , Metric(..)
-  , SomeBackend(..)
   , initSimContext
   , withBackend
   , ctxSymInterface
@@ -159,7 +158,9 @@ import           What4.FunctionName (FunctionName, startFunctionName)
 import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 
 import           Lang.Crucible.Backend
-                   (IsSymInterface, IsBoolSolver(..), AbortExecReason, FrameIdentifier, Assumptions)
+                   ( IsSymInterface, IsSymBackend(..), HasSymInterface(..)
+                   , AbortExecReason, SomeBackend(..), FrameIdentifier, Assumptions
+                   )
 import           Lang.Crucible.CFG.Core (BlockID, CFG, CFGPostdom, StmtSeq)
 import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
@@ -990,7 +991,7 @@ data ExtensionImpl p sym ext
   = ExtensionImpl
     { extensionEval ::
         forall bak rtp blocks r ctx.
-        (IsSymInterface sym, IsBoolSolver sym bak) =>
+        IsSymBackend sym bak =>
         bak ->
         IntrinsicTypes sym ->
         (Int -> String -> IO ()) ->
@@ -1016,9 +1017,6 @@ newtype Metric p sym ext =
     runMetric :: forall rtp f args. SimState p sym ext rtp f args -> IO Integer
   }
 
-data SomeBackend sym =
-  forall bak. IsBoolSolver sym bak => SomeBackend bak
-
 -- | Top-level state record for the simulator.  The state contained in this record
 --   remains persistent across all symbolic simulator actions.  In particular, it
 --   is not rolled back when the simulator returns previous program points to
@@ -1040,7 +1038,7 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
 
 -- | Create a new 'SimContext' with the given bindings.
 initSimContext ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak {- ^ Symbolic backend -} ->
   IntrinsicTypes sym {- ^ Implementations of intrinsic types -} ->
   HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
@@ -1063,9 +1061,9 @@ initSimContext bak muxFns halloc h bindings extImpl personality =
 
 withBackend ::
   SimContext personality sym ext ->
-  (forall bak. IsSymInterface sym => IsBoolSolver sym bak => bak -> a) ->
+  (forall bak. IsSymBackend sym bak => bak -> a) ->
   a
-withBackend ctx f = case _ctxBackend ctx of SomeBackend bak -> ctxSolverProof ctx (f bak)
+withBackend ctx f = case _ctxBackend ctx of SomeBackend bak -> f bak
 
 -- | Access the symbolic backend inside a 'SimContext'.
 ctxSymInterface :: Getter (SimContext p sym ext) sym

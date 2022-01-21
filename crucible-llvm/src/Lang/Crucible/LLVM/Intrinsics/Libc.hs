@@ -286,7 +286,7 @@ llvmStrlenOverride =
 -- *** Allocation
 
 callRealloc
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -329,7 +329,7 @@ callRealloc bak mvar alignment (regValue -> ptr) (regValue -> sz) =
 
 
 callPosixMemalign
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?lc :: TypeContext, ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -355,7 +355,7 @@ callPosixMemalign bak mvar (regValue -> outPtr) (regValue -> align) (regValue ->
                 return (z, mem'')
 
 callMalloc
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -369,7 +369,7 @@ callMalloc bak mvar alignment (regValue -> sz) =
        doMalloc bak G.HeapAlloc G.Mutable displayString mem sz alignment
 
 callCalloc
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -384,7 +384,7 @@ callCalloc bak mvar alignment
     doCalloc bak mem sz num alignment
 
 callFree
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -399,7 +399,7 @@ callFree bak mvar
 -- *** Memory manipulation
 
 callMemcpy
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -422,7 +422,7 @@ callMemcpy bak mvar
 -- ranges are disjoint.  The underlying operation
 -- works correctly in both cases.
 callMemmove
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -442,7 +442,7 @@ callMemmove bak mvar
        return ((), mem')
 
 callMemset
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -463,7 +463,7 @@ callMemset bak mvar
 -- *** Strings and I/O
 
 callPutChar
-  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  :: (IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType 32)
@@ -476,7 +476,7 @@ callPutChar _bak _mvar
     return ch
 
 callPuts
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -492,7 +492,7 @@ callPuts bak mvar
     liftIO $ bvLit (backendGetSym bak) knownNat (BV.one knownNat)
 
 callStrlen
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -503,7 +503,7 @@ callStrlen bak mvar (regValue -> strPtr) = do
   liftIO $ strLen bak mem strPtr
 
 callAssert
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
   => Bool -- ^ 'True' if this is @__assert_fail()@, 'False' otherwise.
   -> GlobalVar Mem
@@ -533,7 +533,7 @@ callAssert assert_fail mvar bak (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
       | otherwise
       = abnormalExitBehavior ?intrinsicsOpts == AlwaysFail
 
-callExit :: ( IsSymInterface sym, IsBoolSolver sym bak
+callExit :: ( IsSymBackend sym bak
             , ?intrinsicsOpts :: IntrinsicsOptions )
          => bak
          -> RegEntry sym (BVType 32)
@@ -549,7 +549,7 @@ callExit bak ec = liftIO $
      abortExecBecause $ EarlyExit loc
 
 callPrintf
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> GlobalVar Mem
@@ -570,7 +570,7 @@ callPrintf bak mvar
         liftIO $ hPutStr h str
         liftIO $ bvLit (backendGetSym bak) knownNat (BV.mkBV knownNat (toInteger n))
 
-printfOps :: ( IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr
+printfOps :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
              , ?memOpts :: MemOptions )
           => bak
           -> V.Vector (AnyValue sym)
@@ -793,7 +793,7 @@ llvmSqrtfOverride =
 
 callSpecialFunction1 ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr FloatInfoRepr fi) =>
+  (IsSymBackend sym bak, KnownRepr FloatInfoRepr fi) =>
   bak ->
   W4.SpecialFunction (EmptyCtx ::> W4.R) ->
   RegEntry sym (FloatType fi) ->
@@ -803,7 +803,7 @@ callSpecialFunction1 bak fn (regValue -> x) = liftIO $
 
 callSpecialFunction2 ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr FloatInfoRepr fi) =>
+  (IsSymBackend sym bak, KnownRepr FloatInfoRepr fi) =>
   bak ->
   W4.SpecialFunction (EmptyCtx ::> W4.R ::> W4.R) ->
   RegEntry sym (FloatType fi) ->
@@ -814,7 +814,7 @@ callSpecialFunction2 bak fn (regValue -> x) (regValue -> y) = liftIO $
 
 callCeil ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
@@ -822,7 +822,7 @@ callCeil bak (regValue -> x) = liftIO $ iFloatRound @_ @fi (backendGetSym bak) R
 
 callFloor ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
@@ -830,7 +830,7 @@ callFloor bak (regValue -> x) = liftIO $ iFloatRound @_ @fi (backendGetSym bak) 
 
 callIsnan ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
@@ -846,7 +846,7 @@ callIsnan bak (regValue -> x) = liftIO $ do
 
 callSqrt ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
@@ -1481,7 +1481,7 @@ llvmLLAbsOverride =
         Ctx.uncurryAssignment (callLibcAbs bak callStack (knownNat @64)) args)
 
 callBSwap ::
-  (1 <= width, IsSymInterface sym, IsBoolSolver sym bak) =>
+  (1 <= width, IsSymBackend sym bak) =>
   bak ->
   NatRepr width ->
   RegEntry sym (BVType (width * 8)) ->
@@ -1507,7 +1507,7 @@ data CheckAbsIntMin
 -- @llvm.abs.*@ family of overloaded intrinsics.
 callAbs ::
   forall w p sym bak ext r args ret.
-  (1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   CallStack ->
   CheckAbsIntMin ->
@@ -1543,7 +1543,7 @@ callAbs bak callStack checkIntMin widthRepr (regValue -> src) = liftIO $ do
              UB.PoisonValueCreated $ Poison.LLVMAbsIntMin $ RV src
 
 callLibcAbs ::
-  (1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   CallStack ->
   NatRepr w ->
@@ -1552,7 +1552,7 @@ callLibcAbs ::
 callLibcAbs bak callStack = callAbs bak callStack LibcAbsIntMinUB
 
 callLLVMAbs ::
-  (1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   CallStack ->
   NatRepr w ->
@@ -1574,7 +1574,7 @@ callLLVMAbs bak callStack widthRepr src (regValue -> isIntMinPoison) = do
 -- Otherwise, return the input unchanged. This is the workhorse for the
 -- @hton{s,l}@ and @ntoh{s,l}@ overrides.
 callBSwapIfLittleEndian ::
-  (1 <= width, IsSymInterface sym, IsBoolSolver sym bak, ?lc :: TypeContext) =>
+  (1 <= width, IsSymBackend sym bak, ?lc :: TypeContext) =>
   bak ->
   NatRepr width ->
   RegEntry sym (BVType (width * 8)) ->

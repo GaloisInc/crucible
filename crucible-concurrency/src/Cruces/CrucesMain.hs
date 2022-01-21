@@ -120,7 +120,7 @@ run (cruxOpts, opts) =
        Right v ->
          withIONonceGenerator $ \nonceGen ->
          do let mkSym :: forall s bak.
-                  (IsSymInterface s, IsBoolSolver s bak, IsExprBuilder s) =>
+                  (IsSymBackend s bak, IsExprBuilder s) =>
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
                      , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()

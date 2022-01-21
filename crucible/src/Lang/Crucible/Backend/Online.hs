@@ -497,11 +497,12 @@ considerSatisfiability bak mbPloc p =
         _                  -> return IndeterminateBranchResult
 
 
-instance OnlineSolver solver =>
-  IsBoolSolver (B.ExprBuilder scope st fs)
-               (OnlineBackend solver scope st fs) where
-
+instance HasSymInterface (B.ExprBuilder t st fs) (OnlineBackend solver t st fs) where
   backendGetSym = onlineExprBuilder
+
+instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
+  IsSymBackend (B.ExprBuilder scope st fs)
+               (OnlineBackend solver scope st fs) where
 
   addDurableProofObligation bak a =
      AS.addProofObligation a (assumptionStack bak)

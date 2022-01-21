@@ -69,7 +69,7 @@ import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
+import           Lang.Crucible.Backend
 
 import           What4.Interface
 
@@ -150,7 +150,7 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases
 -- allocates space for global variables, but does not set their
 -- initial values.
 initializeAllMemory
-   :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => bak
    -> LLVMContext arch
@@ -159,7 +159,7 @@ initializeAllMemory
 initializeAllMemory = initializeMemory (const True)
 
 initializeMemoryConstGlobals
-   :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => bak
    -> LLVMContext arch
@@ -168,7 +168,7 @@ initializeMemoryConstGlobals
 initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
 
 initializeMemory
-   :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => (L.Global -> Bool)
    -> bak
@@ -223,7 +223,7 @@ initializeMemory predicate bak llvm_ctx llvmModl = do
 
 
 allocLLVMFunPtr ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   LLVMContext arch ->
@@ -260,8 +260,7 @@ populateGlobals ::
   , 16 <= wptr
   , HasPtrWidth wptr
   , HasLLVMAnn sym
-  , IsSymInterface sym
-  , IsBoolSolver sym bak) =>
+  , IsSymBackend sym bak) =>
   (L.Global -> Bool)   {- ^ Filter function, globals that cause this to return true will be populated -} ->
   bak ->
   GlobalInitializerMap ->
@@ -282,8 +281,7 @@ populateAllGlobals ::
   , 16 <= wptr
   , HasPtrWidth wptr
   , HasLLVMAnn sym
-  , IsSymInterface sym
-  , IsBoolSolver sym bak) =>
+  , IsSymBackend sym bak) =>
   bak ->
   GlobalInitializerMap ->
   MemImpl sym ->
@@ -299,8 +297,7 @@ populateConstGlobals ::
   , 16 <= wptr
   , HasPtrWidth wptr
   , HasLLVMAnn sym
-  , IsSymInterface sym
-  , IsBoolSolver sym bak) =>
+  , IsSymBackend sym bak) =>
   bak ->
   GlobalInitializerMap ->
   MemImpl sym ->
@@ -316,8 +313,7 @@ populateExternalGlobal ::
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
-  , IsSymInterface sym
-  , IsBoolSolver sym bak
+  , IsSymBackend sym bak
   , HasLLVMAnn sym
   , HasCallStack
   , ?memOpts :: MemOptions
@@ -352,8 +348,7 @@ populateGlobal :: forall sym bak wptr.
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
-  , IsSymInterface sym
-  , IsBoolSolver sym bak
+  , IsSymBackend sym bak
   , HasLLVMAnn sym
   , HasCallStack
   ) =>

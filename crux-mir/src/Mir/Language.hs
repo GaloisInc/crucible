@@ -286,8 +286,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
     let ?bound = 0
     let simTestBody :: forall sym bak p t st fs.
-            ( C.IsSymInterface sym
-            , C.IsBoolSolver sym bak
+            ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
             ) =>
             bak ->
@@ -332,8 +331,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             liftIO $ output $ "test " ++ show fnName ++ ": "
 
     let simTest :: forall sym bak t st fs msgs.
-            ( C.IsSymInterface sym
-            , C.IsBoolSolver sym bak
+            ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
             , Logs msgs
             , Log.SupportsCruxLogMessage msgs

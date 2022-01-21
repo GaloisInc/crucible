@@ -13,6 +13,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -67,9 +68,11 @@ newSimpleBackend sym =
             , sbExprBuilder = sym
             }
 
-instance IsBoolSolver (B.ExprBuilder t st fs) (SimpleBackend t st fs) where
+instance HasSymInterface (B.ExprBuilder t st fs) (SimpleBackend t st fs) where
+  backendGetSym = sbExprBuilder  
 
-  backendGetSym = sbExprBuilder
+instance IsSymInterface (B.ExprBuilder t st fs) =>
+  IsSymBackend (B.ExprBuilder t st fs) (SimpleBackend t st fs) where
 
   addDurableProofObligation bak a =
      AS.addProofObligation a (sbAssumptionStack bak)

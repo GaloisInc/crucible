@@ -56,7 +56,7 @@ import           Data.Parameterized.NatRepr (intValue)
 import           What4.Interface (Pred)
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver)
+import           Lang.Crucible.Backend (IsSymInterface, IsSymBackend)
 import qualified Lang.Crucible.Simulator as Crucible
 
 -- crucible-llvm
@@ -116,8 +116,7 @@ loadRaw' proxy sym mem mts ptr fullTypeRepr =
   in loadRaw proxy sym mem ptr pointedToRepr
 
 load ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
@@ -132,8 +131,7 @@ load proxy bak mem ptr fullTypeRepr =
      LLVMMem.doLoad bak mem ptr (toStorageType fullTypeRepr) typeRepr noAlignment
 
 load' ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
@@ -149,8 +147,7 @@ load' proxy bak mem mts ptr fullTypeRepr =
      load proxy bak mem ptr pointedToRepr
 
 store ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
@@ -168,8 +165,7 @@ store proxy bak mem fullTypeRepr ptr regValue =
      LLVMMem.doStore bak mem ptr cType storageType noAlignment regValue
 
 store' ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
@@ -187,8 +183,7 @@ store' proxy bak mem mts fullTypeRepr ptr regValue =
      store proxy bak mem pointedToRepr ptr regValue
 
 storeGlobal ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
@@ -205,8 +200,7 @@ storeGlobal proxy bak mem fullTypeRepr symb regValue =
      store proxy bak mem fullTypeRepr ptr regValue
 
 storeGlobal' ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
@@ -224,8 +218,7 @@ storeGlobal' proxy bak mem mts fullTypeRepr symb regValue =
      storeGlobal proxy bak mem pointedToRepr symb regValue
 
 loadGlobal ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
@@ -241,8 +234,7 @@ loadGlobal proxy bak mem fullTypeRepr symb =
      load proxy bak mem ptr fullTypeRepr
 
 loadGlobal' ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
@@ -260,8 +252,7 @@ loadGlobal' proxy bak mem mts fullTypeRepr symb =
 
 -- | Find a pointer inside of a value
 seekPtr ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: LLVMMem.MemOptions) =>

@@ -179,7 +179,7 @@ alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
 
 -- | Read from a reference cell.
 readRef ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   IntrinsicTypes sym ->
   TypeRepr tp ->

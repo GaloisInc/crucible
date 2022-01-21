@@ -300,7 +300,7 @@ doDumpMem h mem = do
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
 assertUndefined ::
-  (IsSymInterface sym, IsBoolSolver sym bak, Partial.HasLLVMAnn sym) =>   -- HasPtrWidth wptr)
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym) =>
   bak ->
   CallStack ->
   Pred sym ->
@@ -313,7 +313,7 @@ assertUndefined bak callStack p ub =
 
 
 assertStoreError ::
-  (IsSymInterface sym, IsBoolSolver sym bak, Partial.HasLLVMAnn sym, 1 <= wptr) =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, 1 <= wptr) =>
   bak ->
   MemErrContext sym wptr ->
   MemoryErrorReason ->
@@ -367,7 +367,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym bak ext rtp blocks ret args tp.
-  (IsSymInterface sym, IsBoolSolver sym bak, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
   bak ->
   LLVMStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -548,7 +548,7 @@ ptrMessage msg ptr ty =
 
 -- | Allocate memory on the stack frame of the currently executing function.
 doAlloca ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -578,7 +578,7 @@ doAlloca bak mem sz alignment loc = do
 --
 -- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -600,7 +600,7 @@ doLoad bak mem ptr valType tpr alignment = do
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doStore ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to store into  -} ->
@@ -639,7 +639,7 @@ sextendBVTo sym w w' x
 --
 -- Precondition: the multiplication /size * number/ does not overflow.
 doCalloc ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -664,7 +664,7 @@ doCalloc bak mem sz num alignment = do
 
 -- | Allocate a memory region.
 doMalloc
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> G.AllocType {- ^ stack, heap, or global -}
@@ -678,7 +678,7 @@ doMalloc bak allocType mut loc mem sz alignment = doMallocSize (Just sz) bak all
 
 -- | Allocate a memory region of unbounded size.
 doMallocUnbounded
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> G.AllocType {- ^ stack, heap, or global -}
@@ -690,7 +690,7 @@ doMallocUnbounded
 doMallocUnbounded = doMallocSize Nothing
 
 doMallocSize
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => Maybe (SymBV sym wptr) {- ^ allocation size -}
   -> bak
@@ -719,7 +719,7 @@ doMallocSize sz bak allocType mut loc mem alignment = do
 
 
 bindLLVMFunPtr ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr) =>
   bak ->
   L.Declare ->
   FnHandle args ret ->
@@ -737,7 +737,7 @@ bindLLVMFunPtr bak dec h mem
        doInstallHandle bak ptr (SomeFnHandle h) mem
 
 doInstallHandle
-  :: (Typeable a, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (Typeable a, IsSymBackend sym bak)
   => bak
   -> LLVMPtr sym wptr
   -> a {- ^ handle -}
@@ -799,7 +799,7 @@ doLookupHandle _sym mem ptr = do
 -- Precondition: the pointer either points to the beginning of an allocated
 -- region, or is null. Freeing a null pointer has no effect.
 doFree
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -832,7 +832,7 @@ doFree bak mem ptr = do
 --
 -- Precondition: the memory range falls within a valid allocated region.
 doMemset ::
-  (1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   bak ->
   NatRepr w ->
   MemImpl sym ->
@@ -853,7 +853,7 @@ doMemset bak w mem dest val len = do
   return mem{ memImplHeap = heap' }
 
 doInvalidate ::
-  ( 1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( 1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   NatRepr w ->
@@ -884,7 +884,7 @@ doInvalidate bak w mem dest msg len = do
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStore
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -898,7 +898,7 @@ doArrayStore bak mem ptr alignment arr len = doArrayStoreSize (Just len) bak mem
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStoreUnbounded
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -909,7 +909,7 @@ doArrayStoreUnbounded = doArrayStoreSize Nothing
 
 
 doArrayStoreSize
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => Maybe (SymBV sym w) {- ^ possibly-unbounded array length -}
   -> bak
   -> MemImpl sym
@@ -936,7 +936,7 @@ doArrayStoreSize len bak mem ptr alignment arr = do
 -- Precondition: the pointer is valid and points to a mutable or immutable memory region.
 -- Therefore it can be used to initialize read-only memory regions.
 doArrayConstStore
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -963,7 +963,7 @@ doArrayConstStore bak mem ptr alignment arr len = do
 -- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
 doMemcpy ::
-  ( 1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( 1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   NatRepr w ->
@@ -1014,7 +1014,7 @@ uncheckedMemcpy sym mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 doPtrSubtract ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr ->
@@ -1030,7 +1030,7 @@ doPtrSubtract bak mem x y = do
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
 doPtrAddOffset ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -1053,7 +1053,7 @@ doPtrAddOffset bak m x@(LLVMPointer blk _) off = do
 -- pointer. This is used in various spots whenever 'laxLoadsAndStores' is
 -- enabled and 'indeterminateLoadBehavior' is set to 'StableSymbolic'.
 doStoreStableSymbolic ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr       {- ^ destination       -} ->
@@ -1106,7 +1106,7 @@ isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
 --   of the string may be symbolic; HOWEVER, this function will not terminate
 --   until it eventually reaches a concete null-terminator or a load error.
 strLen ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
@@ -1146,7 +1146,7 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
 -- than that number of charcters will be read.  In either case,
 -- `loadString` will stop reading if it encounters a null-terminator.
 loadString :: forall sym bak wptr.
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
@@ -1176,7 +1176,7 @@ loadString bak mem = go id
 --   the pointer is null, we return Nothing.  Otherwise we load
 --   the string as with 'loadString' and return it.
 loadMaybeString ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
@@ -1232,7 +1232,7 @@ loadRaw sym mem ptr valType alignment = do
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.
-storeRaw :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+storeRaw :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
@@ -1258,7 +1258,7 @@ storeRaw bak mem ptr valType alignment val = do
 --
 -- Asserts that the write operation is valid when cond is true.
 doConditionalWriteOperation
-  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  :: (IsSymBackend sym bak)
   => bak
   -> MemImpl sym
   -> Pred sym {- ^ write condition -}
@@ -1274,7 +1274,7 @@ doConditionalWriteOperation bak mem cond write_op =
 -- Asserts that the true branch write operation is valid when cond is true, and
 -- that the false branch write operation is valid when cond is not true.
 mergeWriteOperations
-  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  :: (IsSymBackend sym bak)
   => bak
   -> MemImpl sym
   -> Pred sym {- ^ merge condition -}
@@ -1305,7 +1305,7 @@ mergeWriteOperations bak mem cond true_write_op false_write_op = do
 --
 -- Asserts that the pointer is valid and points to a mutable memory
 -- region when cond is true.
-condStoreRaw :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+condStoreRaw :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> Pred sym {- ^ Predicate that determines if we actually write. -}
@@ -1341,7 +1341,7 @@ condStoreRaw bak mem cond ptr valType alignment val = do
 -- | Store an LLVM value in memory. The pointed-to memory region may
 -- be either mutable or immutable; thus 'storeConstRaw' can be used to
 -- initialize read-only memory regions.
-storeConstRaw :: (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+storeConstRaw :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
@@ -1364,7 +1364,7 @@ storeConstRaw bak mem ptr valType alignment val = do
 
 -- | Allocate a memory region on the heap, with no source location info.
 mallocRaw
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> MemImpl sym
@@ -1376,7 +1376,7 @@ mallocRaw bak mem sz alignment =
 
 -- | Allocate a read-only memory region on the heap, with no source location info.
 mallocConstRaw
-  :: ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> MemImpl sym
@@ -1567,7 +1567,7 @@ packMemValue _ stTy crTy _ =
 --   2. Their blocks are the same, but /dest+dlen/ <= /src/
 --   3. Their blocks are the same, but /src+slen/ <= /dest/
 assertDisjointRegions ::
-  (1 <= w, HasPtrWidth wptr, IsSymInterface sym, IsBoolSolver sym bak, Partial.HasLLVMAnn sym) =>
+  (1 <= w, HasPtrWidth wptr, IsSymBackend sym bak, Partial.HasLLVMAnn sym) =>
   bak ->
   MemoryOp sym wptr ->
   NatRepr w ->
@@ -1683,8 +1683,7 @@ constToLLVMVal :: forall wptr sym bak io.
   ( MonadIO io
   , MonadFail io
   , HasPtrWidth wptr
-  , IsSymInterface sym
-  , IsBoolSolver sym bak
+  , IsSymBackend sym bak
   , HasCallStack
   ) => bak               -- ^ The symbolic backend
     -> MemImpl sym       -- ^ The current memory state, for looking up globals
@@ -1708,7 +1707,7 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 -- | Look up a 'Symbol' in the global map of the given 'MemImpl'.
 -- Panic if the symbol is not present in the global map.
 doResolveGlobal ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, HasCallStack) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, HasCallStack) =>
   bak ->
   MemImpl sym ->
   L.Symbol {- ^ name of global -} ->
@@ -1753,7 +1752,7 @@ registerGlobal (MemImpl blockSource gMap sMap hMap mem) symbols ptr =
 -- | Allocate memory for each global, and register all the resulting
 -- pointers in the global map.
 allocGlobals ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   [(L.Global, [L.Symbol], Bytes, Alignment)] ->
@@ -1762,7 +1761,7 @@ allocGlobals ::
 allocGlobals bak gs mem = foldM (allocGlobal bak) mem gs
 
 allocGlobal ::
-  ( IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->

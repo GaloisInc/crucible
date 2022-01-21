@@ -92,7 +92,7 @@ checkLim _sym lim =
   panic "checkLim" ["invalid limit: " ++ show lim]
 
 
-assertInBounds :: (IsSymInterface sym, IsBoolSolver sym bak) => bak -> SymBV sym 32 -> Bytes -> WasmMemImpl sym -> IO ()
+assertInBounds :: (IsSymBackend sym bak) => bak -> SymBV sym 32 -> Bytes -> WasmMemImpl sym -> IO ()
 
 assertInBounds bak off (Bytes 0) mem = -- TODO? maybe should be an error condition instead?
   do let sym = backendGetSym bak
@@ -114,7 +114,7 @@ assertInBounds bak off (Bytes n) mem =
      assert bak ok (GenericSimError "pointer out of bounds")
 
 wasmGrowMem ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   SymBV sym 32 ->
   WasmMemImpl sym ->
@@ -135,7 +135,7 @@ wasmGrowMem bak n mem =
      return (res, mem')
 
 wasmStoreChunk ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   SymBV sym 32 ->
   LBS.ByteString ->
@@ -153,7 +153,7 @@ wasmStoreChunk bak offset chunk mem =
 
 
 wasmStoreInt ::
-  (1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   SymBV sym 32 ->
   SymBV sym w ->
@@ -170,7 +170,7 @@ wasmStoreInt bak off v mem =
      return mem{ wasmMemHeap = heap' }
 
 wasmStoreFloat ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   SymBV sym 32 ->
   RegValue sym (FloatType SingleFloat) ->
@@ -186,7 +186,7 @@ wasmStoreFloat bak off v mem =
      return mem{ wasmMemHeap = heap' }
 
 wasmStoreDouble ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
   SymBV sym 32 ->
   RegValue sym (FloatType DoubleFloat) ->
@@ -202,7 +202,7 @@ wasmStoreDouble bak off v mem =
      return mem{ wasmMemHeap = heap' }
 
 wasmLoadInt ::
-  ( 1 <= w, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym
+  ( 1 <= w, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   SymBV sym 32 ->
@@ -221,7 +221,7 @@ wasmLoadInt bak off w mem =
        _ -> panic "wasmLoadInt" ["type mismatch"]
 
 wasmLoadFloat ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   SymBV sym 32 ->
   WasmMemImpl sym ->
@@ -238,7 +238,7 @@ wasmLoadFloat bak off mem =
        _ -> panic "wasmLoadFloat" ["type mismatch"]
 
 wasmLoadDouble ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   SymBV sym 32 ->
   WasmMemImpl sym ->

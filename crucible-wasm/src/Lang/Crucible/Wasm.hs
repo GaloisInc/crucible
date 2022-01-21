@@ -298,7 +298,7 @@ execAssertion a _ =
 
 
 assertEqResults :: forall sym bak ctx.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   String ->
   Assignment (RegValue' sym) ctx ->

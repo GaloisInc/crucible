@@ -553,7 +553,7 @@ checkForIntraFrameMerge tgt =
 
 
 assumeInNewFrame ::
-  IsBoolSolver sym bak => IsSymInterface sym =>
+  IsSymBackend sym bak =>
   bak ->
   Assumption sym ->
   IO FrameIdentifier

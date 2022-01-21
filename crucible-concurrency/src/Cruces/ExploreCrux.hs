@@ -54,7 +54,7 @@ exploreCallback :: forall alg.
   HandleAllocator ->
   Handle ->
   (forall s bak.
-   (IsSymInterface s, IsBoolSolver s bak) =>
+   IsSymBackend s bak =>
    bak ->
         IO ( FnVal s Ctx.EmptyCtx C.UnitType
            , ExplorePrimitives (ThreadExec alg s () C.UnitType) s ()
@@ -110,7 +110,7 @@ emptyExploration = Exploration { _exec      = initialExecutions
 exploreOvr :: forall sym bak ext alg ret rtp msgs.
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
-  (?bound::Int, IsSymInterface sym, IsBoolSolver sym bak, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
+  (?bound::Int, IsSymBackend sym bak, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
   bak -> 
   Maybe (Crux.SomeOnlineSolver sym bak) ->
   Crux.CruxOptions ->

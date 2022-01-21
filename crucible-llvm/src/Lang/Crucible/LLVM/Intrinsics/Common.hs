@@ -52,7 +52,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
 import           Lang.Crucible.FunctionHandle ( mkHandle' )
@@ -80,8 +80,8 @@ data LLVMOverride p sym args ret =
   , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
   , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
-       forall bak rtp args' ret'.
-         IsBoolSolver sym bak =>
+       forall bak.
+         IsSymBackend sym bak =>
          GlobalVar Mem ->
          bak ->
          Ctx.Assignment (RegEntry sym) args ->
@@ -138,7 +138,7 @@ newtype ValTransformer p sym tp tp' =
     OverrideSim p sym LLVM rtp l a (RegValue sym tp')) }
 
 transformLLVMArgs :: forall m p sym bak args args'.
-  (IsSymInterface sym, IsBoolSolver sym bak, Monad m, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
   bak ->
   CtxRepr args' ->
   CtxRepr args ->
@@ -158,7 +158,7 @@ transformLLVMArgs _ _ _ =
     [ "transformLLVMArgs: argument shape mismatch!" ]
 
 transformLLVMRet ::
-  (IsSymInterface sym, IsBoolSolver sym bak, Monad m, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
   bak ->
   TypeRepr ret  ->
   TypeRepr ret' ->
@@ -192,13 +192,13 @@ transformLLVMRet _bak ret ret'
 --   expected by the LLVM calling convention.  This basically just coerces
 --   between values of @BVType w@ and values of @LLVMPointerType w@.
 build_llvm_override ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  HasLLVMAnn sym =>
   FunctionName ->
   CtxRepr args ->
   TypeRepr ret ->
   CtxRepr args' ->
   TypeRepr ret' ->
-  (forall bak rtp' l' a'. IsBoolSolver sym bak =>
+  (forall bak rtp' l' a'. IsSymBackend sym bak =>
    bak ->
    Ctx.Assignment (RegEntry sym) args ->
    OverrideSim p sym LLVM rtp' l' a' (RegValue sym ret)) ->

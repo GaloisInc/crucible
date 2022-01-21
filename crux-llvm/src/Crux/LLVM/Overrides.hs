@@ -50,7 +50,7 @@ import Lang.Crucible.Simulator.OverrideSim
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
-          ( IsSymInterface, IsBoolSolver, addDurableAssertion
+          ( IsSymInterface, IsSymBackend, addDurableAssertion
           , addAssumption, LabeledPred(..), CrucibleAssumption(..)
           , addAssumptions, singleEvent, CrucibleEvent(..)
           , backendGetSym
@@ -398,7 +398,7 @@ lookupString _ mvar ptr =
        return (BS8.unpack (BS.pack bytes))
 
 sv_comp_fresh_bits ::
-  (IsSymInterface sym, IsBoolSolver sym bak, 1 <= w) =>
+  (IsSymBackend sym bak, 1 <= w) =>
   NatRepr w ->
   GlobalVar Mem ->
   bak ->
@@ -407,7 +407,7 @@ sv_comp_fresh_bits ::
 sv_comp_fresh_bits w _mvar _bak Empty = mkFresh "X" (BaseBVRepr w)
 
 sv_comp_fresh_float ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   bak ->
@@ -416,7 +416,7 @@ sv_comp_fresh_float ::
 sv_comp_fresh_float fi _mvar _bak Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
-  ( ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, IsBoolSolver sym bak, 1 <= w
+  ( ArchOk arch, HasLLVMAnn sym, IsSymBackend sym bak, 1 <= w
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   NatRepr w ->
@@ -429,7 +429,7 @@ fresh_bits arch w mvar _ (Empty :> pName) =
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
-  ( ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   FloatInfoRepr fi ->
@@ -442,7 +442,7 @@ fresh_float arch fi mvar _ (Empty :> pName) =
      mkFreshFloat name fi
 
 fresh_str ::
-  ( ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -481,7 +481,7 @@ fresh_str arch mvar bak (Empty :> pName :> maxLen) =
      return ptr
 
 do_assume ::
-  ( ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -501,7 +501,7 @@ do_assume arch mvar bak (Empty :> p :> pFile :> line) =
      liftIO $ addAssumption bak (GenericAssumption loc' "crucible_assume" cond)
 
 do_assert ::
-  ( ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -523,7 +523,7 @@ do_assert arch mvar bak (Empty :> p :> pFile :> line) =
      liftIO $ addDurableAssertion bak (LabeledPred cond (SimError loc' msg))
 
 do_print_uint32 ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   GlobalVar Mem ->
   bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
@@ -533,7 +533,7 @@ do_print_uint32 _mvar _bak (Empty :> x) =
      liftIO $ hPutStrLn h (show (printSymExpr (regValue x)))
 
 do_havoc_memory ::
-  (ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
   bak ->
@@ -549,7 +549,7 @@ do_havoc_memory _ mvar bak (Empty :> ptr :> len) =
      writeGlobal mvar mem'
 
 cprover_assume ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   GlobalVar Mem ->
   bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
@@ -562,7 +562,7 @@ cprover_assume _mvar bak (Empty :> p) = liftIO $
 
 
 cprover_assert ::
-  ( ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -579,7 +579,7 @@ cprover_assert arch mvar bak (Empty :> p :> pMsg) =
      liftIO $ addDurableAssertion bak (LabeledPred cond (SimError loc msg))
 
 cprover_r_ok ::
-  (ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
   bak ->
@@ -592,7 +592,7 @@ cprover_r_ok _ mvar bak (Empty :> (regValue -> p) :> (regValue -> sz)) =
      liftIO $ predToBV sym x knownNat
 
 cprover_w_ok ::
-  (ArchOk arch, IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
   bak ->

@@ -437,7 +437,7 @@ jvmIntrinsicTypes = C.emptyIntrinsicTypes
 
 jvmExtensionEval ::
   forall sym bak.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
@@ -453,7 +453,7 @@ jvmExtensionImpl =
 
 -- | Create a new 'C.SimContext' containing the bindings from the given 'JVMContext'.
 jvmSimContext ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak {- ^ Symbolic backend -} ->
   C.HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
@@ -469,7 +469,7 @@ jvmSimContext bak halloc handle ctx verbosity p =
 -- they translate method bodies when they are accessed.
 mkSimSt ::
   forall sym bak p ret.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   p ->
   C.HandleAllocator ->
@@ -535,7 +535,7 @@ runClassInit halloc ctx verbosity name = do
 
 -- | Install the standard overrides and run a Java method in the simulator.
 setupMethodHandleCrux
-  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  :: (IsSymBackend sym bak)
   => bak
   -> p
   -> C.HandleAllocator
@@ -554,7 +554,7 @@ setupMethodHandleCrux bak p halloc ctx verbosity _classname h args = do
 
 
 runMethodHandle
-  :: (IsSymInterface sym, IsBoolSolver sym bak)
+  :: (IsSymBackend sym bak)
   => bak
   -> p
   -> C.HandleAllocator
@@ -607,7 +607,7 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
 
 setupCrucibleJVMCrux
   :: forall ret args sym bak p cb
-   . (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+   . (IsSymBackend sym bak, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
   => cb
   -> Int               -- ^ Verbosity level
   -> bak               -- ^ Simulator state
@@ -659,7 +659,7 @@ setupCrucibleJVMCrux cb verbosity bak p cname mname args = do
 
 executeCrucibleJVM
   :: forall ret args sym bak p cb
-   . (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+   . (IsSymBackend sym bak, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
   => cb
   -> Int               -- ^ Verbosity level
   -> bak               -- ^ Simulator state
@@ -818,7 +818,7 @@ refIsEqual sym ref1 ref2 =
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
 -- The writability permission of the field is not checked.
 doFieldStore ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
@@ -842,7 +842,7 @@ doFieldStore bak globals ref fid val =
 -- have already been resolved (see §5.4.3.2 of the JVM spec). Note
 -- that the writability permission of the field is not checked.
 doStaticFieldStore ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   JVMContext ->
   C.SymGlobalState sym ->
@@ -859,7 +859,7 @@ doStaticFieldStore bak jc globals fid val =
 -- | Set the write permission on a static field. The 'FieldId' must
 -- have already been resolved (see §5.4.3.2 of the JVM spec).
 doStaticFieldWritable ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   JVMContext ->
   C.SymGlobalState sym ->
@@ -879,7 +879,7 @@ ppFieldId fid = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
 -- | Write a value at an index of an array reference. The write
 -- permission bit is not checked.
 doArrayStore ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
@@ -902,7 +902,7 @@ doArrayStore bak globals ref idx val =
 -- | Read a value from a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
 doFieldLoad ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
@@ -922,7 +922,7 @@ doFieldLoad bak globals ref fid =
 -- | Read a value from a static field of a class. The 'FieldId' must
 -- have already been resolved (see §5.4.3.2 of the JVM spec).
 doStaticFieldLoad ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   JVMContext ->
   C.SymGlobalState sym ->
@@ -940,7 +940,7 @@ doStaticFieldLoad bak jc globals fid =
 
 -- | Read a value at an index of an array reference.
 doArrayLoad ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType -> Int {- ^ array index -} ->
@@ -961,7 +961,7 @@ doArrayLoad bak globals ref idx =
 -- | Allocate an instance of the given class in the global state. All
 -- of the fields are initialized to 'unassignedJVMValue'.
 doAllocateObject ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.HandleAllocator ->
   JVMContext ->
@@ -987,7 +987,7 @@ doAllocateObject bak halloc jc cname mut globals =
 -- | Allocate an array in the global state. All of the elements are
 -- initialized to 'unassignedJVMValue'.
 doAllocateArray ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.HandleAllocator ->
   JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
@@ -1009,7 +1009,7 @@ doAllocateArray bak halloc jc len elemTy mut globals =
 
 -- | Lookup the data structure associated with a class.
 lookupJVMClassByName ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.SymGlobalState sym ->
   JVMContext ->

@@ -182,8 +182,7 @@ generate ::
   forall arch sym bak m atTy inTy argTypes.
   ( ArchOk arch,
     LLVMMem.HasLLVMAnn sym,
-    Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+    Crucible.IsSymBackend sym bak,
     ?memOpts :: LLVMMem.MemOptions
   ) =>
   bak ->
@@ -327,8 +326,7 @@ generate bak modCtx ftRepr selector (ConstrainedShape shape) =
 
 generateArgs ::
   forall m arch sym bak argTypes.
-  ( Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     ?memOpts :: LLVMMem.MemOptions
@@ -378,8 +376,7 @@ generateArgs _appCtx modCtx funCtx bak argSpecs =
 -- according to the given preconditions.
 populateNonConstGlobals ::
   forall m arch sym bak argTypes.
-  ( Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     ?memOpts :: LLVMMem.MemOptions
@@ -444,8 +441,7 @@ populateNonConstGlobals modCtx bak constrainedGlobals =
 -- traversed and examined like the inductive datatype it is, rather than dealing
 -- with reading from the Crucible-LLVM memory model.
 setupExecution ::
-  ( Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     MonadIO f,

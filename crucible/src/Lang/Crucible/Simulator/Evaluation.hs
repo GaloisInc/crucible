@@ -97,7 +97,7 @@ complexRealAsChar v = do
 
 
 -- | Helper method for implementing 'indexSymbolic'
-indexSymbolic' :: (IsExprBuilder sym, IsBoolSolver sym bak)
+indexSymbolic' :: IsSymBackend sym bak
                => bak
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
@@ -125,7 +125,7 @@ indexSymbolic' bak iteFn f p ((l,h):nl) (si:il) = do
 
 
 ensureInRange ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   Natural ->
   Natural ->
@@ -147,7 +147,7 @@ ensureInRange bak l h si msg =
 -- This function takes a list of symbolic indices as natural numbers
 -- along with a pair of lower and upper bounds for each index.
 -- It assumes that the indices are all in range.
-indexSymbolic :: (IsSymInterface sym, IsBoolSolver sym bak)
+indexSymbolic :: IsSymBackend sym bak
               => bak
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
@@ -166,7 +166,7 @@ evalBase :: IsSymInterface sym =>
 evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 
 -- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: (IsSymInterface sym, IsBoolSolver sym bak)
+indexVectorWithSymNat :: IsSymBackend sym bak
                       => bak
                       -> (Pred sym -> a -> a -> IO a)
                          -- ^ Ite function
@@ -192,7 +192,7 @@ indexVectorWithSymNat bak iteFn v si =
 
 
 -- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: (IsSymInterface sym, IsBoolSolver sym bak)
+updateVectorWithSymNat :: IsSymBackend sym bak
                        => bak
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -208,7 +208,7 @@ updateVectorWithSymNat bak iteFn v si new_val = do
   adjustVectorWithSymNat bak iteFn v si (\_ -> return new_val)
 
 -- | Update a vector at a given natural number index.
-adjustVectorWithSymNat :: (IsSymInterface sym, IsBoolSolver sym bak)
+adjustVectorWithSymNat :: IsSymBackend sym bak
                        => bak
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -259,8 +259,7 @@ type EvalAppFunc sym app = forall f.
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
 evalApp :: forall sym bak ext.
-           ( IsSymInterface sym, IsBoolSolver sym bak
-           )
+           IsSymBackend sym bak
         => bak
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())

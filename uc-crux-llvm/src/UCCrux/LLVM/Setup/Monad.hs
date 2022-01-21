@@ -287,8 +287,7 @@ mallocLocation = "uc-crux-llvm bugfinding auto-setup"
 
 malloc ::
   forall m sym bak arch argTypes inTy atTy.
-  ( Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     ?memOpts :: LLVMMem.MemOptions
@@ -333,8 +332,7 @@ malloc bak fullTypeRepr selector size =
 
 store ::
   forall m arch sym bak argTypes inTy ft.
-  ( Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
@@ -357,8 +355,7 @@ store bak mts ptrRepr selector ptr regValue =
 
 storeGlobal ::
   forall m arch sym bak argTypes inTy ft.
-  ( Crucible.IsSymInterface sym,
-    Crucible.IsBoolSolver sym bak,
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>

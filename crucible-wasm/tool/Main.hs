@@ -36,7 +36,7 @@ cruxWasmConfig = Crux.Config
   , Crux.cfgCmdLineFlag = []
   }
 
-setupWasmState :: (IsSymInterface sym, IsBoolSolver sym bak) =>
+setupWasmState :: (IsSymBackend sym bak) =>
   bak -> MemOptions -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
 setupWasmState bak memOptions s =
   do halloc <- newHandleAllocator

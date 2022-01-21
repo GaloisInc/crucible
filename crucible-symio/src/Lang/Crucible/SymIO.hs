@@ -610,7 +610,7 @@ getSym :: FileM p arch r args ret sym wptr sym
 getSym = liftOV C.getSymInterface
 
 withBackend ::
-  (forall bak. IsBoolSolver sym bak => bak -> FileM p arch r args ret sym wptr a) ->
+  (forall bak. IsSymBackend sym bak => bak -> FileM p arch r args ret sym wptr a) ->
   FileM p arch r args ret sym wptr a
 withBackend k =
   FileM $ CMS.StateT $ \st ->

@@ -74,7 +74,7 @@ import qualified What4.ProgramLoc as What4
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
 import qualified Lang.Crucible.Backend as Crucible
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
+import           Lang.Crucible.Backend (IsSymInterface, IsSymBackend, backendGetSym)
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
@@ -129,8 +129,7 @@ newtype CreateOverrideFn arch =
   CreateOverrideFn
     { runCreateOverrideFn ::
         forall sym bak.
-        IsSymInterface sym =>
-        IsBoolSolver sym bak =>
+        IsSymBackend sym bak =>
         HasLLVMAnn sym =>
         bak ->
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
@@ -144,8 +143,7 @@ newtype SymCreateOverrideFn sym bak arch =
     }
 
 symCreateOverrideFn ::
-  IsSymInterface sym =>
-  IsBoolSolver sym bak =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   CreateOverrideFn arch ->
   SymCreateOverrideFn sym bak arch
@@ -177,8 +175,7 @@ newtype SimulatorCallbacks m arch (argTypes :: Ctx (FullType m)) r =
   SimulatorCallbacks
     { getSimulatorCallbacks ::
         forall sym bak t st fs.
-          IsSymInterface sym =>
-          IsBoolSolver sym bak =>
+          IsSymBackend sym bak =>
           (sym ~ What4.ExprBuilder t st fs) =>
           HasLLVMAnn sym =>
           IO (SimulatorHooks sym bak m arch argTypes r)
@@ -332,8 +329,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
   where
     setupHook ::
       Crux.Logs msgs =>
-      IsSymInterface sym =>
-      IsBoolSolver sym bak =>
+      IsSymBackend sym bak =>
       HasLLVMAnn sym =>
       bak ->
       -- | Unsound overrides
@@ -462,8 +458,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
     -- | Classify errors and write back the results to an IORef so they can be
     -- read in the outer loop
     onErrorHook ::
-      IsSymInterface sym =>
-      IsBoolSolver sym bak =>
+      IsSymBackend sym bak =>
       (sym ~ What4.ExprBuilder t st fs) =>
       bak ->
       IORef (Set SkipOverrideName) ->
@@ -543,8 +538,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
         return mempty
 
     mkResultHook ::
-      IsSymInterface sym =>
-      IsBoolSolver sym bak =>
+      IsSymBackend sym bak =>
       (sym ~ What4.ExprBuilder t st fs) =>
       bak ->
       IORef (Set SkipOverrideName) ->

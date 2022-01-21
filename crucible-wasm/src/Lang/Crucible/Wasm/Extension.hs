@@ -153,7 +153,7 @@ type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
 
 evalStmt :: forall p sym bak ext rtp blocks ret args tp.
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak  ->
   WasmStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)

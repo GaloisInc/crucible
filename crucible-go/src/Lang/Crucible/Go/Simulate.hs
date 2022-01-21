@@ -74,7 +74,7 @@ setSimulatorVerbosity verbosity sym = do
 
 goExtensionEval ::
   forall sym bak p ext rtp blocks r ctx.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   C.IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
@@ -126,14 +126,14 @@ asApp (Reg.App e) k = k e
 asApp (Reg.AtomExpr a) _k =
   fail $ "asApp: expected App constructor, got atom " ++ show a
 
-evalExpr :: (IsSymInterface sym, IsBoolSolver sym bak)
+evalExpr :: (IsSymBackend sym bak)
          => bak
          -> Reg.Expr Go s tp
          -> IO (C.RegValue sym tp)
 evalExpr bak e = asApp e $ doAppGo bak
 
 -- | Evaluate an App expression in the @IO@ monad.
-doAppGo :: (IsSymInterface sym, IsBoolSolver sym bak)
+doAppGo :: (IsSymBackend sym bak)
         => bak
         -> App Go (Reg.Expr Go s) tp
         -> IO (C.RegValue sym tp)
@@ -144,7 +144,7 @@ doAppGo bak =
   where
     out = const putStrLn
 
-mkGlobals :: (IsSymInterface sym, IsBoolSolver sym bak)
+mkGlobals :: (IsSymBackend sym bak)
           => bak
           -> [GoGlobal]
           -> IO (SymGlobalState sym)
@@ -155,7 +155,7 @@ mkGlobals bak globals =
   emptyGlobals globals
 
 setupCrucibleGoCrux :: forall sym bak args p.
-  (IsSymInterface sym, IsBoolSolver sym bak, KnownRepr CtxRepr args)
+  (IsSymBackend sym bak, KnownRepr CtxRepr args)
   => Int                   -- ^ Machine word width
   -> Node P.SourcePos Main -- ^ Input program
   -> Int                   -- ^ Verbosity level

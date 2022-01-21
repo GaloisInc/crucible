@@ -63,7 +63,7 @@ import What4.SatResult (SatResult(..))
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( CrucibleAssumption(..), IsBoolSolver, LabeledPred(..), addAssumption
+    ( CrucibleAssumption(..), IsSymBackend, LabeledPred(..), addAssumption
     , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface
     , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym )
 import Lang.Crucible.Backend.Online
@@ -223,7 +223,7 @@ indexExpr sym tpr l = case l of
 
 regEval ::
     forall sym bak tp rtp args ret p .
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     (forall bt. BaseTypeRepr bt -> SymExpr sym bt ->
         OverrideSim p sym MIR rtp args ret (SymExpr sym bt)) ->
@@ -498,7 +498,7 @@ bindFn _symOnline _cs fn cfg =
       do RegMap (Empty :> str) <- getOverrideArgs
          makeSymbolicVar str $ BaseBVRepr n
 
-    overrides :: IsBoolSolver sym bak' => bak' -> Map Text (FunctionName -> SomeOverride (p sym) sym)
+    overrides :: IsSymBackend sym bak' => bak' -> Map Text (FunctionName -> SomeOverride (p sym) sym)
     overrides bak =
       let sym = backendGetSym bak in
       fromList [ override "crucible::one" Empty (BVRepr (knownNat @8)) $

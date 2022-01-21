@@ -62,7 +62,7 @@ import           What4.FunctionName (functionName)
 import           What4.ProgramLoc (ProgramLoc)
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver)
+import           Lang.Crucible.Backend (IsSymBackend)
 import           Lang.Crucible.FunctionHandle (SomeHandle(..), handleMapToHandles, handleName)
 import           Lang.Crucible.Simulator.ExecutionTree (functionBindings, stateContext, fnBindings)
 import qualified Lang.Crucible.Simulator as Crucible
@@ -116,8 +116,7 @@ declName decl =
 -- This won't register overrides for functions that already have associated
 -- CFGs, like if you already registered a normal override for `free` or similar.
 unsoundSkipOverrides ::
-  ( IsSymInterface sym,
-    IsBoolSolver sym bak,
+  ( IsSymBackend sym bak,
     HasLLVMAnn sym,
     ArchOk arch,
     ?lc :: TypeContext,
@@ -361,8 +360,7 @@ makeGetters proxy funcSymb args specs =
 -- functions.
 createSkipOverride ::
   forall m arch sym bak argTypes personality.
-  ( IsSymInterface sym,
-    IsBoolSolver sym bak,
+  ( IsSymBackend sym bak,
     HasLLVMAnn sym,
     ArchOk arch,
     ?lc :: TypeContext,

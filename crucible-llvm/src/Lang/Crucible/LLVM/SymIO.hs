@@ -300,7 +300,7 @@ getHandle sym fdesc (FDescMap _ m) = case W4.asBV fdesc of
 -- offset one byte at a time.
 chunkFromMemory
   :: forall sym bak wptr
-   . (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+   . (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -402,7 +402,7 @@ openFile fsVars =
   (\memOps bak args -> uncurryAssignment (callOpenFile bak memOps fsVars) args)
 
 callOpenFile ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
   bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
@@ -426,7 +426,7 @@ closeFile fsVars =
   (\memOps bak args -> uncurryAssignment (callCloseFile bak memOps fsVars) args)
 
 callCloseFile ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr) =>
   bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
@@ -454,7 +454,7 @@ readFileHandle fsVars =
   (\memOps bak args -> uncurryAssignment (callReadFileHandle bak memOps fsVars) args)
 
 callReadFileHandle ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr) =>
   bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
@@ -524,7 +524,7 @@ writeFileHandle fsVars =
   (\memOps bak args -> uncurryAssignment (callWriteFileHandle bak memOps fsVars) args)
 
 callWriteFileHandle ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
   bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->

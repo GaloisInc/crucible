@@ -263,7 +263,7 @@ annotateME sym mop rsn p =
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak -> LLVMPtr sym w -> IO (SymBV sym w)
 projectLLVM_bv bak (LLVMPointer blk bv) =
   do let sym = backendGetSym bak
@@ -333,7 +333,7 @@ totalLLVMVal :: (IsExprBuilder sym)
 totalLLVMVal sym = NoErr (truePred sym)
 
 -- | Take a partial value and assert its safety
-assertSafe :: (IsSymInterface sym, IsBoolSolver sym bak)
+assertSafe :: IsSymBackend sym bak
            => bak
            -> PartLLVMVal sym
            -> IO (LLVMVal sym)

@@ -37,7 +37,7 @@ import           UCCrux.LLVM.Setup (SetupAssumption(SetupAssumption))
 
 -- | Add assumptions, handling and reporting errors appropriately.
 assume ::
-  Crucible.IsBoolSolver sym bak =>
+  Crucible.IsSymBackend sym bak =>
   -- | Function name
   Text ->
   bak ->

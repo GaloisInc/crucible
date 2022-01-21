@@ -38,8 +38,10 @@ obligations with a solver backend.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
-  ( IsBoolSolver(..)
+  ( IsSymBackend(..)
   , IsSymInterface
+  , HasSymInterface(..)
+  , SomeBackend(..)
 
     -- * Assumption management
   , CrucibleAssumption(..)
@@ -383,6 +385,21 @@ type IsSymInterface sym =
   , IsInterpretedFloatSymExprBuilder sym
   )
 
+data SomeBackend sym =
+  forall bak. IsSymBackend sym bak => SomeBackend bak
+
+
+-- | Class for backend type that can retrieve sym values.
+--
+--   This is separate from `IsSymBackend` specifically to avoid
+--   the need for additional class constraints on the `backendGetSym`
+--   operation, which is occasionally useful.
+class HasSymInterface sym bak | bak -> sym where
+  -- | Retrive the symbolic expression builder corresponding to this
+  --   simulator backend.
+  backendGetSym :: bak -> sym
+
+
 -- | This class provides operations that interact with the symbolic simulator.
 --   It allows for logical assumptions/assertions to be added to the current
 --   path condition, and allows queries to be asked about branch conditions.
@@ -393,11 +410,7 @@ type IsSymInterface sym =
 --   type is expected to satisfy the `IsSymInterface` constraints, which
 --   provide access to the What4 expression language. A @sym@ is uniquely
 --   determined by a @bak@.
-class IsBoolSolver sym bak | bak -> sym where
-
-  -- | Retrive the symbolic expression builder corresponding to this
-  --   simulator backend.
-  backendGetSym :: bak -> sym
+class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | bak -> sym where
 
   ----------------------------------------------------------------------
   -- Branch manipulations
@@ -448,8 +461,7 @@ class IsBoolSolver sym bak | bak -> sym where
   -- 'addAssertion'. Also note that predicates that concretely evaluate
   -- to True will be silently discarded. See 'addDurableProofObligation'
   -- to avoid discarding goals.
-  addProofObligation ::
-    IsExprBuilder sym => bak -> Assertion sym -> IO ()
+  addProofObligation :: bak -> Assertion sym -> IO ()
   addProofObligation bak a =
     case asConstantPred (a ^. labeledPred) of
       Just True -> return ()
@@ -500,7 +512,7 @@ backendOptions = [assertThenAssumeOption]
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
 addAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak -> Assertion sym -> IO ()
 addAssertion bak a =
   do addProofObligation bak a
@@ -510,17 +522,13 @@ addAssertion bak a =
 -- assume it (when the assertThenAssume option is true).
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
-addDurableAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
-  bak -> Assertion sym -> IO ()
+addDurableAssertion :: IsSymBackend sym bak => bak -> Assertion sym -> IO ()
 addDurableAssertion bak a =
   do addDurableProofObligation bak a
      assumeAssertion bak a
 
 -- | Assume assertion when the assertThenAssume option is true.
-assumeAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
-  bak -> Assertion sym -> IO ()
+assumeAssertion :: IsSymBackend sym bak => bak -> Assertion sym -> IO ()
 assumeAssertion bak (LabeledPred p msg) =
   do let sym = backendGetSym bak
      assert_then_assume_opt <- getOpt
@@ -535,7 +543,7 @@ abortExecBecause err = throwIO err
 -- | Add a proof obligation using the current program location.
 --   Afterwards, assume the given fact.
 assert ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   Pred sym ->
   SimErrorReason ->
@@ -549,7 +557,7 @@ assert bak p msg =
 -- of the current path, because after asserting false, we get to assume it,
 -- and so there is no need to check anything after.  This is why the resulting
 -- IO computation can have the fully polymorphic type.
-addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym bak) => bak -> SimErrorReason -> IO a
+addFailedAssertion :: IsSymBackend sym bak => bak -> SimErrorReason -> IO a
 addFailedAssertion bak msg =
   do let sym = backendGetSym bak
      loc <- getCurrentProgramLoc sym
@@ -559,7 +567,7 @@ addFailedAssertion bak msg =
 
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   IO (Pred sym) ->
   SimErrorReason ->
@@ -570,7 +578,7 @@ addAssertionM bak pf msg = do
 
 -- | Assert that the given real-valued expression is an integer.
 assertIsInteger ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   SymReal sym ->
   SimErrorReason ->
@@ -582,7 +590,7 @@ assertIsInteger bak v msg = do
 -- | Given a partial expression, assert that it is defined
 --   and return the underlying value.
 readPartExpr ::
-  (IsExprBuilder sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   PartExpr (Pred sym) v ->
   SimErrorReason ->

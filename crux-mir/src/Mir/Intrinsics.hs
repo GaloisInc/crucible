@@ -687,7 +687,7 @@ muxPartialVectors sym itefns tpr c pv1 pv2 = do
     getPE i pv = Maybe.fromMaybe Unassigned $ pv V.!? i
 
 leafIndexVectorWithSymIndex ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     (Pred sym -> a -> a -> IO a) ->
     V.Vector a ->
@@ -715,7 +715,7 @@ leafIndexVectorWithSymIndex bak iteFn v i
             0 (fromIntegral $ V.length v - 1)
 
 leafAdjustVectorWithSymIndex ::
-    forall sym bak a. (IsSymInterface sym, IsBoolSolver sym bak) =>
+    forall sym bak a. (IsSymBackend sym bak) =>
     bak ->
     (Pred sym -> a -> a -> IO a) ->
     V.Vector a ->
@@ -753,7 +753,7 @@ leafAdjustVectorWithSymIndex bak iteFn v i adj
             Nothing -> return x
 
 indexMirVectorWithSymIndex ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
     MirVector sym tp ->
@@ -773,7 +773,7 @@ indexMirVectorWithSymIndex bak _ (MirVector_Array a) i =
     liftIO $ arrayLookup sym a (Empty :> i)
 
 adjustMirVectorWithSymIndex ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
     MirVector sym tp ->
@@ -800,7 +800,7 @@ adjustMirVectorWithSymIndex bak _ (MirVector_Array a) i adj = do
 -- Write a new value.  Unlike `adjustMirVectorWithSymIndex`, this doesn't
 -- require a successful read from the given index.
 writeMirVectorWithSymIndex ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
     MirVector sym tp ->
@@ -1116,7 +1116,7 @@ newConstMirRef :: IsSymInterface sym =>
 newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
     MirReference (Const_RefRoot tpr v) Empty_RefPath
 
-readRefRoot :: (IsSymInterface sym, IsBoolSolver sym bak) =>
+readRefRoot :: (IsSymBackend sym bak) =>
     SimState p sym ext rtp f a ->
     bak ->
     MirReferenceRoot sym tp ->
@@ -1130,7 +1130,7 @@ readRefRoot s _bak (GlobalVar_RefRoot gv) =
 readRefRoot _ _ (Const_RefRoot _ v) = return v
 
 writeRefRoot :: forall p sym bak ext rtp f a tp.
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     SimState p sym ext rtp f a ->
     bak ->
     MirReferenceRoot sym tp ->
@@ -1164,7 +1164,7 @@ writeRefRoot _s _bak (Const_RefRoot tpr _) _ =
         "Cannot write to Const_RefRoot (of type " ++ show tpr ++ ")"
 
 dropRefRoot ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     SimState p sym ext rtp f a ->
     bak ->
     MirReferenceRoot sym tp ->
@@ -1182,7 +1182,7 @@ dropRefRoot _ _bak (Const_RefRoot tpr _) =
         "Cannot drop Const_RefRoot (of type " ++ show tpr ++ ")"
 
 readMirRefLeaf ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     SimState p sym ext rtp f a ->
     bak ->
     MirReference sym tp -> MuxLeafT sym IO (RegValue sym tp)
@@ -1196,7 +1196,7 @@ readMirRefLeaf _ _ (MirReference_Integer _ _) =
       "attempted to dereference the result of an integer-to-pointer cast"
 
 writeMirRefLeaf ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     SimState p sym ext rtp f a ->
     bak ->
     MirReference sym tp ->
@@ -1213,7 +1213,7 @@ writeMirRefLeaf _ _bak (MirReference_Integer _ _) _ =
       "attempted to write to the result of an integer-to-pointer cast"
 
 dropMirRefLeaf ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     SimState p sym ext rtp f a ->
     bak ->
     MirReference sym tp ->
@@ -1359,7 +1359,7 @@ mirRef_eqLeaf sym _ _ =
     return $ falsePred sym
 
 mirRef_eqIO ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     MirReferenceMux sym tp ->
     MirReferenceMux sym tp ->
@@ -1498,7 +1498,7 @@ mirRef_overlapsLeaf sym (MirReference_Integer _ _) _ = return $ falsePred sym
 mirRef_overlapsLeaf sym _ (MirReference_Integer _ _) = return $ falsePred sym
 
 mirRef_overlapsIO ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     MirReferenceMux sym tp ->
     MirReferenceMux sym tp' ->
@@ -1509,7 +1509,7 @@ mirRef_overlapsIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
 
 
 mirRef_offsetLeaf ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     TypeRepr tp ->
     MirReference sym tp ->
@@ -1522,7 +1522,7 @@ mirRef_offsetLeaf ::
 mirRef_offsetLeaf = mirRef_offsetWrapLeaf
 
 mirRef_offsetWrapLeaf ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     TypeRepr tp ->
     MirReference sym tp ->
@@ -1601,7 +1601,7 @@ mirRef_peelIndexIO _sym _ _ = do
 -- references (on which it returns `(0, 1)`) and also on `MirReference_Integer`
 -- (returning `(0, 0)`).
 mirRef_indexAndLenLeaf ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     SimState p sym ext rtp f a ->
     MirReference sym tp ->
@@ -1630,7 +1630,7 @@ mirRef_indexAndLenLeaf bak _ (MirReference_Integer _ _) = do
     return (zero, zero)
 
 mirRef_indexAndLenIO ::
-    (IsSymInterface sym, IsBoolSolver sym bak) =>
+    (IsSymBackend sym bak) =>
     bak ->
     SimState p sym ext rtp f a ->
     MirReferenceMux sym tp ->
@@ -1782,7 +1782,7 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
         IO ((), SimState p sym ext rtp f a)
     writeOnly act = act >>= \s' -> return ((), s')
 
-    modifyRefMux :: IsBoolSolver sym bak =>
+    modifyRefMux :: IsSymBackend sym bak =>
         bak ->
         (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
         MirReferenceMux sym tp -> IO (MirReferenceMux sym tp')
@@ -1894,7 +1894,7 @@ mirRef_offsetWrapSim tpr ref off = do
 
 
 writeRefPath ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
@@ -1919,7 +1919,7 @@ writeRefPath bak iTypes v path x =
   adjustRefPath bak iTypes v path (\_ -> return x)
 
 adjustRefPath ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
@@ -1968,7 +1968,7 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
                 "tried to change underlying type of MirVector ref"
 
 readRefPath ::
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->

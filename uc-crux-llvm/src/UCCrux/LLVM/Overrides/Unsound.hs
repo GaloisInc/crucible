@@ -36,7 +36,7 @@ import           Data.Parameterized.NatRepr (knownNat)
 import qualified What4.Interface as What4
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
+import           Lang.Crucible.Backend (IsSymBackend, backendGetSym)
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.OverrideSim (OverrideSim)
 import qualified Lang.Crucible.Simulator.OverrideSim as Override
@@ -106,8 +106,7 @@ unsoundOverrides usedRef =
 -- ** Implementations
 
 callGetHostName ::
-  ( IsSymInterface sym,
-    IsBoolSolver sym bak,
+  ( IsSymBackend sym bak,
     HasLLVMAnn sym,
     wptr ~ ArchWidth arch,
     ArchOk arch,
@@ -163,8 +162,7 @@ callGetHostName _proxy bak mvar (regValue -> ptr) (regValue -> len) =
 -- that the variable name be concrete and then have a map from names to
 -- allocations holding values.
 callGetEnv ::
-  ( IsSymInterface sym,
-    IsBoolSolver sym bak,
+  ( IsSymBackend sym bak,
     HasLLVMAnn sym,
     wptr ~ ArchWidth arch,
     ArchOk arch,

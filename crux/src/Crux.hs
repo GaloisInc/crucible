@@ -123,8 +123,7 @@ newtype SimulatorCallbacks msgs r
   = SimulatorCallbacks
     { getSimulatorCallbacks ::
         forall sym bak t st fs.
-          ( IsSymInterface sym
-          , IsBoolSolver sym bak
+          ( IsSymBackend sym bak
           , Logs msgs
           , sym ~ WEB.ExprBuilder t st fs
           ) =>
@@ -132,11 +131,11 @@ newtype SimulatorCallbacks msgs r
     }
 
 
-
 -- | A GADT to capture the online solver constraints when we need them
 data SomeOnlineSolver sym bak where
   SomeOnlineSolver :: ( sym ~ WEB.ExprBuilder scope st fs
                       , bak ~ OnlineBackend solver scope st fs
+                      , IsSymBackend sym bak
                       , OnlineSolver solver
                       ) => bak -> SomeOnlineSolver sym bak
 
@@ -512,7 +511,7 @@ setupSolver cruxOpts mInteractionFile sym = do
 -- maximally reuse code, we pass in the necessary online constraints as an extra
 -- argument when we have them available (i.e., when we build an online solver)
 -- and elide them otherwise.
-setupExecutionFeatures :: (IsSymInterface sym, IsBoolSolver sym bak)
+setupExecutionFeatures :: IsSymBackend sym bak
                        => CruxOptions
                        -> bak
                        -> Maybe (SomeOnlineSolver sym bak)
@@ -645,7 +644,7 @@ runSimulator cruxOpts simCallback = do
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
   sym ~ WEB.ExprBuilder t st fs =>
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  IsSymBackend sym bak =>
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->

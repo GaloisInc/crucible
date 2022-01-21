@@ -79,7 +79,7 @@ import           What4.Interface (Pred)
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as Crucible
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
+import           Lang.Crucible.Backend (IsSymInterface, IsSymBackend, backendGetSym)
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Simulator.OverrideSim as Override
 
@@ -395,8 +395,7 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
          (constraints ^. argConstraints)
 
     getGlobalConstraints ::
-      IsSymInterface sym =>
-      IsBoolSolver sym bak =>
+      IsSymBackend sym bak =>
       bak ->
       LLVMMem.MemImpl sym ->
       IO (Seq (SomeCheckedConstraint m sym argTypes))

@@ -48,7 +48,7 @@ import           Data.Parameterized.Some (Some(Some))
 import qualified What4.Interface as What4
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface, IsBoolSolver(..))
+import           Lang.Crucible.Backend (IsSymInterface, IsSymBackend, backendGetSym)
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.Simulator.RegMap as Crucible
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
@@ -117,8 +117,7 @@ newtype CheckResult m arch (argTypes :: Ctx (FullType m)) =
     { getCheckResult ::
         forall r.
         (forall sym bak.
-         IsSymInterface sym =>
-         IsBoolSolver sym bak =>
+         IsSymBackend sym bak =>
          bak ->
          PreSimulationMem sym ->
          Assignment (Shape m (SymValue sym arch)) argTypes ->
@@ -188,8 +187,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
     -- Create one override for each function with preconditions we want to
     -- check, as well as a way to get the results ('SomeCheckedCalls').
     overrides ::
-      IsSymInterface sym =>
-      IsBoolSolver sym bak =>
+      IsSymBackend sym bak =>
       HasLLVMAnn sym =>
       IO [ ( Sim.SymCreateOverrideFn sym bak arch
            , SomeCheckedCalls m sym arch

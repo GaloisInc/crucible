@@ -100,7 +100,7 @@ import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym) =>
   HandleAllocator ->
   bak ->
   MemOptions ->
@@ -175,8 +175,7 @@ simulateLLVMFile llvm_file llvmOpts =
 
 setupFileSim :: Crux.Logs msgs
              => Log.SupportsCruxLLVMLogMessage msgs
-             => IsSymInterface sym
-             => IsBoolSolver sym bak
+             => IsSymBackend sym bak
              => sym ~ WEB.ExprBuilder t st fs
              => HasLLVMAnn sym
              => HandleAllocator
@@ -230,8 +229,7 @@ data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
 -- file into the Crucible representation and add the globals and
 -- definitions from the file to the GlobalVar memory.
 
-prepLLVMModule :: IsSymInterface sym
-               => IsBoolSolver sym bak
+prepLLVMModule :: IsSymBackend sym bak
                => HasLLVMAnn sym
                => Crux.Logs msgs
                => Log.SupportsCruxLLVMLogMessage msgs

@@ -848,7 +848,7 @@ llvmX86_SSE2_storeu_dq =
 -- ** Implementations
 
 callX86_pclmulqdq :: forall p sym bak ext wptr r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak, HasPtrWidth wptr) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr) =>
   bak ->
   GlobalVar Mem ->
   RegEntry sym (VectorType (BVType 64)) ->
@@ -888,7 +888,7 @@ callX86_pclmulqdq bak _mvar
        return $ V.fromList [ lo, hi ]
 
 callStoreudq
-  :: (IsSymInterface sym, IsBoolSolver sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -933,7 +933,7 @@ callStoreudq bak mvar
 -- at compile time, llvm.objectsize returns i32/i64 -1 or 0 (depending
 -- on the min argument).
 callObjectsize
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> NatRepr w
@@ -954,7 +954,7 @@ callObjectsize bak _mvar w
     bvIte sym t z n
 
 callObjectsize_null
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> NatRepr w
@@ -965,7 +965,7 @@ callObjectsize_null
 callObjectsize_null bak mvar w ptr flag _nullUnknown = callObjectsize bak mvar w ptr flag
 
 callObjectsize_null_dynamic
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> NatRepr w
@@ -982,7 +982,7 @@ callObjectsize_null_dynamic bak mvar w ptr flag _nullUnknown (regValue -> dynami
      callObjectsize bak mvar w ptr flag
 
 callCtlz
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -999,7 +999,7 @@ callCtlz bak _mvar
        bvCountLeadingZeros sym val
 
 callFshl
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> NatRepr w
   -> RegEntry sym (BVType w)
@@ -1024,7 +1024,7 @@ callFshl bak w x y amt = liftIO $
      bvSelect sym w w z
 
 callFshr
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> NatRepr w
   -> RegEntry sym (BVType w)
@@ -1050,7 +1050,7 @@ callFshr bak w x y amt = liftIO $
      bvSelect sym (knownNat @0) w z
 
 callSaddWithOverflow
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1065,7 +1065,7 @@ callSaddWithOverflow bak _mvar
        return (Empty :> RV z :> RV ov')
 
 callUaddWithOverflow
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1080,7 +1080,7 @@ callUaddWithOverflow bak _mvar
        return (Empty :> RV z :> RV ov')
 
 callUsubWithOverflow
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1095,7 +1095,7 @@ callUsubWithOverflow bak _mvar
        return (Empty :> RV z :> RV ov')
 
 callSsubWithOverflow
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1110,7 +1110,7 @@ callSsubWithOverflow bak _mvar
        return (Empty :> RV z :> RV ov')
 
 callSmulWithOverflow
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1125,7 +1125,7 @@ callSmulWithOverflow bak _mvar
        return (Empty :> RV z :> RV ov')
 
 callUmulWithOverflow
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1141,7 +1141,7 @@ callUmulWithOverflow bak _mvar
 
 
 callCttz
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1158,7 +1158,7 @@ callCttz bak _mvar
        bvCountTrailingZeros sym val
 
 callCtpop
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1167,7 +1167,7 @@ callCtpop bak _mvar
   (regValue -> val) = liftIO $ bvPopcount (backendGetSym bak) val
 
 callBitreverse
-  :: (1 <= w, IsSymInterface sym, IsBoolSolver sym bak)
+  :: (1 <= w, IsSymBackend sym bak)
   => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType w)
@@ -1182,7 +1182,7 @@ callBitreverse bak _mvar
 -- argument into a positive, \"quiet\" @NaN@.
 callCopysign ::
   forall fi p sym bak ext r args ret.
-  (IsSymInterface sym, IsBoolSolver sym bak) =>
+  (IsSymBackend sym bak) =>
   bak ->
   RegEntry sym (FloatType fi) ->
   RegEntry sym (FloatType fi) ->

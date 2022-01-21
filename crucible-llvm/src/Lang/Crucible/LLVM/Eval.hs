@@ -50,7 +50,7 @@ callStackFromMemVar state mvar =
            ]
 
 assertSideCondition ::
-  (HasLLVMAnn sym, IsSymInterface sym, IsBoolSolver sym bak) =>
+  (HasLLVMAnn sym, IsSymBackend sym bak) =>
   bak ->
   CallStack ->
   LLVMSideCondition (RegValue' sym) ->
@@ -63,7 +63,7 @@ assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
 
 llvmExtensionEval ::
   forall sym bak p ext rtp blocks r ctx.
-  (HasLLVMAnn sym, IsSymInterface sym, IsBoolSolver sym bak) =>
+  (HasLLVMAnn sym, IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->

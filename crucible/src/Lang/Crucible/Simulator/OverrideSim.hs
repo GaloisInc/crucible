@@ -207,7 +207,7 @@ getSymInterface :: OverrideSim p sym ext rtp args ret sym
 getSymInterface = use stateSymInterface
 
 ovrWithBackend ::
-  (forall bak. (IsSymInterface sym, IsBoolSolver sym bak) => bak -> OverrideSim p sym ext rtp args ret a) ->
+  (forall bak. IsSymBackend sym bak => bak -> OverrideSim p sym ext rtp args ret a) ->
   OverrideSim p sym ext rtp args ret a
 ovrWithBackend k =
   do simCtx <- use stateContext
