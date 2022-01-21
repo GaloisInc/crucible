@@ -91,9 +91,8 @@ tobs is = BS.pack (map fromIntegral is)
 
 runFSTest' ::
   forall sym bak wptr t st fs.
-  (sym ~ W4B.ExprBuilder t st fs) =>
-  CB.IsSymInterface sym =>
-  CB.IsBoolSolver sym bak =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  CB.IsSymBackend sym bak =>
   ShowF (W4.SymExpr sym) =>
   bak ->
   FSTest wptr ->
@@ -139,7 +138,7 @@ runFSTest' bak (FSTest fsTest) = do
 
 
 proveGoal ::
-  (sym ~ W4B.ExprBuilder t st fs) =>
+  (sym ~ WE.ExprBuilder t st fs) =>
   CB.IsSymInterface sym =>
   sym ->
   WSA.SolverAdapter st ->

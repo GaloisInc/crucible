@@ -24,6 +24,7 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr ( knownNat )
 import           Data.Parameterized.Nonce ( withIONonceGenerator )
 import qualified What4.Expr as WE
+import qualified What4.Expr.Builder as WE
 import qualified What4.Config as What4
 import qualified What4.Interface as What4
 import           What4.ProblemFeatures ( noFeatures )
@@ -60,8 +61,7 @@ withMem ::
   (forall bak sym scope solver st fs wptr .
     ( sym ~ WE.ExprBuilder scope st fs
     , bak ~ CBO.OnlineBackend solver scope st fs
-    , CB.IsSymInterface sym
-    , CB.IsBoolSolver sym bak
+    , CB.IsSymBackend sym bak
     , LLVMMem.HasLLVMAnn sym
     , W4O.OnlineSolver solver
     , LLVMMem.HasPtrWidth wptr
@@ -69,7 +69,7 @@ withMem ::
     bak -> LLVMMem.MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen -> do
-  sym <- WE.newExprBuilder W4B.FloatIEEERepr WE.EmptyExprBuilderState nonce_gen
+  sym <- WE.newExprBuilder WE.FloatIEEERepr WE.EmptyExprBuilderState nonce_gen
   CBO.withZ3OnlineBackend sym CBO.NoUnsatFeatures noFeatures $ \bak -> do
     let ?ptrWidth = knownNat @64
     let ?recordLLVMAnnotation = \_ _ _ -> pure ()
@@ -79,7 +79,7 @@ withMem endianess action = withIONonceGenerator $ \nonce_gen -> do
 
 setCacheTerms :: CB.IsSymInterface sym => sym -> Bool ->IO ()
 setCacheTerms sym cache_terms_option = do
-  cache_terms_setting <- What4.getOptionSetting W4B.cacheTerms $ What4.getConfiguration sym
+  cache_terms_setting <- What4.getOptionSetting WE.cacheTerms $ What4.getConfiguration sym
   void $ What4.setOpt cache_terms_setting cache_terms_option
 
 userSymbol' :: String -> What4.SolverSymbol
@@ -87,7 +87,7 @@ userSymbol' s = case What4.userSymbol s of
   Left e -> error $ show e
   Right symbol -> symbol
 
-assume :: (CB.IsSymInterface sym, CB.IsBoolSolver sym bak) => bak -> What4.Pred sym -> IO ()
+assume :: (CB.IsSymBackend sym bak) => bak -> What4.Pred sym -> IO ()
 assume bak p = do
   let sym = CB.backendGetSym bak
   loc <- What4.getCurrentProgramLoc sym
@@ -96,7 +96,7 @@ assume bak p = do
 checkSat ::
   W4O.OnlineSolver solver =>
   CBO.OnlineBackend solver scope st fs ->
-  W4B.BoolExpr scope ->
+  WE.BoolExpr scope ->
   IO (W4Sat.SatResult () ())
 checkSat bak p =
   let err = fail "Online solving not enabled!" in
@@ -157,7 +157,7 @@ testArrayStride = testCase "array stride" $ withMem LLVMD.BigEndian $ \bak mem0 
 
 
 allocFreshArray ::
-  ( CB.IsSymInterface sym, CB.IsBoolSolver sym bak, LLVMMem.HasLLVMAnn sym, LLVMMem.HasPtrWidth wptr
+  ( CB.IsSymBackend sym bak, LLVMMem.HasLLVMAnn sym, LLVMMem.HasPtrWidth wptr
   , ?memOpts :: LLVMMem.MemOptions ) =>
   bak ->
   LLVMMem.MemImpl sym ->

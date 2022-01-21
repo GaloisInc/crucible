@@ -53,8 +53,7 @@ withLLVMCtx :: forall a. L.Module
             -> (forall arch sym bak.
                    ( ?lc :: TypeContext
                    , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
-                   , CB.IsSymInterface sym
-                   , CB.IsBoolSolver sym bak
+                   , CB.IsSymBackend sym bak
                    , LLVMMem.HasLLVMAnn sym
                    , ?memOpts :: LLVMMem.MemOptions
                    )
