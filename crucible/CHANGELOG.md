@@ -13,7 +13,7 @@ We changed this structure so that the `sym` value is now only
 responsible for the What4 expression creation tasks.  Now, there is a
 new "symbolic backend" `bak` value (that contains a `sym`) which is
 used to handle path conditions and assertions.  These two values are
-connected by the `IsBoolSolver sym bak` type class.  To prevent even
+connected by the `IsSymBackend sym bak` type class.  To prevent even
 more code churn than is already occurring, the exact type of `bak` is
 wrapped up into an existential datatype and stored in the
 `SimContext`. This makes accessing the symbolic backend a little less

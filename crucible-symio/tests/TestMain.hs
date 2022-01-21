@@ -52,7 +52,7 @@ import qualified Lang.Crucible.FunctionHandle as CFH
 import qualified Lang.Crucible.Simulator.GlobalState as CGS
 
 import qualified What4.Interface as W4
-import qualified What4.Expr.Builder as W4B
+import qualified What4.Expr as WE
 import qualified What4.Config as W4C
 import qualified What4.Solver.Yices as W4Y
 import qualified What4.Solver.Adapter as WSA
@@ -82,7 +82,7 @@ data SymIOTestData t = SymIOTestData
 runFSTest :: FSTest wptr -> IO ()
 runFSTest fsTest = do
   Some gen <- N.newIONonceGenerator
-  sym <- W4B.newExprBuilder W4B.FloatRealRepr SymIOTestData gen
+  sym <- WE.newExprBuilder WE.FloatRealRepr WE.EmptyExprBuilderState gen
   bak <- CB.newSimpleBackend sym
   runFSTest' bak fsTest
 

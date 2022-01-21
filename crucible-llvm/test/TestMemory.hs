@@ -23,7 +23,7 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr ( knownNat )
 import           Data.Parameterized.Nonce ( withIONonceGenerator )
-import qualified What4.Expr.Builder as W4B
+import qualified What4.Expr as WE
 import qualified What4.Config as What4
 import qualified What4.Interface as What4
 import           What4.ProblemFeatures ( noFeatures )
@@ -55,12 +55,10 @@ memoryTests = T.testGroup "Memory"
   , testMemInvalidate
   ]
 
-data LLVMTestMemoryState t = LLVMTestMemoryState
-
 withMem ::
   LLVMD.EndianForm ->
   (forall bak sym scope solver st fs wptr .
-    ( sym ~ W4B.ExprBuilder scope st fs
+    ( sym ~ WE.ExprBuilder scope st fs
     , bak ~ CBO.OnlineBackend solver scope st fs
     , CB.IsSymInterface sym
     , CB.IsBoolSolver sym bak
@@ -71,7 +69,7 @@ withMem ::
     bak -> LLVMMem.MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen -> do
-  sym <- W4B.newExprBuilder W4B.FloatIEEERepr LLVMTestMemoryState nonce_gen
+  sym <- WE.newExprBuilder W4B.FloatIEEERepr WE.EmptyExprBuilderState nonce_gen
   CBO.withZ3OnlineBackend sym CBO.NoUnsatFeatures noFeatures $ \bak -> do
     let ?ptrWidth = knownNat @64
     let ?recordLLVMAnnotation = \_ _ _ -> pure ()

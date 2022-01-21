@@ -39,13 +39,11 @@ import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
-import What4.Expr.Builder (ExprBuilder, newExprBuilder)
+import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
 
-
-data CrucibleSyntaxState t = CrucibleSyntaxState
 
 -- | The main loop body, useful for both the program and for testing.
 doParseCheck
@@ -95,7 +93,7 @@ simulateProgram fn theInput outh profh opts setup =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newExprBuilder FloatIEEERepr CrucibleSyntaxState nonceGen
+         do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
             bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha

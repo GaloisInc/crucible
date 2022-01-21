@@ -72,7 +72,7 @@ import           Lang.Crucible.Types
 
 
 import           What4.Config (setOpt, getOptionSetting, verbosity, extendConfig)
-import qualified What4.Expr.Builder as WEB
+import qualified What4.Expr as WE
 import           What4.FunctionName (FunctionName)
 import           What4.Interface (IsExprBuilder, getConfiguration)
 import           What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
@@ -96,8 +96,6 @@ import           Crux.Types
 
 pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext) => ExecState (personality sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
 pattern RunnableState es = RunnableStateWithExtensions es []
-
-data CruxState t = CruxState
 
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
@@ -125,7 +123,7 @@ newtype SimulatorCallbacks msgs r
         forall sym bak t st fs.
           ( IsSymBackend sym bak
           , Logs msgs
-          , sym ~ WEB.ExprBuilder t st fs
+          , sym ~ WE.ExprBuilder t st fs
           ) =>
           IO (SimulatorHooks sym bak t r)
     }
@@ -133,7 +131,7 @@ newtype SimulatorCallbacks msgs r
 
 -- | A GADT to capture the online solver constraints when we need them
 data SomeOnlineSolver sym bak where
-  SomeOnlineSolver :: ( sym ~ WEB.ExprBuilder scope st fs
+  SomeOnlineSolver :: ( sym ~ WE.ExprBuilder scope st fs
                       , bak ~ OnlineBackend solver scope st fs
                       , IsSymBackend sym bak
                       , OnlineSolver solver
@@ -316,26 +314,19 @@ withFloatRepr ::
   CruxOptions ->
   [solver] ->
   (forall fm .
-    IsInterpretedFloatExprBuilder (WEB.ExprBuilder s st (WEB.Flags fm)) =>
-    WEB.FloatModeRepr fm ->
+    IsInterpretedFloatExprBuilder (WE.ExprBuilder s st (WE.Flags fm)) =>
+    WE.FloatModeRepr fm ->
     IO a) ->
   IO a
 withFloatRepr proxy proxy' cruxOpts selectedSolvers k =
   case floatMode cruxOpts of
-    "real" -> k WEB.FloatRealRepr
-    "ieee" -> k WEB.FloatIEEERepr
-    "uninterpreted" -> k WEB.FloatUninterpretedRepr
+    "real" -> k WE.FloatRealRepr
+    "ieee" -> k WE.FloatIEEERepr
+    "uninterpreted" -> k WE.FloatUninterpretedRepr
     "default" -> case selectedSolvers of
                    [oneSolver] -> CCS.withDefaultFloatRepr proxy proxy' oneSolver k
-                   _           -> k WEB.FloatUninterpretedRepr
+                   _           -> k WE.FloatUninterpretedRepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
-
-_floatReprString :: WEB.FloatModeRepr fm -> String
-_floatReprString floatRepr =
-  case floatRepr of
-    WEB.FloatRealRepr -> "real"
-    WEB.FloatIEEERepr -> "ieee"
-    WEB.FloatUninterpretedRepr -> "uninterpreted"
 
 -- | Parse through the options structure to determine which online backend to
 -- instantiate (including the chosen floating point mode).
@@ -359,40 +350,40 @@ withSelectedOnlineBackend :: forall msgs scope st a.
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
     ( OnlineSolver solver
-    , IsInterpretedFloatExprBuilder (WEB.ExprBuilder scope st (WEB.Flags fm))
+    , IsInterpretedFloatExprBuilder (WE.ExprBuilder scope st (WE.Flags fm))
     ) =>
-    (OnlineBackend solver scope st (WEB.Flags fm) -> IO a)) ->
+    (OnlineBackend solver scope st (WE.Flags fm) -> IO a)) ->
     IO a
 withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMode initSt k =
   case fromMaybe (floatMode cruxOpts) maybeExplicitFloatMode of
-    "real" -> withOnlineBackendFM WEB.FloatRealRepr
-    "ieee" -> withOnlineBackendFM WEB.FloatIEEERepr
-    "uninterpreted" -> withOnlineBackendFM WEB.FloatUninterpretedRepr
+    "real" -> withOnlineBackendFM WE.FloatRealRepr
+    "ieee" -> withOnlineBackendFM WE.FloatIEEERepr
+    "uninterpreted" -> withOnlineBackendFM WE.FloatUninterpretedRepr
     "default" ->
       case selectedSolver of
-        CCS.Yices -> withOnlineBackendFM WEB.FloatRealRepr
-        CCS.CVC4 -> withOnlineBackendFM WEB.FloatRealRepr
-        CCS.STP -> withOnlineBackendFM WEB.FloatRealRepr
-        CCS.Z3 -> withOnlineBackendFM WEB.FloatIEEERepr
+        CCS.Yices -> withOnlineBackendFM WE.FloatRealRepr
+        CCS.CVC4 -> withOnlineBackendFM WE.FloatRealRepr
+        CCS.STP -> withOnlineBackendFM WE.FloatRealRepr
+        CCS.Z3 -> withOnlineBackendFM WE.FloatIEEERepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
 
   where
     withOnlineBackendFM ::
-      IsInterpretedFloatExprBuilder (WEB.ExprBuilder scope st (WEB.Flags fm)) =>
-      WEB.FloatModeRepr fm ->
+      IsInterpretedFloatExprBuilder (WE.ExprBuilder scope st (WE.Flags fm)) =>
+      WE.FloatModeRepr fm ->
       IO a
     withOnlineBackendFM fm =
-      do sym <- WEB.newExprBuilder fm initSt nonceGen
+      do sym <- WE.newExprBuilder fm initSt nonceGen
          withSelectedOnlineBackend' cruxOpts selectedSolver sym k
 
 withSelectedOnlineBackend' ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
-  IsInterpretedFloatExprBuilder (WEB.ExprBuilder scope st fs) =>
+  IsInterpretedFloatExprBuilder (WE.ExprBuilder scope st fs) =>
 
   CruxOptions ->
   CCS.SolverOnline ->
-  WEB.ExprBuilder scope st fs ->
+  WE.ExprBuilder scope st fs ->
   (forall solver.
     OnlineSolver solver =>
     (OnlineBackend solver scope st fs -> IO a)) ->
@@ -489,12 +480,12 @@ execFeatureMaybe mb m =
 
 
 -- | Common setup for all solver connections
-setupSolver :: (IsExprBuilder sym, sym ~ WEB.ExprBuilder t st fs) => CruxOptions -> Maybe FilePath -> sym -> IO ()
+setupSolver :: (IsExprBuilder sym, sym ~ WE.ExprBuilder t st fs) => CruxOptions -> Maybe FilePath -> sym -> IO ()
 setupSolver cruxOpts mInteractionFile sym = do
   mapM_ (symCfg sym solverInteractionFile) (fmap T.pack mInteractionFile)
 
   -- Turn on hash-consing, if enabled
-  when (hashConsing cruxOpts) (WEB.startCaching sym)
+  when (hashConsing cruxOpts) (WE.startCaching sym)
 
   let outOpts = outputOptions cruxOpts
   -- The simulator verbosity is one less than our verbosity.
@@ -587,14 +578,14 @@ runSimulator cruxOpts simCallback = do
   case CCS.parseSolverConfig cruxOpts of
 
     Right (CCS.SingleOnlineSolver onSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing CruxState $ \bak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing WE.EmptyExprBuilderState $ \bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
         doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOnline bak)
 
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing CruxState $ \bak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing WE.EmptyExprBuilderState $ \bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
@@ -608,9 +599,9 @@ runSimulator cruxOpts simCallback = do
           doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
 
     Right (CCS.OnlyOfflineSolvers offSolvers) ->
-      withFloatRepr (Proxy @s) (Proxy @CruxState) cruxOpts offSolvers $ \floatRepr -> do
+      withFloatRepr (Proxy @s) (Proxy @WE.EmptyExprBuilderState) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
-          sym <- WEB.newExprBuilder floatRepr CruxState nonceGen 
+          sym <- WE.newExprBuilder floatRepr WE.EmptyExprBuilderState nonceGen 
           bak <- CBS.newSimpleBackend sym
           setupSolver cruxOpts Nothing sym
           -- Since we have a bare SimpleBackend here, we have to initialize it
@@ -623,7 +614,7 @@ runSimulator cruxOpts simCallback = do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
       -- mode.
-      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing CruxState $ \pathSatBak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing WE.EmptyExprBuilderState $ \pathSatBak -> do
         let sym = backendGetSym pathSatBak
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatBak (Just (SomeOnlineSolver pathSatBak))
@@ -643,7 +634,7 @@ runSimulator cruxOpts simCallback = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  sym ~ WEB.ExprBuilder t st fs =>
+  sym ~ WE.ExprBuilder t st fs =>
   IsSymBackend sym bak =>
   Logs msgs =>
   SupportsCruxLogMessage msgs =>

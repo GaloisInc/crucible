@@ -17,7 +17,7 @@ import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import qualified Text.LLVM.AST as L
 
-import qualified What4.Expr.Builder as WEB
+import qualified What4.Expr as WE
 
 import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.Backend.Simple as CBS
@@ -67,7 +67,7 @@ withLLVMCtx mod' action =
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
-        sym <- WEB.newExprBuilder WEB.FloatRealRepr CrucibleLLVMTestData nonceGen
+        sym <- WE.newExprBuilder WE.FloatRealRepr WE.EmptyExprBuilderState nonceGen
         bak <- CBS.newSimpleBackend sym
         let ?memOpts = LLVMMem.defaultMemOptions
         let ?transOpts = LLVMTr.defaultTranslationOptions
@@ -83,8 +83,6 @@ withLLVMCtx mod' action =
         }}}
   in withIONonceGenerator $ \nonceGen ->
      withHandleAllocator  $ \halloc   -> with nonceGen halloc
-
-data CrucibleLLVMTestData t = CrucibleLLVMTestData
 
 
 assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
