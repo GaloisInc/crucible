@@ -87,6 +87,8 @@ module Lang.Crucible.Backend
   , ppAbortExecReason
 
     -- * Utilities
+  , throwUnsupported
+
   , addAssertion
   , addDurableAssertion
   , addAssertionM
@@ -101,6 +103,7 @@ module Lang.Crucible.Backend
 import           Control.Exception(Exception(..), throwIO)
 import           Control.Lens ((^.), Traversal, folded)
 import           Control.Monad
+import           Control.Monad.IO.Class
 import           Data.Kind (Type)
 import           Data.Foldable (toList)
 import           Data.Functor.Identity
@@ -108,6 +111,7 @@ import           Data.Functor.Const
 import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
 import qualified Prettyprinter as PP
+import           GHC.Stack
 
 import           What4.Concrete
 import           What4.Config
@@ -366,6 +370,12 @@ ppAssumption ppDoc e =
               , PP.indent 2 (ppSimError simErr)
               , ppDoc p
               ]
+
+throwUnsupported :: (IsExprBuilder sym, MonadIO m, HasCallStack) => sym -> String -> m a
+throwUnsupported sym msg = liftIO $
+  do loc <- getCurrentProgramLoc sym
+     throwIO $ SimError loc $ Unsupported callStack msg
+
 
 -- | Check if an assumption is trivial (always true)
 trivialAssumption :: IsExpr e => CrucibleAssumption e -> Bool

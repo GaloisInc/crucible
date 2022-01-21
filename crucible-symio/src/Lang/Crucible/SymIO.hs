@@ -79,6 +79,7 @@ module Lang.Crucible.SymIO
   ) where
 
 import           GHC.TypeNats
+import           GHC.Stack
 
 import           Control.Arrow ( first )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
@@ -677,7 +678,7 @@ resolveFileIdent ident = do
         Just n -> liftIO $ readPartExpr bak n missingErr
         Nothing -> liftIO $ addFailedAssertion bak missingErr
       _ -> liftIO $ addFailedAssertion bak $
-             Unsupported "Unsupported string in resolveFileIdent"
+             Unsupported callStack "Unsupported string in resolveFileIdent"
 
 
 openResolvedFile ::

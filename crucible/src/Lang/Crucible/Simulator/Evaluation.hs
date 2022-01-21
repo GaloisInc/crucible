@@ -45,6 +45,7 @@ import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
+import           GHC.Stack
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
@@ -429,7 +430,7 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
             Just (UnicodeLiteral msg') -> readPartExpr bak maybe_val (GenericSimError (Text.unpack msg'))
             Nothing ->
               addFailedAssertion bak $
-                Unsupported "Symbolic string in fromJustValue"
+                Unsupported callStack "Symbolic string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Recursive Types
@@ -445,7 +446,7 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       ne <- evalSub n_expr
       case asNat ne of
         Nothing -> addFailedAssertion bak $
-                      Unsupported "vectors with symbolic length"
+                      Unsupported callStack "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e
@@ -936,7 +937,7 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       case asString i of
         Just (UnicodeLiteral i') -> return $ joinMaybePE (Map.lookup i' m)
         Nothing -> addFailedAssertion bak $
-                    Unsupported "Symbolic string in lookupStringMapEntry"
+                    Unsupported callStack "Symbolic string in lookupStringMapEntry"
 
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
@@ -945,7 +946,7 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       case asString i of
         Just (UnicodeLiteral i') -> return $ Map.insert i' v m
         Nothing -> addFailedAssertion bak $
-                     Unsupported "Symbolic string in insertStringMapEntry"
+                     Unsupported callStack "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Strings

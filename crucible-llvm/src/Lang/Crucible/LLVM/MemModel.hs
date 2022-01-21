@@ -198,6 +198,7 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Word
+import qualified GHC.Stack as GHC
 import           GHC.TypeNats
 import           Numeric.Natural
 import           System.IO (Handle, hPutStrLn)
@@ -367,7 +368,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym bak ext rtp blocks ret args tp.
-  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, GHC.HasCallStack, ?memOpts :: MemOptions) =>
   bak ->
   LLVMStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -1147,7 +1148,7 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
 -- `loadString` will stop reading if it encounters a null-terminator.
 loadString :: forall sym bak wptr.
   ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
+  , ?memOpts :: MemOptions, GHC.HasCallStack ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1170,14 +1171,14 @@ loadString bak mem = go id
            go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
        Nothing ->
          addFailedAssertion bak
-            $ Unsupported "Symbolic value encountered when loading a string"
+            $ Unsupported GHC.callStack "Symbolic value encountered when loading a string"
 
 -- | Like 'loadString', except the pointer to load may be null.  If
 --   the pointer is null, we return Nothing.  Otherwise we load
 --   the string as with 'loadString' and return it.
 loadMaybeString ::
   ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
+  , ?memOpts :: MemOptions, GHC.HasCallStack ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1188,7 +1189,7 @@ loadMaybeString bak mem ptr n = do
   isnull <- ptrIsNull sym PtrWidth ptr
   case asConstantPred isnull of
     Nothing    -> addFailedAssertion bak
-                    $ Unsupported "Symbolic pointer encountered when loading a string"
+                    $ Unsupported GHC.callStack "Symbolic pointer encountered when loading a string"
     Just True  -> return Nothing
     Just False -> Just <$> loadString bak mem ptr n
 

@@ -53,6 +53,7 @@ module Mir.Intrinsics
 ) -} where
 
 import           GHC.Natural
+import           GHC.Stack
 import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Exception (throwIO)
@@ -662,9 +663,7 @@ muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
         (MirVector_Array a1) (MirVector_Array a2) =
     MirVector_Array <$> muxRegForType sym itefns (UsizeArrayRepr btpr) c a1 a2
 muxMirVector sym _ _ _ _ _ =
-   do loc <- getCurrentProgramLoc sym 
-      throwIO $ SimError loc $
-        Unsupported $ "Cannot merge dissimilar MirVectors."
+   throwUnsupported sym "Cannot merge dissimilar MirVectors."
 
 toPartialVector :: IsSymInterface sym =>
     sym -> TypeRepr tp ->
@@ -1311,7 +1310,7 @@ refRootEq sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
 refRootEq sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
   | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
 refRootEq _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
-    leafAbort $ Unsupported $ "Cannot compare Const_RefRoots"
+    leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
 refRootEq sym _ _ = return $ falsePred sym
 
 refPathEq ::
@@ -1421,7 +1420,7 @@ refRootOverlaps sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
 refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
   | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
 refRootOverlaps sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
-    leafAbort $ Unsupported $ "Cannot compare Const_RefRoots"
+    leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
 refRootOverlaps sym _ _ = return $ falsePred sym
 
 -- | Check whether two `MirReferencePath`s might reference overlapping memory
@@ -1536,7 +1535,7 @@ mirRef_offsetWrapLeaf bak _tpr (MirReference root (Index_RefPath tpr path idx)) 
 mirRef_offsetWrapLeaf bak _ ref@(MirReference _ _) offset = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvLit sym knownNat (BV.zero knownNat)
-    leafAssert bak isZero $ Unsupported $
+    leafAssert bak isZero $ Unsupported callStack $
         "pointer arithmetic outside arrays is not yet implemented"
     return ref
 mirRef_offsetWrapLeaf bak _ ref@(MirReference_Integer _ _) offset = do
@@ -1544,7 +1543,7 @@ mirRef_offsetWrapLeaf bak _ ref@(MirReference_Integer _ _) offset = do
     -- Offsetting by zero is a no-op, and is always allowed, even on invalid
     -- pointers.  In particular, this permits `(&[])[0..]`.
     isZero <- liftIO $ bvEq sym offset =<< bvLit sym knownNat (BV.zero knownNat)
-    leafAssert bak isZero $ Unsupported $
+    leafAssert bak isZero $ Unsupported callStack $
         "cannot perform pointer arithmetic on invalid pointer"
     return ref
 
@@ -1587,10 +1586,10 @@ mirRef_peelIndexIO sym _tpr (MirReference root (Index_RefPath _tpr' path idx)) =
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexIO _sym _ (MirReference _ _) =
-    leafAbort $ Unsupported $
+    leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
 mirRef_peelIndexIO _sym _ _ = do
-    leafAbort $ Unsupported $
+    leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
 
 -- | Compute the index of `ref` within its containing allocation, along with
@@ -1613,7 +1612,7 @@ mirRef_indexAndLenLeaf bak s (MirReference root (Index_RefPath _tpr' path idx)) 
     lenInt <- case parentVec of
         MirVector_Vector v -> return $ V.length v
         MirVector_PartialVector pv -> return $ V.length pv
-        MirVector_Array _ -> leafAbort $ Unsupported $
+        MirVector_Array _ -> leafAbort $ Unsupported callStack $
             "can't compute allocation length for MirVector_Array, which is unbounded"
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
     return (idx, len)
@@ -1741,7 +1740,7 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirVector_Uninit _tp (regValue -> lenSym) -> do
             len <- case asBV lenSym of
                 Just x -> return (BV.asUnsigned x)
-                Nothing -> addFailedAssertion bak $ Unsupported $
+                Nothing -> addFailedAssertion bak $ Unsupported callStack $
                     "Attempted to allocate vector of symbolic length"
             let pv = V.replicate (fromInteger len) Unassigned
             return (MirVector_PartialVector pv, s)
@@ -1752,12 +1751,12 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirVector_Resize _tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
             newLen <- case asBV newLenSym of
                 Just x -> return (BV.asUnsigned x)
-                Nothing -> addFailedAssertion bak $ Unsupported $
+                Nothing -> addFailedAssertion bak $ Unsupported callStack $
                     "Attempted to resize vector to symbolic length"
             getter <- case mirVec of
                 MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
                 MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
-                MirVector_Array _ -> addFailedAssertion bak $ Unsupported $
+                MirVector_Array _ -> addFailedAssertion bak $ Unsupported callStack $
                     "Attempted to resize MirVector backed by symbolic array"
             let pv' = V.generate (fromInteger newLen) getter
             return (MirVector_PartialVector pv', s)
@@ -1957,14 +1956,14 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
         mv <- adj $ MirVector_Vector v'
         case mv of
             MirVector_Vector v'' -> return v''
-            _ -> leafAbort $ Unsupported $
+            _ -> leafAbort $ Unsupported callStack $
                 "tried to change underlying type of MirVector ref"
   ArrayAsMirVector_RefPath _ path -> do
     adjustRefPath bak iTypes v path $ \v' -> do
         mv <- adj $ MirVector_Array v'
         case mv of
             MirVector_Array v'' -> return v''
-            _ -> leafAbort $ Unsupported $
+            _ -> leafAbort $ Unsupported callStack $
                 "tried to change underlying type of MirVector ref"
 
 readRefPath ::

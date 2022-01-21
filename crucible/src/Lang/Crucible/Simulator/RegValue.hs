@@ -52,7 +52,6 @@ module Lang.Crucible.Simulator.RegValue
 
 import           Control.Monad
 import           Control.Monad.Trans.Class
-import           Control.Exception (throwIO)
 import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -73,7 +72,6 @@ import           What4.WordMap
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.SymSequence
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
@@ -167,9 +165,7 @@ eqMergeFn sym nm = \_ x y ->
   if x == y then
     return x
   else
-    do loc <- getCurrentProgramLoc sym
-       throwIO $ SimError loc $
-         Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
+    throwUnsupported sym $ "Cannot merge dissimilar " ++ nm ++ "."
 
 ------------------------------------------------------------------------
 -- RegValue AnyType instance
@@ -226,9 +222,7 @@ muxVector :: IsExprBuilder sym =>
 muxVector sym f p x y
   | V.length x == V.length y = V.zipWithM (f p) x y
   | otherwise =
-      do loc <- getCurrentProgramLoc sym 
-         throwIO $ SimError loc $
-           Unsupported "Cannot merge vectors with different dimensions."
+      throwUnsupported sym "Cannot merge vectors with different dimensions."
 
 instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}

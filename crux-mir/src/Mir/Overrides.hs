@@ -65,7 +65,8 @@ import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
     ( CrucibleAssumption(..), IsSymBackend, LabeledPred(..), addAssumption
     , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface
-    , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym )
+    , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym
+    , throwUnsupported )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle
@@ -207,8 +208,7 @@ groundExpr sym tpr v = case tpr of
                 return (idxs', val')) $ Map.toList vals
             arr0 <- constantArray sym idxTprs dfl'
             foldM (\arr (idxs, val) -> arrayUpdate sym arr idxs val) arr0 vals'
-    _ -> do loc <- getCurrentProgramLoc sym
-            throwIO $ SimError loc $ Unsupported $
+    _ -> throwUnsupported sym $
               "groundExpr: conversion of " ++ show tpr ++ " is not yet implemented"
 
 indexExpr :: IsExprBuilder sym =>
@@ -292,9 +292,7 @@ regEval bak baseEval tpr v = go tpr v
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
           | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
     -- TODO: StringMapRepr
-    go tpr v = liftIO $ do
-        loc <- getCurrentProgramLoc sym
-        throwIO $ SimError loc $ Unsupported $
+    go tpr v = throwUnsupported sym $
           "evaluation of " ++ show tpr ++ " is not yet implemented"
 
     go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' ->
@@ -357,9 +355,8 @@ regEval bak baseEval tpr v = go tpr v
         MirReferenceRoot sym tp' ->
         OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
     goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
-    goMirReferenceRoot (GlobalVar_RefRoot gv) = liftIO $ do
-        loc <- getCurrentProgramLoc sym
-        throwIO $ SimError loc $ Unsupported $
+    goMirReferenceRoot (GlobalVar_RefRoot gv) =
+        throwUnsupported sym $
           "evaluation of GlobalVar_RefRoot is not yet implemented"
     goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
 

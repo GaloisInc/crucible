@@ -33,6 +33,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 import qualified Data.Vector as V
 import           System.IO
+import qualified GHC.Stack as GHC
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
@@ -579,7 +580,7 @@ printfOps bak valist =
   let sym = backendGetSym bak in
   PrintfOperations
   { printfUnsupported = \x -> lift $ addFailedAssertion bak
-                                   $ Unsupported x
+                                   $ Unsupported GHC.callStack x
 
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
@@ -678,7 +679,7 @@ printfOps bak valist =
                  put mem'
               _ ->
                 lift $ addFailedAssertion bak
-                     $ Unsupported
+                     $ Unsupported GHC.callStack
                      $ unwords ["Unsupported size modifier in %n conversion:", show len]
 
        Just (AnyValue tpr _) ->

@@ -52,7 +52,6 @@ module Lang.Crucible.Simulator.RegMap
   , module Lang.Crucible.Simulator.RegValue
   ) where
 
-import           Control.Exception( throwIO )
 
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
@@ -64,7 +63,6 @@ import           What4.WordMap
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
@@ -143,10 +141,7 @@ muxAny :: IsSymInterface sym
 muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
   | Just Refl <- testEquality tpx tpy =
        AnyValue tpx <$> muxRegForType s itefns tpx p x y
-  | otherwise =
-    do loc <- getCurrentProgramLoc s
-       throwIO $ SimError loc $
-          Unsupported $ unwords
+  | otherwise = throwUnsupported s $ unwords
                       ["Attempted to mux ANY values of different runtime type"
                       , show tpx, show tpy
                       ]
