@@ -13,6 +13,7 @@
 
 module Mir.Overrides (bindFn, getString) where
 
+import Control.Exception (throwIO)
 import Control.Lens ((^.), (^?), (%=), (.=), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
@@ -62,9 +63,10 @@ import What4.SatResult (SatResult(..))
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( CrucibleAssumption(..), IsBoolSolver, LabeledPred(..), addAssumption
+    ( CrucibleAssumption(..), IsSymBackend, LabeledPred(..), addAssumption
     , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface
-    , singleEvent, addAssumptions, CrucibleEvent(..) )
+    , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym
+    , throwUnsupported )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle
@@ -112,11 +114,11 @@ data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
 makeSymbolicVar ::
-    (IsSymInterface sym) =>
+    IsSymInterface sym =>
     RegEntry sym (MirSlice (BVType 8)) ->
     BaseTypeRepr btp ->
     OverrideSim (p sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
-makeSymbolicVar nameReg btpr = do
+makeSymbolicVar nameReg btpr = ovrWithBackend $ \bak -> do
     sym <- getSymInterface
     nameOpt <- getString $ regValue nameReg
     name <- case nameOpt of
@@ -128,7 +130,7 @@ makeSymbolicVar nameReg btpr = do
     v <- liftIO $ freshConstant sym nameSymbol btpr
     loc <- liftIO $ getCurrentProgramLoc sym
     let ev = CreateVariableEvent loc name btpr v
-    liftIO $ addAssumptions sym (singleEvent ev)
+    liftIO $ addAssumptions bak (singleEvent ev)
     return v
 
 array_symbolic ::
@@ -143,12 +145,12 @@ array_symbolic btpr = do
     makeSymbolicVar nameReg $ BaseArrayRepr (Empty :> BaseUsizeRepr) btpr
 
 concretize ::
-  forall sym rtp tp p .
+  forall sym bak rtp tp p .
   (IsSymInterface sym) =>
-  Maybe (SomeOnlineSolver sym) ->
+  Maybe (SomeOnlineSolver sym bak) ->
   OverrideSim p sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
-concretize (Just SomeOnlineSolver) = do
-    (sym :: sym) <- getSymInterface
+concretize (Just (SomeOnlineSolver bak)) = do
+    let sym = backendGetSym bak
 
     -- remember if online solving was enabled
     enabledOpt <- liftIO $ getOptionSetting enableOnlineBackend (getConfiguration sym)
@@ -158,18 +160,18 @@ concretize (Just SomeOnlineSolver) = do
     _ <- liftIO $ setOpt enabledOpt True
 
     let onlineDisabled = panic "concretize" ["requires online solving to be enabled"]
-    GroundEvalFn evalGround <- liftIO $ withSolverProcess sym onlineDisabled $ \sp -> do
-        cond <- getPathCondition sym
+    GroundEvalFn evalGround <- liftIO $ withSolverProcess bak onlineDisabled $ \sp -> do
+        cond <- getPathCondition bak
         result <- checkWithAssumptionsAndModel sp "concretize" [cond]
         case result of
             Sat f -> return f
-            _ -> addFailedAssertion sym $
-                GenericSimError "path is already unreachable"
+            _ -> addFailedAssertion bak $
+                   GenericSimError "path is already unreachable"
     let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
         evalBase btr v = evalGround v >>= groundExpr sym btr
 
     RegMap (Empty :> RegEntry tpr val) <- getOverrideArgs
-    x <- regEval sym (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
+    x <- regEval bak (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
 
     -- restore the previous setting of the online backend
     _ <- liftIO $ setOpt enabledOpt wasEnabled
@@ -178,8 +180,12 @@ concretize (Just SomeOnlineSolver) = do
 
 concretize Nothing = fail "`concretize` requires an online solver backend"
 
-groundExpr :: (IsExprBuilder sym, IsBoolSolver sym) => sym ->
-    BaseTypeRepr tp -> GroundValue tp -> IO (SymExpr sym tp)
+groundExpr ::
+    IsExprBuilder sym =>
+    sym ->
+    BaseTypeRepr tp ->
+    GroundValue tp ->
+    IO (SymExpr sym tp)
 groundExpr sym tpr v = case tpr of
     BaseBoolRepr -> return $ if v then truePred sym else falsePred sym
     BaseIntegerRepr -> intLit sym v
@@ -202,27 +208,32 @@ groundExpr sym tpr v = case tpr of
                 return (idxs', val')) $ Map.toList vals
             arr0 <- constantArray sym idxTprs dfl'
             foldM (\arr (idxs, val) -> arrayUpdate sym arr idxs val) arr0 vals'
-    _ -> addFailedAssertion sym $ GenericSimError $
-        "groundExpr: conversion of " ++ show tpr ++ " is not yet implemented"
+    _ -> throwUnsupported sym $
+              "groundExpr: conversion of " ++ show tpr ++ " is not yet implemented"
 
-indexExpr :: (IsExprBuilder sym, IsBoolSolver sym) =>
-    sym -> BaseTypeRepr tp -> IndexLit tp -> IO (SymExpr sym tp)
+indexExpr :: IsExprBuilder sym =>
+    sym ->
+    BaseTypeRepr tp ->
+    IndexLit tp ->
+    IO (SymExpr sym tp)
 indexExpr sym tpr l = case l of
     IntIndexLit n  -> intLit sym n
     BVIndexLit w i -> bvLit sym w i
 
 
 regEval ::
-    forall sym tp rtp args ret p .
-    (IsSymInterface sym) =>
-    sym ->
+    forall sym bak tp rtp args ret p .
+    (IsSymBackend sym bak) =>
+    bak ->
     (forall bt. BaseTypeRepr bt -> SymExpr sym bt ->
         OverrideSim p sym MIR rtp args ret (SymExpr sym bt)) ->
     TypeRepr tp ->
     RegValue sym tp ->
     OverrideSim p sym MIR rtp args ret (RegValue sym tp)
-regEval sym baseEval tpr v = go tpr v
+regEval bak baseEval tpr v = go tpr v
   where
+    sym = backendGetSym bak
+
     go :: forall tp' . TypeRepr tp' -> RegValue sym tp' ->
         OverrideSim p sym MIR rtp args ret (RegValue sym tp')
     go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
@@ -281,8 +292,8 @@ regEval sym baseEval tpr v = go tpr v
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
           | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
     -- TODO: StringMapRepr
-    go tpr v = liftIO $ addFailedAssertion sym $ GenericSimError $
-        "evaluation of " ++ show tpr ++ " is not yet implemented"
+    go tpr v = throwUnsupported sym $
+          "evaluation of " ++ show tpr ++ " is not yet implemented"
 
     go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' ->
         OverrideSim p sym MIR rtp args ret (RegValue' sym tp')
@@ -309,14 +320,14 @@ regEval sym baseEval tpr v = go tpr v
     goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
         [(a, Pred sym)] ->
         OverrideSim p sym MIR rtp args ret a
-    goMuxTreeEntries tpr [] = liftIO $ addFailedAssertion sym $ GenericSimError $
+    goMuxTreeEntries tpr [] = liftIO $ addFailedAssertion bak $ GenericSimError $
         "empty or incomplete mux tree?"
     goMuxTreeEntries tpr ((x, pred) : xs) = do
         pred' <- baseEval BaseBoolRepr pred
         case asConstantPred pred' of
             Just True -> return x
             Just False -> goMuxTreeEntries tpr xs
-            Nothing -> liftIO $ addFailedAssertion sym $ GenericSimError $
+            Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
                 "baseEval returned a non-constant predicate?"
 
     goRefCell :: forall tp' .
@@ -345,8 +356,8 @@ regEval sym baseEval tpr v = go tpr v
         OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
     goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
     goMirReferenceRoot (GlobalVar_RefRoot gv) =
-        liftIO $ addFailedAssertion sym $ GenericSimError $
-            "evaluation of GlobalVar_RefRoot is not yet implemented"
+        throwUnsupported sym $
+          "evaluation of GlobalVar_RefRoot is not yet implemented"
     goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
 
     goMirReferencePath :: forall tp_base tp' .
@@ -403,9 +414,9 @@ overrideRust cs name = do
 
 
 bindFn ::
-  forall p ng args ret blocks sym rtp a r.
+  forall p ng args ret blocks sym bak rtp a r.
   (IsSymInterface sym) =>
-  Maybe (SomeOnlineSolver sym) ->
+  Maybe (SomeOnlineSolver sym bak) ->
   CollectionState ->
   Text ->
   CFG MIR blocks args ret ->
@@ -443,8 +454,9 @@ bindFn symOnline cs name cfg
 
 
 bindFn _symOnline _cs fn cfg =
-  getSymInterface >>= \s ->
-  case Map.lookup fn (overrides s) of
+  ovrWithBackend $ \bak ->
+  let s = backendGetSym bak in
+  case Map.lookup fn (overrides bak) of
     Nothing ->
       bindFnHandle (cfgHandle cfg) $ UseCFG cfg (postdomInfo cfg)
     Just (($ functionNameFromText fn) -> SomeOverride argTys retTy f) ->
@@ -483,12 +495,13 @@ bindFn _symOnline _cs fn cfg =
       do RegMap (Empty :> str) <- getOverrideArgs
          makeSymbolicVar str $ BaseBVRepr n
 
-    overrides :: sym -> Map Text (FunctionName -> SomeOverride (p sym) sym)
-    overrides s =
+    overrides :: IsSymBackend sym bak' => bak' -> Map Text (FunctionName -> SomeOverride (p sym) sym)
+    overrides bak =
+      let sym = backendGetSym bak in
       fromList [ override "crucible::one" Empty (BVRepr (knownNat @8)) $
                  do h <- printHandle <$> getContext
                     liftIO (hPutStrLn h "Hello, I'm an override")
-                    v <- liftIO $ bvLit (s :: sym) knownNat (BV.mkBV knownNat 1)
+                    v <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat 1)
                     return v
                , symb_bv "crucible::symbolic::symbolic_u8"  (knownNat @8)
                , symb_bv "crucible::symbolic::symbolic_u16" (knownNat @16)
@@ -503,7 +516,6 @@ bindFn _symOnline _cs fn cfg =
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "crucible::crucible_assert_impl" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
-                       s <- getSymInterface
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
                                 =<< getString (regValue srcArg)
@@ -514,13 +526,12 @@ bindFn _symOnline _cs fn cfg =
                               (BV.asUnsigned <$> asBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src) ""
-                       liftIO $ assert s (regValue c) reason
+                       liftIO $ assert bak (regValue c) reason
                        return ()
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "crucible::crucible_assume_impl" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
-                       s <- getSymInterface
-                       loc <- liftIO $ getCurrentProgramLoc s
+                       loc <- liftIO $ getCurrentProgramLoc sym
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
                                 =<< getString (regValue srcArg)
@@ -531,6 +542,6 @@ bindFn _symOnline _cs fn cfg =
                               (BV.asUnsigned <$> asBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = GenericAssumption loc ("Assumption \n\t" <> src <> "\nfrom " <> locStr) (regValue c)
-                       liftIO $ addAssumption s reason
+                       liftIO $ addAssumption bak reason
                        return ()
                ]

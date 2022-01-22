@@ -507,7 +507,8 @@ restoreBranchingThread ::
   PausedFrame (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) g ->
   ThreadExecM alg sym ext ret (RegEntry sym ret) f a (ExecState (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret))
 restoreBranchingThread tID dir branchPred stk tframe fframe =
-  do sym <- use (stateContext.ctxSymInterface)
+  use stateContext >>= \ctx -> withBackend ctx $ \bak ->
+  do let sym = backendGetSym bak
      loc <- liftIO $ getCurrentProgramLoc sym
      prev <- use (stateExec.prevEventID)
      runUpdateSchedAlg $ notifyBranch tID prev
@@ -515,7 +516,7 @@ restoreBranchingThread tID dir branchPred stk tframe fframe =
                             then (tframe, return branchPred)
                             else (fframe, notPred sym branchPred)
      assmPred <- liftIO assm
-     liftIO $ addAssumption sym (BranchCondition loc (pausedLoc frame) assmPred)
+     liftIO $ addAssumption bak (BranchCondition loc (pausedLoc frame) assmPred)
      s <- get
      case frame of
        PausedFrame frm cont l ->
@@ -541,8 +542,8 @@ returnFinishedResult ::
   Maybe (RegEntry sym ret) ->
   ThreadExecM alg sym ext ret rtp f a (ExecState (ThreadExec alg sym ext ret) sym ext rtp)
 returnFinishedResult mres =
-  do ctx <- use stateContext
-     gp  <- use $ stateTree.actFrame
+  use stateContext >>= \ctx -> withBackend ctx $ \bak ->
+  do gp  <- use $ stateTree.actFrame
      case mres of
        Just res ->
          return $ ResultState (FinishedResult ctx (TotalRes (gp & gpValue .~ res)))
@@ -551,7 +552,7 @@ returnFinishedResult mres =
             loc <- liftIO $ getCurrentProgramLoc sym
             let simerr = SimError loc "<deadlock>"
             let err = LabeledPred (falsePred sym) simerr
-            liftIO $ addProofObligation sym err
+            liftIO $ addProofObligation bak err
             s <- get
             liftIO $
               do putStrLn "<deadlock>"

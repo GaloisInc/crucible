@@ -58,9 +58,9 @@ registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
     showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
   bindFnHandle h s
   let mvar = llvmMemVar llvm_ctx
-  sym <- getSymInterface
   mem <- readGlobal mvar
-  mem' <- liftIO $ bindLLVMFunPtr sym decl h mem
+  mem' <- ovrWithBackend $ \bak ->
+            liftIO $ bindLLVMFunPtr bak decl h mem
   writeGlobal mvar mem'
 
 

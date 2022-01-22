@@ -52,7 +52,7 @@ import qualified Lang.Crucible.FunctionHandle as CFH
 import qualified Lang.Crucible.Simulator.GlobalState as CGS
 
 import qualified What4.Interface as W4
-import qualified What4.Expr.Builder as W4B
+import qualified What4.Expr as WE
 import qualified What4.Config as W4C
 import qualified What4.Solver.Yices as W4Y
 import qualified What4.Solver.Adapter as WSA
@@ -77,24 +77,28 @@ fsTests = T.testGroup "Filesystem Tests"
   , T.testCase "End Of File" (runFSTest testEOF)
   ]
 
+data SymIOTestData t = SymIOTestData
+
 runFSTest :: FSTest wptr -> IO ()
 runFSTest fsTest = do
   Some gen <- N.newIONonceGenerator
-  sym <- CB.newSimpleBackend W4B.FloatRealRepr gen
-  runFSTest' sym fsTest
+  sym <- WE.newExprBuilder WE.FloatRealRepr WE.EmptyExprBuilderState gen
+  bak <- CB.newSimpleBackend sym
+  runFSTest' bak fsTest
 
 tobs :: [Integer] -> BS.ByteString
 tobs is = BS.pack (map fromIntegral is)
 
 runFSTest' ::
-  forall sym wptr t st fs.
-  (sym ~ W4B.ExprBuilder t st fs) =>
-  CB.IsSymInterface sym =>
+  forall sym bak wptr t st fs.
+  (sym ~ WE.ExprBuilder t st fs) =>
+  CB.IsSymBackend sym bak =>
   ShowF (W4.SymExpr sym) =>
-  sym ->
+  bak ->
   FSTest wptr ->
   IO ()
-runFSTest' sym (FSTest fsTest) = do
+runFSTest' bak (FSTest fsTest) = do
+  let sym = CB.backendGetSym bak
   let config = W4.getConfiguration sym
   W4C.extendConfig W4Y.yicesOptions config
   let
@@ -113,7 +117,7 @@ runFSTest' sym (FSTest fsTest) = do
   fsvar <- CC.freshGlobalVar halloc "fileSystem" (SymIO.FileSystemRepr nRepr)
   
   let    
-    initCtx = CS.initSimContext sym SymIO.symIOIntrinsicTypes halloc IO.stderr (CSO.fnBindingsFromList []) CS.emptyExtensionImpl ()
+    initCtx = CS.initSimContext bak SymIO.symIOIntrinsicTypes halloc IO.stderr (CSO.fnBindingsFromList []) CS.emptyExtensionImpl ()
     globals = CGS.insertGlobal fsvar fs CS.emptyGlobals
     cont = CS.runOverrideSim CT.UnitRepr (fsTest fsvar)
     initState = CS.InitialState initCtx globals CS.defaultAbortHandler CT.UnitRepr cont
@@ -129,12 +133,12 @@ runFSTest' sym (FSTest fsTest) = do
         _ -> do
           putStrLn $ showF p
           T.assertFailure "Partial Result"
-  obligations <- CB.getProofObligations sym
+  obligations <- CB.getProofObligations bak
   mapM_ (proveGoal sym W4Y.yicesAdapter) (maybe [] CB.goalsToList obligations)
 
 
 proveGoal ::
-  (sym ~ W4B.ExprBuilder t st fs) =>
+  (sym ~ WE.ExprBuilder t st fs) =>
   CB.IsSymInterface sym =>
   sym ->
   WSA.SolverAdapter st ->
@@ -160,17 +164,20 @@ showAbortedResult ar = case ar of
   CS.AbortedBranch _ _ res' res'' -> "BRANCH: " <> showAbortedResult res' <> "\n" <> showAbortedResult res''
 
 data FSTest (wptr :: Nat)   where
-  FSTest :: (KnownNat wptr, 1 <= wptr) => (forall sym. (CB.IsSymInterface sym, ShowF (W4.SymExpr sym)) => CS.GlobalVar (SymIO.FileSystemType wptr) -> CS.OverrideSim () sym () (CS.RegEntry sym CT.UnitType) Ctx.EmptyCtx CT.UnitType ()) -> FSTest wptr
+  FSTest :: (KnownNat wptr, 1 <= wptr) =>
+    (forall sym. (CB.IsSymInterface sym, ShowF (W4.SymExpr sym)) =>
+                 CS.GlobalVar (SymIO.FileSystemType wptr) ->
+                 CS.OverrideSim () sym () (CS.RegEntry sym CT.UnitType) Ctx.EmptyCtx CT.UnitType ()) ->
+    FSTest wptr
 
 readOne ::
   (CB.IsSymInterface sym, 1 <= wptr) =>
   CS.GlobalVar (SymIO.FileSystemType wptr) ->
   SymIO.FileHandle sym wptr ->
   CS.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
-readOne fsVar fhdl = do
+readOne fsVar fhdl = CS.ovrWithBackend $ \bak -> do
   mval <- SymIO.readByte' fsVar fhdl
-  sym <- CS.getSymInterface
-  liftIO $ CB.readPartExpr sym mval (CS.AssertFailureSimError "readOne" "readOne")
+  liftIO $ CB.readPartExpr bak mval (CS.AssertFailureSimError "readOne" "readOne")
 
 readFromChunk ::
   (CB.IsSymInterface sym, 1 <= wptr) =>
@@ -230,28 +237,26 @@ expectIf ::
   W4.SymBV sym w ->
   Integer ->
   CS.OverrideSim p sym arch r args ret ()
-expectIf test bv i = do
+expectIf test bv i = CS.ovrWithBackend $ \bak -> do
+  let sym = CB.backendGetSym bak
   test' <- liftIO $ test
-  sym <- CS.getSymInterface
   bv' <- liftIO $ W4.bvLit sym W4.knownRepr (BVS.mkBV W4.knownRepr i)
   check <- liftIO $ W4.isEq sym bv bv'
   check' <- liftIO $ W4.impliesPred sym test' check
-  liftIO $ CB.assert sym check' (CS.AssertFailureSimError "expect failure" "expect failure")
+  liftIO $ CB.assert bak check' (CS.AssertFailureSimError "expect failure" "expect failure")
   return ()
 
 expectOne ::
   forall p sym arch r args ret.
   CB.IsSymInterface sym => W4.SymBV sym 8 -> [Integer] -> CS.OverrideSim p sym arch r args ret ()
-expectOne bv is = do
-  sym <- CS.getSymInterface
+expectOne bv is = CS.ovrWithBackend $ \bak -> do
+  let sym = CB.backendGetSym bak
+  let mkcheck :: Integer -> CS.OverrideSim p sym arch r args ret (W4.Pred sym)
+      mkcheck i = do
+        bv' <- liftIO $ W4.bvLit sym W4.knownRepr (BVS.mkBV W4.knownRepr i)
+        liftIO $ W4.isEq sym bv bv'
   check <- foldM (\p i -> mkcheck i >>= \p' -> liftIO $ W4.orPred sym p p') (W4.falsePred sym) is
-  liftIO $ CB.assert sym check (CS.AssertFailureSimError "expect failure" "expect failure")
-  where
-    mkcheck :: Integer -> CS.OverrideSim p sym arch r args ret (W4.Pred sym)
-    mkcheck i = do
-      sym <- CS.getSymInterface
-      bv' <- liftIO $ W4.bvLit sym W4.knownRepr (BVS.mkBV W4.knownRepr i)
-      liftIO $ W4.isEq sym bv bv'
+  liftIO $ CB.assert bak check (CS.AssertFailureSimError "expect failure" "expect failure")
 
 mkbv ::
   forall wptr p sym arch r args ret.
@@ -366,8 +371,8 @@ testUnknownFile = FSTest $ \fsVar -> do
 
 
 testEOF :: FSTest 32
-testEOF = FSTest $ \fsVar -> do
-  sym <- CS.getSymInterface
+testEOF = FSTest $ \fsVar -> CS.ovrWithBackend $ \bak -> do
+  let sym = CB.backendGetSym bak
   let err = CS.AssertFailureSimError "expect EOF" "expect EOF"
   test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test0")
   fhdl <- SymIO.openFile' fsVar test0_name
@@ -377,7 +382,7 @@ testEOF = FSTest $ \fsVar -> do
   eof <- SymIO.readByte' fsVar fhdl
   assertNone eof err
   isOpen <- SymIO.isHandleOpen fsVar fhdl
-  liftIO $ CB.assert sym isOpen err
+  liftIO $ CB.assert bak isOpen err
 
   fhdl2 <- SymIO.openFile' fsVar test0_name
   _ <- readOne fsVar fhdl2
@@ -396,7 +401,7 @@ testEOF = FSTest $ \fsVar -> do
   expect readBytes2 0
 
   isOpen2 <- SymIO.isHandleOpen fsVar fhdl2
-  liftIO $ CB.assert sym isOpen2 err
+  liftIO $ CB.assert bak isOpen2 err
   fhdl3 <- SymIO.openFile' fsVar test0_name
   SymIO.closeFileHandle' fsVar fhdl3
   isOpen3 <- SymIO.isHandleOpen fsVar fhdl3
@@ -419,10 +424,10 @@ assertNot ::
   W4.Pred sym ->
   CS.SimErrorReason ->
   CS.OverrideSim p sym arch r args ret ()
-assertNot p er = do
-  sym <- CS.getSymInterface
+assertNot p er = CS.ovrWithBackend $ \bak -> do
+  let sym = CB.backendGetSym bak
   notp <- liftIO $ W4.notPred sym p
-  liftIO $ CB.assert sym notp er
+  liftIO $ CB.assert bak notp er
 
 assertNone ::
   CB.IsSymInterface sym =>

@@ -13,14 +13,14 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Lang.Crucible.Backend.Simple
   ( -- * SimpleBackend
     SimpleBackend
   , newSimpleBackend
-    -- * SimpleBackendState
-  , SimpleBackendState
     -- * Re-exports
   , B.FloatMode
   , B.FloatModeRepr(..)
@@ -30,8 +30,8 @@ module Lang.Crucible.Backend.Simple
   , B.Flags
   ) where
 
+import           Control.Lens ( (^.) )
 import           Control.Monad (void)
-import           Data.Parameterized.Nonce
 
 import           What4.Config
 import           What4.Interface
@@ -40,8 +40,6 @@ import qualified What4.Expr.Builder as B
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
-
-type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 
 ------------------------------------------------------------------------
 -- SimpleBackendState
@@ -53,77 +51,68 @@ type AS t =
      AssumptionStack (CrucibleAssumptions (B.Expr t))
                      (LabeledPred (B.BoolExpr t) SimError)
 
-newtype SimpleBackendState t = SimpleBackendState { sbAssumptionStack :: AS t }
-
--- | Returns an initial execution state.
-initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
-initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
-
+data SimpleBackend t st fs =
+  SimpleBackend
+  { sbAssumptionStack :: AS t
+  , sbExprBuilder :: B.ExprBuilder t st fs
+  }
 
 newSimpleBackend ::
-  B.FloatModeRepr fm
-  -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
-  -> NonceGenerator IO t
-  -> IO (SimpleBackend t (B.Flags fm))
-newSimpleBackend floatMode gen =
-  do st <- initialSimpleBackendState gen
-     sym <- B.newExprBuilder floatMode st gen
-     extendConfig backendOptions (getConfiguration sym)
-     return sym
+  B.ExprBuilder t st fs ->
+  IO (SimpleBackend t st fs)
+newSimpleBackend sym =
+  do as <- AS.initAssumptionStack (sym ^. B.exprCounter)
+     tryExtendConfig backendOptions (getConfiguration sym)
+     return SimpleBackend
+            { sbAssumptionStack = as
+            , sbExprBuilder = sym
+            }
 
-getAssumptionStack :: SimpleBackend t fs -> IO (AS t)
-getAssumptionStack sym = pure (sbAssumptionStack (B.sbUserState sym))
+instance HasSymInterface (B.ExprBuilder t st fs) (SimpleBackend t st fs) where
+  backendGetSym = sbExprBuilder  
 
-instance IsBoolSolver (SimpleBackend t fs) where
+instance IsSymInterface (B.ExprBuilder t st fs) =>
+  IsSymBackend (B.ExprBuilder t st fs) (SimpleBackend t st fs) where
 
-  addDurableProofObligation sym a =
-     AS.addProofObligation a =<< getAssumptionStack sym
+  addDurableProofObligation bak a =
+     AS.addProofObligation a (sbAssumptionStack bak)
 
-  addAssumption sym a =
+  addAssumption bak a =
     case impossibleAssumption a of
       Just rsn -> abortExecBecause rsn
-      Nothing  -> AS.appendAssumptions (singleAssumption a) =<< getAssumptionStack sym
+      Nothing  -> AS.appendAssumptions (singleAssumption a) (sbAssumptionStack bak)
 
-  addAssumptions sym ps = do
-    stk <- getAssumptionStack sym
-    AS.appendAssumptions ps stk
+  addAssumptions bak ps = do
+    AS.appendAssumptions ps (sbAssumptionStack bak)
 
-  collectAssumptions sym =
-    AS.collectAssumptions =<< getAssumptionStack sym
+  collectAssumptions bak =
+    AS.collectAssumptions (sbAssumptionStack bak)
 
-  getPathCondition sym = do
-    stk <- getAssumptionStack sym
-    ps <- AS.collectAssumptions stk
+  getPathCondition bak = do
+    let sym = backendGetSym bak
+    ps <- AS.collectAssumptions (sbAssumptionStack bak)
     assumptionsPred sym ps
 
-  getProofObligations sym = do
-    stk <- getAssumptionStack sym
-    AS.getProofObligations stk
+  getProofObligations bak = do
+    AS.getProofObligations (sbAssumptionStack bak)
 
-  clearProofObligations sym = do
-    stk <- getAssumptionStack sym
-    AS.clearProofObligations stk
+  clearProofObligations bak = do
+    AS.clearProofObligations (sbAssumptionStack bak)
 
-  pushAssumptionFrame sym = do
-    stk <- getAssumptionStack sym
-    AS.pushFrame stk
+  pushAssumptionFrame bak = do
+    AS.pushFrame (sbAssumptionStack bak)
 
-  popAssumptionFrame sym ident = do
-    stk <- getAssumptionStack sym
-    AS.popFrame ident stk
+  popAssumptionFrame bak ident = do
+    AS.popFrame ident (sbAssumptionStack bak)
 
-  popAssumptionFrameAndObligations sym ident = do
-    stk <- getAssumptionStack sym
-    AS.popFrameAndGoals ident stk
+  popAssumptionFrameAndObligations bak ident = do
+    AS.popFrameAndGoals ident (sbAssumptionStack bak)
 
-  popUntilAssumptionFrame sym ident = do
-    stk <- getAssumptionStack sym
-    void $ AS.popFramesUntil ident stk
+  popUntilAssumptionFrame bak ident = do
+    void $ AS.popFramesUntil ident (sbAssumptionStack bak)
 
-  saveAssumptionState sym = do
-    stk <- getAssumptionStack sym
-    AS.saveAssumptionStack stk
+  saveAssumptionState bak = do
+    AS.saveAssumptionStack (sbAssumptionStack bak)
 
-  restoreAssumptionState sym newstk = do
-    stk <- getAssumptionStack sym
-    AS.restoreAssumptionStack newstk stk
+  restoreAssumptionState bak newstk = do
+    AS.restoreAssumptionStack newstk (sbAssumptionStack bak)

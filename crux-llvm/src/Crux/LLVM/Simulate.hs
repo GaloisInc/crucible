@@ -51,7 +51,7 @@ import Lang.Crucible.Simulator
   , initSimContext, profilingMetrics
   , ExecState( InitialState ), GlobalVar
   , SimState, defaultAbortHandler, printHandle
-  , ppSimError, ctxSymInterface, getContext
+  , ppSimError, ovrWithBackend
   )
 import Lang.Crucible.Simulator.ExecutionTree ( actFrame, gpGlobals, stateGlobals, stateTree )
 import Lang.Crucible.Simulator.GlobalState ( insertGlobal, lookupGlobal )
@@ -100,14 +100,14 @@ import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym) =>
   HandleAllocator ->
-  sym ->
+  bak ->
   MemOptions ->
   GlobalVar Mem ->
   SimCtxt Crux sym LLVM
-setupSimCtxt halloc sym mo memVar =
-  initSimContext sym
+setupSimCtxt halloc bak mo memVar =
+  initSimContext bak
                  (MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes)
                  halloc
                  stdout
@@ -165,31 +165,33 @@ simulateLLVMFile llvm_file llvmOpts =
        return $
          Crux.SimulatorHooks
            { Crux.setupHook =
-               \sym maybeOnline ->
+               \bak maybeOnline ->
                  do halloc <- newHandleAllocator
-                    setupFileSim halloc llvm_file llvmOpts sym maybeOnline
+                    setupFileSim halloc llvm_file llvmOpts bak maybeOnline
            , Crux.onErrorHook =
-               \sym -> return (explainFailure sym bbMapRef)
+               \bak -> return (explainFailure (backendGetSym bak) bbMapRef)
            , Crux.resultHook = \_sym result -> return result
            }
 
 setupFileSim :: Crux.Logs msgs
              => Log.SupportsCruxLLVMLogMessage msgs
-             => IsSymInterface sym
+             => IsSymBackend sym bak
              => sym ~ WEB.ExprBuilder t st fs
              => HasLLVMAnn sym
              => HandleAllocator
              -> FilePath
              -> LLVMOptions
-             -> sym -> Maybe (Crux.SomeOnlineSolver sym)
+             -> bak
+             -> Maybe (Crux.SomeOnlineSolver sym bak)
              -> IO (Crux.RunnableState sym)
-setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
-  do memVar <- mkMemVar "crux:llvm_memory" halloc
+setupFileSim halloc llvm_file llvmOpts bak _maybeOnline =
+  do let sym = backendGetSym bak
+     memVar <- mkMemVar "crux:llvm_memory" halloc
 
-     let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
+     let simctx = (setupSimCtxt halloc bak (memOpts llvmOpts) memVar)
                   { printHandle = view outputHandle ?outputConfig }
 
-     prepped <- prepLLVMModule llvmOpts halloc sym llvm_file memVar
+     prepped <- prepLLVMModule llvmOpts halloc bak llvm_file memVar
 
      let globSt = llvmGlobals memVar (prepMem prepped)
 
@@ -227,17 +229,17 @@ data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
 -- file into the Crucible representation and add the globals and
 -- definitions from the file to the GlobalVar memory.
 
-prepLLVMModule :: IsSymInterface sym
+prepLLVMModule :: IsSymBackend sym bak
                => HasLLVMAnn sym
                => Crux.Logs msgs
                => Log.SupportsCruxLLVMLogMessage msgs
                => LLVMOptions
                -> HandleAllocator
-               -> sym
+               -> bak
                -> FilePath  -- for the LLVM bitcode file
                -> GlobalVar Mem
                -> IO (PreppedLLVM sym)
-prepLLVMModule llvmOpts halloc sym bcFile memVar = do
+prepLLVMModule llvmOpts halloc bak bcFile memVar = do
     llvmMod <- parseLLVM bcFile
     (Some trans, warns) <-
         let ?transOpts = transOpts llvmOpts
@@ -248,8 +250,8 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
              in llvmPtrWidth llvmCtxt $ \ptrW ->
                withPtrWidth ptrW $ do
                Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))
-               populateAllGlobals sym (globalInitMap trans)
-                 =<< initializeAllMemory sym llvmCtxt llvmMod
+               populateAllGlobals bak (globalInitMap trans)
+                 =<< initializeAllMemory bak llvmCtxt llvmMod
     mapM_ sayTranslationWarning warns
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
@@ -320,16 +322,15 @@ checkFun llvmOpts trans memVar =
     checkMainWithArguments ::
       CFG LLVM blocks (EmptyCtx ::> LLVMPointerType 32 ::> TPtr arch) ret ->
       OverM personality sym LLVM ()
-    checkMainWithArguments anyCfg = do
-      ctx <- getContext
+    checkMainWithArguments anyCfg = ovrWithBackend $ \bak -> do
       let ?memOpts  = memOpts llvmOpts
       let w         = knownNat @32
-          sym       = ctx^.ctxSymInterface
           dl        = llvmDataLayout (trans^.transContext.llvmTypeCtx)
           tp        = ArrayType 0 (PtrType (MemType i8))
           tp_sz     = memTypeSize  dl tp
           alignment = memTypeAlign dl tp
           loc       = "crux-llvm main(argc, argv) simulation"
+          sym       = backendGetSym bak
 
       gs  <- use (stateTree.actFrame.gpGlobals)
       mem <- case lookupGlobal memVar gs of
@@ -337,7 +338,7 @@ checkFun llvmOpts trans memVar =
                Nothing  -> fail "checkFun.checkMainWithArguments: Memory missing from global vars"
       argc <- liftIO $ LLVMPointer <$> natLit sym 0 <*> bvLit sym w (BV.zero w)
       sz   <- liftIO $ bvLit sym PtrWidth $ bytesToBV PtrWidth tp_sz
-      (argv, mem') <- liftIO $ doAlloca sym mem sz alignment loc
+      (argv, mem') <- liftIO $ doAlloca bak mem sz alignment loc
       stateTree.actFrame.gpGlobals %= insertGlobal memVar mem'
 
       let args = assignReg PtrRepr argv $

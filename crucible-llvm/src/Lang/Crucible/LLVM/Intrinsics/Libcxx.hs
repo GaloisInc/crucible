@@ -196,8 +196,8 @@ fixedOverride ty regval substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
     case testEquality retTy ty of
       Just Refl ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem sym _args ->
-          liftIO (regval mem sym)
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem bak _args ->
+          liftIO (regval mem (backendGetSym bak))
 
       _ -> panic_ "fixedOverride" decl argTys retTy
 

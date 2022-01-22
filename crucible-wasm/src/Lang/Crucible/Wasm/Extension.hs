@@ -146,18 +146,18 @@ extImpl mo =
 evalWasmExt :: (HasLLVMAnn sym, ?memOpts :: MemOptions) =>
                EvalStmtFunc p sym WasmExt
 evalWasmExt stmt cst =
-  let sym = cst^.stateSymInterface
-   in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
+  withBackend (cst^.stateContext) $ \bak ->
+    runStateT (evalStmt bak stmt) cst
 
 type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
 
-evalStmt :: forall p sym ext rtp blocks ret args tp.
-  (IsSymInterface sym, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  sym ->
+evalStmt :: forall p sym bak ext rtp blocks ret args tp.
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  bak  ->
   WasmStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
-evalStmt sym = eval
+evalStmt bak = eval
   where
 
   getMem :: GlobalVar WasmMem -> EvalM p sym ext rtp blocks ret args (WasmMemImpl sym)
@@ -196,63 +196,63 @@ evalStmt sym = eval
 
     Wasm_MemGrow gv (regValue -> n) ->
       do mem <- getMem gv
-         (res, mem') <- liftIO $ wasmGrowMem sym n mem
+         (res, mem') <- liftIO $ wasmGrowMem bak n mem
          setMem gv mem'
          return res
 
     Wasm_StoreInt8 gv (regValue -> p) (regValue -> v) ->
       do mem <- getMem gv
-         mem' <- liftIO (wasmStoreInt @8 sym p v mem)
+         mem' <- liftIO (wasmStoreInt @8 bak p v mem)
          setMem gv mem'
 
     Wasm_StoreInt16 gv (regValue -> p) (regValue -> v) ->
       do mem <- getMem gv
-         mem' <- liftIO (wasmStoreInt @16 sym p v mem)
+         mem' <- liftIO (wasmStoreInt @16 bak p v mem)
          setMem gv mem'
 
     Wasm_StoreInt32 gv (regValue -> p) (regValue -> v) ->
       do mem <- getMem gv
-         mem' <- liftIO (wasmStoreInt @32 sym p v mem)
+         mem' <- liftIO (wasmStoreInt @32 bak p v mem)
          setMem gv mem'
 
     Wasm_StoreInt64 gv (regValue -> p) (regValue -> v) ->
       do mem <- getMem gv
-         mem' <- liftIO (wasmStoreInt @64 sym p v mem)
+         mem' <- liftIO (wasmStoreInt @64 bak p v mem)
          setMem gv mem'
 
     Wasm_StoreFloat gv (regValue -> p) (regValue -> v) ->
       do mem <- getMem gv
-         mem' <- liftIO (wasmStoreFloat sym p v mem)
+         mem' <- liftIO (wasmStoreFloat bak p v mem)
          setMem gv mem'
 
     Wasm_StoreDouble gv (regValue -> p) (regValue -> v) ->
       do mem <- getMem gv
-         mem' <- liftIO (wasmStoreDouble sym p v mem)
+         mem' <- liftIO (wasmStoreDouble bak p v mem)
          setMem gv mem'
 
     Wasm_LoadInt8 gv (regValue -> p) ->
       do mem <- getMem gv
-         liftIO (wasmLoadInt sym p (knownNat @8) mem)
+         liftIO (wasmLoadInt bak p (knownNat @8) mem)
 
     Wasm_LoadInt16 gv (regValue -> p) ->
       do mem <- getMem gv
-         liftIO (wasmLoadInt sym p (knownNat @16) mem)
+         liftIO (wasmLoadInt bak p (knownNat @16) mem)
 
     Wasm_LoadInt32 gv (regValue -> p) ->
       do mem <- getMem gv
-         liftIO (wasmLoadInt sym p (knownNat @32) mem)
+         liftIO (wasmLoadInt bak p (knownNat @32) mem)
 
     Wasm_LoadInt64 gv (regValue -> p) ->
       do mem <- getMem gv
-         liftIO (wasmLoadInt sym p (knownNat @64) mem)
+         liftIO (wasmLoadInt bak p (knownNat @64) mem)
 
     Wasm_LoadFloat gv (regValue -> p) ->
       do mem <- getMem gv
-         liftIO (wasmLoadFloat sym p mem)
+         liftIO (wasmLoadFloat bak p mem)
 
     Wasm_LoadDouble gv (regValue -> p) ->
       do mem <- getMem gv
-         liftIO (wasmLoadDouble sym p mem)
+         liftIO (wasmLoadDouble bak p mem)
 
 
 instance PrettyApp WasmStmt where

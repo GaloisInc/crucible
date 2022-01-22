@@ -112,6 +112,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , SimContext(..)
   , Metric(..)
   , initSimContext
+  , withBackend
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
@@ -156,7 +157,10 @@ import           What4.Interface (Pred, getConfiguration)
 import           What4.FunctionName (FunctionName, startFunctionName)
 import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 
-import           Lang.Crucible.Backend (IsSymInterface, AbortExecReason, FrameIdentifier, Assumptions)
+import           Lang.Crucible.Backend
+                   ( IsSymInterface, IsSymBackend(..), HasSymInterface(..)
+                   , AbortExecReason, SomeBackend(..), FrameIdentifier, Assumptions
+                   )
 import           Lang.Crucible.CFG.Core (BlockID, CFG, CFGPostdom, StmtSeq)
 import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
@@ -986,9 +990,9 @@ type EvalStmtFunc p sym ext =
 data ExtensionImpl p sym ext
   = ExtensionImpl
     { extensionEval ::
-        forall rtp blocks r ctx.
-        IsSymInterface sym =>
-        sym ->
+        forall bak rtp blocks r ctx.
+        IsSymBackend sym bak =>
+        bak ->
         IntrinsicTypes sym ->
         (Int -> String -> IO ()) ->
         CrucibleState p sym ext rtp blocks r ctx ->
@@ -1007,6 +1011,7 @@ emptyExtensionImpl =
   }
 
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
+
 newtype Metric p sym ext =
   Metric {
     runMetric :: forall rtp f args. SimState p sym ext rtp f args -> IO Integer
@@ -1017,7 +1022,7 @@ newtype Metric p sym ext =
 --   is not rolled back when the simulator returns previous program points to
 --   explore additional paths, etc.
 data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
-   = SimContext { _ctxSymInterface       :: !sym
+   = SimContext { _ctxBackend            :: !(SomeBackend sym)
                   -- | Class dictionary for @'IsSymInterface' sym@
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
@@ -1033,8 +1038,8 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
 
 -- | Create a new 'SimContext' with the given bindings.
 initSimContext ::
-  IsSymInterface sym =>
-  sym {- ^ Symbolic backend -} ->
+  IsSymBackend sym bak =>
+  bak {- ^ Symbolic backend -} ->
   IntrinsicTypes sym {- ^ Implementations of intrinsic types -} ->
   HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
@@ -1042,8 +1047,8 @@ initSimContext ::
   ExtensionImpl personality sym ext {- ^ Semantics for extension syntax -} ->
   personality {- ^ Initial value for custom user state -} ->
   SimContext personality sym ext
-initSimContext sym muxFns halloc h bindings extImpl personality =
-  SimContext { _ctxSymInterface     = sym
+initSimContext bak muxFns halloc h bindings extImpl personality =
+  SimContext { _ctxBackend          = SomeBackend bak
              , ctxSolverProof       = \a -> a
              , ctxIntrinsicTypes    = muxFns
              , simHandleAllocator   = halloc
@@ -1054,20 +1059,27 @@ initSimContext sym muxFns halloc h bindings extImpl personality =
              , _profilingMetrics    = Map.empty
              }
 
+withBackend ::
+  SimContext personality sym ext ->
+  (forall bak. IsSymBackend sym bak => bak -> a) ->
+  a
+withBackend ctx f = case _ctxBackend ctx of SomeBackend bak -> f bak
+
 -- | Access the symbolic backend inside a 'SimContext'.
-ctxSymInterface :: Simple Lens (SimContext p sym ext) sym
-ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
+ctxSymInterface :: Getter (SimContext p sym ext) sym
+ctxSymInterface = to (\ctx ->
+  case _ctxBackend ctx of
+    SomeBackend bak -> backendGetSym bak)
 
 -- | A map from function handles to their semantics.
-functionBindings :: Simple Lens (SimContext p sym ext) (FunctionBindings p sym ext)
+functionBindings :: Lens' (SimContext p sym ext) (FunctionBindings p sym ext)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
 -- | Access the custom user-state inside the 'SimContext'.
-cruciblePersonality :: Simple Lens (SimContext p sym ext) p
+cruciblePersonality :: Lens' (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
-profilingMetrics :: Simple Lens (SimContext p sym ext)
-                                (Map Text (Metric p sym ext))
+profilingMetrics :: Lens' (SimContext p sym ext) (Map Text (Metric p sym ext))
 profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
 
 ------------------------------------------------------------------------

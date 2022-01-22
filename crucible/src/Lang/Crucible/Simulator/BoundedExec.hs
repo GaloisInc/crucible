@@ -250,6 +250,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
  onTransition gvRef tgt_id res st = stateSolverProof st $
   do let sym = st^.stateSymInterface
+     let simCtx = st^.stateContext
      (globals', overLimit) <- checkBackedge gvRef (st^.stateCrucibleFrame.frameBlockID) tgt_id (st^.stateGlobals)
      let st' = st & stateGlobals .~ globals'
      case overLimit of
@@ -257,7 +258,8 @@ boundedExecFeature getLoopBounds generateSideConditions =
          do let msg = "reached maximum number of loop iterations (" ++ show n ++ ")"
             let loc = st^.stateCrucibleFrame.to frameProgramLoc
             let err = SimError loc (ResourceExhausted msg)
-            when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) err))
+            when generateSideConditions $ withBackend simCtx $ \bak ->
+              addProofObligation bak (LabeledPred (falsePred sym) err)
             return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st'))
        Nothing -> return (ExecutionFeatureModifiedState (ControlTransferState res st'))
 

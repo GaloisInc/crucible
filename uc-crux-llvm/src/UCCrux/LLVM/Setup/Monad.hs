@@ -286,21 +286,22 @@ mallocLocation :: String
 mallocLocation = "uc-crux-llvm bugfinding auto-setup"
 
 malloc ::
-  forall m sym arch argTypes inTy atTy.
-  ( Crucible.IsSymInterface sym,
+  forall m sym bak arch argTypes inTy atTy.
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch,
     ?memOpts :: LLVMMem.MemOptions
   ) =>
-  sym ->
+  bak ->
   FullTypeRepr m ('FTPtr atTy) ->
   -- | Path to this pointer
   Selector m argTypes inTy ('FTPtr atTy) ->
   -- | Size, as in number of elements. Should be strictly positive.
   Integer ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-malloc sym fullTypeRepr selector size =
+malloc bak fullTypeRepr selector size =
   do
+    let sym = Crucible.backendGetSym bak
     modCtx <- ask
     let dl =
           modCtx
@@ -317,7 +318,7 @@ malloc sym fullTypeRepr selector size =
               liftIO $
                 do
                   LLVMMem.doMalloc
-                    sym
+                    bak
                     LLVMMem.HeapAlloc -- TODO(lb): Change based on arg/global
                     LLVMMem.Mutable -- TODO(lb): Change based on arg/global
                     mallocLocation
@@ -330,12 +331,12 @@ malloc sym fullTypeRepr selector size =
     annotatePointer sym selector fullTypeRepr ptr
 
 store ::
-  forall m arch sym argTypes inTy ft.
-  ( Crucible.IsSymInterface sym,
+  forall m arch sym bak argTypes inTy ft.
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
-  sym ->
+  bak ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
   -- | Path to this pointer
@@ -343,35 +344,37 @@ store ::
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-store sym mts ptrRepr selector ptr regValue =
+store bak mts ptrRepr selector ptr regValue =
   modifyMem $
     \mem ->
       do
+        let sym = Crucible.backendGetSym bak
         ptr' <- annotatePointer sym selector ptrRepr ptr
-        mem' <- liftIO $ Mem.store' (Proxy @arch) sym mem mts ptrRepr ptr' regValue
+        mem' <- liftIO $ Mem.store' (Proxy @arch) bak mem mts ptrRepr ptr' regValue
         pure (ptr', mem')
 
 storeGlobal ::
-  forall m arch sym argTypes inTy ft.
-  ( Crucible.IsSymInterface sym,
+  forall m arch sym bak argTypes inTy ft.
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
-  sym ->
+  bak ->
   FullTypeRepr m ft ->
   -- | Path to this pointer
   Selector m argTypes inTy ft ->
   L.Symbol ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-storeGlobal sym ftRepr selector symb regValue =
+storeGlobal bak ftRepr selector symb regValue =
   do
+    let sym = Crucible.backendGetSym bak
     mem <- gets (view setupMem)
-    ptr <- liftIO $ LLVMMem.doResolveGlobal sym mem symb
+    ptr <- liftIO $ LLVMMem.doResolveGlobal bak mem symb
     ptr' <- annotatePointer sym selector ftRepr ptr
     modifyMem $
       \mem' ->
         do
           mem'' <-
-            liftIO $ Mem.store (Proxy @arch) sym mem' ftRepr ptr' regValue
+            liftIO $ Mem.store (Proxy @arch) bak mem' ftRepr ptr' regValue
           pure (ptr', mem'')

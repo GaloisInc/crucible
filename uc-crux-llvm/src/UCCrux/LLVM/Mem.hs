@@ -56,7 +56,7 @@ import           Data.Parameterized.NatRepr (intValue)
 import           What4.Interface (Pred)
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend (IsSymInterface, IsSymBackend)
 import qualified Lang.Crucible.Simulator as Crucible
 
 -- crucible-llvm
@@ -116,42 +116,42 @@ loadRaw' proxy sym mem mts ptr fullTypeRepr =
   in loadRaw proxy sym mem ptr pointedToRepr
 
 load ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m atTy ->
   IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
-load proxy sym mem ptr fullTypeRepr =
+load proxy bak mem ptr fullTypeRepr =
   do let typeRepr = toCrucibleType proxy fullTypeRepr
-     LLVMMem.doLoad sym mem ptr (toStorageType fullTypeRepr) typeRepr noAlignment
+     LLVMMem.doLoad bak mem ptr (toStorageType fullTypeRepr) typeRepr noAlignment
 
 load' ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   ModuleTypes m ->
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m ('FTPtr atTy) ->
   IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
-load' proxy sym mem mts ptr fullTypeRepr =
+load' proxy bak mem mts ptr fullTypeRepr =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     load proxy sym mem ptr pointedToRepr
+     load proxy bak mem ptr pointedToRepr
 
 store ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   FullTypeRepr m ft ->
   -- | Pointer to store at
@@ -159,17 +159,17 @@ store ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-store proxy sym mem fullTypeRepr ptr regValue =
+store proxy bak mem fullTypeRepr ptr regValue =
   do let storageType = toStorageType fullTypeRepr
      let cType = toCrucibleType proxy fullTypeRepr
-     LLVMMem.doStore sym mem ptr cType storageType noAlignment regValue
+     LLVMMem.doStore bak mem ptr cType storageType noAlignment regValue
 
 store' ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
@@ -178,16 +178,16 @@ store' ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-store' proxy sym mem mts fullTypeRepr ptr regValue =
+store' proxy bak mem mts fullTypeRepr ptr regValue =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     store proxy sym mem pointedToRepr ptr regValue
+     store proxy bak mem pointedToRepr ptr regValue
 
 storeGlobal ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   FullTypeRepr m ft ->
   -- | Name of global variable
@@ -195,16 +195,16 @@ storeGlobal ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-storeGlobal proxy sym mem fullTypeRepr symb regValue =
-  do ptr <- LLVMMem.doResolveGlobal sym mem symb
-     store proxy sym mem fullTypeRepr ptr regValue
+storeGlobal proxy bak mem fullTypeRepr symb regValue =
+  do ptr <- LLVMMem.doResolveGlobal bak mem symb
+     store proxy bak mem fullTypeRepr ptr regValue
 
 storeGlobal' ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
@@ -213,51 +213,51 @@ storeGlobal' ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-storeGlobal' proxy sym mem mts fullTypeRepr symb regValue =
+storeGlobal' proxy bak mem mts fullTypeRepr symb regValue =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     storeGlobal proxy sym mem pointedToRepr symb regValue
+     storeGlobal proxy bak mem pointedToRepr symb regValue
 
 loadGlobal ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   FullTypeRepr m ft ->
   -- | Name of global variable
   L.Symbol ->
   IO (Crucible.RegValue sym (ToCrucibleType arch ft))
-loadGlobal proxy sym mem fullTypeRepr symb =
-  do ptr <- LLVMMem.doResolveGlobal sym mem symb
-     load proxy sym mem ptr fullTypeRepr
+loadGlobal proxy bak mem fullTypeRepr symb =
+  do ptr <- LLVMMem.doResolveGlobal bak mem symb
+     load proxy bak mem ptr fullTypeRepr
 
 loadGlobal' ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
-  sym ->
+  bak ->
   MemImpl sym ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
   -- | Name of global variable
   L.Symbol ->
   IO (Crucible.RegValue sym (ToCrucibleType arch ft))
-loadGlobal' proxy sym mem mts fullTypeRepr symb =
+loadGlobal' proxy bak mem mts fullTypeRepr symb =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     loadGlobal proxy sym mem pointedToRepr symb
+     loadGlobal proxy bak mem pointedToRepr symb
 
 -- | Find a pointer inside of a value
 seekPtr ::
-  IsSymInterface sym =>
+  IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   (?memOpts :: LLVMMem.MemOptions) =>
   ModuleContext m arch ->
-  sym ->
+  bak ->
   -- | Program memory
   MemImpl sym ->
   -- | Type of value that contains pointer
@@ -267,25 +267,25 @@ seekPtr ::
   -- | Where the pointer is inside the value
   Cursor m inTy ('FTPtr atTy) ->
   IO (Crucible.RegValue sym (LLVMPointerType (ArchWidth arch)))
-seekPtr modCtx sym mem fullTypeRepr regVal cursor =
+seekPtr modCtx bak mem fullTypeRepr regVal cursor =
   case (fullTypeRepr, cursor) of
     (FTArrayRepr _n fullTypeRepr', Index i _ cur) ->
       -- TODO(lb): overflow...?
       let val = regVal !!! fromIntegral (intValue i)
-      in seekPtr modCtx sym mem fullTypeRepr' val cur
+      in seekPtr modCtx bak mem fullTypeRepr' val cur
     (FTStructRepr _structInfo fields, Field _fieldTypes idx cur) ->
       let ty = fields ^. ixF' idx
       in case translateIndex modCtx (Ctx.size fields) idx of
            SomeIndex idx' Refl ->
              let val = regVal ^. ixF' idx' . to Crucible.unRV
-             in seekPtr modCtx sym mem ty val cur
+             in seekPtr modCtx bak mem ty val cur
     (FTPtrRepr ptRepr, Dereference i cur) ->
       do unless (i == 0) $
            unimplemented "seekPtr" SeekOffset
          newVal <-
-           load' modCtx sym mem (modCtx ^. moduleTypes) regVal fullTypeRepr
+           load' modCtx bak mem (modCtx ^. moduleTypes) regVal fullTypeRepr
          let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptRepr
-         seekPtr modCtx sym mem ftPtdTo newVal cur
+         seekPtr modCtx bak mem ftPtdTo newVal cur
     (FTPtrRepr _ptRepr, Here _) -> return regVal
 #if __GLASGOW_HASKELL__ <= 810
 -- The pattern match coverage checker was improved in GHC 8.10 and can tell that

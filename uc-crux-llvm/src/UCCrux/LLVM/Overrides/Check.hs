@@ -79,7 +79,7 @@ import           What4.Interface (Pred)
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as Crucible
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend (IsSymInterface, IsSymBackend, backendGetSym)
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Simulator.OverrideSim as Override
 
@@ -349,16 +349,17 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
              llvmOverride_args = Crucible.cfgArgTypes cfg,
              llvmOverride_ret = Crucible.cfgReturnType cfg,
              llvmOverride_def =
-               \mvar (sym :: sym) args ->
+               \mvar bak args ->
                  Override.modifyGlobal mvar $ \mem ->
                    do
+                     let sym = backendGetSym bak
                      liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
                      let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
                      liftIO $ (appCtx ^. log) Hi "Constraints:"
                      liftIO $ (appCtx ^. log) Hi $ pp (ppConstraints constraints)
                      stack <- collectStack
                      argCs <- liftIO $ getArgConstraints sym mem args
-                     globCs <- liftIO $ getGlobalConstraints sym mem
+                     globCs <- liftIO $ getGlobalConstraints bak mem
                      let cs = argCs <> globCs
                      let args' = fmapFC (Crucible.RV . Crucible.regValue) args
                      liftIO $
@@ -394,17 +395,18 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
          (constraints ^. argConstraints)
 
     getGlobalConstraints ::
-      IsSymInterface sym =>
-      sym ->
+      IsSymBackend sym bak =>
+      bak ->
       LLVMMem.MemImpl sym ->
       IO (Seq (SomeCheckedConstraint m sym argTypes))
-    getGlobalConstraints sym mem =
+    getGlobalConstraints bak mem =
+      let sym = backendGetSym bak in
       ifoldMapM
         (\gSymb (ConstrainedTypedValue globTy shape) ->
            do -- 'loadGlobal' will make some safety assertions, but if they fail
               -- that indicates a bug in UC-Crux or the constraints themselves
               -- rather than a constraint failure, so we don't collect them.
-              glob <- Mem.loadGlobal modCtx sym mem globTy (getGlobalSymbol gSymb)
+              glob <- Mem.loadGlobal modCtx bak mem globTy (getGlobalSymbol gSymb)
               fmap (viewSome SomeCheckedConstraint) <$>
                 checkConstraints
                   modCtx

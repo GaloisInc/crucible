@@ -90,12 +90,12 @@ clobberTests =
                             Sim.SimulatorHooks
                               { Sim.createOverrideHooks =
                                   [ Sim.SymCreateOverrideFn $
-                                      \sym ->
+                                      \bak ->
                                         return $
                                           get $
                                             Skip.createSkipOverride
                                               modCtx
-                                              sym
+                                              bak
                                               nameRef
                                               annRef
                                               specs
@@ -103,7 +103,7 @@ clobberTests =
                                               (FuncDeclSymbol callee)
                                   ]
                               , Sim.resultHook =
-                                \_sym _mem _args _cruxResult ucCruxResult ->
+                                \_bak _mem _args _cruxResult ucCruxResult ->
                                   do calls <- IORef.readIORef nameRef
                                      TH.assertEqual
                                        "The override for 'clobbers_arg' was exec'd"

@@ -114,12 +114,13 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r.
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) IO (RegValue sym tp)
 evalExpr verb (App a) = ReaderT $ \s ->
   do let iteFns = s^.stateIntrinsicTypes
-     let sym = s^.stateSymInterface
+     let simCtx = s^.stateContext
      let logFn = evalLogFn verb s
-     r <- evalApp sym iteFns logFn
-            (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn s)
-            (\r -> runReaderT (evalReg r) s)
-            a
+     r <- withBackend simCtx $ \bak ->
+            evalApp bak iteFns logFn
+              (extensionEval (extensionImpl (s^.stateContext)) bak iteFns logFn s)
+              (\r -> runReaderT (evalReg r) s)
+              a
      return $! r
 
 evalArgs' :: forall sym ctx args.
@@ -178,19 +179,20 @@ alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
 
 -- | Read from a reference cell.
 readRef ::
-  IsSymInterface sym =>
-  sym ->
+  IsSymBackend sym bak =>
+  bak ->
   IntrinsicTypes sym ->
   TypeRepr tp ->
   MuxTree sym (RefCell tp) ->
   SymGlobalState sym ->
   IO (RegValue sym tp)
-readRef sym iTypes tpr rs globs =
-  do let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
+readRef bak iTypes tpr rs globs =
+  do let sym = backendGetSym bak
+     let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
      let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
      pv <- mergePartials sym f vs
      let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
-     readPartExpr sym pv msg
+     readPartExpr bak pv msg
 
 
 -- | Evaluation operation for evaluating a single straight-line
@@ -214,122 +216,123 @@ stepStmt verb stmt rest =
            ExecCont p sym ext rtp' f a
          continueWith f = withReaderT f (checkConsTerm verb)
 
-     case stmt of
-       NewRefCell tpr x ->
-         do let halloc = simHandleAllocator ctx
-            v <- evalReg x
-            r <- liftIO $ freshRefCell halloc tpr
-            continueWith $
-               (stateTree . actFrame . gpGlobals %~ insertRef sym r v) .
-               (stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest)
+     withBackend ctx $ \bak ->
+       case stmt of
+         NewRefCell tpr x ->
+           do let halloc = simHandleAllocator ctx
+              v <- evalReg x
+              r <- liftIO $ freshRefCell halloc tpr
+              continueWith $
+                 (stateTree . actFrame . gpGlobals %~ insertRef sym r v) .
+                 (stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest)
 
-       NewEmptyRefCell tpr ->
-         do let halloc = simHandleAllocator ctx
-            r <- liftIO $ freshRefCell halloc tpr
-            continueWith $
-              stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
+         NewEmptyRefCell tpr ->
+           do let halloc = simHandleAllocator ctx
+              r <- liftIO $ freshRefCell halloc tpr
+              continueWith $
+                stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
 
-       ReadRefCell x ->
-         do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            v <- liftIO $ readRef sym iTypes tpr rs globals
-            continueWith $
-              stateCrucibleFrame %~ extendFrame tpr v rest
+         ReadRefCell x ->
+           do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
+              v <- liftIO $ readRef bak iTypes tpr rs globals
+              continueWith $
+                stateCrucibleFrame %~ extendFrame tpr v rest
 
-       WriteRefCell x y ->
-         do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            newv <- justPartExpr sym <$> evalReg y
-            globals' <- liftIO $ alterRef sym iTypes tpr rs newv globals
-            continueWith $
-              (stateTree . actFrame . gpGlobals .~ globals') .
-              (stateCrucibleFrame  . frameStmts .~ rest)
+         WriteRefCell x y ->
+           do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
+              newv <- justPartExpr sym <$> evalReg y
+              globals' <- liftIO $ alterRef sym iTypes tpr rs newv globals
+              continueWith $
+                (stateTree . actFrame . gpGlobals .~ globals') .
+                (stateCrucibleFrame  . frameStmts .~ rest)
 
-       DropRefCell x ->
-         do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            globals' <- liftIO $ alterRef sym iTypes tpr rs Unassigned globals
-            continueWith $
-              (stateTree . actFrame . gpGlobals .~ globals') .
-              (stateCrucibleFrame  . frameStmts .~ rest)
+         DropRefCell x ->
+           do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
+              globals' <- liftIO $ alterRef sym iTypes tpr rs Unassigned globals
+              continueWith $
+                (stateTree . actFrame . gpGlobals .~ globals') .
+                (stateCrucibleFrame  . frameStmts .~ rest)
 
-       ReadGlobal global_var -> do
-         case lookupGlobal global_var globals of
-           Nothing ->
-             do let msg = ReadBeforeWriteSimError $ "Attempt to read undefined global " ++ show global_var
-                liftIO $ addFailedAssertion sym msg
-           Just v ->
-             continueWith $
-               (stateCrucibleFrame %~ extendFrame (globalType global_var) v rest)
+         ReadGlobal global_var -> do
+           case lookupGlobal global_var globals of
+             Nothing ->
+               do let msg = ReadBeforeWriteSimError $ "Attempt to read undefined global " ++ show global_var
+                  liftIO $ addFailedAssertion bak msg
+             Just v ->
+               continueWith $
+                 (stateCrucibleFrame %~ extendFrame (globalType global_var) v rest)
 
-       WriteGlobal global_var local_reg ->
-         do v <- evalReg local_reg
-            continueWith $
-              (stateTree . actFrame . gpGlobals %~ insertGlobal global_var v) .
-              (stateCrucibleFrame . frameStmts .~ rest)
+         WriteGlobal global_var local_reg ->
+           do v <- evalReg local_reg
+              continueWith $
+                (stateTree . actFrame . gpGlobals %~ insertGlobal global_var v) .
+                (stateCrucibleFrame . frameStmts .~ rest)
 
-       FreshConstant bt mnm ->
-         do let nm = fromMaybe emptySymbol mnm
-            v <- liftIO $ freshConstant sym nm bt
-            continueWith $ stateCrucibleFrame %~ extendFrame (baseToType bt) v rest
+         FreshConstant bt mnm ->
+           do let nm = fromMaybe emptySymbol mnm
+              v <- liftIO $ freshConstant sym nm bt
+              continueWith $ stateCrucibleFrame %~ extendFrame (baseToType bt) v rest
 
-       FreshFloat fi mnm ->
-         do let nm = fromMaybe emptySymbol mnm
-            v <- liftIO $ freshFloatConstant sym nm fi
-            continueWith $ stateCrucibleFrame %~ extendFrame (FloatRepr fi) v rest
+         FreshFloat fi mnm ->
+           do let nm = fromMaybe emptySymbol mnm
+              v <- liftIO $ freshFloatConstant sym nm fi
+              continueWith $ stateCrucibleFrame %~ extendFrame (FloatRepr fi) v rest
 
-       FreshNat mnm ->
-         do let nm = fromMaybe emptySymbol mnm
-            v <- liftIO $ freshNat sym nm
-            continueWith $ stateCrucibleFrame %~ extendFrame NatRepr v rest
+         FreshNat mnm ->
+           do let nm = fromMaybe emptySymbol mnm
+              v <- liftIO $ freshNat sym nm
+              continueWith $ stateCrucibleFrame %~ extendFrame NatRepr v rest
 
-       SetReg tp e ->
-         do v <- evalExpr verb e
-            continueWith $ stateCrucibleFrame %~ extendFrame tp v rest
+         SetReg tp e ->
+           do v <- evalExpr verb e
+              continueWith $ stateCrucibleFrame %~ extendFrame tp v rest
 
-       ExtendAssign estmt -> do
-         do let tp = appType estmt
-            estmt' <- traverseFC evalReg' estmt
-            ReaderT $ \s ->
-              do (v,s') <- liftIO $ extensionExec (extensionImpl ctx) estmt' s
-                 runReaderT
-                   (continueWith $ stateCrucibleFrame %~ extendFrame tp v rest)
-                   s'
+         ExtendAssign estmt -> do
+           do let tp = appType estmt
+              estmt' <- traverseFC evalReg' estmt
+              ReaderT $ \s ->
+                do (v,s') <- liftIO $ extensionExec (extensionImpl ctx) estmt' s
+                   runReaderT
+                     (continueWith $ stateCrucibleFrame %~ extendFrame tp v rest)
+                     s'
 
-       CallHandle ret_type fnExpr _types arg_exprs ->
-         do hndl <- evalReg fnExpr
-            args <- evalArgs arg_exprs
-            loc <- liftIO $ getCurrentProgramLoc sym
-            callFunction hndl args (ReturnToCrucible ret_type rest) loc
+         CallHandle ret_type fnExpr _types arg_exprs ->
+           do hndl <- evalReg fnExpr
+              args <- evalArgs arg_exprs
+              loc <- liftIO $ getCurrentProgramLoc sym
+              callFunction hndl args (ReturnToCrucible ret_type rest) loc
 
-       Print e ->
-         do msg <- evalReg e
-            let msg' = case asString msg of
-                         Just (UnicodeLiteral txt) -> Text.unpack txt
-                         _ -> show (printSymExpr msg)
-            liftIO $ do
-              let h = printHandle ctx
-              hPutStr h msg'
-              hFlush h
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+         Print e ->
+           do msg <- evalReg e
+              let msg' = case asString msg of
+                           Just (UnicodeLiteral txt) -> Text.unpack txt
+                           _ -> show (printSymExpr msg)
+              liftIO $ do
+                let h = printHandle ctx
+                hPutStr h msg'
+                hFlush h
+              continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
-       Assert c_expr msg_expr ->
-         do c <- evalReg c_expr
-            msg <- evalReg msg_expr
-            let err = case asString msg of
-                         Just (UnicodeLiteral txt) -> AssertFailureSimError (Text.unpack txt) ""
-                         _ -> AssertFailureSimError "Symbolic message" (show (printSymExpr msg))
-            liftIO $ assert sym c err
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+         Assert c_expr msg_expr ->
+           do c <- evalReg c_expr
+              msg <- evalReg msg_expr
+              let err = case asString msg of
+                           Just (UnicodeLiteral txt) -> AssertFailureSimError (Text.unpack txt) ""
+                           _ -> AssertFailureSimError "Symbolic message" (show (printSymExpr msg))
+              liftIO $ assert bak c err
+              continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
-       Assume c_expr msg_expr ->
-         do c <- evalReg c_expr
-            msg <- evalReg msg_expr
-            let msg' = case asString msg of
-                         Just (UnicodeLiteral txt) -> Text.unpack txt
-                         _ -> show (printSymExpr msg)
-            liftIO $
-              do loc <- getCurrentProgramLoc sym
-                 addAssumption sym (GenericAssumption loc msg' c)
+         Assume c_expr msg_expr ->
+           do c <- evalReg c_expr
+              msg <- evalReg msg_expr
+              let msg' = case asString msg of
+                           Just (UnicodeLiteral txt) -> Text.unpack txt
+                           _ -> show (printSymExpr msg)
+              liftIO $
+                do loc <- getCurrentProgramLoc sym
+                   addAssumption bak (GenericAssumption loc msg' c)
 
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+              continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
 
 {-# INLINABLE stepTerm #-}
@@ -398,13 +401,14 @@ stepTerm _ (TailCall fnExpr _types arg_exprs) =
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
-     sym <- view stateSymInterface
-     liftIO $ case asString msg' of
-       Just (UnicodeLiteral txt) ->
-                   addFailedAssertion sym
-                      $ GenericSimError $ Text.unpack txt
-       Nothing  -> addFailedAssertion sym
-                      $ GenericSimError $ show (printSymExpr msg')
+     simCtx <- view stateContext
+     withBackend simCtx $ \bak -> liftIO $
+       case asString msg' of
+         Just (UnicodeLiteral txt) ->
+                     addFailedAssertion bak
+                        $ GenericSimError $ Text.unpack txt
+         Nothing  -> addFailedAssertion bak
+                        $ GenericSimError $ show (printSymExpr msg')
 
 
 -- | Checks whether the StmtSeq is a Cons or a Term,
