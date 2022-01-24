@@ -34,11 +34,12 @@ module Lang.Crucible.LLVM.MemModel.Value
   , explodeStringValue
 
   , llvmValStorableType
+  , freshLLVMVal
   , isZero
   , testEqual
   ) where
 
-import           Control.Lens (view, over, _2)
+import           Control.Lens (view, over, _2, (^.))
 import           Control.Monad (foldM, join)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -120,6 +121,23 @@ llvmValStorableType v =
     LLVMValZero tp -> tp
     LLVMValUndef tp -> tp
 
+-- | Create a fresh 'LLVMVal' of the given type.
+freshLLVMVal :: IsSymInterface sym =>
+                sym -> StorageType -> IO (LLVMVal sym)
+freshLLVMVal sym tp =
+  case storageTypeF tp of
+    Bitvector bytes ->
+      case mkNatRepr (bytesToBits bytes) of
+        Some repr ->
+          case isPosNat repr of
+            Just LeqProof -> LLVMValInt <$> natLit sym 0
+                                        <*> freshConstant sym emptySymbol (BaseBVRepr repr)
+            Nothing -> panic "freshLLVMVal" ["Non-positive value inside Bytes"]
+    Float      -> LLVMValFloat SingleSize <$> freshFloatConstant sym emptySymbol SingleFloatRepr
+    Double     -> LLVMValFloat DoubleSize <$> freshFloatConstant sym emptySymbol DoubleFloatRepr
+    X86_FP80   -> LLVMValFloat X86_FP80Size <$> freshFloatConstant sym emptySymbol X86_80FloatRepr
+    Array n ty -> LLVMValArray ty <$> V.replicateM (fromIntegral n) (freshLLVMVal sym ty)
+    Struct vec -> LLVMValStruct <$> traverse (\v -> (v,) <$> freshLLVMVal sym (v^.fieldVal)) vec
 
 ppTermExpr :: forall sym ann.
   IsExpr (SymExpr sym) => LLVMVal sym -> Doc ann

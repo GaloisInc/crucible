@@ -3,9 +3,11 @@ test out_of_bounds/3a1fbbbh::crux_test[0]: FAILED
 failures:
 
 ---- out_of_bounds/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/3a1fbbbh::crux_test[0]
-vector index out of range: the length is 10 but the index is BV 12
-Failure for test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/3a1fbbbh::crux_test[0]
-attemted to read empty mux tree
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/3a1fbbbh::crux_test[0]
+[Crux]   vector index out of range: the length is 10 but the index is BV 12
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/3a1fbbbh::crux_test[0]
+[Crux]   attempted to read empty mux tree
 
 [Crux] Overall status: Invalid.

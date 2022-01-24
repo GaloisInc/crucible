@@ -46,10 +46,11 @@ In addition, there are the following library/executable packages:
  * **`crux-llvm`**, a standalone frontend for executing C and C++ programs
    in the crucible symbolic simulator.  The front-end invokes `clang`
    to produce LLVM bitcode, and runs the resulting programs using
-   the `crucible-llvm` language frontend.  Programs interact directly
-   with the symbolic simulator using the protocol established for
-   the [SV-COMP][sv-comp] competition. See [here](crux-llvm/README.md) for
-   more details.
+   the `crucible-llvm` language frontend.
+
+ * **`crux-llvm-svcomp`**, an alternative entrypoint to `crux-llvm`
+   that uses the protocol established for the [SV-COMP][sv-comp] competition.
+   See [here](crux-llvm/README.md) for more details.
 
 [sv-comp]: https://sv-comp.sosy-lab.org
 
@@ -57,12 +58,9 @@ In addition, there are the following library/executable packages:
    running compiled JVM bytecode programs, in a similar vein
    to the `crux-llvm` package.
 
- * **`crucible-server`**, a standalone process that allows constructing
-   and symbolically executing Crucible programs via [Protocol Buffers][pb].
-   The crucible-server directory also contains a Java API for
-   connecting to and working with the `crucible-server`.
-
-[pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
+ * **`crux-mir`**, a tool for executing Rust programs in the crucible symbolic
+   simulator.  This is the backend for the `cargo crux-test` command provided
+   by `mir-json`.  See the [`crux-mir` README](crux-mir/README.md) for details.
 
  * **`uc-crux-llvm`**, another standalone frontend for executing C and C++
    programs in the Crucible symbolic simulator, using "under-constrained"
@@ -108,20 +106,7 @@ cabal new-configure
 cabal new-build all
 ```
 
-Alternately, you can target a more specific sub-packge instead of `all`.
-
-If you wish to build `crucible-server` (which will be built if you
-build all packages, as above), then the build depends on having `hpb`
-in your path. After fetching the dependencies, this can be arranged by
-entering `dependencies/hpb/` and running the following commands:
-
-```
-cabal sandbox init
-cabal install --dependencies-only
-cabal install
-cp ./cabal-sandbox/bin/hpb ⟨EXE_PATH⟩
-```
-where `⟨EXE_PATH⟩` is a directory on your `$PATH`.
+Alternately, you can target a more specific sub-package instead of `all`.
 
 Testing and Coverage
 --------------------
@@ -130,6 +115,31 @@ Testing with coverage tracking is currently only available via
 `stack`, as `cabal new-*` [does not yet support coverage](https://github.com/haskell/cabal/issues/5213).
 Use `scripts/stack-test-coverage.sh` to generate a coverage
 report for all test suites.
+
+Notes on Freeze Files
+---------------------
+
+We use the `cabal.GHC-*.config` files to constrain dependency versions in CI.
+We recommand using the following command for best results before building
+locally:
+
+```
+ln -s cabal.GHC-<VER>.config cabal.project.freeze
+```
+
+These configuration files were generated using
+`cabal freeze --enable-tests --enable-benchmarks`. Note that at present, these
+configuration files assume a Unix-like operating system, as we do not currently
+test Windows on CI. If you would like to use these configuration files on
+Windows, you will need to make some manual changes to remove certain packages
+and flags:
+
+```
+regex-posix
+tasty +unix
+unix
+unix-compat
+```
 
 Acknowledgements
 ----------------

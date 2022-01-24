@@ -9,9 +9,11 @@ License-file:  LICENSE
 Build-type:    Simple
 Category:      Language
 Synopsis:      A bugfinding tool for C programs, using under-constrained symbolic execution.
+extra-source-files: CHANGELOG.md, README.md
 
 common bldflags
   ghc-options: -Wall
+               -Werror=duplicate-exports
                -Werror=identities
                -Werror=incomplete-patterns
                -Werror=incomplete-record-updates
@@ -31,42 +33,70 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    UCCrux.LLVM.Bug
+    UCCrux.LLVM.Bug.UndefinedBehaviorTag
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types
-    UCCrux.LLVM.Config
     UCCrux.LLVM.Constraints
     UCCrux.LLVM.Context.App
     UCCrux.LLVM.Context.Function
     UCCrux.LLVM.Context.Module
     UCCrux.LLVM.Cursor
+    UCCrux.LLVM.Equivalence
+    UCCrux.LLVM.Equivalence.Config
+    UCCrux.LLVM.Errors.MalformedLLVMModule
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType
     UCCrux.LLVM.FullType.CrucibleType
     UCCrux.LLVM.FullType.MemType
+    UCCrux.LLVM.FullType.Memory
+    UCCrux.LLVM.FullType.ReturnType
+    UCCrux.LLVM.FullType.StorageType
     UCCrux.LLVM.FullType.Translation
     UCCrux.LLVM.FullType.Type
-    UCCrux.LLVM.FullType.ReturnType
     UCCrux.LLVM.FullType.VarArgs
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
+    UCCrux.LLVM.Main.Config.FromEnv
+    UCCrux.LLVM.Main.Config.Type
+    UCCrux.LLVM.Mem
+    UCCrux.LLVM.Module
+    UCCrux.LLVM.Newtypes.FunctionName
+    UCCrux.LLVM.Newtypes.PreSimulationMem
+    UCCrux.LLVM.Newtypes.Seconds
+    UCCrux.LLVM.Overrides.Check
+    UCCrux.LLVM.Overrides.Polymorphic
     UCCrux.LLVM.Overrides.Skip
+    UCCrux.LLVM.Overrides.Stack
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
+    UCCrux.LLVM.Run.Check
+    UCCrux.LLVM.Run.EntryPoints
     UCCrux.LLVM.Run.Explore
+    UCCrux.LLVM.Run.Explore.Config
     UCCrux.LLVM.Run.Loop
     UCCrux.LLVM.Run.Result
     UCCrux.LLVM.Run.Simulate
     UCCrux.LLVM.Run.Unsoundness
     UCCrux.LLVM.Setup
+    UCCrux.LLVM.Setup.Assume
+    UCCrux.LLVM.Setup.Constraints
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats
 
+  other-modules:
+    Paths_uc_crux_llvm
+
+  autogen-modules:
+    Paths_uc_crux_llvm
+
   build-depends:
+    aeson,
     async,
-    base >= 4.8 && < 4.15,
+    base >= 4.8 && < 4.16,
     bv-sized,
     bytestring,
     config-schema,
@@ -75,14 +105,19 @@ library
     crucible-llvm,
     crux,
     crux-llvm,
+    -- crucible-llvm depends on 'extra', but this package uses just a few
+    -- functions from it; so if crucible-llvm ever drops that dependency, it
+    -- might be worth working around it here.
+    extra,
     directory,
     filepath,
+    indexed-traversable,
     lens,
     llvm-pretty,
-    lumberjack,
+    lumberjack >= 1.0 && < 1.1,
     mtl,
     panic,
-    parameterized-utils,
+    parameterized-utils >= 2.1.4.0,
     prettyprinter >= 1.7.0,
     scheduler,
     semigroupoids,
@@ -98,7 +133,7 @@ executable uc-crux-llvm
   hs-source-dirs: exe
 
   build-depends:
-    base >= 4.8 && < 4.15,
+    base >= 4.8 && < 4.16,
     uc-crux-llvm
 
   ghc-options: -threaded
@@ -121,18 +156,31 @@ test-suite uc-crux-llvm-test
   hs-source-dirs: test
 
   main-is: Test.hs
+  other-modules:
+    Check
+    Clobber
+    Logging
+    Paths_uc_crux_llvm
+    Utils
+  autogen-modules: Paths_uc_crux_llvm
 
   build-depends:
-                base             >= 4.7,
+                aeson,
+                base >= 4.7,
                 containers,
                 crucible,
                 crucible-llvm,
                 crux,
                 crux-llvm,
                 filepath,
+                lens,
                 llvm-pretty,
-                parameterized-utils,
-                tasty            >= 0.10,
-                tasty-hunit      >= 0.10,
+                lumberjack,
+                parameterized-utils >= 2.1.4.0,
+                tasty >= 0.10,
+                tasty-hunit >= 0.10,
+                tasty-quickcheck >= 0.10,
                 text,
-                uc-crux-llvm
+                time,
+                uc-crux-llvm,
+                what4

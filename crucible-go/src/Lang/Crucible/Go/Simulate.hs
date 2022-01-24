@@ -72,10 +72,22 @@ setSimulatorVerbosity verbosity sym = do
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
 
+goExtensionEval ::
+  forall sym bak p ext rtp blocks r ctx.
+  (IsSymBackend sym bak) =>
+  bak ->
+  C.IntrinsicTypes sym ->
+  (Int -> String -> IO ()) ->
+  EvalAppFunc sym (ExprExtension Go)
+goExtensionEval _bak _iTypes _logFn _f x = case x of {}
+
 -- | No syntax extensions.
 goExtensionImpl :: C.ExtensionImpl p sym Go
 goExtensionImpl =
-  C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+  C.ExtensionImpl
+    (\bak iTypes logFn _ f ->
+       goExtensionEval bak iTypes logFn f)
+    (\x -> case x of)
 
 failIfNotEqual :: forall k f m a (b :: k).
                   (MonadFail m, Show (f a), Show (f b), TestEquality f)
@@ -114,44 +126,45 @@ asApp (Reg.App e) k = k e
 asApp (Reg.AtomExpr a) _k =
   fail $ "asApp: expected App constructor, got atom " ++ show a
 
-evalExpr :: IsSymInterface sym
-         => sym
+evalExpr :: (IsSymBackend sym bak)
+         => bak
          -> Reg.Expr Go s tp
          -> IO (C.RegValue sym tp)
-evalExpr sym e = asApp e $ doAppGo sym
+evalExpr bak e = asApp e $ doAppGo bak
 
 -- | Evaluate an App expression in the @IO@ monad.
-doAppGo :: IsSymInterface sym
-        => sym
+doAppGo :: (IsSymBackend sym bak)
+        => bak
         -> App Go (Reg.Expr Go s) tp
         -> IO (C.RegValue sym tp)
-doAppGo sym =
-  evalApp sym goIntrinsicTypes out
-  (C.extensionEval goExtensionImpl sym goIntrinsicTypes out) $
-  flip asApp $ doAppGo sym
+doAppGo bak =
+  evalApp bak goIntrinsicTypes out
+  (goExtensionEval bak goIntrinsicTypes out) $
+  flip asApp $ doAppGo bak
   where
     out = const putStrLn
 
-mkGlobals :: IsSymInterface sym
-          => sym
+mkGlobals :: (IsSymBackend sym bak)
+          => bak
           -> [GoGlobal]
           -> IO (SymGlobalState sym)
-mkGlobals sym globals =
+mkGlobals bak globals =
   foldM (\state (GoGlobal glob zero) -> do
-            zv <- evalExpr sym zero
+            zv <- evalExpr bak zero
             return $ insertGlobal glob zv state)
   emptyGlobals globals
 
-setupCrucibleGoCrux :: forall sym args.
-  (IsSymInterface sym, KnownRepr CtxRepr args)
+setupCrucibleGoCrux :: forall sym bak args p.
+  (IsSymBackend sym bak, KnownRepr CtxRepr args)
   => Int                   -- ^ Machine word width
   -> Node P.SourcePos Main -- ^ Input program
   -> Int                   -- ^ Verbosity level
-  -> sym                   -- ^ Simulator state
-  -> Crux.Model sym        -- ^ Personality
+  -> bak                   -- ^ Simulator state
+  -> p sym                 -- ^ Personality
   -> C.RegMap sym args     -- ^ Arguments
-  -> IO (C.ExecState (Crux.Model sym) sym Go (C.RegEntry sym UnitType))
-setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do
+  -> IO (C.ExecState (p sym) sym Go (C.RegEntry sym UnitType))
+setupCrucibleGoCrux machineWordWidth fwi verbosity bak p args = do
+  let sym = backendGetSym bak
   setSimulatorVerbosity verbosity sym
 
   case intToPosNat machineWordWidth of
@@ -176,8 +189,8 @@ setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do
                 return ()
 
           -- Set up initial simulator state to call the main.
-          let simctx = initSimContext sym goIntrinsicTypes halloc stdout
+          let simctx = initSimContext bak goIntrinsicTypes halloc stdout
                        fnBindings goExtensionImpl p
-          simGlobals <- mkGlobals sym globs
+          simGlobals <- mkGlobals bak globs
           let abortHandler = C.defaultAbortHandler
           return $ C.InitialState simctx simGlobals abortHandler knownRepr k

@@ -1,15 +1,19 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE RankNTypes #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -22,8 +26,12 @@ module Mir.Language (
     runTestsWithExtraOverrides,
     BindExtraOverridesFn,
     noExtraOverrides,
+    orOverride,
     MIROptions(..),
     defaultMirOptions,
+    MirLogging(..),
+    mirLoggingToSayWhat,
+    withMirLogging,
 ) where
 
 import qualified Data.Aeson as Aeson
@@ -41,6 +49,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
 import           Control.Lens ((^.), (^?), (^..), ix, each)
+import           GHC.Generics (Generic)
 
 import System.Console.ANSI
 import           System.IO (Handle)
@@ -74,14 +83,20 @@ import qualified What4.ProgramLoc                      as W4
 import qualified What4.FunctionName                    as W4
 
 -- crux
-import qualified Crux as Crux
+import qualified Crux
+import qualified Crux.Config.Common as Crux
+import qualified Crux.Log as Log
 import qualified Crux.Model as Crux
 import qualified Crux.UI.JS as Crux
 
-import Crux.Goal (countProvedGoals, countDisprovedGoals, countTotalGoals)
 import Crux.Types
 import Crux.Log
 
+
+-- concurrency
+import Crucibles.DPOR
+import Crucibles.Explore
+import Cruces.ExploreCrux
 
 -- crux-mir
 import           Mir.Mir
@@ -92,44 +107,104 @@ import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, pattern MirVectorRepr, MirVector(..))
 import           Mir.Generator
 import           Mir.Generate (generateMIR, translateMIR)
+import qualified Mir.Log as Log
 import           Mir.Trans (transStatics)
 import           Mir.TransTy
+import           Mir.Concurrency
+import           Paths_crux_mir (version)
+
+defaultOutputConfig :: IO (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
+defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
+main = do
+    mkOutCfg <- defaultOutputConfig
+    exitCode <- mainWithOutputConfig mkOutCfg noExtraOverrides
+    exitWith exitCode
 
 mainWithExtraOverrides :: BindExtraOverridesFn -> IO ()
-mainWithExtraOverrides bindExtra =
-    mainWithOutputConfig defaultOutputConfig bindExtra >>= exitWith
+mainWithExtraOverrides bindExtra = do
+    mkOutCfg <- defaultOutputConfig
+    exitCode <- mainWithOutputConfig mkOutCfg bindExtra
+    exitWith exitCode
 
 mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputTo h bindExtra = mainWithOutputConfig (OutputConfig False h h False) bindExtra
+mainWithOutputTo h = mainWithOutputConfig $
+    Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
-mainWithOutputConfig :: OutputConfig -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputConfig outCfg bindExtra =
-    Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTestsWithExtraOverrides bindExtra
+data MirLogging
+    = LoggingCrux Crux.CruxLogMessage
+    | LoggingMir Log.MirLogMessage
+    deriving (Generic, Aeson.ToJSON)
 
-type BindExtraOverridesFn = forall sym t st fs args ret blocks rtp a r.
+mirLoggingToSayWhat :: MirLogging -> SayWhat
+mirLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
+mirLoggingToSayWhat (LoggingMir msg) = Log.mirLogMessageToSayWhat msg
+
+withMirLogging ::
+    (
+        ( Log.SupportsCruxLogMessage MirLogging
+        , Log.SupportsMirLogMessage MirLogging
+        ) => computation
+    ) -> computation
+withMirLogging computation =
+    let ?injectCruxLogMessage = LoggingCrux
+        ?injectMirLogMessage = LoggingMir
+     in computation
+
+mainWithOutputConfig :: (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
+                     -> BindExtraOverridesFn -> IO ExitCode
+mainWithOutputConfig mkOutCfg bindExtra =
+    withMirLogging $
+    Crux.loadOptions mkOutCfg "crux-mir" version mirConfig
+        $ runTestsWithExtraOverrides bindExtra
+
+type BindExtraOverridesFn = forall sym bak p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    Maybe (Crux.SomeOnlineSolver sym) ->
+    Maybe (Crux.SomeOnlineSolver sym bak) ->
     CollectionState ->
     Text ->
     C.CFG MIR blocks args ret ->
-    Maybe (C.OverrideSim (Model sym) sym MIR rtp a r ())
+    Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
 
 noExtraOverrides :: BindExtraOverridesFn
 noExtraOverrides _ _ _ _ = Nothing
 
-runTests :: (Crux.Logs) =>
+orOverride ::
+    BindExtraOverridesFn -> BindExtraOverridesFn -> BindExtraOverridesFn
+orOverride f g symOnline cs name cfg =
+    case f symOnline cs name cfg of
+        Just x -> Just x
+        Nothing -> g symOnline cs name cfg
+
+
+-- | This closes over the Crucible 'personality' parameter, allowing us to select between
+-- normal execution over Models and concurrent exeuctions that use an Exploration
+-- personality.
+data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
+  forall personality.
+    SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
+                , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
+                , testPersonality :: personality sym
+                }
+
+
+runTests ::
+    Crux.Logs msgs =>
+    Crux.SupportsCruxLogMessage msgs =>
+    Log.SupportsMirLogMessage msgs =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
 runTests opts = runTestsWithExtraOverrides noExtraOverrides opts
 
-runTestsWithExtraOverrides :: (Crux.Logs) =>
+runTestsWithExtraOverrides ::
+    Crux.Logs msgs =>
+    Crux.SupportsCruxLogMessage msgs =>
+    Log.SupportsMirLogMessage msgs =>
     BindExtraOverridesFn ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
 runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
-    let ?debug              = Crux.simVerbose cruxOpts
+    let ?debug              = Crux.simVerbose (Crux.outputOptions cruxOpts)
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
@@ -185,7 +260,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
     -- Simulate each test case
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
+            Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
                 case bindExtra symOnline (mir ^. rmCS) fn cfg of
@@ -209,61 +284,107 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     -- that calls `simTest`.  Counterexamples are printed separately, and only
     -- for tests that failed.
 
-    let simTest :: forall sym t st fs.
-            (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, Crux.Logs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun Model sym MIR Ctx.EmptyCtx C.UnitType
-        simTest symOnline fnName = do
-            when (not $ printResultOnly mirOpts) $
-                liftIO $ output $ "test " ++ show fnName ++ ": "
+    let ?bound = 0
+    let simTestBody :: forall sym bak p t st fs.
+            ( C.IsSymBackend sym bak
+            , sym ~ W4.ExprBuilder t st fs
+            ) =>
+            bak ->
+            Maybe (Crux.SomeOnlineSolver sym bak) ->
+            DefId ->
+            Fun p sym MIR Ctx.EmptyCtx C.UnitType
+        simTestBody bak symOnline fnName =
+          do linkOverrides symOnline
+             _ <- C.callCFG staticInitCfg C.emptyRegMap
 
-            linkOverrides symOnline
-            _ <- C.callCFG staticInitCfg C.emptyRegMap
+             -- Label the current path for later use
+             let sym = C.backendGetSym bak
+             liftIO $ C.addAssumption bak $
+                 C.BranchCondition entry (Just $ testStartLoc fnName) (W4.truePred sym)
 
-            -- Label the current path for later use
-            sym <- C.getSymInterface
-            liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
-                C.ExploringAPath entry (Just $ testStartLoc fnName)
+             -- Find and run the target function
+             C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of
+                 Just x -> return x
+                 Nothing -> fail $ "couldn't find cfg for " ++ show fnName
+             let hf = C.cfgHandle cfg
+             Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
+                 "test function " ++ show fnName ++ " should not take arguments"
+             resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
+                 Just fn -> return $ fn^.fsig.fsreturn_ty
+                 Nothing -> fail $ "couldn't find return type for " ++ show fnName
+             res <- C.callCFG cfg C.emptyRegMap
 
-            -- Find and run the target function
-            C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of
-                Just x -> return x
-                Nothing -> fail $ "couldn't find cfg for " ++ show fnName
-            let hf = C.cfgHandle cfg
-            Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
-                "test function " ++ show fnName ++ " should not take arguments"
-            resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
-                Just fn -> return $ fn^.fsig.fsreturn_ty
-                Nothing -> fail $ "couldn't find return type for " ++ show fnName
-            res <- C.callCFG cfg C.emptyRegMap
+             -- The below are silenced when concurrency is enabled: too much output!
+             -- TODO: think about if/how to present this information when concurrency
+             -- is enabled.
+             when (not (concurrency mirOpts) && printResultOnly mirOpts) $ do
+                 str <- showRegEntry @sym col resTy res
+                 liftIO $ outputLn str
 
-            when (printResultOnly mirOpts) $ do
-                str <- showRegEntry @sym col resTy res
-                liftIO $ outputLn str
+             when (not (concurrency mirOpts) && not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
+                 str <- showRegEntry @sym col resTy res
+                 liftIO $ output $ "returned " ++ str ++ ", "
 
-            when (not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
-                str <- showRegEntry @sym col resTy res
-                liftIO $ output $ "returned " ++ str ++ ", "
+    let printTest :: DefId -> Fun p sym ext args C.UnitType
+        printTest fnName =
+          when (not $ printResultOnly mirOpts) $
+            liftIO $ output $ "test " ++ show fnName ++ ": "
 
-    let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline -> do
-            let outH = view outputHandle ?outputConfig
-            setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
-            let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
-                    (C.FnBindings C.emptyHandleMap) mirExtImpl Crux.emptyModel
-            return (Crux.RunnableState $
-                    C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-                     C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
-                   , \_ _ -> return mempty
-                   )
+    let simTest :: forall sym bak t st fs msgs.
+            ( C.IsSymBackend sym bak
+            , sym ~ W4.ExprBuilder t st fs
+            , Logs msgs
+            , Log.SupportsCruxLogMessage msgs
+            , Log.SupportsMirLogMessage msgs
+            ) =>
+            bak ->
+            Maybe (Crux.SomeOnlineSolver sym bak) ->
+            DefId ->
+            SomeTestOvr sym Ctx.EmptyCtx C.UnitType
+        simTest bak symOnline fnName
+          | concurrency mirOpts = SomeTestOvr
+            { testOvr = do printTest fnName
+                           exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
+            , testFeatures = [scheduleFeature mirExplorePrimitives []]
+            , testPersonality = emptyExploration @DPOR
+            }
+          | otherwise = SomeTestOvr
+            { testOvr = do printTest fnName
+                           simTestBody bak symOnline fnName
+            , testFeatures = []
+            , testPersonality = Crux.CruxPersonality
+            }
 
-    let outputResult (CruxSimulationResult cmpl (fmap snd -> gls))
+    let simCallbacks fnName =
+          Crux.SimulatorCallbacks $
+            return $
+              Crux.SimulatorHooks
+                { Crux.setupHook =
+                    \bak symOnline ->
+                      case simTest bak symOnline fnName of
+                        SomeTestOvr testFn features personality -> do
+                          let outH = view outputHandle ?outputConfig
+                          let sym = C.backendGetSym bak
+                          setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
+                          let simCtx = C.initSimContext bak mirIntrinsicTypes halloc outH
+                                  (C.FnBindings C.emptyHandleMap) mirExtImpl personality
+                          return (Crux.RunnableStateWithExtensions
+                                  (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
+                                   C.runOverrideSim C.UnitRepr $ testFn) features
+                                 )
+                , Crux.onErrorHook = \_bak -> return (\_ _ -> return mempty)
+                , Crux.resultHook = \_bak result -> return result
+                }
+
+    let outputResult (CruxSimulationResult cmpl gls)
           | disproved > 0 = output "FAILED"
           | cmpl /= ProgramComplete = output "UNKNOWN"
           | proved == tot = output "ok"
           | otherwise = output "UNKNOWN"
           where
-            tot = sum (fmap countTotalGoals gls)
-            proved = sum (fmap countProvedGoals gls)
-            disproved = sum (fmap countDisprovedGoals gls)
+            tot = sum (fmap (totalProcessedGoals . fst) gls)
+            proved = sum (fmap (provedGoals . fst) gls)
+            disproved = sum (fmap (disprovedGoals . fst) gls)
 
     results <- forM testNames $ \fnName -> do
         let cruxOpts' = cruxOpts {
@@ -282,7 +403,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             -- same `outDir`.
             Aeson.encodeFile path (mir ^. rmTransInfo)
 
-        res <- Crux.runSimulator cruxOpts' $ simCallback fnName
+        res <- Crux.runSimulator cruxOpts' $ simCallbacks fnName
         when (not $ printResultOnly mirOpts) $ do
             clearFromCursorToLineEnd
             outputResult res
@@ -290,24 +411,22 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
         return res
 
     -- Print counterexamples
-    let isResultOK (CruxSimulationResult comp (fmap snd -> gls)) =
+    let isResultOK (CruxSimulationResult comp gls) =
             comp == ProgramComplete &&
-            sum (fmap countProvedGoals gls) == sum (fmap countTotalGoals gls)
+            sum (fmap (provedGoals . fst) gls) == sum (fmap (totalProcessedGoals . fst) gls)
     let anyFailed = any (not . isResultOK) results
 
     let printCounterexamples gs = case gs of
-            AtLoc _ _ gs1 -> printCounterexamples gs1
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (c, _) _ res ->
-                let msg = show c
-                in case res of
-                    NotProved _ (Just m) -> do
-                        outputLn ("Failure for " ++ msg)
-                        when (showModel mirOpts) $ do
-                           outputLn "Model:"
-                           mjs <- Crux.modelJS m
-                           outputLn (Crux.renderJS mjs)
-                    _ -> return ()
+            ProvedGoal{} -> return ()
+            NotProvedGoal _ _ _ _ Nothing -> return ()
+            NotProvedGoal _ _ _ _ (Just (m,_evs)) -> do
+               logGoal gs
+               when (showModel mirOpts) $ do
+                  outputLn "Model:"
+                  mjs <- Crux.modelJS m
+                  outputLn (Crux.renderJS mjs)
+
     when anyFailed $ do
         outputLn ""
         outputLn "failures:"
@@ -331,9 +450,12 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let skipSummary = printResultOnly mirOpts && resComp == ProgramComplete && Seq.null resGoals
     if not skipSummary then do
         outputLn ""
-        Crux.postprocessSimResult cruxOpts res
+        Log.sayMir Log.FinalResults
+        Crux.postprocessSimResult False cruxOpts res
       else
         return ExitSuccess
+
+
 
 
 data MIROptions = MIROptions
@@ -345,6 +467,9 @@ data MIROptions = MIROptions
     -- concrete programs, this should normally produce the exact same output as
     -- `rustc prog.rs && ./prog`.
     , printResultOnly :: Bool
+    -- | Generate test overrides that recognize concurrency primitives
+    -- and attempt to explore all interleaving executions
+    , concurrency :: Bool
     , testFilter   :: Maybe Text
     , cargoTestFile :: Maybe FilePath
     , defaultRlibsDir :: FilePath
@@ -360,6 +485,7 @@ defaultMirOptions = MIROptions
     , printCrucible = False
     , showModel = False
     , assertFalse = False
+    , concurrency = False
     , printResultOnly = False
     , testFilter = Nothing
     , cargoTestFile = Nothing
@@ -390,6 +516,10 @@ mirConfig = Crux.Config
         , GetOpt.Option [] ["assert-false-on-error"]
             "when translation fails, assert false in output and keep going"
             (GetOpt.NoArg (\opts -> Right opts { assertFalse = True }))
+
+        , GetOpt.Option [] ["concurrency"]
+            "run with support for concurrency primitives"
+            (GetOpt.NoArg (\opts -> Right opts { concurrency = True }))
 
         , GetOpt.Option []  ["test-filter"]
             "run only tests whose names contain this string"
@@ -476,16 +606,16 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, C.AnyRepr)
-      | Just adt <- List.find (\(Adt n _ _ _ _) -> name == n) (col^.adts) -> do
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col^.adts) -> do
         optParts <- case adt^.adtkind of
             Struct -> do
                 let var = onlyVariant adt
-                C.Some fctx <- return $ variantFields' var
+                C.Some fctx <- return $ variantFields' col var
                 let ctx = fieldCtxType fctx
                 let fields = unpackAnyValue rv (C.StructRepr ctx)
                 return $ Right (var, readFields fctx fields)
             Enum -> do
-                C.Some vctx <- return $ enumVariants adt
+                C.Some vctx <- return $ enumVariants col adt
                 let enumVal = unpackAnyValue rv (RustEnumRepr vctx)
                 -- Note we don't look at the discriminant here, because mapping
                 -- a discriminant value to a variant index is somewhat complex.
@@ -495,7 +625,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                         let i = Ctx.indexVal idx
                         let var = fromMaybe (error "bad index from findVariant?") $
                                 adt ^? adtvariants . ix i
-                        C.Some fctx <- return $ variantFields' var
+                        C.Some fctx <- return $ variantFields' col var
                         Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
                             ("when printing enum type " ++ show name)
                         return $ Right (var, readFields fctx fields)

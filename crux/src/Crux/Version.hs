@@ -1,6 +1,9 @@
 module Crux.Version where
 
+import Data.Version (showVersion)
+import qualified Paths_crux (version)
+
 version :: String
-version = "0.1"
+version = showVersion Paths_crux.version
 
 

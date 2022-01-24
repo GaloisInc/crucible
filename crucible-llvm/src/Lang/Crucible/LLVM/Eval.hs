@@ -4,8 +4,10 @@
 {-# LANGUAGE TypeApplications #-}
 module Lang.Crucible.LLVM.Eval
   ( llvmExtensionEval
+  , callStackFromMemVar
   ) where
 
+import           Control.Lens ((^.), view)
 import           Control.Monad (forM_)
 import qualified Data.List.NonEmpty as NE
 import           Data.Parameterized.TraversableF
@@ -13,41 +15,70 @@ import           Data.Parameterized.TraversableF
 import           What4.Interface
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.CFG.Common (GlobalVar)
+import           Lang.Crucible.Simulator.ExecutionTree (SimState, CrucibleState)
+import           Lang.Crucible.Simulator.ExecutionTree (stateGlobals)
+import           Lang.Crucible.Simulator.GlobalState (lookupGlobal)
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Panic (panic)
 
 import qualified Lang.Crucible.LLVM.Arch.X86 as X86
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
-import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.MemModel (memImplHeap)
+import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack, getCallStack)
+import           Lang.Crucible.LLVM.MemModel.MemLog (memState)
 import           Lang.Crucible.LLVM.MemModel.Partial
+import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.Types (Mem)
+
+callStackFromMemVar ::
+  SimState p sym ext rtp lang args ->
+  GlobalVar Mem ->
+  CallStack
+callStackFromMemVar state mvar =
+  getCallStack . view memState . memImplHeap $
+     case lookupGlobal mvar (state ^. stateGlobals) of
+       Just v -> v
+       Nothing ->
+         panic "callStackFromMemVar"
+           [ "Global heap value not initialized."
+           , "*** Global heap variable: " ++ show mvar
+           ]
 
 assertSideCondition ::
-  (HasLLVMAnn sym, IsSymInterface sym) =>
-  sym ->
+  (HasLLVMAnn sym, IsSymBackend sym bak) =>
+  bak ->
+  CallStack ->
   LLVMSideCondition (RegValue' sym) ->
   IO ()
-assertSideCondition sym (LLVMSideCondition (RV p) ub) =
-  do p' <- annotateUB sym ub p
+assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
+  do let sym = backendGetSym bak
+     p' <- annotateUB sym callStack ub p
      let err = AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
-     assert sym p' err
+     assert bak p' err
 
-llvmExtensionEval :: forall sym.
-  (HasLLVMAnn sym, IsSymInterface sym) =>
-  sym ->
+llvmExtensionEval ::
+  forall sym bak p ext rtp blocks r ctx.
+  (HasLLVMAnn sym, IsSymBackend sym bak) =>
+  bak ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
+  CrucibleState p sym ext rtp blocks r ctx ->
   EvalAppFunc sym LLVMExtensionExpr
 
-llvmExtensionEval sym _iTypes _logFn eval e =
+llvmExtensionEval bak _iTypes _logFn state eval e =
+  let sym = backendGetSym bak in
   case e of
     X86Expr ex -> X86.eval sym eval ex
 
-    LLVM_SideConditions _tp conds val ->
-      do conds' <- traverse (traverseF (\x -> RV @sym <$> eval x)) (NE.toList conds)
-         forM_ conds' (assertSideCondition sym)
+    LLVM_SideConditions mvar _tp conds val ->
+      do let callStack = callStackFromMemVar state mvar
+         conds' <- traverse (traverseF (\x -> RV @sym <$> eval x)) (NE.toList conds)
+         forM_ conds' (assertSideCondition bak callStack)
          eval val
 
     LLVM_PointerExpr _w blk off ->

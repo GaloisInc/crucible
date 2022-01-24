@@ -1,8 +1,14 @@
-extern float __VERIFIER_nondet_float(void);
-extern void __VERIFIER_assume(int cond);
-extern void __VERIFIER_assert(int cond);
-
 #include <assert.h>
+
+extern float __VERIFIER_nondet_float(void);
+void __VERIFIER_assume(int cond) {
+  if (!cond) {
+    abort();
+  }
+}
+void __VERIFIER_assert(int cond) {
+  assert(cond);
+}
 
 int main()
 {

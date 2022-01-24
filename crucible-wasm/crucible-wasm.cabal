@@ -6,7 +6,7 @@ Maintainer:    rdockins@galois.com
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.10
+Cabal-version: 2.0
 Category:      Language
 Synopsis:      Support for translating and executing WebAssembly code in Crucible
 
@@ -14,6 +14,8 @@ executable crucible-wasm
 
   hs-source-dirs: tool
   main-is: Main.hs
+  other-modules: Paths_crucible_wasm
+  autogen-modules: Paths_crucible_wasm
 
   build-depends:
     base >= 4 && < 5,
@@ -35,7 +37,7 @@ executable crucible-wasm
 library
 
   build-depends:
-    base >= 4 && < 5,
+    base >= 4.13 && < 5,
     bv-sized >= 1.0.0,
     bytestring,
     containers,

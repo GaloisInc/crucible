@@ -1,0 +1,44 @@
+#include <crucible.h>
+#include <limits.h>
+#include <stdlib.h>
+
+extern long __VERIFIER_nondet_long();
+
+int abs_spec(int x) {
+  if (x < 0) {
+    return -x;
+  } else {
+    return x;
+  }
+}
+
+long labs_spec(long x) {
+  if (x < 0) {
+    return -x;
+  } else {
+    return x;
+  }
+}
+
+long long llabs_spec(long long x) {
+  if (x < 0) {
+    return -x;
+  } else {
+    return x;
+  }
+}
+
+int main() {
+  int x = crucible_int32_t("x");
+  long y = __VERIFIER_nondet_long();
+  long long z = crucible_int64_t("z");
+  assuming(x != INT_MIN);
+  assuming(y != LONG_MIN);
+  assuming(z != LLONG_MIN);
+
+  check(  abs(x) ==   abs_spec(x));
+  check( labs(y) ==  labs_spec(y));
+  check(llabs(z) == llabs_spec(z));
+
+  return 0;
+}

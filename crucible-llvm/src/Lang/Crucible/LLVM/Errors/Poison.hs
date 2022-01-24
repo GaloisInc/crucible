@@ -125,6 +125,8 @@ data Poison (e :: CrucibleType -> Type) where
   -- | TODO(langston): store the 'Vector'
   InsertElementIndex  :: (1 <= w) => e (BVType w)
                       -> Poison e
+  LLVMAbsIntMin       :: (1 <= w) => e (BVType w)
+                      -> Poison e
   GEPOutOfBounds      :: (1 <= w, 1 <= wptr) => e (LLVMPointerType wptr)
                       -> e (BVType w)
                       -> Poison e
@@ -150,6 +152,7 @@ standard =
     AshrOp2Big _ _          -> LLVMRef LLVM8
     ExtractElementIndex _   -> LLVMRef LLVM8
     InsertElementIndex _    -> LLVMRef LLVM8
+    LLVMAbsIntMin _         -> LLVMRef LLVM12
     GEPOutOfBounds _ _      -> LLVMRef LLVM8
 
 -- | Which section(s) of the document state that this is poison?
@@ -173,6 +176,7 @@ cite =
     AshrOp2Big _ _          -> "‘ashr’ Instruction (Semantics)"
     ExtractElementIndex _   -> "‘extractelement’ Instruction (Semantics)"
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
+    LLVMAbsIntMin _         -> "‘llvm.abs.*’ Intrinsic (Semantics)"
     GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
@@ -216,6 +220,10 @@ explain =
       [ "Attempted to insert an element into a vector at an index that was"
       , "greater than the length of the vector"
       ]
+    LLVMAbsIntMin _ -> cat $
+      [ "The first argument of `llvm.abs.*` was `INT_MIN` even though the"
+      , "second argument was `1`"
+      ]
 
     -- The following explanation is a bit unsatisfactory, because it is specific
     -- to how we treat this instruction in Crucible.
@@ -246,6 +254,7 @@ details =
     AshrOp2Big        v1 v2 -> args [v1, v2]
     ExtractElementIndex v   -> args [v]
     InsertElementIndex v    -> args [v]
+    LLVMAbsIntMin v         -> args [v]
     GEPOutOfBounds (RV ptr) (RV bv) ->
       [ "Pointer:" <+> ppPtr ptr
       , "Bitvector:" <+> W4I.printSymExpr bv
@@ -323,6 +332,8 @@ concPoison sym conc poison =
       InsertElementIndex <$> bv v
     GEPOutOfBounds p v ->
       GEPOutOfBounds <$> concPtr' sym conc p <*> bv v
+    LLVMAbsIntMin v ->
+      LLVMAbsIntMin <$> bv v
 
 
 -- -----------------------------------------------------------------------

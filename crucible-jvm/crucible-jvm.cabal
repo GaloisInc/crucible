@@ -6,7 +6,7 @@ Maintainer:    huffman@galois.com, sweirich@galois.com
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.10
+Cabal-version: 2.0
 Category:      Language
 Synopsis:      Support for translating and executing JVM code in Crucible
 
@@ -14,6 +14,8 @@ executable crucible-jvm
 
   hs-source-dirs: tool
   main-is: Main.hs
+  other-modules: Paths_crucible_jvm
+  autogen-modules: Paths_crucible_jvm
 
   build-depends:
     base >= 4 && < 5,
@@ -50,7 +52,7 @@ executable crucible-jvm
 library
 
   build-depends:
-    base >= 4 && < 5,
+    base >= 4.13 && < 5,
     aig,
     array,
     base16-bytestring >= 0.1 && < 1.1,
@@ -97,4 +99,3 @@ library
   ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
-

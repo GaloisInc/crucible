@@ -1,5 +1,5 @@
 name:                crux-mir
-version:             0.4
+version:             0.5.0.99
 -- synopsis:
 -- description:
 homepage:            https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md
@@ -14,13 +14,13 @@ maintainer:          spernsteiner@galois.com
 copyright:           2017-2020 Galois, Inc.
 category:            Web
 build-type:          Simple
-cabal-version:       >=1.10
+cabal-version:       2.0
 extra-source-files:  README.md
 
 library
   default-language: Haskell2010
   build-depends: base >= 4.7 && < 5,
-                 aeson,
+                 aeson < 2.1,
                  ansi-terminal,
                  bv-sized,
                  bytestring,
@@ -29,9 +29,11 @@ library
                  time,
                  unordered-containers,
                  crucible,
+                 crucible-concurrency,
                  parameterized-utils >= 1.0.8,
                  containers,
                  lens,
+                 lumberjack >= 1.0 && < 1.1,
                  vector,
                  mtl,
                  regex-compat,
@@ -58,6 +60,7 @@ library
   exposed-modules: Mir.JSON
                    Mir.Generator
                    Mir.Language
+                   Mir.Log
                    Mir.Mir
                    Mir.GenericOps
                    Mir.Pass
@@ -65,12 +68,15 @@ library
                    Mir.PP
                    Mir.Generate
                    Mir.DefId
+                   Mir.Concurrency
                    Mir.FancyMuxTree
                    Mir.Intrinsics
                    Mir.Overrides
                    Mir.TransTy
                    Mir.Trans
                    Mir.TransCustom
+  other-modules: Paths_crux_mir
+  autogen-modules: Paths_crux_mir
 
 
 executable crux-mir
@@ -125,6 +131,8 @@ test-suite test
                 deepseq,
                 directory,
                 filepath,
+                lens,
+                lumberjack,
                 parsec,
                 process,
                 crux-mir,

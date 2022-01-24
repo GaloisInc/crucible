@@ -204,7 +204,7 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     e (BVType w) ->
     UndefinedBehavior e
 
-  -------------------------------- LLVM: arithmetic
+  -------------------------------- Division operators
 
   -- | @SymBV@ or @Expr _ _ (BVType w)@
   UDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
@@ -213,6 +213,10 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
   SRemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
   SDivOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
   SRemOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+
+  -------------------------------- Integer arithmetic
+
+  AbsIntMin    :: (1 <= w) => e (BVType w) -> UndefinedBehavior e
 
   PoisonValueCreated ::
     Poison.Poison e ->
@@ -250,7 +254,7 @@ standard =
     PointerIntCast{}          -> CStd C11
     PointerUnsupportedOp{}    -> CStd C11
 
-    -- -------------------------------- LLVM: arithmetic
+    -- -------------------------------- Division operators
 
     UDivByZero{}   -> CStd C11
     SDivByZero{}   -> CStd C11
@@ -258,6 +262,10 @@ standard =
     SRemByZero{}   -> CStd C11
     SDivOverflow{} -> CStd C11
     SRemOverflow{} -> CStd C11
+
+    -- -------------------------------- Integer arithmetic
+
+    AbsIntMin{}    -> CStd C11
 
     PoisonValueCreated p -> Poison.standard p
 
@@ -300,6 +308,10 @@ cite =
     SRemByZero{}   -> "§6.5.5 Multiplicitive operators, ¶5"
     SDivOverflow{} -> "§6.5.5 Multiplicitive operators, ¶6"
     SRemOverflow{} -> "§6.5.5 Multiplicitive operators, ¶6"
+
+    -------------------------------- Integer arithmetic
+
+    AbsIntMin{} -> "§7.22.6 Integer arithmetic functions, ¶1"
 
     PoisonValueCreated p -> Poison.cite p
 
@@ -354,7 +366,7 @@ explain =
     PointerUnsupportedOp{} ->
       "Pointer cast to an integer used in an unsupported operation"
 
-    -------------------------------- LLVM: arithmetic
+    -------------------------------- Division operators
 
     UDivByZero{}   -> "Unsigned division by zero"
     SDivByZero{}   -> "Signed division by zero"
@@ -362,6 +374,10 @@ explain =
     SRemByZero{}   -> "Signed division by zero via remainder"
     SDivOverflow{} -> "Overflow during signed division"
     SRemOverflow{} -> "Overflow during signed division (via signed remainder)"
+
+    -------------------------------- Integer arithmetic
+
+    AbsIntMin{} -> "`abs`, `labs`, or `llabs` called on `INT_MIN`"
 
     PoisonValueCreated p -> vcat [ "Poison value created", Poison.explain p ]
 
@@ -437,28 +453,31 @@ details =
 
     -- The cases are manually listed to prevent unintentional fallthrough if a
     -- constructor is added.
-    UDivByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
-                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
-                          ]
-    SDivByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
-                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
-                          ]
-    URemByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
-                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
-                          ]
-    SRemByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
-                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
-                          ]
-    SDivOverflow v1 v2 -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
-                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
-                          ]
-    SRemOverflow v1 v2 -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
-                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
-                          ]
+    UDivByZero v1 v2   -> [ ppBV2 v1 v2 ]
+    SDivByZero v1 v2   -> [ ppBV2 v1 v2 ]
+    URemByZero v1 v2   -> [ ppBV2 v1 v2 ]
+    SRemByZero v1 v2   -> [ ppBV2 v1 v2 ]
+    SDivOverflow v1 v2 -> [ ppBV2 v1 v2 ]
+    SRemOverflow v1 v2 -> [ ppBV2 v1 v2 ]
+
+    -------------------------------- Integer arithmetic
+
+    AbsIntMin v -> [ ppBV1 v ]
 
     PoisonValueCreated p -> Poison.details p
 
-  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => RegValue' sym (LLVMPointerType w) -> Doc ann
+  where ppBV1 :: W4I.IsExpr (W4I.SymExpr sym) =>
+                 RegValue' sym (BVType w) -> Doc ann
+        ppBV1 (RV bv) = "op:" <+> W4I.printSymExpr bv
+
+        ppBV2 :: W4I.IsExpr (W4I.SymExpr sym) =>
+                 RegValue' sym (BVType w) -> RegValue' sym (BVType w) -> Doc ann
+        ppBV2 (RV bv1) (RV bv2) =
+          vcat [ "op1: " <+> W4I.printSymExpr bv1
+               , "op2: " <+> W4I.printSymExpr bv2
+               ]
+
+        ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => RegValue' sym (LLVMPointerType w) -> Doc ann
         ppPtr1 (RV p) = "Pointer:" <+> ppPtr p
 
         ppPtr2 (RV ptr1) (RV ptr2) =
@@ -589,6 +608,8 @@ concUB sym conc ub =
       SDivOverflow <$> bv v1 <*> bv v2
     SRemOverflow v1 v2 ->
       SRemOverflow <$> bv v1 <*> bv v2
+    AbsIntMin v ->
+      AbsIntMin <$> bv v
 
     PoisonValueCreated poison ->
       PoisonValueCreated <$> Poison.concPoison sym conc poison

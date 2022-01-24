@@ -1,0 +1,37 @@
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     `abs`, `labs`, or `llabs` called on `INT_MIN`
+[Crux]     op: 0x80000000:[32]
+[Crux]     Reference: 
+[Crux]       The C language standard, version C11
+[Crux]       §7.22.6 Integer arithmetic functions, ¶1
+[Crux]       Document URL: http://www.iso-9899.info/n1570.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     `abs`, `labs`, or `llabs` called on `INT_MIN`
+[Crux]     op: 0x8000000000000000:[64]
+[Crux]     Reference: 
+[Crux]       The C language standard, version C11
+[Crux]       §7.22.6 Integer arithmetic functions, ¶1
+[Crux]       Document URL: http://www.iso-9899.info/n1570.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     `abs`, `labs`, or `llabs` called on `INT_MIN`
+[Crux]     op: 0x8000000000000000:[64]
+[Crux]     Reference: 
+[Crux]       The C language standard, version C11
+[Crux]       §7.22.6 Integer arithmetic functions, ¶1
+[Crux]       Document URL: http://www.iso-9899.info/n1570.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Overall status: Invalid.

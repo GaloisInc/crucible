@@ -22,21 +22,23 @@ module Lang.Crucible.LLVM.Errors.MemoryError
 , details
 , ppMemoryError
 , MemoryOp(..)
+, memOpMem
 , ppMemoryOp
 , MemoryErrorReason(..)
 , ppMemoryErrorReason
+, FuncLookupError(..)
+, ppFuncLookupError
 
 , concMemoryError
 , concMemoryOp
-, concMemoryErrorReason
 ) where
 
 import           Prelude hiding (pred)
 
 import           Data.Text (Text)
-import           Data.Void
 import qualified Text.LLVM.PP as L
 import qualified Text.LLVM.AST as L
+import           Type.Reflection (SomeTypeRep(SomeTypeRep))
 import           Prettyprinter
 
 import           What4.Interface
@@ -46,7 +48,6 @@ import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr, concBV)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.MemLog
-
 
 data MemoryOp sym w
   = MemLoadOp  StorageType (Maybe String) (LLVMPtr sym w) (Mem sym)
@@ -61,25 +62,56 @@ data MemoryOp sym w
   | forall wlen. (1 <= wlen) => MemInvalidateOp
        Text (Maybe String) (LLVMPtr sym w) (SymBV sym wlen) (Mem sym)
 
+memOpMem :: MemoryOp sym w -> Mem sym
+memOpMem =
+  \case
+    MemLoadOp _ _ _ mem -> mem
+    MemStoreOp _ _ _ mem -> mem
+    MemStoreBytesOp _ _ _ mem -> mem
+    MemCopyOp _ _ _ mem -> mem
+    MemLoadHandleOp _ _ _ mem -> mem
+    MemInvalidateOp _ _ _ _ mem -> mem
+
 data MemoryError sym where
   MemoryError :: (1 <= w) =>
     MemoryOp sym w ->
-    MemoryErrorReason sym w ->
+    MemoryErrorReason ->
     MemoryError sym
 
 -- | The kinds of type errors that arise while reading memory/constructing LLVM
 -- values
-data MemoryErrorReason sym w =
+data MemoryErrorReason =
     TypeMismatch StorageType StorageType
   | UnexpectedArgumentType Text [StorageType]
   | ApplyViewFail ValueView
   | Invalid StorageType
   | Invalidated Text
-  | NoSatisfyingWrite StorageType (LLVMPtr sym w)
+  | NoSatisfyingWrite StorageType
   | UnwritableRegion
   | UnreadableRegion
-  | BadFunctionPointer (Doc Void)
+  | BadFunctionPointer FuncLookupError
   | OverlappingRegions
+  deriving (Eq, Ord)
+
+-- | Reasons that looking up a function handle associated with an LLVM pointer
+-- may fail
+data FuncLookupError
+  = SymbolicPointer
+  | RawBitvector
+  | NoOverride
+  | Uncallable SomeTypeRep
+  deriving (Eq, Ord)
+
+ppFuncLookupError :: FuncLookupError -> Doc ann
+ppFuncLookupError =
+  \case
+    SymbolicPointer -> "Cannot resolve a symbolic pointer to a function handle"
+    RawBitvector -> "Cannot treat raw bitvector as function pointer"
+    NoOverride -> "No implementation or override found for pointer"
+    Uncallable (SomeTypeRep typeRep) ->
+      vsep [ "Data associated with the pointer found, but was not a callable function:"
+           , hang 2 (viaShow typeRep)
+           ]
 
 type MemErrContext sym w = MemoryOp sym w
 
@@ -148,7 +180,7 @@ details (MemoryError mop _rsn) = ppMemoryOp mop
 ppMemoryError :: IsExpr (SymExpr sym) => MemoryError sym -> Doc ann
 ppMemoryError (MemoryError mop rsn) = vcat [ppMemoryErrorReason rsn, ppMemoryOp mop]
 
-ppMemoryErrorReason :: IsExpr (SymExpr sym) => MemoryErrorReason sym w -> Doc ann
+ppMemoryErrorReason :: MemoryErrorReason -> Doc ann
 ppMemoryErrorReason =
   \case
     TypeMismatch ty1 ty2 ->
@@ -170,20 +202,19 @@ ppMemoryErrorReason =
       "Load from invalid memory at type" <+> ppType ty
     Invalidated msg ->
       "Load from explicitly invalidated memory:" <+> pretty msg
-    NoSatisfyingWrite tp ptr ->
+    NoSatisfyingWrite tp ->
       vcat
        [ "No previous write to this location was found"
        , indent 2 ("Attempting load at type:" <+> ppType tp)
-       , indent 2 ("Via pointer:" <+> ppPtr ptr)
        ]
     UnwritableRegion ->
       "The region wasn't allocated, wasn't large enough, or was marked as readonly"
     UnreadableRegion ->
       "The region wasn't allocated or wasn't large enough"
-    BadFunctionPointer msg ->
+    BadFunctionPointer err ->
       vcat
        [ "The given pointer could not be resolved to a callable function"
-       , unAnnotate msg
+       , ppFuncLookupError err
        ]
     OverlappingRegions ->
       "Memory regions required to be disjoint"
@@ -194,7 +225,7 @@ concMemoryError ::
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
   MemoryError sym -> IO (MemoryError sym)
 concMemoryError sym conc (MemoryError mop rsn) =
-  MemoryError <$> concMemoryOp sym conc mop <*> concMemoryErrorReason sym conc rsn
+  MemoryError <$> concMemoryOp sym conc mop <*> pure rsn
 
 concMemoryOp ::
   (1 <= w, IsExprBuilder sym) =>
@@ -223,20 +254,3 @@ concMemoryOp sym conc (MemInvalidateOp msg gsym ptr len mem) =
     concPtr sym conc ptr <*>
     concBV sym conc len <*>
     concMem sym conc mem
-
-concMemoryErrorReason ::
-  (1 <= w, IsExprBuilder sym) =>
-  sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
-  MemoryErrorReason sym w -> IO (MemoryErrorReason sym w)
-concMemoryErrorReason sym conc rsn = case rsn of
-  TypeMismatch t1 t2 -> pure (TypeMismatch t1 t2)
-  UnexpectedArgumentType msg ts -> pure (UnexpectedArgumentType msg ts)
-  ApplyViewFail v -> pure (ApplyViewFail v)
-  Invalid tp -> pure (Invalid tp)
-  Invalidated msg -> pure (Invalidated msg)
-  NoSatisfyingWrite tp ptr -> NoSatisfyingWrite tp <$> concPtr sym conc ptr
-  UnwritableRegion -> pure UnwritableRegion
-  UnreadableRegion -> pure UnreadableRegion
-  BadFunctionPointer msg -> pure (BadFunctionPointer msg)
-  OverlappingRegions -> pure OverlappingRegions

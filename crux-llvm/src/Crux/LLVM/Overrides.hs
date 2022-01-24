@@ -16,11 +16,12 @@ module Crux.LLVM.Overrides
   , svCompOverrides
   , cbmcOverrides
   , ArchOk
+  , TPtr
   ) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Control.Lens((%=))
+import Control.Monad (when)
 import Control.Monad.IO.Class(liftIO)
 import GHC.Exts ( Proxy# )
 import System.IO (hPutStrLn)
@@ -40,18 +41,20 @@ import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.Simulator.RegMap(regValue,RegValue,RegEntry)
-import Lang.Crucible.Simulator.ExecutionTree
-  ( stateContext, cruciblePersonality, printHandle )
+import Lang.Crucible.Simulator.ExecutionTree( printHandle )
 import Lang.Crucible.Simulator.OverrideSim
-        ( getSymInterface
-        , getContext
+        ( getContext
         , readGlobal
         , writeGlobal
+        , ovrWithBackend
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
-          ( IsSymInterface, addDurableAssertion, addFailedAssertion
-          , addAssumption, LabeledPred(..), AssumptionReason(..))
+          ( IsSymInterface, IsSymBackend, addDurableAssertion
+          , addAssumption, LabeledPred(..), CrucibleAssumption(..)
+          , addAssumptions, singleEvent, CrucibleEvent(..)
+          , backendGetSym
+          )
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
@@ -60,7 +63,7 @@ import Lang.Crucible.LLVM.MemModel
    doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
    doArrayStore, doArrayConstStore, HasLLVMAnn,
    isAllocatedAlignedPointer, Mutability(..),
-   pattern PtrWidth, doDumpMem
+   pattern PtrWidth, doDumpMem, MemOptions
    )
 
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
@@ -69,7 +72,6 @@ import           Lang.Crucible.LLVM.Intrinsics
 import Lang.Crucible.LLVM.Extension ( ArchWidth )
 
 import Crux.Types
-import Crux.Model
 
 -- | This happens quite a lot, so just a shorter name
 type ArchOk arch    = HasPtrWidth (ArchWidth arch)
@@ -78,7 +80,8 @@ type TBits n        = BVType n
 
 
 cruxLLVMOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cruxLLVMOverrides arch =
@@ -152,7 +155,8 @@ cruxLLVMOverrides arch =
 
 
 cbmcOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cbmcOverrides arch =
@@ -218,12 +222,22 @@ cbmcOverrides arch =
       [llvmOvr| i64 @nondet_uint64_t() |]
       (sv_comp_fresh_bits (knownNat @64))
 
+    -- @nondet_long@ returns a `long`, so we need two overrides for
+    -- @nondet_long@. Similarly for @nondet_ulong@.
+    -- See Note [Overrides involving (unsigned) long] in
+    -- crucible-llvm:Lang.Crucible.LLVM.Intrinsics.
   , basic_llvm_override $
-      [llvmOvr| size_t @nondet_long() |]
-      (sv_comp_fresh_bits ?ptrWidth)
+      [llvmOvr| i32 @nondet_long() |]
+      (sv_comp_fresh_bits (knownNat @32))
   , basic_llvm_override $
-      [llvmOvr| size_t @nondet_ulong() |]
-      (sv_comp_fresh_bits ?ptrWidth)
+      [llvmOvr| i64 @nondet_long() |]
+      (sv_comp_fresh_bits (knownNat @64))
+  , basic_llvm_override $
+      [llvmOvr| i32 @nondet_ulong() |]
+      (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+      [llvmOvr| i64 @nondet_ulong() |]
+      (sv_comp_fresh_bits (knownNat @64))
   , basic_llvm_override $
       [llvmOvr| size_t @nondet_size_t() |]
       (sv_comp_fresh_bits ?ptrWidth)
@@ -245,16 +259,47 @@ cbmcOverrides arch =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, HasModel personality) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
-        [llvmOvr| size_t @__VERIFIER_nondet_ulong() |]
-        (sv_comp_fresh_bits ?ptrWidth)
+        [llvmOvr| i64 @__VERIFIER_nondet_longlong() |]
+        (sv_comp_fresh_bits (knownNat @64))
+
+    -- loff_t is pretty Linux-specific, so we can't point to the C or POSIX
+    -- standards for justification about what size it should be. The man page
+    -- for lseek64 (https://linux.die.net/man/3/lseek64) is as close to a
+    -- definitive reference for this as I can find, which says
+    -- "The type loff_t is a 64-bit signed type".
+  , basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_loff_t() |]
+        (sv_comp_fresh_bits (knownNat @64))
+
+    -- @__VERIFIER_nondet_ulong@ returns an `unsigned long`, so we need two
+    -- overrides for @__VERIFIER_nondet_ulong@. Similarly for
+    -- @__VERIFIER_nondet_long@. See Note [Overrides involving (unsigned) long]
+    -- in crucible-llvm:Lang.Crucible.LLVM.Intrinsics.
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_ulong() |]
+        (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_ulong() |]
+        (sv_comp_fresh_bits (knownNat @64))
 
   , basic_llvm_override $
-        [llvmOvr| size_t @__VERIFIER_nondet_long() |]
-        (sv_comp_fresh_bits ?ptrWidth)
+        [llvmOvr| i32 @__VERIFIER_nondet_long() |]
+        (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_long() |]
+        (sv_comp_fresh_bits (knownNat @64))
+
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_unsigned() |]
+        (sv_comp_fresh_bits (knownNat @32))
+
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_u32() |]
+        (sv_comp_fresh_bits (knownNat @32))
 
   , basic_llvm_override $
         [llvmOvr| i32 @__VERIFIER_nondet_uint() |]
@@ -265,12 +310,20 @@ svCompOverrides =
         (sv_comp_fresh_bits (knownNat @32))
 
   , basic_llvm_override $
+        [llvmOvr| i16 @__VERIFIER_nondet_u16() |]
+        (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
         [llvmOvr| i16 @__VERIFIER_nondet_ushort() |]
         (sv_comp_fresh_bits (knownNat @16))
 
   , basic_llvm_override $
         [llvmOvr| i16 @__VERIFIER_nondet_short() |]
         (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
+        [llvmOvr| i8 @__VERIFIER_nondet_u8() |]
+        (sv_comp_fresh_bits (knownNat @8))
 
   , basic_llvm_override $
         [llvmOvr| i8 @__VERIFIER_nondet_uchar() |]
@@ -285,93 +338,90 @@ svCompOverrides =
         (sv_comp_fresh_bits (knownNat @1))
 
   , basic_llvm_override $
+        [llvmOvr| size_t @__VERIFIER_nondet_size_t() |]
+        (sv_comp_fresh_bits ?ptrWidth)
+
+  , basic_llvm_override $
         [llvmOvr| float @__VERIFIER_nondet_float() |]
         (sv_comp_fresh_float SingleFloatRepr)
 
   , basic_llvm_override $
         [llvmOvr| double @__VERIFIER_nondet_double() |]
         (sv_comp_fresh_float DoubleFloatRepr)
-
-  , basic_llvm_override $
-        [llvmOvr| void @__VERIFIER_assert( i32 ) |]
-        sv_comp_assert
-
-  , basic_llvm_override $
-        [llvmOvr| void @__VERIFIER_assume( i32 ) |]
-        sv_comp_assume
-
-  , basic_llvm_override $
-        [llvmOvr| void @__VERIFIER_error( ) |]
-        sv_comp_error
   ]
 
 --------------------------------------------------------------------------------
 
 mkFresh ::
-  (IsSymInterface sym, HasModel personality) =>
+  (IsSymInterface sym) =>
   String ->
   BaseTypeRepr ty ->
   OverM personality sym ext (RegValue sym (BaseToType ty))
 mkFresh nm ty =
-  do sym  <- getSymInterface
-     name <- case userSymbol nm of
-               Left err -> fail (show err) -- XXX
-               Right a  -> return a
-     elt <- liftIO (freshConstant sym name ty)
-     loc   <- liftIO $ getCurrentProgramLoc sym
-     stateContext.cruciblePersonality.personalityModel %= addVar loc nm ty elt
-     return elt
+  ovrWithBackend $ \bak ->
+    do let sym = backendGetSym bak
+       name <- case userSymbol nm of
+                 Left err -> fail (show err) -- XXX
+                 Right a  -> return a
+       elt <- liftIO (freshConstant sym name ty)
+       loc   <- liftIO $ getCurrentProgramLoc sym
+       let ev = CreateVariableEvent loc nm ty elt
+       liftIO $ addAssumptions bak (singleEvent ev)
+       return elt
 
 mkFreshFloat
-  ::(IsSymInterface sym, HasModel personality)
+  ::(IsSymInterface sym)
   => String
   -> FloatInfoRepr fi
   -> OverM personality sym ext (RegValue sym (FloatType fi))
 mkFreshFloat nm fi = do
-  sym  <- getSymInterface
-  name <- case userSymbol nm of
-            Left err -> fail (show err) -- XXX
-            Right a  -> return a
-  elt  <- liftIO $ freshFloatConstant sym name fi
-  loc  <- liftIO $ getCurrentProgramLoc sym
-  stateContext.cruciblePersonality.personalityModel %=
-    addVar loc nm (iFloatBaseTypeRepr sym fi) elt
-  return elt
+  ovrWithBackend $ \bak ->
+    do let sym = backendGetSym bak
+       name <- case userSymbol nm of
+                 Left err -> fail (show err) -- XXX
+                 Right a  -> return a
+       elt  <- liftIO $ freshFloatConstant sym name fi
+       loc  <- liftIO $ getCurrentProgramLoc sym
+       let ev = CreateVariableEvent loc nm (iFloatBaseTypeRepr sym fi) elt
+       liftIO $ addAssumptions bak (singleEvent ev)
+       return elt
 
 lookupString ::
-  (IsSymInterface sym, HasLLVMAnn sym, ArchOk arch) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, ArchOk arch
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM personality sym ext String
 lookupString _ mvar ptr =
-  do sym <- getSymInterface
-     mem <- readGlobal mvar
-     bytes <- liftIO (loadString sym mem (regValue ptr) Nothing)
-     return (BS8.unpack (BS.pack bytes))
+  ovrWithBackend $ \bak ->
+    do mem <- readGlobal mvar
+       bytes <- liftIO (loadString bak mem (regValue ptr) Nothing)
+       return (BS8.unpack (BS.pack bytes))
 
 sv_comp_fresh_bits ::
-  (IsSymInterface sym, 1 <= w, HasModel personality) =>
+  (IsSymBackend sym bak, 1 <= w) =>
   NatRepr w ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym (BVType w))
-sv_comp_fresh_bits w _mvar _sym Empty = mkFresh "X" (BaseBVRepr w)
+sv_comp_fresh_bits w _mvar _bak Empty = mkFresh "X" (BaseBVRepr w)
 
 sv_comp_fresh_float ::
-  (IsSymInterface sym, HasModel personality) =>
+  (IsSymBackend sym bak) =>
   FloatInfoRepr fi ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym (FloatType fi))
-sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
+sv_comp_fresh_float fi _mvar _bak Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
-  (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w, HasModel personality) =>
+  ( ArchOk arch, HasLLVMAnn sym, IsSymBackend sym bak, 1 <= w
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   NatRepr w ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
   OverM personality sym ext (RegValue sym (BVType w))
 fresh_bits arch w mvar _ (Empty :> pName) =
@@ -379,11 +429,12 @@ fresh_bits arch w mvar _ (Empty :> pName) =
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, HasModel personality) =>
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   FloatInfoRepr fi ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
   OverM personality sym ext (RegValue sym (FloatType fi))
 fresh_float arch fi mvar _ (Empty :> pName) =
@@ -391,14 +442,16 @@ fresh_float arch fi mvar _ (Empty :> pName) =
      mkFreshFloat name fi
 
 fresh_str ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> BVType (ArchWidth arch)) ->
   OverM personality sym ext (RegValue sym (TPtr arch))
-fresh_str arch mvar sym (Empty :> pName :> maxLen) =
-  do name <- lookupString arch mvar pName
+fresh_str arch mvar bak (Empty :> pName :> maxLen) =
+  do let sym = backendGetSym bak
+     name <- lookupString arch mvar pName
 
      -- Compute the allocation length, which is the requested length plus one
      -- to hold the NUL terminator
@@ -408,7 +461,7 @@ fresh_str arch mvar sym (Empty :> pName :> maxLen) =
      mem0 <- readGlobal mvar
 
      -- Allocate memory to hold the string
-     (ptr, mem1) <- liftIO $ doMalloc sym HeapAlloc Mutable name mem0 len noAlignment
+     (ptr, mem1) <- liftIO $ doMalloc bak HeapAlloc Mutable name mem0 len noAlignment
 
      -- Allocate contents for the string - we want to make each byte symbolic,
      -- so we allocate a fresh array (which has unbounded length) with symbolic
@@ -422,20 +475,22 @@ fresh_str arch mvar sym (Empty :> pName :> maxLen) =
      zeroByte <- liftIO $ bvLit sym (knownNat @8) (BV.zero knownNat)
      -- Put the NUL terminator in place
      initContentsZ <- liftIO $ arrayUpdate sym initContents (singleton (regValue maxLen)) zeroByte
-     mem2 <- liftIO $ doArrayConstStore sym mem1 ptr noAlignment initContentsZ len
+     mem2 <- liftIO $ doArrayConstStore bak mem1 ptr noAlignment initContentsZ len
 
      writeGlobal mvar mem2
      return ptr
 
 do_assume ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
-do_assume arch mvar sym (Empty :> p :> pFile :> line) =
-  do cond <- liftIO $ bvIsNonzero sym (regValue p)
+do_assume arch mvar bak (Empty :> p :> pFile :> line) =
+  do let sym = backendGetSym bak
+     cond <- liftIO $ bvIsNonzero sym (regValue p)
      file <- lookupString arch mvar pFile
      l <- case asBV (regValue line) of
             Just (BV.BV l)  -> return (fromInteger l)
@@ -443,18 +498,20 @@ do_assume arch mvar sym (Empty :> p :> pFile :> line) =
      let pos = SourcePos (T.pack file) l 0
      loc <- liftIO $ getCurrentProgramLoc sym
      let loc' = loc{ plSourceLoc = pos }
-     let msg = AssumptionReason loc' "crucible_assume"
-     liftIO $ addAssumption sym (LabeledPred cond msg)
+     liftIO $ addAssumption bak (GenericAssumption loc' "crucible_assume" cond)
 
 do_assert ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
-do_assert arch mvar sym (Empty :> p :> pFile :> line) =
-  do cond <- liftIO $ bvIsNonzero sym (regValue p)
+do_assert arch mvar bak (Empty :> p :> pFile :> line) =
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+  do let sym = backendGetSym bak
+     cond <- liftIO $ bvIsNonzero sym (regValue p)
      file <- lookupString arch mvar pFile
      l <- case asBV (regValue line) of
             Just (BV.BV l)  -> return (fromInteger l)
@@ -463,113 +520,86 @@ do_assert arch mvar sym (Empty :> p :> pFile :> line) =
      loc <- liftIO $ getCurrentProgramLoc sym
      let loc' = loc{ plSourceLoc = pos }
      let msg = GenericSimError "crucible_assert"
-     liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc' msg))
+     liftIO $ addDurableAssertion bak (LabeledPred cond (SimError loc' msg))
 
 do_print_uint32 ::
-  (IsSymInterface sym) =>
+  (IsSymBackend sym bak) =>
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
-do_print_uint32 _mvar _sym (Empty :> x) =
+do_print_uint32 _mvar _bak (Empty :> x) =
   do h <- printHandle <$> getContext
      liftIO $ hPutStrLn h (show (printSymExpr (regValue x)))
 
 do_havoc_memory ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) ->
   OverM personality sym ext (RegValue sym UnitType)
-do_havoc_memory _ mvar sym (Empty :> ptr :> len) =
-  do let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
+do_havoc_memory _ mvar bak (Empty :> ptr :> len) =
+  do let sym = backendGetSym bak
+     let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
      mem <- readGlobal mvar
      mem' <- liftIO $ do
                arr <- freshConstant sym emptySymbol tp
-               doArrayStore sym mem (regValue ptr) noAlignment arr (regValue len)
+               doArrayStore bak mem (regValue ptr) noAlignment arr (regValue len)
      writeGlobal mvar mem'
 
 cprover_assume ::
-  (IsSymInterface sym) =>
+  (IsSymBackend sym bak) =>
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
-cprover_assume _mvar sym (Empty :> p) = liftIO $
-  do cond <- bvIsNonzero sym (regValue p)
+cprover_assume _mvar bak (Empty :> p) = liftIO $
+  do let sym = backendGetSym bak
+     cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
-     let msg = AssumptionReason loc "__CPROVER_assume"
-     addAssumption sym (LabeledPred cond msg)
+     addAssumption bak (GenericAssumption loc "__CPROVER_assume" cond)
+
 
 cprover_assert ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
   OverM personality sym ext (RegValue sym UnitType)
-cprover_assert arch mvar sym (Empty :> p :> pMsg) =
-  do cond <- liftIO $ bvIsNonzero sym (regValue p)
+cprover_assert arch mvar bak (Empty :> p :> pMsg) =
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+  do let sym = backendGetSym bak
+     cond <- liftIO $ bvIsNonzero sym (regValue p)
      str <- lookupString arch mvar pMsg
      loc <- liftIO $ getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__CPROVER_assert" str
-     liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc msg))
+     liftIO $ addDurableAssertion bak (LabeledPred cond (SimError loc msg))
 
 cprover_r_ok ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
   OverM personality sym ext (RegValue sym (BVType 1))
-cprover_r_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
-  do mem <- readGlobal mvar
+cprover_r_ok _ mvar bak (Empty :> (regValue -> p) :> (regValue -> sz)) =
+  do let sym = backendGetSym bak
+     mem <- readGlobal mvar
      x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Immutable p (Just sz) mem
      liftIO $ predToBV sym x knownNat
 
 cprover_w_ok ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
-  sym ->
+  bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
   OverM personality sym ext (RegValue sym (BVType 1))
-cprover_w_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
-  do mem <- readGlobal mvar
+cprover_w_ok _ mvar bak (Empty :> (regValue -> p) :> (regValue -> sz)) =
+  do let sym = backendGetSym bak
+     mem <- readGlobal mvar
      x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Mutable p (Just sz) mem
      liftIO $ predToBV sym x knownNat
-
-sv_comp_assume ::
-  (IsSymInterface sym) =>
-  GlobalVar Mem ->
-  sym ->
-  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym ext (RegValue sym UnitType)
-sv_comp_assume _mvar sym (Empty :> p) = liftIO $
-  do cond <- bvIsNonzero sym (regValue p)
-     loc  <- getCurrentProgramLoc sym
-     let msg = AssumptionReason loc "__VERIFIER_assume"
-     addAssumption sym (LabeledPred cond msg)
-
-sv_comp_assert ::
-  (IsSymInterface sym) =>
-  GlobalVar Mem ->
-  sym ->
-  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym ext (RegValue sym UnitType)
-sv_comp_assert _mvar sym (Empty :> p) = liftIO $
-  do cond <- bvIsNonzero sym (regValue p)
-     loc  <- getCurrentProgramLoc sym
-     let msg = AssertFailureSimError "__VERIFIER_assert" ""
-     addDurableAssertion sym (LabeledPred cond (SimError loc msg))
-
-sv_comp_error ::
-  (IsSymInterface sym) =>
-  GlobalVar Mem ->
-  sym ->
-  Assignment (RegEntry sym) EmptyCtx ->
-  OverM personality sym ext (RegValue sym UnitType)
-sv_comp_error _mvar sym Empty = liftIO $
-  do let rsn = AssertFailureSimError "__VERIFIER_error" ""
-     addFailedAssertion sym rsn

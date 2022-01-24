@@ -28,6 +28,7 @@ module Lang.Crucible.LLVM.Intrinsics
 , llvmDeclToFunHandleRepr
 
 , module Lang.Crucible.LLVM.Intrinsics.Common
+, module Lang.Crucible.LLVM.Intrinsics.Options
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
@@ -57,6 +58,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
+import           Lang.Crucible.LLVM.Intrinsics.Options
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmIntrinsicTypes =
@@ -66,7 +68,8 @@ llvmIntrinsicTypes =
 
 -- | Register all declare and define overrides
 register_llvm_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "declare" overrides -} ->
@@ -130,7 +133,8 @@ register_llvm_define_overrides llvmModule addlOvrs llvmctx =
      (allModuleDeclares llvmModule)
 
 register_llvm_declare_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
@@ -143,7 +147,8 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
 
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   [OverrideTemplate p sym arch rtp l a]
 declare_overrides =
   [ basic_llvm_override LLVM.llvmLifetimeStartOverride
@@ -155,6 +160,7 @@ declare_overrides =
 
   , basic_llvm_override LLVM.llvmAssumeOverride
   , basic_llvm_override LLVM.llvmTrapOverride
+  , basic_llvm_override LLVM.llvmUBSanTrapOverride
 
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
@@ -180,6 +186,9 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null_dynamic
   , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null_dynamic
 
+  , basic_llvm_override LLVM.llvmPrefetchOverride
+  , basic_llvm_override LLVM.llvmPrefetchOverride_preLLVM10
+
   , basic_llvm_override LLVM.llvmStacksave
   , basic_llvm_override LLVM.llvmStackrestore
 
@@ -191,6 +200,8 @@ declare_overrides =
       (\w -> SomeLLVMOverride (LLVM.llvmCtpop w))
   , polymorphic1_llvm_override "llvm.bitreverse"
       (\w -> SomeLLVMOverride (LLVM.llvmBitreverse w))
+  , polymorphic1_llvm_override "llvm.abs"
+      (\w -> SomeLLVMOverride (LLVM.llvmAbsOverride w))
 
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
@@ -221,8 +232,33 @@ declare_overrides =
   , polymorphic1_llvm_override "llvm.umul.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
 
+  , basic_llvm_override LLVM.llvmCopysignOverride_F32
+  , basic_llvm_override LLVM.llvmCopysignOverride_F64
   , basic_llvm_override LLVM.llvmFabsF32
   , basic_llvm_override LLVM.llvmFabsF64
+
+  , basic_llvm_override LLVM.llvmCeilOverride_F32
+  , basic_llvm_override LLVM.llvmCeilOverride_F64
+  , basic_llvm_override LLVM.llvmFloorOverride_F32
+  , basic_llvm_override LLVM.llvmFloorOverride_F64
+  , basic_llvm_override LLVM.llvmSqrtOverride_F32
+  , basic_llvm_override LLVM.llvmSqrtOverride_F64
+  , basic_llvm_override LLVM.llvmSinOverride_F32
+  , basic_llvm_override LLVM.llvmSinOverride_F64
+  , basic_llvm_override LLVM.llvmCosOverride_F32
+  , basic_llvm_override LLVM.llvmCosOverride_F64
+  , basic_llvm_override LLVM.llvmPowOverride_F32
+  , basic_llvm_override LLVM.llvmPowOverride_F64
+  , basic_llvm_override LLVM.llvmExpOverride_F32
+  , basic_llvm_override LLVM.llvmExpOverride_F64
+  , basic_llvm_override LLVM.llvmLogOverride_F32
+  , basic_llvm_override LLVM.llvmLogOverride_F64
+  , basic_llvm_override LLVM.llvmExp2Override_F32
+  , basic_llvm_override LLVM.llvmExp2Override_F64
+  , basic_llvm_override LLVM.llvmLog2Override_F32
+  , basic_llvm_override LLVM.llvmLog2Override_F64
+  , basic_llvm_override LLVM.llvmLog10Override_F32
+  , basic_llvm_override LLVM.llvmLog10Override_F64
 
   -- C standard library functions
   , basic_llvm_override Libc.llvmAbortOverride
@@ -242,7 +278,72 @@ declare_overrides =
   , basic_llvm_override Libc.llvmPrintfChkOverride
   , basic_llvm_override Libc.llvmPutsOverride
   , basic_llvm_override Libc.llvmPutCharOverride
+  , basic_llvm_override Libc.llvmExitOverride
   , basic_llvm_override Libc.llvmGetenvOverride
+  , basic_llvm_override Libc.llvmHtonlOverride
+  , basic_llvm_override Libc.llvmHtonsOverride
+  , basic_llvm_override Libc.llvmNtohlOverride
+  , basic_llvm_override Libc.llvmNtohsOverride
+  , basic_llvm_override Libc.llvmAbsOverride
+  , basic_llvm_override Libc.llvmLAbsOverride_32
+  , basic_llvm_override Libc.llvmLAbsOverride_64
+  , basic_llvm_override Libc.llvmLLAbsOverride
+
+  , basic_llvm_override Libc.llvmCeilOverride
+  , basic_llvm_override Libc.llvmCeilfOverride
+  , basic_llvm_override Libc.llvmFloorOverride
+  , basic_llvm_override Libc.llvmFloorfOverride
+  , basic_llvm_override Libc.llvmIsnanOverride
+  , basic_llvm_override Libc.llvm__isnanOverride
+  , basic_llvm_override Libc.llvm__isnanfOverride
+  , basic_llvm_override Libc.llvmSqrtOverride
+  , basic_llvm_override Libc.llvmSqrtfOverride
+  , basic_llvm_override Libc.llvmSinOverride
+  , basic_llvm_override Libc.llvmSinfOverride
+  , basic_llvm_override Libc.llvmCosOverride
+  , basic_llvm_override Libc.llvmCosfOverride
+  , basic_llvm_override Libc.llvmTanOverride
+  , basic_llvm_override Libc.llvmTanfOverride
+  , basic_llvm_override Libc.llvmAsinOverride
+  , basic_llvm_override Libc.llvmAsinfOverride
+  , basic_llvm_override Libc.llvmAcosOverride
+  , basic_llvm_override Libc.llvmAcosfOverride
+  , basic_llvm_override Libc.llvmAtanOverride
+  , basic_llvm_override Libc.llvmAtanfOverride
+  , basic_llvm_override Libc.llvmSinhOverride
+  , basic_llvm_override Libc.llvmSinhfOverride
+  , basic_llvm_override Libc.llvmCoshOverride
+  , basic_llvm_override Libc.llvmCoshfOverride
+  , basic_llvm_override Libc.llvmTanhOverride
+  , basic_llvm_override Libc.llvmTanhfOverride
+  , basic_llvm_override Libc.llvmAsinhOverride
+  , basic_llvm_override Libc.llvmAsinhfOverride
+  , basic_llvm_override Libc.llvmAcoshOverride
+  , basic_llvm_override Libc.llvmAcoshfOverride
+  , basic_llvm_override Libc.llvmAtanhOverride
+  , basic_llvm_override Libc.llvmAtanhfOverride
+  , basic_llvm_override Libc.llvmHypotOverride
+  , basic_llvm_override Libc.llvmHypotfOverride
+  , basic_llvm_override Libc.llvmAtan2Override
+  , basic_llvm_override Libc.llvmAtan2fOverride
+  , basic_llvm_override Libc.llvmPowfOverride
+  , basic_llvm_override Libc.llvmPowOverride
+  , basic_llvm_override Libc.llvmExpOverride
+  , basic_llvm_override Libc.llvmExpfOverride
+  , basic_llvm_override Libc.llvmLogOverride
+  , basic_llvm_override Libc.llvmLogfOverride
+  , basic_llvm_override Libc.llvmExpm1Override
+  , basic_llvm_override Libc.llvmExpm1fOverride
+  , basic_llvm_override Libc.llvmLog1pOverride
+  , basic_llvm_override Libc.llvmLog1pfOverride
+  , basic_llvm_override Libc.llvmExp2Override
+  , basic_llvm_override Libc.llvmExp2fOverride
+  , basic_llvm_override Libc.llvmLog2Override
+  , basic_llvm_override Libc.llvmLog2fOverride
+  , basic_llvm_override Libc.llvmExp10Override
+  , basic_llvm_override Libc.llvmExp10fOverride
+  , basic_llvm_override Libc.llvmLog10Override
+  , basic_llvm_override Libc.llvmLog10fOverride
 
   , basic_llvm_override Libc.cxa_atexitOverride
   , basic_llvm_override Libc.posixMemalignOverride
@@ -268,3 +369,20 @@ define_overrides =
   , Libcxx.register_cpp_override Libcxx.sentryOverride
   , Libcxx.register_cpp_override Libcxx.sentryBoolOverride
   ]
+
+{-
+Note [Overrides involving (unsigned) long]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Registering overrides for functions with `long` argument or result types is
+tricky, as the size of a `long` varies wildly between different operating
+systems and architectures. On Linux and macOS, `long` is 32 or 64 bits on
+32- or 64-bit architectures, respectively. On Windows, however, `long` is
+always 32 bits, regardless of architecture. There is a similar story for the
+`unsigned long` type as well.
+
+To ensure that overrides for functions involving `long` are (at least to some
+degree) portable, we register each override for `long`-using function twice:
+once where `long` is assumed to be 32 bits, and once again where `long` is
+assumed to be 64 bits. This is a somewhat heavy-handed solution, but it avoids
+the need to predict what size `long` will be on a given target ahead of time.
+-}

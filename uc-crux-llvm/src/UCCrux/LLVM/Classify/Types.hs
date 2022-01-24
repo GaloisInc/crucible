@@ -7,15 +7,19 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
+{-# OPTIONS_GHC -Wall -fno-warn-name-shadowing #-}
 
 module UCCrux.LLVM.Classify.Types
   ( Explanation (..),
+    Located (..),
+    ppLocated,
     partitionExplanations,
     TruePositive (..),
-    LocatedTruePositive (..),
     TruePositiveTag (..),
     truePositiveTag,
     Diagnosis (..),
@@ -24,10 +28,7 @@ module UCCrux.LLVM.Classify.Types
     diagnoseTag,
     prescribe,
     ppTruePositive,
-    ppLocatedTruePositive,
     ppTruePositiveTag,
-    Unclassified (..),
-    doc,
     Uncertainty (..),
     partitionUncertainty,
     ppUncertainty,
@@ -41,33 +42,41 @@ where
 {- ORMOLU_DISABLE -}
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Void (Void)
+import           GHC.Generics (Generic)
 
-import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
+
+import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Ctx (Ctx)
 
 import qualified What4.ProgramLoc as What4
 
-import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
-
 import           Prelude hiding (log)
 
 import           Control.Exception (displayException)
-import           Control.Lens (Lens', lens, to, (^.))
 import           Panic (Panic)
-
-import           Data.Parameterized.Some (Some)
 
 import qualified Lang.Crucible.Simulator as Crucible
 
+import           UCCrux.LLVM.Bug (Bug, ppBug)
 import           UCCrux.LLVM.Constraints (NewConstraint)
-import           UCCrux.LLVM.Cursor (Where(..))
+import           UCCrux.LLVM.Cursor (Where, ppWhere)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.PP (ppProgramLoc)
 {- ORMOLU_ENABLE -}
+
+data Located a = Located
+  { location :: !What4.ProgramLoc,
+    locatedValue :: a
+  }
+  deriving (Eq, Ord, Functor, Generic, Show)
+
+ppLocated :: (a -> Text) -> Located a -> Text
+ppLocated ppVal (Located loc val) =
+  Text.unwords [ppVal val, Text.pack "at", ppProgramLoc loc]
 
 data TruePositiveTag
   = TagConcretelyFailingAssert
@@ -83,6 +92,7 @@ data TruePositiveTag
   | TagReadUninitializedHeap
   | TagCallNonFunctionPointer
   | TagFloatToPointer
+  | TagDerefFunctionPointer
   deriving (Eq, Ord)
 
 data TruePositive
@@ -99,21 +109,8 @@ data TruePositive
   | ReadUninitializedHeap !String -- program location of allocation
   | CallNonFunctionPointer !String -- program location of allocation
   | FloatToPointer
+  | DerefFunctionPointer !L.Symbol -- Name of function
   deriving (Eq, Ord)
-
-data LocatedTruePositive = LocatedTruePositive
-  { truePositive :: !TruePositive,
-    truePositiveLoc :: !What4.ProgramLoc
-  }
-  deriving (Eq, Ord)
-
-ppLocatedTruePositive :: LocatedTruePositive -> Text
-ppLocatedTruePositive (LocatedTruePositive pos loc) =
-  Text.unwords
-    [ ppTruePositive pos,
-      Text.pack "at",
-      Text.pack (show (What4.plSourceLoc loc))
-    ]
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -131,6 +128,7 @@ truePositiveTag =
     ReadUninitializedHeap {} -> TagReadUninitializedHeap
     CallNonFunctionPointer {} -> TagCallNonFunctionPointer
     FloatToPointer {} -> TagFloatToPointer
+    DerefFunctionPointer {} -> TagDerefFunctionPointer
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
@@ -148,6 +146,7 @@ ppTruePositiveTag =
     TagReadUninitializedHeap -> "Read from uninitialized heap allocation"
     TagCallNonFunctionPointer -> "Called a pointer that wasn't a function pointer"
     TagFloatToPointer -> "Treated float as pointer"
+    TagDerefFunctionPointer -> "Dereferenced function pointer"
 
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
@@ -198,13 +197,8 @@ diagnoseTag =
     DiagnoseSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int"
     DiagnoseNonZero -> "Division or remainder by zero"
 
-diagnose :: Diagnosis -> Text
-diagnose (Diagnosis tag which) =
-  diagnoseTag tag
-    <> case which of
-      Arg n -> "in argument #" <> Text.pack (show n)
-      Global g -> "in global " <> Text.pack g
-      ReturnValue f -> "in return value of skipped function " <> Text.pack f
+diagnose :: Diagnosis -> PP.Doc ann
+diagnose (Diagnosis tag which) = PP.pretty (diagnoseTag tag) PP.<+> ppWhere which
 
 prescribe :: DiagnosisTag -> Text
 prescribe =
@@ -255,37 +249,11 @@ ppUnfixed =
     UnfixedFunctionPtrInInput ->
       "Called function pointer in argument, global, or return value of skipped function"
 
--- | We don't (yet) know what to do about this error, so we can't continue
--- executing this function.
-data Unclassified
-  = UnclassifiedUndefinedBehavior (Doc Void) (Some UB.UndefinedBehavior)
-  | UnclassifiedMemoryError (Doc Void)
-
-doc :: Lens' Unclassified (Doc Void)
-doc =
-  lens
-    ( \case
-        UnclassifiedUndefinedBehavior doc' _ -> doc'
-        UnclassifiedMemoryError doc' -> doc'
-    )
-    ( \s doc' ->
-        case s of
-          UnclassifiedUndefinedBehavior _ val ->
-            UnclassifiedUndefinedBehavior doc' val
-          UnclassifiedMemoryError _ ->
-            UnclassifiedMemoryError doc'
-    )
-
--- | Only used in tests, not a valid 'Show' instance.
-instance Show Unclassified where
-  show =
-    \case
-      UnclassifiedUndefinedBehavior {} -> "Undefined behavior"
-      UnclassifiedMemoryError {} -> "Memory error"
-
 -- | Possible sources of uncertainty, these might be true or false positives
+--
+-- Invalid 'Show' instance, only to be used in tests.
 data Uncertainty
-  = UUnclassified Unclassified
+  = UUnclassified !Bug
   | UUnfixable Unfixable
   | UUnfixed Unfixed
   | -- | Simulation, input generation, or classification encountered
@@ -294,85 +262,96 @@ data Uncertainty
   | -- | This @Pred@ was not annotated
     UMissingAnnotation Crucible.SimError
   | -- | A user assertion failed, but symbolically
-    UFailedAssert !What4.ProgramLoc
+    UFailedAssert
   | -- | Simulation timed out
     UTimeout !Text
   deriving (Show)
 
 partitionUncertainty ::
-  [Uncertainty] -> ([Crucible.SimError], [What4.ProgramLoc], [Panic Unimplemented], [Unclassified], [Unfixed], [Unfixable], [Text])
+  [Located Uncertainty] -> ([Located Crucible.SimError], [Located ()], [Located (Panic Unimplemented)], [Located Bug], [Located Unfixed], [Located Unfixable], [Located Text])
 partitionUncertainty = go [] [] [] [] [] [] []
   where
     go ms fs ns us ufd ufa ts =
       \case
         [] -> (ms, fs, ns, us, ufd, ufa, ts)
-        (UMissingAnnotation err : rest) ->
+        (Located loc (UMissingAnnotation err) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (err : ms', fs', ns', us', ufd', ufa', ts')
-        (UFailedAssert loc : rest) ->
+           in (Located loc err : ms', fs', ns', us', ufd', ufa', ts')
+        (Located loc UFailedAssert : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', loc : fs', ns', us', ufd', ufa', ts')
-        (UUnimplemented unin : rest) ->
+           in (ms', Located loc () : fs', ns', us', ufd', ufa', ts')
+        (Located loc (UUnimplemented unin) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', unin : ns', us', ufd', ufa', ts')
-        (UUnclassified unclass : rest) ->
+           in (ms', fs', Located loc unin : ns', us', ufd', ufa', ts')
+        (Located loc (UUnclassified unclass) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', unclass : us', ufd', ufa', ts')
-        (UUnfixed uf : rest) ->
+           in (ms', fs', ns', Located loc unclass : us', ufd', ufa', ts')
+        (Located loc (UUnfixed uf) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', us', uf : ufd', ufa', ts')
-        (UUnfixable uf : rest) ->
+           in (ms', fs', ns', us', Located loc uf : ufd', ufa', ts')
+        (Located loc (UUnfixable uf) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', us', ufd', uf : ufa', ts')
-        (UTimeout fun : rest) ->
+           in (ms', fs', ns', us', ufd', Located loc uf : ufa', ts')
+        (Located loc (UTimeout fun) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', us', ufd', ufa', fun : ts')
+           in (ms', fs', ns', us', ufd', ufa', Located loc fun : ts')
 
 -- | An error is either a true positive, a false positive due to some missing
 -- preconditions, or unknown.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data Explanation m arch (argTypes :: Ctx (FullType m))
-  = ExTruePositive LocatedTruePositive
+  = ExTruePositive TruePositive
   | ExDiagnosis (Diagnosis, [NewConstraint m argTypes])
   | ExUncertain Uncertainty
   | -- | Hit recursion/loop bounds
     ExExhaustedBounds !String
 
 partitionExplanations ::
-  [Explanation m arch types] ->
-  ([LocatedTruePositive], [(Diagnosis, [NewConstraint m types])], [Uncertainty], [String])
-partitionExplanations = go [] [] [] []
+  Functor f =>
+  (f (Explanation m arch types) -> Explanation m arch types) ->
+  [f (Explanation m arch types)] ->
+  ([f TruePositive], [f (Diagnosis, [NewConstraint m types])], [f Uncertainty], [f String])
+partitionExplanations project = go [] [] [] []
   where
-    go ts cs ds es =
-      \case
-        [] -> (ts, cs, ds, es)
-        (ExTruePositive t : xs) ->
+    go ts cs ds es [] = (ts, cs, ds, es)
+    go ts cs ds es (x : xs) =
+      case project x of
+        ExTruePositive t ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (t : ts', cs', ds', es')
-        (ExDiagnosis c : xs) ->
+           in (fmap (const t) x : ts', cs', ds', es')
+        ExDiagnosis c ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', c : cs', ds', es')
-        (ExUncertain d : xs) ->
+           in (ts', fmap (const c) x : cs', ds', es')
+        ExUncertain d ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', cs', d : ds', es')
-        (ExExhaustedBounds e : xs) ->
+           in (ts', cs', fmap (const d) x : ds', es')
+        ExExhaustedBounds e ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', cs', ds', e : es')
+           in (ts', cs', ds', fmap (const e) x : es')
 
+-- TODO(lb): Make this return a Doc ann
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
   \case
     UUnclassified unclass ->
-      "Unclassified error:\n"
-        <> (unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict)
-    UUnfixable unfix -> "Unfixable/inactionable error:\n" <> ppUnfixable unfix
+      Text.unlines
+        [ "Unclassified error:",
+          PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (ppBug unclass))
+        ]
+    UUnfixable unfix ->
+      Text.unlines
+        [ "Unfixable/inactionable error:",
+          ppUnfixable unfix
+        ]
     UUnfixed unfix ->
-      "Fixable, but fix not yet implemented for this error:\n" <> ppUnfixed unfix
+      Text.unlines
+        [ "Fixable missing precondition, but fix not yet implemented for this error:",
+          ppUnfixed unfix
+        ]
     UMissingAnnotation err ->
       "(Internal issue) Missing annotation for error:\n" <> Text.pack (show err)
-    UFailedAssert loc ->
-      "Symbolically failing user assertion at " <> Text.pack (show loc)
+    UFailedAssert -> "Symbolically failing user assertion"
     UUnimplemented pan -> Text.pack (displayException pan)
     UTimeout fun -> Text.pack "Simulation timed out while executing " <> fun

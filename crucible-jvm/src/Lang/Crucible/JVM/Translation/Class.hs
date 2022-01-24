@@ -189,7 +189,16 @@ emptyMethodTable = App (EmptyStringMap knownRepr)
 -- | Add a function handle to the method table.
 -- The function's type must be existentially quantified.
 insertMethodTable :: (JVMString s, Expr JVM s AnyType) -> JVMMethodTable s -> JVMMethodTable s
-insertMethodTable (s, v) sm = App (InsertStringMapEntry knownRepr sm s (App $ JustValue knownRepr v))
+insertMethodTable (s, v) sm = insertJust knownRepr sm s v
+
+insertJust ::
+  TypeRepr tp ->
+  Expr ext s (StringMapType tp) ->
+  Expr ext s (StringType Unicode) ->
+  Expr ext s tp ->
+  Expr ext s (StringMapType tp)
+insertJust tr fs str expr =
+  App (InsertStringMapEntry tr fs str (App (JustValue tr expr)))
 
 --
 -- | Update the jvm class table to include an entry for the specified class.
@@ -240,7 +249,7 @@ initializeJVMClass c  = do
   -- update the dynamic class table
   let gv         = dynamicClassTable ctx
   sm <- readGlobal gv
-  let expr = App $ InsertStringMapEntry knownRepr sm className (App $ JustValue knownRepr str)
+  let expr = insertJust knownRepr sm className str
   writeGlobal gv expr
   return str
 
@@ -351,7 +360,7 @@ setInitStatus c status = do
   sm <- readGlobal gv
   let name  = classNameExpr (J.className c)
   let entry' = setJVMClassInitStatus entry status
-  writeGlobal gv (App $ InsertStringMapEntry knownRepr sm name (App $ JustValue knownRepr entry'))
+  writeGlobal gv (insertJust knownRepr sm name entry')
 
 ----------------------------------------------------------------------
 
@@ -364,8 +373,8 @@ getStaticFieldValue rawFieldId =
      initializeClass (J.fieldIdClass fieldId)
      ctx <- gets jsContext
      case Map.lookup fieldId (staticFields ctx) of
-       Just glob ->
-         do r <- readGlobal glob
+       Just info ->
+         do r <- readGlobal (staticFieldValue info)
             fromJVMDynamic ("getstatic " <> fieldIdText fieldId) (J.fieldIdType fieldId) r
        Nothing ->
          jvmFail $ "getstatic: field " ++ show (fieldIdText fieldId) ++ " not found"
@@ -387,8 +396,11 @@ setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator s ret ()
 setStaticFieldValue fieldId val =
   do ctx <- gets jsContext
      case Map.lookup fieldId (staticFields ctx) of
-       Just glob ->
-         writeGlobal glob (valueToExpr val)
+       Just info ->
+         do writable <- readGlobal (staticFieldWritable info)
+            let msg = "putstatic: field " ++ show (fieldIdText fieldId) ++ " not writable"
+            assertExpr writable $ fromString msg
+            writeGlobal (staticFieldValue info) (valueToExpr val)
        Nothing ->
          jvmFail $ "putstatic: field " ++ show (fieldIdText fieldId) ++ " not found"
 
@@ -646,7 +658,7 @@ getObjectType obj =
   {
     onJust = \inst -> do
       -- this is an instance object, access its class reference
-      let cls = App (GetStruct inst Ctx.i2of2 knownRepr)
+      let cls = App (GetStruct inst Ctx.i3of3 knownRepr)
       -- return a new class type based on that
       return $ makeClassTypeRep cls
 
@@ -654,7 +666,7 @@ getObjectType obj =
       -- must be an array object
       let marr = App $ ProjectVariant knownRepr Ctx.i2of2 unr
       arr <- assertedJustExpr marr "must be instance or array"
-      return $ App $ GetStruct arr Ctx.i3of3 knownRepr
+      return $ App $ GetStruct arr Ctx.i4of4 knownRepr
   }
 
 
@@ -795,30 +807,25 @@ getAllFields cls = do
       supFlds <- getAllFields supCls
       return (supFlds ++ (map (mkFieldId cls) (J.classFields cls)))
 
--- | Construct a new JVM object instance, given the class data structure
--- and the list of fields. The fields will be initialized with the
--- default values, according to their types.
+-- | Construct a new JVM object instance, given the class data
+-- structure and the list of fields. The fields will be initialized
+-- with the default values, according to their types. All fields are
+-- set to writable.
 newInstanceInstr ::
-  JVMClass s
-  -- ^ class data structure
-  ->  [J.FieldId]
-  -- ^ Fields
-  ->  JVMGenerator s ret (JVMObject s)
-newInstanceInstr cls fieldIds = do
-    objFields <- mapM createField fieldIds
-    let strMap = foldr addField (App (EmptyStringMap knownRepr)) objFields
-    let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
-    let inst   = App (MkStruct knownRepr ctx)
-    let uobj   = injectVariant Ctx.i1of2 inst
-    return $ App (RollRecursive knownRepr knownRepr uobj)
+  JVMClass s {- ^ class data structure -} ->
+  [J.FieldId] {- ^ fields -} ->
+  JVMGenerator s ret (JVMObject s)
+newInstanceInstr cls fieldIds =
+  do let strMap = foldr addField (App (EmptyStringMap knownRepr)) fieldIds
+     let wrMap = foldr addWritable (App (EmptyStringMap knownRepr)) fieldIds
+     let ctx = Ctx.empty `Ctx.extend` strMap `Ctx.extend` wrMap `Ctx.extend` cls
+     let inst = App (MkStruct knownRepr ctx)
+     let uobj = injectVariant Ctx.i1of2 inst
+     pure $ App (RollRecursive knownRepr knownRepr uobj)
   where
-    createField fieldId = do
-      let str  = App (StringLit (UnicodeLiteral (fieldIdText fieldId)))
-      let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
-      let val  = App $ JustValue knownRepr expr
-      return (str, val)
-    addField (f,i) fs =
-      App (InsertStringMapEntry knownRepr fs f i)
+    addField fid fs = insertJust knownRepr fs (fieldIdKey fid) expr
+      where expr = valueToExpr (defaultValue (J.fieldIdType fid))
+    addWritable fid fs = insertJust knownRepr fs (fieldIdKey fid) (App EmptyApp)
 
 -- | Given a 'J.FieldId' from a field get or set instruction, consult
 -- the JVM context to determine the class where the field was actually
@@ -849,23 +856,27 @@ getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator s ret (JVMValu
 getInstanceFieldValue obj fieldId =
   do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "getfield: expected class instance" Ctx.i1of2 uobj
-     let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+     let fields = App (GetStruct inst Ctx.i1of3 knownRepr)
      key <- fieldIdKey <$> resolveField fieldId
      let mval = App (LookupStringMapEntry knownRepr fields key)
      dyn <- assertedJustExpr mval "Field not present"
      fromJVMDynamic ("getfield " <> fieldIdText fieldId) (J.fieldIdType fieldId) dyn
 
--- | Update a field of a JVM object (must be a class instance, not an array).
+-- | Update a field of a JVM object (must be a class instance, not an
+-- array). The field's write permission bit is asserted to be set.
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator s ret (JVMObject s)
 setInstanceFieldValue obj fieldId val =
   do let dyn  = valueToExpr val
-     let mdyn = App (JustValue knownRepr dyn)
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "setfield: expected class instance" Ctx.i1of2 uobj
-     let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+     let fields = App (GetStruct inst Ctx.i1of3 knownRepr)
+     let perms = App (GetStruct inst Ctx.i2of3 knownRepr)
      key <- fieldIdKey <$> resolveField fieldId
-     let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
-     let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
+     let writable = App (LookupStringMapEntry knownRepr perms key)
+     let msg = "putfield: field " <> fieldIdText fieldId <> " not writable"
+     _ <- assertedJustExpr writable (App (StringLit (UnicodeLiteral msg)))
+     let fields' = insertJust knownRepr fields key dyn
+     let inst' = App (SetStruct knownRepr inst Ctx.i1of3 fields')
      let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
      return $ App (RollRecursive knownRepr knownRepr uobj')
 
@@ -874,7 +885,7 @@ getJVMInstanceClass :: JVMObject s -> JVMGenerator s ret (JVMClass s)
 getJVMInstanceClass obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   inst <- projectVariant "invokeinterface: expected class instance" Ctx.i1of2 uobj
-  return $ App (GetStruct inst Ctx.i2of2 knownRepr)
+  return $ App (GetStruct inst Ctx.i3of3 knownRepr)
 
 
 ------------------------------------------------------------------------------
@@ -937,17 +948,14 @@ newArray ::
   -> J.Type
   -- ^ type of array array (not of elements)
   -> JVMGenerator s ret (JVMObject s)
-newArray count jty@(J.ArrayType elemType) = do
-  debug 4 $ "new array of type " ++ show jty
-  let nonneg = App (BVSle w32 (App (BVLit w32 (BV.zero w32))) count)
-  assertExpr nonneg "java/lang/NegativeArraySizeException"
-  let val = valueToExpr $ defaultValue elemType
-  let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
-  ty  <- makeJVMTypeRep jty
-  let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ty
-  let arr = App (MkStruct knownRepr ctx)
-  let uobj = injectVariant Ctx.i2of2 arr
-  return $ App (RollRecursive knownRepr knownRepr uobj)
+newArray count jty@(J.ArrayType elemType) =
+  do debug 4 $ "new array of type " ++ show jty
+     let nonneg = App (BVSle w32 (App (BVLit w32 (BV.zero w32))) count)
+     assertExpr nonneg "java/lang/NegativeArraySizeException"
+     let val = valueToExpr $ defaultValue elemType
+     let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
+     mkJVMArrayObject count vec elemType
+
 newArray _count jty = jvmFail $ "newArray: expected array type, got: " ++ show jty
 
 -- | Construct an array of arrays, with initial values determined
@@ -984,21 +992,30 @@ newMultiArray arrType counts = do
 -- | Construct a new array given a vector of initial values
 -- (used for static array initializers).
 newarrayFromVec ::
-  J.Type
-  -- ^ Type of array
-  -> Vector (Expr JVM s JVMValueType)
-  -- ^ Initial values for all array elements
-  -> JVMGenerator s ret (JVMObject s)
-newarrayFromVec aty vec = do
-  debug 4 $ "new arrayFromVec of type " ++ show aty
-  let count = App $ BVLit w32 (BV.mkBV w32 (toInteger (V.length vec)))
-  ty <- makeJVMTypeRep aty
-  let ctx   = Ctx.empty `Ctx.extend` count `Ctx.extend` (App $ VectorLit knownRepr vec) `Ctx.extend` ty
-  let arr   = App (MkStruct knownRepr ctx)
-  let uobj  = injectVariant Ctx.i2of2 arr
-  return $
-    App $ RollRecursive knownRepr knownRepr uobj
+  -- | Type of array
+  J.Type ->
+  -- | Initial values for all array elements
+  Vector (Expr JVM s JVMValueType) ->
+  JVMGenerator s ret (JVMObject s)
+newarrayFromVec aty xs =
+  do debug 4 $ "new arrayFromVec of type " ++ show aty
+     let count = App $ BVLit w32 (BV.mkBV w32 (toInteger (V.length xs)))
+     let vec = App $ VectorLit knownRepr xs
+     mkJVMArrayObject count vec aty
 
+mkJVMArrayObject ::
+  JVMInt s ->
+  Expr JVM s (VectorType JVMValueType) ->
+  J.Type ->
+  JVMGenerator s ret (JVMObject s)
+mkJVMArrayObject count vec aty =
+  do ty <- makeJVMTypeRep aty
+     let w = App (BoolLit True) -- new arrays default to writable
+     let ws = App (VectorReplicate knownRepr (App (BvToNat w32 count)) w)
+     let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ws `Ctx.extend` ty
+     let arr = App (MkStruct knownRepr ctx)
+     let uobj = injectVariant Ctx.i2of2 arr
+     pure $ App $ RollRecursive knownRepr knownRepr uobj
 
 -- | Index into an array object.
 arrayIdx :: JVMObject s
@@ -1006,11 +1023,11 @@ arrayIdx :: JVMObject s
   -> JVMInt s
   -- ^ index into the array
   -> JVMGenerator s ret (Expr JVM s JVMValueType)
-arrayIdx obj idx = do
-     let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+arrayIdx obj idx =
+  do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
      arr <- assertedJustExpr marr "array index: not a valid array"
-     let vec = App (GetStruct arr Ctx.i2of3 knownRepr)
+     let vec = App (GetStruct arr Ctx.i2of4 knownRepr)
      -- TODO: assert 0 <= idx < length arr
      let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      return val
@@ -1024,10 +1041,13 @@ arrayUpdate obj idx val = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
   arr <- assertedJustExpr marr "array update: not a valid array"
-  let vec = App (GetStruct arr Ctx.i2of3 knownRepr)
+  let ws = App (GetStruct arr Ctx.i3of4 knownRepr)
+  let writable = App (VectorGetEntry knownRepr ws (App (BvToNat w32 idx)))
+  assertExpr writable "astore: array not writable"
+  let vec = App (GetStruct arr Ctx.i2of4 knownRepr)
      -- TODO: assert 0 <= idx < length arr
   let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) val)
-  let arr' = App (SetStruct knownRepr arr Ctx.i2of3 vec')
+  let arr' = App (SetStruct knownRepr arr Ctx.i2of4 vec')
   let uobj' = App (InjectVariant knownRepr Ctx.i2of2 arr')
   let obj' = App (RollRecursive knownRepr knownRepr uobj')
   return obj'
@@ -1038,7 +1058,7 @@ arrayLength obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
   arr <- assertedJustExpr marr "array length: not a valid array"
-  let len = App (GetStruct arr Ctx.i1of3 knownRepr)
+  let len = App (GetStruct arr Ctx.i1of4 knownRepr)
   return len
 
 

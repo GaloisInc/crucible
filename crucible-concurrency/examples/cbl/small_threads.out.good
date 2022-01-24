@@ -1,0 +1,4 @@
+[Crux] Attempting to prove verification conditions.
+[Crux] Found counterexample for verification goal
+[Crux]   examples/cbl/small_threads.cbl:14:5: error: in main
+[Crux]   Positive counter

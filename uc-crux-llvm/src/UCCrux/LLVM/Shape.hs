@@ -48,6 +48,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Simple, Lens, lens, (^.), (.~))
 import           Data.Coerce (coerce)
+import           Data.Foldable (toList)
 import           Data.Function ((&))
 import           Data.Functor ((<&>))
 import           Data.Functor.Const (Const(Const, getConst))
@@ -67,7 +68,7 @@ import           Data.Parameterized.NatRepr (NatRepr, decNat, minusPlusCancel, k
 import           Data.Parameterized.Vector (Vector)
 import qualified Data.Parameterized.Vector as PVec
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableFC (FunctorFC(fmapFC), fmapFCDefault, TraversableFC(traverseFC), FoldableFC(foldMapFC), foldMapFCDefault, allFC, anyFC)
+import           Data.Parameterized.TraversableFC (FunctorFC(fmapFC), fmapFCDefault, TraversableFC(traverseFC), FoldableFC(foldMapFC), foldMapFCDefault, allFC, anyFC, toListFC)
 import qualified Data.Parameterized.TH.GADT as U
 
 import           UCCrux.LLVM.Cursor (Cursor(..))
@@ -80,7 +81,7 @@ import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..))
 --
 -- For now, this type doesn\'t support partial initialization.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data PtrShape m tag (ft :: FullType m)
   = ShapeUnallocated
@@ -127,6 +128,8 @@ data Shape (m :: Type) (tag :: FullType m -> Type) (ft :: FullType m) where
     Ctx.Assignment (Shape m tag) fields ->
     Shape m tag ('FTStruct fields)
 
+-- TODO: Introduce a "detail limit", either via depth, max array length, or both.
+-- TODO: Drop the ":" when the "tag" is empty
 ppShapeA ::
   Applicative
     f =>
@@ -153,49 +156,57 @@ ppShapeA ppTag =
             . (: [])
         )
         (ppTag tag')
-    ShapePtr tag' (ShapeInitialized v) ->
-      -- TODO: Print elements
-      fmap
-        ( PP.hsep
-            . ( [ PP.pretty "A pointer to initialized space for",
-                  PP.viaShow (Seq.length v),
-                  PP.pretty "elements:"
+    ShapePtr tag' (ShapeInitialized subshapes) ->
+      ( \printedTag printedSubshapes ->
+          nestBullets
+            ( PP.hsep
+                [ PP.pretty "A pointer to initialized space for",
+                  PP.viaShow (Seq.length subshapes),
+                  PP.pretty "elements:",
+                  printedTag
                 ]
-                  ++
-              )
-            . (: [])
-        )
-        (ppTag tag')
+            )
+            (toList printedSubshapes)
+      )
+        <$> ppTag tag'
+        <*> traverse (ppShapeA ppTag) subshapes
     ShapeFuncPtr tag' ->
       fmap (PP.pretty "A function pointer:" PP.<+>) (ppTag tag')
     ShapeOpaquePtr tag' ->
       fmap (PP.pretty "A pointer to an opaque type:" PP.<+>) (ppTag tag')
-    ShapeArray tag' n _vec ->
-      -- TODO print elements
-      fmap
-        ( PP.hsep
-            . ( [ PP.pretty "An array of size",
-                  PP.viaShow (natValue n) <> PP.pretty ":"
+    ShapeArray tag' n subshapes ->
+      ( \printedTag printedSubshapes ->
+          nestBullets
+            ( PP.hsep
+                [ PP.pretty "An array of size",
+                  PP.viaShow (natValue n) <> PP.pretty ":",
+                  printedTag
                 ]
-                  ++
-              )
-            . (: [])
-        )
-        (ppTag tag')
-    ShapeUnboundedArray tag' _vec ->
-      -- TODO print elements
-      fmap (PP.pretty "An array of unknown size:" PP.<+>) (ppTag tag')
-    ShapeStruct tag' _fields ->
-      -- TODO print elements
-      fmap
-        ( PP.hsep
-            . ( [ PP.pretty "A struct:"
-                ]
-                  ++
-              )
-            . (: [])
-        )
-        (ppTag tag')
+            )
+            (toList printedSubshapes)
+      )
+        <$> ppTag tag'
+        <*> traverse (ppShapeA ppTag) subshapes
+    ShapeUnboundedArray tag' subshapes ->
+      ( \printedTag printedSubshapes ->
+          nestBullets
+            (PP.hsep [PP.pretty "An array of unknown size:", printedTag])
+            (toList printedSubshapes)
+      )
+        <$> ppTag tag'
+        <*> traverse (ppShapeA ppTag) subshapes
+    ShapeStruct tag' fields ->
+      ( \printedTag printedSubshapes ->
+          nestBullets
+            (PP.hsep [PP.pretty "A struct:", printedTag])
+            (toListFC getConst printedSubshapes)
+      )
+        <$> ppTag tag'
+        <*> traverseFC (fmap Const . ppShapeA ppTag) fields
+  where
+    nestSep = PP.nest 2 . PP.vsep
+    bullets = map (PP.pretty "-" PP.<+>)
+    nestBullets header bulls = nestSep (header : bullets bulls)
 
 ppShape ::
   (forall ft'. tag ft' -> Doc Void) ->
@@ -436,9 +447,10 @@ instance FunctorFC (Shape m) where
 
 instance TraversableFC (Shape m) where
   traverseFC ::
-    forall t f g h ft.
+    forall t f g h.
     Applicative h =>
     (forall x. f x -> h (g x)) ->
+    forall ft.
     Shape t f ft ->
     h (Shape t g ft)
   traverseFC =
@@ -469,9 +481,10 @@ instance FunctorFC (PtrShape m) where
 
 instance TraversableFC (PtrShape m) where
   traverseFC ::
-    forall t f g h ft.
+    forall t f g h.
     Applicative h =>
     (forall x. f x -> h (g x)) ->
+    forall ft.
     PtrShape t f ft ->
     h (PtrShape t g ft)
   traverseFC =

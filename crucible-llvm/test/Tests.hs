@@ -60,7 +60,7 @@ data LLVMAssembler (source :: Symbol) = LLVMAssembler String
 
 instance TO.IsOption (SomeSym LLVMAssembler) where
   defaultValue = SomeSym $ LLVMAssembler @"default" "llvm-as"
-  parseValue = Just . SomeSym . LLVMAssembler @ "option"
+  parseValue = Just . SomeSym . LLVMAssembler @"option"
   optionName = pure "llvm-assembler"
   optionHelp = pure $ unwords ["The LLVM assembler to use on .ll files"
                               ,"(overrides the LLVM_AS environment variable,"
@@ -220,11 +220,11 @@ testBuildTranslation srcPath llvmTransTests =
           Right _ -> pure ()
 
       trans = do halloc <- newHandleAllocator
-                 let ?laxArith = False
-                 let ?optLoopMerge = False
+                 let ?transOpts = defaultTranslationOptions
                  memVar <- mkMemVar "buildTranslation_test_llvm_memory" halloc
-                 translateModule halloc memVar =<<
-                   (fromRight (error "parsing was already verified") <$> parseLLVM bcPath)
+                 (m, _warns) <- (translateModule halloc memVar =<<
+                   (fromRight (error "parsing was already verified") <$> parseLLVM bcPath))
+                 return m
 
       translate_bitcode =
         testCase translateName $ do

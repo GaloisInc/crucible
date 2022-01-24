@@ -4,6 +4,7 @@
 #![feature(unboxed_closures)]
 
 pub mod bitvector;
+pub mod cryptol;
 pub mod method_spec;
 pub mod sym_bytes;
 pub mod symbolic;
@@ -120,6 +121,16 @@ macro_rules! crucible_assume_unreachable {
 /// others.
 pub fn concretize<T>(x: T) -> T {
     x
+}
+
+/// Install `g` as an override for `f`.
+pub fn override_<F, G>(f: F, g: G) {
+    unimplemented!("crucible::override_");
+}
+
+/// Print a what4 expression to stderr.  `T` must have a primitive/base type for its Crucible
+/// representation.
+pub fn dump_what4<T>(desc: &str, x: T) {
 }
 
 // Some older test cases still use these functions.

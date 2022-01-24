@@ -1,8 +1,14 @@
 # UC-Crux-LLVM
 
 UC-Crux-LLVM is a tool for under-constrained symbolic execution of C programs.
-It can be used to find undefined behavior and failing assertions, or for simple
-functions, to formally verify the absence of such behaviors.
+It can be used to:
+
+- find undefined behavior and failing assertions,
+- verify the absence of undefined behavior and failing assertions,
+- deduce sufficient function preconditions to avoid undefined behavior, and
+- check two versions of a program for crash-equivalence.
+
+Read more about UC-Crux at https://galois.com/blog/2021/10/under-constrained-symbolic-execution-with-crucible/.
 
 **UC-Crux-LLVM is still in development.**
 
@@ -34,12 +40,11 @@ void double_free(int* ptr, int x) {
 ```
 ```
 $ uc-crux-llvm --entry-points double_free double_free.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some/pathc/includes" "-O1" "-o" "crux-build/double_free.bc" "test/programs/double_free.c"
 [Crux] Attempting to prove verification conditions.
 [Crux] Attempting to prove verification conditions.
-[Crux] Results for double_free
-[Crux] Found likely bugs:
-Pointer freed twice
+[UC-Crux-LLVM] Results for double_free
+[UC-Crux-LLVM] Found likely bugs:
+[UC-Crux-LLVM] Double free at double_free.c:10:5
 ```
 That's not too impressive, a simple linter might be able to find that bug. However, since `uc-crux-llvm` uses symbolic execution, it can precisely conclude that the following program _does not_ have a potential double-free (or _any_ other undefined behavior), provided that it's passed a non-null pointer:
 ```c
@@ -63,15 +68,15 @@ void not_double_free(int *ptr, int x) {
 ```
 ```
 $ uc-crux-llvm --entry-points not_double_free not_double_free.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some/path/c-src/includes" "-O1" "-o" "crux-build/not_double_free.bc" "test/programs/not_double_free.c"
-even!
 [Crux] Attempting to prove verification conditions.
-even!
-[Crux] Results for not_double_free
-[Crux] Function is safe if deduced preconditions are met:
-Arguments:
-  A pointer to uninitialized space for 1 elements:
-  An integer:
+[Crux] Attempting to prove verification conditions.
+[UC-Crux-LLVM] Results for not_double_free
+[UC-Crux-LLVM] Function is safe if deduced preconditions are met:
+[UC-Crux-LLVM] Arguments:
+[UC-Crux-LLVM]   A pointer to uninitialized space for 1 elements:
+[UC-Crux-LLVM]   An integer:
+[UC-Crux-LLVM] Globals:
+[UC-Crux-LLVM] Return values of skipped functions:
 ```
 While the examples here have very simple inputs, `uc-crux-llvm` is capable of synthesizing much richer inputs, including nested and recursive structs, pointers, floats, and more.
 
@@ -104,6 +109,8 @@ iteratively expand it:
 
 This approach is fairly different from UC-KLEE, which uses "lazy
 initialization", i.e., allocating memory *as it's used* by the program.
+
+See this blog post for more details: https://galois.com/blog/2021/10/under-constrained-symbolic-execution-with-crucible/.
 
 ## Building
 
@@ -202,112 +209,22 @@ Uncertain results:
   Symbolically failing assertions: 1
 ```
 
-## Roadmap
+### Crash-Equivalence Checking
 
-## Command-line Interface
+UC-Crux-LLVM can check two different versions of the same program (or two
+implementations of the same interface) for *crash-equivalence*, meaning
+the two implementations are considered the same unless UC-Crux-LLVM can find a
+bug in one but not the other.
 
-### Milestone 1: Operating on Realistic Code
+The argument to the `--check-ordering` flag is a second program to check for
+*crash ordering*, i.e. UC-Crux-LLVM checks that the program passed to
+`--check-ordering` has *fewer* crashes than the one passed as an argument. If
+the `--crash-equivalence` is also passed to UC-Crux-LLVM, it checks for
+*crash-equivalence*. Crash-ordering is a partial order over programs, and
+crash-equivalence is an equivalence relation. Use `--entry-points` to check
+specific functions, or `--explore` to check all functions from both programs
+that share a name.
 
-- [x] Real error handling
-  - [x] Support testing that a given feature is unimplemented
-  - [x] Handle unimplemented cases in these areas:
-    - [x] Input generation
-    - [x] Constraining inputs
-  - [x] Report/test any unclassified failures
-  - [x] Panic on redundant constraints
-- [x] An acceptance test suite (that also tests for e.g., graceful failure on unimplememented features)
-- [ ] Support for many types of arguments to functions
-  - [x] Integers (bitvectors)
-  - [x] Pointers
-  - [x] Structs
-  - [x] Floats
-  - [ ] Arrays
-- [x] Increase argument "depth" until saturation or a bound is reached
-- [x] Develop heuristics for more types of errors
-  - [x] True positives:
-    - [x] Concretely failing user assertions
-    - [x] Double free
-  - [x] Missing preconditions:
-    - [x] Unallocated, uninitialized, or insufficiently aligned pointer inside
-          argument
-    - [x] `free` called on unallocated input pointer
-    - [x] `memset` called on too-small allocation in argument
-    - [x] Signed wrap with integers from arguments
-      - [x] Addition
-      - [x] Subtraction
-- [x] Test suite
-  - [x] With compiled C programs
-  - [x] With hand-written LLVM ASTs
+## Developer Documentation
 
-### Milestone 2: Publishable
-
-- [x] Rename package to UC-Crux-LLVM
-- [x] Revise CLI (make a `Crux.Config`)
-- [ ] Print concretized inputs that make errors occur
-- [ ] Improve printing of constraints
-- [x] README
-  - [x] With "outer loop" flowchart
-  - [ ] With CLI docs
-  - [x] With demo at the top: double free
-
-### Milestone 3: Finding Bugs in Large Codebases
-
-- Goal: Low false positives
-  - [ ] Flags for (not) reporting each category of uncertain errors, like unclassified errors or symbolically failing user assertions
-  - [ ] Setting to only report true positives found by a specific list of heuristics
-- Goal: Usable UX
-  - [x] Multi-function target mode that doesn't recompile/re-parse bitcode
-  - [x] "Exploration" mode (not targeting a single function)
-    - [x] Per-function reports saved to disk
-    - [x] Report # of unclassified errors
-    - [x] Report # of classified, but un-actionable false positives
-    - [x] Report # of classified, but not-yet actionable false positives
-    - [x] Report # of times each false positive and true positive heuristic was used
-    - [ ] Report # times each unimplemented feature of UC-Crux was hit (to support prioritization)
-    - [ ] Report unimplemented overrides
-    - [ ] Catch and report panics and unimplemented behaviors
-    - [x] Good overall "summary" report
-- Goal: Handle even more kinds of behaviors
-  - [x] Support generating allocations for reads/writes through pointers appearing in globals
-  - [x] Support generating pointer arguments that are treated as arrays
-  - [ ] Develop heuristics for more types of errors
-    - [ ] True positives:
-      - [ ] Out-of-bounds reads/writes at concrete offsets
-      - [x] Calls to non-function pointers
-      - [x] Division by zero
-      - [x] Mod by zero
-      - [x] Use before initialization of non-argument allocation
-      - [ ] `free` called on non-argument pointer with non-zero offset
-      - [ ] Write of `const` memory
-      - [ ] Illegal (un)signed wrap when both operands are concrete
-      - [x] Concretely null pointer dereference
-    - [ ] Missing preconditions:
-      - [ ] Signed wrap with integers from arguments
-        - [ ] Multiplication
-      - [ ] Unsigned wrap with integers from arguments
-        - [ ] Addition
-        - [ ] Subtraction
-        - [ ] Multiplication
-- Goal: Robustness to unforeseen conditions
-  - [ ] Setting to ignore or raise errors that have no applicable heuristics
-  - [ ] Test suite
-    - [ ] With compiled C++ programs
-    - [ ] Parameterizing compiled programs over a set of compiler flags
-          (probably optimization levels)
-    - [ ] Specify why each testcase is safe or unsafe
-
-### Milestone 4: The Dream Achieved
-
-- [ ] Even more heuristics
-- [x] Optionally skipping missing functions
-  - [x] Deduce postconditions on return values of skipped functions
-- [ ] When a suspected true positive is found, verify it is feasible by reaching
-      it from further up the call tree
-- [ ] After deducing preconditions for a function, generate overrides that
-      check those preconditions, enabling bi-directional propagation between
-      callsites and function definitions.
-- [ ] Generate runnable counter-examples in C
-- [ ] Relational preconditions between arguments and globals
-  - [ ] `int` field is the length of a pointer field
-- [ ] Support generating function pointers
-- [ ] Support/suggest user annotations on data structures, in functions
+See [./doc/developing.md](./doc/developing.md).

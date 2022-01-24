@@ -85,13 +85,14 @@ import           Lang.JVM.JavaTools
 
 import           Lang.Crucible.JVM.Simulate (setupCrucibleJVMCrux)
 import           Lang.Crucible.JVM.Types
+import           Paths_crucible_jvm (version)
 
 -- executable
 
 import System.Console.GetOpt
 
 -- | A simulator context
-type SimCtxt sym = SimContext (Crux.Model sym) sym JVM
+type SimCtxt sym = SimContext (Crux.Crux sym) sym JVM
 
 data JVMOptions = JVMOptions
   { classPath        :: [FilePath]
@@ -174,35 +175,46 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
-simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback
-simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
-   let files = Crux.inputFiles copts
-   let verbosity = Crux.simVerbose copts
-   file <- case files of
-             [file] -> return file
-             _ -> fail "crux-jvm requires a single file name as an argument"
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallbacks msgs Crux.CruxSimulationResult
+simulateJVM copts opts =
+  Crux.SimulatorCallbacks $
+    return $
+      Crux.SimulatorHooks
+        { Crux.setupHook =
+            \sym _maybeOnline -> do
+              let files = Crux.inputFiles copts
+              let verbosity = Crux.simVerbose (Crux.outputOptions copts)
+              file <- case files of
+                        [file] -> return file
+                        _ -> fail "crux-jvm requires a single file name as an argument"
 
-   cb <- JCB.loadCodebase (jarList opts) (classPath opts) (javaBinDirs opts)
+              cb <- JCB.loadCodebase (jarList opts) (classPath opts) (javaBinDirs opts)
 
-   let cname = takeBaseName file
-   let mname = mainMethod opts
+              let cname = takeBaseName file
+              let mname = mainMethod opts
 
-   -- create a null array of strings for `args`
-   -- TODO: figure out how to allocate an empty array
-   let nullstr = RegEntry refRepr W4.Unassigned
-   let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
+              -- create a null array of strings for `args`
+              -- TODO: figure out how to allocate an empty array
+              let nullstr = RegEntry refRepr W4.Unassigned
+              let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.emptyModel
-     cname mname regmap
+              Crux.RunnableState <$>
+                setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.CruxPersonality
+                  cname mname regmap
 
-   return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
+        -- TODO add failure explanations
+        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_sym result -> return result
+        }
 
 
 -- | Entry point, parse command line options
 main :: IO ()
-main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $
-    \(cruxOpts, jvmOpts) -> do
-      jvmOpts' <- processJVMOptions jvmOpts
-      exitWith =<< Crux.postprocessSimResult cruxOpts =<<
-        Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts')
+main = do
+  mkOutCfg <- Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
+  Crux.withCruxLogMessage $
+    Crux.loadOptions mkOutCfg "crux-jvm" version cruxJVMConfig
+      $ \(cruxOpts, jvmOpts) -> do
+        jvmOpts' <- processJVMOptions jvmOpts
+        exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
+          Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts')

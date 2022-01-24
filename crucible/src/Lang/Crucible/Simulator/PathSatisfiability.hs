@@ -64,7 +64,7 @@ pathSatisfiabilityFeature :: forall sym.
         we can determine about the given predicate. -} ->
   IO (GenericExecutionFeature sym)
 pathSatisfiabilityFeature sym considerSatisfiability =
-  do extendConfig pathSatOptions (getConfiguration sym)
+  do tryExtendConfig pathSatOptions (getConfiguration sym)
      pathSatOpt <- liftIO $ getOptionSetting checkPathSatisfiability (getConfiguration sym)
      return $ GenericExecutionFeature $ onStep pathSatOpt
 
@@ -77,17 +77,18 @@ pathSatisfiabilityFeature sym considerSatisfiability =
  onStep pathSatOpt (SymbolicBranchState p tp fp _tgt st) =
    getOpt pathSatOpt >>= \case
      False -> return ExecutionFeatureNoChange
-     True -> considerSatisfiability ploc p >>= \case
+     True ->
+       do loc <- getCurrentProgramLoc sym
+          considerSatisfiability ploc p >>= \case
                IndeterminateBranchResult ->
                  return ExecutionFeatureNoChange
-               NoBranch chosen_branch ->
+               NoBranch chosen_branch -> withBackend (st ^. stateContext) $ \bak ->
                  do p' <- if chosen_branch then return p else notPred sym p
                     let frm = if chosen_branch then tp else fp
-                    loc <- getCurrentProgramLoc sym
-                    addAssumption sym (LabeledPred p' (ExploringAPath loc (pausedLoc frm)))
+                    addAssumption bak (BranchCondition loc (pausedLoc frm) p')
                     ExecutionFeatureNewState <$> runReaderT (resumeFrame frm (asContFrame (st^.stateTree))) st
                UnsatisfiableContext ->
-                 return (ExecutionFeatureNewState (AbortState InfeasibleBranch st))
+                 return (ExecutionFeatureNewState (AbortState (InfeasibleBranch loc) st))
    where
      ploc = st ^. stateLocation
 

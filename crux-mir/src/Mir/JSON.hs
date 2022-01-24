@@ -4,6 +4,7 @@ Description      : JSON to Mir AST parser
 License          : BSD3
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -11,7 +12,6 @@ module Mir.JSON where
 
 import Data.Aeson
 import qualified Data.Aeson.Types  as Aeson
-import qualified Data.HashMap.Lazy as HML
 import qualified Data.Map.Strict   as Map
 import qualified Data.Scientific   as Scientific
 
@@ -26,7 +26,14 @@ import Data.List
 import qualified Data.Vector as V
 import Control.Lens((^.),(&),(.~))
 
-import Mir.DefId 
+#if MIN_VERSION_aeson(2,0,0)
+import Data.Aeson.Key (Key)
+import qualified Data.Aeson.KeyMap as KM
+#else
+import qualified Data.HashMap.Lazy as HML
+#endif
+
+import Mir.DefId
 import Mir.Mir
 
 import Debug.Trace
@@ -39,7 +46,7 @@ import Debug.Trace
 
 instance FromJSON BaseSize where
     parseJSON = withObject "BaseSize" $
-                \t -> case HML.lookup "kind" t of
+                \t -> case lookupKM "kind" t of
                         Just (String "Usize") -> pure USize
                         Just (String "U8") -> pure B8
                         Just (String "U16") -> pure B16
@@ -55,7 +62,7 @@ instance FromJSON BaseSize where
                         sz -> fail $ "unknown base size: " ++ show sz
 
 instance FromJSON FloatKind where
-    parseJSON = withObject "FloatKind" $ \t -> case HML.lookup "kind" t of
+    parseJSON = withObject "FloatKind" $ \t -> case lookupKM "kind" t of
                                                  Just (String "F32") -> pure F32
                                                  Just (String "F64") -> pure F64
                                                  sz -> fail $ "unknown float type: " ++ show sz
@@ -76,7 +83,7 @@ instance FromJSON Ty where
 newtype InlineTy = InlineTy { getInlineTy :: Ty }
 
 instance FromJSON InlineTy where
-    parseJSON = withObject "InlineTy" $ \v -> InlineTy <$> case HML.lookup "kind" v of
+    parseJSON = withObject "InlineTy" $ \v -> InlineTy <$> case lookupKM "kind" v of
       Just (String "Bool") -> pure TyBool
       Just (String "Char") -> pure TyChar
       Just (String "Int") -> TyInt <$> v .: "intkind"
@@ -107,7 +114,7 @@ instance FromJSON NamedTy where
         NamedTy <$> v .: "name" <*> (getInlineTy <$> v .: "ty")
 
 instance FromJSON Instance where
-    parseJSON = withObject "Instance" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Instance" $ \v -> case lookupKM "kind" v of
         Just (String "Item") -> Instance IkItem
             <$> v .: "def_id" <*> v .: "substs"
         Just (String "Intrinsic") -> Instance IkIntrinsic
@@ -135,12 +142,14 @@ instance FromJSON FnSig where
                <*> v .: "output"
                <*> v .: "abi"
                <*> spread
-               
+
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt
         <$> v .: "name"
         <*> v .: "kind"
         <*> v .: "variants"
+        <*> v .: "size"
+        <*> v .: "repr_transparent"
         <*> v .: "orig_def_id"
         <*> v .: "orig_substs"
 
@@ -152,13 +161,13 @@ instance FromJSON AdtKind where
         _ -> fail $ "unsupported adt kind " ++ show x
 
 instance FromJSON VariantDiscr where
-    parseJSON = withObject "VariantDiscr" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "VariantDiscr" $ \v -> case lookupKM "kind" v of
                                                     Just (String "Explicit") -> Explicit <$> v .: "name"
                                                     Just (String "Relative") -> Relative <$> v .: "index"
                                                     _ -> fail "unspported variant discriminator"
 
 instance FromJSON CtorKind where
-    parseJSON = withObject "CtorKind" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "CtorKind" $ \v -> case lookupKM "kind" v of
                                                 Just (String "Fn") -> pure FnKind
                                                 Just (String "Const") -> pure ConstKind
                                                 Just (String "Fictive") -> pure FictiveKind
@@ -170,7 +179,7 @@ instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty"
 
 instance FromJSON Mutability where
-    parseJSON = withObject "Mutability" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Mutability" $ \v -> case lookupKM "kind" v of
                                                 Just (String "MutMutable") -> pure Mut
                                                 Just (String "Mut") -> pure Mut
                                                 Just (String "MutImmutable") -> pure Immut
@@ -218,17 +227,17 @@ instance FromJSON Fn where
       Fn
         <$> v .: "name"
         <*> return args
-        <*> sig        
+        <*> sig
         <*> v .: "body"
 
 instance FromJSON Abi where
-    parseJSON = withObject "Abi" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Abi" $ \v -> case lookupKM "kind" v of
         Just (String "Rust") -> pure RustAbi
         Just (String "RustIntrinsic") -> pure RustIntrinsic
         Just (String "RustCall") -> pure RustCall
         Just (String _) -> pure OtherAbi
         x -> fail $ "bad abi: " ++ show x
-        
+
 instance FromJSON BasicBlock where
     parseJSON = withObject "BasicBlock" $ \v -> BasicBlock
         <$> v .: "blockid"
@@ -240,7 +249,7 @@ instance FromJSON BasicBlockData where
         <*> v .: "terminator"
 
 instance FromJSON Statement where
-    parseJSON = withObject "Statement" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Statement" $ \v -> case lookupKM "kind" v of
                              Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs" <*> v .: "pos"
                              Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
@@ -257,7 +266,7 @@ instance FromJSON RustcPlace where
 
 instance FromJSON PlaceElem where
     parseJSON = withObject "PlaceElem" $ \v ->
-      case HML.lookup "kind" v of
+      case lookupKM "kind" v of
         Just (String "Deref") -> pure Deref
         Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
         Just (String "Index") -> Index <$> v .: "op"
@@ -272,7 +281,7 @@ instance FromJSON Lvalue where
         convert (RustcPlace base elems) = foldl LProj (LBase base) elems
 
 instance FromJSON Rvalue where
-    parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Rvalue" $ \v -> case lookupKM "kind" v of
                                               Just (String "Use") -> Use <$> v .: "usevar"
                                               Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
                                               Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
@@ -288,7 +297,7 @@ instance FromJSON Rvalue where
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON Terminator where
-    parseJSON = withObject "Terminator" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Terminator" $ \v -> case lookupKM "kind" v of
                                                   Just (String "Goto") -> Goto <$> v .: "target"
                                                   Just (String "SwitchInt") ->
                                                     let  q :: Aeson.Parser [Maybe Integer]
@@ -308,14 +317,14 @@ instance FromJSON Terminator where
                                                   k -> fail $ "unsupported terminator" ++ show k
 
 instance FromJSON Operand where
-    parseJSON = withObject "Operand" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "Operand" $ \v -> case lookupKM "kind" v of
                                                Just (String "Move") -> Move <$> v .: "data"
-                                               Just (String "Copy") -> Copy <$> v .: "data"  
+                                               Just (String "Copy") -> Copy <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
 
 instance FromJSON NullOp where
-    parseJSON = withObject "NullOp" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
                                              Just (String "Box") -> pure Box
                                              x -> fail ("bad nullOp: " ++ show x)
@@ -327,18 +336,18 @@ instance FromJSON BorrowKind where
       else if t == "Mut"    then pure Mutable
       -- s can be followed by "{ allow_two_phase_borrow: true }"
       else if T.isPrefixOf "Mut" t then pure Mutable
-      else fail ("bad borrowKind: " ++ show t) 
-       
+      else fail ("bad borrowKind: " ++ show t)
 
 
-      
+
+
 instance FromJSON UnOp where
-    parseJSON = withObject "UnOp" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "UnOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "Not") -> pure Not
                                              Just (String "Neg") -> pure Neg
                                              x -> fail ("bad unOp: " ++ show x)
 instance FromJSON BinOp where
-    parseJSON = withObject "BinOp" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "BinOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "Add") -> pure Add
                                              Just (String "Sub") -> pure Sub
                                              Just (String "Mul") -> pure Mul
@@ -368,7 +377,7 @@ instance FromJSON Vtable where
         Vtable <$> v .: "name" <*> v .: "items"
 
 instance FromJSON CastKind where
-    parseJSON = withObject "CastKind" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "CastKind" $ \v -> case lookupKM "kind" v of
                                                Just (String "Misc") -> pure Misc
                                                Just (String "Pointer(ReifyFnPointer)") -> pure ReifyFnPointer
                                                Just (String "Pointer(ClosureFnPointer(Normal))") -> pure ClosureFnPointer
@@ -402,7 +411,7 @@ newtype RustcRenderedConst = RustcRenderedConst ConstVal
 
 instance FromJSON RustcRenderedConst where
     parseJSON = withObject "RenderedConst" $ \v ->
-      RustcRenderedConst <$> case HML.lookup "kind" v of
+      RustcRenderedConst <$> case lookupKM "kind" v of
         Just (String "isize") -> do
             val <- convertIntegerText =<< v .: "val"
             pure $ ConstInt $ Isize val
@@ -496,7 +505,7 @@ convertIntegerText t = do
 
 
 instance FromJSON AggregateKind where
-    parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
+    parseJSON = withObject "AggregateKind" $ \v -> case lookupKM "kind" v of
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> pure AKClosure
@@ -510,7 +519,7 @@ instance FromJSON Trait where
 
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->
-                case HML.lookup "kind" v of
+                case lookupKM "kind" v of
                   Just (String "Method") -> do
                     TraitMethod <$> v .: "item_id" <*> v .: "signature"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
@@ -536,5 +545,14 @@ instance FromJSON Static where
            <*> v .: "ty"
            <*> v .: "mutable"
 
-           
+
 --  LocalWords:  initializer supertraits deserialization impls
+
+-- TODO: When the ecosystem widely uses aeson-2.0.0.0 or later, remove this CPP.
+#if MIN_VERSION_aeson(2,0,0)
+lookupKM :: Key -> KM.KeyMap Value -> Maybe Value
+lookupKM = KM.lookup
+#else
+lookupKM :: Text -> HML.HashMap Text Value -> Maybe Value
+lookupKM = HML.lookup
+#endif

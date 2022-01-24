@@ -79,8 +79,17 @@ first may be relaxed.
 
 Types
 
-t ::= 'Any' | 'Unit' | 'Bool' | 'Nat' | 'Real' | 'ComplexReal' | 'Char' | 'String'
-    | '(' 'Vector' t ')' | '(' 'BitVector' n ')' | '(' '->' t ... t ')' 
+si ::= 'Unicode' | 'Char16' | 'Char8'
+
+fi ::= 'Half' | 'Float' | 'Double' | 'Quad'
+     | 'X86_80' | 'DoubleDouble'
+
+t ::= 'Any' | 'Unit' | 'Bool' | 'Nat' | 'Integer' | 'Real'
+    | 'ComplexReal' | 'Char' | '(' 'String' si ')'
+    | '(' 'FP' fi ')' | '(' 'BitVector' n ')'
+    | '(' '->' t ... t ')' | '(' 'Maybe' t ')'
+    | '(' 'Sequence' t ')' | '(' 'Vector' t ')' | '(' 'Ref' t ')'
+    | '(' 'Struct' t ... t ')' | '(' 'Variant' t ... t ')'
 
 
 Expressions

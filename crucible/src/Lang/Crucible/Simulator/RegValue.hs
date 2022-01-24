@@ -25,8 +25,6 @@ module Lang.Crucible.Simulator.RegValue
   ( RegValue
   , CanMux(..)
   , RegValue'(..)
-  , VariantBranch(..)
-  , injectVariant
   , MuxFn
 
     -- * Register values
@@ -34,6 +32,10 @@ module Lang.Crucible.Simulator.RegValue
   , FnVal(..)
   , fnValType
   , RolledType(..)
+  , SymSequence(..)
+
+  , VariantBranch(..)
+  , injectVariant
 
     -- * Value mux functions
   , ValMuxFn
@@ -44,6 +46,7 @@ module Lang.Crucible.Simulator.RegValue
   , muxStruct
   , muxVariant
   , muxVector
+  , muxSymSequence
   , muxHandle
   ) where
 
@@ -69,7 +72,7 @@ import           What4.WordMap
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.SymSequence
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
@@ -87,6 +90,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
+  RegValue sym (SequenceType tp) = SymSequence sym (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
   RegValue sym (VariantType ctx) = Ctx.Assignment (VariantBranch sym) ctx
   RegValue sym (ReferenceType tp) = MuxTree sym (RefCell tp)
@@ -156,13 +160,12 @@ class CanMux sym (tp :: CrucibleType) where
 -- | Merge function that checks if two values are equal, and
 -- fails if they are not.
 {-# INLINE eqMergeFn #-}
-eqMergeFn :: (IsSymInterface sym, Eq v) => sym -> String -> MuxFn p v
+eqMergeFn :: (IsExprBuilder sym, Eq v) => sym -> String -> MuxFn p v
 eqMergeFn sym nm = \_ x y ->
   if x == y then
     return x
   else
-    addFailedAssertion sym
-      $ Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
+    throwUnsupported sym $ "Cannot merge dissimilar " ++ nm ++ "."
 
 ------------------------------------------------------------------------
 -- RegValue AnyType instance
@@ -214,13 +217,12 @@ instance IsExprBuilder sym => CanMux sym (IEEEFloatType fpp) where
 -- RegValue Vector instance
 
 {-# INLINE muxVector #-}
-muxVector :: IsSymInterface sym =>
+muxVector :: IsExprBuilder sym =>
              sym -> MuxFn p e -> MuxFn p (V.Vector e)
 muxVector sym f p x y
   | V.length x == V.length y = V.zipWithM (f p) x y
   | otherwise =
-    addFailedAssertion sym
-      $ Unsupported "Cannot merge vectors with different dimensions."
+      throwUnsupported sym "Cannot merge vectors with different dimensions."
 
 instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}

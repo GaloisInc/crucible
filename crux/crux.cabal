@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crux
-Version:       0.4
+Version:       0.5.0.99
 Copyright:     (c) Galois, Inc. 2018-2021
 Author:        sweirich@galois.com
 Maintainer:    rdockins@galois.com
@@ -17,29 +17,35 @@ Description:
   verification, usually by embedding verification specifications in
   the source language.
 
-library 
-        
+library
+
   build-depends:
     base >= 4 && < 5,
+    aeson < 2.1,
+    aeson-typescript,
     aig,
     array,
     async,
     attoparsec,
     bv-sized >= 1.0.0,
+    bytestring,
     containers,
+    contravariant >= 1.5 && < 1.6,
     crucible,
     directory,
     filepath,
+    generic-lens,
     haskeline >= 0.7,
     lens,
     libBF >= 0.6 && < 0.7,
+    lumberjack >= 1.0 && < 1.1,
     mtl >= 2.1,
     parameterized-utils >= 1.0 && < 2.2,
     prettyprinter >= 1.7.0,
     split >= 0.2,
     terminal-size,
     text,
-    time >= 1.8 && < 2.0,
+    time >= 1.9 && < 2.0,
     transformers >= 0.3,
     transformers-compat,
     vector >= 0.7,
@@ -49,9 +55,10 @@ library
     raw-strings-qq,
     simple-get-opt,
     config-value,
-    config-schema,
+    config-schema >= 1.2.2.0,
     semigroupoids,
     unordered-containers,
+    xml,
     yaml >= 0.11 && < 0.12
 
   hs-source-dirs: src
@@ -59,6 +66,7 @@ library
   exposed-modules:
     Crux,
     Crux.Types,
+    Crux.FormatOut,
     Crux.Goal,
     Crux.Log,
     Crux.ProgressBar,
@@ -71,12 +79,17 @@ library
     Crux.Config.Common,
     Crux.Config.Solver,
     Crux.SVCOMP,
+    Crux.SVCOMP.Witness,
     Crux.UI.JS,
     Crux.Version
 
   other-modules:
    Crux.UI.Jquery,
    Crux.UI.IndexHtml
+   Paths_crux
+
+  autogen-modules:
+   Paths_crux
 
   ghc-options: -Wall
                -Wcompat
@@ -87,4 +100,3 @@ library
                -Wincomplete-uni-patterns
   ghc-prof-options: -O2
   default-language: Haskell2010
-

@@ -64,6 +64,7 @@ module Lang.Crucible.Types
   , RecursiveType
   , IntrinsicType
   , VectorType
+  , SequenceType
   , StructType
   , VariantType
   , ReferenceType
@@ -165,8 +166,17 @@ data CrucibleType where
 
    -- The Maybe type lifted into crucible expressions
    MaybeType :: CrucibleType -> CrucibleType
-   -- A finite (one-dimensional) sequence of values
+
+   -- A finite (one-dimensional) sequence of values.  Vectors are
+   -- optimized for random-access indexing and updating.  Vectors
+   -- of different lengths may not be combined at join points.
    VectorType :: CrucibleType -> CrucibleType
+
+   -- Sequences of values, represented as linked lists of cons cells.  Sequences
+   -- only allow access to the front. Unlike Vectors, sequences of
+   -- different lengths may be combined at join points.
+   SequenceType :: CrucibleType -> CrucibleType
+
    -- A structure is an aggregate type consisting of a sequence of values.
    -- The type of each value is known statically.
    StructType :: Ctx CrucibleType -> CrucibleType
@@ -183,7 +193,7 @@ data CrucibleType where
    WordMapType :: Nat -> BaseType -> CrucibleType
 
    -- Named recursive types, named by the given symbol.  To use recursive types
-   -- you must provide an instances of the IsRecursiveType class that gives
+   -- you must provide an instance of the IsRecursiveType class that gives
    -- the unfolding of this recursive type.  The RollRecursive and UnrollRecursive
    -- operations witness the isomorphism between a recursive type and its one-step
    -- unrolling.  Similar to Haskell's newtype, recursive types do not necessarily
@@ -191,11 +201,13 @@ data CrucibleType where
    -- is simply a new named type which is isomorphic to its definition.
    RecursiveType :: Symbol -> Ctx CrucibleType -> CrucibleType
 
-   -- Named intrinsic types.  Intrinsic types are a way to extend the crucible
-   -- type system after-the-fact and add new type implementations.
-   -- Core crucible provides no operations on intrinsic types; they must be provided
-   -- as built-in override functions.  See the `IntrinsicClass` typeclass
-   -- and the `Intrinsic` type family defined in "Lang.Crucible.Simulator.Intrinsics".
+   -- Named intrinsic types.  Intrinsic types are a way to extend the
+   -- crucible type system after-the-fact and add new type
+   -- implementations.  Core crucible provides no operations on
+   -- intrinsic types; they must be provided as built-in override
+   -- functions, or via the language extension mechanism.  See the
+   -- `IntrinsicClass` typeclass and the `Intrinsic` type family
+   -- defined in "Lang.Crucible.Simulator.Intrinsics".
    --
    -- The context of crucible types are type arguments to the intrinsic type.
    IntrinsicType :: Symbol -> Ctx CrucibleType -> CrucibleType
@@ -273,8 +285,15 @@ type NatType       = 'NatType       -- ^ @:: 'CrucibleType'@.
 -- | A variant is a disjoint union of the types listed in the context.
 type VariantType   = 'VariantType   -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
 
--- | A finite (one-dimensional) sequence of values.
+-- | A finite (one-dimensional) sequence of values.  Vectors are
+-- optimized for random-access indexing and updating.  Vectors
+-- of different lengths may not be combined at join points.
 type VectorType    = 'VectorType    -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
+-- | Sequences of values, represented as linked lists of cons cells.  Sequences
+-- only allow access to the front. Unlike Vectors, sequences of
+-- different lengths may be combined at join points.
+type SequenceType  = 'SequenceType  -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
 
 -- | A finite map from bitvector values to the given Crucible type.
 -- The 'Nat' index gives the width of the bitvector values used to
@@ -354,11 +373,12 @@ data TypeRepr (tp::CrucibleType) where
                       -> !(TypeRepr ret)
                       -> TypeRepr (FunctionHandleType ctx ret)
 
-   MaybeRepr   :: !(TypeRepr tp) -> TypeRepr (MaybeType   tp)
-   VectorRepr  :: !(TypeRepr tp) -> TypeRepr (VectorType  tp)
-   StructRepr  :: !(CtxRepr ctx) -> TypeRepr (StructType  ctx)
+   MaybeRepr   :: !(TypeRepr tp) -> TypeRepr (MaybeType tp)
+   SequenceRepr:: !(TypeRepr tp) -> TypeRepr (SequenceType tp)
+   VectorRepr  :: !(TypeRepr tp) -> TypeRepr (VectorType tp)
+   StructRepr  :: !(CtxRepr ctx) -> TypeRepr (StructType ctx)
    VariantRepr :: !(CtxRepr ctx) -> TypeRepr (VariantType ctx)
-   ReferenceRepr :: TypeRepr a -> TypeRepr (ReferenceType a)
+   ReferenceRepr :: !(TypeRepr a) -> TypeRepr (ReferenceType a)
 
    WordMapRepr :: (1 <= n)
                => !(NatRepr n)
@@ -418,6 +438,9 @@ instance KnownRepr FloatPrecisionRepr ps => KnownRepr TypeRepr (IEEEFloatType ps
 instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (VectorType tp) where
   knownRepr = VectorRepr knownRepr
 
+instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (SequenceType tp) where
+  knownRepr = SequenceRepr knownRepr
+
 instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (MaybeType tp) where
   knownRepr = MaybeRepr knownRepr
 
@@ -463,6 +486,8 @@ instance TestEquality TypeRepr where
                      , [|testEquality|])
                    ]
                   )
+instance Eq (TypeRepr tp) where
+  x == y = isJust (testEquality x y)
 
 instance OrdF TypeRepr where
   compareF = $(U.structuralTypeOrd [t|TypeRepr|]

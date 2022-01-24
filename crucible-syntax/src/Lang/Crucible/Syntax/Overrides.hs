@@ -12,7 +12,6 @@ module Lang.Crucible.Syntax.Overrides
 import Control.Lens hiding ((:>), Empty)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class
-import Data.Foldable(toList)
 import System.IO
 
 import Data.Parameterized.Context hiding (view)
@@ -28,7 +27,6 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
-import Lang.Crucible.Simulator.SimError (ppSimError)
 
 
 setupOverrides ::
@@ -44,20 +42,21 @@ setupOverrides _ ha =
 proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
   OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
 proveObligations =
-  do sym <- getSymInterface
+  ovrWithBackend $ \bak ->
+  do let sym = backendGetSym bak
      h <- printHandle <$> getContext
      liftIO $ do
        hPutStrLn h "Attempting to prove all outstanding obligations!\n"
 
-       obls <- proofGoalsToList <$> getProofObligations sym
-       clearProofObligations sym
+       obls <- maybe [] goalsToList <$> getProofObligations bak
+       clearProofObligations bak
 
        forM_ obls $ \o ->
-         do let asms = map (view labeledPred) $ toList $ proofAssumptions o
-            gl <- notPred sym ((proofGoal o)^.labeledPred)
+         do asms <- assumptionsPred sym (proofAssumptions o)
+            gl <- notPred sym (o ^. to proofGoal.labeledPred)
             let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                          , logReason = "assertion proof" }
-            runZ3InOverride sym logData (asms ++ [gl]) $ \case
+            runZ3InOverride sym logData [asms,gl] $ \case
               Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]

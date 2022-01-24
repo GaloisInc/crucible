@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crux-llvm
-Version:       0.4
+Version:       0.5.0.99
 Author:        Galois Inc.
 Maintainer:    iavor.diatchki@gmail.com
 Copyright:     (c) Galois, Inc 2014-2021
@@ -20,16 +20,16 @@ Description:
   .
   * a Haskell library with the core functionality,
   .
-  * a crux-llvm executable used to run the verification when given one
+  * a @crux-llvm@ executable used to run the verification when given one
     or more C or C++ source files
   .
   * a set of supplemental C source files, include files, and LLVM
     runtime library bitcode files to use for building the input C
     files into verifiable LLVM BC files.
   .
-  * a crux-llvm-svcomp that is designed to run verification on the set
-    of challenge inputs for the SV-COMP competition and generate
-    benchmark results.
+  * a @crux-llvm-svcomp@ executable that is designed to run verification
+    of challenge inputs for the SV-COMP competition, generating
+    results tailored to the format that SV-COMP expects.
 
 
 data-files:
@@ -39,6 +39,7 @@ data-files:
    c-src/print-model.c
    c-src/libcxx-3.6.2.bc
    c-src/libcxx-7.1.0.bc
+extra-source-files: CHANGELOG.md, README.md
 
 common bldflags
   ghc-options: -Wall
@@ -49,10 +50,11 @@ common bldflags
                -Wincomplete-uni-patterns
   ghc-prof-options: -O2
   default-language: Haskell2010
-  build-depends:    base >= 4.8 && < 4.15
+  build-depends:    base >= 4.8 && < 4.16
                   , bytestring
                   , containers
                   , crucible
+                  , crucible-symio
                   , crucible-llvm
                   , crux
                   , directory
@@ -77,6 +79,7 @@ library
     CruxLLVMMain
     Crux.LLVM.Compile
     Crux.LLVM.Config
+    Crux.LLVM.Log
     Crux.LLVM.Overrides
     Crux.LLVM.Simulate
     Paths_crux_llvm
@@ -85,12 +88,14 @@ library
     Paths_crux_llvm
 
   build-depends:
+    aeson,
     bv-sized,
-    config-schema,
+    config-schema >= 1.2.2.0,
     data-binary-ieee754,
     logict,
     llvm-pretty,
     llvm-pretty-bc-parser,
+    lumberjack >= 1.0 && < 1.1,
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0,
@@ -117,22 +122,52 @@ executable crux-llvm
   other-modules: RealMain
 
 
+executable crux-llvm-for-ide
+  import: bldflags
+
+  hs-source-dirs: for-ide
+
+  build-depends:
+    aeson,
+    ansi-terminal,
+    crux-llvm,
+    lumberjack,
+    websockets >= 0.12
+
+  main-is: Main.hs
+
+  if os(windows)
+    hs-source-dirs: for-ide/windows
+  else
+    hs-source-dirs: for-ide/unix
+    build-depends: unix
+
+  other-modules:
+    Paths_crux_llvm
+    RealMain
+
+
 executable crux-llvm-svcomp
   import: bldflags
   hs-source-dirs: svcomp
   main-is: Main.hs
 
-  if os(windows)
-    buildable: False
-
   build-depends:
-    aeson >= 1.4.7,
-    attoparsec >= 0.13,
-    async >= 2.2,
-    ansi-terminal,
+    aeson,
+    attoparsec,
+    base16-bytestring,
     crux-llvm,
-    time,
-    unix
+    cryptohash-sha256,
+    extra,
+    indexed-traversable,
+    time
+
+  other-modules:
+    SVComp.Log
+    Paths_crux_llvm
+
+  autogen-modules:
+    Paths_crux_llvm
 
 
 test-suite crux-llvm-test
@@ -145,5 +180,7 @@ test-suite crux-llvm-test
   build-depends:
                 crux-llvm,
                 deepseq,
+                extra,
+                lumberjack,
                 parsec,
                 versions

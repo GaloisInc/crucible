@@ -19,7 +19,6 @@ import Control.Applicative
 import Data.Char
 import Data.Functor
 import Data.Ratio
-import Data.Semigroup ( (<>) )
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -50,7 +49,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Just_ | Nothing_ | FromJust
              | Inj | Proj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitvectorT | VectorT | FPT | FunT | MaybeT | VariantT | RefT
+             | BitvectorT | VectorT | SequenceT | FPT | FunT | MaybeT | VariantT | StructT | RefT
              | Half_ | Float_ | Double_ | Quad_ | X86_80_ | DoubleDouble_
              | Unicode_ | Char8_ | Char16_
              | The
@@ -64,6 +63,10 @@ data Keyword = Defun | DefBlock | DefGlobal
              | ToAny | FromAny
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
+             | MkStruct_ | GetField_ | SetField_
+             | SequenceNil_ | SequenceCons_ | SequenceAppend_
+             | SequenceIsNil_ | SequenceLength_
+             | SequenceHead_ | SequenceTail_ | SequenceUncons_
              | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_ | PrintLn_
@@ -130,9 +133,11 @@ keywords =
   , ("String" , StringT)
   , ("Bitvector" , BitvectorT)
   , ("Vector", VectorT)
+  , ("Sequence", SequenceT)
   , ("->", FunT)
   , ("Maybe", MaybeT)
   , ("Variant", VariantT)
+  , ("Struct", StructT)
 
     -- string sorts
   , ("Unicode", Unicode_)
@@ -182,6 +187,11 @@ keywords =
   , ("inj", Inj)
   , ("proj", Proj)
 
+    -- Structs
+  , ("struct", MkStruct_)
+  , ("get-field", GetField_)
+  , ("set-field", SetField_)
+
     -- Maybe
   , ("just" , Just_)
   , ("nothing" , Nothing_)
@@ -195,6 +205,16 @@ keywords =
   , ("vector-get", VectorGetEntry_)
   , ("vector-set", VectorSetEntry_)
   , ("vector-cons", VectorCons_)
+
+    -- Sequences
+  , ("seq-nil", SequenceNil_)
+  , ("seq-cons", SequenceCons_)
+  , ("seq-append", SequenceAppend_)
+  , ("seq-nil?", SequenceIsNil_)
+  , ("seq-length", SequenceLength_)
+  , ("seq-head", SequenceHead_)
+  , ("seq-tail", SequenceTail_)
+  , ("seq-uncons", SequenceUncons_)
 
     -- strings
   , ("show", Show)

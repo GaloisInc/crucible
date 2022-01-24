@@ -1,0 +1,7 @@
+[Crux] Attempting to prove verification conditions.
+[Crux] Found counterexample for verification goal
+[Crux]   sv-benchmarks/c/pthread-divine/ring_1w1r-1.cbl:137:5: error: in reader_maybe_buggy
+[Crux]   Should fail
+[Crux] Found counterexample for verification goal
+[Crux]   sv-benchmarks/c/pthread-divine/ring_1w1r-1.cbl:137:5: error: in reader_maybe_buggy
+[Crux]   Should fail

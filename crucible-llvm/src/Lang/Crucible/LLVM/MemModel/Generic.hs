@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -40,6 +41,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocAndWriteMem
   , readMem
   , isValidPointer
+  , isAllocatedMutable
   , isAllocatedAlignedPointer
   , notAliasable
   , writeMem
@@ -102,13 +104,16 @@ import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..), MemoryOp(..))
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MemModel.CallStack (getCallStack)
 import           Lang.Crucible.LLVM.MemModel.Common
+import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.MemLog
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
+import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Simulator.RegMap (RegValue'(..))
 
 --------------------------------------------------------------------------------
@@ -630,7 +635,8 @@ readMemArrayStore sym w end mop (LLVMPointer blk read_off) tp write_off arr size
 
 readMemInvalidate ::
   forall sym w .
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym -> NatRepr w ->
   EndianForm ->
   MemoryOp sym w ->
@@ -652,8 +658,8 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
                 subFn (OutOfRange o tp') = do
                   o' <- liftIO $ bvLit sym w (bytesToBV w o)
                   readPrev tp' (LLVMPointer blk o')
-                subFn (InRange _o _tp') =
-                  liftIO (Partial.partErr sym mop $ Invalidated msg)
+                subFn (InRange _o tp') =
+                  readInRange tp'
             case BV.asUnsigned <$> asBV sz of
               Just csz -> do
                 let s = R (fromInteger so) (fromInteger (so + csz))
@@ -667,8 +673,8 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
                 subFn (OutOfRange o tp') = do
                   o' <- liftIO $ genOffsetExpr sym w varFn o
                   readPrev tp' (LLVMPointer blk o')
-                subFn (InRange _o _tp') =
-                  liftIO (Partial.partErr sym mop $ Invalidated msg)
+                subFn (InRange _o tp') =
+                  readInRange tp'
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -677,10 +683,20 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
                      | otherwise =
                          symbolicRangeLoad pref tp
             evalMuxValueCtor sym w end mop varFn subFn mux0
+  where
+    readInRange :: StorageType -> ReadMem sym (PartLLVMVal sym)
+    readInRange tp'
+      | laxLoadsAndStores ?memOpts &&
+        indeterminateLoadBehavior ?memOpts == UnstableSymbolic
+      = liftIO (Partial.totalLLVMVal sym <$> freshLLVMVal sym tp')
+      | otherwise
+      = liftIO (Partial.partErr sym mop $ Invalidated msg)
 
 -- | Read a value from memory.
 readMem :: forall sym w.
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) => sym ->
+  ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
+  sym ->
   NatRepr w ->
   Maybe String ->
   LLVMPtr sym w ->
@@ -714,8 +730,13 @@ readMem sym w gsym l tp alignment m = do
     -- Otherwise, fall back to the less-optimized read case
     _ -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
-  Partial.attachMemoryError sym p1 mop UnreadableRegion =<<
-    Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment) part_val
+  let stack = getCallStack (m ^. memState)
+  part_val' <- applyUnless (laxLoadsAndStores ?memOpts)
+                           (Partial.attachSideCondition sym stack p2 (UB.ReadBadAlignment (RV l) alignment))
+                           part_val
+  applyUnless (laxLoadsAndStores ?memOpts)
+              (Partial.attachMemoryError sym p1 mop UnreadableRegion)
+              part_val'
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
@@ -740,7 +761,9 @@ toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 -- handled in 'readMem'.
 readMem' ::
   forall w sym.
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) => sym ->
+  ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
+  sym ->
   NatRepr w ->
   EndianForm ->
   Maybe String ->
@@ -759,14 +782,17 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
       StorageType ->
       LLVMPtr sym w ->
       ReadMem sym (PartLLVMVal sym)
-    fallback0 tp l =
-      do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
-         -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
-         -- and we can be relatively sure the annotation will survive.
-         liftIO $ do
-           b <- freshConstant sym emptySymbol BaseBoolRepr
-           Partial.Err <$>
-             Partial.annotateME sym mop (NoSatisfyingWrite tp l) b
+    fallback0 tp _l =
+      liftIO $
+        if laxLoadsAndStores ?memOpts
+           && indeterminateLoadBehavior ?memOpts == UnstableSymbolic
+        then Partial.totalLLVMVal sym <$> freshLLVMVal sym tp
+        else do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
+                -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
+                -- and we can be relatively sure the annotation will survive.
+                b <- freshConstant sym emptySymbol BaseBoolRepr
+                Partial.Err <$>
+                  Partial.annotateME sym mop (NoSatisfyingWrite tp) b
 
     go :: (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
@@ -1216,11 +1242,14 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
   p2 <- isAligned sym w ptr alignment
   maybe_allocation_array <- asMemAllocationArrayStore sym w ptr mem
   mem' <- case maybe_allocation_array of
-    -- if this write is inside an allocation backed by a SMT array store,
-    -- then decompose this write into disassembling the value to individual
-    -- bytes, writing them in the SMT array, and writing the updated SMT array
-    -- in the memory
-    Just (ok, arr, arr_sz) | Just True <- asConstantPred ok -> do
+    -- if this write is inside an allocation backed by a SMT array store and
+    -- the value is not a pointer, then decompose this write into disassembling
+    -- the value to individual bytes, writing them in the SMT array, and
+    -- writing the updated SMT array in the memory
+    Just (ok, arr, arr_sz) | Just True <- asConstantPred ok
+                           , case val of
+                               LLVMValInt block _ -> (asNat block) == (Just 0)
+                               _ -> True -> do
       let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
           subFn = \case
             LastStore val_view -> applyView
@@ -1235,6 +1264,7 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
               , "*** Offset:  " ++ show off
               , "*** StorageType:  " ++ show tp
               ]
+
           storeArrayByteFn ::
             SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) ->
             Offset ->
@@ -1243,33 +1273,61 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
             partial_byte <- genValueCtor sym (memEndianForm mem) mop
               =<< traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
 
-            -- TODO! we're abusing assertSafe here a little
-            v <- Partial.assertSafe sym partial_byte
-            case v of
-              LLVMValInt _ byte
+            case partial_byte of
+              Partial.NoErr _ (LLVMValInt _ byte)
                 | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
                   idx <- bvAdd sym (llvmPointerOffset ptr)
                     =<< bvLit sym w (bytesToBV w off)
                   arrayUpdate sym acc_arr (Ctx.singleton idx) byte
-              _ -> return acc_arr
-      res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
 
-      -- NOTE: In this case, we have generated an updated SMT array with all of
-      -- the changes needed to reflect this memory write.  Instead of adding
-      -- each individual byte write to the write log, we add a single entry that
-      -- shadows the entire SMT array in memory. This means that the next lookup
-      -- of e.g., a 4 byte read will see the updated array and be able to read 4
-      -- bytes from this array instead of having to traverse the write history
-      -- to find four different `MemStore`s.
-      --
-      -- Note that the pointer we write to is the *base* pointer (i.e., with
-      -- offset zero), since we are shadowing the *entire* array.
-      basePtr <- LLVMPointer (llvmPointerBlock ptr) <$> bvLit sym w (BV.mkBV w 0)
-      return $ memAddWrite basePtr (MemArrayStore res_arr (Just arr_sz)) mem
+              Partial.NoErr _ (LLVMValZero _) -> do
+                  byte <- bvLit sym knownRepr (BV.zero knownRepr)
+                  idx <- bvAdd sym (llvmPointerOffset ptr)
+                    =<< bvLit sym w (bytesToBV w off)
+                  arrayUpdate sym acc_arr (Ctx.singleton idx) byte
+
+              Partial.NoErr _ v ->
+                  panic "wrietMemWithAllocationCheck"
+                         [ "Expected byte value when updating SMT array, but got:"
+                         , show v
+                         ]
+              Partial.Err _ ->
+                  panic "wrietMemWithAllocationCheck"
+                         [ "Expected succesful byte load when updating SMT array"
+                         , "but got an error instead"
+                         ]
+
+      res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
+      overwriteArrayMem sym w ptr res_arr arr_sz mem
 
     _ -> return $ memAddWrite ptr (MemStore val tp alignment) mem
 
   return (mem', p1, p2)
+
+-- | Overwrite SMT array.
+--
+-- In this case, we have generated an updated SMT array with all of
+-- the changes needed to reflect this memory write.  Instead of adding
+-- each individual byte write to the write log, we add a single entry that
+-- shadows the entire SMT array in memory. This means that the next lookup
+-- of e.g., a 4 byte read will see the updated array and be able to read 4
+-- bytes from this array instead of having to traverse the write history
+-- to find four different `MemStore`s.
+--
+-- Note that the pointer we write to is the *base* pointer (i.e., with
+-- offset zero), since we are shadowing the *entire* array.
+overwriteArrayMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym w ->
+  SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) ->
+  SymBV sym w ->
+  Mem sym ->
+  IO (Mem sym)
+overwriteArrayMem sym w ptr arr sz mem = do
+  basePtr <- LLVMPointer (llvmPointerBlock ptr) <$> bvLit sym w (BV.mkBV w 0)
+  return $ memAddWrite basePtr (MemArrayStore arr (Just sz)) mem
 
 -- | Perform a mem copy (a la @memcpy@ in C).
 --
@@ -1286,7 +1344,21 @@ copyMem ::
 copyMem sym w dst src sz m =
   do p1 <- isAllocated sym w noAlignment src (Just sz) m
      p2 <- isAllocatedMutable sym w noAlignment dst (Just sz) m
-     return (memAddWrite dst (MemCopy src sz) m, p1, p2)
+     dst_maybe_allocation_array <- asMemAllocationArrayStore sym w dst m
+     src_maybe_allocation_array <- asMemAllocationArrayStore sym w src m
+     m' <- case (dst_maybe_allocation_array, src_maybe_allocation_array) of
+       -- if both the dst and src of this copy operation are inside allocations
+       -- backed by SMT array stores, then replace this copy operation with
+       -- using SMT array copy, and writing the result SMT array in the memory
+       (Just (dst_ok, dst_arr, dst_arr_sz), Just (src_ok, src_arr, _src_arr_sz))
+         | Just True <- asConstantPred dst_ok
+         , Just True <- asConstantPred src_ok ->
+           do res_arr <- arrayCopy sym dst_arr (llvmPointerOffset dst) src_arr (llvmPointerOffset src) sz
+              overwriteArrayMem sym w dst res_arr dst_arr_sz m
+
+       _ -> return $ memAddWrite dst (MemCopy src sz) m
+
+     return (m', p1, p2)
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
 -- value. The returned 'Pred' asserts that the pointer falls within an
@@ -1301,7 +1373,50 @@ setMem ::
 
 setMem sym w ptr val sz m =
   do p <- isAllocatedMutable sym w noAlignment ptr (Just sz) m
-     return (memAddWrite ptr (MemSet val sz) m, p)
+     maybe_allocation_array <- asMemAllocationArrayStore sym w ptr m
+     m' <- case maybe_allocation_array of
+       -- if this set operation is inside an allocation backed by a SMT array
+       -- store, then replace this set operation with using SMT array set, and
+       -- writing the result SMT array in the memory
+       Just (ok, arr, arr_sz) | Just True <- asConstantPred ok ->
+         do res_arr <- arraySet sym arr (llvmPointerOffset ptr) val sz
+            overwriteArrayMem sym w ptr res_arr arr_sz m
+
+       _ -> return $ memAddWrite ptr (MemSet val sz) m
+
+     return (m', p)
+
+writeArrayMemWithAllocationCheck ::
+  (IsSymInterface sym, 1 <= w) =>
+  (sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)) ->
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  Alignment ->
+  SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
+  Maybe (SymBV sym w) {- ^ Array size; if @Nothing@, the size is unrestricted -} ->
+  Mem sym -> IO (Mem sym, Pred sym, Pred sym)
+writeArrayMemWithAllocationCheck is_allocated sym w ptr alignment arr sz m =
+  do p1 <- is_allocated sym w alignment ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     let default_m = memAddWrite ptr (MemArrayStore arr sz) m
+     maybe_allocation_array <- asMemAllocationArrayStore sym w ptr m
+     m' <- case maybe_allocation_array of
+       -- if this write is inside an allocation backed by a SMT array store,
+       -- then replace this copy operation with using SMT array copy, and
+       -- writing the result SMT array in the memory
+       Just (ok, alloc_arr, alloc_sz)
+         | Just True <- asConstantPred ok, Just arr_sz <- sz ->
+         do sz_diff <- bvSub sym alloc_sz arr_sz
+            case asBV sz_diff of
+              Just (BV.BV 0) -> return default_m
+              _ ->
+                do zero_off <- bvLit sym w $ BV.mkBV w 0
+                   res_arr <- arrayCopy sym alloc_arr (llvmPointerOffset ptr) arr zero_off arr_sz
+                   overwriteArrayMem sym w ptr res_arr alloc_sz m
+
+       _ -> return default_m
+
+     return (m', p1, p2)
 
 -- | Write an array to memory.
 --
@@ -1316,10 +1431,7 @@ writeArrayMem ::
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
   Maybe (SymBV sym w) {- ^ Array size; if @Nothing@, the size is unrestricted -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
-writeArrayMem sym w ptr alignment arr sz m =
-  do p1 <- isAllocatedMutable sym w alignment ptr sz m
-     p2 <- isAligned sym w ptr alignment
-     return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
+writeArrayMem = writeArrayMemWithAllocationCheck isAllocatedMutable
 
 -- | Write an array to memory.
 --
@@ -1334,10 +1446,7 @@ writeArrayConstMem ::
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
   Maybe (SymBV sym w) {- ^ Array size -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
-writeArrayConstMem sym w ptr alignment arr sz m =
-  do p1 <- isAllocated sym w alignment ptr sz m
-     p2 <- isAligned sym w ptr alignment
-     return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
+writeArrayConstMem = writeArrayMemWithAllocationCheck isAllocated
 
 -- | Explicitly invalidate a region of memory.
 invalidateMem ::

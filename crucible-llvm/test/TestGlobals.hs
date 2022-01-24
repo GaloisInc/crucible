@@ -27,7 +27,12 @@ globalTests =
     -- It would be nice to have access to the Arbitrary instances for L.AST from
     -- llvm-pretty-bc-parser here.
     let mkGlobal name = L.Global (L.Symbol name) L.emptyGlobalAttrs L.Opaque Nothing Nothing Map.empty
-        mkAlias  name global = L.GlobalAlias (L.Symbol name) L.Opaque (L.ValSymbol (L.Symbol global))
+        mkAlias  name global = L.GlobalAlias { L.aliasLinkage    = Nothing
+                                             , L.aliasVisibility = Nothing
+                                             , L.aliasName       = L.Symbol name
+                                             , L.aliasType       = L.Opaque
+                                             , L.aliasTarget     = L.ValSymbol (L.Symbol global)
+                                             }
         mkModule as   gs     = L.emptyModule { L.modGlobals = gs
                                              , L.modAliases = as
                                              }
@@ -55,7 +60,12 @@ globalTests =
 
     let t = L.PrimType (L.Integer 2)
         mkGlobal name = L.Global (L.Symbol name) L.emptyGlobalAttrs t Nothing Nothing Map.empty
-        mkAlias  name global = L.GlobalAlias (L.Symbol name) t (L.ValSymbol (L.Symbol global))
+        mkAlias  name global = L.GlobalAlias { L.aliasLinkage    = Nothing
+                                             , L.aliasVisibility = Nothing
+                                             , L.aliasName       = L.Symbol name
+                                             , L.aliasType       = t
+                                             , L.aliasTarget     = L.ValSymbol (L.Symbol global)
+                                             }
         mkModule as   gs     = L.emptyModule { L.modGlobals = gs
                                              , L.modAliases = as
                                              }

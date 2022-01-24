@@ -1,7 +1,7 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.Translation
 -- Description      : Translation of LLVM AST into Crucible control-flow graph
--- Copyright        : (c) Galois, Inc 2014-2018
+-- Copyright        : (c) Galois, Inc 2014-2021
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -52,8 +52,7 @@
 --
 -- A (probably) partial list of things we intend to support, but do not yet:
 --
---  * Checking of alignment constraints on load, store, alloca, etc.
---  * Various vector instructions.  This includes a variety of instructions
+--  * Various vector instructions. This includes a variety of instructions
 --      that LLVM allows to take vector arguments, but are currently only
 --      defined on scalar (nonvector) arguments. (Progress has been made on
 --      this, but may not yet be complete).
@@ -81,20 +80,27 @@ module Lang.Crucible.LLVM.Translation
   , LLVMContext(..)
   , llvmTypeCtx
   , translateModule
+  , LLVMTranslationWarning(..)
 
   , module Lang.Crucible.LLVM.Translation.Constant
+  , module Lang.Crucible.LLVM.Translation.Options
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
 import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
+import           Data.IORef (IORef, newIORef, readIORef)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text   as Text
+import           Prettyprinter (pretty)
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
@@ -116,6 +122,7 @@ import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
+import           Lang.Crucible.LLVM.Translation.Options
 import           Lang.Crucible.LLVM.Translation.Instruction
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
@@ -160,7 +167,7 @@ typeToRegExpr tp = do
 --   The type of the register is inferred from the instruction that assigns to it
 --   and is recorded in the ident map.
 buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator s arch reg (IdentMap s)
-buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
+buildRegMap m d = foldM (\m0 bb -> buildRegTypeMap m0 bb) m $ L.defBody d
 
 buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
@@ -187,24 +194,29 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 
 -- | Generate crucible code for each LLVM statement in turn.
-generateStmts :: (?laxArith :: Bool)
+generateStmts :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
         -> L.BlockLabel
+        -> Set L.Ident {- ^ Set of usable identifiers -}
         -> [L.Stmt]
         -> LLVMGenerator s arch ret a
-generateStmts retType lab stmts = go (processDbgDeclare stmts)
- where go [] = fail "LLVM basic block ended without a terminating instruction"
-       go (x:xs) =
+generateStmts retType lab defSet0 stmts = go defSet0 (processDbgDeclare stmts)
+ where go _ [] = fail "LLVM basic block ended without a terminating instruction"
+       go defSet (x:xs) =
          case x of
            -- a result statement assigns the result of the instruction into a register
-           L.Result ident instr md -> do
-                 setLocation md
-                 generateInstr retType lab instr (assignLLVMReg ident) (go xs)
+           L.Result ident instr md ->
+              do setLocation md
+                 generateInstr retType lab defSet instr
+                   (assignLLVMReg ident)
+                   (go (Set.insert ident defSet) xs)
 
            -- an effect statement simply executes the instruction for its effects and discards the result
-           L.Effect instr md -> do
-                 setLocation md
-                 generateInstr retType lab instr (\_ -> return ()) (go xs)
+           L.Effect instr md ->
+              do setLocation md
+                 generateInstr retType lab defSet instr
+                   (\_ -> return ())
+                   (go defSet xs)
 
 -- | Search for calls to intrinsic 'llvm.dbg.declare' and copy the
 -- metadata onto the corresponding 'alloca' statement.  Also copy
@@ -308,14 +320,14 @@ findFile _ = Nothing
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
 --   by translating the given LLVM statements.
 defineLLVMBlock
-        :: (?laxArith :: Bool)
+        :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
-        -> Map L.BlockLabel (LLVMBlockInfo s)
+        -> LLVMBlockInfoMap s
         -> L.BasicBlock
         -> LLVMGenerator s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
-    Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
+    Just bi -> defineBlock (block_label bi) (generateStmts retType lab (block_use_set bi) stmts)
     Nothing -> fail $ unwords ["LLVM basic block not found in block info map", show lab]
 
 defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
@@ -326,7 +338,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --
 --   This step introduces a new dummy entry point that simply jumps to the LLVM entry
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
-genDefn :: (?laxArith :: Bool)
+genDefn :: (?transOpts :: TranslationOptions)
         => L.Define
         -> TypeRepr ret
         -> LLVMGenerator s arch ret (Expr ext s ret)
@@ -349,20 +361,43 @@ genDefn defn retType =
       case Map.lookup entry_lab bim of
         Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
         Just entry_bi -> do
-          mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
+          checkEntryPointUseSet nm entry_bi (L.defArgs defn)
+          mapM_ (\bb -> defineLLVMBlock retType bim bb) (L.defBody defn)
           jump (block_label entry_bi)
+
+
+-- | Check that the input LLVM CFG satisfies the def/use invariant,
+--   and raise an error if some virtual register has a use site that
+--   is not dominated by its definition site.
+checkEntryPointUseSet ::
+  String ->
+  LLVMBlockInfo s ->
+  [L.Typed L.Ident] ->
+  LLVMGenerator s arg ret ()
+checkEntryPointUseSet nm bi args
+  | Set.null unsatisfiedUses = return ()
+  | otherwise =
+      malformedLLVMModule ("Invalid SSA form for function: " <> pretty nm)
+        ([ "The following LLVM virtual registers have at least one use site that"
+         , "is not dominated by the corresponding definition:" ] ++
+         [ "   " <> pretty (show (L.ppIdent i)) | i <- Set.toList unsatisfiedUses ])
+  where
+    argSet = Set.fromList (map L.typedValue args)
+    useSet = block_use_set bi
+    unsatisfiedUses = Set.difference useSet argSet
 
 ------------------------------------------------------------------------
 -- transDefine
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool, ?optLoopMerge :: Bool)
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
             => HandleAllocator
             -> LLVMContext arch
+            -> IORef [LLVMTranslationWarning]
             -> L.Define
             -> IO (L.Symbol, (L.Declare, C.AnyCFG LLVM))
-transDefine halloc ctx d = do
+transDefine halloc ctx warnRef d = do
   let ?lc = ctx^.llvmTypeCtx
   let decl = declareFromDefine d
   let symb@(L.Symbol symb_str) = L.defName d
@@ -372,11 +407,11 @@ transDefine halloc ctx d = do
     h <- mkHandle' halloc fn_name argTypes retType
     let def :: FunctionDef LLVM (LLVMState arch) args ret IO
         def inputs = (s, f)
-            where s = initialState d ctx argTypes inputs
+            where s = initialState d ctx argTypes inputs warnRef
                   f = genDefn d retType
     sng <- newIONonceGenerator
     (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
-      if ?optLoopMerge then earlyMergeLoops ng cfg else return cfg
+      if optLoopMerge ?transOpts then earlyMergeLoops ng cfg else return cfg
     case toSSA g of
       C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
 
@@ -384,19 +419,21 @@ transDefine halloc ctx d = do
 -- translateModule
 
 -- | Translate a module into Crucible control-flow graphs.
+-- Return the translated module and a list of warning messages
+-- generated during translation.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool)
+translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
-                -> IO (Some ModuleTranslation)
+                -> IO (Some ModuleTranslation, [LLVMTranslationWarning])
 translateModule halloc mvar m = do
+  warnRef <- newIORef []
   Some ctx <- mkLLVMContext mvar m
   let nonceGen = haCounter halloc
-  llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
-    do pairs <- mapM (transDefine halloc ctx) (L.modDefines m)
-
+  mtrans <- llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
+    do pairs <- mapM (transDefine halloc ctx warnRef) (L.modDefines m)
        let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        let ctx' = ctx{ llvmGlobalAliases = globalAliases m
                      , llvmFunctionAliases = functionAliases m
@@ -407,3 +444,5 @@ translateModule halloc mvar m = do
                                        , _transContext = ctx'
                                        , modTransNonce = nonce
                                        }))
+  warns <- reverse <$> readIORef warnRef
+  return (mtrans, warns)

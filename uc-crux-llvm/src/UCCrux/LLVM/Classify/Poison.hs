@@ -128,7 +128,7 @@ handleBVOp appCtx sym annotations diagnosis op1 op2 constraint =
           (appCtx ^. log) Hi $
             Text.unwords
               [ "Diagnosis:",
-                diagnose d,
+                Text.pack (show (diagnose d)),
                 "at",
                 Text.pack (show (ppCursor "<top>" (selector ^. selectorCursor)))
               ]

@@ -9,5 +9,6 @@ int linked_list_sum(struct list *l) {
     total += next->head;
     next = next->tail;
   }
+  return total;
 }
 

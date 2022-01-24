@@ -27,7 +27,6 @@ module Lang.Crucible.Syntax.SExpr
   ) where
 
 import Data.Char (isDigit, isLetter)
-import Data.Semigroup (Semigroup(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void

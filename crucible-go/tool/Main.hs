@@ -1,5 +1,7 @@
 -- | Command line interface to crucible-go
+{-# Language ImplicitParams #-}
 {-# Language OverloadedStrings #-}
+
 module Main where
 
 import qualified Data.ByteString.Lazy as BS
@@ -13,16 +15,17 @@ import Lang.Crucible.Simulator
 
 -- crux
 import qualified Crux
-import qualified Crux.Model   as Crux
-import qualified Crux.Types   as Crux
+import qualified Crux.Config.Common as Crux
+import qualified Crux.Types as Crux (CruxSimulationResult)
 
 -- Go
 import Language.Go.Parser
 import Lang.Crucible.Go.Simulate (setupCrucibleGoCrux)
 import Lang.Crucible.Go.Types
+import Paths_crucible_go (version)
 
 -- | A simulator context
-type SimCtxt sym = SimContext (Crux.Model sym) sym Go
+type SimCtxt sym = SimContext (Crux.Crux sym) sym Go
 
 data GoOptions = GoOptions { }
 
@@ -36,36 +39,47 @@ cruxGoConfig = Crux.Config
   , Crux.cfgCmdLineFlag = []
   }
 
-simulateGo :: Crux.CruxOptions -> GoOptions -> Crux.SimulatorCallback
-simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
-   let files = Crux.inputFiles copts
-   let verbosity = Crux.simVerbose copts
-   file <- case files of
-             [f] -> return f
-             _ -> fail "crux-go requires a single file name as an argument"
+simulateGo ::
+  Crux.CruxOptions ->
+  GoOptions ->
+  Crux.SimulatorCallbacks msgs Crux.CruxSimulationResult
+simulateGo copts _opts =
+  Crux.SimulatorCallbacks $
+    return $
+      Crux.SimulatorHooks
+        { Crux.setupHook =
+            \sym _maybeOnline -> do
+              let files = Crux.inputFiles copts
+              let verbosity = Crux.simVerbose (Crux.outputOptions copts)
+              file <- case files of
+                        [f] -> return f
+                        _ -> fail "crux-go requires a single file name as an argument"
 
-   -- Load the file
-   json <- BS.readFile file
-   let fwi = either error id $ parseMain json
+              -- Load the file
+              json <- BS.readFile file
+              let fwi = either error id $ parseMain json
 
-   -- Initialize arguments to the function
-   let regmap = RegMap Ctx.Empty
+              -- Initialize arguments to the function
+              let regmap = RegMap Ctx.Empty
 
-   -- Set up initial crucible execution state
-   initSt <- setupCrucibleGoCrux 32 fwi verbosity sym Crux.emptyModel regmap
+              -- Set up initial crucible execution state
+              Crux.RunnableState <$>
+                setupCrucibleGoCrux 32 fwi verbosity sym Crux.CruxPersonality regmap
 
-   -- TODO: add failure explanations
-   let explainFailure _evalFn _gl = return mempty
-
-   return (Crux.RunnableState initSt, explainFailure)
+        -- TODO add failure explanations
+        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_sym result -> return result
+        }
 
 
 -- | Entry point, parse command line options
 main :: IO ()
-main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-go" "0.1" cruxGoConfig $
-    \(cruxOpts, goOpts) ->
-      exitWith =<< Crux.postprocessSimResult cruxOpts =<<
-        Crux.runSimulator (cruxOpts { Crux.outDir = "report"
-                                    , Crux.skipReport = False })
-        (simulateGo cruxOpts goOpts)
+main = do
+  mkOutCfg <- Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
+  Crux.withCruxLogMessage $
+    Crux.loadOptions mkOutCfg "crux-go" version cruxGoConfig
+      $ \(cruxOpts, goOpts) ->
+        exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
+          Crux.runSimulator (cruxOpts { Crux.outDir = "report"
+                                      , Crux.skipReport = False })
+          (simulateGo cruxOpts goOpts)

@@ -11,6 +11,8 @@ packages:
   crucible-llvm/
   crucible-wasm/
   crucible-syntax/
+  crucible-concurrency/
+  crucible-symio/
   crux/
   crux-llvm/
   crux-mir/
@@ -24,7 +26,6 @@ optional-packages:
   dependencies/golang/
   dependencies/jvm-parser/
   dependencies/haskell-wasm/
-  dependencies/hpb/
   dependencies/language-sally/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/

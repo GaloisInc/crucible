@@ -12,19 +12,17 @@ Stability    : provisional
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module UCCrux.LLVM.Setup.Monad
   ( Setup,
-    SetupError (..),
-    ppSetupError,
     SetupState,
     SetupAssumption (..),
     SetupResult (..),
@@ -35,9 +33,6 @@ module UCCrux.LLVM.Setup.Monad
     getAnnotation,
     annotatePointer,
     runSetup,
-    storableType,
-    sizeInBytes,
-    sizeBv,
     mallocLocation,
     malloc,
     store,
@@ -48,20 +43,15 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens (to, (.=), (%=), (<+=), Simple, Lens, lens, (^.), view)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.Except (throwError, ExceptT, MonadError, runExceptT)
 import           Control.Monad.Reader (MonadReader, ask)
 import           Control.Monad.State.Strict (MonadState, gets)
 import           Control.Monad.Writer (MonadWriter, tell)
 import           Control.Monad.RWS (RWST, runRWST)
-import           Data.BitVector.Sized (mkBV)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Text (Text)
 import qualified Data.Text.IO as TextIO
-import           Data.Void (Void)
-import qualified Prettyprinter as PP
-import           Prettyprinter (Doc)
 
 import qualified Text.LLVM.AST as L
 
@@ -76,12 +66,10 @@ import qualified What4.Interface as What4
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 
-import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
-import           Lang.Crucible.LLVM.DataLayout (noAlignment, maxAlignment)
+import           Lang.Crucible.LLVM.DataLayout (maxAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
-import           Lang.Crucible.LLVM.MemType (MemType, memTypeSize)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext(llvmDataLayout))
 
@@ -89,34 +77,23 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
-import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType, ModuleTypes, asFullType)
-import           UCCrux.LLVM.FullType.MemType (toMemType)
+import           UCCrux.LLVM.FullType.Memory (sizeBv)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, ToBaseType, ModuleTypes)
 import           UCCrux.LLVM.Constraints (Constraint)
+import qualified UCCrux.LLVM.Mem as Mem
 {- ORMOLU_ENABLE -}
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data TypedSelector m arch (argTypes :: Ctx (FullType m)) (ft :: FullType m)
   = TypedSelector (FullTypeRepr m ft) (SomeInSelector m argTypes ft)
-
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
--- compatibility.
-data SetupError m arch (argTypes :: Ctx (FullType m))
-  = SetupTypeTranslationError MemType
-
-ppSetupError :: SetupError m arch argTypes -> Doc Void
-ppSetupError =
-  \case
-    SetupTypeTranslationError memType ->
-      PP.pretty ("Couldn't translate MemType" :: Text) <> PP.viaShow memType
 
 data SetupAssumption m sym = SetupAssumption
   { assumptionReason :: Some (Constraint m),
     assumptionPred :: What4.Pred sym
   }
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SetupState m arch sym (argTypes :: Ctx (FullType m)) = SetupState
   { _setupMem :: LLVMMem.MemImpl sym,
@@ -138,23 +115,18 @@ setupAnnotations = lens _setupAnnotations (\s v -> s {_setupAnnotations = v})
 symbolCounter :: Simple Lens (SetupState m arch sym argTypes) Int
 symbolCounter = lens _symbolCounter (\s v -> s {_symbolCounter = v})
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 newtype Setup m arch sym (argTypes :: Ctx (FullType m)) a
   = Setup
-      ( ExceptT
-          (SetupError m arch argTypes)
-          ( RWST
-              (ModuleContext m arch)
-              [SetupAssumption m sym]
-              (SetupState m arch sym argTypes)
-              IO
-          )
+      ( RWST
+          (ModuleContext m arch)
+          [SetupAssumption m sym]
+          (SetupState m arch sym argTypes)
+          IO
           a
       )
   deriving (Applicative, Functor, Monad, MonadIO)
-
-deriving instance MonadError (SetupError m arch argTypes) (Setup m arch sym argTypes)
 
 deriving instance MonadState (SetupState m arch sym argTypes) (Setup m arch sym argTypes)
 
@@ -165,7 +137,7 @@ deriving instance MonadWriter [SetupAssumption m sym] (Setup m arch sym argTypes
 instance LJ.HasLog Text (Setup m arch sym argTypes) where
   getLogAction = pure $ LJ.LogAction (liftIO . TextIO.putStrLn . ("[Crux] " <>))
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data SetupResult m arch sym (argTypes :: Ctx (FullType m)) = SetupResult
   { resultMem :: LLVMMem.MemImpl sym,
@@ -191,22 +163,20 @@ runSetup ::
   ModuleContext m arch ->
   LLVMMem.MemImpl sym ->
   Setup m arch sym argTypes a ->
-  f (Either (SetupError m arch argTypes) (SetupResult m arch sym argTypes, a))
+  f (SetupResult m arch sym argTypes, a)
 runSetup modCtx mem (Setup computation) = do
   result <-
     liftIO $
-      runRWST (runExceptT computation) modCtx (makeSetupState mem)
+      runRWST computation modCtx (makeSetupState mem)
   pure $
     case result of
-      (Left err, _, _) -> Left err
-      (Right result', state, assumptions) ->
-        Right
-          ( SetupResult
-              (state ^. setupMem)
-              (state ^. setupAnnotations)
-              assumptions,
-            result'
-          )
+      (result', state, assumptions) ->
+        ( SetupResult
+            (state ^. setupMem)
+            (state ^. setupAnnotations)
+            assumptions,
+          result'
+        )
 
 freshSymbol :: Setup m arch sym argTypes What4.SolverSymbol
 freshSymbol =
@@ -293,10 +263,6 @@ annotatePointer sym selector fullTypeRepr ptr =
           addAnnotation (Some annotation) selector fullTypeRepr
           pure ptr''
 
-storableType :: ArchOk arch => MemType -> Setup m arch sym argTypes LLVMMem.StorageType
-storableType memType =
-  maybe (throwError (SetupTypeTranslationError memType)) pure (LLVMMem.toStorableType memType)
-
 modifyMem ::
   (LLVMMem.MemImpl sym -> Setup m arch sym argTypes (a, LLVMMem.MemImpl sym)) ->
   Setup m arch sym argTypes a
@@ -312,30 +278,6 @@ _modifyMem_ ::
   Setup m arch sym argTypes ()
 _modifyMem_ f = modifyMem (fmap ((),) . f)
 
-sizeInBytes :: FullTypeRepr m ft -> Int -> Setup m arch sym argTypes Integer
-sizeInBytes ftRepr size =
-  do
-    moduleContext <- ask
-    let dl =
-          moduleContext
-            ^. moduleTranslation
-              . LLVMTrans.transContext
-              . LLVMTrans.llvmTypeCtx
-              . to llvmDataLayout
-    pure $ fromIntegral size * bytesToInteger (memTypeSize dl (toMemType ftRepr))
-
-sizeBv ::
-  ( Crucible.IsSymInterface sym,
-    ArchOk arch
-  ) =>
-  proxy arch ->
-  sym ->
-  FullTypeRepr m ft ->
-  Int ->
-  Setup m arch sym argTypes (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
-sizeBv _proxy sym ftRepr size =
-  liftIO . What4.bvLit sym ?ptrWidth . mkBV ?ptrWidth =<< sizeInBytes ftRepr size
-
 -- | This is exposed so that classification can check if a given allocation was
 -- generated during setup or during execution. A slightly heavier-weight
 -- alternative would be to keep track of the set of allocations made in the
@@ -344,22 +286,25 @@ mallocLocation :: String
 mallocLocation = "uc-crux-llvm bugfinding auto-setup"
 
 malloc ::
-  forall m sym arch argTypes inTy atTy.
-  ( Crucible.IsSymInterface sym,
-    ArchOk arch
+  forall m sym bak arch argTypes inTy atTy.
+  ( Crucible.IsSymBackend sym bak,
+    LLVMMem.HasLLVMAnn sym,
+    ArchOk arch,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
-  sym ->
+  bak ->
   FullTypeRepr m ('FTPtr atTy) ->
   -- | Path to this pointer
   Selector m argTypes inTy ('FTPtr atTy) ->
   -- | Size, as in number of elements. Should be strictly positive.
-  Int ->
+  Integer ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-malloc sym fullTypeRepr selector size =
+malloc bak fullTypeRepr selector size =
   do
-    moduleContext <- ask
+    let sym = Crucible.backendGetSym bak
+    modCtx <- ask
     let dl =
-          moduleContext
+          modCtx
             ^. moduleTranslation
               . LLVMTrans.transContext
               . LLVMTrans.llvmTypeCtx
@@ -368,12 +313,12 @@ malloc sym fullTypeRepr selector size =
       modifyMem $
         \mem ->
           do
-            sz <- sizeBv (Proxy :: Proxy arch) sym fullTypeRepr size
+            sz <- liftIO $ sizeBv modCtx sym fullTypeRepr size
             (p, mem') <-
               liftIO $
                 do
                   LLVMMem.doMalloc
-                    sym
+                    bak
                     LLVMMem.HeapAlloc -- TODO(lb): Change based on arg/global
                     LLVMMem.Mutable -- TODO(lb): Change based on arg/global
                     mallocLocation
@@ -386,12 +331,12 @@ malloc sym fullTypeRepr selector size =
     annotatePointer sym selector fullTypeRepr ptr
 
 store ::
-  forall m arch sym argTypes inTy ft.
-  ( Crucible.IsSymInterface sym,
+  forall m arch sym bak argTypes inTy ft.
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
-  sym ->
+  bak ->
   ModuleTypes m ->
   FullTypeRepr m ('FTPtr ft) ->
   -- | Path to this pointer
@@ -399,38 +344,37 @@ store ::
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-store sym mts ptrRepr@(FTPtrRepr ptPtdTo) selector ptr regValue =
-  do
-    let ftPtdTo = asFullType mts ptPtdTo
-    storageType <- storableType (toMemType ftPtdTo)
-    modifyMem $
-      \mem ->
-        do
-          ptr' <- annotatePointer sym selector ptrRepr ptr
-          mem' <- liftIO $ LLVMMem.doStore sym mem ptr' (toCrucibleType (Proxy :: Proxy arch) ftPtdTo) storageType noAlignment regValue
-          pure (ptr', mem')
+store bak mts ptrRepr selector ptr regValue =
+  modifyMem $
+    \mem ->
+      do
+        let sym = Crucible.backendGetSym bak
+        ptr' <- annotatePointer sym selector ptrRepr ptr
+        mem' <- liftIO $ Mem.store' (Proxy @arch) bak mem mts ptrRepr ptr' regValue
+        pure (ptr', mem')
 
 storeGlobal ::
-  forall m arch sym argTypes inTy ft.
-  ( Crucible.IsSymInterface sym,
+  forall m arch sym bak argTypes inTy ft.
+  ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
-  sym ->
+  bak ->
   FullTypeRepr m ft ->
   -- | Path to this pointer
   Selector m argTypes inTy ft ->
   L.Symbol ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-storeGlobal sym ftRepr selector symb regValue =
+storeGlobal bak ftRepr selector symb regValue =
   do
-    storageType <- storableType (toMemType ftRepr)
+    let sym = Crucible.backendGetSym bak
     mem <- gets (view setupMem)
-    ptr <- liftIO $ LLVMMem.doResolveGlobal sym mem symb
+    ptr <- liftIO $ LLVMMem.doResolveGlobal bak mem symb
     ptr' <- annotatePointer sym selector ftRepr ptr
     modifyMem $
       \mem' ->
         do
-          mem'' <- liftIO $ LLVMMem.doStore sym mem' ptr' (toCrucibleType (Proxy :: Proxy arch) ftRepr) storageType noAlignment regValue
+          mem'' <-
+            liftIO $ Mem.store (Proxy @arch) bak mem' ftRepr ptr' regValue
           pure (ptr', mem'')

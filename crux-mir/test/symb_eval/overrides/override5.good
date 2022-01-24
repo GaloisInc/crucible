@@ -3,8 +3,9 @@ test override5/3a1fbbbh::f[0]: FAILED
 failures:
 
 ---- override5/3a1fbbbh::f[0] counterexamples ----
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/overrides/override5.rs:10:5: 10:48: error: in override5/3a1fbbbh::f[0]
-MIR assertion at test/symb_eval/overrides/override5.rs:10:5:
-	foo.wrapping_add(1) != 0
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/overrides/override5.rs:10:5: 10:48: error: in override5/3a1fbbbh::f[0]
+[Crux]   MIR assertion at test/symb_eval/overrides/override5.rs:10:5:
+[Crux]   	foo.wrapping_add(1) != 0
 
 [Crux] Overall status: Invalid.

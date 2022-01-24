@@ -1,0 +1,4 @@
+[Crux] Attempting to prove verification conditions.
+[Crux] Found counterexample for verification goal
+[Crux]   sv-benchmarks/c/pthread/fib_bench_longer-2.cbl:75:5: error: in main
+[Crux]   Not reachable?

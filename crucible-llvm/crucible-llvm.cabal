@@ -12,6 +12,7 @@ Synopsis:      Support for translating and executing LLVM code in Crucible
 Description:
    Library providing LLVM-specific extensions to the crucible core library
    for Crucible-based simulation and verification of LLVM-compiled applications.
+extra-source-files: CHANGELOG.md, README.md
 
 common bldflags
   ghc-options: -Wall
@@ -27,12 +28,13 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.7 && < 4.15,
+    base >= 4.13 && < 4.16,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,
     containers >= 0.5.8.0,
     crucible >= 0.5,
+    crucible-symio,
     what4 >= 0.4.1,
     deepseq,
     directory,
@@ -74,13 +76,16 @@ library
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.MalformedLLVMModule
     Lang.Crucible.LLVM.MemModel
+    Lang.Crucible.LLVM.MemModel.CallStack
     Lang.Crucible.LLVM.MemModel.Generic
+    Lang.Crucible.LLVM.MemModel.MemLog
     Lang.Crucible.LLVM.MemModel.Partial
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.QQ
+    Lang.Crucible.LLVM.SymIO
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext
@@ -93,20 +98,22 @@ library
     Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.Libcxx
     Lang.Crucible.LLVM.Intrinsics.LLVM
+    Lang.Crucible.LLVM.Intrinsics.Options
     Lang.Crucible.LLVM.MemModel.Common
-    Lang.Crucible.LLVM.MemModel.MemLog
     Lang.Crucible.LLVM.MemModel.Options
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
+    Lang.Crucible.LLVM.Translation.BlockInfo
     Lang.Crucible.LLVM.Translation.Constant
     Lang.Crucible.LLVM.Translation.Expr
     Lang.Crucible.LLVM.Translation.Instruction
     Lang.Crucible.LLVM.Translation.Monad
+    Lang.Crucible.LLVM.Translation.Options
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
+    Lang.Crucible.LLVM.Utils
 
-  if impl(ghc >= 8.6)
-    default-extensions: NoStarIsType
+  default-extensions: NoStarIsType
 
 
 test-suite crucible-llvm-tests

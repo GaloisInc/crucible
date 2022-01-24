@@ -7,8 +7,6 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
--- Needed for GHC 8.6
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -17,6 +15,7 @@ Stability    : provisional
 module UCCrux.LLVM.Run.Result
   ( BugfindingResult (..),
     SomeBugfindingResult (..),
+    SomeBugfindingResult' (..),
     FunctionSummary (..),
     FunctionSummaryTag (..),
     DidHitBounds (..),
@@ -30,6 +29,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Data.List.NonEmpty (NonEmpty((:|)), toList)
+import           Data.Sequence (Seq)
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Void (Void)
@@ -39,10 +39,12 @@ import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Ctx (Ctx)
+import           Data.Parameterized.Context (Assignment)
 
-import           UCCrux.LLVM.Classify.Types (LocatedTruePositive(..), ppLocatedTruePositive, Uncertainty, ppUncertainty, Diagnosis)
+import           UCCrux.LLVM.Classify.Types (Located, ppLocated, TruePositive, ppTruePositive, Uncertainty, ppUncertainty, Diagnosis)
 import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
-import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
+import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
 {- ORMOLU_ENABLE -}
 
@@ -73,22 +75,36 @@ ppFunctionSummaryTag =
     TagSafeUpToBounds -> "Function is safe up to the specified bounds on loops/recursion"
     TagAlwaysSafe -> "Function is always safe"
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
+--
+-- TODO: It would be great to have more provenance information for the
+-- 'Constraints'. What bug does a given constraint help avoid? On what line?
 data FunctionSummary m (argTypes :: Ctx (FullType m))
-  = Unclear (NonEmpty Uncertainty)
-  | FoundBugs (NonEmpty LocatedTruePositive)
+  = Unclear (NonEmpty (Located Uncertainty))
+  | FoundBugs (NonEmpty (Located TruePositive))
   | SafeWithPreconditions DidHitBounds Unsoundness (Constraints m argTypes)
   | SafeUpToBounds Unsoundness
   | AlwaysSafe Unsoundness
 
-data SomeBugfindingResult
-  = forall m arch argTypes. SomeBugfindingResult (BugfindingResult m arch argTypes)
+-- | The result of running the bugfinding/contract inference main loop. Contains
+-- both the final, summary result ('BugfindingResult'), as well as the sequence
+-- of simulation results that led to it ('UCCruxSimulationResult'), which is
+-- consumed in particular during crash-equivalence checking.
+data SomeBugfindingResult m arch
+  = forall argTypes.
+    SomeBugfindingResult
+      (Assignment (FullTypeRepr m) argTypes)
+      (BugfindingResult m arch argTypes)
+      (Seq (UCCruxSimulationResult m arch argTypes))
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+data SomeBugfindingResult'
+  = forall m arch. SomeBugfindingResult' (SomeBugfindingResult m arch)
+
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data BugfindingResult m arch (argTypes :: Ctx (FullType m)) = BugfindingResult
-  { uncertainResults :: [Uncertainty],
+  { uncertainResults :: [Located Uncertainty],
     deducedPreconditions :: [Diagnosis],
     summary :: FunctionSummary m argTypes
   }
@@ -99,11 +115,16 @@ ppFunctionSummary fs =
     <> case fs of
       Unclear uncertainties ->
         PP.pretty $
-          ":\n" <> Text.intercalate "\n----------\n" (toList (fmap ppUncertainty uncertainties))
+          ":\n"
+            <> Text.intercalate
+              "\n----------\n"
+              (toList (fmap (ppLocated ppUncertainty) uncertainties))
       FoundBugs bugs ->
         PP.pretty $
           ":\n"
-            <> Text.intercalate "\n----------\n" (toList (fmap ppLocatedTruePositive bugs))
+            <> Text.intercalate
+              "\n----------\n"
+              (toList (fmap (ppLocated ppTruePositive) bugs))
       SafeWithPreconditions b u preconditions ->
         PP.pretty
           (":\n" :: Text)
@@ -150,8 +171,8 @@ didHit =
 -- uncertain, because no claim is being made that unsoundness could make false.
 makeFunctionSummary ::
   Constraints m argTypes ->
-  [Uncertainty] ->
-  [LocatedTruePositive] ->
+  [Located Uncertainty] ->
+  [Located TruePositive] ->
   DidHitBounds ->
   Unsoundness ->
   FunctionSummary m argTypes

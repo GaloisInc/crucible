@@ -1,0 +1,4 @@
+[Crux] Attempting to prove verification conditions.
+[Crux] Found counterexample for verification goal
+[Crux]   sv-benchmarks/c/pthread/reorder_2.cbl:20:5: error: in checkThread
+[Crux]   Incorrect

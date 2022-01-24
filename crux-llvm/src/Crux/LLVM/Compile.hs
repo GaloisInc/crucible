@@ -1,28 +1,31 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Crux.LLVM.Compile where
 
 import           Control.Applicative
-import           Control.Exception ( SomeException(..), try, displayException )
+import           Control.Exception ( SomeException(..), try )
 import           Control.Monad ( guard, unless, when, forM_ )
 import           Control.Monad.Logic ( observeAll )
 import qualified Data.Foldable as Fold
 import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
+import           Data.Parameterized.Some
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import           System.Directory ( doesFileExist, removeFile
+import           System.Directory ( doesFileExist, findExecutable, removeFile
                                   , createDirectoryIfMissing, copyFile )
 import           System.Exit ( ExitCode(..) )
 import           System.FilePath ( takeExtension, (</>), (-<.>)
                                  , takeDirectory, takeFileName )
-import           System.Process ( readProcess, readProcessWithExitCode )
+import           System.Process ( readProcessWithExitCode )
 
 import           What4.Interface
 import           What4.ProgramLoc
@@ -36,6 +39,7 @@ import           Crux.Model ( toDouble, showBVLiteral, showFloatLiteral
 import           Crux.Types
 
 import           Crux.LLVM.Config
+import qualified Crux.LLVM.Log as Log
 
 
 isCPlusPlus :: FilePath -> Bool
@@ -55,28 +59,35 @@ anyCPPFiles = any isCPlusPlus
 -- (NOTE: do not look for environment var "CLANG". That is assumed
 --  to be tried already.)
 getClang :: IO FilePath
-getClang = attempt (map inPath clangs)
+getClang = attempt (map findExecutable clangs)
   where
-  inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
-  clangs   = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8", "clang-7", "clang-8" ]
+  clangs = "clang"
+         : [ "clang-" ++ ver
+           | ver <- ["3.6", "3.7", "3.8", "3.9", "4.0", "5.0", "6.0"]
+                    -- Starting with LLVM 7, the version numbers used in binaries only display the major version. See
+                    -- https://releases.llvm.org/7.0.0/tools/clang/docs/ReleaseNotes.html#non-comprehensive-list-of-changes-in-this-release
+                 ++ ["7", "8", "9", "10", "11"] ]
 
-  attempt :: [IO FilePath] -> IO FilePath
+  attempt :: [IO (Maybe FilePath)] -> IO FilePath
   attempt ms =
     case ms of
       [] -> throwCError $ EnvError $
               unlines [ "Failed to find `clang`."
                       , "You may use CLANG to provide path to executable."
                       ]
-      m : more -> do x <- try m
+      m : more -> do x <- m
                      case x of
-                       Left (SomeException {}) -> attempt more
-                       Right a -> return a
+                       Nothing -> attempt more
+                       Just a  -> return a
 
-runClang :: Logs => CruxOptions -> LLVMOptions -> [String] -> IO ()
-runClang cruxOpts llvmOpts params =
+runClang ::
+  Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  LLVMOptions -> [String] -> IO ()
+runClang llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     when (simVerbose cruxOpts > 1) $ say "CLANG" $ unwords (clang : map show allParams)
+     Log.sayCruxLLVM (Log.ClangInvocation (T.pack <$> (clang : map show allParams)))
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -108,7 +119,10 @@ llvmLinkVersion llvmOpts =
 -- specified in the 'CruxOptions' argument, writing the output to a
 -- pre-determined filename in the build directory specified in
 -- 'CruxOptions'.
-genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
+genBitCode ::
+  Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  CruxOptions -> LLVMOptions -> IO FilePath
 genBitCode cruxOpts llvmOpts =
   -- n.b. use of head here is OK because inputFiles should not be
   -- empty (and was previously verified as such in CruxLLVMMain).
@@ -123,7 +137,8 @@ genBitCode cruxOpts llvmOpts =
 -- link the resulting files, along with any input .ll files into the
 -- target bitcode (BC) file.  Returns the filepath of the target
 -- bitcode file.
-genBitCodeToFile :: Logs
+genBitCodeToFile :: Crux.Logs msgs
+                 => Log.SupportsCruxLLVMLogMessage msgs
                  => String -> [FilePath] -> CruxOptions -> LLVMOptions -> Bool
                  -> IO FilePath
 genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
@@ -161,7 +176,7 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
            unless (or [ ".bc" `isSuffixOf` src
                       , bcExists && lazyCompile llvmOpts
                       ]) $
-             runClang cruxOpts llvmOpts =<< params f
+             runClang llvmOpts =<< params f
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
@@ -220,7 +235,9 @@ crucibleFlagsFromSrc srcFile = do
 
 
 makeCounterExamplesLLVM ::
-  Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
 makeCounterExamplesLLVM cruxOpts llvmOpts res
   | makeCexes cruxOpts = mapM_ (go . snd) . Fold.toList $ (cruxSimResultGoals res)
   | otherwise = return ()
@@ -228,29 +245,31 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
  where
  go gs =
   case gs of
-    AtLoc _ _ gs1 -> go gs1
     Branch g1 g2  -> go g1 >> go g2
-    Goal _ (c,_) _ r ->
-      let suff = case plSourceLoc (simErrorLoc c) of
-                   SourcePos _ l _ -> show l
-                   _               -> "unknown"
-          msg = show c
-          skipGoal = case simErrorReason c of
-                       ResourceExhausted _ -> True
-                       _ -> False
+    -- skip proved goals
+    ProvedGoal{} -> return ()
+    -- skip unknown goals
+    NotProvedGoal _ _ _ _ Nothing -> return ()
+    -- skip resource exhausted goals
+    NotProvedGoal _ (simErrorReason -> ResourceExhausted{}) _ _ _ -> return ()
+    -- counterexample to non-resource-exhaustion goal
+    NotProvedGoal _ c _ _ (Just (m,_evs)) ->
+      do let suff = case plSourceLoc (simErrorLoc c) of
+                      SourcePos _ l _ -> show l
+                      _               -> "unknown"
+         try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
+           Left (ex :: SomeException) -> do
+             logGoal gs
+             Log.sayCruxLLVM Log.FailedToBuildCounterexampleExecutable
+             logException ex
+           Right (_prt,dbg) -> do
+             Log.sayCruxLLVM (Log.Executable (T.pack dbg))
+             Log.sayCruxLLVM (Log.Breakpoint (T.pack suff))
 
-      in case (r, skipGoal) of
-           (NotProved _ (Just m), False) ->
-             do sayFail "Crux" ("Counter example for " ++ msg)
-                try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
-                  Left (ex :: SomeException) ->
-                    sayFail "Crux" (unlines ["Failed to build counterexample executable", displayException ex])
-                  Right (_prt,dbg) -> do
-                    say "Crux" ("*** debug executable: " ++ dbg)
-                    say "Crux" ("*** break on line: " ++ suff)
-           _ -> return ()
-
-buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
+buildModelExes ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =
   do let dir  = Crux.outDir cruxOpts
      createDirectoryIfMissing True dir
@@ -267,14 +286,14 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
          libcxx | anyCPPFiles files = ["-lstdc++"]
                 | otherwise = []
 
-     runClang cruxOpts llvmOpts
+     runClang llvmOpts
                    [ "-I", libs </> "includes"
                    , counterFile
                    , libs </> "print-model.c"
                    , "-o", printExe
                    ]
 
-     runClang cruxOpts llvmOpts $
+     runClang llvmOpts $
               concat [ [ "-I", idir ] | idir <- incs ] ++
                      [ counterFile
                      , libs </> "concrete-backend.c"
@@ -285,7 +304,7 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
      return (printExe, debugExe)
 
 
-ppValsC :: BaseTypeRepr ty -> Vals ty -> String
+ppValsC :: BaseTypeRepr ty -> Vals ty -> [String]
 ppValsC ty (Vals xs) =
   let (cty, cnm, ppRawVal) = case ty of
         BaseBVRepr n ->
@@ -301,8 +320,7 @@ ppValsC ty (Vals xs) =
         BaseRealRepr -> ("double", "real", (show . toDouble))
 
         _ -> error ("Type not implemented: " ++ show ty)
-  in unlines
-      [ "size_t const crucible_values_number_" ++ cnm ++
+  in  [ "size_t const crucible_values_number_" ++ cnm ++
                 " = " ++ show (length xs) ++ ";"
 
       , "const char* crucible_names_" ++ cnm ++ "[] = { " ++
@@ -318,5 +336,21 @@ ppModelC m = unlines
              : "#include <stddef.h>"
              : "#include <math.h>"
              : ""
-             : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
-            where vals = modelVals m
+             : concatMap ppModelForType llvmModelTypes
+ where
+  ppModelForType (Some tpr) =
+    case MapF.lookup tpr (modelVals m) of
+      -- NB, produce the declarations even if there are no variables
+      Nothing   -> ppValsC tpr (Vals [])
+      Just vals -> ppValsC tpr vals
+
+
+llvmModelTypes :: [Some BaseTypeRepr]
+llvmModelTypes =
+  [ Some (BaseBVRepr (knownNat @8))
+  , Some (BaseBVRepr (knownNat @16))
+  , Some (BaseBVRepr (knownNat @32))
+  , Some (BaseBVRepr (knownNat @64))
+  , Some (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
+  , Some (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
+  ]

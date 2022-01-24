@@ -1,6 +1,7 @@
 packages:
   crucible/
   crucible-llvm/
+  crucible-symio/
   crux/
   crux-llvm/
 

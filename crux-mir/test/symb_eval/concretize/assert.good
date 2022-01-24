@@ -3,10 +3,9 @@ test assert/3a1fbbbh::crux_test[0]: returned 1, FAILED
 failures:
 
 ---- assert/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for ./lib/crucible/lib.rs:46:17: 46:82 !test/symb_eval/concretize/assert.rs:10:5: 10:82: error: in assert/3a1fbbbh::crux_test[0]
-MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
-	100 + 157 == 1
-Failure for test/symb_eval/concretize/assert.rs:11:16: 11:17: error: in assert/3a1fbbbh::crux_test[0]
-Unsupported feature: Attempted to mux ANY values of different runtime type StructRepr [BVRepr 8] IntrinsicRepr MirReference [BVRepr 8]
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:47:17: 47:82 !test/symb_eval/concretize/assert.rs:10:5: 10:82: error: in assert/3a1fbbbh::crux_test[0]
+[Crux]   MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
+[Crux]   	100 + 157 == 1
 
 [Crux] Overall status: Invalid.

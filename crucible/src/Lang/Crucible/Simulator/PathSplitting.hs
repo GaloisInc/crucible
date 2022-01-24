@@ -97,11 +97,13 @@ restoreWorkItem ::
   IO (ExecState p sym ext rtp)
 restoreWorkItem (WorkItem branchPred loc frm st assumes) =
   do let sym = st ^. stateSymInterface
-     setCurrentProgramLoc sym loc
-     restoreAssumptionState sym assumes
-     addAssumption sym (LabeledPred branchPred (ExploringAPath loc (pausedLoc frm)))
-     let ctx = st ^. stateTree . actContext
-     runReaderT (resumeFrame frm ctx) st
+     let simCtx = st ^. stateContext
+     withBackend simCtx $ \bak ->
+      do setCurrentProgramLoc sym loc
+         restoreAssumptionState bak assumes
+         addAssumption bak (BranchCondition loc (pausedLoc frm) branchPred)
+         let ctx = st ^. stateTree . actContext
+         runReaderT (resumeFrame frm ctx) st
 
 -- | The path splitting execution feature always selects the \"true\" branch
 --   of a symbolic branch to explore first, and pushes the \"false\" branch
@@ -115,10 +117,10 @@ pathSplittingFeature ::
   ExecutionFeature p sym ext rtp
 pathSplittingFeature wl = ExecutionFeature $ \case
   SymbolicBranchState p trueFrame falseFrame _bt st ->
-
+    withBackend (st^.stateContext) $ \bak ->
     do let sym = st ^. stateSymInterface
        pnot <- notPred sym p
-       assumes <- saveAssumptionState sym
+       assumes <- saveAssumptionState bak
        loc <- getCurrentProgramLoc sym
 
        let wi = WorkItem
@@ -130,7 +132,7 @@ pathSplittingFeature wl = ExecutionFeature $ \case
                 }
        queueWorkItem wi wl
 
-       addAssumption sym (LabeledPred p (ExploringAPath loc (pausedLoc trueFrame)))
+       addAssumption bak (BranchCondition loc (pausedLoc trueFrame) p)
 
        let ctx = st ^. stateTree . actContext
        ExecutionFeatureNewState <$> runReaderT (resumeFrame (forgetPostdomFrame trueFrame) ctx) st

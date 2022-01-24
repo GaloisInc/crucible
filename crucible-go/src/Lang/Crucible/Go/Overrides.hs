@@ -95,30 +95,29 @@ do_assume :: IsSymInterface sym
           => C.OverrideSim p sym ext gret
           (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
           (StructType EmptyCtx) (RegValue sym (StructType EmptyCtx))
-do_assume = do
-  sym <- C.getSymInterface
+do_assume = C.ovrWithBackend $ \bak -> do
+  let sym = backendGetSym bak
   RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addAssumption sym (LabeledPred (regValue b) $
-                              AssumptionReason loc "assume")
+  liftIO $ addAssumption bak (GenericAssumption loc "assume" (regValue b))
   return Ctx.empty
 
 do_assert :: IsSymInterface sym
           => C.OverrideSim p sym ext gret
           (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
           (StructType EmptyCtx) (RegValue sym (StructType EmptyCtx))
-do_assert = do
-  sym <- C.getSymInterface
+do_assert = C.ovrWithBackend $ \bak -> do
+  let sym = backendGetSym bak
   RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addDurableAssertion sym (LabeledPred (regValue b)
+  liftIO $ addDurableAssertion bak (LabeledPred (regValue b)
                                     (C.SimError loc $ C.AssertFailureSimError
                                      "assertion_failure" ""))
   return Ctx.empty
 
 go_overrides :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
-             -> [(SomeOverride (Crux.Model sym) sym ext)]
+             -> [SomeOverride (p sym) sym ext]
 go_overrides w =
   [ mkSomeOverride "crucible" "FreshInt" Ctx.empty (BVRepr w) (fresh_int w)
   , mkSomeOverride "crucible" "FreshInt8" Ctx.empty

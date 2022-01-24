@@ -1,375 +1,255 @@
 {- | This is the SVCOMP utility for crux-llvm.  It is designed to run
-   the inputs for the "Competition on Software Verification" (SV-COMP)
-   and produce benchmark data for that run.
+   the inputs for the "Competition on Software Verification" (SV-COMP).
+   Specifically, it takes as inputs:
+
+   * A file containing a specification to check, and
+
+   * An architecture (either @32bit@ or @64bit@) to assume, and
+
+   * A input C file.
+
+   It will then attempt to verify the file against that specification,
+   eventually printing @VERIFIED@, @FALSIFIED@, or @UNKNOWN@ depending on the
+   results. If the result is @VERIFIED@ or @FALSFIED@, it will also produce a
+   witness automaton which represents a proof that the program does or does not
+   meet the specification.
 -}
 
+{-# Language DeriveAnyClass #-}
 {-# Language DeriveGeneric #-}
 {-# Language ImplicitParams #-}
-{-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
-{-# Language RecordWildCards #-}
-{-# Language ScopedTypeVariables #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language RankNTypes #-}
 
 module Main (main) where
 
-import Control.Concurrent.Async( async, wait )
-import Control.Exception
-  (bracket, catch, throwIO, SomeException, fromException, AsyncException, displayException, try )
+import Control.Applicative ( Alternative(..) )
+import Control.Exception ( SomeException, try )
+import Control.Monad.Extra ( whenJust )
+import qualified Crypto.Hash.SHA256 as SHA256 ( hash )
+import Data.Aeson ( ToJSON )
+import qualified Data.Attoparsec.Text as Atto
+import qualified Data.ByteString.Base16 as B16 ( encode )
+import qualified Data.ByteString.Char8 as B ( readFile, unpack )
+import Data.Foldable ( traverse_, toList )
+import Data.Function ( on )
+import Data.Functor.Identity ( Identity(..) )
+import Data.Functor.WithIndex ( FunctorWithIndex(..) )
+import qualified Data.List.Extra as L
+import Data.Maybe ( mapMaybe )
+import Data.Sequence ( Seq )
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import Data.Time.LocalTime ( getZonedTime )
+import Data.Version ( showVersion )
+import GHC.Generics ( Generic )
+import System.Exit ( exitFailure, exitSuccess )
+import System.FilePath ( (</>) )
 
-import Data.Aeson ( encode, ToJSON(..), FromJSON, ToJSONKey, eitherDecode', object )
-import Data.Bits( bit )
-import qualified Data.ByteString.Lazy as LBS
-import GHC.Generics (Generic)
-import Data.List
-  ( isSuffixOf )
-import qualified Data.Map as Map
-import Data.Time.Clock
-  ( getCurrentTime, diffUTCTime, NominalDiffTime )
-import System.Exit
-  ( ExitCode(..), exitSuccess, exitFailure )
-import System.FilePath ( takeFileName, takeDirectory, (</>), (-<.>) )
-import System.Directory ( copyFile, createDirectoryIfMissing, removeDirectoryRecursive )
-import System.IO
-  ( Handle, hGetContents, hClose, openFile, IOMode(..), hFlush )
-
--- unix
-import System.Posix.IO
-import System.Posix.Process
-import System.Posix.Resource
+-- crucible
+import Lang.Crucible.Backend ( CrucibleEvent(..) )
 
 -- crux
 import qualified Crux
-import Crux.Config.Common(CruxOptions(..))
-import Crux.Log
+import Crux.Config.Common ( CruxOptions(..), outputOptions )
+import qualified Crux.Log as Log
 import Crux.Report
-import Crux.SVCOMP
+import Crux.SVCOMP hiding (SVCompLanguage(..))
+import Crux.SVCOMP.Witness
 import Crux.Types as Crux
 
+-- what4
+import What4.Expr.GroundEval ( GroundValueWrapper )
+import What4.ProgramLoc ( Position(..), ProgramLoc, plFunction, plSourceLoc )
+
 -- local
-import Crux.LLVM.Config
 import Crux.LLVM.Compile
+import Crux.LLVM.Config
+import qualified Crux.LLVM.Log as Log
 import Crux.LLVM.Simulate
-import CruxLLVMMain( processLLVMOptions )
+import CruxLLVMMain ( processLLVMOptions )
+import Paths_crux_llvm (version)
+import qualified SVComp.Log as Log
+
+data SVCompLogging
+  = LoggingCrux Log.CruxLogMessage
+  | LoggingCruxLLVM Log.CruxLLVMLogMessage
+  | LoggingSVComp Log.SVCompLogMessage
+  deriving (Generic, ToJSON)
+
+svCompLoggingToSayWhat :: SVCompLogging -> SayWhat
+svCompLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
+svCompLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
+svCompLoggingToSayWhat (LoggingSVComp msg) = Log.svCompLogMessageToSayWhat msg
+
+withSVCompLogging ::
+  ( ( Log.SupportsCruxLogMessage SVCompLogging
+    , Log.SupportsCruxLLVMLogMessage SVCompLogging
+    , Log.SupportsSVCompLogMessage SVCompLogging
+    ) => computation ) ->
+  computation
+withSVCompLogging computation = do
+  let ?injectCruxLogMessage = LoggingCrux
+      ?injectCruxLLVMLogMessage = LoggingCruxLLVM
+      ?injectSVCompLogMessage = LoggingSVComp
+    in computation
 
 main :: IO ()
-main = do
+main = withSVCompLogging $ do
   cfg <- llvmCruxConfig
   let opts = Crux.cfgJoin cfg svcompOptions
-  Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" "0.1" opts $ \(co0,(lo0,svOpts)) ->
+  mkOutCfg <- Crux.defaultOutputConfig svCompLoggingToSayWhat
+  Crux.loadOptions mkOutCfg "crux-llvm-svcomp" version opts
+    $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
-       bss <- loadSVCOMPBenchmarks cruxOpts
-       let taskMap = deduplicateTasks bss
-       ts <- genSVCOMPBitCode cruxOpts llvmOpts svOpts taskMap
-       evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts
+       svOpts' <- processSVCOMPOptions svOpts
+       let tgt = case runIdentity $ svcompArch svOpts' of
+                   Arch32 -> "i386-unknown-linux-elf"
+                   Arch64 -> "x86_64-unknown-linux-elf"
+           llvmOpts' = llvmOpts { targetArch = Just tgt }
+       processInputFiles cruxOpts llvmOpts' svOpts'
 
+processInputFiles :: Log.Logs msgs
+                  => Log.SupportsCruxLLVMLogMessage msgs
+                  => Log.SupportsSVCompLogMessage msgs
+                  => CruxOptions -> LLVMOptions -> SVCOMPOptions Identity
+                  -> IO ()
+processInputFiles cruxOpts llvmOpts svOpts =
+  traverse_ process $ Crux.inputFiles cruxOpts
+  where
+    process :: FilePath -> IO ()
+    process inputFile = do
+      mbBcFile <- genBitCodeMaybe inputFile
+      whenJust mbBcFile $ \bcFile ->
+        evaluateBitCode inputFile bcFile
 
-genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap
-                 -> IO [(Int, VerificationTask, Either SomeException FilePath)]
-genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::Int ..] (Map.toList tm))
- where
- goTask (n, ((task, tgtWidth), bss)) = action `catch` handler
-   where
-   outputPath = svTaskDirectory (Crux.outDir cruxOpts) n task
+    genBitCodeMaybe :: FilePath -> IO (Maybe FilePath)
+    genBitCodeMaybe inputFile
+      | or [ L.isSuffixOf bl inputFile | bl <- svcompBlacklist svOpts ]
+      = do Log.saySVComp (Log.Skipping Log.DueToBlacklist (T.pack inputFile))
+           return Nothing
+      | otherwise
+      = Just <$> genBitCode cruxOpts llvmOpts
 
-   action =
-     do tgt <- getTarget tgtWidth bss
-        rslt <- processVerificationTask tgt n task
-        return $! maybe [] (\outFile -> [(n, task, Right outFile)]) rslt
-
-   handler e
-     | Just (_::AsyncException) <- fromException e = throwIO e
-     | otherwise =
-         do sayFail "SVCOMP" $ unlines [ "Failed to compile task:"
-                                       , show (verificationSourceFile task)
-                                       , displayException e]
-            removeDirectoryRecursive outputPath `catch` \e' ->
-               sayFail "SVCOMP" $ unlines [ "Double fault! While trying to remove:"
-                                          , outputPath
-                                          , displayException (e'::SomeException)]
-            return [(n, task, Left e)]
-
-
- getTarget tgtWidth bss =
-   case tgtWidth of
-     Just 32 -> return "i386-unknown-linux-elf"
-     Just 64 -> return "x86_64-unknown-linux-elf"
-     Just x  -> fail $ "Unexpected architecture width (" ++ show x ++ ") for benchmark(s) " ++ show (map benchmarkName bss)
-     Nothing -> fail $ "Missing architecture width for benchmark(s) " ++ show (map benchmarkName bss)
-
- processVerificationTask _tgt _num task
-   | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = do sayWarn "SVCOMP" $ unlines
-          [ "Skipping:"
-          , "  " ++ verificationSourceFile task ++ " due to blacklist"
-          ]
-        return Nothing
-
- processVerificationTask tgt num task =
-   let files = verificationInputFiles task in
-     if null files
-     then do sayWarn "SVCOMP" $ unlines
-               [ "Skipping:"
-               , "  " ++ verificationSourceFile task ++ " because no input files are present"
-               ]
-             return Nothing
-     else
-       do let taskFile = verificationSourceFile task
-              inputBase = takeDirectory taskFile
-              outputPath  = svTaskDirectory (Crux.outDir cruxOpts) num task
-              llvmOpts' = llvmOpts { targetArch = Just tgt }
-              cruxOpts' = cruxOpts { bldDir = outputPath }
-              outName = "svcomp~" <> head files -<.> ".bc"
-          createDirectoryIfMissing True outputPath
-          copyFile taskFile (outputPath </> takeFileName taskFile)
-          Just <$> genBitCodeToFile outName ((inputBase </>) <$> files) cruxOpts' llvmOpts' True
-
-
-svTaskDirectory :: FilePath -> Int -> VerificationTask -> FilePath
-svTaskDirectory base num task = base </> path
- where
- files = verificationInputFiles task
- path  = padTaskNum ++ filebase files
-
- padWidth = 5
-
- filebase [] = ""
- filebase (f:_) = '_' : takeFileName f
-
- padTaskNum = padding ++ xs
-   where
-   padding = take (padWidth - length xs) (repeat '0')
-   xs = show num
-
-hGetContentsStrict :: Handle -> IO String
-hGetContentsStrict hdl =
-  do s <- hGetContents hdl
-     length s `seq` return s
-
-evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions
-                      -> [(Int, VerificationTask, Either SomeException FilePath)]
-                      -> IO ()
-evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
-   bracket (openFile (svcompOutputFile svOpts) WriteMode)
-           (\jsonOutHdl -> LBS.hPutStr jsonOutHdl "]\n" >> hClose jsonOutHdl)
-           (\jsonOutHdl -> mapM_ (evaluateVerificationTask jsonOutHdl) ts)
-
- where
- megabyte = bit 20 :: Integer
-
- maybeSetLim _ Nothing = return ()
- maybeSetLim res (Just lim) =
-   setResourceLimit res (ResourceLimits (ResourceLimit lim) ResourceLimitUnknown)
-
- root = Crux.outDir cruxOpts
-
- evaluateVerificationTask jsonOutHdl (num, task, compileErrOrOutFile) =
-    do ed <- case compileErrOrOutFile of
-         Left ex ->
-           failTask num task "Failed to compile task" ex
-         Right inpBCFile ->
-           try (executeTask num task inpBCFile) >>= \case
-             Left ex
-               | Just (_::AsyncException) <- fromException ex -> throwIO ex
-               | otherwise -> failTask num task "Failed during process coordination" ex
-             Right ed -> return ed
-
-       let leadingString
-              | num == 0 = "[\n"
-              | otherwise= ",\n"
-
-       LBS.hPutStr jsonOutHdl leadingString
-       LBS.hPutStr jsonOutHdl (encode ed)
-       LBS.hPutStr jsonOutHdl "\n"
-       hFlush jsonOutHdl
-
- failTask num task msg ex =
-    do let taskRoot = svTaskDirectory root num task
-       let sourceFile = verificationSourceFile task
-       let err = unlines [msg, displayException ex]
-       return EvaluationData
-              { taskRoot = taskRoot
-              , sourceFile = sourceFile
-              , elapsedTime = 0
-              , exitCode = Nothing
-              , evaluationResult = Left err
-              , subprocessOutput = ""
-              }
-
- executeTask num task inpBCFile =
-    do let taskRoot = svTaskDirectory root num task
-       let sourceFile = verificationSourceFile task
-
-       (readFd, writeFd) <- createPipe
-       (jsonReadFd, jsonWriteFd) <- createPipe
-       readHdl <- fdToHandle readFd
-       jsonReadHdl <- fdToHandle jsonReadFd
-
-       sayOK "SVCOMP" $ concat
-         [ "Evaluating:\n"
-         , "  " ++ taskRoot ++ "\n"
-         , "  " ++ sourceFile
-         ]
-
-       startTime <- getCurrentTime
-
-       pid <- forkProcess $
-                do maybeSetLim ResourceCPUTime (svcompCPUlimit svOpts)
-                   maybeSetLim ResourceTotalMemory ((megabyte *) <$> svcompMemlimit svOpts)
-                   writeHdl <- fdToHandle writeFd
-                   jsonHdl <- fdToHandle jsonWriteFd
-                   evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts root num task inpBCFile
-                   exitSuccess
-
-       ast  <- async (getProcessStatus True {- Block -} False {- stopped -} pid)
-       aout <- async (hGetContentsStrict readHdl)
-       ares <- async (eitherDecode' <$> LBS.hGetContents jsonReadHdl)
-
-       st <- wait ast
-       endTime <- getCurrentTime
-
-       closeFd writeFd
-       out <- wait aout
-       output out
-
-       closeFd jsonWriteFd
-       res <- wait ares
-
-       let wallTime = diffUTCTime endTime startTime
-       sayOK "SVCOMP" $ unwords ["Elapsed wall-clock time:", show wallTime]
-
-       case st of
-         Just (Exited ExitSuccess) ->
-           return ()
-         Just (Exited (ExitFailure x)) ->
-           sayFail "SVCOMP" $ unwords ["Evaluation process exited with failure code", show x]
-         Just (Terminated sig _) ->
-           sayWarn "SVCOMP" $ unwords ["Evaluation process terminated by signal", show sig]
-         Just (Stopped sig) ->
-           sayWarn "SVCOMP" $ unwords ["Evaluation process stopped by signal", show sig]
-         Nothing ->
-           sayFail "SVCOMP" "Could not retrieve evauation process status"
-
-       return EvaluationData
-              { taskRoot = taskRoot
-              , sourceFile = sourceFile
-              , elapsedTime = wallTime
-              , exitCode = st
-              , evaluationResult = res
-              , subprocessOutput = out
-              }
-
-
-instance ToJSON ProcessStatus where
-  toJSON (Exited ec)        = object [("exited", toJSON x)]
-    where x = case ec of
-                ExitSuccess  -> 0
-                ExitFailure e -> e
-  toJSON (Terminated sig _) = object [("terminated",toJSON (fromEnum sig))]
-  toJSON (Stopped sig)      = object [("stopped", toJSON (fromEnum sig))]
-
-data EvaluationData =
-  EvaluationData
-  { taskRoot :: String
-  , sourceFile :: String
-  , evaluationResult :: Either String EvaluationResult
-  , elapsedTime :: NominalDiffTime
-  , exitCode :: Maybe ProcessStatus
-  , subprocessOutput :: String
-  }
- deriving (Eq,Ord,Show,Generic)
-
-
-instance ToJSON EvaluationData
-instance ToJSONKey EvaluationData
-
-data EvaluationResult =
-  EvaluationResult
-  { computedResult :: Maybe Bool
-  , expectedResult :: Maybe Bool
-  , totalGoals :: Integer
-  , disprovedGoals :: Integer
-  , unknownGoals :: Integer
-  , provedGoals :: Integer
-  , incompleteGoals :: Integer
-  , programComplete :: Bool
-  }
- deriving (Eq,Ord,Show,Generic)
-
-instance ToJSON EvaluationResult
-instance FromJSON EvaluationResult
-instance ToJSONKey EvaluationResult
-
-evaluateSingleTask :: Handle -> Handle -> CruxOptions -> LLVMOptions
-                   -> FilePath
-                   -> Int -> VerificationTask -> FilePath -> IO ()
-evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile =
-   do let taskRoot = svTaskDirectory bsRoot num task
-      let srcRoot  = takeDirectory (verificationSourceFile task)
-      let inputs   = map (srcRoot </>) (verificationInputFiles task)
-      let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
-
-      let ?outputConfig = OutputConfig False writeHdl writeHdl False
-
+    evaluateBitCode :: FilePath -> FilePath -> IO ()
+    evaluateBitCode inputFile bcFile = withSVCompLogging $ do
+      mkOutCfg <- Crux.defaultOutputConfig svCompLoggingToSayWhat
+      let ?outputConfig = mkOutCfg (Just (outputOptions cruxOpts))
       mres <- try $
-               do res <- Crux.runSimulator cruxOpts' (simulateLLVMFile inpBCFile llvmOpts)
-                  generateReport cruxOpts' res
+               do res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
+                  generateReport cruxOpts res
                   return res
 
       case mres of
         Left e ->
-          do sayFail "SVCOMP" $ unlines
-               [ "Simulator threw exception:"
-               , displayException (e :: SomeException)
-               ]
-             hClose writeHdl
-             hClose jsonHdl
+          do Log.saySVComp Log.SimulatorThrewException
+             Log.logException (e :: SomeException)
              exitFailure
 
-        Right (CruxSimulationResult cmpl gls) ->
-          do let totalGoals = sum (Crux.totalProcessedGoals . fst <$> gls)
-             let disprovedGoals = sum (Crux.disprovedGoals . fst <$> gls)
-             let provedGoals = sum (Crux.provedGoals . fst <$> gls)
-             let incompleteGoals = sum (Crux.incompleteGoals . fst <$> gls)
-             let unknownGoals = totalGoals - (disprovedGoals + provedGoals + incompleteGoals)
-
-             let programComplete =
-                   case cmpl of
-                     ProgramComplete -> True
-                     ProgramIncomplete -> False
+        Right res@(CruxSimulationResult cmpl gls) ->
+          do let numTotalGoals = sum (Crux.totalProcessedGoals . fst <$> gls)
+             let numDisprovedGoals = sum (Crux.disprovedGoals . fst <$> gls)
+             let numProvedGoals = sum (Crux.provedGoals . fst <$> gls)
 
              let verdict
-                   | disprovedGoals > 0 = Falsified
+                   | numDisprovedGoals > 0 = Falsified
                    | ProgramComplete <- cmpl
-                   , provedGoals == totalGoals = Verified
+                   , numProvedGoals == numTotalGoals = Verified
                    | otherwise = Unknown
 
-             let expectedResult = propertyVerdict task
+             specFileContents <- B.readFile $ runIdentity $ svcompSpec svOpts
+             let specFileText = T.decodeUtf8 specFileContents
+             prop <- case Atto.parseOnly propParse specFileText of
+                       Left msg ->
+                         do Log.saySVComp $ Log.PropertyParseError specFileText (T.pack msg)
+                            exitFailure
+                       Right p -> return p
 
-             let computedResult = case verdict of
-                                    Verified -> Just True
-                                    Falsified -> Just False
-                                    Unknown -> Nothing
+             witType <- case verdict of
+                          Verified  -> do Crux.logSimResult True res
+                                          Log.saySVComp $ Log.Verdict Verified prop
+                                          pure CorrectnessWitness
+                          Falsified -> do Crux.logSimResult True res
+                                          Log.saySVComp $ Log.Verdict Falsified prop
+                                          pure ViolationWitness
+                          Unknown   -> do Log.saySVComp $ Log.Verdict Unknown prop
+                                          exitSuccess
 
-             case expectedResult of
-               Nothing -> sayWarn "SVCOMP" $ unlines (["No verdict to evaluate!"] ++ map show (verificationProperties task))
-               Just True ->
-                 case verdict of
-                   Verified  ->
-                      sayOK "SVCOMP" "CORRECT (Verified)"
-                   Falsified ->
-                      sayFail "SVCOMP" $ unwords ["FAILED! benchmark should be verified"]
-                   Unknown   -> sayWarn "SVCOMP" "UNKNOWN (Should verify)"
-               Just False ->
-                 case verdict of
-                   Verified  ->
-                      sayFail "SVCOMP" $ unwords ["FAILED! benchmark should contain an error!"]
-                   Falsified ->
-                      sayOK "SVCOMP" "CORRECT (Falisifed)"
-                   Unknown ->
-                      sayWarn "SVCOMP" "UNKNOWN (Should falsify)"
+             inputFileContents <- B.readFile inputFile
+             creationTime <- getZonedTime
+             let mkWitness nodes edges = Witness
+                   { witnessType           = witType
+                   , witnessSourceCodeLang = C
+                   , witnessProducer       = "crux-llvm-" ++ showVersion version
+                   , witnessSpecification  = L.trim $ B.unpack specFileContents
+                   , witnessProgramFile    = inputFile
+                   , witnessProgramHash    = B16.encode $ SHA256.hash inputFileContents
+                   , witnessArchitecture   = runIdentity $ svcompArch svOpts
+                   , witnessCreationTime   = creationTime
+                   , witnessNodes          = nodes
+                   , witnessEdges          = edges
+                   }
+                 trivialCorrectnessWitness = mkWitness [(mkNode 0) { nodeEntry = Just True }] []
 
-             LBS.hPut jsonHdl (encode EvaluationResult{ .. })
+             writeFile (svcompWitnessOutput svOpts) $ ppWitness $ case witType of
+               CorrectnessWitness -> trivialCorrectnessWitness
+               ViolationWitness   -> let (nodes, edges) = mkViolationWitness $ fmap snd gls
+                                     in mkWitness nodes edges
 
-             hClose writeHdl
-             hClose jsonHdl
+mkViolationWitness :: Seq ProvedGoals -> ([WitnessNode], [WitnessEdge])
+mkViolationWitness gs =
+  case L.firstJust findNotProvedGoal $ toList gs of
+    Nothing -> error "Could not find event log for counterexample"
+    Just (_mv, events) ->
+      let locs  = -- It is possible for certain LLVM instructions which do not
+                  -- directly map back to source locations to be given a line
+                  -- number of 0. (See #862 for an example.) Line number 0
+                  -- wreaks havoc on witness validators, so we filter out such
+                  -- locations to avoid this.
+                  filter ((/= Just 0) . programLocSourcePosLine) $
+                  -- Witness validators aren't hugely fond of using the same
+                  -- line number multiple times successively, so remove
+                  -- consecutive duplicates.
+                  removeRepeatsBy ((==) `on` programLocSourcePosLine) $
+                  mapMaybe locationReachedEventLoc events
+          edges = imap violationEdge locs
+          nodes = violationNodes $ length edges
+      in (nodes, edges)
+  where
+    findNotProvedGoal :: ProvedGoals -> Maybe (ModelView, [CrucibleEvent GroundValueWrapper])
+    findNotProvedGoal (Branch pg1 pg2)          = findNotProvedGoal pg1 <|> findNotProvedGoal pg2
+    findNotProvedGoal (NotProvedGoal _ _ _ _ x) = x
+    findNotProvedGoal ProvedGoal{}              = Nothing
+
+    violationNodes :: Int -> [WitnessNode]
+    violationNodes numEdges =
+      map (\idx -> (mkNode idx)
+                     { nodeEntry     = if idx == 0        then Just True else Nothing
+                     , nodeViolation = if idx == numEdges then Just True else Nothing
+                     })
+          [0..numEdges]
+
+    locationReachedEventLoc :: CrucibleEvent GroundValueWrapper -> Maybe ProgramLoc
+    locationReachedEventLoc (LocationReachedEvent loc) = Just loc
+    locationReachedEventLoc CreateVariableEvent{}      = Nothing
+
+    violationEdge :: Int -> ProgramLoc -> WitnessEdge
+    violationEdge idx loc =
+      let mbSourcePos = programLocSourcePos loc in
+      (mkEdge idx (idx+1))
+        { edgeStartLine       = fst <$> mbSourcePos
+        , edgeAssumptionScope = Just $ show $ plFunction loc
+          -- crux-llvm–specific extensions
+        , edgeStartColumn     = snd <$> mbSourcePos
+        }
+
+    programLocSourcePos :: ProgramLoc -> Maybe (Int, Int)
+    programLocSourcePos pl =
+      case plSourceLoc pl of
+        SourcePos _ l c -> Just (l, c)
+        BinaryPos{}     -> Nothing
+        OtherPos{}      -> Nothing
+        InternalPos     -> Nothing
+
+    programLocSourcePosLine :: ProgramLoc -> Maybe Int
+    programLocSourcePosLine = fmap fst . programLocSourcePos

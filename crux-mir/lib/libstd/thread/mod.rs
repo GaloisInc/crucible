@@ -176,6 +176,8 @@ use crate::sys_common::thread_info;
 use crate::sys_common::{AsInner, IntoInner};
 use crate::time::Duration;
 
+use crate::io::{Error,ErrorKind};
+
 ////////////////////////////////////////////////////////////////////////////////
 // Thread-local storage
 ////////////////////////////////////////////////////////////////////////////////
@@ -206,6 +208,8 @@ pub use self::local::os::Key as __OsLocalKeyInner;
 #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
 #[doc(hidden)]
 pub use self::local::statik::Key as __StaticLocalKeyInner;
+
+use core::crucible::concurrency;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Builder
@@ -383,7 +387,8 @@ impl Builder {
         F: Send + 'static,
         T: Send + 'static,
     {
-        unsafe { self.spawn_unchecked(f) }
+        panic!("Not implemented!")
+      // unsafe { self.spawn_unchecked(f) }
     }
 
     /// Spawns a new thread without any lifetime restrictions by taking ownership
@@ -455,49 +460,50 @@ impl Builder {
         F: Send + 'a,
         T: Send + 'a,
     {
-        let Builder { name, stack_size } = self;
+        panic!("spawn_unchecked: Not implemented!")
+    //     let Builder { name, stack_size } = self;
 
-        let stack_size = stack_size.unwrap_or_else(thread::min_stack);
+    //     let stack_size = stack_size.unwrap_or_else(thread::min_stack);
 
-        let my_thread = Thread::new(name);
-        let their_thread = my_thread.clone();
+    //     let my_thread = Thread::new(name);
+    //     let their_thread = my_thread.clone();
 
-        let my_packet: Arc<UnsafeCell<Option<Result<T>>>> = Arc::new(UnsafeCell::new(None));
-        let their_packet = my_packet.clone();
+    //     let my_packet: Arc<UnsafeCell<Option<Result<T>>>> = Arc::new(UnsafeCell::new(None));
+    //     let their_packet = my_packet.clone();
 
-        let main = move || {
-            if let Some(name) = their_thread.cname() {
-                imp::Thread::set_name(name);
-            }
+    //     let main = move || {
+    //         if let Some(name) = their_thread.cname() {
+    //             imp::Thread::set_name(name);
+    //         }
 
-            thread_info::set(imp::guard::current(), their_thread);
-            let try_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                crate::sys_common::backtrace::__rust_begin_short_backtrace(f)
-            }));
-            *their_packet.get() = Some(try_result);
-        };
+    //         thread_info::set(imp::guard::current(), their_thread);
+    //         let try_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+    //             crate::sys_common::backtrace::__rust_begin_short_backtrace(f)
+    //         }));
+    //         *their_packet.get() = Some(try_result);
+    //     };
 
-        Ok(JoinHandle(JoinInner {
-            // `imp::Thread::new` takes a closure with a `'static` lifetime, since it's passed
-            // through FFI or otherwise used with low-level threading primitives that have no
-            // notion of or way to enforce lifetimes.
-            //
-            // As mentioned in the `Safety` section of this function's documentation, the caller of
-            // this function needs to guarantee that the passed-in lifetime is sufficiently long
-            // for the lifetime of the thread.
-            //
-            // Similarly, the `sys` implementation must guarantee that no references to the closure
-            // exist after the thread has terminated, which is signaled by `Thread::join`
-            // returning.
-            native: Some(imp::Thread::new(
-                stack_size,
-                mem::transmute::<Box<dyn FnOnce() + 'a>, Box<dyn FnOnce() + 'static>>(Box::new(
-                    main,
-                )),
-            )?),
-            thread: my_thread,
-            packet: Packet(my_packet),
-        }))
+    //     Ok(JoinHandle(JoinInner {
+    //         // `imp::Thread::new` takes a closure with a `'static` lifetime, since it's passed
+    //         // through FFI or otherwise used with low-level threading primitives that have no
+    //         // notion of or way to enforce lifetimes.
+    //         //
+    //         // As mentioned in the `Safety` section of this function's documentation, the caller of
+    //         // this function needs to guarantee that the passed-in lifetime is sufficiently long
+    //         // for the lifetime of the thread.
+    //         //
+    //         // Similarly, the `sys` implementation must guarantee that no references to the closure
+    //         // exist after the thread has terminated, which is signaled by `Thread::join`
+    //         // returning.
+    //         native: Some(imp::Thread::new(
+    //             stack_size,
+    //             mem::transmute::<Box<dyn FnOnce() + 'a>, Box<dyn FnOnce() + 'static>>(Box::new(
+    //                 main,
+    //             )),
+    //         )?),
+    //         thread: my_thread,
+    //         packet: Packet(my_packet),
+    //     }))
     }
 }
 
@@ -609,6 +615,7 @@ impl Builder {
 /// [`Builder`]: ../../std/thread/struct.Builder.html
 /// [`Send`]: ../../std/marker/trait.Send.html
 /// [`Sync`]: ../../std/marker/trait.Sync.html
+
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn spawn<F, T>(f: F) -> JoinHandle<T>
 where
@@ -616,7 +623,23 @@ where
     F: Send + 'static,
     T: Send + 'static,
 {
-    Builder::new().spawn(f).expect("failed to spawn thread")
+    let id = concurrency::spawn(f);
+    let t =
+        Thread {
+            inner: Arc::new(Inner {
+                name: None,
+                id: ThreadId(NonZeroU64::new(id.into()).unwrap()),
+                state: AtomicUsize::new(EMPTY),
+                lock: Mutex::new(()),
+                cvar: Condvar::new(),
+            }),
+        };
+    JoinHandle(
+        JoinInner {
+            thread: t,
+            phantom: core::marker::PhantomData,
+        }
+    )
 }
 
 /// Gets a handle to the thread that invokes it.
@@ -1346,15 +1369,18 @@ unsafe impl<T: Sync> Sync for Packet<T> {}
 
 /// Inner representation for JoinHandle
 struct JoinInner<T> {
-    native: Option<imp::Thread>,
+    // native: Option<imp::Thread>,
     thread: Thread,
-    packet: Packet<T>,
+    // packet: Packet<T>,
+    phantom: core::marker::PhantomData<T>,
 }
+
 
 impl<T> JoinInner<T> {
     fn join(&mut self) -> Result<T> {
-        self.native.take().unwrap().join();
-        unsafe { (*self.packet.0.get()).take().unwrap() }
+        let ThreadId(i) = self.thread.id();
+        let result      = concurrency::join(i.get());
+        Ok(result)
     }
 }
 
@@ -1490,13 +1516,14 @@ impl<T> JoinHandle<T> {
 
 impl<T> AsInner<imp::Thread> for JoinHandle<T> {
     fn as_inner(&self) -> &imp::Thread {
-        self.0.native.as_ref().unwrap()
+        panic!("ASDF")
+        // self.0.native.as_ref().unwrap()
     }
 }
 
 impl<T> IntoInner<imp::Thread> for JoinHandle<T> {
     fn into_inner(self) -> imp::Thread {
-        self.0.native.unwrap()
+        panic!("ASDF")
     }
 }
 

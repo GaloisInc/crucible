@@ -17,7 +17,7 @@ module Lang.Crucible.Go.Builtin (translateBuiltin) where
 import           Control.Monad.State
 
 import           Data.Functor.Product
-import           Data.Text as T hiding (foldl, length, zip)
+import qualified Data.Text as T hiding (foldl, length, zip)
 
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr

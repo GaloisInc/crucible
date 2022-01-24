@@ -25,6 +25,7 @@
 {-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
 
 module Lang.Crucible.LLVM.Globals
@@ -50,6 +51,7 @@ import qualified Data.Set as Set
 import           Data.String
 import           Control.Monad.State (StateT, runStateT, get, put)
 import           Data.Maybe (fromMaybe)
+import qualified Data.Parameterized.Context as Ctx
 
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as LPP
@@ -67,7 +69,7 @@ import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend
 
 import           What4.Interface
 
@@ -148,29 +150,32 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases
 -- allocates space for global variables, but does not set their
 -- initial values.
 initializeAllMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr)
-   => sym
+   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+      , ?memOpts :: MemOptions )
+   => bak
    -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
 initializeAllMemory = initializeMemory (const True)
 
 initializeMemoryConstGlobals
-   :: (IsSymInterface sym, HasPtrWidth wptr)
-   => sym
+   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+      , ?memOpts :: MemOptions )
+   => bak
    -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
 initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
 
 initializeMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr)
+   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+      , ?memOpts :: MemOptions )
    => (L.Global -> Bool)
-   -> sym
+   -> bak
    -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
-initializeMemory predicate sym llvm_ctx llvmModl = do
+initializeMemory predicate bak llvm_ctx llvmModl = do
    -- Create initial memory of appropriate endianness
    let ?lc = llvm_ctx^.llvmTypeCtx
    let dl = llvmDataLayout ?lc
@@ -180,7 +185,7 @@ initializeMemory predicate sym llvm_ctx llvmModl = do
    -- allocate pointers values for function symbols, but do not
    -- yet bind them to function handles
    let decls = map Left (L.modDeclares llvmModl) ++ map Right (L.modDefines llvmModl)
-   mem <- foldM (allocLLVMFunPtr sym llvm_ctx) mem0 decls
+   mem <- foldM (allocLLVMFunPtr bak llvm_ctx) mem0 decls
 
    -- Allocate global values
    let globAliases = llvmGlobalAliases llvm_ctx
@@ -214,18 +219,20 @@ initializeMemory predicate sym llvm_ctx llvmModl = do
                             _ -> return tyAlign
                         return (g, aliases, sz, alignment))
                     globals
-   allocGlobals sym (filter (\(g, _, _, _) -> predicate g) gs_alloc) mem
+   allocGlobals bak (filter (\(g, _, _, _) -> predicate g) gs_alloc) mem
 
 
 allocLLVMFunPtr ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
-  sym ->
+  ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
+  bak ->
   LLVMContext arch ->
   MemImpl sym ->
   Either L.Declare L.Define ->
   IO (MemImpl sym)
-allocLLVMFunPtr sym llvm_ctx mem decl =
-  do let (symbol, displayString) =
+allocLLVMFunPtr bak llvm_ctx mem decl =
+  do let sym = backendGetSym bak
+     let (symbol, displayString) =
            case decl of
              Left d ->
                let s@(L.Symbol nm) = L.decName d
@@ -236,7 +243,7 @@ allocLLVMFunPtr sym llvm_ctx mem decl =
      let funAliases = llvmFunctionAliases llvm_ctx
      let aliases = map L.aliasName $ maybe [] Set.toList $ Map.lookup symbol funAliases
      z <- bvLit sym ?ptrWidth (BV.zero ?ptrWidth)
-     (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Immutable displayString mem z noAlignment
+     (ptr, mem') <- doMalloc bak G.GlobalAlloc G.Immutable displayString mem z noAlignment
      return $ registerGlobal mem' (symbol:aliases) ptr
 
 ------------------------------------------------------------------------
@@ -249,31 +256,33 @@ allocLLVMFunPtr sym llvm_ctx mem decl =
 --   filtered list transitively reference.
 populateGlobals ::
   ( ?lc :: TypeContext
+  , ?memOpts :: MemOptions
   , 16 <= wptr
   , HasPtrWidth wptr
   , HasLLVMAnn sym
-  , IsSymInterface sym ) =>
+  , IsSymBackend sym bak) =>
   (L.Global -> Bool)   {- ^ Filter function, globals that cause this to return true will be populated -} ->
-  sym ->
+  bak ->
   GlobalInitializerMap ->
   MemImpl sym ->
   IO (MemImpl sym)
-populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
+populateGlobals select bak gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
   f mem (gl, _) | not (select gl)    = return mem
   f _   (_,  Left msg)               = fail msg
-  f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval gimap mem
-  f mem (_ , Right (_, Nothing))     = return mem
+  f mem (gl, Right (mty, Just cval)) = populateGlobal bak gl mty cval gimap mem
+  f mem (gl, Right (mty, Nothing))   = populateExternalGlobal bak gl mty mem
 
 
 -- | Populate all the globals mentioned in the given @GlobalInitializerMap@.
 populateAllGlobals ::
   ( ?lc :: TypeContext
+  , ?memOpts :: MemOptions
   , 16 <= wptr
   , HasPtrWidth wptr
   , HasLLVMAnn sym
-  , IsSymInterface sym ) =>
-  sym ->
+  , IsSymBackend sym bak) =>
+  bak ->
   GlobalInitializerMap ->
   MemImpl sym ->
   IO (MemImpl sym)
@@ -284,11 +293,12 @@ populateAllGlobals = populateGlobals (const True)
 --   given @GlobalInitializerMap@ (and any they transitively refer to).
 populateConstGlobals ::
   ( ?lc :: TypeContext
+  , ?memOpts :: MemOptions
   , 16 <= wptr
   , HasPtrWidth wptr
   , HasLLVMAnn sym
-  , IsSymInterface sym ) =>
-  sym ->
+  , IsSymBackend sym bak) =>
+  bak ->
   GlobalInitializerMap ->
   MemImpl sym ->
   IO (MemImpl sym)
@@ -296,26 +306,62 @@ populateConstGlobals = populateGlobals f
   where f = L.gaConstant . L.globalAttrs
 
 
--- | Write the value of the given LLVMConst into the given global variable.
---   This is intended to be used at initialization time, and will populate
---   even read-only global data.
-populateGlobal :: forall sym wptr.
+-- | Ordinarily external globals do not receive initalizing writes.  However,
+--   when 'lax-loads-and-stores` is enabled in the `stable-symbolic` mode, we
+--   populate external global variables with fresh bytes.
+populateExternalGlobal ::
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
-  , IsSymInterface sym
+  , IsSymBackend sym bak
+  , HasLLVMAnn sym
+  , HasCallStack
+  , ?memOpts :: MemOptions
+  ) =>
+  bak ->
+  L.Global {- ^ The global to populate -} ->
+  MemType {- ^ Type of the global -} ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+populateExternalGlobal bak gl memty mem
+  | laxLoadsAndStores ?memOpts
+  , indeterminateLoadBehavior ?memOpts == StableSymbolic
+
+  =  do let sym = backendGetSym bak
+        bytes <- freshConstant sym emptySymbol
+                    (BaseArrayRepr (Ctx.singleton $ BaseBVRepr ?ptrWidth)
+                        (BaseBVRepr (knownNat @8)))
+        let dl = llvmDataLayout ?lc
+        let sz = memTypeSize dl memty
+        let tyAlign = memTypeAlign dl memty
+        sz' <- bvLit sym PtrWidth (bytesToBV PtrWidth sz)
+        ptr <- doResolveGlobal bak mem (L.globalSym gl)
+        doArrayConstStore bak mem ptr tyAlign bytes sz'
+
+  | otherwise = return mem
+
+
+-- | Write the value of the given LLVMConst into the given global variable.
+--   This is intended to be used at initialization time, and will populate
+--   even read-only global data.
+populateGlobal :: forall sym bak wptr.
+  ( ?lc :: TypeContext
+  , 16 <= wptr
+  , HasPtrWidth wptr
+  , IsSymBackend sym bak
   , HasLLVMAnn sym
   , HasCallStack
   ) =>
-  sym ->
+  bak ->
   L.Global {- ^ The global to populate -} ->
   MemType {- ^ Type of the global -} ->
   LLVMConst {- ^ Constant value to initialize with -} ->
   GlobalInitializerMap ->
   MemImpl sym ->
   IO (MemImpl sym)
-populateGlobal sym gl memty cval giMap mem =
-  do let alignment = memTypeAlign (llvmDataLayout ?lc) memty
+populateGlobal bak gl memty cval giMap mem =
+  do let sym = backendGetSym bak
+     let alignment = memTypeAlign (llvmDataLayout ?lc) memty
 
      -- So that globals can populate and look up the globals they reference
      -- during initialization
@@ -346,11 +392,11 @@ populateGlobal sym gl memty cval giMap mem =
                     , show glob
                     ]
                   Just (glob, Right (memty_, Just cval_)) ->
-                    liftIO $ populateGlobal sym glob memty_ cval_ giMap mem
+                    liftIO $ populateGlobal bak glob memty_ cval_ giMap memimpl0
            put memimpl
-           liftIO $ doResolveGlobal sym memimpl symbol
+           liftIO $ doResolveGlobal bak memimpl symbol
 
      ty <- toStorableType memty
-     ptr <- doResolveGlobal sym mem (L.globalSym gl)
+     ptr <- doResolveGlobal bak mem (L.globalSym gl)
      (val, mem') <- runStateT (constToLLVMValP sym populateRec cval) mem
-     storeConstRaw sym mem' ptr ty alignment val
+     storeConstRaw bak mem' ptr ty alignment val

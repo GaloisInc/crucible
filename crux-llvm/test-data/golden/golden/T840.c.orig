@@ -1,0 +1,17 @@
+#include <arpa/inet.h>
+#include <byteswap.h>
+#include <crucible.h>
+#include <stdint.h>
+
+int main() {
+  uint16_t x16 = crucible_uint16_t("x16");
+  uint16_t x16_bswap = bswap_16(x16);
+  check(htons(x16) == x16_bswap);
+  check(ntohs(x16) == x16_bswap);
+
+  uint32_t x32 = crucible_uint32_t("x32");
+  uint32_t x32_bswap = bswap_32(x32);
+  check(htonl(x32) == x32_bswap);
+  check(ntohl(x32) == x32_bswap);
+  return 0;
+}

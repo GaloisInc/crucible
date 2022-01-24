@@ -302,11 +302,18 @@ addLayoutSpec ls =
     case ls of
       L.BigEndian    -> intLayout .= BigEndian
       L.LittleEndian -> intLayout .= LittleEndian
-      L.PointerSize _n sz a _ ->
-         case fromBits a of
-           Right a' | r == 0 -> do ptrSize .= fromIntegral w
-                                   ptrAlign .= a'
-           _ -> layoutWarnings %= (ls:)
+      L.PointerSize n sz a _
+           -- Currently, we assume that only default address space (0) is used.
+           -- We use that address space as the sole arbiter of what pointer
+           -- size to use, and we ignore all other PointerSize layout specs.
+           -- See doc/limitations.md for more discussion.
+        |  n == 0
+        -> case fromBits a of
+             Right a' | r == 0 -> do ptrSize .= fromIntegral w
+                                     ptrAlign .= a'
+             _ -> layoutWarnings %= (ls:)
+        |  otherwise
+        -> return ()
        where (w,r) = sz `divMod` 8
       L.IntegerSize    sz a _ -> setAtBits integerInfo ls sz a
       L.VectorSize     sz a _ -> setAtBits vectorInfo  ls sz a

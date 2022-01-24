@@ -20,6 +20,7 @@ Stability    : provisional
 module UCCrux.LLVM.Constraints
   ( -- * Types of constraints
     ShapeConstraint (..),
+    ppShapeConstraint,
     Constraint (..),
     ppConstraint,
     RelationalConstraint (..),
@@ -79,17 +80,16 @@ import           Data.Parameterized.TraversableFC (allFC, fmapFC, toListFC)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 
-import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, globalTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberConstraints))
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, globalSymbol, getGlobalSymbol, DeclSymbol, declSymbol, getDeclSymbol, ftRetType)
+import           UCCrux.LLVM.FullType.Translation (ftRetType)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
+import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, getGlobalSymbol, FuncSymbol, funcSymbol, getFuncSymbol)
 
--- See comment in below block of CPP
-#if __GLASGOW_HASKELL__ <= 810
-import           UCCrux.LLVM.Errors.Panic (panic)
-#endif
 {- ORMOLU_ENABLE -}
 
 --------------------------------------------------------------------------------
@@ -115,6 +115,18 @@ data ShapeConstraint (m :: Type) (atTy :: FullType m) where
 
 deriving instance Eq (ShapeConstraint m atTy)
 
+ppShapeConstraint :: ShapeConstraint m atTy -> Doc ann
+ppShapeConstraint =
+  \case
+    Allocated sz ->
+      PP.pretty "points to allocated space for"
+      PP.<+> PP.viaShow sz
+      PP.<+> PP.pretty "elements"
+    Initialized sz ->
+      PP.pretty "points to"
+      PP.<+> PP.viaShow sz
+      PP.<+> PP.pretty "initialized elements"
+
 -- | A 'Constraint' is in general, something that can be \"applied\" to a
 -- symbolic value to produce a predicate. In practice, these represent
 -- \"missing\" function preconditions that are deduced by
@@ -133,7 +145,7 @@ instance Eq (Constraint m atTy) where
       (Aligned n1, Aligned n2) -> n1 == n2
       (BVCmp op1 _ bv1, BVCmp op2 _ bv2) -> op1 == op2 && bv1 == bv2
 
-ppConstraint :: Constraint m ft -> Doc Void
+ppConstraint :: Constraint m ft -> Doc ann
 ppConstraint =
   \case
     Aligned alignment ->
@@ -149,16 +161,16 @@ ppConstraint =
     BVCmp L.Isgt w bv -> PP.pretty "is (signed) greater than " <> signed w bv
     BVCmp L.Isge w bv -> PP.pretty "is (signed) greater than or equal to " <> signed w bv
   where
-    signed :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
+    signed :: forall ann w. (1 <= w) => NatRepr w -> BV w -> PP.Doc ann
     signed w bv =
       PP.viaShow (BV.asSigned w bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
-    unsigned :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
+    unsigned :: forall ann w. (1 <= w) => NatRepr w -> BV w -> PP.Doc ann
     unsigned w bv =
       PP.viaShow (BV.asUnsigned bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
 
 -- | A \"relational\" constraint across several values.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data RelationalConstraint m (argTypes :: Ctx (FullType m))
   = -- | The first argument (a bitvector) is equal to the size of the allocation
@@ -179,20 +191,20 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 
 data ConstrainedTypedValue m = forall ft.
   ConstrainedTypedValue
-  { constrainedValue :: FullTypeRepr m ft,
-    constrainedType :: ConstrainedShape m ft
+  { constrainedType :: FullTypeRepr m ft,
+    constrainedValue :: ConstrainedShape m ft
   }
 
 -- | A collection of constraints on the state of a program. These are used to
 -- hold function preconditions deduced by
 -- "UCCrux.LLVM.Classify.classifyBadBehavior".
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
     _globalConstraints :: Map (GlobalSymbol m) (ConstrainedTypedValue m),
-    _returnConstraints :: Map (DeclSymbol m) (ConstrainedTypedValue m),
+    _returnConstraints :: Map (FuncSymbol m) (ConstrainedTypedValue m),
     _relationalConstraints :: [RelationalConstraint m argTypes]
   }
 
@@ -202,7 +214,7 @@ argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
 globalConstraints :: Simple Lens (Constraints m globalTypes) (Map (GlobalSymbol m) (ConstrainedTypedValue m))
 globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 
-returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (DeclSymbol m) (ConstrainedTypedValue m))
+returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (FuncSymbol m) (ConstrainedTypedValue m))
 returnConstraints = lens _returnConstraints (\s v -> s {_returnConstraints = v})
 
 relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
@@ -259,7 +271,7 @@ ppConstraints (Constraints args globs returnCs relCs) =
           Just $
             nestSep
               ( PP.pretty "Return values of skipped functions:" :
-                map (uncurry (ppLabeledValue getDeclSymbol)) (Map.toList returnCs)
+                map (uncurry (ppLabeledValue getFuncSymbol)) (Map.toList returnCs)
               ),
           -- These aren't yet generated anywhere
           if null relCs
@@ -297,7 +309,7 @@ isEmpty (Constraints args globs returns rels) =
 -- | A specification of the shape (memory layout) of a value and constraints on
 -- it. See also the comment on 'Constraint'.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 newtype ConstrainedShape m (ft :: FullType m) = ConstrainedShape
   {getConstrainedShape :: Shape m (Compose [] (Constraint m)) ft}
@@ -424,7 +436,7 @@ ppExpansionError =
 -- | A constraint (precondition) learned by "UCCrux.LLVM.Classify" by simulating
 -- a function.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data NewConstraint m (argTypes :: Ctx (FullType m))
   = forall atTy. NewShapeConstraint (SomeInSelector m argTypes atTy) (ShapeConstraint m atTy)
@@ -469,6 +481,10 @@ addConstraint modCtx argTypes constraints =
             )
     NewRelationalConstraint relationalConstraint ->
       Right $ constraints & relationalConstraints %~ (relationalConstraint :)
+    NewConstraint (SomeInSelector SelectClobbered {}) _ ->
+      unimplemented "addConstraint" ClobberConstraints
+    NewShapeConstraint (SomeInSelector SelectClobbered {}) _ ->
+      unimplemented "addConstraint" ClobberConstraints
   where
     addOneConstraint ::
       Constraint m atTy ->
@@ -524,7 +540,7 @@ addConstraint modCtx argTypes constraints =
         . fromMaybe (newGlobalShape symbol)
 
     constrainReturn ::
-      DeclSymbol m ->
+      FuncSymbol m ->
       Cursor m inTy atTy ->
       ( forall ft.
         FullTypeRepr m ft ->
@@ -552,14 +568,14 @@ addConstraint modCtx argTypes constraints =
             ft
             (minimalConstrainedShape ft)
 
-    newReturnValueShape :: DeclSymbol m -> ConstrainedTypedValue m
+    newReturnValueShape :: FuncSymbol m -> ConstrainedTypedValue m
     newReturnValueShape symbol =
-      case modCtx ^. declTypes . declSymbol symbol . to ftRetType of
+      case modCtx ^. funcTypes . funcSymbol symbol . to ftRetType of
         Nothing ->
           panic
             "addConstraint"
             [ "Constraint on return value of void function: "
-                ++ show (getDeclSymbol symbol)
+                ++ show (getFuncSymbol symbol)
             ]
         Just (Some ft) ->
           ConstrainedTypedValue

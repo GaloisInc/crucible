@@ -17,6 +17,8 @@ import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import qualified Text.LLVM.AST as L
 
+import qualified What4.Expr as WE
+
 import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.Backend.Simple as CBS
 import           Lang.Crucible.FunctionHandle ( withHandleAllocator, HandleAllocator )
@@ -35,6 +37,8 @@ withInitializedMemory :: forall a. L.Module
                       -> (forall wptr sym. ( ?lc :: TypeContext
                                            , LLVMMem.HasPtrWidth wptr
                                            , CB.IsSymInterface sym
+                                           , LLVMMem.HasLLVMAnn sym
+                                           , ?memOpts :: LLVMMem.MemOptions
                                            )
                           => LLVMMem.MemImpl sym
                           -> IO a)
@@ -46,12 +50,15 @@ withInitializedMemory mod' action =
 
 -- | Create an LLVM context from a module and make some assertions about it.
 withLLVMCtx :: forall a. L.Module
-            -> (forall arch sym. ( ?lc :: TypeContext
-                                 , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
-                                 , CB.IsSymInterface sym
-                                 )
+            -> (forall arch sym bak.
+                   ( ?lc :: TypeContext
+                   , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
+                   , CB.IsSymBackend sym bak
+                   , LLVMMem.HasLLVMAnn sym
+                   , ?memOpts :: LLVMMem.MemOptions
+                   )
                 => LLVMTr.LLVMContext arch
-                -> sym
+                -> bak
                 -> IO a)
             -> IO a
 withLLVMCtx mod' action =
@@ -59,21 +66,22 @@ withLLVMCtx mod' action =
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
-        sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
-        let ?laxArith = False
-        let ?optLoopMerge = False
+        sym <- WE.newExprBuilder WE.FloatRealRepr WE.EmptyExprBuilderState nonceGen
+        bak <- CBS.newSimpleBackend sym
+        let ?memOpts = LLVMMem.defaultMemOptions
+        let ?transOpts = LLVMTr.defaultTranslationOptions
         memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
-        Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc memVar mod'
+        (Some (LLVMTr.ModuleTranslation _ ctx _ _), _warns) <- LLVMTr.translateModule halloc memVar mod'
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
           let ?ptrWidth = width
           let ?lc = LLVMTr._llvmTypeCtx ctx
-          action ctx sym
+          let ?recordLLVMAnnotation = \_ _ _ -> pure ()
+          action ctx bak
         }}}
   in withIONonceGenerator $ \nonceGen ->
      withHandleAllocator  $ \halloc   -> with nonceGen halloc
-
 
 
 assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n

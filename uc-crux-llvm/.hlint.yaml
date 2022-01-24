@@ -37,6 +37,16 @@
     lhs: "undefined"
     rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
 
+- error:
+    name: Use PP.viaShow
+    lhs: "Prettyprinter.pretty (show x)"
+    rhs: 'Prettyprinter.viaShow x'
+
+- error:
+    name: Use TypeApplications
+    lhs: "Proxy :: a"
+    rhs: 'Proxy @Whatever'
+
 # Ignored
 # -------
 
@@ -60,7 +70,7 @@
     within: ["UCCrux.LLVM.Config"]
 - ignore:  # No need for this in the test suite
     name: "Use panic"
-    within: ["Main"]
+    within: ["Check", "Clobber", "Main", "Utils"]
 - ignore:  # Guide to further implementation
     name: "Redundant if"
     within: ["UCCrux.LLVM.Classify.Poison"]

@@ -5,13 +5,13 @@
 module Main where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
-import           Control.Lens ( (^.), to )
+import           Control.Lens ( (^.), (^?), _Right, to )
 import           Control.Monad ( unless, when )
 import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
 import           Data.Char ( isLetter, isSpace )
-import           Data.List ( isInfixOf, isPrefixOf )
+import           Data.List.Extra ( isInfixOf, isPrefixOf, stripPrefix )
 import           Data.Maybe ( catMaybes, fromMaybe, isJust )
 import qualified Data.Text as T
 import           Data.Versions ( Versioning, versioning, prettyV, major )
@@ -27,7 +27,6 @@ import qualified Test.Tasty as TT
 import           Test.Tasty.HUnit ( testCase, assertFailure )
 import qualified Test.Tasty.Sugar as TS
 
-import qualified Crux.Log as C
 import qualified CruxLLVMMain as C
 
 
@@ -38,7 +37,7 @@ cube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                  , TS.expectedSuffix = "good"
                  , TS.validParams = [ ("solver", Just ["z3"])
                                     , ("loop-merging", Just ["loopmerge", "loop"])
-                                    , ("clang-range", Just ["pre-clang11", "clang11", "clang12"])
+                                    , ("clang-range", Just ["pre-clang11", "at-least-clang12", "clang11", "clang12"])
                                     ]
                  , TS.associatedNames = [ ("config",      "config")
                                         , ("test-result", "result")
@@ -51,6 +50,7 @@ main = do let cubes = [ cube { TS.inputDir = dir, TS.rootName = rootName }
                       | dir <- [ "test-data/golden"
                                , "test-data/golden/golden"
                                , "test-data/golden/golden-loop-merging"
+                               , "test-data/golden/stdio"
                                ]
                       , rootName <- [ "*.c", "*.ll" ]
                       ]
@@ -77,6 +77,9 @@ vcTag v@(VC nm _) = nm <> vcMajor v
 
 vcMajor :: VersionCheck -> String
 vcMajor (VC _ v) = either T.unpack (^. major . to show) v
+
+vcVersioning :: VersionCheck -> Either T.Text Versioning
+vcVersioning (VC _ v) = v
 
 mkVC :: String -> String -> VersionCheck
 mkVC nm raw = let r = T.pack raw in VC nm $ first (const r) $ versioning r
@@ -249,6 +252,7 @@ mkTest clangVer sweet _ expct =
                      [
                        ("--config=" <>) <$> lookup "config" (TS.associated expct)
                      , Just $ "--solver=" <> solver
+                     , Just "--quiet"
                      ]
             failureMsg = let bss = BSIO.pack . fmap (toEnum . fromEnum) . show in \case
               Left e -> "***[test]*** Crux failed with exception: " <> bss (show (e :: SomeException)) <> "\n"
@@ -257,9 +261,8 @@ mkTest clangVer sweet _ expct =
         r <- withFile outFile WriteMode $ \h ->
           (try $
             withArgs (cfargs <> [TS.rootFile sweet]) $
-            -- Quiet mode, don't print colors
-            let quietMode = True in
-              C.mainWithOutputConfig (C.OutputConfig False h h quietMode))
+            let coloredOutput = False
+            in (C.mainWithOutputConfig $ C.mkOutputConfig (h, coloredOutput) (h, coloredOutput) C.cruxLLVMLoggingToSayWhat))
         BSIO.writeFile resFName $ failureMsg r
 
       checkResult =
@@ -290,6 +293,10 @@ mkTest clangVer sweet _ expct =
                    , and [ v == "pre-clang11"
                          , vcMajor clangVer `elem` (show <$> [3..10 :: Int])
                          ]
+                   , case stripPrefix "at-least-clang" v of
+                       Nothing -> False
+                       Just verStr ->
+                         (vcVersioning clangVer ^? (_Right . major)) >= Just (read verStr)
                      -- as a fallback, if the testing code here is
                      -- unable to determine the version, run all
                      -- tests.  This is likely to cause a failure, but

@@ -67,7 +67,9 @@ data RunCruxMode = RcmConcrete | RcmSymbolic | RcmCoverage
   deriving (Show, Eq)
 
 runCrux :: FilePath -> Handle -> RunCruxMode -> IO ()
-runCrux rustFile outHandle mode = do
+runCrux rustFile outHandle mode =
+  Mir.withMirLogging $
+  do
     -- goalTimeout is bumped from 60 to 180 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results
     -- (especially in CI).
@@ -76,19 +78,23 @@ runCrux rustFile outHandle mode = do
     -- regression (#627).  This keeps CI from breaking while we investigate.
     -- TODO: revert the timeout to 180 once performance is fixed
     let quiet = True
-    let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
-                                        Crux.simVerbose = 0,
+    let outOpts = (Crux.outputOptions defaultCruxOptions)
+                    { Crux.simVerbose = 0
+                    , Crux.quietMode = quiet
+                    }
+    let options = (defaultCruxOptions { Crux.outputOptions = outOpts,
+                                        Crux.inputFiles = [rustFile],
                                         Crux.globalTimeout = Just 600,
                                         Crux.goalTimeout = Just 600,
                                         Crux.solver = "z3",
-                                        Crux.quietMode = quiet,
                                         Crux.checkPathSat = (mode == RcmCoverage),
                                         Crux.outDir = case mode of
                                             RcmCoverage -> getOutputDir rustFile
                                             _ -> "",
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
-    let ?outputConfig = Crux.OutputConfig False outHandle outHandle quiet
+    let ?outputConfig = Crux.mkOutputConfig (outHandle, False) (outHandle, False) Mir.mirLoggingToSayWhat $
+                        Just (Crux.outputOptions (fst options))
     _exitCode <- Mir.runTests options
     return ()
 
@@ -107,7 +113,7 @@ cruxOracleTest dir name step = do
   step ("Oracle output: " ++ orOut)
 
   let rustFile = dir </> name <.> "rs"
-  
+
   cruxOut <- withSystemTempFile name $ \tempName h -> do
     runCrux rustFile h RcmConcrete
     hClose h
@@ -166,7 +172,7 @@ doGoldenTest rustFile goodFile outFile act = goldenTest (takeBaseName rustFile)
     (act >> BS.readFile outFile)
     (\good out -> return $ if good == out then Nothing else
       Just $ "files " ++ goodFile ++ " and " ++ outFile ++ " differ; " ++
-        goodFile ++ " contains:\n" ++ BS8.toString out)
+        outFile ++ " contains:\n" ++ BS8.toString out)
     (\out -> BS.writeFile goodFile out)
 
 main :: IO ()
@@ -177,7 +183,7 @@ suite = do
   let ?debug = 0 :: Int
   let ?assertFalseOnError = True
   let ?printCrucible = False
-  trees <- sequence 
+  trees <- sequence
            [ testGroup "crux concrete" <$> sequence [ testDir cruxOracleTest "test/conc_eval/" ]
            , testGroup "crux symbolic" <$> sequence [ symbTest "test/symb_eval" ]
            , testGroup "crux coverage" <$> sequence [ coverageTests "test/coverage" ]

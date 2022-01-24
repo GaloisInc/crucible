@@ -4,13 +4,21 @@
 
 module Crux.LLVM.Config where
 
+import           Config.Schema
+import           Control.Applicative ( Alternative(..) )
 import           Control.Exception ( Exception, displayException, throwIO )
+import           Control.Monad ( guard )
 import           Control.Monad.State ( liftIO, MonadIO )
-import           System.FilePath ( (</>) )
+import qualified Data.Text as Text
+import           System.Directory ( doesDirectoryExist )
+import           System.Environment ( getExecutablePath )
+import           System.FilePath ( (</>), joinPath, normalise, splitPath, takeDirectory )
 
 import qualified Data.LLVM.BitCode as LLVM
 
-import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
+import           Lang.Crucible.LLVM.Intrinsics ( IntrinsicsOptions(..), AbnormalExitBehavior(..) )
+import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), IndeterminateLoadBehavior(..), laxPointerMemOptions )
+import           Lang.Crucible.LLVM.Translation ( TranslationOptions(..) )
 
 import qualified Crux
 import           Paths_crux_llvm ( getDataDir )
@@ -23,7 +31,10 @@ data CError =
     ClangError Int String String
   | LLVMParseError LLVM.Error
   | MissingFun String
-  | BadFun
+  | BadFun String {- The function name -}
+           Bool   {- Is is the main() function?
+                     If so, we can recommend the use of the
+                     `supply-main-arguments` option. -}
   | EnvError String
   | NoFiles
     deriving Show
@@ -35,7 +46,11 @@ ppCError :: CError -> String
 ppCError err = case err of
     NoFiles                -> "crux-llvm requires at least one input file."
     EnvError msg           -> msg
-    BadFun                 -> "Function should have no arguments"
+    BadFun fnName isMain   -> unlines $
+                                [ "The '" ++ fnName ++ "' function should have no arguments"] ++
+                                [ "Enable `supply-main-arguments` to relax this restriction"
+                                | isMain
+                                ]
     MissingFun x           -> "Cannot find code for " ++ show x
     LLVMParseError e       -> LLVM.formatError e
     ClangError n sout serr ->
@@ -52,6 +67,38 @@ throwCError :: MonadIO m => CError -> m b
 throwCError e = liftIO (throwIO e)
 
 
+abnormalExitBehaviorSpec :: ValueSpec AbnormalExitBehavior
+abnormalExitBehaviorSpec =
+  (AlwaysFail <$ atomSpec "always-fail") <!>
+  (OnlyAssertFail <$ atomSpec "only-assert-fail") <!>
+  (NeverFail <$ atomSpec "never-fail")
+
+-- | What sort of @main@ functions should @crux-llvm@ support simulating?
+data SupplyMainArguments
+  = NoArguments
+    -- ^ Only support simulating @main@ functions with the signature
+    --   @int main()@. Attempting to simulate a @main@ function that
+    --   takes arguments will result in an error. This is @crux-llvm@'s default
+    --   behavior.
+
+  | EmptyArguments
+    -- ^ Support simulating both @int main()@ and
+    --   @int(main argc, char *argv[])@. If simulating the latter, supply the
+    --   arguments @argc=0@ and @argv={}@. This is a reasonable choice for
+    --   programs whose @main@ function is declared with the latter signature
+    --   but never make use of @argc@ or @argv@.
+  deriving Show
+
+supplyMainArgumentsSpec :: ValueSpec SupplyMainArguments
+supplyMainArgumentsSpec =
+  (NoArguments <$ atomSpec "none") <!>
+  (EmptyArguments <$ atomSpec "empty")
+
+indeterminateLoadBehaviorSpec :: ValueSpec IndeterminateLoadBehavior
+indeterminateLoadBehaviorSpec =
+  (StableSymbolic <$ atomSpec "stable-symbolic") <!>
+  (UnstableSymbolic <$ atomSpec "unstable-symbolic")
+
 data LLVMOptions = LLVMOptions
   { clangBin   :: FilePath
   , linkBin    :: FilePath
@@ -60,19 +107,53 @@ data LLVMOptions = LLVMOptions
   , incDirs    :: [FilePath]
   , targetArch :: Maybe String
   , ubSanitizers :: [String]
-  , memOpts    :: MemOptions
-  , laxArithmetic :: Bool
+  , intrinsicsOpts :: IntrinsicsOptions
+  , memOpts        :: MemOptions
+  , transOpts      :: TranslationOptions
   , entryPoint :: String
   , lazyCompile :: Bool
   , noCompile :: Bool
   , optLevel :: Int
-  , loopMerge :: Bool
+  , symFSRoot :: Maybe FilePath
+  , supplyMainArguments :: SupplyMainArguments
   }
+
+-- | The @c-src@ directory, which contains @crux-llvm@–specific files such as
+-- @crucible.h@, can live in different locations depending on how @crux-llvm@
+-- was built. This function looks in a couple of common places:
+--
+-- 1. A directory relative to the @crux-llvm@ binary itself. This is the case
+--    when running a @crux-llvm@ binary distribution. If that can't be found,
+--    default to...
+--
+-- 2. The @data-files@ directory, as reported by @cabal@'s 'getDataDir'
+--    function.
+--
+-- This isn't always guaranteed to work in every situation, but it should cover
+-- enough common cases to be useful in practice.
+findDefaultLibDir :: IO FilePath
+findDefaultLibDir = getDirRelativeToBin <|> getCabalDataDir
+  where
+    getDirRelativeToBin :: IO FilePath
+    getDirRelativeToBin = do
+      binDir <- takeDirectory `fmap` getExecutablePath
+      let libDirPrefix = normalise . joinPath . init . splitPath $ binDir
+          libDir       = libDirPrefix </> cSrc
+      libDirExists <- doesDirectoryExist libDir
+      guard libDirExists
+      pure libDir
+
+    getCabalDataDir :: IO FilePath
+    getCabalDataDir = do
+      libDirPrefix <- getDataDir
+      pure $ libDirPrefix </> cSrc
+
+    cSrc :: FilePath
+    cSrc = "c-src"
 
 llvmCruxConfig :: IO (Crux.Config LLVMOptions)
 llvmCruxConfig = do
-  ddir <- getDataDir
-  let libDirDefault = ddir </> "c-src"
+  libDirDefault <- findDefaultLibDir
   return Crux.Config
    { Crux.cfgFile =
       do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
@@ -96,19 +177,51 @@ llvmCruxConfig = do
                        "Target architecture to pass to LLVM build operations.\
                        \ Default is no specification for current system architecture"
 
+         intrinsicsOpts <- do abnormalExitBehavior <-
+                                Crux.section "abnormal-exit-behavior" abnormalExitBehaviorSpec AlwaysFail
+                                  (Text.unwords
+                                    [ "Should Crux fail when simulating a function which triggers an"
+                                    , "abnormal exit, such as abort()? Possible options are:"
+                                    , "'always-fail' (default); 'only-assert-fail', which only fails"
+                                    , "when simulating __assert_fail(); and 'never-fail'."
+                                    , "The latter two options are primarily useful for SV-COMP."
+                                    ])
+                              return IntrinsicsOptions{..}
+
          memOpts <- do laxPointerOrdering <-
                          Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False
                            "Allow order comparisons between pointers from different allocation blocks"
                        laxConstantEquality <-
                          Crux.section "lax-constant-equality" Crux.yesOrNoSpec False
                            "Allow equality comparisons between pointers to constant data"
+                       laxLoadsAndStores <-
+                         Crux.section "lax-loads-and-stores" Crux.yesOrNoSpec False
+                           "Relax some of Crucible's validity checks for memory loads and stores"
+                       indeterminateLoadBehavior <-
+                         Crux.section "indeterminate-load-behavior" indeterminateLoadBehaviorSpec StableSymbolic
+                           (Text.unwords
+                             [ "(Only takes effect is 'lax-loads-and-stores' is enabled.)"
+                             , "What should the semantics of reading from uninitialized"
+                             , "memory be? Possible options are:"
+                             , "'stable-symbolic' (default), which causes all allocations to"
+                             , "be initialized with a fresh symbolic value; and"
+                             , "'unstable-symbolic', which causes each read from uninitialized"
+                             , "memory to return a fresh symbolic value."
+                             ])
                        return MemOptions{..}
+
+         transOpts <- do laxArith <-
+                           Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
+                             "Do not produce proof obligations related to arithmetic overflow, etc."
+                         optLoopMerge <-
+                           Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
+                             "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
+                         debugIntrinsics <- Crux.section "debug-intrinsics" Crux.yesOrNoSpec False
+                              "Translate statements using certain llvm.dbg intrinsic functions."
+                         return TranslationOptions{..}
 
          entryPoint <- Crux.section "entry-point" Crux.stringSpec "main"
                            "Name of the entry point function to begin simulation."
-
-         laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
-                           "Do not produce proof obligations related to arithmetic overflow, etc."
 
          lazyCompile <- Crux.section "lazy-compile" Crux.yesOrNoSpec False
                            "Avoid compiling bitcode from source if intermediate files already exist"
@@ -122,8 +235,19 @@ llvmCruxConfig = do
          optLevel <- Crux.section "opt-level" Crux.numSpec 1
                            "Optimization level to request from `clang`"
 
-         loopMerge <- Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
-                        "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
+         symFSRoot <- Crux.sectionMaybe "symbolic-fs-root" Crux.stringSpec
+                      "The root of a symbolic filesystem to make available to\
+                      \ the program during symbolic execution"
+
+         supplyMainArguments <-
+           Crux.section "supply-main-arguments" supplyMainArgumentsSpec NoArguments
+             (Text.unwords
+               [ "One of `none` or `empty` (default: none). If `none`, only"
+               , "support simulating `main` entrypoint functions with the"
+               , "signature `int main()`. If `empty`, also support simulating"
+               , "`int main(int argc, char *argv[])` such that argc=0 and"
+               , "argv={} are chosen as the arguments."
+               ])
 
          return LLVMOptions { .. }
 
@@ -158,12 +282,12 @@ llvmCruxConfig = do
       , Crux.Option [] ["lax-arithmetic"]
         "Turn on lax rules for arithemetic overflow"
         $ Crux.NoArg
-        $ \opts -> Right opts { laxArithmetic = True }
+        $ \opts -> Right opts { transOpts = (transOpts opts) { laxArith = True } }
 
       , Crux.Option [] ["opt-loop-merge"]
         "Insert merge blocks in loops with early exits"
         $ Crux.NoArg
-        $ \opts -> Right opts { loopMerge = True }
+        $ \opts -> Right opts { transOpts = (transOpts opts) { optLoopMerge = True } }
 
       , Crux.Option [] ["lazy-compile"]
         "Avoid compiling bitcode from source if intermediate files already exist (default: off)"
@@ -186,5 +310,9 @@ llvmCruxConfig = do
         $ Crux.parsePosNum "NUM"
         $ \v opts -> opts { optLevel = v }
 
+      , Crux.Option [] ["symbolic-fs-root"]
+        "The root of a symbolic filesystem to make available to the program during symbolic execution"
+        $ Crux.OptArg "DIR"
+        $ \a opts -> Right opts { symFSRoot = a }
       ]
    }

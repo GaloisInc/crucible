@@ -17,20 +17,18 @@ module UCCrux.LLVM.Stats
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.), to)
 import           Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict (Map)
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import           Data.Void (Void)
 import           Panic (panicComponent)
 
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
-import qualified Prettyprinter.Render.Text as PP
 
-import           UCCrux.LLVM.Classify.Types (DiagnosisTag, partitionUncertainty, diagnoseTag, LocatedTruePositive, ppLocatedTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc, diagnosisTag)
+import           UCCrux.LLVM.Bug (BugBehavior, bugBehavior)
+import           UCCrux.LLVM.Classify.Types (Located(..), ppLocated, DiagnosisTag, partitionUncertainty, diagnoseTag, TruePositive, ppTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, diagnosisTag)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
@@ -40,8 +38,8 @@ data Stats = Stats
   { missingAnnotation :: !Word,
     symbolicallyFailedAssert :: !Word,
     timeouts :: !Word,
-    truePositiveFreq :: Map LocatedTruePositive Word,
-    unclassifiedFreq :: Map Text Word,
+    truePositiveFreq :: Map (Located TruePositive) Word,
+    unclassifiedFreq :: Map BugBehavior Word,
     diagnosisFreq :: Map DiagnosisTag Word,
     unimplementedFreq :: Map Unimplemented Word,
     unfixableFreq :: Map Unfixable Word,
@@ -57,32 +55,21 @@ getStats :: BugfindingResult m arch argTypes -> Stats
 getStats result =
   let (missingAnns, failedAsserts, unimplementeds, unclass, unfixed, unfixable, timeouts') = partitionUncertainty (uncertainResults result)
    in Stats
-        { missingAnnotation = fromIntegral $ length missingAnns,
-          symbolicallyFailedAssert = fromIntegral $ length failedAsserts,
-          timeouts = fromIntegral $ length timeouts',
+        { missingAnnotation = toEnum $ length missingAnns,
+          symbolicallyFailedAssert = toEnum $ length failedAsserts,
+          timeouts = toEnum $ length timeouts',
           truePositiveFreq =
             case Result.summary result of
               Result.FoundBugs bugs -> frequencies (toList bugs)
               _ -> Map.empty,
-          unclassifiedFreq =
-            frequencies (map (^. doc . to render . to trunc) unclass),
+          unclassifiedFreq = frequencies (map (bugBehavior . locatedValue) unclass),
           diagnosisFreq =
             frequencies (map diagnosisTag (deducedPreconditions result)),
-          unimplementedFreq = frequencies (map panicComponent unimplementeds),
-          unfixedFreq = frequencies unfixed,
-          unfixableFreq = frequencies unfixable,
+          unimplementedFreq = frequencies (map (panicComponent . locatedValue) unimplementeds),
+          unfixedFreq = frequencies (map locatedValue unfixed),
+          unfixableFreq = frequencies (map locatedValue unfixable),
           summaries = Map.singleton (Result.functionSummaryTag (Result.summary result)) 1
         }
-  where
-    render = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
-    -- Truncation is necessary because some error messages include full symbolic
-    -- terms in them.
-    truncLen = 80 -- Arbitrary
-    trunc txt =
-      Text.replace "\n" "; " $
-        if Text.length txt > truncLen
-          then Text.take truncLen txt <> "..."
-          else txt
 
 ppStats :: Stats -> Doc Void
 ppStats stats =
@@ -90,7 +77,7 @@ ppStats stats =
     [ ppFreq "Overall results:" (PP.pretty . Result.ppFunctionSummaryTag) (summaries stats),
       ppFreq
         "True positives:"
-        (PP.pretty . ppLocatedTruePositive)
+        (PP.pretty . ppLocated ppTruePositive)
         (truePositiveFreq stats),
       ppFreq
         "Missing preconditions:"

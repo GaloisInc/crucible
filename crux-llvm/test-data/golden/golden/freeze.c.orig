@@ -1,0 +1,13 @@
+// This program will produce a `freeze` instruction on LLVM 12+ if compiled
+// with -O1 and --target=i386-unknown-linux-elf.
+
+long long b = 0;
+int c(int a) {
+  if ((b % 2) == a)
+    b = b / 2;
+  return a;
+}
+
+int main() {
+  return c(0);
+}

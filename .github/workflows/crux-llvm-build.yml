@@ -44,24 +44,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest] # , macos-latest] # , windows-latest]
-        ghc: ["8.6.5", "8.8.4", "8.10.4"]
+        os: [ubuntu-20.04, ubuntu-18.04] # , macos-10.15] # , windows-latest]
+        ghc: ["8.8.4", "8.10.7", "9.0.2"]
         allow-failure: [false]
         include:
-          - os: macos-latest
-            ghc: 8.6.5
-            allow-failure: true
-          - os: macos-latest
+          - os: macos-10.15
             ghc: 8.8.4
             allow-failure: true
-          - os: macos-latest
-            ghc: 8.10.2
+          - os: macos-10.15
+            ghc: 8.10.7
+            allow-failure: true
+          - os: macos-10.15
+            ghc: 9.0.2
             allow-failure: true
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
         exclude:
           - os: windows-latest
-            ghc: 8.10.2
+            ghc: 9.0.2
+          - os: windows-latest
+            ghc: 8.10.7
           - os: windows-latest
             ghc: 8.8.4
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
@@ -70,34 +72,41 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions/setup-haskell@v1
+      - uses: haskell/actions/setup@v1
         id: setup-haskell
         with:
           ghc-version: ${{ matrix.ghc }}
 
-      - uses: cachix/install-nix-action@v12
+      - name: Install Nix
+        uses: cachix/install-nix-action@v16
         with:
-          nix_path: nixpkgs=channel:nixos-20.09
+          nix_path: nixpkgs=channel:21.11
+          install_url: https://releases.nixos.org/nix/nix-2.4/install
+
       - uses: actions/cache@v2
         name: Cache cabal store
         with:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
-          key: ${{ env.CACHE_VERSION }}-cabal-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
+          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-cabal-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
+            ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
 
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          Z3_VERSION: "4.8.8"
-          YICES_VERSION: "2.6.2"
+          SOLVER_PKG_VERSION: "snapshot-20210917"
+          BUILD_TARGET_OS: ${{ matrix.os }}
 
       - name: Setup Environment Vars
         run: |
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
-          echo GHC=$GHC >> $GITHUB_ENV
+          case ${{ matrix.ghc }} in
+            9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
+          esac
+          echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
 
       - name: Package's Cabal/GHC compatibility
         shell: bash
@@ -112,7 +121,7 @@ jobs:
           defsetup()  { echo import Distribution.Simple; echo main = defaultMain; }
           setup_src() { if [ ! -f Setup.hs ] ; then defsetup > DefSetup.hs; fi; ls *Setup.hs; }
           setup_bin() { echo setup.${{ matrix.ghc }}; }
-          with_ghc()  { nix-shell -p $GHC --run "$(echo ${@})"; }
+          with_ghc()  { $NS -c ${@}; }
           (cd crucible;      with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-llvm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux;          with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
@@ -126,6 +135,7 @@ jobs:
       - shell: bash
         run: |
           .github/ci.sh build exe:crux-llvm
+          .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:uc-crux-llvm
 
       - shell: bash
@@ -135,6 +145,11 @@ jobs:
         env:
           LLVM_LINK: "llvm-link-10"
           CLANG: "clang-10"
+
+      - shell: bash
+        name: Test crucible-symio (Linux)
+        run: cabal test pkg:crucible-symio
+        if: runner.os == 'Linux'
 
       - shell: bash
         name: Test crucible-llvm (Linux)
@@ -156,35 +171,54 @@ jobs:
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-20.04'
         env:
           LLVM_LINK: "llvm-link-10"
           CLANG: "clang-10"
+
+      - shell: bash
+        name: Install LLVM-11 for MacOS
+        if: runner.os == 'macOS'
+        run: |
+          LLVM_TAR=https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/clang+llvm-11.0.0-x86_64-apple-darwin.tar.xz
+          curl -sSL $LLVM_TAR -o llvm.tar.xz && tar xzf llvm.tar.xz && mv clang+llvm-* llvm
+          echo "#!/usr/bin/env bash" > llvm/bin/clang-withIncl
+          echo "clang -I${{ github.workspace }}/llvm/include -I${{ github.workspace }}/llvm/include/c++/v1" >> llvm/bin/clang-withIncl
+          chmod +x llvm/bin/clang-withIncl
+          echo "$PWD/llvm/bin" >> $GITHUB_PATH
+
+      - uses: actions/cache@v2
+        name: Cache LLVM-11
+        if: runner.os == 'macOS'
+        with:
+          path: ${{ github.workspace }}/llvm
+          key: llvm-11.0.0
+          restore-keys: llvm-11.0.0
 
       - shell: bash
         name: Test crucible (macOS)
         run: .github/ci.sh test crucible
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
-          CLANG: "/usr/local/opt/llvm/bin/clang"
+          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
+          CLANG: "${{ github.workspace }}/llvm/bin/clang"
 
       - shell: bash
         name: Test crucible-llvm (macOS)
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
-          LLVM_AS: "/usr/local/opt/llvm/bin/llvm-as"
-          CLANG: "/usr/local/opt/llvm/bin/clang"
+          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
+          LLVM_AS: "${{ github.workspace }}/llvm/bin/llvm-as"
+          CLANG: "${{ github.workspace }}/llvm/bin/clang"
 
       - shell: bash
         name: Test crux-llvm (macOS)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
-          CLANG: "/usr/local/opt/llvm/bin/clang"
+          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
+          CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
 
       - shell: bash
         name: Test crucible (Windows)
@@ -225,14 +259,15 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
-        if: startsWith(github.ref, 'refs/heads/release-')
+        if: github.repository == 'GaloisInc/crucible'
         env:
+          OS_TAG: ${{ matrix.os }}
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
-        if: startsWith(github.ref, 'refs/heads/release-')
+        if: github.repository == 'GaloisInc/crucible'
         with:
           path: crux-llvm-*.tar.gz*
-          name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}
+          name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}

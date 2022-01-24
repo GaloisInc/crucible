@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 use crate::cell::Cell;
+use crate::mem;
+use core::crucible::concurrency;
 
 pub struct Mutex {
     locked: Cell<bool>,
@@ -22,14 +24,16 @@ impl Mutex {
     pub unsafe fn lock(&self) {
         // TODO: Currently, we never run `drop` code, so locks are never released.  Once we support
         // drops, we can enable this assertion to check for (invalid) reentrant locking.
-        //assert!(!self.locked.get());
+        // assert!(!self.locked.get());
+        concurrency::mutex_lock(self);
         self.locked.set(true);
     }
     #[inline]
     pub unsafe fn unlock(&self) {
         // TODO: Currently, we never run `drop` code, so locks are never released.  Once we support
         // drops, we can enable this assertion to check for invalid usage.
-        assert!(self.locked.get());
+        concurrency::mutex_unlock(self);
+        // assert!(self.locked.get());
         self.locked.set(false);
     }
     #[inline]

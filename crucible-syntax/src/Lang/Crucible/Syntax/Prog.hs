@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
@@ -8,11 +9,9 @@ module Lang.Crucible.Syntax.Prog where
 import Control.Lens (view)
 import Control.Monad
 
-import Data.Foldable (toList)
 import Data.List (find)
 import Data.Text (Text)
 import Data.String (IsString(..))
---import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import System.IO
 import System.Exit
@@ -33,7 +32,6 @@ import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.ProofGoals
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
@@ -41,7 +39,7 @@ import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
-import What4.Expr.Builder (ExprBuilder)
+import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
@@ -65,6 +63,7 @@ doParseCheck fn theInput pprint outh =
          do when pprint $
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
+            let ?parserHooks = defaultParserHooks
             cs <- top ng ha [] $ cfgs v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
@@ -94,10 +93,12 @@ simulateProgram fn theInput outh profh opts setup =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newSimpleBackend FloatIEEERepr nonceGen
+         do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
+            bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
+            let ?parserHooks = defaultParserHooks
             parseResult <- top ng ha hdls $ cfgs v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
@@ -106,13 +107,13 @@ simulateProgram fn theInput outh profh opts setup =
                 case find isMain cs of
                   Just (ACFG Ctx.Empty retType mn) ->
                     do let mainHdl = cfgHandle mn
-                       let fnBindings = fnBindingsFromList
+                       let fns = fnBindingsFromList
                              [ case toSSA g of
                                  C.SomeCFG ssa ->
                                    FnBinding (cfgHandle g) (UseCFG ssa (postdomInfo ssa))
                              | ACFG _ _ g <- cs
                              ]
-                       let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fnBindings emptyExtensionImpl ()
+                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
                        let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
@@ -131,14 +132,15 @@ simulateProgram fn theInput outh profh opts setup =
 
                        hPutStrLn outh "\n==== Finish Simulation ===="
 
-                       getProofObligations sym >>= \case
+                       getProofObligations bak >>= \case
                          Nothing -> hPutStrLn outh "==== No proof obligations ===="
                          Just gs ->
                            do hPutStrLn outh "==== Proof obligations ===="
                               forM_ (goalsToList gs) (\g ->
-                                do hPrint outh (ppProofObligation sym g)
+                                do hPrint outh =<< ppProofObligation sym g
                                    neggoal <- notPred sym (view labeledPred (proofGoal g))
-                                   let bs = neggoal : map (view labeledPred) (toList (proofAssumptions g))
+                                   asms <- assumptionsPred sym (proofAssumptions g)
+                                   let bs = [neggoal, asms]
                                    runZ3InOverride sym defaultLogData bs (\case
                                      Sat _   -> hPutStrLn outh "COUNTEREXAMPLE"
                                      Unsat _ -> hPutStrLn outh "PROVED"

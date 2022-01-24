@@ -3,7 +3,23 @@
 The `crux-llvm` tool (and corresponding C library) are intended for
 verifying C programs containing inline specifications (in the form of
 function calls to create non-deterministic values and assert
-properties).
+properties). For more information about Crux itself, refer to the
+[official website](https://crux.galois.com).
+
+# Licensing and bundled tools
+
+`crux-llvm` is licensed under the 3-Clause BSD license. For more details, refer
+to the `LICENSE` file. Some binary distributions of `crux-llvm` come bundled
+with external compilers and SMT solvers:
+
+* `clang` and `llvm-link` (Apache v2.0 licensed)
+* CVC4 (BSD-3 licensed)
+* Yices (GPLv3 licensed)
+* Z3 (MIT licensed)
+
+These tools are only invoked by `crux-llvm` as subprocesses. That is,
+`crux-llvm` does not link against any of these tools directly. As a result,
+`crux-llvm` adheres to the GPLv3 licensing terms in Yices.
 
 # Prerequisites
 
@@ -17,10 +33,17 @@ software:
 
 * The Z3 SMT solver: <https://github.com/Z3Prover/z3/releases>
 
-* The Clang compiler: <http://releases.llvm.org/download.html>
+* The Clang compiler and LLVM toolchain: <http://releases.llvm.org/download.html>
 
-We have tested `crux-llvm` most heavily with GHC 8.6.5, GHC 8.8.4, GHC
-8.10.4, and `cabal` version 3.2.0.0. We recommend Yices 2.6.x, and Z3
+  If you are on macOS, one way to install LLVM is with [`brew`](https://brew.sh/).
+  To install LLVM with `brew`, run the following commands:
+   * `xcode-select --install`
+   * `brew install llvm`
+   * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
+   * run `crux-llvm` in a new console to reload `.bash_profile`
+
+We have tested `crux-llvm` most heavily with GHC 8.8.4, GHC
+8.10.7, GHC 9.0.2, and `cabal` version 3.6.2.0. We recommend Yices 2.6.x, and Z3
 4.8.x. Technically, only one of Yices or Z3 is required, and CVC4 is
 also supported. However, in practice, having both tends to be
 convenient. Finally, LLVM versions from 3.6 through 11 are likely to
@@ -31,9 +54,9 @@ work well, and any failures with versions in that range should be
 
 The `crux-llvm` tool can be built by doing the following:
 
-* Clone the `crucible` repository:
+* Clone (incl. the submodules) the `crucible` repository:
 
-        git clone https://github.com/GaloisInc/crucible.git
+        git clone --recursive https://github.com/GaloisInc/crucible.git
 
 * Build the `crux-llvm` package:
 
@@ -124,6 +147,16 @@ that property `f(x) < 100` holds whenever the assumption on `x` is
 satisfied. The proof will fail in this case and `crux-llvm` will produce
 a counterexample describing the case where `x` is 99.
 
+## Counterexample limitations
+
+All counterexamples assume that the entrypoint function is `main`, even
+if `entry-point` option is used to specify a different entrypoint during
+simulation. Counterexamples also do not respect the `supply-main-arguments`
+option. That is, if you simulate a `main(int argc, char *argv[])` function
+and use `supply-main-arguments: empty` to pass `argc=0` and `argv={}` to
+`main`, these arguments will _not_ be passed automatically to the
+counterexample executables.
+
 # API
 
 The [`crucible.h` header file](c-src/includes/crucible.h) contains
@@ -146,19 +179,10 @@ properties of a program that you would like to prove.
   succeed.
 
 For programs that have been written for the [SV-COMP
-competition](https://sv-comp.sosy-lab.org/), the following alternative
-API is available.
-
-* The `__VERIFIER_assume` function is equivalent to `crucible_assume`,
-  but does not take location information as an argument.
-
-* The `__VERIFIER_error` function indicates that correct control flow
-  should never reach the point of the call. It is equivalent to
-  `check(0)`.
-
-* The `__VERIFIER_nondet_*` functions create non-deterministic values of
-  the corresponding type. These symbolic values all have the name `x`.
-  To supply distinct names, use the `crucible_*_t` functions, instead.
+competition](https://sv-comp.sosy-lab.org/), the `__VERIFIER_nondet_*`
+functions create non-deterministic values of the corresponding type.
+These symbolic values all have the name `x`. To supply distinct names,
+use the `crucible_*_t` functions, instead.
 
 Note that support for the SV-COMP API exists primarily for backward
 compatibility, since a large number of benchmarks already exist in that
@@ -190,6 +214,10 @@ have built-in support. For C code, the following functions are understood:
 * `puts`
 * `realloc`
 * `strlen`
+* `open`
+* `read`
+* `write`
+* `close`
 
 In addition, the following LLVM intrinsic functions are supported:
 
@@ -245,7 +273,7 @@ In addition, the following flags can optionally be provided:
 
 * `--sim-verbose=NUM`, `-d NUM`: Set the verbosity level of the symbolic
   simulator to `N`.
-  
+
 * `--floating-point=FPREP`, `-f FPREP`: Select the floating point
   representation to use. The value of `FPREP` can be one of `real`,
   `ieee`, `uninterpreted`, or `default`. Default representation is
@@ -299,7 +327,7 @@ In addition, the following flags can optionally be provided:
 
 * `--goal-timeout=N`: Set the timeout for each call to the SMT solver to
   `N` seconds.
-  
+
 * `--hash-consing`: Enable hash-consing in the symbolic expression
   backend.
 
@@ -374,6 +402,10 @@ In addition, the following flags can optionally be provided:
 * `--no-compile`: Assume the input file is an LLVM bitcode module, rather than a
   C program.
 
+* `--symbolic-fs-root=DIR`: Specify a directory containing the initial contents of
+  a symbolic filesystem to use during symbolic execution.  See the Symbolic I/O
+  documentation for the format of this directory. [Experimental]
+
 # Environment Variables
 
 The following environment variables are supported:
@@ -415,6 +447,90 @@ a valid input file:
 This specifies the name of the command to run for `clang` and
 `llvm-link`, instructs `crux-llvm` not to create counter-example
 demonstration executables, and provides a list of input files.
+
+# Symbolic I/O [Experimental]
+
+Note that Symbolic I/O is currently experimental.  We expect that the API (both
+internal and command line) will change.
+
+`crux-llvm` supports *symbolic* I/O operations via the POSIX `open`, `read`,
+`write`, and `close` functions.  These operations are symbolic in the sense that
+the contents of files in the symbolic filesystem can be a mix of concrete and
+symbolic values.  The original motivation of the work was to support checking
+assertions for programs with configuration files; by supporting symbolic file
+contents, `crux-llvm` can check entire families of configuration at once.
+
+## Symbolic Filesystem Contents
+
+The `--symbolic-fs-root` option (and corresponding configuration file option)
+enable users to specify the initial contents of the symbolic filesystem.  The
+directory pointed to by this options contains:
+
+* A sub-directory named `root` that contains concrete files that will exist in
+  the initial filesystem.  The directory layout within `root` is preserved.  For
+  example, a file named `root/etc/fstab` will be mapped to `/etc/fstab` in the
+  initial symbolic filesystem.
+* An optional file named `stdin`, which contains the standard input of the program.
+* A manifest named `system-manifest.json` that describes the contents of symbolic files.
+
+The manifest maps absolute file paths to specifications of what parts of the
+corresponding file are symbolic.  Note that the specification is currently
+coarse and only supports fully-symbolic files.  The format of the system
+manifest is:
+
+```
+{ "symbolicFiles": [<SymFilePair>],
+  "useStdout": bool,
+  "useStderr": bool
+}
+
+SymFilePair := [ FilePath, <SymbolicFileContents> ]
+
+FilePath := string (an absolute file path)
+
+SymbolicFileContents := { "symbolicContentSize": Word64 }
+
+```
+
+If no initial filesystem is specified, `crux-llvm` defaults to an empty standard
+input, while allowing output to standard output and standard error.  Note that
+if a program attempts to use the symbolic I/O primitives without being backed by
+appropriate files (e.g., opening a file that does not exist), the symbolic I/O
+backend will simply report that those functions fail in the expected way (i.e.,
+returning -1).
+
+## Interaction with Standard I/O
+
+If the program being verified writes to standard output or standard error (via
+the POSIX `STDOUT_FILENO` or `STDERR_FILENO` handles, which correspond to file
+descriptors 1 and 2), the symbolic I/O backend reflects as much of the output as
+it can to the actual standard output and standard error of `crux-llvm`.  Note
+that only *concrete* writes are mirrored to the real world; symbolic writes
+still take effect in the symbolic files representing standard output and
+standard error.
+
+Note that, due to the branching structure of symbolic execution, the same output
+may appear more than once if a call to `write` occurs on a symbolic branch.
+
+## Current Limitations
+
+* Filenames must be concrete
+* Filenames must be absolute paths (relative paths require additionally modeling the current working directory)
+* Many file operations are not yet modeled
+* Files can currently only be entirely concrete or entirely symbolic
+* The `open` function does not accept a mode (i.e., file permissions are not yet modeled)
+* The `open` function accepts flags (but currently ignores them)
+* The `open` function cannot create new files that do not exist in the filesystem
+* The special handling of `printf` does not yet interact with the symbolic standard output file descriptor
+
+It is intended that the symbolic I/O facility will be extended over time to
+support more operations.
+
+Also note that the order in which file descriptor numbers are handed out to
+client code can be subtly different than in the real program. In particular, on
+a symbolic branch where both branches open a new file, the two branches will get
+sequential file descriptors. In contrast, the real program would allocate the
+same file descriptor to both (as only one branch would be taken).
 
 # Acknowledgements
 

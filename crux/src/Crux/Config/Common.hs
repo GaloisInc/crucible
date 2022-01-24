@@ -1,16 +1,34 @@
-{-# Language RecordWildCards, OverloadedStrings, ApplicativeDo #-}
-module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
 
+module Crux.Config.Common (
+  OutputOptions(..),
+  CruxOptions(..),
+  PathStrategy(..),
+  cruxOptions,
+  defaultOutputOptions,
+  postprocessOptions,
+) where
+
+import Control.Lens (set)
 import Data.Functor.Alt
+import Data.Generics.Product.Fields (field)
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
 import Data.Word (Word64)
 import Data.Text (pack)
+import GHC.Generics (Generic)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
-import Crux.Log
+import Crux.Config.Load (ColorOptions(..))
+import Crux.Log as Log
 import Config.Schema
 
 import What4.ProblemFeatures
@@ -25,29 +43,38 @@ pathStrategySpec =
   (SplitAndExploreDepthFirst <$ atomSpec "split-dfs")
 
 
-postprocessOptions :: Logs => CruxOptions -> IO CruxOptions
+postprocessOptions ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxOptions -> IO CruxOptions
 postprocessOptions =
   checkPathStrategyInteractions >>
   checkPathSatInteractions >>
   checkBldDir
 
-checkPathStrategyInteractions :: Logs => CruxOptions -> IO CruxOptions
+checkPathStrategyInteractions ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxOptions -> IO CruxOptions
 checkPathStrategyInteractions crux =
   case pathStrategy crux of
     AlwaysMergePaths -> return crux
     SplitAndExploreDepthFirst
      | profileCrucibleFunctions crux || branchCoverage crux ->
-         do sayWarn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
+         do sayCrux Log.DisablingProfilingIncompatibleWithPathSplitting
             return crux { profileCrucibleFunctions = False, branchCoverage = False }
      | otherwise -> return crux
 
-checkPathSatInteractions :: Logs => CruxOptions -> IO CruxOptions
+checkPathSatInteractions ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxOptions -> IO CruxOptions
 checkPathSatInteractions crux =
   case checkPathSat crux of
     True -> return crux
     False
       | branchCoverage crux ->
-          do sayWarn "Crux" "Branch coverage requires enabling path satisfiability checking.  Coverage measurement is disabled!"
+          do sayCrux Log.DisablingBranchCoverageRequiresPathSatisfiability
              return crux { branchCoverage = False }
       | otherwise -> return crux
 
@@ -55,6 +82,36 @@ checkBldDir :: CruxOptions -> IO CruxOptions
 checkBldDir crux = do
   createDirectoryIfMissing True $ bldDir crux
   return crux
+
+
+data OutputOptions = OutputOptions
+  { colorOptions :: ColorOptions
+
+  , printFailures :: Bool
+    -- ^ Print errors regarding failed verification goals
+
+  , printSymbolicVars :: Bool
+    -- ^ Print values assigned to symbolic variables
+    --   when printing failed verification goals
+
+  , simVerbose :: Int
+    -- ^ Level of verbosity for the symbolic simulation
+
+  , quietMode :: Bool
+    -- ^ If true, produce minimal output
+
+  }
+  deriving (Generic)
+
+
+defaultOutputOptions :: ColorOptions -> OutputOptions
+defaultOutputOptions copts = OutputOptions
+  { colorOptions = copts
+  , printFailures = False
+  , printSymbolicVars = False
+  , quietMode = False
+  , simVerbose = 0
+  }
 
 
 -- | Common options for Crux-based binaries.
@@ -97,8 +154,6 @@ data CruxOptions = CruxOptions
     -- ^ Should we attempt to compute unsatisfiable cores for successful
     --   proofs?
 
-  , simVerbose               :: Int
-
   , solver                   :: String
     -- ^ Solver to use to discharge proof obligations
   , pathSatSolver            :: Maybe String
@@ -124,9 +179,6 @@ data CruxOptions = CruxOptions
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 
-  , quietMode                :: Bool
-    -- ^ If true, produce minimal output
-
   , proofGoalsFailFast       :: Bool
     -- ^ If true, stop attempting to prove goals as soon as one is disproved
 
@@ -145,9 +197,12 @@ data CruxOptions = CruxOptions
   , onlineProblemFeatures    :: ProblemFeatures
     -- ^ Problem Features to force in online solvers
 
-  , printFailures            :: Bool
-    -- ^ Print errors regarding failed verification goals
+  , outputOptions            :: OutputOptions
+    -- ^ Output options grouped together for easy transfer to the logger
+
   }
+  deriving (Generic)
+
 
 
 cruxOptions :: Config CruxOptions
@@ -258,6 +313,11 @@ cruxOptions = Config
             section "print-failures" yesOrNoSpec True
             "Print error messages regarding failed verification goals"
 
+          printSymbolicVars <-
+            section "print-symbolic-vars" yesOrNoSpec False
+            ("Print values assigned to symbolic variables " <>
+             "when printing failed verification goals")
+
           skipReport <-
             section "skip-report" yesOrNoSpec False
             "Skip producing the HTML report after verification"
@@ -270,6 +330,18 @@ cruxOptions = Config
             section "skip-incomplete-reports" yesOrNoSpec False
             "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
 
+          noColors <-
+            section "no-colors" yesOrNoSpec False
+            "Suppress color codes in both the output and the errors"
+
+          noColorsErr <-
+            section "no-colors-err" yesOrNoSpec False
+            "Suppress color codes in the errors"
+
+          noColorsOut <-
+            section "no-colors-out" yesOrNoSpec False
+            "Suppress color codes in the output"
+
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
             "If true, produce minimal output"
@@ -280,7 +352,16 @@ cruxOptions = Config
 
           onlineProblemFeatures <- pure noFeatures
 
-          pure CruxOptions { .. }
+          pure CruxOptions
+            { outputOptions = OutputOptions
+              { colorOptions = ColorOptions
+                { noColorsErr = noColorsErr || noColors
+                , noColorsOut = noColorsOut || noColors
+                },
+                ..
+              },
+              ..
+            }
 
 
   , cfgEnv =
@@ -293,7 +374,7 @@ cruxOptions = Config
 
       [ Option "d" ["sim-verbose"]
         "Set simulator verbosity level."
-        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v opts -> opts { simVerbose = v }
+        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v -> set (field @"outputOptions" . field @"simVerbose") v
 
       , Option [] ["path-sat"]
         "Enable path satisfiability checking"
@@ -407,7 +488,7 @@ cruxOptions = Config
 
       , Option [] ["skip-print-failures"]
         "Skip printing messages related to failed verification goals"
-        $ NoArg $ \opts -> Right opts{ printFailures = False }
+        $ NoArg $ Right . set (field @"outputOptions" . field @"printFailures") False
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
@@ -415,7 +496,7 @@ cruxOptions = Config
 
       , Option "q" ["quiet"]
         "Quiet mode; produce minimal output"
-        $ NoArg $ \opts -> Right opts{ quietMode = True }
+        $ NoArg $ Right . set (field @"outputOptions" . field @"quietMode") True
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"

@@ -520,9 +520,9 @@ valueLoad lo ltp so v
   | otherwise =
     case storageTypeF ltp of
       Bitvector lw -> loadBitvector lo lw so v
-      Float  -> BVToFloat  $ valueLoad 0 (bitvectorType 4) so v
-      Double -> BVToDouble $ valueLoad 0 (bitvectorType 8) so v
-      X86_FP80 -> BVToX86_FP80 $ valueLoad 0 (bitvectorType 10) so v
+      Float  -> BVToFloat  $ valueLoad lo (bitvectorType 4) so v
+      Double -> BVToDouble $ valueLoad lo (bitvectorType 8) so v
+      X86_FP80 -> BVToX86_FP80 $ valueLoad lo (bitvectorType 10) so v
       Array ln tp ->
         let leSize = storageTypeSize tp
             val i = valueLoad (lo+leSize*fromIntegral i) tp so v

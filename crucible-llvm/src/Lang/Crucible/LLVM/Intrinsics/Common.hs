@@ -22,8 +22,10 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , SomeLLVMOverride(..)
   , RegOverrideM
   , llvmSizeT
+  , llvmSSizeT
   , OverrideTemplate(..)
   , TemplateMatcher(..)
+  , callStackFromMemVar'
     -- ** register_llvm_override
   , basic_llvm_override
   , polymorphic1_llvm_override
@@ -50,7 +52,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
 import           Lang.Crucible.FunctionHandle ( mkHandle' )
@@ -64,7 +66,9 @@ import           Lang.Crucible.Types
 import           What4.FunctionName
 
 import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.Eval (callStackFromMemVar)
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 
@@ -76,11 +80,13 @@ data LLVMOverride p sym args ret =
   , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
   , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
-       forall ext rtp args' ret'.
+       forall bak.
+         IsSymBackend sym bak =>
          GlobalVar Mem ->
-         sym ->
+         bak ->
          Ctx.Assignment (RegEntry sym) args ->
-         OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
+         forall rtp args' ret'.
+         OverrideSim p sym LLVM rtp args' ret' (RegValue sym ret)
     -- ^ The implementation of the intrinsic in the simulator monad
     -- (@OverrideSim@).
   }
@@ -91,6 +97,10 @@ data SomeLLVMOverride p sym =
 -- | Convenient LLVM representation of the @size_t@ type.
 llvmSizeT :: HasPtrWidth wptr => L.Type
 llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
+
+-- | Convenient LLVM representation of the @ssize_t@ type.
+llvmSSizeT :: HasPtrWidth wptr => L.Type
+llvmSSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
 data OverrideTemplate p sym arch rtp l a =
   OverrideTemplate
@@ -109,6 +119,11 @@ type RegOverrideM p sym arch rtp l a =
   ReaderT (L.Declare, Maybe ABI.DecodedName, LLVMContext arch)
     (MaybeT (OverrideSim p sym LLVM rtp l a))
 
+callStackFromMemVar' ::
+  GlobalVar Mem ->
+  OverrideSim p sym ext r args ret CallStack
+callStackFromMemVar' mvar = use (to (flip callStackFromMemVar mvar))
+
 ------------------------------------------------------------------------
 -- ** register_llvm_override
 
@@ -122,19 +137,19 @@ newtype ValTransformer p sym tp tp' =
     RegValue sym tp ->
     OverrideSim p sym LLVM rtp l a (RegValue sym tp')) }
 
-transformLLVMArgs :: forall m p sym args args'.
-  (IsSymInterface sym, Monad m, HasLLVMAnn sym) =>
-  sym ->
+transformLLVMArgs :: forall m p sym bak args args'.
+  (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
+  bak ->
   CtxRepr args' ->
   CtxRepr args ->
   m (ArgTransformer p sym args args')
 transformLLVMArgs _ Ctx.Empty Ctx.Empty =
   return (ArgTransformer (\_ -> return Ctx.Empty))
-transformLLVMArgs sym (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
+transformLLVMArgs bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
   return (ArgTransformer
            (\(xs Ctx.:> x) ->
-              do (ValTransformer f)  <- transformLLVMRet sym tp tp'
-                 (ArgTransformer fs) <- transformLLVMArgs sym rest' rest
+              do (ValTransformer f)  <- transformLLVMRet bak tp tp'
+                 (ArgTransformer fs) <- transformLLVMArgs bak rest' rest
                  xs' <- fs xs
                  x'  <- RegEntry tp' <$> f (regValue x)
                  pure (xs' Ctx.:> x')))
@@ -143,30 +158,30 @@ transformLLVMArgs _ _ _ =
     [ "transformLLVMArgs: argument shape mismatch!" ]
 
 transformLLVMRet ::
-  (IsSymInterface sym, Monad m, HasLLVMAnn sym) =>
-  sym ->
+  (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
+  bak ->
   TypeRepr ret  ->
   TypeRepr ret' ->
   m (ValTransformer p sym ret ret')
-transformLLVMRet sym (BVRepr w) (LLVMPointerRepr w')
+transformLLVMRet bak (BVRepr w) (LLVMPointerRepr w')
   | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . llvmPointer_bv sym))
-transformLLVMRet sym (LLVMPointerRepr w) (BVRepr w')
+  = return (ValTransformer (liftIO . llvmPointer_bv (backendGetSym bak)))
+transformLLVMRet bak (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . projectLLVM_bv sym))
-transformLLVMRet sym (VectorRepr tp) (VectorRepr tp')
-  = do ValTransformer f <- transformLLVMRet sym tp tp'
+  = return (ValTransformer (liftIO . projectLLVM_bv bak))
+transformLLVMRet bak (VectorRepr tp) (VectorRepr tp')
+  = do ValTransformer f <- transformLLVMRet bak tp tp'
        return (ValTransformer (traverse f))
-transformLLVMRet sym (StructRepr ctx) (StructRepr ctx')
-  = do ArgTransformer tf <- transformLLVMArgs sym ctx' ctx
+transformLLVMRet bak (StructRepr ctx) (StructRepr ctx')
+  = do ArgTransformer tf <- transformLLVMArgs bak ctx' ctx
        return (ValTransformer (\vals ->
           let vals' = Ctx.zipWith (\tp (RV v) -> RegEntry tp v) ctx vals in
           fmapFC (\x -> RV (regValue x)) <$> tf vals'))
 
-transformLLVMRet _sym ret ret'
+transformLLVMRet _bak ret ret'
   | Just Refl <- testEquality ret ret'
   = return (ValTransformer return)
-transformLLVMRet _sym ret ret'
+transformLLVMRet _bak ret ret'
   = panic "Intrinsics.transformLLVMRet"
       [ "Cannot transform types"
       , "*** Source type: " ++ show ret
@@ -177,22 +192,25 @@ transformLLVMRet _sym ret ret'
 --   expected by the LLVM calling convention.  This basically just coerces
 --   between values of @BVType w@ and values of @LLVMPointerType w@.
 build_llvm_override ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
-  sym ->
+  HasLLVMAnn sym =>
   FunctionName ->
   CtxRepr args ->
   TypeRepr ret ->
   CtxRepr args' ->
   TypeRepr ret' ->
-  (forall rtp' l' a'. Ctx.Assignment (RegEntry sym) args ->
+  (forall bak rtp' l' a'. IsSymBackend sym bak =>
+   bak ->
+   Ctx.Assignment (RegEntry sym) args ->
    OverrideSim p sym LLVM rtp' l' a' (RegValue sym ret)) ->
   OverrideSim p sym LLVM rtp l a (Override p sym LLVM args' ret')
-build_llvm_override sym fnm args ret args' ret' llvmOverride =
-  do fargs <- transformLLVMArgs sym args args'
-     fret  <- transformLLVMRet  sym ret  ret'
+build_llvm_override fnm args ret args' ret' llvmOverride =
+  ovrWithBackend $ \bak ->
+  do fargs <- transformLLVMArgs bak args args'
+     fret  <- transformLLVMRet  bak ret  ret'
      return $ mkOverride' fnm ret' $
             do RegMap xs <- getOverrideArgs
-               applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
+               ovrWithBackend $ \bak' ->
+                 applyValTransformer fret =<< llvmOverride bak' =<< applyArgTransformer fargs xs
 
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
@@ -263,8 +281,6 @@ register_llvm_override llvmOverride = do
    do let (L.Symbol str_nm) = L.decName decl
       let fnm  = functionNameFromText (Text.pack str_nm)
 
-      sym <- lift $ lift $ getSymInterface
-
       let mvar = llvmMemVar llvmctx
       let overrideArgs = llvmOverride_args llvmOverride
       let overrideRet  = llvmOverride_ret llvmOverride
@@ -273,8 +289,8 @@ register_llvm_override llvmOverride = do
 
       llvmDeclToFunHandleRepr' decl $ \args ret -> do
         o <- lift $ lift $
-                build_llvm_override sym fnm overrideArgs overrideRet args ret
-                (llvmOverride_def llvmOverride mvar sym)
+                build_llvm_override fnm overrideArgs overrideRet args ret
+                (\bak asgn -> llvmOverride_def llvmOverride mvar bak asgn)
         ctx <- lift $ lift $ use stateContext
         let ha = simHandleAllocator ctx
         h <- lift $ liftIO $ mkHandle' ha fnm args ret
@@ -282,5 +298,6 @@ register_llvm_override llvmOverride = do
         lift $ lift $ do
            bindFnHandle h (UseOverride o)
            mem <- readGlobal mvar
-           mem' <- liftIO $ bindLLVMFunPtr sym decl h mem
+           mem' <- ovrWithBackend $ \bak ->
+                     liftIO $ bindLLVMFunPtr bak decl h mem
            writeGlobal mvar mem'

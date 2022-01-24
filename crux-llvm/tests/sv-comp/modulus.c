@@ -1,15 +1,19 @@
-extern void __VERIFIER_assume(int);
-extern void __VERIFIER_error() __attribute__ ((__noreturn__));
+/* https://graphics.stanford.edu/~seander/bithacks.html#ModulusDivisionEasy */
+#include <assert.h>
+
+void __VERIFIER_assume(int cond) {
+  if (!cond) {
+    abort();
+  }
+}
 
 extern unsigned int __VERIFIER_nondet_uint(void);
 void __VERIFIER_assert(int cond) {
   if (!(cond)) {
-    ERROR: __VERIFIER_error();
+    ERROR: assert(0);
   }
   return;
 }
-/* https://graphics.stanford.edu/~seander/bithacks.html#ModulusDivisionEasy */
-#include <assert.h>
 
 int main()
 {

@@ -7,7 +7,6 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -30,6 +29,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , withSimContext
   , getContext
   , getSymInterface
+  , ovrWithBackend
   , bindFnHandle
   , exitExecution
   , getOverrideArgs
@@ -78,10 +78,6 @@ module Lang.Crucible.Simulator.OverrideSim
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad hiding (fail)
-#if !(MIN_VERSION_base(4,13,0))
-import qualified Control.Monad.Fail as Fail (fail)
-import           Control.Monad.Fail (MonadFail)
-#endif
 import qualified Control.Monad.Catch as X
 import           Control.Monad.Reader hiding (fail)
 import           Control.Monad.ST
@@ -166,9 +162,6 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-#if !(MIN_VERSION_base(4,13,0))
-  fail = Fail.fail
-#endif
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang ret) ('Just args))
                              (OverrideSim p sym ext rtp args ret)
@@ -212,6 +205,13 @@ getContext = use stateContext
 
 getSymInterface :: OverrideSim p sym ext rtp args ret sym
 getSymInterface = use stateSymInterface
+
+ovrWithBackend ::
+  (forall bak. IsSymBackend sym bak => bak -> OverrideSim p sym ext rtp args ret a) ->
+  OverrideSim p sym ext rtp args ret a
+ovrWithBackend k =
+  do simCtx <- use stateContext
+     ctxSolverProof simCtx (withBackend simCtx k)
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity =
@@ -312,10 +312,10 @@ readRef ::
   RefCell tp {- ^ Reference cell to read -} ->
   OverrideSim p sym ext rtp args ret (RegValue sym tp)
 readRef r =
-  do sym <- getSymInterface
-     globals <- use (stateTree . actFrame . gpGlobals)
+  do globals <- use (stateTree . actFrame . gpGlobals)
      let msg = ReadBeforeWriteSimError "Attempt to read undefined reference cell"
-     liftIO $ readPartExpr sym (lookupRef r globals) msg
+     ovrWithBackend $ \bak ->
+       liftIO $ readPartExpr bak (lookupRef r globals) msg
 
 -- | Write a value into a reference cell.
 writeRef ::
@@ -347,10 +347,10 @@ readMuxTreeRef ::
   MuxTree sym (RefCell tp) {- ^ Reference cell to read -} ->
   OverrideSim p sym ext rtp args ret (RegValue sym tp)
 readMuxTreeRef tpr r =
-  do sym <- getSymInterface
-     iTypes <- ctxIntrinsicTypes <$> use stateContext
+  do iTypes <- ctxIntrinsicTypes <$> use stateContext
      globals <- use (stateTree . actFrame . gpGlobals)
-     liftIO $ EvalStmt.readRef sym iTypes tpr r globals
+     ovrWithBackend $ \bak ->
+       liftIO $ EvalStmt.readRef bak iTypes tpr r globals
 
 -- | Write a value into a mux tree of reference cells.
 writeMuxTreeRef ::

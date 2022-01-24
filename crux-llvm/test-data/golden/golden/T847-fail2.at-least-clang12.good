@@ -1,0 +1,13 @@
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in my_abs
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     The first argument of `llvm.abs.*` was `INT_MIN` even though the
+[Crux]     second argument was `1`
+[Crux]     Argument: 0x80000000:[32]
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 12
+[Crux]       ‘llvm.abs.*’ Intrinsic (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/12.0.0/docs/LangRef.html
+[Crux] Overall status: Invalid.

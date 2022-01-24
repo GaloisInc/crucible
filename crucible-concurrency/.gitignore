@@ -1,0 +1,5 @@
+examples/cbl/*.out
+sv-benchmarks/c/pthread-divine/*.out
+sv-benchmarks/c/pthread-ext/*.out
+sv-benchmarks/c/pthread-lit/*.out
+sv-benchmarks/c/pthread/*.out
