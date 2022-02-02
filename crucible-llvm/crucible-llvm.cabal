@@ -28,7 +28,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.16,
+    base >= 4.13 && < 4.17,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,
@@ -47,7 +47,7 @@ library
     itanium-abi >= 0.1.1.1 && < 0.2,
     llvm-pretty >= 0.8 && < 0.12,
     mtl,
-    parameterized-utils >= 1.0.4 && < 2.2,
+    parameterized-utils >= 2.1.5 && < 2.2,
     prettyprinter >= 1.7.0,
     text,
     template-haskell,

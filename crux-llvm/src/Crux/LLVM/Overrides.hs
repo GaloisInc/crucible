@@ -147,10 +147,10 @@ cruxLLVMOverrides arch =
 
   , basic_llvm_override $
         [llvmOvr| void @crucible_dump_memory( ) |]
-        $ \mvar _sym _args ->
+        (\mvar _sym _args ->
           do mem <- readGlobal mvar
              h <- printHandle <$> getContext
-             liftIO (doDumpMem h mem)
+             liftIO (doDumpMem h mem))
   ]
 
 
