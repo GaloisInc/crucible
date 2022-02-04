@@ -265,7 +265,6 @@ instance MonadTrans (Generator ext s t ret) where
   lift m = Generator (lift m)
 
 instance Monad m => Monad (Generator ext s t ret m) where
-  return  = Generator . return
   x >>= f = Generator (unGenerator x >>= unGenerator . f)
 
 instance F.MonadFail m => F.MonadFail (Generator ext s t ret m) where

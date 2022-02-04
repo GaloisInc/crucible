@@ -65,7 +65,6 @@ instance Applicative (StateContT s r m) where
 
 instance Monad (StateContT s r m) where
   (>>=) = bindStateContT
-  return = returnStateContT
 
 instance MonadFail m => MonadFail (StateContT s r m) where
   fail = \msg -> StateContT $ \_ _ -> fail msg
