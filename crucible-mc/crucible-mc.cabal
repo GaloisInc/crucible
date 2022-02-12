@@ -23,7 +23,7 @@ common dependencies
     , crux
     , crux-llvm
     , extra
-    , language-sally           ^>=0.3
+    , language-sally           >=0.4
     , lens
     , llvm-pretty
     , llvm-pretty-bc-parser

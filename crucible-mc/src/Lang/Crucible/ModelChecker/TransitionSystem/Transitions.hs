@@ -13,9 +13,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.TransitionSystem.Transitions
 -- Description      : Builder for the transitions of the transition system
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.TransitionSystem.Transitions

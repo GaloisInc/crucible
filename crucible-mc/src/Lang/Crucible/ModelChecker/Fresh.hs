@@ -10,9 +10,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.Fresh
 -- Description      : Helpers to create fresh symbolic values
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.Fresh
@@ -45,20 +45,22 @@ import Lang.Crucible.Simulator
   )
 import qualified Text.LLVM as TL
 import qualified What4.Interface as What4
+import Lang.Crucible.Backend (HasSymInterface(backendGetSym))
 
 freshGlobals ::
   (?lc :: TypeContext) =>
   MemModel.HasPtrWidth wptr =>
   MemModel.HasLLVMAnn sym =>
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
-  sym ->
+  bak ->
   GlobalInitializerMap ->
   MemModel.MemImpl sym ->
   IO (MemModel.MemImpl sym)
-freshGlobals sym gimap mem0 = foldM f mem0 (Map.elems gimap)
+freshGlobals bak gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
     f _ (_, Left msg) = fail msg
-    f mem (gl, Right (mty, Just _)) = freshGlobal sym gl mty mem
+    f mem (gl, Right (mty, Just _)) = freshGlobal bak gl mty mem
     f _ (_, Right (_, Nothing)) = error "Consider whether to make symbolic global values for uninitialized globals"
 
 -- TODO: consider moving this in Crux?
@@ -66,16 +68,18 @@ freshGlobal ::
   (?lc :: TypeContext) =>
   MemModel.HasPtrWidth wptr =>
   MemModel.HasLLVMAnn sym =>
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
-  sym ->
+  bak ->
   TL.Global ->
   MemType ->
   MemModel.MemImpl sym ->
   IO (MemModel.MemImpl sym)
-freshGlobal sym gl mty mem =
+freshGlobal bak gl mty mem =
   do
+    let sym = backendGetSym bak
     ty <- MemModel.toStorableType mty
-    ptr <- MemModel.doResolveGlobal sym mem (TL.globalSym gl)
+    ptr <- MemModel.doResolveGlobal bak mem (TL.globalSym gl)
     llvmVal <- case mty of
       IntType w ->
         do
@@ -91,7 +95,7 @@ freshGlobal sym gl mty mem =
                 Nothing -> error "Global bitvector width is zero"
             Nothing -> error "Negative natural, this should not happen"
       _ -> error $ "Unhandled type in freshGlobal: " ++ show mty
-    MemModel.storeRaw sym mem ptr ty noAlignment llvmVal
+    MemModel.storeRaw bak mem ptr ty noAlignment llvmVal
 
 -- | Create a fresh register value of the wanted type
 freshRegValue ::

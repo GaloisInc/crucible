@@ -78,7 +78,7 @@ import Lang.Crucible.LLVM.Translation
         , LLVMTranslationWarning(..)
         )
 import Lang.Crucible.LLVM.Intrinsics
-        (llvmIntrinsicTypes, register_llvm_overrides )
+        ( IntrinsicsOptions, llvmIntrinsicTypes, register_llvm_overrides )
 
 import Lang.Crucible.LLVM.Errors( ppBB )
 import Lang.Crucible.LLVM.Extension( LLVM, ArchWidth )
@@ -126,16 +126,17 @@ parseLLVM file =
 
 registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, ptrW ~ ArchWidth arch) =>
-  LLVMOptions ->
+  MemOptions ->
+  IntrinsicsOptions ->
   LLVM.Module ->
   ModuleTranslation arch ->
   Maybe (LLVMFileSystem ptrW) ->
   OverM Crux sym LLVM ()
-registerFunctions llvmOpts llvm_module mtrans fs0 =
+registerFunctions mmOpts intrscsOpts llvm_module mtrans fs0 =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
-         ?intrinsicsOpts = intrinsicsOpts llvmOpts
-         ?memOpts = memOpts llvmOpts
+         ?intrinsicsOpts = intrscsOpts
+         ?memOpts = mmOpts
 
      -- register the callable override functions
      register_llvm_overrides llvm_module []
@@ -214,7 +215,9 @@ setupFileSim halloc llvm_file llvmOpts bak _maybeOnline =
          InitialState simctx globSt' defaultAbortHandler UnitRepr $
            runOverrideSim UnitRepr $
              withPtrWidth ptrW $
-                do registerFunctions llvmOpts (prepLLVMMod prepped) trans (Just fs0)
+                do registerFunctions
+                      (memOpts llvmOpts) (intrinsicsOpts llvmOpts)
+                      (prepLLVMMod prepped) trans (Just fs0)
                    initFSOverride
                    checkFun llvmOpts trans memVar
 

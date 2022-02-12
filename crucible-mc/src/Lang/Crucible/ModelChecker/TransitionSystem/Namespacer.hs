@@ -8,9 +8,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
 -- Description      : Abstraction for adding namespaces to variables in What4 expressions
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
@@ -25,7 +25,6 @@ import Data.Functor.Const (Const (Const))
 import Data.Functor.Product (Product (..))
 import qualified Data.Parameterized.Context as Ctx
 import Data.Semigroup (First (..))
-import qualified Lang.Crucible.Backend as Backend
 import Lang.Crucible.Types
   ( BaseTypeRepr,
     TestEquality (testEquality),
@@ -44,7 +43,6 @@ data Namespacer sym stateFields = Namespacer
   }
 
 sallyNamespacer ::
-  Backend.IsBoolSolver (WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE)) =>
   WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE) ->
   Ctx.Assignment (Const What4.SolverSymbol) stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->
@@ -97,7 +95,6 @@ fieldIndex fieldSymbols fieldTypes fieldSymbol fieldType = do
 
 addNamespaceToVariables ::
   forall t st stateFields tp.
-  Backend.IsBoolSolver (WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE)) =>
   WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE) ->
   Ctx.Assignment (Const What4.SolverSymbol) stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->

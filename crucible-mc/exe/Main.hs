@@ -9,9 +9,9 @@
 -- |
 -- Module           : Main
 -- Description      : Run the Crucible model-checker backend
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Main
@@ -25,72 +25,22 @@ import Crux.LLVM.Overrides (ArchOk)
 import qualified Data.LLVM.BitCode as BC
 import Data.Parameterized.Nonce (withIONonceGenerator)
 import qualified Lang.Crucible.Backend.Online as Online
-import qualified Lang.Crucible.CFG.Core as Core
-import Lang.Crucible.FunctionHandle
+import Lang.Crucible.CFG.Core (Some (Some))
+import Lang.Crucible.FunctionHandle (newHandleAllocator)
 import Lang.Crucible.LLVM.MemModel (mkMemVar, withPtrWidth)
 import Lang.Crucible.LLVM.Translation
+  ( LLVMContext (llvmPtrWidth),
+    ModuleTranslation,
+    defaultTranslationOptions,
+    transContext,
+    translateModule,
+  )
 import Lang.Crucible.ModelChecker.CrucibleMC (runCrucibleMC)
 import System.Console.GetOpt (ArgOrder (..), getOpt)
 import System.Environment (getArgs)
 import qualified Text.LLVM as LLVM
+import qualified What4.Expr as WE
 import What4.ProblemFeatures (noFeatures)
-import Lang.Crucible.Types(TypeRepr(..))
-import Lang.Crucible.Backend.Online
-          ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..)
-          , Flags, FloatIEEE, FloatModeRepr(..)
-          )
-import Lang.Crucible.Backend(IsSymInterface)
-import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
-import Lang.Crucible.Simulator
-import What4.ProblemFeatures ( noFeatures )
-
-import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
-import Lang.Crucible.LLVM.Run
-
-import Crux.LLVM.Simulate( registerFunctions )
-import Crux.Model
-
-import Print
-
-test_file :: FilePath
-test_file = "crucible-mc/test/example.bc"
-
-test_fun :: String
-test_fun = "f"
-
-main :: IO ()
-main =
-  parseLLVM test_file                       >>= \llvm_mod ->
-  withZ3                                    $ \sym ->
-  runCruxLLVM llvm_mod defaultMemOptions False False $
-  CruxLLVM                                  $ \mt ->
-  withPtrWidthOf mt                         $
-  case findCFG mt test_fun of
-    Nothing -> throwIO (UnknownFunction test_fun)
-    Just (AnyCFG cfg) ->
-      case (cfgArgTypes cfg, cfgReturnType cfg) of
-        (Empty, UnitRepr) ->
-          let ?recordLLVMAnnotation = \_ _ _ -> pure () in
-               pure Setup
-                 { cruxOutput = stdout
-                 , cruxBackend = sym
-                 , cruxInitCodeReturns = UnitRepr
-                 , cruxInitCode = do registerFunctions llvm_mod mt
-                                     _ <- callCFG cfg emptyRegMap
-                                     pure ()
-                 , cruxUserState = emptyModel
-                 , cruxGo  = runFrom
-                 }
-
-        _ -> throwIO (UnsupportedFunType test_fun)
-
-runFrom :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
-            ExecState p sym (LLVM arch) rtp ->  IO ()
-runFrom st =
-  do print (ppExecState st)
-     _ <- getLine
-     st1 <- singleStepCrucible 5 st
-     runFrom st1
 
 withPtrWidthOf :: ModuleTranslation arch -> (ArchOk arch => b) -> b
 withPtrWidthOf trans k =
@@ -98,11 +48,15 @@ withPtrWidthOf trans k =
 
 -- | Create a Z3 backend for the simulator.
 withZ3 ::
-  (forall s. Online.Z3OnlineBackend s (Online.Flags Online.FloatIEEE) -> IO a) ->
+  ( forall sym.
+    Online.Z3OnlineBackend sym WE.EmptyExprBuilderState (WE.Flags WE.FloatIEEE) ->
+    IO a
+  ) ->
   IO a
 withZ3 k =
-  withIONonceGenerator $ \nonceGen ->
-    Online.withZ3OnlineBackend Online.FloatIEEERepr nonceGen Online.ProduceUnsatCores noFeatures k
+  withIONonceGenerator $ \nonceGen -> do
+    sym <- WE.newExprBuilder WE.FloatIEEERepr WE.EmptyExprBuilderState nonceGen
+    Online.withZ3OnlineBackend sym Online.ProduceUnsatCores noFeatures k
 
 -- | This exception is thrown when we fail to parse a bit-code file.
 data Err
@@ -135,12 +89,13 @@ main =
             do
               hAlloc <- newHandleAllocator
               let ?laxArith = False
+              let ?transOpts = defaultTranslationOptions
               let ?optLoopMerge = False
               memVar <- mkMemVar "crucible-mc" hAlloc
-              Core.Some trans <- translateModule hAlloc memVar llvmModule
+              (Some trans, _warnings) <- translateModule hAlloc memVar llvmModule
               withPtrWidthOf
                 trans
                 do
-                  let ?recordLLVMAnnotation = \_ _ -> pure ()
+                  let ?recordLLVMAnnotation = \_ _ _ -> pure ()
                   runCrucibleMC sym llvmModule hAlloc trans functionToSimulate
       _ -> error "Usage: crucible-mc inputBitcodeFile.bc functionToSimulate"

@@ -16,9 +16,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.SymbolicExecution.Driver
 -- Description      : Symbolic simulation of Crucible blocks to gather @BlockInfo@s
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.SymbolicExecution.Driver
@@ -28,13 +28,12 @@ module Lang.Crucible.ModelChecker.SymbolicExecution.Driver
 where
 
 import qualified Control.Lens as L
-import Control.Monad (void, when)
+import Control.Monad (forM, void, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, asks, runReaderT)
 import Crux.LLVM.Overrides
 import Crux.LLVM.Simulate
 import Crux.Types
-import Data.Foldable (toList)
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.TraversableFC
 import qualified Lang.Crucible.Backend as Backend
@@ -42,6 +41,7 @@ import qualified Lang.Crucible.CFG.Core as Core
 import Lang.Crucible.CFG.Extension
 import Lang.Crucible.LLVM
 import Lang.Crucible.LLVM.DataLayout (noAlignment)
+import Lang.Crucible.LLVM.Intrinsics (IntrinsicsOptions, defaultIntrinsicsOptions)
 import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.ModelChecker.Fresh
@@ -80,7 +80,8 @@ stepManually = False
 
 doDebugExecState ::
   MonadIO m =>
-  MonadReader (RunBlockReader sym globCtx arch ext blocks ret block) m =>
+  MonadReader (RunBlockReader sym bak globCtx arch ext blocks ret block) m =>
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
   LLVMContext arch ->
   ExecState p sym ext (RegEntry sym rtp) ->
@@ -97,11 +98,12 @@ doDebugExecState llvmCtx execState =
         dumpObligations execState
       when stepManually (void getLine)
 
-data RunBlockReader sym globCtx arch ext blocks ret block = RunBlockReader
+data RunBlockReader sym bak globCtx arch ext blocks ret block = RunBlockReader
   { runBlockBlock :: Core.Block ext blocks ret block,
     runBlockGlobalContext :: Ctx.Assignment (GlobalInfo sym) globCtx,
     runBlockLLVMContext :: LLVMContext arch,
     runBlockSize :: Ctx.Size block,
+    runBlockBak :: bak,
     runBlockSym :: sym
   }
 
@@ -122,74 +124,87 @@ getMemory llvmCtx execState =
             Just m -> pure m
 
 gatherGlobals ::
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
   HasLLVMAnn sym =>
   HasPtrWidth w =>
-  sym ->
+  bak ->
   LLVMContext arch ->
   ExecState p sym ext rtp ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
   IO (Ctx.Assignment (RegEntry sym) globCtx)
-gatherGlobals sym llvmCtx execState globInfos =
+gatherGlobals bak llvmCtx execState globInfos =
   do
     mem <- getMemory llvmCtx execState
-    traverseFC (gatherGlobal sym mem) globInfos
+    traverseFC (gatherGlobal bak mem) globInfos
 
 gatherGlobal ::
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
   HasLLVMAnn sym =>
   HasPtrWidth w =>
-  sym ->
+  bak ->
   MemImpl sym ->
   GlobalInfo sym tp ->
   IO (RegEntry sym tp)
-gatherGlobal sym mem (GlobalInfo {..}) =
+gatherGlobal bak mem (GlobalInfo {..}) =
   do
-    resolved <- doResolveGlobal sym mem globalSymbol
+    resolved <- doResolveGlobal bak mem globalSymbol
     storageType <- toStorableType globalMemType
-    regValue <- doLoad sym mem resolved storageType globalTypeRepr noAlignment
+    regValue <- doLoad bak mem resolved storageType globalTypeRepr noAlignment
     return $ RegEntry {regType = globalTypeRepr, regValue}
 
 -- | @endBlock@ gathers the last information we need about the basic block that
 -- was just explored, and finalizes the computed @BlockInfo@.
 endBlock ::
-  Backend.IsSymInterface sym =>
+  Backend.IsSymBackend sym bak =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
   HasLLVMAnn sym =>
   HasPtrWidth w =>
   MonadIO m =>
-  MonadReader (RunBlockReader sym globCtx arch ext blocks ret block) m =>
+  MonadReader (RunBlockReader sym bak globCtx arch ext blocks ret block) m =>
   ExecState p sym ext rtp ->
   BlockEnd sym ->
   m (BlockInfo sym globCtx block)
 endBlock execState blockEnd =
   do
-    sym <- asks runBlockSym
+    bak <- asks runBlockBak
+    let sym = Backend.backendGetSym bak
     blockID <- asks (integerOfBlockID . Core.blockID . runBlockBlock)
     globalInfos <- asks runBlockGlobalContext
     llvmCtx <- asks runBlockLLVMContext
-    globals <- liftIO $ gatherGlobals sym llvmCtx execState globalInfos
-    assumptionsSeq <- liftIO $ Backend.collectAssumptions sym
-    let assumptions = L.view Backend.labeledPred <$> toList assumptionsSeq
-    obligations <- liftIO $ mapM (proofGoalExpr sym) =<< Backend.proofGoalsToList <$> Backend.getProofObligations sym
+    globals <- liftIO $ gatherGlobals bak llvmCtx execState globalInfos
+    assumptionsPreds <- liftIO $ Backend.getPathCondition bak
+    obligationsPreds <- liftIO $ do
+      obligations <- maybe [] Backend.goalsToList <$> Backend.getProofObligations bak
+      forM obligations (proofGoalExpr sym)
     blockInfoSize <- asks runBlockSize
     return $
       BlockInfo
         { blockInfoEnd = blockEnd,
           blockInfoGlobals = globals,
           blockInfoID = blockID,
-          blockInfoAssumptions = assumptions,
-          blockInfoObligations = obligations,
+          blockInfoAssumptions = [assumptionsPreds],
+          blockInfoObligations = obligationsPreds,
           blockInfoSize
         }
 
 runBlock ::
   ArchOk arch =>
   HasLLVMAnn sym =>
-  Backend.IsBoolSolver sym =>
+  -- Backend.IsBoolSolver sym =>
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
   IsSyntaxExtension ext =>
   MonadIO m =>
-  MonadReader (RunBlockReader sym globCtx arch ext blocks ret block) m =>
+  MonadReader (RunBlockReader sym bak globCtx arch ext blocks ret block) m =>
   ExecState p sym ext (RegEntry sym ret) ->
   m (BlockInfo sym globCtx block)
 runBlock es =
@@ -224,29 +239,33 @@ resumptionTarget (OverrideResumption {}) = error "resumptionTarget of OverrideRe
 
 analyzeBlock ::
   ArchOk arch =>
+  -- Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
   HasLLVMAnn sym =>
   MonadIO m =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
   LLVM.Module ->
   ModuleTranslation arch ->
   Core.CFG LLVM blocks init ret ->
   LLVMContext arch ->
-  SimContext (Model sym) sym LLVM ->
+  SimContext (Crux sym) sym LLVM ->
   SymGlobalState sym ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
   Core.Block LLVM blocks ret block ->
   m (BlockInfo sym globCtx block)
 analyzeBlock llvmModule moduleTranslation cfg llvmCtx simCtx globSt globCtx block =
-  do
-    let sym = L.view ctxSymInterface simCtx
-        blockArgs = Core.blockInputs block
-        blockArgsNames =
-          namesForContext
-            (blockArgumentName (Core.blockID block))
-            blockArgs
+  let sym = L.view ctxSymInterface simCtx
+      blockArgs = Core.blockInputs block
+      blockArgsNames =
+        namesForContext
+          (blockArgumentName (Core.blockID block))
+          blockArgs
+  in
+  withBackend simCtx $ \ bak -> do
     -- assumptions/obligations must be cleared for each block
-    liftIO $ Backend.resetAssumptionState sym
-    liftIO $ Backend.clearProofObligations sym
+    liftIO $ Backend.resetAssumptionState bak
+    liftIO $ Backend.clearProofObligations bak
     regMap <- liftIO $ freshRegMap sym blockArgsNames blockArgs
     let runBlockReader =
           RunBlockReader
@@ -254,27 +273,31 @@ analyzeBlock llvmModule moduleTranslation cfg llvmCtx simCtx globSt globCtx bloc
               runBlockGlobalContext = globCtx,
               runBlockLLVMContext = llvmCtx,
               runBlockSize = Ctx.size (Core.blockInputs block),
+              runBlockBak = bak,
               runBlockSym = sym
             }
     let fnRet = Core.cfgReturnType cfg
-    flip runReaderT runBlockReader
-      $ runBlock
-      $ InitialState simCtx globSt defaultAbortHandler fnRet
-      $ runOverrideSim fnRet
-      $ do
-        registerFunctions llvmModule moduleTranslation
-        regValue <$> callBlock cfg (Core.blockID block) regMap
+    flip runReaderT runBlockReader $
+      runBlock $
+        InitialState simCtx globSt defaultAbortHandler fnRet $
+          runOverrideSim fnRet $
+            do
+              registerFunctions defaultMemOptions defaultIntrinsicsOptions llvmModule moduleTranslation Nothing
+              regValue <$> callBlock cfg (Core.blockID block) regMap
 
 analyzeBlocks ::
   ArchOk arch =>
+  -- Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
   HasLLVMAnn sym =>
   MonadIO m =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
   LLVM.Module ->
   ModuleTranslation arch ->
   Core.CFG LLVM blocks init ret ->
   LLVMContext arch ->
-  SimContext (Model sym) sym LLVM ->
+  SimContext (Crux sym) sym LLVM ->
   SymGlobalState sym ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
   m (Ctx.Assignment (BlockInfo sym globCtx) blocks)

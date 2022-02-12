@@ -8,9 +8,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.GlobalInfo
 -- Description      : Information about global variables, for building a model
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.GlobalInfo
@@ -68,19 +68,21 @@ globalTypeReprs = fmapFC globalTypeRepr
 -- If not, we can probably just pass the GlobalInitializerMap to the final step,
 -- and do these computations only then
 getGlobalInfo ::
+  Backend.IsSymBackend sym bak =>
   Backend.IsSymInterface sym =>
   HasPtrWidth (ArchWidth arch) =>
   (?lc :: TypeContext) =>
   -- only here for typeclass resolution
   ArchRepr arch ->
   sym ->
+  bak ->
   MemImpl sym ->
   (TL.Symbol, (TL.Global, Either String (MemType, Maybe LLVMConst))) ->
   IO (Core.Some (GlobalInfo sym))
-getGlobalInfo _ sym mem (s, (_, Right (mty, Just c))) =
+getGlobalInfo _ sym bak mem (s, (_, Right (mty, Just c))) =
   llvmTypeAsRepr mty $ \tp ->
     do
-      c' <- constToLLVMVal sym mem c
+      c' <- constToLLVMVal bak mem c
       rv <- unpackMemValue sym tp c'
       return $ Core.Some $
         GlobalInfo
@@ -89,4 +91,4 @@ getGlobalInfo _ sym mem (s, (_, Right (mty, Just c))) =
             globalSymbol = s,
             globalTypeRepr = tp
           }
-getGlobalInfo _ _ _ _ = error "getGlobInfo: encountered badly initialized global"
+getGlobalInfo _ _ _ _ _ = error "getGlobInfo: encountered badly initialized global"

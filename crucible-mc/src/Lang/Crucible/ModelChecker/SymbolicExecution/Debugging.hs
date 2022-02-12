@@ -4,9 +4,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.SymbolicExecution.Debugging
 -- Description      : Debugging facilities for the symbolic execution of blocks
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.SymbolicExecution.Debugging
@@ -34,12 +34,13 @@ proofGoalExpr ::
   What4.IsSymExprBuilder sym =>
   sym ->
   Backend.ProofGoal
-    (Backend.LabeledPred (What4.Pred sym) Backend.AssumptionReason)
+    (Backend.CrucibleAssumptions (What4.SymExpr sym))
+    -- (Backend.LabeledPred (What4.Pred sym) (Backend.LabeledPred (What4.Pred sym) msg))
     (Backend.LabeledPred (What4.Pred sym) SimError) ->
   IO (What4.Pred sym)
 proofGoalExpr sym Backend.ProofGoal {..} =
   do
-    assumptions <- What4.andAllOf sym L.folded (L.view labeledPred <$> proofAssumptions)
+    assumptions <- Backend.assumptionsPred sym proofAssumptions
     let conclusion = L.view labeledPred proofGoal
     What4.impliesPred sym assumptions conclusion
 
@@ -48,22 +49,24 @@ dumpAssumptions ::
   ExecState p sym ext rtp ->
   IO ()
 dumpAssumptions execState =
-  do
-    let sym = L.view ctxSymInterface (execStateContext execState)
-    assumptions <- Backend.collectAssumptions sym
+  let simContext = execStateContext execState in
+  withBackend simContext $ \ bak -> do
+    let sym = L.view ctxSymInterface simContext
+    assumptions <- Backend.flattenAssumptions sym =<< Backend.collectAssumptions bak
     putStrLn $ "Assumptions : " ++ show (length assumptions)
     forM_ assumptions $ \assumption ->
-      print . What4.printSymExpr $ L.view labeledPred assumption
+      print . What4.printSymExpr $ Backend.assumptionPred assumption -- L.view labeledPred assumption
 
 dumpObligations ::
-  Backend.IsBoolSolver sym =>
+  Backend.IsSymInterface sym =>
   What4.IsSymExprBuilder sym =>
   ExecState p sym ext rtp ->
   IO ()
 dumpObligations execState =
-  do
-    let sym = L.view ctxSymInterface (execStateContext execState)
-    obligations <- Backend.proofGoalsToList <$> Backend.getProofObligations sym
+  let simContext = execStateContext execState in
+  withBackend simContext $ \ bak -> do
+    let sym = L.view ctxSymInterface simContext
+    obligations <- maybe [] Backend.goalsToList <$> Backend.getProofObligations bak
     putStrLn $ "Obligations : " ++ show (length obligations)
     forM_ obligations $ \o -> print . What4.printSymExpr =<< proofGoalExpr sym o
 

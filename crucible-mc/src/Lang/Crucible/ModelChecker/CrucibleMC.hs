@@ -8,9 +8,9 @@
 -- |
 -- Module           : Lang.Crucible.ModelChecker.CrucibleMC
 -- Description      : Symbolic simulation of Crucible blocks
--- Copyright        : (c) Galois, Inc 2020
+-- Copyright        : (c) Galois, Inc 2020-2022
 -- License          : BSD3
--- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Maintainer       : Valentin Robert <val@galois.com>
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.CrucibleMC
@@ -22,12 +22,13 @@ import Control.Exception (Exception (..), throwIO)
 import qualified Control.Lens as L
 import Control.Monad.IO.Class (liftIO)
 import Crux.LLVM.Overrides (ArchOk)
-import Crux.Model (emptyModel)
+import Crux.Types (Crux (CruxPersonality))
 import Data.IORef (newIORef)
 import qualified Data.LLVM.BitCode as BC
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import Data.String (fromString)
+import Lang.Crucible.Backend (HasSymInterface (backendGetSym))
 import qualified Lang.Crucible.Backend.Online as Online
 import qualified Lang.Crucible.CFG.Core as Core
 import Lang.Crucible.FunctionHandle (HandleAllocator)
@@ -37,7 +38,8 @@ import Lang.Crucible.LLVM
     llvmGlobalsToCtx,
   )
 import Lang.Crucible.LLVM.Globals (initializeAllMemory)
-import Lang.Crucible.LLVM.Intrinsics (llvmIntrinsicTypes)
+import Lang.Crucible.LLVM.Intrinsics (defaultIntrinsicsOptions, llvmIntrinsicTypes)
+import Lang.Crucible.LLVM.MemModel (defaultMemOptions)
 import qualified Lang.Crucible.LLVM.MemModel as MemModel
 import qualified Lang.Crucible.LLVM.Translation as Translation
 import Lang.Crucible.ModelChecker.Fresh (freshGlobals)
@@ -52,12 +54,12 @@ import Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
   ( sallyNamespacer,
   )
 import Lang.Crucible.Simulator (fnBindingsFromList, initSimContext)
-import Language.Sally (sexpOfSally, sexpToDoc)
+import Language.Sally.SExp (sexpOfSally, sexpToDoc)
+import qualified Language.Sally.TransitionSystem as Sally
 import System.IO (stdout)
 import qualified Text.LLVM as LLVM
-import What4.Expr.Builder (Flags, FloatIEEE)
+import What4.Expr.Builder (ExprBuilder, Flags, FloatIEEE)
 import What4.Protocol.Online (OnlineSolver)
-import qualified What4.TransitionSystem.Exporter.Sally as Sally
 
 -- | This exception is thrown when we fail to parse a bit-code file.
 data Err
@@ -72,19 +74,21 @@ findCFG :: Translation.ModuleTranslation arch -> String -> Maybe (Core.AnyCFG LL
 findCFG trans fun = snd <$> Map.lookup (fromString fun) (Translation.cfgMap trans)
 
 runCrucibleMC ::
-  forall arch scope solver sym.
-  sym ~ Online.OnlineBackend scope solver (Flags FloatIEEE) =>
+  forall arch solver scope st sym bak.
+  sym ~ ExprBuilder scope st (Flags FloatIEEE) =>
+  bak ~ Online.OnlineBackend solver scope st (Flags FloatIEEE) =>
   OnlineSolver solver =>
   MemModel.HasLLVMAnn sym =>
   ArchOk arch =>
-  sym ->
+  bak ->
   LLVM.Module ->
   HandleAllocator ->
   Translation.ModuleTranslation arch ->
   String ->
   IO ()
-runCrucibleMC sym llvmModule hAlloc moduleTranslation functionToSimulate =
+runCrucibleMC bak llvmModule hAlloc moduleTranslation functionToSimulate =
   do
+    let sym = backendGetSym bak
     bbMapRef <- liftIO $ newIORef Map.empty
     let ?badBehaviorMap = bbMapRef
     let llvmCtxt = L.view Translation.transContext moduleTranslation
@@ -93,11 +97,12 @@ runCrucibleMC sym llvmModule hAlloc moduleTranslation functionToSimulate =
     -- symbolic values
     mem <-
       do
-        mem0 <- initializeAllMemory sym llvmCtxt llvmModule
+        let ?memOpts = defaultMemOptions
+        mem0 <- initializeAllMemory bak llvmCtxt llvmModule
         let ?lc = L.view Translation.llvmTypeCtx llvmCtxt
         -- populateAllGlobals sym (globalInitMap moduleTranslation) mem0
         -- return mem0
-        mem1 <- freshGlobals sym (Translation.globalInitMap moduleTranslation) mem0
+        mem1 <- freshGlobals bak (Translation.globalInitMap moduleTranslation) mem0
         -- NOTE: this is quite ugly.
         -- Supposedly, the very first block pushes a frame called "llvm_memory",
         -- and the very last block pops it before returning.
@@ -115,13 +120,13 @@ runCrucibleMC sym llvmModule hAlloc moduleTranslation functionToSimulate =
     let globSt = llvmGlobalsToCtx llvmCtxt mem
     let simCtx =
           initSimContext
-            sym
+            bak
             llvmIntrinsicTypes
             hAlloc
             stdout
             (fnBindingsFromList [])
             extensionImpl
-            emptyModel
+            CruxPersonality
     case findCFG moduleTranslation functionToSimulate of
       Nothing -> throwIO (UnknownFunction functionToSimulate)
       Just (Core.AnyCFG cfg) ->
@@ -133,8 +138,10 @@ runCrucibleMC sym llvmModule hAlloc moduleTranslation functionToSimulate =
           Core.Some globInfos <-
             liftIO $
               Ctx.fromList
-                <$> mapM (getGlobalInfo (Translation.llvmArch llvmCtx) sym mem) (Map.toList globInit)
+                <$> mapM (getGlobalInfo (Translation.llvmArch llvmCtx) sym bak mem) (Map.toList globInit)
           let ?lc = L.view Translation.llvmTypeCtx llvmCtx
+          let ?memOpts = defaultMemOptions
+          let ?intrinsicsOpts = defaultIntrinsicsOptions
           blockInfos <- analyzeBlocks llvmModule moduleTranslation cfg llvmCtx simCtx globSt globInfos
           ts <- makeTransitionSystem sym cfg (sallyNamespacer sym) globInfos blockInfos
           sts <- Sally.exportTransitionSystem sym Sally.mySallyNames ts
