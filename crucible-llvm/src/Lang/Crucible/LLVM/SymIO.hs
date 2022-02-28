@@ -48,11 +48,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Lang.Crucible.LLVM.SymIO
-  ( llvmSymIOIntrinsicTypes
-  , symio_overrides
-  , LLVMFileSystem
+  ( -- * Types
+    llvmSymIOIntrinsicTypes
+  , LLVMFileSystem(..)
   , SomeOverrideSim(..)
   , initialLLVMFileSystem
+  -- * Overrides
+  , symio_overrides
   , openFile
   , callOpenFile
   , closeFile
@@ -61,6 +63,9 @@ module Lang.Crucible.LLVM.SymIO
   , callReadFileHandle
   , writeFileHandle
   , callWriteFileHandle
+  -- * File-related utilities
+  , allocateFileDescriptor
+  , lookupFileHandle
   )
   where
 
