@@ -301,7 +301,7 @@ attachSideCondition sym callStack pnew ub pv =
   case pv of
     Err p -> pure (Err p)
     NoErr p v ->
-      do p' <- andPred sym p =<< annotateUB sym callStack ub pnew
+      do p' <- annotateUB sym callStack ub =<< andPred sym p pnew
          return $ NoErr p' v
 
 attachMemoryError ::
@@ -316,7 +316,7 @@ attachMemoryError sym pnew mop rsn pv =
   case pv of
     Err p -> pure (Err p)
     NoErr p v ->
-      do p' <- andPred sym p =<< annotateME sym mop rsn pnew
+      do p' <- annotateME sym mop rsn =<< andPred sym p pnew
          return $ NoErr p' v
 
 typeOfBitvector :: IsExpr (SymExpr sym)
