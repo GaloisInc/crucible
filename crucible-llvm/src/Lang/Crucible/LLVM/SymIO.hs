@@ -48,11 +48,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Lang.Crucible.LLVM.SymIO
-  ( llvmSymIOIntrinsicTypes
-  , symio_overrides
-  , LLVMFileSystem
+  ( -- * Types
+    llvmSymIOIntrinsicTypes
+  , LLVMFileSystem(..)
   , SomeOverrideSim(..)
   , initialLLVMFileSystem
+  -- * Overrides
+  , symio_overrides
   , openFile
   , callOpenFile
   , closeFile
@@ -61,6 +63,9 @@ module Lang.Crucible.LLVM.SymIO
   , callReadFileHandle
   , writeFileHandle
   , callWriteFileHandle
+  -- * File-related utilities
+  , allocateFileDescriptor
+  , lookupFileHandle
   )
   where
 
@@ -315,6 +320,10 @@ chunkFromMemory bak mem ptr =
 -- | Retrieve the 'SymIO.FileHandle' that the given descriptor represents,
 -- calling the continuation with 'Nothing' if the descriptor does not represent
 -- a valid handle. Notably, a successfully resolved handle may itself still be closed.
+--
+-- Note that the continuation may be called multiple times if it is used within
+-- a symbolic branch. As a result, any side effects in the continuation may be
+-- performed multiple times.
 lookupFileHandle
   :: IsSymInterface sym
   => LLVMFileSystem wptr
