@@ -320,6 +320,10 @@ chunkFromMemory bak mem ptr =
 -- | Retrieve the 'SymIO.FileHandle' that the given descriptor represents,
 -- calling the continuation with 'Nothing' if the descriptor does not represent
 -- a valid handle. Notably, a successfully resolved handle may itself still be closed.
+--
+-- Note that the continuation may be called multiple times if it is used within
+-- a symbolic branch. As a result, any side effects in the continuation may be
+-- performed multiple times.
 lookupFileHandle
   :: IsSymInterface sym
   => LLVMFileSystem wptr
