@@ -108,6 +108,7 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
  pushFrame gvRef rebuildStack h mkSt st = stateSolverProof st $
      do let sym = st^.stateSymInterface
+        let simCtx = st^.stateContext
         gv <- readIORef gvRef
         case lookupGlobal gv (st ^. stateGlobals) of
           Nothing -> panic "bounded recursion" ["global not defined!"]
@@ -120,7 +121,8 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
                    do loc <- getCurrentProgramLoc sym
                       let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
                       let err = SimError loc (ResourceExhausted msg)
-                      when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) err))
+                      when generateSideConditions $ withBackend simCtx $ \bak ->
+                        addProofObligation bak (LabeledPred (falsePred sym) err)
                       return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st))
                  _ ->
                    do let x'  = Map.insert h v x

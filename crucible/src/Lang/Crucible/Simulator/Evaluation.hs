@@ -9,7 +9,6 @@
 --
 -- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -35,10 +34,6 @@ module Lang.Crucible.Simulator.Evaluation
 
 import           Prelude hiding (pred)
 
-#if !MIN_VERSION_base(4,13,0)
-import Control.Monad.Fail( MonadFail )
-#endif
-
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
@@ -50,6 +45,7 @@ import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
+import           GHC.Stack
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
@@ -68,7 +64,6 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.SymSequence
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -103,8 +98,8 @@ complexRealAsChar v = do
 
 
 -- | Helper method for implementing 'indexSymbolic'
-indexSymbolic' :: IsSymInterface sym
-               => sym
+indexSymbolic' :: IsSymBackend sym bak
+               => bak
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
                -> ([Natural] -> IO a) -- ^ Concrete index function.
@@ -114,33 +109,36 @@ indexSymbolic' :: IsSymInterface sym
                -> IO a
 indexSymbolic' _ _ f p [] _ = f (reverse p)
 indexSymbolic' _ _ f p _ [] = f (reverse p)
-indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
-  let subIndex idx = indexSymbolic' sym iteFn f (idx:p) nl il
+indexSymbolic' bak iteFn f p ((l,h):nl) (si:il) = do
+  let subIndex idx = indexSymbolic' bak iteFn f (idx:p) nl il
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+      | otherwise ->
+          addFailedAssertion bak (AssertFailureSimError msg details)
         where msg = "Index outside matrix dimensions." ++ show (l,i,h)
               details = unwords ["Index", show i, "is outside of range", show (l, h)]
     Nothing ->
-      do ensureInRange sym l h si "Index outside matrix dimensions."
+      do let sym = backendGetSym bak
+         ensureInRange bak l h si "Index outside matrix dimensions."
          let predFn i = natEq sym si =<< natLit sym i
          muxRange predFn iteFn subIndex l h
 
 
 ensureInRange ::
-  IsSymInterface sym =>
-  sym ->
+  IsSymBackend sym bak =>
+  bak ->
   Natural ->
   Natural ->
   SymNat sym ->
   String ->
   IO ()
-ensureInRange sym l h si msg =
-  do l_sym <- natLit sym l
+ensureInRange bak l h si msg =
+  do let sym = backendGetSym bak
+     l_sym <- natLit sym l
      h_sym <- natLit sym h
      inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-     assert sym inRange (AssertFailureSimError msg details)
+     assert bak inRange (AssertFailureSimError msg details)
   where details = unwords ["Range is", show (l, h)]
 
 
@@ -150,8 +148,8 @@ ensureInRange sym l h si msg =
 -- This function takes a list of symbolic indices as natural numbers
 -- along with a pair of lower and upper bounds for each index.
 -- It assumes that the indices are all in range.
-indexSymbolic :: IsSymInterface sym
-              => sym
+indexSymbolic :: IsSymBackend sym bak
+              => bak
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
               -> ([Natural] -> IO a) -- ^ Concrete index function.
@@ -169,22 +167,23 @@ evalBase :: IsSymInterface sym =>
 evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 
 -- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: IsSymInterface sym
-                      => sym
+indexVectorWithSymNat :: IsSymBackend sym bak
+                      => bak
                       -> (Pred sym -> a -> a -> IO a)
                          -- ^ Ite function
                       -> V.Vector a
                       -> SymNat sym
                       -> IO a
-indexVectorWithSymNat sym iteFn v si =
+indexVectorWithSymNat bak iteFn v si =
   Ex.assert (n > 0) $
   case asNat si of
     Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
-           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+           | otherwise -> addFailedAssertion bak (AssertFailureSimError msg details)
     Nothing ->
-      do let predFn i = natEq sym si =<< natLit sym i
+      do let sym = backendGetSym bak
+         let predFn i = natEq sym si =<< natLit sym i
          let getElt i = return (v V.! fromIntegral i)
-         ensureInRange sym 0 (n - 1) si msg
+         ensureInRange bak 0 (n - 1) si msg
          muxRange predFn iteFn getElt 0 (n - 1)
   where
   n   = fromIntegral (V.length v)
@@ -194,8 +193,8 @@ indexVectorWithSymNat sym iteFn v si =
 
 
 -- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: IsSymInterface sym
-                       => sym
+updateVectorWithSymNat :: IsSymBackend sym bak
+                       => bak
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
                           -- ^ Ite function
@@ -206,12 +205,12 @@ updateVectorWithSymNat :: IsSymInterface sym
                        -> a
                           -- ^ New value to assign
                        -> IO (V.Vector a)
-updateVectorWithSymNat sym iteFn v si new_val = do
-  adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
+updateVectorWithSymNat bak iteFn v si new_val = do
+  adjustVectorWithSymNat bak iteFn v si (\_ -> return new_val)
 
 -- | Update a vector at a given natural number index.
-adjustVectorWithSymNat :: IsSymInterface sym
-                       => sym
+adjustVectorWithSymNat :: IsSymBackend sym bak
+                       => bak
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
                           -- ^ Ite function
@@ -222,7 +221,7 @@ adjustVectorWithSymNat :: IsSymInterface sym
                        -> (a -> IO a)
                           -- ^ Adjustment function to apply
                        -> IO (V.Vector a)
-adjustVectorWithSymNat sym iteFn v si adj =
+adjustVectorWithSymNat bak iteFn v si adj =
   case asNat si of
     Just i
 
@@ -231,14 +230,15 @@ adjustVectorWithSymNat sym iteFn v si adj =
            return $ v V.// [(fromIntegral i, new_val)]
 
       | otherwise ->
-        addFailedAssertion sym $ AssertFailureSimError msg (details i)
+        addFailedAssertion bak $ AssertFailureSimError msg (details i)
 
     Nothing ->
-      do ensureInRange sym 0 (fromIntegral (n-1)) si msg
+      do ensureInRange bak 0 (fromIntegral (n-1)) si msg
          V.generateM n setFn
       where
       setFn j =
-        do -- Compare si and j.
+        do  let sym = backendGetSym bak
+            -- Compare si and j.
             c <- natEq sym si =<< natLit sym (fromIntegral j)
             -- Select old value or new value
             case asConstantPred c of
@@ -247,7 +247,6 @@ adjustVectorWithSymNat sym iteFn v si adj =
               Nothing ->
                 do new_val <- adj (v V.! j)
                    iteFn c new_val (v V.! j)
-
 
   where
   n = V.length v
@@ -260,16 +259,16 @@ type EvalAppFunc sym app = forall f.
 
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
-evalApp :: forall sym ext.
-           ( IsSymInterface sym
-           )
-        => sym
+evalApp :: forall sym bak ext.
+           IsSymBackend sym bak
+        => bak
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
            -- ^ Function for logging messages.
         -> EvalAppFunc sym (ExprExtension ext)
         -> EvalAppFunc sym (App ext)
-evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sym tp)) a0 = do
+evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sym tp)) a0 = do
+  let sym = backendGetSym bak
   case a0 of
 
     BaseIsEq tp xe ye -> do
@@ -428,10 +427,10 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
         _ -> do
           msg <- evalSub msg_expr
           case asString msg of
-            Just (UnicodeLiteral msg') -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Just (UnicodeLiteral msg') -> readPartExpr bak maybe_val (GenericSimError (Text.unpack msg'))
             Nothing ->
-              addFailedAssertion sym $
-                Unsupported "Symbolic string in fromJustValue"
+              addFailedAssertion bak $
+                Unsupported callStack "Symbolic string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Recursive Types
@@ -446,8 +445,8 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
       case asNat ne of
-        Nothing -> addFailedAssertion sym $
-                      Unsupported "vectors with symbolic length"
+        Nothing -> addFailedAssertion bak $
+                      Unsupported callStack "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e
@@ -460,12 +459,12 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     VectorGetEntry rtp v_expr i_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
-      indexVectorWithSymNat sym (muxRegForType sym itefns rtp) v i
+      indexVectorWithSymNat bak (muxRegForType sym itefns rtp) v i
     VectorSetEntry rtp v_expr i_expr n_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
       n <- evalSub n_expr
-      updateVectorWithSymNat sym (muxRegForType sym itefns rtp) v i n
+      updateVectorWithSymNat bak (muxRegForType sym itefns rtp) v i n
     VectorCons _ e_expr v_expr -> do
       e <- evalSub e_expr
       v <- evalSub v_expr
@@ -890,7 +889,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
                    Nothing  -> ""
                    Just (BV.BV idx) -> " 0x" ++ showHex idx ""
       let ex = ReadBeforeWriteSimError msg
-      readPartExpr sym x ex
+      readPartExpr bak x ex
 
     LookupWordMapWithDefault tp ie me de -> do
       i <- evalSub ie
@@ -937,8 +936,8 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       m <- evalSub m_expr
       case asString i of
         Just (UnicodeLiteral i') -> return $ joinMaybePE (Map.lookup i' m)
-        Nothing -> addFailedAssertion sym $
-                    Unsupported "Symbolic string in lookupStringMapEntry"
+        Nothing -> addFailedAssertion bak $
+                    Unsupported callStack "Symbolic string in lookupStringMapEntry"
 
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
@@ -946,8 +945,8 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       v <- evalSub v_expr
       case asString i of
         Just (UnicodeLiteral i') -> return $ Map.insert i' v m
-        Nothing -> addFailedAssertion sym $
-                     Unsupported "Symbolic string in insertStringMapEntry"
+        Nothing -> addFailedAssertion bak $
+                     Unsupported callStack "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Strings
@@ -1004,5 +1003,4 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ReferenceEq _ ref1 ref2 -> do
       cell1 <- evalSub ref1
       cell2 <- evalSub ref2
-      let f r1 r2 = return (backendPred sym (r1 == r2))
-      muxTreeCmpOp sym f cell1 cell2
+      eqReference sym cell1 cell2

@@ -65,7 +65,7 @@ import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibl
 import           UCCrux.LLVM.Module (DefnSymbol, defnSymbol, getDefnSymbol, moduleDefnMap, getModule)
 {- ORMOLU_ENABLE -}
 
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data FunctionContext m arch (argTypes :: Ctx (FullType m)) = FunctionContext
   { _functionName :: Text,

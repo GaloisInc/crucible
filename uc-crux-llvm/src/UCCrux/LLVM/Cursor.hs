@@ -93,6 +93,56 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     Cursor m inTy atTy ->
     Cursor m ('FTStruct fields) atTy
 
+$(return [])
+
+instance TestEquality (Cursor m inTy) where
+  testEquality =
+    $( U.structuralTypeEquality
+         [t|Cursor|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|testEquality|]
+                 )
+               ]
+         )
+     )
+
+instance OrdF (Cursor m inTy) where
+  compareF =
+    $( U.structuralTypeOrd
+         [t|Cursor|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|compareF|]
+                 )
+               ]
+         )
+     )
+
 instance Eq (Cursor m inTy atTy) where
   c1 == c2 = isJust (testEquality c1 c2)
 
@@ -255,132 +305,7 @@ data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   | SelectClobbered !(FuncSymbol m) (Cursor m inTy atTy)
   deriving Eq
 
--- | A non-parameterized summary of a 'Selector'
-data Where
-  = Arg !Int
-  | Global !String
-  | -- | Name of the skipped function
-    ReturnValue !String
-    -- | Name of the skipped function
-  | ClobberedValue !String
-  deriving (Eq, Ord)
-
-selectWhere :: Selector m argTypes inTy atTy -> Where
-selectWhere =
-  \case
-    SelectArgument idx _ -> Arg (Ctx.indexVal idx)
-    SelectGlobal gSymb _ ->
-      let L.Symbol g = getGlobalSymbol gSymb
-       in Global g
-    SelectReturn fSymb _ ->
-      let L.Symbol f = getFuncSymbol fSymb
-       in ReturnValue f
-    SelectClobbered fSymb _ ->
-      let L.Symbol f = getFuncSymbol fSymb
-       in ClobberedValue f
-
-ppWhere :: Where -> PP.Doc ann
-ppWhere =
-  \case
-    Arg n -> PP.pretty "in argument #" <> PP.viaShow n
-    Global g -> PP.pretty "in global" PP.<+> PP.pretty g
-    ReturnValue f ->
-      PP.pretty "in return value of skipped function" PP.<+> PP.pretty f
-    ClobberedValue f ->
-      PP.pretty "in value clobbered by skipped function" PP.<+> PP.pretty f
-
-ppSelector :: Selector m argTypes inTy atTy -> PP.Doc ann
-ppSelector selector =
-  ppWhere (selectWhere selector) PP.<+>
-    PP.pretty "at" PP.<+>
-    ppCursor "<top>" (selector ^. selectorCursor)
-
--- | For documentation of the type parameters, see the comment on 'Cursor'.
---
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
--- compatibility.
-data SomeSelector m (argTypes :: Ctx (FullType m))
-  = forall inTy atTy. SomeSelector (Selector m argTypes inTy atTy)
-
--- | For documentation of the type parameters, see the comment on 'Cursor'.
---
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
--- compatibility.
-data SomeInSelector m (argTypes :: Ctx (FullType m)) atTy
-  = forall inTy. SomeInSelector (Selector m argTypes inTy atTy)
-
--- | Both kinds of 'Selector' (argument and global) contain a 'Cursor'.
-selectorCursor ::
-  Lens
-    (Selector m argTypes inTy atTy)
-    (Selector m argTypes inTy atTy')
-    (Cursor m inTy atTy)
-    (Cursor m inTy atTy')
-selectorCursor =
-  lens
-    ( \case
-        SelectArgument _ cursor -> cursor
-        SelectGlobal _ cursor -> cursor
-        SelectReturn _ cursor -> cursor
-        SelectClobbered _ cursor -> cursor
-    )
-    ( \s v ->
-        case s of
-          SelectArgument arg _ -> SelectArgument arg v
-          SelectGlobal glob _ -> SelectGlobal glob v
-          SelectReturn func _ -> SelectReturn func v
-          SelectClobbered func _ -> SelectClobbered func v
-    )
-
 $(return [])
-
-instance TestEquality (Cursor m inTy) where
-  testEquality =
-    $( U.structuralTypeEquality
-         [t|Cursor|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
-                   [|testEquality|]
-                 )
-               ]
-         )
-     )
-
-instance OrdF (Cursor m inTy) where
-  compareF =
-    $( U.structuralTypeOrd
-         [t|Cursor|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (appAny (U.ConType [t|Cursor|]))),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Index|])),
-                   [|compareF|]
-                 )
-               ]
-         )
-     )
 
 instance TestEquality (Selector m argTypes inTy) where
   testEquality =
@@ -435,3 +360,80 @@ instance OrdF (Selector m argTypes inTy) where
                ]
          )
      )
+
+-- | A non-parameterized summary of a 'Selector'
+data Where
+  = Arg !Int
+  | Global !String
+  | -- | Name of the skipped function
+    ReturnValue !String
+    -- | Name of the skipped function
+  | ClobberedValue !String
+  deriving (Eq, Ord)
+
+selectWhere :: Selector m argTypes inTy atTy -> Where
+selectWhere =
+  \case
+    SelectArgument idx _ -> Arg (Ctx.indexVal idx)
+    SelectGlobal gSymb _ ->
+      let L.Symbol g = getGlobalSymbol gSymb
+       in Global g
+    SelectReturn fSymb _ ->
+      let L.Symbol f = getFuncSymbol fSymb
+       in ReturnValue f
+    SelectClobbered fSymb _ ->
+      let L.Symbol f = getFuncSymbol fSymb
+       in ClobberedValue f
+
+ppWhere :: Where -> PP.Doc ann
+ppWhere =
+  \case
+    Arg n -> PP.pretty "in argument #" <> PP.viaShow n
+    Global g -> PP.pretty "in global" PP.<+> PP.pretty g
+    ReturnValue f ->
+      PP.pretty "in return value of skipped function" PP.<+> PP.pretty f
+    ClobberedValue f ->
+      PP.pretty "in value clobbered by skipped function" PP.<+> PP.pretty f
+
+ppSelector :: Selector m argTypes inTy atTy -> PP.Doc ann
+ppSelector selector =
+  ppWhere (selectWhere selector) PP.<+>
+    PP.pretty "at" PP.<+>
+    ppCursor "<top>" (selector ^. selectorCursor)
+
+-- | For documentation of the type parameters, see the comment on 'Cursor'.
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
+-- compatibility.
+data SomeSelector m (argTypes :: Ctx (FullType m))
+  = forall inTy atTy. SomeSelector (Selector m argTypes inTy atTy)
+
+-- | For documentation of the type parameters, see the comment on 'Cursor'.
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
+-- compatibility.
+data SomeInSelector m (argTypes :: Ctx (FullType m)) atTy
+  = forall inTy. SomeInSelector (Selector m argTypes inTy atTy)
+
+-- | Both kinds of 'Selector' (argument and global) contain a 'Cursor'.
+selectorCursor ::
+  Lens
+    (Selector m argTypes inTy atTy)
+    (Selector m argTypes inTy atTy')
+    (Cursor m inTy atTy)
+    (Cursor m inTy atTy')
+selectorCursor =
+  lens
+    ( \case
+        SelectArgument _ cursor -> cursor
+        SelectGlobal _ cursor -> cursor
+        SelectReturn _ cursor -> cursor
+        SelectClobbered _ cursor -> cursor
+    )
+    ( \s v ->
+        case s of
+          SelectArgument arg _ -> SelectArgument arg v
+          SelectGlobal glob _ -> SelectGlobal glob v
+          SelectReturn func _ -> SelectReturn func v
+          SelectClobbered func _ -> SelectClobbered func v
+    )

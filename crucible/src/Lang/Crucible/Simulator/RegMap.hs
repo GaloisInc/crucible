@@ -1,4 +1,4 @@
------------------------------------------------------------------------
+----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Simulator.RegMap
 -- Description      : Runtime representation of CFG registers
@@ -40,6 +40,7 @@ module Lang.Crucible.Simulator.RegMap
   , unconsReg
   , muxRegForType
   , muxReference
+  , eqReference
   , pushBranchForType
   , abortBranchForType
   , pushBranchRegs
@@ -51,6 +52,7 @@ module Lang.Crucible.Simulator.RegMap
   , module Lang.Crucible.Simulator.RegValue
   ) where
 
+
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC
@@ -61,7 +63,6 @@ import           What4.WordMap
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
@@ -140,17 +141,23 @@ muxAny :: IsSymInterface sym
 muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
   | Just Refl <- testEquality tpx tpy =
        AnyValue tpx <$> muxRegForType s itefns tpx p x y
-  | otherwise =
-    addFailedAssertion s $
-      Unsupported $ unwords
+  | otherwise = throwUnsupported s $ unwords
                       ["Attempted to mux ANY values of different runtime type"
                       , show tpx, show tpy
                       ]
 
-muxReference :: IsSymInterface sym
-             => sym
-             -> ValMuxFn sym (ReferenceType tp)
+muxReference ::
+  IsSymInterface sym => sym -> ValMuxFn sym (ReferenceType tp)
 muxReference s = mergeMuxTree s
+
+eqReference ::
+  IsSymInterface sym =>
+  sym ->
+  RegValue sym (ReferenceType tp) ->
+  RegValue sym (ReferenceType tp) ->
+  IO (Pred sym)
+eqReference sym = muxTreeEq sym
+
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp

@@ -37,13 +37,13 @@ import           UCCrux.LLVM.Setup (SetupAssumption(SetupAssumption))
 
 -- | Add assumptions, handling and reporting errors appropriately.
 assume ::
-  Crucible.IsBoolSolver sym =>
+  Crucible.IsSymBackend sym bak =>
   -- | Function name
   Text ->
-  sym ->
+  bak ->
   [SetupAssumption m sym] ->
   IO ()
-assume funName sym assumptions =
+assume funName bak assumptions =
   for_
     assumptions
     ( \(SetupAssumption (Some constraint) predicate) ->
@@ -52,7 +52,7 @@ assume funName sym assumptions =
             liftIO $
               try $
                 Crucible.addAssumption
-                  sym
+                  bak
                   ( Crucible.GenericAssumption
                       ( What4.mkProgramLoc
                           (What4.functionNameFromText funName)

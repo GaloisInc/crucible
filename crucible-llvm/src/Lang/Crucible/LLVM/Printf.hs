@@ -37,6 +37,7 @@ import           Data.Maybe
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Word
+import qualified GHC.Stack as GHC
 
 data PrintfFlag
   = PrintfAlternateForm   -- #
@@ -126,7 +127,7 @@ data PrintfOperations m
                         -> Int -- value to set
                         -> m ()
 
-    , printfUnsupported :: !(forall a. String -> m a)
+    , printfUnsupported :: !(forall a. GHC.HasCallStack => String -> m a)
     }
 
 formatInteger

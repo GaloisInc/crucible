@@ -33,7 +33,6 @@ import           Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import           Lang.Crucible.Backend
 
 import qualified Crux
-import qualified Crux.Config.Common as Crux
 import qualified Crux.Types
 
 import           Crucibles.SchedulingAlgorithm hiding (_exec, exec)
@@ -54,9 +53,10 @@ exploreCallback :: forall alg.
   Crux.CruxOptions ->
   HandleAllocator ->
   Handle ->
-  (forall s.
-   (IsSymInterface s) =>
-   s -> IO ( FnVal s Ctx.EmptyCtx C.UnitType
+  (forall s bak.
+   IsSymBackend s bak =>
+   bak ->
+        IO ( FnVal s Ctx.EmptyCtx C.UnitType
            , ExplorePrimitives (ThreadExec alg s () C.UnitType) s ()
            , [Pair C.TypeRepr C.GlobalVar]
            , FunctionBindings (ThreadExec alg s () C.UnitType) s ())
@@ -68,14 +68,15 @@ exploreCallback cruxOpts ha outh mkSym =
     return $
       Crux.SimulatorHooks
         { Crux.setupHook =
-            \sym symOnline ->
-              do (mainHdl, prims, globs, fns) <- mkSym sym
-                 let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
+            \bak symOnline ->
+              do (mainHdl, prims, globs, fns) <- mkSym bak
+                 let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
 
                      st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
                                 runOverrideSim
                                   C.UnitRepr
                                   (exploreOvr
+                                     bak
                                      symOnline
                                      cruxOpts
                                      (regValue <$> callFnVal mainHdl emptyRegMap))
@@ -83,8 +84,8 @@ exploreCallback cruxOpts ha outh mkSym =
                      feats = [scheduleFeature prims globs]
 
                  return $ Crux.RunnableStateWithExtensions st0 feats
-        , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)
-        , Crux.resultHook = \_sym result -> return result
+        , Crux.onErrorHook = \_bak -> return (\_ _ -> return mempty)
+        , Crux.resultHook = \_bak result -> return result
         }
 
 
@@ -106,22 +107,24 @@ emptyExploration = Exploration { _exec      = initialExecutions
 
 -- | Wrap an override to produce a NEW override that will explore the executions of a concurrent program.
 -- Must also use the 'scheduleFeature' 'ExecutionFeature'
-exploreOvr :: forall sym ext alg ret rtp msgs.
+exploreOvr :: forall sym bak ext alg ret rtp msgs.
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
-  (?bound::Int, IsSymInterface sym, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
-  Maybe (Crux.SomeOnlineSolver sym) ->
+  (?bound::Int, IsSymBackend sym bak, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
+  bak -> 
+  Maybe (Crux.SomeOnlineSolver sym bak) ->
   Crux.CruxOptions ->
   (forall rtp'. OverrideSim (Exploration alg ext ret sym) sym ext rtp' Ctx.EmptyCtx ret (RegValue sym ret)) ->
   OverrideSim (Exploration alg ext ret sym) sym ext rtp Ctx.EmptyCtx ret (RegValue sym ret)
-exploreOvr symOnline cruxOpts mainAct =
-  do sym     <- getSymInterface
-     assmSt  <- liftIO $ saveAssumptionState sym
+exploreOvr bak symOnline cruxOpts mainAct =
+  do assmSt  <- liftIO $ saveAssumptionState bak
      verbOpt <- liftIO $ getOptionSetting verbosity $ getConfiguration sym
      verb    <- fromInteger <$> (liftIO $ getOpt verbOpt)
      loop verb assmSt
 
   where
+    sym = backendGetSym bak
+
     loop ::
       Int ->
       AssumptionState sym ->
@@ -135,16 +138,15 @@ exploreOvr symOnline cruxOpts mainAct =
     checkGoals =
       Crux.withCruxLogMessage $
       case symOnline of
-      Just Crux.SomeOnlineSolver ->
-        do sym <- getSymInterface
-           ctx <- use stateContext
-           todo <- liftIO $ getProofObligations sym
+      Just (Crux.SomeOnlineSolver _) ->
+        do ctx <- use stateContext
+           todo <- liftIO $ getProofObligations bak
            let cruxOpts' = over (field @"outputOptions") (setField @"quietMode" True . setField @"simVerbose" 0) cruxOpts
            mkOutCfg <- liftIO $ Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
            let ?outputConfig = mkOutCfg (Just (Crux.outputOptions cruxOpts'))
-           (processed, _) <- liftIO $ proveGoalsOnline sym cruxOpts' ctx (\_ _ -> return mempty) todo
+           (processed, _) <- liftIO $ proveGoalsOnline bak cruxOpts' ctx (\_ _ -> return mempty) todo
            let provedAll = totalProcessedGoals processed == provedGoals processed
-           when provedAll $ liftIO $ clearProofObligations sym
+           when provedAll $ liftIO $ clearProofObligations bak
            return provedAll
       Nothing -> return True
 

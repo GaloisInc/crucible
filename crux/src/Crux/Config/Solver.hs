@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 module Crux.Config.Solver (
   parseSolverConfig,
@@ -16,7 +17,6 @@ import           Control.Applicative ( (<|>), empty, Alternative )
 import           Data.List.Split (wordsBy)
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
-import qualified Lang.Crucible.Backend.Simple as CBS
 import           Text.Printf ( printf )
 import qualified What4.Expr.Builder as WEB
 import qualified What4.InterpretedFloatingPoint as WIF
@@ -29,7 +29,11 @@ data SolverOffline = SolverOnline SolverOnline | Boolector | DReal
   deriving (Eq, Ord, Show)
 
 class HasDefaultFloatRepr solver where
-  withDefaultFloatRepr :: proxy s -> solver -> (forall fm . (WIF.IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (WEB.Flags fm))) => WEB.FloatModeRepr fm -> a) -> a
+  withDefaultFloatRepr ::
+    st s ->
+    solver ->
+    (forall fm. (WIF.IsInterpretedFloatExprBuilder (WEB.ExprBuilder s st (WEB.Flags fm))) => WEB.FloatModeRepr fm -> a) ->
+    a
 
 instance HasDefaultFloatRepr SolverOnline where
   withDefaultFloatRepr _ s k =
@@ -40,9 +44,9 @@ instance HasDefaultFloatRepr SolverOnline where
       Z3 -> k WEB.FloatIEEERepr
 
 instance HasDefaultFloatRepr SolverOffline where
-  withDefaultFloatRepr proxy s k =
+  withDefaultFloatRepr st s k =
     case s of
-      SolverOnline s' -> withDefaultFloatRepr proxy s' k
+      SolverOnline s' -> withDefaultFloatRepr st s' k
       Boolector -> k WEB.FloatUninterpretedRepr
       DReal -> k WEB.FloatRealRepr
 
@@ -56,13 +60,16 @@ sameSolver o f =
 data SolverConfig = SingleOnlineSolver SolverOnline
                   -- ^ Use a single online solver for both path satisfiability
                   -- checking and goal discharge
+
                   | OnlineSolverWithOfflineGoals SolverOnline SolverOffline
                   -- ^ Use an online solver for path satisfiability checking and
                   -- use an offline solver for goal discharge
+
                   | OnlineSolverWithSeparateOnlineGoals SolverOnline SolverOnline
                   -- ^ Use one online solver connection for path satisfiability
                   -- checking and a separate online solver connection for goal
-                  -- discharge
+                  -- discharge.  INVARIANT: the solvers must be distinct.
+
                   | OnlyOfflineSolvers [SolverOffline]
                   -- ^ Try any of a number of offline solvers with no support
                   -- for path satisfiability checking
@@ -192,7 +199,8 @@ parseSolverConfig cruxOpts = validatedToEither $
       (OnlineSolverWithOfflineGoals <$> asOnlineSolver onSolver <*> asOnlyOfflineSolver (CCC.solver cruxOpts)) <|>
         -- In this case, the requested solver can be used in online mode so we
         -- use it as such
-       (OnlineSolverWithSeparateOnlineGoals <$> asOnlineSolver onSolver <*> asOnlineSolver (CCC.solver cruxOpts))
+        (onlineWithOnlineGoals <$> asOnlineSolver onSolver <*> asOnlineSolver (CCC.solver cruxOpts))
+
     (Just onSolver, True, True) ->
       -- In this case, the user requested separate solvers for path sat checking
       -- and goal discharge, but further requested that we force goals to be
@@ -203,3 +211,7 @@ parseSolverConfig cruxOpts = validatedToEither $
     tryOnlyOffline = OnlyOfflineSolvers . pure <$> asOnlyOfflineSolver (CCC.solver cruxOpts)
     trySingleOnline = SingleOnlineSolver <$> asOnlineSolver (CCC.solver cruxOpts)
     tryManyOffline = OnlyOfflineSolvers <$> asManyOfflineSolvers (CCC.solver cruxOpts)
+
+    onlineWithOnlineGoals s1 s2
+      | s1 == s2  = SingleOnlineSolver s1
+      | otherwise = OnlineSolverWithSeparateOnlineGoals s1 s2

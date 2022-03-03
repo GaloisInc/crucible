@@ -12,7 +12,6 @@
 -- continuation that implements MonadCont and MonadState, yet never
 -- returns the final state.  This also wraps MonadST.
 ------------------------------------------------------------------------
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -29,11 +28,6 @@ import Control.Monad.Reader.Class (MonadReader(..))
 import Control.Monad.State.Class  (MonadState(..))
 import Control.Monad.Trans (MonadTrans(..))
 import Control.Monad.Catch ( MonadThrow(..), MonadCatch(..) )
-
-#if !MIN_VERSION_base(4,13,0)
-import Control.Monad.Fail( MonadFail )
-import qualified Control.Monad.Fail
-#endif
 
 import What4.Utils.MonadST
 

@@ -33,6 +33,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 import qualified Data.Vector as V
 import           System.IO
+import qualified GHC.Stack as GHC
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
@@ -82,9 +83,9 @@ llvmMemcpyOverride
            (LLVMPointerType wptr)
 llvmMemcpyOverride =
   [llvmOvr| i8* @memcpy( i8*, i8*, size_t ) |]
-  (\memOps sym args ->
-       do volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
-          Ctx.uncurryAssignment (callMemcpy sym memOps)
+  (\memOps bak args ->
+       do volatile <- liftIO $ RegEntry knownRepr <$> bvLit (backendGetSym bak) knownNat (BV.zero knownNat)
+          Ctx.uncurryAssignment (callMemcpy bak memOps)
                                 (args :> volatile)
           return $ regValue $ args^._1 -- return first argument
     )
@@ -101,10 +102,10 @@ llvmMemcpyChkOverride
          (LLVMPointerType wptr)
 llvmMemcpyChkOverride =
   [llvmOvr| i8* @__memcpy_chk ( i8*, i8*, size_t, size_t ) |]
-  (\memOps sym args ->
+  (\memOps bak args ->
       do let args' = Empty :> (args^._1) :> (args^._2) :> (args^._3)
-         volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
-         Ctx.uncurryAssignment (callMemcpy sym memOps)
+         volatile <- liftIO $ RegEntry knownRepr <$> bvLit (backendGetSym bak) knownNat (BV.zero knownNat)
+         Ctx.uncurryAssignment (callMemcpy bak memOps)
                                (args' :> volatile)
          return $ regValue $ args^._1 -- return first argument
     )
@@ -119,9 +120,9 @@ llvmMemmoveOverride
          (LLVMPointerType wptr)
 llvmMemmoveOverride =
   [llvmOvr| i8* @memmove( i8*, i8*, size_t ) |]
-  (\memOps sym args ->
-      do volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
-         Ctx.uncurryAssignment (callMemmove sym memOps)
+  (\memOps bak args ->
+      do volatile <- liftIO (RegEntry knownRepr <$> bvLit (backendGetSym bak) knownNat (BV.zero knownNat))
+         Ctx.uncurryAssignment (callMemmove bak memOps)
                                (args :> volatile)
          return $ regValue $ args^._1 -- return first argument
     )
@@ -135,14 +136,15 @@ llvmMemsetOverride :: forall p sym wptr.
          (LLVMPointerType wptr)
 llvmMemsetOverride =
   [llvmOvr| i8* @memset( i8*, i32, size_t ) |]
-  (\memOps sym args ->
-      do LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)
+  (\memOps bak args ->
+      do let sym = backendGetSym bak
+         LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)
          let dest = args^._1
          val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
          let len = args^._3
          volatile <- liftIO
             (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
-         callMemset sym memOps dest val len volatile
+         callMemset bak memOps dest val len volatile
          return (regValue dest)
     )
 
@@ -156,14 +158,15 @@ llvmMemsetChkOverride
          (LLVMPointerType wptr)
 llvmMemsetChkOverride =
   [llvmOvr| i8* @__memset_chk( i8*, i32, size_t, size_t ) |]
-  (\memOps sym args ->
-      do let dest = args^._1
+  (\memOps bak args ->
+      do let sym = backendGetSym bak
+         let dest = args^._1
          val <- liftIO
               (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
          let len = args^._3
          volatile <- liftIO
             (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
-         callMemset sym memOps dest val len volatile
+         callMemset bak memOps dest val len volatile
          return (regValue dest)
     )
 
@@ -179,7 +182,7 @@ llvmCallocOverride
 llvmCallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   [llvmOvr| i8* @calloc( size_t, size_t ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callCalloc sym memOps alignment) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callCalloc bak memOps alignment) args)
 
 
 llvmReallocOverride
@@ -191,7 +194,7 @@ llvmReallocOverride
 llvmReallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   [llvmOvr| i8* @realloc( i8*, size_t ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callRealloc sym memOps alignment) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callRealloc bak memOps alignment) args)
 
 llvmMallocOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -202,7 +205,7 @@ llvmMallocOverride
 llvmMallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   [llvmOvr| i8* @malloc( size_t ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callMalloc bak memOps alignment) args)
 
 posixMemalignOverride ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -214,7 +217,7 @@ posixMemalignOverride ::
       (BVType 32)
 posixMemalignOverride =
   [llvmOvr| i32 @posix_memalign( i8**, size_t, size_t ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callPosixMemalign sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callPosixMemalign bak memOps) args)
 
 
 llvmFreeOverride
@@ -224,7 +227,7 @@ llvmFreeOverride
          UnitType
 llvmFreeOverride =
   [llvmOvr| void @free( i8* ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callFree sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callFree bak memOps) args)
 
 ------------------------------------------------------------------------
 -- *** Strings and I/O
@@ -238,7 +241,7 @@ llvmPrintfOverride
          (BVType 32)
 llvmPrintfOverride =
   [llvmOvr| i32 @printf( i8*, ... ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callPrintf bak memOps) args)
 
 llvmPrintfChkOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -250,7 +253,7 @@ llvmPrintfChkOverride
          (BVType 32)
 llvmPrintfChkOverride =
   [llvmOvr| i32 @__printf_chk( i32, i8*, ... ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (\_flg -> callPrintf sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (\_flg -> callPrintf bak memOps) args)
 
 
 llvmPutCharOverride
@@ -258,7 +261,7 @@ llvmPutCharOverride
   => LLVMOverride p sym (EmptyCtx ::> BVType 32) (BVType 32)
 llvmPutCharOverride =
   [llvmOvr| i32 @putchar( i32 ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callPutChar sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callPutChar bak memOps) args)
 
 
 llvmPutsOverride
@@ -267,7 +270,7 @@ llvmPutsOverride
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callPuts bak memOps) args)
 
 llvmStrlenOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -275,7 +278,7 @@ llvmStrlenOverride
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   [llvmOvr| size_t @strlen( i8* ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callStrlen sym memOps) args)
+  (\memOps bak args -> Ctx.uncurryAssignment (callStrlen bak memOps) args)
 
 ------------------------------------------------------------------------
 -- ** Implementations
@@ -284,16 +287,17 @@ llvmStrlenOverride =
 -- *** Allocation
 
 callRealloc
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> Alignment
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
-  do szZero  <- liftIO (notPred sym =<< bvIsNonzero sym sz)
+callRealloc bak mvar alignment (regValue -> ptr) (regValue -> sz) =
+  do let sym = backendGetSym bak
+     szZero  <- liftIO (notPred sym =<< bvIsNonzero sym sz)
      ptrNull <- liftIO (ptrIsNull sym PtrWidth ptr)
      loc <- liftIO (plSourceLoc <$> getCurrentProgramLoc sym)
      let displayString = "<realloc> " ++ show loc
@@ -301,15 +305,15 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
      symbolicBranches emptyRegMap
        -- If the pointer is null, behave like malloc
        [ ( ptrNull
-         , modifyGlobal mvar $ \mem -> liftIO $ doMalloc sym G.HeapAlloc G.Mutable displayString mem sz alignment
+         , modifyGlobal mvar $ \mem -> liftIO $ doMalloc bak G.HeapAlloc G.Mutable displayString mem sz alignment
          , Nothing
          )
 
        -- If the size is zero, behave like malloc (of zero bytes) then free
        , (szZero
          , modifyGlobal mvar $ \mem -> liftIO $
-              do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable displayString mem sz alignment
-                 mem2 <- doFree sym mem1 ptr
+              do (newp, mem1) <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz alignment
+                 mem2 <- doFree bak mem1 ptr
                  return (newp, mem2)
          , Nothing
          )
@@ -317,24 +321,25 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
        -- Otherwise, allocate a new region, memcopy `sz` bytes and free the old pointer
        , (truePred sym
          , modifyGlobal mvar $ \mem -> liftIO $
-              do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable displayString mem sz alignment
+              do (newp, mem1) <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz alignment
                  mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
-                 mem3 <- doFree sym mem2 ptr
+                 mem3 <- doFree bak mem2 ptr
                  return (newp, mem3)
          , Nothing)
        ]
 
 
 callPosixMemalign
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?lc :: TypeContext, ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
+callPosixMemalign bak mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
+  let sym = backendGetSym bak in
   case asBV align of
     Nothing -> fail $ unwords ["posix_memalign: alignment value must be concrete:", show (printSymExpr align)]
     Just concrete_align ->
@@ -345,72 +350,72 @@ callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue ->
           modifyGlobal mvar $ \mem -> liftIO $
              do loc <- plSourceLoc <$> getCurrentProgramLoc sym
                 let displayString = "<posix_memaign> " ++ show loc
-                (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable displayString mem sz a
-                mem'' <- storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
+                (p, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz a
+                mem'' <- storeRaw bak mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
                 z <- bvLit sym knownNat (BV.zero knownNat)
                 return (z, mem'')
 
 callMalloc
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> Alignment
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym mvar alignment (regValue -> sz) =
+callMalloc bak mvar alignment (regValue -> sz) =
   modifyGlobal mvar $ \mem -> liftIO $
-    do loc <- plSourceLoc <$> getCurrentProgramLoc sym
+    do loc <- plSourceLoc <$> getCurrentProgramLoc (backendGetSym bak)
        let displayString = "<malloc> " ++ show loc
-       doMalloc sym G.HeapAlloc G.Mutable displayString mem sz alignment
+       doMalloc bak G.HeapAlloc G.Mutable displayString mem sz alignment
 
 callCalloc
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> Alignment
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callCalloc sym mvar alignment
+callCalloc bak mvar alignment
            (regValue -> sz)
            (regValue -> num) =
   modifyGlobal mvar $ \mem -> liftIO $
-    doCalloc sym mem sz num alignment
+    doCalloc bak mem sz num alignment
 
 callFree
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => sym
+  :: (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym ext r args ret ()
-callFree sym mvar
+callFree bak mvar
            (regValue -> ptr) =
   modifyGlobal mvar $ \mem -> liftIO $
-    do mem' <- doFree sym mem ptr
+    do mem' <- doFree bak mem ptr
        return ((), mem')
 
 ------------------------------------------------------------------------
 -- *** Memory manipulation
 
 callMemcpy
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym ext r args ret ()
-callMemcpy sym mvar
+callMemcpy bak mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
            _volatile =
   modifyGlobal mvar $ \mem -> liftIO $
-    do mem' <- doMemcpy sym w mem True dest src len
+    do mem' <- doMemcpy bak w mem True dest src len
        return ((), mem')
 
 -- NB the only difference between memcpy and memove
@@ -418,53 +423,53 @@ callMemcpy sym mvar
 -- ranges are disjoint.  The underlying operation
 -- works correctly in both cases.
 callMemmove
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym ext r args ret ()
-callMemmove sym mvar
+callMemmove bak mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
            _volatile =
   -- FIXME? add assertions about alignment
   modifyGlobal mvar $ \mem -> liftIO $
-    do mem' <- doMemcpy sym w mem False dest src len
+    do mem' <- doMemcpy bak w mem False dest src len
        return ((), mem')
 
 callMemset
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => sym
+  :: (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr)
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 8)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym ext r args ret ()
-callMemset sym mvar
+callMemset bak mvar
            (regValue -> dest)
            (regValue -> val)
            (RegEntry (BVRepr w) len)
            _volatile =
   modifyGlobal mvar $ \mem -> liftIO $
-    do mem' <- doMemset sym w mem dest val len
+    do mem' <- doMemset bak w mem dest val len
        return ((), mem')
 
 ------------------------------------------------------------------------
 -- *** Strings and I/O
 
 callPutChar
-  :: (IsSymInterface sym)
-  => sym
+  :: (IsSymBackend sym bak)
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (BVType 32)
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callPutChar _sym _mvar
+callPutChar _bak _mvar
  (regValue -> ch) = do
     h <- printHandle <$> getContext
     let chval = maybe '?' (toEnum . fromInteger) (BV.asUnsigned <$> asBV ch)
@@ -472,50 +477,52 @@ callPutChar _sym _mvar
     return ch
 
 callPuts
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callPuts sym mvar
+callPuts bak mvar
   (regValue -> strPtr) = do
     mem <- readGlobal mvar
-    str <- liftIO $ loadString sym mem strPtr Nothing
+    str <- liftIO $ loadString bak mem strPtr Nothing
     h <- printHandle <$> getContext
     liftIO $ hPutStrLn h (UTF8.toString str)
     -- return non-negative value on success
-    liftIO $ bvLit sym knownNat (BV.one knownNat)
+    liftIO $ bvLit (backendGetSym bak) knownNat (BV.one knownNat)
 
 callStrlen
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType wptr))
-callStrlen sym mvar (regValue -> strPtr) = do
+callStrlen bak mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
-  liftIO $ strLen sym mem strPtr
+  liftIO $ strLen bak mem strPtr
 
 callAssert
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
   => Bool -- ^ 'True' if this is @__assert_fail()@, 'False' otherwise.
   -> GlobalVar Mem
-  -> sym
+  -> bak
   -> Ctx.Assignment (RegEntry sym)
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
                   ::> BVType 32
                   ::> LLVMPointerType wptr)
-  -> OverrideSim p sym ext r args reg (RegValue sym UnitType)
-callAssert assert_fail mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
-  do when failUponExit $
+  -> forall r args reg.
+     OverrideSim p sym ext r args reg (RegValue sym UnitType)
+callAssert assert_fail mvar bak (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
+  do let sym = backendGetSym bak
+     when failUponExit $
        do mem <- readGlobal mvar
-          txt <- liftIO $ loadString sym mem (regValue ptxt) Nothing
+          txt <- liftIO $ loadString bak mem (regValue ptxt) Nothing
           let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
-          liftIO $ addFailedAssertion sym err
+          liftIO $ addFailedAssertion bak err
      liftIO $
        do loc <- liftIO $ getCurrentProgramLoc sym
           abortExecBecause $ EarlyExit loc
@@ -527,67 +534,69 @@ callAssert assert_fail mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
       | otherwise
       = abnormalExitBehavior ?intrinsicsOpts == AlwaysFail
 
-callExit :: ( IsSymInterface sym
+callExit :: ( IsSymBackend sym bak
             , ?intrinsicsOpts :: IntrinsicsOptions )
-         => sym
+         => bak
          -> RegEntry sym (BVType 32)
          -> OverrideSim p sym ext r args ret (RegValue sym UnitType)
-callExit sym ec = liftIO $
-  do when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+callExit bak ec = liftIO $
+  do let sym = backendGetSym bak
+     when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
        do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
           -- If the argument is non-zero, throw an assertion failure. Otherwise,
           -- simply stop the current thread of execution.
-          assert sym cond "Call to exit() with non-zero argument"
+          assert bak cond "Call to exit() with non-zero argument"
      loc <- getCurrentProgramLoc sym
      abortExecBecause $ EarlyExit loc
 
 callPrintf
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
-  => sym
+  => bak
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (VectorType AnyType)
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callPrintf sym mvar
+callPrintf bak mvar
   (regValue -> strPtr)
   (regValue -> valist) = do
     mem <- readGlobal mvar
-    formatStr <- liftIO $ loadString sym mem strPtr Nothing
+    formatStr <- liftIO $ loadString bak mem strPtr Nothing
     case parseDirectives formatStr of
       Left err -> overrideError $ AssertFailureSimError "Format string parsing failed" err
       Right ds -> do
-        ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
+        ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps bak valist) ds) mem
         writeGlobal mvar mem'
         h <- printHandle <$> getContext
         liftIO $ hPutStr h str
-        liftIO $ bvLit sym knownNat (BV.mkBV knownNat (toInteger n))
+        liftIO $ bvLit (backendGetSym bak) knownNat (BV.mkBV knownNat (toInteger n))
 
-printfOps :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+printfOps :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
              , ?memOpts :: MemOptions )
-          => sym
+          => bak
           -> V.Vector (AnyValue sym)
           -> PrintfOperations (StateT (MemImpl sym) IO)
-printfOps sym valist =
+printfOps bak valist =
+  let sym = backendGetSym bak in
   PrintfOperations
-  { printfUnsupported = \x -> lift $ addFailedAssertion sym
-                                   $ Unsupported x
+  { printfUnsupported = \x -> lift $ addFailedAssertion bak
+                                   $ Unsupported GHC.callStack x
 
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
        Just (AnyValue (LLVMPointerRepr w) x) ->
-         do bv <- liftIO (projectLLVM_bv sym x)
+         do bv <- liftIO (projectLLVM_bv bak x)
             if sgn then
               return $ BV.asSigned w <$> asBV bv
             else
               return $ BV.asUnsigned <$> asBV bv
        Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf"
                 (unwords ["Expected integer, but got:", show tpr])
        Nothing ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                "Out-of-bounds argument access in printf"
                (unwords ["Index:", show i])
@@ -598,12 +607,12 @@ printfOps sym valist =
          do xr <- liftIO (iFloatToReal @_ @fi sym x)
             return (asRational xr)
        Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
                 (unwords ["Expected floating-point, but got:", show tpr])
        Nothing ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Out-of-bounds argument access in printf:"
                 (unwords ["Index:", show i])
@@ -612,14 +621,14 @@ printfOps sym valist =
      case valist V.!? (i-1) of
        Just (AnyValue PtrRepr ptr) ->
            do mem <- get
-              liftIO $ loadString sym mem ptr numchars
+              liftIO $ loadString bak mem ptr numchars
        Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
                 (unwords ["Expected char*, but got:", show tpr])
        Nothing ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Out-of-bounds argument access in printf:"
                 (unwords ["Index:", show i])
@@ -629,12 +638,12 @@ printfOps sym valist =
        Just (AnyValue PtrRepr ptr) ->
          return $ show (G.ppPtr ptr)
        Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
                 (unwords ["Expected void*, but got:", show tpr])
        Nothing ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Out-of-bounds argument access in printf:"
                 (unwords ["Index:", show i])
@@ -648,39 +657,39 @@ printfOps sym valist =
                  let w8 = knownNat :: NatRepr 8
                  let tp = G.bitvectorType 1
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (BV.mkBV w8 (toInteger v)))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp noAlignment x
+                 mem' <- liftIO $ doStore bak mem ptr (LLVMPointerRepr w8) tp noAlignment x
                  put mem'
               Len_Short -> do
                  let w16 = knownNat :: NatRepr 16
                  let tp = G.bitvectorType 2
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (BV.mkBV w16 (toInteger v)))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp noAlignment x
+                 mem' <- liftIO $ doStore bak mem ptr (LLVMPointerRepr w16) tp noAlignment x
                  put mem'
               Len_NoMod -> do
                  let w32  = knownNat :: NatRepr 32
                  let tp = G.bitvectorType 4
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (BV.mkBV w32 (toInteger v)))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp noAlignment x
+                 mem' <- liftIO $ doStore bak mem ptr (LLVMPointerRepr w32) tp noAlignment x
                  put mem'
               Len_Long  -> do
                  let w64 = knownNat :: NatRepr 64
                  let tp = G.bitvectorType 8
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (BV.mkBV w64 (toInteger v)))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp noAlignment x
+                 mem' <- liftIO $ doStore bak mem ptr (LLVMPointerRepr w64) tp noAlignment x
                  put mem'
               _ ->
-                lift $ addFailedAssertion sym
-                     $ Unsupported
+                lift $ addFailedAssertion bak
+                     $ Unsupported GHC.callStack
                      $ unwords ["Unsupported size modifier in %n conversion:", show len]
 
        Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
                 (unwords ["Expected void*, but got:", show tpr])
 
        Nothing ->
-         lift $ addFailedAssertion sym
+         lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Out-of-bounds argument access in printf:"
                 (unwords ["Index:", show i])
@@ -784,49 +793,50 @@ llvmSqrtfOverride =
   (\_memOps sym args -> Ctx.uncurryAssignment (callSqrt sym) args)
 
 callSpecialFunction1 ::
-  forall fi p sym ext r args ret.
-  (IsSymInterface sym, KnownRepr FloatInfoRepr fi) =>
-  sym ->
+  forall fi p sym bak ext r args ret.
+  (IsSymBackend sym bak, KnownRepr FloatInfoRepr fi) =>
+  bak ->
   W4.SpecialFunction (EmptyCtx ::> W4.R) ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
-callSpecialFunction1 sym fn (regValue -> x) = liftIO $
-  iFloatSpecialFunction1 sym (knownRepr :: FloatInfoRepr fi) fn x
+callSpecialFunction1 bak fn (regValue -> x) = liftIO $
+  iFloatSpecialFunction1 (backendGetSym bak) (knownRepr :: FloatInfoRepr fi) fn x
 
 callSpecialFunction2 ::
-  forall fi p sym ext r args ret.
-  (IsSymInterface sym, KnownRepr FloatInfoRepr fi) =>
-  sym ->
+  forall fi p sym bak ext r args ret.
+  (IsSymBackend sym bak, KnownRepr FloatInfoRepr fi) =>
+  bak ->
   W4.SpecialFunction (EmptyCtx ::> W4.R ::> W4.R) ->
   RegEntry sym (FloatType fi) ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
-callSpecialFunction2 sym fn (regValue -> x) (regValue -> y) = liftIO $
-  iFloatSpecialFunction2 sym (knownRepr :: FloatInfoRepr fi) fn x y
+callSpecialFunction2 bak fn (regValue -> x) (regValue -> y) = liftIO $
+  iFloatSpecialFunction2 (backendGetSym bak) (knownRepr :: FloatInfoRepr fi) fn x y
 
 callCeil ::
-  forall fi p sym ext r args ret.
-  IsSymInterface sym =>
-  sym ->
+  forall fi p sym bak ext r args ret.
+  (IsSymBackend sym bak) =>
+  bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
-callCeil sym (regValue -> x) = liftIO $ iFloatRound @_ @fi sym RTP x
+callCeil bak (regValue -> x) = liftIO $ iFloatRound @_ @fi (backendGetSym bak) RTP x
 
 callFloor ::
-  forall fi p sym ext r args ret.
-  IsSymInterface sym =>
-  sym ->
+  forall fi p sym bak ext r args ret.
+  (IsSymBackend sym bak) =>
+  bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
-callFloor sym (regValue -> x) = liftIO $ iFloatRound @_ @fi sym RTN x
+callFloor bak (regValue -> x) = liftIO $ iFloatRound @_ @fi (backendGetSym bak) RTN x
 
 callIsnan ::
-  forall fi p sym ext r args ret.
-  IsSymInterface sym =>
-  sym ->
+  forall fi p sym bak ext r args ret.
+  (IsSymBackend sym bak) =>
+  bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callIsnan sym (regValue -> x) = liftIO $ do
+callIsnan bak (regValue -> x) = liftIO $ do
+  let sym = backendGetSym bak
   isnan  <- iFloatIsNaN @_ @fi sym x
   let w = knownNat @32
   bvOne  <- bvLit sym w (BV.one w)
@@ -836,12 +846,12 @@ callIsnan sym (regValue -> x) = liftIO $ do
   bvIte sym isnan bvOne bvZero
 
 callSqrt ::
-  forall fi p sym ext r args ret.
-  IsSymInterface sym =>
-  sym ->
+  forall fi p sym bak ext r args ret.
+  (IsSymBackend sym bak) =>
+  bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
-callSqrt sym (regValue -> x) = liftIO $ iFloatSqrt @_ @fi sym RNE x
+callSqrt bak (regValue -> x) = liftIO $ iFloatSqrt @_ @fi (backendGetSym bak) RNE x
 
 ------------------------------------------------------------------------
 -- **** Circular trigonometry functions
@@ -855,7 +865,7 @@ llvmSinOverride ::
      (FloatType DoubleFloat)
 llvmSinOverride =
   [llvmOvr| double @sin( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sin) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Sin) args)
 
 llvmSinfOverride ::
   IsSymInterface sym =>
@@ -864,7 +874,7 @@ llvmSinfOverride ::
      (FloatType SingleFloat)
 llvmSinfOverride =
   [llvmOvr| float @sinf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sin) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Sin) args)
 
 -- cos(f)
 
@@ -875,7 +885,7 @@ llvmCosOverride ::
      (FloatType DoubleFloat)
 llvmCosOverride =
   [llvmOvr| double @cos( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cos) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Cos) args)
 
 llvmCosfOverride ::
   IsSymInterface sym =>
@@ -884,7 +894,7 @@ llvmCosfOverride ::
      (FloatType SingleFloat)
 llvmCosfOverride =
   [llvmOvr| float @cosf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cos) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Cos) args)
 
 -- tan(f)
 
@@ -895,7 +905,7 @@ llvmTanOverride ::
      (FloatType DoubleFloat)
 llvmTanOverride =
   [llvmOvr| double @tan( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tan) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Tan) args)
 
 llvmTanfOverride ::
   IsSymInterface sym =>
@@ -904,7 +914,7 @@ llvmTanfOverride ::
      (FloatType SingleFloat)
 llvmTanfOverride =
   [llvmOvr| float @tanf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tan) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Tan) args)
 
 -- asin(f)
 
@@ -915,7 +925,7 @@ llvmAsinOverride ::
      (FloatType DoubleFloat)
 llvmAsinOverride =
   [llvmOvr| double @asin( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsin) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arcsin) args)
 
 llvmAsinfOverride ::
   IsSymInterface sym =>
@@ -924,7 +934,7 @@ llvmAsinfOverride ::
      (FloatType SingleFloat)
 llvmAsinfOverride =
   [llvmOvr| float @asinf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsin) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arcsin) args)
 
 -- acos(f)
 
@@ -935,7 +945,7 @@ llvmAcosOverride ::
      (FloatType DoubleFloat)
 llvmAcosOverride =
   [llvmOvr| double @acos( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccos) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arccos) args)
 
 llvmAcosfOverride ::
   IsSymInterface sym =>
@@ -944,7 +954,7 @@ llvmAcosfOverride ::
      (FloatType SingleFloat)
 llvmAcosfOverride =
   [llvmOvr| float @acosf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccos) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arccos) args)
 
 -- atan(f)
 
@@ -955,7 +965,7 @@ llvmAtanOverride ::
      (FloatType DoubleFloat)
 llvmAtanOverride =
   [llvmOvr| double @atan( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctan) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arctan) args)
 
 llvmAtanfOverride ::
   IsSymInterface sym =>
@@ -964,7 +974,7 @@ llvmAtanfOverride ::
      (FloatType SingleFloat)
 llvmAtanfOverride =
   [llvmOvr| float @atanf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctan) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arctan) args)
 
 ------------------------------------------------------------------------
 -- **** Hyperbolic trigonometry functions
@@ -978,7 +988,7 @@ llvmSinhOverride ::
      (FloatType DoubleFloat)
 llvmSinhOverride =
   [llvmOvr| double @sinh( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sinh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Sinh) args)
 
 llvmSinhfOverride ::
   IsSymInterface sym =>
@@ -987,7 +997,7 @@ llvmSinhfOverride ::
      (FloatType SingleFloat)
 llvmSinhfOverride =
   [llvmOvr| float @sinhf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Sinh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Sinh) args)
 
 -- cosh(f)
 
@@ -998,7 +1008,7 @@ llvmCoshOverride ::
      (FloatType DoubleFloat)
 llvmCoshOverride =
   [llvmOvr| double @cosh( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cosh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Cosh) args)
 
 llvmCoshfOverride ::
   IsSymInterface sym =>
@@ -1007,7 +1017,7 @@ llvmCoshfOverride ::
      (FloatType SingleFloat)
 llvmCoshfOverride =
   [llvmOvr| float @coshf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Cosh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Cosh) args)
 
 -- tanh(f)
 
@@ -1018,7 +1028,7 @@ llvmTanhOverride ::
      (FloatType DoubleFloat)
 llvmTanhOverride =
   [llvmOvr| double @tanh( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tanh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Tanh) args)
 
 llvmTanhfOverride ::
   IsSymInterface sym =>
@@ -1027,7 +1037,7 @@ llvmTanhfOverride ::
      (FloatType SingleFloat)
 llvmTanhfOverride =
   [llvmOvr| float @tanhf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Tanh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Tanh) args)
 
 -- asinh(f)
 
@@ -1038,7 +1048,7 @@ llvmAsinhOverride ::
      (FloatType DoubleFloat)
 llvmAsinhOverride =
   [llvmOvr| double @asinh( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsinh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arcsinh) args)
 
 llvmAsinhfOverride ::
   IsSymInterface sym =>
@@ -1047,7 +1057,7 @@ llvmAsinhfOverride ::
      (FloatType SingleFloat)
 llvmAsinhfOverride =
   [llvmOvr| float @asinhf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arcsinh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arcsinh) args)
 
 -- acosh(f)
 
@@ -1058,7 +1068,7 @@ llvmAcoshOverride ::
      (FloatType DoubleFloat)
 llvmAcoshOverride =
   [llvmOvr| double @acosh( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccosh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arccosh) args)
 
 llvmAcoshfOverride ::
   IsSymInterface sym =>
@@ -1067,7 +1077,7 @@ llvmAcoshfOverride ::
      (FloatType SingleFloat)
 llvmAcoshfOverride =
   [llvmOvr| float @acoshf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arccosh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arccosh) args)
 
 -- atanh(f)
 
@@ -1078,7 +1088,7 @@ llvmAtanhOverride ::
      (FloatType DoubleFloat)
 llvmAtanhOverride =
   [llvmOvr| double @atanh( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctanh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arctanh) args)
 
 llvmAtanhfOverride ::
   IsSymInterface sym =>
@@ -1087,7 +1097,7 @@ llvmAtanhfOverride ::
      (FloatType SingleFloat)
 llvmAtanhfOverride =
   [llvmOvr| float @atanhf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Arctanh) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Arctanh) args)
 
 ------------------------------------------------------------------------
 -- **** Rectangular to polar coordinate conversion
@@ -1101,7 +1111,7 @@ llvmHypotOverride ::
      (FloatType DoubleFloat)
 llvmHypotOverride =
   [llvmOvr| double @hypot( double, double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Hypot) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction2 bak W4.Hypot) args)
 
 llvmHypotfOverride ::
   IsSymInterface sym =>
@@ -1110,7 +1120,7 @@ llvmHypotfOverride ::
      (FloatType SingleFloat)
 llvmHypotfOverride =
   [llvmOvr| float @hypotf( float, float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Hypot) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction2 bak W4.Hypot) args)
 
 -- atan2(f)
 
@@ -1121,7 +1131,7 @@ llvmAtan2Override ::
      (FloatType DoubleFloat)
 llvmAtan2Override =
   [llvmOvr| double @atan2( double, double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Arctan2) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction2 bak W4.Arctan2) args)
 
 llvmAtan2fOverride ::
   IsSymInterface sym =>
@@ -1130,7 +1140,7 @@ llvmAtan2fOverride ::
      (FloatType SingleFloat)
 llvmAtan2fOverride =
   [llvmOvr| float @atan2f( float, float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Arctan2) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction2 bak W4.Arctan2) args)
 
 ------------------------------------------------------------------------
 -- **** Exponential and logarithm functions
@@ -1144,7 +1154,7 @@ llvmPowfOverride ::
      (FloatType SingleFloat)
 llvmPowfOverride =
   [llvmOvr| float @powf( float, float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Pow) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction2 bak W4.Pow) args)
 
 llvmPowOverride ::
   IsSymInterface sym =>
@@ -1153,7 +1163,7 @@ llvmPowOverride ::
      (FloatType DoubleFloat)
 llvmPowOverride =
   [llvmOvr| double @pow( double, double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction2 sym W4.Pow) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction2 bak W4.Pow) args)
 
 -- exp(f)
 
@@ -1164,7 +1174,7 @@ llvmExpOverride ::
      (FloatType DoubleFloat)
 llvmExpOverride =
   [llvmOvr| double @exp( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp) args)
 
 llvmExpfOverride ::
   IsSymInterface sym =>
@@ -1173,7 +1183,7 @@ llvmExpfOverride ::
      (FloatType SingleFloat)
 llvmExpfOverride =
   [llvmOvr| float @expf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp) args)
 
 -- log(f)
 
@@ -1184,7 +1194,7 @@ llvmLogOverride ::
      (FloatType DoubleFloat)
 llvmLogOverride =
   [llvmOvr| double @log( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log) args)
 
 llvmLogfOverride ::
   IsSymInterface sym =>
@@ -1193,7 +1203,7 @@ llvmLogfOverride ::
      (FloatType SingleFloat)
 llvmLogfOverride =
   [llvmOvr| float @logf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log) args)
 
 -- expm1(f)
 
@@ -1204,7 +1214,7 @@ llvmExpm1Override ::
      (FloatType DoubleFloat)
 llvmExpm1Override =
   [llvmOvr| double @expm1( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Expm1) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Expm1) args)
 
 llvmExpm1fOverride ::
   IsSymInterface sym =>
@@ -1213,7 +1223,7 @@ llvmExpm1fOverride ::
      (FloatType SingleFloat)
 llvmExpm1fOverride =
   [llvmOvr| float @expm1f( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Expm1) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Expm1) args)
 
 -- log1p(f)
 
@@ -1224,7 +1234,7 @@ llvmLog1pOverride ::
      (FloatType DoubleFloat)
 llvmLog1pOverride =
   [llvmOvr| double @log1p( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log1p) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log1p) args)
 
 llvmLog1pfOverride ::
   IsSymInterface sym =>
@@ -1233,7 +1243,7 @@ llvmLog1pfOverride ::
      (FloatType SingleFloat)
 llvmLog1pfOverride =
   [llvmOvr| float @log1pf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log1p) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log1p) args)
 
 ------------------------------------------------------------------------
 -- **** Base 2 exponential and logarithm
@@ -1247,7 +1257,7 @@ llvmExp2Override ::
      (FloatType DoubleFloat)
 llvmExp2Override =
   [llvmOvr| double @exp2( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp2) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp2) args)
 
 llvmExp2fOverride ::
   IsSymInterface sym =>
@@ -1256,7 +1266,7 @@ llvmExp2fOverride ::
      (FloatType SingleFloat)
 llvmExp2fOverride =
   [llvmOvr| float @exp2f( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp2) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp2) args)
 
 -- log2(f)
 
@@ -1267,7 +1277,7 @@ llvmLog2Override ::
      (FloatType DoubleFloat)
 llvmLog2Override =
   [llvmOvr| double @log2( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log2) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log2) args)
 
 llvmLog2fOverride ::
   IsSymInterface sym =>
@@ -1276,7 +1286,7 @@ llvmLog2fOverride ::
      (FloatType SingleFloat)
 llvmLog2fOverride =
   [llvmOvr| float @log2f( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log2) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log2) args)
 
 ------------------------------------------------------------------------
 -- **** Base 10 exponential and logarithm
@@ -1290,7 +1300,7 @@ llvmExp10Override ::
      (FloatType DoubleFloat)
 llvmExp10Override =
   [llvmOvr| double @exp10( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp10) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp10) args)
 
 llvmExp10fOverride ::
   IsSymInterface sym =>
@@ -1299,7 +1309,7 @@ llvmExp10fOverride ::
      (FloatType SingleFloat)
 llvmExp10fOverride =
   [llvmOvr| float @exp10f( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Exp10) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp10) args)
 
 -- log10(f)
 
@@ -1310,7 +1320,7 @@ llvmLog10Override ::
      (FloatType DoubleFloat)
 llvmLog10Override =
   [llvmOvr| double @log10( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log10) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log10) args)
 
 llvmLog10fOverride ::
   IsSymInterface sym =>
@@ -1319,7 +1329,7 @@ llvmLog10fOverride ::
      (FloatType SingleFloat)
 llvmLog10fOverride =
   [llvmOvr| float @log10f( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callSpecialFunction1 sym W4.Log10) args)
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Log10) args)
 
 ------------------------------------------------------------------------
 -- *** Other
@@ -1359,10 +1369,11 @@ llvmAbortOverride
   => LLVMOverride p sym EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
-  (\_ sym _args -> liftIO $
-     do when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+  (\_ bak _args -> liftIO $
+     do let sym = backendGetSym bak
+        when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
             let err = AssertFailureSimError "Call to abort" "" in
-            assert sym (falsePred sym) err
+            assert bak (falsePred sym) err
         loc <- getCurrentProgramLoc sym
         abortExecBecause $ EarlyExit loc
   )
@@ -1376,7 +1387,7 @@ llvmExitOverride
          UnitType
 llvmExitOverride =
   [llvmOvr| void @exit( i32 ) |]
-  (\_ sym args -> Ctx.uncurryAssignment (callExit sym) args)
+  (\_ bak args -> Ctx.uncurryAssignment (callExit bak) args)
 
 llvmGetenvOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -1385,7 +1396,7 @@ llvmGetenvOverride
         (LLVMPointerType wptr)
 llvmGetenvOverride =
   [llvmOvr| i8* @getenv( i8* ) |]
-  (\_ sym _args -> liftIO $ mkNullPointer sym PtrWidth)
+  (\_ bak _args -> liftIO $ mkNullPointer (backendGetSym bak) PtrWidth)
 
 llvmHtonlOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1394,7 +1405,7 @@ llvmHtonlOverride ::
       (BVType 32)
 llvmHtonlOverride =
   [llvmOvr| i32 @htonl( i32 ) |]
-  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @4)) args)
+  (\_ bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian bak (knownNat @4)) args)
 
 llvmHtonsOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1403,7 +1414,7 @@ llvmHtonsOverride ::
       (BVType 16)
 llvmHtonsOverride =
   [llvmOvr| i16 @htons( i16 ) |]
-  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @2)) args)
+  (\_ bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian bak (knownNat @2)) args)
 
 llvmNtohlOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1412,7 +1423,7 @@ llvmNtohlOverride ::
       (BVType 32)
 llvmNtohlOverride =
   [llvmOvr| i32 @ntohl( i32 ) |]
-  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @4)) args)
+  (\_ bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian bak (knownNat @4)) args)
 
 llvmNtohsOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1421,7 +1432,7 @@ llvmNtohsOverride ::
       (BVType 16)
 llvmNtohsOverride =
   [llvmOvr| i16 @ntohs( i16 ) |]
-  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @2)) args)
+  (\_ bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian bak (knownNat @2)) args)
 
 llvmAbsOverride ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
@@ -1430,9 +1441,9 @@ llvmAbsOverride ::
       (BVType 32)
 llvmAbsOverride =
   [llvmOvr| i32 @abs( i32 ) |]
-  (\mvar sym args ->
+  (\mvar bak args ->
      do callStack <- callStackFromMemVar' mvar
-        Ctx.uncurryAssignment (callLibcAbs sym callStack (knownNat @32)) args)
+        Ctx.uncurryAssignment (callLibcAbs bak callStack (knownNat @32)) args)
 
 -- @labs@ uses `long` as its argument and result type, so we need two overrides
 -- for @labs@. See Note [Overrides involving (unsigned) long] in
@@ -1444,9 +1455,9 @@ llvmLAbsOverride_32 ::
       (BVType 32)
 llvmLAbsOverride_32 =
   [llvmOvr| i32 @labs( i32 ) |]
-  (\mvar sym args ->
+  (\mvar bak args ->
      do callStack <- callStackFromMemVar' mvar
-        Ctx.uncurryAssignment (callLibcAbs sym callStack (knownNat @32)) args)
+        Ctx.uncurryAssignment (callLibcAbs bak callStack (knownNat @32)) args)
 
 llvmLAbsOverride_64 ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
@@ -1455,9 +1466,9 @@ llvmLAbsOverride_64 ::
       (BVType 64)
 llvmLAbsOverride_64 =
   [llvmOvr| i64 @labs( i64 ) |]
-  (\mvar sym args ->
+  (\mvar bak args ->
      do callStack <- callStackFromMemVar' mvar
-        Ctx.uncurryAssignment (callLibcAbs sym callStack (knownNat @64)) args)
+        Ctx.uncurryAssignment (callLibcAbs bak callStack (knownNat @64)) args)
 
 llvmLLAbsOverride ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
@@ -1466,17 +1477,18 @@ llvmLLAbsOverride ::
       (BVType 64)
 llvmLLAbsOverride =
   [llvmOvr| i64 @llabs( i64 ) |]
-  (\mvar sym args ->
+  (\mvar bak args ->
      do callStack <- callStackFromMemVar' mvar
-        Ctx.uncurryAssignment (callLibcAbs sym callStack (knownNat @64)) args)
+        Ctx.uncurryAssignment (callLibcAbs bak callStack (knownNat @64)) args)
 
 callBSwap ::
-  (1 <= width, IsSymInterface sym) =>
-  sym ->
+  (1 <= width, IsSymBackend sym bak) =>
+  bak ->
   NatRepr width ->
   RegEntry sym (BVType (width * 8)) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType (width * 8)))
-callBSwap sym widthRepr (regValue -> vec) = liftIO $ bvSwap sym widthRepr vec
+callBSwap bak widthRepr (regValue -> vec) =
+  liftIO $ bvSwap (backendGetSym bak) widthRepr vec
 
 -- | This determines under what circumstances @callAbs@ should check if its
 -- argument is equal to the smallest signed integer of a particular size
@@ -1495,15 +1507,16 @@ data CheckAbsIntMin
 -- | The workhorse for the @abs@, @labs@, and @llabs@ functions, as well as the
 -- @llvm.abs.*@ family of overloaded intrinsics.
 callAbs ::
-  forall w p sym ext r args ret.
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
-  sym ->
+  forall w p sym bak ext r args ret.
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
+  bak ->
   CallStack ->
   CheckAbsIntMin ->
   NatRepr w ->
   RegEntry sym (BVType w) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType w))
-callAbs sym callStack checkIntMin widthRepr (regValue -> src) = liftIO $ do
+callAbs bak callStack checkIntMin widthRepr (regValue -> src) = liftIO $ do
+  let sym = backendGetSym bak
   bvIntMin    <- bvLit sym widthRepr (BV.minSigned widthRepr)
   isNotIntMin <- notPred sym =<< bvEq sym src bvIntMin
 
@@ -1511,7 +1524,7 @@ callAbs sym callStack checkIntMin widthRepr (regValue -> src) = liftIO $ do
     isNotIntMinUB <- annotateUB sym callStack ub isNotIntMin
     let err = AssertFailureSimError "Undefined behavior encountered" $
               show $ UB.explain ub
-    assert sym isNotIntMinUB err
+    assert bak isNotIntMinUB err
 
   isSrcNegative <- bvIsNeg sym src
   srcNegated    <- bvNeg sym src
@@ -1531,23 +1544,23 @@ callAbs sym callStack checkIntMin widthRepr (regValue -> src) = liftIO $ do
              UB.PoisonValueCreated $ Poison.LLVMAbsIntMin $ RV src
 
 callLibcAbs ::
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
-  sym ->
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
+  bak ->
   CallStack ->
   NatRepr w ->
   RegEntry sym (BVType w) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType w))
-callLibcAbs sym callStack = callAbs sym callStack LibcAbsIntMinUB
+callLibcAbs bak callStack = callAbs bak callStack LibcAbsIntMinUB
 
 callLLVMAbs ::
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
-  sym ->
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
+  bak ->
   CallStack ->
   NatRepr w ->
   RegEntry sym (BVType w) ->
   RegEntry sym (BVType 1) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType w))
-callLLVMAbs sym callStack widthRepr src (regValue -> isIntMinPoison) = do
+callLLVMAbs bak callStack widthRepr src (regValue -> isIntMinPoison) = do
   shouldCheckIntMin <- liftIO $
     -- Per https://releases.llvm.org/12.0.0/docs/LangRef.html#id451, the second
     -- argument must be a constant.
@@ -1556,21 +1569,21 @@ callLLVMAbs sym callStack widthRepr src (regValue -> isIntMinPoison) = do
       Nothing -> malformedLLVMModule
                    "Call to llvm.abs.* with non-constant second argument"
                    [printSymExpr isIntMinPoison]
-  callAbs sym callStack (LLVMAbsIntMinPoison shouldCheckIntMin) widthRepr src
+  callAbs bak callStack (LLVMAbsIntMinPoison shouldCheckIntMin) widthRepr src
 
 -- | If the data layout is little-endian, run 'callBSwap' on the input.
 -- Otherwise, return the input unchanged. This is the workhorse for the
 -- @hton{s,l}@ and @ntoh{s,l}@ overrides.
 callBSwapIfLittleEndian ::
-  (1 <= width, IsSymInterface sym, ?lc :: TypeContext) =>
-  sym ->
+  (1 <= width, IsSymBackend sym bak, ?lc :: TypeContext) =>
+  bak ->
   NatRepr width ->
   RegEntry sym (BVType (width * 8)) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType (width * 8)))
-callBSwapIfLittleEndian sym widthRepr vec =
+callBSwapIfLittleEndian bak widthRepr vec =
   case (llvmDataLayout ?lc)^.intLayout of
     BigEndian    -> pure (regValue vec)
-    LittleEndian -> callBSwap sym widthRepr vec
+    LittleEndian -> callBSwap bak widthRepr vec
 
 ----------------------------------------------------------------------------
 -- atexit stuff
@@ -1582,4 +1595,4 @@ cxa_atexitOverride
         (BVType 32)
 cxa_atexitOverride =
   [llvmOvr| i32 @__cxa_atexit( void (i8*)*, i8*, i8* ) |]
-  (\_ sym _args -> liftIO $ bvLit sym knownNat (BV.zero knownNat))
+  (\_ bak _args -> liftIO $ bvLit (backendGetSym bak) knownNat (BV.zero knownNat))

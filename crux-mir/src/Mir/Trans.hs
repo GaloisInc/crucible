@@ -119,6 +119,11 @@ parsePosition posText =
 setPosition :: Text.Text -> MirGenerator h s ret ()
 setPosition = G.setPosition . parsePosition
 
+eBVLit ::
+  (1 <= w) => 
+  NatRepr w ->
+  Integer ->
+  E.App ext f (C.BVType w)
 eBVLit w i = E.BVLit w (BV.mkBV w i)
 
 --------------------------------------------------------------------------------------

@@ -144,33 +144,32 @@ writeDataSegment ::
   (GlobalVar WasmMem, Word32, LBS.ByteString) ->
   WasmOverride p sym EmptyCtx UnitType ()
 writeDataSegment (mvar, offset, chunk) =
-  do ctx <- getContext
-     ctxSolverProof ctx $
-       do sym <- getSymInterface
-          mem <- readGlobal mvar
-          mem' <- liftIO $
-                  do offset' <- bvLit sym knownNat (BV.word32 offset)
-                     wasmStoreChunk sym offset' chunk mem
-          debug (show (G.ppMem (wasmMemHeap mem')))
-          writeGlobal mvar mem'
+  ovrWithBackend $ \bak -> 
+    do let sym = backendGetSym bak
+       mem  <- readGlobal mvar
+       mem' <- liftIO $
+               do offset' <- bvLit sym knownNat (BV.word32 offset)
+                  wasmStoreChunk bak offset' chunk mem
+       debug (show (G.ppMem (wasmMemHeap mem')))
+       writeGlobal mvar mem'
 
 initMemories ::
   ModuleInstance ->
   Store ->
   WasmOverride p sym EmptyCtx UnitType ()
 initMemories im st =
-  do ctx <- getContext
-     sym <- getSymInterface
-     ctxSolverProof ctx $ forM_ (instMemAddrs im) \case
-       (Wasm.Memory lim, True, addr) ->
-         case Seq.lookup addr (storeMemories st) of
-           Nothing -> panic "initMemories" ["could not resolve memory address " ++ show addr]
-           Just gv ->
-             do mem <- liftIO (freshMemory sym lim)
-                writeGlobal gv mem
-
-       -- imported memory, no need to initialize
-       _ -> return ()
+  ovrWithBackend $ \bak ->
+    do let sym = backendGetSym bak
+       forM_ (instMemAddrs im) \case
+         (Wasm.Memory lim, True, addr) ->
+           case Seq.lookup addr (storeMemories st) of
+             Nothing -> panic "initMemories" ["could not resolve memory address " ++ show addr]
+             Just gv ->
+               do mem <- liftIO (freshMemory sym lim)
+                  writeGlobal gv mem
+  
+         -- imported memory, no need to initialize
+         _ -> return ()
 
 initGlobals ::
   ModuleInstance ->
@@ -281,33 +280,34 @@ execAction (Wasm.Get _md _nm) _ss = unimplemented "execAction: get"
 execAssertion :: Wasm.Assertion -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ()
 
 execAssertion ast@(Wasm.AssertReturn act rets) ss =
-  do ctx <- getContext
-     sym <- getSymInterface
+  ovrWithBackend $ \bak ->
+  do let sym = backendGetSym bak
      (im, Some (RegEntry rty result)) <- execAction act ss
-     ctxSolverProof ctx $
-       case rty of
+     case rty of
          UnitRepr | Prelude.null rets -> return ()
          StructRepr ts | length rets > 1 -> liftIO $
                do expected <- computeConstantValues sym im (scriptStore ss) ts rets
-                  assertEqResults sym (show ast) result expected
+                  assertEqResults bak (show ast) result expected
          t | length rets == 1 -> liftIO $
                do expected <- computeConstantValues sym im (scriptStore ss) (Empty :> t) rets
-                  assertEqResults sym (show ast) (Empty :> RV result) expected
+                  assertEqResults bak (show ast) (Empty :> RV result) expected
            | otherwise -> fail "type mismatch in execAssertion!"
 
 execAssertion a _ =
   liftIO $ putStrLn $ unwords ["Assertion not implemented", show a] -- TODO
 
 
-assertEqResults :: forall sym ctx.
-  IsSymInterface sym =>
-  sym ->
+assertEqResults :: forall sym bak ctx.
+  (IsSymBackend sym bak) =>
+  bak ->
   String ->
   Assignment (RegValue' sym) ctx ->
   Assignment (RegEntry sym) ctx ->
   IO ()
-assertEqResults sym ast xs ys = traverseWithIndex_ f ys
+assertEqResults bak ast xs ys = traverseWithIndex_ f ys
   where
+  sym = backendGetSym bak
+
   f :: Index ctx tp -> RegEntry sym tp -> IO ()
   f idx (RegEntry tp y) =
      let RV x = xs Ctx.! idx in
@@ -321,6 +321,6 @@ assertEqResults sym ast xs ys = traverseWithIndex_ f ys
                   , ast
                   ]
               _ -> return ()
-            assert sym p (GenericSimError "assert return failed")
+            assert bak p (GenericSimError "assert return failed")
 
        _ -> unimplemented $ unwords ["assert return could not handle type", show tp]

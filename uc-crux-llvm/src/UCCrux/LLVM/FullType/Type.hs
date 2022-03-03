@@ -211,15 +211,122 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
   -- TODO(lb): This could have a symbol repr for the name
   FTOpaquePtrRepr :: L.Ident -> FullTypeRepr m 'FTOpaquePtr
 
-instance Eq (FullTypeRepr m ft) where
-  ft1 == ft2 = isJust (testEquality ft1 ft2)
-
 -- | This functions similarly to 'MemType.SymType'
 data PartTypeRepr (m :: Type) (ft :: FullType m) where
   PTFullRepr :: FullTypeRepr m ft -> PartTypeRepr m ft
   -- The Const is so that we can get type variables in scope in the TestEquality
   -- instance, see below.
   PTAliasRepr :: Const L.Ident ft -> PartTypeRepr m ft
+
+-- ------------------------------------------------------------------------------
+-- Instances
+
+$(return [])
+
+-- | We assume (via unsafeCoerce) that types with the same L.Ident are the same.
+-- This is validated by the existential used in @makeModuleTypes@.
+instance TestEquality (PartTypeRepr m) where
+  testEquality =
+    $( U.structuralTypeEquality
+         [t|PartTypeRepr|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (U.TypeApp (U.ConType [t|Const|]) (U.ConType [t|L.Ident|])),
+                   [|
+                     \(Const ident1 :: Const L.Ident ft1) (Const ident2 :: Const L.Ident ft2) ->
+                       if ident1 == ident2 then Just (unsafeCoerce Refl :: ft1 :~: ft2) else Nothing
+                     |]
+                 )
+               ]
+         )
+     )
+
+instance TestEquality (FullTypeRepr m) where
+  testEquality =
+    $( U.structuralTypeEquality
+         [t|FullTypeRepr|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|testEquality|]
+                 ),
+                 ( appAny (U.ConType [t|CrucibleTypes.FloatInfoRepr|]),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (U.ConType [t|VarArgsRepr|]),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|PartTypeRepr|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|testEquality|]
+                 )
+               ]
+         )
+     )
+
+-- | See note on 'TestEquality' instance.
+instance OrdF (PartTypeRepr m) where
+  compareF =
+    $( U.structuralTypeOrd
+         [t|PartTypeRepr|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.TypeApp (U.ConType [t|Const|]) (U.ConType [t|L.Ident|])),
+                   [|
+                     \(Const ident1 :: Const L.Ident ft1) (Const ident2 :: Const L.Ident ft2) ->
+                       case compare ident1 ident2 of
+                         LT -> unsafeCoerce LTF :: OrderingF ft1 ft2
+                         GT -> unsafeCoerce GTF :: OrderingF ft1 ft2
+                         EQ -> unsafeCoerce EQF :: OrderingF ft1 ft2
+                     |]
+                 )
+               ]
+         )
+     )
+
+instance OrdF (FullTypeRepr m) where
+  compareF =
+    $( U.structuralTypeOrd
+         [t|FullTypeRepr|]
+         ( let appAny con = U.TypeApp con U.AnyType
+            in [ ( appAny (U.ConType [t|NatRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|CrucibleTypes.FloatInfoRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|VarArgsRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (appAny (U.ConType [t|PartTypeRepr|])),
+                   [|compareF|]
+                 )
+               ]
+         )
+     )
+
+instance Eq (FullTypeRepr m ft) where
+  ft1 == ft2 = isJust (testEquality ft1 ft2)
 
 aliasOrFullType :: PartTypeRepr m ft -> Either L.Ident (FullTypeRepr m ft)
 aliasOrFullType =
@@ -476,110 +583,3 @@ arrayElementType =
   \case
     FTArrayRepr _ subRepr -> subRepr
     FTUnboundedArrayRepr subRepr -> subRepr
-
--- ------------------------------------------------------------------------------
--- Instances
-
-$(return [])
-
--- | We assume (via unsafeCoerce) that types with the same L.Ident are the same.
--- This is validated by the existential used in @makeModuleTypes@.
-instance TestEquality (PartTypeRepr m) where
-  testEquality =
-    $( U.structuralTypeEquality
-         [t|PartTypeRepr|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (U.TypeApp (U.ConType [t|Const|]) (U.ConType [t|L.Ident|])),
-                   [|
-                     \(Const ident1 :: Const L.Ident ft1) (Const ident2 :: Const L.Ident ft2) ->
-                       if ident1 == ident2 then Just (unsafeCoerce Refl :: ft1 :~: ft2) else Nothing
-                     |]
-                 )
-               ]
-         )
-     )
-
-instance TestEquality (FullTypeRepr m) where
-  testEquality =
-    $( U.structuralTypeEquality
-         [t|FullTypeRepr|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|testEquality|]
-                 ),
-                 ( appAny (U.ConType [t|CrucibleTypes.FloatInfoRepr|]),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (U.ConType [t|VarArgsRepr|]),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|PartTypeRepr|])),
-                   [|testEquality|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|testEquality|]
-                 )
-               ]
-         )
-     )
-
--- | See note on 'TestEquality' instance.
-instance OrdF (PartTypeRepr m) where
-  compareF =
-    $( U.structuralTypeOrd
-         [t|PartTypeRepr|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (U.TypeApp (U.ConType [t|Const|]) (U.ConType [t|L.Ident|])),
-                   [|
-                     \(Const ident1 :: Const L.Ident ft1) (Const ident2 :: Const L.Ident ft2) ->
-                       case compare ident1 ident2 of
-                         LT -> unsafeCoerce LTF :: OrderingF ft1 ft2
-                         GT -> unsafeCoerce GTF :: OrderingF ft1 ft2
-                         EQ -> unsafeCoerce EQF :: OrderingF ft1 ft2
-                     |]
-                 )
-               ]
-         )
-     )
-
-instance OrdF (FullTypeRepr m) where
-  compareF =
-    $( U.structuralTypeOrd
-         [t|FullTypeRepr|]
-         ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|NatRepr|]),
-                   [|compareF|]
-                 ),
-                 ( appAny (U.ConType [t|CrucibleTypes.FloatInfoRepr|]),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (U.ConType [t|VarArgsRepr|]),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
-                   [|compareF|]
-                 ),
-                 ( appAny (appAny (U.ConType [t|PartTypeRepr|])),
-                   [|compareF|]
-                 )
-               ]
-         )
-     )

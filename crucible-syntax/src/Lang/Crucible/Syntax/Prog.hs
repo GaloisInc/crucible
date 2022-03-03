@@ -39,7 +39,7 @@ import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
-import What4.Expr.Builder (ExprBuilder)
+import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
@@ -93,7 +93,8 @@ simulateProgram fn theInput outh profh opts setup =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newSimpleBackend FloatIEEERepr nonceGen
+         do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
+            bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
@@ -112,7 +113,7 @@ simulateProgram fn theInput outh profh opts setup =
                                    FnBinding (cfgHandle g) (UseCFG ssa (postdomInfo ssa))
                              | ACFG _ _ g <- cs
                              ]
-                       let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
+                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
                        let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
@@ -131,7 +132,7 @@ simulateProgram fn theInput outh profh opts setup =
 
                        hPutStrLn outh "\n==== Finish Simulation ===="
 
-                       getProofObligations sym >>= \case
+                       getProofObligations bak >>= \case
                          Nothing -> hPutStrLn outh "==== No proof obligations ===="
                          Just gs ->
                            do hPutStrLn outh "==== Proof obligations ===="

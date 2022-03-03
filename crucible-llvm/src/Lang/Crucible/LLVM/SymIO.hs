@@ -48,11 +48,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Lang.Crucible.LLVM.SymIO
-  ( llvmSymIOIntrinsicTypes
-  , symio_overrides
-  , LLVMFileSystem
+  ( -- * Types
+    llvmSymIOIntrinsicTypes
+  , LLVMFileSystem(..)
   , SomeOverrideSim(..)
   , initialLLVMFileSystem
+  -- * Overrides
+  , symio_overrides
   , openFile
   , callOpenFile
   , closeFile
@@ -61,6 +63,9 @@ module Lang.Crucible.LLVM.SymIO
   , callReadFileHandle
   , writeFileHandle
   , callWriteFileHandle
+  -- * File-related utilities
+  , allocateFileDescriptor
+  , lookupFileHandle
   )
   where
 
@@ -299,20 +304,26 @@ getHandle sym fdesc (FDescMap _ m) = case W4.asBV fdesc of
 -- 'SymIO.DataChunk' is a wrapper around a function to peek memory at a given
 -- offset one byte at a time.
 chunkFromMemory
-  :: forall sym wptr
-   . (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
-  => sym
+  :: forall sym bak wptr
+   . (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+  => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
   -> IO (SymIO.DataChunk sym wptr)
-chunkFromMemory sym mem ptr = SymIO.mkArrayChunk sym $ \offset -> do
-  ptr' <- ptrAdd sym PtrWidth ptr offset
-  llbytes <- doLoad sym mem ptr' (bitvectorType (toBytes (1 :: Integer))) (LLVMPointerRepr (PN.knownNat @8)) noAlignment
-  projectLLVM_bv sym llbytes
+chunkFromMemory bak mem ptr =
+  let sym = backendGetSym bak in
+  SymIO.mkArrayChunk sym $ \offset -> do
+    ptr' <- ptrAdd sym PtrWidth ptr offset
+    llbytes <- doLoad bak mem ptr' (bitvectorType (toBytes (1 :: Integer))) (LLVMPointerRepr (PN.knownNat @8)) noAlignment
+    projectLLVM_bv bak llbytes
 
 -- | Retrieve the 'SymIO.FileHandle' that the given descriptor represents,
 -- calling the continuation with 'Nothing' if the descriptor does not represent
 -- a valid handle. Notably, a successfully resolved handle may itself still be closed.
+--
+-- Note that the continuation may be called multiple times if it is used within
+-- a symbolic branch. As a result, any side effects in the continuation may be
+-- performed multiple times.
 lookupFileHandle
   :: IsSymInterface sym
   => LLVMFileSystem wptr
@@ -366,11 +377,11 @@ loadFileIdent
   => GlobalVar Mem
   -> LLVMPtr sym wptr
   -> OverrideSim p sym ext r args ret (SymIO.FileIdent sym)
-loadFileIdent memOps filename_ptr = do
-  mem <- readGlobal memOps
-  sym <- getSymInterface
-  filename_bytes <- liftIO $ loadString sym mem filename_ptr Nothing
-  liftIO $ W4.stringLit sym (W4.Char8Literal (BS.pack filename_bytes))
+loadFileIdent memOps filename_ptr =
+  ovrWithBackend $ \bak ->
+   do mem <- readGlobal memOps
+      filename_bytes <- liftIO $ loadString bak mem filename_ptr Nothing
+      liftIO $ W4.stringLit (backendGetSym bak) (W4.Char8Literal (BS.pack filename_bytes))
 
 returnIOError32
   :: IsSymInterface sym
@@ -397,17 +408,17 @@ openFile
 openFile fsVars =
   [llvmOvr| i32 @open( i8*, i32 ) |]
   -- TODO add mode support by making this a varargs function
-  (\memOps sym args -> uncurryAssignment (callOpenFile sym memOps fsVars) args)
+  (\memOps bak args -> uncurryAssignment (callOpenFile bak memOps fsVars) args)
 
 callOpenFile ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
-  sym ->
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (LLVMPointerType wptr) ->
   RegEntry sym (BVType 32) ->
   OverrideSim p sym ext rtp args ret (RegValue sym (BVType 32))
-callOpenFile _sym memOps fsVars filename_ptr _flags =
+callOpenFile _bak memOps fsVars filename_ptr _flags =
   do fileIdent <- loadFileIdent memOps (regValue filename_ptr)
      SymIO.openFile (llvmFileSystem fsVars) fileIdent $ \case
        Left SymIO.FileNotFound -> returnIOError32
@@ -421,17 +432,18 @@ closeFile
            (BVType 32)
 closeFile fsVars =
   [llvmOvr| i32 @close( i32 ) |]
-  (\memOps sym args -> uncurryAssignment (callCloseFile sym memOps fsVars) args)
+  (\memOps bak args -> uncurryAssignment (callCloseFile bak memOps fsVars) args)
 
 callCloseFile ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  sym ->
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->
   OverrideSim p sym ext rtp args ret (RegValue sym (BVType 32))
-callCloseFile sym _memOps fsVars filedesc =
-  do lookupFileHandle fsVars (regValue filedesc) emptyRegMap $ \case
+callCloseFile bak _memOps fsVars filedesc =
+  do let sym = backendGetSym bak
+     lookupFileHandle fsVars (regValue filedesc) emptyRegMap $ \case
        Just fileHandle -> \_ ->
          SymIO.closeFileHandle (llvmFileSystem fsVars) fileHandle $ \case
            Just SymIO.FileHandleClosed -> returnIOError32
@@ -448,19 +460,20 @@ readFileHandle
            (BVType wptr)
 readFileHandle fsVars =
   [llvmOvr| ssize_t @read( i32, i8*, size_t ) |]
-  (\memOps sym args -> uncurryAssignment (callReadFileHandle sym memOps fsVars) args)
+  (\memOps bak args -> uncurryAssignment (callReadFileHandle bak memOps fsVars) args)
 
 callReadFileHandle ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  sym ->
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->
   RegEntry sym (LLVMPointerType wptr) ->
   RegEntry sym (BVType wptr) ->
   OverrideSim p sym ext rtp args ret (RegValue sym (BVType wptr))
-callReadFileHandle sym memOps fsVars filedesc buf count =
-  do let args = Empty :> filedesc :> buf :> count
+callReadFileHandle bak memOps fsVars filedesc buf count =
+  do let sym = backendGetSym bak
+     let args = Empty :> filedesc :> buf :> count
      lookupFileHandle fsVars (regValue filedesc) (RegMap args) $ \case
        Just fileHandle -> \(RegMap (Empty :> _ :> buffer_ptr :> size)) ->
          SymIO.readChunk (llvmFileSystem fsVars) fileHandle (regValue size) $ \case
@@ -468,7 +481,7 @@ callReadFileHandle sym memOps fsVars filedesc buf count =
            Right (chunk, bytesRead) -> do
              modifyGlobal memOps $ \mem -> liftIO $ do
                chunkArray <- SymIO.chunkToArray sym (W4.BaseBVRepr PtrWidth) chunk
-               mem' <- doArrayStore sym mem (regValue buffer_ptr) noAlignment chunkArray bytesRead
+               mem' <- doArrayStore bak mem (regValue buffer_ptr) noAlignment chunkArray bytesRead
                return (bytesRead, mem')
        Nothing -> \_ -> returnIOError
 
@@ -517,23 +530,23 @@ writeFileHandle
            (BVType wptr)
 writeFileHandle fsVars =
   [llvmOvr| ssize_t @write( i32, i8*, size_t ) |]
-  (\memOps sym args -> uncurryAssignment (callWriteFileHandle sym memOps fsVars) args)
+  (\memOps bak args -> uncurryAssignment (callWriteFileHandle bak memOps fsVars) args)
 
 callWriteFileHandle ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
-  sym ->
+  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->
   RegEntry sym (LLVMPointerType wptr) ->
   RegEntry sym (BVType wptr) ->
   OverrideSim p sym ext rtp args ret (RegValue sym (BVType wptr))
-callWriteFileHandle sym memOps fsVars filedesc buf count =
+callWriteFileHandle bak memOps fsVars filedesc buf count =
   do let args = Empty :> filedesc :> buf :> count
      lookupFileHandle fsVars (regValue filedesc) (RegMap args) $ \case
        Just fileHandle -> \(RegMap (Empty :> _ :> buffer_ptr :> size)) -> do
          mem <- readGlobal memOps
-         chunk <- liftIO $ chunkFromMemory sym mem (regValue buffer_ptr)
+         chunk <- liftIO $ chunkFromMemory bak mem (regValue buffer_ptr)
          doConcreteWrite (llvmFilePointerRepr fsVars) (llvmHandles fsVars) (regValue filedesc) chunk size
          SymIO.writeChunk (llvmFileSystem fsVars) fileHandle chunk (regValue size) $ \case
            Left SymIO.FileHandleClosed -> returnIOError

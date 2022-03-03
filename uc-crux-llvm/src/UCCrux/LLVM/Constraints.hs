@@ -83,16 +83,13 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberConstraints))
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.FullType.Translation (ftRetType)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, getGlobalSymbol, FuncSymbol, funcSymbol, getFuncSymbol)
 
--- See comment in below block of CPP
-#if __GLASGOW_HASKELL__ <= 810
-import           UCCrux.LLVM.Errors.Panic (panic)
-#endif
 {- ORMOLU_ENABLE -}
 
 --------------------------------------------------------------------------------
@@ -173,7 +170,7 @@ ppConstraint =
 
 -- | A \"relational\" constraint across several values.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data RelationalConstraint m (argTypes :: Ctx (FullType m))
   = -- | The first argument (a bitvector) is equal to the size of the allocation
@@ -202,7 +199,7 @@ data ConstrainedTypedValue m = forall ft.
 -- hold function preconditions deduced by
 -- "UCCrux.LLVM.Classify.classifyBadBehavior".
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
@@ -312,7 +309,7 @@ isEmpty (Constraints args globs returns rels) =
 -- | A specification of the shape (memory layout) of a value and constraints on
 -- it. See also the comment on 'Constraint'.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 newtype ConstrainedShape m (ft :: FullType m) = ConstrainedShape
   {getConstrainedShape :: Shape m (Compose [] (Constraint m)) ft}
@@ -439,7 +436,7 @@ ppExpansionError =
 -- | A constraint (precondition) learned by "UCCrux.LLVM.Classify" by simulating
 -- a function.
 --
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
 data NewConstraint m (argTypes :: Ctx (FullType m))
   = forall atTy. NewShapeConstraint (SomeInSelector m argTypes atTy) (ShapeConstraint m atTy)

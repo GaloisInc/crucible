@@ -65,6 +65,7 @@ import qualified Data.BitVector.Sized as BV
 import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
+import Data.Kind (Type)
 import Data.Maybe
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
@@ -1259,7 +1260,7 @@ check t =
 
 -------------------------------------------------------------------------
 
-data LabelInfo :: * -> * where
+data LabelInfo :: Type -> Type where
   NoArgLbl :: Label s -> LabelInfo s
   ArgLbl :: forall s ty . TypeRepr ty -> LambdaLabel s ty -> LabelInfo s
 
@@ -1356,18 +1357,18 @@ instance Monoid (CFGParser s ret a) where
 
 instance Monad (CFGParser s ret) where
   return = pure
-  (CFGParser m) >>= f = CFGParser $ m >>= runCFGParser . f
+  (CFGParser m) >>= f = CFGParser $ m >>= \a -> runCFGParser (f a)
 
 instance MonadError (ExprErr s) (CFGParser s ret) where
-  throwError = CFGParser . throwError
-  catchError m h = CFGParser $ catchError (runCFGParser m) (runCFGParser . h)
+  throwError e = CFGParser $ throwError e
+  catchError m h = CFGParser $ catchError (runCFGParser m) (\e -> runCFGParser $ h e)
 
 instance MonadState (SyntaxState s) (CFGParser s ret) where
   get = CFGParser get
-  put = CFGParser . put
+  put s = CFGParser $ put s
 
 instance MonadIO (CFGParser s ret) where
-  liftIO = CFGParser . lift . lift
+  liftIO io = CFGParser $ lift $ lift io
 
 
 freshId :: (MonadState (SyntaxState s) m, MonadIO m) => m (Nonce s tp)
@@ -1888,8 +1889,8 @@ data Rand ext s t = Rand (AST s) (E ext s t)
 --------------------------------------------------------------------------
 
 -- | Any CFG, regardless of its arguments and return type, with its helpers
-data ACFG ext :: * where
-  ACFG :: forall (s :: *) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
+data ACFG ext :: Type where
+  ACFG :: forall (s :: Type) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
           ( LCCE.IsSyntaxExtension ext ) =>
           CtxRepr init -> TypeRepr ret ->
           CFG ext s init ret ->

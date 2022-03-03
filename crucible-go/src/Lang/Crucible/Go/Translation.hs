@@ -425,8 +425,8 @@ translate_alg (CallExpr _ tp _ellipsis fun args) = TranslateM $ do
     TranslatedExpr fun_gen ->
       return $ mkTranslatedExpr retRepr $ do
         Some (GoExpr _loc fun') <- runSomeGoGenerator retRepr fun_gen
-        args' <- forM translated_args $
-                 runSomeGoGenerator retRepr . unTranslatedExpr
+        args' <- forM translated_args $ \translated_arg ->
+                 runSomeGoGenerator retRepr $ unTranslatedExpr translated_arg
         withAssignment args' $ \ctxRepr assignment ->
           case exprType fun' of
             MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
@@ -520,7 +520,7 @@ translate_alg (IdentExpr _ tp qual ident@(Ident _kind name)) = TranslateM $ do
           fail $ "translate_alg IdentExpr: unbound local " ++ show name
     Just q -> lookupGlobal q ident
 
-translate_alg (FuncLitExpr _ tp params results body) =  
+translate_alg (FuncLitExpr _ tp params results body) =
   TranslateM $ do
   Some retRepr <- gets retRepr
   C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results $
@@ -666,7 +666,7 @@ translate_alg (ProjExpr _ tp tuple i) = TranslateM $ do
 translate_alg (NilExpr _x _tp) = TranslateM $ do
   Some retRepr <- gets retRepr
   return $ mkTranslatedExpr retRepr $ return $ mkSomeGoExpr' C.EmptyApp
-                
+
 ------------------------------------------------------------------------
 -- Translating type expressions
 
@@ -928,7 +928,7 @@ bindFields (TranslatedField [Ident _kind name] (Some repr) : fields) k =
   bindFields fields $ \ctxRepr f ->
   k (ctxRepr :> repr) $ \(assignment :> x) ->
   -- Declare variable and initialize with value x.
-  declareVar name x >> f assignment  
+  declareVar name x >> f assignment
 bindFields (TranslatedField names _repr : _fields) k =
   k Ctx.empty $ const $ fail $
   "bindFields: unexpected multiple names " ++ show names
@@ -953,7 +953,7 @@ bindResult :: [Translated Field]
            -> (forall r. TypeRepr r ->
                (forall s ret. Gen.Expr Go s r -> GoGenerator s ret ()) -> a)
            -> a
-bindResult fields k = bindFields fields $ \ctxRepr f -> 
+bindResult fields k = bindFields fields $ \ctxRepr f ->
   case ctxRepr of
     Empty :> repr -> k repr $ \x -> f $ Ctx.empty :> x
     _ -> k (StructRepr ctxRepr) $ \x -> case x of
@@ -1179,7 +1179,7 @@ pushLoopLabels continue_lbl break_lbl =
         Nothing -> loop_label_map gs in
     gs { loop_labels = (continue_lbl, break_lbl) : loop_labels gs
        , loop_label_map = loop_label_map' }
-  
+
 
 popLoopLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
 popLoopLabels = do

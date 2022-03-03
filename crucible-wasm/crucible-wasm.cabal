@@ -37,7 +37,7 @@ executable crucible-wasm
 library
 
   build-depends:
-    base >= 4 && < 5,
+    base >= 4.13 && < 5,
     bv-sized >= 1.0.0,
     bytestring,
     containers,

@@ -12,6 +12,7 @@
 -- corresponding crucible statements.
 -----------------------------------------------------------------------
 
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
@@ -453,7 +454,7 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
          return (Seq.singleton p)
 
  go (GEP_vector_base n x) =
-      do xs <- maybe badGEP (traverse asPtr) (asVector x)
+      do xs <- maybe badGEP (traverse (\y -> asPtr y)) (asVector x)
          unless (fromIntegral (Seq.length xs) == natValue n) badGEP
          return xs
 
@@ -573,7 +574,7 @@ translateConversion instr op (VecType n inty) (explodeVector n -> Just xs) (VecT
   | n == m = VecExpr outty <$> traverse (\x -> translateConversion instr op inty x outty) xs
 
 -- Otherwise, assume scalar values and do the basic conversions
-translateConversion instr op inty x outty =
+translateConversion instr op _inty x outty =
  let showI = showInstr instr in
  case op of
     L.IntToPtr -> do
@@ -630,8 +631,11 @@ translateConversion instr op inty x outty =
                     return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
            _ -> fail (unlines [unwords ["invalid sign extension", show x, show outty], showI])
 
-    -- redundant, but no real reason to remove it, I guess
-    L.BitCast -> bitCast inty x outty
+#if __GLASGOW_HASKELL__ < 900
+    -- This is redundant, but GHC's pattern-match coverage checker is only
+    -- smart enough to realize this in 9.0 or later.
+    L.BitCast -> bitCast _inty x outty
+#endif
 
     L.UiToFp -> do
        llvmTypeAsRepr outty $ \outty' ->
@@ -833,7 +837,7 @@ bitop :: (?transOpts :: TranslationOptions) =>
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
 bitop op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
-  VecExpr tp <$> sequence (Seq.zipWith (bitop op tp) xs ys)
+  VecExpr tp <$> sequence (Seq.zipWith (\x y -> bitop op tp x y) xs ys)
 
 bitop op _ x y =
   case (asScalar x, asScalar y) of
@@ -1102,7 +1106,7 @@ floatingCompare ::
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
 floatingCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
-  VecExpr (IntType 1) <$> sequence (Seq.zipWith (floatingCompare op tp) xs ys)
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (\x y -> floatingCompare op tp x y) xs ys)
 
 floatingCompare op _ x y =
   do b <- scalarFloatingCompare op x y
@@ -1159,7 +1163,7 @@ integerCompare ::
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
 integerCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
-  VecExpr (IntType 1) <$> sequence (Seq.zipWith (integerCompare op tp) xs ys)
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (\x y -> integerCompare op tp x y) xs ys)
 
 integerCompare op _ x y = do
   b <- scalarIntegerCompare op x y
@@ -1575,8 +1579,9 @@ generateInstr retType lab defSet instr assign_f k =
       runExceptT (translateGEP inbounds base elts) >>= \case
         Left err -> reportError $ fromString $ unlines ["Error translating GEP", err]
         Right gep ->
-          do gep' <- traverse transTypedValue gep
-             assign_f =<< evalGEP instr gep'
+          do gep' <- traverse (\v -> transTypedValue v) gep
+             v    <- evalGEP instr gep'
+             assign_f v
              k
 
     L.Conv op x outty -> do
@@ -1600,34 +1605,39 @@ generateInstr retType lab defSet instr assign_f k =
       do tp <- liftMemType' (L.typedType x)
          x' <- transValue tp (L.typedValue x)
          y' <- transValue tp y
-         assign_f =<< bitop op tp x' y'
+         v  <- bitop op tp x' y'
+         assign_f v
          k
 
     L.Arith op x y ->
       do tp <- liftMemType' (L.typedType x)
          x' <- transValue tp (L.typedValue x)
          y' <- transValue tp y
-         assign_f =<< arithOp op tp x' y'
+         v  <- arithOp op tp x' y'
+         assign_f v
          k
 
     L.UnaryArith op x ->
       do tp <- liftMemType' (L.typedType x)
          x' <- transValue tp (L.typedValue x)
-         assign_f =<< unaryArithOp op tp x'
+         v  <- unaryArithOp op tp x'
+         assign_f v
          k
 
     L.FCmp op x y -> do
            tp <- liftMemType' (L.typedType x)
            x' <- transValue tp (L.typedValue x)
            y' <- transValue tp y
-           assign_f =<< floatingCompare op tp x' y'
+           cmp <- floatingCompare op tp x' y'
+           assign_f cmp
            k
 
     L.ICmp op x y -> do
            tp <- liftMemType' (L.typedType x)
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
-           assign_f =<< integerCompare op tp x' y'
+           cmp <- integerCompare op tp x' y'
+           assign_f cmp
            k
 
     L.Select c x y -> do
@@ -1771,7 +1781,7 @@ arithOp :: (?transOpts :: TranslationOptions) =>
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
 arithOp op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
-  VecExpr tp <$> sequence (Seq.zipWith (arithOp op tp) xs ys)
+  VecExpr tp <$> sequence (Seq.zipWith (\x y -> arithOp op tp x y) xs ys)
 
 arithOp op _ x y =
   case (asScalar x, asScalar y) of
@@ -1828,7 +1838,7 @@ unaryArithOp :: (?transOpts :: TranslationOptions) =>
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
 unaryArithOp op (VecType n tp) (explodeVector n -> Just xs) =
-  VecExpr tp <$> sequence (fmap (unaryArithOp op tp) xs)
+  VecExpr tp <$> sequence (fmap (\x -> unaryArithOp op tp x) xs)
 
 unaryArithOp op _ x =
   case asScalar x of
@@ -1870,7 +1880,7 @@ callOrdinaryFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn 
   fnTy'  <- either err return $ liftMemType (L.PtrTo fnTy)
   retTy' <- either err return $ liftRetType lretTy
   fn'    <- transValue fnTy' fn
-  args'  <- mapM transTypedValue args
+  args'  <- mapM (\v -> transTypedValue v) args
 
   let ?err = err
   unpackArgs args' $ \_archProxy argTypes args'' ->
@@ -1955,7 +1965,7 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
 
      | L.ValSymbol (L.Symbol nm) <- fn
      , testBreakpointFunction nm = do
-        some_val_args <- mapM typedValueAsCrucibleValue args
+        some_val_args <- mapM (\tv -> typedValueAsCrucibleValue tv) args
         case Ctx.fromList some_val_args of
           Some val_args -> do
             addBreakpointStmt (Text.pack nm) val_args
