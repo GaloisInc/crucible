@@ -336,31 +336,35 @@ loopIndexStartStepCondition sym LoopIndexBound{ index = loop_index, start = star
 
 
 loadMemJoinVariables ::
-  (C.IsSymInterface sym, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
-  sym ->
+  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
+  bak ->
   C.MemImpl sym ->
   Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
   IO (MapF (W4.SymExpr sym) (W4.SymExpr sym))
-loadMemJoinVariables sym mem subst = MapF.fromList <$> mapM
-  (\((blk, off, _sz), (MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible }, storeage_type)) -> do
-    ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
-    val <- C.doLoad sym mem ptr storeage_type (C.LLVMPointerRepr $ W4.bvWidth join_varaible) C.noAlignment
-    case W4.asNat (C.llvmPointerBlock val) of
-      Just 0 -> return $ MapF.Pair join_varaible $ C.llvmPointerOffset val
-      _ -> fail $ "SimpleLoopFixpoint.loadMemJoinVariables: unexpected val:" ++ show (C.ppPtr val))
-  (Map.toAscList subst)
+loadMemJoinVariables bak mem subst =
+  let sym = C.backendGetSym bak in
+  MapF.fromList <$> mapM
+    (\((blk, off, _sz), (MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible }, storeage_type)) -> do
+      ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
+      val <- C.doLoad bak mem ptr storeage_type (C.LLVMPointerRepr $ W4.bvWidth join_varaible) C.noAlignment
+      case W4.asNat (C.llvmPointerBlock val) of
+        Just 0 -> return $ MapF.Pair join_varaible $ C.llvmPointerOffset val
+        _ -> fail $ "SimpleLoopFixpoint.loadMemJoinVariables: unexpected val:" ++ show (C.ppPtr val))
+    (Map.toAscList subst)
 
 storeMemJoinVariables ::
-  (C.IsSymInterface sym, C.HasPtrWidth wptr, C.HasLLVMAnn sym) =>
-  sym ->
+  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym) =>
+  bak ->
   C.MemImpl sym ->
   Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
   MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
   IO (C.MemImpl sym)
-storeMemJoinVariables sym mem mem_subst eq_subst = foldlM
+storeMemJoinVariables bak mem mem_subst eq_subst =
+  let sym = C.backendGetSym bak in
+  foldlM
   (\mem_acc ((blk, off, _sz), (MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible }, storeage_type)) -> do
     ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
-    C.doStore sym mem_acc ptr (C.LLVMPointerRepr $ W4.bvWidth join_varaible) storeage_type C.noAlignment =<<
+    C.doStore bak mem_acc ptr (C.LLVMPointerRepr $ W4.bvWidth join_varaible) storeage_type C.noAlignment =<<
       C.llvmPointer_bv sym (MapF.findWithDefault join_varaible join_varaible eq_subst))
   mem
   (Map.toAscList mem_subst)
@@ -457,7 +461,8 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
           System.IO.hPutStrLn h msg
           System.IO.hFlush h
     fixpoint_stuff <- readIORef fixpoint_stuff_ref
-    case exec_state of
+    C.withBackend (C.execStateContext exec_state) $ \bak ->
+     case exec_state of
       C.RunningState (C.RunBlockStart block_id) sim_state
 
         | C.SomeHandle cfgHandle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
@@ -472,7 +477,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
 
           BeforeFixpoint -> do
             ?logMessage $ "SimpleLoopFixpoint: RunningState: " ++ show BeforeFixpoint ++ " -> " ++ show ComputeFixpoint
-            assumption_frame_identifier <- C.pushAssumptionFrame sym
+            assumption_frame_identifier <- C.pushAssumptionFrame bak
             let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
             let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
             writeIORef fixpoint_stuff_ref $ FixpointStuff
@@ -494,7 +499,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                 (fmapFC C.regType $ C.regMap reg_map)
                 (fmapFC C.regType $ C.regMap $ sim_state ^. (C.stateCrucibleFrame . C.frameRegs)) -> do
               ?logMessage $ "SimpleLoopFixpoint: RunningState: " ++ show ComputeFixpoint ++ ": " ++ show block_id
-              _ <- C.popAssumptionFrameAndObligations sym $ fixpointAssumptionFrameIdentifier fixpoint_stuff
+              _ <- C.popAssumptionFrameAndObligations bak $ fixpointAssumptionFrameIdentifier fixpoint_stuff
 
               -- widen the inductive condition
               (join_reg_map, join_substitution) <- runStateT
@@ -568,7 +573,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                   then return $ fixpointMemSubstitution fixpoint_stuff
                   else fail "SimpleLoopFixpoint: unsupported memory writes change"
 
-              assumption_frame_identifier <- C.pushAssumptionFrame sym
+              assumption_frame_identifier <- C.pushAssumptionFrame bak
 
               -- check if we are done; if we did not introduce any new variables, we don't have to widen any more
               if MapF.keys join_substitution == MapF.keys (fixpointSubstitution fixpoint_stuff)
@@ -583,9 +588,9 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                   -- we have delayed populating the main substituation map with
                   --  memory variables, so we have to do that now
 
-                  header_mem_substitution <- loadMemJoinVariables sym header_mem_impl $
+                  header_mem_substitution <- loadMemJoinVariables bak header_mem_impl $
                     fixpointMemSubstitution fixpoint_stuff
-                  body_mem_substitution <- loadMemJoinVariables sym body_mem_impl $
+                  body_mem_substitution <- loadMemJoinVariables bak body_mem_impl $
                     fixpointMemSubstitution fixpoint_stuff
 
                   -- try to unify widening variables that have the same values
@@ -606,7 +611,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
 
                   -- unify widening varialbes in the memory subst
                   res_mem_impl <- storeMemJoinVariables
-                    sym
+                    bak
                     (header_mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" (C.memImplHeap header_mem_impl) })
                     mem_substitution
                     equality_substitution
@@ -618,9 +623,9 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                     LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
                       loc <- W4.getCurrentProgramLoc sym
                       index_bound_condition <- loopIndexBoundCondition sym loop_index loop_stop
-                      C.addAssumption sym $ C.GenericAssumption loc "" index_bound_condition
+                      C.addAssumption bak $ C.GenericAssumption loc "" index_bound_condition
                       index_start_step_condition <- loopIndexStartStepCondition sym loop_index_bound
-                      C.addAssumption sym $ C.GenericAssumption loc "" index_start_step_condition
+                      C.addAssumption bak $ C.GenericAssumption loc "" index_start_step_condition
 
                   writeIORef fixpoint_stuff_ref $ FixpointStuff
                     { fixpointStatus = CheckFixpoint
@@ -641,7 +646,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                     "SimpleLoopFixpoint: RunningState: " ++ show ComputeFixpoint ++ " -> " ++ show ComputeFixpoint
 
                   -- write any new widening variables into memory state
-                  res_mem_impl <- storeMemJoinVariables sym
+                  res_mem_impl <- storeMemJoinVariables bak
                     (header_mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" (C.memImplHeap header_mem_impl) })
                     mem_substitution
                     MapF.empty
@@ -685,14 +690,14 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                     sym
                     (bodyValue $ fromJust $ MapF.lookup loop_index $ fixpointSubstitution fixpoint_stuff)
                     loop_stop
-                  C.addProofObligation sym $ C.LabeledPred index_bound_condition $ C.SimError loc ""
+                  C.addProofObligation bak $ C.LabeledPred index_bound_condition $ C.SimError loc ""
 
-              _ <- C.popAssumptionFrame sym $ fixpointAssumptionFrameIdentifier fixpoint_stuff
+              _ <- C.popAssumptionFrame bak $ fixpointAssumptionFrameIdentifier fixpoint_stuff
 
               let body_mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
               let (header_mem_impl, _mem_allocs, _mem_writes) = dropMemStackFrame body_mem_impl
 
-              body_mem_substitution <- loadMemJoinVariables sym body_mem_impl $ fixpointMemSubstitution fixpoint_stuff
+              body_mem_substitution <- loadMemJoinVariables bak body_mem_impl $ fixpointMemSubstitution fixpoint_stuff
               let res_substitution = MapF.mapWithKey
                     (\variable fixpoint_entry ->
                       fixpoint_entry
@@ -705,13 +710,13 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
               (fixpoint_func_substitution, fixpoint_func_condition) <- liftIO $
                 fixpoint_func res_substitution $ fixpointLoopCondition fixpoint_stuff
 
-              C.addProofObligation sym $ C.LabeledPred fixpoint_func_condition $ C.SimError loc ""
+              C.addProofObligation bak $ C.LabeledPred fixpoint_func_condition $ C.SimError loc ""
               -- ?logMessage $ "fixpoint_func_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList fixpoint_func_substitution)
 
               let res_reg_map = C.RegMap $
                     applySubstitutionRegEntries sym fixpoint_func_substitution (C.regMap reg_map)
 
-              res_mem_impl <- storeMemJoinVariables sym
+              res_mem_impl <- storeMemJoinVariables bak
                 header_mem_impl
                 (fixpointMemSubstitution fixpoint_stuff)
                 fixpoint_func_substitution
@@ -720,14 +725,14 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
                 LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
                   let loop_index' = MapF.findWithDefault loop_index loop_index fixpoint_func_substitution
                   index_bound_condition <- loopIndexBoundCondition sym loop_index' loop_stop
-                  C.addAssumption sym $ C.GenericAssumption loc "" index_bound_condition
+                  C.addAssumption bak $ C.GenericAssumption loc "" index_bound_condition
                   index_start_step_condition <- loopIndexStartStepCondition sym $ LoopIndexBound
                     { index = loop_index'
                     , start = start (fixpointLoopIndexBound fixpoint_stuff)
                     , stop = loop_stop
                     , step = step (fixpointLoopIndexBound fixpoint_stuff)
                     }
-                  C.addAssumption sym $ C.GenericAssumption loc "" index_start_step_condition
+                  C.addAssumption bak $ C.GenericAssumption loc "" index_start_step_condition
 
               writeIORef fixpoint_stuff_ref $ fixpoint_stuff
                 { fixpointStatus = AfterFixpoint
@@ -782,7 +787,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
               return (not_loop_condition, outside_loop_frame)
 
           loc <- W4.getCurrentProgramLoc sym
-          C.addAssumption sym $ C.BranchCondition loc (C.pausedLoc frame) condition
+          C.addAssumption bak $ C.BranchCondition loc (C.pausedLoc frame) condition
           C.ExecutionFeatureNewState <$>
             runReaderT
               (C.resumeFrame (C.forgetPostdomFrame frame) $ sim_state ^. (C.stateTree . C.actContext))
