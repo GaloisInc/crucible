@@ -24,6 +24,11 @@ module Lang.Crucible.Simulator.SymSequence
 , traverseSymSequence
 , concreteizeSymSequence
 , prettySymSequence
+
+  -- * Low-level evaluation primitives
+, newSeqCache
+, evalWithCache
+, evalWithFreshCache
 ) where
 
 import           Control.Monad.State
