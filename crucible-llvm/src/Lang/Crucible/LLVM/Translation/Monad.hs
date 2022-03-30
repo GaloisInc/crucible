@@ -236,7 +236,7 @@ initialState d llvmctx args asgn warnRef =
 --
 --   This procedure is used to set up the initial state of the
 --   registers at the entry point of a function.
-packType :: (?lc :: TypeContext, HasPtrWidth wptr)
+packType :: HasPtrWidth wptr
          => MemType
          -> CtxRepr ctx
          -> Ctx.Assignment (Atom s) ctx
