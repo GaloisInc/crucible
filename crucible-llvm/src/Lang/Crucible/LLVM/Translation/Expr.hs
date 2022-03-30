@@ -204,8 +204,7 @@ pointerAsBitvectorExpr w ex =
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
 unpackArgs :: forall s a arch
-    . (?lc :: TypeContext
-      ,?err :: String -> a
+    . (?err :: String -> a
       ,HasPtrWidth (ArchWidth arch)
       )
    => [LLVMExpr s arch]
@@ -221,7 +220,7 @@ unpackArgs = go Ctx.Empty Ctx.Empty
        go ctx asgn (v:vs) k = unpackOne v (\_ tyr ex -> go (ctx :> tyr) (asgn :> ex) vs k)
 
 unpackOne
-   :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+   :: (?err :: String -> a, HasPtrWidth (ArchWidth arch))
    => LLVMExpr s arch
    -> (forall tpr. Proxy# arch -> TypeRepr tpr -> Expr LLVM s tpr -> a)
    -> a
@@ -235,7 +234,7 @@ unpackOne (VecExpr tp vs) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec proxy# tpr (toList vs) $ k proxy# (VectorRepr tpr)
 
 unpackVec :: forall tpr s arch a
-    . (?lc :: TypeContext, ?err :: String -> a
+    . ( ?err :: String -> a
       , HasPtrWidth (ArchWidth arch)
       )
    => Proxy# arch
@@ -251,7 +250,7 @@ unpackVec _archProxy tpr = go [] . reverse
                              Just Refl -> go (v:vs) xs k
                              Nothing -> ?err $ unwords ["type mismatch in array value", show tpr, show tpr']
 
-zeroExpand :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+zeroExpand :: (?err :: String -> a, HasPtrWidth (ArchWidth arch))
            => Proxy# arch
            -> MemType
            -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> a)
@@ -278,7 +277,7 @@ zeroExpand proxyArch DoubleType  k  = k proxyArch (FloatRepr DoubleFloatRepr) (A
 zeroExpand _prxyArch X86_FP80Type _ = ?err "Cannot zero expand x86_fp80 values"
 zeroExpand _prxyArch MetadataType _ = ?err "Cannot zero expand metadata"
 
-undefExpand :: (?lc :: TypeContext, ?err :: String -> a
+undefExpand :: ( ?err :: String -> a
                , HasPtrWidth (ArchWidth arch)
                )
             => Proxy# arch

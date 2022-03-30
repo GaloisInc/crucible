@@ -103,7 +103,7 @@ allModuleDeclares m = L.modDeclares m ++ def_decls
 -- | Translate a list of LLVM expressions into a crucible type context,
 --   which is passed into the given continuation.
 llvmTypesAsCtx :: forall a wptr
-                . (?lc :: TypeContext, HasPtrWidth wptr)
+                . HasPtrWidth wptr
                => [MemType]
                -> (forall ctx. CtxRepr ctx -> a)
                -> a
@@ -115,7 +115,7 @@ llvmTypesAsCtx xs f = go (concatMap (toList . llvmTypeToRepr) xs) Ctx.empty
 -- | Translate an LLVM type into a crucible type, which is passed into
 --   the given continuation
 llvmTypeAsRepr :: forall a wptr
-                . (?lc :: TypeContext, HasPtrWidth wptr)
+                . HasPtrWidth wptr
                => MemType
                -> (forall tp. TypeRepr tp -> a)
                -> a
@@ -127,7 +127,7 @@ llvmTypeAsRepr xs f = go (llvmTypeToRepr xs)
 -- | Translate an LLVM return type into a crucible type, which is passed into
 --   the given continuation
 llvmRetTypeAsRepr :: forall a wptr
-                   . (?lc :: TypeContext, HasPtrWidth wptr)
+                   . HasPtrWidth wptr
                   => Maybe MemType
                   -> (forall tp. TypeRepr tp -> a)
                   -> a
@@ -135,7 +135,7 @@ llvmRetTypeAsRepr Nothing   f = f UnitRepr
 llvmRetTypeAsRepr (Just tp) f = llvmTypeAsRepr tp f
 
 -- | Actually perform the type translation
-llvmTypeToRepr :: (HasPtrWidth wptr, ?lc :: TypeContext) => MemType -> Maybe (Some TypeRepr)
+llvmTypeToRepr :: HasPtrWidth wptr => MemType -> Maybe (Some TypeRepr)
 llvmTypeToRepr (ArrayType _ tp)  = Just $ llvmTypeAsRepr tp (\t -> Some (VectorRepr t))
 llvmTypeToRepr (VecType _ tp)    = Just $ llvmTypeAsRepr tp (\t-> Some (VectorRepr t))
 llvmTypeToRepr (StructType si)   = Just $ llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))
@@ -154,7 +154,7 @@ llvmTypeToRepr (IntType n) =
 -- | Compute the function Crucible function signature
 --   that corresponds to the given LLVM function declaration.
 llvmDeclToFunHandleRepr
-   :: (?lc :: TypeContext, HasPtrWidth wptr)
+   :: HasPtrWidth wptr
    => FunDecl
    -> (forall args ret. CtxRepr args -> TypeRepr ret -> a)
    -> a
