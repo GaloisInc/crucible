@@ -141,4 +141,4 @@ translate_2015 lib/bigint/src/lib.rs --crate-name bigint
 # libraries for linking against the compiler, so we can just compile it with
 # `cargo build` and copy it into place.
 cargo build --manifest-path lib/crucible_spec_macro/Cargo.toml --release
-cp lib/crucible_spec_macro/target/release/libcrucible_spec_macro.so rlibs/
+cp lib/crucible_spec_macro/target/release/libcrucible_spec_macro.* rlibs/
