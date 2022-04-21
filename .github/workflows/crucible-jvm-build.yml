@@ -21,34 +21,16 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.allow-failure }}
     env:
       CI_TEST_LEVEL: "1"
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest] # , macos-10.15] # , windows-latest]
+        os: [ubuntu-latest]
         ghc: ["8.8.4", "8.10.7", "9.0.2"]
-        allow-failure: [false]
         include:
           - os: macos-10.15
-            ghc: 8.8.4
-            allow-failure: true
-          - os: macos-10.15
-            ghc: 8.10.7
-            allow-failure: true
-          - os: macos-10.15
             ghc: 9.0.2
-            allow-failure: true
-        # Windows only seems to work on 8.6.5. Others result in
-        # segfaults or other internal errors.
-        exclude:
-          - os: windows-latest
-            ghc: 9.0.2
-          - os: windows-latest
-            ghc: 8.10.7
-          - os: windows-latest
-            ghc: 8.8.4
     name: crucible-jvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
