@@ -7,5 +7,4 @@ packages:
 
 optional-packages:
   dependencies/aig/
-  dependencies/abcBridge/
   dependencies/what4/what4/
