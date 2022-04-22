@@ -1,12 +1,6 @@
-[submodule "dependencies/abcBridge"]
-	path = dependencies/abcBridge
-	url = https://github.com/GaloisInc/abcBridge.git
 [submodule "dependencies/aig"]
 	path = dependencies/aig
 	url = https://github.com/GaloisInc/aig.git
-[submodule "dependencies/blt"]
-	path = dependencies/blt
-	url =https://github.com/GaloisInc/blt.git
 [submodule "dependencies/golang"]
 	path = dependencies/golang
 	url = https://github.com/GaloisInc/golang.git

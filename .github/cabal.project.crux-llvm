@@ -7,7 +7,6 @@ packages:
 
 optional-packages:
   dependencies/aig/
-  dependencies/abcBridge/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/
   dependencies/what4/what4/
