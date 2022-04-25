@@ -4,4 +4,6 @@ import System.Exit
 import CruxLLVMMain (mainWithOutputConfig, defaultOutputConfig)
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig >>= exitWith
+main =
+  do ec <- mainWithOutputConfig =<< defaultOutputConfig
+     exitWith ec

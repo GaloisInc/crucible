@@ -1,10 +1,14 @@
 module RealMain (makeMain) where
 
-import CruxLLVMMain (defaultOutputConfig, mainWithOutputConfig)
-import System.Exit
+import Crux.Log ( OutputConfig )
+import Crux.Config.Common (OutputOptions)
+import CruxLLVMMain ( CruxLLVMLogging, defaultOutputConfig )
+import System.Exit (ExitCode, exitWith)
 
 makeMain ::
-  ((Maybe CruxOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode) ->
+  ((Maybe OutputOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode) ->
   IO ()
 makeMain mainWithOutputConfig =
-  mainWithOutputConfig defaultOutputConfig >>= exitWith
+  do
+    ec <- mainWithOutputConfig =<< defaultOutputConfig
+    exitWith ec

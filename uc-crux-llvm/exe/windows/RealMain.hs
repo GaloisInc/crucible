@@ -4,4 +4,7 @@ import System.Exit
 import UCCrux.LLVM.Main (defaultOutputConfig, mainWithOutputConfig)
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig >>= exitWith
+main =
+  do
+    ec <- mainWithOutputConfig =<< defaultOutputConfig
+    exitWith ec
