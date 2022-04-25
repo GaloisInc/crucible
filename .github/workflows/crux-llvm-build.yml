@@ -50,6 +50,8 @@ jobs:
             ghc: 9.0.2
           - os: macos-10.15
             ghc: 9.0.2
+          - os: windows-latest
+            ghc: 9.0.2
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
@@ -122,15 +124,12 @@ jobs:
         run: |
           .github/ci.sh build exe:crux-llvm
           .github/ci.sh build exe:crux-llvm-for-ide
+          .github/ci.sh build exe:crux-llvm-svcomp
           .github/ci.sh build exe:uc-crux-llvm
 
       - shell: bash
-        name: Test crucible (Linux)
+        name: Test crucible
         run: .github/ci.sh test crucible
-        if: runner.os == 'Linux'
-        env:
-          LLVM_LINK: "llvm-link-10"
-          CLANG: "clang-10"
 
       - shell: bash
         name: Test crucible-symio (Linux)
@@ -182,14 +181,6 @@ jobs:
           restore-keys: llvm-11.0.0
 
       - shell: bash
-        name: Test crucible (macOS)
-        run: .github/ci.sh test crucible
-        if: runner.os == 'macOS'
-        env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang"
-
-      - shell: bash
         name: Test crucible-llvm (macOS)
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'macOS'
@@ -205,43 +196,6 @@ jobs:
         env:
           LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
           CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
-
-      - shell: bash
-        name: Test crucible (Windows)
-        run: .github/ci.sh test crucible
-        if: runner.os == 'Windows'
-        env:
-          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
-          CLANG: "/c/Program Files/LLVM/bin/clang"
-
-      - shell: bash
-        name: Test crucible-llvm (Windows)
-        run: .github/ci.sh test crucible-llvm
-        if: runner.os == 'Windows'
-        env:
-          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
-          LLVM_AS: "/c/Program Files/LLVM/bin/llvm-as"
-          CLANG: "/c/Program Files/LLVM/bin/clang"
-
-      - shell: bash
-        name: Test crux-llvm (Windows)
-        run: .github/ci.sh test crux-llvm
-        if: runner.os == 'Windows'
-        env:
-          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
-          CLANG: "/c/Program Files/LLVM/bin/clang"
-
-      - shell: bash
-        name: Test uc-crux-llvm (Windows)
-        run: .github/ci.sh test uc-crux-llvm
-        if: runner.os == 'Windows'
-        env:
-          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
-          CLANG: "/c/Program Files/LLVM/bin/clang"
-
-      - shell: bash
-        run: .github/ci.sh build exe:crux-llvm-svcomp
-        if: runner.os != 'Windows'
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files

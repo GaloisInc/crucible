@@ -31,6 +31,8 @@ jobs:
         include:
           - os: macos-10.15
             ghc: 9.0.2
+          - os: windows-latest
+            ghc: 9.0.2
     name: crucible-go - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
@@ -90,14 +92,9 @@ jobs:
           setup_bin() { echo setup.${{ matrix.ghc }}; }
           with_ghc()  { $NS -c ${@}; }
           (cd crucible-go; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-      - run: cabal update
-      - run: cabal configure crux-go --enable-tests
-      - name: Linux build
-        if: runner.os == 'Linux'
-        run: cabal build exe:crux-go
-      - name: MacOS build
-        if: runner.os == 'macOS'
-        # has a clean and retry in case the linking cache is bad (seems to happen frequently with macos).
+      - name: Configure
         shell: bash
-        run: |
-          cabal build exe:crux-go || { cabal clean; cabal build exe:crux-go; }
+        run: .github/ci.sh configure crux-go
+      - name: Build
+        shell: bash
+        run: .github/ci.sh build exe:crux-go

@@ -9,10 +9,11 @@ conventions when picking with operating systems to test:
 * In addition, we also test the previous LTS release of Ubuntu on the
   `crux-llvm-build.yml` workflow, but only using the latest supported version
   of GHC.
-* For each project, we test macOS only using the latest
-  supported version of GHC. This is because the turnaround time for macOS
-  builders on GitHub Actions is longer, so we try to avoid
-  bottlenecking CI workflows on macOS builds.
+* For each project, we test macOS and Windows only using the latest
+  supported version of GHC. This is because the turnaround time for macOS and
+  Windows builders on GitHub Actions is longer, so we try to avoid
+  bottlenecking CI workflows on these operating systems.
 
-  In the future, we wish to test Windows using the latest supported version
-  of GHC as well.
+  Note that we do not currently run LLVM-related tests on Windows as it is not
+  straightforward to obtain Windows builds of LLVM that include all of the
+  developer tools that we need, such as `llvm-link` and `llvm-as`.
