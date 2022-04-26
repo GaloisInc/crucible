@@ -4,8 +4,9 @@ We currently build and test a subset of the packages in the `crucible` repo
 on CI, whose CI configurations are located here. We use the following
 conventions when picking with operating systems to test:
 
-* For each project, we test the latest LTS release of Ubuntu on all supported
-  versions of GHC.
+* For each project, we test the latest LTS release of Ubuntu on the three most
+  recent stable releases of GHC. In the case of `crux-llvm-build.yml`, we also
+  test some older versions of GHC.
 * In addition, we also test the previous LTS release of Ubuntu on the
   `crux-llvm-build.yml` workflow, but only using the latest supported version
   of GHC.
