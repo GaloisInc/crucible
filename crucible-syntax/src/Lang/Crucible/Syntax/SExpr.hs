@@ -148,11 +148,10 @@ data PrintStyle =
 newtype PrintRules a = PrintRules (a -> Maybe PrintStyle)
 
 instance Semigroup (PrintRules a) where
-  (<>) = mappend
+  PrintRules f <> PrintRules g = PrintRules $ \z -> f z <|> g z
 
 instance Monoid (PrintRules a) where
   mempty = PrintRules $ const Nothing
-  mappend (PrintRules f) (PrintRules g) = PrintRules $ \z -> f z <|> g z
 
 
 class IsAtom a where

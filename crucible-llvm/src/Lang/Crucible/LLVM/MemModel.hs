@@ -200,8 +200,7 @@ import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Word
 import qualified GHC.Stack as GHC
-import           GHC.TypeNats
-import           Numeric.Natural
+import           Numeric.Natural (Natural)
 import           System.IO (Handle, hPutStrLn)
 
 import qualified Data.BitVector.Sized as BV

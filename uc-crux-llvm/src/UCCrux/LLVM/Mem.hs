@@ -17,7 +17,6 @@ presence of a 'ModuleTypes'.
 TODO(lb): All of these need a review on how they handle alignment.
 -}
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -268,28 +267,23 @@ seekPtr ::
   Cursor m inTy ('FTPtr atTy) ->
   IO (Crucible.RegValue sym (LLVMPointerType (ArchWidth arch)))
 seekPtr modCtx bak mem fullTypeRepr regVal cursor =
-  case (fullTypeRepr, cursor) of
-    (FTArrayRepr _n fullTypeRepr', Index i _ cur) ->
+  case (cursor, fullTypeRepr) of
+    (Index i _ cur, FTArrayRepr _n fullTypeRepr') ->
       -- TODO(lb): overflow...?
       let val = regVal !!! fromIntegral (intValue i)
       in seekPtr modCtx bak mem fullTypeRepr' val cur
-    (FTStructRepr _structInfo fields, Field _fieldTypes idx cur) ->
+    (Field _fieldTypes idx cur, FTStructRepr _structInfo fields) ->
       let ty = fields ^. ixF' idx
       in case translateIndex modCtx (Ctx.size fields) idx of
            SomeIndex idx' Refl ->
              let val = regVal ^. ixF' idx' . to Crucible.unRV
              in seekPtr modCtx bak mem ty val cur
-    (FTPtrRepr ptRepr, Dereference i cur) ->
+    (Dereference i cur, FTPtrRepr ptRepr) ->
       do unless (i == 0) $
            unimplemented "seekPtr" SeekOffset
          newVal <-
            load' modCtx bak mem (modCtx ^. moduleTypes) regVal fullTypeRepr
          let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptRepr
          seekPtr modCtx bak mem ftPtdTo newVal cur
-    (FTPtrRepr _ptRepr, Here _) -> return regVal
-#if __GLASGOW_HASKELL__ <= 810
--- The pattern match coverage checker was improved in GHC 8.10 and can tell that
--- this case is redundant
-    _ -> panic "seekPtr" ["Impossible case"]
-#endif
+    (Here _, FTPtrRepr _ptRepr) -> return regVal
   where v !!! i = fromMaybe (panic "seekPtr" ["Impossible"]) (v Vec.!? i)

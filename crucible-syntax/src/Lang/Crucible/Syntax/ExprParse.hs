@@ -107,7 +107,6 @@ instance Alternative Search where
       Cut -> Cut
 
 instance Monad Search where
-  return x = pure x
   m >>= f =
     case m of
       Try x more -> f x <|> (more >>= f)
@@ -123,7 +122,6 @@ instance Semigroup (Search a) where
 
 instance Monoid (Search a) where
   mempty  = empty
-  mappend = (<|>)
 
 instance Foldable Search where
   foldMap f (Try x xs) = f x `mappend` foldMap f xs
@@ -195,17 +193,16 @@ data Failure atom = Ok | Oops Progress (NonEmpty (Reason atom))
   deriving (Functor, Show)
 
 instance Semigroup (Failure atom) where
-  (<>) = mappend
-
-instance Monoid (Failure atom) where
-  mempty = Ok
-  mappend Ok e2 = e2
-  mappend e1@(Oops _ _) Ok = e1
-  mappend e1@(Oops p1 r1) e2@(Oops p2 r2) =
+  Ok              <> e2 = e2
+  e1@(Oops _ _)   <> Ok = e1
+  e1@(Oops p1 r1) <> e2@(Oops p2 r2) =
     case compare p1 p2 of
       LT -> e2
       GT -> e1
       EQ -> Oops p1 (r1 <> r2)
+
+instance Monoid (Failure atom) where
+  mempty = Ok
 
 data P atom a = P { _success :: Search a
                   , _failure :: Failure atom
@@ -213,11 +210,10 @@ data P atom a = P { _success :: Search a
   deriving Functor
 
 instance Semigroup (P atom a) where
-  (<>) = mappend
+  P s1 f1 <> P s2 f2 = P (s1 <> s2) (f1 <> f2)
 
 instance Monoid (P atom a) where
   mempty = P mempty mempty
-  mappend (P s1 f1) (P s2 f2) = P (mappend s1 s2) (mappend f1 f2)
 
 instance Applicative (P atom) where
   pure x = P (pure x) mempty
@@ -228,7 +224,6 @@ instance Alternative (P atom) where
   (<|>) = mappend
 
 instance Monad (P atom) where
-  return = pure
   (P xs e) >>= f = mappend (foldMap f xs) (P empty e)
 
 instance MonadPlus (P atom) where

@@ -148,10 +148,6 @@ exitExecution :: IsSymInterface sym => ExitCode -> OverrideSim p sym ext rtp arg
 exitExecution ec = Sim $ StateContT $ \_c s ->
   return $ ResultState $ AbortedResult (s^.stateContext) (AbortedExit ec)
 
-returnOverrideSim :: a -> OverrideSim p sym ext rtp args r a
-returnOverrideSim v = Sim $ return v
-{-# INLINE returnOverrideSim #-}
-
 bindOverrideSim ::
   OverrideSim p sym ext rtp args r a ->
   (a -> OverrideSim p sym ext rtp args r b) ->
@@ -160,7 +156,6 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 {-# INLINE bindOverrideSim #-}
 
 instance Monad (OverrideSim p sym ext rtp args r) where
-  return = returnOverrideSim
   (>>=) = bindOverrideSim
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang ret) ('Just args))

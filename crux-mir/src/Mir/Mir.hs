@@ -37,7 +37,7 @@ import Data.Text (Text)
 
 import Control.Lens (makeLenses, makeWrapped)
 
-import GHC.Generics 
+import GHC.Generics
 
 import Mir.DefId
 
@@ -336,7 +336,7 @@ data Terminator =
                     _svalues   :: [Maybe Integer],
                     _stargets  :: [BasicBlockInfo],
                     _spos      :: Text }
-        -- ^ case  
+        -- ^ case
       | Resume
       | Abort
       | Return
@@ -489,18 +489,18 @@ data AggregateKind =
 
 data Trait = Trait { _traitName       :: !DefId,
                      _traitItems      :: ![TraitItem]
-                   } 
+                   }
     deriving (Eq, Ord, Show, Generic)
 
 
 data TraitItem
-    = TraitMethod DefId FnSig 
+    = TraitMethod DefId FnSig
     deriving (Eq, Ord, Show, Generic)
 
 data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static
   , _sTy            :: Ty
-  , _sMutable       :: Bool             -- ^ true for "static mut"          
+  , _sMutable       :: Bool             -- ^ true for "static mut"
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -552,9 +552,8 @@ instance Semigroup Collection where
     Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
 instance Monoid Collection where
   mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
-  mappend = (<>)
 
-  
+
 
 --------------------------------------------------------------------------------------
 --- aux functions ---
@@ -731,7 +730,7 @@ insertAtSubsts = coerce (insertAt @Ty)
 safeNthSubsts :: Int -> Substs -> Maybe Ty
 safeNthSubsts = coerce (safeNth @Ty)
 
--- | Truncate a substitution by the first n 
+-- | Truncate a substitution by the first n
 takeSubsts :: Int -> Substs -> Substs
 takeSubsts = coerce (take @Ty)
 

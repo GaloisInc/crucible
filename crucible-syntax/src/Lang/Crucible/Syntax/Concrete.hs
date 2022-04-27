@@ -150,11 +150,10 @@ data ExprErr s where
 deriving instance Show (ExprErr s)
 
 instance Semigroup (ExprErr s) where
-  (<>) = mappend
+  (<>) = Errs
 
 instance Monoid (ExprErr s) where
   mempty = TrivialErr (OtherPos "mempty")
-  mappend = Errs
 
 -- | ParserHooks enables support for arbitrary syntax extensions by allowing
 -- users to supply their own parsers for types and syntax extensions.
@@ -1353,10 +1352,8 @@ instance Semigroup (CFGParser s ret a) where
 
 instance Monoid (CFGParser s ret a) where
   mempty = empty
-  mappend = (<|>)
 
 instance Monad (CFGParser s ret) where
-  return = pure
   (CFGParser m) >>= f = CFGParser $ m >>= \a -> runCFGParser (f a)
 
 instance MonadError (ExprErr s) (CFGParser s ret) where
@@ -2107,10 +2104,8 @@ instance Semigroup (TopParser s a) where
 
 instance Monoid (TopParser s a) where
   mempty = empty
-  mappend = (<|>)
 
 instance Monad (TopParser s) where
-  return = pure
   (TopParser m) >>= f = TopParser $ m >>= runTopParser . f
 
 instance MonadError (ExprErr s) (TopParser s) where

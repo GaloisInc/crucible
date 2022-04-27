@@ -110,7 +110,9 @@ run (cruxOpts, opts) =
   Crux.withCruxLogMessage $
   do let ?dpor = not (noDpor opts)
      let ?bound = maxPreemptions opts
-     let [fn] = Crux.inputFiles cruxOpts
+     let fn = case Crux.inputFiles cruxOpts of
+                [fn'] -> fn'
+                _     -> error "Expected exactly one input file"
      ha      <- newHandleAllocator
      theInput <- readFile fn
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn (pack theInput) of

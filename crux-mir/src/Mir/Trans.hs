@@ -120,7 +120,7 @@ setPosition :: Text.Text -> MirGenerator h s ret ()
 setPosition = G.setPosition . parsePosition
 
 eBVLit ::
-  (1 <= w) => 
+  (1 <= w) =>
   NatRepr w ->
   Integer ->
   E.App ext f (C.BVType w)
@@ -350,7 +350,7 @@ extendToMax n e1 m e2 (Just arith) k =
                           Just LeqProof ->
                               k n e1 (S.app $ extend n m e2)
                           Nothing -> error "impossible case"
-extendToMax n e1 m e2 Nothing k = 
+extendToMax n e1 m e2 Nothing k =
    case testEquality n m of
       Just Refl -> k n e1 e2
       Nothing   -> error "don't know the sign"
@@ -361,7 +361,7 @@ transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp 
 transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
-    let mat = M.arithType op1 `mplus` M.arithType op2 
+    let mat = M.arithType op1 `mplus` M.arithType op2
     fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
@@ -391,7 +391,7 @@ evalBinOp bop mat me1 me2 =
           -- proof that `na` and `ma` are equal).  For shifts, the second input
           -- (shift amount) can have any width, so we pad one side or the other
           -- to make the widths match up.
-          extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
+          extendToMax na e1a ma e2a (mat) $ \ n e1 e2 ->
             case (bop, mat) of
               (M.Add, _) -> do
                 let carry = case mat of
@@ -621,7 +621,7 @@ buildRepeat op size = do
 
 -- | Make sure that the expression has exactly the bitwidth requested. If the BV is too short, extend. If too long, truncate.
 extendUnsignedBV :: (1 <= w) => MirExp s -> NatRepr w -> MirGenerator h s ret (MirExp s)
-extendUnsignedBV (MirExp tp e) w = 
+extendUnsignedBV (MirExp tp e) w =
     case tp of
       (C.BVRepr n) | Just Refl <- testEquality w n ->
                 return $ MirExp tp e
@@ -632,7 +632,7 @@ extendUnsignedBV (MirExp tp e) w =
       _ -> mirFail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show w)
 
 extendSignedBV :: (1 <= w) => MirExp s -> NatRepr w -> MirGenerator h s ret (MirExp s)
-extendSignedBV (MirExp tp e) w = 
+extendSignedBV (MirExp tp e) w =
     case tp of
       (C.BVRepr n) | Just Refl <- testEquality w n ->
                 return $ MirExp tp e
@@ -692,7 +692,7 @@ evalCast' ck ty1 e ty2  = do
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
+      (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
       (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
 
       -- unsigned to signed (nothing to do except fix sizes)
@@ -714,11 +714,11 @@ evalCast' ck ty1 e ty2  = do
       -- booleans to BVs
       (M.Misc, TyBool, TyUint bsz)
        | MirExp C.BoolRepr e0 <- e
-       -> baseSizeToNatCont bsz $ \w -> 
+       -> baseSizeToNatCont bsz $ \w ->
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ eBVLit w 1) (R.App $ eBVLit w 0))
       (M.Misc, TyBool, TyInt bsz)
        | MirExp C.BoolRepr e0 <- e
-       -> baseSizeToNatCont bsz $ \w -> 
+       -> baseSizeToNatCont bsz $ \w ->
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ eBVLit w 1) (R.App $ eBVLit w 0))
 
       -- char to uint
@@ -731,7 +731,7 @@ evalCast' ck ty1 e ty2  = do
 
 
 {-      -- BV to Float
-      (M.Misc, M.TyInt bsz, TyFloat fsz) 
+      (M.Misc, M.TyInt bsz, TyFloat fsz)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp C.FloatRepr -}
 
@@ -942,7 +942,7 @@ evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
 evalRval (M.Discriminant lv) = do
     e <- evalLvalue lv
-    let ty = typeOf lv 
+    let ty = typeOf lv
     case ty of
       TyAdt aname _ _ -> do
         adt <- findAdt aname
@@ -1294,11 +1294,11 @@ doReturn tr = do
 
 ---------------------------------------------------------------------------------------------------
 ---------------------------------------------------------------------------------------------------
--- | Find the function expression for this name (instantiated with the given type arguments) 
+-- | Find the function expression for this name (instantiated with the given type arguments)
 -- It could be a regular function, a static trait invocation, or a dictionary argument
--- 
+--
 -- Will return an expression of type (FnHandleType args ret)
--- 
+--
 -- Some of these predicates will turn into additional (term) arguments, but only the call
 -- site knows which
 lookupFunction :: forall h s ret. HasCallStack => MethName ->
@@ -1320,7 +1320,7 @@ lookupFunction nm = do
             fret     = FH.handleReturnType fhandle
         in MirExp (C.FunctionHandleRepr fargctx fret) $ R.App $ E.HandleLit fhandle
 
-  case () of 
+  case () of
     ()
 
        -- a custom function (we will find it elsewhere)
@@ -1328,7 +1328,7 @@ lookupFunction nm = do
        -> return Nothing
 
        -- a normal function
-       | Just (MirHandle nm fs fh) <- isImpl 
+       | Just (MirHandle nm fs fh) <- isImpl
        -> do
             when (db > 3) $ do
               traceM $ "**lookupFunction: " ++ fmt nm ++ " resolved as normal call"
@@ -1337,7 +1337,7 @@ lookupFunction nm = do
 
        | otherwise -> do
             when (db > 1) $ do
-               traceM $ "***lookupFunction: Cannot find function " ++ show nm 
+               traceM $ "***lookupFunction: Cannot find function " ++ show nm
             return Nothing
 
 callHandle :: HasCallStack =>
@@ -1422,18 +1422,18 @@ callExp funid cargs = do
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
-doCall :: forall h s ret a. (HasCallStack) => M.DefId -> [M.Operand] 
+doCall :: forall h s ret a. (HasCallStack) => M.DefId -> [M.Operand]
    -> Maybe (M.Lvalue, M.BasicBlockInfo) -> C.TypeRepr ret -> MirGenerator h s ret a
 doCall funid cargs cdest retRepr = do
     _am    <- use $ cs.collection
     db    <- use debugLevel
     isCustom <- resolveCustom funid
-    case cdest of 
+    case cdest of
       (Just (dest_lv, jdest)) -> do
             ret <- callExp funid cargs
             doAssign dest_lv ret
             jumpToBlock jdest
-      
+
       Nothing
          -- special case for exit function that does not return
          | Just (CustomOpExit op) <- isCustom -> do
@@ -1501,7 +1501,7 @@ transTerminator t _tr =
 
 --- translation of toplevel glue ---
 
----- "Allocation" 
+---- "Allocation"
 --
 --
 -- MIR initializes compound structures by initializing their
@@ -1711,7 +1711,7 @@ buildLabel (M.BasicBlock bi _) = do
 initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             => CollectionState
             -> Fn
-            -> FH.FnHandle args ret 
+            -> FH.FnHandle args ret
             -> FnState s
 initFnState colState fn handle =
   FnState { _varMap     = Map.empty,
@@ -1772,7 +1772,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
      traceM $ "VarMap is: " ++ fmt (Map.keys vmm)
      traceM $ "Body is:\n" ++ fmt body
      traceM $ "-----------------------------------------------------------------------------"
-  let (M.MirBody _mvars blocks@(enter : _) _) = body
+  blocks@(enter : _) <- case body of
+    M.MirBody _mvars blocks@(_enter : _) _ -> return blocks
+    _ -> mirFail $ "expected body to be MirBody, but got " ++ show body
   -- actually translate all of the blocks of the function
   mapM_ (registerBlock rettype) blocks
   let (M.BasicBlock bbi _) = enter
@@ -1806,9 +1808,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
 
 transDefine :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
-  , ?printCrucible::Bool) 
-  => CollectionState 
-  -> M.Fn 
+  , ?printCrucible::Bool)
+  => CollectionState
+  -> M.Fn
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transDefine colState fn@(M.Fn fname fargs fsig _) =
   case (Map.lookup fname (colState^.handleMap)) of
@@ -1848,7 +1850,7 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
           tyListToCtx col targs $ \argctx -> do
           tyToReprCont col (ty^.fsreturn_ty) $ \retrepr -> do
              h <- FH.mkHandle' halloc handleName argctx retrepr
-             return $ MirHandle fname ty h 
+             return $ MirHandle fname ty h
 
 vtableShimName :: M.VtableName -> M.DefId -> Text
 vtableShimName vtableName fnName =
@@ -1883,13 +1885,13 @@ transVtable :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?a
   => CollectionState
   -> M.Vtable
   -> ST h [(Text, Core.AnyCFG MIR)]
-transVtable colState (M.Vtable name items) 
+transVtable colState (M.Vtable name items)
   | Just handles <- Map.lookup name (colState ^. vtableMap) =
     zipWithM (transVtableShim colState name) items handles
   | otherwise = error $ unwords ["no vtableMap entry for", show name]
 
-transVtableShim :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool) 
-  => CollectionState 
+transVtableShim :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+  => CollectionState
   -> M.VtableName
   -> M.VtableItem
   -> MirHandle
@@ -2221,7 +2223,7 @@ mkDiscrMap col = mconcat
 transCollection ::
     (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool,
      ?libCS::CollectionState, ?customOps::CustomOpMap,
-     ?printCrucible::Bool) 
+     ?printCrucible::Bool)
     => M.Collection
     -> FH.HandleAllocator
     -> IO RustModule
@@ -2233,7 +2235,7 @@ transCollection col halloc = do
 
     -- build up the state in the Generator
 
-    hmap1 <- mkHandleMap col halloc 
+    hmap1 <- mkHandleMap col halloc
     hmap2 <- mkVirtCallHandleMap col halloc
     let hmap = hmap1 <> hmap2
 
@@ -2242,7 +2244,7 @@ transCollection col halloc = do
     -- translate the statics and create the initialization code
     -- allocate references for statics
     let allocateStatic :: Static -> Map M.DefId StaticVar -> IO (Map M.DefId StaticVar)
-        allocateStatic static staticMap = 
+        allocateStatic static staticMap =
           tyToReprCont col (static^.sTy) $ \staticRepr -> do
             let gname =  (M.idText (static^.sName) <> "_global")
             g <- G.freshGlobalVar halloc gname staticRepr
@@ -2317,7 +2319,7 @@ transStatics colState halloc = do
 
 --
 -- Generate a loop that copies `len` elements starting at `ptr0` into a vector.
--- 
+--
 vectorCopy :: C.TypeRepr tp ->
               G.Expr MIR s (MirReferenceType tp) ->
               G.Expr MIR s UsizeType ->

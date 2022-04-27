@@ -780,12 +780,12 @@ vecJoin :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   Maybe (LLVMExpr s arch)
 vecJoin exprs =
   do (a,ys) <- List.uncons exprs
-     Scalar _archProxy (BVRepr n) e1 <- return (asScalar a)
+     Scalar _archProxy (BVRepr (n :: NatRepr n)) e1 <- return (asScalar a)
      if null ys
        then do LeqProof <- testLeq (knownNat @1) n
                return (BaseExpr (BVRepr n) e1)
        else do BaseExpr (BVRepr m) e2 <- vecJoin ys
-               let p1 = leqProof (knownNat @0) n
+               let p1 = leqZero @n
                    p2 = leqProof (knownNat @1) m
                (LeqProof,LeqProof) <- return (leqAdd2 p1 p2, leqAdd2 p2 p1)
                let bits u v x y = bitVal (addNat u v) (BVConcat u v x y)

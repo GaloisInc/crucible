@@ -141,12 +141,12 @@ handleBVOp appCtx sym annotations diagnosis op1 op2 constraint =
                 . (: [])
                 . NewConstraint (SomeInSelector selector)
                 <$>
-                -- NOTE(lb): The trunc' operation here *should* be a
+                -- NOTE(lb): The zresize operation here *should* be a
                 -- no-op, but since the Poison constructors don't have a
                 -- NatRepr, we can't check. That's fixable, but not high
                 -- priority since we'd just panic anyway if the widths
                 -- didn't match.
-                constraint w (bimap (BV.trunc' w) (BV.trunc' w) concreteSummand)
+                constraint w (bimap (BV.zresize w) (BV.zresize w) concreteSummand)
           _ -> pure Nothing
     _ -> pure Nothing
 

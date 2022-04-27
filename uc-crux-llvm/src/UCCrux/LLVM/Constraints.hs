@@ -6,7 +6,6 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -364,18 +363,18 @@ expand mts minimalTag ftRepr shapeConstraint shape =
   let minimalSeq :: forall ft'. Int -> FullTypeRepr m ft' -> Seq (Shape m tag ft')
       minimalSeq sz ftr =
         Seq.replicate sz (fmapFC (const minimalTag) $ Shape.minimal ftr)
-   in case (ftRepr, shape, shapeConstraint) of
-        (FTPtrRepr {}, Shape.ShapePtr tag Shape.ShapeUnallocated, Allocated n) ->
+   in case (shapeConstraint, shape, ftRepr) of
+        (Allocated n, Shape.ShapePtr tag Shape.ShapeUnallocated, FTPtrRepr {}) ->
           -- Create a new allocation
           (Nothing, Shape.ShapePtr tag (Shape.ShapeAllocated n))
-        (FTPtrRepr ptRepr, Shape.ShapePtr tag Shape.ShapeUnallocated, Initialized n) ->
+        (Initialized n, Shape.ShapePtr tag Shape.ShapeUnallocated, FTPtrRepr ptRepr) ->
           -- Create and initialize a new allocation
           ( Nothing,
             Shape.ShapePtr
               tag
               (Shape.ShapeInitialized (minimalSeq n (asFullType mts ptRepr)))
           )
-        (FTPtrRepr ptRepr, Shape.ShapePtr tag (Shape.ShapeAllocated m), Initialized n) ->
+        (Initialized n, Shape.ShapePtr tag (Shape.ShapeAllocated m), FTPtrRepr ptRepr) ->
           ( Nothing,
             Shape.ShapePtr
               tag
@@ -383,12 +382,12 @@ expand mts minimalTag ftRepr shapeConstraint shape =
                   (minimalSeq (max m n) (asFullType mts ptRepr))
               )
           )
-        (FTPtrRepr {}, Shape.ShapePtr tag (Shape.ShapeAllocated m), Allocated n) ->
+        (Allocated n, Shape.ShapePtr tag (Shape.ShapeAllocated m), FTPtrRepr {}) ->
           if m >= n
             then (Just AllocateAllocated, shape) -- There's enough space already
             else -- Grow the allocation
               (Nothing, Shape.ShapePtr tag (Shape.ShapeAllocated n))
-        (FTPtrRepr ptRepr, Shape.ShapePtr tag (Shape.ShapeInitialized vec), Allocated n) ->
+        (Allocated n, Shape.ShapePtr tag (Shape.ShapeInitialized vec), FTPtrRepr ptRepr) ->
           if Seq.length vec >= n
             then (Just AllocateInitialized, shape) -- There's enough space already
             else -- Grow the allocation
@@ -400,7 +399,7 @@ expand mts minimalTag ftRepr shapeConstraint shape =
                       (vec <> minimalSeq (n - Seq.length vec) (asFullType mts ptRepr))
                   )
               )
-        (FTPtrRepr ptRepr, Shape.ShapePtr tag (Shape.ShapeInitialized vec), Initialized n) ->
+        (Initialized n, Shape.ShapePtr tag (Shape.ShapeInitialized vec), FTPtrRepr ptRepr) ->
           if Seq.length vec >= n
             then (Just InitializeInitialized, shape) -- There's enough space already
             else -- Grow the allocation
@@ -412,12 +411,6 @@ expand mts minimalTag ftRepr shapeConstraint shape =
                       (vec <> minimalSeq (n - Seq.length vec) (asFullType mts ptRepr))
                   )
               )
-
-#if __GLASGOW_HASKELL__ <= 810
--- The pattern match coverage checker was improved in GHC 8.10 and can tell that
--- this case is redundant
-        _ -> panic "expand" ["Impossible case"]
-#endif
 
 --------------------------------------------------------------------------------
 

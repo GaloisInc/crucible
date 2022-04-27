@@ -115,7 +115,7 @@ import           GHC.Stack
 --------------------------------------------------------------------------------------
 -- * Result of translating a collection
 --
--- 
+--
 data RustModule = RustModule {
          _rmCS    :: CollectionState
        , _rmCFGs  :: Map Text (Core.AnyCFG MIR)
@@ -164,7 +164,7 @@ type MirGenerator h s ret = G.Generator MIR s FnState ret (ST h)
 -- | Generator state for MIR translation
 data FnState (s :: Type)
   = FnState { _varMap     :: !(VarMap s),
-              _labelMap   :: !(LabelMap s),                            
+              _labelMap   :: !(LabelMap s),
               _debugLevel :: !Int,
               _currentFn  :: !Fn,
               _cs         :: !CollectionState,
@@ -174,7 +174,7 @@ data FnState (s :: Type)
             }
 
 -- | State about the entire collection used for the translation
-data CollectionState 
+data CollectionState
   = CollectionState {
       _handleMap      :: !HandleMap,
       _vtableMap      :: !VtableMap,
@@ -197,7 +197,7 @@ data CustomOpMap = CustomOpMap
 
 data CustomOp      =
     -- | Custom operation for [argument types] and [operand values]
-    CustomOp (forall h s ret. HasCallStack 
+    CustomOp (forall h s ret. HasCallStack
                  => [Ty]
                  -> [MirExp s]
                  -> MirGenerator h s ret (MirExp s))
@@ -267,7 +267,7 @@ type LabelMap s = Map BasicBlockInfo (R.Label s)
 -- convenience) and original Mir type (for trait resolution).
 type HandleMap = Map MethName MirHandle
 
-data MirHandle = forall init ret. 
+data MirHandle = forall init ret.
     MirHandle { _mhName       :: MethName
               , _mhSig        :: FnSig
               -- The type of the function handle can include "free variables"
@@ -335,7 +335,6 @@ instance Semigroup FnTransInfo where
 
 instance Monoid FnTransInfo where
     mempty = FnTransInfo mempty mempty
-    mappend = (<>)
 
 -- | Translation info for the entire crate.  Keys are printed function DefIds,
 -- since that's what's convenient in transCollection (and because the only
@@ -346,7 +345,7 @@ type TransInfo = Map Text FnTransInfo
 
 
 
- 
+
 
 -------------------------------------------------------------------------------------------------------
 
@@ -368,13 +367,11 @@ instance Semigroup RustModule where
     RustModule (cs1 <> cs2) (cm1 <> cm2) (ex1 <> ex2)
 instance Monoid RustModule where
   mempty  = RustModule mempty mempty mempty
-  mappend = (<>)
 
 instance Semigroup CollectionState  where
   (CollectionState hm1 vm1 sm1 dm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 col2) =
       (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (col1 <> col2))
 instance Monoid CollectionState where
-  mappend = ((<>))
   mempty  = CollectionState mempty mempty mempty mempty mempty
 
 
