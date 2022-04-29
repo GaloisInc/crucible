@@ -1,6 +1,4 @@
 [Crux] Found counterexample for verification goal
 [Crux]   test-data/golden/T972-fail.at-least-clang12.c:8:3: error: in main
-[Crux]   [callFunction] Unsupported function type: PtrTo (FunTy (PrimType Void) [PrimType (Integer 32),PtrTo (PrimType (Integer 8)),PtrTo (PrimType (Integer 8))] False)
-[Crux]   CallBr (PtrTo (FunTy (PrimType Void) [PrimType (Integer 32),PtrTo (PrimType (Integer 8)),PtrTo (PrimType (Integer 8))] False)) (ValAsm True False "testl $0, $0; jne ${1:l};" "r,X,X,~{dirflag},~{fpsr},~{flags}") [Typed {typedType = PrimType (Integer 32), typedValue = ValInteger 0},Typed {typedType = PtrTo (PrimType (Integer 8)), typedValue = ValConstExpr (ConstBlockAddr (Typed {typedType = PtrTo (FunTy (PrimType (Integer 32)) [] False), typedValue = ValSymbol (Symbol "main")}) (Anon 2))},Typed {typedType = PtrTo (PrimType (Integer 8)), typedValue = ValConstExpr (ConstBlockAddr (Typed {typedType = PtrTo (FunTy (PrimType (Integer 32)) [] False), typedValue = ValSymbol (Symbol "main")}) (Anon 1))}] (Anon 3) [Anon 2,Anon 1]
-[Crux] 
+[Crux]   unsupported LLVM value: ValAsm True False "testl $0, $0; jne ${1:l};" "r,X,X,~{dirflag},~{fpsr},~{flags}" of type void(i32, i8*, i8*)*
 [Crux] Overall status: Invalid.

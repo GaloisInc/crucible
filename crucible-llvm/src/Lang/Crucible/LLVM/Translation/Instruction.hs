@@ -1603,10 +1603,13 @@ generateInstr retType lab defSet instr assign_f k =
       do callFunction defSet instr False fnTy fn args assign_f
          definePhiBlock lab normLabel
 
-    L.CallBr fnTy fn args normLabel otherLabels -> do
+    L.CallBr (L.PtrTo fnTy) fn args normLabel otherLabels -> do
       do callFunction defSet instr False fnTy fn args assign_f
          for_ otherLabels $ \lab' -> void (definePhiBlock lab lab')
          definePhiBlock lab normLabel
+
+    L.CallBr ty _ _ _ _ ->
+      fail $ unwords ["unexpected function type in callbr:", show ty]
 
     L.Bit op x y ->
       do tp <- liftMemType' (L.typedType x)
