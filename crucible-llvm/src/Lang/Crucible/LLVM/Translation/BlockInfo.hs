@@ -122,6 +122,7 @@ buildSuccSet (s:ss) =
     L.Unreachable -> mempty
     L.Jump l -> Set.singleton l
     L.Br _ l1 l2 -> Set.fromList [l1,l2]
+    L.CallBr _ _ _ norm other -> Set.fromList (norm:other)
     L.Invoke _ _ _ l1 l2 -> Set.fromList [l1,l2]
     L.IndirectBr _ ls -> Set.fromList ls
     L.Switch _ ldef ls -> Set.fromList (ldef:map snd ls)
@@ -185,8 +186,11 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
 
   loop [] = mempty
 
+  -- invoke and callbr are a special case when their return values are assigned
+  -- to registers: the return values can only be used in the "normal" successor
+  -- block.
+
   loop (L.Result nm i _md:ss) =
-    -- NB, invoke is a special case when its return value is assigned to a register
     case i of
       L.Invoke _tp f args l_normal l_unwind ->
             -- the use sets from the function value, arguments, and unwind label
@@ -194,6 +198,15 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
             -- the use set from the normal return label, note that nm is in scope here
             u_normal = Set.delete nm (useLabel lab l_normal bim)
             -- invoke is a block terminator, we can ignore the tail of the list
+         in Set.unions (u_normal : uss)
+
+      L.CallBr _tp f args l_normal ls ->
+            -- the use sets from the function value, arguments, and non-normal
+            -- labels
+        let uss = useVal f:(map (\l -> useLabel lab l bim) ls ++ map useTypedVal args)
+            -- the use set from the normal return label, note that nm is in scope here
+            u_normal = Set.delete nm (useLabel lab l_normal bim)
+            -- callbr is a block terminator, we can ignore the tail of the list
          in Set.unions (u_normal : uss)
 
       -- In other cases, combine the use set of the instruction with
@@ -212,6 +225,11 @@ instrUse from i bim = Set.unions $ case i of
   L.Bit _op x y -> [useTypedVal x, useVal y ]
   L.Conv _op x _tp -> [useTypedVal x]
   L.Call _tailCall _tp f args -> useVal f : map useTypedVal args
+  -- NB, this is only correct for "callbr" instructions that don't assign the return value
+  L.CallBr _tp f args norm ls ->
+    [useVal f, useLabel from norm bim] ++
+      map (\l -> useLabel from l bim) ls ++
+      map useTypedVal args
   L.Alloca _tp Nothing  _align -> []
   L.Alloca _tp (Just x) _align -> [useTypedVal x]
   L.Load p _ord _align -> [useTypedVal p]
