@@ -35,7 +35,6 @@ module Lang.Crucible.LLVM.MemModel.Type
   , ppType
   )  where
 
-import Control.Exception (assert)
 import Control.Lens
 import Control.Monad.State
 import Data.Typeable
@@ -97,7 +96,7 @@ mkStorageType tf = StorageType tf $
     Double -> 8
     X86_FP80 -> 10
     Array n e -> natBytesMul n (storageTypeSize e)
-    Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
+    Struct flds -> structSize flds
 
 bitvectorType :: Bytes -> StorageType
 bitvectorType w = StorageType (Bitvector w) w
@@ -115,8 +114,7 @@ arrayType :: Natural -> StorageType -> StorageType
 arrayType n e = StorageType (Array n e) (natBytesMul n (storageTypeSize e))
 
 structType :: V.Vector (Field StorageType) -> StorageType
-structType flds = assert (V.length flds > 0) $
-  StorageType (Struct flds) (fieldEnd (V.last flds))
+structType flds = StorageType (Struct flds) (structSize flds)
 
 mkStructType :: V.Vector (StorageType, Bytes) -> StorageType
 mkStructType l = structType (evalState (traverse fldFn l) 0)
@@ -139,8 +137,17 @@ typeEnd a tp = seq a $
     X86_FP80 -> a + 10
     Array 0 _   -> a
     Array n etp -> typeEnd (a + natBytesMul (n-1) (storageTypeSize etp)) etp
-    Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
-      where f = V.last flds
+    Struct flds ->
+      case V.unsnoc flds of
+        Just (_, f) -> typeEnd (a + fieldOffset f) (f^.fieldVal)
+        Nothing -> a
+
+-- | Returns end of field including padding bytes.
+structSize :: V.Vector (Field StorageType) -> Bytes
+structSize flds =
+  case V.unsnoc flds of
+    Just (_, f) -> fieldEnd f
+    Nothing -> 0
 
 -- | Returns end of field including padding bytes.
 fieldEnd :: Field StorageType -> Bytes
