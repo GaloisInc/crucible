@@ -39,7 +39,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), to)
 import           Control.Monad (forM_, void)
 import           Data.Aeson (ToJSON)
 import           Data.Foldable (for_)
@@ -48,6 +48,7 @@ import           GHC.Generics (Generic)
 import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 
@@ -81,15 +82,17 @@ import qualified Crux.LLVM.Log as Log
 import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
+import           UCCrux.LLVM.Callgraph.LLVM (directCalls, funcCallers)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth)
+import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth, llvmModule)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
 import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
-import           UCCrux.LLVM.Module (defnSymbolToString)
+import           UCCrux.LLVM.Module (defnSymbolToString, getModule)
+import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString, functionNameToString)
 import           UCCrux.LLVM.Run.Check (inferThenCheck, ppSomeCheckResult)
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
@@ -164,7 +167,7 @@ mainWithConfigs appCtx cruxOpts topConf =
         withModulePtrWidth
           modCtx
           (explore appCtx modCtx cruxOpts llOpts exConfig halloc)
-      Config.RunOn ents checkFrom ->
+      Config.RunOn ents checkFrom checkFromCallers ->
         do entries <-
              makeEntryPointsOrThrow
                (modCtx ^. defnTypes)
@@ -177,7 +180,20 @@ mainWithConfigs appCtx cruxOpts topConf =
                            (Text.pack (defnSymbolToString func))
                            (Result.printFunctionSummary (summary result))
                        )
-           case checkFrom of
+
+           -- Obtain a list of callers to check from, if requested
+           let callGraph = directCalls (modCtx ^. llvmModule . to getModule)
+           let mkFunNm (L.Symbol s) = functionNameFromString s
+           let getFunNm = L.Symbol . functionNameToString
+           let callers =
+                 foldMap
+                   (\f -> Set.map mkFunNm (funcCallers callGraph (getFunNm f)))
+                   (NonEmpty.toList ents)
+
+           let checkEntryPointNames =
+                 checkFrom ++ if checkFromCallers then Set.toList callers else []
+
+           case checkEntryPointNames of
              [] ->
                printResult =<<
                  loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries
@@ -187,7 +203,7 @@ mainWithConfigs appCtx cruxOpts topConf =
                  ( do checkFromEntries <-
                         makeEntryPointsOrThrow
                           (modCtx ^. defnTypes)
-                          checkFrom
+                          checkEntryPointNames
                       (result, checkResult) <-
                         inferThenCheck appCtx modCtx halloc cruxOpts llOpts entries checkFromEntries
                       printResult result

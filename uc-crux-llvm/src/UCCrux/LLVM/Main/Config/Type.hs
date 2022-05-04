@@ -29,7 +29,8 @@ import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 
 data RunConfig
   = Explore ExConfig.ExploreConfig
-  | RunOn (NonEmpty FunctionName) [FunctionName]
+  -- | The 'Bool' is whether or not to check contracts from callers
+  | RunOn (NonEmpty FunctionName) [FunctionName] Bool
   | CrashEquivalence EqConfig.EquivalenceConfig
   deriving (Eq, Ord, Show)
 
