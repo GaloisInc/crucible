@@ -1,0 +1,4 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/T972-fail.at-least-clang12.c:8:3: error: in main
+[Crux]   unsupported LLVM value: ValAsm True False "testl $0, $0; jne ${1:l};" "r,X,X,~{dirflag},~{fpsr},~{flags}" of type void(i32, i8*, i8*)*
+[Crux] Overall status: Invalid.

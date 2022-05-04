@@ -42,7 +42,7 @@ import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
-import           Data.Foldable (toList)
+import           Data.Foldable (for_, toList)
 import           Data.Int
 import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
@@ -152,6 +152,8 @@ instrResultType instr =
     L.Call _ ty _ _ -> throwError $ unwords ["unexpected function type in call:", show ty]
     L.Invoke (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
     L.Invoke ty _ _ _ _ -> throwError $ unwords ["unexpected function type in invoke:", show ty]
+    L.CallBr (L.PtrTo (L.FunTy ty _ _)) _ _ _ _ -> liftMemType ty
+    L.CallBr ty _ _ _ _ -> throwError $ unwords ["unexpected function type in callbr:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
     L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> liftMemType ty
@@ -1600,6 +1602,14 @@ generateInstr retType lab defSet instr assign_f k =
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
       do callFunction defSet instr False fnTy fn args assign_f
          definePhiBlock lab normLabel
+
+    L.CallBr (L.PtrTo fnTy) fn args normLabel otherLabels -> do
+      do callFunction defSet instr False fnTy fn args assign_f
+         for_ otherLabels $ \lab' -> void (definePhiBlock lab lab')
+         definePhiBlock lab normLabel
+
+    L.CallBr ty _ _ _ _ ->
+      fail $ unwords ["unexpected function type in callbr:", show ty]
 
     L.Bit op x y ->
       do tp <- liftMemType' (L.typedType x)
