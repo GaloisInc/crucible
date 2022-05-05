@@ -50,6 +50,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (^.), at, to)
+import qualified Control.Lens as Lens
 import           Data.Bifunctor (first)
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
@@ -447,23 +448,17 @@ addConstraint ::
 addConstraint modCtx argTypes constraints =
   \case
     NewConstraint (SomeInSelector (SelectGlobal symbol cursor)) constraint ->
-      constraints & globalConstraints . at symbol
-        %%~ fmap Just
-          . constrainGlobal symbol cursor (\_ftRepr -> addOneConstraint constraint)
+      constraints & globalConstraints . atDefault symbol (newGlobalShape symbol)
+        %%~ constrainTypedVal cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectGlobal symbol cursor)) shapeConstraint ->
-      constraints & globalConstraints . at symbol
-        %%~ fmap Just
-          . constrainGlobal symbol cursor (addOneShapeConstraint shapeConstraint)
+      constraints & globalConstraints . atDefault symbol (newGlobalShape symbol)
+        %%~ constrainTypedVal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectReturn symbol cursor)) constraint ->
-      constraints & returnConstraints . at symbol
-        %%~ fmap
-          Just
-          . constrainReturn symbol cursor (\_ftRepr -> addOneConstraint constraint)
+      constraints & returnConstraints . atDefault symbol (newReturnValueShape symbol)
+        %%~ constrainTypedVal cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectReturn symbol cursor)) shapeConstraint ->
-      constraints & returnConstraints . at symbol
-        %%~ fmap
-          Just
-          . constrainReturn symbol cursor (addOneShapeConstraint shapeConstraint)
+      constraints & returnConstraints . atDefault symbol (newReturnValueShape symbol)
+        %%~ constrainTypedVal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectArgument idx cursor)) constraint ->
       constraints & argConstraints . ixF' idx
         %%~ (\shape -> addOneConstraint constraint shape cursor)
@@ -479,6 +474,17 @@ addConstraint modCtx argTypes constraints =
     NewShapeConstraint (SomeInSelector SelectClobbered {}) _ ->
       unimplemented "addConstraint" ClobberConstraints
   where
+    fromMaybeL :: forall a. a -> Lens.Lens' (Maybe a) a
+    fromMaybeL def = lens (fromMaybe def) (\_old new -> Just new)
+
+    atDefault ::
+      forall c.
+      Lens.At c =>
+      Lens.Index c ->
+      Lens.IxValue c ->
+      Lens.Lens' c (Lens.IxValue c)
+    atDefault idx def = at idx . fromMaybeL def
+    
     addOneConstraint ::
       Constraint m atTy ->
       ConstrainedShape m ft ->
@@ -513,8 +519,7 @@ addConstraint modCtx argTypes constraints =
              in Shape.modifyA' doExpand shape cursor
           )
 
-    constrainGlobal ::
-      GlobalSymbol m ->
+    constrainTypedVal ::
       Cursor m inTy atTy ->
       ( forall ft.
         FullTypeRepr m ft ->
@@ -522,36 +527,12 @@ addConstraint modCtx argTypes constraints =
         Cursor m ft atTy ->
         Either ExpansionError (ConstrainedShape m ft)
       ) ->
-      Maybe (ConstrainedTypedValue m) ->
+      ConstrainedTypedValue m ->
       Either ExpansionError (ConstrainedTypedValue m)
-    constrainGlobal symbol cursor doAdd =
-      ( \(ConstrainedTypedValue ft shape) ->
-          case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-            Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
-            Just cursor' -> ConstrainedTypedValue ft <$> doAdd ft shape cursor'
-      )
-        . fromMaybe (newGlobalShape symbol)
-
-    constrainReturn ::
-      FuncSymbol m ->
-      Cursor m inTy atTy ->
-      ( forall ft.
-        FullTypeRepr m ft ->
-        ConstrainedShape m ft ->
-        Cursor m ft atTy ->
-        Either ExpansionError (ConstrainedShape m ft)
-      ) ->
-      Maybe (ConstrainedTypedValue m) ->
-      Either ExpansionError (ConstrainedTypedValue m)
-    constrainReturn symbol cursor doAdd =
-      ( \(ConstrainedTypedValue ft shape) ->
-          ConstrainedTypedValue ft
-            <$> case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-              Nothing ->
-                panic "addConstraint" ["Ill-typed return value cursor"]
-              Just cursor' -> doAdd ft shape cursor'
-      )
-        . fromMaybe (newReturnValueShape symbol)
+    constrainTypedVal cursor doAdd (ConstrainedTypedValue ft shape) =
+      case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
+        Nothing -> panic "addConstraint" ["Ill-typed global or return value cursor"]
+        Just cursor' -> ConstrainedTypedValue ft <$> doAdd ft shape cursor'
 
     newGlobalShape :: GlobalSymbol m -> ConstrainedTypedValue m
     newGlobalShape symbol =
