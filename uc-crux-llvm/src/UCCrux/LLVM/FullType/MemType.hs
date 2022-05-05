@@ -1,6 +1,6 @@
 {-
 Module           : UCCrux.LLVM.FullType.MemType
-Description      : Interop between 'FullType' and 'MemType'
+Description      : Interop between 'FullType' and 'MemType' and 'SymType'
 Copyright        : (c) Galois, Inc 2021
 License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
@@ -14,6 +14,7 @@ Stability        : provisional
 
 module UCCrux.LLVM.FullType.MemType
   ( toMemType,
+    toSymType
   )
 where
 
@@ -27,7 +28,7 @@ import qualified What4.InterpretedFloatingPoint as W4IFP
 import           Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), FunDecl(..))
 
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), aliasOrFullType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), PartTypeRepr, aliasOrFullType)
 import           UCCrux.LLVM.FullType.VarArgs (varArgsReprToBool)
 {- ORMOLU_ENABLE -}
 
@@ -38,10 +39,7 @@ toMemType :: FullTypeRepr m ft -> MemType
 toMemType =
   \case
     FTIntRepr natRepr -> IntType (natValue natRepr)
-    FTPtrRepr ptRepr ->
-      case aliasOrFullType ptRepr of
-        Left ident -> PtrType (Alias ident)
-        Right ftRepr -> PtrType (MemType (toMemType ftRepr))
+    FTPtrRepr ptRepr -> PtrType (toSymType ptRepr)
     FTFloatRepr W4IFP.SingleFloatRepr -> FloatType
     FTFloatRepr W4IFP.DoubleFloatRepr -> DoubleType
     FTFloatRepr W4IFP.X86_80FloatRepr -> X86_FP80Type
@@ -65,3 +63,9 @@ toMemType =
                 isVarArgs
             )
         )
+
+toSymType :: PartTypeRepr m ft -> SymType
+toSymType ptRepr =
+  case aliasOrFullType ptRepr of
+    Left ident -> Alias ident
+    Right ftRepr -> MemType (toMemType ftRepr)

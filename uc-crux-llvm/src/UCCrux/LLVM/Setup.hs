@@ -172,13 +172,15 @@ generateM' h1 gen =
 
 -- | Generate and constrain symbolic values. This is used by
 -- "UCCrux.LLVM.Run.Simulate" to generate arguments and global variables when
--- simulating a single function, and is also used by
--- "UCCrux.LLVM.Overrides.Skip" to generate return values of skipped (external)
--- functions.
+-- simulating a single function, and by "UCCrux.LLVM.Postcondition.Apply" to
+-- generate return values of skipped (external) functions, and values that
+-- clobber (overwrite) pointers in arguments or global variables.
 --
 -- Traverses the input 'ConstrainedShape' and replaces the lists of constraints
 -- with a 'SymValue' that conforms to those constraints. Allocates memory along
--- the way as required by the form of the 'ConstrainedShape'.
+-- the way as required by the form of the 'ConstrainedShape'. In particular,
+-- every pointer inside the new value will point to its own fresh heap
+-- allocation; no two of them will alias, nor will they point to e.g., globals.
 generate ::
   forall arch sym bak m atTy inTy argTypes.
   ( ArchOk arch,

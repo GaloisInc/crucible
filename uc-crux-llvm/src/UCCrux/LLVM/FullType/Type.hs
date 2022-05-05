@@ -53,6 +53,12 @@ module UCCrux.LLVM.FullType.Type
     aliasOrFullType,
     toPartType,
 
+    -- * Opaque pointers
+    OpaquePointers,
+    MapOpaquePointers,
+    testOpaquePointers,
+    testMapOpaquePointers,
+
     -- * Translation
     toFullType,
     toFullTypeM,
@@ -217,6 +223,73 @@ data PartTypeRepr (m :: Type) (ft :: FullType m) where
   -- The Const is so that we can get type variables in scope in the TestEquality
   -- instance, see below.
   PTAliasRepr :: Const L.Ident ft -> PartTypeRepr m ft
+
+-- ------------------------------------------------------------------------------
+-- Opaque pointers
+
+-- | Make all pointer types opaque.
+--
+-- Useful for ensuring two 'FullType's will map to the same Crucible type,
+-- without requiring a specification of the architecture (an @arch@ variable),
+-- see 'UCCrux.LLVM.FullType.CrucibleType.opaquePointersToCrucibleCompat'.
+type family OpaquePointers (ft :: FullType m) :: FullType m where
+  OpaquePointers ('FTPtr _) = 'FTOpaquePtr
+  OpaquePointers ('FTFuncPtr _ _ _) = 'FTOpaquePtr
+  OpaquePointers ('FTArray n elems) = 'FTArray n (OpaquePointers elems)
+  OpaquePointers ('FTStruct fields) = 'FTStruct (MapOpaquePointers fields)
+  OpaquePointers ft = ft
+
+type family MapOpaquePointers (ctx :: Ctx (FullType m)) :: Ctx (FullType m) where
+  MapOpaquePointers 'Ctx.EmptyCtx = 'Ctx.EmptyCtx
+  MapOpaquePointers (xs 'Ctx.::> x) =
+    MapOpaquePointers xs Ctx.::> OpaquePointers x
+
+-- | Check if two 'Ctx.Assignment's of 'FullTypeRepr's are the same up to pointers.
+testMapOpaquePointers ::
+  Ctx.Assignment (FullTypeRepr m) ctx ->
+  Ctx.Assignment (FullTypeRepr m) ctx' ->
+  Maybe (MapOpaquePointers ctx :~: MapOpaquePointers ctx')
+testMapOpaquePointers a a' =
+  case (Ctx.viewAssign a, Ctx.viewAssign a') of
+    (Ctx.AssignEmpty, Ctx.AssignEmpty) -> Just Refl
+    (Ctx.AssignExtend rest hd, Ctx.AssignExtend rest' hd') ->
+      case (testOpaquePointers hd hd', testMapOpaquePointers rest rest') of
+        (Just Refl, Just Refl) -> Just Refl
+        _ -> Nothing
+    _ -> Nothing
+
+-- | Check if two 'FullTypeRepr's are the same up to pointers.
+testOpaquePointers ::
+  FullTypeRepr m ft ->
+  FullTypeRepr m ft' ->
+  Maybe (OpaquePointers ft :~: OpaquePointers ft')
+testOpaquePointers ft ft' =
+  case (ft, ft') of
+    (FTIntRepr natRepr, FTIntRepr natRepr') ->
+      case testEquality natRepr natRepr' of
+        Nothing -> Nothing
+        Just Refl -> Just Refl
+    (FTPtrRepr{}, FTPtrRepr{}) -> Just Refl
+    (FTFloatRepr fi, FTFloatRepr fi') ->
+      case testEquality fi fi' of
+        Nothing -> Nothing
+        Just Refl -> Just Refl
+    (FTVoidFuncPtrRepr{}, FTVoidFuncPtrRepr{}) -> Just Refl
+    (FTNonVoidFuncPtrRepr{}, FTNonVoidFuncPtrRepr{}) -> Just Refl
+    (FTOpaquePtrRepr{}, FTOpaquePtrRepr{}) -> Just Refl
+    (FTArrayRepr natRepr itemRepr, FTArrayRepr natRepr' itemRepr') ->
+      case (testEquality natRepr natRepr', testOpaquePointers itemRepr itemRepr') of
+        (Just Refl, Just Refl) -> Just Refl
+        _ -> Nothing
+    (FTUnboundedArrayRepr itemRepr, FTUnboundedArrayRepr itemRepr') ->
+      case testOpaquePointers itemRepr itemRepr' of
+        Just Refl -> Just Refl
+        Nothing -> Nothing
+    (FTStructRepr _ fields, FTStructRepr _ fields') ->
+      case testMapOpaquePointers fields fields' of
+        Just Refl -> Just Refl
+        Nothing -> Nothing
+    _ -> Nothing
 
 -- ------------------------------------------------------------------------------
 -- Instances

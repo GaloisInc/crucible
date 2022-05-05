@@ -18,6 +18,9 @@ Stability        : provisional
 
 module UCCrux.LLVM.FullType.CrucibleType
   ( toCrucibleType,
+    toCrucibleReturnType,
+
+    opaquePointersToCrucibleCompat,
 
     -- * Assignments
     SomeIndex (..),
@@ -30,17 +33,20 @@ module UCCrux.LLVM.FullType.CrucibleType
     translateIndex,
     generateM,
     generate,
+    CrucibleTypeCompat(..),
+    zip
   )
 where
 
 {- ORMOLU_DISABLE -}
-import           Prelude hiding (unzip)
+import           Prelude hiding (unzip, zip, zipWith)
 
 import           Data.Coerce (coerce)
 import           Data.Functor ((<&>))
 import           Data.Functor.Const (Const(Const))
 import           Data.Functor.Identity (Identity(Identity, runIdentity))
 import           Data.Functor.Product (Product(Pair))
+import           Unsafe.Coerce (unsafeCoerce)
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -77,6 +83,16 @@ toCrucibleType proxy =
     FTStructRepr _ typeReprs ->
       case assignmentToCrucibleType proxy typeReprs of
         SomeAssign' ctReprs Refl _ -> CrucibleTypes.StructRepr ctReprs
+
+toCrucibleReturnType ::
+  ArchOk arch =>
+  proxy arch ->
+  ReturnTypeRepr m mft ->
+  CrucibleTypes.TypeRepr (ReturnTypeToCrucibleType arch mft)
+toCrucibleReturnType proxy =
+  \case
+    VoidRepr -> CrucibleTypes.UnitRepr
+    NonVoidRepr ftRepr -> toCrucibleType proxy ftRepr
 
 data SomeAssign' arch m fullTypes f = forall crucibleTypes.
   SomeAssign'
@@ -138,6 +154,95 @@ assignmentToCrucibleType ::
 assignmentToCrucibleType proxy fullTypes =
   runIdentity
     (assignmentToCrucibleTypeA proxy (\_ _ -> Identity (Const ())) fullTypes)
+
+-- | See 'opaquePointersToCrucibleCompat'
+-- to Crucible types.
+mapOpaquePointersToCrucibleCompat ::
+  ArchOk arch =>
+  (MapOpaquePointers ctx ~ MapOpaquePointers ctx') =>
+  proxy arch ->
+  Ctx.Assignment (FullTypeRepr m) ctx ->
+  Ctx.Assignment (FullTypeRepr m) ctx' ->
+  MapToCrucibleType arch ctx :~: MapToCrucibleType arch ctx'
+mapOpaquePointersToCrucibleCompat proxy a a' =
+  case (Ctx.viewAssign a, Ctx.viewAssign a') of
+    (Ctx.AssignEmpty, Ctx.AssignEmpty) -> Refl
+    (Ctx.AssignExtend rest hd, Ctx.AssignExtend rest' hd') ->
+      case (opaquePointersToCrucibleCompat proxy hd hd', mapOpaquePointersToCrucibleCompat proxy rest rest') of
+        (Refl, Refl) -> Refl
+
+-- | Despite being unused, DO NOT REMOVE. See comment on
+-- 'opaquePointersToCrucibleCompat'.
+_opaquePointersToCrucibleCompat ::
+  ArchOk arch =>
+  (OpaquePointers ft ~ OpaquePointers ft') =>
+  proxy arch ->
+  FullTypeRepr m ft ->
+  FullTypeRepr m ft' ->
+  (ToCrucibleType arch ft :~: ToCrucibleType arch ft')
+_opaquePointersToCrucibleCompat proxy ft ft' =
+  case (ft, ft') of
+    (FTIntRepr {}, FTIntRepr {}) -> Refl
+    (FTPtrRepr{}, FTPtrRepr{}) -> Refl
+    (FTPtrRepr{}, FTOpaquePtrRepr{}) -> Refl
+    (FTPtrRepr{}, FTVoidFuncPtrRepr{}) -> Refl
+    (FTPtrRepr{}, FTNonVoidFuncPtrRepr{}) -> Refl
+    (FTFloatRepr{}, FTFloatRepr{}) -> Refl
+    (FTVoidFuncPtrRepr{}, FTVoidFuncPtrRepr{}) -> Refl
+    (FTVoidFuncPtrRepr{}, FTPtrRepr{}) -> Refl
+    (FTVoidFuncPtrRepr{}, FTOpaquePtrRepr{}) -> Refl
+    (FTVoidFuncPtrRepr{}, FTNonVoidFuncPtrRepr{}) -> Refl
+    (FTNonVoidFuncPtrRepr{}, FTNonVoidFuncPtrRepr{}) -> Refl
+    (FTNonVoidFuncPtrRepr{}, FTPtrRepr{}) -> Refl
+    (FTNonVoidFuncPtrRepr{}, FTOpaquePtrRepr{}) -> Refl
+    (FTNonVoidFuncPtrRepr{}, FTVoidFuncPtrRepr{}) -> Refl
+    (FTOpaquePtrRepr{}, FTOpaquePtrRepr{}) -> Refl
+    (FTOpaquePtrRepr{}, FTPtrRepr{}) -> Refl
+    (FTOpaquePtrRepr{}, FTVoidFuncPtrRepr{}) -> Refl
+    (FTOpaquePtrRepr{}, FTNonVoidFuncPtrRepr{}) -> Refl
+    (FTUnboundedArrayRepr elems, FTUnboundedArrayRepr elems') ->
+      case opaquePointersToCrucibleCompat proxy elems elems' of
+        Refl -> Refl
+    (FTArrayRepr _ elems, FTArrayRepr _ elems') ->
+      case opaquePointersToCrucibleCompat proxy elems elems' of
+        Refl -> Refl
+    (FTStructRepr _ fields, FTStructRepr _ fields') ->
+      case mapOpaquePointersToCrucibleCompat proxy fields fields' of
+        Refl -> Refl
+
+-- | Two types that are identical up to pointer types also have the same mapping
+-- to Crucible types.
+--
+-- This function is implemented using 'unsafeCoerce'. The safety of this use is
+-- justified by the above implementation of @_opaquePointersToCrucibleCompat@,
+-- which takes two 'FullTypeRepr's and proves that
+-- @'OpaquePointers' ft1 ~ 'OpaquePointers' ft2@ implies
+-- @'ToCrucibleType' arch ft1 ~ ToCrucibleType arch ft2@.
+-- Since 'FullTypeRepr' is a singleton type and every
+-- 'UCCrux.LLVM.FullType.Type.FullType' is represented by some 'FullTypeRepr',
+-- we can conclude that the reasoning holds even when 'FullTypeRepr's aren't
+-- available.
+--
+-- There are two reasons to implement this unsafely:
+--
+-- * It's faster; the unsafe version is /O(1)/ whereas the safe version is
+--   /O(n)/.
+-- * It can be used even when a 'FullTypeRepr' for each type isn't available.
+opaquePointersToCrucibleCompat ::
+  forall proxy proxy' proxy'' arch ft ft'.
+  ArchOk arch =>
+  (OpaquePointers ft ~ OpaquePointers ft') =>
+  proxy arch ->
+  proxy' ft ->
+  proxy'' ft' ->
+  (ToCrucibleType arch ft :~: ToCrucibleType arch ft')
+opaquePointersToCrucibleCompat _ _ _ =
+  -- Explicitly type the unsafeCoerce to avoid accidentally treating it as a
+  -- function type.
+  unsafeCoerce (Refl :: () :~: ()) :: ToCrucibleType arch ft :~: ToCrucibleType arch ft'
+{-# NOINLINE opaquePointersToCrucibleCompat #-}
+-- ^ NOINLINE to work around GHC issues, see
+-- https://github.com/GaloisInc/parameterized-utils/blob/4b6562fdf334849d63435442bbcd2a6d9bce34a7/src/Data/Parameterized/Axiom.hs#L32
 
 testCompatibility ::
   forall proxy arch m ft tp.
@@ -251,3 +356,27 @@ generate ::
   ) ->
   Ctx.Assignment f (MapToCrucibleType arch fullTypes)
 generate proxy sz f = coerce (generateM proxy sz (\i1 i2 refl -> Identity (f i1 i2 refl)))
+
+newtype CrucibleTypeCompat arch f ft =
+  CrucibleTypeCompat (f (ToCrucibleType arch ft))
+
+zipWith ::
+  ArchOk arch =>
+  proxy arch ->
+  (forall ft. f ft -> g (ToCrucibleType arch ft) -> h ft) ->
+  Ctx.Assignment f ctx ->
+  Ctx.Assignment g (MapToCrucibleType arch ctx) ->
+  Ctx.Assignment h ctx
+zipWith proxy fun ftAssign ctAssign =
+  case (Ctx.viewAssign ftAssign, Ctx.viewAssign ctAssign) of
+    (Ctx.AssignEmpty, Ctx.AssignEmpty) -> Ctx.empty
+    (Ctx.AssignExtend ftRest ftHead, Ctx.AssignExtend ctRest ctHead) ->
+      Ctx.extend (zipWith proxy fun ftRest ctRest) (fun ftHead ctHead)
+
+zip ::
+  ArchOk arch =>
+  proxy arch ->
+  Ctx.Assignment f ctx ->
+  Ctx.Assignment g (MapToCrucibleType arch ctx) ->
+  Ctx.Assignment (Product f (CrucibleTypeCompat arch g)) ctx
+zip proxy = zipWith proxy (\ft ct -> Pair ft (CrucibleTypeCompat ct))

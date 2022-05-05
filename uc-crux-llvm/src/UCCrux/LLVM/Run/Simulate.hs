@@ -112,12 +112,12 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, makePreSimulationMem)
-import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides, ppClobberSpecError)
+import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap, ppProgramLoc)
-import           UCCrux.LLVM.Precondition (Preconds, returnPreconds, relationalPreconds)
+import           UCCrux.LLVM.Precondition (Preconds, postconds, relationalPreconds)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SymValue)
 import           UCCrux.LLVM.Setup.Assume (assume)
@@ -432,20 +432,12 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                         trans
                         skipOverrideRef
                         skipReturnValueAnnotations
-                        Map.empty  -- clobber specs
-                        (constraints ^. returnPreconds)
+                        (constraints ^. postconds)
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
                     let sOverrides' =
                           map
                             (\ov -> getPolymorphicLLVMOverride ov)
-                            (case sequence sOverrides of
-                               Left err ->
-                                 panic
-                                   "setupHook"
-                                   [ "Error with empty clobber specs?"
-                                   , show (ppClobberSpecError err)
-                                   ]
-                               Right ovs -> ovs)
+                            sOverrides
                     registerOverrides appCtx modCtx sSkip sOverrides'
 
                     liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."

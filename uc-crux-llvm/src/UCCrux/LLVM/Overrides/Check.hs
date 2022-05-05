@@ -108,8 +108,8 @@ import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
 import           UCCrux.LLVM.Precondition (Preconds, argPreconds, globalPreconds, ppPreconds)
 import           UCCrux.LLVM.Run.Result (BugfindingResult)
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
 import qualified UCCrux.LLVM.Shape as Shape
+import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
 {- ORMOLU_ENABLE -}
 
 newtype CheckOverrideName = CheckOverrideName {getCheckOverrideName :: Text}

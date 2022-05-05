@@ -55,6 +55,7 @@ library
     UCCrux.LLVM.FullType.FuncSig
     UCCrux.LLVM.FullType.MemType
     UCCrux.LLVM.FullType.Memory
+    UCCrux.LLVM.FullType.PP
     UCCrux.LLVM.FullType.StorageType
     UCCrux.LLVM.FullType.Translation
     UCCrux.LLVM.FullType.Type
@@ -75,6 +76,8 @@ library
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
     UCCrux.LLVM.Precondition
+    UCCrux.LLVM.Postcondition.Apply
+    UCCrux.LLVM.Postcondition.Type
     UCCrux.LLVM.Run.Check
     UCCrux.LLVM.Run.EntryPoints
     UCCrux.LLVM.Run.Explore
@@ -162,9 +165,9 @@ test-suite uc-crux-llvm-test
   other-modules:
     Callgraph
     Check
-    Clobber
     Logging
     Paths_uc_crux_llvm
+    Postcond
     Utils
   autogen-modules: Paths_uc_crux_llvm
 

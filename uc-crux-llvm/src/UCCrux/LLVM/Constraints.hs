@@ -28,6 +28,7 @@ module UCCrux.LLVM.Constraints
     -- * 'ConstrainedShape'
     ConstrainedShape (..),
     minimalConstrainedShape,
+    ppConstrainedShape,
   )
 where
 
@@ -36,6 +37,7 @@ import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Compose (Compose(..))
 import           Data.Kind (Type)
+import           Data.Void (Void)
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 
@@ -175,3 +177,7 @@ minimalConstrainedShape =
 instance Eq (ConstrainedShape m ft) where
   ConstrainedShape shape1 == ConstrainedShape shape2 =
     Shape.eqShape (\(Compose c1) (Compose c2) -> c1 == c2) shape1 shape2
+
+ppConstrainedShape :: ConstrainedShape m ft -> Doc Void
+ppConstrainedShape =
+  Shape.ppShape (PP.vsep . map ppConstraint . getCompose) . getConstrainedShape
