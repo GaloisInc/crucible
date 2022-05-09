@@ -54,6 +54,7 @@ import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
 data UCCruxLLVMOptions = UCCruxLLVMOptions
   { ucLLVMOptions :: LLVMOptions,
     checkFrom :: [FunctionName],
+    checkFromCallers :: Bool,
     crashOrder :: FilePath,
     crashEquivalence :: Bool,
     doExplore :: Bool,
@@ -123,7 +124,11 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
             { Config.ucLLVMOptions = finalLLOpts,
               Config.runConfig =
                 case entries of
-                  Just ents -> Config.RunOn ents (checkFrom initUCOpts)
+                  Just ents ->
+                    Config.RunOn
+                      ents
+                      (checkFrom initUCOpts)
+                      (checkFromCallers initUCOpts)
                   Nothing ->
                     if doExplore initUCOpts
                     then
@@ -151,6 +156,9 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
 
 checkFromDoc :: Text
 checkFromDoc = "Check inferred contracts by symbolically executing from this function"
+
+checkFromCallersDoc :: Text
+checkFromCallersDoc = "Check inferred contracts by symbolically executing from callers"
 
 crashOrderDoc :: Text
 crashOrderDoc = "Check crash-ordering with another LLVM bitcode module"
@@ -193,6 +201,7 @@ ucCruxLLVMConfig = do
             <*>
               (map functionNameFromString <$>
                 Crux.section "check-from" (Crux.listSpec Crux.stringSpec) [] checkFromDoc)
+            <*> Crux.section "check-from-callers" Crux.yesOrNoSpec False checkFromDoc
             <*> Crux.section "crash-order" Crux.fileSpec "" crashOrderDoc
             <*> Crux.section "crash-equivalence" Crux.yesOrNoSpec False crashEquivalenceDoc
             <*> Crux.section "explore" Crux.yesOrNoSpec False exploreDoc
@@ -224,6 +233,12 @@ ucCruxLLVMConfig = do
                          { checkFrom =
                             functionNameFromString v : checkFrom opts
                          },
+                 Crux.Option
+                   []
+                   ["check-from-callers"]
+                   (Text.unpack checkFromCallersDoc)
+                   $ Crux.NoArg $
+                     \opts -> Right opts {checkFromCallers = True},
                  Crux.Option
                    []
                    ["crash-order"]

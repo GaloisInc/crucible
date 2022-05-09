@@ -6,8 +6,8 @@ License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 
-For now, this test suite only has \"acceptance tests\", i.e. tests that describe
-very high-level behavior.
+For now, this test suite mostly has \"acceptance tests\", i.e. tests that
+describe very high-level behavior.
 
 There are two ways to add such tests:
 
@@ -86,6 +86,7 @@ import           UCCrux.LLVM.Run.Result (SomeBugfindingResult', DidHitBounds(Did
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 
+import qualified Callgraph
 import qualified Check
 import qualified Clobber
 import qualified Utils
@@ -1531,7 +1532,8 @@ main =
   TT.defaultMain $
     TT.testGroup
       "uc-crux-llvm"
-      [ Check.checkOverrideTests,
+      [ Callgraph.callgraphTests,
+        Check.checkOverrideTests,
         Clobber.clobberTests,
         inFileTests,
         moduleTests,

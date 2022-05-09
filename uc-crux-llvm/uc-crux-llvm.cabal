@@ -35,6 +35,8 @@ library
   exposed-modules:
     UCCrux.LLVM.Bug
     UCCrux.LLVM.Bug.UndefinedBehaviorTag
+    UCCrux.LLVM.Callgraph
+    UCCrux.LLVM.Callgraph.LLVM
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types
@@ -157,6 +159,7 @@ test-suite uc-crux-llvm-test
 
   main-is: Test.hs
   other-modules:
+    Callgraph
     Check
     Clobber
     Logging
