@@ -16,9 +16,7 @@ Stability        : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.FullType.Translation
   ( FuncSigRepr (..),
