@@ -52,9 +52,9 @@ library
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType
     UCCrux.LLVM.FullType.CrucibleType
+    UCCrux.LLVM.FullType.FuncSig
     UCCrux.LLVM.FullType.MemType
     UCCrux.LLVM.FullType.Memory
-    UCCrux.LLVM.FullType.ReturnType
     UCCrux.LLVM.FullType.StorageType
     UCCrux.LLVM.FullType.Translation
     UCCrux.LLVM.FullType.Type

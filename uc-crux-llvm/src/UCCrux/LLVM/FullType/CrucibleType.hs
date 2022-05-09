@@ -26,6 +26,7 @@ module UCCrux.LLVM.FullType.CrucibleType
     assignmentToCrucibleTypeA,
     testCompatibility,
     testCompatibilityAssign,
+    testCompatibilityReturn,
     translateIndex,
     generateM,
     generate,
@@ -51,6 +52,7 @@ import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 
 import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.FullType.FuncSig (ReturnTypeRepr(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.Type
 {- ORMOLU_ENABLE -}
 
@@ -160,6 +162,22 @@ testCompatibilityAssign proxy ftAssign ctAssign =
         (Just Refl, Just Refl) -> Just Refl
         _ -> Nothing
     _ -> Nothing
+
+testCompatibilityReturn ::
+  ArchOk arch =>
+  proxy arch ->
+  ReturnTypeRepr m mft ->
+  CrucibleTypes.TypeRepr cty ->
+  Maybe (ReturnTypeToCrucibleType arch mft :~: cty)
+testCompatibilityReturn proxy rty cty =
+  case (cty, rty) of
+    (CrucibleTypes.UnitRepr, VoidRepr) -> Just Refl
+    (_, VoidRepr) -> Nothing
+    (CrucibleTypes.UnitRepr, NonVoidRepr _) -> Nothing
+    (_, NonVoidRepr fty) ->
+      case testCompatibility proxy fty cty of
+        Just Refl -> Just Refl
+        Nothing -> Nothing
 
 data SomeIndex arch ft crucibleTypes
   = forall tp. SomeIndex (Ctx.Index crucibleTypes tp) (ToCrucibleType arch ft :~: tp)

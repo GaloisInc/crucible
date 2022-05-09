@@ -37,7 +37,6 @@ import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef (IORef, modifyIORef)
 import           Data.Maybe (fromMaybe)
-import           Data.Proxy (Proxy(Proxy))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -88,8 +87,8 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleTyp
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), deepenPtr, seekType)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SometimesClobber, ClobberGlobal))
-import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType, testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (FunctionTypes, ftRetType)
+import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility, testCompatibilityReturn)
+import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr), ReturnTypeRepr(NonVoidRepr, VoidRepr))
 import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType)
 import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (GlobalSymbol, FuncSymbol, funcSymbol, makeFuncSymbol, isDebug, funcSymbolToString)
@@ -462,62 +461,49 @@ createSkipOverride modCtx bak usedRef annotationRef clobbers postcondition funcS
     returnValue ::
       MemImpl sym ->
       CrucibleTypes.TypeRepr ty ->
-      FunctionTypes m arch ->
+      Some (FuncSigRepr m) ->
       IO (Crucible.RegValue sym ty, MemImpl sym)
-    returnValue mem ret fTypes =
-      case (ret, ftRetType fTypes) of
-        (CrucibleTypes.UnitRepr, Nothing) -> pure ((), mem)
-        (CrucibleTypes.UnitRepr, _) ->
-          panic
-            "createSkipOverride"
-            ["Mismatched return types - CFG was void"]
-        (_, Nothing) ->
-          panic
-            "createSkipOverride"
-            ["Mismatched return types - CFG was non-void"]
-        (_, Just (Some retFullType)) ->
-          case testEquality (toCrucibleType (Proxy @arch) retFullType) ret of
-            Nothing ->
-              panic
-                "createSkipOverride"
-                ["Mismatched return types"]
-            Just Refl ->
-              do (result, value) <-
-                   runSetup
+    returnValue mem cRet (Some (FuncSigRepr _ _ fRet)) =
+      case (testCompatibilityReturn modCtx fRet cRet, fRet) of
+        (Just Refl, VoidRepr) -> pure ((), mem)
+        (Just Refl, NonVoidRepr retFullType) ->
+          do (result, value) <-
+               runSetup
+                 modCtx
+                 mem
+                 ( generate
+                     bak
                      modCtx
-                     mem
-                     ( generate
-                         bak
-                         modCtx
-                         retFullType
-                         ( SelectReturn
-                             ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of
-                                 Nothing ->
-                                   panic
-                                     "createSkipOverride"
-                                     [ "Precondition violation:",
-                                       "Declaration not found in module:",
-                                       show symbolName
-                                     ]
-                                 Just s -> s
-                             )
-                             (Here retFullType)
+                     retFullType
+                     ( SelectReturn
+                         ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of
+                             Nothing ->
+                               panic
+                                 "createSkipOverride"
+                                 [ "Precondition violation:",
+                                   "Declaration not found in module:",
+                                   show symbolName
+                                 ]
+                             Just s -> s
                          )
-                         ( case postcondition of
-                             Just (ConstrainedTypedValue ft shape) ->
-                               case testEquality ft retFullType of
-                                 Just Refl -> shape
-                                 Nothing ->
-                                   panic
-                                     "createSkipOverride"
-                                     [ "Ill-typed constraints on return value for override "
-                                         <> Text.unpack name
-                                     ]
-                             Nothing -> minimalConstrainedShape retFullType
-                         )
+                         (Here retFullType)
                      )
-                 assume name bak (resultAssumptions result)
-                 -- The keys are nonces, so they'll never clash, so the
-                 -- bias of the union is unimportant.
-                 modifyIORef annotationRef (Map.union (resultAnnotations result))
-                 pure (value ^. Shape.tag . to getSymValue, resultMem result)
+                     ( case postcondition of
+                         Just (ConstrainedTypedValue ft shape) ->
+                           case testEquality ft retFullType of
+                             Just Refl -> shape
+                             Nothing ->
+                               panic
+                                 "createSkipOverride"
+                                 [ "Ill-typed constraints on return value for override "
+                                     <> Text.unpack name
+                                 ]
+                         Nothing -> minimalConstrainedShape retFullType
+                     )
+                 )
+             assume name bak (resultAssumptions result)
+             -- The keys are nonces, so they'll never clash, so the
+             -- bias of the union is unimportant.
+             modifyIORef annotationRef (Map.union (resultAnnotations result))
+             pure (value ^. Shape.tag . to getSymValue, resultMem result)
+        (Nothing, _) -> panic "createSkipOverride" ["Mismatched return types"]

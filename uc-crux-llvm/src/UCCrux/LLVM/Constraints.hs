@@ -49,7 +49,7 @@ module UCCrux.LLVM.Constraints
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (^.), at, to)
+import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (^.), at)
 import qualified Control.Lens as Lens
 import           Data.Bifunctor (first)
 import           Data.BitVector.Sized (BV)
@@ -86,7 +86,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.Translation (ftRetType)
+import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr), ReturnTypeRepr(VoidRepr, NonVoidRepr))
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, getGlobalSymbol, FuncSymbol, funcSymbol, getFuncSymbol)
 
@@ -544,14 +544,12 @@ addConstraint modCtx argTypes constraints =
 
     newReturnValueShape :: FuncSymbol m -> ConstrainedTypedValue m
     newReturnValueShape symbol =
-      case modCtx ^. funcTypes . funcSymbol symbol . to ftRetType of
-        Nothing ->
+      case modCtx ^. funcTypes . funcSymbol symbol of
+        Some (FuncSigRepr _ _ VoidRepr) ->
           panic
             "addConstraint"
             [ "Constraint on return value of void function: "
                 ++ show (getFuncSymbol symbol)
             ]
-        Just (Some ft) ->
-          ConstrainedTypedValue
-            ft
-            (minimalConstrainedShape ft)
+        Some (FuncSigRepr _ _ (NonVoidRepr ft)) ->
+          ConstrainedTypedValue ft (minimalConstrainedShape ft)
