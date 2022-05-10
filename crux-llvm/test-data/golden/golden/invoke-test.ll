@@ -101,7 +101,7 @@ bb2:                                              ; preds = %bb1
 
 ; core::fmt::Arguments::new_v1_formatted
 ; Function Attrs: inlinehint uwtable
-define internal void @_ZN4core3fmt9Arguments16new_v1_formatted17hd5e9ced080c81dfaE(%"core::fmt::Arguments"* noalias nocapture sret dereferenceable(48), [0 x { [0 x i8]*, i64 }]* noalias nonnull readonly align 8 %pieces.0, i64 %pieces.1, [0 x { i8*, i8* }]* noalias nonnull readonly align 8 %args.0, i64 %args.1, [0 x %"core::fmt::rt::v1::Argument"]* noalias nonnull readonly align 8 %fmt.0, i64 %fmt.1) unnamed_addr #1 {
+define internal void @_ZN4core3fmt9Arguments16new_v1_formatted17hd5e9ced080c81dfaE(%"core::fmt::Arguments"* noalias nocapture sret(%"core::fmt::Arguments") dereferenceable(48), [0 x { [0 x i8]*, i64 }]* noalias nonnull readonly align 8 %pieces.0, i64 %pieces.1, [0 x { i8*, i8* }]* noalias nonnull readonly align 8 %args.0, i64 %args.1, [0 x %"core::fmt::rt::v1::Argument"]* noalias nonnull readonly align 8 %fmt.0, i64 %fmt.1) unnamed_addr #1 {
 start:
   %_5 = alloca { i64*, i64 }, align 8
   %1 = bitcast { i64*, i64 }* %_5 to { [0 x %"core::fmt::rt::v1::Argument"]*, i64 }*
@@ -926,7 +926,7 @@ bb4:                                              ; preds = %bb3
   store i8* %10, i8** %13, align 8
   %14 = bitcast [1 x { i8*, i8* }]* %_16 to [0 x { i8*, i8* }]*
 ; call core::fmt::Arguments::new_v1_formatted
-  call void @_ZN4core3fmt9Arguments16new_v1_formatted17hd5e9ced080c81dfaE(%"core::fmt::Arguments"* noalias nocapture sret dereferenceable(48) %_9, [0 x { [0 x i8]*, i64 }]* noalias nonnull readonly align 8 bitcast (<{ i8*, [8 x i8], i8*, [8 x i8] }>* @2 to [0 x { [0 x i8]*, i64 }]*), i64 2, [0 x { i8*, i8* }]* noalias nonnull readonly align 8 %14, i64 1, [0 x %"core::fmt::rt::v1::Argument"]* noalias nonnull readonly align 8 bitcast (<{ [64 x i8] }>* @3 to [0 x %"core::fmt::rt::v1::Argument"]*), i64 1)
+  call void @_ZN4core3fmt9Arguments16new_v1_formatted17hd5e9ced080c81dfaE(%"core::fmt::Arguments"* noalias nocapture sret(%"core::fmt::Arguments") dereferenceable(48) %_9, [0 x { [0 x i8]*, i64 }]* noalias nonnull readonly align 8 bitcast (<{ i8*, [8 x i8], i8*, [8 x i8] }>* @2 to [0 x { [0 x i8]*, i64 }]*), i64 2, [0 x { i8*, i8* }]* noalias nonnull readonly align 8 %14, i64 1, [0 x %"core::fmt::rt::v1::Argument"]* noalias nonnull readonly align 8 bitcast (<{ [64 x i8] }>* @3 to [0 x %"core::fmt::rt::v1::Argument"]*), i64 1)
   br label %bb5
 
 bb5:                                              ; preds = %bb4
