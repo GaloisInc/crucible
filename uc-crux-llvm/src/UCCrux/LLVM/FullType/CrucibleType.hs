@@ -163,10 +163,17 @@ testCompatibilityAssign proxy ftAssign ctAssign =
         _ -> Nothing
     _ -> Nothing
 
+-- | Test compatibility of a 'ReturnTypeRepr' against a 'CrucibleTypes.TypeRepr'.
+--
+-- Crucible represents LLVM functions with a @void@ return type as returning
+-- @Unit@. This corresponds to a 'VoidRepr' in 'ReturnTypeRepr'. Non-unit
+-- Crucible types are tested for compatibility (using 'testCompatibility')
+-- against the content of the 'NonVoidRepr'.
 testCompatibilityReturn ::
   ArchOk arch =>
   proxy arch ->
   ReturnTypeRepr m mft ->
+  -- | Crucible representative of a function return type
   CrucibleTypes.TypeRepr cty ->
   Maybe (ReturnTypeToCrucibleType arch mft :~: cty)
 testCompatibilityReturn proxy rty cty =
