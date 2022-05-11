@@ -16,13 +16,10 @@ Stability        : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.FullType.Translation
-  ( FunctionTypes (..),
-    MatchingAssign (..),
+  ( FuncSigRepr (..),
     TranslatedTypes (..),
     TypeTranslationError,
     translateModuleDefines,
@@ -38,7 +35,6 @@ import           Control.Monad (unless)
 import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
 import           Control.Monad.State (State, runState)
 import           Data.Functor ((<&>))
-import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Map as Map
 import           GHC.Stack (HasCallStack)
 
@@ -52,7 +48,6 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as Crucible
-import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
 import           Lang.Crucible.LLVM.MemType (fdArgTypes, fdRetType, fdVarArgs)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation)
@@ -62,24 +57,11 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Errors.MalformedLLVMModule (malformedLLVMModule)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign'(..), testCompatibilityAssign, assignmentToCrucibleType)
+import           UCCrux.LLVM.FullType.FuncSig
 import           UCCrux.LLVM.FullType.Type
-import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, boolToVarArgsRepr)
+import           UCCrux.LLVM.FullType.VarArgs (boolToVarArgsRepr)
 import           UCCrux.LLVM.Module (Module, FuncMap(..), GlobalMap, moduleDeclMap, moduleDefnMap, moduleGlobalMap)
 {- ORMOLU_ENABLE -}
-
-data FunctionTypes m arch = FunctionTypes
-  { ftArgTypes :: MatchingAssign m arch,
-    ftRetType :: Maybe (Some (FullTypeRepr m)),
-    ftIsVarArgs :: Some VarArgsRepr
-  }
-
-data MatchingAssign m arch = forall fullTypes crucibleTypes.
-  MapToCrucibleType arch fullTypes ~ crucibleTypes =>
-  MatchingAssign
-  { maFullTypes :: Ctx.Assignment (FullTypeRepr m) fullTypes,
-    maCrucibleTypes :: Ctx.Assignment CrucibleTypes.TypeRepr crucibleTypes
-  }
 
 -- | The existential quantification over @m@ here makes the @FullType@ API safe.
 -- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by
@@ -96,7 +78,7 @@ data TranslatedTypes arch =
   { translatedModule :: Module m,
     translatedModuleTypes :: ModuleTypes m,
     translatedGlobalTypes :: GlobalMap m (Some (FullTypeRepr m)),
-    translatedFuncTypes :: FuncMap m (FunctionTypes m arch)
+    translatedFuncTypes :: FuncMap m (Some (FuncSigRepr m))
   }
 
 data TypeTranslationError
@@ -175,10 +157,7 @@ translateModuleDefines llvmModule trans =
 
     translateDefine ::
       L.Define ->
-      ExceptT
-        TypeTranslationError
-        (State (ModuleTypes m))
-        (FunctionTypes m arch)
+      ExceptT TypeTranslationError (State (ModuleTypes m)) (Some (FuncSigRepr m))
     translateDefine defn =
       do
         let decl = LLVMTrans.declareFromDefine defn
@@ -204,52 +183,13 @@ translateModuleDefines llvmModule trans =
                        )
 
         unless matchedNumArgTypes (throwError (BadLiftArgs (L.decName decl)))
-        Some fullTypes <-
-          Ctx.generateSomeM
-            ( Ctx.sizeInt (Ctx.size crucibleTypes)
-                - if isVarArgs
-                  then 1
-                  else 0
-            )
-            ( \idx ->
-                do
-                  -- NOTE(lb): The indexing here is safe because of the "unless
-                  -- matchedNumArgTypes" just above.
-                  Some fullTypeRepr <-
-                    withExceptT FullTypeTranslation $
-                      toFullTypeM (memTypes !! idx)
-                  pure $ Some fullTypeRepr
-            )
-        retType <-
-          traverse
-            (withExceptT FullTypeTranslation . toFullTypeM)
-            (fdRetType liftedDecl)
-        Some crucibleTypes' <-
-          pure $
-            if isVarArgs
-              then removeVarArgsRepr crucibleTypes
-              else Some crucibleTypes
-        case testCompatibilityAssign (Proxy @arch) fullTypes crucibleTypes' of
-          Just Refl ->
-            pure $
-              FunctionTypes
-                { ftArgTypes = MatchingAssign fullTypes crucibleTypes',
-                  ftRetType = retType,
-                  ftIsVarArgs = boolToVarArgsRepr isVarArgs
-                }
-          Nothing ->
-            panic
-              "Impossible"
-              ["(toCrucibleType . toFullTypeM) should be the identity function"]
+        translateDeclare decl
 
     -- In this case, we don't have any Crucible types on hand to test
     -- compatibility with, they're just manufactured from the FullTypeReprs
     translateDeclare ::
       L.Declare ->
-      ExceptT
-        TypeTranslationError
-        (State (ModuleTypes m))
-        (FunctionTypes m arch)
+      ExceptT TypeTranslationError (State (ModuleTypes m)) (Some (FuncSigRepr m))
     translateDeclare decl =
       do
         liftedDecl <-
@@ -272,28 +212,6 @@ translateModuleDefines llvmModule trans =
           traverse
             (withExceptT FullTypeTranslation . toFullTypeM)
             (fdRetType liftedDecl)
-        SomeAssign' crucibleTypes Refl _ <-
-          pure $ assignmentToCrucibleType (Proxy @arch) fullTypes
-        pure $
-          FunctionTypes
-            { ftArgTypes = MatchingAssign fullTypes crucibleTypes,
-              ftRetType = retType,
-              ftIsVarArgs = boolToVarArgsRepr isVarArgs
-            }
-
-    removeVarArgsRepr ::
-      Ctx.Assignment CrucibleTypes.TypeRepr ctx ->
-      Some (Ctx.Assignment CrucibleTypes.TypeRepr)
-    removeVarArgsRepr crucibleTypes =
-      case Ctx.viewAssign crucibleTypes of
-        Ctx.AssignEmpty ->
-          panic
-            "translateModuleDefines"
-            ["varargs function with no arguments"]
-        Ctx.AssignExtend rest vaRepr ->
-          case testEquality vaRepr LLVMTrans.varArgsRepr of
-            Just Refl -> Some rest
-            Nothing ->
-              panic
-                "translateModuleDefines"
-                ["varargs function with no varargs repr"]
+        Some retTypeRepr <- return (mkReturnTypeRepr retType)
+        Some vaRep <- return (boolToVarArgsRepr isVarArgs)
+        pure (Some (FuncSigRepr vaRep fullTypes retTypeRepr))

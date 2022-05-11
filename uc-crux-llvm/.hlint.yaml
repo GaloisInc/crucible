@@ -78,6 +78,7 @@
     name: "Redundant bracket"
     within:
       - "UCCrux.LLVM.Cursor"
+      - "UCCrux.LLVM.FullType.FuncSig"
       - "UCCrux.LLVM.FullType.Type"
       - "UCCrux.LLVM.FullType.VarArgs"
       - "UCCrux.LLVM.Shape"

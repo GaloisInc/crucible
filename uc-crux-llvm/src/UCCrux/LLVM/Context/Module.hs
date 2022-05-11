@@ -11,7 +11,6 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 module UCCrux.LLVM.Context.Module
   ( ModuleContext,
@@ -38,8 +37,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.), Simple, Getter, Lens, lens, to, at)
-import           Data.Proxy (Proxy(Proxy))
-import           Data.Type.Equality ((:~:)(Refl), testEquality)
+import           Data.Type.Equality ((:~:)(Refl))
 import           GHC.Stack (HasCallStack)
 
 import           Text.LLVM.AST (Symbol(Symbol))
@@ -49,7 +47,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as Crucible
-import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
 import           Lang.Crucible.LLVM.DataLayout (DataLayout)
 import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
@@ -63,10 +60,10 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
-import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, throwTypeTranslationError)
+import           UCCrux.LLVM.FullType.CrucibleType (testCompatibilityAssign, testCompatibilityReturn)
+import           UCCrux.LLVM.FullType.FuncSig (ReturnTypeRepr, ReturnTypeToCrucibleType, FuncSigRepr(..))
+import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, translateModuleDefines, throwTypeTranslationError)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
-import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
 import           UCCrux.LLVM.Module (Module, FuncSymbol, DeclMap, DefnMap, FuncMap, GlobalMap, funcSymbol, getFuncSymbol, funcMapDecls, funcMapDefns, allModuleDeclMap)
 {- ORMOLU_ENABLE -}
@@ -77,7 +74,7 @@ data ModuleContext m arch = ModuleContext
     _llvmModule :: Module m,
     _moduleTypes :: ModuleTypes m,
     _globalTypes :: GlobalMap m (Some (FullTypeRepr m)),
-    _funcTypes :: FuncMap m (FunctionTypes m arch),
+    _funcTypes :: FuncMap m (Some (FuncSigRepr m)),
     _moduleTranslation :: ModuleTranslation arch,
     _moduleDecls :: FuncMap m L.Declare
   }
@@ -94,13 +91,13 @@ moduleTypes = lens _moduleTypes (\s v -> s {_moduleTypes = v})
 globalTypes :: Simple Lens (ModuleContext m arch) (GlobalMap m (Some (FullTypeRepr m)))
 globalTypes = lens _globalTypes (\s v -> s {_globalTypes = v})
 
-funcTypes :: Simple Lens (ModuleContext m arch) (FuncMap m (FunctionTypes m arch))
+funcTypes :: Simple Lens (ModuleContext m arch) (FuncMap m (Some (FuncSigRepr m)))
 funcTypes = lens _funcTypes (\s v -> s {_funcTypes = v})
 
-declTypes :: Simple Lens (ModuleContext m arch) (DeclMap m (FunctionTypes m arch))
+declTypes :: Simple Lens (ModuleContext m arch) (DeclMap m (Some (FuncSigRepr m)))
 declTypes = funcTypes . funcMapDecls
 
-defnTypes :: Simple Lens (ModuleContext m arch) (DefnMap m (FunctionTypes m arch))
+defnTypes :: Simple Lens (ModuleContext m arch) (DefnMap m (Some (FuncSigRepr m)))
 defnTypes = funcTypes . funcMapDefns
 
 moduleTranslation :: Simple Lens (ModuleContext m arch) (ModuleTranslation arch)
@@ -167,7 +164,7 @@ data CFGWithTypes m arch = forall argTypes ret blocks.
         (MapToCrucibleType arch argTypes)
         (ReturnTypeToCrucibleType arch ret),
     cfgArgFullTypes :: Ctx.Assignment (FullTypeRepr m) argTypes,
-    cfgRetFullType :: ReturnType m ret,
+    cfgRetFullType :: ReturnTypeRepr m ret,
     cfgIsVarArgs :: Some VarArgsRepr
   }
 
@@ -187,7 +184,7 @@ findFun ::
   CFGWithTypes m arch
 findFun modCtx funcSym =
   case modCtx ^. funcTypes . funcSymbol funcSym of
-    FunctionTypes (MatchingAssign argFTys argCTys) retTy (Some varArgs) ->
+    Some (FuncSigRepr varArgs argFTys retTy) ->
       do let sym@(Symbol name) = getFuncSymbol funcSym
          case modCtx ^. moduleTranslation . to LLVMTrans.cfgMap . at sym of
            Nothing -> panic "findFunc" ["Missing function:" ++ name]
@@ -195,37 +192,15 @@ findFun modCtx funcSym =
              if varArgsReprToBool varArgs
              then unimplemented "findFun" Unimplemented.VarArgsFunction
              else
-               case testEquality (Crucible.cfgArgTypes cfg) argCTys of
+               case testCompatibilityAssign modCtx argFTys (Crucible.cfgArgTypes cfg) of
                  Nothing -> panic "findFunc" ["Mismatched argument types"]
                  Just Refl ->
-                   case Crucible.cfgReturnType cfg of
-                     CrucibleTypes.UnitRepr ->
-                       case retTy of
-                         Just (Some _) ->
-                           panic
-                             "findFun"
-                             [ unwords
-                                 [ "Extra return type: Crucible function type was void",
-                                   "but the translated type was not."
-                                 ]
-                             ]
-                         Nothing ->
-                           CFGWithTypes
-                             { cfgWithTypes = cfg,
-                               cfgArgFullTypes = argFTys,
-                               cfgRetFullType = Void,
-                               cfgIsVarArgs = Some varArgs
-                             }
-                     cRetTy ->
-                       case retTy of
-                         Nothing -> panic "findFun" ["Missing return type"]
-                         Just (Some retTy') ->
-                           case testCompatibility (Proxy @arch) retTy' cRetTy of
-                             Just Refl ->
-                               CFGWithTypes
-                                 { cfgWithTypes = cfg,
-                                   cfgArgFullTypes = argFTys,
-                                   cfgRetFullType = NonVoid retTy',
-                                   cfgIsVarArgs = Some varArgs
-                                 }
-                             Nothing -> panic "findFun" ["Bad return type"]
+                   case testCompatibilityReturn modCtx retTy (Crucible.cfgReturnType cfg) of
+                     Nothing -> panic "findFunc" ["Mismatched return types"]
+                     Just Refl ->
+                       CFGWithTypes
+                         { cfgWithTypes = cfg,
+                           cfgArgFullTypes = argFTys,
+                           cfgRetFullType = retTy,
+                           cfgIsVarArgs = Some varArgs
+                         }
