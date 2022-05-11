@@ -68,11 +68,11 @@ import qualified Crux.LLVM.Config as CruxLLVM
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- local
-import           UCCrux.LLVM.Constraints (Constraints, emptyConstraints, ppConstraint, ppShapeConstraint)
 import           UCCrux.LLVM.Cursor (ppSelector)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), findFun)
 import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext, argumentFullTypes)
+import           UCCrux.LLVM.Constraints (ppConstraint, ppShapeConstraint)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType (FullType, FullTypeRepr, MapToCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FT
@@ -81,6 +81,7 @@ import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPre
 import qualified UCCrux.LLVM.Overrides.Check as Check
 import qualified UCCrux.LLVM.Overrides.Stack as Stack
 import           UCCrux.LLVM.PP (ppRegMap)
+import           UCCrux.LLVM.Precondition (Constraints, emptyConstraints)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints)
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import qualified UCCrux.LLVM.Run.Loop as Loop

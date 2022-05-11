@@ -62,7 +62,6 @@ import           Crux.LLVM.Overrides
 
  -- local
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
-import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString, functionNameFromString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName)
@@ -72,6 +71,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimpleme
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), defnSymbolToString, makeDefnSymbol, getModule)
+import           UCCrux.LLVM.Precondition (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result

@@ -92,7 +92,7 @@ import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), basic_ll
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), Constraints, ConstrainedShape(..), argConstraints, globalConstraints, ppConstraints, ConstrainedTypedValue(..))
+import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), ConstrainedShape(..), ConstrainedTypedValue(..))
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector, selectorCursor)
@@ -105,6 +105,7 @@ import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getGlobalSymbol)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
+import           UCCrux.LLVM.Precondition (Constraints, argConstraints, globalConstraints, ppConstraints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Setup.Constraints (constraintToPred)

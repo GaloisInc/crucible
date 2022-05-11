@@ -42,8 +42,8 @@ import           Data.Parameterized.Ctx (Ctx)
 import           Data.Parameterized.Context (Assignment)
 
 import           UCCrux.LLVM.Classify.Types (Located, ppLocated, TruePositive, ppTruePositive, Uncertainty, ppUncertainty, Diagnosis)
-import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
+import           UCCrux.LLVM.Precondition (isEmpty, ppConstraints, Constraints(..))
 import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
 {- ORMOLU_ENABLE -}

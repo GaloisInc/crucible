@@ -74,6 +74,7 @@ library
     UCCrux.LLVM.Overrides.Stack
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
+    UCCrux.LLVM.Precondition
     UCCrux.LLVM.Run.Check
     UCCrux.LLVM.Run.EntryPoints
     UCCrux.LLVM.Run.Explore

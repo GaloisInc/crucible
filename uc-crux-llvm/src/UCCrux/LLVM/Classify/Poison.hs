@@ -50,9 +50,10 @@ import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Cursor (ppCursor, SomeInSelector(SomeInSelector), Where, selectWhere, selectorCursor)
-import           UCCrux.LLVM.Constraints (Constraint(BVCmp), NewConstraint(..))
+import           UCCrux.LLVM.Constraints (Constraint(BVCmp))
 import           UCCrux.LLVM.FullType.Type (FullType(FTInt), FullTypeRepr(FTIntRepr))
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
+import           UCCrux.LLVM.Precondition (NewConstraint(..))
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
 {- ORMOLU_ENABLE -}
 

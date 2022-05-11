@@ -69,7 +69,7 @@ import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 -- crux
 import           Crux.LLVM.Overrides (ArchOk)
 
-import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints, minimalConstrainedShape)
+import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), minimalConstrainedShape)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule, moduleTypes, globalTypes)
@@ -82,6 +82,7 @@ import           UCCrux.LLVM.FullType.Memory (pointerRange, sizeBv)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
+import           UCCrux.LLVM.Precondition (Constraints, argConstraints, globalConstraints)
 import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
