@@ -13,18 +13,16 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module UCCrux.LLVM.Precondition
-  ( Constraints (..),
-    argConstraints,
-    globalConstraints,
-    returnConstraints,
-    relationalConstraints,
-    emptyConstraints,
-    ppConstraints,
+  ( Preconds (..),
+    argPreconds,
+    globalPreconds,
+    returnPreconds,
+    relationalPreconds,
+    emptyPreconds,
+    ppPreconds,
     isEmpty,
 
     -- * Expansion
@@ -34,7 +32,7 @@ module UCCrux.LLVM.Precondition
 
     -- * 'NewConstraint'
     NewConstraint (..),
-    addConstraint,
+    addPrecond,
   )
 where
 
@@ -82,33 +80,33 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(
 --
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
-data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
-  { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
-    _globalConstraints :: Map (GlobalSymbol m) (ConstrainedTypedValue m),
-    _returnConstraints :: Map (FuncSymbol m) (ConstrainedTypedValue m),
-    _relationalConstraints :: [RelationalConstraint m argTypes]
+data Preconds m (argTypes :: Ctx (FullType m)) = Preconds
+  { _argPreconds :: Ctx.Assignment (ConstrainedShape m) argTypes,
+    _globalPreconds :: Map (GlobalSymbol m) (ConstrainedTypedValue m),
+    _returnPreconds :: Map (FuncSymbol m) (ConstrainedTypedValue m),
+    _relationalPreconds :: [RelationalConstraint m argTypes]
   }
 
-argConstraints :: Simple Lens (Constraints m argTypes) (Ctx.Assignment (ConstrainedShape m) argTypes)
-argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
+argPreconds :: Simple Lens (Preconds m argTypes) (Ctx.Assignment (ConstrainedShape m) argTypes)
+argPreconds = lens _argPreconds (\s v -> s {_argPreconds = v})
 
-globalConstraints :: Simple Lens (Constraints m globalTypes) (Map (GlobalSymbol m) (ConstrainedTypedValue m))
-globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
+globalPreconds :: Simple Lens (Preconds m globalTypes) (Map (GlobalSymbol m) (ConstrainedTypedValue m))
+globalPreconds = lens _globalPreconds (\s v -> s {_globalPreconds = v})
 
-returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (FuncSymbol m) (ConstrainedTypedValue m))
-returnConstraints = lens _returnConstraints (\s v -> s {_returnConstraints = v})
+returnPreconds :: Simple Lens (Preconds m returnTypes) (Map (FuncSymbol m) (ConstrainedTypedValue m))
+returnPreconds = lens _returnPreconds (\s v -> s {_returnPreconds = v})
 
-relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
-relationalConstraints = lens _relationalConstraints (\s v -> s {_relationalConstraints = v})
+relationalPreconds :: Simple Lens (Preconds m argTypes) [RelationalConstraint m argTypes]
+relationalPreconds = lens _relationalPreconds (\s v -> s {_relationalPreconds = v})
 
 -- | The minimal set of constraints on this 'Ctx.Assignment' of types. For each
 -- input type, the generated 'ConstrainedShape' has the minimal memory footprint
 -- (all pointers are not assumed to point to allocated memory) and an empty list
 -- of 'Constraint'.
-emptyArgConstraints ::
+emptyArgPreconds ::
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   Ctx.Assignment (ConstrainedShape m) argTypes
-emptyArgConstraints argTypes =
+emptyArgPreconds argTypes =
   fmapFC
     ( \argType ->
         ConstrainedShape
@@ -118,20 +116,20 @@ emptyArgConstraints argTypes =
 
 -- | The minimal set of constraints on a program state: no constraints
 -- whatsoever on globals, and only the minimal constraints (see
--- 'emptyArgConstraints') on the function arguments.
-emptyConstraints ::
+-- 'emptyArgPreconds') on the function arguments.
+emptyPreconds ::
   Ctx.Assignment (FullTypeRepr m) argTypes ->
-  Constraints m argTypes
-emptyConstraints argTypes =
-  Constraints
-    { _argConstraints = emptyArgConstraints argTypes,
-      _globalConstraints = Map.empty,
-      _returnConstraints = Map.empty,
-      _relationalConstraints = []
+  Preconds m argTypes
+emptyPreconds argTypes =
+  Preconds
+    { _argPreconds = emptyArgPreconds argTypes,
+      _globalPreconds = Map.empty,
+      _returnPreconds = Map.empty,
+      _relationalPreconds = []
     }
 
-ppConstraints :: Constraints m argTypes -> Doc Void
-ppConstraints (Constraints args globs returnCs relCs) =
+ppPreconds :: Preconds m argTypes -> Doc Void
+ppPreconds (Preconds args globs returnCs relCs) =
   PP.vsep
     ( catMaybes
         [ if Ctx.sizeInt (Ctx.size args) == 0
@@ -141,7 +139,7 @@ ppConstraints (Constraints args globs returnCs relCs) =
                 nestSep
                   ( PP.pretty "Arguments:" :
                     toListFC
-                      (Shape.ppShape ppConstraints' . getConstrainedShape)
+                      (Shape.ppShape ppPreconds' . getConstrainedShape)
                       args
                   ),
           Just $
@@ -165,17 +163,17 @@ ppConstraints (Constraints args globs returnCs relCs) =
         ]
     )
   where
-    ppConstraints' (Compose constraints) = PP.vsep (map ppConstraint constraints)
+    ppPreconds' (Compose constraints) = PP.vsep (map ppConstraint constraints)
     nestSep = PP.nest 2 . PP.vsep
 
     ppLabeledValue getSymbol label (ConstrainedTypedValue _type (ConstrainedShape s)) =
       let L.Symbol nm = getSymbol label
        in PP.pretty nm
             <> PP.pretty ": "
-            <> Shape.ppShape ppConstraints' s
+            <> Shape.ppShape ppPreconds' s
 
-isEmpty :: Constraints m argTypes -> Bool
-isEmpty (Constraints args globs returns rels) =
+isEmpty :: Preconds m argTypes -> Bool
+isEmpty (Preconds args globs returns rels) =
   allFC isMin args
     && all (\(ConstrainedTypedValue _ s) -> isMin s) globs
     && null returns
@@ -302,42 +300,42 @@ data NewConstraint m (argTypes :: Ctx (FullType m))
   | forall atTy. NewConstraint (SomeInSelector m argTypes atTy) (Constraint m atTy)
   | NewRelationalConstraint (RelationalConstraint m argTypes)
 
--- | Add a newly-deduced constraint to an existing set of constraints.
-addConstraint ::
+-- | Add a newly-deduced constraint to an existing set of preconditions.
+addPrecond ::
   forall m arch argTypes.
   ModuleContext m arch ->
   Ctx.Assignment (FullTypeRepr m) argTypes ->
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   NewConstraint m argTypes ->
-  Either ExpansionError (Constraints m argTypes)
-addConstraint modCtx argTypes constraints =
+  Either ExpansionError (Preconds m argTypes)
+addPrecond modCtx argTypes constraints =
   \case
     NewConstraint (SomeInSelector (SelectGlobal symbol cursor)) constraint ->
-      constraints & globalConstraints . atDefault symbol (newGlobalShape symbol)
+      constraints & globalPreconds . atDefault symbol (newGlobalShape symbol)
         %%~ constrainTypedVal cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectGlobal symbol cursor)) shapeConstraint ->
-      constraints & globalConstraints . atDefault symbol (newGlobalShape symbol)
+      constraints & globalPreconds . atDefault symbol (newGlobalShape symbol)
         %%~ constrainTypedVal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectReturn symbol cursor)) constraint ->
-      constraints & returnConstraints . atDefault symbol (newReturnValueShape symbol)
+      constraints & returnPreconds . atDefault symbol (newReturnValueShape symbol)
         %%~ constrainTypedVal cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectReturn symbol cursor)) shapeConstraint ->
-      constraints & returnConstraints . atDefault symbol (newReturnValueShape symbol)
+      constraints & returnPreconds . atDefault symbol (newReturnValueShape symbol)
         %%~ constrainTypedVal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectArgument idx cursor)) constraint ->
-      constraints & argConstraints . ixF' idx
+      constraints & argPreconds . ixF' idx
         %%~ (\shape -> addOneConstraint constraint shape cursor)
     NewShapeConstraint (SomeInSelector (SelectArgument idx cursor)) shapeConstraint ->
-      constraints & argConstraints . ixF' idx
+      constraints & argPreconds . ixF' idx
         %%~ ( \shape ->
                 addOneShapeConstraint shapeConstraint (argTypes ^. ixF' idx) shape cursor
             )
     NewRelationalConstraint relationalConstraint ->
-      Right $ constraints & relationalConstraints %~ (relationalConstraint :)
+      Right $ constraints & relationalPreconds %~ (relationalConstraint :)
     NewConstraint (SomeInSelector SelectClobbered {}) _ ->
-      unimplemented "addConstraint" ClobberConstraints
+      unimplemented "addPrecond" ClobberConstraints
     NewShapeConstraint (SomeInSelector SelectClobbered {}) _ ->
-      unimplemented "addConstraint" ClobberConstraints
+      unimplemented "addPrecond" ClobberConstraints
   where
     fromMaybeL :: forall a. a -> Lens.Lens' (Maybe a) a
     fromMaybeL def = lens (fromMaybe def) (\_old new -> Just new)
@@ -396,7 +394,7 @@ addConstraint modCtx argTypes constraints =
       Either ExpansionError (ConstrainedTypedValue m)
     constrainTypedVal cursor doAdd (ConstrainedTypedValue ft shape) =
       case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-        Nothing -> panic "addConstraint" ["Ill-typed global or return value cursor"]
+        Nothing -> panic "addPrecond" ["Ill-typed global or return value cursor"]
         Just cursor' -> ConstrainedTypedValue ft <$> doAdd ft shape cursor'
 
     newGlobalShape :: GlobalSymbol m -> ConstrainedTypedValue m
@@ -412,7 +410,7 @@ addConstraint modCtx argTypes constraints =
       case modCtx ^. funcTypes . funcSymbol symbol of
         Some (FuncSigRepr _ _ VoidRepr) ->
           panic
-            "addConstraint"
+            "addPrecond"
             [ "Constraint on return value of void function: "
                 ++ show (getFuncSymbol symbol)
             ]

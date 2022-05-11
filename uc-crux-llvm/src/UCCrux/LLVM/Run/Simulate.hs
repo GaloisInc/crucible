@@ -117,7 +117,7 @@ import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, get
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap, ppProgramLoc)
-import           UCCrux.LLVM.Precondition (Constraints, returnConstraints, relationalConstraints)
+import           UCCrux.LLVM.Precondition (Preconds, returnPreconds, relationalPreconds)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SymValue)
 import           UCCrux.LLVM.Setup.Assume (assume)
@@ -285,7 +285,7 @@ mkCallbacks ::
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
   SimulatorCallbacks m arch argTypes r ->
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   LLVMOptions ->
   Crux.SimulatorCallbacks msgs r
@@ -356,7 +356,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                 { Crucible.printHandle = view outputHandle ?outputConfig
                 }
 
-        unless (null (constraints ^. relationalConstraints)) $
+        unless (null (constraints ^. relationalPreconds)) $
           panic "simulateLLVM" ["Unimplemented: relational constraints"]
 
         setupResult <-
@@ -433,7 +433,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                         skipOverrideRef
                         skipReturnValueAnnotations
                         Map.empty  -- clobber specs
-                        (constraints ^. returnConstraints)
+                        (constraints ^. returnPreconds)
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
                     let sOverrides' =
                           map
@@ -601,7 +601,7 @@ runSimulatorWithCallbacks ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
   LLVMOptions ->
@@ -630,7 +630,7 @@ runSimulator ::
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
   [CreateOverrideFn arch] ->
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
   LLVMOptions ->

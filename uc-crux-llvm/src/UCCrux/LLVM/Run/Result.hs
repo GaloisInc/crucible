@@ -43,7 +43,7 @@ import           Data.Parameterized.Context (Assignment)
 
 import           UCCrux.LLVM.Classify.Types (Located, ppLocated, TruePositive, ppTruePositive, Uncertainty, ppUncertainty, Diagnosis)
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
-import           UCCrux.LLVM.Precondition (isEmpty, ppConstraints, Constraints(..))
+import           UCCrux.LLVM.Precondition (isEmpty, ppPreconds, Preconds(..))
 import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
 {- ORMOLU_ENABLE -}
@@ -79,11 +79,11 @@ ppFunctionSummaryTag =
 -- compatibility.
 --
 -- TODO: It would be great to have more provenance information for the
--- 'Constraints'. What bug does a given constraint help avoid? On what line?
+-- 'Preconds'. What bug does a given constraint help avoid? On what line?
 data FunctionSummary m (argTypes :: Ctx (FullType m))
   = Unclear (NonEmpty (Located Uncertainty))
   | FoundBugs (NonEmpty (Located TruePositive))
-  | SafeWithPreconditions DidHitBounds Unsoundness (Constraints m argTypes)
+  | SafeWithPreconditions DidHitBounds Unsoundness (Preconds m argTypes)
   | SafeUpToBounds Unsoundness
   | AlwaysSafe Unsoundness
 
@@ -131,7 +131,7 @@ ppFunctionSummary fs =
           <> if didHit b
             then PP.pretty ("The loop/recursion bound is not exceeded, and:\n" :: Text)
             else
-              ppConstraints preconditions
+              ppPreconds preconditions
                 <> ppUnsoundness' u
       AlwaysSafe u -> "." <> ppUnsoundness' u
       SafeUpToBounds u -> "." <> ppUnsoundness' u
@@ -170,7 +170,7 @@ didHit =
 -- NOTE(lb): Unsoundness is not reported to the user when the result is
 -- uncertain, because no claim is being made that unsoundness could make false.
 makeFunctionSummary ::
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   [Located Uncertainty] ->
   [Located TruePositive] ->
   DidHitBounds ->

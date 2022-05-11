@@ -51,7 +51,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), de
 import           UCCrux.LLVM.Context.Function (FunctionContext, makeFunctionContext)
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDefnSymbol))
 import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString)
-import           UCCrux.LLVM.Precondition (emptyConstraints)
+import           UCCrux.LLVM.Precondition (emptyPreconds)
 import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main as Main
 import qualified UCCrux.LLVM.Run.EntryPoints as EntryPoints
@@ -234,7 +234,7 @@ simulateFunc file func makeCallbacks =
                   modCtx
                   funCtx
                   halloc
-                  (emptyConstraints argFTys)
+                  (emptyPreconds argFTys)
                   cfg
                   cruxOpts
                   llOpts

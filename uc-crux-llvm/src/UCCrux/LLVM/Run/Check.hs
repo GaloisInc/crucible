@@ -81,7 +81,7 @@ import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPre
 import qualified UCCrux.LLVM.Overrides.Check as Check
 import qualified UCCrux.LLVM.Overrides.Stack as Stack
 import           UCCrux.LLVM.PP (ppRegMap)
-import           UCCrux.LLVM.Precondition (Constraints, emptyConstraints)
+import           UCCrux.LLVM.Precondition (Preconds, emptyPreconds)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints)
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import qualified UCCrux.LLVM.Run.Loop as Loop
@@ -140,9 +140,9 @@ data SomeCheckResult m arch =
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
 -- compatibility.
-data TypedConstraints m (argTypes :: Ctx (FullType m))
-  = TypedConstraints
-      { _tcConstraints :: Constraints m argTypes
+data TypedPreconds m (argTypes :: Ctx (FullType m))
+  = TypedPreconds
+      { _tcPreconds :: Preconds m argTypes
       , _tcTypes :: Assignment (FullTypeRepr m) argTypes
       }
 
@@ -157,11 +157,11 @@ checkInferredContracts ::
   HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   -- | Entry point
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   -- | Inferred function contracts
-  Map (DefnSymbol m) (Some (TypedConstraints m)) ->
+  Map (DefnSymbol m) (Some (TypedPreconds m)) ->
   IO (CheckResult m arch argTypes)
 checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints cfg contracts =
    Sim.runSimulatorWithCallbacks
@@ -197,7 +197,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
     overrides =
       for
         (Map.toList contracts)
-        (\(func, Some (TypedConstraints tcs types)) ->
+        (\(func, Some (TypedPreconds tcs types)) ->
            do CFGWithTypes ovCfg argFTys _retTy _varArgs <-
                 pure (findFun modCtx (FuncDefnSymbol func))
               let argCTys = Crucible.cfgArgTypes ovCfg
@@ -244,7 +244,7 @@ checkInferredContractsFromEntryPoints ::
   -- | Where to begin symbolic execution
   EntryPoints m ->
   -- | Inferred function contracts
-  Map (DefnSymbol m) (Some (TypedConstraints m)) ->
+  Map (DefnSymbol m) (Some (TypedPreconds m)) ->
   IO (Map (DefnSymbol m) (SomeCheckResult m arch))
 checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entries contracts =
   fmap Map.fromList $
@@ -263,7 +263,7 @@ checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entri
               halloc
               cruxOpts
               llOpts
-              (emptyConstraints argFTys)
+              (emptyPreconds argFTys)
               cfg
               contracts
            return (entry, SomeCheckResult funCtx result)
@@ -297,14 +297,14 @@ inferThenCheck appCtx modCtx halloc cruxOpts llOpts toInfer entries =
        Loop.loopOnFunctions appCtx modCtx halloc cruxOpts llOpts toInfer
      chkResult <-
        checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entries $
-         Map.mapMaybe getConstraints inferResult
+         Map.mapMaybe getPreconds inferResult
      return (inferResult, chkResult)
   where
-    getConstraints ::
+    getPreconds ::
       forall m' arch'.
       Result.SomeBugfindingResult m' arch' ->
-      Maybe (Some (TypedConstraints m'))
-    getConstraints (Result.SomeBugfindingResult types result _) =
+      Maybe (Some (TypedPreconds m'))
+    getPreconds (Result.SomeBugfindingResult types result _) =
       case Result.summary result of
         Result.AlwaysSafe {} -> Nothing
         Result.FoundBugs {} -> Nothing
@@ -312,7 +312,7 @@ inferThenCheck appCtx modCtx halloc cruxOpts llOpts toInfer entries =
         Result.Unclear {} -> Nothing
         Result.SafeWithPreconditions Result.DidHitBounds _ _ -> Nothing
         Result.SafeWithPreconditions Result.DidntHitBounds _unsound cs ->
-          Just (Some (TypedConstraints cs types))
+          Just (Some (TypedPreconds cs types))
 
 ppSomeCheckResult ::
   forall m arch ann.
@@ -373,7 +373,7 @@ ppSomeCheckResult _appCtx entry proxy@(SomeCheckResult _ftReprs (CheckResult k))
                       (Check.checkedCallArgs call ^. ixF' i' . to Crucible.unRV))
          prettyArgs <- ppRegMap proxy funCtx sym (getPreSimulationMem mem) (Crucible.RegMap args)
          prettyChecked <-
-           mapM (ppCheckedConstraint sym) (Check.checkedCallConstraints call)
+           mapM (ppCheckedConstraint sym) (Check.checkedCallPreconds call)
          return $
             PP.vsep
               ([ -- This starts with "When calling <func>"
