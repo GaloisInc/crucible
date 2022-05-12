@@ -29,12 +29,12 @@ import qualified Test.Tasty.HUnit as TH
 
 import qualified What4.Interface as What4
 
-import           UCCrux.LLVM.Constraints (emptyConstraints)
 import           UCCrux.LLVM.Context.Function (makeFunctionContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), defnTypes, findFun, withModulePtrWidth)
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDefnSymbol), DefnSymbol, defnSymbolToString)
 import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString)
 import qualified UCCrux.LLVM.Overrides.Check as Check
+import           UCCrux.LLVM.Precondition (emptyPreconds)
 import           UCCrux.LLVM.Run.Check (SomeCheckResult(SomeCheckResult), inferThenCheck, getCheckResult, getSomeCheckedCalls)
 import qualified UCCrux.LLVM.Run.EntryPoints as EntryPoints
 import           UCCrux.LLVM.Run.Loop (bugfindingLoop)
@@ -155,7 +155,7 @@ checkOverrideTests =
                             modCtx
                             funCtxG
                             halloc
-                            (emptyConstraints gArgFTys)
+                            (emptyPreconds gArgFTys)
                             gcfg
                             cruxOpts
                             llOpts
@@ -203,7 +203,7 @@ checkOverrideTests =
                                          (defnSymbolToString f)
                                          (defnSymbolToString defnSym)
                                        [Check.SomeCheckedConstraint c] <-
-                                         return (toList (Check.checkedCallConstraints fCall))
+                                         return (toList (Check.checkedCallPreconds fCall))
                                        TH.assertEqual
                                          "constraint passed"
                                          (Just True)
@@ -222,7 +222,7 @@ checkOverrideTests =
                                          (defnSymbolToString f)
                                          (defnSymbolToString defnSym)
                                        [Check.SomeCheckedConstraint c] <-
-                                         return (toList (Check.checkedCallConstraints fCall))
+                                         return (toList (Check.checkedCallPreconds fCall))
                                        TH.assertEqual
                                          "constraint failed"
                                          (Just False)

@@ -69,7 +69,7 @@ import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 -- crux
 import           Crux.LLVM.Overrides (ArchOk)
 
-import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints, minimalConstrainedShape)
+import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), minimalConstrainedShape)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule, moduleTypes, globalTypes)
@@ -82,6 +82,7 @@ import           UCCrux.LLVM.FullType.Memory (pointerRange, sizeBv)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
+import           UCCrux.LLVM.Precondition (Preconds, argPreconds, globalPreconds)
 import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
@@ -430,7 +431,7 @@ populateNonConstGlobals modCtx bak constrainedGlobals =
                     (val ^. Shape.tag . to getSymValue)
 
 -- | Generate arguments and global variables that conform to the preconditions
--- specified in the 'Constraints'.
+-- specified in the 'Preconds'.
 --
 -- Constant global variables are also populated by their initializers.
 --
@@ -452,7 +453,7 @@ setupExecution ::
   FunctionContext m arch argTypes ->
   bak ->
   -- | Constraints and memory layouts of each argument and global
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   f
     ( SetupResult m arch sym argTypes,
       ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
@@ -474,5 +475,5 @@ setupExecution appCtx modCtx funCtx bak constraints = do
           =<< LLVMGlobals.initializeAllMemory bak llvmCtxt (modCtx ^. llvmModule . to getModule)
   runSetup modCtx mem $
     do
-      populateNonConstGlobals modCtx bak (constraints ^. globalConstraints)
-      generateArgs appCtx modCtx funCtx bak (constraints ^. argConstraints)
+      populateNonConstGlobals modCtx bak (constraints ^. globalPreconds)
+      generateArgs appCtx modCtx funCtx bak (constraints ^. argPreconds)

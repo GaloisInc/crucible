@@ -62,7 +62,6 @@ import           Crux.LLVM.Overrides
 
  -- local
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
-import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString, functionNameFromString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName)
@@ -72,6 +71,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimpleme
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), defnSymbolToString, makeDefnSymbol, getModule)
+import           UCCrux.LLVM.Precondition (Preconds, NewConstraint, ppPreconds, emptyPreconds, addPrecond, ppExpansionError)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
@@ -110,37 +110,37 @@ bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc ca
             -- configurably don't?
             (simResult, r) <- runSim constraints
             let newExpls = Sim.explanations simResult
-            let (_, newConstraints, _, _) =
+            let (_, newPreconds, _, _) =
                   partitionExplanations locatedValue newExpls
-            let (_, newConstraints') = unzip (map locatedValue newConstraints)
-            let allConstraints = addConstraints constraints (concat newConstraints')
+            let (_, newPreconds') = unzip (map locatedValue newPreconds)
+            let allPreconds = addPreconds constraints (concat newPreconds')
             let allUnsoundness = unsoundness <> Sim.unsoundness simResult
             let allResults = results Seq.|> (simResult, r)
             if shouldStop newExpls
               then
                 pure
                   ( makeResult
-                      allConstraints
+                      allPreconds
                       (concatMap (Sim.explanations . fst) (toList allResults))
                       allUnsoundness,
                     allResults
                   )
               else do
                 (appCtx ^. log) Hi "New preconditions:"
-                (appCtx ^. log) Hi $ Text.pack (show (ppConstraints allConstraints))
-                loop allConstraints allResults allUnsoundness
+                (appCtx ^. log) Hi $ Text.pack (show (ppPreconds allPreconds))
+                loop allPreconds allResults allUnsoundness
 
-    loop (emptyConstraints (funCtx ^. argumentFullTypes)) Seq.empty mempty
+    loop (emptyPreconds (funCtx ^. argumentFullTypes)) Seq.empty mempty
   where
-    addConstraints ::
-      Constraints m argTypes ->
+    addPreconds ::
+      Preconds m argTypes ->
       [NewConstraint m argTypes] ->
-      Constraints m argTypes
-    addConstraints constraints newConstraints =
+      Preconds m argTypes
+    addPreconds constraints newPreconds =
       foldM
-        (addConstraint modCtx (funCtx ^. argumentFullTypes))
+        (addPrecond modCtx (funCtx ^. argumentFullTypes))
         constraints
-        newConstraints
+        newPreconds
         & \case
           Left err ->
             panic
@@ -165,21 +165,21 @@ bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc ca
               -- was there any uncertain results. The code is conditionally
               -- safe, we can stop here.
               True
-            (noNewConstraints, _, isUncertain, isExhausted) ->
+            (noNewPreconds, _, isUncertain, isExhausted) ->
               -- We can't proceed if (1) new input constraints weren't learned,
               -- (2) uncertainty was encountered, or (3) resource bounds were
               -- exhausted.
-              noNewConstraints || isUncertain || isExhausted
+              noNewPreconds || isUncertain || isExhausted
 
     makeResult ::
-      Constraints m argTypes ->
+      Preconds m argTypes ->
       [Located (Explanation m arch argTypes)] ->
       Unsoundness ->
       BugfindingResult m arch argTypes
     makeResult constraints expls unsoundness =
-      let (truePositives, newConstraints, uncertain, resourceExhausted) =
+      let (truePositives, newPreconds, uncertain, resourceExhausted) =
             partitionExplanations locatedValue (toList expls)
-          (precondTags, _) = unzip (map locatedValue newConstraints)
+          (precondTags, _) = unzip (map locatedValue newPreconds)
        in BugfindingResult
             uncertain
             precondTags

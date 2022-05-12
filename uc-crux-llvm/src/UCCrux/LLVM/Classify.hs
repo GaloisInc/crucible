@@ -84,6 +84,7 @@ import           UCCrux.LLVM.Module (makeFuncSymbol, makeGlobalSymbol, globalSym
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPreSimulationMem)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.PP (ppProgramLoc)
+import           UCCrux.LLVM.Precondition (NewConstraint(..))
 import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)

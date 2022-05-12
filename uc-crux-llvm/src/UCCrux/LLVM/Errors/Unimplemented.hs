@@ -36,8 +36,8 @@ data Unimplemented
   | GetHostNameSmallSize
   | NonEmptyUnboundedSizeArrays
   | CastIntegerToPointer
-  | CheckConstraintsPtrArray
-  | CheckConstraintsStruct
+  | CheckPrecondsPtrArray
+  | CheckPrecondsStruct
   | SometimesClobber
   | ClobberConstraints
   | ClobberGlobal
@@ -56,8 +56,8 @@ ppUnimplemented =
     GetHostNameSmallSize -> "`gethostname` called with a small length"
     NonEmptyUnboundedSizeArrays -> "Generating arrays with unbounded size"
     CastIntegerToPointer -> "Value of integer type treated as/cast to a pointer"
-    CheckConstraintsPtrArray -> "Checking inferred precondition on an array"
-    CheckConstraintsStruct -> "Checking inferred precondition on a struct"
+    CheckPrecondsPtrArray -> "Checking inferred precondition on an array"
+    CheckPrecondsStruct -> "Checking inferred precondition on a struct"
     SometimesClobber -> "Selective clobbering"
     ClobberConstraints -> "Constraints on clobbered values"
     ClobberGlobal -> "Clobbering global variables"

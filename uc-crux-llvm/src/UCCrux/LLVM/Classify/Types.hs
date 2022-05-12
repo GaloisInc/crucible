@@ -61,11 +61,11 @@ import           Panic (Panic)
 import qualified Lang.Crucible.Simulator as Crucible
 
 import           UCCrux.LLVM.Bug (Bug, ppBug)
-import           UCCrux.LLVM.Constraints (NewConstraint)
 import           UCCrux.LLVM.Cursor (Where, ppWhere)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
 import           UCCrux.LLVM.PP (ppProgramLoc)
+import           UCCrux.LLVM.Precondition (NewConstraint)
 {- ORMOLU_ENABLE -}
 
 data Located a = Located

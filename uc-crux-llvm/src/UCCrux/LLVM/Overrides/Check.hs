@@ -10,7 +10,7 @@ After UC-Crux-LLVM has deduced the preconditions of a function, it can install
 an override that checks that the preconditions are met at callsites.
 
 In particular, creating a check override takes the result of contract inference
-on a function f (namely, 'Constraints') and makes an override that has the same
+on a function f (namely, 'Preconds') and makes an override that has the same
 signature as f, and when called will:
 
 - Create a bunch of predicates that represent whether or not the constraints
@@ -40,7 +40,7 @@ module UCCrux.LLVM.Overrides.Check
     CheckedCall,
     checkedCallContext,
     checkedCallArgs,
-    checkedCallConstraints
+    checkedCallPreconds
   )
 where
 
@@ -92,7 +92,7 @@ import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), basic_ll
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), Constraints, ConstrainedShape(..), argConstraints, globalConstraints, ppConstraints, ConstrainedTypedValue(..))
+import           UCCrux.LLVM.Constraints (Constraint, ShapeConstraint(Initialized), ConstrainedShape(..), ConstrainedTypedValue(..))
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector, selectorCursor)
@@ -105,6 +105,7 @@ import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getGlobalSymbol)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
+import           UCCrux.LLVM.Precondition (Preconds, argPreconds, globalPreconds, ppPreconds)
 import           UCCrux.LLVM.Run.Result (BugfindingResult)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
@@ -162,7 +163,7 @@ data CheckedCall m sym arch (argTypes :: Ctx (FullType m)) =
       checkedCallContext :: Stack sym,
       -- | Function arguments
       checkedCallArgs :: Ctx.Assignment (Crucible.RegValue' sym) (MapToCrucibleType arch argTypes),
-      checkedCallConstraints :: Seq (SomeCheckedConstraint m sym argTypes)
+      checkedCallPreconds :: Seq (SomeCheckedConstraint m sym argTypes)
     }
 
 ifoldMapM ::
@@ -185,7 +186,7 @@ ifoldMapMFC f = ifoldrMFC (\i x acc -> fmap (<> acc) (f i x)) mempty
 
 -- | Create a predicate that checks that a Crucible(-LLVM) value conforms to the
 -- 'ConstrainedShape'.
-checkConstraints ::
+checkPreconds ::
   forall arch m sym argTypes inTy atTy.
   IsSymInterface sym =>
   HasLLVMAnn sym =>
@@ -200,7 +201,7 @@ checkConstraints ::
   FullTypeRepr m atTy ->
   Crucible.RegValue sym (ToCrucibleType arch atTy) ->
   IO (Seq (Some (CheckedConstraint m sym argTypes inTy)))
-checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
+checkPreconds modCtx sym mem selector cShape fullTypeRepr val =
   case getConstrainedShape cShape of
     Shape.ShapeInt (Compose cs) ->
       constraintsToSomePreds fullTypeRepr selector cs val
@@ -217,8 +218,8 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
          -- (Look at 'pointerRange'?)
          unless (Seq.length subShapes == 1) $
            Unimplemented.unimplemented
-             "checkConstraints"
-             Unimplemented.CheckConstraintsPtrArray
+             "checkPreconds"
+             Unimplemented.CheckPrecondsPtrArray
          let mts = modCtx ^. moduleTypes
          (ptdToPred, mbPtdToVal) <- Mem.loadRaw' modCtx sym mem mts val fullTypeRepr
          let shape = ConstrainedShape (subShapes `Seq.index` 0)
@@ -228,7 +229,7 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
            case mbPtdToVal of
              Nothing -> pure Seq.empty
              Just ptdToVal ->
-               checkConstraints modCtx sym mem ptdToSelector shape ptdToRepr ptdToVal
+               checkPreconds modCtx sym mem ptdToSelector shape ptdToRepr ptdToVal
          here <- constraintsToSomePreds fullTypeRepr selector cs val
          let ptdToConstraint =
                CheckedConstraint
@@ -247,7 +248,7 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
       <$> constraintsToSomePreds fullTypeRepr selector cs val
       <*> ifoldMapM
             (\i shape ->
-               checkConstraints
+               checkPreconds
                  modCtx
                  sym
                  mem
@@ -266,12 +267,12 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
       <$> constraintsToSomePreds fullTypeRepr selector cs val
       <*> ifoldMapM
             (\i shape ->
-               checkConstraints
+               checkPreconds
                  modCtx
                  sym
                  mem
                  (Unimplemented.unimplemented
-                    "checkConstraints"
+                    "checkPreconds"
                     Unimplemented.NonEmptyUnboundedSizeArrays)
                  (ConstrainedShape shape)
                  (arrayElementType fullTypeRepr)
@@ -281,8 +282,8 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
       (<>)
       <$> constraintsToSomePreds fullTypeRepr selector cs val
       <*> Unimplemented.unimplemented
-            "checkConstraints"
-            Unimplemented.CheckConstraintsStruct
+            "checkPreconds"
+            Unimplemented.CheckPrecondsStruct
 
   where
     foldMapM :: forall t f m' a. Foldable t => Monoid m' => Monad f => (a -> f m') -> t a -> f m'
@@ -315,7 +316,7 @@ checkConstraints modCtx sym mem selector cShape fullTypeRepr val =
 -- TODO: Split out the part that simply wraps a call to an existing LLVM CFG
 -- with additional Override actions before and after into its own module.
 
--- | Create an override which checks the given 'Constraints' during symbolic
+-- | Create an override which checks the given 'Preconds' during symbolic
 -- execution (basically, compiles them to 'Pred's).
 createCheckOverride ::
   forall arch p sym m argTypes ret blocks.
@@ -333,7 +334,7 @@ createCheckOverride ::
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   -- | Function contract to check
-  Constraints m argTypes ->
+  Preconds m argTypes ->
   -- | Function implementation
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   -- | Name of function to override
@@ -355,11 +356,11 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                      let sym = backendGetSym bak
                      liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
                      let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
-                     liftIO $ (appCtx ^. log) Hi "Constraints:"
-                     liftIO $ (appCtx ^. log) Hi $ pp (ppConstraints constraints)
+                     liftIO $ (appCtx ^. log) Hi "Preconditions:"
+                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
                      stack <- collectStack
-                     argCs <- liftIO $ getArgConstraints sym mem args
-                     globCs <- liftIO $ getGlobalConstraints bak mem
+                     argCs <- liftIO $ getArgPreconds sym mem args
+                     globCs <- liftIO $ getGlobalPreconds bak mem
                      let cs = argCs <> globCs
                      let args' = fmapFC (Crucible.RV . Crucible.regValue) args
                      liftIO $
@@ -368,23 +369,23 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                      return (Crucible.regValue retEntry, mem)
            }
   where
-    getArgConstraints ::
+    getArgPreconds ::
       IsSymInterface sym =>
       sym ->
       LLVMMem.MemImpl sym ->
       Ctx.Assignment (Crucible.RegEntry sym) (MapToCrucibleType arch argTypes) ->
       IO (Seq (SomeCheckedConstraint m sym argTypes))
-    getArgConstraints sym mem args =
+    getArgPreconds sym mem args =
       ifoldMapMFC
          (\idx constraint ->
            do SomeIndex idx' Refl <-
                 pure $
-                  let sz = Ctx.size (constraints ^. argConstraints)
+                  let sz = Ctx.size (constraints ^. argPreconds)
                   in translateIndex modCtx sz idx
               let arg = args Ctx.! idx'
               let fTy = argFTys Ctx.! idx
               fmap (viewSome SomeCheckedConstraint) <$>
-                checkConstraints
+                checkPreconds
                   modCtx
                   sym
                   mem
@@ -392,14 +393,14 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                   constraint
                   fTy
                   (Crucible.regValue arg))
-         (constraints ^. argConstraints)
+         (constraints ^. argPreconds)
 
-    getGlobalConstraints ::
+    getGlobalPreconds ::
       IsSymBackend sym bak =>
       bak ->
       LLVMMem.MemImpl sym ->
       IO (Seq (SomeCheckedConstraint m sym argTypes))
-    getGlobalConstraints bak mem =
+    getGlobalPreconds bak mem =
       let sym = backendGetSym bak in
       ifoldMapM
         (\gSymb (ConstrainedTypedValue globTy shape) ->
@@ -408,7 +409,7 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
               -- rather than a constraint failure, so we don't collect them.
               glob <- Mem.loadGlobal modCtx bak mem globTy (getGlobalSymbol gSymb)
               fmap (viewSome SomeCheckedConstraint) <$>
-                checkConstraints
+                checkPreconds
                   modCtx
                   sym
                   mem
@@ -417,7 +418,7 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                   globTy
                   glob
            )
-        (constraints ^. globalConstraints)
+        (constraints ^. globalPreconds)
 
 -- | Create an override for checking deduced preconditions
 checkOverrideFromResult ::
