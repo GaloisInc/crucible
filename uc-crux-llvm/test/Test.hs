@@ -90,6 +90,7 @@ import qualified Callgraph
 import qualified Check
 import qualified Postcond
 import qualified Utils
+import qualified View
 {- ORMOLU_ENABLE -}
 
 -- Just test that a few things typecheck as expected
@@ -1535,6 +1536,7 @@ main =
       [ Callgraph.callgraphTests,
         Check.checkOverrideTests,
         Postcond.postcondTests,
+        View.viewTests,
         inFileTests,
         moduleTests,
         isUnimplemented

@@ -93,6 +93,9 @@ library
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats
+    UCCrux.LLVM.View
+    UCCrux.LLVM.View.FullType
+    UCCrux.LLVM.View.Util
 
   other-modules:
     Paths_uc_crux_llvm
@@ -170,6 +173,7 @@ test-suite uc-crux-llvm-test
     Paths_uc_crux_llvm
     Postcond
     Utils
+    View
   autogen-modules: Paths_uc_crux_llvm
 
   build-depends:
@@ -181,6 +185,7 @@ test-suite uc-crux-llvm-test
                 crux,
                 crux-llvm,
                 filepath,
+                generic-arbitrary >= 0.2 && < 0.3,
                 lens,
                 llvm-pretty,
                 lumberjack,

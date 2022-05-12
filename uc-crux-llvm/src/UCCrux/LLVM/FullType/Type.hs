@@ -65,7 +65,7 @@ Using this machinery heads off several sources of partiality/errors:
 module UCCrux.LLVM.FullType.Type
   ( -- * Structs
     type StructPacked(..),
-    StructPackedRepr,
+    StructPackedRepr(..),
     structPackedReprToBool,
     boolToStructPackedRepr,
 
@@ -94,6 +94,7 @@ module UCCrux.LLVM.FullType.Type
     lookupType,
     processingType,
     finishedType,
+    makePartTypeRepr,
     DataLayout,
     dataLayout,
     crucibleDataLayout,
@@ -662,6 +663,12 @@ finishedType (ModuleTypes tc fts) ident ty =
 processingType :: ModuleTypes m -> L.Ident -> ModuleTypes m
 processingType (ModuleTypes tc fts) ident =
   ModuleTypes tc (Map.insert ident Nothing fts)
+
+makePartTypeRepr :: ModuleTypes m -> L.Ident -> Maybe (Some (PartTypeRepr m))
+makePartTypeRepr mts ident =
+  case lookupType mts ident of
+    Found{} -> Just (Some (PTAliasRepr (Const ident)))
+    _ -> Nothing
 
 -- | A wrapper around 'Crucible.DataLayout' with a phantom type parameter @m@
 -- that marks it as corresponding to a particular LLVM module and instance of
