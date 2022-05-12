@@ -7,7 +7,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     name: uc-crux-llvm lint
     steps:
       - uses: actions/checkout@v2
