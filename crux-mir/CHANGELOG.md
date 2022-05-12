@@ -1,3 +1,7 @@
-# next
+# 0.6
 
-* TODO: Describe API changes here
+## Bug fixes
+
+* `Any`-typed local variables are no longer initialized to a default value,
+  which prevents spurious assertion failures if these variables become involved
+  in symbolic branches in certain cases.
