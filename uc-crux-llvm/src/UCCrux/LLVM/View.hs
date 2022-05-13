@@ -25,8 +25,10 @@ number of advantages:
 
 module UCCrux.LLVM.View
   ( module UCCrux.LLVM.View.FullType,
+    module UCCrux.LLVM.View.Shape,
     module UCCrux.LLVM.View.Util,
   ) where
 
 import UCCrux.LLVM.View.FullType
+import UCCrux.LLVM.View.Shape
 import UCCrux.LLVM.View.Util
