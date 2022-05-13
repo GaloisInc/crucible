@@ -25,7 +25,6 @@ module UCCrux.LLVM.Context.Module
     declTypes,
     moduleTranslation,
     moduleDecls,
-    dataLayout,
     withTypeContext,
     withModulePtrWidth,
 
@@ -36,7 +35,7 @@ module UCCrux.LLVM.Context.Module
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.), Simple, Getter, Lens, lens, to, at)
+import           Control.Lens ((^.), Simple, Lens, lens, to, at)
 import           Data.Type.Equality ((:~:)(Refl))
 import           GHC.Stack (HasCallStack)
 
@@ -48,12 +47,11 @@ import           Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as Crucible
 
-import           Lang.Crucible.LLVM.DataLayout (DataLayout)
 import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
 import           Lang.Crucible.LLVM.MemModel (HasPtrWidth, withPtrWidth)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
-import           Lang.Crucible.LLVM.TypeContext (TypeContext, llvmDataLayout)
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Crux.LLVM.Overrides (ArchOk)
 
@@ -105,9 +103,6 @@ moduleTranslation = lens _moduleTranslation (\s v -> s {_moduleTranslation = v})
 
 moduleDecls :: Simple Lens (ModuleContext m arch) (FuncMap m L.Declare)
 moduleDecls = lens _moduleDecls (\s v -> s {_moduleDecls = v})
-
-dataLayout :: Getter (ModuleContext m arch) DataLayout
-dataLayout = moduleTranslation . LLVMTrans.transContext . LLVMTrans.llvmTypeCtx . to llvmDataLayout
 
 withTypeContext :: ModuleContext m arch -> ((?lc :: TypeContext) => a) -> a
 withTypeContext context computation =

@@ -78,7 +78,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
 import           UCCrux.LLVM.FullType.Memory (sizeBv)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, ToBaseType, ModuleTypes)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, ToBaseType, ModuleTypes, DataLayout)
 import           UCCrux.LLVM.Constraints (Constraint)
 import qualified UCCrux.LLVM.Mem as Mem
 {- ORMOLU_ENABLE -}
@@ -359,6 +359,7 @@ storeGlobal ::
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
+  DataLayout m ->
   bak ->
   FullTypeRepr m ft ->
   -- | Path to this pointer
@@ -366,7 +367,7 @@ storeGlobal ::
   L.Symbol ->
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
-storeGlobal bak ftRepr selector symb regValue =
+storeGlobal dl bak ftRepr selector symb regValue =
   do
     let sym = Crucible.backendGetSym bak
     mem <- gets (view setupMem)
@@ -376,5 +377,5 @@ storeGlobal bak ftRepr selector symb regValue =
       \mem' ->
         do
           mem'' <-
-            liftIO $ Mem.store (Proxy @arch) bak mem' ftRepr ptr' regValue
+            liftIO $ Mem.store (Proxy @arch) dl bak mem' ftRepr ptr' regValue
           pure (ptr', mem'')

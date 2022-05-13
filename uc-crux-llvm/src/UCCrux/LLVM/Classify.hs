@@ -57,8 +57,6 @@ import qualified What4.ProgramLoc as What4
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 
-import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
-import           Lang.Crucible.LLVM.DataLayout (DataLayout)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
@@ -67,18 +65,17 @@ import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import           Lang.Crucible.LLVM.MemModel.Generic (Mem, AllocInfo)
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
-import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
 import           UCCrux.LLVM.Bug (makeBug)
 import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes, funcTypes, globalTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes, funcTypes, globalTypes)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector), selectWhere, selectorCursor)
 import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
-import           UCCrux.LLVM.FullType.MemType (toMemType)
+import           UCCrux.LLVM.FullType.Memory (sizeInBytes)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (makeFuncSymbol, makeGlobalSymbol, globalSymbol)
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPreSimulationMem)
@@ -123,14 +120,13 @@ classifyAssertion _sym predicate loc =
         (ExUncertain UFailedAssert)
 
 elemsFromOffset ::
-  DataLayout ->
   ModuleTypes m ->
   What4.ConcreteVal (What4.BaseBVType w) ->
   PartTypeRepr m ft ->
   Int
-elemsFromOffset dl mts offset partType =
+elemsFromOffset mts offset partType =
   let pointedTo = asFullType mts partType
-      typeSize = bytesToInteger (memTypeSize dl (toMemType pointedTo))
+      typeSize = sizeInBytes mts pointedTo 1 -- 1 = array length
    in 1 + fromIntegral (BV.asUnsigned (What4.fromConcreteBV offset) `div` typeSize)
 
 unclass ::
@@ -643,7 +639,7 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
       PartTypeRepr m ft ->
       Int
     elemsFromOffset' =
-      elemsFromOffset (modCtx ^. dataLayout) (modCtx ^. moduleTypes)
+      elemsFromOffset (modCtx ^. moduleTypes)
 
     handleFreeUnallocated :: LLVMPtr.LLVMPtr sym w -> f (Maybe (Explanation m arch argTypes))
     handleFreeUnallocated ptr =

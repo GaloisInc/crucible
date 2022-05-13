@@ -41,7 +41,14 @@ Using this machinery, heads off several sources of partiality/errors:
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 
 module UCCrux.LLVM.FullType.Type
-  ( type FullType (..),
+  ( -- * Structs
+    type StructPacked(..),
+    StructPackedRepr,
+    structPackedReprToBool,
+    boolToStructPackedRepr,
+
+    -- * FullType
+    type FullType (..),
     FullTypeRepr (..),
     PartTypeRepr, -- Constructor hidden for safety of unsafeCoerce below
     MapToCrucibleType,
@@ -65,6 +72,9 @@ module UCCrux.LLVM.FullType.Type
     lookupType,
     processingType,
     finishedType,
+    DataLayout,
+    dataLayout,
+    crucibleDataLayout,
 
     -- * Lookup
     asFullType',
@@ -103,7 +113,8 @@ import qualified What4.InterpretedFloatingPoint as W4IFP
 
 import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
-import           Lang.Crucible.LLVM.TypeContext (TypeContext, asMemType, lookupAlias)
+import qualified Lang.Crucible.LLVM.DataLayout as Crucible
+import           Lang.Crucible.LLVM.TypeContext (TypeContext (llvmDataLayout), asMemType, lookupAlias)
 
 import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVMArch)
 import           Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), FunDecl(..))
@@ -117,6 +128,30 @@ import           UCCrux.LLVM.FullType.VarArgs
 {- ORMOLU_ENABLE -}
 
 -- | Type level only.
+data StructPacked
+  = PackedStruct
+  | UnpackedStruct
+
+data StructPackedRepr (sp :: StructPacked) where
+  PackedStructRepr :: StructPackedRepr 'PackedStruct
+  UnpackedStructRepr :: StructPackedRepr 'UnpackedStruct
+
+-- | If 'True', return 'Some PackedStructRepr'. If 'False', return
+-- 'Some UnpackedStructRepr'.
+boolToStructPackedRepr :: Bool -> Some StructPackedRepr
+boolToStructPackedRepr =
+  \case
+    True -> Some PackedStructRepr
+    False -> Some UnpackedStructRepr
+
+-- | Inverse of 'boolToStructPackedRepr'
+structPackedReprToBool :: StructPackedRepr sp -> Bool
+structPackedReprToBool =
+  \case
+    PackedStructRepr -> True
+    UnpackedStructRepr -> False
+
+-- | Type level only.
 --
 -- The @m@ parameter represents an LLVM module, see comment on
 -- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
@@ -127,7 +162,7 @@ data FullType (m :: Type) where
   -- | The 'Maybe' here captures the C pattern of an dynamically-sized array
   -- within a struct. See test/programs/unsized_array.c.
   FTArray :: Maybe Nat -> FullType m -> FullType m
-  FTStruct :: Ctx.Ctx (FullType m) -> FullType m
+  FTStruct :: StructPacked -> Ctx.Ctx (FullType m) -> FullType m
   -- | Function pointers are very different from data pointers - they don't
   -- contain any data and can't be dereferenced. By treating function pointers
   -- \"as a whole\" (rather than having function types themselves by a
@@ -154,7 +189,7 @@ type family ToCrucibleType arch (ft :: FullType m) :: CrucibleTypes.CrucibleType
   ToCrucibleType arch ('FTFloat flt) = CrucibleTypes.FloatType flt
   ToCrucibleType arch ('FTArray _n ft) =
     CrucibleTypes.VectorType (ToCrucibleType arch ft)
-  ToCrucibleType arch ('FTStruct ctx) =
+  ToCrucibleType arch ('FTStruct _sp ctx) =
     CrucibleTypes.StructType (MapToCrucibleType arch ctx)
   ToCrucibleType arch ('FTFuncPtr _varArgs _ret _args) =
     CrucibleTypes.IntrinsicType
@@ -175,7 +210,7 @@ type family ToBaseType (sym :: Type) (arch :: LLVMArch) (ft :: FullType m) :: Cr
   ToBaseType sym arch ('FTInt n) = CrucibleTypes.BaseBVType n
   ToBaseType sym arch ('FTPtr _ft) = CrucibleTypes.BaseIntegerType
   ToBaseType sym arch ('FTFloat flt) = W4IFP.SymInterpretedFloatType sym flt
-  ToBaseType sym arch ('FTStruct ctx) =
+  ToBaseType sym arch ('FTStruct _sp ctx) =
     CrucibleTypes.BaseStructType (MapToBaseType sym arch ctx)
 
 data FullTypeRepr (m :: Type) (ft :: FullType m) where
@@ -198,9 +233,9 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
     FullTypeRepr m ft ->
     FullTypeRepr m ('FTArray 'Nothing ft)
   FTStructRepr ::
-    MemType.StructInfo ->
+    StructPackedRepr sp ->
     Ctx.Assignment (FullTypeRepr m) fields ->
-    FullTypeRepr m ('FTStruct fields)
+    FullTypeRepr m ('FTStruct sp fields)
   FTVoidFuncPtrRepr ::
     VarArgsRepr varArgs ->
     Ctx.Assignment (FullTypeRepr m) args ->
@@ -223,6 +258,9 @@ data PartTypeRepr (m :: Type) (ft :: FullType m) where
 -- Instances
 
 $(return [])
+
+instance TestEquality StructPackedRepr where
+  testEquality = $( U.structuralTypeEquality [t|StructPackedRepr|] [])
 
 -- | We assume (via unsafeCoerce) that types with the same L.Ident are the same.
 -- This is validated by the existential used in @makeModuleTypes@.
@@ -272,10 +310,16 @@ instance TestEquality (FullTypeRepr m) where
                  ),
                  ( appAny (U.ConType [t|SymbolRepr|]),
                    [|testEquality|]
+                 ),
+                 ( appAny (U.ConType [t|StructPackedRepr|]),
+                   [|testEquality|]
                  )
                ]
          )
      )
+
+instance OrdF StructPackedRepr where
+  compareF = $( U.structuralTypeOrd [t|StructPackedRepr|] [])
 
 -- | See note on 'TestEquality' instance.
 instance OrdF (PartTypeRepr m) where
@@ -326,6 +370,9 @@ instance OrdF (FullTypeRepr m) where
                    [|compareF|]
                  ),
                  ( appAny (U.ConType [t|SymbolRepr|]),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|StructPackedRepr|]),
                    [|compareF|]
                  )
                ]
@@ -450,7 +497,8 @@ toFullTypeM memType =
             (length structInfoFields)
             ( \idx -> toFullTypeM (MemType.fiType (structInfoFields Vec.! idx))
             )
-        pure (Some (FTStructRepr structInfo fields))
+        Some sp <- return (boolToStructPackedRepr (MemType.siIsPacked structInfo))
+        pure (Some (FTStructRepr sp fields))
     PtrType (FunType (FunDecl retType argTypes isVarArgs)) ->
       do
         Some argTypeReprs <-
@@ -537,6 +585,20 @@ finishedType (ModuleTypes tc fts) ident ty =
 processingType :: ModuleTypes m -> L.Ident -> ModuleTypes m
 processingType (ModuleTypes tc fts) ident =
   ModuleTypes tc (Map.insert ident Nothing fts)
+
+-- | A wrapper around 'Crucible.DataLayout' with a phantom type parameter @m@
+-- that marks it as corresponding to a particular LLVM module and instance of
+-- 'ModuleTypes'.
+--
+-- Constructor hidden for safety.
+newtype DataLayout (m :: Type) = DataLayout
+  { getDataLayout :: Crucible.DataLayout }
+
+dataLayout :: ModuleTypes m -> DataLayout m
+dataLayout = DataLayout . llvmDataLayout . typeContext
+
+crucibleDataLayout :: DataLayout m -> Crucible.DataLayout
+crucibleDataLayout = getDataLayout
 
 -- ------------------------------------------------------------------------------
 -- Lookup

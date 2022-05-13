@@ -124,9 +124,9 @@ data Shape (m :: Type) (tag :: FullType m -> Type) (ft :: FullType m) where
     Seq (Shape m tag ft) ->
     Shape m tag ('FTArray 'Nothing ft)
   ShapeStruct ::
-    tag ('FTStruct fields) ->
+    tag ('FTStruct sp fields) ->
     Ctx.Assignment (Shape m tag) fields ->
-    Shape m tag ('FTStruct fields)
+    Shape m tag ('FTStruct sp fields)
 
 -- TODO: Introduce a "detail limit", either via depth, max array length, or both.
 -- TODO: Drop the ":" when the "tag" is empty

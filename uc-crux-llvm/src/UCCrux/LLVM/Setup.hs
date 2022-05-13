@@ -79,7 +79,7 @@ import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.Memory (pointerRange, sizeBv)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType, dataLayout)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
 import           UCCrux.LLVM.Precondition (Preconds, argPreconds, globalPreconds)
@@ -424,6 +424,7 @@ populateNonConstGlobals modCtx bak constrainedGlobals =
                     )
                 void $
                   storeGlobal
+                    (modCtx ^. moduleTypes . to dataLayout)
                     bak
                     fullTy
                     (SelectGlobal gSymb (Here fullTy))

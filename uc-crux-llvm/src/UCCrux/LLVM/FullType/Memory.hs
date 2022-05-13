@@ -20,7 +20,7 @@ module UCCrux.LLVM.FullType.Memory
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.), to)
+import           Control.Lens ((^.))
 import           Data.BitVector.Sized (mkBV)
 
 import           Data.Parameterized.NatRepr (NatRepr, type (+))
@@ -37,33 +37,27 @@ import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
-import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
-import           Lang.Crucible.LLVM.TypeContext (TypeContext(llvmDataLayout))
 
 -- crux
 import           Crux.LLVM.Overrides (ArchOk)
 
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, dataLayout, crucibleDataLayout)
 {- ORMOLU_ENABLE -}
 
 
 -- | Size in bytes of an array of a given type with a given length.
 sizeInBytes ::
-  ModuleContext m arch ->
+  ModuleTypes m ->
   FullTypeRepr m ft ->
   -- | Array length
   Integer ->
   Integer
-sizeInBytes modCtx ftRepr size =
-  let dl =
-        modCtx
-          ^. moduleTranslation
-            . LLVMTrans.transContext
-            . LLVMTrans.llvmTypeCtx
-            . to llvmDataLayout
-  in size * bytesToInteger (memTypeSize dl (toMemType ftRepr))
+sizeInBytes mts ftRepr size =
+  let dl = dataLayout mts
+      cdl = crucibleDataLayout dl
+  in size * bytesToInteger (memTypeSize cdl (toMemType dl ftRepr))
 
 -- | A concrete bitvector representing the size (in bytes) of an array of data
 -- of a given type in memory.
@@ -78,7 +72,7 @@ sizeBv ::
   Integer ->
   IO (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
 sizeBv modCtx sym ftRepr size =
-  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (sizeInBytes modCtx ftRepr size))
+  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (sizeInBytes (modCtx ^. moduleTypes) ftRepr size))
 
 -- | A vector of pointers created by repeatedly adding an offset to a given base
 -- pointer.

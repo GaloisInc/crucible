@@ -57,7 +57,7 @@ import           Data.Parameterized.Classes (OrdF(compareF), ixF', fromOrdering)
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+))
 import qualified Data.Parameterized.TH.GADT as U
 
-import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ModuleTypes, asFullType, StructPacked)
 import           UCCrux.LLVM.Module (GlobalSymbol, FuncSymbol, getGlobalSymbol, getFuncSymbol)
 {- ORMOLU_ENABLE -}
 
@@ -91,7 +91,7 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     -- | Which field?
     Ctx.Index fields inTy ->
     Cursor m inTy atTy ->
-    Cursor m ('FTStruct fields) atTy
+    Cursor m ('FTStruct sp fields) atTy
 
 $(return [])
 
@@ -113,6 +113,9 @@ instance TestEquality (Cursor m inTy) where
                    [|testEquality|]
                  ),
                  ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|testEquality|]
+                 ),
+                 ( appAny (U.ConType [t|StructPacked|]),
                    [|testEquality|]
                  )
                ]
@@ -137,6 +140,9 @@ instance OrdF (Cursor m inTy) where
                    [|compareF|]
                  ),
                  ( appAny (appAny (U.ConType [t|Ctx.Index|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|StructPacked|]),
                    [|compareF|]
                  )
                ]
@@ -218,7 +224,7 @@ deepenPtr mts =
 -- points to that field.
 deepenStruct ::
   Ctx.Index fields atTy ->
-  Cursor m inTy ('FTStruct fields) ->
+  Cursor m inTy ('FTStruct sp fields) ->
   Cursor m inTy atTy
 deepenStruct idx =
   \case
