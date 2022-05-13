@@ -26,7 +26,7 @@ These tools are only invoked by `crux-llvm` as subprocesses. That is,
 Before running `crux-llvm`, you'll need to install the following
 software:
 
-* GHC and `cabal`, preferably using `ghcup`:
+* GHC and `cabal`. We recommend using `ghcup`:
   <https://www.haskell.org/ghcup/>
 
 * The Yices SMT solver: <http://yices.csl.sri.com/>
