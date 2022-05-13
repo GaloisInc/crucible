@@ -112,8 +112,8 @@ data Shape (m :: Type) (tag :: FullType m -> Type) (ft :: FullType m) where
   -- | Opaque pointers don't have any sub-shapes because they can't be
   -- dereferenced.
   ShapeOpaquePtr ::
-    tag 'FTOpaquePtr ->
-    Shape m tag 'FTOpaquePtr
+    tag ('FTOpaquePtr nm) ->
+    Shape m tag ('FTOpaquePtr nm)
   ShapeArray ::
     tag ('FTArray ('Just n) ft) ->
     NatRepr n ->

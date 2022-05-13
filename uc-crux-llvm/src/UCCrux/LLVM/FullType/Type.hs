@@ -75,7 +75,7 @@ module UCCrux.LLVM.FullType.Type
 where
 
 {- ORMOLU_DISABLE -}
-import           GHC.TypeLits (Nat)
+import           GHC.TypeLits (Nat, Symbol)
 import           Data.Functor.Identity (Identity(runIdentity))
 import           Control.Monad.Except (MonadError, runExceptT)
 import           Control.Monad.State (MonadState, runStateT, get, modify)
@@ -84,6 +84,7 @@ import           Data.Functor.Const (Const(Const))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (isJust)
+import qualified Data.Text as Text
 import           Data.Type.Equality (TestEquality(testEquality), (:~:)(Refl))
 import qualified Data.Vector as Vec
 import           Unsafe.Coerce (unsafeCoerce)
@@ -93,6 +94,7 @@ import           Data.Parameterized.Context (Ctx)
 import           Data.Parameterized.Classes (OrdF(compareF), OrderingF(LTF, GTF, EQF))
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), mkNatRepr, isPosNat, LeqProof(..))
 import           Data.Parameterized.Some (Some(Some))
+import           Data.Parameterized.SymbolRepr (SymbolRepr, someSymbol)
 import qualified Data.Parameterized.TH.GADT as U
 
 import qualified Text.LLVM.AST as L
@@ -134,7 +136,7 @@ data FullType (m :: Type) where
   FTFuncPtr :: IsVarArgs -> Maybe (FullType m) -> Ctx.Ctx (FullType m) -> FullType m
   -- | Similarly to function pointers, pointers to opaque struct types can't be
   -- dereferenced.
-  FTOpaquePtr :: FullType m
+  FTOpaquePtr :: Symbol -> FullType m
 
 type family MapToCrucibleType arch (ctx :: Ctx (FullType m)) :: Ctx CrucibleTypes.CrucibleType where
   MapToCrucibleType arch 'Ctx.EmptyCtx = Ctx.EmptyCtx
@@ -158,7 +160,7 @@ type family ToCrucibleType arch (ft :: FullType m) :: CrucibleTypes.CrucibleType
     CrucibleTypes.IntrinsicType
       "LLVM_pointer"
       (Ctx.EmptyCtx Ctx.::> CrucibleTypes.BVType (ArchWidth arch))
-  ToCrucibleType arch 'FTOpaquePtr =
+  ToCrucibleType arch ('FTOpaquePtr _) =
     CrucibleTypes.IntrinsicType
       "LLVM_pointer"
       (Ctx.EmptyCtx Ctx.::> CrucibleTypes.BVType (ArchWidth arch))
@@ -208,8 +210,7 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
     FullTypeRepr m ret ->
     Ctx.Assignment (FullTypeRepr m) args ->
     FullTypeRepr m ('FTFuncPtr varArgs ('Just ret) args)
-  -- TODO(lb): This could have a symbol repr for the name
-  FTOpaquePtrRepr :: L.Ident -> FullTypeRepr m 'FTOpaquePtr
+  FTOpaquePtrRepr :: SymbolRepr nm -> FullTypeRepr m ('FTOpaquePtr nm)
 
 -- | This functions similarly to 'MemType.SymType'
 data PartTypeRepr (m :: Type) (ft :: FullType m) where
@@ -268,6 +269,9 @@ instance TestEquality (FullTypeRepr m) where
                  ),
                  ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
                    [|testEquality|]
+                 ),
+                 ( appAny (U.ConType [t|SymbolRepr|]),
+                   [|testEquality|]
                  )
                ]
          )
@@ -319,6 +323,9 @@ instance OrdF (FullTypeRepr m) where
                    [|compareF|]
                  ),
                  ( appAny (appAny (U.ConType [t|PartTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|SymbolRepr|]),
                    [|compareF|]
                  )
                ]
@@ -418,7 +425,9 @@ toFullTypeM memType =
               let ?lc = typeContext mts
               Some ftRepr <-
                 case asMemType' strIdent of
-                  Left opaqueIdent -> pure $ Some (FTOpaquePtrRepr opaqueIdent)
+                  Left (L.Ident opaqueIdent) ->
+                    case someSymbol (Text.pack opaqueIdent) of
+                      Some symRep -> pure $ Some (FTOpaquePtrRepr symRep)
                   Right mt -> toFullTypeM mt
               modify (\mts' -> finishedType mts' ident (Some ftRepr))
               pure result
