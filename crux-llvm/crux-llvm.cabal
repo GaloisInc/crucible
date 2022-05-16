@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crux-llvm
-Version:       0.5.0.99
+Version:       0.6
 Author:        Galois Inc.
 Maintainer:    iavor.diatchki@gmail.com
 Copyright:     (c) Galois, Inc 2014-2021
