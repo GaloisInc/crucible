@@ -1,4 +1,4 @@
-# next
+# 0.6
 
 * Separate backend data structures.  The "symbolic backend" is a
 ubiquitous datatype throughout Crucible. Previously, this single

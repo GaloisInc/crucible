@@ -20,7 +20,7 @@ env:
 
 jobs:
   outputs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     outputs:
       changed: ${{ steps.outputs.outputs.changed-files }}
       name: ${{ steps.outputs.outputs.name }}
@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-20.04]
         ghc: ["8.10.7", "9.0.2", "9.2.2"]
         include:
           - os: macos-10.15

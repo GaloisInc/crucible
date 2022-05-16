@@ -26,12 +26,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-20.04]
         ghc: ["8.10.7", "9.0.2", "9.2.2"]
         include:
           - os: macos-10.15
             ghc: 9.2.2
-          - os: windows-latest
+          - os: windows-2019
             ghc: 9.2.2
     name: crucible-wasm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
