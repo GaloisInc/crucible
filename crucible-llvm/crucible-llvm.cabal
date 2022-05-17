@@ -2,7 +2,7 @@ Cabal-version: 2.2
 Name:          crucible-llvm
 Version:       0.4
 Author:        Galois Inc.
-Copyright:     (c) Galois, Inc 2014-2021
+Copyright:     (c) Galois, Inc 2014-2022
 Maintainer:    rdockins@galois.com
 License:       BSD-3-Clause
 License-file:  LICENSE

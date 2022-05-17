@@ -3,7 +3,7 @@ Name:          uc-crux-llvm
 Version:       0.2
 Author:        Galois Inc.
 Maintainer:    Langston Barrett, Scott Moore, Tristan Ravitch
-Copyright:     (c) Galois, Inc 2021
+Copyright:     (c) Galois, Inc 2021-2022
 License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple

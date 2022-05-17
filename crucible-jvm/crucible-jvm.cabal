@@ -1,7 +1,7 @@
 Name:          crucible-jvm
 Version:       0.2
 Author:        Galois Inc.
-Copyright:     (c) Galois, Inc. 2018
+Copyright:     (c) Galois, Inc. 2018-2022
 Maintainer:    huffman@galois.com, sweirich@galois.com
 License:       BSD3
 License-file:  LICENSE

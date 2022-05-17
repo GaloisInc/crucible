@@ -3,7 +3,7 @@ Name:          crux-llvm
 Version:       0.6.0.99
 Author:        Galois Inc.
 Maintainer:    iavor.diatchki@gmail.com
-Copyright:     (c) Galois, Inc 2014-2021
+Copyright:     (c) Galois, Inc 2014-2022
 License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
