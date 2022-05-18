@@ -76,7 +76,7 @@ import           UCCrux.LLVM.Equivalence (NonEmptyCrashDiff, reportDiffs, getCra
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
-import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
+import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..), type StructPacked(UnpackedStruct))
 import           UCCrux.LLVM.Module (defnSymbolToString)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
@@ -103,7 +103,7 @@ _exampleArray = Index (knownNat :: NatRepr 7) knownNat exampleHere
 _exampleStruct ::
   Cursor
     m
-    ('FTStruct ('Ctx.EmptyCtx Ctx.::> 'FTInt 32 Ctx.::> 'FTInt 64))
+    ('FTStruct 'UnpackedStruct ('Ctx.EmptyCtx Ctx.::> 'FTInt 32 Ctx.::> 'FTInt 64))
     ('FTInt 64)
 _exampleStruct =
   Field

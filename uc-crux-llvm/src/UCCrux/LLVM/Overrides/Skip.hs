@@ -88,7 +88,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SometimesClobber, ClobberGlobal))
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility, testCompatibilityReturn)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr), ReturnTypeRepr(NonVoidRepr, VoidRepr))
-import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType)
+import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, dataLayout)
 import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (GlobalSymbol, FuncSymbol, funcSymbol, makeFuncSymbol, isDebug, funcSymbolToString)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
@@ -440,7 +440,8 @@ createSkipOverride modCtx bak usedRef annotationRef clobbers postcondition funcS
          ptr <- Mem.seekPtr modCtx bak mem (clobberType spec) container cursor
          let mem' = resultMem result
          let val = value ^. Shape.tag . to getSymValue
-         Mem.store modCtx bak mem' (clobberAtType mts spec) ptr val
+         let dl = modCtx ^. moduleTypes . to dataLayout
+         Mem.store modCtx dl bak mem' (clobberAtType mts spec) ptr val
 
     applyClobbers ::
       MemImpl sym ->

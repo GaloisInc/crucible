@@ -18,14 +18,18 @@ where
 import           Lang.Crucible.LLVM.MemModel (HasPtrWidth, StorageType)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem (toStorableType)
 
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr, DataLayout)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Errors.Panic (panic)
 {- ORMOLU_ENABLE -}
 
-toStorageType :: HasPtrWidth wptr => FullTypeRepr m ft -> StorageType
-toStorageType fullTypeRepr =
-  let memType = toMemType fullTypeRepr
+toStorageType ::
+  HasPtrWidth wptr =>
+  DataLayout m ->
+  FullTypeRepr m ft ->
+  StorageType
+toStorageType dl fullTypeRepr =
+  let memType = toMemType dl fullTypeRepr
   in case LLVMMem.toStorableType memType of
        Nothing ->
          panic
