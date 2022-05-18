@@ -183,7 +183,7 @@ ppUPostcond post =
     ppGlob gSymb (SomeClobberValue cv) =
       (PP.viaShow (getGlobalSymbol gSymb) <> ":") PP.<+> ppClobberValue cv
 
-data ReturnValue m mft f where
+data ReturnValue m (mft :: Maybe (FullType m)) f where
   ReturnVoid :: ReturnValue m 'Nothing f
   ReturnValue :: f ft -> ReturnValue m ('Just ft) f
 
