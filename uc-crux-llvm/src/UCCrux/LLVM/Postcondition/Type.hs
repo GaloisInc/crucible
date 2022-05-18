@@ -73,12 +73,13 @@ import           Data.Parameterized.Classes (IxedF'(ixF'))
 import           Data.Parameterized.Context (Assignment)
 import qualified Data.Parameterized.Context as Ctx
 
-import           UCCrux.LLVM.Constraints (ConstrainedShape, ConstrainedTypedValue (ConstrainedTypedValue), minimalConstrainedShape, ppConstrainedShape)
+import           UCCrux.LLVM.Constraints (ConstrainedShape, ConstrainedTypedValue(ConstrainedTypedValue), minimalConstrainedShape, ppConstrainedShape)
 import           UCCrux.LLVM.Cursor (Cursor, ppCursor)
+import           UCCrux.LLVM.FullType.CrucibleType (SameCrucibleType, sameCrucibleType, makeSameCrucibleType, testSameCrucibleType)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSig, FuncSigRepr, ReturnTypeRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, OpaquePointers, testOpaquePointers)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr)
 import           UCCrux.LLVM.Module (GlobalSymbol, getGlobalSymbol)
 
@@ -86,23 +87,23 @@ import           UCCrux.LLVM.Module (GlobalSymbol, getGlobalSymbol)
 -- write to and with what data.
 --
 -- Note that the freshly-generated value may be of a different type (@realTy@)
--- than the value being overwritten, see the module comment.
+-- than the value being overwritten, see 'clobberValueCompat'.
 data ClobberValue m (inTy :: FullType m) =
   forall realTy atTy.
-  OpaquePointers realTy ~ OpaquePointers inTy =>
   ClobberValue
   { -- | Location of pointer within container value
     clobberValueCursor :: Cursor m realTy ('FTPtr atTy),
     -- | Specification of value to write to the pointer
     clobberValue :: ConstrainedShape m atTy,
     -- | Type of the container value
-    clobberValueType :: FullTypeRepr m realTy
+    clobberValueType :: FullTypeRepr m realTy,
+    clobberValueCompat :: SameCrucibleType realTy inTy
   }
 
 data SomeClobberValue m = forall inTy. SomeClobberValue (ClobberValue m inTy)
 
 ppClobberValue :: ClobberValue m inTy -> PP.Doc ann
-ppClobberValue (ClobberValue cur val ty) =
+ppClobberValue (ClobberValue cur val ty _proof) =
   PP.hsep
     [ ppCursor (show (ppConstrainedShape val)) cur
     , ":"
@@ -274,11 +275,19 @@ typecheckPostcond post fs =
           case IntMap.lookup (Ctx.indexVal idx) uArgs of
             Nothing -> Right DontClobberArg
             Just (SomeClobberArg DontClobberArg) -> Right DontClobberArg
-            Just (SomeClobberArg (DoClobberArg (ClobberValue cur val ty))) ->
+            Just (SomeClobberArg (DoClobberArg (ClobberValue cur val ty _prf))) ->
               let argType = argTypes ^. ixF' idx
-              in case testOpaquePointers argType ty of
-                   Just Refl -> Right (DoClobberArg (ClobberValue cur val ty))
-                   Nothing -> Left PostcondMismatchedType)
+              in case testSameCrucibleType argType ty of
+                   Nothing -> Left PostcondMismatchedType
+                   Just prf -> Right $ DoClobberArg $
+                     ClobberValue
+                      { clobberValueCursor = cur,
+                        clobberValue = val,
+                        clobberValueType = ty,
+                        clobberValueCompat =
+                          makeSameCrucibleType $ \arch ->
+                            case sameCrucibleType prf arch of Refl -> Refl
+                      })
 
      -- Check that the correct number of arguments were specified
      let maxIdx = if IntMap.null uArgs then 0 else maximum (IntMap.keys uArgs)

@@ -21,6 +21,7 @@ import qualified Data.IORef as IORef
 import qualified Data.Map as Map
 import qualified Data.IntMap as IntMap
 import qualified Data.Set as Set
+import           Data.Type.Equality ((:~:)(Refl))
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
@@ -36,6 +37,7 @@ import qualified Crux.LLVM.Config as CruxLLVM
 import           UCCrux.LLVM.Constraints (ConstrainedShape(..))
 import           UCCrux.LLVM.Context.Module (moduleTranslation, declTypes)
 import qualified UCCrux.LLVM.Cursor as Cursor
+import           UCCrux.LLVM.FullType.CrucibleType (makeSameCrucibleType)
 import qualified UCCrux.LLVM.FullType.Type as FT
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDeclSymbol), makeDeclSymbol)
 import qualified UCCrux.LLVM.Run.Simulate as Sim
@@ -67,7 +69,7 @@ postcondTests =
                      i32p = FT.FTPtrRepr (FT.toPartType (FT.FTIntRepr (knownNat @32)))
                      shape = ConstrainedShape (Shape.ShapeInt (Compose []))
                      argVal :: Post.ClobberValue m ('FT.FTPtr ('FT.FTInt 32))
-                     argVal = Post.ClobberValue (Cursor.Here i32p) shape i32p
+                     argVal = Post.ClobberValue (Cursor.Here i32p) shape i32p (makeSameCrucibleType (\_arch -> Refl))
                      arg = Post.SomeClobberArg (Post.DoClobberArg argVal)
                      specs = Post.UPostcond (IntMap.singleton 0 arg) Map.empty Nothing
 
@@ -121,7 +123,7 @@ postcondTests =
                      i32p = FT.FTPtrRepr (FT.toPartType i32)
                      shape = ConstrainedShape (Shape.ShapeInt (Compose []))
                      argVal :: Post.ClobberValue m ('FT.FTPtr ('FT.FTInt 32))
-                     argVal = Post.ClobberValue (Cursor.Here i32p) shape i32p
+                     argVal = Post.ClobberValue (Cursor.Here i32p) shape i32p (makeSameCrucibleType (\_arch -> Refl))
                      arg = Post.SomeClobberArg (Post.DoClobberArg argVal)
                      specs = Post.UPostcond (IntMap.singleton 0 arg) Map.empty Nothing
 

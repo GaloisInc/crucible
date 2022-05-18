@@ -31,7 +31,6 @@ import           Data.Functor.Product (Product(Pair))
 import           Data.IORef (IORef, modifyIORef)
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl))
 
@@ -59,7 +58,7 @@ import           UCCrux.LLVM.Constraints (ConstrainedShape)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), deepenPtr, seekType)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberGlobal))
-import           UCCrux.LLVM.FullType.CrucibleType (CrucibleTypeCompat (CrucibleTypeCompat), zip, opaquePointersToCrucibleCompat)
+import           UCCrux.LLVM.FullType.CrucibleType (CrucibleTypeCompat (CrucibleTypeCompat), zip, sameCrucibleType)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, MapToCrucibleType, dataLayout)
 import qualified UCCrux.LLVM.Mem as Mem
@@ -155,10 +154,10 @@ doClobberValue ::
   Crucible.RegValue sym (ToCrucibleType arch inTy) ->
   IO (MemImpl sym)
 doClobberValue bak modCtx annotationRef funcSymb mem clobberVal container =
-  do ClobberValue cursor valSpec containerType <- return clobberVal
+  do ClobberValue cursor valSpec containerType compatPrf <- return clobberVal
      (symVal, mem') <-
        genClobberValue bak modCtx annotationRef funcSymb mem containerType cursor valSpec
-     Refl <- return (opaquePointersToCrucibleCompat modCtx (Proxy @inTy) containerType)
+     Refl <- return (sameCrucibleType compatPrf modCtx)
      ptr <- Mem.seekPtr modCtx bak mem' containerType container cursor
      let mts = modCtx ^. moduleTypes
      let clobberTy = pointedToType mts (seekType mts cursor containerType)
