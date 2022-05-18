@@ -16,6 +16,9 @@ Stability        : provisional
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
+-- See mapOpaquePointersToCrucibleCompat and opaquePointersToCrucibleCompat'
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+
 module UCCrux.LLVM.FullType.CrucibleType
   ( toCrucibleType,
     toCrucibleReturnType,
@@ -168,19 +171,19 @@ mapOpaquePointersToCrucibleCompat proxy a a' =
   case (Ctx.viewAssign a, Ctx.viewAssign a') of
     (Ctx.AssignEmpty, Ctx.AssignEmpty) -> Refl
     (Ctx.AssignExtend rest hd, Ctx.AssignExtend rest' hd') ->
-      case (opaquePointersToCrucibleCompat proxy hd hd', mapOpaquePointersToCrucibleCompat proxy rest rest') of
+      case (opaquePointersToCrucibleCompat' proxy hd hd', mapOpaquePointersToCrucibleCompat proxy rest rest') of
         (Refl, Refl) -> Refl
 
 -- | Despite being unused, DO NOT REMOVE. See comment on
 -- 'opaquePointersToCrucibleCompat'.
-_opaquePointersToCrucibleCompat ::
+opaquePointersToCrucibleCompat' ::
   ArchOk arch =>
   (OpaquePointers ft ~ OpaquePointers ft') =>
   proxy arch ->
   FullTypeRepr m ft ->
   FullTypeRepr m ft' ->
   (ToCrucibleType arch ft :~: ToCrucibleType arch ft')
-_opaquePointersToCrucibleCompat proxy ft ft' =
+opaquePointersToCrucibleCompat' proxy ft ft' =
   case (ft, ft') of
     (FTIntRepr {}, FTIntRepr {}) -> Refl
     (FTPtrRepr{}, FTPtrRepr{}) -> Refl
@@ -201,10 +204,10 @@ _opaquePointersToCrucibleCompat proxy ft ft' =
     (FTOpaquePtrRepr{}, FTVoidFuncPtrRepr{}) -> Refl
     (FTOpaquePtrRepr{}, FTNonVoidFuncPtrRepr{}) -> Refl
     (FTUnboundedArrayRepr elems, FTUnboundedArrayRepr elems') ->
-      case opaquePointersToCrucibleCompat proxy elems elems' of
+      case opaquePointersToCrucibleCompat' proxy elems elems' of
         Refl -> Refl
     (FTArrayRepr _ elems, FTArrayRepr _ elems') ->
-      case opaquePointersToCrucibleCompat proxy elems elems' of
+      case opaquePointersToCrucibleCompat' proxy elems elems' of
         Refl -> Refl
     (FTStructRepr _ fields, FTStructRepr _ fields') ->
       case mapOpaquePointersToCrucibleCompat proxy fields fields' of
