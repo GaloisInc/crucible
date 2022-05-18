@@ -21,6 +21,16 @@ are significantly less expressive than that. The aims are to support
 postcondition inference, and to support partial (user- or programmer-supplied)
 specifications of external functions.
 
+There are two representations of postconditions: 'UPostcond' and 'Postcond'.
+These are related by 'typecheckPostcond', which takes a 'UPostcond' and returns
+a 'Postcond'. The idea is that 'UPostcond' is not statically known to correspond
+to a given function type signature, whereas 'Postcond' specifically matches a
+particular 'FuncSig'. 'Postcond' can be "applied" (see
+"UCCrux.LLVM.Postcondition.Apply") to a given program state with less error
+handling, since it carries additional type-safety information. Essentially, a
+lot of partiality can be front-loaded into 'typecheckPostcond' so that later
+operations don't have to handle impossible error cases.
+
 'ClobberGlobal' and 'ClobberArg' can explicitly set a type of data to generate,
 which may or may not actually match the declared type of the data in question.
 This is useful for clobbering e.g. a @char*@ or @void*@ with structured data.
