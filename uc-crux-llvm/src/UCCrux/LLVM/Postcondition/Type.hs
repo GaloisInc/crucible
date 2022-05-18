@@ -66,7 +66,6 @@ import qualified Data.IntMap as IntMap
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
-import           Data.Void (Void)
 
 import qualified Prettyprinter as PP
 
@@ -166,7 +165,7 @@ minimalUPostcond retRepr =
             Just (ConstrainedTypedValue ft (minimalConstrainedShape ft))
     }
 
-ppUPostcond :: UPostcond m -> PP.Doc Void
+ppUPostcond :: UPostcond m -> PP.Doc ann
 ppUPostcond post =
   PP.vsep $ bullets
     [ "Return value:" PP.<+>
