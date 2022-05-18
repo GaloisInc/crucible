@@ -11,6 +11,7 @@ Stability        : provisional
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module UCCrux.LLVM.FullType.MemType
   ( toMemType,
@@ -34,7 +35,7 @@ import           UCCrux.LLVM.FullType.VarArgs (varArgsReprToBool)
 -- | Postcondition: The returned 'MemType' will not be a metadata type.
 --
 -- @toStorageType@ depends on this.
-toMemType :: DataLayout m -> FullTypeRepr m ft -> MemType
+toMemType :: forall m ft. DataLayout m -> FullTypeRepr m ft -> MemType
 toMemType dl =
   \case
     FTIntRepr natRepr -> IntType (natValue natRepr)
@@ -47,9 +48,9 @@ toMemType dl =
     FTFloatRepr W4IFP.X86_80FloatRepr -> X86_FP80Type
     FTFloatRepr floatInfo -> panic "toMemType" ["Illegal float type: ", show floatInfo]
     FTVoidFuncPtrRepr varArgs argsRepr ->
-      funType dl Nothing argsRepr (varArgsReprToBool varArgs)
+      funType Nothing argsRepr (varArgsReprToBool varArgs)
     FTNonVoidFuncPtrRepr varArgs retRepr argsRepr ->
-      funType dl (Just retRepr) argsRepr (varArgsReprToBool varArgs)
+      funType (Just retRepr) argsRepr (varArgsReprToBool varArgs)
     FTOpaquePtrRepr _ident -> PtrType OpaqueType
     FTArrayRepr natRepr fullTypeRepr -> ArrayType (natValue natRepr) (toMemType dl fullTypeRepr)
     FTUnboundedArrayRepr fullTypeRepr -> ArrayType 0 (toMemType dl fullTypeRepr)
@@ -59,17 +60,17 @@ toMemType dl =
       in StructType (mkStructInfo cdl (structPackedReprToBool sp) memFields)
   where
     funType ::
-      DataLayout m ->
-      Maybe (FullTypeRepr m ft) ->
+      forall ft' argTypes.
+      Maybe (FullTypeRepr m ft') ->
       Ctx.Assignment (FullTypeRepr m) argTypes ->
       Bool ->
       MemType
-    funType dl_ maybeRetRepr argsRepr isVarArgs =
+    funType maybeRetRepr argsRepr isVarArgs =
       PtrType
         ( FunType
             ( FunDecl
-                (toMemType dl_ <$> maybeRetRepr)
-                (toListFC (toMemType dl_) argsRepr)
+                (toMemType dl <$> maybeRetRepr)
+                (toListFC (toMemType dl) argsRepr)
                 isVarArgs
             )
         )
