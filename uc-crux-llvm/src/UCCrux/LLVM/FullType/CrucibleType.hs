@@ -360,6 +360,9 @@ generate ::
   Ctx.Assignment f (MapToCrucibleType arch fullTypes)
 generate proxy sz f = coerce (generateM proxy sz (\i1 i2 refl -> Identity (f i1 i2 refl)))
 
+-- | Re-index a type that is indexed by Crucible types to be indexed by
+-- 'FullType' instead. Useful when you want to maintain information about the
+-- compatibility between data over Crucible types and 'FullType', see 'zip'.
 newtype CrucibleTypeCompat arch f ft =
   CrucibleTypeCompat (f (ToCrucibleType arch ft))
 
@@ -376,6 +379,9 @@ zipWith proxy fun ftAssign ctAssign =
     (Ctx.AssignExtend ftRest ftHead, Ctx.AssignExtend ctRest ctHead) ->
       Ctx.extend (zipWith proxy fun ftRest ctRest) (fun ftHead ctHead)
 
+-- | Zip an assignment over 'FullType' with a compatible assignment over
+-- Crucible types, maintaining the type-level correspondence via
+-- 'CrucibleTypeCompat'.
 zip ::
   ArchOk arch =>
   proxy arch ->
