@@ -323,7 +323,7 @@ sameCrucibleType ::
   SameCrucibleType ft ft' ->
   proxy arch ->
   ToCrucibleType arch ft :~: ToCrucibleType arch ft'
-sameCrucibleType = getSameCrucibleType
+sameCrucibleType (SameCrucibleType prf) arch = prf arch
 
 makeSameCrucibleType ::
   (forall proxy arch. proxy arch -> ToCrucibleType arch ft :~: ToCrucibleType arch ft') ->
@@ -347,7 +347,7 @@ mapSameCrucibleType ::
   MapSameCrucibleType ctx ctx' ->
   proxy arch ->
   MapToCrucibleType arch ctx :~: MapToCrucibleType arch ctx'
-mapSameCrucibleType = getMapSameCrucibleType
+mapSameCrucibleType (MapSameCrucibleType prf) arch = prf arch
 
 mapSameCrucibleTypeRefl :: MapSameCrucibleType ctx ctx
 mapSameCrucibleTypeRefl = MapSameCrucibleType (\_arch -> Refl)
