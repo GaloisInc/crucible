@@ -357,8 +357,7 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                      liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
                      let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
                      liftIO $ (appCtx ^. log) Hi "Preconditions:"
-                     let dl = modCtx ^. moduleTypes . to dataLayout
-                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds dl constraints)
+                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
                      stack <- collectStack
                      argCs <- liftIO $ getArgPreconds sym mem args
                      globCs <- liftIO $ getGlobalPreconds bak mem

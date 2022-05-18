@@ -65,11 +65,11 @@ import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation,
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString, functionNameFromString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, defnTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
-import           UCCrux.LLVM.FullType (MapToCrucibleType, dataLayout)
+import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), defnSymbolToString, makeDefnSymbol, getModule)
 import           UCCrux.LLVM.Precondition (Preconds, NewConstraint, ppPreconds, emptyPreconds, addPrecond, ppExpansionError)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
@@ -127,8 +127,7 @@ bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc ca
                   )
               else do
                 (appCtx ^. log) Hi "New preconditions:"
-                let dl = modCtx ^. moduleTypes . to dataLayout
-                (appCtx ^. log) Hi $ Text.pack (show (ppPreconds dl allPreconds))
+                (appCtx ^. log) Hi $ Text.pack (show (ppPreconds allPreconds))
                 loop allPreconds allResults allUnsoundness
 
     loop (emptyPreconds (funCtx ^. argumentFullTypes)) Seq.empty mempty

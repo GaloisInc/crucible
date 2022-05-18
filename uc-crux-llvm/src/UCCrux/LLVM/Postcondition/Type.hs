@@ -79,7 +79,7 @@ import           UCCrux.LLVM.Cursor (Cursor, ppCursor)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSig, FuncSigRepr, ReturnTypeRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
-import           UCCrux.LLVM.FullType.Type (DataLayout, FullType(FTPtr), FullTypeRepr, OpaquePointers, testOpaquePointers)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, OpaquePointers, testOpaquePointers)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr)
 import           UCCrux.LLVM.Module (GlobalSymbol, getGlobalSymbol)
 
@@ -102,12 +102,12 @@ data ClobberValue m (inTy :: FullType m) =
 
 data SomeClobberValue m = forall inTy. SomeClobberValue (ClobberValue m inTy)
 
-ppClobberValue :: DataLayout m -> ClobberValue m inTy -> PP.Doc ann
-ppClobberValue dl (ClobberValue cur val ty) =
+ppClobberValue :: ClobberValue m inTy -> PP.Doc ann
+ppClobberValue (ClobberValue cur val ty) =
   PP.hsep
     [ ppCursor (show (ppConstrainedShape val)) cur
     , ":"
-    , ppFullTypeRepr dl ty
+    , ppFullTypeRepr ty
     ]
 
 -- | Specification of how a (part of a) pointer argument is clobbered, i.e.,
@@ -166,8 +166,8 @@ minimalUPostcond retRepr =
             Just (ConstrainedTypedValue ft (minimalConstrainedShape ft))
     }
 
-ppUPostcond :: DataLayout m -> UPostcond m -> PP.Doc Void
-ppUPostcond dl post =
+ppUPostcond :: UPostcond m -> PP.Doc Void
+ppUPostcond post =
   PP.vsep $ bullets
     [ "Return value:" PP.<+>
         case _uReturnValue post of
@@ -188,10 +188,10 @@ ppUPostcond dl post =
       (PP.viaShow i <> ":") PP.<+>
         case ca of
           DontClobberArg -> "no clobbering"
-          DoClobberArg cv -> ppClobberValue dl cv
+          DoClobberArg cv -> ppClobberValue cv
 
     ppGlob gSymb (SomeClobberValue cv) =
-      (PP.viaShow (getGlobalSymbol gSymb) <> ":") PP.<+> ppClobberValue dl cv
+      (PP.viaShow (getGlobalSymbol gSymb) <> ":") PP.<+> ppClobberValue cv
 
 data ReturnValue m (mft :: Maybe (FullType m)) f where
   ReturnVoid :: ReturnValue m 'Nothing f

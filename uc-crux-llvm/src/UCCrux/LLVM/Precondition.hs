@@ -70,7 +70,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr), ReturnTypeRepr(VoidRepr, NonVoidRepr))
-import           UCCrux.LLVM.FullType.Type (DataLayout, FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, getGlobalSymbol, FuncSymbol, funcSymbol, getFuncSymbol)
 import           UCCrux.LLVM.Postcondition.Type (UPostcond)
 import qualified UCCrux.LLVM.Postcondition.Type as Post
@@ -130,8 +130,8 @@ emptyPreconds argTypes =
       _relationalPreconds = []
     }
 
-ppPreconds :: DataLayout m -> Preconds m argTypes -> Doc Void
-ppPreconds dl (Preconds args globs posts relCs) =
+ppPreconds :: Preconds m argTypes -> Doc Void
+ppPreconds (Preconds args globs posts relCs) =
   PP.vsep
     ( catMaybes
         [ if Ctx.sizeInt (Ctx.size args) == 0
@@ -152,7 +152,7 @@ ppPreconds dl (Preconds args globs posts relCs) =
           Just $
             nestSep
               ( PP.pretty "Postconditions of skipped functions:" :
-                map (uncurry (ppLabeled getFuncSymbol (Post.ppUPostcond dl))) (Map.toList posts)
+                map (uncurry (ppLabeled getFuncSymbol Post.ppUPostcond)) (Map.toList posts)
               ),
           -- These aren't yet generated anywhere
           if null relCs

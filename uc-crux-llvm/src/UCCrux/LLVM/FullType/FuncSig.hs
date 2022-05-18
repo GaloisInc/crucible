@@ -70,11 +70,11 @@ mkReturnTypeRepr =
     Nothing -> Some VoidRepr
     Just (Some ftRepr) -> Some (NonVoidRepr ftRepr)
 
-ppReturnTypeRepr :: DataLayout m -> ReturnTypeRepr m mft -> Doc ann
-ppReturnTypeRepr dl =
+ppReturnTypeRepr :: ReturnTypeRepr m mft -> Doc ann
+ppReturnTypeRepr =
   \case
     VoidRepr -> PP.pretty "void"
-    NonVoidRepr ft -> ppFullTypeRepr dl ft
+    NonVoidRepr ft -> ppFullTypeRepr ft
 
 -- | Type-level only
 data FuncSig m where
@@ -92,13 +92,13 @@ data FuncSigRepr m (fs :: FuncSig m) where
     } ->
     FuncSigRepr m ('FuncSig varArgs ret args)
 
-ppFuncSigRepr :: DataLayout m -> FuncSigRepr m mft -> Doc ann
-ppFuncSigRepr dl (FuncSigRepr va args ret) =
+ppFuncSigRepr :: FuncSigRepr m mft -> Doc ann
+ppFuncSigRepr (FuncSigRepr va args ret) =
   PP.hsep
-    [ PP.hsep (PP.punctuate (PP.pretty " ->") (toListFC (ppFullTypeRepr dl) args))
+    [ PP.hsep (PP.punctuate (PP.pretty " ->") (toListFC ppFullTypeRepr args))
         <> if varArgsReprToBool va then PP.pretty "..." else mempty
     , PP.pretty "->"
-    , ppReturnTypeRepr dl ret
+    , ppReturnTypeRepr ret
     ]
 
 -- ------------------------------------------------------------------------------
