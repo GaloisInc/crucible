@@ -1,17 +1,39 @@
 {-
 Module           : UCCrux.LLVM.FullType.Type
-Description      : 'FullType' is like a 'CrucibleTypes.CrucibleType' and a 'MemType.MemType'
+Description      : 'FullType' is an embedding of the LLVM type system into Haskell
 Copyright        : (c) Galois, Inc 2021
 License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 
-A 'FullType' is like a 'CrucibleTypes.CrucibleType', but contains type
-information through pointer references. Alternatively, it\'s like a
-'MemType.MemType' that can be linked to a 'CrucibleTypes.CrucibleType' by
-type-level information.
+'FullType' is an embedding of the LLVM type system into Haskell at the type
+level. It uses the "singletons" design pattern; 'FullTypeRepr' is its singleton.
+This is useful for embedding LLVM type information in the type signatures of
+Haskell functions.
 
-Using this machinery, heads off several sources of partiality/errors:
+A 'FullType' has enough information to reconstitute other Crucible-LLVM type
+representations:
+
+* 'CrucibleTypes.CrucibleType': See "UCCrux.LLVM.FullType.CrucibleType"
+* 'MemType.MemType': See "UCCrux.LLVM.FullType.MemType"
+* 'Lang.Crucible.LLVM.MemModel.StorageType': See "UCCrux.LLVM.FullType.StorageType"
+
+The LLVM type system (and so, 'FullType') is richer than
+'CrucibleTypes.CrucibleType'. In particular, 'FullType' distinguishes pointers
+that point to data of different types. While the C memory model allows certain
+kinds of conversions between pointers, these conversions aren't relevant for the
+purposes of 'FullType'. 'FullType' is mainly used to generate fresh symbolic
+data for under-constrained symbolic execution, and UC-Crux generally stays
+faithful to the nominal types of data when doing so. Where this information is
+not needed, it can be dropped by the above conversions.
+
+'FullType' doesn't represent all LLVM types - in particular, metadata types are
+absent. This is because metadata has no runtime representation, and so can't
+effect the behavior of programs. By not embedding it into 'FullType', UC-Crux
+avoids having to check for erroneous metadata types when using a 'FullType' (it
+catches them when translating LLVM/Crucible types into 'FullType' instead).
+
+Using this machinery heads off several sources of partiality/errors:
 
 * By passing a 'FullType' instead of a 'MemType.MemType' and a
   'CrucibleTypes.CrucibleType', it becomes impossible to pass
@@ -129,7 +151,21 @@ import           UCCrux.LLVM.FullType.VarArgs
 
 -- | Type level only.
 data StructPacked
-  = PackedStruct
+  = -- | Packed structs (i.e., without padding).
+    --
+    -- LLVM syntax:
+    --
+    -- @
+    -- <{ <type list> }>
+    -- @
+    PackedStruct
+    -- | Unpacked structs (i.e., with padding).
+    --
+    -- LLVM syntax:
+    --
+    -- @
+    -- { <type list> }
+    -- @
   | UnpackedStruct
 
 data StructPackedRepr (sp :: StructPacked) where
@@ -156,27 +192,61 @@ structPackedReprToBool =
 -- The @m@ parameter represents an LLVM module, see comment on
 -- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
 data FullType (m :: Type) where
-  FTInt :: Nat -> FullType m
-  FTPtr :: FullType m -> FullType m
+  FTInt ::
+    -- | Width of integer type
+    Nat ->
+    FullType m
+  FTPtr ::
+    -- | Pointed-to type
+    FullType m ->
+    FullType m
   FTFloat :: CrucibleTypes.FloatInfo -> FullType m
-  -- | The 'Maybe' here captures the C pattern of an dynamically-sized array
-  -- within a struct. See test/programs/unsized_array.c.
-  FTArray :: Maybe Nat -> FullType m -> FullType m
-  FTStruct :: StructPacked -> Ctx.Ctx (FullType m) -> FullType m
+  -- | LLVM syntax: @[<# elements> x <elementtype>]@
+  FTArray ::
+    -- | The 'Maybe' here captures the C pattern of an dynamically-sized array
+    -- within a struct. See @test/programs/unsized_array.c@.
+    Maybe Nat ->
+    -- | Array element type
+    FullType m ->
+    FullType m
+  FTStruct ::
+    StructPacked ->
+    -- | Field types
+    Ctx.Ctx (FullType m) ->
+    FullType m
   -- | Function pointers are very different from data pointers - they don't
   -- contain any data and can't be dereferenced. By treating function pointers
   -- \"as a whole\" (rather than having function types themselves by a
   -- constructor of 'FullType'), we can retain more totality/definedness in
   -- functions like @toFullType@.
-  FTFuncPtr :: IsVarArgs -> Maybe (FullType m) -> Ctx.Ctx (FullType m) -> FullType m
+  FTFuncPtr ::
+    IsVarArgs ->
+    -- | Return type ('Nothing' for @void@ functions)
+    Maybe (FullType m) ->
+    -- | Argument types
+    Ctx.Ctx (FullType m) ->
+    FullType m
   -- | Similarly to function pointers, pointers to opaque struct types can't be
   -- dereferenced.
-  FTOpaquePtr :: Symbol -> FullType m
+  --
+  -- LLVM syntax:
+  --
+  -- @
+  -- %X = type opaque
+  -- @
+  FTOpaquePtr ::
+    -- | Name (e.g., @%X@ of the opaque type)
+    Symbol ->
+    FullType m
 
+-- | See 'UCCrux.LLVM.FullType.CrucibleType.assignmentToCrucibleTypeA' for the
+-- corresponding value-level function on 'FullTypeRepr'.
 type family MapToCrucibleType arch (ctx :: Ctx (FullType m)) :: Ctx CrucibleTypes.CrucibleType where
   MapToCrucibleType arch 'Ctx.EmptyCtx = Ctx.EmptyCtx
   MapToCrucibleType arch (xs 'Ctx.::> x) = MapToCrucibleType arch xs Ctx.::> ToCrucibleType arch x
 
+-- | See 'UCCrux.LLVM.FullType.CrucibleType.toCrucibleType' for the
+-- corresponding value-level function on 'FullTypeRepr'.
 type family ToCrucibleType arch (ft :: FullType m) :: CrucibleTypes.CrucibleType where
   ToCrucibleType arch ('FTInt n) =
     CrucibleTypes.IntrinsicType
@@ -213,6 +283,13 @@ type family ToBaseType (sym :: Type) (arch :: LLVMArch) (ft :: FullType m) :: Cr
   ToBaseType sym arch ('FTStruct _sp ctx) =
     CrucibleTypes.BaseStructType (MapToBaseType sym arch ctx)
 
+-- | A singleton for representing a 'FullType' at the value level.
+--
+-- Like other singleton types, 'FullTypeRepr' is in a bijective correspondence
+-- with 'FullType': there is only one 'FullTypeRepr' that represents a given
+-- 'FullType', and every 'FullType' is represented by a 'FullTypeRepr'.
+--
+-- See comments on 'FullType' for information on the fields of this type.
 data FullTypeRepr (m :: Type) (ft :: FullType m) where
   FTIntRepr ::
     (1 <= w) =>
@@ -247,7 +324,7 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
     FullTypeRepr m ('FTFuncPtr varArgs ('Just ret) args)
   FTOpaquePtrRepr :: SymbolRepr nm -> FullTypeRepr m ('FTOpaquePtr nm)
 
--- | This functions similarly to 'MemType.SymType'
+-- | This functions similarly to 'MemType.SymType'.
 data PartTypeRepr (m :: Type) (ft :: FullType m) where
   PTFullRepr :: FullTypeRepr m ft -> PartTypeRepr m ft
   -- The Const is so that we can get type variables in scope in the TestEquality
