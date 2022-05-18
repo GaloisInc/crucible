@@ -55,6 +55,7 @@
 - ignore: {name: "Eta reduce"}  # Can be more clear with explicit binding
 - ignore: {name: "Parse error"}  # we trust the compiler over HLint
 - ignore: {name: "Reduce duplication"}  # Too heuristic
+- ignore: {name: "Use const"}  # Naming parameters helps
 - ignore: {name: "Use section"}  # Too opinionated
 - ignore:  # "AppContext" should be extensible with more fields
     name: "Use newtype instead of data"
