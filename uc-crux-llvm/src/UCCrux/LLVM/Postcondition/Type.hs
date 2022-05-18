@@ -210,19 +210,39 @@ data Postcond m (fs :: FuncSig m) where
     } ->
     Postcond m ('FS.FuncSig va mft argTypes)
 
+data RetMismatch
+  = BadRetType
+  | FunctionWasVoid
+  | FunctionWasNonVoid
+  deriving (Eq, Ord)
+
+ppRetMismatch :: RetMismatch -> PP.Doc ann
+ppRetMismatch =
+  \case
+    BadRetType -> "Specification had an ill-typed return value"
+    FunctionWasVoid ->
+      "Specification provided a return value, but the function was void"
+    FunctionWasNonVoid ->
+      "Specification didn't provide a return value, for a void function"
+
 data PostcondTypeError
-  = PostcondMismatchedSize
+  = -- | Fields are actual index, maximum index
+    PostcondMismatchedSize !Int !Int
   | PostcondMismatchedType
-  | PostcondMismatchedRet
+  | PostcondMismatchedRet !RetMismatch
   deriving (Eq, Ord)
 
 ppPostcondTypeError :: PostcondTypeError -> PP.Doc ann
 ppPostcondTypeError =
   \case
-    PostcondMismatchedSize ->
+    PostcondMismatchedSize idx numArgs ->
       PP.hsep
         [ "Specification for values clobbered by the skipped function",
-          "included an argument index that is out of range for that function."
+          "included an argument index"
+          , PP.viaShow idx
+          , "that is out of range for that function, which only has"
+          , PP.viaShow numArgs
+          , "arguments"
         ]
     PostcondMismatchedType ->
       PP.hsep
@@ -230,8 +250,11 @@ ppPostcondTypeError =
           "included a value that was ill-typed with respect to that function's",
           "arguments."
         ]
-    PostcondMismatchedRet ->
-        "Specification for return value of the skipped function was ill-typed."
+    PostcondMismatchedRet mis ->
+      PP.hsep
+        [ "Specification for return value of the skipped function was ill-typed."
+        , ppRetMismatch mis
+        ]
 
 -- | Check that the given untyped postcondition ('UPostcond') matches the
 -- given function signature ('FuncSigRepr'), returning a strongly typed
@@ -259,22 +282,23 @@ typecheckPostcond post fs =
                    Nothing -> Left PostcondMismatchedType)
 
      -- Check that the correct number of arguments were specified
+     let maxIdx = if IntMap.null uArgs then 0 else maximum (IntMap.keys uArgs)
+     let numArgs = Ctx.sizeInt (Ctx.size argTypes)
      () <-
-       if not (IntMap.null uArgs) &&
-            maximum (IntMap.keys uArgs) > Ctx.sizeInt (Ctx.size argTypes)
-       then Left PostcondMismatchedSize
+       if maxIdx > numArgs
+       then Left (PostcondMismatchedSize maxIdx numArgs)
        else Right ()
 
      -- Check that the return value has the right type
      ret <-
        case (FS.fsRetType fs, _uReturnValue post) of
-         (FS.NonVoidRepr{}, Nothing) -> Left PostcondMismatchedRet
-         (FS.VoidRepr{}, Just{}) -> Left PostcondMismatchedRet
+         (FS.NonVoidRepr{}, Nothing) -> Left (PostcondMismatchedRet FunctionWasNonVoid)
+         (FS.VoidRepr{}, Just{}) -> Left (PostcondMismatchedRet FunctionWasVoid)
          (FS.VoidRepr, Nothing) -> Right ReturnVoid
          (FS.NonVoidRepr ft, Just (ConstrainedTypedValue ty val)) ->
            case testEquality ft ty of
              Just Refl -> Right (ReturnValue val)
-             Nothing -> Left PostcondMismatchedRet
+             Nothing -> Left (PostcondMismatchedRet BadRetType)
 
      return $
        Postcond
