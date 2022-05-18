@@ -58,7 +58,6 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import           Data.Void (Void)
 import           Data.Type.Equality ((:~:)(Refl))
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
@@ -133,9 +132,9 @@ data Shape (m :: Type) (tag :: FullType m -> Type) (ft :: FullType m) where
 ppShapeA ::
   Applicative
     f =>
-  (forall ft'. tag ft' -> f (Doc Void)) ->
+  (forall ft'. tag ft' -> f (Doc ann)) ->
   Shape m tag ft ->
-  f (Doc Void)
+  f (Doc ann)
 ppShapeA ppTag =
   \case
     ShapeInt tag' ->
@@ -209,9 +208,9 @@ ppShapeA ppTag =
     nestBullets header bulls = nestSep (header : bullets bulls)
 
 ppShape ::
-  (forall ft'. tag ft' -> Doc Void) ->
+  (forall ft'. tag ft' -> Doc ann) ->
   Shape m tag ft ->
-  Doc Void
+  Doc ann
 ppShape ppTag = coerce (ppShapeA (Identity . ppTag))
 
 eqShape ::
