@@ -14,7 +14,9 @@ Stability        : provisional
 
 module UCCrux.LLVM.FullType.Memory
   ( sizeInBytes,
+    arraySizeInBytes,
     sizeBv,
+    arraySizeBv,
     pointerRange
   )
 where
@@ -46,22 +48,41 @@ import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, dataLayout, crucibleDataLayout)
 {- ORMOLU_ENABLE -}
 
+-- | Size in bytes of a given type.
+sizeInBytes ::
+  ModuleTypes m ->
+  FullTypeRepr m ft ->
+  Integer
+sizeInBytes mts ftRepr =
+  let dl = dataLayout mts
+      cdl = crucibleDataLayout dl
+  in bytesToInteger (memTypeSize cdl (toMemType dl ftRepr))
 
 -- | Size in bytes of an array of a given type with a given length.
-sizeInBytes ::
+arraySizeInBytes ::
   ModuleTypes m ->
   FullTypeRepr m ft ->
   -- | Array length
   Integer ->
   Integer
-sizeInBytes mts ftRepr size =
-  let dl = dataLayout mts
-      cdl = crucibleDataLayout dl
-  in size * bytesToInteger (memTypeSize cdl (toMemType dl ftRepr))
+arraySizeInBytes mts ftRepr size = size * sizeInBytes mts ftRepr
+
+-- | A concrete bitvector representing the size (in bytes) of data of a given
+-- type in memory.
+sizeBv ::
+  ( Crucible.IsSymInterface sym,
+    ArchOk arch
+  ) =>
+  ModuleContext m arch ->
+  sym ->
+  FullTypeRepr m ft ->
+  IO (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
+sizeBv modCtx sym ftRepr =
+  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (sizeInBytes (modCtx ^. moduleTypes) ftRepr))
 
 -- | A concrete bitvector representing the size (in bytes) of an array of data
 -- of a given type in memory.
-sizeBv ::
+arraySizeBv ::
   ( Crucible.IsSymInterface sym,
     ArchOk arch
   ) =>
@@ -71,8 +92,8 @@ sizeBv ::
   -- | Array length
   Integer ->
   IO (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
-sizeBv modCtx sym ftRepr size =
-  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (sizeInBytes (modCtx ^. moduleTypes) ftRepr size))
+arraySizeBv modCtx sym ftRepr size =
+  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (arraySizeInBytes (modCtx ^. moduleTypes) ftRepr size))
 
 -- | A vector of pointers created by repeatedly adding an offset to a given base
 -- pointer.

@@ -126,7 +126,7 @@ elemsFromOffset ::
   Int
 elemsFromOffset mts offset partType =
   let pointedTo = asFullType mts partType
-      typeSize = sizeInBytes mts pointedTo 1 -- 1 = array length
+      typeSize = sizeInBytes mts pointedTo
    in 1 + fromIntegral (BV.asUnsigned (What4.fromConcreteBV offset) `div` typeSize)
 
 unclass ::

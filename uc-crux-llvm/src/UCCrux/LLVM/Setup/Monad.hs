@@ -77,7 +77,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
-import           UCCrux.LLVM.FullType.Memory (sizeBv)
+import           UCCrux.LLVM.FullType.Memory (arraySizeBv)
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, ToBaseType, ModuleTypes, DataLayout)
 import           UCCrux.LLVM.Constraints (Constraint)
 import qualified UCCrux.LLVM.Mem as Mem
@@ -313,7 +313,7 @@ malloc bak fullTypeRepr selector size =
       modifyMem $
         \mem ->
           do
-            sz <- liftIO $ sizeBv modCtx sym fullTypeRepr size
+            sz <- liftIO $ arraySizeBv modCtx sym fullTypeRepr size
             (p, mem') <-
               liftIO $
                 do

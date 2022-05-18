@@ -234,7 +234,7 @@ generate bak modCtx ftRepr selector (ConstrainedShape shape) =
                   NatRepr.NonZeroNat -> return (Some (NatRepr.predNat nr))
           ptr <- malloc bak ftRepr selector (toEnum num)
           let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptPtdTo
-          size <- liftIO $ sizeBv modCtx sym ftPtdTo 1
+          size <- liftIO $ sizeBv modCtx sym ftPtdTo
           -- For each offset, generate a value and store it there.
           pointers <- liftIO $ pointerRange proxy sym ptr size numRepr
           pointedTos <-
