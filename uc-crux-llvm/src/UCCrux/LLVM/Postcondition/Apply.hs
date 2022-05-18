@@ -25,7 +25,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (zip)
 
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), to)
 import           Control.Monad (foldM)
 import           Data.Functor.Product (Product(Pair))
 import           Data.IORef (IORef, modifyIORef)
@@ -61,7 +61,7 @@ import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), deepenPtr, seekTy
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberGlobal))
 import           UCCrux.LLVM.FullType.CrucibleType (CrucibleTypeCompat (CrucibleTypeCompat), zip, opaquePointersToCrucibleCompat)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, MapToCrucibleType)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, MapToCrucibleType, dataLayout)
 import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbolToString)
 import           UCCrux.LLVM.Postcondition.Type
@@ -162,7 +162,8 @@ doClobberValue bak modCtx annotationRef funcSymb mem clobberVal container =
      ptr <- Mem.seekPtr modCtx bak mem' containerType container cursor
      let mts = modCtx ^. moduleTypes
      let clobberTy = pointedToType mts (seekType mts cursor containerType)
-     Mem.store modCtx bak mem' clobberTy ptr (getSymValue symVal)
+     let dl = modCtx ^. moduleTypes . to dataLayout
+     Mem.store modCtx dl bak mem' clobberTy ptr (getSymValue symVal)
 
 -- | Generate (via via 'UCCrux.LLVM.Setup.generate') a fresh return value.
 genReturnValue ::

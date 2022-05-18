@@ -42,7 +42,7 @@ import           Data.Parameterized.Ctx (Ctx)
 import           Data.Parameterized.Context (Assignment)
 
 import           UCCrux.LLVM.Classify.Types (Located, ppLocated, TruePositive, ppTruePositive, Uncertainty, ppUncertainty, Diagnosis)
-import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
+import           UCCrux.LLVM.FullType.Type (DataLayout, FullType, FullTypeRepr)
 import           UCCrux.LLVM.Precondition (isEmpty, ppPreconds, Preconds(..))
 import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
@@ -109,8 +109,8 @@ data BugfindingResult m arch (argTypes :: Ctx (FullType m)) = BugfindingResult
     summary :: FunctionSummary m argTypes
   }
 
-ppFunctionSummary :: FunctionSummary m argTypes -> Doc Void
-ppFunctionSummary fs =
+ppFunctionSummary :: DataLayout m -> FunctionSummary m argTypes -> Doc Void
+ppFunctionSummary dl fs =
   PP.pretty (ppFunctionSummaryTag (functionSummaryTag fs))
     <> case fs of
       Unclear uncertainties ->
@@ -131,7 +131,7 @@ ppFunctionSummary fs =
           <> if didHit b
             then PP.pretty ("The loop/recursion bound is not exceeded, and:\n" :: Text)
             else
-              ppPreconds preconditions
+              ppPreconds dl preconditions
                 <> ppUnsoundness' u
       AlwaysSafe u -> "." <> ppUnsoundness' u
       SafeUpToBounds u -> "." <> ppUnsoundness' u
@@ -149,9 +149,9 @@ ppFunctionSummary fs =
             )
             <> ppUnsoundness u
 
-printFunctionSummary :: FunctionSummary m argTypes -> Text
-printFunctionSummary fs =
-  PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (ppFunctionSummary fs))
+printFunctionSummary :: DataLayout m -> FunctionSummary m argTypes -> Text
+printFunctionSummary dl fs =
+  PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (ppFunctionSummary dl fs))
 
 -- | Did symbolic execution run into loop/recursion bounds?
 data DidHitBounds

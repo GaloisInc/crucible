@@ -79,7 +79,7 @@ import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.Memory (pointerRange, sizeBv)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType, dataLayout)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
 import           UCCrux.LLVM.Precondition (Preconds, argPreconds, globalPreconds)
@@ -236,7 +236,7 @@ generate bak modCtx ftRepr selector (ConstrainedShape shape) =
                   NatRepr.NonZeroNat -> return (Some (NatRepr.predNat nr))
           ptr <- malloc bak ftRepr selector (toEnum num)
           let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptPtdTo
-          size <- liftIO $ sizeBv modCtx sym ftPtdTo 1
+          size <- liftIO $ sizeBv modCtx sym ftPtdTo
           -- For each offset, generate a value and store it there.
           pointers <- liftIO $ pointerRange proxy sym ptr size numRepr
           pointedTos <-
@@ -426,6 +426,7 @@ populateNonConstGlobals modCtx bak constrainedGlobals =
                     )
                 void $
                   storeGlobal
+                    (modCtx ^. moduleTypes . to dataLayout)
                     bak
                     fullTy
                     (SelectGlobal gSymb (Here fullTy))

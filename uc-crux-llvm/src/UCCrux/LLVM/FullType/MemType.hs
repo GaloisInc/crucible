@@ -16,6 +16,7 @@ invariant.
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module UCCrux.LLVM.FullType.MemType
   ( toMemType,
@@ -30,21 +31,21 @@ import           Data.Parameterized.TraversableFC (toListFC)
 
 import qualified What4.InterpretedFloatingPoint as W4IFP
 
-import           Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), FunDecl(..))
+import           Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), FunDecl(..), mkStructInfo)
 
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), PartTypeRepr, aliasOrFullType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), PartTypeRepr, aliasOrFullType, DataLayout, crucibleDataLayout, structPackedReprToBool)
 import           UCCrux.LLVM.FullType.VarArgs (varArgsReprToBool)
 {- ORMOLU_ENABLE -}
 
 -- | Postcondition: The returned 'MemType' will not be a metadata type.
 --
 -- @toStorageType@ depends on this.
-toMemType :: FullTypeRepr m ft -> MemType
-toMemType =
+toMemType :: forall m ft. DataLayout m -> FullTypeRepr m ft -> MemType
+toMemType dl =
   \case
     FTIntRepr natRepr -> IntType (natValue natRepr)
-    FTPtrRepr ptRepr -> PtrType (toSymType ptRepr)
+    FTPtrRepr ptRepr -> PtrType (toSymType dl ptRepr)
     FTFloatRepr W4IFP.SingleFloatRepr -> FloatType
     FTFloatRepr W4IFP.DoubleFloatRepr -> DoubleType
     FTFloatRepr W4IFP.X86_80FloatRepr -> X86_FP80Type
@@ -54,23 +55,31 @@ toMemType =
     FTNonVoidFuncPtrRepr varArgs retRepr argsRepr ->
       funType (Just retRepr) argsRepr (varArgsReprToBool varArgs)
     FTOpaquePtrRepr _ident -> PtrType OpaqueType
-    FTArrayRepr natRepr fullTypeRepr -> ArrayType (natValue natRepr) (toMemType fullTypeRepr)
-    FTUnboundedArrayRepr fullTypeRepr -> ArrayType 0 (toMemType fullTypeRepr)
-    FTStructRepr structInfo _ -> StructType structInfo
+    FTArrayRepr natRepr fullTypeRepr -> ArrayType (natValue natRepr) (toMemType dl fullTypeRepr)
+    FTUnboundedArrayRepr fullTypeRepr -> ArrayType 0 (toMemType dl fullTypeRepr)
+    FTStructRepr sp fields ->
+      let cdl = crucibleDataLayout dl
+          memFields = toListFC (toMemType dl) fields
+      in StructType (mkStructInfo cdl (structPackedReprToBool sp) memFields)
   where
-    funType :: Maybe (FullTypeRepr m ft) -> Ctx.Assignment (FullTypeRepr m) argTypes -> Bool -> MemType
+    funType ::
+      forall ft' argTypes.
+      Maybe (FullTypeRepr m ft') ->
+      Ctx.Assignment (FullTypeRepr m) argTypes ->
+      Bool ->
+      MemType
     funType maybeRetRepr argsRepr isVarArgs =
       PtrType
         ( FunType
             ( FunDecl
-                (toMemType <$> maybeRetRepr)
-                (toListFC toMemType argsRepr)
+                (toMemType dl <$> maybeRetRepr)
+                (toListFC (toMemType dl) argsRepr)
                 isVarArgs
             )
         )
 
-toSymType :: PartTypeRepr m ft -> SymType
-toSymType ptRepr =
+toSymType :: DataLayout m -> PartTypeRepr m ft -> SymType
+toSymType dl ptRepr =
   case aliasOrFullType ptRepr of
     Left ident -> Alias ident
-    Right ftRepr -> MemType (toMemType ftRepr)
+    Right ftRepr -> MemType (toMemType dl ftRepr)

@@ -74,7 +74,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SeekOffset))
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(..), toCrucibleType, translateIndex)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
-import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, asFullType)
+import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, asFullType, DataLayout, dataLayout)
 
 {- ORMOLU_ENABLE -}
 
@@ -84,15 +84,16 @@ loadRaw ::
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
+  DataLayout m ->
   sym ->
   MemImpl sym ->
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m atTy ->
   IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
-loadRaw proxy sym mem ptr fullTypeRepr =
+loadRaw proxy dl sym mem ptr fullTypeRepr =
   do let typeRepr = toCrucibleType proxy fullTypeRepr
-     partVal <-
-       LLVMMem.loadRaw sym mem ptr (toStorageType fullTypeRepr) noAlignment
+     let storTy = toStorageType dl fullTypeRepr
+     partVal <- LLVMMem.loadRaw sym mem ptr storTy noAlignment
      case partVal of
        LLVMMem.Err p -> return (p, Nothing)
        LLVMMem.NoErr p ptdToVal ->
@@ -112,7 +113,7 @@ loadRaw' ::
   IO (Pred sym, Maybe (Crucible.RegValue sym (ToCrucibleType arch atTy)))
 loadRaw' proxy sym mem mts ptr fullTypeRepr =
   let pointedToRepr = pointedToType mts fullTypeRepr
-  in loadRaw proxy sym mem ptr pointedToRepr
+  in loadRaw proxy (dataLayout mts) sym mem ptr pointedToRepr
 
 load ::
   IsSymBackend sym bak =>
@@ -120,14 +121,16 @@ load ::
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
+  DataLayout m ->
   bak ->
   MemImpl sym ->
   Crucible.RegValue sym (ToCrucibleType arch ('FTPtr atTy)) ->
   FullTypeRepr m atTy ->
   IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
-load proxy bak mem ptr fullTypeRepr =
+load proxy dl bak mem ptr fullTypeRepr =
   do let typeRepr = toCrucibleType proxy fullTypeRepr
-     LLVMMem.doLoad bak mem ptr (toStorageType fullTypeRepr) typeRepr noAlignment
+     let storTy = toStorageType dl fullTypeRepr
+     LLVMMem.doLoad bak mem ptr storTy typeRepr noAlignment
 
 load' ::
   IsSymBackend sym bak =>
@@ -143,13 +146,14 @@ load' ::
   IO (Crucible.RegValue sym (ToCrucibleType arch atTy))
 load' proxy bak mem mts ptr fullTypeRepr =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     load proxy bak mem ptr pointedToRepr
+     load proxy (dataLayout mts) bak mem ptr pointedToRepr
 
 store ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
+  DataLayout m ->
   bak ->
   MemImpl sym ->
   FullTypeRepr m ft ->
@@ -158,8 +162,8 @@ store ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-store proxy bak mem fullTypeRepr ptr regValue =
-  do let storageType = toStorageType fullTypeRepr
+store proxy dl bak mem fullTypeRepr ptr regValue =
+  do let storageType = toStorageType dl fullTypeRepr
      let cType = toCrucibleType proxy fullTypeRepr
      LLVMMem.doStore bak mem ptr cType storageType noAlignment regValue
 
@@ -179,13 +183,14 @@ store' ::
   IO (MemImpl sym)
 store' proxy bak mem mts fullTypeRepr ptr regValue =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     store proxy bak mem pointedToRepr ptr regValue
+     store proxy (dataLayout mts) bak mem pointedToRepr ptr regValue
 
 storeGlobal ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
+  DataLayout m ->
   bak ->
   MemImpl sym ->
   FullTypeRepr m ft ->
@@ -194,15 +199,16 @@ storeGlobal ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-storeGlobal proxy bak mem fullTypeRepr symb regValue =
+storeGlobal proxy dl bak mem fullTypeRepr symb regValue =
   do ptr <- LLVMMem.doResolveGlobal bak mem symb
-     store proxy bak mem fullTypeRepr ptr regValue
+     store proxy dl bak mem fullTypeRepr ptr regValue
 
 storeGlobal' ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
   proxy arch ->
+  DataLayout m ->
   bak ->
   MemImpl sym ->
   ModuleTypes m ->
@@ -212,9 +218,9 @@ storeGlobal' ::
   -- | Value to store
   Crucible.RegValue sym (ToCrucibleType arch ft) ->
   IO (MemImpl sym)
-storeGlobal' proxy bak mem mts fullTypeRepr symb regValue =
+storeGlobal' proxy dl bak mem mts fullTypeRepr symb regValue =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     storeGlobal proxy bak mem pointedToRepr symb regValue
+     storeGlobal proxy dl bak mem pointedToRepr symb regValue
 
 loadGlobal ::
   IsSymBackend sym bak =>
@@ -222,15 +228,16 @@ loadGlobal ::
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
+  DataLayout m ->
   bak ->
   MemImpl sym ->
   FullTypeRepr m ft ->
   -- | Name of global variable
   L.Symbol ->
   IO (Crucible.RegValue sym (ToCrucibleType arch ft))
-loadGlobal proxy bak mem fullTypeRepr symb =
+loadGlobal proxy dl bak mem fullTypeRepr symb =
   do ptr <- LLVMMem.doResolveGlobal bak mem symb
-     load proxy bak mem ptr fullTypeRepr
+     load proxy dl bak mem ptr fullTypeRepr
 
 loadGlobal' ::
   IsSymBackend sym bak =>
@@ -238,6 +245,7 @@ loadGlobal' ::
   ArchOk arch =>
   (?memOpts :: MemOptions) =>
   proxy arch ->
+  DataLayout m ->
   bak ->
   MemImpl sym ->
   ModuleTypes m ->
@@ -245,9 +253,9 @@ loadGlobal' ::
   -- | Name of global variable
   L.Symbol ->
   IO (Crucible.RegValue sym (ToCrucibleType arch ft))
-loadGlobal' proxy bak mem mts fullTypeRepr symb =
+loadGlobal' proxy dl bak mem mts fullTypeRepr symb =
   do let pointedToRepr = pointedToType mts fullTypeRepr
-     loadGlobal proxy bak mem pointedToRepr symb
+     loadGlobal proxy dl bak mem pointedToRepr symb
 
 -- | Find a pointer inside of a value
 seekPtr ::

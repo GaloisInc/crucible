@@ -49,8 +49,9 @@ import Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Newtypes.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, defnTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, defnTypes, moduleTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.FullType.Type (dataLayout)
 import           UCCrux.LLVM.Module (DefnSymbol, getDefnSymbol, makeDefnSymbol, getModule)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
 import           UCCrux.LLVM.Newtypes.Seconds (secondsToMicroseconds)
@@ -97,7 +98,8 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir defnSym =
         case maybeResult of
           Right (Right (SomeBugfindingResult _types result _trace)) ->
             do
-              writeFile logFilePath (Result.printFunctionSummary (Result.summary result))
+              let dl = modCtx ^. moduleTypes . to dataLayout
+              writeFile logFilePath (Result.printFunctionSummary dl (Result.summary result))
               pure (getStats result)
           Right (Left unin) ->
             do

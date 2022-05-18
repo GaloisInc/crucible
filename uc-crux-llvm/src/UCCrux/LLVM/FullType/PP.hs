@@ -23,10 +23,10 @@ import           Prettyprinter (Doc)
 import           Lang.Crucible.LLVM.MemType (ppMemType, ppSymType)
 
 import           UCCrux.LLVM.FullType.MemType (toMemType, toSymType)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr, PartTypeRepr)
+import           UCCrux.LLVM.FullType.Type (DataLayout, FullTypeRepr, PartTypeRepr)
 
-ppFullTypeRepr :: FullTypeRepr m ft -> Doc ann
-ppFullTypeRepr = ppMemType . toMemType
+ppFullTypeRepr :: DataLayout m -> FullTypeRepr m ft -> Doc ann
+ppFullTypeRepr dl = ppMemType . toMemType dl
 
-ppPartTypeRepr :: PartTypeRepr m ft -> Doc ann
-ppPartTypeRepr = ppSymType . toSymType
+ppPartTypeRepr :: DataLayout m -> PartTypeRepr m ft -> Doc ann
+ppPartTypeRepr dl = ppSymType . toSymType dl

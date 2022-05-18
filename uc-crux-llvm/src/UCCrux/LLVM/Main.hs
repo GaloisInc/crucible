@@ -84,9 +84,10 @@ import           Crux.LLVM.Simulate (parseLLVM)
 import           Paths_uc_crux_llvm (version)
 import           UCCrux.LLVM.Callgraph.LLVM (directCalls, funcCallers)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth, llvmModule)
+import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth, llvmModule, moduleTypes)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
+import           UCCrux.LLVM.FullType.Type (dataLayout)
 import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
 import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
@@ -172,13 +173,14 @@ mainWithConfigs appCtx cruxOpts topConf =
              makeEntryPointsOrThrow
                (modCtx ^. defnTypes)
                (NonEmpty.toList ents)
+           let dl = modCtx ^. moduleTypes . to dataLayout
            let printResult results =
                  forM_ (Map.toList results) $
                    \(func, SomeBugfindingResult _types result _trace) ->
                      Log.sayUCCruxLLVM
                        ( Log.Results
                            (Text.pack (defnSymbolToString func))
-                           (Result.printFunctionSummary (summary result))
+                           (Result.printFunctionSummary dl (summary result))
                        )
 
            -- Obtain a list of callers to check from, if requested

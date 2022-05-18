@@ -37,6 +37,8 @@ import           Control.Lens ((^.), Simple, Lens, lens)
 import           Data.Functor.Const (Const(Const, getConst))
 import qualified Data.Map as Map
 import           Data.Map (Map)
+import qualified Data.IntMap as IntMap
+import           Data.IntMap (IntMap)
 import           Data.Monoid (getFirst, First(First))
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -45,6 +47,7 @@ import           GHC.Stack (HasCallStack)
 import qualified Prettyprinter as PP
 
 import qualified Text.LLVM.AST as L
+import           Text.LLVM.DebugUtils (debugInfoArgNames)
 
 import           Data.Parameterized.Ctx (Ctx)
 import qualified Data.Parameterized.Context as Ctx
@@ -205,21 +208,23 @@ tryMakeFunctionContext modCtx defnSymb argFullTypes argTypes =
           _argumentNames =
             fmapFC
               (Const . getFirst . getConst)
-              ( mapToContext
+              ( intMapToContext
                   (Ctx.size argFullTypes)
-                  (fmap (First . Just) (debugInfoArgNames (getModule llvmMod) def))
+                  (fmap
+                     (First . Just . Text.pack)
+                     (debugInfoArgNames (getModule llvmMod) def))
               )
         }
 
-mapToContext ::
+intMapToContext ::
   Monoid a =>
   Ctx.Size items ->
-  Map Int a ->
+  IntMap a ->
   Ctx.Assignment (Const a) items
-mapToContext size mp =
+intMapToContext size mp =
   Ctx.generate
     size
-    (\index -> Const (Map.findWithDefault mempty (Ctx.indexVal index) mp))
+    (\index -> Const (IntMap.findWithDefault mempty (Ctx.indexVal index) mp))
 
 maybeMapToContext ::
   Ctx.Size items ->
@@ -236,32 +241,3 @@ maybeMapToContext size mp =
                 Nothing -> Left (Ctx.indexVal index)
             )
       )
-
--- Stolen shamelessly from saw-script
-debugInfoArgNames :: L.Module -> L.Define -> Map Int Text
-debugInfoArgNames m d =
-  case Map.lookup "dbg" $ L.defMetadata d of
-    Just (L.ValMdRef s) -> scopeArgs s
-    _ -> Map.empty
-  where
-    scopeArgs :: Int -> Map Int Text
-    scopeArgs s = go $ L.modUnnamedMd m
-      where
-        go :: [L.UnnamedMd] -> Map Int Text
-        go [] = Map.empty
-        go
-          ( L.UnnamedMd
-              { L.umValues =
-                  L.ValMdDebugInfo
-                    ( L.DebugInfoLocalVariable
-                        L.DILocalVariable
-                          { L.dilvScope = Just (L.ValMdRef s'),
-                            L.dilvArg = a,
-                            L.dilvName = Just n
-                          }
-                      )
-              }
-              : xs
-            ) =
-            if s == s' then Map.insert (fromIntegral a - 1) (Text.pack n) $ go xs else go xs
-        go (_ : xs) = go xs

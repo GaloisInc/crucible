@@ -64,12 +64,12 @@ import           Crux.Types (OverM)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleDecls)
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleDecls, moduleTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign'(..),  assignmentToCrucibleType, toCrucibleReturnType)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
-import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
+import           UCCrux.LLVM.FullType.Type (MapToCrucibleType, dataLayout)
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug, funcSymbolToString)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Postcondition.Apply (applyPostcond)
@@ -211,6 +211,7 @@ createSkipOverride modCtx bak usedRef annotationRef postcond funcSymb =
   mkOverride modCtx (Just bak) funcSymb $
     \fs mem args ->
       do let name = modCtx ^. moduleDecls . funcSymbol funcSymb . to declName
+         let dl = modCtx ^. moduleTypes . to dataLayout
          modifyIORef usedRef (Set.insert (SkipOverrideName name))
          case Post.typecheckPostcond postcond fs of
            Left err ->
@@ -220,9 +221,9 @@ createSkipOverride modCtx bak usedRef annotationRef postcond funcSymb =
                , "Error:"
                , show (Post.ppPostcondTypeError err)
                , "Function signature:"
-               , show (FS.ppFuncSigRepr fs)
+               , show (FS.ppFuncSigRepr dl fs)
                , "Postcondition:"
-               , show (Post.ppUPostcond postcond)
+               , show (Post.ppUPostcond dl postcond)
                ]
            Right pc ->
              let ret = FS.fsRetType fs

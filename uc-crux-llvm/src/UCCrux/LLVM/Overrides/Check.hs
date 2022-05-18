@@ -46,7 +46,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
-import           Control.Lens ((^.), (%~))
+import           Control.Lens ((^.), (%~), to)
 import           Control.Monad (foldM, unless)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.Function ((&))
@@ -99,7 +99,7 @@ import           UCCrux.LLVM.Cursor (Selector, selectorCursor)
 import qualified UCCrux.LLVM.Cursor as Cursor
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(SomeIndex), translateIndex)
-import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType, ToCrucibleType, pointedToType, arrayElementType)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType, ToCrucibleType, pointedToType, arrayElementType, dataLayout)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getGlobalSymbol)
@@ -357,7 +357,8 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
                      liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
                      let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
                      liftIO $ (appCtx ^. log) Hi "Preconditions:"
-                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
+                     let dl = modCtx ^. moduleTypes . to dataLayout
+                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds dl constraints)
                      stack <- collectStack
                      argCs <- liftIO $ getArgPreconds sym mem args
                      globCs <- liftIO $ getGlobalPreconds bak mem
@@ -407,7 +408,8 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
            do -- 'loadGlobal' will make some safety assertions, but if they fail
               -- that indicates a bug in UC-Crux or the constraints themselves
               -- rather than a constraint failure, so we don't collect them.
-              glob <- Mem.loadGlobal modCtx bak mem globTy (getGlobalSymbol gSymb)
+              let dl = modCtx ^. moduleTypes . to dataLayout
+              glob <- Mem.loadGlobal modCtx dl bak mem globTy (getGlobalSymbol gSymb)
               fmap (viewSome SomeCheckedConstraint) <$>
                 checkPreconds
                   modCtx
