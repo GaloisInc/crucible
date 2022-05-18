@@ -435,7 +435,7 @@ addPrecond modCtx argTypes constraints =
           ConstrainedTypedValue ft (minimalConstrainedShape ft)
         Some (FuncSigRepr _ _ VoidRepr) ->
           panic
-            "addConstraint"
+            "addPrecond"
             [ "Constraint on return value of void function: "
                 ++ show (getFuncSymbol symbol)
             ]
