@@ -7,7 +7,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -Wno-typed-holes #-}
 
 {-
 Module       : UCCrux.LLVM.Postcondition.Apply
