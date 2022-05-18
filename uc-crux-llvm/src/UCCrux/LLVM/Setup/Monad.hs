@@ -208,14 +208,14 @@ getAnnotation ::
   -- | Path to this value
   Selector m argTypes inTy atTy ->
   FullTypeRepr m atTy ->
-  What4.SymExpr sym (ToBaseType sym arch atTy) ->
+  What4.SymExpr sym (ToBaseType sym atTy) ->
   Setup
     m
     arch
     sym
     argTypes
-    ( What4.SymAnnotation sym (ToBaseType sym arch atTy),
-      What4.SymExpr sym (ToBaseType sym arch atTy)
+    ( What4.SymAnnotation sym (ToBaseType sym atTy),
+      What4.SymExpr sym (ToBaseType sym atTy)
     )
 getAnnotation sym selector fullTypeRepr expr =
   case What4.getAnnotation sym expr of
