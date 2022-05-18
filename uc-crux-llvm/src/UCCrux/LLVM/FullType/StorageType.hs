@@ -5,6 +5,11 @@ Copyright        : (c) Galois, Inc 2021
 License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
+
+These functions are in their own module (instead of in
+"UCCrux.LLVM.FullType.PP.Type") to ensure only a small amount of code has access
+to the constructors of 'PartTypeRepr', which can be used to violate its
+invariant.
 -}
 
 {-# LANGUAGE GADTs #-}

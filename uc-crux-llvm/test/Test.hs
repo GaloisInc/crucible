@@ -88,7 +88,7 @@ import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 
 import qualified Callgraph
 import qualified Check
-import qualified Clobber
+import qualified Postcond
 import qualified Utils
 {- ORMOLU_ENABLE -}
 
@@ -1534,7 +1534,7 @@ main =
       "uc-crux-llvm"
       [ Callgraph.callgraphTests,
         Check.checkOverrideTests,
-        Clobber.clobberTests,
+        Postcond.postcondTests,
         inFileTests,
         moduleTests,
         isUnimplemented

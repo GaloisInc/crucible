@@ -12,21 +12,22 @@ Stability        : provisional
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures -fno-warn-incomplete-uni-patterns #-}
 
-module Clobber (clobberTests) where
+module Postcond (postcondTests) where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.))
 import           Data.Functor.Compose (Compose(Compose))
 import qualified Data.IORef as IORef
 import qualified Data.Map as Map
+import qualified Data.IntMap as IntMap
 import qualified Data.Set as Set
+import           Data.Type.Equality ((:~:)(Refl))
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
 
 import           Text.LLVM.AST as L
 
-import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (knownNat)
 
 import           Lang.Crucible.LLVM.Translation (transContext, llvmTypeCtx)
@@ -36,20 +37,22 @@ import qualified Crux.LLVM.Config as CruxLLVM
 import           UCCrux.LLVM.Constraints (ConstrainedShape(..))
 import           UCCrux.LLVM.Context.Module (moduleTranslation, declTypes)
 import qualified UCCrux.LLVM.Cursor as Cursor
+import           UCCrux.LLVM.FullType.CrucibleType (makeSameCrucibleType)
 import qualified UCCrux.LLVM.FullType.Type as FT
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDeclSymbol), makeDeclSymbol)
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import qualified UCCrux.LLVM.Overrides.Skip as Skip
+import qualified UCCrux.LLVM.Postcondition.Type as Post
 import qualified UCCrux.LLVM.Shape as Shape
 
 -- Tests
 import qualified Utils
 {- ORMOLU_ENABLE -}
 
-clobberTests :: TT.TestTree
-clobberTests =
+postcondTests :: TT.TestTree
+postcondTests =
   TT.testGroup
-    "clobbering"
+    "postconditions"
     [ TH.testCase
         "clobbers_arg.c"
         ( Utils.simulateFunc
@@ -64,24 +67,11 @@ clobberTests =
                    let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
                    let
                      i32p = FT.FTPtrRepr (FT.toPartType (FT.FTIntRepr (knownNat @32)))
-                     specs =
-                       Skip.makeClobberSpecs
-                         [ Skip.SomeClobberSpec $
-                             Skip.ClobberSpec
-                               { Skip.clobberSelector =
-                                 Skip.ClobberSelectArgument
-                                   Ctx.baseIndex
-                                   (Cursor.Here i32p)
-                               , Skip.clobberType = i32p
-                               , Skip.clobberShape =
-                                   ConstrainedShape
-                                     (Shape.ShapeInt (Compose []))
-                               }
-                         ]
-                         Map.empty
-
-                     msg = "Test failure: 'clobbers_arg'"
-                     get = either (error msg) id
+                     shape = ConstrainedShape (Shape.ShapeInt (Compose []))
+                     argVal :: Post.ClobberValue m ('FT.FTPtr ('FT.FTInt 32))
+                     argVal = Post.ClobberValue (Cursor.Here i32p) shape i32p (makeSameCrucibleType (\_arch -> Refl))
+                     arg = Post.SomeClobberArg (Post.DoClobberArg argVal)
+                     specs = Post.UPostcond (IntMap.singleton 0 arg) Map.empty Nothing
 
                    return $
                      Sim.SimulatorCallbacks $
@@ -93,15 +83,13 @@ clobberTests =
                                   [ Sim.SymCreateOverrideFn $
                                       \bak ->
                                         return $
-                                          get $
-                                            Skip.createSkipOverride
-                                              modCtx
-                                              bak
-                                              nameRef
-                                              annRef
-                                              specs
-                                              Nothing
-                                              (FuncDeclSymbol callee)
+                                          Skip.createSkipOverride
+                                            modCtx
+                                            bak
+                                            nameRef
+                                            annRef
+                                            specs
+                                            (FuncDeclSymbol callee)
                                   ]
                               , Sim.resultHook =
                                 \_bak _mem _args _cruxResult ucCruxResult ->
@@ -131,25 +119,13 @@ clobberTests =
                    let ?memOpts = CruxLLVM.memOpts llOpts
                    let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
                    let
-                     i32p = FT.FTPtrRepr (FT.toPartType (FT.FTIntRepr (knownNat @32)))
-                     specs =
-                       Skip.makeClobberSpecs
-                         [ Skip.SomeClobberSpec $
-                             Skip.ClobberSpec
-                               { Skip.clobberSelector =
-                                 Skip.ClobberSelectArgument
-                                   Ctx.baseIndex
-                                   (Cursor.Here i32p)
-                               , Skip.clobberType = i32p
-                               , Skip.clobberShape =
-                                   ConstrainedShape
-                                     (Shape.ShapeInt (Compose []))
-                               }
-                         ]
-                         Map.empty
-
-                     msg = "Test failure: 'clobbers_arg'"
-                     get = either (error msg) id
+                     i32 = FT.FTIntRepr (knownNat @32)
+                     i32p = FT.FTPtrRepr (FT.toPartType i32)
+                     shape = ConstrainedShape (Shape.ShapeInt (Compose []))
+                     argVal :: Post.ClobberValue m ('FT.FTPtr ('FT.FTInt 32))
+                     argVal = Post.ClobberValue (Cursor.Here i32p) shape i32p (makeSameCrucibleType (\_arch -> Refl))
+                     arg = Post.SomeClobberArg (Post.DoClobberArg argVal)
+                     specs = Post.UPostcond (IntMap.singleton 0 arg) Map.empty Nothing
 
                    return $
                      Sim.SimulatorCallbacks $
@@ -161,15 +137,13 @@ clobberTests =
                                   [ Sim.SymCreateOverrideFn $
                                       \sym ->
                                         return $
-                                          get $
-                                            Skip.createSkipOverride
-                                              modCtx
-                                              sym
-                                              nameRef
-                                              annRef
-                                              specs
-                                              Nothing
-                                              (FuncDeclSymbol callee)
+                                          Skip.createSkipOverride
+                                            modCtx
+                                            sym
+                                            nameRef
+                                            annRef
+                                            specs
+                                            (FuncDeclSymbol callee)
                                   ]
                               , Sim.resultHook =
                                 \_sym _mem _args _cruxResult ucCruxResult ->

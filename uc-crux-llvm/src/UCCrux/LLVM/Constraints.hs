@@ -28,6 +28,7 @@ module UCCrux.LLVM.Constraints
     -- * 'ConstrainedShape'
     ConstrainedShape (..),
     minimalConstrainedShape,
+    ppConstrainedShape,
   )
 where
 
@@ -175,3 +176,7 @@ minimalConstrainedShape =
 instance Eq (ConstrainedShape m ft) where
   ConstrainedShape shape1 == ConstrainedShape shape2 =
     Shape.eqShape (\(Compose c1) (Compose c2) -> c1 == c2) shape1 shape2
+
+ppConstrainedShape :: ConstrainedShape m ft -> Doc ann
+ppConstrainedShape =
+  Shape.ppShape (PP.vsep . map ppConstraint . getCompose) . getConstrainedShape

@@ -23,23 +23,30 @@ module UCCrux.LLVM.FullType.FuncSig
     ReturnTypeToCrucibleType,
     ReturnTypeRepr (..),
     mkReturnTypeRepr,
+    ppReturnTypeRepr,
     -- * Function signatures
-    FuncSig,
+    type FuncSig(..),
     FuncSigRepr(..),
+    ppFuncSigRepr,
   )
 where
 
 {- ORMOLU_DISABLE -}
 import           Data.Kind (Type)
 
+import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
+
 import           Data.Parameterized.Classes (OrdF(compareF))
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
 import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.TraversableFC (toListFC)
 import           Data.Type.Equality (TestEquality(testEquality))
 
 import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
+import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 import           UCCrux.LLVM.FullType.Type
 import           UCCrux.LLVM.FullType.VarArgs
 {- ORMOLU_ENABLE -}
@@ -63,6 +70,12 @@ mkReturnTypeRepr =
     Nothing -> Some VoidRepr
     Just (Some ftRepr) -> Some (NonVoidRepr ftRepr)
 
+ppReturnTypeRepr :: ReturnTypeRepr m mft -> Doc ann
+ppReturnTypeRepr =
+  \case
+    VoidRepr -> PP.pretty "void"
+    NonVoidRepr ft -> ppFullTypeRepr ft
+
 -- | Type-level only
 data FuncSig m where
   FuncSig ::
@@ -73,10 +86,20 @@ data FuncSig m where
 
 data FuncSigRepr m (fs :: FuncSig m) where
   FuncSigRepr ::
-    VarArgsRepr varArgs ->
-    Ctx.Assignment (FullTypeRepr m) args ->
-    ReturnTypeRepr m ret ->
+    { fsVarArgs :: VarArgsRepr varArgs,
+      fsArgTypes :: Ctx.Assignment (FullTypeRepr m) args,
+      fsRetType :: ReturnTypeRepr m ret
+    } ->
     FuncSigRepr m ('FuncSig varArgs ret args)
+
+ppFuncSigRepr :: FuncSigRepr m mft -> Doc ann
+ppFuncSigRepr (FuncSigRepr va args ret) =
+  PP.hsep
+    [ PP.hsep (PP.punctuate (PP.pretty " ->") (toListFC ppFullTypeRepr args))
+        <> if varArgsReprToBool va then PP.pretty "..." else mempty
+    , PP.pretty "->"
+    , ppReturnTypeRepr ret
+    ]
 
 -- ------------------------------------------------------------------------------
 -- Instances

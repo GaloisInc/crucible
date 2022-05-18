@@ -81,12 +81,12 @@ import           UCCrux.LLVM.Module (makeFuncSymbol, makeGlobalSymbol, globalSym
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPreSimulationMem)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.PP (ppProgramLoc)
-import           UCCrux.LLVM.Precondition (NewConstraint(..))
 import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
+import qualified UCCrux.LLVM.Precondition as Pre
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 {- ORMOLU_ENABLE -}
@@ -695,11 +695,11 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
     argName :: Ctx.Index argTypes tp -> String
     argName idx = funCtx ^. argumentNames . ixF' idx . to getConst . to (maybe "<top>" Text.unpack)
 
-    oneConstraint selector constraint =
-      [NewConstraint (SomeInSelector selector) constraint]
+    oneConstraint selector pre =
+      [Pre.NewConstraint (SomeInSelector selector) pre]
 
-    oneShapeConstraint selector shapeConstraint =
-      [NewShapeConstraint (SomeInSelector selector) shapeConstraint]
+    oneShapeConstraint selector shapePre =
+      [Pre.NewShapeConstraint (SomeInSelector selector) shapePre]
 
     getConcretePointerBlock :: LLVMPtr.LLVMPtr sym w -> IO (Maybe Natural)
     getConcretePointerBlock ptr =

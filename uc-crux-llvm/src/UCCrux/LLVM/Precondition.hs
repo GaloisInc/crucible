@@ -19,7 +19,7 @@ module UCCrux.LLVM.Precondition
   ( Preconds (..),
     argPreconds,
     globalPreconds,
-    returnPreconds,
+    postconds,
     relationalPreconds,
     emptyPreconds,
     ppPreconds,
@@ -65,13 +65,15 @@ import           Data.Parameterized.TraversableFC (allFC, fmapFC, toListFC)
 import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Constraints (Constraint, ConstrainedShape(..), ConstrainedTypedValue(..), RelationalConstraint, ShapeConstraint (Allocated, Initialized), ppConstraint, minimalConstrainedShape)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberPreconds))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr), ReturnTypeRepr(VoidRepr, NonVoidRepr))
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, getGlobalSymbol, FuncSymbol, funcSymbol, getFuncSymbol)
-import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberConstraints))
+import           UCCrux.LLVM.Postcondition.Type (UPostcond)
+import qualified UCCrux.LLVM.Postcondition.Type as Post
 {- ORMOLU_ENABLE -}
 
 -- | A collection of constraints on the state of a program. These are used to
@@ -83,7 +85,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(
 data Preconds m (argTypes :: Ctx (FullType m)) = Preconds
   { _argPreconds :: Ctx.Assignment (ConstrainedShape m) argTypes,
     _globalPreconds :: Map (GlobalSymbol m) (ConstrainedTypedValue m),
-    _returnPreconds :: Map (FuncSymbol m) (ConstrainedTypedValue m),
+    _postconds :: Map (FuncSymbol m) (UPostcond m),
     _relationalPreconds :: [RelationalConstraint m argTypes]
   }
 
@@ -93,8 +95,8 @@ argPreconds = lens _argPreconds (\s v -> s {_argPreconds = v})
 globalPreconds :: Simple Lens (Preconds m globalTypes) (Map (GlobalSymbol m) (ConstrainedTypedValue m))
 globalPreconds = lens _globalPreconds (\s v -> s {_globalPreconds = v})
 
-returnPreconds :: Simple Lens (Preconds m returnTypes) (Map (FuncSymbol m) (ConstrainedTypedValue m))
-returnPreconds = lens _returnPreconds (\s v -> s {_returnPreconds = v})
+postconds :: Simple Lens (Preconds m returnTypes) (Map (FuncSymbol m) (UPostcond m))
+postconds = lens _postconds (\s v -> s {_postconds = v})
 
 relationalPreconds :: Simple Lens (Preconds m argTypes) [RelationalConstraint m argTypes]
 relationalPreconds = lens _relationalPreconds (\s v -> s {_relationalPreconds = v})
@@ -124,12 +126,12 @@ emptyPreconds argTypes =
   Preconds
     { _argPreconds = emptyArgPreconds argTypes,
       _globalPreconds = Map.empty,
-      _returnPreconds = Map.empty,
+      _postconds = Map.empty,
       _relationalPreconds = []
     }
 
 ppPreconds :: Preconds m argTypes -> Doc Void
-ppPreconds (Preconds args globs returnCs relCs) =
+ppPreconds (Preconds args globs posts relCs) =
   PP.vsep
     ( catMaybes
         [ if Ctx.sizeInt (Ctx.size args) == 0
@@ -149,8 +151,8 @@ ppPreconds (Preconds args globs returnCs relCs) =
               ),
           Just $
             nestSep
-              ( PP.pretty "Return values of skipped functions:" :
-                map (uncurry (ppLabeledValue getFuncSymbol)) (Map.toList returnCs)
+              ( PP.pretty "Postconditions of skipped functions:" :
+                map (uncurry (ppLabeled getFuncSymbol Post.ppUPostcond)) (Map.toList posts)
               ),
           -- These aren't yet generated anywhere
           if null relCs
@@ -167,10 +169,11 @@ ppPreconds (Preconds args globs returnCs relCs) =
     nestSep = PP.nest 2 . PP.vsep
 
     ppLabeledValue getSymbol label (ConstrainedTypedValue _type (ConstrainedShape s)) =
+      ppLabeled getSymbol (Shape.ppShape ppPreconds') label s
+
+    ppLabeled getSymbol f label val =
       let L.Symbol nm = getSymbol label
-       in PP.pretty nm
-            <> PP.pretty ": "
-            <> Shape.ppShape ppPreconds' s
+       in PP.pretty nm <> PP.pretty ": " <> f val
 
 isEmpty :: Preconds m argTypes -> Bool
 isEmpty (Preconds args globs returns rels) =
@@ -317,10 +320,18 @@ addPrecond modCtx argTypes constraints =
       constraints & globalPreconds . atDefault symbol (newGlobalShape symbol)
         %%~ constrainTypedVal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectReturn symbol cursor)) constraint ->
-      constraints & returnPreconds . atDefault symbol (newReturnValueShape symbol)
+      constraints &
+        postconds
+        . atDefault symbol Post.emptyUPostcond
+        . Post.uReturnValue
+        . fromMaybeL (newReturnValueShape symbol)
         %%~ constrainTypedVal cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectReturn symbol cursor)) shapeConstraint ->
-      constraints & returnPreconds . atDefault symbol (newReturnValueShape symbol)
+      constraints &
+        postconds
+        . atDefault symbol Post.emptyUPostcond
+        . Post.uReturnValue
+        . fromMaybeL (newReturnValueShape symbol)
         %%~ constrainTypedVal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectArgument idx cursor)) constraint ->
       constraints & argPreconds . ixF' idx
@@ -333,13 +344,25 @@ addPrecond modCtx argTypes constraints =
     NewRelationalConstraint relationalConstraint ->
       Right $ constraints & relationalPreconds %~ (relationalConstraint :)
     NewConstraint (SomeInSelector SelectClobbered {}) _ ->
-      unimplemented "addPrecond" ClobberConstraints
+      unimplemented "addPrecond" ClobberPreconds
     NewShapeConstraint (SomeInSelector SelectClobbered {}) _ ->
-      unimplemented "addPrecond" ClobberConstraints
+      unimplemented "addPrecond" ClobberPreconds
   where
+    -- Examples:
+    --
+    -- >>> Nothing & fromMaybeL 5 %~ (+1)
+    -- Just 6
+    -- >>> Just 0 & fromMaybeL 7 %~ (+1)
+    -- Just 1
     fromMaybeL :: forall a. a -> Lens.Lens' (Maybe a) a
     fromMaybeL def = lens (fromMaybe def) (\_old new -> Just new)
 
+    -- Examples:
+    --
+    -- >>> Map.fromList [(0, ""), (1, "-")] & atDefault 2 "!" %~ (++ ".")
+    -- fromList [(0,""),(1,"-"),(2,"!.")]
+    -- >>> Map.fromList [(0, ""), (1, "-")] & atDefault 1 "!" %~ (++ ".")
+    -- fromList [(0,""),(1,"-.")]
     atDefault ::
       forall c.
       Lens.At c =>
@@ -408,11 +431,11 @@ addPrecond modCtx argTypes constraints =
     newReturnValueShape :: FuncSymbol m -> ConstrainedTypedValue m
     newReturnValueShape symbol =
       case modCtx ^. funcTypes . funcSymbol symbol of
+        Some (FuncSigRepr _ _ (NonVoidRepr ft)) ->
+          ConstrainedTypedValue ft (minimalConstrainedShape ft)
         Some (FuncSigRepr _ _ VoidRepr) ->
           panic
             "addPrecond"
             [ "Constraint on return value of void function: "
                 ++ show (getFuncSymbol symbol)
             ]
-        Some (FuncSigRepr _ _ (NonVoidRepr ft)) ->
-          ConstrainedTypedValue ft (minimalConstrainedShape ft)
