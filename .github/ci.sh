@@ -94,6 +94,8 @@ install_system_deps() {
 }
 
 sign() {
+  # This is surrounded with `set +x; ...; set -x` to disable printing out
+  # statements that could leak GPG-related secrets.
   set +x
   gpg --yes --quiet --batch --import <(echo "$SIGNING_KEY")
   fingerprint="$(gpg --list-keys | grep Galois -a1 | head -n1 | awk '{$1=$1};1')"
