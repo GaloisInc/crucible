@@ -37,6 +37,7 @@ import qualified Crux.LLVM.Config as CruxLLVM
 import           UCCrux.LLVM.Constraints (ConstrainedShape(..))
 import           UCCrux.LLVM.Context.Module (moduleTranslation, declTypes)
 import qualified UCCrux.LLVM.Cursor as Cursor
+import qualified UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.FullType.CrucibleType (makeSameCrucibleType)
 import qualified UCCrux.LLVM.FullType.Type as FT
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDeclSymbol), makeDeclSymbol)
@@ -76,7 +77,7 @@ postcondTests =
                    return $
                      Sim.SimulatorCallbacks $
                        do nameRef <- IORef.newIORef Set.empty
-                          annRef <- IORef.newIORef Map.empty
+                          annRef <- IORef.newIORef ET.empty
                           return $
                             Sim.SimulatorHooks
                               { Sim.createOverrideHooks =
@@ -130,7 +131,7 @@ postcondTests =
                    return $
                      Sim.SimulatorCallbacks $
                        do nameRef <- IORef.newIORef Set.empty
-                          annRef <- IORef.newIORef Map.empty
+                          annRef <- IORef.newIORef ET.empty
                           return $
                             Sim.SimulatorHooks
                               { Sim.createOverrideHooks =

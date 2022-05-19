@@ -122,10 +122,10 @@ annotatedTerm ::
   (Crucible.IsSymInterface sym) =>
   sym ->
   FullTypeRepr m atTy ->
-  CrucibleTypes.BaseTypeRepr (ToBaseType sym arch atTy) ->
+  CrucibleTypes.BaseTypeRepr (ToBaseType sym atTy) ->
   -- | Path to this value
   Selector m argTypes inTy atTy ->
-  Setup m arch sym argTypes (W4I.SymExpr sym (ToBaseType sym arch atTy))
+  Setup m arch sym argTypes (W4I.SymExpr sym (ToBaseType sym atTy))
 annotatedTerm sym fullTypeRepr baseTypeRepr selector =
   do
     symbol <- freshSymbol

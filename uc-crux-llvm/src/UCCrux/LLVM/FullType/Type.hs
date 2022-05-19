@@ -138,7 +138,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 import qualified Lang.Crucible.LLVM.DataLayout as Crucible
 import           Lang.Crucible.LLVM.TypeContext (TypeContext (llvmDataLayout), asMemType, lookupAlias)
 
-import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVMArch)
+import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), FunDecl(..))
 import qualified Lang.Crucible.LLVM.MemType as MemType
 
@@ -270,18 +270,18 @@ type family ToCrucibleType arch (ft :: FullType m) :: CrucibleTypes.CrucibleType
       "LLVM_pointer"
       (Ctx.EmptyCtx Ctx.::> CrucibleTypes.BVType (ArchWidth arch))
 
-type family MapToBaseType (sym :: Type) (arch :: LLVMArch) (ctx :: Ctx (FullType m)) :: Ctx CrucibleTypes.BaseType where
-  MapToBaseType sym arch 'Ctx.EmptyCtx = Ctx.EmptyCtx
-  MapToBaseType sym arch (xs 'Ctx.::> x) =
-    MapToBaseType sym arch xs Ctx.::> ToBaseType sym arch x
+type family MapToBaseType (sym :: Type) (ctx :: Ctx (FullType m)) :: Ctx CrucibleTypes.BaseType where
+  MapToBaseType sym 'Ctx.EmptyCtx = Ctx.EmptyCtx
+  MapToBaseType sym (xs 'Ctx.::> x) =
+    MapToBaseType sym xs Ctx.::> ToBaseType sym x
 
 -- | The type of annotated What4 values that correspond to each 'FullType'
-type family ToBaseType (sym :: Type) (arch :: LLVMArch) (ft :: FullType m) :: CrucibleTypes.BaseType where
-  ToBaseType sym arch ('FTInt n) = CrucibleTypes.BaseBVType n
-  ToBaseType sym arch ('FTPtr _ft) = CrucibleTypes.BaseIntegerType
-  ToBaseType sym arch ('FTFloat flt) = W4IFP.SymInterpretedFloatType sym flt
-  ToBaseType sym arch ('FTStruct _sp ctx) =
-    CrucibleTypes.BaseStructType (MapToBaseType sym arch ctx)
+type family ToBaseType (sym :: Type) (ft :: FullType m) :: CrucibleTypes.BaseType where
+  ToBaseType sym ('FTInt n) = CrucibleTypes.BaseBVType n
+  ToBaseType sym ('FTPtr _ft) = CrucibleTypes.BaseIntegerType
+  ToBaseType sym ('FTFloat flt) = W4IFP.SymInterpretedFloatType sym flt
+  ToBaseType sym ('FTStruct _sp ctx) =
+    CrucibleTypes.BaseStructType (MapToBaseType sym ctx)
 
 -- | A singleton for representing a 'FullType' at the value level.
 --

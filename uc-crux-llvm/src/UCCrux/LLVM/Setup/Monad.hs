@@ -27,7 +27,6 @@ module UCCrux.LLVM.Setup.Monad
     SetupAssumption (..),
     SetupResult (..),
     setupMem,
-    TypedSelector (..),
     freshSymbol,
     assume,
     getAnnotation,
@@ -47,8 +46,6 @@ import           Control.Monad.Reader (MonadReader, ask)
 import           Control.Monad.State.Strict (MonadState, gets)
 import           Control.Monad.Writer (MonadWriter, tell)
 import           Control.Monad.RWS (RWST, runRWST)
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Text (Text)
 import qualified Data.Text.IO as TextIO
@@ -76,17 +73,13 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext(llvmDataLayout))
 import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
-import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
+import           UCCrux.LLVM.Cursor (Selector)
+import           UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.FullType.Memory (arraySizeBv)
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr, ToCrucibleType, ToBaseType, ModuleTypes, DataLayout)
 import           UCCrux.LLVM.Constraints (Constraint)
 import qualified UCCrux.LLVM.Mem as Mem
 {- ORMOLU_ENABLE -}
-
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8
--- compatibility.
-data TypedSelector m arch (argTypes :: Ctx (FullType m)) (ft :: FullType m)
-  = TypedSelector (FullTypeRepr m ft) (SomeInSelector m argTypes ft)
 
 data SetupAssumption m sym = SetupAssumption
   { assumptionReason :: Some (Constraint m),
@@ -97,20 +90,20 @@ data SetupAssumption m sym = SetupAssumption
 -- compatibility.
 data SetupState m arch sym (argTypes :: Ctx (FullType m)) = SetupState
   { _setupMem :: LLVMMem.MemImpl sym,
-    -- | This map tracks where a given expression originated from
-    _setupAnnotations :: Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)),
+    -- | Track where a given expression originated from
+    _setupTracker :: ExprTracker m sym argTypes,
     -- | Counter for generating unique/fresh symbols
     _symbolCounter :: !Int
   }
 
 makeSetupState :: LLVMMem.MemImpl sym -> SetupState m arch sym argTypes
-makeSetupState mem = SetupState mem Map.empty 0
+makeSetupState mem = SetupState mem ET.empty 0
 
 setupMem :: Simple Lens (SetupState m arch sym argTypes) (LLVMMem.MemImpl sym)
 setupMem = lens _setupMem (\s v -> s {_setupMem = v})
 
-setupAnnotations :: Simple Lens (SetupState m arch sym argTypes) (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)))
-setupAnnotations = lens _setupAnnotations (\s v -> s {_setupAnnotations = v})
+setupTracker :: Simple Lens (SetupState m arch sym argTypes) (ExprTracker m sym argTypes)
+setupTracker = lens _setupTracker (\s v -> s {_setupTracker = v})
 
 symbolCounter :: Simple Lens (SetupState m arch sym argTypes) Int
 symbolCounter = lens _symbolCounter (\s v -> s {_symbolCounter = v})
@@ -141,21 +134,8 @@ instance LJ.HasLog Text (Setup m arch sym argTypes) where
 -- compatibility.
 data SetupResult m arch sym (argTypes :: Ctx (FullType m)) = SetupResult
   { resultMem :: LLVMMem.MemImpl sym,
-    -- | This map tracks where a given expression originated from, i.e. whether
-    -- it was generated as part of an argument of global variable, and if so,
-    -- where in said value it resides (via a 'Selector'). This is used by
-    -- 'UCCrux.LLVM.Classify.classifyBadBehavior' to deduce new preconditions
-    -- and attach constraints in the right place.
-    --
-    -- For example, if the error is an OOB write and classification looks up the
-    -- pointer in this map and it appears in an argument, it will attach a
-    -- precondition that that part of the argument gets allocated with more
-    -- space. If it looks up the pointer and it's not in this map, it's not clear
-    -- how this error could be prevented, and the error will be unclassified.
-    resultAnnotations ::
-      Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)),
-    resultAssumptions ::
-      [SetupAssumption m sym]
+    resultTracker :: ExprTracker m sym argTypes,
+    resultAssumptions :: [SetupAssumption m sym]
   }
 
 runSetup ::
@@ -173,7 +153,7 @@ runSetup modCtx mem (Setup computation) = do
       (result', state, assumptions) ->
         ( SetupResult
             (state ^. setupMem)
-            (state ^. setupAnnotations)
+            (state ^. setupTracker)
             assumptions,
           result'
         )
@@ -192,14 +172,13 @@ assume constraint predicate = tell [SetupAssumption (Some constraint) predicate]
 
 addAnnotation ::
   OrdF (What4.SymAnnotation sym) =>
-  Some (What4.SymAnnotation sym) ->
+  What4.SymAnnotation sym bt ->
   -- | Path to this value
   Selector m argTypes inTy atTy ->
   FullTypeRepr m atTy ->
   Setup m arch sym argTypes ()
 addAnnotation ann selector fullTypeRepr =
-  setupAnnotations
-    %= Map.insert ann (Some (TypedSelector fullTypeRepr (SomeInSelector selector)))
+  setupTracker %= ET.insert ann selector fullTypeRepr
 
 -- | Retrieve a pre-existing annotation, or make a new one.
 getAnnotation ::
@@ -208,25 +187,25 @@ getAnnotation ::
   -- | Path to this value
   Selector m argTypes inTy atTy ->
   FullTypeRepr m atTy ->
-  What4.SymExpr sym (ToBaseType sym arch atTy) ->
+  What4.SymExpr sym (ToBaseType sym atTy) ->
   Setup
     m
     arch
     sym
     argTypes
-    ( What4.SymAnnotation sym (ToBaseType sym arch atTy),
-      What4.SymExpr sym (ToBaseType sym arch atTy)
+    ( What4.SymAnnotation sym (ToBaseType sym atTy),
+      What4.SymExpr sym (ToBaseType sym atTy)
     )
 getAnnotation sym selector fullTypeRepr expr =
   case What4.getAnnotation sym expr of
     Just annotation ->
       do
-        addAnnotation (Some annotation) selector fullTypeRepr
+        addAnnotation annotation selector fullTypeRepr
         pure (annotation, expr)
     Nothing ->
       do
         (annotation, expr') <- liftIO $ What4.annotateTerm sym expr
-        addAnnotation (Some annotation) selector fullTypeRepr
+        addAnnotation annotation selector fullTypeRepr
         pure (annotation, expr')
 
 annotatePointer ::
@@ -244,23 +223,23 @@ annotatePointer sym selector fullTypeRepr ptr =
       case What4.getAnnotation sym block of
         Just annotation ->
           do
-            addAnnotation (Some annotation) selector fullTypeRepr
+            addAnnotation annotation selector fullTypeRepr
             pure ptr
         Nothing ->
           do
             (annotation, ptr') <- liftIO (LLVMPtr.annotatePointerBlock sym ptr)
-            addAnnotation (Some annotation) selector fullTypeRepr
+            addAnnotation annotation selector fullTypeRepr
             pure ptr'
     let offset = LLVMPtr.llvmPointerOffset ptr'
     case What4.getAnnotation sym offset of
       Just annotation ->
         do
-          addAnnotation (Some annotation) selector fullTypeRepr
+          addAnnotation annotation selector fullTypeRepr
           pure ptr'
       Nothing ->
         do
           (annotation, ptr'') <- liftIO (LLVMPtr.annotatePointerOffset sym ptr)
-          addAnnotation (Some annotation) selector fullTypeRepr
+          addAnnotation annotation selector fullTypeRepr
           pure ptr''
 
 modifyMem ::

@@ -31,8 +31,6 @@ import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Bifunctor (bimap)
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Text as Text
 
 import qualified Text.LLVM.AST as L
@@ -51,23 +49,24 @@ import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Cursor (ppCursor, SomeInSelector(SomeInSelector), Where, selectWhere, selectorCursor)
 import           UCCrux.LLVM.Constraints (Constraint(BVCmp))
+import           UCCrux.LLVM.ExprTracker (ExprTracker, TypedSelector)
+import qualified UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.FullType.Type (FullType(FTInt), FullTypeRepr(FTIntRepr))
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Precondition (NewConstraint(..))
-import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
 {- ORMOLU_ENABLE -}
 
 getTermAnn ::
   What4.IsExprBuilder sym =>
   sym ->
-  -- | Term annotations (origins)
-  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | Origins of created values
+  ExprTracker m sym argTypes ->
   What4.SymExpr sym tp ->
-  Maybe (Some (TypedSelector m arch argTypes))
-getTermAnn sym annotations expr =
+  Maybe (Some (TypedSelector m argTypes))
+getTermAnn sym tracker expr =
   do
     ann <- What4.getAnnotation sym expr
-    Map.lookup (Some ann) annotations
+    ET.lookup ann tracker
 
 -- | For poison values created via arithmetic operations, it's easy to deduce a
 -- precondition when one of the operands is an argument to the function, and the
@@ -81,16 +80,15 @@ getTermAnn sym annotations expr =
 annotationAndValue ::
   What4.IsExprBuilder sym =>
   sym ->
-  -- | Term annotations (origins), see comment on
-  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
-  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | Origins of created values
+  ExprTracker m sym argTypes ->
   What4.SymBV sym w ->
   What4.SymBV sym w ->
-  Maybe (Some (TypedSelector m arch argTypes), Either (BV w) (BV w))
-annotationAndValue sym annotations op1 op2 =
-  case ( getTermAnn sym annotations op1,
+  Maybe (Some (TypedSelector m argTypes), Either (BV w) (BV w))
+annotationAndValue sym tracker op1 op2 =
+  case ( getTermAnn sym tracker op1,
          What4.asConcrete op1,
-         getTermAnn sym annotations op2,
+         getTermAnn sym tracker op2,
          What4.asConcrete op2
        ) of
     (Just ann, Nothing, Nothing, Just val) ->
@@ -104,9 +102,8 @@ handleBVOp ::
   (MonadIO f, What4.IsExprBuilder sym) =>
   AppContext ->
   sym ->
-  -- | Term annotations (origins), see comment on
-  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
-  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | Origins of created values
+  ExprTracker m sym argTypes ->
   (Where -> Diagnosis) ->
   What4.SymBV sym w ->
   What4.SymBV sym w ->
@@ -119,10 +116,10 @@ handleBVOp ::
     Maybe (Constraint m ('FTInt w'))
   ) ->
   f (Maybe (Explanation m arch argTypes))
-handleBVOp appCtx sym annotations diagnosis op1 op2 constraint =
-  case annotationAndValue sym annotations op1 op2 of
+handleBVOp appCtx sym tracker diagnosis op1 op2 constraint =
+  case annotationAndValue sym tracker op1 op2 of
     -- The argument was on the LHS of the operation
-    Just (Some (TypedSelector ftRepr (SomeInSelector selector)), concreteSummand) ->
+    Just (Some (ET.TypedSelector ftRepr (SomeInSelector selector)), concreteSummand) ->
       do
         let d = diagnosis (selectWhere selector)
         liftIO $
@@ -156,18 +153,17 @@ classifyPoison ::
   (MonadIO f, What4.IsExprBuilder sym) =>
   AppContext ->
   sym ->
-  -- | Term annotations (origins), see comment on
-  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
-  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | Origins of created values
+  ExprTracker m sym argTypes ->
   Poison.Poison (Crucible.RegValue' sym) ->
   f (Maybe (Explanation m arch argTypes))
-classifyPoison appCtx sym annotations =
+classifyPoison appCtx sym tracker =
   \case
     Poison.AddNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
       handleBVOp
         appCtx
         sym
-        annotations
+        tracker
         (Diagnosis DiagnoseAddSignedWrap)
         op1
         op2
@@ -188,7 +184,7 @@ classifyPoison appCtx sym annotations =
       handleBVOp
         appCtx
         sym
-        annotations
+        tracker
         (Diagnosis DiagnoseSubSignedWrap)
         op1
         op2

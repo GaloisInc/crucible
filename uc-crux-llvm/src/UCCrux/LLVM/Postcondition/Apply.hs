@@ -27,18 +27,12 @@ import           Control.Lens ((^.), to)
 import           Control.Monad (foldM)
 import           Data.Functor.Product (Product(Pair))
 import           Data.IORef (IORef, modifyIORef)
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl))
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Some (Some)
 import           Data.Parameterized.TraversableFC (foldlMFC)
-
--- what4
-import qualified What4.Interface as What4
 
 -- crucible
 import qualified Lang.Crucible.Backend as Crucible
@@ -56,6 +50,8 @@ import           UCCrux.LLVM.Constraints (ConstrainedShape)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), deepenPtr, seekType)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(ClobberGlobal))
+import           UCCrux.LLVM.ExprTracker (ExprTracker)
+import qualified UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.FullType.CrucibleType (CrucibleTypeCompat (CrucibleTypeCompat), zip, sameCrucibleType)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, MapToCrucibleType, dataLayout)
@@ -64,7 +60,7 @@ import           UCCrux.LLVM.Module (FuncSymbol, funcSymbolToString)
 import           UCCrux.LLVM.Postcondition.Type
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Assume (assume)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, resultAnnotations)
+import           UCCrux.LLVM.Setup.Monad (runSetup, resultAssumptions, resultMem, resultTracker)
 import qualified UCCrux.LLVM.Shape as Shape
 {- ORMOLU_ENABLE -}
 
@@ -77,8 +73,8 @@ genValue ::
   Crucible.IsSymBackend sym bak =>
   bak ->
   ModuleContext m arch ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Track origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Context for assumptions
   FuncSymbol m ->
   -- | LLVM memory at time of call to function
@@ -94,9 +90,7 @@ genValue bak modCtx annotationRef funcSymb mem selector ty spec =
   do (result, value) <-
        runSetup modCtx mem (generate bak modCtx ty selector spec)
      assume (Text.pack (funcSymbolToString funcSymb)) bak (resultAssumptions result)
-     -- The keys are nonces, so they'll never clash, so the bias of the union is
-     -- unimportant.
-     modifyIORef annotationRef (Map.union (resultAnnotations result))
+     modifyIORef annotationRef (ET.union (resultTracker result))
      return (value ^. Shape.tag, resultMem result)
 
 -- | Generate a value that will be used to clobber part of a container
@@ -108,8 +102,8 @@ genClobberValue ::
   Crucible.IsSymBackend sym bak =>
   bak ->
   ModuleContext m arch ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Function which is doing the clobbering
   FuncSymbol m ->
   -- | LLVM memory at time of call to function
@@ -140,8 +134,8 @@ doClobberValue ::
   Crucible.IsSymBackend sym bak =>
   bak ->
   ModuleContext m arch ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Track origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Function which is doing the clobbering
   FuncSymbol m ->
   -- | LLVM memory at time of call to function
@@ -171,8 +165,8 @@ genReturnValue ::
   Crucible.IsSymBackend sym bak =>
   bak ->
   ModuleContext m arch ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Track origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Function which is doing the clobbering
   FuncSymbol m ->
   -- | LLVM memory at time of call to function
@@ -211,8 +205,8 @@ applyPostcond ::
   Crucible.IsSymBackend sym bak =>
   bak ->
   ModuleContext m arch ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Track origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Function name
   FuncSymbol m ->
   -- | Function postcondition

@@ -41,7 +41,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
 
 -- what4
-import qualified What4.Interface as What4
 import           What4.FunctionName (functionName)
 
 -- crucible
@@ -67,6 +66,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleDecls)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign'(..),  assignmentToCrucibleType, toCrucibleReturnType)
+import           UCCrux.LLVM.ExprTracker (ExprTracker)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
@@ -75,7 +75,6 @@ import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, mak
 import           UCCrux.LLVM.Postcondition.Apply (applyPostcond)
 import qualified UCCrux.LLVM.Postcondition.Type as Post
 import           UCCrux.LLVM.Postcondition.Type (UPostcond)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector)
 {- ORMOLU_ENABLE -}
 
 newtype SkipOverrideName = SkipOverrideName {getSkipOverrideName :: Text}
@@ -105,8 +104,8 @@ unsoundSkipOverrides ::
   ModuleTranslation arch ->
   -- | Set of skip overrides encountered during execution
   IORef (Set SkipOverrideName) ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Postconditions of each override (constraints on return values,
   -- information about clobbered pointer values such as arguments or global
   -- variables)
@@ -199,8 +198,8 @@ createSkipOverride ::
   ModuleContext m arch ->
   bak ->
   IORef (Set SkipOverrideName) ->
-  -- | Annotations of created values
-  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Origins of created values
+  IORef (ExprTracker m sym argTypes) ->
   -- | Constraints on the return value, clobbered pointer values such as
   -- arguments or global variables
   UPostcond m ->
