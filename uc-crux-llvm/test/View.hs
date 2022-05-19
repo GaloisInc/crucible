@@ -23,6 +23,7 @@ import qualified Test.Tasty.QuickCheck as TQ
 import           Test.QuickCheck.Arbitrary.Generic (Arbitrary(arbitrary, shrink), genericArbitrary, genericShrink)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
+import           UCCrux.LLVM.FullType.Type (ModuleTypes)
 import qualified UCCrux.LLVM.View as View
 
 import qualified Utils
@@ -76,38 +77,58 @@ instance Arbitrary a => Arbitrary (View.ShapeView a) where
   arbitrary = genericArbitrary
   shrink = genericShrink
 
-withEmptyModCtx :: (forall m arch. ModuleContext m arch -> IO a) -> IO a
+instance Arbitrary View.CursorView where
+  arbitrary = genericArbitrary
+  shrink = genericShrink
+
+withEmptyModCtx ::
+  (forall m arch. ModuleContext m arch -> ModuleTypes m -> IO a) ->
+  IO a
 withEmptyModCtx act =
   Utils.withOptions (Just L.emptyModule) "View.hs" $
-    \_appCtx modCtx _halloc _cruxOpts _llOpts -> act modCtx
+    \_appCtx modCtx _halloc _cruxOpts _llOpts -> act modCtx (modCtx ^. moduleTypes)
 
 viewTests :: TT.TestTree
-viewTests =
+viewTests :: TT.TestTree=
   TT.testGroup
     "view tests"
-    [ TQ.testProperty "view" $
+    [ TQ.testProperty "view-ft" $
         \(vft :: View.FullTypeReprView) ->
           TQ.ioProperty $
             withEmptyModCtx $
-              \modCtx ->
+              \_modCtx mts ->
                 return $
-                  case View.viewFullTypeRepr (modCtx ^. moduleTypes) vft of
-                    Left _ -> () TQ.=== ()
-                    Right (Some ft) ->
+                  ignoreError (View.viewFullTypeRepr mts vft) $
+                    \(Some ft) ->
                       vft TQ.=== View.fullTypeReprView ft
-    , TQ.testProperty "view" $
+    , TQ.testProperty "view-shape" $
         -- Could get more coverage by adding another test that generates
         -- matching pairs of these.
         \((vs, vft) :: (View.ShapeView Ordering, View.FullTypeReprView)) ->
           TQ.ioProperty $
             withEmptyModCtx $
-              \modCtx ->
+              \_modCtx mts ->
                 return $
-                  case View.viewFullTypeRepr (modCtx ^. moduleTypes) vft of
-                    Left _ -> () TQ.=== ()
-                    Right (Some ft) ->
-                      case View.viewShape (modCtx ^. moduleTypes) (\_ _ o -> Right (Const o)) ft vs of
-                        Left _ -> () TQ.=== ()
-                        Right shape ->
+                  ignoreError (View.viewFullTypeRepr mts vft) $
+                    \(Some ft) ->
+                      ignoreError (View.viewShape mts (\_ _ o -> Right (Const o)) ft vs) $
+                        \shape ->
                           vs TQ.=== View.shapeView getConst shape
+    , TQ.testProperty "view-cursor" $
+        -- Could get more coverage by adding another test that generates
+        -- matching pairs of these.
+        \((vc, vft) :: (View.CursorView, View.FullTypeReprView)) ->
+          TQ.ioProperty $
+            withEmptyModCtx $
+              \_modCtx mts ->
+                return $
+                  ignoreError (View.viewFullTypeRepr mts vft) $
+                    \(Some ft) ->
+                      ignoreError (View.viewCursor mts ft vc) $
+                        \(Some cursor) ->
+                          vc TQ.=== View.cursorView cursor
     ]
+  where ignoreError x k =
+          case x of
+            Left _ -> () TQ.=== ()
+            Right v -> k v
