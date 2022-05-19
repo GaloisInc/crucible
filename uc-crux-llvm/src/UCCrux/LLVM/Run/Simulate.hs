@@ -44,7 +44,6 @@ import           Data.Foldable (for_, toList)
 import qualified Data.IORef as IORef
 import           Data.IORef (IORef)
 import           Data.List (isInfixOf)
-import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Sequence (Seq)
@@ -64,7 +63,6 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Ctx (Ctx)
 import           Data.Parameterized.Context (Assignment)
-import           Data.Parameterized.Some (Some)
 
 import qualified What4.Expr.Builder as What4
 import qualified What4.Interface as What4
@@ -109,6 +107,8 @@ import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.ExprTracker (ExprTracker)
+import qualified UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Module (getModule)
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, makePreSimulationMem)
@@ -121,7 +121,6 @@ import           UCCrux.LLVM.Precondition (Preconds, postconds, relationalPrecon
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SymValue)
 import           UCCrux.LLVM.Setup.Assume (assume)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector)
 import           UCCrux.LLVM.Shape (Shape)
 {- ORMOLU_ENABLE -}
 
@@ -300,7 +299,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
        -- References written to during simulation
        bbMapRef <- IORef.newIORef (Map.empty :: LLVMAnnMap sym)
        explRef <- IORef.newIORef []
-       skipReturnValueAnns <- IORef.newIORef Map.empty
+       skipReturnValueAnns <- IORef.newIORef ET.empty
        skipOverrideRef <- IORef.newIORef Set.empty
        let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
            ?memOpts = memOpts llvmOpts
@@ -339,9 +338,9 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
-      IORef (Maybe (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)))) ->
+      IORef (Maybe (ExprTracker m sym argTypes)) ->
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
-      IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+      IORef (ExprTracker m sym argTypes) ->
       IO (Crux.RunnableState sym)
     setupHook bak uOverrideFns overrideFns skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnnotations =
       do
@@ -456,11 +455,11 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
-      IORef (Maybe (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)))) ->
+      IORef (Maybe (ExprTracker m sym argTypes)) ->
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
       IORef (LLVMAnnMap sym) ->
       IORef [Located (Explanation m arch argTypes)] ->
-      IORef (Map.Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+      IORef (ExprTracker m sym argTypes) ->
       Crux.Explainer sym t Void
     onErrorHook bak skipOverrideRef memRef argRef argAnnRef argShapeRef bbMapRef explRef skipReturnValueAnnotations _groundEvalFn gl =
       do
@@ -522,7 +521,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                 skipped
                 (gl ^. Crucible.labeledPredMsg)
                 args
-                (Map.union argAnnotations retAnns)
+                (ET.union argAnnotations retAnns)
                 argShapes
                 badBehavior
                 callStack

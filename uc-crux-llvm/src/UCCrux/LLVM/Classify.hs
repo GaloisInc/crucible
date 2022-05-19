@@ -34,7 +34,6 @@ import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Applicative ((<|>))
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
-import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -74,6 +73,8 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes, funcTyp
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector), selectWhere, selectorCursor)
+import           UCCrux.LLVM.ExprTracker (ExprTracker, TypedSelector(..))
+import qualified UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.Memory (sizeInBytes)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
@@ -82,7 +83,7 @@ import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, getPre
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.PP (ppProgramLoc)
 import           UCCrux.LLVM.Setup (SymValue)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
+import           UCCrux.LLVM.Setup.Monad (mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -211,9 +212,8 @@ classifyBadBehavior ::
   Crucible.SimError ->
   -- | Function arguments
   Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
-  -- | Term annotations (origins), see comment on
-  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
-  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | Origins of created values
+  ExprTracker m sym argTypes ->
   -- | The arguments that were passed to the function
   Ctx.Assignment (Shape m (SymValue sym arch)) argTypes ->
   -- | Data about the error that occurred
@@ -221,7 +221,7 @@ classifyBadBehavior ::
   -- | Context in which error occurred
   CallStack ->
   f (Located (Explanation m arch argTypes))
-classifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError args annotations argShapes badBehavior callStack =
+classifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError args tracker argShapes badBehavior callStack =
   Located (Crucible.simErrorLoc simError)
     <$> doClassifyBadBehavior
       appCtx
@@ -232,7 +232,7 @@ classifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError args annot
       skipped
       simError
       args
-      annotations
+      tracker
       argShapes
       badBehavior
       callStack
@@ -256,9 +256,8 @@ doClassifyBadBehavior ::
   Crucible.SimError ->
   -- | Function arguments
   Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
-  -- | Term annotations (origins), see comment on
-  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
-  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | Origins of created values
+  ExprTracker m sym argTypes ->
   -- | The arguments that were passed to the function
   Ctx.Assignment (Shape m (SymValue sym arch)) argTypes ->
   -- | Data about the error that occurred
@@ -266,7 +265,7 @@ doClassifyBadBehavior ::
   -- | Context in which error occurred
   CallStack ->
   f (Explanation m arch argTypes)
-doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucible.RegMap _args) annotations argShapes badBehavior callStack =
+doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucible.RegMap _args) tracker argShapes badBehavior callStack =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero UDivByConcreteZero divisor
@@ -413,7 +412,7 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
             _ -> unclass appCtx badBehavior errorLoc callStack
     LLVMErrors.BBUndefinedBehavior
       (UB.PoisonValueCreated poison) ->
-        classifyPoison appCtx sym annotations poison
+        classifyPoison appCtx sym tracker poison
           >>= \case
             Nothing -> unclass appCtx badBehavior errorLoc callStack
             Just expl -> pure expl
@@ -600,18 +599,18 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
 
     getTermAnn ::
       What4.SymExpr sym tp ->
-      Maybe (Some (TypedSelector m arch argTypes))
+      Maybe (Some (TypedSelector m argTypes))
     getTermAnn expr =
-      flip Map.lookup annotations . Some =<< What4.getAnnotation sym expr
+      flip ET.lookup tracker =<< What4.getAnnotation sym expr
 
     getPtrOffsetAnn ::
       LLVMPtr.LLVMPtr sym w ->
-      Maybe (Some (TypedSelector m arch argTypes))
+      Maybe (Some (TypedSelector m argTypes))
     getPtrOffsetAnn ptr = getTermAnn (LLVMPtr.llvmPointerOffset ptr)
 
     getPtrBlockAnn ::
       LLVMPtr.LLVMPtr sym w ->
-      IO (Maybe (Some (TypedSelector m arch argTypes)))
+      IO (Maybe (Some (TypedSelector m argTypes)))
     getPtrBlockAnn ptr =
       do
         int <- What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
@@ -619,12 +618,12 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
 
     getPtrBlockOrOffsetAnn ::
       LLVMPtr.LLVMPtr sym w ->
-      IO (Maybe (Some (TypedSelector m arch argTypes)))
+      IO (Maybe (Some (TypedSelector m argTypes)))
     getPtrBlockOrOffsetAnn ptr = (getPtrOffsetAnn ptr <|>) <$> getPtrBlockAnn ptr
 
     getAnyPtrOffsetAnn ::
       LLVMPtr.LLVMPtr sym w ->
-      [Some (TypedSelector m arch argTypes)]
+      [Some (TypedSelector m argTypes)]
     getAnyPtrOffsetAnn ptr =
       let subAnns =
             case What4.asApp (LLVMPtr.llvmPointerOffset ptr) of

@@ -50,6 +50,7 @@ library
     UCCrux.LLVM.Errors.MalformedLLVMModule
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
+    UCCrux.LLVM.ExprTracker
     UCCrux.LLVM.FullType
     UCCrux.LLVM.FullType.CrucibleType
     UCCrux.LLVM.FullType.FuncSig
