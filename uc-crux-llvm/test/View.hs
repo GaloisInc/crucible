@@ -128,7 +128,7 @@ viewTests :: TT.TestTree=
                 return $
                   ignoreError (View.viewFullTypeRepr mts vft) $
                     \(Some ft) ->
-                      ignoreError (View.viewShape mts (\_ _ o -> Right (Const o)) ft vs) $
+                      ignoreError (View.viewShape mts (\_ o -> Right (Const o)) ft vs) $
                         \shape ->
                           vs TQ.=== View.shapeView getConst shape
     , TQ.testProperty "view-cursor" $

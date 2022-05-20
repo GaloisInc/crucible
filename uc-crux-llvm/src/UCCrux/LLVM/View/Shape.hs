@@ -91,7 +91,7 @@ ptrShapeView tag =
 
 viewPtrShape ::
   ModuleTypes m ->
-  (forall t. ModuleTypes m -> FullTypeRepr m t -> vtag -> Either e (tag t)) ->
+  (forall t. FullTypeRepr m t -> vtag -> Either e (tag t)) ->
   FullTypeRepr m ft ->
   PtrShapeView vtag ->
   Either (ViewShapeError e) (PtrShape m tag ft)
@@ -136,7 +136,7 @@ shapeView tag =
 viewShape ::
   forall m e vtag tag ft.
   ModuleTypes m ->
-  (forall t. ModuleTypes m -> FullTypeRepr m t -> vtag -> Either e (tag t)) ->
+  (forall t. FullTypeRepr m t -> vtag -> Either e (tag t)) ->
   FullTypeRepr m ft ->
   ShapeView vtag ->
   Either (ViewShapeError e) (Shape m tag ft)
@@ -191,7 +191,7 @@ viewShape mts tag ft vshape =
     _ -> Left TypeMismatch
   where
     guard cond err = when cond (Left err)
-    getTag vtag = liftErr (tag mts ft vtag)
+    getTag vtag = liftErr (tag ft vtag)
 
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''PtrShapeView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''ShapeView)
