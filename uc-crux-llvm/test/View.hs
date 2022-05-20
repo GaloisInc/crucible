@@ -93,6 +93,14 @@ instance Arbitrary View.ConstraintView where
   arbitrary = genericArbitrary
   shrink = genericShrink
 
+instance Arbitrary View.ConstrainedShapeView where
+  arbitrary = genericArbitrary
+  shrink = genericShrink
+
+instance Arbitrary View.ClobberValueView where
+  arbitrary = genericArbitrary
+  shrink = genericShrink
+
 withEmptyModCtx ::
   (forall m arch. ModuleContext m arch -> ModuleTypes m -> IO a) ->
   IO a
@@ -144,6 +152,17 @@ viewTests =
                       ignoreError (View.viewCursor mts ft vc) $
                         \(Some cursor) ->
                           vc TQ.=== View.cursorView cursor
+    , TQ.testProperty "view-clobber-value" $
+        \((vcv, vft) :: (View.ClobberValueView, View.FullTypeReprView)) ->
+          TQ.ioProperty $
+            withEmptyModCtx $
+              \_modCtx mts ->
+                return $
+                  ignoreError (View.viewFullTypeRepr mts vft) $
+                    \(Some ft) ->
+                      ignoreError (View.viewClobberValue mts ft vcv) $
+                        \cv ->
+                          vcv TQ.=== View.clobberValueView cv
     ]
   where ignoreError x k =
           case x of

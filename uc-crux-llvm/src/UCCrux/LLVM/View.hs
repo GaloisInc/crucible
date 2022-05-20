@@ -31,6 +31,7 @@ module UCCrux.LLVM.View
   ( module UCCrux.LLVM.View.Constraint,
     module UCCrux.LLVM.View.Cursor,
     module UCCrux.LLVM.View.FullType,
+    module UCCrux.LLVM.View.Postcond,
     module UCCrux.LLVM.View.Shape,
     module UCCrux.LLVM.View.Util,
   ) where
@@ -38,5 +39,6 @@ module UCCrux.LLVM.View
 import UCCrux.LLVM.View.Constraint
 import UCCrux.LLVM.View.Cursor
 import UCCrux.LLVM.View.FullType
+import UCCrux.LLVM.View.Postcond
 import UCCrux.LLVM.View.Shape
 import UCCrux.LLVM.View.Util
