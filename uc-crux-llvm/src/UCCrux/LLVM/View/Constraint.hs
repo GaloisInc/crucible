@@ -19,16 +19,24 @@ Stability        : provisional
 {-# LANGUAGE TypeApplications #-}
 
 module UCCrux.LLVM.View.Constraint
-  ( ViewConstraintError,
+  ( -- * Constraint
+    ViewConstraintError,
     ppViewConstraintError,
     ConstraintView(..),
     constraintView,
     viewConstraint,
+    -- * ConstrainedShape
     ViewConstrainedShapeError,
     ppViewConstrainedShapeError,
     ConstrainedShapeView(..),
     constrainedShapeView,
     viewConstrainedShape,
+    -- * ConstrainedTypedValue
+    ConstrainedTypedValueViewError(..),
+    ppConstrainedTypedValueViewError,
+    ConstrainedTypedValueView(..),
+    constrainedTypedValueView,
+    viewConstrainedTypedValue,
   )
 where
 
@@ -51,10 +59,21 @@ import           Data.Parameterized.Some (Some(Some))
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
 
-import           UCCrux.LLVM.Constraints (Constraint(..), ConstrainedShape(..))
+import           UCCrux.LLVM.Constraints (Constraint(..), ConstrainedShape(..), ConstrainedTypedValue(..))
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
-import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape)
+import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
+import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape, ppViewShapeError)
 import           UCCrux.LLVM.View.Util () -- Alignment, ICmpOp instance
+
+-- Helper, not exported
+liftError :: (e -> i) -> Either e a -> Either i a
+liftError l =
+  \case
+    Left e -> Left (l e)
+    Right v -> Right v
+
+--------------------------------------------------------------------------------
+-- * Constraint
 
 data ViewConstraintError
   = BVNegative Integer
@@ -114,6 +133,9 @@ viewConstraint =
         Nothing -> Left err
         Just v -> Right v
 
+--------------------------------------------------------------------------------
+-- * ConstrainedShape
+
 data ViewConstrainedShapeError
   = BadBitvectorWidth Natural Natural
   | BadConstraint ConstraintView
@@ -155,11 +177,6 @@ viewConstrainedShape mts ft =
     viewShape mts tag ft .
     getConstrainedShapeView
   where
-    liftError l =
-      \case
-        Left e -> Left (l e)
-        Right v -> Right v
-
     tag ::
       forall t.
       FullTypeRepr m t ->
@@ -183,5 +200,45 @@ viewConstrainedShape mts ft =
            (FTPtrRepr{}, Some (Aligned align)) -> Right (Aligned align)
            _ -> Left (BadConstraint vc)
 
+--------------------------------------------------------------------------------
+-- * ConstrainedTypedValue
+
+data ConstrainedTypedValueViewError
+  = FullTypeReprViewError FullTypeReprViewError
+  | ViewConstrainedShapeError (ViewShapeError ViewConstrainedShapeError)
+  deriving (Eq, Ord, Show)
+
+ppConstrainedTypedValueViewError ::
+  ConstrainedTypedValueViewError ->
+  Doc ann
+ppConstrainedTypedValueViewError =
+  \case
+    FullTypeReprViewError err ->
+      ppFullTypeReprViewError err
+    ViewConstrainedShapeError err ->
+      ppViewShapeError ppViewConstrainedShapeError err
+
+data ConstrainedTypedValueView =
+  ConstrainedTypedValueView
+  { vConstrainedType :: FullTypeReprView,
+    vConstrainedValue :: ConstrainedShapeView
+  }
+  deriving (Eq, Ord, Generic, Show)
+
+constrainedTypedValueView :: ConstrainedTypedValue m -> ConstrainedTypedValueView
+constrainedTypedValueView (ConstrainedTypedValue ty val) =
+  ConstrainedTypedValueView (fullTypeReprView ty) (constrainedShapeView val)
+
+viewConstrainedTypedValue ::
+  ModuleTypes m ->
+  ConstrainedTypedValueView ->
+  Either ConstrainedTypedValueViewError (ConstrainedTypedValue m)
+viewConstrainedTypedValue mts (ConstrainedTypedValueView vty vval) =
+  do Some ft <- liftError FullTypeReprViewError (viewFullTypeRepr mts vty)
+     shape <-
+       liftError ViewConstrainedShapeError (viewConstrainedShape mts ft vval)
+     return (ConstrainedTypedValue ft shape)
+
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstraintView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstrainedShapeView)
+$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstrainedTypedValueView)
