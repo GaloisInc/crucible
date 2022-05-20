@@ -12,6 +12,8 @@ Stability        : provisional
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -22,6 +24,11 @@ module UCCrux.LLVM.View.Constraint
     ConstraintView(..),
     constraintView,
     viewConstraint,
+    ViewConstrainedShapeError,
+    ppViewConstrainedShapeError,
+    ConstrainedShapeView(..),
+    constrainedShapeView,
+    viewConstrainedShape,
   )
 where
 
@@ -29,6 +36,8 @@ import           Control.Monad (when)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import qualified Data.BitVector.Sized as BV
+import           Data.Functor.Compose (Compose(Compose, getCompose))
+import           Data.Type.Equality (testEquality)
 import           GHC.Generics (Generic)
 import           Numeric.Natural (Natural)
 
@@ -42,7 +51,9 @@ import           Data.Parameterized.Some (Some(Some))
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
 
-import           UCCrux.LLVM.Constraints (Constraint(..))
+import           UCCrux.LLVM.Constraints (Constraint(..), ConstrainedShape(..))
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
+import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape)
 import           UCCrux.LLVM.View.Util () -- Alignment, ICmpOp instance
 
 data ViewConstraintError
@@ -103,4 +114,74 @@ viewConstraint =
         Nothing -> Left err
         Just v -> Right v
 
+data ViewConstrainedShapeError
+  = BadBitvectorWidth Natural Natural
+  | BadConstraint ConstraintView
+  | ViewConstraintError ViewConstraintError
+  deriving (Eq, Ord, Show)
+
+ppViewConstrainedShapeError :: ViewConstrainedShapeError -> Doc ann
+ppViewConstrainedShapeError =
+  \case
+    BadBitvectorWidth expect found ->
+      PP.hsep
+        [ "Incorrect bitvector width in constraint, found"
+        , PP.viaShow found
+        , "but expected"
+        , PP.viaShow expect
+        ]
+    BadConstraint _vc -> "Invalid constraint for type"
+    ViewConstraintError err -> ppViewConstraintError err
+
+newtype ConstrainedShapeView =
+  ConstrainedShapeView
+    { getConstrainedShapeView :: ShapeView [ConstraintView] }
+  deriving (Eq, Ord, Generic, Show)
+
+constrainedShapeView :: ConstrainedShape m ft -> ConstrainedShapeView
+constrainedShapeView =
+  ConstrainedShapeView .
+    shapeView (map constraintView . getCompose) .
+    getConstrainedShape
+
+viewConstrainedShape ::
+  forall m ft.
+  ModuleTypes m ->
+  FullTypeRepr m ft ->
+  ConstrainedShapeView ->
+  Either (ViewShapeError ViewConstrainedShapeError) (ConstrainedShape m ft)
+viewConstrainedShape mts ft =
+  fmap ConstrainedShape .
+    viewShape mts tag ft .
+    getConstrainedShapeView
+  where
+    liftError l =
+      \case
+        Left e -> Left (l e)
+        Right v -> Right v
+
+    tag ::
+      forall t.
+      FullTypeRepr m t ->
+      [ConstraintView] ->
+      Either ViewConstrainedShapeError (Compose [] (Constraint m) t)
+    tag t cs = Compose <$> traverse (go t) cs
+
+    go ::
+      forall t.
+      FullTypeRepr m t ->
+      ConstraintView ->
+      Either ViewConstrainedShapeError (Constraint m t)
+    go t vc =
+      do c <- liftError ViewConstraintError (viewConstraint vc)
+         case (t, c) of
+           (FTIntRepr width, Some (BVCmp op width' bv)) ->
+             case testEquality width width' of
+               Just NatRepr.Refl -> Right (BVCmp op width bv)
+               Nothing ->
+                 Left (BadBitvectorWidth (NatRepr.natValue width) (NatRepr.natValue width'))
+           (FTPtrRepr{}, Some (Aligned align)) -> Right (Aligned align)
+           _ -> Left (BadConstraint vc)
+
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstraintView)
+$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstrainedShapeView)
