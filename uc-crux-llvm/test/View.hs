@@ -101,7 +101,7 @@ withEmptyModCtx act =
     \_appCtx modCtx _halloc _cruxOpts _llOpts -> act modCtx (modCtx ^. moduleTypes)
 
 viewTests :: TT.TestTree
-viewTests :: TT.TestTree=
+viewTests =
   TT.testGroup
     "view tests"
     [ TQ.testProperty "view-constraint" $
