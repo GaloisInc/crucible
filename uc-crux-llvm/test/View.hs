@@ -18,6 +18,8 @@ import           Data.Parameterized.Some (Some(Some))
 
 import qualified Text.LLVM.AST as L
 
+import           Lang.Crucible.LLVM.DataLayout (Alignment, exponentToAlignment)
+
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.QuickCheck as TQ
 import           Test.QuickCheck.Arbitrary.Generic (Arbitrary(arbitrary, shrink), genericArbitrary, genericShrink)
@@ -81,6 +83,16 @@ instance Arbitrary View.CursorView where
   arbitrary = genericArbitrary
   shrink = genericShrink
 
+instance Arbitrary Alignment where
+  arbitrary = exponentToAlignment <$> arbitrary
+
+instance Arbitrary L.ICmpOp where
+  arbitrary = genericArbitrary
+
+instance Arbitrary View.ConstraintView where
+  arbitrary = genericArbitrary
+  shrink = genericShrink
+
 withEmptyModCtx ::
   (forall m arch. ModuleContext m arch -> ModuleTypes m -> IO a) ->
   IO a
@@ -92,7 +104,12 @@ viewTests :: TT.TestTree
 viewTests :: TT.TestTree=
   TT.testGroup
     "view tests"
-    [ TQ.testProperty "view-ft" $
+    [ TQ.testProperty "view-constraint" $
+        \(vc :: View.ConstraintView) ->
+          ignoreError (View.viewConstraint vc) $
+            \(Some c) ->
+              vc TQ.=== View.constraintView c
+    , TQ.testProperty "view-ft" $
         \(vft :: View.FullTypeReprView) ->
           TQ.ioProperty $
             withEmptyModCtx $

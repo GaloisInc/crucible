@@ -94,6 +94,7 @@ library
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats
     UCCrux.LLVM.View
+    UCCrux.LLVM.View.Constraint
     UCCrux.LLVM.View.Cursor
     UCCrux.LLVM.View.FullType
     UCCrux.LLVM.View.Shape
