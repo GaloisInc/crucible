@@ -7,38 +7,83 @@ Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 -}
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module UCCrux.LLVM.View.Postcond
-  ( ViewClobberValueError,
+  ( -- * ClobberValue
+    ViewClobberValueError,
     ppViewClobberValueError,
     ClobberValueView(..),
     clobberValueView,
     viewClobberValue,
+    -- * ClobberArg
+    viewClobberArg,
+    clobberArgView,
+    -- * UPostcond
+    ViewUPostcondError,
+    ppViewUPostcondError,
+    viewUPostcond,
+    uPostcondView
   )
 where
 
+import           Control.Lens ((^.), itraverse)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
+import           Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import qualified Data.Text as Text
 import           GHC.Generics (Generic)
 
 import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
 
+import qualified Text.LLVM.AST as L
+
+import           Data.Parameterized.Classes (IxedF'(ixF'))
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
 
+import           UCCrux.LLVM.Constraints (ConstrainedTypedValue)
+import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTypes, globalTypes)
 import           UCCrux.LLVM.Cursor (findBottom)
-import           UCCrux.LLVM.Postcondition.Type (ClobberValue(..))
+import           UCCrux.LLVM.Postcondition.Type (ClobberValue(..), SomeClobberValue(..), ClobberArg(..), SomeClobberArg(..), UPostcond(..), uArgClobbers, uGlobalClobbers, uReturnValue)
 import           UCCrux.LLVM.FullType.CrucibleType (testSameCrucibleType)
+import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr)
+import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes, asFullType)
-import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, ConstrainedShapeView, constrainedShapeView, viewConstrainedShape, ppViewConstrainedShapeError)
+import           UCCrux.LLVM.Module (globalSymbolToString, makeGlobalSymbol, moduleGlobalMap, globalSymbol)
+import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, ConstrainedShapeView, ConstrainedTypedValueViewError, ConstrainedTypedValueView, constrainedShapeView, viewConstrainedShape, ppViewConstrainedShapeError, viewConstrainedTypedValue, constrainedTypedValueView, ppConstrainedTypedValueViewError)
 import           UCCrux.LLVM.View.Cursor (ViewCursorError, CursorView, cursorView, viewCursor, ppViewCursorError)
 import           UCCrux.LLVM.View.Shape (ViewShapeError, ppViewShapeError)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
+import           UCCrux.LLVM.View.Util (GlobalVarName(..))
+
+-- Helper, not exported
+liftError :: (e -> i) -> Either e a -> Either i a
+liftError l =
+  \case
+    Left e -> Left (l e)
+    Right v -> Right v
+
+-- Helper, not exported
+liftMaybe :: e -> Maybe a -> Either e a
+liftMaybe err =
+  \case
+    Nothing -> Left err
+    Just v -> Right v
+
+--------------------------------------------------------------------------------
+-- * ClobberValue
 
 data ViewClobberValueError
   = FullTypeReprViewError FullTypeReprViewError
@@ -80,7 +125,7 @@ viewClobberValue ::
   Either ViewClobberValueError (ClobberValue m ft)
 viewClobberValue mts ft vcv =
   do Some ft' <-
-       liftErr
+       liftError
          FullTypeReprViewError
          (viewFullTypeRepr mts (vClobberValueType vcv))
      compatPrf <-
@@ -88,13 +133,13 @@ viewClobberValue mts ft vcv =
          IncompatibleType
          (testSameCrucibleType ft' ft)
      Some cur <-
-       liftErr ViewCursorError (viewCursor mts ft' (vClobberValueCursor vcv))
+       liftError ViewCursorError (viewCursor mts ft' (vClobberValueCursor vcv))
      let atTy = findBottom cur
      case atTy of
        FTPtrRepr pt ->
          do let ptdTo = asFullType mts pt
             shape <-
-              liftErr
+              liftError
                 ViewShapeError
                 (viewConstrainedShape mts ptdTo (vClobberValue vcv))
             return $
@@ -105,15 +150,122 @@ viewClobberValue mts ft vcv =
                   clobberValueCompat = compatPrf
                 }
        _ -> Left NonPointerCursorError
-  where
-    liftErr l =
-      \case
-        Left e -> Left (l e)
-        Right v -> Right v
 
-    liftMaybe err =
-      \case
-        Nothing -> Left err
-        Just v -> Right v
+--------------------------------------------------------------------------------
+-- * ClobberArg
+
+data ClobberArgView
+  = VDontClobberArg
+  | VDoClobberArg ClobberValueView
+  deriving (Eq, Ord, Generic, Show)
+
+clobberArgView :: ClobberArg m inTy -> ClobberArgView
+clobberArgView =
+  \case
+    DontClobberArg -> VDontClobberArg
+    DoClobberArg cv -> VDoClobberArg (clobberValueView cv)
+
+viewClobberArg ::
+  ModuleTypes m ->
+  FullTypeRepr m ft ->
+  ClobberArgView ->
+  Either ViewClobberValueError (ClobberArg m ft)
+viewClobberArg mts ft =
+  \case
+    VDontClobberArg -> Right DontClobberArg
+    VDoClobberArg vcv -> DoClobberArg <$> viewClobberValue mts ft vcv
+
+--------------------------------------------------------------------------------
+-- * UPostcond
+
+data ViewUPostcondError
+  = ViewClobberValueError ViewClobberValueError
+  | ConstrainedTypedValueViewError ConstrainedTypedValueViewError
+  | ReturnTypeMismatch
+  | NonExistentGlobal GlobalVarName
+  | BadFunctionArgument Int
+  deriving (Eq, Ord, Show)
+
+ppViewUPostcondError :: ViewUPostcondError -> Doc ann
+ppViewUPostcondError =
+  \case
+    ViewClobberValueError err -> ppViewClobberValueError err
+    ConstrainedTypedValueViewError err -> ppConstrainedTypedValueViewError err
+    ReturnTypeMismatch -> "Mismatched return types"
+    NonExistentGlobal (GlobalVarName nm) ->
+      "Non-existent global: " <> PP.pretty nm
+    BadFunctionArgument arg ->
+      "Invalid function argument: " <> PP.viaShow arg
+
+data UPostcondView
+  = UPostcondView
+      { vUArgClobbers :: IntMap ClobberArgView,
+        vUGlobalClobbers :: Map GlobalVarName ClobberValueView,
+        vUReturnValue :: Maybe ConstrainedTypedValueView
+      }
+  deriving (Eq, Ord, Generic, Show)
+
+uPostcondView :: UPostcond m -> UPostcondView
+uPostcondView up =
+  UPostcondView
+    { vUArgClobbers = IntMap.map viewArg (up ^. uArgClobbers),
+      vUGlobalClobbers =
+        Map.map viewCv (Map.mapKeys viewSymb (up ^. uGlobalClobbers)),
+      vUReturnValue = constrainedTypedValueView <$> up ^. uReturnValue
+    }
+  where
+    viewArg (SomeClobberArg ca) = clobberArgView ca
+    viewSymb = GlobalVarName . Text.pack . globalSymbolToString
+    viewCv (SomeClobberValue cv) = clobberValueView cv
+
+viewUPostcond ::
+  forall m arch fs va ret args.
+  (fs ~ 'FS.FuncSig va ret args) =>
+  ModuleContext m arch ->
+  FuncSigRepr m fs ->
+  UPostcondView ->
+  Either ViewUPostcondError (UPostcond m)
+viewUPostcond modCtx fs vup =
+  do args <- itraverse viewArg (vUArgClobbers vup)
+     globs <- traverse (uncurry viewGlob) (Map.toList (vUGlobalClobbers vup))
+     ret :: Maybe (ConstrainedTypedValue m) <-
+       case (FS.fsRetType fs, vUReturnValue vup) of
+         (FS.NonVoidRepr {}, Just val) ->
+           do v <-
+                liftError
+                  ConstrainedTypedValueViewError
+                  (viewConstrainedTypedValue mts val)
+              return (Just v)
+         (FS.VoidRepr, Nothing) -> return Nothing
+         _ -> Left ReturnTypeMismatch
+     return $
+       UPostcond
+         { _uArgClobbers = args,
+           _uGlobalClobbers = Map.fromList globs,
+           _uReturnValue = ret
+         }
+  where
+    m = modCtx ^. llvmModule
+    mts = modCtx ^. moduleTypes
+    argTys = FS.fsArgTypes fs
+
+    viewArg i a =
+      case Ctx.intIndex i (Ctx.size argTys) of
+        Just (Some idx) ->
+          case viewClobberArg mts (argTys ^. ixF' idx) a of
+            Left err -> Left (ViewClobberValueError err)
+            Right v -> Right (SomeClobberArg v)
+        Nothing -> Left (BadFunctionArgument i)
+
+    viewGlob gn@(GlobalVarName nm) vcv =
+      do gSymb <-
+           liftMaybe
+             (NonExistentGlobal gn)
+             (makeGlobalSymbol (moduleGlobalMap m) (L.Symbol (Text.unpack nm)))
+         Some gTy <- return (modCtx ^. globalTypes . globalSymbol gSymb)
+         cv <- liftError ViewClobberValueError (viewClobberValue mts gTy vcv)
+         return (gSymb, SomeClobberValue cv)
 
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''ClobberValueView)
+$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ClobberArgView)
+$(Aeson.TH.deriveJSON Aeson.defaultOptions ''UPostcondView)
