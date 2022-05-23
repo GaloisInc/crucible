@@ -137,7 +137,10 @@ run (cruxOpts, opts) =
                      case parseResult of
                        Left (SyntaxParseError e) -> error $ show $ printSyntaxError e
                        Left err -> error $ show err
-                       Right (gs, cs) ->
+                       Right (ParsedProgram
+                               { parsedProgGlobals = gs
+                               , parsedProgCFGs = cs
+                               }) ->
                          return ( findMain (fromString "main") cs
                                 , crucibleSyntaxPrims
                                 , toList gs

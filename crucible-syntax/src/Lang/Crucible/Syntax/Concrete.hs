@@ -30,6 +30,7 @@ module Lang.Crucible.Syntax.Concrete
   -- * Parsing and Results
   , ACFG(..)
   , ParserHooks(..)
+  , ParsedProgram(..)
   , defaultParserHooks
   , top
   , cfgs
@@ -184,6 +185,14 @@ data ParserHooks ext = ParserHooks {
 -- language.
 defaultParserHooks :: ParserHooks ()
 defaultParserHooks = ParserHooks empty empty
+
+-- | The results of parsing a program.
+data ParsedProgram ext = ParsedProgram
+  { parsedProgGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
+    -- ^ The parsed @defglobal@s.
+  , parsedProgCFGs :: [ACFG ext]
+    -- ^ The CFGs for each parsed @defun@.
+  }
 
 
 kw :: MonadSyntax Atomic m => Keyword -> m ()
@@ -2149,13 +2158,13 @@ cfgs :: ( IsSyntaxExtension ext
         , ?parserHooks :: ParserHooks ext )
      => [AST s]
      -> TopParser s [ACFG ext]
-cfgs = fmap snd <$> prog
+cfgs = fmap parsedProgCFGs <$> prog
 
 prog :: ( TraverseExt ext
         , IsSyntaxExtension ext
         , ?parserHooks :: ParserHooks ext )
      => [AST s]
-     -> TopParser s (Map GlobalName (Pair TypeRepr GlobalVar), [ACFG ext])
+     -> TopParser s (ParsedProgram ext)
 prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
@@ -2177,4 +2186,7 @@ prog defuns =
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
                    return $ ACFG types ret $ CFG handle entry (e' : rest)
      gs <- use stxGlobals
-     return (gs, cs)
+     return $ ParsedProgram
+       { parsedProgGlobals = gs
+       , parsedProgCFGs = cs
+       }
