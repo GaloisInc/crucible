@@ -4,7 +4,12 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Lang.Crucible.Syntax.Prog where
+module Lang.Crucible.Syntax.Prog
+  ( doParseCheck
+  , simulateProgram
+  , SimulateProgramHooks(..)
+  , defaultSimulateProgramHooks
+  ) where
 
 import Control.Lens (view)
 import Control.Monad
@@ -75,16 +80,30 @@ doParseCheck fn theInput pprint outh =
                       hPutStrLn outh $ show $ cfgHandle theCfg
                       hPutStrLn outh $ show $ C.ppCFG' True (postdomInfo ssa) ssa
 
+-- | Allows users to hook into the various stages of 'simulateProgram'.
+newtype SimulateProgramHooks = SimulateProgramHooks
+  { setupOverridesHook ::
+      forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+         sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
+    -- ^ Action to set up overrides before parsing a program.
+  }
+
+-- | A sensible default set of hooks for 'simulateProgram' that sets up no
+-- additional overrides.
+defaultSimulateProgramHooks :: SimulateProgramHooks
+defaultSimulateProgramHooks = SimulateProgramHooks
+  { setupOverridesHook = \_sym _ha -> pure []
+  }
+
 simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
-   -> (forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-         sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
+   -> SimulateProgramHooks -- ^ Hooks into various parts of the function
    -> IO ()
-simulateProgram fn theInput outh profh opts setup =
+simulateProgram fn theInput outh profh opts hooks =
   do Some ng <- newIONonceGenerator
      ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
@@ -96,7 +115,7 @@ simulateProgram fn theInput outh profh opts setup =
          do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
             bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
-            ovrs <- setup @() @_ @() sym ha
+            ovrs <- setupOverridesHook hooks @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
             let ?parserHooks = defaultParserHooks
             parseResult <- top ng ha hdls $ cfgs v
