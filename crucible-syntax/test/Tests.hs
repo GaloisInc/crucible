@@ -1,14 +1,22 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 module Main where
 
 import Control.Applicative
+import Control.Lens (use)
+import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.ST
 
 import Data.List
+import qualified Data.Map as Map
+import Data.Map (Map)
 import Data.Monoid
+import qualified Data.Parameterized.Context as Ctx
 import Data.Text (Text)
+import Data.Type.Equality (TestEquality(..), (:~:)(..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
@@ -16,10 +24,15 @@ import System.IO
 
 import Lang.Crucible.Syntax.Concrete hiding (SyntaxError)
 
+import Lang.Crucible.Backend (IsSymInterface)
+import Lang.Crucible.FunctionHandle
+import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.ExprParse
 import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
+import Lang.Crucible.Types
 import Lang.Crucible.CFG.SSAConversion
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
@@ -30,6 +43,8 @@ import System.FilePath
 import System.Directory
 
 import What4.Config
+import What4.FunctionName
+import What4.Interface (intLit)
 import What4.ProgramLoc
 import What4.Solver.Z3 (z3Options)
 
@@ -50,23 +65,28 @@ main = do wd <- getCurrentDirectory
             "Crucible simulation"
             "test-data/simulator-tests"
             testSimulator
-          let allTests = testGroup "Tests" [syntaxParsing, parseTests, simTests]
+          let allTests = testGroup "Tests" [syntaxParsing, resolvedForwardDecTest, parseTests, simTests]
           defaultMain allTests
 
 findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
 findTests group_name test_dir test_action =
   do inputs <- findByExtension [".cbl"] test_dir
      return $ testGroup group_name
-       [ goldenVsFileDiff
-          (takeBaseName input) -- test name
-          (\x y -> ["diff", "-u", x, y])
-          goodFile -- golden file path
-          outFile
-          (test_action input outFile) -- action whose result is tested
+       [ goldenFileTestCase input test_action
        | input <- sort inputs
-       , let outFile = replaceExtension input ".out"
-       , let goodFile = replaceExtension input ".out.good"
        ]
+
+goldenFileTestCase :: FilePath -> (FilePath -> FilePath -> IO ()) -> TestTree
+goldenFileTestCase input test_action =
+  goldenVsFileDiff
+   (takeBaseName input) -- test name
+   (\x y -> ["diff", "-u", x, y])
+   goodFile -- golden file path
+   outFile
+   (test_action input outFile) -- action whose result is tested
+  where
+    outFile = replaceExtension input ".out"
+    goodFile = replaceExtension input ".out.good"
 
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
@@ -224,3 +244,37 @@ syntaxTest txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) (T.unpack fakeFile) txt of
      Left err -> error $ "Reader error: " ++ MP.errorBundlePretty err
      Right sexpr -> syntaxParseIO p sexpr
+
+-- | A basic test that ensures a forward declaration behaves as expected when
+-- invoked with an override that is assigned to it after parsing.
+resolvedForwardDecTest :: TestTree
+resolvedForwardDecTest =
+  testGroup "Forward declarations"
+  [ goldenFileTestCase ("test-data" </> "declare-tests" </> "main.cbl") $ \mainCbl mainOut ->
+    withFile mainOut WriteMode $ \outh ->
+    do mainContents <- T.readFile mainCbl
+       simulateProgram mainCbl mainContents outh Nothing testOptions $
+         defaultSimulateProgramHooks
+           { resolveForwardDeclarationsHook = resolveForwardDecs
+           }
+  ]
+  where
+    resolveForwardDecs ::
+      IsSymInterface sym =>
+      Map FunctionName SomeHandle ->
+      IO (FunctionBindings p sym ext)
+    resolveForwardDecs fds
+      | Just (SomeHandle hdl) <- Map.lookup "foo" fds
+      , Just Refl <- testEquality (handleArgTypes hdl) Ctx.empty
+      , Just Refl <- testEquality (handleReturnType hdl) IntegerRepr
+      = pure $ fnBindingsFromList [FnBinding hdl (UseOverride fooOv)]
+
+      | otherwise
+      = assertFailure "Could not find @foo function of the appropriate type"
+
+    fooOv ::
+      IsSymInterface sym =>
+      Override p sym ext EmptyCtx IntegerType
+    fooOv = mkOverride "foo" $ do
+      sym <- use (stateContext.ctxSymInterface)
+      liftIO $ intLit sym 42

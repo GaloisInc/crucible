@@ -82,6 +82,7 @@ test-suite crucible-syntax-tests
     Overrides
   build-depends:
     base,
+    containers,
     crucible,
     crucible-syntax,
     directory,

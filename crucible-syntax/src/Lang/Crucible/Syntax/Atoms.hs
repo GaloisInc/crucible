@@ -40,7 +40,7 @@ newtype FunName = FunName Text deriving (Eq, Ord, Show)
 newtype GlobalName = GlobalName Text deriving (Eq, Ord, Show)
 
 -- | Individual language keywords (reserved identifiers)
-data Keyword = Defun | DefBlock | DefGlobal
+data Keyword = Defun | DefBlock | DefGlobal | Declare
              | Registers
              | Start
              | SetGlobal
@@ -92,6 +92,7 @@ keywords =
   , ("start" , Start)
   , ("defblock", DefBlock)
   , ("defglobal", DefGlobal)
+  , ("declare", Declare)
   , ("registers", Registers)
 
     -- statements

@@ -192,6 +192,10 @@ data ParsedProgram ext = ParsedProgram
     -- ^ The parsed @defglobal@s.
   , parsedProgCFGs :: [ACFG ext]
     -- ^ The CFGs for each parsed @defun@.
+  , parsedProgForwardDecs :: Map FunctionName SomeHandle
+    -- ^ For each parsed @declare@, map its name to its function handle. It is
+    --   the responsibility of the caller to register each handle with an
+    --   appropriate 'FnState'.
   }
 
 
@@ -610,8 +614,11 @@ synthExpr typeHint =
     funNameLit =
       do fn <- funName
          fh <- view $ stxFunctions . at fn
+         dh <- view $ stxForwardDecs . at fn
          describe "known function name" $
-           case fh of
+           -- First look for a function with the given name, and failing that,
+           -- look for a forward declaration with the given name.
+           case fh <|> dh of
              Nothing -> empty
              Just (FunctionHeader _ funArgs ret handle _) ->
                return $ SomeE (FunctionHandleRepr (argTypes funArgs) ret) (EApp $ HandleLit handle)
@@ -1274,12 +1281,16 @@ data LabelInfo :: Type -> Type where
 
 data ProgramState s =
   ProgramState { _progFunctions :: Map FunctionName FunctionHeader
+               , _progForwardDecs :: Map FunctionName FunctionHeader
                , _progGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
                , _progHandleAlloc :: HandleAllocator
                }
 
 progFunctions :: Simple Lens (ProgramState s) (Map FunctionName FunctionHeader)
 progFunctions = lens _progFunctions (\s v -> s { _progFunctions = v })
+
+progForwardDecs :: Simple Lens (ProgramState s) (Map FunctionName FunctionHeader)
+progForwardDecs = lens _progForwardDecs (\s v -> s { _progForwardDecs = v })
 
 progGlobals :: Simple Lens (ProgramState s) (Map GlobalName (Pair TypeRepr GlobalVar))
 progGlobals = lens _progGlobals (\s v -> s { _progGlobals = v })
@@ -1297,7 +1308,7 @@ data SyntaxState s =
               }
 
 initProgState :: [(SomeHandle,Position)] -> HandleAllocator -> ProgramState s
-initProgState builtIns ha = ProgramState fns Map.empty ha
+initProgState builtIns ha = ProgramState fns Map.empty Map.empty ha
   where
   f tps = Ctx.generate
             (Ctx.size tps)
@@ -1335,6 +1346,9 @@ stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
 
 stxFunctions :: Simple Lens (SyntaxState s) (Map FunctionName FunctionHeader)
 stxFunctions = stxProgState . progFunctions
+
+stxForwardDecs :: Simple Lens (SyntaxState s) (Map FunctionName FunctionHeader)
+stxForwardDecs = stxProgState . progForwardDecs
 
 stxGlobals :: Simple Lens (SyntaxState s) (Map GlobalName (Pair TypeRepr GlobalVar))
 stxGlobals = stxProgState . progGlobals
@@ -2003,14 +2017,34 @@ global stx =
      stxGlobals %= Map.insert var (Pair t v)
      return $ Pair t v
 
+-- | Parse a forward declaration.
+declare :: (?parserHooks :: ParserHooks ext)
+        => AST t
+        -> TopParser s FunctionHeader
+declare stx =
+  do ((fnName, (Some theArgs, (Some ret, ()))), loc) <-
+       liftSyntaxParse (do r <- followedBy (kw Declare) $
+                                cons funName $
+                                cons arguments' $
+                                cons isType emptyList
+                           loc <- position
+                           pure (r, loc))
+                       stx
+     ha <- use $ stxProgState . progHandleAlloc
+     handle <- liftIO $ mkHandle' ha fnName (argTypes theArgs) ret
+
+     let header = FunctionHeader fnName theArgs ret handle loc
+     stxForwardDecs %= Map.insert fnName header
+     pure header
+
 topLevel :: (?parserHooks :: ParserHooks ext)
          => AST s
          -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
 topLevel ast =
-  catchError (Just <$> functionHeader ast) $
-    \e ->
-      catchError (global ast $> Nothing) $
-        \_ -> throwError e
+  (Just <$> functionHeader ast) `catchError` \e ->
+  (global ast $> Nothing)       `catchError` \_ ->
+  (declare ast $> Nothing)      `catchError` \_ ->
+  throwError e
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
 argTypes  = fmapFC (\(Arg _ _ t) -> t)
@@ -2186,7 +2220,10 @@ prog defuns =
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
                    return $ ACFG types ret $ CFG handle entry (e' : rest)
      gs <- use stxGlobals
+     fds <- uses stxForwardDecs $ fmap $
+              \(FunctionHeader _ _ _ handle _) -> SomeHandle handle
      return $ ParsedProgram
        { parsedProgGlobals = gs
        , parsedProgCFGs = cs
+       , parsedProgForwardDecs = fds
        }

@@ -77,6 +77,16 @@ statement. The first block must begin with "start" instead of
 "defblock". In the future, the restriction that the start block comes
 first may be relaxed.
 
+Forward declarations
+
+A forward declaration is a form that begins with the keyword "declare",
+followed by a function name, argument list, and return type. A forward
+declaration is like a function but without the function body. Forward
+declarations are useful in situations where you do not know the definition
+of a function ahead of time, but you will know it at some point after parsing
+the program. It is the responsibility of the client to ensure that forward
+declarations are resolved to Crucible definitions before being invoked.
+
 Types
 
 si ::= 'Unicode' | 'Char16' | 'Char8'
