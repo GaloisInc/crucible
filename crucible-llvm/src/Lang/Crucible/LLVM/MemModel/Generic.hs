@@ -41,6 +41,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocAndWriteMem
   , readMem
   , isValidPointer
+  , isAllocated
   , isAllocatedMutable
   , isAllocatedAlignedPointer
   , notAliasable
@@ -51,6 +52,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , invalidateMem
   , writeArrayMem
   , writeArrayConstMem
+  , overwriteArrayMem
   , pushStackFrameMem
   , popStackFrameMem
   , freeMem
