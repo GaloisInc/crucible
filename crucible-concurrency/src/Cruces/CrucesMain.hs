@@ -14,8 +14,10 @@ Maintainer       : Alexander Bakst <abakst@galois.com>
 module Cruces.CrucesMain (run, defaultCrucesOptions, cruciblesConfig) where
 
 import Control.Lens
+import Control.Monad (unless)
 import Data.Foldable (toList)
 import Data.List (find)
+import qualified Data.Map as Map
 import Data.Text (pack)
 import Data.String (IsString(..))
 import System.Exit
@@ -137,7 +139,13 @@ run (cruxOpts, opts) =
                      case parseResult of
                        Left (SyntaxParseError e) -> error $ show $ printSyntaxError e
                        Left err -> error $ show err
-                       Right (gs, cs) ->
+                       Right (ParsedProgram
+                               { parsedProgGlobals = gs
+                               , parsedProgCFGs = cs
+                               , parsedProgForwardDecs = fds
+                               }) -> do
+                         unless (Map.null fds) $
+                           error "Forward declarations not currently supported"
                          return ( findMain (fromString "main") cs
                                 , crucibleSyntaxPrims
                                 , toList gs

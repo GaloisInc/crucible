@@ -4,12 +4,19 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Lang.Crucible.Syntax.Prog where
+module Lang.Crucible.Syntax.Prog
+  ( doParseCheck
+  , simulateProgram
+  , SimulateProgramHooks(..)
+  , defaultSimulateProgramHooks
+  ) where
 
 import Control.Lens (view)
 import Control.Monad
 
-import Data.List (find)
+import Data.Foldable
+import qualified Data.Map as Map
+import Data.Map (Map)
 import Data.Text (Text)
 import Data.String (IsString(..))
 import qualified Data.Text.IO as T
@@ -40,6 +47,7 @@ import Lang.Crucible.Simulator.Profiling
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
 import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
+import What4.FunctionName
 import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
@@ -64,16 +72,53 @@ doParseCheck fn theInput pprint outh =
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
             let ?parserHooks = defaultParserHooks
-            cs <- top ng ha [] $ cfgs v
+            cs <- top ng ha [] $ prog v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
-              Right ok ->
+              Right (ParsedProgram{ parsedProgCFGs = ok
+                                  , parsedProgForwardDecs = fds
+                                  }) -> do
+                assertNoForwardDecs fds
                 forM_ ok $
                  \(ACFG _ _ theCfg) ->
                    do C.SomeCFG ssa <- return $ toSSA theCfg
                       hPutStrLn outh $ show $ cfgHandle theCfg
                       hPutStrLn outh $ show $ C.ppCFG' True (postdomInfo ssa) ssa
+
+-- | Allows users to hook into the various stages of 'simulateProgram'.
+data SimulateProgramHooks = SimulateProgramHooks
+  { setupOverridesHook ::
+      forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+         sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
+    -- ^ Action to set up overrides before parsing a program.
+  , resolveForwardDeclarationsHook ::
+      forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+        Map FunctionName SomeHandle -> IO (FunctionBindings p sym ext)
+    -- ^ Action to resolve forward declarations before simulating a program.
+    --   If you do not intend to support forward declarations, this is an
+    --   appropriate place to error if a program contains one or more forward
+    --   declarations.
+  }
+
+-- | A sensible default set of hooks for 'simulateProgram' that:
+--
+-- * Sets up no additional overrides.
+--
+-- * Errors out if a program contains one or more forward declarations.
+defaultSimulateProgramHooks :: SimulateProgramHooks
+defaultSimulateProgramHooks = SimulateProgramHooks
+  { setupOverridesHook = \_sym _ha -> pure []
+  , resolveForwardDeclarationsHook = \fds ->
+    do assertNoForwardDecs fds
+       pure $ FnBindings emptyHandleMap
+  }
+
+assertNoForwardDecs :: Map FunctionName SomeHandle -> IO ()
+assertNoForwardDecs fds =
+  unless (Map.null fds) $
+  do putStrLn "Forward declarations not currently supported"
+     exitFailure
 
 simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)
@@ -81,10 +126,9 @@ simulateProgram
    -> Handle   -- ^ A handle that will receive the output
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
-   -> (forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-         sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
+   -> SimulateProgramHooks -- ^ Hooks into various parts of the function
    -> IO ()
-simulateProgram fn theInput outh profh opts setup =
+simulateProgram fn theInput outh profh opts hooks =
   do Some ng <- newIONonceGenerator
      ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
@@ -96,23 +140,29 @@ simulateProgram fn theInput outh profh opts setup =
          do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
             bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
-            ovrs <- setup @() @_ @() sym ha
+            ovrs <- setupOverridesHook hooks @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
             let ?parserHooks = defaultParserHooks
-            parseResult <- top ng ha hdls $ cfgs v
+            parseResult <- top ng ha hdls $ prog v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
-              Right cs ->
+              Right (ParsedProgram{ parsedProgCFGs = cs
+                                  , parsedProgForwardDecs = fds
+                                  }) -> do
                 case find isMain cs of
                   Just (ACFG Ctx.Empty retType mn) ->
-                    do let mainHdl = cfgHandle mn
-                       let fns = fnBindingsFromList
-                             [ case toSSA g of
-                                 C.SomeCFG ssa ->
-                                   FnBinding (cfgHandle g) (UseCFG ssa (postdomInfo ssa))
-                             | ACFG _ _ g <- cs
-                             ]
+                    do fwdDecFnBindings <- resolveForwardDeclarationsHook hooks fds
+                       let mainHdl = cfgHandle mn
+                       let fns = foldl' (\(FnBindings m) (ACFG _ _ g) ->
+                                          case toSSA g of
+                                            C.SomeCFG ssa ->
+                                              FnBindings $
+                                                insertHandleMap
+                                                  (cfgHandle g)
+                                                  (UseCFG ssa (postdomInfo ssa))
+                                                  m)
+                                        fwdDecFnBindings cs
                        let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
                        let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler retType $
                                       runOverrideSim retType $

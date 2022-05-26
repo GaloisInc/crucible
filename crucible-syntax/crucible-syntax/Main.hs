@@ -69,7 +69,7 @@ command =
 
 profFile :: Opt.Parser ProfCmd
 profFile =
-  ProfCmd <$> input <*> output 
+  ProfCmd <$> input <*> output
 
 simFile :: Opt.Parser SimCmd
 simFile =
@@ -101,15 +101,20 @@ main =
          do contents <- T.readFile inputFile
             case out of
               Nothing ->
-                simulateProgram inputFile contents stdout Nothing configOptions setupOverrides
+                simulateProgram inputFile contents stdout Nothing configOptions simulationHooks
               Just (TheFile outputFile) ->
                 withFile outputFile WriteMode
-                  (\outh -> simulateProgram inputFile contents outh Nothing configOptions setupOverrides)
+                  (\outh -> simulateProgram inputFile contents outh Nothing configOptions simulationHooks)
 
        ProfileCommand (ProfCmd (TheFile inputFile) (TheFile outputFile)) ->
          do contents <- T.readFile inputFile
             withFile outputFile WriteMode
-               (\outh -> simulateProgram inputFile contents stdout (Just outh) configOptions setupOverrides)
+               (\outh -> simulateProgram inputFile contents stdout (Just outh) configOptions simulationHooks)
 
   where info = Opt.info (command <**> Opt.helper) (Opt.fullDesc)
         prefs = Opt.prefs $ Opt.showHelpOnError <> Opt.showHelpOnEmpty
+
+        simulationHooks =
+          defaultSimulateProgramHooks
+            { setupOverridesHook = setupOverrides
+            }
