@@ -65,7 +65,7 @@ import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewEr
 import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape, ppViewShapeError)
 import           UCCrux.LLVM.View.Util () -- Alignment, ICmpOp instance
 
--- Helper, not exported
+-- Helper, not exported. Equivalent to Data.Bifunctor.first.
 liftError :: (e -> i) -> Either e a -> Either i a
 liftError l =
   \case
@@ -101,33 +101,33 @@ ppViewConstraintError =
         ]
 
 data ConstraintView
-  = VAligned Alignment
-  | VBVCmp L.ICmpOp Natural Integer
+  = AlginedView Alignment
+  | BVCmpView L.ICmpOp Natural Integer
   deriving (Eq, Ord, Generic, Show)
 
 constraintView :: Constraint m atTy -> ConstraintView
 constraintView =
   \case
-    Aligned align -> VAligned align
+    Aligned align -> AlginedView align
     BVCmp op width bv ->
-      VBVCmp op (NatRepr.natValue width) (BV.asUnsigned bv)
+      BVCmpView op (NatRepr.natValue width) (BV.asUnsigned bv)
 
 viewConstraint ::
   ConstraintView ->
   Either ViewConstraintError (Some (Constraint m))
 viewConstraint =
   \case
-    VAligned align -> Right (Some (Aligned align))
-    VBVCmp op vwidth vbv ->
-      do guard (vbv < 0) (BVNegative vbv)
+    AlginedView align -> Right (Some (Aligned align))
+    BVCmpView op vwidth vbv ->
+      do check (vbv < 0) (BVNegative vbv)
          Some width <- return (NatRepr.mkNatRepr vwidth)
          let clamped = BV.unsignedClamp width vbv
-         guard (BV.asUnsigned clamped /= vbv) (BVOutOfRange vwidth vbv)
+         check (BV.asUnsigned clamped /= vbv) (BVOutOfRange vwidth vbv)
          NatRepr.LeqProof <-
            liftMaybe (BVZeroWidth vbv) (NatRepr.testLeq (NatRepr.knownNat @1) width)
          Right (Some (BVCmp op width clamped))
   where
-    guard cond err = when cond (Left err)
+    check cond err = when cond (Left err)
     liftMaybe err =
       \case
         Nothing -> Left err

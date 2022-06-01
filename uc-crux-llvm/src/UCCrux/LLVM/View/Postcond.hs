@@ -68,7 +68,7 @@ import           UCCrux.LLVM.View.Shape (ViewShapeError, ppViewShapeError)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
 import           UCCrux.LLVM.View.Util (GlobalVarName(..))
 
--- Helper, not exported
+-- Helper, not exported. Equivalent to Data.Bifunctor.first.
 liftError :: (e -> i) -> Either e a -> Either i a
 liftError l =
   \case
@@ -155,15 +155,15 @@ viewClobberValue mts ft vcv =
 -- * ClobberArg
 
 data ClobberArgView
-  = VDontClobberArg
-  | VDoClobberArg ClobberValueView
+  = DontClobberArgView
+  | DoClobberArgView ClobberValueView
   deriving (Eq, Ord, Generic, Show)
 
 clobberArgView :: ClobberArg m inTy -> ClobberArgView
 clobberArgView =
   \case
-    DontClobberArg -> VDontClobberArg
-    DoClobberArg cv -> VDoClobberArg (clobberValueView cv)
+    DontClobberArg -> DontClobberArgView
+    DoClobberArg cv -> DoClobberArgView (clobberValueView cv)
 
 viewClobberArg ::
   ModuleTypes m ->
@@ -172,8 +172,8 @@ viewClobberArg ::
   Either ViewClobberValueError (ClobberArg m ft)
 viewClobberArg mts ft =
   \case
-    VDontClobberArg -> Right DontClobberArg
-    VDoClobberArg vcv -> DoClobberArg <$> viewClobberValue mts ft vcv
+    DontClobberArgView -> Right DontClobberArg
+    DoClobberArgView vcv -> DoClobberArg <$> viewClobberValue mts ft vcv
 
 --------------------------------------------------------------------------------
 -- * UPostcond

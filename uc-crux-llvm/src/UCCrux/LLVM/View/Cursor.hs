@@ -69,10 +69,10 @@ ppViewCursorError =
         ]
 
 data CursorView
-  = VHere
-  | VDereference Int CursorView
-  | VIndex Natural Natural CursorView
-  | VField Int CursorView
+  = HereView
+  | DereferenceView Int CursorView
+  | IndexView Natural Natural CursorView
+  | FieldView Int CursorView
   deriving (Eq, Ord, Generic, Show)
 
 cursorView ::
@@ -80,12 +80,12 @@ cursorView ::
   CursorView
 cursorView =
   \case
-    Here{} -> VHere
-    Dereference idx sub -> VDereference idx (cursorView sub)
+    Here{} -> HereView
+    Dereference idx sub -> DereferenceView idx (cursorView sub)
     Index idx len sub ->
-      VIndex (NatRepr.natValue idx) (NatRepr.natValue len) (cursorView sub)
+      IndexView (NatRepr.natValue idx) (NatRepr.natValue len) (cursorView sub)
     Field _fields idx sub ->
-      VField (Ctx.indexVal idx) (cursorView sub)
+      FieldView (Ctx.indexVal idx) (cursorView sub)
 
 viewCursor ::
   ModuleTypes m ->
@@ -94,13 +94,13 @@ viewCursor ::
   Either ViewCursorError (Some (Cursor m inTy))
 viewCursor mts ft vcur =
   case (ft, vcur) of
-    (_, VHere) -> Right (Some (Here ft))
-    (FTPtrRepr pt, VDereference idx vsub) ->
+    (_, HereView) -> Right (Some (Here ft))
+    (FTPtrRepr pt, DereferenceView idx vsub) ->
       do Some sub <- viewCursor mts (asFullType mts pt) vsub
          return (Some (Dereference idx sub))
-    (FTArrayRepr n elems, VIndex idx len vsub) ->
+    (FTArrayRepr n elems, IndexView idx len vsub) ->
       do let typeLen = NatRepr.natValue n
-         guard
+         check
            (typeLen /= len)
            (VectorLengthMismatch typeLen len)
          Some sub <- viewCursor mts elems vsub
@@ -111,14 +111,14 @@ viewCursor mts ft vcur =
            Right _ -> Left (VectorBadIndex idx len)
            Left NatRepr.LeqProof ->
              return (Some (Index idxRep n sub))
-    (FTStructRepr _sp fields, VField vidx vsub) ->
+    (FTStructRepr _sp fields, FieldView vidx vsub) ->
       do Some idx <-
            liftMaybe (StructBadIndex vidx) (Ctx.intIndex vidx (Ctx.size fields))
          Some sub <- viewCursor mts (fields ^. ixF' idx) vsub
          return (Some (Field fields idx sub))
     _ -> Left TypeMismatch
   where
-    guard cond err = when cond (Left err)
+    check cond err = when cond (Left err)
     liftMaybe err =
       \case
         Nothing -> Left err

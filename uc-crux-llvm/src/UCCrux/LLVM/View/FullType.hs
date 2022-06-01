@@ -95,66 +95,66 @@ viewStructPackedRepr =
     UnpackedStructReprView -> Some UnpackedStructRepr
 
 data FloatInfoReprView
-  = VHalfFloatRepr
-  | VSingleFloatRepr
-  | VDoubleFloatRepr
-  | VQuadFloatRepr
-  | VX86_80FloatRepr
-  | VDoubleDoubleFloatRepr
+  = HalfFloatReprView
+  | SingleFloatReprView
+  | DoubleFloatReprView
+  | QuadFloatReprView
+  | X86_80FloatReprView
+  | DoubleDoubleFloatReprView
   deriving (Eq, Ord, Show, Generic)
 
 floatInfoReprView :: FloatInfoRepr fi -> FloatInfoReprView
 floatInfoReprView =
   \case
-    W4IFP.HalfFloatRepr -> VHalfFloatRepr
-    W4IFP.SingleFloatRepr -> VSingleFloatRepr
-    W4IFP.DoubleFloatRepr -> VDoubleFloatRepr
-    W4IFP.QuadFloatRepr -> VQuadFloatRepr
-    W4IFP.X86_80FloatRepr -> VX86_80FloatRepr
-    W4IFP.DoubleDoubleFloatRepr -> VDoubleDoubleFloatRepr
+    W4IFP.HalfFloatRepr -> HalfFloatReprView
+    W4IFP.SingleFloatRepr -> SingleFloatReprView
+    W4IFP.DoubleFloatRepr -> DoubleFloatReprView
+    W4IFP.QuadFloatRepr -> QuadFloatReprView
+    W4IFP.X86_80FloatRepr -> X86_80FloatReprView
+    W4IFP.DoubleDoubleFloatRepr -> DoubleDoubleFloatReprView
 
 viewFloatInfoRepr :: FloatInfoReprView -> Some FloatInfoRepr
 viewFloatInfoRepr =
   \case
-    VHalfFloatRepr -> Some W4IFP.HalfFloatRepr
-    VSingleFloatRepr -> Some W4IFP.SingleFloatRepr
-    VDoubleFloatRepr -> Some W4IFP.DoubleFloatRepr
-    VQuadFloatRepr -> Some W4IFP.QuadFloatRepr
-    VX86_80FloatRepr -> Some W4IFP.X86_80FloatRepr
-    VDoubleDoubleFloatRepr -> Some W4IFP.DoubleDoubleFloatRepr
+    HalfFloatReprView -> Some W4IFP.HalfFloatRepr
+    SingleFloatReprView -> Some W4IFP.SingleFloatRepr
+    DoubleFloatReprView -> Some W4IFP.DoubleFloatRepr
+    QuadFloatReprView -> Some W4IFP.QuadFloatRepr
+    X86_80FloatReprView -> Some W4IFP.X86_80FloatRepr
+    DoubleDoubleFloatReprView -> Some W4IFP.DoubleDoubleFloatRepr
 
 data FullTypeReprView
-  = VFTIntRepr Width
-  | VFTPtrRepr PartTypeReprView
-  | VFTFloatRepr FloatInfoReprView
-  | VFTArrayRepr Natural FullTypeReprView
-  | VFTUnboundedArrayRepr FullTypeReprView
-  | VFTStructRepr StructPackedReprView [FullTypeReprView]
-  | VFTVoidFuncPtrRepr VarArgsReprView [FullTypeReprView]
-  | VFTNonVoidFuncPtrRepr VarArgsReprView FullTypeReprView [FullTypeReprView]
-  | VFTOpaquePtrRepr TypeName
+  = FTIntReprView Width
+  | FTPtrReprView PartTypeReprView
+  | FTFloatReprView FloatInfoReprView
+  | FTArrayReprView Natural FullTypeReprView
+  | FTUnboundedArrayReprView FullTypeReprView
+  | FTStructReprView StructPackedReprView [FullTypeReprView]
+  | FTVoidFuncPtrReprView VarArgsReprView [FullTypeReprView]
+  | FTNonVoidFuncPtrReprView VarArgsReprView FullTypeReprView [FullTypeReprView]
+  | FTOpaquePtrReprView TypeName
   deriving (Eq, Ord, Show, Generic)
 
 fullTypeReprView :: FullTypeRepr m ft -> FullTypeReprView
 fullTypeReprView =
   \case
-    FTIntRepr natRepr -> VFTIntRepr (Width (NatRepr.natValue natRepr))
-    FTPtrRepr ptRepr -> VFTPtrRepr (partTypeReprView ptRepr)
-    FTFloatRepr floatInfo -> VFTFloatRepr (floatInfoReprView floatInfo)
+    FTIntRepr natRepr -> FTIntReprView (Width (NatRepr.natValue natRepr))
+    FTPtrRepr ptRepr -> FTPtrReprView (partTypeReprView ptRepr)
+    FTFloatRepr floatInfo -> FTFloatReprView (floatInfoReprView floatInfo)
     FTArrayRepr natRepr elems ->
-      VFTArrayRepr (NatRepr.natValue natRepr) (fullTypeReprView elems)
+      FTArrayReprView (NatRepr.natValue natRepr) (fullTypeReprView elems)
     FTUnboundedArrayRepr elems ->
-      VFTUnboundedArrayRepr (fullTypeReprView elems)
+      FTUnboundedArrayReprView (fullTypeReprView elems)
     FTStructRepr sp fields ->
-      VFTStructRepr (structPackedReprView sp) (toListFC fullTypeReprView fields)
+      FTStructReprView (structPackedReprView sp) (toListFC fullTypeReprView fields)
     FTVoidFuncPtrRepr varArgs args ->
-      VFTVoidFuncPtrRepr (varArgsReprView varArgs) (toListFC fullTypeReprView args)
+      FTVoidFuncPtrReprView (varArgsReprView varArgs) (toListFC fullTypeReprView args)
     FTNonVoidFuncPtrRepr varArgs retRepr args ->
-      VFTNonVoidFuncPtrRepr
+      FTNonVoidFuncPtrReprView
         (varArgsReprView varArgs)
         (fullTypeReprView retRepr)
         (toListFC fullTypeReprView args)
-    FTOpaquePtrRepr symb -> VFTOpaquePtrRepr (TypeName (symbolRepr symb))
+    FTOpaquePtrRepr symb -> FTOpaquePtrReprView (TypeName (symbolRepr symb))
 
 data FullTypeReprViewError
   = ZeroWidth
@@ -175,42 +175,42 @@ viewFullTypeRepr ::
   Either FullTypeReprViewError (Some (FullTypeRepr m))
 viewFullTypeRepr mts =
   \case
-    VFTIntRepr (Width w) ->
+    FTIntReprView (Width w) ->
       case NatRepr.mkNatRepr w of
         Some natRepr ->
           case NatRepr.isZeroOrGT1 natRepr of
             Left NatRepr.Refl -> Left ZeroWidth
             Right NatRepr.LeqProof -> Right (Some (FTIntRepr natRepr))
-    VFTPtrRepr vpt ->
+    FTPtrReprView vpt ->
       do Some pt <- viewPartTypeRepr mts vpt
          return (Some (FTPtrRepr pt))
-    VFTFloatRepr vfi ->
+    FTFloatReprView vfi ->
       do Some fi <- return (viewFloatInfoRepr vfi)
          return (Some (FTFloatRepr fi))
-    VFTArrayRepr nat vft ->
+    FTArrayReprView nat vft ->
       case (NatRepr.mkNatRepr nat, viewFullTypeRepr mts vft) of
         (_, Left err) -> Left err
         (Some natRepr, Right (Some ft)) ->
           case NatRepr.isZeroOrGT1 natRepr of
             Left NatRepr.Refl -> Left ZeroArraySize
             Right NatRepr.LeqProof -> Right (Some (FTArrayRepr natRepr ft))
-    VFTUnboundedArrayRepr vft ->
+    FTUnboundedArrayReprView vft ->
       do Some ft <- viewFullTypeRepr mts vft
          return (Some (FTUnboundedArrayRepr ft))
-    VFTStructRepr vsp vfields ->
+    FTStructReprView vsp vfields ->
       do Some sp <- return (viewStructPackedRepr vsp)
          Some fields <- Ctx.fromList <$> traverse (viewFullTypeRepr mts) vfields
          return (Some (FTStructRepr sp fields))
-    VFTVoidFuncPtrRepr vva vargs ->
+    FTVoidFuncPtrReprView vva vargs ->
       do Some va <- return (viewVarArgsRepr vva)
          Some args <- Ctx.fromList <$> traverse (viewFullTypeRepr mts) vargs
          return (Some (FTVoidFuncPtrRepr va args))
-    VFTNonVoidFuncPtrRepr vva vret vargs ->
+    FTNonVoidFuncPtrReprView vva vret vargs ->
       do Some va <- return (viewVarArgsRepr vva)
          Some args <- Ctx.fromList <$> traverse (viewFullTypeRepr mts) vargs
          Some ret <- viewFullTypeRepr mts vret
          return (Some (FTNonVoidFuncPtrRepr va ret args))
-    VFTOpaquePtrRepr (TypeName nm) ->
+    FTOpaquePtrReprView (TypeName nm) ->
       do Some symb <- return (someSymbol nm)
          return (Some (FTOpaquePtrRepr symb))
 

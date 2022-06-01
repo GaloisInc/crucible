@@ -74,9 +74,9 @@ liftErr =
     Right v -> Right v
 
 data PtrShapeView vtag
-  = VShapeUnallocated
-  | VShapeAllocated Int
-  | VShapeInitialized (Seq (ShapeView vtag))
+  = ShapeUnallocatedView
+  | ShapeAllocatedView Int
+  | ShapeInitializedView (Seq (ShapeView vtag))
   deriving (Eq, Generic, Ord, Show)
 
 ptrShapeView ::
@@ -85,9 +85,9 @@ ptrShapeView ::
   PtrShapeView vtag
 ptrShapeView tag =
   \case
-    ShapeUnallocated -> VShapeUnallocated
-    ShapeAllocated n -> VShapeAllocated n
-    ShapeInitialized s -> VShapeInitialized (fmap (shapeView tag) s)
+    ShapeUnallocated -> ShapeUnallocatedView
+    ShapeAllocated n -> ShapeAllocatedView n
+    ShapeInitialized s -> ShapeInitializedView (fmap (shapeView tag) s)
 
 viewPtrShape ::
   ModuleTypes m ->
@@ -97,20 +97,20 @@ viewPtrShape ::
   Either (ViewShapeError e) (PtrShape m tag ft)
 viewPtrShape mts tag ft =
   \case
-    VShapeUnallocated -> Right ShapeUnallocated
-    VShapeAllocated n -> Right (ShapeAllocated n)
-    VShapeInitialized s ->
+    ShapeUnallocatedView -> Right ShapeUnallocated
+    ShapeAllocatedView n -> Right (ShapeAllocated n)
+    ShapeInitializedView s ->
       ShapeInitialized <$> traverse (viewShape mts tag ft) s
 
 data ShapeView vtag
-  = VShapeInt vtag
-  | VShapeFloat vtag
-  | VShapePtr vtag (PtrShapeView vtag)
-  | VShapeFuncPtr vtag
-  | VShapeOpaquePtr vtag
-  | VShapeArray vtag (NonEmpty (ShapeView vtag))
-  | VShapeUnboundedArray vtag (Seq (ShapeView vtag))
-  | VShapeStruct vtag (Vector (ShapeView vtag))
+  = ShapeIntView vtag
+  | ShapeFloatView vtag
+  | ShapePtrView vtag (PtrShapeView vtag)
+  | ShapeFuncPtrView vtag
+  | ShapeOpaquePtrView vtag
+  | ShapeArrayView vtag (NonEmpty (ShapeView vtag))
+  | ShapeUnboundedArrayView vtag (Seq (ShapeView vtag))
+  | ShapeStructView vtag (Vector (ShapeView vtag))
   deriving (Eq, Generic, Ord, Show)
 
 shapeView ::
@@ -119,19 +119,19 @@ shapeView ::
   ShapeView vtag
 shapeView tag =
   \case
-    ShapeInt t -> VShapeInt (tag t)
-    ShapeFloat t -> VShapeFloat (tag t)
-    ShapePtr t ps -> VShapePtr (tag t) (ptrShapeView tag ps)
-    ShapeFuncPtr t -> VShapeFuncPtr (tag t)
-    ShapeOpaquePtr t -> VShapeOpaquePtr (tag t)
+    ShapeInt t -> ShapeIntView (tag t)
+    ShapeFloat t -> ShapeFloatView (tag t)
+    ShapePtr t ps -> ShapePtrView (tag t) (ptrShapeView tag ps)
+    ShapeFuncPtr t -> ShapeFuncPtrView (tag t)
+    ShapeOpaquePtr t -> ShapeOpaquePtrView (tag t)
     ShapeArray t _nr vec ->
       case nonEmpty (map (shapeView tag) (toList vec)) of
         Nothing -> panic "shapeView" ["Empty vector"]
-        Just vec' -> VShapeArray (tag t) vec'
+        Just vec' -> ShapeArrayView (tag t) vec'
     ShapeUnboundedArray t s ->
-      VShapeUnboundedArray (tag t) (fmap (shapeView tag) s)
+      ShapeUnboundedArrayView (tag t) (fmap (shapeView tag) s)
     ShapeStruct t fields ->
-      VShapeStruct (tag t) (Vec.fromList (toListFC (shapeView tag) fields))
+      ShapeStructView (tag t) (Vec.fromList (toListFC (shapeView tag) fields))
 
 viewShape ::
   forall m e vtag tag ft.
@@ -142,34 +142,34 @@ viewShape ::
   Either (ViewShapeError e) (Shape m tag ft)
 viewShape mts tag ft vshape =
   case (ft, vshape) of
-    (FTIntRepr{}, VShapeInt vtag) ->
+    (FTIntRepr{}, ShapeIntView vtag) ->
       do t <- getTag vtag
          return (ShapeInt t)
-    (FTFloatRepr{}, VShapeFloat vtag) ->
+    (FTFloatRepr{}, ShapeFloatView vtag) ->
       do t <- getTag vtag
          return (ShapeFloat t)
-    (FTPtrRepr pt, VShapePtr vtag vptr) ->
+    (FTPtrRepr pt, ShapePtrView vtag vptr) ->
       do t <- getTag vtag
          sub <- viewPtrShape mts tag (asFullType mts pt) vptr
          return (ShapePtr t sub)
-    (FTVoidFuncPtrRepr{}, VShapeFuncPtr vtag) ->
+    (FTVoidFuncPtrRepr{}, ShapeFuncPtrView vtag) ->
       do t <- getTag vtag
          return (ShapeFuncPtr t)
-    (FTNonVoidFuncPtrRepr{}, VShapeFuncPtr vtag) ->
+    (FTNonVoidFuncPtrRepr{}, ShapeFuncPtrView vtag) ->
       do t <- getTag vtag
          return (ShapeFuncPtr t)
-    (FTArrayRepr n ftElems, VShapeArray vtag velems) ->
+    (FTArrayRepr n ftElems, ShapeArrayView vtag velems) ->
       do t <- getTag vtag
          subs <- traverse (viewShape mts tag ftElems) velems
          case PVec.fromList n (toList subs) of
            Nothing ->
              Left (VectorLengthMismatch (NatRepr.natValue n) (length velems))
            Just vec -> return (ShapeArray t n vec)
-    (FTUnboundedArrayRepr ftElems, VShapeUnboundedArray vtag velems) ->
+    (FTUnboundedArrayRepr ftElems, ShapeUnboundedArrayView vtag velems) ->
       do t <- getTag vtag
          subs <- traverse (viewShape mts tag ftElems) velems
          return (ShapeUnboundedArray t subs)
-    (FTStructRepr _ ftFields, VShapeStruct vtag vfields) ->
+    (FTStructRepr _ ftFields, ShapeStructView vtag vfields) ->
       do t <- getTag vtag
          let viewField ::
                forall ctx t.
@@ -181,16 +181,16 @@ viewShape mts tag ft vshape =
                  Just vfield -> viewShape mts tag fieldType vfield
                  Nothing -> Left StructLengthMismatch
          fields <- itraverseFC viewField ftFields
-         guard
+         check
            (length vfields > Ctx.sizeInt (Ctx.size ftFields))
            StructLengthMismatch
          return (ShapeStruct t fields)
-    (FTOpaquePtrRepr{}, VShapeOpaquePtr vtag) ->
+    (FTOpaquePtrRepr{}, ShapeOpaquePtrView vtag) ->
       do t <- getTag vtag
          return (ShapeOpaquePtr t)
     _ -> Left TypeMismatch
   where
-    guard cond err = when cond (Left err)
+    check cond err = when cond (Left err)
     getTag vtag = liftErr (tag ft vtag)
 
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''PtrShapeView)
