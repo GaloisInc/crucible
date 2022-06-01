@@ -14,7 +14,8 @@ of the library outside of the "UCCrux.LLVM.Main" module.
 -}
 
 module UCCrux.LLVM.Main.Config.Type
-  ( RunConfig (..),
+  ( AnalyzeConfig(..),
+    RunConfig (..),
     TopLevelConfig (..),
   )
 where
@@ -27,10 +28,17 @@ import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 
+data AnalyzeConfig
+  = AnalyzeConfig
+      { entryPoints :: NonEmpty FunctionName
+      , checkFrom :: [FunctionName]
+      , checkFromCallers :: Bool
+      }
+  deriving (Eq, Ord, Show)
+
 data RunConfig
   = Explore ExConfig.ExploreConfig
-  -- | The 'Bool' is whether or not to check contracts from callers
-  | RunOn (NonEmpty FunctionName) [FunctionName] Bool
+  | Analyze AnalyzeConfig
   | CrashEquivalence EqConfig.EquivalenceConfig
   deriving (Eq, Ord, Show)
 

@@ -6,6 +6,7 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -168,11 +169,11 @@ mainWithConfigs appCtx cruxOpts topConf =
         withModulePtrWidth
           modCtx
           (explore appCtx modCtx cruxOpts llOpts exConfig halloc)
-      Config.RunOn ents checkFrom checkFromCallers ->
+      Config.Analyze analyzeConf ->
         do entries <-
              makeEntryPointsOrThrow
                (modCtx ^. defnTypes)
-               (NonEmpty.toList ents)
+               (NonEmpty.toList (Config.entryPoints analyzeConf))
            let printResult results =
                  forM_ (Map.toList results) $
                    \(func, SomeBugfindingResult _types result _trace) ->
@@ -189,10 +190,13 @@ mainWithConfigs appCtx cruxOpts topConf =
            let callers =
                  foldMap
                    (\f -> Set.map mkFunNm (funcCallers callGraph (getFunNm f)))
-                   (NonEmpty.toList ents)
+                   (NonEmpty.toList (Config.entryPoints analyzeConf))
 
            let checkEntryPointNames =
-                 checkFrom ++ if checkFromCallers then Set.toList callers else []
+                 Config.checkFrom analyzeConf ++
+                   if Config.checkFromCallers analyzeConf
+                   then Set.toList callers
+                   else []
 
            case checkEntryPointNames of
              [] ->

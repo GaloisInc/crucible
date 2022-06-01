@@ -125,10 +125,12 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
               Config.runConfig =
                 case entries of
                   Just ents ->
-                    Config.RunOn
-                      ents
-                      (checkFrom initUCOpts)
-                      (checkFromCallers initUCOpts)
+                    Config.Analyze $
+                      Config.AnalyzeConfig
+                        { Config.entryPoints = ents
+                        , Config.checkFrom = checkFrom initUCOpts
+                        , Config.checkFromCallers = checkFromCallers initUCOpts
+                        }
                   Nothing ->
                     if doExplore initUCOpts
                     then
