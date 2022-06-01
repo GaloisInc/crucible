@@ -91,7 +91,6 @@ data ViewClobberValueError
   | ViewCursorError ViewCursorError
   | ViewShapeError (ViewShapeError ViewConstrainedShapeError)
   | IncompatibleType
-  deriving (Eq, Ord, Show)
 
 ppViewClobberValueError :: ViewClobberValueError -> Doc ann
 ppViewClobberValueError =
@@ -184,7 +183,6 @@ data ViewUPostcondError
   | ReturnTypeMismatch
   | NonExistentGlobal GlobalVarName
   | BadFunctionArgument Int
-  deriving (Eq, Ord, Show)
 
 ppViewUPostcondError :: ViewUPostcondError -> Doc ann
 ppViewUPostcondError =

@@ -101,14 +101,14 @@ ppViewConstraintError =
         ]
 
 data ConstraintView
-  = AlginedView Alignment
+  = AlignedView Alignment
   | BVCmpView L.ICmpOp Natural Integer
   deriving (Eq, Ord, Generic, Show)
 
 constraintView :: Constraint m atTy -> ConstraintView
 constraintView =
   \case
-    Aligned align -> AlginedView align
+    Aligned align -> AlignedView align
     BVCmp op width bv ->
       BVCmpView op (NatRepr.natValue width) (BV.asUnsigned bv)
 
@@ -117,7 +117,7 @@ viewConstraint ::
   Either ViewConstraintError (Some (Constraint m))
 viewConstraint =
   \case
-    AlginedView align -> Right (Some (Aligned align))
+    AlignedView align -> Right (Some (Aligned align))
     BVCmpView op vwidth vbv ->
       do check (vbv < 0) (BVNegative vbv)
          Some width <- return (NatRepr.mkNatRepr vwidth)
@@ -206,7 +206,6 @@ viewConstrainedShape mts ft =
 data ConstrainedTypedValueViewError
   = FullTypeReprViewError FullTypeReprViewError
   | ViewConstrainedShapeError (ViewShapeError ViewConstrainedShapeError)
-  deriving (Eq, Ord, Show)
 
 ppConstrainedTypedValueViewError ::
   ConstrainedTypedValueViewError ->

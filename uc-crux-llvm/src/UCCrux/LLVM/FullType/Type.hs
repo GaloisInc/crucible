@@ -72,6 +72,8 @@ module UCCrux.LLVM.FullType.Type
     -- * FullType
     type FullType (..),
     FullTypeRepr (..),
+    SomeFullTypeRepr (..),
+    viewSomeFullTypeRepr,
     PartTypeRepr, -- Constructor hidden for safety of unsafeCoerce below
     MapToCrucibleType,
     ToCrucibleType,
@@ -331,6 +333,12 @@ data PartTypeRepr (m :: Type) (ft :: FullType m) where
   -- The Const is so that we can get type variables in scope in the TestEquality
   -- instance, see below.
   PTAliasRepr :: Const L.Ident ft -> PartTypeRepr m ft
+
+data SomeFullTypeRepr = forall m ft. SomeFullTypeRepr (FullTypeRepr m ft)
+
+viewSomeFullTypeRepr ::
+  (forall m ft. FullTypeRepr m ft -> a) -> SomeFullTypeRepr -> a
+viewSomeFullTypeRepr f (SomeFullTypeRepr ftRep) = f ftRep
 
 -- ------------------------------------------------------------------------------
 -- Instances

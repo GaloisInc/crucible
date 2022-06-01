@@ -8,6 +8,7 @@ Stability        : provisional
 -}
 
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -15,6 +16,7 @@ Stability        : provisional
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 
 module UCCrux.LLVM.View.Shape
   ( ViewShapeError,
@@ -40,31 +42,53 @@ import           GHC.Generics (Generic)
 import           Numeric.Natural (Natural)
 
 import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
 
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.NatRepr as NatRepr
+import           Data.Parameterized.Some (Some(Some), viewSome)
 import           Data.Parameterized.TraversableFC (toListFC)
 import           Data.Parameterized.TraversableFC.WithIndex (itraverseFC)
 import qualified Data.Parameterized.Vector as PVec
 
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), viewSomeFullTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Shape (PtrShape(..), Shape(..))
+import UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 
 data ViewShapeError e
   = TagError e
-  | TypeMismatch
-  | StructLengthMismatch
+  | TypeMismatch SomeFullTypeRepr (Some ShapeView)
+  | StructLengthMismatch [SomeFullTypeRepr] (Vector (Some ShapeView))
   | VectorLengthMismatch !Natural !Int
-  deriving (Eq, Ord, Show)
 
-ppViewShapeError :: (e -> Doc ann) -> ViewShapeError e -> Doc ann
+ppViewShapeError ::
+  (e -> Doc ann) ->
+  ViewShapeError e ->
+  Doc ann
 ppViewShapeError err =
   \case
     TagError e -> err e
-    TypeMismatch -> "Type mismatch"
-    StructLengthMismatch -> "Struct length mismatch"
-    VectorLengthMismatch{} -> "Vector length mismatch"
+    TypeMismatch (SomeFullTypeRepr ftRep) (Some view) ->
+      PP.vsep
+        [ "Type mismatch:"
+        , ppFullTypeRepr ftRep
+        , ppShapeV view
+        ]
+    StructLengthMismatch ftFields vfields ->
+      PP.vsep
+        [ "Struct length mismatch:"
+        , PP.hsep (map (viewSomeFullTypeRepr (PP.parens . ppFullTypeRepr)) ftFields)
+        , PP.hsep (map (viewSome ppShapeV) (toList vfields))
+        ]
+    VectorLengthMismatch len vlen ->
+      PP.hsep
+        [ "Vector length mismatch. Expected"
+        , PP.pretty len
+        , "but got"
+        , PP.pretty vlen
+        ]
+  where ppShapeV = ppShapeView PP.viaShow . fmap (const ())
 
 -- Helper, not exported
 liftErr :: Either e a -> Either (ViewShapeError e) a
@@ -77,7 +101,19 @@ data PtrShapeView vtag
   = ShapeUnallocatedView
   | ShapeAllocatedView Int
   | ShapeInitializedView (Seq (ShapeView vtag))
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Functor, Generic, Ord, Show)
+
+ppPtrShapeView ::
+  (vtag -> PP.Doc ann) ->
+  PtrShapeView vtag ->
+  PP.Doc ann
+ppPtrShapeView ppvtag =
+  \case
+    ShapeUnallocatedView -> "ShapeUnallocatedView"
+    ShapeAllocatedView n -> "ShapeAllocatedView" PP.<+> PP.pretty n
+    ShapeInitializedView rests ->
+      "ShapeInitializedView"
+        PP.<+> PP.parens (PP.hsep (map (ppShapeView ppvtag) (toList rests)))
 
 ptrShapeView ::
   (forall t. tag t -> vtag) ->
@@ -116,7 +152,34 @@ data ShapeView vtag
   | ShapeArrayView vtag (NonEmpty (ShapeView vtag))
   | ShapeUnboundedArrayView vtag (Seq (ShapeView vtag))
   | ShapeStructView vtag (Vector (ShapeView vtag))
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Functor, Generic, Ord, Show)
+
+ppShapeView ::
+  (vtag -> PP.Doc ann) ->
+  ShapeView vtag ->
+  PP.Doc ann
+ppShapeView ppvtag =
+  \case
+    ShapeIntView vt -> "ShapeIntView" PP.<+> PP.parens (ppvtag vt)
+    ShapeFloatView vt ->  "ShapeFloatView" PP.<+> PP.parens (ppvtag vt)
+    ShapePtrView vt rest ->
+      "ShapeFloatView"
+        PP.<+> PP.parens (ppvtag vt)
+        PP.<+> ppPtrShapeView ppvtag rest
+    ShapeFuncPtrView vt -> "ShapeFuncPtrView" PP.<+> PP.parens (ppvtag vt)
+    ShapeOpaquePtrView vt -> "ShapeOpaquePtrView" PP.<+> PP.parens (ppvtag vt)
+    ShapeArrayView vt rests ->
+      "ShapeArrayView"
+        PP.<+> PP.parens (ppvtag vt)
+        PP.<+> PP.hsep (map (ppShapeView ppvtag) (toList rests))
+    ShapeUnboundedArrayView vt rests ->
+      "ShapeUnboundedArrayView"
+        PP.<+> PP.parens (ppvtag vt)
+        PP.<+> PP.hsep (map (ppShapeView ppvtag) (toList rests))
+    ShapeStructView vt rests ->
+      "ShapeStructView"
+        PP.<+> PP.parens (ppvtag vt)
+        PP.<+> PP.hsep (map (ppShapeView ppvtag) (toList rests))
 
 shapeView ::
   (forall t. tag t -> vtag) ->
@@ -181,6 +244,10 @@ viewShape mts tag ft vshape =
          return (ShapeUnboundedArray t subs)
     (FTStructRepr _ ftFields, ShapeStructView vtag vfields) ->
       do t <- getTag vtag
+         let mismatch =
+              StructLengthMismatch
+                (toListFC SomeFullTypeRepr ftFields)
+                (fmap Some vfields)
          let viewField ::
                forall ctx t.
                Ctx.Index ctx t ->
@@ -189,16 +256,14 @@ viewShape mts tag ft vshape =
              viewField i fieldType =
                case vfields Vec.!? Ctx.indexVal i of
                  Just vfield -> viewShape mts tag fieldType vfield
-                 Nothing -> Left StructLengthMismatch
+                 Nothing -> Left mismatch
          fields <- itraverseFC viewField ftFields
-         check
-           (length vfields > Ctx.sizeInt (Ctx.size ftFields))
-           StructLengthMismatch
+         check (length vfields > Ctx.sizeInt (Ctx.size ftFields)) mismatch
          return (ShapeStruct t fields)
     (FTOpaquePtrRepr{}, ShapeOpaquePtrView vtag) ->
       do t <- getTag vtag
          return (ShapeOpaquePtr t)
-    _ -> Left TypeMismatch
+    _ -> Left (TypeMismatch (SomeFullTypeRepr ft) (Some vshape))
   where
     check cond err = when cond (Left err)
     getTag vtag = liftErr (tag ft vtag)
