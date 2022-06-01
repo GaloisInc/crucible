@@ -91,6 +91,11 @@ ptrShapeView tag =
 
 viewPtrShape ::
   ModuleTypes m ->
+  -- | How to decode un-parameterized tags into parameterized tags.
+  --
+  -- This decoding is allowed to fail (for instance, if the type of the
+  -- 'FullTypeRepr' doesn't match the @vtag@ datum), this failure is propagated
+  -- up and out into the 'ViewShapeError'.
   (forall t. FullTypeRepr m t -> vtag -> Either e (tag t)) ->
   FullTypeRepr m ft ->
   PtrShapeView vtag ->
@@ -136,6 +141,11 @@ shapeView tag =
 viewShape ::
   forall m e vtag tag ft.
   ModuleTypes m ->
+  -- | How to decode un-parameterized tags into parameterized tags.
+  --
+  -- This decoding is allowed to fail (for instance, if the type of the
+  -- 'FullTypeRepr' doesn't match the @vtag@ datum), this failure is propagated
+  -- up and out into the 'ViewShapeError'.
   (forall t. FullTypeRepr m t -> vtag -> Either e (tag t)) ->
   FullTypeRepr m ft ->
   ShapeView vtag ->
