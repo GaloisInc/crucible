@@ -60,7 +60,8 @@ import           UCCrux.LLVM.Postcondition.Type (ClobberValue(..), SomeClobberVa
 import           UCCrux.LLVM.FullType.CrucibleType (testSameCrucibleType)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes, asFullType)
 import           UCCrux.LLVM.Module (globalSymbolToString, makeGlobalSymbol, moduleGlobalMap, globalSymbol)
 import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, ConstrainedShapeView, ConstrainedTypedValueViewError, ConstrainedTypedValueView, constrainedShapeView, viewConstrainedShape, ppViewConstrainedShapeError, viewConstrainedTypedValue, constrainedTypedValueView, ppConstrainedTypedValueViewError)
 import           UCCrux.LLVM.View.Cursor (ViewCursorError, CursorView, cursorView, viewCursor, ppViewCursorError)
@@ -87,19 +88,26 @@ liftMaybe err =
 
 data ViewClobberValueError
   = FullTypeReprViewError FullTypeReprViewError
-  | NonPointerCursorError
+  | NonPointerCursorError SomeFullTypeRepr
   | ViewCursorError ViewCursorError
   | ViewShapeError (ViewShapeError ViewConstrainedShapeError)
-  | IncompatibleType
+  | IncompatibleType SomeFullTypeRepr SomeFullTypeRepr
 
 ppViewClobberValueError :: ViewClobberValueError -> Doc ann
 ppViewClobberValueError =
   \case
     FullTypeReprViewError err -> ppFullTypeReprViewError err
-    NonPointerCursorError -> "Clobber of non-pointer value"
+    NonPointerCursorError (SomeFullTypeRepr ft) ->
+      "Clobber of non-pointer value of type " PP.<+> ppFullTypeRepr ft
     ViewCursorError err -> ppViewCursorError err
     ViewShapeError err -> ppViewShapeError ppViewConstrainedShapeError err
-    IncompatibleType -> "Incompatible clobber type"
+    IncompatibleType (SomeFullTypeRepr ft) (SomeFullTypeRepr ft') ->
+      PP.vsep
+        [ "Incompatible clobber type. Expected"
+        , ppFullTypeRepr ft
+        , "but found"
+        , ppFullTypeRepr ft'
+        ]
 
 data ClobberValueView =
   ClobberValueView
@@ -129,7 +137,7 @@ viewClobberValue mts ft vcv =
          (viewFullTypeRepr mts (vClobberValueType vcv))
      compatPrf <-
        liftMaybe
-         IncompatibleType
+         (IncompatibleType (SomeFullTypeRepr ft) (SomeFullTypeRepr ft'))
          (testSameCrucibleType ft' ft)
      Some cur <-
        liftError ViewCursorError (viewCursor mts ft' (vClobberValueCursor vcv))
@@ -148,7 +156,7 @@ viewClobberValue mts ft vcv =
                   clobberValueType = ft',
                   clobberValueCompat = compatPrf
                 }
-       _ -> Left NonPointerCursorError
+       _ -> Left (NonPointerCursorError (SomeFullTypeRepr atTy))
 
 --------------------------------------------------------------------------------
 -- * ClobberArg
@@ -177,10 +185,14 @@ viewClobberArg mts ft =
 --------------------------------------------------------------------------------
 -- * UPostcond
 
+data ReturnTypeExpectation
+  = ExpectedVoid ConstrainedTypedValueView
+  | ExpectedNonVoid SomeFullTypeRepr
+
 data ViewUPostcondError
   = ViewClobberValueError ViewClobberValueError
   | ConstrainedTypedValueViewError ConstrainedTypedValueViewError
-  | ReturnTypeMismatch
+  | ReturnTypeMismatch ReturnTypeExpectation
   | NonExistentGlobal GlobalVarName
   | BadFunctionArgument Int
 
@@ -189,7 +201,10 @@ ppViewUPostcondError =
   \case
     ViewClobberValueError err -> ppViewClobberValueError err
     ConstrainedTypedValueViewError err -> ppConstrainedTypedValueViewError err
-    ReturnTypeMismatch -> "Mismatched return types"
+    ReturnTypeMismatch (ExpectedVoid val) ->
+      "Mismatched return types, expected void but found " PP.<+> PP.viaShow val
+    ReturnTypeMismatch (ExpectedNonVoid (SomeFullTypeRepr ft)) ->
+      "Mismatched return types, expected value of type " PP.<+> ppFullTypeRepr ft
     NonExistentGlobal (GlobalVarName nm) ->
       "Non-existent global: " <> PP.pretty nm
     BadFunctionArgument arg ->
@@ -235,7 +250,10 @@ viewUPostcond modCtx fs vup =
                   (viewConstrainedTypedValue mts val)
               return (Just v)
          (FS.VoidRepr, Nothing) -> return Nothing
-         _ -> Left ReturnTypeMismatch
+         (FS.VoidRepr, Just val) ->
+           Left (ReturnTypeMismatch (ExpectedVoid val))
+         (FS.NonVoidRepr ft, Nothing) ->
+           Left (ReturnTypeMismatch (ExpectedNonVoid (SomeFullTypeRepr ft)))
      return $
        UPostcond
          { _uArgClobbers = args,
