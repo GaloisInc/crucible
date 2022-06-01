@@ -60,7 +60,8 @@ import           Data.Parameterized.Some (Some(Some))
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
 
 import           UCCrux.LLVM.Constraints (Constraint(..), ConstrainedShape(..), ConstrainedTypedValue(..))
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
+import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
 import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape, ppViewShapeError)
 import           UCCrux.LLVM.View.Util () -- Alignment, ICmpOp instance
@@ -138,9 +139,8 @@ viewConstraint =
 
 data ViewConstrainedShapeError
   = BadBitvectorWidth Natural Natural
-  | BadConstraint ConstraintView
+  | BadConstraint SomeFullTypeRepr ConstraintView
   | ViewConstraintError ViewConstraintError
-  deriving (Eq, Ord, Show)
 
 ppViewConstrainedShapeError :: ViewConstrainedShapeError -> Doc ann
 ppViewConstrainedShapeError =
@@ -152,7 +152,12 @@ ppViewConstrainedShapeError =
         , "but expected"
         , PP.viaShow expect
         ]
-    BadConstraint _vc -> "Invalid constraint for type"
+    BadConstraint (SomeFullTypeRepr t) vc ->
+      PP.hsep
+        [  "Invalid constraint for type:"
+        , PP.viaShow vc
+        , ppFullTypeRepr t
+        ]
     ViewConstraintError err -> ppViewConstraintError err
 
 newtype ConstrainedShapeView =
@@ -198,7 +203,7 @@ viewConstrainedShape mts ft =
                Nothing ->
                  Left (BadBitvectorWidth (NatRepr.natValue width) (NatRepr.natValue width'))
            (FTPtrRepr{}, Some (Aligned align)) -> Right (Aligned align)
-           _ -> Left (BadConstraint vc)
+           _ -> Left (BadConstraint (SomeFullTypeRepr t) vc)
 
 --------------------------------------------------------------------------------
 -- * ConstrainedTypedValue
