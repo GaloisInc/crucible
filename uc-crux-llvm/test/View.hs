@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -6,6 +7,7 @@
 module View (viewTests) where
 
 import           Control.Lens ((^.))
+import qualified Data.Aeson as Aeson
 import           Data.Functor.Const (Const(Const, getConst))
 import           Data.List.NonEmpty (NonEmpty)
 import           Data.Text (Text)
@@ -21,6 +23,7 @@ import qualified Text.LLVM.AST as L
 import           Lang.Crucible.LLVM.DataLayout (Alignment, exponentToAlignment)
 
 import qualified Test.Tasty as TT
+import qualified Test.Tasty.HUnit as TH
 import qualified Test.Tasty.QuickCheck as TQ
 import           Test.QuickCheck.Arbitrary.Generic (Arbitrary(arbitrary, shrink), genericArbitrary, genericShrink)
 
@@ -112,7 +115,12 @@ viewTests :: TT.TestTree
 viewTests =
   TT.testGroup
     "view tests"
-    [ TQ.testProperty "view-constraint" $
+    [ TH.testCase "view-encode-FTIntReprView" $
+        TH.assertEqual
+          "view-encode-FTIntReprView"
+          "{\"tag\":\"FTIntReprView\",\"contents\":{\"getWidth\":1}}"
+          (Aeson.encode (View.FTIntReprView (View.Width 1)))
+    , TQ.testProperty "view-constraint" $
         \(vc :: View.ConstraintView) ->
           ignoreError (View.viewConstraint vc) $
             \(Some c) ->
