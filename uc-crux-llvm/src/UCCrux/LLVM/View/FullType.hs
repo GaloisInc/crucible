@@ -59,6 +59,7 @@ import           What4.InterpretedFloatingPoint (FloatInfoRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), PartTypeRepr, aliasOrFullType, ModuleTypes, toPartType, makePartTypeRepr, StructPackedRepr(PackedStructRepr, UnpackedStructRepr))
 import           UCCrux.LLVM.View.Util (TypeName(..), Width (Width))
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr(IsVarArgsRepr, NotVarArgsRepr))
+import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 
 data VarArgsReprView
   = IsVarArgsReprView
@@ -243,5 +244,4 @@ viewPartTypeRepr mts =
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''StructPackedReprView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''VarArgsReprView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''FloatInfoReprView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''FullTypeReprView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''PartTypeReprView)
+$(deriveMutualJSON Aeson.defaultOptions [''FullTypeReprView, ''PartTypeReprView])

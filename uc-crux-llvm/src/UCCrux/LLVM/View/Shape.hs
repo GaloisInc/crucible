@@ -32,7 +32,6 @@ where
 
 import           Control.Monad (when)
 import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.TH as Aeson.TH
 import           Data.Foldable (toList)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Sequence (Seq)
@@ -52,9 +51,10 @@ import           Data.Parameterized.TraversableFC.WithIndex (itraverseFC)
 import qualified Data.Parameterized.Vector as PVec
 
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), viewSomeFullTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Shape (PtrShape(..), Shape(..))
-import UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
+import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 
 data ViewShapeError e
   = TagError e
@@ -268,5 +268,4 @@ viewShape mts tag ft vshape =
     check cond err = when cond (Left err)
     getTag vtag = liftErr (tag ft vtag)
 
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''PtrShapeView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ShapeView)
+$(deriveMutualJSON Aeson.defaultOptions [''PtrShapeView, ''ShapeView])

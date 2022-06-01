@@ -99,6 +99,7 @@ library
     UCCrux.LLVM.View.FullType
     UCCrux.LLVM.View.Postcond
     UCCrux.LLVM.View.Shape
+    UCCrux.LLVM.View.TH
     UCCrux.LLVM.View.Util
 
   other-modules:
@@ -136,6 +137,7 @@ library
     scheduler,
     semigroupoids,
     simple-get-opt,
+    template-haskell,
     text,
     vector,
     what4
