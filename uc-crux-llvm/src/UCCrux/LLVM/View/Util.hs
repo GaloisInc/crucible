@@ -8,6 +8,7 @@ Stability        : provisional
 -}
 
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- Orphans for Alignment, ICmpOp
@@ -24,7 +25,6 @@ module UCCrux.LLVM.View.Util
 where
 
 import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Types as Aeson (toJSONKeyText)
 import qualified Data.Aeson.TH as Aeson.TH
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
@@ -45,35 +45,17 @@ newtype Unsigned = Unsigned { getUnsigned :: Natural }
 -- | The name of an LLVM global variable
 newtype GlobalVarName
   = GlobalVarName { getGlobalVarName :: Text }
-  deriving (Eq, Ord, Show, Generic)
-
-instance Aeson.ToJSONKey GlobalVarName where
-  toJSONKey = Aeson.toJSONKeyText getGlobalVarName
-
-instance Aeson.FromJSONKey GlobalVarName where
-  fromJSONKey = Aeson.FromJSONKeyText GlobalVarName
+  deriving (Eq, Ord, Show, Generic, Aeson.FromJSONKey, Aeson.ToJSONKey)
 
 -- | The name of an LLVM global variable
 newtype FuncName
   = FuncName { getFuncName :: Text }
-  deriving (Eq, Ord, Show, Generic)
-
-instance Aeson.ToJSONKey FuncName where
-  toJSONKey = Aeson.toJSONKeyText getFuncName
-
-instance Aeson.FromJSONKey FuncName where
-  fromJSONKey = Aeson.FromJSONKeyText FuncName
+  deriving (Eq, Ord, Show, Generic, Aeson.FromJSONKey, Aeson.ToJSONKey)
 
 -- | The name of an LLVM type
 newtype TypeName
   = TypeName { getTypeName :: Text }
-  deriving (Eq, Ord, Show, Generic)
-
-instance Aeson.ToJSONKey TypeName where
-  toJSONKey = Aeson.toJSONKeyText getTypeName
-
-instance Aeson.FromJSONKey TypeName where
-  fromJSONKey = Aeson.FromJSONKeyText TypeName
+  deriving (Eq, Ord, Show, Generic, Aeson.FromJSONKey, Aeson.ToJSONKey)
 
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''Alignment)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''Width)
