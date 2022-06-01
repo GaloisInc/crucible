@@ -39,20 +39,25 @@ import qualified Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some (Some(Some))
 
 import           UCCrux.LLVM.Cursor (Cursor(..))
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes, asFullType)
+import UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 
 data ViewCursorError
   = StructBadIndex !Int
-  | TypeMismatch
+  | TypeMismatch SomeFullTypeRepr CursorView
   | VectorLengthMismatch !Natural !Natural
   | VectorBadIndex !Natural !Natural
-  deriving (Eq, Ord, Show)
 
 ppViewCursorError :: ViewCursorError -> Doc ann
 ppViewCursorError =
   \case
     StructBadIndex i -> "Bad struct index: " <> PP.viaShow i
-    TypeMismatch -> "Type mismatch"
+    TypeMismatch (SomeFullTypeRepr t) vcur ->
+      PP.hsep
+        [ "Type mismatch:",
+          ppFullTypeRepr t,
+          PP.viaShow vcur
+        ]
     VectorLengthMismatch typeLen len ->
       PP.hsep
         [ "Vector length mismatch. Expected length",
@@ -116,7 +121,7 @@ viewCursor mts ft vcur =
            liftMaybe (StructBadIndex vidx) (Ctx.intIndex vidx (Ctx.size fields))
          Some sub <- viewCursor mts (fields ^. ixF' idx) vsub
          return (Some (Field fields idx sub))
-    _ -> Left TypeMismatch
+    _ -> Left (TypeMismatch (SomeFullTypeRepr ft) vcur)
   where
     check cond err = when cond (Left err)
     liftMaybe err =
