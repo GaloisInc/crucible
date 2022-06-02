@@ -216,15 +216,15 @@ viewFullTypeRepr mts =
          return (Some (FTOpaquePtrRepr symb))
 
 data PartTypeReprView
-  = VPTFullRepr FullTypeReprView
-  | VPTAliasRepr TypeName
+  = PTFullReprView FullTypeReprView
+  | PTAliasReprView TypeName
   deriving (Eq, Ord, Show, Generic)
 
 partTypeReprView :: PartTypeRepr m ft -> PartTypeReprView
 partTypeReprView ptRepr =
   case aliasOrFullType ptRepr of
-    Left (L.Ident iden) -> VPTAliasRepr (TypeName (Text.pack iden))
-    Right ft -> VPTFullRepr (fullTypeReprView ft)
+    Left (L.Ident iden) -> PTAliasReprView (TypeName (Text.pack iden))
+    Right ft -> PTFullReprView (fullTypeReprView ft)
 
 viewPartTypeRepr ::
   ModuleTypes m ->
@@ -232,10 +232,10 @@ viewPartTypeRepr ::
   Either FullTypeReprViewError  (Some (PartTypeRepr m))
 viewPartTypeRepr mts =
   \case
-    VPTFullRepr vft ->
+    PTFullReprView vft ->
       do Some ft <- viewFullTypeRepr mts vft
          return (Some (toPartType ft))
-    VPTAliasRepr (TypeName nm) ->
+    PTAliasReprView (TypeName nm) ->
       let iden = L.Ident (Text.unpack nm)
       in case makePartTypeRepr mts iden of
            Just spt -> Right spt
