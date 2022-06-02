@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-} -- Arbitrary instances
 
@@ -10,8 +9,13 @@ module View (viewTests) where
 
 import           Control.Lens ((^.))
 import qualified Data.Aeson as Aeson
+import           Data.Functor.Const (Const(Const, getConst))
+import           Data.List.NonEmpty (NonEmpty)
 import           Data.String (fromString)
 import           Data.Text (Text)
+import           Data.Sequence (Seq)
+import           Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import           Numeric.Natural (Natural)
 
 import           Data.Parameterized.Some (Some(Some))
@@ -36,8 +40,20 @@ import qualified Utils
 --------------------------------------------------------------------------------
 -- * base
 
+genInt32 :: HG.Gen Int
+genInt32 = Gen.integral (Range.linear 0 32)
+
 genList32 :: HG.Gen a -> HG.Gen [a]
-genList32 = Gen.list (Range.linear 0 16)
+genList32 = Gen.list (Range.linear 0 32)
+
+genNonEmpty32 :: HG.Gen a -> HG.Gen (NonEmpty a)
+genNonEmpty32 = Gen.nonEmpty (Range.linear 0 32)
+
+genSeq32 :: HG.Gen a -> HG.Gen (Seq a)
+genSeq32 = Gen.seq (Range.linear 0 32)
+
+genVector32 :: HG.Gen a -> HG.Gen (Vector a)
+genVector32 g = Vec.fromList <$> genList32 g
 
 genNat64 :: HG.Gen Natural
 genNat64 = Gen.integral (Range.linear 0 64)
@@ -116,6 +132,39 @@ genPartTypeReprView =
     , View.PTFullReprView <$> genFullTypeReprView
     ]
 
+genPtrShapeView :: HG.Gen vtag -> HG.Gen (View.PtrShapeView vtag)
+genPtrShapeView genTag =
+  Gen.recursive
+    Gen.choice
+    [ return View.ShapeUnallocatedView
+    , View.ShapeAllocatedView <$> genInt32
+    ]
+    [ View.ShapeInitializedView <$> genSeq32 (genShapeView genTag)
+    ]
+
+genShapeView :: HG.Gen vtag -> HG.Gen (View.ShapeView vtag)
+genShapeView genTag =
+  Gen.recursive
+    Gen.choice
+    [ View.ShapeIntView <$> genTag
+    , View.ShapeFloatView <$> genTag
+    , View.ShapeOpaquePtrView <$> genTag
+    ]
+    [ do vtag <- genTag
+         velems <- genSeq32 (genShapeView genTag)
+         return (View.ShapeUnboundedArrayView vtag velems)
+    , do vtag <- genTag
+         velems <- genNonEmpty32 (genShapeView genTag)
+         return (View.ShapeArrayView vtag velems)
+    , do vtag <- genTag
+         vfields <- genVector32 (genShapeView genTag)
+         return (View.ShapeStructView vtag vfields)
+    , View.ShapeFuncPtrView <$> genTag
+    , do vtag <- genTag
+         vsub <- genPtrShapeView genTag
+         return (View.ShapePtrView vtag vsub)
+    ]
+
 --------------------------------------------------------------------------------
 -- * Tests
 
@@ -148,22 +197,26 @@ viewTests =
                 \_modCtx mts ->
                   return $
                     case eitherToMaybe (View.viewFullTypeRepr mts vft) of
-                      Just (Some ft) -> Just (View.fullTypeReprView ft)
                       Nothing -> Nothing
+                      Just (Some ft) -> Just (View.fullTypeReprView ft)
            vft ==? res
-    -- , THG.testPropertyNamed "view-shape" $
-    --     -- Could get more coverage by adding another test that generates
-    --     -- matching pairs of these.
-    --     \((vs, vft) :: (View.ShapeView Ordering, View.FullTypeReprView)) ->
-    --       HG.evalIO $
-    --         withEmptyModCtx $
-    --           \_modCtx mts ->
-    --             return $
-    --               ignoreError (View.viewFullTypeRepr mts vft) $
-    --                 \(Some ft) ->
-    --                   ignoreError (View.viewShape mts (\_ o -> Right (Const o)) ft vs) $
-    --                     \shape ->
-    --                       vs HG.=== View.shapeView getConst shape
+    , prop "view-shape" $
+        do -- Could get more coverage by adding another test that generates
+           -- matching pairs of these.
+           vft <- HG.forAll genFullTypeReprView
+           vs <- HG.forAll (genShapeView Gen.bool)
+           res <-
+            HG.evalIO $
+              withEmptyModCtx $
+                \_modCtx mts ->
+                  return $
+                    case eitherToMaybe (View.viewFullTypeRepr mts vft) of
+                      Nothing -> Nothing
+                      Just (Some ft) ->
+                        case eitherToMaybe (View.viewShape mts (\_ b -> Right (Const b)) ft vs) of
+                          Just s -> Just (View.shapeView getConst s)
+                          Nothing -> Nothing
+           vs ==? res
     -- , THG.testPropertyNamed "view-cursor" $
     --     -- Could get more coverage by adding another test that generates
     --     -- matching pairs of these.
