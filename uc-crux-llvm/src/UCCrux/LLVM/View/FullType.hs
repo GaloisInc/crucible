@@ -64,7 +64,7 @@ import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 data VarArgsReprView
   = IsVarArgsReprView
   | NotVarArgsReprView
-  deriving (Eq, Ord, Show, Generic)
+  deriving (Bounded, Enum, Eq, Ord, Show, Generic)
 
 varArgsReprView :: VarArgsRepr va -> VarArgsReprView
 varArgsReprView =
@@ -81,7 +81,7 @@ viewVarArgsRepr =
 data StructPackedReprView
   = PackedStructReprView
   | UnpackedStructReprView
-  deriving (Eq, Ord, Show, Generic)
+  deriving (Bounded, Enum, Eq, Ord, Show, Generic)
 
 structPackedReprView :: StructPackedRepr va -> StructPackedReprView
 structPackedReprView =
@@ -102,7 +102,7 @@ data FloatInfoReprView
   | QuadFloatReprView
   | X86_80FloatReprView
   | DoubleDoubleFloatReprView
-  deriving (Eq, Ord, Show, Generic)
+  deriving (Bounded, Enum, Eq, Ord, Show, Generic)
 
 floatInfoReprView :: FloatInfoRepr fi -> FloatInfoReprView
 floatInfoReprView =

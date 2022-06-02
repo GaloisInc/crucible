@@ -77,29 +77,13 @@ genConstraintView =
     ]
 
 genVarArgsReprView :: HG.Gen View.VarArgsReprView
-genVarArgsReprView =
-  Gen.element
-    [ View.IsVarArgsReprView
-    , View.NotVarArgsReprView
-    ]
+genVarArgsReprView = Gen.enumBounded
 
 genStructPackedReprView :: HG.Gen View.StructPackedReprView
-genStructPackedReprView =
-  Gen.element
-    [ View.PackedStructReprView
-    , View.UnpackedStructReprView
-    ]
+genStructPackedReprView = Gen.enumBounded
 
 genFloatInfoReprView :: HG.Gen View.FloatInfoReprView
-genFloatInfoReprView =
-  Gen.element
-    [ View.HalfFloatReprView
-    , View.SingleFloatReprView
-    , View.DoubleFloatReprView
-    , View.QuadFloatReprView
-    , View.X86_80FloatReprView
-    , View.DoubleDoubleFloatReprView
-    ]
+genFloatInfoReprView = Gen.enumBounded
 
 genFullTypeReprView :: HG.Gen View.FullTypeReprView
 genFullTypeReprView =
@@ -167,15 +151,6 @@ viewTests =
                       Just (Some ft) -> Just (View.fullTypeReprView ft)
                       Nothing -> Nothing
            vft ==? res
-    -- , prop "view-ft" $
-    --     \(vft :: View.FullTypeReprView) ->
-    --       HG.evalIO $
-    --         withEmptyModCtx $
-    --           \_modCtx mts ->
-    --             return $
-    --               ignoreError (View.viewFullTypeRepr mts vft) $
-    --                 \(Some ft) ->
-    --                   vft HG.=== View.fullTypeReprView ft
     -- , THG.testPropertyNamed "view-shape" $
     --     -- Could get more coverage by adding another test that generates
     --     -- matching pairs of these.
