@@ -1,6 +1,8 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-} -- Arbitrary instances
 
@@ -8,12 +10,8 @@ module View (viewTests) where
 
 import           Control.Lens ((^.))
 import qualified Data.Aeson as Aeson
-import           Data.Functor.Const (Const(Const, getConst))
-import           Data.List.NonEmpty (NonEmpty)
+import           Data.String (fromString)
 import           Data.Text (Text)
-import qualified Data.Text as Text
-import           Data.Vector (Vector)
-import qualified Data.Vector as Vec
 import           Numeric.Natural (Natural)
 
 import           Data.Parameterized.Some (Some(Some))
@@ -24,8 +22,10 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment, exponentToAlignment)
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
-import qualified Test.Tasty.QuickCheck as TQ
-import           Test.QuickCheck.Arbitrary.Generic (Arbitrary(arbitrary, shrink), genericArbitrary, genericShrink)
+import qualified Test.Tasty.Hedgehog as THG
+import qualified Hedgehog as HG
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
 import           UCCrux.LLVM.FullType.Type (ModuleTypes)
@@ -33,76 +33,107 @@ import qualified UCCrux.LLVM.View as View
 
 import qualified Utils
 
-instance Arbitrary Natural where
-  arbitrary = fromIntegral . abs <$> (arbitrary :: TQ.Gen Int)
+--------------------------------------------------------------------------------
+-- * base
 
-instance Arbitrary View.Width where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genList32 :: HG.Gen a -> HG.Gen [a]
+genList32 = Gen.list (Range.linear 0 16)
 
-instance Arbitrary View.TypeName where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genNat64 :: HG.Gen Natural
+genNat64 = Gen.integral (Range.linear 0 64)
 
-instance Arbitrary Text where
-  arbitrary = Text.pack <$> (arbitrary :: TQ.Gen String)
+genText16 :: HG.Gen Text
+genText16 = Gen.text (Range.linear 0 16) Gen.unicode
 
-instance Arbitrary View.VarArgsReprView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genNat :: HG.Gen Natural
+genNat = Gen.integral (Range.linear 0 aBillion)
+  where aBillion = 1000000000
 
-instance Arbitrary View.StructPackedReprView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genInteger :: HG.Gen Integer
+genInteger = Gen.integral (Range.linear 0 aBillion)
+  where aBillion = 1000000000
 
-instance Arbitrary View.FloatInfoReprView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+--------------------------------------------------------------------------------
+-- * Third party
 
-instance Arbitrary View.FullTypeReprView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genAlign :: HG.Gen Alignment
+genAlign = exponentToAlignment <$> genNat64
 
-instance Arbitrary View.PartTypeReprView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genICmpOp :: HG.Gen L.ICmpOp
+genICmpOp =
+  Gen.element [L.Ieq, L.Ine, L.Iugt, L.Iuge, L.Iult, L.Iule, L.Isgt, L.Isge, L.Islt, L.Isle]
 
-instance Arbitrary a => Arbitrary (NonEmpty a) where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+--------------------------------------------------------------------------------
+-- * UC-Crux
 
-instance Arbitrary a => Arbitrary (Vector a) where
-  arbitrary = Vec.fromList <$> arbitrary
+genTypeName :: HG.Gen View.TypeName
+genTypeName = View.TypeName <$> genText16
 
-instance Arbitrary a => Arbitrary (View.PtrShapeView a) where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genConstraintView :: HG.Gen View.ConstraintView
+genConstraintView =
+  Gen.choice
+    [ View.AlignedView <$> genAlign
+    , View.BVCmpView <$> genICmpOp <*> genNat <*> genInteger
+    ]
 
-instance Arbitrary a => Arbitrary (View.ShapeView a) where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genVarArgsReprView :: HG.Gen View.VarArgsReprView
+genVarArgsReprView =
+  Gen.element
+    [ View.IsVarArgsReprView
+    , View.NotVarArgsReprView
+    ]
 
-instance Arbitrary View.CursorView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genStructPackedReprView :: HG.Gen View.StructPackedReprView
+genStructPackedReprView =
+  Gen.element
+    [ View.PackedStructReprView
+    , View.UnpackedStructReprView
+    ]
 
-instance Arbitrary Alignment where
-  arbitrary = exponentToAlignment <$> arbitrary
+genFloatInfoReprView :: HG.Gen View.FloatInfoReprView
+genFloatInfoReprView =
+  Gen.element
+    [ View.HalfFloatReprView
+    , View.SingleFloatReprView
+    , View.DoubleFloatReprView
+    , View.QuadFloatReprView
+    , View.X86_80FloatReprView
+    , View.DoubleDoubleFloatReprView
+    ]
 
-instance Arbitrary L.ICmpOp where
-  arbitrary = genericArbitrary
+genFullTypeReprView :: HG.Gen View.FullTypeReprView
+genFullTypeReprView =
+  -- Choice shrinks towards the first item, so "simpler" constructors go first
+  Gen.recursive
+    Gen.choice
+    [ View.FTIntReprView . View.Width <$> genNat
+    , View.FTFloatReprView <$> genFloatInfoReprView
+    ]
+    [ Gen.subterm genFullTypeReprView View.FTUnboundedArrayReprView
+    , do nat <- genNat
+         Gen.subterm genFullTypeReprView (View.FTArrayReprView nat)
+    , do vsp <- genStructPackedReprView
+         vfields <- genList32 genFullTypeReprView
+         return (View.FTStructReprView vsp vfields)
+    , do vva <- genVarArgsReprView
+         vargs <- genList32 genFullTypeReprView
+         return (View.FTVoidFuncPtrReprView vva vargs)
+    , do vva <- genVarArgsReprView
+         vargs <- genList32 genFullTypeReprView
+         vret <- genFullTypeReprView
+         return (View.FTNonVoidFuncPtrReprView vva vret vargs)
+    , View.FTPtrReprView <$> genPartTypeReprView
+    ]
 
-instance Arbitrary View.ConstraintView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+genPartTypeReprView :: HG.Gen View.PartTypeReprView
+genPartTypeReprView =
+  Gen.choice
+    [ View.PTAliasReprView <$> genTypeName
+    , View.PTFullReprView <$> genFullTypeReprView
+    ]
 
-instance Arbitrary View.ConstrainedShapeView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
-
-instance Arbitrary View.ClobberValueView where
-  arbitrary = genericArbitrary
-  shrink = genericShrink
+--------------------------------------------------------------------------------
+-- * Tests
 
 withEmptyModCtx ::
   (forall m arch. ModuleContext m arch -> ModuleTypes m -> IO a) ->
@@ -120,59 +151,83 @@ viewTests =
           "view-encode-FTIntReprView"
           "{\"tag\":\"FTIntReprView\",\"contents\":{\"getWidth\":1}}"
           (Aeson.encode (View.FTIntReprView (View.Width 1)))
-    , TQ.testProperty "view-constraint" $
-        \(vc :: View.ConstraintView) ->
-          ignoreError (View.viewConstraint vc) $
-            \(Some c) ->
-              vc TQ.=== View.constraintView c
-    , TQ.testProperty "view-ft" $
-        \(vft :: View.FullTypeReprView) ->
-          TQ.ioProperty $
-            withEmptyModCtx $
-              \_modCtx mts ->
-                return $
-                  ignoreError (View.viewFullTypeRepr mts vft) $
-                    \(Some ft) ->
-                      vft TQ.=== View.fullTypeReprView ft
-    , TQ.testProperty "view-shape" $
-        -- Could get more coverage by adding another test that generates
-        -- matching pairs of these.
-        \((vs, vft) :: (View.ShapeView Ordering, View.FullTypeReprView)) ->
-          TQ.ioProperty $
-            withEmptyModCtx $
-              \_modCtx mts ->
-                return $
-                  ignoreError (View.viewFullTypeRepr mts vft) $
-                    \(Some ft) ->
-                      ignoreError (View.viewShape mts (\_ o -> Right (Const o)) ft vs) $
-                        \shape ->
-                          vs TQ.=== View.shapeView getConst shape
-    , TQ.testProperty "view-cursor" $
-        -- Could get more coverage by adding another test that generates
-        -- matching pairs of these.
-        \((vc, vft) :: (View.CursorView, View.FullTypeReprView)) ->
-          TQ.ioProperty $
-            withEmptyModCtx $
-              \_modCtx mts ->
-                return $
-                  ignoreError (View.viewFullTypeRepr mts vft) $
-                    \(Some ft) ->
-                      ignoreError (View.viewCursor mts ft vc) $
-                        \(Some cursor) ->
-                          vc TQ.=== View.cursorView cursor
-    , TQ.testProperty "view-clobber-value" $
-        \((vcv, vft) :: (View.ClobberValueView, View.FullTypeReprView)) ->
-          TQ.ioProperty $
-            withEmptyModCtx $
-              \_modCtx mts ->
-                return $
-                  ignoreError (View.viewFullTypeRepr mts vft) $
-                    \(Some ft) ->
-                      ignoreError (View.viewClobberValue mts ft vcv) $
-                        \cv ->
-                          vcv TQ.=== View.clobberValueView cv
+    , prop "view-constraint" $
+        do vc <- HG.forAll genConstraintView
+           ignoreError (View.viewConstraint vc) $
+             \(Some c) ->
+               vc HG.=== View.constraintView c
+    , prop "view-ft" $
+        do vft <- HG.forAll genFullTypeReprView
+           res <-
+            HG.evalIO $
+              withEmptyModCtx $
+                \_modCtx mts ->
+                  return $
+                    case eitherToMaybe (View.viewFullTypeRepr mts vft) of
+                      Just (Some ft) -> Just (View.fullTypeReprView ft)
+                      Nothing -> Nothing
+           vft ==? res
+    -- , prop "view-ft" $
+    --     \(vft :: View.FullTypeReprView) ->
+    --       HG.evalIO $
+    --         withEmptyModCtx $
+    --           \_modCtx mts ->
+    --             return $
+    --               ignoreError (View.viewFullTypeRepr mts vft) $
+    --                 \(Some ft) ->
+    --                   vft HG.=== View.fullTypeReprView ft
+    -- , THG.testPropertyNamed "view-shape" $
+    --     -- Could get more coverage by adding another test that generates
+    --     -- matching pairs of these.
+    --     \((vs, vft) :: (View.ShapeView Ordering, View.FullTypeReprView)) ->
+    --       HG.evalIO $
+    --         withEmptyModCtx $
+    --           \_modCtx mts ->
+    --             return $
+    --               ignoreError (View.viewFullTypeRepr mts vft) $
+    --                 \(Some ft) ->
+    --                   ignoreError (View.viewShape mts (\_ o -> Right (Const o)) ft vs) $
+    --                     \shape ->
+    --                       vs HG.=== View.shapeView getConst shape
+    -- , THG.testPropertyNamed "view-cursor" $
+    --     -- Could get more coverage by adding another test that generates
+    --     -- matching pairs of these.
+    --     \((vc, vft) :: (View.CursorView, View.FullTypeReprView)) ->
+    --       HG.evalIO $
+    --         withEmptyModCtx $
+    --           \_modCtx mts ->
+    --             return $
+    --               ignoreError (View.viewFullTypeRepr mts vft) $
+    --                 \(Some ft) ->
+    --                   ignoreError (View.viewCursor mts ft vc) $
+    --                     \(Some cursor) ->
+    --                       vc HG.=== View.cursorView cursor
+    -- , THG.testPropertyNamed "view-clobber-value" $
+    --     \((vcv, vft) :: (View.ClobberValueView, View.FullTypeReprView)) ->
+    --       HG.evalIO $
+    --         withEmptyModCtx $
+    --           \_modCtx mts ->
+    --             return $
+    --               ignoreError (View.viewFullTypeRepr mts vft) $
+    --                 \(Some ft) ->
+    --                   ignoreError (View.viewClobberValue mts ft vcv) $
+    --                     \cv ->
+    --                       vcv HG.=== View.clobberValueView cv
     ]
-  where ignoreError x k =
-          case x of
-            Left _ -> () TQ.=== ()
-            Right v -> k v
+  where
+    prop nm p = THG.testPropertyNamed nm (fromString nm) (HG.property p)
+
+    eitherToMaybe =
+      \case
+        Left {} -> Nothing
+        Right v -> Just v
+
+    a ==? b =
+      case b of
+        Just v -> a HG.=== v
+        Nothing -> () HG.=== ()
+
+    ignoreError x k =
+      case x of
+        Left _ -> () HG.=== ()
+        Right v -> k v
