@@ -179,6 +179,17 @@ genCursorView =
          Gen.subterm genCursorView (View.FieldView fld)
     ]
 
+genConstrainedShapeView :: HG.Gen View.ConstrainedShapeView
+genConstrainedShapeView =
+  View.ConstrainedShapeView <$> genShapeView (genList32 genConstraintView)
+
+genClobberValueView :: HG.Gen View.ClobberValueView
+genClobberValueView =
+  View.ClobberValueView
+  <$> genCursorView
+  <*> genConstrainedShapeView
+  <*> genFullTypeReprView
+
 --------------------------------------------------------------------------------
 -- * Tests
 
@@ -248,17 +259,23 @@ viewTests =
                           Just (Some c) -> Just (View.cursorView c)
                           Nothing -> Nothing
            vc ==? res
-    -- , THG.testPropertyNamed "view-clobber-value" $
-    --     \((vcv, vft) :: (View.ClobberValueView, View.FullTypeReprView)) ->
-    --       HG.evalIO $
-    --         withEmptyModCtx $
-    --           \_modCtx mts ->
-    --             return $
-    --               ignoreError (View.viewFullTypeRepr mts vft) $
-    --                 \(Some ft) ->
-    --                   ignoreError (View.viewClobberValue mts ft vcv) $
-    --                     \cv ->
-    --                       vcv HG.=== View.clobberValueView cv
+    , prop "view-clobber-value" $
+        do -- Could get more coverage by adding another test that generates
+           -- matching pairs of these.
+           vft <- HG.forAll genFullTypeReprView
+           vcv <- HG.forAll genClobberValueView
+           res <-
+            HG.evalIO $
+              withEmptyModCtx $
+                \_modCtx mts ->
+                  return $
+                    case eitherToMaybe (View.viewFullTypeRepr mts vft) of
+                      Nothing -> Nothing
+                      Just (Some ft) ->
+                        case eitherToMaybe (View.viewClobberValue mts ft vcv) of
+                          Just cv -> Just (View.clobberValueView cv)
+                          Nothing -> Nothing
+           vcv ==? res
     ]
   where
     prop nm p = THG.testPropertyNamed nm (fromString nm) (HG.property p)
