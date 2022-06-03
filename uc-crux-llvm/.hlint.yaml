@@ -75,6 +75,10 @@
 - ignore:  # Guide to further implementation
     name: "Redundant if"
     within: ["UCCrux.LLVM.Classify.Poison"]
+- ignore:  # Less explicit
+    name: "Use void"
+    within:
+      - "UCCrux.LLVM.View.Shape"
 - ignore:  # False positive - Template Haskell
     name: "Redundant bracket"
     within:
@@ -83,3 +87,9 @@
       - "UCCrux.LLVM.FullType.Type"
       - "UCCrux.LLVM.FullType.VarArgs"
       - "UCCrux.LLVM.Shape"
+      - "UCCrux.LLVM.View.Constraint"
+      - "UCCrux.LLVM.View.Cursor"
+      - "UCCrux.LLVM.View.FullType"
+      - "UCCrux.LLVM.View.Postcond"
+      - "UCCrux.LLVM.View.Shape"
+      - "UCCrux.LLVM.View.Util"

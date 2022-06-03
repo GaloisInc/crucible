@@ -53,6 +53,7 @@ module UCCrux.LLVM.Module
     globalSymbol,
     makeGlobalSymbol,
     getGlobalSymbol,
+    globalSymbolToString,
     isEmptyGlobalMap,
 
     -- * Module
@@ -383,6 +384,9 @@ makeGlobalSymbol (GlobalMap (SymbolMap mp)) symbol =
 
 getGlobalSymbol :: GlobalSymbol m -> L.Symbol
 getGlobalSymbol (GlobalSymbol (Symbol s)) = s
+
+globalSymbolToString :: GlobalSymbol m -> String
+globalSymbolToString  = (\(L.Symbol s) -> s) . getGlobalSymbol
 
 isEmptyGlobalMap :: GlobalMap m a -> Bool
 isEmptyGlobalMap (GlobalMap (SymbolMap m)) = Map.null m

@@ -93,6 +93,14 @@ library
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats
+    UCCrux.LLVM.View
+    UCCrux.LLVM.View.Constraint
+    UCCrux.LLVM.View.Cursor
+    UCCrux.LLVM.View.FullType
+    UCCrux.LLVM.View.Postcond
+    UCCrux.LLVM.View.Shape
+    UCCrux.LLVM.View.TH
+    UCCrux.LLVM.View.Util
 
   other-modules:
     Paths_uc_crux_llvm
@@ -129,6 +137,7 @@ library
     scheduler,
     semigroupoids,
     simple-get-opt,
+    template-haskell,
     text,
     vector,
     what4
@@ -170,6 +179,7 @@ test-suite uc-crux-llvm-test
     Paths_uc_crux_llvm
     Postcond
     Utils
+    View
   autogen-modules: Paths_uc_crux_llvm
 
   build-depends:
@@ -181,14 +191,16 @@ test-suite uc-crux-llvm-test
                 crux,
                 crux-llvm,
                 filepath,
+                hedgehog,
                 lens,
                 llvm-pretty,
                 lumberjack,
                 parameterized-utils >= 2.1.4.0,
                 tasty >= 0.10,
                 tasty-hunit >= 0.10,
-                tasty-quickcheck >= 0.10,
+                tasty-hedgehog >= 1.2 && < 1.3,
                 text,
                 time,
                 uc-crux-llvm,
+                vector,
                 what4

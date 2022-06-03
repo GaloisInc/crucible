@@ -61,7 +61,9 @@ import qualified Data.Set as Set
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
-import qualified Test.Tasty.QuickCheck as TQ
+import qualified Test.Tasty.Hedgehog as THG
+import qualified Hedgehog as HG
+import qualified Hedgehog.Gen as Gen
 
 import qualified Text.LLVM.AST as L
 
@@ -90,6 +92,7 @@ import qualified Callgraph
 import qualified Check
 import qualified Postcond
 import qualified Utils
+import qualified View
 {- ORMOLU_ENABLE -}
 
 -- Just test that a few things typecheck as expected
@@ -1038,9 +1041,6 @@ arithModules =
 newtype ArithModule = ArithModule L.Module
   deriving (Eq, Ord, Show)
 
-instance TQ.Arbitrary ArithModule where
-  arbitrary = TQ.oneof (map (pure . ArithModule) arithModules)
-
 moduleTests :: TT.TestTree
 moduleTests =
   TT.testGroup
@@ -1517,14 +1517,16 @@ moduleTests =
         udiv0Left
         True
         True,
-      TQ.testProperty "Crash equivalence is reflexive" $
-        \(ArithModule llvmModule) ->
-          TQ.ioProperty $
-            do
-              (appCtx, (diffs12, diffs21)) <-
-                getCrashDiff "fake1" llvmModule "fake2" llvmModule
-              reportDiffs appCtx diffs12 diffs21
-              pure (null diffs12 && null diffs21)
+      THG.testPropertyNamed "Crash equivalence is reflexive" "Crash equivalence is reflexive" $
+        HG.property $
+          do llvmModule <- HG.forAll (Gen.element arithModules)
+             b <-
+               HG.evalIO $
+                 do (appCtx, (diffs12, diffs21)) <-
+                      getCrashDiff "fake1" llvmModule "fake2" llvmModule
+                    reportDiffs appCtx diffs12 diffs21
+                    return (null diffs12 && null diffs21)
+             True HG.=== b
     ]
 
 main :: IO ()
@@ -1535,6 +1537,7 @@ main =
       [ Callgraph.callgraphTests,
         Check.checkOverrideTests,
         Postcond.postcondTests,
+        View.viewTests,
         inFileTests,
         moduleTests,
         isUnimplemented
