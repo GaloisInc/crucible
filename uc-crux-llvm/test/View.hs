@@ -165,6 +165,20 @@ genShapeView genTag =
          return (View.ShapePtrView vtag vsub)
     ]
 
+genCursorView :: HG.Gen View.CursorView
+genCursorView =
+  Gen.recursive
+    Gen.choice
+    [return View.HereView]
+    [ do idx <- genInt32
+         Gen.subterm genCursorView (View.DereferenceView idx)
+    , do len <- genNat64
+         idx <- genNat64
+         Gen.subterm genCursorView (View.IndexView len idx)
+    , do fld <- genInt32
+         Gen.subterm genCursorView (View.FieldView fld)
+    ]
+
 --------------------------------------------------------------------------------
 -- * Tests
 
@@ -217,19 +231,23 @@ viewTests =
                           Just s -> Just (View.shapeView getConst s)
                           Nothing -> Nothing
            vs ==? res
-    -- , THG.testPropertyNamed "view-cursor" $
-    --     -- Could get more coverage by adding another test that generates
-    --     -- matching pairs of these.
-    --     \((vc, vft) :: (View.CursorView, View.FullTypeReprView)) ->
-    --       HG.evalIO $
-    --         withEmptyModCtx $
-    --           \_modCtx mts ->
-    --             return $
-    --               ignoreError (View.viewFullTypeRepr mts vft) $
-    --                 \(Some ft) ->
-    --                   ignoreError (View.viewCursor mts ft vc) $
-    --                     \(Some cursor) ->
-    --                       vc HG.=== View.cursorView cursor
+    , prop "view-cursor" $
+        do -- Could get more coverage by adding another test that generates
+           -- matching pairs of these.
+           vft <- HG.forAll genFullTypeReprView
+           vc <- HG.forAll genCursorView
+           res <-
+            HG.evalIO $
+              withEmptyModCtx $
+                \_modCtx mts ->
+                  return $
+                    case eitherToMaybe (View.viewFullTypeRepr mts vft) of
+                      Nothing -> Nothing
+                      Just (Some ft) ->
+                        case eitherToMaybe (View.viewCursor mts ft vc) of
+                          Just (Some c) -> Just (View.cursorView c)
+                          Nothing -> Nothing
+           vc ==? res
     -- , THG.testPropertyNamed "view-clobber-value" $
     --     \((vcv, vft) :: (View.ClobberValueView, View.FullTypeReprView)) ->
     --       HG.evalIO $
