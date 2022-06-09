@@ -1186,7 +1186,10 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
 -- The returned predicates assert (in this order):
 --  * the pointer falls within an allocated, mutable memory region
 --  * the pointer's alignment is correct
-writeMem :: (1 <= w, IsSymInterface sym, HasLLVMAnn sym)
+writeMem :: ( 1 <= w
+            , IsSymInterface sym
+            , HasLLVMAnn sym
+            , ?memOpts :: MemOptions )
          => sym -> NatRepr w
          -> Maybe String
          -> LLVMPtr sym w
@@ -1203,7 +1206,10 @@ writeMem = writeMemWithAllocationCheck isAllocatedMutable
 --  * the pointer falls within an allocated memory region
 --  * the pointer's alignment is correct
 writeConstMem ::
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( 1 <= w
+  , IsSymInterface sym
+  , HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym           ->
   NatRepr w     ->
   Maybe String  ->
@@ -1223,7 +1229,10 @@ writeConstMem = writeMemWithAllocationCheck isAllocated
 --  * the pointer's alignment is correct
 writeMemWithAllocationCheck ::
   forall sym w .
-  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
+  ( IsSymInterface sym
+  , HasLLVMAnn sym
+  , 1 <= w
+  , ?memOpts :: MemOptions ) =>
   (sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)) ->
   sym ->
   NatRepr w ->

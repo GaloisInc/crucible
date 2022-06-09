@@ -1,3 +1,5 @@
 # next
-
-* TODO: Describe API changes here
+* Add `?memOpts :: MemOptions` constraints to the following functions:
+  * `Lang.Crucible.Wasm`: `execScript`
+  * `Lang.Crucible.Wasm.Memory`: `wasmStoreChunk`, `wasmStoreInt`,
+    `wasmStoreFloat`, and `wasmStoreDouble`

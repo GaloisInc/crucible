@@ -1,3 +1,10 @@
+# next
+* Add `?memOpts :: MemOptions` constraints to the following functions:
+  * `Lang.Crucible.LLVM.MemModel`: `doStore`, `storeRaw`, `condStoreRaw`, and
+    `storeConstRaw`
+  * `Lang.Crucible.LLVM.Globals`: `populateGlobal`
+  * `Lang.Crucible.LLVM.MemModel.Generic`: `writeMem` and `writeConstMem`
+
 # 0.4
 * A new `indeterminateLoadBehavior` flag in `MemOptions` now controls now
   reading from uninitialized memory works when `laxLoadsAndStores` is enabled.

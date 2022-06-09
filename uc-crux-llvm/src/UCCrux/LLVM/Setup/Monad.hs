@@ -313,7 +313,8 @@ store ::
   forall m arch sym bak argTypes inTy ft.
   ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
-    ArchOk arch
+    ArchOk arch,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   bak ->
   ModuleTypes m ->
@@ -336,7 +337,8 @@ storeGlobal ::
   forall m arch sym bak argTypes inTy ft.
   ( Crucible.IsSymBackend sym bak,
     LLVMMem.HasLLVMAnn sym,
-    ArchOk arch
+    ArchOk arch,
+    ?memOpts :: LLVMMem.MemOptions
   ) =>
   DataLayout m ->
   bak ->

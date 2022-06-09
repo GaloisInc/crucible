@@ -135,7 +135,7 @@ wasmGrowMem bak n mem =
      return (res, mem')
 
 wasmStoreChunk ::
-  (IsSymBackend sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   SymBV sym 32 ->
   LBS.ByteString ->
@@ -153,7 +153,7 @@ wasmStoreChunk bak offset chunk mem =
 
 
 wasmStoreInt ::
-  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   SymBV sym 32 ->
   SymBV sym w ->
@@ -170,7 +170,7 @@ wasmStoreInt bak off v mem =
      return mem{ wasmMemHeap = heap' }
 
 wasmStoreFloat ::
-  (IsSymBackend sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   SymBV sym 32 ->
   RegValue sym (FloatType SingleFloat) ->
@@ -186,7 +186,7 @@ wasmStoreFloat bak off v mem =
      return mem{ wasmMemHeap = heap' }
 
 wasmStoreDouble ::
-  (IsSymBackend sym bak, HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   SymBV sym 32 ->
   RegValue sym (FloatType DoubleFloat) ->

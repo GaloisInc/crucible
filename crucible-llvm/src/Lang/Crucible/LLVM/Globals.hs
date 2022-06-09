@@ -350,6 +350,7 @@ populateGlobal :: forall sym bak wptr.
   , HasPtrWidth wptr
   , IsSymBackend sym bak
   , HasLLVMAnn sym
+  , ?memOpts :: MemOptions
   , HasCallStack
   ) =>
   bak ->
