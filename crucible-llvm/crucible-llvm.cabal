@@ -135,6 +135,7 @@ test-suite crucible-llvm-tests
     crucible-llvm,
     directory,
     filepath,
+    lens,
     llvm-pretty,
     llvm-pretty-bc-parser,
     mtl,
