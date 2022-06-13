@@ -99,6 +99,7 @@ library
     UCCrux.LLVM.View.Cursor
     UCCrux.LLVM.View.FullType
     UCCrux.LLVM.View.Postcond
+    UCCrux.LLVM.View.Precond
     UCCrux.LLVM.View.Shape
     UCCrux.LLVM.View.TH
     UCCrux.LLVM.View.Util
