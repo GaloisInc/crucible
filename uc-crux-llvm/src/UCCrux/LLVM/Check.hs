@@ -9,7 +9,9 @@ Stability    : provisional
 Create predicates that represent whether or not a set of constraints
 ('ConstrainedShape') hold of some Crucible value ('Crucible.RegValue') in some
 LLVM memory ('LLVMMem.MemImpl'). These predicates are used in "check overrides"
-("UCCrux.LLVM.Overrides.Check").
+("UCCrux.LLVM.Overrides.Check"), and when applying function specs
+("UCCrux.LLVM.Specs.Apply").
+
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}

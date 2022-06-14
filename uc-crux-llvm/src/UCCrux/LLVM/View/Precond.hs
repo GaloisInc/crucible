@@ -21,6 +21,9 @@ module UCCrux.LLVM.View.Precond
   ( PrecondsView(..),
     ViewPrecondsError,
     ppViewPrecondsError,
+    ArgError(..),
+    ppArgError,
+    viewArgPreconds,
     viewPreconds,
     precondsView,
   )
@@ -51,7 +54,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTy
 import           UCCrux.LLVM.Precondition (Preconds(..), argPreconds, globalPreconds, postconds)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..))
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.Module (funcSymbolToString, globalSymbolToString, makeFuncSymbol, makeGlobalSymbol, moduleGlobalMap, funcSymbol)
 import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, ConstrainedShapeView, ConstrainedTypedValueViewError, ConstrainedTypedValueView, constrainedShapeView, viewConstrainedShape, ppViewConstrainedShapeError, viewConstrainedTypedValue, constrainedTypedValueView, ppConstrainedTypedValueViewError)
 import           UCCrux.LLVM.View.Shape (ViewShapeError, ppViewShapeError)
@@ -145,6 +148,26 @@ ppArgError =
         , ppViewShapeError ppViewConstrainedShapeError err
         ]
 
+-- Also used to implement 'SpecPrecondsView'
+viewArgPreconds ::
+  forall m args.
+  ModuleTypes m ->
+  Ctx.Assignment (FullTypeRepr m) args ->
+  Vector ConstrainedShapeView ->
+  Either ArgError (Ctx.Assignment (ConstrainedShape m) args)
+viewArgPreconds mts argTypes preconds =
+  let genArg ::
+        forall ft.
+        Ctx.Index args ft ->
+        FullTypeRepr m ft ->
+        Either ArgError (ConstrainedShape m ft)
+      genArg i ft =
+        case preconds Vec.!? Ctx.indexVal i of
+          Nothing -> Left (NotEnoughArgs (Ctx.indexVal i))
+          Just val ->
+            liftError BadArg (viewConstrainedShape mts ft val)
+  in itraverseFC genArg argTypes
+
 viewPreconds ::
   forall m arch fs va ret args.
   (fs ~ 'FS.FuncSig va ret args) =>
@@ -153,17 +176,8 @@ viewPreconds ::
   PrecondsView ->
   Either ViewPrecondsError (Preconds m args)
 viewPreconds modCtx fs vpres =
-  do let genArg ::
-           forall ft.
-           Ctx.Index args ft ->
-           FullTypeRepr m ft ->
-           Either ArgError (ConstrainedShape m ft)
-         genArg i ft =
-           case vArgPreconds vpres Vec.!? Ctx.indexVal i of
-             Nothing -> Left (NotEnoughArgs (Ctx.indexVal i))
-             Just val ->
-               liftError BadArg (viewConstrainedShape mts ft val)
-     args <- liftError PrecondArgError (itraverseFC genArg (FS.fsArgTypes fs))
+  do let viewArgs = viewArgPreconds mts (FS.fsArgTypes fs) (vArgPreconds vpres)
+     args <- liftError PrecondArgError viewArgs
 
      globs <- traverse (uncurry viewGlob) (Map.toList (vGlobalPreconds vpres))
      posts <- traverse (uncurry viewPost) (Map.toList (vPostconds vpres))

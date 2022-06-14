@@ -21,6 +21,7 @@ module UCCrux.LLVM.Precondition
     globalPreconds,
     postconds,
     relationalPreconds,
+    emptyArgPreconds,
     emptyPreconds,
     ppPreconds,
     isEmpty,
@@ -370,7 +371,7 @@ addPrecond modCtx argTypes constraints =
       Lens.IxValue c ->
       Lens.Lens' c (Lens.IxValue c)
     atDefault idx def = at idx . fromMaybeL def
-    
+
     addOneConstraint ::
       Constraint m atTy ->
       ConstrainedShape m ft ->
