@@ -21,18 +21,21 @@ module UCCrux.LLVM.Main.Config.Type
 where
 
 import           Data.List.NonEmpty (NonEmpty)
+import           Data.Map (Map)
 
 import           Crux.LLVM.Config (LLVMOptions)
 
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
+import           UCCrux.LLVM.View.Specs (SpecsView)
 
 data AnalyzeConfig
   = AnalyzeConfig
       { entryPoints :: NonEmpty FunctionName
       , checkFrom :: [FunctionName]
       , checkFromCallers :: Bool
+      , specs :: Map FunctionName SpecsView
       }
   deriving (Eq, Ord, Show)
 

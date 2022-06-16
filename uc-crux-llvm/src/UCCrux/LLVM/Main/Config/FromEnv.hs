@@ -27,6 +27,9 @@ where
 import           Control.Applicative ((<|>))
 import           Control.Lens (Lens', lens)
 import           Control.Monad (when)
+import qualified Data.Aeson as Aeson (eitherDecode)
+import qualified Data.ByteString.Lazy.Char8 as BS (readFile)
+import qualified Data.Map as Map
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Word (Word64)
 import           Data.Text (Text)
@@ -46,6 +49,8 @@ import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
+import UCCrux.LLVM.View.Specs (SpecsView)
+import Data.Map (Map)
 {- ORMOLU_ENABLE -}
 
 -- | Options as obtained from the Crux command-line and config file machinery.
@@ -64,6 +69,7 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     exploreParallel :: Bool,
     entryPoints :: [FunctionName],
     skipFunctions :: [FunctionName],
+    specsPath :: FilePath,
     verbosity :: Int
   }
 
@@ -119,6 +125,18 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
           ucLLVMOptions initUCOpts
         )
 
+    -- Parse JSON of user-provided function specs from file
+    let noSpecs :: Map FunctionName SpecsView
+        noSpecs = Map.empty
+    specs <-
+      if specsPath initUCOpts /= ""
+      then Aeson.eitherDecode <$> BS.readFile (specsPath initUCOpts)
+      else return (Right noSpecs)
+    specs' <-
+      case specs of
+        Left err -> die err
+        Right s -> return s
+
     let topConf =
           Config.TopLevelConfig
             { Config.ucLLVMOptions = finalLLOpts,
@@ -130,6 +148,7 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
                         { Config.entryPoints = ents
                         , Config.checkFrom = checkFrom initUCOpts
                         , Config.checkFromCallers = checkFromCallers initUCOpts
+                        , Config.specs = specs'
                         }
                   Nothing ->
                     if doExplore initUCOpts
@@ -189,6 +208,9 @@ entryPointsDoc = "Comma-separated list of functions to examine."
 skipDoc :: Text
 skipDoc = "List of functions to skip during exploration"
 
+specsPathDoc :: Text
+specsPathDoc = "Path to JSON file containing function specs"
+
 verbDoc :: Text
 verbDoc = "Verbosity of logging. (0: minimal, 1: informational, 2: debug)"
 
@@ -219,6 +241,7 @@ ucCruxLLVMConfig = do
             <*>
               (map functionNameFromString <$>
                 Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc)
+            <*> Crux.section "specs-path" Crux.fileSpec "" specsPathDoc
             <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc,
         Crux.cfgEnv =
           Crux.liftEnvDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgEnv llvmOpts,
@@ -311,6 +334,12 @@ ucCruxLLVMConfig = do
                          { skipFunctions =
                              functionNameFromString v : skipFunctions opts
                          },
+                 Crux.Option
+                   []
+                   ["specs-path"]
+                   (Text.unpack specsPathDoc)
+                   $ Crux.ReqArg "JSONFILE" $
+                     \v opts -> Right opts { specsPath = v },
                  Crux.Option
                    ['v']
                    ["verbosity"]
