@@ -192,7 +192,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
     overrides ::
       IsSymBackend sym bak =>
       HasLLVMAnn sym =>
-      IO [ ( Sim.SymCreateOverrideFn sym bak arch
+      IO [ ( Sim.SymCreateOverrideFn m sym bak arch
            , SomeCheckedCalls m sym arch
            )
          ]
@@ -216,7 +216,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
                   do ref <- IORef.newIORef []
                      return
                        ( Sim.SymCreateOverrideFn $
-                           \_bak ->
+                           \_bak _tracker ->
                              return $
                                Check.createCheckOverride
                                  appCtx
