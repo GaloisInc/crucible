@@ -26,12 +26,16 @@ module UCCrux.LLVM.View.Specs
     SpecSoundnessView(..),
     specSoundnessView,
     viewSpecSoundness,
-    -- * Specs
+    -- * Spec
     SpecViewError,
     ppSpecViewError,
     SpecView(..),
     specView,
     viewSpec,
+    -- * Specs
+    SpecsView(..),
+    specsView,
+    viewSpecs,
   )
 where
 
@@ -53,11 +57,12 @@ import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.Postcondition.Type (toUPostcond, typecheckPostcond, PostcondTypeError, ppPostcondTypeError)
-import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec))
+import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec), Specs (Specs))
 import           UCCrux.LLVM.View.Constraint (ConstrainedShapeView, constrainedShapeView)
 import           UCCrux.LLVM.View.Postcond (UPostcondView, uPostcondView, viewUPostcond, ViewUPostcondError, ppViewUPostcondError)
 import           UCCrux.LLVM.View.Precond (ArgError, viewArgPreconds, ppArgError)
 import qualified UCCrux.LLVM.Specs.Type as Spec
+import Data.List.NonEmpty (NonEmpty)
 
 -- Helper, not exported. Equivalent to Data.Bifunctor.first.
 liftError :: (e -> i) -> Either e a -> Either i a
@@ -114,7 +119,7 @@ viewSpecSoundness =
     ImpreciseView -> Imprecise
 
 --------------------------------------------------------------------------------
--- * Specs
+-- * Spec
 
 data SpecViewError
   = SpecViewArgError ArgError
@@ -180,6 +185,26 @@ viewSpec modCtx fsRep@(FS.FuncSigRepr _ args _) vspec =
     commuteMaybe (Just val) = Just <$> val
     commuteMaybe Nothing    = pure Nothing
 
+--------------------------------------------------------------------------------
+-- * Specs
+
+newtype SpecsView = SpecsView { getSpecsView :: NonEmpty SpecView }
+  deriving (Eq, Generic, Ord, Show)
+
+specsView :: FuncSigRepr m fs -> Specs m fs -> SpecsView
+specsView funcSigRep =
+  SpecsView . fmap (specView funcSigRep) . Spec.getSpecs
+
+viewSpecs ::
+  (fs ~ 'FS.FuncSig va ret args) =>
+  ModuleContext m arch ->
+  FuncSigRepr m fs ->
+  SpecsView ->
+  Either SpecViewError (Specs m fs)
+viewSpecs modCtx funcSigRep (SpecsView vspecs) =
+  Specs <$> traverse (viewSpec modCtx funcSigRep) vspecs
+
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecPrecondsView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecSoundnessView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecView)
+$(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecsView)
