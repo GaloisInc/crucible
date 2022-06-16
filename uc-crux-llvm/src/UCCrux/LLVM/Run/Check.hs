@@ -91,6 +91,7 @@ import           UCCrux.LLVM.Run.Result (SomeBugfindingResult)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Shape (Shape)
+import UCCrux.LLVM.Specs.Type (SomeSpecs)
 {- ORMOLU_ENABLE -}
 
 -- | The result of encountering a check override some number of times during
@@ -287,6 +288,8 @@ inferThenCheck ::
   HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   -- | Functions to infer contracts for
   EntryPoints m ->
   -- | Entry points for checking inferred contracts
@@ -294,9 +297,9 @@ inferThenCheck ::
   IO ( Map (DefnSymbol m) (SomeBugfindingResult m arch)
      , Map (DefnSymbol m) (SomeCheckResult m arch)
      )
-inferThenCheck appCtx modCtx halloc cruxOpts llOpts toInfer entries =
+inferThenCheck appCtx modCtx halloc cruxOpts llOpts specs toInfer entries =
   do inferResult <-
-       Loop.loopOnFunctions appCtx modCtx halloc cruxOpts llOpts toInfer
+       Loop.loopOnFunctions appCtx modCtx halloc cruxOpts llOpts specs toInfer
      chkResult <-
        checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entries $
          Map.mapMaybe getPreconds inferResult

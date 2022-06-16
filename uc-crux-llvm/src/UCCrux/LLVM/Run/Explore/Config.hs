@@ -14,6 +14,8 @@ where
 
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds)
+import Data.Map (Map)
+import UCCrux.LLVM.View.Specs (SpecsView)
 
 data ExploreConfig = ExploreConfig
   { -- | Explore functions that already have a log present in the log directory
@@ -22,6 +24,7 @@ data ExploreConfig = ExploreConfig
     exploreBudget :: Int,
     exploreTimeout :: Seconds,
     exploreParallel :: Bool,
-    exploreSkipFunctions :: [FunctionName]
+    exploreSkipFunctions :: [FunctionName],
+    exploreSpecs :: Map FunctionName SpecsView
   }
   deriving (Eq, Ord, Show)

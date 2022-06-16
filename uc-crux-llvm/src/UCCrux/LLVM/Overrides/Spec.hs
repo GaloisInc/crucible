@@ -84,12 +84,11 @@ specOverrides ::
   Map (FuncSymbol m) (SomeSpecs m) ->
   OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
 specOverrides modCtx bak mtrans tracker specs =
-  do
-    let llvmCtx = mtrans ^. transContext
-    let ?lc = llvmCtx ^. llvmTypeCtx
-    let create funcSymb (Spec.SomeSpecs fsRep@FuncSigRepr{} specs') =
-          createSpecOverride modCtx bak tracker funcSymb fsRep specs'
-    pure $ map (uncurry create) (Map.toList specs)
+  do let llvmCtx = mtrans ^. transContext
+     let ?lc = llvmCtx ^. llvmTypeCtx
+     let create funcSymb (Spec.SomeSpecs fsRep@FuncSigRepr{} specs') =
+           createSpecOverride modCtx bak tracker funcSymb fsRep specs'
+     pure $ map (uncurry create) (Map.toList specs)
 
 -- | Boilerplate to create an LLVM override
 mkOverride ::

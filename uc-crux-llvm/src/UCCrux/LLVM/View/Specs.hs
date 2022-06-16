@@ -36,33 +36,43 @@ module UCCrux.LLVM.View.Specs
     SpecsView(..),
     specsView,
     viewSpecs,
+    -- * Map of specs
+    parseSpecs,
   )
 where
 
 import           Control.Lens ((^.))
+import           Control.Monad (foldM)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import           Data.Data (Data)
+import           Data.List.NonEmpty (NonEmpty)
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import           GHC.Generics (Generic)
 
 import           Prettyprinter (Doc)
 
+import qualified Text.LLVM.AST as L
+
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Some (Some(Some))
 import           Data.Parameterized.TraversableFC (toListFC)
 
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes, funcTypes)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
+import           UCCrux.LLVM.Module (FuncSymbol, makeFuncSymbol, funcSymbol)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.Postcondition.Type (toUPostcond, typecheckPostcond, PostcondTypeError, ppPostcondTypeError)
-import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec), Specs (Specs))
+import qualified UCCrux.LLVM.Specs.Type as Spec
+import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec), Specs (Specs), SomeSpecs (SomeSpecs))
 import           UCCrux.LLVM.View.Constraint (ConstrainedShapeView, constrainedShapeView)
 import           UCCrux.LLVM.View.Postcond (UPostcondView, uPostcondView, viewUPostcond, ViewUPostcondError, ppViewUPostcondError)
 import           UCCrux.LLVM.View.Precond (ArgError, viewArgPreconds, ppArgError)
-import qualified UCCrux.LLVM.Specs.Type as Spec
-import Data.List.NonEmpty (NonEmpty)
 
 -- Helper, not exported. Equivalent to Data.Bifunctor.first.
 liftError :: (e -> i) -> Either e a -> Either i a
@@ -123,7 +133,7 @@ viewSpecSoundness =
 
 data SpecViewError
   = SpecViewArgError ArgError
-  | SpecViewUPostcondError ViewUPostcondError 
+  | SpecViewUPostcondError ViewUPostcondError
   | SpecViewPostcondError PostcondTypeError
 
 ppSpecViewError :: SpecViewError -> Doc ann
@@ -203,6 +213,27 @@ viewSpecs ::
   Either SpecViewError (Specs m fs)
 viewSpecs modCtx funcSigRep (SpecsView vspecs) =
   Specs <$> traverse (viewSpec modCtx funcSigRep) vspecs
+
+--------------------------------------------------------------------------------
+-- * Map of specs
+
+-- | Returns map of functions to specs, along with a list of functions that
+-- weren't in the module. The list is guaranteed to be duplicate-free.
+parseSpecs ::
+  ModuleContext m arch ->
+  Map FunctionName SpecsView ->
+  Either SpecViewError (Map (FuncSymbol m) (SomeSpecs m), [FunctionName])
+parseSpecs modCtx =
+  foldM go (Map.empty, []) . Map.toList
+  where
+    go (mp, missingFuns) (fnName, vspecs) =
+      case makeFuncSymbol (L.Symbol (functionNameToString fnName)) (modCtx ^. funcTypes) of
+        Nothing -> Right (mp, fnName : missingFuns)
+        Just funcSymb ->
+          do Some fsRepr@FS.FuncSigRepr{} <-
+               return (modCtx ^. funcTypes . funcSymbol funcSymb)
+             specs <- viewSpecs modCtx fsRepr vspecs
+             return (Map.insert funcSymb (SomeSpecs fsRepr specs) mp, missingFuns)
 
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecPrecondsView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecSoundnessView)

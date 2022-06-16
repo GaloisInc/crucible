@@ -51,7 +51,7 @@ import           UCCrux.LLVM.Newtypes.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.Module (DefnSymbol, getDefnSymbol, makeDefnSymbol, getModule)
+import           UCCrux.LLVM.Module (DefnSymbol, getDefnSymbol, makeDefnSymbol, getModule, FuncSymbol)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
 import           UCCrux.LLVM.Newtypes.Seconds (secondsToMicroseconds)
 import           UCCrux.LLVM.Run.Explore.Config (ExploreConfig)
@@ -60,6 +60,8 @@ import           UCCrux.LLVM.Run.Result (SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Loop (loopOnFunction)
 import           UCCrux.LLVM.Stats (Stats(unimplementedFreq), getStats, ppStats)
+import Data.Map (Map)
+import UCCrux.LLVM.Specs.Type (SomeSpecs)
 {- ORMOLU_ENABLE -}
 
 withTimeout :: Int -> IO a -> IO (Either () a)
@@ -75,10 +77,12 @@ exploreOne ::
   LLVMOptions ->
   ExploreConfig ->
   Crucible.HandleAllocator ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   FilePath ->
   DefnSymbol m ->
   IO Stats
-exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir defnSym =
+exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc specs dir defnSym =
   do
     let L.Symbol func = getDefnSymbol defnSym
     let logFilePath = dir </> func -<.> ".summary.log"
@@ -93,7 +97,7 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir defnSym =
         maybeResult <-
           withTimeout
             (secondsToMicroseconds (ExConfig.exploreTimeout exOpts))
-            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts defnSym)
+            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts specs defnSym)
         case maybeResult of
           Right (Right (SomeBugfindingResult _types result _trace)) ->
             do
@@ -131,8 +135,10 @@ explore ::
   LLVMOptions ->
   ExploreConfig ->
   Crucible.HandleAllocator ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   IO ()
-explore appCtx modCtx cruxOpts llOpts exOpts halloc =
+explore appCtx modCtx cruxOpts llOpts exOpts halloc specs =
   do
     (appCtx ^. log) Hi $ "Exploring with budget: " <> Text.pack (show (ExConfig.exploreBudget exOpts))
     -- TODO choose randomly
@@ -157,7 +163,7 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
                     -- taken from the modDefines of this same modCtx just above.
                     panic "explore" ["Function not found in module :" ++ func])
             funcsToExplore
-    let doExplore ac = exploreOne ac modCtx cruxOpts llOpts exOpts halloc dir
+    let doExplore ac = exploreOne ac modCtx cruxOpts llOpts exOpts halloc specs dir
     stats <-
       if ExConfig.exploreParallel exOpts
         then

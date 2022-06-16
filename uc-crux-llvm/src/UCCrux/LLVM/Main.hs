@@ -46,6 +46,7 @@ import           Control.Monad (forM_, void)
 import           Data.Aeson (ToJSON)
 import           Data.Foldable (for_)
 import qualified Data.List.NonEmpty as NonEmpty
+import           Data.Map (Map)
 import           GHC.Generics (Generic)
 import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
@@ -85,22 +86,26 @@ import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
 import           UCCrux.LLVM.Callgraph.LLVM (directCalls, funcCallers)
-import           UCCrux.LLVM.Context.App (AppContext)
+import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, defnTypes, withModulePtrWidth, llvmModule)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Logging as Log
+import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
 import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
-import           UCCrux.LLVM.Module (defnSymbolToString, getModule)
-import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString, functionNameToString)
+import           UCCrux.LLVM.Module (defnSymbolToString, getModule, FuncSymbol)
+import           UCCrux.LLVM.Newtypes.FunctionName (functionNameFromString, functionNameToString, FunctionName)
 import           UCCrux.LLVM.Run.Check (inferThenCheck, ppSomeCheckResult)
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
+import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Loop (loopOnFunctions)
+import           UCCrux.LLVM.View.Specs (SpecsView, ppSpecViewError, parseSpecs)
+import           UCCrux.LLVM.Specs.Type (SomeSpecs)
 {- ORMOLU_ENABLE -}
 
 mainWithOutputTo :: Handle -> IO ExitCode
@@ -166,9 +171,9 @@ mainWithConfigs appCtx cruxOpts topConf =
     SomeModuleContext' modCtx <- translateFile llOpts halloc memVar path
     case Config.runConfig topConf of
       Config.Explore exConfig ->
-        withModulePtrWidth
-          modCtx
-          (explore appCtx modCtx cruxOpts llOpts exConfig halloc)
+        withModulePtrWidth modCtx $
+          withSpecs modCtx (ExConfig.exploreSpecs exConfig) $ \specs ->
+            explore appCtx modCtx cruxOpts llOpts exConfig halloc specs
       Config.Analyze analyzeConf ->
         do entries <-
              makeEntryPointsOrThrow
@@ -198,27 +203,28 @@ mainWithConfigs appCtx cruxOpts topConf =
                    then Set.toList callers
                    else []
 
-           case checkEntryPointNames of
-             [] ->
-               printResult =<<
-                 loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries
-             _ ->
-               withModulePtrWidth
-                 modCtx
-                 ( do checkFromEntries <-
-                        makeEntryPointsOrThrow
-                          (modCtx ^. defnTypes)
-                          checkEntryPointNames
-                      (result, checkResult) <-
-                        inferThenCheck appCtx modCtx halloc cruxOpts llOpts entries checkFromEntries
-                      printResult result
-                      for_ (Map.toList checkResult) $
-                        \(checkedFunc, checkedResult) ->
-                          Text.IO.putStrLn .
-                            PP.renderStrict .
-                              PP.layoutPretty PP.defaultLayoutOptions =<<
-                                ppSomeCheckResult appCtx checkedFunc checkedResult
-                 )
+           withSpecs modCtx (Config.specs analyzeConf) $ \specs ->
+             case checkEntryPointNames of
+               [] ->
+                 printResult =<<
+                   loopOnFunctions appCtx modCtx halloc cruxOpts llOpts specs entries
+               _ ->
+                 withModulePtrWidth
+                   modCtx
+                   ( do checkFromEntries <-
+                          makeEntryPointsOrThrow
+                            (modCtx ^. defnTypes)
+                            checkEntryPointNames
+                        (result, checkResult) <-
+                          inferThenCheck appCtx modCtx halloc cruxOpts llOpts specs entries checkFromEntries
+                        printResult result
+                        for_ (Map.toList checkResult) $
+                          \(checkedFunc, checkedResult) ->
+                            Text.IO.putStrLn .
+                              PP.renderStrict .
+                                PP.layoutPretty PP.defaultLayoutOptions =<<
+                                  ppSomeCheckResult appCtx checkedFunc checkedResult
+                   )
       Config.CrashEquivalence eqConfig ->
         do path' <-
              genBitCode
@@ -236,7 +242,25 @@ mainWithConfigs appCtx cruxOpts topConf =
                llOpts
                (EqConfig.equivOrOrder eqConfig)
                (EqConfig.equivEntryPoints eqConfig)
-    return ExitSuccess
+           return ExitSuccess
+  where
+    withSpecs ::
+      forall m arch a.
+      ModuleContext m arch ->
+      Map FunctionName SpecsView ->
+      (Map (FuncSymbol m) (SomeSpecs m) -> IO a) ->
+      IO ExitCode
+    withSpecs modCtx specMap action =
+      case parseSpecs modCtx specMap of
+        Left err ->
+          do print (ppSpecViewError err)
+             return (ExitFailure 1)
+        Right (specs, missing) ->
+          do (appCtx ^. log) Hi "Specs not used, functions not in module:"
+             for_ missing $ \fnName ->
+               (appCtx ^. log) Hi (Text.pack (functionNameToString fnName))
+             _ <- action specs
+             return ExitSuccess
 
 translateLLVMModule ::
   LLVMOptions ->

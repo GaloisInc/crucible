@@ -159,7 +159,8 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
                             ExConfig.exploreBudget = exploreBudget initUCOpts,
                             ExConfig.exploreTimeout = exploreTimeout initUCOpts,
                             ExConfig.exploreParallel = exploreParallel initUCOpts,
-                            ExConfig.exploreSkipFunctions = skipFunctions initUCOpts
+                            ExConfig.exploreSkipFunctions = skipFunctions initUCOpts,
+                            ExConfig.exploreSpecs = specs'
                           })
                     else
                       Config.CrashEquivalence

@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 {-
 Module       : UCCrux.LLVM.Run.Loop
 Description  : Run the simulator in a loop, creating a 'BugfindingResult'
@@ -50,7 +51,7 @@ import qualified Lang.Crucible.FunctionHandle as Crucible (HandleAllocator)
 -- crucible-llvm
 import Lang.Crucible.LLVM.MemModel (withPtrWidth)
 import Lang.Crucible.LLVM.Extension( LLVM )
-import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext)
+import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext, llvmTypeCtx)
 
 -- crux
 import           Crux.Config.Common (CruxOptions)
@@ -77,6 +78,10 @@ import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingRes
 import qualified UCCrux.LLVM.Run.Result as Result
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness)
+import UCCrux.LLVM.Specs.Type (SomeSpecs(SomeSpecs))
+import UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
+import UCCrux.LLVM.Overrides.Spec (createSpecOverride)
+import qualified Crux.LLVM.Config as CruxLLVM
 {- ORMOLU_ENABLE -}
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
@@ -209,13 +214,29 @@ bugfindingLoop ::
   CruxOptions ->
   LLVMOptions ->
   Crucible.HandleAllocator ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes))
-bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
+bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc specs =
   post <$>
-    bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc (fmap swap Sim.defaultCallbacks)
+    bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc callbacks
   where
     swap (cruxResult, ucCruxResult) = (ucCruxResult, cruxResult)
     post (result, results) = (result, fmap fst results)
+
+    -- Default (do-nothing) callbacks, except they register overrides for all
+    -- the provided function specs
+    callbacks =
+      Sim.addOverrides
+        (map (uncurry mkSpecOverride) (Map.toList specs))
+        (fmap swap Sim.defaultCallbacks)
+
+    mkSpecOverride funcSymb specs_ =
+      Sim.CreateOverrideFn $ \bak tracker ->
+        do SomeSpecs fsRep@FuncSigRepr{} specs' <- return specs_
+           let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
+           let ?memOpts = CruxLLVM.memOpts llvmOpts
+           return (createSpecOverride modCtx bak tracker funcSymb fsRep specs')
 
 loopOnFunction ::
   Crux.Logs msgs =>
@@ -225,9 +246,12 @@ loopOnFunction ::
   Crucible.HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
+  -- | Entry point for symbolic execution
   DefnSymbol m ->
   IO (Either (Panic Unimplemented) (SomeBugfindingResult m arch))
-loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
+loopOnFunction appCtx modCtx halloc cruxOpts llOpts specs fn =
   catchUnimplemented $
     llvmPtrWidth
       (modCtx ^. moduleTranslation . transContext)
@@ -249,6 +273,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
                     cruxOpts
                     llOpts
                     halloc
+                    specs
             )
       )
 
@@ -262,9 +287,11 @@ loopOnFunctions ::
   Crucible.HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   EntryPoints m ->
   IO (Map (DefnSymbol m) (SomeBugfindingResult m arch))
-loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries =
+loopOnFunctions appCtx modCtx halloc cruxOpts llOpts specs entries =
   Map.fromList
     <$> llvmPtrWidth
       (modCtx ^. moduleTranslation . transContext)
@@ -274,7 +301,7 @@ loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries =
             ( for (getEntryPoints entries) $
                 \entry ->
                   (entry,) . either throw id
-                    <$> loopOnFunction appCtx modCtx halloc cruxOpts llOpts entry
+                    <$> loopOnFunction appCtx modCtx halloc cruxOpts llOpts specs entry
             )
       )
 
@@ -319,8 +346,8 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
                else map functionNameToString entries)
     entries1 <- makeEntries modCtx1
     entries2 <- makeEntries modCtx2
-    results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts llOpts entries1
-    results2 <- loopOnFunctions appCtx modCtx2 halloc cruxOpts llOpts entries2
+    results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts llOpts Map.empty entries1
+    results2 <- loopOnFunctions appCtx modCtx2 halloc cruxOpts llOpts Map.empty entries2
     let mkFunName = functionNameFromString . defnSymbolToString
     pure $
       -- Note: It's a postcondition of loopOnFunctions that these two maps
