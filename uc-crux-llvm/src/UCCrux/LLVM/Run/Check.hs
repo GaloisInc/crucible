@@ -68,6 +68,8 @@ import qualified Crux.LLVM.Config as CruxLLVM
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- local
+import           UCCrux.LLVM.Check (SomeCheckedConstraint(..))
+import qualified UCCrux.LLVM.Check as Check
 import           UCCrux.LLVM.Cursor (ppSelector)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), findFun)
@@ -387,9 +389,9 @@ ppSomeCheckResult _appCtx entry proxy@(SomeCheckResult _ftReprs (CheckResult k))
       forall sym argTypes.
       IsSymInterface sym =>
       sym ->
-      Check.SomeCheckedConstraint m sym argTypes ->
+      SomeCheckedConstraint m sym argTypes ->
       IO (PP.Doc ann)
-    ppCheckedConstraint _sym (Check.SomeCheckedConstraint constraint) =
+    ppCheckedConstraint _sym (SomeCheckedConstraint constraint) =
       do return $
            PP.vsep
              [ "Constraint:" PP.<+>
