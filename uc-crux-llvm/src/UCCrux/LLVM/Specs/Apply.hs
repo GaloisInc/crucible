@@ -117,6 +117,11 @@ applyPost bak modCtx tracker funcSymb fsRep mvar spec args =
      Crucible.modifyGlobal mvar $ \mem ->
        liftIO (applyPostcond bak modCtx tracker funcSymb post retTy mem args)
 
+-- | Apply a collection of specs (a 'Specs') to the current program state.
+--
+-- Creates one symbolic branches per spec, as described on the Haddock for
+-- 'Specs' the semantics is that the first spec with a matching precondition has
+-- its postcondition applied to mutate memory and supply a return value.
 applySpecs ::
   forall m arch sym bak fs va mft args argTypes p ext r cargs ret.
   ArchOk arch =>
@@ -125,6 +130,7 @@ applySpecs ::
   (?memOpts :: MemOptions) =>
   (fs ~ 'FS.FuncSig va mft args) =>
   Crucible.IsSymBackend sym bak =>
+  -- | Symbolic backend
   bak ->
   ModuleContext m arch ->
   -- | Track origins of created values
@@ -166,7 +172,8 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      let fallbackBranch =
            ( What4.truePred sym
            , liftIO $ do
-               -- TODO(lb): this behavior should depend on spec config
+               -- TODO(lb): this behavior should depend on spec config, see TODO
+               -- on 'Specs'
                Crucible.addFailedAssertion
                  bak
                  (Crucible.GenericSimError "No spec applied!")

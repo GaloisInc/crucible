@@ -1,12 +1,16 @@
 {-
 Module       : UCCrux.LLVM.Overrides.Spec
-Description  : Overrides for skipping execution of functions with user-provided specs
+Description  : Overrides for skipping execution of functions with provided specs
 Copyright    : (c) Galois, Inc 2022
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 
-TODO(lb): Track which specs actually execute and whether they are over- or
+These overrides are useful for describing the behavior of external/library
+functions, or for soundly skipping complex functions even when they happen to be
+defined.
+
+TODO(lb, #932): Track which specs actually execute and whether they are over- or
 under-approximate.
 -}
 {-# LANGUAGE DataKinds #-}
@@ -42,7 +46,7 @@ import qualified Lang.Crucible.Simulator as Crucible
 -- crucible-llvm
 import           Lang.Crucible.LLVM.Extension (LLVM)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, MemOptions)
-import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx)
+import           Lang.Crucible.LLVM.Translation (transContext, llvmTypeCtx)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), basic_llvm_override)
 
@@ -52,7 +56,8 @@ import           Crux.Types (OverM)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls)
+-- uc-crux-llvm
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleDecls, moduleTranslation)
 import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign'(..),  assignmentToCrucibleType, toCrucibleReturnType)
 import           UCCrux.LLVM.ExprTracker (ExprTracker)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
@@ -65,10 +70,7 @@ import           UCCrux.LLVM.Specs.Type (SomeSpecs)
 import qualified UCCrux.LLVM.Specs.Type as Spec
 {- ORMOLU_ENABLE -}
 
--- | Additional overrides that are useful for bugfinding, but not for
--- verification. They skip execution of the specified functions.
---
--- Mostly useful for functions that are declared but not defined.
+-- | Create specification-based overrides for each function in the 'Map'.
 specOverrides ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
@@ -77,14 +79,13 @@ specOverrides ::
   (?memOpts :: MemOptions) =>
   ModuleContext m arch ->
   bak ->
-  ModuleTranslation arch ->
   -- | Origins of created values
   IORef (ExprTracker m sym argTypes) ->
   -- | Specs of each override, see 'Specs'.
   Map (FuncSymbol m) (SomeSpecs m) ->
   OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
-specOverrides modCtx bak mtrans tracker specs =
-  do let llvmCtx = mtrans ^. transContext
+specOverrides modCtx bak tracker specs =
+  do let llvmCtx = modCtx ^. moduleTranslation . transContext
      let ?lc = llvmCtx ^. llvmTypeCtx
      let create funcSymb (Spec.SomeSpecs fsRep@FuncSigRepr{} specs') =
            createSpecOverride modCtx bak tracker funcSymb fsRep specs'
@@ -124,12 +125,8 @@ mkOverride modCtx _proxy funcSymb (FuncSigRepr _ argFTys retTy) impl =
   where decl = modCtx ^. moduleDecls . funcSymbol funcSymb
 
 -- | Create an override that takes the place of a given defined or even
--- declared/external function, and instead of executing that function,
--- instead manufactures a fresh symbolic return value and optionally clobbers
--- some parts of its arguments or global variables with fresh symbolic values.
---
--- Useful for continuing symbolic execution in the presence of external/library
--- functions.
+-- declared/external function, and instead of executing that function, applies
+-- its specification as described in the documentation for 'Spec.applySpecs'.
 createSpecOverride ::
   forall m arch sym bak fs va mft args argTypes personality.
   IsSymBackend sym bak =>

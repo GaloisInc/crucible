@@ -6,10 +6,12 @@ License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 
-* TODO(lb):
-* User-provided
-* Matching behavior
-* Pre- and post-
+The 'Specs' datatype represents a collection of specifications for a function.
+The user can provide these specifications to the UC-Crux CLI using the
+@--specs-path@ option, and they will be used to override the function's
+behavior (see "UCCrux.LLVM.Overrides.Spec").
+
+See also user-facing docs in @doc/specs.md@.
 -}
 
 {-# LANGUAGE DataKinds #-}
@@ -39,29 +41,48 @@ import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.Precondition (emptyArgPreconds)
 import           UCCrux.LLVM.Postcondition.Type (Postcond)
 
--- TODO(lb): preconds on globals
+-- | Preconditions required to hold for a 'Spec' to execute.
 data SpecPreconds m (args :: Ctx (FullType m))
   = SpecPreconds
-      { specArgPreconds :: Ctx.Assignment (ConstrainedShape m) args }
+      { -- | Preconditions on arguments to the specified function
+        specArgPreconds :: Ctx.Assignment (ConstrainedShape m) args
+      }
 
+-- | Description of the soundness of spec pre- and post-conditions.
+--
+-- This type forms a partial order (of which its 'Ord' instance is one of two
+-- compatible total orderings):
+--
+-- >        Imprecise
+-- >       /         \
+-- > Overapprox    Underapprox
+-- >       \         /
+-- >         Precise
+--
+-- The ordering means: Anything that is 'Precise' can also be counted as either
+-- 'Overapprox' or 'Underapprox', and if you're willing to accept 'Imprecise',
+-- then you would be willing to accept any degree of precision as well.
 data SpecSoundness
-  = -- | For preconditions, means that the specified preconditions are more
-    -- restrictive than the actual implementation. For postconditions, means
-    -- that the specified postcondition encapsulates all possible effects of
-    -- the implementation on the program state.
-    Overapprox
+  = -- | Neither over-approximate nor under-approximate
+    Precise
+    -- | For preconditions, means that the specified preconditions are more
+    -- restrictive than the actual implementation. For postconditions, it means
+    -- that the specified postcondition encapsulates all possible effects of the
+    -- implementation on the program state.
+  | Overapprox
     -- | For preconditions, means that the specified preconditions are less
     -- restrictive than the actual implementation. For postconditions, means
     -- that the specified postcondition encapsulates some definitely possible
     -- effects of the implementation on the program state.
   | Underapprox
   -- | Both over-approximate and under-approximate
-  | Precise
-  -- | Neither over-approximate nor under-approximate
   | Imprecise
   deriving (Bounded, Enum, Eq, Ord, Show)
 
--- TODO(lb): docs
+-- | If the precondition ('specPre') holds, then the function will have the
+-- effects on program state specified in the postcondition ('specPost') See
+-- "UCCrux.LLVM.Specs.Apply" for how preconditions are checked against and
+-- postconditions are applied to the state.
 data Spec m fs
   = forall va ret args. (fs ~ 'FS.FuncSig va ret args) =>
     Spec
@@ -71,13 +92,24 @@ data Spec m fs
       , specPostSound :: SpecSoundness
       }
 
--- TODO(lb): docs
+-- | A collection of specifications for a function.
+--
+-- The semantics are that the specs are tried in order. The first one that has a
+-- matching precondition results in its postcondition being applied, just as in
+-- 'Lang.Crucible.Simulator.OverrideSim.symbolicBranches'.
+--
+-- TODO(lb): Configure whether matching is an error.
+--
+-- TODO(lb): A semantics of non-deterministic choice rather than first-wins
+-- would probably be superior.
 newtype Specs m fs
   = Specs { getSpecs :: NonEmpty (Spec m fs) }
 
--- | This is a bit inefficient, could avoid duplicating all the 'FuncSigRepr's
--- with one of the strategies outlined in
--- https://github.com/GaloisInc/crucible/issues/982.
+-- | Package a spec together with a matching function signature.
+--
+-- To hold all of these in a map is bit inefficient, could avoid duplicating all
+-- the 'FuncSigRepr's that appear in the @ModuleContext@ with one of the
+-- strategies outlined in https://github.com/GaloisInc/crucible/issues/982.
 data SomeSpecs m = forall fs. SomeSpecs (FS.FuncSigRepr m fs) (Specs m fs)
 
 -- | The minimal spec - one with no preconditions which produces a fresh,
@@ -91,8 +123,6 @@ minimalSpec (FS.FuncSigRepr _ args _) =
     , specPostSound = Imprecise
     }
 
--- | The minimal set of specs - just 'minimalSpec'.
+-- | The minimal set of specs - just a single 'minimalSpec'.
 minimalSpecs :: FS.FuncSigRepr m fs -> Specs m fs
 minimalSpecs = Specs . NE.singleton . minimalSpec
-
--- TODO(lb): views
