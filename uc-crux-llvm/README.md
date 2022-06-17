@@ -225,6 +225,10 @@ crash-equivalence is an equivalence relation. Use `--entry-points` to check
 specific functions, or `--explore` to check all functions from both programs
 that share a name.
 
+### Providing Specifications for External Functions
+
+See [./doc/specs.md](./doc/specs.md).
+
 ## Developer Documentation
 
 See [./doc/developing.md](./doc/developing.md).

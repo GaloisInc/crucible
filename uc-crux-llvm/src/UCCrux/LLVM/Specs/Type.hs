@@ -50,8 +50,8 @@ data SpecPreconds m (args :: Ctx (FullType m))
 
 -- | Description of the soundness of spec pre- and post-conditions.
 --
--- This type forms a partial order (of which its 'Ord' instance is one of two
--- compatible total orderings):
+-- This type forms a partial order with the following Hasse diagram (of which
+-- its 'Ord' instance is one of two compatible total orderings):
 --
 -- >        Imprecise
 -- >       /         \
@@ -63,19 +63,20 @@ data SpecPreconds m (args :: Ctx (FullType m))
 -- 'Overapprox' or 'Underapprox', and if you're willing to accept 'Imprecise',
 -- then you would be willing to accept any degree of precision as well.
 data SpecSoundness
-  = -- | Neither over-approximate nor under-approximate
+  = -- | Both over-approximate and under-approximate
     Precise
     -- | For preconditions, means that the specified preconditions are more
     -- restrictive than the actual implementation. For postconditions, it means
     -- that the specified postcondition encapsulates all possible effects of the
-    -- implementation on the program state.
+    -- implementation on the program state under the accompanying precondition.
   | Overapprox
     -- | For preconditions, means that the specified preconditions are less
     -- restrictive than the actual implementation. For postconditions, means
     -- that the specified postcondition encapsulates some definitely possible
-    -- effects of the implementation on the program state.
+    -- effects of the implementation on the program state under the accompanying
+    -- precondition.
   | Underapprox
-  -- | Both over-approximate and under-approximate
+  -- | Neither over-approximate and under-approximate
   | Imprecise
   deriving (Bounded, Enum, Eq, Ord, Show)
 
