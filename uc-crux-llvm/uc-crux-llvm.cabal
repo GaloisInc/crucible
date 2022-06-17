@@ -37,6 +37,7 @@ library
     UCCrux.LLVM.Bug.UndefinedBehaviorTag
     UCCrux.LLVM.Callgraph
     UCCrux.LLVM.Callgraph.LLVM
+    UCCrux.LLVM.Check
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types

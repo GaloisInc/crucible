@@ -29,6 +29,7 @@ import qualified Test.Tasty.HUnit as TH
 
 import qualified What4.Interface as What4
 
+import qualified UCCrux.LLVM.Check as Check
 import           UCCrux.LLVM.Context.Function (makeFunctionContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, CFGWithTypes(..), defnTypes, findFun, withModulePtrWidth)
 import           UCCrux.LLVM.Module (FuncSymbol(FuncDefnSymbol), DefnSymbol, defnSymbolToString)
