@@ -23,6 +23,7 @@ import           Control.Concurrent.Async (race)
 import           Control.Scheduler (Comp(Par), traverseConcurrently)
 import           Control.Exception (displayException)
 import           Data.Function ((&))
+import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Text.IO (writeFile)
 import qualified Data.Text as Text
@@ -59,9 +60,8 @@ import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Loop (loopOnFunction)
+import           UCCrux.LLVM.Specs.Type (SomeSpecs)
 import           UCCrux.LLVM.Stats (Stats(unimplementedFreq), getStats, ppStats)
-import Data.Map (Map)
-import UCCrux.LLVM.Specs.Type (SomeSpecs)
 {- ORMOLU_ENABLE -}
 
 withTimeout :: Int -> IO a -> IO (Either () a)

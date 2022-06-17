@@ -278,7 +278,7 @@ $(deriveMutualJSON
           reverse $
           (if "Shape" `isPrefixOf` s
            then drop (length ("Shape" :: String))
-           else drop (length ("PtrShape" :: String))) $
+           else drop (length ("PtrShape" :: String)))
           s
     }
   [''PtrShapeView, ''ShapeView])

@@ -59,6 +59,7 @@ import           Crux.Log as Crux
 
 -- crux-llvm
 import           Crux.LLVM.Config (LLVMOptions, throwCError, CError(MissingFun))
+import qualified Crux.LLVM.Config as CruxLLVM
 import           Crux.LLVM.Overrides
 
  -- local
@@ -71,17 +72,16 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
+import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
 import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), defnSymbolToString, makeDefnSymbol, getModule)
+import           UCCrux.LLVM.Overrides.Spec (createSpecOverride)
 import           UCCrux.LLVM.Precondition (Preconds, NewConstraint, ppPreconds, emptyPreconds, addPrecond, ppExpansionError)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness)
-import UCCrux.LLVM.Specs.Type (SomeSpecs(SomeSpecs))
-import UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
-import UCCrux.LLVM.Overrides.Spec (createSpecOverride)
-import qualified Crux.LLVM.Config as CruxLLVM
+import           UCCrux.LLVM.Specs.Type (SomeSpecs(SomeSpecs))
 {- ORMOLU_ENABLE -}
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'

@@ -30,6 +30,7 @@ import           Control.Monad (when)
 import qualified Data.Aeson as Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy.Char8 as BS (readFile)
 import qualified Data.Map as Map
+import           Data.Map (Map)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Word (Word64)
 import           Data.Text (Text)
@@ -49,8 +50,7 @@ import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
-import UCCrux.LLVM.View.Specs (SpecsView)
-import Data.Map (Map)
+import           UCCrux.LLVM.View.Specs (SpecsView)
 {- ORMOLU_ENABLE -}
 
 -- | Options as obtained from the Crux command-line and config file machinery.
