@@ -235,7 +235,20 @@ parseSpecs modCtx =
              specs <- viewSpecs modCtx fsRepr vspecs
              return (Map.insert funcSymb (SomeSpecs fsRepr specs) mp, missingFuns)
 
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecPrecondsView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecSoundnessView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''SpecsView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.fieldLabelModifier = drop (length ("vSpec" :: String)) }
+  ''SpecPrecondsView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.constructorTagModifier =
+        reverse . drop (length ("View" :: String)) . reverse
+    }
+  ''SpecSoundnessView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.fieldLabelModifier = drop (length ("vSpec" :: String)) }
+  ''SpecView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''SpecsView)

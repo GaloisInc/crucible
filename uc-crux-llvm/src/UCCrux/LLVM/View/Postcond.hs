@@ -283,6 +283,17 @@ viewUPostcond modCtx fs vup =
          cv <- liftError ViewClobberValueError (viewClobberValue mts gTy vcv)
          return (gSymb, SomeClobberValue cv)
 
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ClobberValueView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ClobberArgView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''UPostcondView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.fieldLabelModifier = drop (length ("vClobber" :: String)) }
+  ''ClobberValueView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.constructorTagModifier =
+        reverse . drop (length ("View" :: String)) . reverse
+    }
+  ''ClobberArgView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.fieldLabelModifier = drop (length ("vU" :: String)) }
+  ''UPostcondView)
