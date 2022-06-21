@@ -91,7 +91,6 @@ library
     aeson,
     bv-sized,
     config-schema >= 1.2.2.0,
-    data-binary-ieee754,
     logict,
     llvm-pretty,
     llvm-pretty-bc-parser,
