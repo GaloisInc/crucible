@@ -82,6 +82,7 @@ module Lang.Crucible.LLVM.MemModel
   , doArrayStore
   , doArrayStoreUnbounded
   , doArrayConstStore
+  , doArrayConstStoreUnbounded
   , loadString
   , loadMaybeString
   , strLen
@@ -568,7 +569,7 @@ doAlloca bak mem sz alignment loc = do
   let mem'  = mem{ memImplHeap = heap' }
   mem'' <- if laxLoadsAndStores ?memOpts
                 && indeterminateLoadBehavior ?memOpts == StableSymbolic
-           then doStoreStableSymbolic bak mem' ptr (Just sz) alignment
+           then doConstStoreStableSymbolic bak mem' ptr (Just sz) alignment
            else pure mem'
   pure (ptr, mem'')
 
@@ -710,10 +711,9 @@ doMallocSize sz bak allocType mut loc mem alignment = do
   let ptr   = LLVMPointer blk z
   let mem'  = mem{ memImplHeap = heap' }
   mem'' <- if laxLoadsAndStores ?memOpts
-                && mut == G.Mutable
                 && allocType == G.HeapAlloc
                 && indeterminateLoadBehavior ?memOpts == StableSymbolic
-           then doStoreStableSymbolic bak mem' ptr sz alignment
+           then doConstStoreStableSymbolic bak mem' ptr sz alignment
            else pure mem'
   return (ptr, mem'')
 
@@ -945,13 +945,42 @@ doArrayConstStore
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> SymBV sym w {- ^ array length -}
   -> IO (MemImpl sym)
-doArrayConstStore bak mem ptr alignment arr len = do
+doArrayConstStore bak mem ptr alignment arr len =
+  doArrayConstStoreSize (Just len) bak mem ptr alignment arr
+
+-- | Store an array of unbounded length in memory.
+--
+-- Precondition: the pointer is valid and points to a mutable or immutable memory region.
+-- Therefore it can be used to initialize read-only memory regions.
+doArrayConstStoreUnbounded
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  => bak
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> IO (MemImpl sym)
+doArrayConstStoreUnbounded = doArrayConstStoreSize Nothing
+
+-- | The workhorse for 'doArrayConstStore' (if the first argument is
+-- @'Just' len@) or 'doArrayConstStoreUnbounded' (if the first argument is
+-- 'Nothing').
+doArrayConstStoreSize
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  => Maybe (SymBV sym w) {- ^ possibly-unbounded array length -}
+  -> bak
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> IO (MemImpl sym)
+doArrayConstStoreSize len bak mem ptr alignment arr = do
   let sym = backendGetSym bak
   (heap', p1, p2) <-
-    G.writeArrayConstMem sym PtrWidth ptr alignment arr (Just len) (memImplHeap mem)
+    G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
 
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
-  let mop = MemStoreBytesOp gsym ptr (Just len) (memImplHeap mem)
+  let mop = MemStoreBytesOp gsym ptr len (memImplHeap mem)
 
   assertStoreError bak mop UnwritableRegion p1
   let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
@@ -1069,6 +1098,30 @@ doStoreStableSymbolic bak mem ptr mbSz alignment = do
   case mbSz of
     Just sz -> doArrayStore bak mem ptr alignment bytes sz
     Nothing -> doArrayStoreUnbounded bak mem ptr alignment bytes
+
+-- | Store a fresh symbolic value of the appropriate size in the supplied
+-- pointer. This is used in various spots whenever 'laxLoadsAndStores' is
+-- enabled and 'indeterminateLoadBehavior' is set to 'StableSymbolic'.
+--
+-- Precondition: the pointer is valid and points to a mutable or immutable
+-- memory region. Therefore it can be used to initialize read-only memory
+-- regions.
+doConstStoreStableSymbolic ::
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  bak ->
+  MemImpl sym ->
+  LLVMPtr sym wptr       {- ^ destination       -} ->
+  Maybe (SymBV sym wptr) {- ^ allocation size   -} ->
+  Alignment              {- ^ pointer alignment -} ->
+  IO (MemImpl sym)
+doConstStoreStableSymbolic bak mem ptr mbSz alignment = do
+  let sym = backendGetSym bak
+  bytes <- freshConstant sym emptySymbol
+             (BaseArrayRepr (Ctx.singleton (BaseBVRepr ?ptrWidth))
+                            (BaseBVRepr (knownNat @8)))
+  case mbSz of
+    Just sz -> doArrayConstStore bak mem ptr alignment bytes sz
+    Nothing -> doArrayConstStoreUnbounded bak mem ptr alignment bytes
 
 -- | This predicate tests if the pointer is a valid, live pointer
 --   into the heap, OR is the distinguished NULL pointer.
