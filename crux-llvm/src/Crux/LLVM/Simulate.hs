@@ -59,7 +59,7 @@ import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
 
 -- crucible-llvm
-import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
+import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModule )
 import Lang.Crucible.LLVM.Bytes ( bytesToBV )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
@@ -74,7 +74,7 @@ import Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
 import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap, llvmPtrWidth, llvmTypeCtx
+        , transContext, getTranslatedCFG, llvmPtrWidth, llvmTypeCtx
         , LLVMTranslationWarning(..)
         )
 import Lang.Crucible.LLVM.Intrinsics
@@ -147,7 +147,7 @@ registerFunctions llvmOpts llvm_module mtrans fs0 =
        llvm_ctx
 
      -- register all the functions defined in the LLVM module
-     mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
+     registerModule llvm_ctx mtrans
 
 simulateLLVMFile ::
   Crux.Logs msgs =>
@@ -250,7 +250,7 @@ prepLLVMModule llvmOpts halloc bak bcFile memVar = do
              in llvmPtrWidth llvmCtxt $ \ptrW ->
                withPtrWidth ptrW $ do
                Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))
-               populateAllGlobals bak (globalInitMap trans)
+               populateAllGlobals bak (trans ^. globalInitMap)
                  =<< initializeAllMemory bak llvmCtxt llvmMod
     mapM_ sayTranslationWarning warns
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
@@ -276,8 +276,8 @@ checkFun ::
   GlobalVar Mem ->
   OverM personality sym LLVM ()
 checkFun llvmOpts trans memVar =
-  case Map.lookup (fromString nm) mp of
-    Just (_, AnyCFG anyCfg) ->
+  liftIO (getTranslatedCFG trans (fromString nm)) >>= \case
+    Just (_, AnyCFG anyCfg, _warns) ->
       case cfgArgTypes anyCfg of
         Empty -> simulateFun anyCfg emptyRegMap
 
@@ -290,7 +290,6 @@ checkFun llvmOpts trans memVar =
     Nothing -> throwCError (MissingFun nm)
   where
     nm     = entryPoint llvmOpts
-    mp     = cfgMap trans
     isMain = nm == "main"
     shouldSupplyMainArguments =
       case supplyMainArguments llvmOpts of

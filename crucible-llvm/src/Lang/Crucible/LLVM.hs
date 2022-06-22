@@ -10,11 +10,14 @@
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM
   ( LLVM
+  , registerModule
   , registerModuleFn
   , llvmGlobalsToCtx
   , llvmGlobals
@@ -38,30 +41,48 @@ import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
                    , bindLLVMFunPtr, Mem
                    )
-import           Lang.Crucible.LLVM.Translation.Monad
+import           Lang.Crucible.LLVM.Translation
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Utils.MonadVerbosity (showWarning)
 
 
+
+-- | Register all the functions defined in the LLVM module
+registerModule
+   :: (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   LLVMContext arch ->
+   ModuleTranslation arch ->
+   OverrideSim p sym LLVM rtp l a ()
+registerModule llvm_ctx mtrans =
+   mapM_ (registerModuleFn llvm_ctx mtrans) (map L.decName (mtrans ^. modTransDefs))
+
 registerModuleFn
    :: (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    LLVMContext arch ->
-   (L.Declare, AnyCFG ext) ->
-   OverrideSim p sym ext rtp l a ()
-registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
-  let h = cfgHandle cfg
-      s = UseCFG cfg (postdomInfo cfg)
-  binds <- use (stateContext . functionBindings)
-  when (isJust $ lookupHandleMap h $ fnBindings binds) $
-    showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
-  bindFnHandle h s
-  let mvar = llvmMemVar llvm_ctx
-  mem <- readGlobal mvar
-  mem' <- ovrWithBackend $ \bak ->
-            liftIO $ bindLLVMFunPtr bak decl h mem
-  writeGlobal mvar mem'
+   ModuleTranslation arch ->
+   L.Symbol ->
+   OverrideSim p sym LLVM rtp l a ()
+registerModuleFn llvm_ctx mtrans sym =
+  liftIO (getTranslatedCFG mtrans sym) >>= \case
+    Nothing ->
+      fail $ unlines
+        [ "Could not find definition for function"
+        , show sym
+        ]
+    Just (decl, AnyCFG cfg, _warns) -> do
+      let h = cfgHandle cfg
+          s = UseCFG cfg (postdomInfo cfg)
+      binds <- use (stateContext . functionBindings)
+      when (isJust $ lookupHandleMap h $ fnBindings binds) $
+        showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
+      bindFnHandle h s
+      let mvar = llvmMemVar llvm_ctx
+      mem <- readGlobal mvar
+      mem' <- ovrWithBackend $ \bak ->
+                liftIO $ bindLLVMFunPtr bak decl h mem
+      writeGlobal mvar mem'
 
 
 llvmGlobalsToCtx

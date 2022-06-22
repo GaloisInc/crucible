@@ -74,9 +74,11 @@
 {-# LANGUAGE TypeOperators         #-}
 
 module Lang.Crucible.LLVM.Translation
-  ( ModuleTranslation(..)
+  ( ModuleTranslation
+  , getTranslatedCFG
   , transContext
-  , ModuleCFGMap
+  , globalInitMap
+  , modTransDefs
   , LLVMContext(..)
   , llvmTypeCtx
   , translateModule
@@ -138,23 +140,37 @@ type ModuleCFGMap = Map L.Symbol (L.Declare, C.AnyCFG LLVM)
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
    = ModuleTranslation
-      { cfgMap        :: ModuleCFGMap
+      { _cfgMap        :: ModuleCFGMap
       , _transContext :: LLVMContext arch
-      , globalInitMap :: GlobalInitializerMap
+      , _globalInitMap :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
-      , modTransNonce :: !(Nonce GlobalNonceGenerator arch)
+      , _modTransNonce :: !(Nonce GlobalNonceGenerator arch)
         -- ^ For a reasonably quick 'testEquality' instance
+      , _modTransDefs :: ![L.Declare]
+        -- ^ A collection of declarations for all the functions
+        --   defined in this module.
       }
 
 instance TestEquality ModuleTranslation where
   testEquality mt1 mt2 =
-    testEquality (modTransNonce mt1) (modTransNonce mt2)
+    testEquality (_modTransNonce mt1) (_modTransNonce mt2)
 
-transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
-transContext = lens _transContext (\s v -> s{ _transContext = v})
+transContext :: Getter (ModuleTranslation arch) (LLVMContext arch)
+transContext = to _transContext
 
+globalInitMap :: Getter (ModuleTranslation arch) GlobalInitializerMap
+globalInitMap = to _globalInitMap
+
+modTransDefs :: Getter (ModuleTranslation arch) [L.Declare]
+modTransDefs = to _modTransDefs
+
+getTranslatedCFG :: ModuleTranslation arch -> L.Symbol -> IO (Maybe (L.Declare, C.AnyCFG LLVM, [LLVMTranslationWarning]))
+getTranslatedCFG mt s =
+  case Map.lookup s (_cfgMap mt) of
+    Just (decl, cfg) -> return (Just (decl,cfg,[]))
+    Nothing -> return Nothing
 
 typeToRegExpr :: MemType -> LLVMGenerator s arch ret (Some (Reg s))
 typeToRegExpr tp = do
@@ -439,10 +455,11 @@ translateModule halloc mvar m = do
                      , llvmFunctionAliases = functionAliases m
                      }
        nonce <- freshNonce nonceGen
-       return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
-                                       , globalInitMap = makeGlobalMap ctx' m
+       return (Some (ModuleTranslation { _cfgMap = Map.fromList pairs
+                                       , _globalInitMap = makeGlobalMap ctx' m
                                        , _transContext = ctx'
-                                       , modTransNonce = nonce
+                                       , _modTransNonce = nonce
+                                       , _modTransDefs = map (fst.snd) pairs
                                        }))
   warns <- reverse <$> readIORef warnRef
   return (mtrans, warns)
