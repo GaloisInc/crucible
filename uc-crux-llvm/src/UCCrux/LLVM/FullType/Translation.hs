@@ -32,10 +32,10 @@ where
 import           Prelude hiding (unzip)
 
 import           Control.Monad (unless)
+import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
-import           Control.Monad.State (State, runState)
+import           Control.Monad.State (StateT, runStateT)
 import           Data.Functor ((<&>))
-import qualified Data.Map as Map
 import           GHC.Stack (HasCallStack)
 
 import           Prettyprinter (Doc)
@@ -122,12 +122,12 @@ translateModuleDefines ::
   ) =>
   L.Module ->
   ModuleTranslation arch ->
-  Either TypeTranslationError (TranslatedTypes arch)
+  IO (Either TypeTranslationError (TranslatedTypes arch))
 translateModuleDefines llvmModule trans =
   case makeModuleTypes llvmModule ?lc of
     ModuleAndTypes m initialModuleTypes ->
-      let (maybeResult, modTypes) =
-            runState
+     do (maybeResult, modTypes) <-
+            runStateT
               ( runExceptT $
                   (,,)
                     <$> traverse translateDeclare (moduleDeclMap m)
@@ -135,7 +135,7 @@ translateModuleDefines llvmModule trans =
                     <*> traverse translateGlobal (moduleGlobalMap m)
               )
               initialModuleTypes
-       in maybeResult
+        return $ maybeResult
             <&> \(declTypes, defnTypes, globalTypes) ->
               TranslatedTypes
                 { translatedModule = m,
@@ -148,7 +148,7 @@ translateModuleDefines llvmModule trans =
       L.Global ->
       ExceptT
         TypeTranslationError
-        (State (ModuleTypes m))
+        (StateT (ModuleTypes m) IO)
         (Some (FullTypeRepr m))
     translateGlobal glob =
       do
@@ -157,7 +157,7 @@ translateModuleDefines llvmModule trans =
 
     translateDefine ::
       L.Define ->
-      ExceptT TypeTranslationError (State (ModuleTypes m)) (Some (FuncSigRepr m))
+      ExceptT TypeTranslationError (StateT (ModuleTypes m) IO) (Some (FuncSigRepr m))
     translateDefine defn =
       do
         let decl = LLVMTrans.declareFromDefine defn
@@ -166,8 +166,8 @@ translateModuleDefines llvmModule trans =
             Left err -> throwError (BadLift err)
             Right d -> pure d
         Crucible.AnyCFG cfg <-
-          case Map.lookup (L.decName decl) (LLVMTrans.cfgMap trans) of
-            Just (_, anyCfg) -> pure anyCfg
+          liftIO (LLVMTrans.getTranslatedCFG trans (L.decName decl)) >>= \case
+            Just (_, anyCfg, _warns) -> pure anyCfg
             Nothing -> throwError (NoCFG (L.decName decl))
         let crucibleTypes = Crucible.cfgArgTypes cfg
         let memTypes = fdArgTypes liftedDecl
@@ -189,7 +189,7 @@ translateModuleDefines llvmModule trans =
     -- compatibility with, they're just manufactured from the FullTypeReprs
     translateDeclare ::
       L.Declare ->
-      ExceptT TypeTranslationError (State (ModuleTypes m)) (Some (FuncSigRepr m))
+      ExceptT TypeTranslationError (StateT (ModuleTypes m) IO) (Some (FuncSigRepr m))
     translateDeclare decl =
       do
         liftedDecl <-
