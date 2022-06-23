@@ -138,6 +138,7 @@ test-suite crucible-llvm-tests
     lens,
     llvm-pretty,
     llvm-pretty-bc-parser,
+    lens,
     mtl,
     parameterized-utils,
     process,

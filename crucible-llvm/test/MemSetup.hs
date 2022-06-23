@@ -12,6 +12,7 @@ module MemSetup
   )
   where
 
+import           Control.Lens ( (^.) )
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
@@ -71,7 +72,8 @@ withLLVMCtx mod' action =
         let ?memOpts = LLVMMem.defaultMemOptions
         let ?transOpts = LLVMTr.defaultTranslationOptions
         memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
-        (Some (LLVMTr.ModuleTranslation _ ctx _ _), _warns) <- LLVMTr.translateModule halloc memVar mod'
+        Some mtrans <- LLVMTr.translateModule halloc memVar mod'
+        let ctx = mtrans ^. LLVMTr.transContext
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
