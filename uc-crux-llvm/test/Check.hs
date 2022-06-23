@@ -85,7 +85,7 @@ checkOverrideTests =
                     modCtx
                     ( do
                         CFGWithTypes fcgf fArgFTys _retTy _varArgs <-
-                          pure (findFun modCtx (FuncDefnSymbol f))
+                          findFun modCtx (FuncDefnSymbol f)
 
                         let funCtxF = makeFunctionContext modCtx f fArgFTys (Crucible.cfgArgTypes fcgf)
 
@@ -146,7 +146,7 @@ checkOverrideTests =
                         -- Additional checks happen in the result hook,
                         -- see 'callbacks'.
                         CFGWithTypes gcfg gArgFTys _retTy _varArgs <-
-                          pure (findFun modCtx (FuncDefnSymbol g))
+                          findFun modCtx (FuncDefnSymbol g)
 
                         let funCtxG = makeFunctionContext modCtx g gArgFTys (Crucible.cfgArgTypes gcfg)
 
