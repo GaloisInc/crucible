@@ -12,6 +12,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -33,7 +34,7 @@ import qualified Text.LLVM.AST as L
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
-import           Lang.Crucible.FunctionHandle (lookupHandleMap, handleName)
+import           Lang.Crucible.FunctionHandle (lookupHandleMap)
 import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
@@ -45,38 +46,38 @@ import           Lang.Crucible.LLVM.Translation
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
-import           Lang.Crucible.Utils.MonadVerbosity (showWarning)
-
+import           What4.Interface (getCurrentProgramLoc)
+import           What4.ProgramLoc (plSourceLoc)
 
 
 -- | Register all the functions defined in the LLVM module
 registerModule
    :: (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   (LLVMTranslationWarning -> IO ()) ->
    LLVMContext arch ->
    ModuleTranslation arch ->
    OverrideSim p sym LLVM rtp l a ()
-registerModule llvm_ctx mtrans =
-   mapM_ (registerModuleFn llvm_ctx mtrans) (map L.decName (mtrans ^. modTransDefs))
+registerModule handleWarning llvm_ctx mtrans =
+   mapM_ (registerModuleFn handleWarning llvm_ctx mtrans) (map L.decName (mtrans ^. modTransDefs))
 
 registerModuleFn
    :: (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   (LLVMTranslationWarning -> IO ()) ->
    LLVMContext arch ->
    ModuleTranslation arch ->
    L.Symbol ->
    OverrideSim p sym LLVM rtp l a ()
-registerModuleFn llvm_ctx mtrans sym =
+registerModuleFn handleWarning llvm_ctx mtrans sym =
   liftIO (getTranslatedCFG mtrans sym) >>= \case
     Nothing ->
       fail $ unlines
         [ "Could not find definition for function"
         , show sym
         ]
-    Just (decl, AnyCFG cfg, _warns) -> do
+    Just (decl, AnyCFG cfg, warns) -> do
       let h = cfgHandle cfg
           s = UseCFG cfg (postdomInfo cfg)
       binds <- use (stateContext . functionBindings)
-      when (isJust $ lookupHandleMap h $ fnBindings binds) $
-        showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
       bindFnHandle h s
       let mvar = llvmMemVar llvm_ctx
       mem <- readGlobal mvar
@@ -84,6 +85,10 @@ registerModuleFn llvm_ctx mtrans sym =
                 liftIO $ bindLLVMFunPtr bak decl h mem
       writeGlobal mvar mem'
 
+      when (isJust $ lookupHandleMap h $ fnBindings binds) $
+        do loc <- liftIO . getCurrentProgramLoc =<< getSymInterface
+           liftIO (handleWarning (LLVMTranslationWarning sym (plSourceLoc loc) "LLVM function handle registered twice"))
+      liftIO $ mapM_ handleWarning warns
 
 llvmGlobalsToCtx
    :: LLVMContext arch

@@ -275,7 +275,9 @@ registerDefinedFns appCtx modCtx =
             liftIO $
               (appCtx ^. log) Hi $
                 Text.unwords ["Registering definition of", Text.pack symb]
-            registerModuleFn llvmCtxt trans s
+            -- TODO? handle these warnings?
+            let handleTranslationWarning _warn = return ()
+            registerModuleFn handleTranslationWarning llvmCtxt trans s
 
 mkCallbacks ::
   forall r m arch argTypes blocks ret msgs.

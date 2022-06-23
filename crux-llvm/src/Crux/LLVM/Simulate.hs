@@ -125,6 +125,8 @@ parseLLVM file =
        Right m  -> return m
 
 registerFunctions ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, ptrW ~ ArchWidth arch) =>
   LLVMOptions ->
   LLVM.Module ->
@@ -147,7 +149,7 @@ registerFunctions llvmOpts llvm_module mtrans fs0 =
        llvm_ctx
 
      -- register all the functions defined in the LLVM module
-     registerModule llvm_ctx mtrans
+     registerModule sayTranslationWarning llvm_ctx mtrans
 
 simulateLLVMFile ::
   Crux.Logs msgs =>
@@ -241,7 +243,7 @@ prepLLVMModule :: IsSymBackend sym bak
                -> IO (PreppedLLVM sym)
 prepLLVMModule llvmOpts halloc bak bcFile memVar = do
     llvmMod <- parseLLVM bcFile
-    (Some trans, warns) <-
+    Some trans <-
         let ?transOpts = transOpts llvmOpts
          in translateModule halloc memVar llvmMod
     mem <- let llvmCtxt = trans ^. transContext in
@@ -252,7 +254,6 @@ prepLLVMModule llvmOpts halloc bak bcFile memVar = do
                Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))
                populateAllGlobals bak (trans ^. globalInitMap)
                  =<< initializeAllMemory bak llvmCtxt llvmMod
-    mapM_ sayTranslationWarning warns
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
 sayTranslationWarning ::
