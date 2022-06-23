@@ -59,7 +59,7 @@ import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
 
 -- crucible-llvm
-import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModule )
+import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerLazyModule )
 import Lang.Crucible.LLVM.Bytes ( bytesToBV )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
@@ -149,7 +149,7 @@ registerFunctions llvmOpts llvm_module mtrans fs0 =
        llvm_ctx
 
      -- register all the functions defined in the LLVM module
-     registerModule sayTranslationWarning llvm_ctx mtrans
+     registerLazyModule sayTranslationWarning llvm_ctx mtrans
 
 simulateLLVMFile ::
   Crux.Logs msgs =>

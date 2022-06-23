@@ -77,7 +77,7 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerModuleFn)
+import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerLazyModuleFn)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Intrinsics as LLVMIntrinsics
 import           Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
@@ -277,7 +277,7 @@ registerDefinedFns appCtx modCtx =
                 Text.unwords ["Registering definition of", Text.pack symb]
             -- TODO? handle these warnings?
             let handleTranslationWarning _warn = return ()
-            registerModuleFn handleTranslationWarning llvmCtxt trans s
+            registerLazyModuleFn handleTranslationWarning llvmCtxt trans s
 
 mkCallbacks ::
   forall r m arch argTypes blocks ret msgs.

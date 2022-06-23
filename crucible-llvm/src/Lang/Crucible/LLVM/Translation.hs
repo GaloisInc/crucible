@@ -80,6 +80,7 @@ module Lang.Crucible.LLVM.Translation
   , globalInitMap
   , modTransDefs
   , modTransModule
+  , modTransHalloc
   , LLVMContext(..)
   , llvmTypeCtx
   , translateModule
@@ -173,6 +174,9 @@ modTransDefs = to _modTransDefs
 
 modTransModule :: Getter (ModuleTranslation arch) L.Module
 modTransModule = to _modTransModule
+
+modTransHalloc :: Getter (ModuleTranslation arch) HandleAllocator
+modTransHalloc = to _modTransHalloc
 
 typeToRegExpr :: MemType -> LLVMGenerator s arch ret (Some (Reg s))
 typeToRegExpr tp = do
