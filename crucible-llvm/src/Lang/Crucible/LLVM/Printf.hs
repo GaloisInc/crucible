@@ -23,6 +23,7 @@ module Lang.Crucible.LLVM.Printf
 , PrintfConversionType(..)
 , PrintfDirective(..)
 , parseDirectives
+, ConversionDirective(..)
 , PrintfOperations(..)
 , executeDirectives
 ) where
