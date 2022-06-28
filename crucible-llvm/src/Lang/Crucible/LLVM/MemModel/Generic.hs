@@ -1186,7 +1186,10 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
 -- The returned predicates assert (in this order):
 --  * the pointer falls within an allocated, mutable memory region
 --  * the pointer's alignment is correct
-writeMem :: (1 <= w, IsSymInterface sym, HasLLVMAnn sym)
+writeMem :: ( 1 <= w
+            , IsSymInterface sym
+            , HasLLVMAnn sym
+            , ?memOpts :: MemOptions )
          => sym -> NatRepr w
          -> Maybe String
          -> LLVMPtr sym w
@@ -1203,7 +1206,10 @@ writeMem = writeMemWithAllocationCheck isAllocatedMutable
 --  * the pointer falls within an allocated memory region
 --  * the pointer's alignment is correct
 writeConstMem ::
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( 1 <= w
+  , IsSymInterface sym
+  , HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym           ->
   NatRepr w     ->
   Maybe String  ->
@@ -1223,7 +1229,10 @@ writeConstMem = writeMemWithAllocationCheck isAllocated
 --  * the pointer's alignment is correct
 writeMemWithAllocationCheck ::
   forall sym w .
-  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
+  ( IsSymInterface sym
+  , HasLLVMAnn sym
+  , 1 <= w
+  , ?memOpts :: MemOptions ) =>
   (sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)) ->
   sym ->
   NatRepr w ->
@@ -1250,52 +1259,76 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
                            , case val of
                                LLVMValInt block _ -> (asNat block) == (Just 0)
                                _ -> True -> do
-      let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
+      let -- Return @Just value@ if we have successfully loaded a value and
+          -- should update the corresponding index in the array with that
+          -- value. Return @Nothing@ otherwise.
+          subFn :: ValueLoad Addr -> IO (Maybe (PartLLVMVal sym))
           subFn = \case
-            LastStore val_view -> applyView
+            LastStore val_view -> fmap Just $ applyView
               sym
               (memEndianForm mem)
               mop
               (Partial.totalLLVMVal sym val)
               val_view
-            InvalidMemory tp'-> Partial.partErr sym mop $ Invalid tp'
+            InvalidMemory tp'
+              |  -- With stable-symbolic, loading struct padding is
+                 -- permissible. This is the only case that can return
+                 -- Nothing.
+                 laxLoadsAndStores ?memOpts
+              ,  indeterminateLoadBehavior ?memOpts == StableSymbolic
+              -> pure Nothing
+
+              |  otherwise
+              -> fmap Just $ Partial.partErr sym mop $ Invalid tp'
             OldMemory off _ -> panic "Generic.writeMemWithAllocationCheck"
               [ "Unexpected offset in storage type"
               , "*** Offset:  " ++ show off
               , "*** StorageType:  " ++ show tp
               ]
 
+          -- Given a symbolic array and an index into the array, load a byte
+          -- from the corresponding position in memory and store the byte into
+          -- the array at that index.
           storeArrayByteFn ::
             SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) ->
             Offset ->
             IO (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8))
           storeArrayByteFn acc_arr off = do
-            partial_byte <- genValueCtor sym (memEndianForm mem) mop
-              =<< traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
+            vc <- traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
+            mb_partial_byte <- traverse (genValueCtor sym (memEndianForm mem) mop)
+                                        (sequenceA vc)
 
-            case partial_byte of
-              Partial.NoErr _ (LLVMValInt _ byte)
-                | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
-                  idx <- bvAdd sym (llvmPointerOffset ptr)
-                    =<< bvLit sym w (bytesToBV w off)
-                  arrayUpdate sym acc_arr (Ctx.singleton idx) byte
+            case mb_partial_byte of
+              Nothing ->
+                -- If we cannot load the byte from memory, skip updating the
+                -- array. Currently, the only way that this can arise is when
+                -- a byte of struct padding is loaded with StableSymbolic
+                -- enabled.
+                pure acc_arr
+              Just partial_byte ->
+                case partial_byte of
+                  Partial.NoErr _ (LLVMValInt _ byte)
+                    | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
+                      idx <- bvAdd sym (llvmPointerOffset ptr)
+                        =<< bvLit sym w (bytesToBV w off)
+                      arrayUpdate sym acc_arr (Ctx.singleton idx) byte
 
-              Partial.NoErr _ (LLVMValZero _) -> do
-                  byte <- bvLit sym knownRepr (BV.zero knownRepr)
-                  idx <- bvAdd sym (llvmPointerOffset ptr)
-                    =<< bvLit sym w (bytesToBV w off)
-                  arrayUpdate sym acc_arr (Ctx.singleton idx) byte
+                  Partial.NoErr _ (LLVMValZero _) -> do
+                      byte <- bvLit sym knownRepr (BV.zero knownRepr)
+                      idx <- bvAdd sym (llvmPointerOffset ptr)
+                        =<< bvLit sym w (bytesToBV w off)
+                      arrayUpdate sym acc_arr (Ctx.singleton idx) byte
 
-              Partial.NoErr _ v ->
-                  panic "wrietMemWithAllocationCheck"
-                         [ "Expected byte value when updating SMT array, but got:"
-                         , show v
-                         ]
-              Partial.Err _ ->
-                  panic "wrietMemWithAllocationCheck"
-                         [ "Expected succesful byte load when updating SMT array"
-                         , "but got an error instead"
-                         ]
+                  Partial.NoErr _ v ->
+                      panic "writeMemWithAllocationCheck"
+                             [ "Expected byte value when updating SMT array, but got:"
+                             , show v
+                             ]
+                  Partial.Err _ ->
+                      panic "writeMemWithAllocationCheck"
+                             [ "Expected succesful byte load when updating SMT array"
+                             , "but got an error instead"
+                             ]
 
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
       overwriteArrayMem sym w ptr res_arr arr_sz mem

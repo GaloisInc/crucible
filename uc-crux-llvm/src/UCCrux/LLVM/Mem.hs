@@ -152,6 +152,7 @@ store ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
+  (?memOpts :: MemOptions) =>
   proxy arch ->
   DataLayout m ->
   bak ->
@@ -171,6 +172,7 @@ store' ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
+  (?memOpts :: MemOptions) =>
   proxy arch ->
   bak ->
   MemImpl sym ->
@@ -189,6 +191,7 @@ storeGlobal ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
+  (?memOpts :: MemOptions) =>
   proxy arch ->
   DataLayout m ->
   bak ->
@@ -207,6 +210,7 @@ storeGlobal' ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
   ArchOk arch =>
+  (?memOpts :: MemOptions) =>
   proxy arch ->
   DataLayout m ->
   bak ->

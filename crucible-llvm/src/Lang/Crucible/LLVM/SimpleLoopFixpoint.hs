@@ -396,7 +396,7 @@ loadMemJoinVariables bak mem subst =
     (Map.toAscList subst)
 
 storeMemJoinVariables ::
-  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym) =>
+  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
   Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->

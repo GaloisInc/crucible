@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -49,7 +50,7 @@ import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types
 
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemOptions)
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 
 import Lang.Crucible.Wasm.Extension
@@ -85,11 +86,11 @@ emptyScriptState =
 
 type WasmOverride p sym = OverrideSim p sym WasmExt (RegEntry sym UnitType)
 
-execScript :: HasLLVMAnn sym =>
+execScript :: (HasLLVMAnn sym, ?memOpts :: MemOptions) =>
               [Wasm.Command] -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ScriptState
 execScript script ss = foldM (flip execCommand) ss script
 
-execCommand :: HasLLVMAnn sym =>
+execCommand :: (HasLLVMAnn sym, ?memOpts :: MemOptions) =>
                Wasm.Command -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ScriptState
 execCommand (Wasm.ModuleDef mdef) ss =
   do halloc <- use (stateContext . to simHandleAllocator)
@@ -140,11 +141,11 @@ executeStart im =
            callFnVal' (HandleFnVal startFn) Empty
 
 writeDataSegment ::
-  HasLLVMAnn sym =>
+  (HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   (GlobalVar WasmMem, Word32, LBS.ByteString) ->
   WasmOverride p sym EmptyCtx UnitType ()
 writeDataSegment (mvar, offset, chunk) =
-  ovrWithBackend $ \bak -> 
+  ovrWithBackend $ \bak ->
     do let sym = backendGetSym bak
        mem  <- readGlobal mvar
        mem' <- liftIO $
@@ -167,7 +168,7 @@ initMemories im st =
              Just gv ->
                do mem <- liftIO (freshMemory sym lim)
                   writeGlobal gv mem
-  
+
          -- imported memory, no need to initialize
          _ -> return ()
 

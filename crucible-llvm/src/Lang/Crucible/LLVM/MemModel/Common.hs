@@ -446,7 +446,8 @@ data ValueLoad v
   | LastStore ValueView
     -- ^ Load consists of valid bytes within the stored value.
   | InvalidMemory StorageType
-    -- ^ Load touches invalid memory (e.g. trying to read struct padding bytes as a bitvector).
+    -- ^ Load touches invalid memory. Currently, this can only arise when
+    -- trying to read struct padding bytes as a bitvector.
   deriving (Functor,Show)
 
 loadBitvector :: Addr -> Bytes -> Addr -> ValueView -> ValueCtor (ValueLoad Addr)

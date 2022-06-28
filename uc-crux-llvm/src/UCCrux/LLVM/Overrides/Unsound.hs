@@ -48,7 +48,7 @@ import           Lang.Crucible.Types (BVType)
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.QQ (llvmOvr)
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, LLVMPointerType)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, MemOptions, LLVMPointerType)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
@@ -110,7 +110,8 @@ callGetHostName ::
     HasLLVMAnn sym,
     wptr ~ ArchWidth arch,
     ArchOk arch,
-    ?lc :: TypeContext
+    ?lc :: TypeContext,
+    ?memOpts :: MemOptions
   ) =>
   proxy arch ->
   bak ->

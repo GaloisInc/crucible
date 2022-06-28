@@ -12,6 +12,7 @@ module TestMemory
   )
 where
 
+import           Control.Lens ( (^.), _1, _2 )
 import           Control.Monad ( foldM, forM_, void )
 import           Data.Foldable ( foldlM )
 import qualified Data.Vector as V
@@ -33,6 +34,7 @@ import qualified What4.SatResult as W4Sat
 
 import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.Backend.Online as CBO
+import qualified Lang.Crucible.Simulator as CS
 import qualified Lang.Crucible.Types as Crucible
 
 import           Lang.Crucible.LLVM.DataLayout ( noAlignment )
@@ -51,6 +53,7 @@ memoryTests = T.testGroup "Memory"
   , testMemArrayWithConstants
   , testMemArray
   , testPointerStore
+  , testStructStore
   , testMemArrayCopy
   , testMemArraySet
   , testMemInvalidate
@@ -538,3 +541,63 @@ testPointerStore = testCase "pointer store" $ withMem LLVMD.BigEndian $ \bak mem
       goal <- What4.notPred sym p
       res <- checkSat bak goal
       True @=? W4Sat.isUnsat res
+
+-- | Test storing and retrieving a struct with and without 'laxLoadsAndStores'
+-- enabled.
+testStructStore :: T.TestTree
+testStructStore = testCase "struct store" $ withMem LLVMD.BigEndian $ \bak mem0 ->
+  do let sym = CB.backendGetSym bak
+     sz <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth 64
+     let struct_storage_type = LLVMMem.mkStructType $ V.fromList
+                                 [ (LLVMMem.bitvectorType 2, 2)
+                                 , (LLVMMem.bitvectorType 4, 0)
+                                 ]
+     let w16 = knownNat @16
+     let w32 = knownNat @32
+     let struct_type_repr = Crucible.StructRepr $
+                              Ctx.Empty Ctx.:>
+                              LLVMMem.LLVMPointerRepr w16 Ctx.:>
+                              LLVMMem.LLVMPointerRepr w32
+     let struct_bv1 = BV.mkBV w16 27
+     let struct_bv2 = BV.mkBV w32 42
+     struct_sym_bv1 <- What4.bvLit sym w16 struct_bv1
+     struct_sym_bv2 <- What4.bvLit sym w32 struct_bv2
+     struct_field1 <- LLVMMem.llvmPointer_bv sym struct_sym_bv1
+     struct_field2 <- LLVMMem.llvmPointer_bv sym struct_sym_bv2
+     let struct_val = Ctx.Empty Ctx.:>
+                      CS.RV struct_field1 Ctx.:>
+                      CS.RV struct_field2
+
+     let testWithOpts memOpts = do
+           let ?memOpts = memOpts
+           -- First, allocate some memory on the stack...
+           (ptr, mem1) <- LLVMMem.doAlloca bak mem0 sz noAlignment "<alloca>"
+           -- ...write a struct to it...
+           mem2 <- LLVMMem.doStore bak mem1 ptr
+                     struct_type_repr struct_storage_type
+                     noAlignment struct_val
+           -- ...read back the struct...
+           struct_val' <- LLVMMem.doLoad bak mem2 ptr
+                            struct_storage_type struct_type_repr noAlignment
+           -- ...and finally, check that the struct read from memory is the
+           -- same as the original struct.
+           let checkField ::
+                 forall w sym bak.
+                 CB.IsSymBackend sym bak =>
+                 bak ->
+                 BV.BV w ->
+                 CS.RegValue' sym (LLVMMem.LLVMPointerType w) ->
+                 IO ()
+               checkField bak' expectedBV actualPtrRV = do
+                 actualSymBV <- projectLLVM_bv bak' $ CS.unRV actualPtrRV
+                 Just expectedBV @=? What4.asBV actualSymBV
+           checkField bak struct_bv1 (struct_val'^._1)
+           checkField bak struct_bv2 (struct_val'^._2)
+
+     testWithOpts (?memOpts{ LLVMMem.laxLoadsAndStores = False })
+     testWithOpts (?memOpts{ LLVMMem.laxLoadsAndStores = True
+                           , LLVMMem.indeterminateLoadBehavior = LLVMMem.StableSymbolic
+                           })
+     testWithOpts (?memOpts{ LLVMMem.laxLoadsAndStores = True
+                           , LLVMMem.indeterminateLoadBehavior = LLVMMem.UnstableSymbolic
+                           })

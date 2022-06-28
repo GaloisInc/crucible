@@ -602,7 +602,10 @@ doLoad bak mem ptr valType tpr alignment = do
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doStore ::
-  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to store into  -} ->
@@ -1286,7 +1289,11 @@ loadRaw sym mem ptr valType alignment = do
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.
-storeRaw :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+storeRaw ::
+     ( IsSymBackend sym bak
+     , HasPtrWidth wptr
+     , Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
@@ -1359,7 +1366,12 @@ mergeWriteOperations bak mem cond true_write_op false_write_op = do
 --
 -- Asserts that the pointer is valid and points to a mutable memory
 -- region when cond is true.
-condStoreRaw :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+condStoreRaw ::
+     ( IsSymBackend sym bak
+     , HasPtrWidth wptr
+     , Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions
+     )
   => bak
   -> MemImpl sym
   -> Pred sym {- ^ Predicate that determines if we actually write. -}
@@ -1395,7 +1407,11 @@ condStoreRaw bak mem cond ptr valType alignment val = do
 -- | Store an LLVM value in memory. The pointed-to memory region may
 -- be either mutable or immutable; thus 'storeConstRaw' can be used to
 -- initialize read-only memory regions.
-storeConstRaw :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+storeConstRaw ::
+     ( IsSymBackend sym bak
+     , HasPtrWidth wptr
+     , Partial.HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
