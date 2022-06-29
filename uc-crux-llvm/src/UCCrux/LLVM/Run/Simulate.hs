@@ -268,7 +268,6 @@ registerDefinedFns ::
   Crucible.OverrideSim (personality sym) sym LLVM rtp l a ()
 registerDefinedFns appCtx modCtx =
   do let trans = modCtx ^. moduleTranslation
-     let llvmCtxt = trans ^. transContext
      for_ (trans ^. modTransDefs) $
        \decl ->
          do let s@(L.Symbol symb) = L.decName decl
@@ -277,7 +276,7 @@ registerDefinedFns appCtx modCtx =
                 Text.unwords ["Registering definition of", Text.pack symb]
             -- TODO? handle these warnings?
             let handleTranslationWarning _warn = return ()
-            registerLazyModuleFn handleTranslationWarning llvmCtxt trans s
+            registerLazyModuleFn handleTranslationWarning trans s
 
 mkCallbacks ::
   forall r m arch argTypes blocks ret msgs.

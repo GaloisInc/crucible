@@ -76,6 +76,7 @@
 module Lang.Crucible.LLVM.Translation
   ( ModuleTranslation
   , getTranslatedCFG
+  , getTranslatedCFGForHandle
   , transContext
   , globalInitMap
   , modTransDefs
@@ -438,6 +439,46 @@ transDefine halloc ctx warnRef d = do
       C.SomeCFG g_ssa -> g_ssa `seq` return (decl, C.AnyCFG g_ssa)
 
 ------------------------------------------------------------------------
+-- transDefineWithHandle
+--
+-- | Translate a single LLVM function definition into a crucible CFG.
+--
+transDefineWithHandle :: forall arch wptr args ret.
+  (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions) =>
+  FnHandle args ret ->
+  LLVMContext arch ->
+  IORef [LLVMTranslationWarning] ->
+  L.Define ->
+  IO (L.Declare, C.SomeCFG LLVM args ret)
+transDefineWithHandle h ctx warnRef d = do
+  let ?lc = ctx^.llvmTypeCtx
+  let decl = declareFromDefine d
+  let L.Symbol fstr = L.defName d
+
+  llvmDeclToFunHandleRepr' decl $ \argTys retTy ->
+    case (testEquality argTys (handleArgTypes h),
+          testEquality retTy (handleReturnType h)) of
+       (Nothing, _) -> fail $ unlines
+                         [ "Argument type mismatch when defining function: " ++ fstr
+                         , show argTys
+                         , show h ]
+       (_, Nothing) -> fail $ unlines $
+                         [ "Return type mismatch when bootstrapping function: " ++ fstr
+                         , show retTy, show h
+                         ]
+       (Just Refl, Just Refl) ->
+         do let def :: FunctionDef LLVM (LLVMState arch) args ret IO
+                def inputs = (s, f)
+                    where s = initialState d ctx argTys inputs warnRef
+                          f = genDefn d retTy
+            sng <- newIONonceGenerator
+            (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
+              if optLoopMerge ?transOpts then earlyMergeLoops ng cfg else return cfg
+            case toSSA g of
+              C.SomeCFG g_ssa -> g_ssa `seq` return (decl, C.SomeCFG g_ssa)
+
+
+------------------------------------------------------------------------
 -- translateModule
 
 -- | Translate a module into Crucible control-flow graphs.
@@ -471,6 +512,45 @@ translateModule halloc mvar m = do
                                        , _modTransModule = m
                                        , _modTransOpts = ?transOpts
                                        }))
+
+
+getTranslatedCFGForHandle ::
+  ModuleTranslation arch ->
+  L.Symbol ->
+  FnHandle args ret ->
+  IO (Maybe (L.Declare, C.SomeCFG LLVM args ret, [LLVMTranslationWarning]))
+getTranslatedCFGForHandle mt s h =
+  do m <- readIORef (_cfgMap mt)
+     case Map.lookup s m of
+       Just (decl, C.AnyCFG cfg) ->
+         case testEquality (handleType (C.cfgHandle cfg)) (handleType h) of
+           Just Refl ->
+             if C.cfgHandle cfg == h then
+               return (Just (decl,C.SomeCFG cfg,[]))
+             else fail $ unlines
+                    ["getTranslatedCFGForHandle: symbol already translated with a different function handle"
+                    , show s, show h, show (C.cfgHandle cfg) ]
+           Nothing ->
+             fail $ unlines
+               [ "getTranslatedCFGForHandle: Function type mismatch "
+               , show (handleType h)
+               , show (handleType (C.cfgHandle cfg))
+               ]
+       Nothing ->
+         case filter (\def -> L.defName def == s) (L.modDefines (_modTransModule mt)) of
+           [def] ->
+             let ?transOpts = _modTransOpts mt in
+             let ctx = _transContext mt in
+             llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
+             do warnRef <- newIORef []
+                (decl, C.SomeCFG cfg) <- transDefineWithHandle h ctx warnRef def
+                warns <- reverse <$> readIORef warnRef
+                modifyIORef (_cfgMap mt) (Map.insert s (decl, C.AnyCFG cfg))
+                return (Just (decl, C.SomeCFG cfg, warns))
+
+           [] -> return Nothing
+           ds -> panic ("More than one LLVM definition found for " ++ show (L.ppSymbol s))
+                       (map (show . L.ppDeclare . declareFromDefine) ds)
 
 
 getTranslatedCFG ::

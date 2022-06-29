@@ -149,7 +149,7 @@ registerFunctions llvmOpts llvm_module mtrans fs0 =
        llvm_ctx
 
      -- register all the functions defined in the LLVM module
-     registerLazyModule sayTranslationWarning llvm_ctx mtrans
+     registerLazyModule sayTranslationWarning mtrans
 
 simulateLLVMFile ::
   Crux.Logs msgs =>
@@ -278,16 +278,18 @@ checkFun ::
   OverM personality sym LLVM ()
 checkFun llvmOpts trans memVar =
   liftIO (getTranslatedCFG trans (fromString nm)) >>= \case
-    Just (_, AnyCFG anyCfg, _warns) ->
-      case cfgArgTypes anyCfg of
-        Empty -> simulateFun anyCfg emptyRegMap
+    Just (_, AnyCFG anyCfg, warns) ->
+      do liftIO (mapM_ sayTranslationWarning warns)
+         case cfgArgTypes anyCfg of
+           Empty -> simulateFun anyCfg emptyRegMap
 
-        (Empty :> LLVMPointerRepr w :> PtrRepr)
-          |  isMain, shouldSupplyMainArguments
-          ,  Just Refl <- testEquality w (knownNat @32)
-          -> checkMainWithArguments anyCfg
+           (Empty :> LLVMPointerRepr w :> PtrRepr)
+             |  isMain, shouldSupplyMainArguments
+             ,  Just Refl <- testEquality w (knownNat @32)
+             -> checkMainWithArguments anyCfg
 
-        _ -> throwCError (BadFun nm isMain)  -- TODO(lb): Suggest uc-crux-llvm?
+           _ -> throwCError (BadFun nm isMain)  -- TODO(lb): Suggest uc-crux-llvm?
+
     Nothing -> throwCError (MissingFun nm)
   where
     nm     = entryPoint llvmOpts
