@@ -492,12 +492,10 @@ translateModule :: (?transOpts :: TranslationOptions)
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some ModuleTranslation)
 translateModule halloc mvar m = do
-  --warnRef <- newIORef []
   Some ctx <- mkLLVMContext mvar m
   let nonceGen = haCounter halloc
   llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
-    do -- pairs <- mapM (transDefine halloc ctx warnRef) (L.modDefines m)
-       let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
+    do let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        let ctx' = ctx{ llvmGlobalAliases = globalAliases m
                      , llvmFunctionAliases = functionAliases m
                      }
@@ -513,7 +511,13 @@ translateModule halloc mvar m = do
                                        , _modTransOpts = ?transOpts
                                        }))
 
-
+-- | Similar to 'getTranslatedCFG', but the user provides a function handle
+--   to be associated with the CFG instead of having a new one be created.
+--   This will fail if the types of the function handle do not match
+--   the types computed from the function's signature.
+--
+--   Will return 'Nothing' if the symbol does not refer to a function defined in this
+--   module.
 getTranslatedCFGForHandle ::
   ModuleTranslation arch ->
   L.Symbol ->
@@ -553,6 +557,13 @@ getTranslatedCFGForHandle mt s h =
                        (map (show . L.ppDeclare . declareFromDefine) ds)
 
 
+-- | Given a 'ModuleTranslation' and a function symbol corresponding to a function
+--   defined in the module, attempt to look up the symbol name and retrieve the corresponding
+--   Crucible CFG. This will load and translate the CFG if this is the first time
+--   the given symbol is requested.
+--
+--   Will return 'Nothing' if the symbol does not refer to a function defined in this
+--   module.
 getTranslatedCFG ::
   ModuleTranslation arch ->
   L.Symbol ->

@@ -61,19 +61,22 @@ import           What4.FunctionName (functionNameFromText)
 
 
 -- | Register all the functions defined in the LLVM module.
+--   This will immediately build Crucible CFGs for each function
+--   defined in the module.
 registerModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   (LLVMTranslationWarning -> IO ()) ->
+   (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation arch ->
    OverrideSim p sym LLVM rtp l a ()
 registerModule handleWarning mtrans =
    mapM_ (registerModuleFn handleWarning mtrans) (map L.decName (mtrans ^. modTransDefs))
 
 -- | Register a specific named function that is defined in the given
---   module translation.
+--   module translation. This will immediately build a Crucible CFG for
+--   the named function.
 registerModuleFn ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   (LLVMTranslationWarning -> IO ()) ->
+   (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation arch ->
    L.Symbol ->
    OverrideSim p sym LLVM rtp l a ()
@@ -105,7 +108,7 @@ registerModuleFn handleWarning mtrans sym =
 --   'registerLazyModuleFn' for a description.
 registerLazyModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   (LLVMTranslationWarning -> IO ()) ->
+   (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation arch ->
    OverrideSim p sym LLVM rtp l a ()
 registerLazyModule handleWarning mtrans =
@@ -116,9 +119,12 @@ registerLazyModule handleWarning mtrans =
 --   is called. This done by first installing a bootstrapping override that
 --   will peform the actual translation when first invoked, and then will backpatch
 --   its own references to point to the translated function.
+--
+--   Note that the callback for printing translation warnings may be called at
+--   a much-later point, when the function in question is actually first invoked.
 registerLazyModuleFn ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   (LLVMTranslationWarning -> IO ()) ->
+   (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling translation warnings -} ->
    ModuleTranslation arch ->
    L.Symbol ->
    OverrideSim p sym LLVM rtp l a ()
@@ -157,15 +163,12 @@ registerLazyModuleFn handleWarning mtrans sym =
                          -- newly-installed CFG
                          regValue <$> (callFnVal (HandleFnVal h) =<< getOverrideArgs)
 
-              -- Bind the bootstrapping function handle to the global symbol.
-              -- This binding will be overwritten in the above handler when
-              -- the function is first called.
+              -- Bind the function handle to the appropriate global symbol.
               let mvar = llvmMemVar llvm_ctx
               mem <- readGlobal mvar
               mem' <- ovrWithBackend $ \bak ->
                         liftIO $ bindLLVMFunPtr bak decl h mem
               writeGlobal mvar mem'
-
 
     [] -> fail $ unlines
             [ "Could not find definition for function"

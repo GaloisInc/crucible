@@ -4,6 +4,18 @@
     `storeConstRaw`
   * `Lang.Crucible.LLVM.Globals`: `populateGlobal`
   * `Lang.Crucible.LLVM.MemModel.Generic`: `writeMem` and `writeConstMem`
+* `Lang.Crucible.LLVM`: `registerModuleFn` has changed type to
+  accomodate lazy loading of Crucible IR.
+* `Lang.Crucible.LLVM.Translation` : The `ModuleTranslation` record is
+  now opaque, the `cfgMap` is no longer exported and `globalInitMap`
+  and `modTransNonce` have become lens-style getters instead of record
+  accessors. CFGs should be retrieved using the new `getTranslatedCFG`
+  or `getTranslatedCFGForHandle` functions.
+* `Lang.Crucible.LLVM` : new functions `registerLazyModuleFn` and
+  `registerLazyModule`, which delay the building of Crucible CFGs until
+  the functions in question are actually called.
+
+
 
 # 0.4
 * A new `indeterminateLoadBehavior` flag in `MemOptions` now controls now

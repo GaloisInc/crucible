@@ -1,3 +1,13 @@
+# next
+
+## New features
+
+* When loading bitcode to execute, we now make use of a new feature
+of `crucible-llvm` which delays the translation of the LLVM bitcode
+until functions are actually called. This should speed up startup
+times and reduce memory usage for verification tasks where a small
+subset of functions in a bitcode module are actually executed.
+
 # 0.6
 
 ## New features
