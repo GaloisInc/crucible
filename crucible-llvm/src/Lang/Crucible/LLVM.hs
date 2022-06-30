@@ -31,15 +31,12 @@ module Lang.Crucible.LLVM
 import           Control.Lens
 import           Control.Monad (when)
 import           Control.Monad.IO.Class
-import qualified Data.Text as Text
 import qualified Text.LLVM.AST as L
-import qualified Text.LLVM.PP as L
 
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-                   (lookupHandleMap, mkHandle')
 import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
@@ -57,7 +54,6 @@ import           Lang.Crucible.Simulator.OverrideSim
 
 import           What4.Interface (getCurrentProgramLoc)
 import           What4.ProgramLoc (plSourceLoc)
-import           What4.FunctionName (functionNameFromText)
 
 
 -- | Register all the functions defined in the LLVM module.
@@ -69,7 +65,7 @@ registerModule ::
    ModuleTranslation arch ->
    OverrideSim p sym LLVM rtp l a ()
 registerModule handleWarning mtrans =
-   mapM_ (registerModuleFn handleWarning mtrans) (map L.decName (mtrans ^. modTransDefs))
+   mapM_ (registerModuleFn handleWarning mtrans) (map (L.decName.fst) (mtrans ^. modTransDefs))
 
 -- | Register a specific named function that is defined in the given
 --   module translation. This will immediately build a Crucible CFG for
@@ -112,7 +108,7 @@ registerLazyModule ::
    ModuleTranslation arch ->
    OverrideSim p sym LLVM rtp l a ()
 registerLazyModule handleWarning mtrans =
-   mapM_ (registerLazyModuleFn handleWarning mtrans) (map L.decName (mtrans ^. modTransDefs))
+   mapM_ (registerLazyModuleFn handleWarning mtrans) (map (L.decName.fst) (mtrans ^. modTransDefs))
 
 -- | Lazily register the named function that is defnied in the given module
 --   translation. This will delay actually translating the function until it
@@ -129,54 +125,48 @@ registerLazyModuleFn ::
    L.Symbol ->
    OverrideSim p sym LLVM rtp l a ()
 registerLazyModuleFn handleWarning mtrans sym =
-  case filter (\def -> L.defName def == sym) (L.modDefines (mtrans ^. modTransModule)) of
-    [def] ->
-      let llvm_ctx = mtrans^.transContext in
-      let ?lc = llvm_ctx^.llvmTypeCtx in
-      let decl = declareFromDefine def
-          L.Symbol fstr = L.decName decl
-          halloc = mtrans ^. modTransHalloc
-       in llvmDeclToFunHandleRepr' decl $ \argTys retTy ->
-           do let fn_name = functionNameFromText $ Text.pack fstr
-              h <- liftIO $ mkHandle' halloc fn_name argTys retTy
-
-              -- Bind the function handle we just created to the following bootstrapping code,
-              -- which actually translates the function on its first execution and patches up
-              -- behind itself.
-              bindFnHandle h
-                $ UseOverride
-                $ mkOverride' fn_name retTy
-                $ -- This inner action defines what to do when this function is called for the
-                  -- first time.  We actually translate the function and install it as the
-                  -- implementation for the function handle, instead of this bootstrapping code.
-                  liftIO (getTranslatedCFGForHandle mtrans sym h) >>= \case
-                    Nothing ->
-                      panic "registerLazyModuleFn"
-                        [ "Could not find definition for function in bootstrapping code"
-                        , show sym
-                        ]
-                    Just (_decl, SomeCFG cfg, warns) ->
-                      do liftIO $ mapM_ handleWarning warns
-                         -- Here we rebind the function handle to use the translated CFG
-                         bindFnHandle h (UseCFG cfg (postdomInfo cfg))
-                         -- Now, make recursive call to ourself, which should invoke the
-                         -- newly-installed CFG
-                         regValue <$> (callFnVal (HandleFnVal h) =<< getOverrideArgs)
-
-              -- Bind the function handle to the appropriate global symbol.
-              let mvar = llvmMemVar llvm_ctx
-              mem <- readGlobal mvar
-              mem' <- ovrWithBackend $ \bak ->
-                        liftIO $ bindLLVMFunPtr bak decl h mem
-              writeGlobal mvar mem'
-
-    [] -> fail $ unlines
-            [ "Could not find definition for function"
-            , show sym
-            ]
-
-    ds -> panic ("More than one LLVM definition found for " ++ show (L.ppSymbol sym))
-                (map (show . L.ppDeclare . declareFromDefine) ds)
+  liftIO (getTranslatedFnHandle mtrans sym) >>= \case
+    Nothing -> 
+      fail $ unlines
+        [ "Could not find definition for function"
+        , show sym
+        ]
+    Just (decl, SomeHandle h) ->
+     do -- Bind the function handle we just created to the following bootstrapping code,
+        -- which actually translates the function on its first execution and patches up
+        -- behind itself.
+        bindFnHandle h
+          $ UseOverride
+          $ mkOverride' (handleName h) (handleReturnType h)
+          $ -- This inner action defines what to do when this function is called for the
+            -- first time.  We actually translate the function and install it as the
+            -- implementation for the function handle, instead of this bootstrapping code.
+            liftIO (getTranslatedCFG mtrans sym) >>= \case
+              Nothing ->
+                panic "registerLazyModuleFn"
+                  [ "Could not find definition for function in bootstrapping code"
+                  , show sym
+                  ]
+              Just (_decl, AnyCFG cfg, warns) ->
+                case testEquality (handleType (cfgHandle cfg)) (handleType h) of
+                  Nothing -> panic "registerLazyModuleFn"
+                                  ["Translated CFG type does not match function handle type",
+                                   show (handleType h), show (handleType (cfgHandle cfg)) ]
+                  Just Refl ->
+                    do liftIO $ mapM_ handleWarning warns
+                       -- Here we rebind the function handle to use the translated CFG
+                       bindFnHandle h (UseCFG cfg (postdomInfo cfg))
+                       -- Now, make recursive call to ourself, which should invoke the
+                       -- newly-installed CFG
+                       regValue <$> (callFnVal (HandleFnVal h) =<< getOverrideArgs)
+   
+        -- Bind the function handle to the appropriate global symbol.
+        let llvm_ctx = mtrans ^. transContext
+        let mvar = llvmMemVar llvm_ctx
+        mem <- readGlobal mvar
+        mem' <- ovrWithBackend $ \bak ->
+                  liftIO $ bindLLVMFunPtr bak decl h mem
+        writeGlobal mvar mem'
 
 
 llvmGlobalsToCtx

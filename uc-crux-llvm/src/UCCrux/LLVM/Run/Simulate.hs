@@ -269,7 +269,7 @@ registerDefinedFns ::
 registerDefinedFns appCtx modCtx =
   do let trans = modCtx ^. moduleTranslation
      for_ (trans ^. modTransDefs) $
-       \decl ->
+       \(decl, _) ->
          do let s@(L.Symbol symb) = L.decName decl
             liftIO $
               (appCtx ^. log) Hi $
