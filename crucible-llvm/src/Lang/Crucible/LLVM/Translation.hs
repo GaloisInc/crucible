@@ -74,9 +74,14 @@
 {-# LANGUAGE TypeOperators         #-}
 
 module Lang.Crucible.LLVM.Translation
-  ( ModuleTranslation(..)
+  ( ModuleTranslation
+  , getTranslatedCFG
+  , getTranslatedFnHandle
   , transContext
-  , ModuleCFGMap
+  , globalInitMap
+  , modTransDefs
+  , modTransModule
+  , modTransHalloc
   , LLVMContext(..)
   , llvmTypeCtx
   , translateModule
@@ -89,7 +94,7 @@ module Lang.Crucible.LLVM.Translation
 
 import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
-import           Data.IORef (IORef, newIORef, readIORef)
+import           Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
@@ -133,28 +138,49 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- Translation results
 
-type ModuleCFGMap = Map L.Symbol (L.Declare, C.AnyCFG LLVM)
+type ModuleCFGMap = Map L.Symbol CFGMapEntry
+
+data CFGMapEntry
+  = TranslatedCFG L.Declare (C.AnyCFG LLVM)
+  | UntranslatedCFG L.Define SomeHandle
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
    = ModuleTranslation
-      { cfgMap        :: ModuleCFGMap
+      { _cfgMap        :: IORef ModuleCFGMap
       , _transContext :: LLVMContext arch
-      , globalInitMap :: GlobalInitializerMap
+      , _globalInitMap :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
-      , modTransNonce :: !(Nonce GlobalNonceGenerator arch)
+      , _modTransNonce :: !(Nonce GlobalNonceGenerator arch)
         -- ^ For a reasonably quick 'testEquality' instance
+      , _modTransDefs :: ![(L.Declare, SomeHandle)]
+        -- ^ A collection of declarations for all the functions
+        --   defined in this module.
+      , _modTransHalloc :: HandleAllocator
+      , _modTransModule :: L.Module
+      , _modTransOpts   :: TranslationOptions
       }
 
 instance TestEquality ModuleTranslation where
   testEquality mt1 mt2 =
-    testEquality (modTransNonce mt1) (modTransNonce mt2)
+    testEquality (_modTransNonce mt1) (_modTransNonce mt2)
 
-transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
-transContext = lens _transContext (\s v -> s{ _transContext = v})
+transContext :: Getter (ModuleTranslation arch) (LLVMContext arch)
+transContext = to _transContext
 
+globalInitMap :: Getter (ModuleTranslation arch) GlobalInitializerMap
+globalInitMap = to _globalInitMap
+
+modTransDefs :: Getter (ModuleTranslation arch) [(L.Declare,SomeHandle)]
+modTransDefs = to _modTransDefs
+
+modTransModule :: Getter (ModuleTranslation arch) L.Module
+modTransModule = to _modTransModule
+
+modTransHalloc :: Getter (ModuleTranslation arch) HandleAllocator
+modTransHalloc = to _modTransHalloc
 
 typeToRegExpr :: MemType -> LLVMGenerator s arch ret (Some (Reg s))
 typeToRegExpr tp = do
@@ -390,30 +416,41 @@ checkEntryPointUseSet nm bi args
 -- transDefine
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
-transDefine :: forall arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
-            => HandleAllocator
-            -> LLVMContext arch
-            -> IORef [LLVMTranslationWarning]
-            -> L.Define
-            -> IO (L.Symbol, (L.Declare, C.AnyCFG LLVM))
-transDefine halloc ctx warnRef d = do
+--
+transDefine :: forall arch wptr args ret.
+  (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions) =>
+  FnHandle args ret ->
+  LLVMContext arch ->
+  IORef [LLVMTranslationWarning] ->
+  L.Define ->
+  IO (L.Declare, C.AnyCFG LLVM)
+transDefine h ctx warnRef d = do
   let ?lc = ctx^.llvmTypeCtx
   let decl = declareFromDefine d
-  let symb@(L.Symbol symb_str) = L.defName d
-  let fn_name = functionNameFromText $ Text.pack symb_str
+  let L.Symbol fstr = L.defName d
 
-  llvmDeclToFunHandleRepr' decl $ \(argTypes :: CtxRepr args) (retType :: TypeRepr ret) -> do
-    h <- mkHandle' halloc fn_name argTypes retType
-    let def :: FunctionDef LLVM (LLVMState arch) args ret IO
-        def inputs = (s, f)
-            where s = initialState d ctx argTypes inputs warnRef
-                  f = genDefn d retType
-    sng <- newIONonceGenerator
-    (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
-      if optLoopMerge ?transOpts then earlyMergeLoops ng cfg else return cfg
-    case toSSA g of
-      C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
+  llvmDeclToFunHandleRepr' decl $ \argTys retTy ->
+    case (testEquality argTys (handleArgTypes h),
+          testEquality retTy (handleReturnType h)) of
+       (Nothing, _) -> fail $ unlines
+                         [ "Argument type mismatch when defining function: " ++ fstr
+                         , show argTys
+                         , show h ]
+       (_, Nothing) -> fail $ unlines $
+                         [ "Return type mismatch when bootstrapping function: " ++ fstr
+                         , show retTy, show h
+                         ]
+       (Just Refl, Just Refl) ->
+         do let def :: FunctionDef LLVM (LLVMState arch) args ret IO
+                def inputs = (s, f)
+                    where s = initialState d ctx argTys inputs warnRef
+                          f = genDefn d retTy
+            sng <- newIONonceGenerator
+            (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
+              if optLoopMerge ?transOpts then earlyMergeLoops ng cfg else return cfg
+            case toSSA g of
+              C.SomeCFG g_ssa -> g_ssa `seq` return (decl, C.AnyCFG g_ssa)
+
 
 ------------------------------------------------------------------------
 -- translateModule
@@ -427,22 +464,81 @@ translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
-                -> IO (Some ModuleTranslation, [LLVMTranslationWarning])
+                -> IO (Some ModuleTranslation)
 translateModule halloc mvar m = do
-  warnRef <- newIORef []
   Some ctx <- mkLLVMContext mvar m
   let nonceGen = haCounter halloc
-  mtrans <- llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
-    do pairs <- mapM (transDefine halloc ctx warnRef) (L.modDefines m)
-       let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
+  llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
+    do let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        let ctx' = ctx{ llvmGlobalAliases = globalAliases m
                      , llvmFunctionAliases = functionAliases m
                      }
        nonce <- freshNonce nonceGen
-       return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
-                                       , globalInitMap = makeGlobalMap ctx' m
+       prep <- mapM (prepareCFGMapEntry halloc) (L.modDefines m)
+       cfgRef <- newIORef $! Map.fromList [ (L.defName def, UntranslatedCFG def h) | (def,_,h) <- prep ]
+       return (Some (ModuleTranslation { _cfgMap = cfgRef
+                                       , _globalInitMap = makeGlobalMap ctx' m
                                        , _transContext = ctx'
-                                       , modTransNonce = nonce
+                                       , _modTransNonce = nonce
+                                       , _modTransDefs = [ (decl,h) | (_,decl,h) <- prep ]
+                                       , _modTransHalloc = halloc
+                                       , _modTransModule = m
+                                       , _modTransOpts = ?transOpts
                                        }))
-  warns <- reverse <$> readIORef warnRef
-  return (mtrans, warns)
+
+prepareCFGMapEntry ::
+  (HasPtrWidth wptr, ?lc :: TypeContext) =>
+  HandleAllocator ->
+  L.Define ->
+  IO (L.Define, L.Declare, SomeHandle)
+prepareCFGMapEntry halloc def =
+  let decl = declareFromDefine def in
+  let L.Symbol fstr = L.defName def in
+  let fn_name = functionNameFromText $ Text.pack fstr in
+  llvmDeclToFunHandleRepr' decl $ \argTys retTy ->
+    do h <- mkHandle' halloc fn_name argTys retTy
+       return (def, decl, SomeHandle h)
+
+
+-- | Given a 'ModuleTranslation' and a function symbol corresponding to a function
+--   defined in the module, attempt to look up the symbol name and retrieve the corresponding
+--   Crucible CFG. This will load and translate the CFG if this is the first time
+--   the given symbol is requested.
+--
+--   Will return 'Nothing' if the symbol does not refer to a function defined in this
+--   module.
+getTranslatedCFG ::
+  ModuleTranslation arch ->
+  L.Symbol ->
+  IO (Maybe (L.Declare, C.AnyCFG LLVM, [LLVMTranslationWarning]))
+getTranslatedCFG mt s =
+  do m <- readIORef (_cfgMap mt)
+     case Map.lookup s m of
+       Nothing -> return Nothing
+       Just (TranslatedCFG decl cfg) -> return (Just (decl, cfg, []))
+       Just (UntranslatedCFG def (SomeHandle h)) ->
+         let ?transOpts = _modTransOpts mt in
+         let ctx = _transContext mt in
+         llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
+         do warnRef <- newIORef []
+            (decl, cfg) <- transDefine h ctx warnRef def
+            warns <- reverse <$> readIORef warnRef
+            modifyIORef (_cfgMap mt) (Map.insert s (TranslatedCFG decl cfg))
+            return (Just (decl, cfg, warns))
+
+-- | Look up the signature and function handle for a function defined in this
+--   module translation.  This does not trigger translation of the named function
+--   into Crucible if it has not already been requested.
+--
+--   Will return 'Nothing' if the symbol does not refer to a function defined in this
+--   module.
+getTranslatedFnHandle ::
+  ModuleTranslation arch ->
+  L.Symbol ->
+  IO (Maybe (L.Declare, SomeHandle))
+getTranslatedFnHandle mt s =
+  do m <- readIORef (_cfgMap mt)
+     case Map.lookup s m of
+       Nothing -> return Nothing
+       Just (TranslatedCFG decl (C.AnyCFG cfg)) -> return (Just (decl, SomeHandle (C.cfgHandle cfg)))
+       Just (UntranslatedCFG def h) -> return (Just (declareFromDefine def, h))

@@ -77,12 +77,12 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerModuleFn)
+import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerLazyModuleFn)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Intrinsics as LLVMIntrinsics
 import           Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemOptions)
-import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx, cfgMap, allModuleDeclares)
+import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx, allModuleDeclares, modTransDefs)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
@@ -268,13 +268,15 @@ registerDefinedFns ::
   Crucible.OverrideSim (personality sym) sym LLVM rtp l a ()
 registerDefinedFns appCtx modCtx =
   do let trans = modCtx ^. moduleTranslation
-     let llvmCtxt = trans ^. transContext
-     for_ (Map.toList (cfgMap trans)) $
-       \(L.Symbol symb, cfg) ->
-         do liftIO $
+     for_ (trans ^. modTransDefs) $
+       \(decl, _) ->
+         do let s@(L.Symbol symb) = L.decName decl
+            liftIO $
               (appCtx ^. log) Hi $
                 Text.unwords ["Registering definition of", Text.pack symb]
-            registerModuleFn llvmCtxt cfg
+            -- TODO? handle these warnings?
+            let handleTranslationWarning _warn = return ()
+            registerLazyModuleFn handleTranslationWarning trans s
 
 mkCallbacks ::
   forall r m arch argTypes blocks ret msgs.

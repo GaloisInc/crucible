@@ -8,6 +8,7 @@ Stability    : provisional
 -}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -35,7 +36,7 @@ module UCCrux.LLVM.Context.Module
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.), Simple, Lens, lens, to, at)
+import           Control.Lens ((^.), Simple, Lens, lens)
 import           Data.Type.Equality ((:~:)(Refl))
 import           GHC.Stack (HasCallStack)
 
@@ -117,24 +118,24 @@ makeModuleContext ::
   FilePath ->
   L.Module ->
   ModuleTranslation arch ->
-  SomeModuleContext arch
+  IO (SomeModuleContext arch)
 makeModuleContext path llvmMod trans =
-  case tryMakeModuleContext path llvmMod trans of
+  tryMakeModuleContext path llvmMod trans >>= \case
     Left err -> throwTypeTranslationError err
-    Right modCtx -> modCtx
+    Right modCtx -> return modCtx
 
 tryMakeModuleContext ::
   ArchOk arch =>
   FilePath ->
   L.Module ->
   ModuleTranslation arch ->
-  Either TypeTranslationError (SomeModuleContext arch)
+  IO (Either TypeTranslationError (SomeModuleContext arch))
 tryMakeModuleContext path llvmMod trans =
   let ?lc = trans ^. LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
-   in case translateModuleDefines llvmMod trans of
-        Left err -> Left err
+   in translateModuleDefines llvmMod trans >>= \case
+        Left err -> return (Left err)
         Right (TranslatedTypes llvmMod' modTypes globTypes decTypes) ->
-          Right $
+          return $ Right $
             SomeModuleContext $
               ModuleContext path llvmMod' modTypes globTypes decTypes trans (allModuleDeclMap llvmMod')
 
@@ -176,14 +177,14 @@ findFun ::
   ArchOk arch =>
   ModuleContext m arch ->
   FuncSymbol m ->
-  CFGWithTypes m arch
+  IO (CFGWithTypes m arch)
 findFun modCtx funcSym =
   case modCtx ^. funcTypes . funcSymbol funcSym of
     Some (FuncSigRepr varArgs argFTys retTy) ->
       do let sym@(Symbol name) = getFuncSymbol funcSym
-         case modCtx ^. moduleTranslation . to LLVMTrans.cfgMap . at sym of
+         LLVMTrans.getTranslatedCFG (modCtx ^. moduleTranslation) sym >>= \case
            Nothing -> panic "findFunc" ["Missing function:" ++ name]
-           Just (_decl, Crucible.AnyCFG cfg) ->
+           Just (_decl, Crucible.AnyCFG cfg, _warns) ->
              if varArgsReprToBool varArgs
              then unimplemented "findFun" Unimplemented.VarArgsFunction
              else
@@ -193,6 +194,7 @@ findFun modCtx funcSym =
                    case testCompatibilityReturn modCtx retTy (Crucible.cfgReturnType cfg) of
                      Nothing -> panic "findFunc" ["Mismatched return types"]
                      Just Refl ->
+                       return
                        CFGWithTypes
                          { cfgWithTypes = cfg,
                            cfgArgFullTypes = argFTys,

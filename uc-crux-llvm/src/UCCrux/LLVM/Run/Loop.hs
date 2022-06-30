@@ -236,7 +236,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
             ptrW
             ( do
                 CFGWithTypes cfg argFTys _retTy _varArgs <-
-                  pure (findFun modCtx (FuncDefnSymbol fn))
+                  findFun modCtx (FuncDefnSymbol fn)
                 let funCtx =
                       makeFunctionContext modCtx fn argFTys (Crucible.cfgArgTypes cfg)
                 (appCtx ^. log) Hi $ "Checking function " <> (funCtx ^. functionName)

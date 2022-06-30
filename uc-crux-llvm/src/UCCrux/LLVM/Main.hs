@@ -13,6 +13,7 @@ Stability    : provisional
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -242,7 +243,7 @@ translateLLVMModule ::
   IO SomeModuleContext'
 translateLLVMModule llOpts halloc memVar moduleFilePath llvmMod =
   do
-    (Some trans, _warns) <- -- TODO? should we do something with these warnings?
+    Some trans <-
       let ?transOpts = transOpts llOpts
        in translateModule halloc memVar llvmMod
     llvmPtrWidth
@@ -250,7 +251,7 @@ translateLLVMModule llOpts halloc memVar moduleFilePath llvmMod =
       ( \ptrW ->
           withPtrWidth
             ptrW
-            ( case makeModuleContext moduleFilePath llvmMod trans of
+            ( makeModuleContext moduleFilePath llvmMod trans >>= \case
                 SomeModuleContext modCtx -> pure (SomeModuleContext' modCtx)
             )
       )

@@ -474,7 +474,7 @@ setupExecution appCtx modCtx funCtx bak constraints = do
   mem <-
     withTypeContext modCtx $
       liftIO $
-        LLVMGlobals.populateConstGlobals bak (LLVMTrans.globalInitMap moduleTrans)
+        LLVMGlobals.populateConstGlobals bak (moduleTrans ^. LLVMTrans.globalInitMap)
           =<< LLVMGlobals.initializeAllMemory bak llvmCtxt (modCtx ^. llvmModule . to getModule)
   runSetup modCtx mem $
     do

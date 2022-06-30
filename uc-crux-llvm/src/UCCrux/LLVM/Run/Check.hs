@@ -201,7 +201,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
         (Map.toList contracts)
         (\(func, Some (TypedPreconds tcs types)) ->
            do CFGWithTypes ovCfg argFTys _retTy _varArgs <-
-                pure (findFun modCtx (FuncDefnSymbol func))
+                findFun modCtx (FuncDefnSymbol func)
               let argCTys = Crucible.cfgArgTypes ovCfg
               let ovFunCtx = makeFunctionContext modCtx func argFTys argCTys
               let ?memOpts = CruxLLVM.memOpts llOpts
@@ -253,7 +253,7 @@ checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entri
     for (getEntryPoints entries) $
       \entry ->
         do CFGWithTypes cfg argFTys _retTy _varArgs <-
-             pure (findFun modCtx (FuncDefnSymbol entry))
+             findFun modCtx (FuncDefnSymbol entry)
 
            let funCtx =
                  makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg)

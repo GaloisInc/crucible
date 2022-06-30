@@ -32,6 +32,7 @@ import qualified Test.Tasty.Runners as TR
 import qualified Test.Tasty.Sugar as TS
 
 -- General
+import           Control.Lens (view)
 import           Control.Monad
 import           Data.Either ( fromRight )
 import           Data.Maybe ( catMaybes )
@@ -222,14 +223,14 @@ testBuildTranslation srcPath llvmTransTests =
       trans = do halloc <- newHandleAllocator
                  let ?transOpts = defaultTranslationOptions
                  memVar <- mkMemVar "buildTranslation_test_llvm_memory" halloc
-                 (m, _warns) <- (translateModule halloc memVar =<<
-                   (fromRight (error "parsing was already verified") <$> parseLLVM bcPath))
+                 m <- (translateModule halloc memVar =<<
+                        (fromRight (error "parsing was already verified") <$> parseLLVM bcPath))
                  return m
 
       translate_bitcode =
         testCase translateName $ do
         trans >>= \(Some modTrans) ->
-          not (Map.null $ cfgMap modTrans) @? "Translation of " ++ bcPath ++ " was empty (failed?)"
+          not (null $ view modTransDefs modTrans) @? "Translation of " ++ bcPath ++ " was empty (failed?)"
 
 
   in catMaybes
@@ -248,19 +249,19 @@ transCheck getTrans = \case
     testCase "valid global extern variable reference" $ do
     Some t <- getTrans
     Map.singleton (L.Symbol "extern_int") (Right (i32, Nothing)) @=?
-      Map.map snd (globalInitMap t)
+      Map.map snd (view globalInitMap t)
 
   "x=42" ->
     testCase "valid global integer symbol reference" $ do
     Some t <- getTrans
     Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
-      Map.map snd (globalInitMap t)
+      Map.map snd (view globalInitMap t)
 
   "z.xx=17" ->
     testCase "valid global struct field symbol reference" $ do
     Some t <- getTrans
     IntConst (knownNat @32) (BV.mkBV knownNat 17) @=?
-      case snd <$> Map.lookup (L.Symbol "z") (globalInitMap t) of
+      case snd <$> Map.lookup (L.Symbol "z") (view globalInitMap t) of
         Just (Right (_, Just (StructConst _ (x : _)))) -> x
         _ -> IntConst (knownNat @1) (BV.zero knownNat)
 
@@ -268,7 +269,7 @@ transCheck getTrans = \case
     testCase "valid global unitialized variable reference" $ do
     Some t <- getTrans
     Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
-      Map.map snd (globalInitMap t)
+      Map.map snd (view globalInitMap t)
 
   -- We're really just checking that the translation succeeds without
   -- exceptions.

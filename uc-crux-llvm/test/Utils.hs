@@ -222,7 +222,7 @@ simulateFunc file func makeCallbacks =
                 [functionNameFromString func]
            withModulePtrWidth modCtx $
              do CFGWithTypes cfg argFTys _retTy _varArgs <-
-                   pure (findFun modCtx (FuncDefnSymbol entry))
+                   findFun modCtx (FuncDefnSymbol entry)
                 let funCtx =
                       makeFunctionContext modCtx entry argFTys (Crucible.cfgArgTypes cfg)
                 -- TODO(lb): also provide these
