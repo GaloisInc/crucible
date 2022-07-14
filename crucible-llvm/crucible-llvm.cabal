@@ -87,6 +87,7 @@ library
     Lang.Crucible.LLVM.QQ
     Lang.Crucible.LLVM.SymIO
     Lang.Crucible.LLVM.SimpleLoopFixpoint
+    Lang.Crucible.LLVM.SimpleLoopFixpoint2
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext
