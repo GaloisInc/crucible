@@ -32,6 +32,7 @@ import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
+import           Control.Monad.Except
 import           Data.Either
 import           Data.Foldable
 import qualified Data.IntMap as IntMap
@@ -408,6 +409,26 @@ userSymbol' :: String -> W4.SolverSymbol
 userSymbol' = fromRight (C.panic "SimpleLoopFixpoint.userSymbol'" []) . W4.userSymbol
 
 
+
+computeLoopMap :: (k ~ C.Some (C.BlockID blocks)) => [C.WTOComponent k] -> IO (Map k [k])
+computeLoopMap wto = return loop_map
+  -- Doesn't really work if there are nested loops: loop datastructures will
+  -- overwrite each other.  Currently no error message.
+
+  -- Really only works for single-exit loops; need a message for that too.
+
+ where
+  flattenWTOComponent = \case
+    C.SCC C.SCCData{..} ->  wtoHead : concatMap flattenWTOComponent wtoComps
+    C.Vertex v -> [v]
+
+  loop_map = Map.fromList $ mapMaybe
+    (\case
+      C.SCC C.SCCData{..} -> Just (wtoHead, wtoHead : concatMap flattenWTOComponent wtoComps)
+      C.Vertex{} -> Nothing)
+    wto
+
+
 -- | This execution feature is designed to allow a limited form of
 --   verification for programs with unbounded looping structures.
 --
@@ -441,20 +462,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var loop_invariant = do
   --verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
   --verb <- fromInteger <$> W4.getOpt verbSetting
 
-  -- Doesn't really work if there are nested loops: looop datastructures will
-  -- overwrite each other.  Currently no error message.
-
-  -- Really only works for single-exit loops; need a message for that too.
-
-  let flattenWTOComponent = \case
-        C.SCC C.SCCData{..} ->  wtoHead : concatMap flattenWTOComponent wtoComps
-        C.Vertex v -> [v]
-  let loop_map = Map.fromList $ mapMaybe
-        (\case
-          C.SCC C.SCCData{..} -> Just (wtoHead, wtoHead : concatMap flattenWTOComponent wtoComps)
-          C.Vertex{} -> Nothing)
-        (C.cfgWeakTopologicalOrdering cfg)
-
+  loop_map <- computeLoopMap (C.cfgWeakTopologicalOrdering cfg)
 
   fixpoint_state_ref <- newIORef @(FixpointState p sym ext rtp blocks) BeforeFixpoint
 
@@ -581,7 +589,8 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
 
 
         ?logMessage $ "SimpleLoopFixpoint: RunningState: ComputeFixpoint: " ++ show block_id
-        _ <- C.popAssumptionFrameAndObligations bak $ fixpointAssumptionFrameIdentifier fixpoint_record
+        _ <- C.popAssumptionFrameAndObligations bak $
+              fixpointAssumptionFrameIdentifier fixpoint_record
 
         loc <- W4.getCurrentProgramLoc sym
 
@@ -736,9 +745,6 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
 
         -- == assert the loop invariant and abort ==
 
-        -- should we/do we need to pop this frame?
-        -- _ <- C.popAssumptionFrame bak $ fixpointAssumptionFrameIdentifier fixpoint_record
-
         let body_mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
         let (header_mem_impl, _mem_allocs, _mem_writes) = dropMemStackFrame body_mem_impl
 
@@ -857,21 +863,48 @@ computeMemSubstitution sym fixpoint_record mem_writes =
         (List.concat $ IntMap.elems mmm)
       _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++ show (C.ppMemWrites mem_writes)
 
-    -- check that the mem substitution always computes the same footprint on every iteration (!?!)
-    regular_mem_substitution <- if Map.null (regularMemSubst (fixpointMemSubstitution fixpoint_record))
-      then return mem_substitution_candidate
-      else if Map.keys mem_substitution_candidate == Map.keys (regularMemSubst (fixpointMemSubstitution fixpoint_record))
-        then return $ regularMemSubst (fixpointMemSubstitution fixpoint_record)
-        else fail "SimpleLoopFixpoint: unsupported memory writes change"
+    let memSubstCandidate = MemSubst mem_substitution_candidate array_mem_substitution_candidate
 
-    -- check that the array mem substitution always computes the same footprint (!?!)
-    array_mem_substitution <- if Map.null (arrayMemSubst (fixpointMemSubstitution fixpoint_record))
-      then return array_mem_substitution_candidate
-      else if Map.keys array_mem_substitution_candidate == Map.keys (arrayMemSubst (fixpointMemSubstitution fixpoint_record))
-        then return $ arrayMemSubst (fixpointMemSubstitution fixpoint_record)
-        else fail "SimpleLoopFixpoint: unsupported SMT array memory writes change"
+    -- Check the candidate and raise errors if we cannot handle the resulting widening
+    res <- liftIO $ runExceptT $
+             checkMemSubst sym (fixpointMemSubstitution fixpoint_record) memSubstCandidate
+    case res of
+      Left msg -> fail $ unlines $
+        ["SimpleLoopFixpoint: failure construting memory footprint for loop invariant"]
+        ++ msg
+      Right x  -> return x
 
-    return (MemSubst regular_mem_substitution array_mem_substitution)
+
+-- | This function checks that the computed candidate memory substitution is an acceptable
+--   refinement of the original. For the moment, this is a very restrictive test; either
+--   we have started with an empty substitution (e.g., on the first iteration), or we have
+--   computed a substitution that is exactly compatible with the one we started with.
+--
+--   At some point, it may be necessary or desirable to allow more.
+
+checkMemSubst ::
+  sym ->
+  MemorySubstitution sym ->
+  MemorySubstitution sym ->
+  ExceptT [String] IO (MemorySubstitution sym)
+checkMemSubst _sym orig candidate =
+  do -- check that the mem substitution always computes the same
+     -- footprint on every iteration (!?!)
+     regular_mem_substitution <- if Map.null (regularMemSubst orig)
+       then return (regularMemSubst candidate)
+       else if Map.keys (regularMemSubst candidate) == Map.keys (regularMemSubst orig)
+         then return (regularMemSubst orig)
+         else throwError ["SimpleLoopFixpoint: unsupported memory writes change"]
+
+     -- check that the array mem substitution always computes the same footprint (!?!)
+     array_mem_substitution <- if Map.null (arrayMemSubst orig)
+       then return (arrayMemSubst candidate)
+       else if Map.keys (arrayMemSubst candidate) == Map.keys (arrayMemSubst orig)
+         then return $ arrayMemSubst orig
+         else throwError $ ["SimpleLoopFixpoint: unsupported SMT array memory writes change"]
+
+     return (MemSubst regular_mem_substitution array_mem_substitution)
+
 
 
 data MaybePausedFrameTgtId f where
