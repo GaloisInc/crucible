@@ -26,6 +26,8 @@ module Lang.Crucible.LLVM.Printf
 , ConversionDirective(..)
 , PrintfOperations(..)
 , executeDirectives
+, formatInteger
+, formatRational
 ) where
 
 import           Data.Char (toUpper)
