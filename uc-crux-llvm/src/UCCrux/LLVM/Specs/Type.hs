@@ -78,7 +78,7 @@ data SpecSoundness
   | Underapprox
   -- | Neither over-approximate and under-approximate
   | Imprecise
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 -- | If the precondition ('specPre') holds, then the function will have the
 -- effects on program state specified in the postcondition ('specPost') See
