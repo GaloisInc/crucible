@@ -215,4 +215,5 @@ viewPreconds modCtx fs vpres =
              (viewUPostcond modCtx fsRep vpost)
          return (fSymb, post)
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''PrecondsView)

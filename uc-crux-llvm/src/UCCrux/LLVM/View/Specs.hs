@@ -235,6 +235,7 @@ parseSpecs modCtx =
              specs <- viewSpecs modCtx fsRepr vspecs
              return (Map.insert funcSymb (SomeSpecs fsRepr specs) mp, missingFuns)
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON
   Aeson.defaultOptions
     { Aeson.fieldLabelModifier = drop (length ("vSpec" :: String)) }

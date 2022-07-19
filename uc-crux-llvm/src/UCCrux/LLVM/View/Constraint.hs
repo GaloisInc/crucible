@@ -243,6 +243,7 @@ viewConstrainedTypedValue mts (ConstrainedTypedValueView vty vval) =
        liftError ViewConstrainedShapeError (viewConstrainedShape mts ft vval)
      return (ConstrainedTypedValue ft shape)
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON
   Aeson.defaultOptions
     { Aeson.constructorTagModifier =

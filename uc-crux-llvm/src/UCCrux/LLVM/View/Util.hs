@@ -57,6 +57,7 @@ newtype TypeName
   = TypeName { getTypeName :: Text }
   deriving (Eq, Ord, Show, Generic, Aeson.FromJSONKey, Aeson.ToJSONKey)
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON
   Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
   ''Alignment)

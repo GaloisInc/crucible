@@ -283,6 +283,7 @@ viewUPostcond modCtx fs vup =
          cv <- liftError ViewClobberValueError (viewClobberValue mts gTy vcv)
          return (gSymb, SomeClobberValue cv)
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON
   Aeson.defaultOptions
     { Aeson.fieldLabelModifier = drop (length ("vClobber" :: String)) }

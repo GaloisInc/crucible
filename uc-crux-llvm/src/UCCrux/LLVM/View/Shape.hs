@@ -269,6 +269,7 @@ viewShape mts tag ft vshape =
     check cond err = when cond (Left err)
     getTag vtag = liftErr (tag ft vtag)
 
+-- See Note [JSON instance tweaks].
 $(deriveMutualJSON
   Aeson.defaultOptions
     { Aeson.constructorTagModifier =
