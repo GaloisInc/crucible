@@ -138,4 +138,9 @@ minimalSpec (FS.FuncSigRepr _ args _) =
 
 -- | The minimal set of specs - just a single 'minimalSpec'.
 minimalSpecs :: FS.FuncSigRepr m fs -> Specs m fs
-minimalSpecs = Specs . NE.singleton . minimalSpec
+minimalSpecs = Specs . neSingleton . minimalSpec
+  where
+    -- | Added as NE.singleton in base-4.15/GHC 9.
+    neSingleton x = x NE.:| []
+
+
