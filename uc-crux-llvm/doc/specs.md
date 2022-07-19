@@ -72,6 +72,26 @@ $ uc-crux-llvm --specs-path specs.json --entry-points main test.c
 [UC-Crux-LLVM]   - g
 ```
 
+### Use Cases
+
+There are three main use cases in mind for this feature:
+
+- A user wants to analyze code with external library dependencies that can't be
+  linked into the LLVM bitcode due to build system difficulties or lack of
+  access to source code. The user can manually write specifications for a subset
+  of the external functions to get better analysis results (as in the above
+  example).
+- UC-Crux maintainers wish to provide specifications of common library functions
+  (e.g., functions in `libc`) to improve analysis results on code using those
+  libraries. It's arguably easier to write these specs in the declarative format
+  (shown above as JSON) than as a Crucible override (Haskell function).
+  Perhaps users could one day select among over- or under-approximate overrides
+  (both provided by maintainers) for library functions depending on their goals.
+- Some external, possibly partially automated process provides specifications as
+  part of a workflow with a system in which UC-Crux is just one component.
+  For example, some other source-level analysis or process might generate
+  potential specs and ask a human to choose among them.
+
 ## Soundness of Specifications
 
 Specifications don't have to exactly describe the behavior of a function in
@@ -130,3 +150,13 @@ over- or under-approximate specs.
 The JSON format for writing specifications is not yet stable. In the meantime,
 `src/UCCrux/LLVM/Spec` and `src/UCCrux/LLVM/Views/Spec` provide some indication
 of how it works.
+
+## Design
+
+There is a large space of possible specification formats, from simpler specs
+that are able to adequately describe only a small subset of realistic functions,
+to something with the same expressive power as writing a Crucible override in
+Haskell. The hope is that the JSON format is somewhere in the middle: simple and
+declarative enough to be easy to write and understand, while rich enough to
+usefully specify reasonable C functions. The appropriate balance may become more
+clear as the feature is developed further and more specs are written.
