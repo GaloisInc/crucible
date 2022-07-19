@@ -42,6 +42,9 @@ import           UCCrux.LLVM.Precondition (emptyArgPreconds)
 import           UCCrux.LLVM.Postcondition.Type (Postcond)
 
 -- | Preconditions required to hold for a 'Spec' to execute.
+--
+-- Currently only holds preconditions on arguments, but should be extended with
+-- preconditions on globals at some point.
 data SpecPreconds m (args :: Ctx (FullType m))
   = SpecPreconds
       { -- | Preconditions on arguments to the specified function
