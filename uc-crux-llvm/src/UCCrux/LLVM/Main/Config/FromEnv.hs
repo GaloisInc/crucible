@@ -92,30 +92,9 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
   do
     let appCtx = makeAppContext (verbosityFromInt (verbosity initUCOpts))
     let doCrashOrder = crashOrder initUCOpts /= ""
-
-    -- Figure out the entry points. If exploration mode is selected, the
-    -- specified entry points are irrelevant. If crash ordering is selected,
-    -- then entry points may or may not be specified. If neither is selected,
-    -- then entry points must be provided.
-    let makeEntries :: UCCruxLLVMOptions -> IO (Maybe (NonEmpty FunctionName))
-        makeEntries uco
-          | doExplore uco = pure Nothing
-          | crashOrder uco /= "" = pure (nonEmpty (entryPoints uco))
-          | otherwise =
-              Just <$>
-                maybe
-                  (die
-                    (unwords
-                      [ "At least one entry point (--entry-points) is required",
-                        "(or try --explore or --crash-order)"
-                      ]))
-                  pure
-                  (nonEmpty (entryPoints uco))
-
-    entries <- makeEntries initUCOpts
-
     when (doExplore initUCOpts && doCrashOrder) $
       die "Can't specify both --explore and --crash-order"
+
     (finalCOpts, finalLLOpts) <-
       processLLVMOptions
         ( initCOpts
@@ -125,56 +104,82 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
           ucLLVMOptions initUCOpts
         )
 
-    -- Parse JSON of user-provided function specs from file
-    let noSpecs :: Map FunctionName SpecsView
-        noSpecs = Map.empty
-    specs <-
-      if specsPath initUCOpts /= ""
-      then Aeson.eitherDecode <$> BS.readFile (specsPath initUCOpts)
-      else return (Right noSpecs)
-    specs' <-
-      case specs of
-        Left err -> die err
-        Right s -> return s
+    specs <- getSpecs  -- can fail (exit)
+    entries <- makeEntries initUCOpts  -- can fail (exit)
 
     let topConf =
           Config.TopLevelConfig
             { Config.ucLLVMOptions = finalLLOpts,
-              Config.runConfig =
-                case entries of
-                  Just ents ->
-                    Config.Analyze $
-                      Config.AnalyzeConfig
-                        { Config.entryPoints = ents
-                        , Config.checkFrom = checkFrom initUCOpts
-                        , Config.checkFromCallers = checkFromCallers initUCOpts
-                        , Config.specs = specs'
-                        }
-                  Nothing ->
-                    if doExplore initUCOpts
-                    then
-                      Config.Explore
-                        (ExConfig.ExploreConfig
-                          { ExConfig.exploreAgain = reExplore initUCOpts,
-                            ExConfig.exploreBudget = exploreBudget initUCOpts,
-                            ExConfig.exploreTimeout = exploreTimeout initUCOpts,
-                            ExConfig.exploreParallel = exploreParallel initUCOpts,
-                            ExConfig.exploreSkipFunctions = skipFunctions initUCOpts,
-                            ExConfig.exploreSpecs = specs'
-                          })
-                    else
-                      Config.CrashEquivalence
-                        (EqConfig.EquivalenceConfig
-                          { EqConfig.equivOrOrder =
-                              if crashEquivalence initUCOpts
-                              then EqConfig.Equivalence
-                              else EqConfig.Order,
-                            EqConfig.equivModule = crashOrder initUCOpts,
-                            EqConfig.equivEntryPoints = entryPoints initUCOpts
-                          })
+              Config.runConfig = runConfig entries specs
             }
-
     return (appCtx, finalCOpts, topConf)
+
+  where
+    -- Figure out the entry points. If exploration mode is selected, the
+    -- specified entry points are irrelevant. If crash ordering is selected,
+    -- then entry points may or may not be specified. If neither is selected,
+    -- then entry points must be provided.
+    makeEntries :: UCCruxLLVMOptions -> IO (Maybe (NonEmpty FunctionName))
+    makeEntries uco
+      | doExplore uco = pure Nothing
+      | crashOrder uco /= "" = pure (nonEmpty (entryPoints uco))
+      | otherwise =
+          Just <$>
+            maybe
+              (die
+                (unwords
+                  [ "At least one entry point (--entry-points) is required",
+                    "(or try --explore or --crash-order)"
+                  ]))
+              pure
+              (nonEmpty (entryPoints uco))
+    
+    -- Parse JSON of user-provided function specs from file
+    getSpecs =
+      do let noSpecs :: Map FunctionName SpecsView
+             noSpecs = Map.empty
+         specs <-
+           if specsPath initUCOpts /= ""
+           then Aeson.eitherDecode <$> BS.readFile (specsPath initUCOpts)
+           else return (Right noSpecs)
+         case specs of
+           Left err -> die err
+           Right s -> return s
+    
+    -- Create the top-level configuration data type
+    runConfig entries specs =
+      case entries of
+        Just ents ->
+          Config.Analyze $
+            Config.AnalyzeConfig
+              { Config.entryPoints = ents
+              , Config.checkFrom = checkFrom initUCOpts
+              , Config.checkFromCallers = checkFromCallers initUCOpts
+              , Config.specs = specs
+              }
+        Nothing ->
+          if doExplore initUCOpts
+          then
+            Config.Explore
+              (ExConfig.ExploreConfig
+                { ExConfig.exploreAgain = reExplore initUCOpts,
+                  ExConfig.exploreBudget = exploreBudget initUCOpts,
+                  ExConfig.exploreTimeout = exploreTimeout initUCOpts,
+                  ExConfig.exploreParallel = exploreParallel initUCOpts,
+                  ExConfig.exploreSkipFunctions = skipFunctions initUCOpts,
+                  ExConfig.exploreSpecs = specs
+                })
+          else
+            Config.CrashEquivalence
+              (EqConfig.EquivalenceConfig
+                { EqConfig.equivOrOrder =
+                    if crashEquivalence initUCOpts
+                    then EqConfig.Equivalence
+                    else EqConfig.Order,
+                  EqConfig.equivModule = crashOrder initUCOpts,
+                  EqConfig.equivEntryPoints = entryPoints initUCOpts
+                })
+
 
 checkFromDoc :: Text
 checkFromDoc = "Check inferred contracts by symbolically executing from this function"
