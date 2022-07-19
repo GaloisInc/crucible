@@ -235,12 +235,9 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
            , -- Can't use 'args' in this block, see warning on
              -- 'Crucible.symbolicBranches'.
              \_args ->
-               liftIO $ do
-                 -- TODO(lb): this behavior should depend on spec config, see TODO
-                 -- on 'Specs'
-                 Crucible.addFailedAssertion
-                   bak
-                   (Crucible.GenericSimError "No spec applied!")
+               -- TODO(lb): this behavior should depend on spec config, see TODO
+               -- on 'Specs'
+               do Crucible.overrideError (Crucible.GenericSimError "No spec applied!")
            , Nothing
            )
 
