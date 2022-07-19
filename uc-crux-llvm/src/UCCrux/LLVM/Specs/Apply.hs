@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeOperators #-}
 {-
 Module           : UCCrux.LLVM.Specs.Apply
 Description      : Apply collections of specifications for LLVM functions
@@ -40,6 +41,7 @@ import qualified What4.Interface as What4
 -- crucible
 import qualified Lang.Crucible.Backend as Crucible
 import           Lang.Crucible.Backend (IsSymInterface)
+import qualified Lang.Crucible.Simulator.RegMap as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 
 -- crucible-llvm
@@ -170,10 +172,17 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      specs' <-
        traverse (\s -> (s,) <$> liftIO (matchPre s)) (Spec.getSpecs specs)
 
+     let argsSize = Ctx.size args
+     cargsSize <- Crucible.regMapSize <$> Crucible.getOverrideArgs
+
      -- Create one symbolic branch per Spec, conditioned on the preconditions
      let specBranches =
            [ ( precond
-             , applyPost bak modCtx tracker funcSymb fsRep mvar spec args
+             , -- Don't use args from outer scope directly (see warning on
+               -- 'Crucible.symbolicBranches').
+               do args' <- Crucible.getOverrideArgs
+                  let (_, Crucible.RegMap args'') = splitRegs cargsSize argsSize args'
+                  applyPost bak modCtx tracker funcSymb fsRep mvar spec args''
              , Nothing
              )
            | (spec, precond) <- toList specs'
@@ -183,7 +192,9 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      -- applies a minimal postcondition.
      let fallbackBranch =
            ( What4.truePred sym
-           , liftIO $ do
+           , -- NB: Can't use 'args' in this block, see warning on
+             -- 'Crucible.symbolicBranches'.
+             liftIO $ do
                -- TODO(lb): this behavior should depend on spec config, see TODO
                -- on 'Specs'
                Crucible.addFailedAssertion
@@ -193,4 +204,12 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
            )
 
      let branches = specBranches ++ [fallbackBranch]
-     Crucible.symbolicBranches Crucible.emptyRegMap branches
+     Crucible.symbolicBranches (Crucible.RegMap args) branches
+  where
+    splitRegs ::
+      Ctx.Size ctx ->
+      Ctx.Size ctx' ->
+      Crucible.RegMap sym (ctx Ctx.<+> ctx') ->
+      (Crucible.RegMap sym ctx, Crucible.RegMap sym ctx')
+    splitRegs sz sz' (Crucible.RegMap m) =
+      (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
