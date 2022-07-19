@@ -62,7 +62,15 @@ import           UCCrux.LLVM.Specs.Type (Specs)
 import qualified UCCrux.LLVM.Specs.Type as Spec
 {- ORMOLU_ENABLE -}
 
--- | Collapse all the preconditions of a 'Spec' to a single predicate
+-- | Collapse all the preconditions of a 'Spec' to a single predicate.
+--
+-- The predicate denotes whether or not the precondition holds in the given
+-- state, where a state is the arguments, ('Ctx.Assignment' of
+-- 'Crucible.RegEntry') plus the LLVM memory ('MemImpl').
+--
+-- Used in 'applySpecs' to construct the predicates determining which spec's
+-- postcondition gets applied, i.e., the predicates governing a chain of
+-- symbolic branches.
 matchPreconds ::
   IsSymInterface sym =>
   HasLLVMAnn sym =>
@@ -70,9 +78,13 @@ matchPreconds ::
   (?memOpts :: MemOptions) =>
   ModuleContext m arch ->
   sym ->
+  -- | LLVM memory
   MemImpl sym ->
+  -- | Types of function arguments
   Ctx.Assignment (FullTypeRepr m) argTypes ->
+  -- | Preconditions over arguments and memory
   Spec.SpecPreconds m argTypes ->
+  -- | Arguments to function
   Ctx.Assignment (Crucible.RegEntry sym) (MapToCrucibleType arch argTypes) ->
   IO (What4.Pred sym)
 matchPreconds modCtx sym mem argFTys preconds args =
