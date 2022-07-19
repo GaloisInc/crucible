@@ -87,8 +87,13 @@ data SpecSoundness
 data Spec m fs
   = forall va ret args. (fs ~ 'FS.FuncSig va ret args) =>
     Spec
-      { specPre :: SpecPreconds m args
+      { -- | See 'UCCrux.LLVM.Specs.Apply.matchPreconds' for details of the
+        -- semantics.
+        specPre :: SpecPreconds m args
       , specPreSound :: SpecSoundness
+      -- | A 'Nothing' causes a minimal, unconstrained, fresh, symbolic return
+      -- value to be generated, see 'UCCrux.LLVM.Specs.Apply.applyPost' for
+      -- details.
       , specPost :: Maybe (Postcond m fs)
       , specPostSound :: SpecSoundness
       }
@@ -120,6 +125,8 @@ minimalSpec (FS.FuncSigRepr _ args _) =
   Spec
     { specPre = SpecPreconds (emptyArgPreconds args)
     , specPreSound = Underapprox
+    -- This causes the fresh, unconstrained, symbolic return value to be
+    -- generated, see Spec.specPost
     , specPost = Nothing
     , specPostSound = Imprecise
     }
