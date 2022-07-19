@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeOperators #-}
 {-
 Module           : UCCrux.LLVM.Specs.Apply
 Description      : Apply collections of specifications for LLVM functions
@@ -17,6 +16,7 @@ Should be easy enough given the information in 'CheckedConstraint'.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Specs.Apply
   ( applySpecs
@@ -37,6 +37,7 @@ import qualified Data.Parameterized.Context as Ctx
 
 -- what4
 import qualified What4.Interface as What4
+import qualified What4.ProgramLoc as What4
 
 -- crucible
 import qualified Lang.Crucible.Backend as Crucible
@@ -131,6 +132,49 @@ applyPost bak modCtx tracker funcSymb fsRep mvar spec args =
      Crucible.modifyGlobal mvar $ \mem ->
        liftIO (applyPostcond bak modCtx tracker funcSymb post retTy mem args)
 
+-- | A variant of 'Crucible.symbolicBranches'.
+--
+-- Useful when the branches use a 'Crucible.RegMap' of values of types @args@
+-- that are unrelated to the argument types of the override (@args'@).
+--
+-- For convenience, passes the given 'Crucible.RegMap' of type @args@ directly
+-- to the action taken in each branch, rather than requiring each branch to call
+-- 'Crucible.getOverrideArgs' and @splitRegs@.
+symbolicBranches' :: forall p sym ext rtp args args' res a.
+  IsSymInterface sym =>
+  -- | Argument values for the branches
+  Crucible.RegMap sym args ->
+  -- | Branches to consider
+  [ ( What4.Pred sym
+    , Crucible.RegMap sym args -> Crucible.OverrideSim p sym ext rtp (args' Ctx.<+> args) res a
+    , Maybe What4.Position
+    )
+  ] ->
+  Crucible.OverrideSim p sym ext rtp args' res a
+symbolicBranches' args branches =
+  do let argsSize = Crucible.regMapSize args
+     args'Size <- Crucible.regMapSize <$> Crucible.getOverrideArgs
+     let branches' =
+           [ ( precond
+             , -- Don't use args from outer scope directly (see warning on
+               -- 'Crucible.symbolicBranches').
+               do args'args <- Crucible.getOverrideArgs
+                  let (_, safeArgs) = splitRegs args'Size argsSize args'args
+                  action safeArgs
+             , pos
+             )
+           | (precond, action, pos) <- branches
+           ]
+     Crucible.symbolicBranches args branches'
+  where
+    splitRegs ::
+      Ctx.Size ctx ->
+      Ctx.Size ctx' ->
+      Crucible.RegMap sym (ctx Ctx.<+> ctx') ->
+      (Crucible.RegMap sym ctx, Crucible.RegMap sym ctx')
+    splitRegs sz sz' (Crucible.RegMap m) =
+      (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
+
 -- | Apply a collection of specs (a 'Specs') to the current program state.
 --
 -- Creates one symbolic branches per spec, as described on the Haddock for
@@ -172,17 +216,13 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      specs' <-
        traverse (\s -> (s,) <$> liftIO (matchPre s)) (Spec.getSpecs specs)
 
-     let argsSize = Ctx.size args
-     cargsSize <- Crucible.regMapSize <$> Crucible.getOverrideArgs
-
      -- Create one symbolic branch per Spec, conditioned on the preconditions
      let specBranches =
            [ ( precond
-             , -- Don't use args from outer scope directly (see warning on
-               -- 'Crucible.symbolicBranches').
-               do args' <- Crucible.getOverrideArgs
-                  let (_, Crucible.RegMap args'') = splitRegs cargsSize argsSize args'
-                  applyPost bak modCtx tracker funcSymb fsRep mvar spec args''
+             , -- Can't use 'args' in this block, see warning on
+               -- 'Crucible.symbolicBranches'.
+               \(Crucible.RegMap args') ->
+                 applyPost bak modCtx tracker funcSymb fsRep mvar spec args'
              , Nothing
              )
            | (spec, precond) <- toList specs'
@@ -192,24 +232,17 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      -- applies a minimal postcondition.
      let fallbackBranch =
            ( What4.truePred sym
-           , -- NB: Can't use 'args' in this block, see warning on
+           , -- Can't use 'args' in this block, see warning on
              -- 'Crucible.symbolicBranches'.
-             liftIO $ do
-               -- TODO(lb): this behavior should depend on spec config, see TODO
-               -- on 'Specs'
-               Crucible.addFailedAssertion
-                 bak
-                 (Crucible.GenericSimError "No spec applied!")
+             \_args ->
+               liftIO $ do
+                 -- TODO(lb): this behavior should depend on spec config, see TODO
+                 -- on 'Specs'
+                 Crucible.addFailedAssertion
+                   bak
+                   (Crucible.GenericSimError "No spec applied!")
            , Nothing
            )
 
      let branches = specBranches ++ [fallbackBranch]
-     Crucible.symbolicBranches (Crucible.RegMap args) branches
-  where
-    splitRegs ::
-      Ctx.Size ctx ->
-      Ctx.Size ctx' ->
-      Crucible.RegMap sym (ctx Ctx.<+> ctx') ->
-      (Crucible.RegMap sym ctx, Crucible.RegMap sym ctx')
-    splitRegs sz sz' (Crucible.RegMap m) =
-      (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
+     symbolicBranches' (Crucible.RegMap args) branches
