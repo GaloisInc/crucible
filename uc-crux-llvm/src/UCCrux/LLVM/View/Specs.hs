@@ -190,7 +190,7 @@ viewSpec modCtx fsRep@(FS.FuncSigRepr _ args _) vspec =
   where
     mts = modCtx ^. moduleTypes
 
-    -- | Commute an applicative with Maybe
+    -- | Commute an applicative with Maybe. Equivalent to 'sequenceA'.
     commuteMaybe :: Applicative n => Maybe (n a) -> n (Maybe a)
     commuteMaybe (Just val) = Just <$> val
     commuteMaybe Nothing    = pure Nothing
