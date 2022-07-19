@@ -159,7 +159,11 @@ data UCCruxSimulationResult m arch argTypes = UCCruxSimulationResult
     explanations :: [Located (Explanation m arch argTypes)]
   }
 
--- | Based on 'Crux.SimulatorHooks'
+-- | Like 'Crux.SimulatorHooks', these hooks provide the ability to customize
+-- the symbolic execution process. In particular, they allow for registering
+-- additional overrides via 'createOverrideHooks', and post-processing the
+-- results of symbolic execution with access to the symbolic backend via
+-- 'resultHook'.
 data SimulatorHooks sym bak m arch argTypes r =
   SimulatorHooks
     { createOverrideHooks :: [SymCreateOverrideFn m sym bak arch]
@@ -175,7 +179,9 @@ data SimulatorHooks sym bak m arch argTypes r =
     }
   deriving Functor
 
--- | Based on 'Crux.SimulatorCallbacks'
+-- | Callbacks that customize the symbolic execution process.
+--
+-- Compare to 'Crux.SimulatorCallbacks'.
 newtype SimulatorCallbacks m arch (argTypes :: Ctx (FullType m)) r =
   SimulatorCallbacks
     { getSimulatorCallbacks ::

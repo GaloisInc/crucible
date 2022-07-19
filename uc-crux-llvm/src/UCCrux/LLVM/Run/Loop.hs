@@ -101,6 +101,7 @@ bugfindingLoopWithCallbacks ::
   CruxOptions ->
   LLVMOptions ->
   Crucible.HandleAllocator ->
+  -- | Customizations to the symbolic execution process. See 'SimulatorHooks'.
   Sim.SimulatorCallbacks m arch argTypes (Sim.UCCruxSimulationResult m arch argTypes, r) ->
   IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes, r))
 bugfindingLoopWithCallbacks appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc callbacks =
@@ -224,8 +225,7 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc specs =
     swap (cruxResult, ucCruxResult) = (ucCruxResult, cruxResult)
     post (result, results) = (result, fmap fst results)
 
-    -- Default (do-nothing) callbacks, except they register overrides for all
-    -- the provided function specs
+    -- Callbacks that register overrides for all the provided function specs.
     callbacks =
       Sim.addOverrides
         (map (uncurry mkSpecOverride) (Map.toList specs))
