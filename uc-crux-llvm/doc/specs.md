@@ -90,16 +90,21 @@ indicate whether they over-approximate function behaviors, under-approximate
 them, both, or neither. There are four possible tags, the meaning of which
 depends on whether they are applied to preconditions or postconditions.
 
-- `Overapprox`: For preconditions, means that the specified preconditions are
-  more restrictive than the actual implementation. For postconditions, it means
-  that the specified postcondition encapsulates all possible effects of the
-  implementation on the program state under the accompanying precondition.
+- `Overapprox`: For preconditions, means that the specified preconditions are at
+  least as restrictive than the actual implementation. For postconditions, it
+  means that the specified postcondition encapsulates all possible effects of
+  the implementation on the program state under the accompanying precondition.
 - `Underapprox`: For preconditions, means that the specified preconditions are
-  less restrictive than the actual implementation. For postconditions, means
-  that the specified postcondition encapsulates some definitely possible effects
-  of the implementation on the program state under the accompanying precondition.
-- Precise: Both over-approximate nor under-approximate.
-- Imprecise: Neither over-approximate nor under-approximate.
+  at most as restrictive than the actual implementation. For postconditions,
+  means that the specified postcondition encapsulates some definitely possible
+  effects of the implementation on the program state under the accompanying
+  precondition.
+- Precise: Both over-approximate and under-approximate, that is, a specification
+  that perfectly describes the possible behaviors of the specified procedure.
+- Imprecise: Neither over-approximate nor under-approximate, that is, a
+  specification that bears none of the above relationships to the specified
+  procedure (but may still be useful in practice, e.g., if it's over- or
+  under-approximate for most---but not all---cases).
 
 These tags form a partial order with the following Hasse diagram:
 

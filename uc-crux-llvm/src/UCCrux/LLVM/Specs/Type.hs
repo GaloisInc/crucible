@@ -63,7 +63,9 @@ data SpecPreconds m (args :: Ctx (FullType m))
 -- 'Overapprox' or 'Underapprox', and if you're willing to accept 'Imprecise',
 -- then you would be willing to accept any degree of precision as well.
 data SpecSoundness
-  = -- | Both over-approximate and under-approximate
+  = -- | Precise: Both over-approximate and under-approximate, that is, a
+    -- specification that perfectly describes the possible behaviors of the
+    -- specified procedure.
     Precise
     -- | For preconditions, means that the specified preconditions are more
     -- restrictive than the actual implementation. For postconditions, it means
@@ -76,7 +78,10 @@ data SpecSoundness
     -- effects of the implementation on the program state under the accompanying
     -- precondition.
   | Underapprox
-  -- | Neither over-approximate and under-approximate
+  -- | Neither over-approximate nor under-approximate, that is, a specification
+  -- that bears none of the above relationships to the specified procedure (but
+  -- may still be useful in practice, e.g., if it's over- or under-approximate
+  -- for most---but not all---cases).
   | Imprecise
   deriving (Eq, Ord, Show)
 
