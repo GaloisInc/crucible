@@ -20,9 +20,9 @@ data AbnormalExitBehavior
     -- ^ Functions which trigger an abnormal exit will always cause Crucible
     --   to fail.
   | OnlyAssertFail
-    -- ^ The @__assert_fail()@ function will cause Crucible to fail, while
-    --   other functions which triggern an abnormal exit will not cause
-    --   failures. This option is primarily useful for SV-COMP.
+    -- ^ The @__assert_fail()@ or @__assert_rtn()@ functions will cause Crucible
+    --   to fail, while other functions which trigger an abnormal exit will not
+    --   cause failures. This option is primarily useful for SV-COMP.
   | NeverFail
     -- ^ Functions which trigger an abnormal exit will never cause Crucible
     --   to fail. This option is primarily useful for SV-COMP.

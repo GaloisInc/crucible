@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <crucible.h>
 
-void do_free(int *p) __attribute__((noinline)) {
+void __attribute__((noinline)) do_free(int *p) {
   free(p);
 }
 
