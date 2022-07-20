@@ -136,9 +136,9 @@ jobs:
         run: .github/ci.sh test crucible
 
       - shell: bash
-        name: Test crucible-symio (Linux)
+        name: Test crucible-symio
         run: cabal test pkg:crucible-symio
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' || runner.os == 'macOS'
 
       - shell: bash
         name: Test crucible-llvm (Linux)
