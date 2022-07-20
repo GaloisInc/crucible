@@ -298,6 +298,7 @@ declare_overrides =
   , basic_llvm_override Libc.llvmIsnanOverride
   , basic_llvm_override Libc.llvm__isnanOverride
   , basic_llvm_override Libc.llvm__isnanfOverride
+  , basic_llvm_override Libc.llvm__isnandOverride
   , basic_llvm_override Libc.llvmSqrtOverride
   , basic_llvm_override Libc.llvmSqrtfOverride
   , basic_llvm_override Libc.llvmSinOverride
@@ -344,6 +345,8 @@ declare_overrides =
   , basic_llvm_override Libc.llvmLog2fOverride
   , basic_llvm_override Libc.llvmExp10Override
   , basic_llvm_override Libc.llvmExp10fOverride
+  , basic_llvm_override Libc.llvm__exp10Override
+  , basic_llvm_override Libc.llvm__exp10fOverride
   , basic_llvm_override Libc.llvmLog10Override
   , basic_llvm_override Libc.llvmLog10fOverride
 

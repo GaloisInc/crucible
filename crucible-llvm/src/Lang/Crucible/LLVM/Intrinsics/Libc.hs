@@ -506,8 +506,7 @@ callStrlen bak mvar (regValue -> strPtr) = do
 callAssert
   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
-  => Bool -- ^ 'True' if this is @__assert_fail()@, 'False' otherwise.
-  -> GlobalVar Mem
+  => GlobalVar Mem
   -> bak
   -> Ctx.Assignment (RegEntry sym)
         (EmptyCtx ::> LLVMPointerType wptr
@@ -516,7 +515,7 @@ callAssert
                   ::> LLVMPointerType wptr)
   -> forall r args reg.
      OverrideSim p sym ext r args reg (RegValue sym UnitType)
-callAssert assert_fail mvar bak (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
+callAssert mvar bak (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
   do let sym = backendGetSym bak
      when failUponExit $
        do mem <- readGlobal mvar
@@ -529,10 +528,7 @@ callAssert assert_fail mvar bak (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
   where
     failUponExit :: Bool
     failUponExit
-      | assert_fail
       = abnormalExitBehavior ?intrinsicsOpts `elem` [AlwaysFail, OnlyAssertFail]
-      | otherwise
-      = abnormalExitBehavior ?intrinsicsOpts == AlwaysFail
 
 callExit :: ( IsSymBackend sym bak
             , ?intrinsicsOpts :: IntrinsicsOptions )
@@ -773,6 +769,15 @@ llvm__isnanfOverride =
   [llvmOvr| i32 @__isnanf( float ) |]
   (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
 
+-- macOS compiles isnan() to __isnand() when the argument is a double.
+llvm__isnandOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (BVType 32)
+llvm__isnandOverride =
+  [llvmOvr| i32 @__isnand( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
 
 llvmSqrtOverride ::
   IsSymInterface sym =>
@@ -1311,6 +1316,26 @@ llvmExp10fOverride =
   [llvmOvr| float @exp10f( float ) |]
   (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp10) args)
 
+-- macOS uses __exp10(f) instead of exp10(f).
+
+llvm__exp10Override ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvm__exp10Override =
+  [llvmOvr| double @__exp10( double ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp10) args)
+
+llvm__exp10fOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvm__exp10fOverride =
+  [llvmOvr| float @__exp10f( float ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (callSpecialFunction1 bak W4.Exp10) args)
+
 -- log10(f)
 
 llvmLog10Override ::
@@ -1346,7 +1371,7 @@ llvmAssertRtnOverride
         UnitType
 llvmAssertRtnOverride =
   [llvmOvr| void @__assert_rtn( i8*, i8*, i32, i8* ) |]
-  (callAssert False)
+  callAssert
 
 -- From glibc
 llvmAssertFailOverride
@@ -1360,7 +1385,7 @@ llvmAssertFailOverride
         UnitType
 llvmAssertFailOverride =
   [llvmOvr| void @__assert_fail( i8*, i8*, i32, i8* ) |]
-  (callAssert True)
+  callAssert
 
 
 llvmAbortOverride

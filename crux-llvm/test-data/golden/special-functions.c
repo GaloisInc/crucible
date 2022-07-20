@@ -2,6 +2,11 @@
 #include <crucible.h>
 #include <math.h>
 
+#if defined(__APPLE__)
+# define exp10f __exp10f
+# define exp10  __exp10
+#endif
+
 int main() {
   ///////////////
   // constants //
