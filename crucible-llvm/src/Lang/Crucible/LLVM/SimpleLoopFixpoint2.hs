@@ -11,12 +11,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -25,6 +28,7 @@
 
 module Lang.Crucible.LLVM.SimpleLoopFixpoint2
   ( FixpointEntry(..)
+  , InvariantPhase(..)
   , simpleLoopFixpoint
   ) where
 
@@ -79,6 +83,13 @@ import qualified Lang.Crucible.LLVM.MemModel.Pointer as C
 import qualified Lang.Crucible.LLVM.MemModel.Type as C
 
 
+-- | A datatype describing the reason we are building an instance
+--   of the loop invariant.
+data InvariantPhase
+  = InitialInvariant
+  | HypotheticalInvariant
+  | InductiveInvariant
+
 -- | When live loop-carried dependencies are discovered as we traverse
 --   a loop body, new "widening" variables are introduced to stand in
 --   for those locations.  When we introduce such a varible, we
@@ -91,7 +102,8 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as C
 --   We know we have reached fixpoint when we don't need to introduce
 --   and more fresh widening variables, and the body values for each
 --   variable are stable across iterations.
-data FixpointEntry sym tp = FixpointEntry
+data FixpointEntry sym tp =
+  FixpointEntry
   { headerValue :: W4.SymExpr sym tp
   , bodyValue :: W4.SymExpr sym tp
   }
@@ -140,7 +152,7 @@ data FixpointRecord p sym ext rtp blocks = forall args r.
     -- | Map from introduced widening variables to prestate value before the loop starts,
     --   and to the value computed in a single loop iteration, assuming we return to the
     --   loop header. These variables may appear only in either registers or memory.
-  , fixpointSubstitution :: MapF (W4.SymExpr sym) (FixpointEntry sym)
+  , fixpointSubstitution :: VariableSubst sym
 
   , fixpointMemSubstitution :: MemorySubstitution sym
 
@@ -150,8 +162,12 @@ data FixpointRecord p sym ext rtp blocks = forall args r.
   , fixpointInitialSimState :: C.SimState p sym ext rtp (C.CrucibleLang blocks r) ('Just args)
 
   , fixpointImplicitParams :: [Some (W4.SymExpr sym)]
-  }
 
+    -- | A special memory region number that does not correspond to any valid block.
+    --   This is intended to model values the block portion of bitvector values that
+    --   get clobbered by the loop body, but do not represent loop-carried dependencies.
+  , fixpointHavocBlock :: W4.SymNat sym
+  }
 
 data MemoryRegion sym =
   forall w. (1 <= w) =>
@@ -176,6 +192,12 @@ data MemoryBlockData sym where
     W4.SymBV sym 64 {- ^ length of the allocation -} ->
     MemoryBlockData sym
 
+data VariableSubst sym =
+  VarSubst
+  { varSubst :: MapF (W4.SymExpr sym) (FixpointEntry sym)
+  , varHavoc :: MapF (W4.SymExpr sym) (Const ())
+  }
+
 data MemorySubstitution sym =
   MemSubst
   { memSubst :: Map Natural (MemoryBlockData sym)
@@ -190,9 +212,20 @@ fixpointRecord (ComputeFixpoint r) = Just r
 fixpointRecord (CheckFixpoint r) = Just r
 
 
-type FixpointMonad sym =
-  StateT (MapF (W4.SymExpr sym) (FixpointEntry sym)) IO
+newtype FixpointMonad sym a =
+  FixpointMonad (ReaderT (W4.SymNat sym) (StateT (VariableSubst sym) IO) a)
+ deriving (Functor, Applicative, Monad, MonadIO, MonadFail)
 
+deriving instance MonadReader (W4.SymNat sym) (FixpointMonad sym)
+deriving instance MonadState (VariableSubst sym) (FixpointMonad sym)
+
+runFixpointMonad ::
+  W4.SymNat sym ->
+  VariableSubst sym ->
+  FixpointMonad sym a ->
+  IO (a, VariableSubst sym)
+runFixpointMonad havoc_blk subst (FixpointMonad m) =
+  runStateT (runReaderT m havoc_blk) subst
 
 joinRegEntries ::
   (?logMessage :: String -> IO (), C.IsSymInterface sym) =>
@@ -208,7 +241,9 @@ joinRegEntry ::
   C.RegEntry sym tp ->
   C.RegEntry sym tp ->
   FixpointMonad sym (C.RegEntry sym tp)
-joinRegEntry sym left right = case C.regType left of
+joinRegEntry sym left right = do
+ subst <- get
+ case C.regType left of
   C.LLVMPointerRepr w
 
       -- special handling for "don't care" registers coming from Macaw
@@ -217,24 +252,25 @@ joinRegEntry sym left right = case C.regType left of
       liftIO $ ?logMessage "SimpleLoopFixpoint.joinRegEntry: cmacaw_reg"
       return left
 
-    | C.llvmPointerBlock (C.regValue left) == C.llvmPointerBlock (C.regValue right) -> do
+    | C.llvmPointerBlock (C.regValue left) == C.llvmPointerBlock (C.regValue right)
+    , Nothing <- MapF.lookup (C.llvmPointerOffset (C.regValue left)) (varHavoc subst) -> do
       liftIO $ ?logMessage "SimpleLoopFixpoint.joinRegEntry: LLVMPointerRepr"
-      subst <- get
       if isJust (W4.testEquality (C.llvmPointerOffset (C.regValue left)) (C.llvmPointerOffset (C.regValue right)))
       then do
         liftIO $ ?logMessage "SimpleLoopFixpoint.joinRegEntry: LLVMPointerRepr: left == right"
         return left
-      else case MapF.lookup (C.llvmPointerOffset (C.regValue left)) subst of
+      else case MapF.lookup (C.llvmPointerOffset (C.regValue left)) (varSubst subst) of
         Just join_entry -> do
           -- liftIO $ ?logMessage $
           --   "SimpleLoopFixpoint.joinRegEntry: LLVMPointerRepr: Just: "
           --   ++ show (W4.printSymExpr $ bodyValue join_entry)
           --   ++ " -> "
           --   ++ show (W4.printSymExpr $ C.llvmPointerOffset (C.regValue right))
-          put $ MapF.insert
-            (C.llvmPointerOffset (C.regValue left))
-            (join_entry { bodyValue = C.llvmPointerOffset (C.regValue right) })
-            subst
+          put $ subst{ varSubst =
+            MapF.insert
+              (C.llvmPointerOffset (C.regValue left))
+              (join_entry { bodyValue = C.llvmPointerOffset (C.regValue right) })
+              (varSubst subst) }
           return left
         Nothing -> do
           liftIO $ ?logMessage "SimpleLoopFixpoint.joinRegEntry: LLVMPointerRepr: Nothing"
@@ -244,16 +280,33 @@ joinRegEntry sym left right = case C.regType left of
                 { headerValue = C.llvmPointerOffset (C.regValue left)
                 , bodyValue = C.llvmPointerOffset (C.regValue right)
                 }
-          put $ MapF.insert join_varaible join_entry subst
+          put $ subst{ varSubst = MapF.insert join_varaible join_entry (varSubst subst) }
           return $ C.RegEntry (C.LLVMPointerRepr w) $ C.LLVMPointer (C.llvmPointerBlock (C.regValue left)) join_varaible
 
-    | otherwise ->
-      {- block indexes might be different... -}
+    | otherwise -> do
+      liftIO $ ?logMessage "SimpleLoopFixpoint.joinRegEntry: LLVMPointerRepr, unequal blocks!"
+      havoc_blk <- ask
+      case MapF.lookup (C.llvmPointerOffset (C.regValue left)) (varSubst subst) of
+        Just _ -> do
+          -- widening varible already present in the var substitition.
+          -- we need to remove it, and add it to the havoc map instead
+          put subst { varSubst = MapF.delete (C.llvmPointerOffset (C.regValue left)) (varSubst subst)
+                    , varHavoc = MapF.insert (C.llvmPointerOffset (C.regValue left)) (Const ()) (varHavoc subst)
+                    }
+          return $ C.RegEntry (C.LLVMPointerRepr w) $ C.LLVMPointer havoc_blk (C.llvmPointerOffset (C.regValue left))
+
+        Nothing -> do
+          havoc_var <- liftIO $ W4.freshConstant sym (W4.safeSymbol "havoc_var") (W4.BaseBVRepr w)
+          put subst{ varHavoc = MapF.insert havoc_var (Const ()) (varHavoc subst) }
+          return $ C.RegEntry (C.LLVMPointerRepr w) $ C.LLVMPointer havoc_blk havoc_var
+
+      {- block indexes might be different...
       fail $
         "SimpleLoopFixpoint.joinRegEntry: LLVMPointerRepr: unsupported pointer base join: "
         ++ show (C.ppPtr $ C.regValue left)
         ++ " \\/ "
         ++ show (C.ppPtr $ C.regValue right)
+       -}
 
   C.BoolRepr
     | List.isPrefixOf "cmacaw" (show $ W4.printSymExpr $ C.regValue left) -> do
@@ -289,7 +342,7 @@ applySubstitutionRegEntries sym substitution = fmapFC (applySubstitutionRegEntry
 applySubstitutionRegEntry ::
   C.IsSymInterface sym =>
   sym ->
-  MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
+  (MapF (W4.SymExpr sym) (W4.SymExpr sym)) ->
   C.RegEntry sym tp ->
   C.RegEntry sym tp
 applySubstitutionRegEntry sym substitution entry = case C.regType entry of
@@ -410,15 +463,17 @@ dropMemStackFrame mem = case (C.memImplHeap mem) ^. C.memState of
 filterSubstitution ::
   C.IsSymInterface sym =>
   sym ->
-  MapF (W4.SymExpr sym) (FixpointEntry sym) ->
-  MapF (W4.SymExpr sym) (FixpointEntry sym)
-filterSubstitution sym substitution =
+  VariableSubst sym ->
+  VariableSubst sym
+filterSubstitution sym (VarSubst substitution havoc) =
   -- TODO: fixpoint
   let uninterp_constants = foldMapF
         (Set.map (C.mapSome $ W4.varExpr sym) . W4.exprUninterpConstants sym . bodyValue)
         substitution
   in
-  MapF.filterWithKey (\variable _entry -> Set.member (C.Some variable) uninterp_constants) substitution
+  VarSubst
+    (MapF.filterWithKey (\variable _entry -> Set.member (C.Some variable) uninterp_constants) substitution)
+    havoc
 
 -- find widening variables that are actually the same (up to syntactic equality)
 -- and can be substituted for each other
@@ -426,9 +481,9 @@ uninterpretedConstantEqualitySubstitution ::
   forall sym .
   C.IsSymInterface sym =>
   sym ->
-  MapF (W4.SymExpr sym) (FixpointEntry sym) ->
-  (MapF (W4.SymExpr sym) (FixpointEntry sym), MapF (W4.SymExpr sym) (W4.SymExpr sym))
-uninterpretedConstantEqualitySubstitution _sym substitution =
+  VariableSubst sym ->
+  (VariableSubst sym, MapF (W4.SymExpr sym) (W4.SymExpr sym))
+uninterpretedConstantEqualitySubstitution _sym (VarSubst substitution havoc) =
   let reverse_substitution = MapF.foldlWithKey'
         (\accumulator variable entry -> MapF.insert entry variable accumulator)
         MapF.empty
@@ -441,7 +496,7 @@ uninterpretedConstantEqualitySubstitution _sym substitution =
           Just Refl == W4.testEquality variable (fromJust $ MapF.lookup variable uninterpreted_constant_substitution))
         substitution
   in
-  (normal_substitution, uninterpreted_constant_substitution)
+  (VarSubst normal_substitution havoc, uninterpreted_constant_substitution)
 
 
 computeLoopMap :: (k ~ C.Some (C.BlockID blocks)) => [C.WTOComponent k] -> IO (Map k [k])
@@ -488,7 +543,7 @@ simpleLoopFixpoint ::
   sym ->
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
-  ([Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (FixpointEntry sym) -> IO (W4.Pred sym)) ->
+  (InvariantPhase -> [Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (FixpointEntry sym) -> IO (W4.Pred sym)) ->
   IO (C.ExecutionFeature p sym ext rtp)
 simpleLoopFixpoint sym cfg@C.CFG{..} mem_var loop_invariant = do
   let ?ptrWidth = knownNat @64
@@ -580,7 +635,7 @@ advanceFixpointState ::
   (C.IsSymBackend sym bak, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
   bak ->
   C.GlobalVar C.Mem ->
-  ([Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (FixpointEntry sym) -> IO (W4.Pred sym)) ->
+  (InvariantPhase -> [Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (FixpointEntry sym) -> IO (W4.Pred sym)) ->
   C.BlockID blocks args ->
   C.SimState p sym ext rtp (C.CrucibleLang blocks r) ('Just args) ->
   FixpointState p sym ext rtp blocks ->
@@ -597,25 +652,30 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
       let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
       let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
 
-      ?logMessage $ "SimpleLoopFixpoint: start memory\n" ++ (show (C.ppMem (C.memImplHeap mem_impl)))
+--      ?logMessage $ "SimpleLoopFixpoint: start memory\n" ++ (show (C.ppMem (C.memImplHeap mem_impl)))
 
+      -- Get a fresh block value that doesn't correspond to any valid memory region
+      havoc_blk <- W4.natLit sym =<< C.nextBlock (C.memImplBlockSource mem_impl)
 
       writeIORef fixpoint_state_ref $ ComputeFixpoint $
         FixpointRecord
         { fixpointBlockId = block_id
         , fixpointAssumptionFrameIdentifier = assumption_frame_identifier
-        , fixpointSubstitution = MapF.empty
+        , fixpointSubstitution = VarSubst MapF.empty MapF.empty
         , fixpointRegMap = sim_state ^. (C.stateCrucibleFrame . C.frameRegs)
         , fixpointMemSubstitution = MemSubst mempty
         , fixpointInitialSimState = sim_state
         , fixpointImplicitParams = []
+        , fixpointHavocBlock = havoc_blk
         }
       return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
         sim_state & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
 
     ComputeFixpoint fixpoint_record
       | FixpointRecord { fixpointRegMap = reg_map
-                       , fixpointInitialSimState = initSimState }
+                       , fixpointInitialSimState = initSimState
+                       , fixpointHavocBlock = havoc_blk
+                       }
            <- fixpoint_record
       , Just Refl <- W4.testEquality
           (fmapFC C.regType $ C.regMap reg_map)
@@ -634,17 +694,17 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
           fail "SimpleLoopFixpoint: unsupported memory allocation in loop body."
 
         -- widen the inductive condition
-        ((join_reg_map,mem_substitution), join_substitution) <- runStateT
-          (do join_reg_map <- joinRegEntries sym
-                                (C.regMap reg_map)
-                                (C.regMap $ sim_state ^. (C.stateCrucibleFrame . C.frameRegs))
-              mem_substitution <- computeMemSubstitution sym fixpoint_record mem_writes
-              return (join_reg_map, mem_substitution)
-          )
-          (fixpointSubstitution fixpoint_record)
+        ((join_reg_map,mem_substitution), join_substitution) <-
+            runFixpointMonad havoc_blk (fixpointSubstitution fixpoint_record) $
+               do join_reg_map <- joinRegEntries sym
+                                    (C.regMap reg_map)
+                                    (C.regMap $ sim_state ^. (C.stateCrucibleFrame . C.frameRegs))
+                  mem_substitution <- computeMemSubstitution sym fixpoint_record mem_writes
+                  return (join_reg_map, mem_substitution)
 
         -- check if we are done; if we did not introduce any new variables, we don't have to widen any more
-        if MapF.keys join_substitution == MapF.keys (fixpointSubstitution fixpoint_record)
+        if MapF.keys (varSubst join_substitution) ==
+           MapF.keys (varSubst (fixpointSubstitution fixpoint_record))
 
           -- we found the fixpoint, get ready to wrap up
           then do
@@ -660,17 +720,22 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
               fixpointMemSubstitution fixpoint_record
 
             -- try to unify widening variables that have the same values
-            let (normal_substitution, equality_substitution) = uninterpretedConstantEqualitySubstitution sym $
+            let (normal_substitution, equality_substitution) =
+                  uninterpretedConstantEqualitySubstitution sym $
                   -- drop variables that don't appear along some back edge (? understand this better)
                   filterSubstitution sym $
-                  MapF.union join_substitution $
-                  -- this implements zip, because the two maps have the same keys
-                  MapF.intersectWithKeyMaybe
-                    (\_k x y -> Just $ FixpointEntry{ headerValue = x, bodyValue = y })
-                    header_mem_substitution
-                    body_mem_substitution
-            ?logMessage $ "normal_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList normal_substitution)
-            ?logMessage $ "equality_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList equality_substitution)
+                  join_substitution
+                  { varSubst = 
+                    MapF.union (varSubst join_substitution) $
+                    -- this implements zip, because the two maps have the same keys
+                    MapF.intersectWithKeyMaybe
+                      (\_k x y -> Just $ FixpointEntry{ headerValue = x, bodyValue = y })
+                      header_mem_substitution
+                      body_mem_substitution
+                  }
+--            ?logMessage $ "normal_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList (varSubst normal_substitution))
+--            ?logMessage $ "equality_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList equality_substitution)
+--            ?logMessage $ "havoc variables: " ++ show (map (\(MapF.Pair x _) -> W4.printSymExpr x) $ MapF.toList (varHavoc normal_substitution))
 
             -- unify widening variables in the register subst
             let res_reg_map = applySubstitutionRegEntries sym equality_substitution join_reg_map
@@ -681,8 +746,6 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
               header_mem_impl
               mem_substitution
               equality_substitution
-
-
 
             -- == compute the list of "implicit parameters" that are relevant ==
             let implicit_params = Set.toList $
@@ -696,8 +759,8 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
                                                 (show $ W4.printSymExpr x))) $
                             Set.map (\ (C.Some x) -> C.Some (W4.varExpr sym x)) $
                               (W4.exprUninterpConstants sym (bodyValue e)))
-                       (MapF.toList normal_substitution))
-                    (Set.fromList (MapF.keys normal_substitution))
+                       (MapF.toList (varSubst normal_substitution)))
+                    (Set.fromList (MapF.keys (varSubst normal_substitution)))
 
             ?logMessage $ unlines $
               ["Implicit parameters!"] ++
@@ -706,9 +769,10 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
             -- == assert the loop invariant on the initial values ==
 
             -- build a map where the current value is equal to the initial value
-            let init_state_map = MapF.map (\e -> e{ bodyValue = headerValue e }) normal_substitution
+            let init_state_map = MapF.map (\e -> e{ bodyValue = headerValue e })
+                                          (varSubst normal_substitution)
             -- construct the loop invariant
-            initial_loop_invariant <- loop_invariant implicit_params init_state_map
+            initial_loop_invariant <- loop_invariant InitialInvariant implicit_params init_state_map
             -- assert the loop invariant as an obligation
             C.addProofObligation bak
                $ C.LabeledPred initial_loop_invariant
@@ -717,9 +781,10 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
             -- == assume the loop invariant on the arbitrary state ==
 
             -- build a map where the current value is equal to the widening variable
-            let hyp_state_map = MapF.mapWithKey (\k e -> e{ bodyValue = k }) normal_substitution
+            let hyp_state_map = MapF.mapWithKey (\k e -> e{ bodyValue = k })
+                                                (varSubst normal_substitution)
             -- construct the loop invariant to assume at the loop head
-            hypothetical_loop_invariant <- loop_invariant implicit_params hyp_state_map
+            hypothetical_loop_invariant <- loop_invariant HypotheticalInvariant implicit_params hyp_state_map
             -- assume the loop invariant
             C.addAssumption bak
               $ C.GenericAssumption loc "loop head invariant"
@@ -737,6 +802,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
                 , fixpointMemSubstitution = mem_substitution
                 , fixpointInitialSimState = initSimState
                 , fixpointImplicitParams = implicit_params
+                , fixpointHavocBlock = havoc_blk
                 }
 
             -- Continue running from the loop header starting from an arbitrary state satisfying
@@ -766,6 +832,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
               , fixpointMemSubstitution = mem_substitution
               , fixpointInitialSimState = initSimState
               , fixpointImplicitParams = []
+              , fixpointHavocBlock = havoc_blk
               }
             return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
               initSimState & (C.stateCrucibleFrame . C.frameRegs) .~ C.RegMap join_reg_map
@@ -798,10 +865,10 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
                 fixpoint_entry
                   { bodyValue = MapF.findWithDefault (bodyValue fixpoint_entry) variable body_mem_substitution
                   })
-              (fixpointSubstitution fixpoint_record)
+              (varSubst (fixpointSubstitution fixpoint_record))
         -- ?logMessage $ "res_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList res_substitution)
 
-        invariant_pred <- loop_invariant (fixpointImplicitParams fixpoint_record) res_substitution
+        invariant_pred <- loop_invariant InductiveInvariant (fixpointImplicitParams fixpoint_record) res_substitution
         C.addProofObligation bak $ C.LabeledPred invariant_pred $ C.SimError loc "loop invariant"
         -- ?logMessage $ "fixpoint_func_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList fixpoint_func_substitution)
         return $ C.ExecutionFeatureModifiedState $ C.AbortState (C.InfeasibleBranch loc) sim_state
