@@ -172,7 +172,7 @@ jobs:
           LLVM_TAR=https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/clang+llvm-11.0.0-x86_64-apple-darwin.tar.xz
           curl -sSL $LLVM_TAR -o llvm.tar.xz && tar xzf llvm.tar.xz && mv clang+llvm-* llvm
           echo "#!/usr/bin/env bash" > llvm/bin/clang-withIncl
-          echo "clang -I${{ github.workspace }}/llvm/include -I${{ github.workspace }}/llvm/include/c++/v1" >> llvm/bin/clang-withIncl
+          echo "clang -I${{ github.workspace }}/llvm/include -I${{ github.workspace }}/llvm/include/c++/v1 \${1+\"\$@\"}" >> llvm/bin/clang-withIncl
           chmod +x llvm/bin/clang-withIncl
           echo "$PWD/llvm/bin" >> $GITHUB_PATH
 
