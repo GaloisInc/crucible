@@ -98,6 +98,8 @@ filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
  f (ExactMatch x)       = x == nm
  f (PrefixMatch pfx)    = pfx `isPrefixOf` nm
  f (SubstringsMatch as) = filterSubstrings as nm
+ -- See Note [Darwin aliases] in Lang.Crucible.LLVM.Intrinsics.Common
+ f (DarwinAliasMatch x) = x == stripDarwinAliases nm
 
  filterSubstrings [] _ = True
  filterSubstrings (a:as) xs =

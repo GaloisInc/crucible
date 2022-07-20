@@ -337,6 +337,8 @@ registerOverrides appCtx modCtx kind overrides =
           "functions with prefix " <> Text.pack nm
         LLVMIntrinsics.SubstringsMatch nms ->
           "functions with names containing " <> Text.pack (show nms)
+        LLVMIntrinsics.DarwinAliasMatch nm ->
+          Text.pack (LLVMIntrinsics.stripDarwinAliases nm)
 
 registerDefinedFns ::
   (?intrinsicsOpts :: LLVMIntrinsics.IntrinsicsOptions) =>
