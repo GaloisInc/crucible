@@ -43,7 +43,7 @@ jobs:
         os: [ubuntu-20.04]
         ghc: ["8.10.7", "9.0.2", "9.2.3"]
         include:
-          - os: macos-10.15
+          - os: macos-12
             ghc: 9.2.2
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
@@ -84,7 +84,7 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20210917"
+          SOLVER_PKG_VERSION: "snapshot-20220721"
           BUILD_TARGET_OS: ${{ matrix.os }}
 
       - name: Setup Environment Vars
