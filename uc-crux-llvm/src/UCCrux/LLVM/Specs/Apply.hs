@@ -158,53 +158,6 @@ nondetBranchesWithFallback newArgs branches fallbackBranch =
      let p = (Just (What4.OtherPos "fallback branch"))
      Crucible.nondetBranches newArgs ((fallbackPred, fallbackBranch, p):branches)
 
--- | A variant of 'nondetBranchesWithFallback'.
---
--- Does a few things convenient for use in 'applySpecs':
---
--- * Passes in the 'Crucible.RegMap' of values of types @args@ as a function
---   argument to the branches so they don't have to call
---   'Crucible.getOverrideArgs' and split the arguments.
--- * Enforces that each branch doesn't care about the override argument
---   types (e.g. is polymorphic in @args''@). This isn't functionally necessary,
---   but is perhaps more clear by virtue of being more polymorphic.
-nondetBranches' :: forall p sym ext rtp args new_args res a.
-  IsSymInterface sym =>
-  -- | Argument values for the branches
-  Crucible.RegMap sym new_args ->
-  -- | Branches to consider
-  [ ( What4.Pred sym
-    , Crucible.RegMap sym new_args -> Crucible.OverrideSim p sym ext rtp (args Ctx.<+> new_args) res a
-    , Maybe What4.Position
-    )
-  ] ->
-  -- | Fallback branch
-  Crucible.OverrideSim p sym ext rtp (args Ctx.<+> new_args) res a ->
-  Crucible.OverrideSim p sym ext rtp args res a
-nondetBranches' args branches fallback =
-  do let argsSize = Crucible.regMapSize args
-     args'Size <- Crucible.regMapSize <$> Crucible.getOverrideArgs
-     let branches' =
-           [ ( precond
-             , -- Don't use args from outer scope directly (see warning on
-               -- 'Crucible.symbolicBranches').
-               do args'args <- Crucible.getOverrideArgs
-                  let (_, safeArgs) = splitRegs args'Size argsSize args'args
-                  action safeArgs
-             , pos
-             )
-           | (precond, action, pos) <- branches
-           ]
-     nondetBranchesWithFallback args branches' fallback
-  where
-    splitRegs ::
-      Ctx.Size ctx ->
-      Ctx.Size ctx' ->
-      Crucible.RegMap sym (ctx Ctx.<+> ctx') ->
-      (Crucible.RegMap sym ctx, Crucible.RegMap sym ctx')
-    splitRegs sz sz' (Crucible.RegMap m) =
-      (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
-
 -- | Apply a collection of specs (a 'Specs') to the current program state.
 --
 -- Creates one symbolic branches per spec; as described on the Haddock for
@@ -246,13 +199,17 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      specs' <-
        traverse (\s -> (s,) <$> liftIO (matchPre s)) (Spec.getSpecs specs)
 
+     let argsSize = Ctx.size args
+     cargsSize <- Crucible.regMapSize <$> Crucible.getOverrideArgs
      -- Create one symbolic branch per Spec, conditioned on the preconditions
      let branches =
            [ ( precond
              , -- Can't use 'args' in this block, see warning on
                -- 'Crucible.symbolicBranches'.
-               \(Crucible.RegMap args') ->
-                 applyPost bak modCtx tracker funcSymb fsRep mvar spec args'
+               do ovArgs <- Crucible.getOverrideArgs
+                  let (_, Crucible.RegMap safeArgs) =
+                        splitRegs cargsSize argsSize ovArgs
+                  applyPost bak modCtx tracker funcSymb fsRep mvar spec safeArgs
              , Nothing
              )
            | (spec, precond) <- toList specs'
@@ -261,7 +218,16 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
      -- TODO(lb): this behavior should depend on spec config, see TODO
      -- on 'Specs'
      let err = Crucible.GenericSimError "No spec applied!"
-     nondetBranches'
+     nondetBranchesWithFallback
        (Crucible.RegMap args)
        branches
        (Crucible.overrideError err)
+
+  where
+    splitRegs ::
+      Ctx.Size ctx ->
+      Ctx.Size ctx' ->
+      Crucible.RegMap sym (ctx Ctx.<+> ctx') ->
+      (Crucible.RegMap sym ctx, Crucible.RegMap sym ctx')
+    splitRegs sz sz' (Crucible.RegMap m) =
+      (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
