@@ -189,39 +189,20 @@ applySpecs ::
   Crucible.OverrideSim p sym ext r cargs ret
     (Crucible.RegValue sym (FS.ReturnTypeToCrucibleType arch mft))
 applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
-  do FS.FuncSigRepr _ argTys _ <- return fsRep
+  do -- Create one symbolic branch per Spec, conditioned on the preconditions
+     FS.FuncSigRepr _ argTys _ <- return fsRep
      let sym = Crucible.backendGetSym bak
-
-     -- Collapse preconditions into predicates
      mem <- Crucible.readGlobal mvar
-     let matchPre (Spec.Spec specPre _ _ _) =
-           matchPreconds modCtx sym mem argTys specPre args
-     specs' <-
-       traverse (\s -> (s,) <$> liftIO (matchPre s)) (Spec.getSpecs specs)
+     branches <-
+       mapM (specToBranch sym mem argTys) (toList (Spec.getSpecs specs))
 
-     let argsSize = Ctx.size args
-     cargsSize <- Crucible.regMapSize <$> Crucible.getOverrideArgs
-     -- Create one symbolic branch per Spec, conditioned on the preconditions
-     let branches =
-           [ ( precond
-             , -- Can't use 'args' in this block, see warning on
-               -- 'Crucible.symbolicBranches'.
-               do ovArgs <- Crucible.getOverrideArgs
-                  let (_, Crucible.RegMap safeArgs) =
-                        splitRegs cargsSize argsSize ovArgs
-                  applyPost bak modCtx tracker funcSymb fsRep mvar spec safeArgs
-             , Nothing
-             )
-           | (spec, precond) <- toList specs'
-           ]
+     let reason = Crucible.GenericSimError "No spec applied!"
+     let err = Crucible.overrideError reason
+     -- TODO(lb): Whether or not to error in the fallback case should depend on
+     -- spec config, see TODO on 'Specs'
+     let fallback = err
 
-     -- TODO(lb): this behavior should depend on spec config, see TODO
-     -- on 'Specs'
-     let err = Crucible.GenericSimError "No spec applied!"
-     nondetBranchesWithFallback
-       (Crucible.RegMap args)
-       branches
-       (Crucible.overrideError err)
+     nondetBranchesWithFallback (Crucible.RegMap args) branches fallback
 
   where
     splitRegs ::
@@ -231,3 +212,19 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
       (Crucible.RegMap sym ctx, Crucible.RegMap sym ctx')
     splitRegs sz sz' (Crucible.RegMap m) =
       (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
+
+    -- Convert a Spec into a branch for 'nondetBranches'
+    specToBranch sym mem argTys spec@(Spec.Spec specPre _ _ _) =
+      do precond <- liftIO (matchPreconds modCtx sym mem argTys specPre args)
+         let argsSize = Ctx.size args
+         cargsSize <- Crucible.regMapSize <$> Crucible.getOverrideArgs
+         return $
+           ( precond
+           , -- Can't use 'args' in this block, see warning on
+             -- 'Crucible.nondetBranches'.
+             do ovArgs <- Crucible.getOverrideArgs
+                let (_, Crucible.RegMap safeArgs) =
+                      splitRegs cargsSize argsSize ovArgs
+                applyPost bak modCtx tracker funcSymb fsRep mvar spec safeArgs
+           , Nothing  -- position
+           )
