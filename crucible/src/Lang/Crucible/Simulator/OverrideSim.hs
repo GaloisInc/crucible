@@ -568,6 +568,10 @@ symbolicBranches new_args xs0 =
 -- predicates that evaluate to true. Each branch will not assume that other
 -- branches weren't taken.
 --
+-- As with 'symbolicBranch', any symbolic values needed by the branches should be
+-- placed into the @RegMap@ argument and retrieved when needed. See the comment
+-- on 'symbolicBranch'.
+--
 -- Operationally, this works by by numbering all of the branches from 0 to n,
 -- inventing a symbolic integer variable z, and adding z = i (where i ranges
 -- from 0 to n) to the branch condition for each branch, and calling
