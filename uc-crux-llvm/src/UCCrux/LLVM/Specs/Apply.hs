@@ -13,6 +13,7 @@ Should be easy enough given the information in 'CheckedConstraint'.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -132,26 +133,55 @@ applyPost bak modCtx tracker funcSymb fsRep mvar spec args =
      Crucible.modifyGlobal mvar $ \mem ->
        liftIO (applyPostcond bak modCtx tracker funcSymb post retTy mem args)
 
--- | A variant of 'Crucible.symbolicBranches'.
+-- | Like 'nondetBranches', but with a fallback case.
 --
--- Useful when the branches use a 'Crucible.RegMap' of values of types @args@
--- that are unrelated to the argument types of the override (@args'@).
---
--- For convenience, passes the given 'Crucible.RegMap' of type @args@ directly
--- to the action taken in each branch, rather than requiring each branch to call
--- 'Crucible.getOverrideArgs' and @splitRegs@.
-symbolicBranches' :: forall p sym ext rtp args args' res a.
+-- The fallback case has a branch condition equivalent to the negation of the
+-- disjunction of the branch conditions of all the supplied branches; i.e., it
+-- is taken just when none of the other branches are.
+nondetBranchesWithFallback :: forall p sym ext rtp args new_args res a.
   IsSymInterface sym =>
   -- | Argument values for the branches
-  Crucible.RegMap sym args ->
+  Crucible.RegMap sym new_args  ->
   -- | Branches to consider
   [ ( What4.Pred sym
-    , Crucible.RegMap sym args -> Crucible.OverrideSim p sym ext rtp (args' Ctx.<+> args) res a
+    , Crucible.OverrideSim p sym ext rtp (args Ctx.<+> new_args) res a
     , Maybe What4.Position
     )
   ] ->
-  Crucible.OverrideSim p sym ext rtp args' res a
-symbolicBranches' args branches =
+  -- | Fallback branch
+  Crucible.OverrideSim p sym ext rtp (args Ctx.<+> new_args) res a ->
+  Crucible.OverrideSim p sym ext rtp args res a
+nondetBranchesWithFallback newArgs branches fallbackBranch =
+  do sym <- Crucible.getSymInterface
+     orPred <- liftIO $ What4.orOneOf sym Lens.folded [p | (p, _, _) <- branches]
+     fallbackPred <- liftIO $ What4.notPred sym orPred
+     let p = (Just (What4.OtherPos "fallback branch"))
+     Crucible.nondetBranches newArgs ((fallbackPred, fallbackBranch, p):branches)
+
+-- | A variant of 'nondetBranchesWithFallback'.
+--
+-- Does a few things convenient for use in 'applySpecs':
+--
+-- * Passes in the 'Crucible.RegMap' of values of types @args@ as a function
+--   argument to the branches so they don't have to call
+--   'Crucible.getOverrideArgs' and split the arguments.
+-- * Enforces that each branch doesn't care about the override argument
+--   types (e.g. is polymorphic in @args''@). This isn't functionally necessary,
+--   but is perhaps more clear by virtue of being more polymorphic.
+nondetBranches' :: forall p sym ext rtp args new_args res a.
+  IsSymInterface sym =>
+  -- | Argument values for the branches
+  Crucible.RegMap sym new_args ->
+  -- | Branches to consider
+  [ ( What4.Pred sym
+    , Crucible.RegMap sym new_args -> Crucible.OverrideSim p sym ext rtp (args Ctx.<+> new_args) res a
+    , Maybe What4.Position
+    )
+  ] ->
+  -- | Fallback branch
+  Crucible.OverrideSim p sym ext rtp (args Ctx.<+> new_args) res a ->
+  Crucible.OverrideSim p sym ext rtp args res a
+nondetBranches' args branches fallback =
   do let argsSize = Crucible.regMapSize args
      args'Size <- Crucible.regMapSize <$> Crucible.getOverrideArgs
      let branches' =
@@ -165,7 +195,7 @@ symbolicBranches' args branches =
              )
            | (precond, action, pos) <- branches
            ]
-     Crucible.symbolicBranches args branches'
+     nondetBranchesWithFallback args branches' fallback
   where
     splitRegs ::
       Ctx.Size ctx ->
@@ -177,9 +207,9 @@ symbolicBranches' args branches =
 
 -- | Apply a collection of specs (a 'Specs') to the current program state.
 --
--- Creates one symbolic branches per spec, as described on the Haddock for
--- 'Specs' the semantics is that the first spec with a matching precondition has
--- its postcondition applied to mutate memory and supply a return value.
+-- Creates one symbolic branches per spec; as described on the Haddock for
+-- 'Specs' the semantics is that every spec with a true precondition has its
+-- postcondition applied to mutate memory and supply a return value.
 applySpecs ::
   forall m arch sym bak fs va mft args argTypes p ext r cargs ret.
   ArchOk arch =>
@@ -217,7 +247,7 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
        traverse (\s -> (s,) <$> liftIO (matchPre s)) (Spec.getSpecs specs)
 
      -- Create one symbolic branch per Spec, conditioned on the preconditions
-     let specBranches =
+     let branches =
            [ ( precond
              , -- Can't use 'args' in this block, see warning on
                -- 'Crucible.symbolicBranches'.
@@ -228,18 +258,10 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
            | (spec, precond) <- toList specs'
            ]
 
-     -- Add a fallback branch that (depending on the Spec) either fails or
-     -- applies a minimal postcondition.
-     let fallbackBranch =
-           ( What4.truePred sym
-           , -- Can't use 'args' in this block, see warning on
-             -- 'Crucible.symbolicBranches'.
-             \_args ->
-               -- TODO(lb): this behavior should depend on spec config, see TODO
-               -- on 'Specs'
-               do Crucible.overrideError (Crucible.GenericSimError "No spec applied!")
-           , Nothing
-           )
-
-     let branches = specBranches ++ [fallbackBranch]
-     symbolicBranches' (Crucible.RegMap args) branches
+     -- TODO(lb): this behavior should depend on spec config, see TODO
+     -- on 'Specs'
+     let err = Crucible.GenericSimError "No spec applied!"
+     nondetBranches'
+       (Crucible.RegMap args)
+       branches
+       (Crucible.overrideError err)

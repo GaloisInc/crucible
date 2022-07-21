@@ -108,14 +108,11 @@ data Spec m fs
 
 -- | A collection of specifications for a function.
 --
--- The semantics are that the specs are tried in order. The first one that has a
--- matching precondition results in its postcondition being applied, just as in
--- 'Lang.Crucible.Simulator.OverrideSim.symbolicBranches'.
+-- The semantics are that the specs are tried in order. All specs with true
+-- preconditions have their postcondition applied; they are used as branches in
+-- 'Lang.Crucible.Simulator.OverrideSim.nondetBranches'.
 --
 -- TODO(lb): Configure whether matching is an error.
---
--- TODO(lb): A semantics of non-deterministic choice rather than first-wins
--- would probably be superior.
 newtype Specs m fs
   = Specs { getSpecs :: NonEmpty (Spec m fs) }
 
@@ -145,5 +142,3 @@ minimalSpecs = Specs . neSingleton . minimalSpec
   where
     -- | Added as NE.singleton in base-4.15/GHC 9.
     neSingleton x = x NE.:| []
-
-
