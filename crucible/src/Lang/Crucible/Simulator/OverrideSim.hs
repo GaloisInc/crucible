@@ -37,7 +37,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , overrideAbort
   , symbolicBranch
   , symbolicBranches
-  , notdetBranches
+  , nondetBranches
   , overrideReturn
   , overrideReturn'
     -- * Function calls
@@ -576,15 +576,15 @@ symbolicBranches new_args xs0 =
 -- condition has the form @(z = i) and p@, so the negation @~((z = i) and p)@
 -- is equivalent to @(z != i) or ~p@, so later branches don't assume the
 -- negation of the branch condition of earlier branches (i.e., @~p@).
-notdetBranches :: forall p sym ext rtp args new_args res a.
+nondetBranches :: forall p sym ext rtp args new_args res a.
   IsSymInterface sym =>
   RegMap sym new_args {- ^ argument values for the branches -} ->
   [(Pred sym, OverrideSim p sym ext rtp (args <+> new_args) res a, Maybe Position)]
    {- ^ Branches to consider -} ->
   OverrideSim p sym ext rtp args res a
-notdetBranches new_args xs0 =
+nondetBranches new_args xs0 =
   do sym <- getSymInterface
-     z <- liftIO $ freshNat sym (safeSymbol "notdetBranchesZ")
+     z <- liftIO $ freshNat sym (safeSymbol "nondetBranchesZ")
      xs <- for (zip [(0 :: Natural)..] xs0) $ \(i, (p, v, position)) ->
        do p' <- liftIO $ andPred sym p =<< natEq sym z =<< natLit sym i
           return (p', v, position)
