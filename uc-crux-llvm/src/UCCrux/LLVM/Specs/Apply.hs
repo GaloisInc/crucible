@@ -160,7 +160,7 @@ nondetBranchesWithFallback newArgs branches fallbackBranch =
 
 -- | Apply a collection of specs (a 'Specs') to the current program state.
 --
--- Creates one symbolic branches per spec; as described on the Haddock for
+-- Creates one symbolic branch per spec; as described on the Haddock for
 -- 'Specs' the semantics is that every spec with a true precondition has its
 -- postcondition applied to mutate memory and supply a return value.
 applySpecs ::
