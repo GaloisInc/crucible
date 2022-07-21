@@ -16,7 +16,6 @@ Should be easy enough given the information in 'CheckedConstraint'.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Specs.Apply
@@ -155,7 +154,7 @@ nondetBranchesWithFallback newArgs branches fallbackBranch =
   do sym <- Crucible.getSymInterface
      orPred <- liftIO $ What4.orOneOf sym Lens.folded [p | (p, _, _) <- branches]
      fallbackPred <- liftIO $ What4.notPred sym orPred
-     let p = (Just (What4.OtherPos "fallback branch"))
+     let p = Just (What4.OtherPos "fallback branch")
      Crucible.nondetBranches newArgs ((fallbackPred, fallbackBranch, p):branches)
 
 -- | Apply a collection of specs (a 'Specs') to the current program state.
@@ -218,7 +217,7 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
       do precond <- liftIO (matchPreconds modCtx sym mem argTys specPre args)
          let argsSize = Ctx.size args
          cargsSize <- Crucible.regMapSize <$> Crucible.getOverrideArgs
-         return $
+         return
            ( precond
            , -- Can't use 'args' in this block, see warning on
              -- 'Crucible.nondetBranches'.
