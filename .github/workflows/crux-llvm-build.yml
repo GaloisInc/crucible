@@ -166,41 +166,21 @@ jobs:
           CLANG: "clang-10"
 
       - shell: bash
-        name: Install LLVM-11 for MacOS
-        if: runner.os == 'macOS'
-        run: |
-          LLVM_TAR=https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/clang+llvm-11.0.0-x86_64-apple-darwin.tar.xz
-          curl -sSL $LLVM_TAR -o llvm.tar.xz && tar xzf llvm.tar.xz && mv clang+llvm-* llvm
-          echo '#!/usr/bin/env bash' > llvm/bin/clang-withIncl
-          echo "exec ${{ github.workspace }}/llvm/bin/clang -I${{ github.workspace }}/llvm/include -I${{ github.workspace }}/llvm/include/c++/v1 \${1+\"\$@\"}" >> llvm/bin/clang-withIncl
-          cat llvm/bin/clang-withIncl
-          chmod +x llvm/bin/clang-withIncl
-          echo "$PWD/llvm/bin" >> $GITHUB_PATH
-
-      - uses: actions/cache@v2
-        name: Cache LLVM-11
-        if: runner.os == 'macOS'
-        with:
-          path: ${{ github.workspace }}/llvm
-          key: llvm-11.0.0
-          restore-keys: llvm-11.0.0
-
-      - shell: bash
         name: Test crucible-llvm (macOS)
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          LLVM_AS: "${{ github.workspace }}/llvm/bin/llvm-as"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang"
+          LLVM_LINK: "llvm-link-11"
+          LLVM_AS: "llvm-as-11"
+          CLANG: "clang-11"
 
       - shell: bash
         name: Test crux-llvm (macOS)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
+          LLVM_LINK: "llvm-link-11"
+          CLANG: "clang-11"
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
