@@ -39,7 +39,9 @@ setupOverrides _ ha =
                      <*> pure (UseOverride (mkOverride "symbolicBranchTest" symbolicBranchTest))
      f2 <- FnBinding <$> mkHandle ha "symbolicBranchesTest"
                      <*> pure (UseOverride (mkOverride "symbolicBranchesTest" symbolicBranchesTest))
-     return [(f1, InternalPos),(f2,InternalPos)]
+     f3 <- FnBinding <$> mkHandle ha "notdetBranchesTest"
+                     <*> pure (UseOverride (mkOverride "notdetBranchesTest" notdetBranchesTest))
+     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos)]
 
 
 -- Test the @symbolicBranch@ override operation.
@@ -91,3 +93,26 @@ symbolicBranchesTest =
         liftIO $ intAdd sym y x2
 
   b4 = overrideError (GenericSimError "fall-through branch")
+
+
+-- Test the @notdetBranches@ override operation.
+--
+-- If the first argument is zero, returns the second argument. If it is one,
+-- returns the third argument. If it could be either, returns both (i.e.,
+-- nondeterministic choice). If it couldn't be either, errors out.
+notdetBranchesTest :: IsSymInterface sym =>
+  OverrideSim p sym ext r
+    (EmptyCtx ::> IntegerType ::> IntegerType ::> IntegerType) IntegerType (RegValue sym IntegerType)
+notdetBranchesTest =
+  do sym <- getSymInterface
+     args <- getOverrideArgs
+     cond <- reg @0 <$> getOverrideArgs
+     p1 <- liftIO $ intEq sym cond =<< intLit sym 0
+     p2 <- liftIO $ intEq sym cond =<< intLit sym 1
+     fallbackPred <- liftIO $ notPred sym =<< orPred sym p1 p2
+     let fallback = overrideError (GenericSimError "fall-through branch")
+     notdetBranches args
+       [ (p1, reg @1 <$> getOverrideArgs, Just (OtherPos "first branch"))
+       , (p2, reg @2 <$> getOverrideArgs, Just (OtherPos "second branch"))
+       , (fallbackPred, fallback, Just (OtherPos "default branch"))
+       ]

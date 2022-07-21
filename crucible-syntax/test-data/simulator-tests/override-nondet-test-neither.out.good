@@ -1,0 +1,20 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+* in main test-data/simulator-tests/override-nondet-test-neither.cbl:6:5: w is not 0 or 1
+    and (not (eq 0 cw@0:i)) (not (eq 1 cw@0:i))
+* The branch in main from test-data/simulator-tests/override-nondet-test-neither.cbl:7:12 to after branch 0
+    not (and (eq 0 cw@0:i) (eq 0 cnotdetBranchesZ@12:i))
+* The branch in notdetBranchesTest from after branch 0 to after branch 1
+    not (and (eq 1 cw@0:i) (eq 1 cnotdetBranchesZ@12:i))
+* The branch in notdetBranchesTest from after branch 1 to default branch
+    let -- test-data/simulator-tests/override-nondet-test-neither.cbl:7:12
+        v17 = eq 2 cnotdetBranchesZ@12:i
+     in and (not (eq 0 cw@0:i)) (not (eq 1 cw@0:i)) v17
+Prove:
+  default branch: error: in notdetBranchesTest
+  fall-through branch
+  false
+COUNTEREXAMPLE
