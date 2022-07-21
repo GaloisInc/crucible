@@ -212,6 +212,18 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
     splitRegs sz sz' (Crucible.RegMap m) =
       (Crucible.RegMap (Ctx.take sz sz' m), Crucible.RegMap (Ctx.drop sz sz' m))
 
+    withSplitOverrideArgs ::
+      Ctx.Size old_args ->
+      Ctx.Size new_args ->
+      (forall args'.
+       Crucible.RegMap sym old_args ->
+       Crucible.RegMap sym new_args ->
+       Crucible.OverrideSim p sym ext rtp args' res a) ->
+      Crucible.OverrideSim p sym ext rtp (old_args Ctx.<+> new_args) res a
+    withSplitOverrideArgs oldSz newSz k =
+      do (args_, new_args) <- splitRegs oldSz newSz <$> Crucible.getOverrideArgs
+         k args_ new_args
+
     -- Convert a Spec into a branch for 'nondetBranches'
     specToBranch sym mem argTys spec@(Spec.Spec specPre _ _ _) =
       do precond <- liftIO (matchPreconds modCtx sym mem argTys specPre args)
@@ -221,9 +233,8 @@ applySpecs bak modCtx tracker funcSymb specs fsRep mvar args =
            ( precond
            , -- Can't use 'args' in this block, see warning on
              -- 'Crucible.nondetBranches'.
-             do ovArgs <- Crucible.getOverrideArgs
-                let (_, Crucible.RegMap safeArgs) =
-                      splitRegs cargsSize argsSize ovArgs
-                applyPost bak modCtx tracker funcSymb fsRep mvar spec safeArgs
+             withSplitOverrideArgs cargsSize argsSize $
+               \_ (Crucible.RegMap safeArgs) ->
+                 applyPost bak modCtx tracker funcSymb fsRep mvar spec safeArgs
            , Nothing  -- position
            )
