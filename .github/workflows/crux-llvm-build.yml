@@ -18,6 +18,8 @@ on:
 # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
 env:
   CACHE_VERSION: 1
+  LINUX_LLVM_VERSION: 10
+  MACOS_LLVM_VERSION: 11
 
 jobs:
   outputs:
@@ -145,9 +147,9 @@ jobs:
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'Linux'
         env:
-          LLVM_LINK: "llvm-link-10"
-          LLVM_AS: "llvm-as-10"
-          CLANG: "clang-10"
+          LLVM_LINK: "llvm-link-${{ env.LINUX_LLVM_VERSION }}"
+          LLVM_AS: "llvm-as-${{ env.LINUX_LLVM_VERSION }}"
+          CLANG: "clang-${{ env.LINUX_LLVM_VERSION }}"
 
       - shell: bash
         name: Test crux-llvm (Linux)
@@ -162,25 +164,25 @@ jobs:
         run: .github/ci.sh test uc-crux-llvm
         if: matrix.os == 'ubuntu-20.04'
         env:
-          LLVM_LINK: "llvm-link-10"
-          CLANG: "clang-10"
+          LLVM_LINK: "llvm-link-${{ env.LINUX_LLVM_VERSION }}"
+          CLANG: "clang-${{ env.LINUX_LLVM_VERSION }}"
 
       - shell: bash
         name: Test crucible-llvm (macOS)
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "llvm-link-11"
-          LLVM_AS: "llvm-as-11"
-          CLANG: "clang-11"
+          LLVM_LINK: "llvm-link"
+          LLVM_AS: "llvm-as"
+          CLANG: "clang"
 
       - shell: bash
         name: Test crux-llvm (macOS)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'macOS'
         env:
-          LLVM_LINK: "llvm-link-11"
-          CLANG: "clang-11"
+          LLVM_LINK: "llvm-link"
+          CLANG: "clang"
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
