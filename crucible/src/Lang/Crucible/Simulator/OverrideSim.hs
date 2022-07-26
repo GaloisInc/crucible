@@ -565,8 +565,9 @@ symbolicBranches new_args xs0 =
 --
 -- Unlike 'symbolicBranches', this function does not take only the first branch
 -- with a predicate that evaluates to true; instead it takes /all/ branches with
--- predicates that evaluate to true. Each branch will not assume that other
--- branches weren't taken.
+-- predicates that are not syntactically false (or cannot be proved unreachable
+-- with path satisfiability checking, if enabled). Each branch will /not/ assume
+-- that other branches weren't taken.
 --
 -- As with 'symbolicBranch', any symbolic values needed by the branches should be
 -- placed into the @RegMap@ argument and retrieved when needed. See the comment
