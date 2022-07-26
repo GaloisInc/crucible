@@ -48,6 +48,7 @@ import           Data.Map (Map)
 import qualified Data.Set as Set
 import qualified System.IO
 import           Numeric.Natural
+import           Prettyprinter (pretty)
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
@@ -60,6 +61,7 @@ import           Data.Parameterized.TraversableFC
 
 --import qualified What4.Config as W4
 import qualified What4.Interface as W4
+import qualified What4.ProgramLoc as W4
 
 import qualified Lang.Crucible.Analysis.Fixpoint.Components as C
 import qualified Lang.Crucible.Analysis.Postdom as C
@@ -499,8 +501,13 @@ uninterpretedConstantEqualitySubstitution _sym (VarSubst substitution havoc) =
   (VarSubst normal_substitution havoc, uninterpreted_constant_substitution)
 
 
-computeLoopMap :: (k ~ C.Some (C.BlockID blocks)) => [C.WTOComponent k] -> IO (Map k [k])
-computeLoopMap wto = return loop_map
+computeLoopMap :: (k ~ C.Some (C.BlockID blocks)) => Integer -> [C.WTOComponent k] -> IO (Map k [k])
+computeLoopMap loopNum wto =
+  case List.genericDrop loopNum (Map.toList loop_map) of
+    [] -> fail ("Did not find " ++ show loopNum ++ " loop headers")
+    (p:_) -> return (Map.fromList [p])
+
+  --return loop_map
   -- Doesn't really work if there are nested loops: loop datastructures will
   -- overwrite each other.  Currently no error message.
 
@@ -541,17 +548,18 @@ simpleLoopFixpoint ::
   forall sym ext p rtp blocks init ret .
   (C.IsSymInterface sym, C.IsSyntaxExtension ext, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   sym ->
+  Integer {- ^ which of the discovered loop heads to install a loop invariant onto -}  -> 
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
   (InvariantPhase -> [Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (FixpointEntry sym) -> IO (W4.Pred sym)) ->
   IO (C.ExecutionFeature p sym ext rtp)
-simpleLoopFixpoint sym cfg@C.CFG{..} mem_var loop_invariant = do
+simpleLoopFixpoint sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
   let ?ptrWidth = knownNat @64
 
   --verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
   --verb <- fromInteger <$> W4.getOpt verbSetting
 
-  loop_map <- computeLoopMap (C.cfgWeakTopologicalOrdering cfg)
+  loop_map <- computeLoopMap loopNum (C.cfgWeakTopologicalOrdering cfg)
 
   fixpoint_state_ref <- newIORef @(FixpointState p sym ext rtp blocks) BeforeFixpoint
 
@@ -642,12 +650,13 @@ advanceFixpointState ::
   IORef (FixpointState p sym ext rtp blocks) ->
   IO (C.ExecutionFeatureResult p sym ext rtp)
 
-advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_state fixpoint_state_ref =
-  let ?ptrWidth = knownNat @64 in
-  let sym = C.backendGetSym bak in
+advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_state fixpoint_state_ref = do
+  let ?ptrWidth = knownNat @64
+  let sym = C.backendGetSym bak
+  loc <- W4.getCurrentProgramLoc sym
   case fixpoint_state of
     BeforeFixpoint -> do
-      ?logMessage $ "SimpleLoopFixpoint: RunningState: BeforeFixpoint -> ComputeFixpoint " ++ show block_id
+      ?logMessage $ "SimpleLoopFixpoint: RunningState: BeforeFixpoint -> ComputeFixpoint " ++ show block_id ++ " " ++ show (pretty (W4.plSourceLoc loc))
       assumption_frame_identifier <- C.pushAssumptionFrame bak
       let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
       let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
@@ -686,8 +695,6 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
         _ <- C.popAssumptionFrameAndObligations bak $
               fixpointAssumptionFrameIdentifier fixpoint_record
 
-        loc <- W4.getCurrentProgramLoc sym
-
         let body_mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
         let (header_mem_impl, mem_allocs, mem_writes) = dropMemStackFrame body_mem_impl
         when (C.sizeMemAllocs mem_allocs /= 0) $
@@ -709,8 +716,8 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
           -- we found the fixpoint, get ready to wrap up
           then do
             ?logMessage $
-              "SimpleLoopFixpoint: RunningState: ComputeFixpoint -> CheckFixpoint"
-
+              "SimpleLoopFixpoint: RunningState: ComputeFixpoint -> CheckFixpoint "
+              ++ " " ++ show (pretty (W4.plSourceLoc loc))
             -- we have delayed populating the main substituation map with
             --  memory variables, so we have to do that now
 
@@ -852,8 +859,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
           ++ "AfterFixpoint"
           ++ ": "
           ++ show block_id
-
-        loc <- W4.getCurrentProgramLoc sym
+          ++ " " ++ show (pretty (W4.plSourceLoc loc))
 
         -- == assert the loop invariant and abort ==
 
