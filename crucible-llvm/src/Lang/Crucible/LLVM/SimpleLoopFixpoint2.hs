@@ -894,6 +894,10 @@ constructMemSubstitutionCandidate sym mem_writes =
     C.MemWrites [C.MemWritesChunkIndexed mmm] ->
       MemSubst <$> foldlM handleMemWrite mempty (List.concat $ IntMap.elems mmm)
 
+    -- no writes occured in the body of the loop
+    C.MemWrites [] ->
+      return (MemSubst mempty)
+
     _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++
                 show (C.ppMemWrites mem_writes)
 
