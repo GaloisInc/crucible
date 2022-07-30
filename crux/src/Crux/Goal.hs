@@ -32,7 +32,7 @@ import What4.ProgramLoc (ProgramLoc)
 import What4.SatResult(SatResult(..))
 import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, GroundValueWrapper(..))
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
-                            , solverConn, check, getUnsatCore )
+                            , solverConn, check, getUnsatCore, getAbducts )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
                                , assumeFormula, smtExprGroundEvalFn )
 import qualified What4.Solver as WS
@@ -87,9 +87,9 @@ proveToGoal ::
   IO ProvedGoals
 proveToGoal sym allAsmps p locs pr =
   case pr of
-    NotProved ex cex ->
+    NotProved ex cex s ->
       do as <- flattenAssumptions sym allAsmps
-         return (NotProvedGoal (map showAsmp as) (showGoal p) ex locs cex)
+         return (NotProvedGoal (map showAsmp as) (showGoal p) ex locs cex s)
     Proved xs ->
       case partitionEithers xs of
         (asmps, [])  -> return (ProvedGoal (map showAsmp asmps) (showGoal p) locs True)
@@ -121,17 +121,17 @@ updateProcessedGoals _ (Proved _) pgs =
      , provedGoals = 1 + provedGoals pgs
      }
 
-updateProcessedGoals res (NotProved _ _) pgs | isResourceExhausted res =
+updateProcessedGoals res (NotProved _ _ _) pgs | isResourceExhausted res =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
      , incompleteGoals = 1 + incompleteGoals pgs
      }
 
-updateProcessedGoals _ (NotProved _ (Just _)) pgs =
+updateProcessedGoals _ (NotProved _ (Just _) _) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
      , disprovedGoals = 1 + disprovedGoals pgs
      }
 
-updateProcessedGoals _ (NotProved _ Nothing) pgs =
+updateProcessedGoals _ (NotProved _ Nothing _) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs }
 
 -- | A function that can be used to generate a pretty explanation of a
@@ -223,7 +223,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
           end goalNumber
           case res of
             Right Nothing -> do
-              let details = NotProved "(timeout)" Nothing
+              let details = NotProved "(timeout)" Nothing []
               let locs = assumptionsTopLevelLocs assumptionsInScope
               modifyIORef' goalNum (updateProcessedGoals p details)
               return (Prove (p, locs, details))
@@ -231,13 +231,13 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             Right (Just (locs,details)) -> do
               modifyIORef' goalNum (updateProcessedGoals p details)
               case details of
-                NotProved _ (Just _) ->
+                NotProved _ (Just _) _ ->
                   when (failfast && not (isResourceExhausted p)) $
                     sayCrux Log.FoundCounterExample
                 _ -> return ()
               return (Prove (p, locs, details))
             Left es -> do
-              modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
+              modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing []))
               let allExceptions = unlines (displayException <$> es)
               fail allExceptions
 
@@ -265,11 +265,11 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             let vals = evalModelFromEvents evs
             explain <- explainFailure (Just evalFn) p
             let locs = map eventLoc evs
-            return (locs, NotProved explain (Just (vals,evs)))
+            return (locs, NotProved explain (Just (vals,evs)) [])
           Unknown -> do
             explain <- explainFailure Nothing p
             let locs = assumptionsTopLevelLocs assumptionsInScope
-            return (locs, NotProved explain Nothing)
+            return (locs, NotProved explain Nothing [])
 
 evalModelFromEvents :: [CrucibleEvent GroundValueWrapper] -> ModelView
 evalModelFromEvents evs = ModelView (foldl f (modelVals emptyModelView) evs)
@@ -301,7 +301,7 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
             Right (x, r@(Proved _)) -> do
               mapM_ kill as'
               return $ Right (Just (x,r))
-            Right (x,r@(NotProved _ (Just _))) -> do
+            Right (x,r@(NotProved _ (Just _) _)) -> do
               mapM_ kill as'
               return $ Right (Just (x,r))
             Right _ ->
@@ -358,18 +358,30 @@ proveGoalsOnline ::
   (Maybe (GroundEvalFn s) -> Assertion sym -> IO (Doc Void)) ->
   Maybe (Goals (Assumptions sym) (Assertion sym)) ->
   IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym)))
-
+{-
+--| A collection of goals, which can represent shared assumptions.
+Goals asmp goal (Assuming | Prove | ProveConj)
+--| This type describes assumptions made at some point during program execution.
+Assumptions sym = CrucibleAssumptions (GenericAssumption | BranchCondition | AssumingNoError)
+--| Information about an assertion that was previously made.
+Assertion sym = LabeledPred
+ProcessedGoals = ProcessedGoals { totalProcessedGoals, provedGoals, disprovedGoals, incompleteGoals }
+ProofResult sym = | Proved [Either (Assumption sym) (Assertion sym)] 
+                  | NotProved (Doc Void) (Maybe (ModelView, [CrucibleEvent GroundValueWrapper]))
+-}
 proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
 proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
   do -- send solver interactions to the correct file
      mapM_ (symCfg sym solverInteractionFile) (fmap Text.pack (onlineSolverOutput opts))
-
+     -- store goal count
      goalNum <- newIORef (ProcessedGoals 0 0 0 0)
+     -- nameMap is a mutable ref to a Text to Either (Assumption sym) (Assertion sym) map
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
        sayCrux Log.SkippingUnsatCoresBecauseMCSatEnabled
+     -- callbacks for starting each goal, ending each goal, and finishing all goals
      (start,end,finish) <- proverMilestoneCallbacks gs0
 
      -- make sure online features are enabled
@@ -392,45 +404,68 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
   failfast = proofGoalsFailFast opts
 
   go (start,end) sp assumptionsInScope gn gs nameMap = do
+    -- pattern match on type Goals asmp goal
+    -- where asmp <- Assumptions sym
+    --       goal <- Assertion sym
     case gs of
-
+      -- case Assuming asmp !(Goals asmp goal)
+      -- Make an assumption that is in context for all the contained goals.
       Assuming asms gs1 ->
+        -- flatten into a [Assumption sym]
         do ps <- flattenAssumptions sym asms
            forM_ ps $ \asm ->
              unless (trivialAssumption asm) $
+               -- extract predicate (BaseBoolType)
                do let p = assumptionPred asm
+                  -- create formula, assert to SMT solver, also create new name
                   nm <- doAssume =<< mkFormula conn p
+                  -- add name to Either (Assumption sym) (Assertion sym) mapping to nameMap
                   bindName nm (Left asm) nameMap
+           -- recursive call
            res <- go (start,end) sp (assumptionsInScope <> asms) gn gs1 nameMap
            return (Assuming (mconcat (map singleAssumption ps)) res)
-
+      -- case Prove goal
+      -- A proof obligation, to be proved in the context of all previously-made assumptions.
       Prove p ->
+        -- number of processed goals gives goal number to prove
         do goalNumber <- totalProcessedGoals <$> readIORef gn
            start goalNumber
+           -- negate goal, create formula, assert to SMT solver, also create new name
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
+           -- add name to Either (Assumption sym) (Assertion sym) mapping to nameMap
            bindName nm (Right p) nameMap
-
+           -- check-sat to SMT solver
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->
+                        -- return either the unsat core, which is the entire assertion set by default
                         do namemap <- readIORef nameMap
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
+                           -- update goal count
                            end goalNumber
                            let pr = Proved core
                            modifyIORef' gn (updateProcessedGoals p pr)
                            let locs = assumptionsTopLevelLocs assumptionsInScope
                            return (Prove (p, locs, pr))
-
                       Sat ()  ->
+                        -- Solver connection     Eval to Haskell     Function for calculating ground vals    
+                        -- SolverProcess (sp) -> SMTEvalFunctions -> GroundEvalFn
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
+                           --                   linear, ground, events acc to program run
+                           -- -> GroundValue -> CrucibleEvent GroundValueWrapper
                            evs <- concretizeEvents (groundEval f) assumptionsInScope
+                           -- -> ModelView (a portable/concrete view of a model's contents)
                            let vals = evalModelFromEvents evs
-
+                           -- GrounEvalFn, Assertion sym -> Crux.Explainer
                            explain <- explainFailure (Just f) p
                            end goalNumber
-                           let gt = NotProved explain (Just (vals,evs))
+                           -- get 5 abducts
+                           abds <- getAbducts sp 1 "abd" (p ^. labeledPred) []
+                           -- ProofResult.NotProved
+                           let gt = NotProved explain (Just (vals,evs)) abds
+                           -- update goal count
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
                              sayCrux Log.FoundCounterExample
@@ -439,7 +474,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                       Unknown ->
                         do explain <- explainFailure Nothing p
                            end goalNumber
-                           let gt = NotProved explain Nothing
+                           let gt = NotProved explain Nothing []
                            modifyIORef' gn (updateProcessedGoals p gt)
                            let locs = assumptionsTopLevelLocs assumptionsInScope
                            return (Prove (p, locs, gt))

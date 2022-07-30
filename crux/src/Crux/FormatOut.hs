@@ -68,7 +68,7 @@ sayWhatFailedGoals skipIncompl showVars allGls =
   failedDoc = \case
     Branch gls1 gls2 -> failedDoc gls1 <> failedDoc gls2
     ProvedGoal{} -> []
-    NotProvedGoal _asmps err ex _locs mdl ->
+    NotProvedGoal _asmps err ex _locs mdl s ->
       if | skipIncompl, CSE.SimError _ (CSE.ResourceExhausted _) <- err -> []
          | Just (_m,evs) <- mdl ->
              [ PP.nest 2 $ PP.vcat (
@@ -81,7 +81,10 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                  -- variable events that led to this failure
                  ++ if showVars then
                       ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]
-                    else [])
+                    else [] ++
+                -- print abducts
+               [ "One of the following 5 facts would entail the goal"
+               , PP.viaShow (unlines s)])
              ]
          | otherwise ->
            [ PP.nest 2 $ PP.vcat [ "Failed to prove verification goal", ex ] ]
