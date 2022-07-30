@@ -440,12 +440,15 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                       Unsat () ->
                         -- return either the unsat core, which is the entire assertion set by default
                         do namemap <- readIORef nameMap
+                           {- Turn off unsat core
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
-                                   else return (Map.elems namemap)
+                                   else return (Map.elems namemap)-}
                            -- update goal count
                            end goalNumber
-                           let pr = Proved core
+                           {- Turn off unsat core
+                           let pr = Proved core -}
+                           let pr = Proved []
                            modifyIORef' gn (updateProcessedGoals p pr)
                            let locs = assumptionsTopLevelLocs assumptionsInScope
                            return (Prove (p, locs, pr))
