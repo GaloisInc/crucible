@@ -5,18 +5,20 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The CACHE_VERSION can be updated to force the use of a new cache if
-# the current cache contents become corrupted/invalid.  This can
-# sometimes happen when (for example) the OS version is changed but
-# older .so files are cached, which can have various effects
-# (e.g. cabal complains it can't find a valid version of the "happy"
-# tool).
-#
-# This also periodically happens on MacOS builds due to a tar bug
-# (symptom: "No suitable image found ... unknown file type, first
-# eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
 env:
+  # The CACHE_VERSION can be updated to force the use of a new cache if
+  # the current cache contents become corrupted/invalid.  This can
+  # sometimes happen when (for example) the OS version is changed but
+  # older .so files are cached, which can have various effects
+  # (e.g. cabal complains it can't find a valid version of the "happy"
+  # tool).
+  #
+  # This also periodically happens on MacOS builds due to a tar bug
+  # (symptom: "No suitable image found ... unknown file type, first
+  # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
   CACHE_VERSION: 4
+  # Work around https://github.com/rust-lang/cargo/issues/10303
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   outputs:
