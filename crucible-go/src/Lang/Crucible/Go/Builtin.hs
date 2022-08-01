@@ -49,7 +49,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
   return $ mkTranslatedExpr retRepr $ do
     case name of
 
-      -- | Compute the length of a value of appropriate type. The
+      -- Compute the length of a value of appropriate type. The
       -- length of a nil pointer to an array or a nil slice is zero.
       "len" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
@@ -94,7 +94,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
             fail $ "translateBuiltin: expected exactly one argument to\
                    \ 'len', got " ++ show args'
 
-      -- | Create a new slice or map value.
+      -- Create a new slice or map value.
       "make" -> case zip args translated_args of
         (Pair arg_node _argM, TranslatedType (Some repr)) : t_args' ->
           tryAsSliceRepr repr
@@ -127,7 +127,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
           fail $ "translateBuiltin: expected type argument to 'make', got "
                 ++ show (proj1 <$> args)
 
-      -- | Allocate a new value and return a pointer to it.
+      -- Allocate a new value and return a pointer to it.
       "new" -> case zip args translated_args of
         [(Pair arg_node _argM, TranslatedType (Some repr))] -> do
           zero <- zeroValue' (typeOf' arg_node) repr
@@ -137,7 +137,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
           fail $ "translateBuiltin: expected exactly one type argument to\
                  \ 'new', got " ++ show (proj1 <$> args)
 
-      -- | Exit the program with an error message. Panics can actually
+      -- Exit the program with an error message. Panics can actually
       -- be recovered from in Go, sort of like exceptions, but we
       -- don't support such control flow for now.
       "panic" -> do
@@ -145,7 +145,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
         Gen.reportError $ Gen.App $ C.StringLit $
           UnicodeLiteral $ T.pack $ "panic: " ++ show args'
 
-      -- | Print the arguments.
+      -- Print the arguments.
       "print" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
         forM_ args' $ \(Some (GoExpr _loc arg')) ->

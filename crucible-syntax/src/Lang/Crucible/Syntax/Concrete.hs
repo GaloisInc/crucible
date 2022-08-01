@@ -175,7 +175,7 @@ data ParserHooks ext = ParserHooks {
        , MonadIO m
        , IsSyntaxExtension ext
        , ?parserHooks :: ParserHooks ext
-       -- ^ ParserHooks instance to use recursively when parsing.
+       -- ParserHooks instance to use recursively when parsing.
        )
     => m (Pair TypeRepr (Atom s))
     -- ^ A pair containing a type and an atom of that type from evaluation of
@@ -1581,7 +1581,7 @@ operands :: forall s ext m tps
             , MonadSyntax Atomic m
             , IsSyntaxExtension ext
             , ?parserHooks :: ParserHooks ext )
-            -- ^ ParserHooks to use for syntax extensions
+            -- ParserHooks to use for syntax extensions
          => Ctx.Assignment TypeRepr tps
          -- ^ Types of the operands
          -> m (Ctx.Assignment (Atom s) tps)

@@ -132,6 +132,10 @@ jobs:
           .github/ci.sh build exe:uc-crux-llvm
 
       - shell: bash
+        name: Haddock
+        run: cabal v2-haddock crucible-symio crucible-llvm crux-llvm uc-crux-llvm
+
+      - shell: bash
         name: Test crucible
         run: .github/ci.sh test crucible
 
