@@ -50,12 +50,14 @@ module UCCrux.LLVM.Postcondition.Type
   , uReturnValue
   , emptyUPostcond
   , minimalUPostcond
+  , minimalPostcond
   , ppUPostcond
   , Postcond(..)
   , PostcondTypeError
   , ppPostcondTypeError
   , typecheckPostcond
   , ReturnValue(..)
+  , toUPostcond
   )
 where
 
@@ -72,9 +74,11 @@ import qualified Prettyprinter as PP
 import           Data.Parameterized.Classes (IxedF'(ixF'))
 import           Data.Parameterized.Context (Assignment)
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.TraversableFC.WithIndex (ifoldrFC)
 
 import           UCCrux.LLVM.Constraints (ConstrainedShape, ConstrainedTypedValue(ConstrainedTypedValue), minimalConstrainedShape, ppConstrainedShape)
 import           UCCrux.LLVM.Cursor (Cursor, ppCursor)
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (SameCrucibleType, sameCrucibleType, makeSameCrucibleType, testSameCrucibleType)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSig, FuncSigRepr, ReturnTypeRepr)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
@@ -210,6 +214,22 @@ data Postcond m (fs :: FuncSig m) where
     } ->
     Postcond m ('FS.FuncSig va mft argTypes)
 
+-- | A postcondition which imposes no constraints and has some
+-- minimally-constrained return value.
+minimalPostcond ::
+  (fs ~ 'FS.FuncSig va mft args) =>
+  FuncSigRepr m fs ->
+  Postcond m fs
+minimalPostcond fsRepr@(FS.FuncSigRepr _ _ retRepr) =
+  case typecheckPostcond (minimalUPostcond retRepr) fsRepr of
+    Left err ->
+      panic
+        "minimalPostcond"
+        [ "Impossible: type mismatch on fresh postcond!"
+        , show (ppPostcondTypeError err)
+        ]
+    Right val -> val
+
 data RetMismatch
   = BadRetType
   | FunctionWasVoid
@@ -315,3 +335,19 @@ typecheckPostcond post fs =
            pGlobalClobbers = _uGlobalClobbers post,
            pReturnValue = ret
          }
+
+-- | Inverse of 'typecheckPostcond'
+toUPostcond :: FuncSigRepr m fs -> Postcond m fs -> UPostcond m
+toUPostcond (FS.FuncSigRepr _ _ retTy) (Postcond _ argClob globClob ret) =
+  UPostcond
+    { _uArgClobbers = ifoldrFC mkArg IntMap.empty argClob,
+      _uGlobalClobbers = globClob,
+      _uReturnValue =
+        case (ret, retTy) of
+          (ReturnVoid, FS.VoidRepr) -> Nothing
+          (ReturnValue val, FS.NonVoidRepr retTyRep) ->
+            Just (ConstrainedTypedValue retTyRep val)
+    }
+  where
+    mkArg idx arg intMap =
+      IntMap.insert (Ctx.indexVal idx) (SomeClobberArg arg) intMap

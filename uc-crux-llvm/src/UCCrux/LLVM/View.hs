@@ -25,6 +25,21 @@ number of advantages:
 The view datatypes are all in modules using the @StrictData@ language extension.
 This is because their primary use is serialization, which will result in
 complete evaluation, eliminating the benefits of laziness.
+
+Note [JSON instance tweaks]: JSON instances for various datatypes are derived
+using 'Data.Aeson.TH.deriveJSON', with some tweaks to
+'Data.Aeson.defaultOptions'. These tweaks remove unnecessary Haskell idioms from
+the JSON representation. For example, it's common in Haskell code for all record
+selectors for the same type to share a common prefix, e.g., "pt" in
+
+> data Point2D = Point2D { ptX :: Int, ptY :: Int }
+
+This idiom is used in part to avoid name clashes due to the lack of namespacing
+for record selectors. There is no need for the JSON representation to reflect
+this implementation detail, and removing such prefixes makes the JSON more terse,
+hopefully making it use less RAM/disk space and network bandwidth, and making
+it easier to write by hand (especially for users not familiar with Haskell
+coding conventions).
 -}
 
 module UCCrux.LLVM.View

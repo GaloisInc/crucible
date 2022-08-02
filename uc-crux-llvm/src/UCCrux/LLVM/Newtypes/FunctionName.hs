@@ -7,6 +7,11 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module UCCrux.LLVM.Newtypes.FunctionName
   ( FunctionName
   , functionNameToString
@@ -14,9 +19,16 @@ module UCCrux.LLVM.Newtypes.FunctionName
   )
 where
 
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.TH as Aeson.TH
+import           Data.Data (Data)
+import           GHC.Generics (Generic)
+
 newtype FunctionName = FunctionName { functionNameToString :: String }
-  deriving (Eq, Ord, Show)
+  deriving (Data, Eq, Aeson.FromJSONKey, Generic, Ord, Show)
 
 -- | Inverse of 'functionNameToString'
 functionNameFromString :: String -> FunctionName
 functionNameFromString = FunctionName
+
+$(Aeson.TH.deriveJSON Aeson.defaultOptions ''FunctionName)

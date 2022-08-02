@@ -241,7 +241,16 @@ viewPartTypeRepr mts =
            Just spt -> Right spt
            Nothing -> Left (BadAlias iden)
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''StructPackedReprView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''VarArgsReprView)
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''FloatInfoReprView)
-$(deriveMutualJSON Aeson.defaultOptions [''FullTypeReprView, ''PartTypeReprView])
+$(deriveMutualJSON
+  Aeson.defaultOptions
+    { Aeson.constructorTagModifier =
+        reverse .
+          drop (length ("ReprView" :: String)) .
+          reverse .
+          drop (length ("FT" :: String))  -- or "PT"
+    }
+  [''FullTypeReprView, ''PartTypeReprView])

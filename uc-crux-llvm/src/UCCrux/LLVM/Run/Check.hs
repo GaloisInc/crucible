@@ -91,6 +91,7 @@ import           UCCrux.LLVM.Run.Result (SomeBugfindingResult)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Shape (Shape)
+import UCCrux.LLVM.Specs.Type (SomeSpecs)
 {- ORMOLU_ENABLE -}
 
 -- | The result of encountering a check override some number of times during
@@ -192,7 +193,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
     overrides ::
       IsSymBackend sym bak =>
       HasLLVMAnn sym =>
-      IO [ ( Sim.SymCreateOverrideFn sym bak arch
+      IO [ ( Sim.SymCreateOverrideFn m sym bak arch
            , SomeCheckedCalls m sym arch
            )
          ]
@@ -216,7 +217,7 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
                   do ref <- IORef.newIORef []
                      return
                        ( Sim.SymCreateOverrideFn $
-                           \_bak ->
+                           \_bak _tracker ->
                              return $
                                Check.createCheckOverride
                                  appCtx
@@ -287,6 +288,8 @@ inferThenCheck ::
   HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   -- | Functions to infer contracts for
   EntryPoints m ->
   -- | Entry points for checking inferred contracts
@@ -294,9 +297,9 @@ inferThenCheck ::
   IO ( Map (DefnSymbol m) (SomeBugfindingResult m arch)
      , Map (DefnSymbol m) (SomeCheckResult m arch)
      )
-inferThenCheck appCtx modCtx halloc cruxOpts llOpts toInfer entries =
+inferThenCheck appCtx modCtx halloc cruxOpts llOpts specs toInfer entries =
   do inferResult <-
-       Loop.loopOnFunctions appCtx modCtx halloc cruxOpts llOpts toInfer
+       Loop.loopOnFunctions appCtx modCtx halloc cruxOpts llOpts specs toInfer
      chkResult <-
        checkInferredContractsFromEntryPoints appCtx modCtx halloc cruxOpts llOpts entries $
          Map.mapMaybe getPreconds inferResult

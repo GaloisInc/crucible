@@ -33,6 +33,7 @@ where
 import           Control.Monad (when)
 import qualified Data.Aeson as Aeson
 import           Data.Foldable (toList)
+import           Data.List (isPrefixOf)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Sequence (Seq)
 import           Data.Vector (Vector)
@@ -268,4 +269,17 @@ viewShape mts tag ft vshape =
     check cond err = when cond (Left err)
     getTag vtag = liftErr (tag ft vtag)
 
-$(deriveMutualJSON Aeson.defaultOptions [''PtrShapeView, ''ShapeView])
+-- See Note [JSON instance tweaks].
+$(deriveMutualJSON
+  Aeson.defaultOptions
+    { Aeson.constructorTagModifier =
+        \s ->
+        reverse $
+          drop (length ("View" :: String)) $
+          reverse $
+          (if "Shape" `isPrefixOf` s
+           then drop (length ("Shape" :: String))
+           else drop (length ("PtrShape" :: String)))
+          s
+    }
+  [''PtrShapeView, ''ShapeView])

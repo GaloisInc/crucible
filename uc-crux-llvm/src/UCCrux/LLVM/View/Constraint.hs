@@ -243,6 +243,17 @@ viewConstrainedTypedValue mts (ConstrainedTypedValueView vty vval) =
        liftError ViewConstrainedShapeError (viewConstrainedShape mts ft vval)
      return (ConstrainedTypedValue ft shape)
 
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstraintView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstrainedShapeView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''ConstrainedTypedValueView)
+-- See Note [JSON instance tweaks].
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.constructorTagModifier =
+        reverse . drop (length ("View" :: String)) . reverse
+    }
+  ''ConstraintView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''ConstrainedShapeView)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions
+    { Aeson.fieldLabelModifier = drop (length ("vConstrained" :: String)) }
+  ''ConstrainedTypedValueView)

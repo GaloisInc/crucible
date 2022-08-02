@@ -79,6 +79,9 @@
     name: "Use void"
     within:
       - "UCCrux.LLVM.View.Shape"
+- ignore:  # "SpecPreconds" should be extensible with more fields
+    name: "Use newtype instead of data"
+    within: ["UCCrux.LLVM.Specs.Type"]
 - ignore:  # False positive - Template Haskell
     name: "Redundant bracket"
     within:
@@ -86,10 +89,13 @@
       - "UCCrux.LLVM.FullType.FuncSig"
       - "UCCrux.LLVM.FullType.Type"
       - "UCCrux.LLVM.FullType.VarArgs"
+      - "UCCrux.LLVM.Newtypes.FunctionName"
       - "UCCrux.LLVM.Shape"
       - "UCCrux.LLVM.View.Constraint"
       - "UCCrux.LLVM.View.Cursor"
       - "UCCrux.LLVM.View.FullType"
       - "UCCrux.LLVM.View.Postcond"
+      - "UCCrux.LLVM.View.Precond"
       - "UCCrux.LLVM.View.Shape"
+      - "UCCrux.LLVM.View.Specs"
       - "UCCrux.LLVM.View.Util"

@@ -207,7 +207,7 @@ viewTests =
     [ TH.testCase "view-encode-FTIntReprView" $
         TH.assertEqual
           "view-encode-FTIntReprView"
-          "{\"tag\":\"FTIntReprView\",\"contents\":{\"getWidth\":1}}"
+          "{\"tag\":\"Int\",\"contents\":1}"
           (Aeson.encode (View.FTIntReprView (View.Width 1)))
     , prop "view-constraint" $
         do vc <- HG.forAll genConstraintView

@@ -129,4 +129,5 @@ viewCursor mts ft vcur =
         Nothing -> Left err
         Just v -> Right v
 
+-- See Note [JSON instance tweaks].
 $(Aeson.TH.deriveJSON Aeson.defaultOptions ''CursorView)

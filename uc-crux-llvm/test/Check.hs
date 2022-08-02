@@ -100,6 +100,7 @@ checkOverrideTests =
                             cruxOpts
                             llOpts
                             halloc
+                            Map.empty
 
                         -- Construct override that checks that y is nonnull
 
@@ -116,7 +117,7 @@ checkOverrideTests =
                                    Sim.SimulatorHooks
                                      { Sim.createOverrideHooks =
                                          [ Sim.SymCreateOverrideFn $
-                                             \_sym ->
+                                             \_sym _tracker ->
                                                return $
                                                  fromMaybe (error msg) $
                                                    Check.checkOverrideFromResult
@@ -183,6 +184,7 @@ checkOverrideTests =
                           halloc
                           cruxOpts
                           llOpts
+                          Map.empty
                           (EntryPoints.makeEntryPoints [f])
                           (EntryPoints.makeEntryPoints [g, h])
                       let getResult fun =
