@@ -18,7 +18,7 @@ specified in the 'Aeson.fieldLabelModifier' and 'Aeson.constructorTagModifier'
 fields of 'Aeson.Options'.
 -}
 
-module UCCrux.LLVM.View.Idioms
+module UCCrux.LLVM.View.Options.Idioms
   ( constructorPrefix
   , constructorSuffix
   , recordSelectorPrefix

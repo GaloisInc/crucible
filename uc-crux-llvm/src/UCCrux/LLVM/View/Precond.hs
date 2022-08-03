@@ -30,7 +30,6 @@ module UCCrux.LLVM.View.Precond
 where
 
 import           Control.Lens ((^.))
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -57,9 +56,9 @@ import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.Module (funcSymbolToString, globalSymbolToString, makeFuncSymbol, makeGlobalSymbol, moduleGlobalMap, funcSymbol)
 import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, ConstrainedShapeView, ConstrainedTypedValueViewError, ConstrainedTypedValueView, constrainedShapeView, viewConstrainedShape, ppViewConstrainedShapeError, viewConstrainedTypedValue, constrainedTypedValueView, ppConstrainedTypedValueViewError)
+import qualified UCCrux.LLVM.View.Options.Precond as Opts
 import           UCCrux.LLVM.View.Shape (ViewShapeError, ppViewShapeError)
 import           UCCrux.LLVM.View.Postcond (UPostcondView(..), uPostcondView, viewUPostcond, ViewUPostcondError, ppViewUPostcondError)
-import qualified UCCrux.LLVM.View.Idioms as Idioms
 import           UCCrux.LLVM.View.Util (FuncName(..), GlobalVarName(..))
 
 -- Helper, not exported. Equivalent to Data.Bifunctor.first.
@@ -216,7 +215,4 @@ viewPreconds modCtx fs vpres =
              (viewUPostcond modCtx fsRep vpost)
          return (fSymb, post)
 
--- See module docs for "UCCrux.LLVM.View.Idioms".
-$(Aeson.TH.deriveJSON
-  (Idioms.recordSelectorPrefix "v" Aeson.defaultOptions)
-  ''PrecondsView)
+$(Aeson.TH.deriveJSON Opts.preconds ''PrecondsView)

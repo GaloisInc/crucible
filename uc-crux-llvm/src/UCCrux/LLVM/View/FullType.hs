@@ -36,7 +36,6 @@ module UCCrux.LLVM.View.FullType
   )
 where
 
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import qualified Data.Text as Text
 import           GHC.Generics (Generic)
@@ -59,7 +58,7 @@ import           What4.InterpretedFloatingPoint (FloatInfoRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), PartTypeRepr, aliasOrFullType, ModuleTypes, toPartType, makePartTypeRepr, StructPackedRepr(PackedStructRepr, UnpackedStructRepr))
 import           UCCrux.LLVM.View.Util (TypeName(..), Width (Width))
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr(IsVarArgsRepr, NotVarArgsRepr))
-import qualified UCCrux.LLVM.View.Idioms as Idioms
+import qualified UCCrux.LLVM.View.Options.FullType as Opts
 import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 
 data VarArgsReprView
@@ -242,25 +241,10 @@ viewPartTypeRepr mts =
            Just spt -> Right spt
            Nothing -> Left (BadAlias iden)
 
--- See module docs for "UCCrux.LLVM.View.Idioms".
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "ReprView" Aeson.defaultOptions)
-  ''StructPackedReprView)
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "ReprView" Aeson.defaultOptions)
-  ''VarArgsReprView)
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "ReprView" Aeson.defaultOptions)
-  ''FloatInfoReprView)
+$(Aeson.TH.deriveJSON Opts.structPackedRepr ''StructPackedReprView)
+$(Aeson.TH.deriveJSON Opts.varArgsRepr ''VarArgsReprView)
+$(Aeson.TH.deriveJSON Opts.floatInfoRepr ''FloatInfoReprView)
 $(deriveMutualJSON
-  [ ( Idioms.constructorSuffix "ReprView" $
-        Idioms.constructorPrefix "FT" $
-        Aeson.defaultOptions
-    , ''FullTypeReprView
-    )
-  , ( Idioms.constructorSuffix "ReprView" $
-        Idioms.constructorPrefix "PT" $
-        Aeson.defaultOptions
-    , ''PartTypeReprView
-    )
+  [ (Opts.fullTypeRepr, ''FullTypeReprView)
+  , (Opts.partTypeRepr, ''PartTypeReprView)
   ])

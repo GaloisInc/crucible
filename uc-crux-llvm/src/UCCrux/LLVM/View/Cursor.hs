@@ -25,7 +25,6 @@ where
 
 import           Control.Lens ((^.))
 import           Control.Monad (when)
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import           GHC.Generics (Generic)
 import           Numeric.Natural (Natural)
@@ -41,7 +40,7 @@ import           Data.Parameterized.Some (Some(Some))
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
-import qualified UCCrux.LLVM.View.Idioms as Idioms
+import qualified UCCrux.LLVM.View.Options.Cursor as Opts
 
 data ViewCursorError
   = StructBadIndex !Int
@@ -130,7 +129,4 @@ viewCursor mts ft vcur =
         Nothing -> Left err
         Just v -> Right v
 
--- See module docs for "UCCrux.LLVM.View.Idioms".
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
-  ''CursorView)
+$(Aeson.TH.deriveJSON Opts.cursor ''CursorView)

@@ -43,7 +43,6 @@ where
 
 import           Control.Lens ((^.))
 import           Control.Monad (foldM)
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import           Data.Data (Data)
 import           Data.List.NonEmpty (NonEmpty)
@@ -71,7 +70,7 @@ import           UCCrux.LLVM.Postcondition.Type (toUPostcond, typecheckPostcond,
 import qualified UCCrux.LLVM.Specs.Type as Spec
 import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec), Specs (Specs), SomeSpecs (SomeSpecs))
 import           UCCrux.LLVM.View.Constraint (ConstrainedShapeView, constrainedShapeView)
-import qualified UCCrux.LLVM.View.Idioms as Idioms
+import qualified UCCrux.LLVM.View.Options.Specs as Opts
 import           UCCrux.LLVM.View.Postcond (UPostcondView, uPostcondView, viewUPostcond, ViewUPostcondError, ppViewUPostcondError)
 import           UCCrux.LLVM.View.Precond (ArgError, viewArgPreconds, ppArgError)
 
@@ -236,16 +235,7 @@ parseSpecs modCtx =
              specs <- viewSpecs modCtx fsRepr vspecs
              return (Map.insert funcSymb (SomeSpecs fsRepr specs) mp, missingFuns)
 
--- See module docs for "UCCrux.LLVM.View.Idioms".
-$(Aeson.TH.deriveJSON
-  (Idioms.recordSelectorPrefix "vSpec" Aeson.defaultOptions)
-  ''SpecPrecondsView)
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
-  ''SpecSoundnessView)
-$(Aeson.TH.deriveJSON
-  (Idioms.recordSelectorPrefix "vSpec" Aeson.defaultOptions)
-  ''SpecView)
-$(Aeson.TH.deriveJSON
-  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
-  ''SpecsView)
+$(Aeson.TH.deriveJSON Opts.specPreconds ''SpecPrecondsView)
+$(Aeson.TH.deriveJSON Opts.specSoundness ''SpecSoundnessView)
+$(Aeson.TH.deriveJSON Opts.spec ''SpecView)
+$(Aeson.TH.deriveJSON Opts.specs ''SpecsView)

@@ -26,6 +26,7 @@ The view datatypes are all in modules using the @StrictData@ language extension.
 This is because their primary use is serialization, which will result in
 complete evaluation, eliminating the benefits of laziness.
 
+See also "UCCrux.LLVM.View.Options".
 -}
 
 module UCCrux.LLVM.View

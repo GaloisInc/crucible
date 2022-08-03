@@ -41,7 +41,6 @@ module UCCrux.LLVM.View.Constraint
 where
 
 import           Control.Monad (when)
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Compose (Compose(Compose, getCompose))
@@ -63,7 +62,7 @@ import           UCCrux.LLVM.Constraints (Constraint(..), ConstrainedShape(..), 
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
-import qualified UCCrux.LLVM.View.Idioms as Idioms
+import qualified UCCrux.LLVM.View.Options.Constraint as Opts
 import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape, ppViewShapeError)
 import           UCCrux.LLVM.View.Util () -- Alignment, ICmpOp instance
 
@@ -244,13 +243,6 @@ viewConstrainedTypedValue mts (ConstrainedTypedValueView vty vval) =
        liftError ViewConstrainedShapeError (viewConstrainedShape mts ft vval)
      return (ConstrainedTypedValue ft shape)
 
--- See module docs for "UCCrux.LLVM.View.Idioms".
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
-  ''ConstraintView)
-$(Aeson.TH.deriveJSON
-  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
-  ''ConstrainedShapeView)
-$(Aeson.TH.deriveJSON
-  (Idioms.recordSelectorPrefix "vConstrained" Aeson.defaultOptions)
-  ''ConstrainedTypedValueView)
+$(Aeson.TH.deriveJSON Opts.constraint ''ConstraintView)
+$(Aeson.TH.deriveJSON Opts.constrainedShape ''ConstrainedShapeView)
+$(Aeson.TH.deriveJSON Opts.constrainedTypedValue ''ConstrainedTypedValueView)

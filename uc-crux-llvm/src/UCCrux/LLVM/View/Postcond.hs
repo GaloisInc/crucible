@@ -37,7 +37,6 @@ module UCCrux.LLVM.View.Postcond
 where
 
 import           Control.Lens ((^.), itraverse)
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -67,9 +66,9 @@ import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(.
 import           UCCrux.LLVM.Module (globalSymbolToString, makeGlobalSymbol, moduleGlobalMap, globalSymbol)
 import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, ConstrainedShapeView, ConstrainedTypedValueViewError, ConstrainedTypedValueView, constrainedShapeView, viewConstrainedShape, ppViewConstrainedShapeError, viewConstrainedTypedValue, constrainedTypedValueView, ppConstrainedTypedValueViewError)
 import           UCCrux.LLVM.View.Cursor (ViewCursorError, CursorView, cursorView, viewCursor, ppViewCursorError)
+import qualified UCCrux.LLVM.View.Options.Postcond as Opts
 import           UCCrux.LLVM.View.Shape (ViewShapeError, ppViewShapeError)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
-import qualified UCCrux.LLVM.View.Idioms as Idioms
 import           UCCrux.LLVM.View.Util (GlobalVarName(..))
 
 -- Helper, not exported. Equivalent to Data.Bifunctor.first.
@@ -285,13 +284,6 @@ viewUPostcond modCtx fs vup =
          cv <- liftError ViewClobberValueError (viewClobberValue mts gTy vcv)
          return (gSymb, SomeClobberValue cv)
 
--- See module docs for "UCCrux.LLVM.View.Idioms".
-$(Aeson.TH.deriveJSON
-  (Idioms.recordSelectorPrefix "vClobber" Aeson.defaultOptions)
-  ''ClobberValueView)
-$(Aeson.TH.deriveJSON
-  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
-  ''ClobberArgView)
-$(Aeson.TH.deriveJSON
-  (Idioms.recordSelectorPrefix "vU" Aeson.defaultOptions)
-  ''UPostcondView)
+$(Aeson.TH.deriveJSON Opts.clobberValue ''ClobberValueView)
+$(Aeson.TH.deriveJSON Opts.clobberArg ''ClobberArgView)
+$(Aeson.TH.deriveJSON Opts.uPostcond ''UPostcondView)

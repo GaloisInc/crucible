@@ -31,7 +31,6 @@ module UCCrux.LLVM.View.Shape
 where
 
 import           Control.Monad (when)
-import qualified Data.Aeson as Aeson
 import           Data.Foldable (toList)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Sequence (Seq)
@@ -54,7 +53,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), viewSomeFullTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Shape (PtrShape(..), Shape(..))
-import qualified UCCrux.LLVM.View.Idioms as Idioms
+import qualified UCCrux.LLVM.View.Options.Shape as Opts
 import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 
 data ViewShapeError e
@@ -271,14 +270,6 @@ viewShape mts tag ft vshape =
 
 -- See module docs for "UCCrux.LLVM.View.Idioms".
 $(deriveMutualJSON
-  [ ( Idioms.constructorSuffix "View" $
-        Idioms.constructorPrefix "PtrShape" $
-        Aeson.defaultOptions
-    , ''PtrShapeView
-    )
-  , ( Idioms.constructorSuffix "View" $
-        Idioms.constructorPrefix "Shape" $
-        Aeson.defaultOptions
-    , ''ShapeView
-    )
+  [ (Opts.ptrShape, ''PtrShapeView)
+  , (Opts.shape, ''ShapeView)
   ])
