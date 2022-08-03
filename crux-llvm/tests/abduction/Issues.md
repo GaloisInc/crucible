@@ -16,7 +16,6 @@ We have 9 test files over C ints, all unprovable:
 ### Test Results
 
 | Test      | Entailment                | Baseline                  |
-|           |                           |                           |
 |-----------|-------------------------------------------------------|
 |abdpaper   |`y > 0 |= x + y + z > 0`   |`x + z > 0`                |
 |addident   |`|= x + y == x`            |`y = 0`                    |
