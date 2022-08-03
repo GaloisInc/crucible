@@ -44,10 +44,14 @@
 ; success
 (define-fun x!11 () Bool (not x!10))
 ; success
+(push 2)
+; success
 (assert (! x!11 :named x!12))
 ; success
 (check-sat)
 ; unsat
+(pop 2)
+; success
 (pop 1)
 ; success
 (push 1)
@@ -80,10 +84,14 @@
 ; success
 (define-fun x!24 () Bool (not x!23))
 ; success
+(push 2)
+; success
 (assert (! x!24 :named x!25))
 ; success
 (check-sat)
 ; unsat
+(pop 2)
+; success
 (pop 1)
 ; success
 ; ./cFiles8bit/test-abdpaper-8.c:8:3
@@ -100,6 +108,8 @@
 ; success
 (define-fun x!31 () Bool (not x!30))
 ; success
+(push 2)
+; success
 (assert (! x!31 :named x!32))
 ; success
 (check-sat)
@@ -110,4 +120,15 @@
 ; ((y #b00000001))
 (get-value (z))
 ; ((z #b10000000))
+(pop 2)
+; success
 (get-abduct abd x!30 )
+; (define-fun abd () Bool (= (bvashr x z) #b00000001))
+(get-abduct-next)
+; (define-fun abd () Bool (= (bvor x z) #b00000001))
+(get-abduct-next)
+; (define-fun abd () Bool (= (bvashr z x) #b00000001))
+(pop 1)
+; success
+(exit)
+; success

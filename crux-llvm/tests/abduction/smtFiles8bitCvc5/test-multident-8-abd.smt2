@@ -37,10 +37,14 @@
 ; success
 (define-fun x!8 () Bool (not x!7))
 ; success
+(push 2)
+; success
 (assert (! x!8 :named x!9))
 ; success
 (check-sat)
 ; unsat
+(pop 2)
+; success
 (pop 1)
 ; success
 (define-fun x!10 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) x) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) x))
@@ -53,6 +57,8 @@
 ; success
 (define-fun x!14 () Bool (not x!13))
 ; success
+(push 2)
+; success
 (assert (! x!14 :named x!15))
 ; success
 (check-sat)
@@ -61,4 +67,10 @@
 ; ((x #b00000001))
 (get-value (y))
 ; ((y #b00000000))
+(pop 2)
+; success
 (get-abduct abd x!13 )
+; (define-fun abd () Bool (= x #b00000000))
+(get-abduct-next)
+; (define-fun abd () Bool (= #b00000001 y))
+(get-abduct-next)

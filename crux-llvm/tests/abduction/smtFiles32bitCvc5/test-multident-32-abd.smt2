@@ -14,7 +14,7 @@
 ; success
 (push 1)
 ; success
-; ./cFiles32bit/test-multinv-32.c:7:3
+; ./cFiles32bit/test-multident-32.c:7:3
 (declare-fun y () (_ BitVec 32))
 ; success
 (define-fun x!0 () (_ BitVec 64) (concat (ite (= ((_ extract 31 31) y) (_ bv1 1)) (_ bv4294967295 32) (_ bv0 32)) y))
@@ -33,6 +33,8 @@
 ; success
 (define-fun x!6 () Bool (not x!5))
 ; success
+(push 2)
+; success
 (assert (! x!6 :named x!7))
 ; success
 (check-sat)
@@ -41,4 +43,36 @@
 ; ((x #b01011111111111111111111111111111))
 (get-value (y))
 ; ((y #b10000000000000000000000000000001))
+(pop 2)
+; success
 (get-abduct abd x!5 )
+; (define-fun abd () Bool (bvult y #b00000000000000000000000000000001))
+(get-abduct-next)
+; (define-fun abd () Bool (bvult x #b00000000000000000000000000000001))
+(get-abduct-next)
+; (define-fun abd () Bool (= #b00000000000000000000000000000001 x))
+(pop 1)
+; success
+(define-fun x!8 () (_ BitVec 32) (bvmul x y))
+; success
+(define-fun x!9 () Bool (= x!8 x))
+; success
+(define-fun x!10 () Bool (not x!9))
+; success
+(push 2)
+; success
+(assert (! x!10 :named x!11))
+; success
+(check-sat)
+; sat
+(get-value (x))
+; ((x #b01011111111111111111111111110111))
+(get-value (y))
+; ((y #b10011000111000111000111000111010))
+(pop 2)
+; success
+(get-abduct abd x!9 )
+; (define-fun abd () Bool (= x #b00000000000000000000000000000000))
+(get-abduct-next)
+; (define-fun abd () Bool (= #b00000000000000000000000000000001 y))
+(get-abduct-next)

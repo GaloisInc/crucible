@@ -3,6 +3,7 @@
 
 int main() {
   uint8_t x = crucible_uint8_t("x");
-  check(x + ((uint8_t) 1) > x);
+  uint8_t inc = x + 1;
+  check(inc > x);
   return 0;
 }

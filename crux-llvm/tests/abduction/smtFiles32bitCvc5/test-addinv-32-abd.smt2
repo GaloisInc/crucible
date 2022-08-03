@@ -23,6 +23,8 @@
 ; success
 (define-fun x!2 () Bool (not x!1))
 ; success
+(push 2)
+; success
 (assert (! x!2 :named x!3))
 ; success
 (check-sat)
@@ -31,4 +33,10 @@
 ; ((x #b10000000000000000000000000000001))
 (get-value (y))
 ; ((y #b10000000000000000000000000000000))
+(pop 2)
+; success
 (get-abduct abd x!1 )
+; (define-fun abd () Bool (= (bvshl y x) x))
+(get-abduct-next)
+; (define-fun abd () Bool (= (bvneg y) x))
+(get-abduct-next)

@@ -12,17 +12,19 @@
 ; (:error-behavior immediate-exit)
 (push 1)
 ; success
-; ./cFiles8bit/test-file-8.c:10:3
-(declare-fun x () (_ BitVec 8))
+; ./cFiles32bit/test-andex-32.c:7:3
+(declare-fun x () (_ BitVec 32))
 ; success
-(define-fun x!0 () Bool (bvslt x (_ bv100 8)))
+(define-fun x!0 () Bool (= (_ bv1 32) x))
 ; success
 (assert (! x!0 :named x!1))
 ; success
-; ./cFiles8bit/test-file-8.c:5:12
-(define-fun x!2 () (_ BitVec 8) (bvadd x (_ bv1 8)))
+; ./cFiles32bit/test-andex-32.c:8:3
+(declare-fun y () (_ BitVec 32))
 ; success
-(define-fun x!3 () Bool (bvslt x!2 (_ bv100 8)))
+(define-fun x!2 () (_ BitVec 32) (bvand x y))
+; success
+(define-fun x!3 () Bool (= (_ bv1 32) x!2))
 ; success
 (define-fun x!4 () Bool (not x!3))
 ; success
@@ -33,15 +35,17 @@
 (check-sat)
 ; sat
 (get-value (x))
-; ((x #b01100011))
+; ((x #b00000000000000000000000000000001))
+(get-value (y))
+; ((y #b00000000000000000000000000000000))
 (pop 2)
 ; success
 (get-abduct abd x!3 )
-; (define-fun abd () Bool (= #b00000000 x))
+; (define-fun abd () Bool (= y #b00000000000000000000000000000001))
 (get-abduct-next)
-; (define-fun abd () Bool (= #b00000001 x))
+; (define-fun abd () Bool (= (bvnot #b00000000000000000000000000000000) y))
 (get-abduct-next)
-; (define-fun abd () Bool (bvult #b01100100 x))
+; (define-fun abd () Bool (= (bvor #b00000000000000000000000000000001 y) y))
 (pop 1)
 ; success
 (exit)

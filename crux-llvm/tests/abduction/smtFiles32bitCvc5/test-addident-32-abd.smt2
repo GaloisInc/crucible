@@ -12,10 +12,10 @@
 ; (:error-behavior immediate-exit)
 (push 1)
 ; success
-; ./cFiles8bit/test-addident-8.c:7:3
-(declare-fun y () (_ BitVec 8))
+; ./cFiles32bit/test-addident-32.c:7:3
+(declare-fun y () (_ BitVec 32))
 ; success
-(define-fun x!0 () Bool (= (_ bv0 8) y))
+(define-fun x!0 () Bool (= (_ bv0 32) y))
 ; success
 (define-fun x!1 () Bool (not x!0))
 ; success
@@ -26,9 +26,9 @@
 (check-sat)
 ; sat
 (get-value (y))
-; ((y #b11111111))
+; ((y #b11111111111111111111111111111111))
 (pop 2)
 ; success
 (get-abduct abd x!0 )
-; (define-fun abd () Bool (bvult y #b00000001))
+; (define-fun abd () Bool (bvult y #b00000000000000000000000000000001))
 (get-abduct-next)

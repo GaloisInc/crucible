@@ -17,12 +17,16 @@
 ; success
 (define-fun x!0 () Bool (= (_ bv4294967295 32) x))
 ; success
+(push 2)
+; success
 (assert (! x!0 :named x!1))
 ; success
 (check-sat)
 ; sat
 (get-value (x))
 ; ((x #b11111111111111111111111111111111))
+(pop 2)
+; success
 (define-fun x!2 () Bool (not x!0))
-; (error "Parse Error: <stdin>:13.32: Overloaded constants must be type cast.")
+; (error "Parse Error: <stdin>:15.32: Overloaded constants must be type cast.")
 (pop 1)

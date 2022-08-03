@@ -31,10 +31,11 @@ import What4.Config (setOpt, getOptionSetting, Opt, ConfigOption)
 import What4.ProgramLoc (ProgramLoc)
 import What4.SatResult(SatResult(..))
 import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, GroundValueWrapper(..))
-import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
-                            , solverConn, check, getUnsatCore, getAbducts )
+import What4.Protocol.Online( OnlineSolver, inNewFrame, inNewFrame2Open
+                            , inNewFrame2Close, solverEvalFuns, solverConn
+                            , check, getUnsatCore, getAbducts )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
-                               , assumeFormula, smtExprGroundEvalFn )
+                               , assumeFormula, smtExprGroundEvalFn)
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
@@ -358,36 +359,26 @@ proveGoalsOnline ::
   (Maybe (GroundEvalFn s) -> Assertion sym -> IO (Doc Void)) ->
   Maybe (Goals (Assumptions sym) (Assertion sym)) ->
   IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym)))
-{-
---| A collection of goals, which can represent shared assumptions.
-Goals asmp goal (Assuming | Prove | ProveConj)
---| This type describes assumptions made at some point during program execution.
-Assumptions sym = CrucibleAssumptions (GenericAssumption | BranchCondition | AssumingNoError)
---| Information about an assertion that was previously made.
-Assertion sym = LabeledPred
-ProcessedGoals = ProcessedGoals { totalProcessedGoals, provedGoals, disprovedGoals, incompleteGoals }
-ProofResult sym = | Proved [Either (Assumption sym) (Assertion sym)] 
-                  | NotProved (Doc Void) (Maybe (ModelView, [CrucibleEvent GroundValueWrapper]))
--}
 proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
 proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
-  do -- send solver interactions to the correct file
+  do 
+     -- send solver interactions to the correct file
      mapM_ (symCfg sym solverInteractionFile) (fmap Text.pack (onlineSolverOutput opts))
-     -- store goal count
+     -- initial goal count
      goalNum <- newIORef (ProcessedGoals 0 0 0 0)
-     -- nameMap is a mutable ref to a Text to Either (Assumption sym) (Assertion sym) map
+     -- nameMap is a mutable ref to a map from Text to Either (Assumption sym) (Assertion sym)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
        sayCrux Log.SkippingUnsatCoresBecauseMCSatEnabled
-     -- callbacks for starting each goal, ending each goal, and finishing all goals
+     -- callbacks for starting a goal, ending a goal, and finishing all goals
      (start,end,finish) <- proverMilestoneCallbacks gs0
-
      -- make sure online features are enabled
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      _ <- setOpt enableOpt True
-
+     -- go traverse a proof tree, processing/solving each goal as it traverses it
+     -- it also updates goal count and nameMap
      res <- withSolverProcess bak (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
               inNewFrame sp (go (start,end) sp mempty goalNum gs0 nameMap)
      nms <- readIORef goalNum
@@ -404,69 +395,64 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
   failfast = proofGoalsFailFast opts
 
   go (start,end) sp assumptionsInScope gn gs nameMap = do
-    -- pattern match on type Goals asmp goal
-    -- where asmp <- Assumptions sym
-    --       goal <- Assertion sym
+    -- traverse goal tree
     case gs of
-      -- case Assuming asmp !(Goals asmp goal)
-      -- Make an assumption that is in context for all the contained goals.
+      -- case: assumption in context for all the contained goals
       Assuming asms gs1 ->
-        -- flatten into a [Assumption sym]
         do ps <- flattenAssumptions sym asms
            forM_ ps $ \asm ->
              unless (trivialAssumption asm) $
-               -- extract predicate (BaseBoolType)
+               -- extract predicate from assumption
                do let p = assumptionPred asm
-                  -- create formula, assert to SMT solver, also create new name
+                  -- create formula, assert to SMT solver, create new name and add to nameMap
                   nm <- doAssume =<< mkFormula conn p
-                  -- add name to Either (Assumption sym) (Assertion sym) mapping to nameMap
                   bindName nm (Left asm) nameMap
            -- recursive call
            res <- go (start,end) sp (assumptionsInScope <> asms) gn gs1 nameMap
            return (Assuming (mconcat (map singleAssumption ps)) res)
-      -- case Prove goal
-      -- A proof obligation, to be proved in the context of all previously-made assumptions.
+      -- case: proof obligation in the context of all previously-made assumptions
       Prove p ->
         -- number of processed goals gives goal number to prove
         do goalNumber <- totalProcessedGoals <$> readIORef gn
            start goalNumber
-           -- negate goal, create formula, assert to SMT solver, also create new name
-           nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
-           -- add name to Either (Assumption sym) (Assertion sym) mapping to nameMap
+           -- negate goal, create formula
+           t <- mkFormula conn =<< notPred sym (p ^. labeledPred)
+           -- in new frame, assert formula to SMT solver, create new name and add to nameMap
+           inNewFrame2Open sp
+           nm <- doAssume t
            bindName nm (Right p) nameMap
-           -- check-sat to SMT solver
+           -- check-sat with SMT solver, pattern match on result
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->
-                        -- return either the unsat core, which is the entire assertion set by default
+                        -- build unsat core, which is the entire assertion set by default
                         do namemap <- readIORef nameMap
                            {- Turn off unsat core
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)-}
-                           -- update goal count
                            end goalNumber
                            {- Turn off unsat core
                            let pr = Proved core -}
                            let pr = Proved []
+                           -- update goal count
                            modifyIORef' gn (updateProcessedGoals p pr)
+                           
                            let locs = assumptionsTopLevelLocs assumptionsInScope
+                           inNewFrame2Close sp
                            return (Prove (p, locs, pr))
                       Sat ()  ->
-                        -- Solver connection     Eval to Haskell     Function for calculating ground vals    
-                        -- SolverProcess (sp) -> SMTEvalFunctions -> GroundEvalFn
-                        do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           --                   linear, ground, events acc to program run
-                           -- -> GroundValue -> CrucibleEvent GroundValueWrapper
+                        do -- evaluate counter-example
+                           f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            evs <- concretizeEvents (groundEval f) assumptionsInScope
-                           -- -> ModelView (a portable/concrete view of a model's contents)
                            let vals = evalModelFromEvents evs
-                           -- GrounEvalFn, Assertion sym -> Crux.Explainer
                            explain <- explainFailure (Just f) p
                            end goalNumber
-                           -- get 5 abducts
-                           abds <- getAbducts sp 1 "abd" (p ^. labeledPred) []
-                           -- ProofResult.NotProved
+                           -- close the frame in which the final assertion and its 
+                           -- checksat call were made, and then get 3 abducts
+                           inNewFrame2Close sp
+                           abds <- getAbducts sp 3 "abd" (p ^. labeledPred) []
+
                            let gt = NotProved explain (Just (vals,evs)) abds
                            -- update goal count
                            modifyIORef' gn (updateProcessedGoals p gt)
@@ -480,12 +466,12 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                            let gt = NotProved explain Nothing []
                            modifyIORef' gn (updateProcessedGoals p gt)
                            let locs = assumptionsTopLevelLocs assumptionsInScope
+                           inNewFrame2Close sp
                            return (Prove (p, locs, gt))
            return ret
-
+      -- case: conjunction of goals
       ProveConj g1 g2 ->
         do g1' <- inNewFrame sp (go (start,end) sp assumptionsInScope gn g1 nameMap)
-
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
            if failfast then

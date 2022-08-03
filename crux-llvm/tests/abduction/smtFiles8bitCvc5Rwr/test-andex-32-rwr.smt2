@@ -1,0 +1,16 @@
+(set-option :produce-models true)
+(set-option :global-declarations true)
+(set-option :produce-abducts true)
+(set-option :incremental true)
+(set-logic ALL)
+
+(push 1)
+; test-andex.c:7:3
+(declare-fun x () (_ BitVec 32))
+(declare-fun y () (_ BitVec 32))
+(assert (= #x00000001 x))
+(get-abduct abd (= #x00000001 (bvand x y)))
+(get-abduct-next)
+(get-abduct-next)
+(get-abduct-next)
+(get-abduct-next)

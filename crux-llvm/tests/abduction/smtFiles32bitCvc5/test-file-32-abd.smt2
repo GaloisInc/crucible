@@ -34,10 +34,14 @@
 ; success
 (define-fun x!7 () Bool (not x!6))
 ; success
+(push 2)
+; success
 (assert (! x!7 :named x!8))
 ; success
 (check-sat)
 ; unsat
+(pop 2)
+; success
 (pop 1)
 ; success
 (define-fun x!9 () (_ BitVec 32) (bvadd x (_ bv1 32)))
@@ -46,10 +50,23 @@
 ; success
 (define-fun x!11 () Bool (not x!10))
 ; success
+(push 2)
+; success
 (assert (! x!11 :named x!12))
 ; success
 (check-sat)
 ; sat
 (get-value (x))
 ; ((x #b00000000000000000000000001100011))
+(pop 2)
+; success
 (get-abduct abd x!10 )
+; (define-fun abd () Bool (= #b00000000000000000000000000000000 x))
+(get-abduct-next)
+; (define-fun abd () Bool (= #b00000000000000000000000000000001 x))
+(get-abduct-next)
+; (define-fun abd () Bool (bvult #b00000000000000000000000001100100 x))
+(pop 1)
+; success
+(exit)
+; success

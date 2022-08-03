@@ -13,11 +13,29 @@ We have 9 test files over C ints, all unprovable:
 8. `multinv`: does `|= x * y == x`? Acceptable abduct: `y = 0`.
 9. `trans`: does `x > y |= x > z`? Acceptable abduct: `y > z`.
 
+### Test Results
+
+| Test      | Entailment                | Baseline                  |
+|           |                           |                           |
+|-----------|-------------------------------------------------------|
+|abdpaper   |`y > 0 |= x + y + z > 0`   |`x + z > 0`                |
+|addident   |`|= x + y == x`            |`y = 0`                    |
+|addinv     |`|= x + y == x`            |`y = -x`                   |
+|andex      |`|= x & y == 1`            |`x = 1 ^ y = 1`            |
+|file       |`x < 100 |= x + 1 < 100`   |`x < 100 |= x + 1 < 100`   |
+|maxint     |`|= x + 1 > x`             |`x < maxint`               |
+|multident  |`|= x * y == x`            |`y = 1`                    |
+|multinv    |`|= x * y == x`            |`y = 0`                    |
+|trans      |`x > y |= x > z`           |`y > z`                    |
+
 ### Issues
-1. cvc5 considers abduction and unsat-cores incompatible. Crux has unsat core mode turned on by default and in its online solving mode, it asks for unsat cores if the solver returns unsat. In many of the example problems, some of the implicit goals make the solver return unsat and `get-unsat-core` is called. To make these two modes incompatible is unexpected behavior from cvc5, so the ultimate goal is to have them patch it. I have already brought it to the cvc5 developer's attention, and they have offered a patch, but the patch only works partially. Now the options can be turned on together (and I believe that) cvc5 wont throw an error if we call the `get-abduct` command and the `get-unsat-core` command not more than once each. Temporary solution: modify crux to not ask for unsat cores (implemented).
-2. cvc5 emits the following parse error which we need to ask the developers about: "Overloaded constants must be type cast". For example, `/smtFiles8bitCvc5/test-andex-8-abd.smt2`. TODO
-3. Out of all (9) tests on 8-bit integers, `maxint` is proved valid (seems like LLVM is doing something preventing overflow, need to confirm this TODO), `andex` has the overloaded constants issue, and the others timeout. Timeouts are possibly because all 8-bit integers are sign-extended to 32-bits by LLVM, perhaps so the `concat`, `ite`, and `extract` operations slow the solver down.
-4. All the 32-bit examples fail as well, so the possible reasons for slow down in issue #3 don't hold. Additionally, Crux can't prove `maxint`, as expected, but it now has the overloaded constants error just like `andex`.
+1. When `global-assertions` is turned on, cvc5 doesn't unfold `define-fun`s before adding them to the grammar. That is the abduction grammar is a over defined variables rather than the variables from the program. We had this patched by the cvc5 developers.
+2. cvc5 considers abduction and unsat-cores incompatible. Crux has unsat core mode turned on by default and in its online solving mode, it asks for unsat cores if the solver returns unsat. In many of the example problems, some of the implicit goals make the solver return unsat and `get-unsat-core` is called. To make these two modes incompatible is unexpected behavior from cvc5, so the ultimate goal is to have them patch it. I have already brought it to the cvc5 developer's attention, and they have offered a patch, but the patch only works partially. Now the options can be turned on together (and I believe that) cvc5 wont throw an error if we call the `get-abduct` command and the `get-unsat-core` command not more than once each. Temporary solution: modify crux to not ask for unsat cores (implemented). (cvc5 developer fix is ready to be merged)
+3. cvc5 emits the following parse error which we need to ask the developers about: "Overloaded constants must be type cast". For example, `/smtFiles8bitCvc5/test-andex-8-abd.smt2`. (cvc5 developer fix is ready to be merged)
+4. Potential Issues:
+    * How much does what4 rewrite the initial problem, and what does that do to abducts?
+    * 8-bits: LLVM pads 8-bit integers to 32, so sometimes we don't get the results we expect. We'll reason mostly with 32-bit integers and not focus on this issue much.
+    * LLVM icmp returns a bool which crux/crucible turns into a 1 bit BV and then pads it using an ITE. If this is done automatically, perhaps we would benefit from replacing this whole thing by a much simpler translation of this construct, one that avoids all the (potentially) unnecessary padding and ITEs.
 
 ### File Structure
 - The C files for the 8-bit integer version of these examples are in `cFiles8bit/` and those for the 32-bit integer version are in `cFiles32bit/`.

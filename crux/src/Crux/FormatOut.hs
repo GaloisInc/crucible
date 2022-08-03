@@ -83,9 +83,8 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                       ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]
                     else [] ++
                 -- print abducts
-               [ "One of the following 5 facts would entail the goal"
-               , PP.viaShow (unlines s)])
-             ]
+               ("One of the following 3 facts would entail the goal" :
+                 (map PP.viaShow s)))]
          | otherwise ->
            [ PP.nest 2 $ PP.vcat [ "Failed to prove verification goal", ex ] ]
 
