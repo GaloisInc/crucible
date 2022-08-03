@@ -31,9 +31,7 @@ module UCCrux.LLVM.View.Shape
 where
 
 import           Control.Monad (when)
-import qualified Data.Aeson as Aeson
 import           Data.Foldable (toList)
-import           Data.List (isPrefixOf)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Sequence (Seq)
 import           Data.Vector (Vector)
@@ -55,6 +53,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), viewSomeFullTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Shape (PtrShape(..), Shape(..))
+import qualified UCCrux.LLVM.View.Options.Shape as Opts
 import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 
 data ViewShapeError e
@@ -269,17 +268,8 @@ viewShape mts tag ft vshape =
     check cond err = when cond (Left err)
     getTag vtag = liftErr (tag ft vtag)
 
--- See Note [JSON instance tweaks].
+-- See module docs for "UCCrux.LLVM.View.Idioms".
 $(deriveMutualJSON
-  Aeson.defaultOptions
-    { Aeson.constructorTagModifier =
-        \s ->
-        reverse $
-          drop (length ("View" :: String)) $
-          reverse $
-          (if "Shape" `isPrefixOf` s
-           then drop (length ("Shape" :: String))
-           else drop (length ("PtrShape" :: String)))
-          s
-    }
-  [''PtrShapeView, ''ShapeView])
+  [ (Opts.ptrShape, ''PtrShapeView)
+  , (Opts.shape, ''ShapeView)
+  ])

@@ -36,7 +36,6 @@ module UCCrux.LLVM.View.FullType
   )
 where
 
-import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson.TH
 import qualified Data.Text as Text
 import           GHC.Generics (Generic)
@@ -59,6 +58,7 @@ import           What4.InterpretedFloatingPoint (FloatInfoRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), PartTypeRepr, aliasOrFullType, ModuleTypes, toPartType, makePartTypeRepr, StructPackedRepr(PackedStructRepr, UnpackedStructRepr))
 import           UCCrux.LLVM.View.Util (TypeName(..), Width (Width))
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr(IsVarArgsRepr, NotVarArgsRepr))
+import qualified UCCrux.LLVM.View.Options.FullType as Opts
 import           UCCrux.LLVM.View.TH (deriveMutualJSON)
 
 data VarArgsReprView
@@ -241,16 +241,10 @@ viewPartTypeRepr mts =
            Just spt -> Right spt
            Nothing -> Left (BadAlias iden)
 
--- See Note [JSON instance tweaks].
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''StructPackedReprView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''VarArgsReprView)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''FloatInfoReprView)
+$(Aeson.TH.deriveJSON Opts.structPackedRepr ''StructPackedReprView)
+$(Aeson.TH.deriveJSON Opts.varArgsRepr ''VarArgsReprView)
+$(Aeson.TH.deriveJSON Opts.floatInfoRepr ''FloatInfoReprView)
 $(deriveMutualJSON
-  Aeson.defaultOptions
-    { Aeson.constructorTagModifier =
-        reverse .
-          drop (length ("ReprView" :: String)) .
-          reverse .
-          drop (length ("FT" :: String))  -- or "PT"
-    }
-  [''FullTypeReprView, ''PartTypeReprView])
+  [ (Opts.fullTypeRepr, ''FullTypeReprView)
+  , (Opts.partTypeRepr, ''PartTypeReprView)
+  ])
