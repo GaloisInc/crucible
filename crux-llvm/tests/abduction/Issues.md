@@ -15,17 +15,17 @@ We have 9 test files over C ints, all unprovable:
 
 ### Test Results
 
-| Test      | Entailment                | Baseline                  |
-|-----------|-------------------------------------------------------|
-|abdpaper   |`y > 0 |= x + y + z > 0`   |`x + z > 0`                |
-|addident   |`|= x + y == x`            |`y = 0`                    |
-|addinv     |`|= x + y == x`            |`y = -x`                   |
-|andex      |`|= x & y == 1`            |`x = 1 ^ y = 1`            |
-|file       |`x < 100 |= x + 1 < 100`   |`x < 100 |= x + 1 < 100`   |
-|maxint     |`|= x + 1 > x`             |`x < maxint`               |
-|multident  |`|= x * y == x`            |`y = 1`                    |
-|multinv    |`|= x * y == x`            |`y = 0`                    |
-|trans      |`x > y |= x > z`           |`y > z`                    |
+| Test       | Entailment                 | Baseline                   |
+|------------|----------------------------|----------------------------|
+| abdpaper   | `y > 0 |= x + y + z > 0`   | `x + z > 0`                |
+| addident   | `|= x + y == x`            | `y = 0`                    |
+| addinv     | `|= x + y == x`            | `y = -x`                   |
+| andex      | `|= x & y == 1`            | `x = 1 ^ y = 1`            |
+| file       | `x < 100 |= x + 1 < 100`   | `x < 100 |= x + 1 < 100`   |
+| maxint     | `|= x + 1 > x`             | `x < maxint`               |
+| multident  | `|= x * y == x`            | `y = 1`                    |
+| multinv    | `|= x * y == x`            | `y = 0`                    |
+| trans      | `x > y |= x > z`           | `y > z`                    |
 
 ### Issues
 1. When `global-assertions` is turned on, cvc5 doesn't unfold `define-fun`s before adding them to the grammar. That is the abduction grammar is a over defined variables rather than the variables from the program. We had this patched by the cvc5 developers.
