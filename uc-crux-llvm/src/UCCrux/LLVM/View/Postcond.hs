@@ -24,6 +24,7 @@ module UCCrux.LLVM.View.Postcond
     clobberValueView,
     viewClobberValue,
     -- * ClobberArg
+    ClobberArgView(..),
     viewClobberArg,
     clobberArgView,
     -- * UPostcond
