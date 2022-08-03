@@ -253,7 +253,14 @@ $(Aeson.TH.deriveJSON
   (Idioms.constructorSuffix "ReprView" Aeson.defaultOptions)
   ''FloatInfoReprView)
 $(deriveMutualJSON
-  (Idioms.constructorSuffix "ReprView" $
-    Idioms.constructorPrefix "FT" $  -- or "PT"
-    Aeson.defaultOptions)
-  [''FullTypeReprView, ''PartTypeReprView])
+  [ ( Idioms.constructorSuffix "ReprView" $
+        Idioms.constructorPrefix "FT" $
+        Aeson.defaultOptions
+    , ''FullTypeReprView
+    )
+  , ( Idioms.constructorSuffix "ReprView" $
+        Idioms.constructorPrefix "PT" $
+        Aeson.defaultOptions
+    , ''PartTypeReprView
+    )
+  ])

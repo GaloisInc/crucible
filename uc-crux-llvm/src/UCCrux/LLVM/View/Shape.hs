@@ -33,7 +33,6 @@ where
 import           Control.Monad (when)
 import qualified Data.Aeson as Aeson
 import           Data.Foldable (toList)
-import           Data.List (isPrefixOf)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Sequence (Seq)
 import           Data.Vector (Vector)
@@ -272,13 +271,14 @@ viewShape mts tag ft vshape =
 
 -- See module docs for "UCCrux.LLVM.View.Idioms".
 $(deriveMutualJSON
-  (Idioms.constructorSuffix "View" $
-    Aeson.defaultOptions
-      { Aeson.constructorTagModifier =
-          \s ->
-            (if "Shape" `isPrefixOf` s
-            then drop (length ("Shape" :: String))
-            else drop (length ("PtrShape" :: String)))
-            s
-    })
-  [''PtrShapeView, ''ShapeView])
+  [ ( Idioms.constructorSuffix "View" $
+        Idioms.constructorPrefix "PtrShape" $
+        Aeson.defaultOptions
+    , ''PtrShapeView
+    )
+  , ( Idioms.constructorSuffix "View" $
+        Idioms.constructorPrefix "Shape" $
+        Aeson.defaultOptions
+    , ''ShapeView
+    )
+  ])
