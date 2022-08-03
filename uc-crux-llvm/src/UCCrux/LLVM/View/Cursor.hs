@@ -40,7 +40,8 @@ import           Data.Parameterized.Some (Some(Some))
 
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes, asFullType)
-import UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
+import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
+import qualified UCCrux.LLVM.View.Idioms as Idioms
 
 data ViewCursorError
   = StructBadIndex !Int
@@ -129,5 +130,7 @@ viewCursor mts ft vcur =
         Nothing -> Left err
         Just v -> Right v
 
--- See Note [JSON instance tweaks].
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''CursorView)
+-- See module docs for "UCCrux.LLVM.View.Idioms".
+$(Aeson.TH.deriveJSON
+  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
+  ''CursorView)

@@ -101,6 +101,7 @@ library
     UCCrux.LLVM.View.Constraint
     UCCrux.LLVM.View.Cursor
     UCCrux.LLVM.View.FullType
+    UCCrux.LLVM.View.Idioms
     UCCrux.LLVM.View.Postcond
     UCCrux.LLVM.View.Precond
     UCCrux.LLVM.View.Shape

@@ -71,6 +71,7 @@ import           UCCrux.LLVM.Postcondition.Type (toUPostcond, typecheckPostcond,
 import qualified UCCrux.LLVM.Specs.Type as Spec
 import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec), Specs (Specs), SomeSpecs (SomeSpecs))
 import           UCCrux.LLVM.View.Constraint (ConstrainedShapeView, constrainedShapeView)
+import qualified UCCrux.LLVM.View.Idioms as Idioms
 import           UCCrux.LLVM.View.Postcond (UPostcondView, uPostcondView, viewUPostcond, ViewUPostcondError, ppViewUPostcondError)
 import           UCCrux.LLVM.View.Precond (ArgError, viewArgPreconds, ppArgError)
 
@@ -235,20 +236,15 @@ parseSpecs modCtx =
              specs <- viewSpecs modCtx fsRepr vspecs
              return (Map.insert funcSymb (SomeSpecs fsRepr specs) mp, missingFuns)
 
--- See Note [JSON instance tweaks].
+-- See module docs for "UCCrux.LLVM.View.Idioms".
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.fieldLabelModifier = drop (length ("vSpec" :: String)) }
+  (Idioms.recordSelectorPrefix "vSpec" Aeson.defaultOptions)
   ''SpecPrecondsView)
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.constructorTagModifier =
-        reverse . drop (length ("View" :: String)) . reverse
-    }
+  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
   ''SpecSoundnessView)
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.fieldLabelModifier = drop (length ("vSpec" :: String)) }
+  (Idioms.recordSelectorPrefix "vSpec" Aeson.defaultOptions)
   ''SpecView)
 $(Aeson.TH.deriveJSON
   Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }

@@ -63,6 +63,7 @@ import           UCCrux.LLVM.Constraints (Constraint(..), ConstrainedShape(..), 
 import           UCCrux.LLVM.FullType.PP (ppFullTypeRepr)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), SomeFullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
+import qualified UCCrux.LLVM.View.Idioms as Idioms
 import           UCCrux.LLVM.View.Shape (ShapeView, ViewShapeError, shapeView, viewShape, ppViewShapeError)
 import           UCCrux.LLVM.View.Util () -- Alignment, ICmpOp instance
 
@@ -243,17 +244,13 @@ viewConstrainedTypedValue mts (ConstrainedTypedValueView vty vval) =
        liftError ViewConstrainedShapeError (viewConstrainedShape mts ft vval)
      return (ConstrainedTypedValue ft shape)
 
--- See Note [JSON instance tweaks].
+-- See module docs for "UCCrux.LLVM.View.Idioms".
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.constructorTagModifier =
-        reverse . drop (length ("View" :: String)) . reverse
-    }
+  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
   ''ConstraintView)
 $(Aeson.TH.deriveJSON
   Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
   ''ConstrainedShapeView)
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.fieldLabelModifier = drop (length ("vConstrained" :: String)) }
+  (Idioms.recordSelectorPrefix "vConstrained" Aeson.defaultOptions)
   ''ConstrainedTypedValueView)

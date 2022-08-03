@@ -69,6 +69,7 @@ import           UCCrux.LLVM.View.Constraint (ViewConstrainedShapeError, Constra
 import           UCCrux.LLVM.View.Cursor (ViewCursorError, CursorView, cursorView, viewCursor, ppViewCursorError)
 import           UCCrux.LLVM.View.Shape (ViewShapeError, ppViewShapeError)
 import           UCCrux.LLVM.View.FullType (FullTypeReprView, FullTypeReprViewError, fullTypeReprView, viewFullTypeRepr, ppFullTypeReprViewError)
+import qualified UCCrux.LLVM.View.Idioms as Idioms
 import           UCCrux.LLVM.View.Util (GlobalVarName(..))
 
 -- Helper, not exported. Equivalent to Data.Bifunctor.first.
@@ -284,18 +285,13 @@ viewUPostcond modCtx fs vup =
          cv <- liftError ViewClobberValueError (viewClobberValue mts gTy vcv)
          return (gSymb, SomeClobberValue cv)
 
--- See Note [JSON instance tweaks].
+-- See module docs for "UCCrux.LLVM.View.Idioms".
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.fieldLabelModifier = drop (length ("vClobber" :: String)) }
+  (Idioms.recordSelectorPrefix "vClobber" Aeson.defaultOptions)
   ''ClobberValueView)
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.constructorTagModifier =
-        reverse . drop (length ("View" :: String)) . reverse
-    }
+  (Idioms.constructorSuffix "View" Aeson.defaultOptions)
   ''ClobberArgView)
 $(Aeson.TH.deriveJSON
-  Aeson.defaultOptions
-    { Aeson.fieldLabelModifier = drop (length ("vU" :: String)) }
+  (Idioms.recordSelectorPrefix "vU" Aeson.defaultOptions)
   ''UPostcondView)
