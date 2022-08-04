@@ -55,9 +55,9 @@
 (get-abduct abd x!8 )
 ; (define-fun abd () Bool (= x #b00000000000000000000000000000000))
 (get-abduct-next)
-; (define-fun abd () Bool (bvult y (bvsdiv y x)))
+; (define-fun abd () Bool (bvult #b00000000000000000000000000000000 (bvashr x x)))
 (get-abduct-next)
-; (define-fun abd () Bool (bvult y (bvsdiv x x)))
+; (define-fun abd () Bool (bvult y (bvsrem x y)))
 (pop 1)
 ; success
 (push 1)
@@ -101,9 +101,9 @@
 (get-abduct abd x!18 )
 ; (define-fun abd () Bool (bvult z #b00000000000000000000000000000001))
 (get-abduct-next)
-; (define-fun abd () Bool (= (bvashr x x) z))
+; (define-fun abd () Bool (= (bvashr y z) y))
 (get-abduct-next)
-; (define-fun abd () Bool (= (bvashr #b00000000000000000000000000000001 y) z))
+; (define-fun abd () Bool (= (bvneg y) x))
 (pop 1)
 ; success
 (define-fun x!21 () (_ BitVec 32) (bvadd (bvadd z y) x))

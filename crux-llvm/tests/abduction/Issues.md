@@ -15,30 +15,35 @@ We have 9 test files over C ints, all unprovable:
 
 ### Test Results
 
-| Test       | Entailment                  | Baseline           | 8-bit Abducts                 | 32-bit Abducts                                           | Notes
-|------------|-----------------------------|--------------------|-------------------------------|----------------------------------------------------------|----------------------------------------------
-| abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvashr x z) #b00000001)` | Timeout                                                  | 8-bit: sign-ext; 32-bit: 1 abduct
-|            |                             |                    | `(= (bvor x z) #b00000001)`   |                                                          | 
-|            |                             |                    | `(= (bvashr z x) #b00000001)` |                                                          | 
-| addident   | `\|= x + y == x`            | `y = 0`            | Timeout                       | Timeout                                                  | 8-bit: what4 rewrites as `y = 0`, removes `x`; 32-bit: what4 rewrites as `[(y < 0) v (x < 0) v ~(y + x < 0)] v [~(y < 0) v ~(x < 0) v (y + x < 0)]`
-| addinv     | `\|= x + y == x`            | `y = -x`           | Timeout                       | Timeout                                                  | 8-bit: 1 abduct, sign-ext; 32-bit: 2 abducts; both: what4 rewrites as `x = -y`
-| andex      | `\|= x & y == 1`            | `x = 1 ^ y = 1`    | Overloaded Constants error    | `(= y #b00000000000000000000000000000001)`               | 
-|            |                             |                    |                               | `(= (bvnot #b00000000000000000000000000000000) y)`       |
-|            |                             |                    |                               | `(= (bvor #b00000000000000000000000000000001 y) y)`      |
-| file       | `x < 100 \|= x + 1 < 100`   | `x < 99`           | `(= #b00000000 x)`            | `(= #b00000000000000000000000000000000 x)`               | 8-bit: doesn't sign-ext
-|            |                             |                    | `(= #b00000001 x)`            | `(= #b00000000000000000000000000000001 x)`               |
-|            |                             |                    | `(bvult #b01100100 x)`        | `(bvult #b00000000000000000000000001100100 x)`           |
-| maxint     | `\|= x + 1 > x`             | `x < maxint`       | Overloaded Constants error    | Overloaded Constants error                               |
-|            |                             |                    |                               |                                                          |
-|            |                             |                    |                               |                                                          |
-| multident  | `\|= x * y == x`            | `y = 1`            | Timeout                       | Timeout                                                  | 8-bit: sign-ext; both: 2 abducts
-|            |                             |                    |                               |                                                          |
-| multinv    | `\|= x * y == x`            | `y = 0`            | Timeout                       | `(= x #b00000000000000000000000000000000)`               | 8-bit: sign-ext; both: 2 abducts
-|            |                             |                    |                               | `(= y #b00000000000000000000000000000000)`               |
-|            |                             |                    |                               | `(bvult (bvmul y x) #b00000000000000000000000000000001)` |
-| trans      | `x > y \|= x > z`           | `y > z`            | `(= y z)`                     | `(= y z)`                                                | 
-|            |                             |                    | `(= (bvor #b00000001 z) y)`   | `(= (bvor #b00000000000000000000000000000001 z) y)`      |
-|            |                             |                    | `(= (bvadd #b00000001 z) x)`  | `(= (bvadd #b00000000000000000000000000000001 z) x)`     |
+| Test       | Entailment                  | Baseline           | 8-bit Abducts                   | 32-bit Abducts          | Notes                                        |
+|------------|-----------------------------|--------------------|---------------------------------|-------------------------|----------------------------------------------|
+| abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvshl z x) x))`            | `(bvult (bvadd x z) 1)` |                                              |
+|            |                             |                    | `(= (bvadd x z) 0)`             | Timeout                 |                                              |
+|            |                             |                    | Timeout                         | Timeout                 |                                              |
+| addident   | `\|= x + y == x`            | `y = 0`            | `(bvult y 1)`                   | `(bvult y 1)`           | both: what4 rewrites as `y = 0`, removes `x` |
+|            |                             |                    | Timeout                         | Timeout                 |                                              |
+|            |                             |                    | Timeout                         | Timeout                 |                                              |
+| addinv     | `\|= x + y == x`            | `y = -x`           | `(= (bvshl y x) x)`             | `(= (bvshl y x) x)`     | both: what4 rewrites as `-y = x`             |
+|            |                             |                    | `(= (bvneg y) x)`               | `(= (bvneg y) x)`       |                                              |
+|            |                             |                    | Timeout                         | Timeout                 |                                              |
+| andex      | `\|= x & y == 1`            | `x = 1 ^ y = 1`    | `(= y 1)`                       | `(= y 1)`               |                                              |
+|            |                             |                    | `(bvult 0 (bvand y 1))`         | `(= (bvnot 0) y)`       |                                              |
+|            |                             |                    | Timeout                         | `(= (bvor 1 y) y)`      |                                              |
+| file       | `x < 100 \|= x + 1 < 100`   | `x < 99`           | `(= 0 x)`                       | `(= 0 x)`               |                                              |
+|            |                             |                    | `(= 1 x)`                       | `(= x 1)`               |                                              |
+|            |                             |                    | `(bvult 100 x)`                 | `(bvult 100 x)`         |                                              |
+| maxint     | `\|= x + 1 > x`             | `x < maxint`       | `(= 0 x)`                       | `(= 0 x)`               |                                              |
+|            |                             |                    | `(= x 1)`                       | `(= x 1)`               |                                              |
+|            |                             |                    | `(bvult x 255)`                 | `(bvult x 4294967295)`  |                                              |
+| multident  | `\|= x * y == x`            | `y = 1`            | `(= x 0)`                       | `(= x 0)`               |                                              |
+|            |                             |                    | `(= 1 y)`                       | `(= 1 y)`               |                                              |
+|            |                             |                    | `(= (bvmul x y) x)`             | Timeout                 |                                              |
+| multinv    | `\|= x * y == x`            | `y = 0`            | `(= x 0)`                       | `(= x 0)`               |                                              |
+|            |                             |                    | `(= y 0)`                       | `(= y 0)`               |                                              |
+|            |                             |                    | `(bvult (bvmul y x) 1)`         | `(bvult (bvmul y x) 1)` |                                              |
+| trans      | `x > y \|= x > z`           | `y > z`            | `(= y z)`                       | `(= y z)`               |                                              |
+|            |                             |                    | `(= (bvor 1 z) y)`              | `(= (bvor 1 z) y)`      |                                              |
+|            |                             |                    | `(= (bvadd 1 z) x)`             | `(= (bvadd 1 z) x)`     |                                              |
 To-do:
 * We can avoid sign-extension in all 8-bit problems by doing what we did in `file`.
 * What do the what4 rewrites do to the abducts?

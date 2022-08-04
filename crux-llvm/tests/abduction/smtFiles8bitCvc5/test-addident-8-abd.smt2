@@ -12,7 +12,7 @@
 ; (:error-behavior immediate-exit)
 (push 1)
 ; success
-; ./cFiles8bit/test-addident-8.c:7:3
+; ./cFiles8bit/test-addident-8.c:8:3
 (declare-fun y () (_ BitVec 8))
 ; success
 (define-fun x!0 () Bool (= (_ bv0 8) y))

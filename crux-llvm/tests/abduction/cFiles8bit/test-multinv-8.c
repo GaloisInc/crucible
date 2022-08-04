@@ -4,6 +4,7 @@
 int main() {
   int8_t x = crucible_int8_t("x");
   int8_t y = crucible_int8_t("y");
-  check(x * y == 0);
+  int8_t prod = x * y;
+  check(prod == 0);
   return 0;
 }

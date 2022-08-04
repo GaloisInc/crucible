@@ -63,7 +63,7 @@
 (get-abduct abd x!10 )
 ; (define-fun abd () Bool (= #b00000000000000000000000000000000 x))
 (get-abduct-next)
-; (define-fun abd () Bool (= #b00000000000000000000000000000001 x))
+; (define-fun abd () Bool (= x #b00000000000000000000000000000001))
 (get-abduct-next)
 ; (define-fun abd () Bool (bvult #b00000000000000000000000001100100 x))
 (pop 1)

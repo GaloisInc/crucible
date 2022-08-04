@@ -13,19 +13,20 @@
 (push 1)
 ; success
 ; ./cFiles8bit/test-andex-8.c:7:3
-(declare-fun y () (_ BitVec 8))
-; success
-(define-fun x!0 () Bool (= (_ bv1 8) y))
-; success
-(define-fun x!1 () (_ BitVec 1) (ite x!0 (_ bv1 1) (_ bv0 1)))
-; success
-(define-fun x!2 () (_ BitVec 8) (concat (_ bv0 7) x!1))
-; success
 (declare-fun x () (_ BitVec 8))
 ; success
-(define-fun x!3 () (_ BitVec 8) (bvand x!2 x))
+(define-fun x!0 () Bool (= (_ bv1 8) x))
 ; success
-(define-fun x!4 () Bool (= (_ bv0 8) x!3))
+(assert (! x!0 :named x!1))
+; success
+; ./cFiles8bit/test-andex-8.c:8:20
+(declare-fun y () (_ BitVec 8))
+; success
+(define-fun x!2 () (_ BitVec 8) (bvand x y))
+; success
+(define-fun x!3 () Bool (= (_ bv1 8) x!2))
+; success
+(define-fun x!4 () Bool (not x!3))
 ; success
 (push 2)
 ; success
@@ -36,9 +37,11 @@
 (get-value (x))
 ; ((x #b00000001))
 (get-value (y))
-; ((y #b11111111))
+; ((y #b00000000))
 (pop 2)
 ; success
-(define-fun x!6 () Bool (not x!4))
-; (error "Parse Error: <stdin>:21.32: Overloaded constants must be type cast.")
-(pop 1)
+(get-abduct abd x!3 )
+; (define-fun abd () Bool (= y #b00000001))
+(get-abduct-next)
+; (define-fun abd () Bool (bvult #b00000000 (bvand y #b00000001)))
+(get-abduct-next)
