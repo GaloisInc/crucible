@@ -17,16 +17,11 @@ We have 9 test files over C ints, all unprovable:
 
 | Test       | Entailment                  | Baseline           | 8-bit Abducts                 | 32-bit Abducts                                           | Notes
 |------------|-----------------------------|--------------------|-------------------------------|----------------------------------------------------------|----------------------------------------------
-| abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvashr x z) #b00000001)` | Timeout                                                  | 8-bit: sign-ext
-|            |                             |                    | `(= (bvor x z) #b00000001)`   |                                                          | 32-bit: 1 abduct
-|            |                             |                    | `(= (bvashr z x) #b00000001)` |                                                          | both: change grammar
-| addident   | `\|= x + y == x`            | `y = 0`            | Timeout                       | Timeout                                                  | 8-bit: what4 rewrites as `y = 0`, removes `x`
-|            |                             |                    |                               |                                                          | 32-bit: what4 rewrites as
-|            |                             |                    |                               |                                                          | `[(y < 0) v (x < 0) v ~(y + x < 0)] v`
-|            |                             |                    |                               |                                                          | `[~(y < 0) v ~(x < 0) v (y + x < 0)]`
-| addinv     | `\|= x + y == x`            | `y = -x`           | Timeout                       | Timeout                                                  | 8-bit: 1 abduct, sign-ext
-|            |                             |                    |                               |                                                          | 32-bit: 2 abducts
-|            |                             |                    |                               |                                                          | both: what4 rewrites as `x = -y`
+| abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvashr x z) #b00000001)` | Timeout                                                  | 8-bit: sign-ext; 32-bit: 1 abduct
+|            |                             |                    | `(= (bvor x z) #b00000001)`   |                                                          | 
+|            |                             |                    | `(= (bvashr z x) #b00000001)` |                                                          | 
+| addident   | `\|= x + y == x`            | `y = 0`            | Timeout                       | Timeout                                                  | 8-bit: what4 rewrites as `y = 0`, removes `x`; 32-bit: what4 rewrites as `[(y < 0) v (x < 0) v ~(y + x < 0)] v [~(y < 0) v ~(x < 0) v (y + x < 0)]`
+| addinv     | `\|= x + y == x`            | `y = -x`           | Timeout                       | Timeout                                                  | 8-bit: 1 abduct, sign-ext; 32-bit: 2 abducts; both: what4 rewrites as `x = -y`
 | andex      | `\|= x & y == 1`            | `x = 1 ^ y = 1`    | Overloaded Constants error    | `(= y #b00000000000000000000000000000001)`               | 
 |            |                             |                    |                               | `(= (bvnot #b00000000000000000000000000000000) y)`       |
 |            |                             |                    |                               | `(= (bvor #b00000000000000000000000000000001 y) y)`      |
@@ -36,11 +31,10 @@ We have 9 test files over C ints, all unprovable:
 | maxint     | `\|= x + 1 > x`             | `x < maxint`       | Overloaded Constants error    | Overloaded Constants error                               |
 |            |                             |                    |                               |                                                          |
 |            |                             |                    |                               |                                                          |
-| multident  | `\|= x * y == x`            | `y = 1`            | Timeout                       | Timeout                                                  | 8-bit: sign-ext, 2 abducts
-|            |                             |                    |                               |                                                          | 32-bit: 2 abducts
+| multident  | `\|= x * y == x`            | `y = 1`            | Timeout                       | Timeout                                                  | 8-bit: sign-ext; both: 2 abducts
 |            |                             |                    |                               |                                                          |
-| multinv    | `\|= x * y == x`            | `y = 0`            | Timeout                       | `(= x #b00000000000000000000000000000000)`               | 8-bit: sign-ext, 2 abducts
-|            |                             |                    |                               | `(= y #b00000000000000000000000000000000)`               | 32-bit: 2 abducts
+| multinv    | `\|= x * y == x`            | `y = 0`            | Timeout                       | `(= x #b00000000000000000000000000000000)`               | 8-bit: sign-ext; both: 2 abducts
+|            |                             |                    |                               | `(= y #b00000000000000000000000000000000)`               |
 |            |                             |                    |                               | `(bvult (bvmul y x) #b00000000000000000000000000000001)` |
 | trans      | `x > y \|= x > z`           | `y > z`            | `(= y z)`                     | `(= y z)`                                                | 
 |            |                             |                    | `(= (bvor #b00000001 z) y)`   | `(= (bvor #b00000000000000000000000000000001 z) y)`      |
