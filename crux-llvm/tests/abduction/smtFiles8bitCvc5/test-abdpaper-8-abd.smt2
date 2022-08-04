@@ -95,18 +95,18 @@
 (pop 1)
 ; success
 ; ./cFiles8bit/test-abdpaper-8.c:8:3
-(define-fun x!26 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) y) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) y))
+(define-fun x!26 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) y) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) y)) ; signext y
 ; success
 ; ./cFiles8bit/test-abdpaper-8.c:9:3
-(define-fun x!27 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) x) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) x))
+(define-fun x!27 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) x) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) x)) ; signext x
 ; success
-(define-fun x!28 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) z) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) z))
+(define-fun x!28 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) z) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) z)) ; signext z
 ; success
-(define-fun x!29 () (_ BitVec 32) (bvadd (bvadd x!28 x!27) x!26))
+(define-fun x!29 () (_ BitVec 32) (bvadd (bvadd x!28 x!27) x!26))   ; signext x + signext y + signext z
 ; success
-(define-fun x!30 () Bool (bvslt (_ bv0 32) x!29))
+(define-fun x!30 () Bool (bvslt (_ bv0 32) x!29))                   ; 0 < signext x + signext y + signext z
 ; success
-(define-fun x!31 () Bool (not x!30))
+(define-fun x!31 () Bool (not x!30))                                ; ~(0 < signext x + signext y + signext z)
 ; success
 (push 2)
 ; success

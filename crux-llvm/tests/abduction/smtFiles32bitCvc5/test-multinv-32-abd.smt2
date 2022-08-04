@@ -18,18 +18,21 @@
 (declare-fun y () (_ BitVec 32))
 ; success
 (define-fun x!0 () (_ BitVec 64) (concat (ite (= ((_ extract 31 31) y) (_ bv1 1)) (_ bv4294967295 32) (_ bv0 32)) y))
+; x!0 = to_i64 y
 ; success
 (declare-fun x () (_ BitVec 32))
 ; success
 (define-fun x!1 () (_ BitVec 64) (concat (ite (= ((_ extract 31 31) x) (_ bv1 1)) (_ bv4294967295 32) (_ bv0 32)) x))
+; x!1 = to_i64 x
 ; success
-(define-fun x!2 () (_ BitVec 64) (bvmul x!0 x!1))
+(define-fun x!2 () (_ BitVec 64) (bvmul x!0 x!1)) ; (to_i64 y) * (to_i64 x)
 ; success
 (define-fun x!3 () (_ BitVec 32) (bvmul x y))
 ; success
 (define-fun x!4 () (_ BitVec 64) (concat (ite (= ((_ extract 31 31) x!3) (_ bv1 1)) (_ bv4294967295 32) (_ bv0 32)) x!3))
+; to_i64 (x * y)
 ; success
-(define-fun x!5 () Bool (= x!2 x!4))
+(define-fun x!5 () Bool (= x!2 x!4)) ; (to_i64 y) * (to_i64 x) = to_i64 (x * y)
 ; success
 (define-fun x!6 () Bool (not x!5))
 ; success

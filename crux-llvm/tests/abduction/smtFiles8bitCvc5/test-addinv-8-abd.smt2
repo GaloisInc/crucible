@@ -43,13 +43,13 @@
 ; success
 (declare-fun x () (_ BitVec 8))
 ; success
-(define-fun x!8 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) x) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) x))
+(define-fun x!8 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) x) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) x)) ; signext x
 ; success
-(define-fun x!9 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) y) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) y))
+(define-fun x!9 () (_ BitVec 32) (concat (ite (= ((_ extract 7 7) y) (_ bv1 1)) (_ bv16777215 24) (_ bv0 24)) y)) ; signext y
 ; success
-(define-fun x!10 () (_ BitVec 32) (bvneg x!9))
+(define-fun x!10 () (_ BitVec 32) (bvneg x!9))  ; -(signext y)
 ; success
-(define-fun x!11 () Bool (= x!8 x!10))
+(define-fun x!11 () Bool (= x!8 x!10)) ; signext x = -(signext y)
 ; success
 (define-fun x!12 () Bool (not x!11))
 ; success

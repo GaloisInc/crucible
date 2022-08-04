@@ -15,27 +15,40 @@ We have 9 test files over C ints, all unprovable:
 
 ### Test Results
 
-| Test       | Entailment                  | Baseline           | 8-bit Abducts                 | 32-bit Abducts                                           |
-|------------|-----------------------------|--------------------|-------------------------------|----------------------------------------------------------|
-| abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvashr x z) #b00000001)` | Timeout                                                  |
-|            |                             |                    | `(= (bvor x z) #b00000001)`   |                                                          |
-|            |                             |                    | `(= (bvashr z x) #b00000001)` |                                                          |     
-| addident   | `\|= x + y == x`            | `y = 0`            | Timeout                       | Timeout                                                  |
-| addinv     | `\|= x + y == x`            | `y = -x`           | Timeout                       | Timeout                                                  |
-| andex      | `\|= x & y == 1`            | `x = 1 ^ y = 1`    | Overloaded Constants error    | `(= y #b00000000000000000000000000000001)`               |
+| Test       | Entailment                  | Baseline           | 8-bit Abducts                 | 32-bit Abducts                                           | Notes
+|------------|-----------------------------|--------------------|-------------------------------|----------------------------------------------------------|----------------------------------------------
+| abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvashr x z) #b00000001)` | Timeout                                                  | 8-bit: sign-ext
+|            |                             |                    | `(= (bvor x z) #b00000001)`   |                                                          | 32-bit: 1 abduct
+|            |                             |                    | `(= (bvashr z x) #b00000001)` |                                                          | both: change grammar
+| addident   | `\|= x + y == x`            | `y = 0`            | Timeout                       | Timeout                                                  | 8-bit: what4 rewrites as `y = 0`, removes `x`
+|            |                             |                    |                               |                                                          | 32-bit: what4 rewrites as
+|            |                             |                    |                               |                                                          | `[(y < 0) v (x < 0) v ~(y + x < 0)] v`
+|            |                             |                    |                               |                                                          | `[~(y < 0) v ~(x < 0) v (y + x < 0)]`
+| addinv     | `\|= x + y == x`            | `y = -x`           | Timeout                       | Timeout                                                  | 8-bit: 1 abduct, sign-ext
+|            |                             |                    |                               |                                                          | 32-bit: 2 abducts
+|            |                             |                    |                               |                                                          | both: what4 rewrites as `x = -y`
+| andex      | `\|= x & y == 1`            | `x = 1 ^ y = 1`    | Overloaded Constants error    | `(= y #b00000000000000000000000000000001)`               | 
 |            |                             |                    |                               | `(= (bvnot #b00000000000000000000000000000000) y)`       |
 |            |                             |                    |                               | `(= (bvor #b00000000000000000000000000000001 y) y)`      |
-| file       | `x < 100 \|= x + 1 < 100`   | `x < 99`           | `(= #b00000000 x)`            | `(= #b00000000000000000000000000000000 x)`               |
+| file       | `x < 100 \|= x + 1 < 100`   | `x < 99`           | `(= #b00000000 x)`            | `(= #b00000000000000000000000000000000 x)`               | 8-bit: doesn't sign-ext
 |            |                             |                    | `(= #b00000001 x)`            | `(= #b00000000000000000000000000000001 x)`               |
 |            |                             |                    | `(bvult #b01100100 x)`        | `(bvult #b00000000000000000000000001100100 x)`           |
 | maxint     | `\|= x + 1 > x`             | `x < maxint`       | Overloaded Constants error    | Overloaded Constants error                               |
-| multident  | `\|= x * y == x`            | `y = 1`            | Timeout                       | Timeout                                                  |
-| multinv    | `\|= x * y == x`            | `y = 0`            | Timeout                       | `(= x #b00000000000000000000000000000000)`               |
-|            |                             |                    |                               | `(= y #b00000000000000000000000000000000)`               |
+|            |                             |                    |                               |                                                          |
+|            |                             |                    |                               |                                                          |
+| multident  | `\|= x * y == x`            | `y = 1`            | Timeout                       | Timeout                                                  | 8-bit: sign-ext, 2 abducts
+|            |                             |                    |                               |                                                          | 32-bit: 2 abducts
+|            |                             |                    |                               |                                                          |
+| multinv    | `\|= x * y == x`            | `y = 0`            | Timeout                       | `(= x #b00000000000000000000000000000000)`               | 8-bit: sign-ext, 2 abducts
+|            |                             |                    |                               | `(= y #b00000000000000000000000000000000)`               | 32-bit: 2 abducts
 |            |                             |                    |                               | `(bvult (bvmul y x) #b00000000000000000000000000000001)` |
-| trans      | `x > y \|= x > z`           | `y > z`            | `(= y z)`                     | `(= y z)`                                                |
+| trans      | `x > y \|= x > z`           | `y > z`            | `(= y z)`                     | `(= y z)`                                                | 
 |            |                             |                    | `(= (bvor #b00000001 z) y)`   | `(= (bvor #b00000000000000000000000000000001 z) y)`      |
 |            |                             |                    | `(= (bvadd #b00000001 z) x)`  | `(= (bvadd #b00000000000000000000000000000001 z) x)`     |
+To-do:
+* We can avoid sign-extension in all 8-bit problems by doing what we did in `file`.
+* What do the what4 rewrites do to the abducts?
+* We ask the abduction tactic for `n` abducts and it either passes or fails, it doesnt have a mode where it can give abducts incrementally. Add one.
 
 ### Issues
 1. When `global-assertions` is turned on, cvc5 doesn't unfold `define-fun`s before adding them to the grammar. That is the abduction grammar is a over defined variables rather than the variables from the program. We had this patched by the cvc5 developers.
@@ -43,9 +56,6 @@ We have 9 test files over C ints, all unprovable:
 3. cvc5 emits the following parse error which we need to ask the developers about: "Overloaded constants must be type cast". For example, `/smtFiles8bitCvc5/test-andex-8-abd.smt2`. (cvc5 developer fix is ready to be merged)
 4. (Potential) Issues:
     * Pretty printing abducts in C syntax?
-    * We ask the abduction tactic for `n` abducts and it either passes or fails, it doesnt have a mode where it can give abducts incrementally. Add one.
-    * How much does what4 rewrite the initial problem, and what does that do to abducts?
-    * 8-bits: LLVM pads 8-bit integers to 32, so sometimes we don't get the results we expect. We'll reason mostly with 32-bit integers and not focus on this issue much.
     * LLVM icmp returns a bool which crux/crucible turns into a 1 bit BV and then pads it using an ITE. If this is done automatically, perhaps we would benefit from replacing this whole thing by a much simpler translation of this construct, one that avoids all the (potentially) unnecessary padding and ITEs.
 
 ### File Structure
