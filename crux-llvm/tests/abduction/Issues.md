@@ -26,7 +26,7 @@ We have 9 test files over C ints, all unprovable:
 | addinv     | `\|= x + y == x`            | `y = -x`           | `(= (bvshl y x) x)`             | `(= (bvshl y x) x)`     | both: what4 rewrites as `-y = x`             |
 |            |                             |                    | `(= (bvneg y) x)`               | `(= (bvneg y) x)`       |                                              |
 |            |                             |                    | Timeout                         | Timeout                 |                                              |
-| andex      | `\|= x & y == 1`            | `x = 1 ^ y = 1`    | `(= y 1)`                       | `(= y 1)`               |                                              |
+| andex      | `x = 1 \|= x & y == 1`      | `x = 1 ^ y = 1`    | `(= y 1)`                       | `(= y 1)`               |                                              |
 |            |                             |                    | `(bvult 0 (bvand y 1))`         | `(= (bvnot 0) y)`       |                                              |
 |            |                             |                    | Timeout                         | `(= (bvor 1 y) y)`      |                                              |
 | file       | `x < 100 \|= x + 1 < 100`   | `x < 99`           | `(= 0 x)`                       | `(= 0 x)`               |                                              |
