@@ -11,6 +11,7 @@ module UCCrux.LLVM.Context.App
   ( AppContext,
     makeAppContext,
     log,
+    soundness
   )
 where
 
@@ -22,10 +23,12 @@ import           Data.Text (Text)
 
 import           UCCrux.LLVM.Logging (Verbosity)
 import qualified UCCrux.LLVM.Logging as Log (verbosityToInt, log)
+import           UCCrux.LLVM.Soundness (Soundness)
 {- ORMOLU_ENABLE -}
 
 data AppContext = AppContext
-  { _log :: Verbosity -> Text -> IO ()
+  { soundness :: Soundness,
+    _log :: Verbosity -> Text -> IO ()
   }
 
 doLog :: Verbosity -> Verbosity -> Text -> IO ()
@@ -37,5 +40,5 @@ doLog maxVerb msgVerb msg =
 log :: Lens' AppContext (Verbosity -> Text -> IO ())
 log = lens _log (\s v -> s {_log = v})
 
-makeAppContext :: Verbosity -> AppContext
-makeAppContext verb = AppContext (doLog verb)
+makeAppContext :: Soundness -> Verbosity -> AppContext
+makeAppContext sound verb = AppContext sound (doLog verb)

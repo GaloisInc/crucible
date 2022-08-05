@@ -108,7 +108,9 @@ Clearly, the requirements on specifications depend on the use-case. Accordingly,
 the pre- and post-conditions of specs are accompanied by *soundness tags* which
 indicate whether they over-approximate function behaviors, under-approximate
 them, both, or neither. There are four possible tags, the meaning of which
-depends on whether they are applied to preconditions or postconditions.
+depends on whether they are applied to preconditions or postconditions. (For
+additional detail and perspective, see [the documentation on
+soundness](./soundness.md).)
 
 - `Overapprox`: For preconditions, means that the specified preconditions are at
   least as restrictive than the actual implementation. For postconditions, it
@@ -121,29 +123,14 @@ depends on whether they are applied to preconditions or postconditions.
   precondition.
 - Precise: Both over-approximate and under-approximate, that is, a specification
   that perfectly describes the possible behaviors of the specified procedure.
-- Imprecise: Neither over-approximate nor under-approximate, that is, a
+- Indefinite: Neither over-approximate nor under-approximate, that is, a
   specification that bears none of the above relationships to the specified
   procedure (but may still be useful in practice, e.g., if it's over- or
   under-approximate for most---but not all---cases).
 
-These tags form a partial order with the following Hasse diagram:
-
-```
-       Imprecise
-      /         \
-Overapprox    Underapprox
-      \         /
-        Precise
-```
-
-The ordering means: Anything that is `Precise` can also be counted as either
-`Overapprox` or `Underapprox`, and if you're willing to accept `Imprecise`,
-then you would be willing to accept any degree of precision as well.
-
-UC-Crux doesn't yet use the soundness tags internally, but the intention is that
-they will be tracked and reported along with the analysis results, and that
-users would be able to indicate that they're only interested in results using
-over- or under-approximate specs.
+Users can choose to apply only specifications that meet certain soundness
+criteria with the `--soundness` flag of the CLI, see [the documentation on
+soundness](./soundness.md) for more details.
 
 ## JSON Format
 

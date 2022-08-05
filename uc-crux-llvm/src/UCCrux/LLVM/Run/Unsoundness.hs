@@ -1,11 +1,14 @@
 {-
 Module       : UCCrux.LLVM.Run.Unsoundness
-Description  : Tracking sources of unsoundness
+Description  : Tracking sources of unsoundness; see doc/soundness.md.
 Copyright    : (c) Galois, Inc 2021
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
+
+This module currently only tracks non-over-approximation, see issue #932.
 -}
+
 {-# LANGUAGE DeriveFunctor #-}
 
 module UCCrux.LLVM.Run.Unsoundness

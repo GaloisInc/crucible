@@ -31,6 +31,7 @@ import qualified Data.Aeson as Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy.Char8 as BS (readFile)
 import qualified Data.Map as Map
 import           Data.Map (Map)
+import           Data.Maybe (fromMaybe)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Word (Word64)
 import           Data.Text (Text)
@@ -50,6 +51,8 @@ import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
+import           UCCrux.LLVM.Soundness (Soundness)
+import qualified UCCrux.LLVM.Soundness as Sound
 import           UCCrux.LLVM.View.Specs (SpecsView)
 {- ORMOLU_ENABLE -}
 
@@ -69,6 +72,7 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     exploreParallel :: Bool,
     entryPoints :: [FunctionName],
     skipFunctions :: [FunctionName],
+    soundness :: Soundness,
     specsPath :: FilePath,
     verbosity :: Int
   }
@@ -90,7 +94,10 @@ processUCCruxLLVMOptions ::
   (CruxOptions, UCCruxLLVMOptions) -> IO (AppContext, CruxOptions, TopLevelConfig)
 processUCCruxLLVMOptions (initCOpts, initUCOpts) =
   do
-    let appCtx = makeAppContext (verbosityFromInt (verbosity initUCOpts))
+    let appCtx =
+          makeAppContext
+            (soundness initUCOpts)
+            (verbosityFromInt (verbosity initUCOpts))
     let doCrashOrder = crashOrder initUCOpts /= ""
     when (doExplore initUCOpts && doCrashOrder) $
       die "Can't specify both --explore and --crash-order"
@@ -133,7 +140,7 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
                   ]))
               pure
               (nonEmpty (entryPoints uco))
-    
+
     -- Parse JSON of user-provided function specs from file
     getSpecs =
       do let noSpecs :: Map FunctionName SpecsView
@@ -145,7 +152,7 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
          case specs of
            Left err -> die err
            Right s -> return s
-    
+
     -- Create the top-level configuration data type
     runConfig entries specs =
       case entries of
@@ -214,6 +221,9 @@ entryPointsDoc = "Comma-separated list of functions to examine."
 skipDoc :: Text
 skipDoc = "List of functions to skip during exploration"
 
+soundnessDoc :: Text
+soundnessDoc = "Level of soundness of the analysis (see doc/soundness.md)"
+
 specsPathDoc :: Text
 specsPathDoc = "Path to JSON file containing function specs"
 
@@ -247,6 +257,10 @@ ucCruxLLVMConfig = do
             <*>
               (map functionNameFromString <$>
                 Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc)
+            <*>
+              (fromMaybe Sound.Indefinite .
+                Sound.stringToSoundness <$>
+                Crux.section "soundness" Crux.stringSpec "indefinite" soundnessDoc)
             <*> Crux.section "specs-path" Crux.fileSpec "" specsPathDoc
             <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc,
         Crux.cfgEnv =
@@ -339,6 +353,17 @@ ucCruxLLVMConfig = do
                          opts
                          { skipFunctions =
                              functionNameFromString v : skipFunctions opts
+                         },
+                 Crux.Option
+                   []
+                   ["soundness"]
+                   (Text.unpack soundnessDoc)
+                   $ Crux.ReqArg "LEVEL" $
+                     \v opts ->
+                       Right
+                         opts
+                         { soundness =
+                             fromMaybe (soundness opts) (Sound.stringToSoundness v)
                          },
                  Crux.Option
                    []

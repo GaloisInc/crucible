@@ -1,3 +1,6 @@
 module Main (main) where
 
-import RealMain (main)
+import qualified RealMain
+
+main :: IO ()
+main = RealMain.main
