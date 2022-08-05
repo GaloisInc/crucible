@@ -44,8 +44,8 @@ We have 9 test files over C ints, all unprovable:
 | trans      | `x > y \|= x > z`           | `y > z`            | `(= y z)`                       | `(= y z)`               |                                              |
 |            |                             |                    | `(= (bvor 1 z) y)`              | `(= (bvor 1 z) y)`      |                                              |
 |            |                             |                    | `(= (bvadd 1 z) x)`             | `(= (bvadd 1 z) x)`     |                                              |
+
 To-do:
-* We can avoid sign-extension in all 8-bit problems by doing what we did in `file`.
 * What do the what4 rewrites do to the abducts?
 * We ask the abduction tactic for `n` abducts and it either passes or fails, it doesnt have a mode where it can give abducts incrementally. Add one.
 
