@@ -153,7 +153,9 @@ data CruxOptions = CruxOptions
   , unsatCores               :: Bool
     -- ^ Should we attempt to compute unsatisfiable cores for successful
     --   proofs?
-
+  , getNAbducts               :: Maybe Word64
+    -- ^ How many abducts should we get from the solver for sat results?
+    --   Only works with cvc5
   , solver                   :: String
     -- ^ Solver to use to discharge proof obligations
   , pathSatSolver            :: Maybe String
@@ -268,6 +270,9 @@ cruxOptions = Config
             section "unsat-cores" yesOrNoSpec True
             "Should we attempt to compute unsatisfiable cores for successfult proofs (default: yes)"
 
+          getNAbducts <-
+            sectionMaybe "get-abducts" numSpec
+            "How many abducts should we get from the solver for sat results? Only works with cvc5, 0 otherwise."
           solver <-
             section "solver" stringSpec "yices"
             (pack $ "Select the solver to use to discharge proof obligations. " ++
@@ -442,6 +447,12 @@ cruxOptions = Config
       , Option [] ["no-unsat-cores"]
         "Disable computing unsat cores for successful proofs"
         $ NoArg $ \opts -> Right opts { unsatCores = False }
+      
+      , Option "n" ["get-abducts"]
+        "Get these many abducts"
+        $ ReqArg "ABDUCTS"
+        $ parsePosNum "abducts"
+        $ \v opts -> opts { getNAbducts = Just v }
 
       , Option "s" ["solver"]
         ("Select the solver to use to discharge proof obligations. " ++

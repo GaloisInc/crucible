@@ -17,6 +17,7 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Foldable ( toList )
 import           Data.Sequence (Seq)
 import           Data.Text ( Text )
+import           Data.List ( length )
 import           Prettyprinter ( (<+>) )
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PPR
@@ -81,10 +82,12 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                  -- variable events that led to this failure
                  ++ if showVars then
                       ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]
-                    else [] ++
-                -- print abducts
-               ("One of the following 3 facts would entail the goal" :
-                 (map (\x -> PP.pretty ('*' : ' ' : x)) s)))]
+                    else [] 
+                 -- print abducts, if any
+                 ++ if s /= [] then
+                      PP.pretty ("One of the following " ++ show (length s) ++ " fact(s) would entail the goal")
+                      : (map (\x -> PP.pretty ('*' : ' ' : x)) s)
+                    else [])]
          | otherwise ->
            [ PP.nest 2 $ PP.vcat [ "Failed to prove verification goal", ex ] ]
 

@@ -392,6 +392,9 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
 
   hasUnsatCores = unsatCores opts && not (yicesMCSat opts)
 
+  howManyAbducts = case (getNAbducts opts) of Just n  -> n
+                                              Nothing -> 0
+
   failfast = proofGoalsFailFast opts
 
   go (start,end) sp assumptionsInScope gn gs nameMap = do
@@ -417,8 +420,12 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
            start goalNumber
            -- negate goal, create formula
            t <- mkFormula conn =<< notPred sym (p ^. labeledPred)
-           -- in new frame, assert formula to SMT solver, create new name and add to nameMap
-           inNewFrame2Open sp
+             -- assert formula to SMT solver, create new name and add to nameMap
+           -- This is done in a new assertion frame if abduction is turned on
+           if (howManyAbducts /= 0) then
+             inNewFrame2Open sp
+           else
+             return ()
            nm <- doAssume t
            bindName nm (Right p) nameMap
            -- check-sat with SMT solver, pattern match on result
@@ -439,7 +446,10 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                            modifyIORef' gn (updateProcessedGoals p pr)
                            
                            let locs = assumptionsTopLevelLocs assumptionsInScope
-                           inNewFrame2Close sp
+                           if (howManyAbducts /= 0) then
+                             inNewFrame2Close sp
+                           else
+                             return ()
                            return (Prove (p, locs, pr))
                       Sat ()  ->
                         do -- evaluate counter-example
@@ -450,9 +460,13 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                            end goalNumber
                            -- close the frame in which the final assertion and its 
                            -- checksat call were made, and then get 3 abducts
-                           inNewFrame2Close sp
-                           abds <- getAbducts sp 3 "abd" (p ^. labeledPred) []
-
+                           if (howManyAbducts /= 0) then
+                             do inNewFrame2Close sp
+                           else return ()
+                           abds <- if (howManyAbducts /= 0) then 
+                                     getAbducts sp (fromIntegral howManyAbducts) "abd" (p ^. labeledPred) []
+                                   else
+                                     return []
                            let gt = NotProved explain (Just (vals,evs)) abds
                            -- update goal count
                            modifyIORef' gn (updateProcessedGoals p gt)
