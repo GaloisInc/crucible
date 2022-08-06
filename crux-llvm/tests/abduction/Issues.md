@@ -14,7 +14,7 @@ We have 9 test files over C ints, all unprovable:
 9. `trans`: does `x > y |= x > z`? Acceptable abduct: `y > z`.
 
 ### Test Results
-
+We use a 3 minute timeout and ask for 3 abduct for each of the problems.
 | Test       | Entailment                  | Baseline           | 8-bit Abducts                   | 32-bit Abducts          | Notes                                        |
 |------------|-----------------------------|--------------------|---------------------------------|-------------------------|----------------------------------------------|
 | abdpaper   | `y > 0 \|= x + y + z > 0`   | `x + z > 0`        | `(= (bvshl z x) x))`            | `(bvult (bvadd x z) 1)` |                                              |
