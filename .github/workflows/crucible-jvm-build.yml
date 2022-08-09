@@ -30,9 +30,9 @@ jobs:
         ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
           - os: macos-12
-            ghc: 9.2.2
+            ghc: 9.2.4
           - os: windows-2019
-            ghc: 9.2.2
+            ghc: 9.2.4
     name: crucible-jvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2

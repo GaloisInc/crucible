@@ -49,11 +49,11 @@ jobs:
           - os: ubuntu-20.04
             ghc: 8.8.4
           - os: ubuntu-18.04
-            ghc: 9.2.2
+            ghc: 9.2.4
           - os: macos-12
-            ghc: 9.2.2
+            ghc: 9.2.4
           - os: windows-2019
-            ghc: 9.2.2
+            ghc: 9.2.4
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2

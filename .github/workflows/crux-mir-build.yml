@@ -46,7 +46,7 @@ jobs:
         ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
           - os: macos-12
-            ghc: 9.2.2
+            ghc: 9.2.4
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
