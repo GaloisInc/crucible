@@ -4,6 +4,8 @@
 ; success
 (set-option :global-declarations true)
 ; success
+(set-option :produce-unsat-cores true)
+; success
 (set-option :produce-abducts true)
 ; success
 (set-logic ALL)

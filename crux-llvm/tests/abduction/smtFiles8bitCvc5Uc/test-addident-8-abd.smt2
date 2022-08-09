@@ -4,6 +4,8 @@
 ; success
 (set-option :global-declarations true)
 ; success
+(set-option :produce-unsat-cores true)
+; success
 (set-option :produce-abducts true)
 ; success
 (set-logic ALL)
@@ -12,31 +14,23 @@
 ; (:error-behavior immediate-exit)
 (push 1)
 ; success
-; ./cFiles8bit/test-addinv-8.c:8:3
+; ./cFiles8bit/test-addident-8.c:8:3
 (declare-fun y () (_ BitVec 8))
 ; success
-(define-fun x!0 () (_ BitVec 8) (bvneg y))
+(define-fun x!0 () Bool (= (_ bv0 8) y))
 ; success
-(declare-fun x () (_ BitVec 8))
-; success
-(define-fun x!1 () Bool (= x!0 x))
-; success
-(define-fun x!2 () Bool (not x!1))
+(define-fun x!1 () Bool (not x!0))
 ; success
 (push 2)
 ; success
-(assert (! x!2 :named x!3))
+(assert (! x!1 :named x!2))
 ; success
 (check-sat)
 ; sat
-(get-value (x))
-; ((x #b10000001))
 (get-value (y))
-; ((y #b10000000))
+; ((y #b00000001))
 (pop 2)
 ; success
-(get-abduct abd x!1 )
-; (define-fun abd () Bool (= (bvshl y x) x))
-(get-abduct-next)
-; (define-fun abd () Bool (= (bvneg y) x))
+(get-abduct abd x!0 )
+; (define-fun abd () Bool (bvult y #b00000001))
 (get-abduct-next)
