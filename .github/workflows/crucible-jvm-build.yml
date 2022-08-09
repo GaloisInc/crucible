@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-20.04]
-        ghc: ["8.10.7", "9.0.2", "9.2.3"]
+        ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
           - os: macos-12
             ghc: 9.2.2
@@ -73,7 +73,7 @@ jobs:
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
           case ${{ matrix.ghc }} in
             9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-22.05 ;;
-            9.2.3) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            9.2.4) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac
           echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
