@@ -434,14 +434,14 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                       Unsat () ->
                         -- build unsat core, which is the entire assertion set by default
                         do namemap <- readIORef nameMap
-                           {- Turn off unsat core -}
-                           core <- if hasUnsatCores
-                                   then map (lookupnm namemap) <$> getUnsatCore sp
+                           -- default unsat core: entire assertion set
+                           -- if abduction is on, don't get unsat core
+                           -- FIXME: after cvc5-1.0.2, remove the abducts condition
+                           core <- if (howManyAbducts == 0 && hasUnsatCores) then
+                                      map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
                            end goalNumber
-                           {- Turn off unsat core -}
                            let pr = Proved core
-                           -- let pr = Proved []
                            -- update goal count
                            modifyIORef' gn (updateProcessedGoals p pr)
                            
@@ -464,7 +464,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                              do inNewFrame2Close sp
                            else return ()
                            abds <- if (howManyAbducts /= 0) then 
-                                     getAbducts sp (fromIntegral howManyAbducts) "abd" (p ^. labeledPred) []
+                                     getAbducts sp (fromIntegral howManyAbducts) "abd" (p ^. labeledPred)
                                    else
                                      return []
                            let gt = NotProved explain (Just (vals,evs)) abds
