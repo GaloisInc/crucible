@@ -20,8 +20,7 @@ import           Language.Haskell.TH (Dec, Q, Name)
 -- | Like 'Aeson.TH.deriveJSON' but processes mutliple types in the same splice,
 -- and so can be used for mutually recursive types.
 deriveMutualJSON ::
-  Options ->
-  [Name] ->
+  [(Options, Name)] ->
   Q [Dec]
-deriveMutualJSON opts =
-  foldM (\decs nm -> (decs ++) <$> Aeson.TH.deriveJSON opts nm) []
+deriveMutualJSON =
+  foldM (\decs (opts, nm) -> (decs ++) <$> Aeson.TH.deriveJSON opts nm) []

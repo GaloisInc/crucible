@@ -82,7 +82,7 @@ postcondTests =
                             Sim.SimulatorHooks
                               { Sim.createOverrideHooks =
                                   [ Sim.SymCreateOverrideFn $
-                                      \bak ->
+                                      \bak _tracker ->
                                         return $
                                           Skip.createSkipOverride
                                             modCtx
@@ -136,7 +136,7 @@ postcondTests =
                             Sim.SimulatorHooks
                               { Sim.createOverrideHooks =
                                   [ Sim.SymCreateOverrideFn $
-                                      \sym ->
+                                      \sym _tracker ->
                                         return $
                                           Skip.createSkipOverride
                                             modCtx

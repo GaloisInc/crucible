@@ -25,14 +25,18 @@ number of advantages:
 The view datatypes are all in modules using the @StrictData@ language extension.
 This is because their primary use is serialization, which will result in
 complete evaluation, eliminating the benefits of laziness.
+
+See also "UCCrux.LLVM.View.Options".
 -}
 
 module UCCrux.LLVM.View
   ( module UCCrux.LLVM.View.Constraint,
     module UCCrux.LLVM.View.Cursor,
     module UCCrux.LLVM.View.FullType,
+    module UCCrux.LLVM.View.Precond,
     module UCCrux.LLVM.View.Postcond,
     module UCCrux.LLVM.View.Shape,
+    module UCCrux.LLVM.View.Specs,
     module UCCrux.LLVM.View.Util,
   ) where
 
@@ -40,5 +44,7 @@ import UCCrux.LLVM.View.Constraint
 import UCCrux.LLVM.View.Cursor
 import UCCrux.LLVM.View.FullType
 import UCCrux.LLVM.View.Postcond
+import UCCrux.LLVM.View.Precond
 import UCCrux.LLVM.View.Shape
+import UCCrux.LLVM.View.Specs
 import UCCrux.LLVM.View.Util

@@ -90,7 +90,7 @@ ppBug :: Bug -> PP.Doc ann
 ppBug (Bug bb loc callStack) =
   PP.vsep
     [ ppBugBehavior bb
-    , PP.pretty "at" <> PP.pretty (ppProgramLoc loc)
+    , PP.pretty "at" PP.<+> PP.pretty (ppProgramLoc loc)
     , PP.pretty "in context:"
     , PP.indent 2 (ppCallStack callStack)
     ]

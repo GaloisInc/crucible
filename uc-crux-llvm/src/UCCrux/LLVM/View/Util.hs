@@ -57,10 +57,25 @@ newtype TypeName
   = TypeName { getTypeName :: Text }
   deriving (Eq, Ord, Show, Generic, Aeson.FromJSONKey, Aeson.ToJSONKey)
 
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''Alignment)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''Width)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''Unsigned)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''GlobalVarName)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''FuncName)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''TypeName)
-$(Aeson.TH.deriveJSON Aeson.defaultOptions ''L.ICmpOp)
+-- See Note [JSON instance tweaks].
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''Alignment)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''Width)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''Unsigned)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''GlobalVarName)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''FuncName)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''TypeName)
+$(Aeson.TH.deriveJSON
+  Aeson.defaultOptions { Aeson.unwrapUnaryRecords = True }
+  ''L.ICmpOp)

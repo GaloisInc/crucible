@@ -124,28 +124,34 @@ import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Shape (Shape)
 {- ORMOLU_ENABLE -}
 
-newtype CreateOverrideFn arch =
+newtype CreateOverrideFn m arch =
   CreateOverrideFn
     { runCreateOverrideFn ::
-        forall sym bak.
+        forall sym bak args.
         IsSymBackend sym bak =>
         HasLLVMAnn sym =>
         bak ->
+        -- Origins of created values
+        IORef (ExprTracker m sym args) ->
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
 
 -- | Used in 'SimulatorHooks' to register caller-specified overrides.
-newtype SymCreateOverrideFn sym bak arch =
+newtype SymCreateOverrideFn m sym bak arch =
   SymCreateOverrideFn
     { runSymCreateOverrideFn ::
-        bak -> IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
+        forall args.
+        bak ->
+        -- Origins of created values
+        IORef (ExprTracker m sym args) ->
+        IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
 
 symCreateOverrideFn ::
   IsSymBackend sym bak =>
   HasLLVMAnn sym =>
-  CreateOverrideFn arch ->
-  SymCreateOverrideFn sym bak arch
+  CreateOverrideFn m arch ->
+  SymCreateOverrideFn m sym bak arch
 symCreateOverrideFn ov = SymCreateOverrideFn $ runCreateOverrideFn ov
 
 data UCCruxSimulationResult m arch argTypes = UCCruxSimulationResult
@@ -153,10 +159,14 @@ data UCCruxSimulationResult m arch argTypes = UCCruxSimulationResult
     explanations :: [Located (Explanation m arch argTypes)]
   }
 
--- | Based on 'Crux.SimulatorHooks'
+-- | Like 'Crux.SimulatorHooks', these hooks provide the ability to customize
+-- the symbolic execution process. In particular, they allow for registering
+-- additional overrides via 'createOverrideHooks', and post-processing the
+-- results of symbolic execution with access to the symbolic backend via
+-- 'resultHook'.
 data SimulatorHooks sym bak m arch argTypes r =
   SimulatorHooks
-    { createOverrideHooks :: [SymCreateOverrideFn sym bak arch]
+    { createOverrideHooks :: [SymCreateOverrideFn m sym bak arch]
     -- | The 'PreSimulationMem sym' parameter is the Pre-simulation memory.
     -- The 'Assignment' specifies the Arguments passed to the entry point.
     , resultHook ::
@@ -169,7 +179,9 @@ data SimulatorHooks sym bak m arch argTypes r =
     }
   deriving Functor
 
--- | Based on 'Crux.SimulatorCallbacks'
+-- | Callbacks that customize the symbolic execution process.
+--
+-- Compare to 'Crux.SimulatorCallbacks'.
 newtype SimulatorCallbacks m arch (argTypes :: Ctx (FullType m)) r =
   SimulatorCallbacks
     { getSimulatorCallbacks ::
@@ -196,7 +208,7 @@ defaultCallbacks =
        }
 
 addOverrides ::
-  [CreateOverrideFn arch] ->
+  [CreateOverrideFn m arch] ->
   SimulatorCallbacks m arch argTypes r ->
   SimulatorCallbacks m arch argTypes r
 addOverrides newOverrides cbs =
@@ -214,14 +226,14 @@ createUnsoundOverrides ::
   (?memOpts :: MemOptions) =>
   ArchOk arch =>
   proxy arch ->
-  IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn arch])
+  IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn m arch])
 createUnsoundOverrides proxy =
   do unsoundOverrideRef <- IORef.newIORef Set.empty
      return
        ( unsoundOverrideRef
        , map (\ov ->
                 CreateOverrideFn
-                  (\_sym -> pure (getForAllSymArch ov proxy)))
+                  (\_sym _tracker -> pure (getForAllSymArch ov proxy)))
              (unsoundOverrides unsoundOverrideRef)
        )
 
@@ -334,9 +346,9 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       HasLLVMAnn sym =>
       bak ->
       -- | Unsound overrides
-      [CreateOverrideFn arch] ->
+      [CreateOverrideFn m arch] ->
       -- | Overrides that were passed in as arguments
-      [SymCreateOverrideFn sym bak arch] ->
+      [SymCreateOverrideFn m sym bak arch] ->
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
@@ -411,13 +423,14 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                     -- Crux-LLVM overrides, i.e., crucible_*
                     registerOverrides appCtx modCtx sCruxLLVM (cruxLLVMOverrides proxy#)
 
-                    overrides <- liftIO $ for overrideFns (($ bak) . runSymCreateOverrideFn)
+                    let apOv f = runSymCreateOverrideFn f bak skipReturnValueAnnotations
+                    overrides <- liftIO $ for overrideFns apOv
                     let overrides' = map (\ov -> getPolymorphicLLVMOverride ov) overrides
                     registerOverrides appCtx modCtx sArg overrides'
 
                     -- Register unsound overrides, e.g., `getenv`
                     uOverrides <-
-                      liftIO $ traverse (\ov -> runCreateOverrideFn ov bak) uOverrideFns
+                      liftIO $ traverse (\ov -> runCreateOverrideFn ov bak skipReturnValueAnnotations) uOverrideFns
                     let uOverrides' = map (\ov -> getPolymorphicLLVMOverride ov) uOverrides
                     registerOverrides appCtx modCtx sUnsound uOverrides'
 
@@ -622,7 +635,7 @@ runSimulator ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
-  [CreateOverrideFn arch] ->
+  [CreateOverrideFn m arch] ->
   Preconds m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->

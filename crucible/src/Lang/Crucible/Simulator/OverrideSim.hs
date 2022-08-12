@@ -37,6 +37,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , overrideAbort
   , symbolicBranch
   , symbolicBranches
+  , nondetBranches
   , overrideReturn
   , overrideReturn'
     -- * Function calls
@@ -86,6 +87,8 @@ import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
 import qualified Data.Text as T
+import           Data.Traversable (for)
+import           Numeric.Natural (Natural)
 import           System.Exit
 import           System.IO
 import           System.IO.Error
@@ -526,6 +529,9 @@ symbolicBranch p thn_args thn thn_pos els_args els els_pos =
 --   series of branches, one for each element of the list.  The semantics of
 --   this construct is that the predicates are evaluated in order, until
 --   the first one that evaluates true; this branch will be the taken branch.
+--   In other words, this operates like a chain of if-then-else statements;
+--   later branches assume that earlier branches were not taken.
+--
 --   If no predicate is true, the construct will abort with a @VariantOptionsExhausted@
 --   reason.  If you wish to report an error condition instead, you should add a
 --   final default case with a true predicate that calls @overrideError@.
@@ -554,6 +560,40 @@ symbolicBranches new_args xs0 =
                  m'  = ReaderT (runStateContT (unSim m) c')
               in overrideSymbolicBranch p all_args m' mpos old_args (go (i+1) xs) (Just (OtherPos msg))
        go (0::Integer) xs0
+
+-- | Non-deterministically choose among several feasible branches.
+--
+-- Unlike 'symbolicBranches', this function does not take only the first branch
+-- with a predicate that evaluates to true; instead it takes /all/ branches with
+-- predicates that are not syntactically false (or cannot be proved unreachable
+-- with path satisfiability checking, if enabled). Each branch will /not/ assume
+-- that other branches weren't taken.
+--
+-- As with 'symbolicBranch', any symbolic values needed by the branches should be
+-- placed into the @RegMap@ argument and retrieved when needed. See the comment
+-- on 'symbolicBranch'.
+--
+-- Operationally, this works by by numbering all of the branches from 0 to n,
+-- inventing a symbolic integer variable z, and adding z = i (where i ranges
+-- from 0 to n) to the branch condition for each branch, and calling
+-- 'symbolicBranches' on the result. Even though each branch given to
+-- 'symbolicBranches' assumes earlier branches are not taken, each branch
+-- condition has the form @(z = i) and p@, so the negation @~((z = i) and p)@
+-- is equivalent to @(z != i) or ~p@, so later branches don't assume the
+-- negation of the branch condition of earlier branches (i.e., @~p@).
+nondetBranches :: forall p sym ext rtp args new_args res a.
+  IsSymInterface sym =>
+  RegMap sym new_args {- ^ argument values for the branches -} ->
+  [(Pred sym, OverrideSim p sym ext rtp (args <+> new_args) res a, Maybe Position)]
+   {- ^ Branches to consider -} ->
+  OverrideSim p sym ext rtp args res a
+nondetBranches new_args xs0 =
+  do sym <- getSymInterface
+     z <- liftIO $ freshNat sym (safeSymbol "nondetBranchesZ")
+     xs <- for (zip [(0 :: Natural)..] xs0) $ \(i, (p, v, position)) ->
+       do p' <- liftIO $ andPred sym p =<< natEq sym z =<< natLit sym i
+          return (p', v, position)
+     symbolicBranches new_args xs
 
 --------------------------------------------------------------------------------
 -- FnBinding

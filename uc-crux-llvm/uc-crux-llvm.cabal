@@ -74,6 +74,7 @@ library
     UCCrux.LLVM.Overrides.Check
     UCCrux.LLVM.Overrides.Polymorphic
     UCCrux.LLVM.Overrides.Skip
+    UCCrux.LLVM.Overrides.Spec
     UCCrux.LLVM.Overrides.Stack
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
@@ -93,13 +94,25 @@ library
     UCCrux.LLVM.Setup.Constraints
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
+    UCCrux.LLVM.Specs.Apply
+    UCCrux.LLVM.Specs.Type
     UCCrux.LLVM.Stats
     UCCrux.LLVM.View
     UCCrux.LLVM.View.Constraint
     UCCrux.LLVM.View.Cursor
     UCCrux.LLVM.View.FullType
+    UCCrux.LLVM.View.Options.Constraint
+    UCCrux.LLVM.View.Options.Cursor
+    UCCrux.LLVM.View.Options.FullType
+    UCCrux.LLVM.View.Options.Idioms
+    UCCrux.LLVM.View.Options.Postcond
+    UCCrux.LLVM.View.Options.Precond
+    UCCrux.LLVM.View.Options.Shape
+    UCCrux.LLVM.View.Options.Specs
     UCCrux.LLVM.View.Postcond
+    UCCrux.LLVM.View.Precond
     UCCrux.LLVM.View.Shape
+    UCCrux.LLVM.View.Specs
     UCCrux.LLVM.View.TH
     UCCrux.LLVM.View.Util
 

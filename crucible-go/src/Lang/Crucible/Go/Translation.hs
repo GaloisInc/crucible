@@ -515,7 +515,7 @@ translate_alg (IdentExpr _ tp qual ident@(Ident _kind name)) = TranslateM $ do
           e <- Gen.readRef ref
           return $ Some $ GoExpr (Just $ GoLocRef ref) e
         Nothing ->
-          -- | Local lookup failure.
+          -- Local lookup failure.
           -- return $ mkSomeGoExpr' C.EmptyApp
           fail $ "translate_alg IdentExpr: unbound local " ++ show name
     Just q -> lookupGlobal q ident
@@ -826,7 +826,7 @@ translateHomoBinop :: Type -> BinaryOp -> Gen.Expr Go s a -> Gen.Expr Go s a
 translateHomoBinop tp op left right = case op of
   BPlus -> case exprType left of
     BVRepr w -> return $ Gen.App $ C.BVAdd w left right
-    -- | Rounding uses IEEE 754 round-to-even rules but with an IEEE
+    -- Rounding uses IEEE 754 round-to-even rules but with an IEEE
     -- negative zero further simplified to an unsigned zero. -- SPEC
     FloatRepr fi -> return $ Gen.App $ C.FloatAdd fi C.RNE left right
     StringRepr si -> return $ Gen.App $ C.StringConcat si left right

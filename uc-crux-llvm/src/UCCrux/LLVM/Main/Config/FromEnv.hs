@@ -27,6 +27,10 @@ where
 import           Control.Applicative ((<|>))
 import           Control.Lens (Lens', lens)
 import           Control.Monad (when)
+import qualified Data.Aeson as Aeson (eitherDecode)
+import qualified Data.ByteString.Lazy.Char8 as BS (readFile)
+import qualified Data.Map as Map
+import           Data.Map (Map)
 import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Word (Word64)
 import           Data.Text (Text)
@@ -46,6 +50,7 @@ import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Main.Config.Type as Config
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
+import           UCCrux.LLVM.View.Specs (SpecsView)
 {- ORMOLU_ENABLE -}
 
 -- | Options as obtained from the Crux command-line and config file machinery.
@@ -64,6 +69,7 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     exploreParallel :: Bool,
     entryPoints :: [FunctionName],
     skipFunctions :: [FunctionName],
+    specsPath :: FilePath,
     verbosity :: Int
   }
 
@@ -86,30 +92,9 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
   do
     let appCtx = makeAppContext (verbosityFromInt (verbosity initUCOpts))
     let doCrashOrder = crashOrder initUCOpts /= ""
-
-    -- Figure out the entry points. If exploration mode is selected, the
-    -- specified entry points are irrelevant. If crash ordering is selected,
-    -- then entry points may or may not be specified. If neither is selected,
-    -- then entry points must be provided.
-    let makeEntries :: UCCruxLLVMOptions -> IO (Maybe (NonEmpty FunctionName))
-        makeEntries uco
-          | doExplore uco = pure Nothing
-          | crashOrder uco /= "" = pure (nonEmpty (entryPoints uco))
-          | otherwise =
-              Just <$>
-                maybe
-                  (die
-                    (unwords
-                      [ "At least one entry point (--entry-points) is required",
-                        "(or try --explore or --crash-order)"
-                      ]))
-                  pure
-                  (nonEmpty (entryPoints uco))
-
-    entries <- makeEntries initUCOpts
-
     when (doExplore initUCOpts && doCrashOrder) $
       die "Can't specify both --explore and --crash-order"
+
     (finalCOpts, finalLLOpts) <-
       processLLVMOptions
         ( initCOpts
@@ -119,40 +104,82 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
           ucLLVMOptions initUCOpts
         )
 
+    specs <- getSpecs  -- can fail (exit)
+    entries <- makeEntries initUCOpts  -- can fail (exit)
+
     let topConf =
           Config.TopLevelConfig
             { Config.ucLLVMOptions = finalLLOpts,
-              Config.runConfig =
-                case entries of
-                  Just ents ->
-                    Config.RunOn
-                      ents
-                      (checkFrom initUCOpts)
-                      (checkFromCallers initUCOpts)
-                  Nothing ->
-                    if doExplore initUCOpts
-                    then
-                      Config.Explore
-                        (ExConfig.ExploreConfig
-                          { ExConfig.exploreAgain = reExplore initUCOpts,
-                            ExConfig.exploreBudget = exploreBudget initUCOpts,
-                            ExConfig.exploreTimeout = exploreTimeout initUCOpts,
-                            ExConfig.exploreParallel = exploreParallel initUCOpts,
-                            ExConfig.exploreSkipFunctions = skipFunctions initUCOpts
-                          })
-                    else
-                      Config.CrashEquivalence
-                        (EqConfig.EquivalenceConfig
-                          { EqConfig.equivOrOrder =
-                              if crashEquivalence initUCOpts
-                              then EqConfig.Equivalence
-                              else EqConfig.Order,
-                            EqConfig.equivModule = crashOrder initUCOpts,
-                            EqConfig.equivEntryPoints = entryPoints initUCOpts
-                          })
+              Config.runConfig = runConfig entries specs
             }
-
     return (appCtx, finalCOpts, topConf)
+
+  where
+    -- Figure out the entry points. If exploration mode is selected, the
+    -- specified entry points are irrelevant. If crash ordering is selected,
+    -- then entry points may or may not be specified. If neither is selected,
+    -- then entry points must be provided.
+    makeEntries :: UCCruxLLVMOptions -> IO (Maybe (NonEmpty FunctionName))
+    makeEntries uco
+      | doExplore uco = pure Nothing
+      | crashOrder uco /= "" = pure (nonEmpty (entryPoints uco))
+      | otherwise =
+          Just <$>
+            maybe
+              (die
+                (unwords
+                  [ "At least one entry point (--entry-points) is required",
+                    "(or try --explore or --crash-order)"
+                  ]))
+              pure
+              (nonEmpty (entryPoints uco))
+    
+    -- Parse JSON of user-provided function specs from file
+    getSpecs =
+      do let noSpecs :: Map FunctionName SpecsView
+             noSpecs = Map.empty
+         specs <-
+           if specsPath initUCOpts /= ""
+           then Aeson.eitherDecode <$> BS.readFile (specsPath initUCOpts)
+           else return (Right noSpecs)
+         case specs of
+           Left err -> die err
+           Right s -> return s
+    
+    -- Create the top-level configuration data type
+    runConfig entries specs =
+      case entries of
+        Just ents ->
+          Config.Analyze $
+            Config.AnalyzeConfig
+              { Config.entryPoints = ents
+              , Config.checkFrom = checkFrom initUCOpts
+              , Config.checkFromCallers = checkFromCallers initUCOpts
+              , Config.specs = specs
+              }
+        Nothing ->
+          if doExplore initUCOpts
+          then
+            Config.Explore
+              (ExConfig.ExploreConfig
+                { ExConfig.exploreAgain = reExplore initUCOpts,
+                  ExConfig.exploreBudget = exploreBudget initUCOpts,
+                  ExConfig.exploreTimeout = exploreTimeout initUCOpts,
+                  ExConfig.exploreParallel = exploreParallel initUCOpts,
+                  ExConfig.exploreSkipFunctions = skipFunctions initUCOpts,
+                  ExConfig.exploreSpecs = specs
+                })
+          else
+            Config.CrashEquivalence
+              (EqConfig.EquivalenceConfig
+                { EqConfig.equivOrOrder =
+                    if crashEquivalence initUCOpts
+                    then EqConfig.Equivalence
+                    else EqConfig.Order,
+                  EqConfig.equivModule = crashOrder initUCOpts,
+                  EqConfig.equivEntryPoints = entryPoints initUCOpts
+                })
+
 
 checkFromDoc :: Text
 checkFromDoc = "Check inferred contracts by symbolically executing from this function"
@@ -187,6 +214,9 @@ entryPointsDoc = "Comma-separated list of functions to examine."
 skipDoc :: Text
 skipDoc = "List of functions to skip during exploration"
 
+specsPathDoc :: Text
+specsPathDoc = "Path to JSON file containing function specs"
+
 verbDoc :: Text
 verbDoc = "Verbosity of logging. (0: minimal, 1: informational, 2: debug)"
 
@@ -217,6 +247,7 @@ ucCruxLLVMConfig = do
             <*>
               (map functionNameFromString <$>
                 Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc)
+            <*> Crux.section "specs-path" Crux.fileSpec "" specsPathDoc
             <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc,
         Crux.cfgEnv =
           Crux.liftEnvDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgEnv llvmOpts,
@@ -309,6 +340,12 @@ ucCruxLLVMConfig = do
                          { skipFunctions =
                              functionNameFromString v : skipFunctions opts
                          },
+                 Crux.Option
+                   []
+                   ["specs-path"]
+                   (Text.unpack specsPathDoc)
+                   $ Crux.ReqArg "JSONFILE" $
+                     \v opts -> Right opts { specsPath = v },
                  Crux.Option
                    ['v']
                    ["verbosity"]

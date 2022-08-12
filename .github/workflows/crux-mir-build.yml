@@ -5,18 +5,20 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The CACHE_VERSION can be updated to force the use of a new cache if
-# the current cache contents become corrupted/invalid.  This can
-# sometimes happen when (for example) the OS version is changed but
-# older .so files are cached, which can have various effects
-# (e.g. cabal complains it can't find a valid version of the "happy"
-# tool).
-#
-# This also periodically happens on MacOS builds due to a tar bug
-# (symptom: "No suitable image found ... unknown file type, first
-# eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
 env:
+  # The CACHE_VERSION can be updated to force the use of a new cache if
+  # the current cache contents become corrupted/invalid.  This can
+  # sometimes happen when (for example) the OS version is changed but
+  # older .so files are cached, which can have various effects
+  # (e.g. cabal complains it can't find a valid version of the "happy"
+  # tool).
+  #
+  # This also periodically happens on MacOS builds due to a tar bug
+  # (symptom: "No suitable image found ... unknown file type, first
+  # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
   CACHE_VERSION: 4
+  # Work around https://github.com/rust-lang/cargo/issues/10303
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   outputs:
@@ -41,10 +43,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-20.04]
-        ghc: ["8.10.7", "9.0.2", "9.2.3"]
+        ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
-          - os: macos-10.15
-            ghc: 9.2.2
+          - os: macos-12
+            ghc: 9.2.4
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
@@ -84,7 +86,7 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20210917"
+          SOLVER_PKG_VERSION: "snapshot-20220721"
           BUILD_TARGET_OS: ${{ matrix.os }}
 
       - name: Setup Environment Vars
@@ -93,7 +95,7 @@ jobs:
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
           case ${{ matrix.ghc }} in
             9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-22.05 ;;
-            9.2.3) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            9.2.4) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac
           echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
@@ -122,6 +124,10 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh build exe:crux-mir
+
+      - shell: bash
+        name: Haddock
+        run: cabal v2-haddock crucible-syntax crucible-concurrency crux-mir
 
       - shell: bash
         run: cd crux-mir && bash ./translate_libs.sh

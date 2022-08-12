@@ -129,6 +129,7 @@ findBugs llvmModule file fns =
           halloc
           cruxOpts
           llOpts
+          Map.empty
           =<< makeEntryPointsOrThrow (modCtx ^. defnTypes) fns
 
 getCrashDiff ::
