@@ -1,12 +1,34 @@
-FROM haskell:8.8.4 AS build
+FROM ubuntu:22.04 AS build
 
-RUN echo "deb http://deb.debian.org/debian buster-backports main" >> /etc/apt/sources.list
-RUN apt-get update && apt-get install -y wget libncurses-dev unzip clang-11 llvm-11-tools
+RUN apt-get update && \
+    apt-get install -y \
+      # ghcup requirements
+      build-essential curl libffi-dev libffi8 libgmp-dev libgmp10 libncurses-dev libncurses6 libtinfo6 \
+      # Crux dependencies \
+      zlib1g-dev \
+      # LLVM toolchain
+      clang-12 llvm-12-tools \
+      # Miscellaneous
+      locales unzip wget
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
+    locale-gen
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
 
 WORKDIR /usr/local/bin
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20210917/ubuntu-18.04-bin.zip"
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20220812/ubuntu-22.04-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
+ENV PATH=/root/ghcup-download/bin:/root/.ghcup/bin:$PATH
+RUN mkdir -p /root/ghcup-download/bin && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /root/ghcup-download/bin/ghcup && \
+    chmod +x /root/ghcup-download/bin/ghcup
+RUN mkdir -p /root/.ghcup && \
+    ghcup --version && \
+    ghcup install cabal 3.6.2.0 && \
+    ghcup install ghc 8.8.4 && \
+    ghcup set ghc 8.8.4
 RUN cabal v2-update
 
 ARG DIR=/crux-llvm
@@ -20,24 +42,24 @@ ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
 ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
 ADD cabal.GHC-8.8.4.config ${DIR}/build/cabal.project.freeze
-# Workaround until we have an LLVM 11 build available
-RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-11.0.1.bc
+# Workaround until we have an LLVM 12 build available
+RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-12.0.1.bc
 
 WORKDIR ${DIR}/build
 RUN cabal v2-build --only-dependencies crux-llvm
 RUN cabal v2-build crux-llvm
-ENV CLANG=clang-11
-ENV LLVM_LINK=llvm-link-11
+ENV CLANG=clang-12
+ENV LLVM_LINK=llvm-link-12
 RUN cabal v2-test crux-llvm
 RUN cp `cabal v2-exec which crux-llvm` /usr/local/bin
 RUN cp `cabal v2-exec which crux-llvm-svcomp` /usr/local/bin
 
-FROM debian:buster-slim
+FROM ubuntu:22.04
 
 USER root
-RUN echo "deb http://deb.debian.org/debian buster-backports main" >> /etc/apt/sources.list
-RUN apt-get update
-RUN apt-get install -y libgmp10 zlibc zlib1g clang-11 llvm-11-tools unzip locales
+RUN apt-get update && \
+    apt-get install -y \
+      libgmp10 zlib1g clang-12 llvm-12-tools unzip locales
 
 COPY --from=build /usr/local/bin/* /usr/local/bin/
 
@@ -45,7 +67,7 @@ ARG DIR=/crux-llvm
 WORKDIR ${DIR}
 ADD crux-llvm/c-src c-src
 # Use LLVM 7 bitcode file for libcxx until LLVM version is available
-RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-11.0.1.bc
+RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-12.0.1.bc
 
 # (Temporary) fix for
 # https://github.com/galoisinc/crucible/issues/887: the libDir default
@@ -56,8 +78,8 @@ RUN cp -r c-src /usr/local/
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen
 ENV LD_LIBRARY_PATH=/usr/local/lib
-ENV CLANG=clang-11
-ENV LLVM_LINK=llvm-link-11
+ENV CLANG=clang-12
+ENV LLVM_LINK=llvm-link-12
 ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
