@@ -7,14 +7,21 @@ RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
 RUN rustup default nightly-2020-03-22
 RUN cargo install --locked
 
-FROM haskell:8.8.4 AS build
+FROM ubuntu:22.04 AS build
 
-RUN apt-get update && apt-get install -y wget libncurses-dev unzip
+RUN apt-get update && \
+    apt-get install -y \
+      # ghcup requirements
+      build-essential curl libffi-dev libffi8 libgmp-dev libgmp10 libncurses-dev libncurses6 libtinfo6 \
+      # Crux dependencies \
+      zlib1g-dev \
+      # Miscellaneous
+      unzip wget
 
 COPY --from=mir_json /usr/local/cargo /usr/local/cargo
 COPY --from=mir_json /usr/local/rustup /usr/local/rustup
 WORKDIR /usr/local/bin
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20210917/ubuntu-18.04-bin.zip"
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20220812/ubuntu-22.04-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 ENV CARGO_HOME=/usr/local/cargo
@@ -23,6 +30,15 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
+ENV PATH=/root/ghcup-download/bin:/root/.ghcup/bin:$PATH
+RUN mkdir -p /root/ghcup-download/bin && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /root/ghcup-download/bin/ghcup && \
+    chmod +x /root/ghcup-download/bin/ghcup
+RUN mkdir -p /root/.ghcup && \
+    ghcup --version && \
+    ghcup install cabal 3.6.2.0 && \
+    ghcup install ghc 8.8.4 && \
+    ghcup set ghc 8.8.4
 RUN cabal v2-update
 
 ARG DIR=/crux-mir
@@ -47,11 +63,12 @@ RUN ./translate_libs.sh
 WORKDIR ${DIR}/build
 RUN cabal v2-test crux-mir
 
-FROM debian:buster-slim
+FROM ubuntu:22.04
 
 USER root
-RUN apt-get update
-RUN apt-get install -y libgmp10 zlibc zlib1g libcurl4
+RUN apt-get update && \
+    apt-get install -y \
+      libgmp10 zlib1g libcurl4
 
 ARG DIR=/crux-mir
 COPY --from=mir_json /usr/local/cargo /usr/local/cargo

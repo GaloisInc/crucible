@@ -21,7 +21,7 @@ env:
 
 jobs:
   outputs:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     outputs:
       changed: ${{ steps.outputs.outputs.changed-files }}
       name: ${{ steps.outputs.outputs.name }}
@@ -43,12 +43,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04]
+        os: [ubuntu-22.04]
         ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             ghc: 8.8.4
-          - os: ubuntu-18.04
+          - os: ubuntu-20.04
             ghc: 9.2.4
           - os: macos-12
             ghc: 9.2.4
@@ -70,7 +70,7 @@ jobs:
         uses: cachix/install-nix-action@v16
         with:
           nix_path: nixpkgs=channel:21.11
-          install_url: https://releases.nixos.org/nix/nix-2.4/install
+          install_url: https://releases.nixos.org/nix/nix-2.10.3/install
 
       - uses: actions/cache@v2
         name: Cache cabal store
@@ -85,7 +85,7 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20220721"
+          SOLVER_PKG_VERSION: "snapshot-20220812"
           BUILD_TARGET_OS: ${{ matrix.os }}
 
       - name: Setup Environment Vars
@@ -149,25 +149,25 @@ jobs:
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'Linux'
         env:
-          LLVM_LINK: "llvm-link-10"
-          LLVM_AS: "llvm-as-10"
-          CLANG: "clang-10"
+          LLVM_LINK: "llvm-link-12"
+          LLVM_AS: "llvm-as-12"
+          CLANG: "clang-12"
 
       - shell: bash
         name: Test crux-llvm (Linux)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux'
         env:
-          LLVM_LINK: "llvm-link-10"
-          CLANG: "clang-10"
+          LLVM_LINK: "llvm-link-12"
+          CLANG: "clang-12"
 
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
-        if: matrix.os == 'ubuntu-20.04'
+        if: matrix.os == 'ubuntu-22.04'
         env:
-          LLVM_LINK: "llvm-link-10"
-          CLANG: "clang-10"
+          LLVM_LINK: "llvm-link-12"
+          CLANG: "clang-12"
 
       - shell: bash
         name: Install LLVM-11 for MacOS
