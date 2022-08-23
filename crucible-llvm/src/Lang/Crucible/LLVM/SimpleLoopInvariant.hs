@@ -3,7 +3,7 @@
 -- Module           : Lang.Crucible.LLVM.SimpleLoopInvariant
 -- Description      : Execution feature to perform verification of simply
 --                    structured loops via invariants.
--- Copyright        : (c) Galois, Inc 2021
+-- Copyright        : (c) Galois, Inc 2022
 -- License          : BSD3
 -- Stability        : provisional
 --
@@ -18,7 +18,7 @@
 -- by SMT arrays are treated as a whole, so loops can write into
 -- different regions of an SMT-array memory region on different
 -- iterations). In addition, loop-involved memory writes must be
--- sufficently concrete that we can determine their region values,
+-- sufficiently concrete that we can determine their region values,
 -- and writes to the same region value must have concrete distances
 -- from each other, so we can determine if/when they alias.
 --
@@ -32,7 +32,7 @@
 --
 -- At runtime, we will interrupt execution when the loop head is
 -- reached; at this point we will record the values of the memory and
--- the incomming local variables. Then, we will begin a series of
+-- the incoming local variables. Then, we will begin a series of
 -- "hypothetical" executions of the loop body and track how the memory
 -- and local variables are modified by the loop body. On each
 -- iteration where we find a difference, we replace the local or
@@ -43,11 +43,11 @@
 -- 
 -- Once we have found all the loop-carried dependencies, we assert
 -- that the loop invariant holds on the initial values upon entry to the
--- loop. Then, we set up another exeuction starting from the loop head
+-- loop. Then, we set up another execution starting from the loop head
 -- where we first assume the loop invariant over the join variables
 -- invented earlier, and begin execution again.  In this mode, when we
 -- reach the loop head once more, we assert the loop invariant on the
--- computed values and abort exeuction along that path. Paths exiting
+-- computed values and abort execution along that path. Paths exiting
 -- the loop continue as normal.
 --
 -- Provided the user suppiles an appropriate loop invarant function
@@ -163,7 +163,7 @@ data InvariantPhase
 --   along its backedge.  This \"body\" value will be computed in
 --   terms of the the set of all discovered live variables so far.
 --   We know we have reached fixpoint when we don't need to introduce
---   and more fresh widening variables, and the body values for each
+--   any more fresh widening variables, and the body values for each
 --   variable are stable across iterations.
 data InvariantEntry sym tp =
   InvariantEntry
@@ -210,7 +210,7 @@ data FixpointRecord p sym ext rtp blocks = forall args r.
     -- | Block identifier of the head of the loop
     fixpointBlockId :: C.BlockID blocks args
 
-    -- | identifier for the currently-active assumption frame related to this fixpoint computation
+    -- | Identifier for the currently-active assumption frame related to this fixpoint computation
   , fixpointAssumptionFrameIdentifier :: C.FrameIdentifier
 
     -- | Map from introduced widening variables to prestate value before the loop starts,
@@ -293,11 +293,11 @@ data MemoryBlockData sym where
     MemoryBlockData sym
 
 -- | A memory substitution gives memory block data for
---   concrete memory region numbers of writes occuring
+--   concrete memory region numbers of writes occurring
 --   in the loop body. This is used to determine where
 --   in memory the relevant values are that need to be
 --   passed to the loop invariant.
-data MemorySubstitution sym =
+newtype MemorySubstitution sym =
   MemSubst
   { memSubst :: Map Natural (MemoryBlockData sym)
       {- ^ Mapping from block numbers to block data -}
@@ -374,14 +374,14 @@ joinRegEntry sym left right = do
           return left
         Nothing -> do
           liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: LLVMPointerRepr: Nothing"
-          join_varaible <- liftIO $ W4.freshConstant sym
+          join_variable <- liftIO $ W4.freshConstant sym
                              (W4.safeSymbol "reg_join_var") (W4.BaseBVRepr w)
           let join_entry = InvariantEntry
                 { headerValue = C.llvmPointerOffset (C.regValue left)
                 , bodyValue = C.llvmPointerOffset (C.regValue right)
                 }
-          put $ subst{ varSubst = MapF.insert join_varaible join_entry (varSubst subst) }
-          return $ C.RegEntry (C.LLVMPointerRepr w) $ C.LLVMPointer (C.llvmPointerBlock (C.regValue left)) join_varaible
+          put $ subst{ varSubst = MapF.insert join_variable join_entry (varSubst subst) }
+          return $ C.RegEntry (C.LLVMPointerRepr w) $ C.LLVMPointer (C.llvmPointerBlock (C.regValue left)) join_variable
 
     | otherwise -> do
       liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: LLVMPointerRepr, unequal blocks!"
@@ -619,17 +619,17 @@ computeLoopMap loopNum wto =
 --   verification for programs with unbounded looping structures.
 --
 --   It is currently highly experimental and has many limititations.
---   Most notibly, it only really works properly for functions
---   consiting of a single, non-nested loop with a single exit point.
+--   Most notably, it only really works properly for functions
+--   consisting of a single, non-nested loop with a single exit point.
 --   Moreover, the loop must have an indexing variable that counts up
 --   from a starting point by a fixed stride amount.
 --
---   Currently, these assumptions about the loop strucutre are not
+--   Currently, these assumptions about the loop structure are not
 --   checked.
 --
---   The basic use case here is for verifiying functions that loop
+--   The basic use case here is for verifying functions that loop
 --   through an array of data of symbolic length.  This is done by
---   providing a \""fixpoint function\" which describes how the live
+--   providing a \"fixpoint function\" which describes how the live
 --   values in the loop at an arbitrary iteration are used to compute
 --   the final values of those variables before execution leaves the
 --   loop. The number and order of these variables depends on
@@ -808,7 +808,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
             ?logMessage $
               "SimpleLoopInvariant: RunningState: ComputeFixpoint -> CheckFixpoint "
               ++ " " ++ show (pretty (W4.plSourceLoc loc))
-            -- we have delayed populating the main substituation map with
+            -- we have delayed populating the main substitution map with
             --  memory variables, so we have to do that now
 
             header_mem_substitution <- loadMemJoinVariables bak header_mem_impl $
