@@ -68,6 +68,8 @@
 -- to discover what the values appearing in the invariant correspond
 -- to. This process may well be quite sensitive to changes in the
 -- source code.
+--
+-- Limitiations: currently, this feature is restricted to 64-bit code.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
@@ -120,12 +122,11 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
---import qualified What4.Config as W4
+import qualified What4.Config as W4
 import qualified What4.Interface as W4
 import qualified What4.ProgramLoc as W4
 
 import qualified Lang.Crucible.Analysis.Fixpoint.Components as C
-import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Extension as C
@@ -178,9 +179,7 @@ instance OrdF (W4.SymExpr sym) => OrdF (InvariantEntry sym) where
     GTF -> GTF
 
 instance OrdF (InvariantEntry sym) => W4.TestEquality (InvariantEntry sym) where
-  testEquality x y = case compareF x y of
-    EQF -> Just Refl
-    _ -> Nothing
+  testEquality x y = orderingF_refl (compareF x y)
 
 -- | This datatype captures the state machine that progresses as we
 --   attempt to compute a loop invariant for a simple structured loop.
@@ -191,7 +190,7 @@ data FixpointState p sym ext rtp blocks
     -- | We have encountered the loop head at least once, and are in the process
     --   of converging to an inductive representation of the live variables
     --   in the loop.
-  | ComputeFixpoint (FixpointRecord p sym ext rtp blocks)
+  | ComputeFixpoint C.FrameIdentifier (FixpointRecord p sym ext rtp blocks)
 
     -- | We have found an inductively-strong representation of the live variables
     --   of the loop. We are now executing the from the loop head one final time
@@ -201,17 +200,12 @@ data FixpointState p sym ext rtp blocks
     | CheckFixpoint (FixpointRecord p sym ext rtp blocks)
 
 
-type ArrayTp = W4.BaseArrayType (C.EmptyCtx C.::> W4.BaseBVType 64) (W4.BaseBVType 8)
-
 -- | Data about the loop that we incrementally compute as we approach fixpoint.
 data FixpointRecord p sym ext rtp blocks = forall args r.
   FixpointRecord
   {
     -- | Block identifier of the head of the loop
     fixpointBlockId :: C.BlockID blocks args
-
-    -- | Identifier for the currently-active assumption frame related to this fixpoint computation
-  , fixpointAssumptionFrameIdentifier :: C.FrameIdentifier
 
     -- | Map from introduced widening variables to prestate value before the loop starts,
     --   and to the value computed in a single loop iteration, assuming we return to the
@@ -292,6 +286,8 @@ data MemoryBlockData sym where
     W4.SymBV sym 64 {- ^ length of the allocation -} ->
     MemoryBlockData sym
 
+type ArrayTp = W4.BaseArrayType (C.EmptyCtx C.::> W4.BaseBVType 64) (W4.BaseBVType 8)
+
 -- | A memory substitution gives memory block data for
 --   concrete memory region numbers of writes occurring
 --   in the loop body. This is used to determine where
@@ -308,7 +304,7 @@ fixpointRecord ::
   FixpointState p sym ext rtp blocks ->
   Maybe (FixpointRecord p sym ext rtp blocks)
 fixpointRecord BeforeFixpoint = Nothing
-fixpointRecord (ComputeFixpoint r) = Just r
+fixpointRecord (ComputeFixpoint _ r) = Just r
 fixpointRecord (CheckFixpoint r) = Just r
 
 
@@ -346,18 +342,20 @@ joinRegEntry sym left right = do
  case C.regType left of
   C.LLVMPointerRepr w
 
+      -- TODO! This is a "particularly guesome hack" it would be nice to find some better
+      --  way to handle this situation.
       -- special handling for "don't care" registers coming from Macaw
     | List.isPrefixOf "cmacaw_reg" (show $ W4.printSymNat $ C.llvmPointerBlock (C.regValue left))
     , List.isPrefixOf "cmacaw_reg" (show $ W4.printSymExpr $ C.llvmPointerOffset (C.regValue left)) -> do
-      liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: cmacaw_reg"
+      -- liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: cmacaw_reg"
       return left
 
     | C.llvmPointerBlock (C.regValue left) == C.llvmPointerBlock (C.regValue right)
     , Nothing <- MapF.lookup (C.llvmPointerOffset (C.regValue left)) (varHavoc subst) -> do
-      liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: LLVMPointerRepr"
+      -- liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: LLVMPointerRepr"
       if isJust (W4.testEquality (C.llvmPointerOffset (C.regValue left)) (C.llvmPointerOffset (C.regValue right)))
       then do
-        liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: LLVMPointerRepr: left == right"
+        -- liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: LLVMPointerRepr: left == right"
         return left
       else case MapF.lookup (C.llvmPointerOffset (C.regValue left)) (varSubst subst) of
         Just join_entry -> do
@@ -410,11 +408,11 @@ joinRegEntry sym left right = do
       --   ++ show (W4.printSymExpr $ C.regValue left)
       --   ++ " \\/ "
       --   ++ show (W4.printSymExpr $ C.regValue right)
-      join_varaible <- liftIO $ W4.freshConstant sym (W4.safeSymbol "macaw_reg") W4.BaseBoolRepr
+      join_varaible <- liftIO $ W4.freshConstant sym (W4.safeSymbol "reg_join_var") W4.BaseBoolRepr
       return $ C.RegEntry C.BoolRepr join_varaible
 
   C.StructRepr field_types -> do
-    liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: StructRepr"
+    -- liftIO $ ?logMessage "SimpleLoopInvariant.joinRegEntry: StructRepr"
     C.RegEntry (C.regType left) <$> fmapFC (C.RV . C.regValue) <$> joinRegEntries sym
       (Ctx.generate (Ctx.size field_types) $ \i ->
         C.RegEntry (field_types Ctx.! i) $ C.unRV $ (C.regValue left) Ctx.! i)
@@ -456,7 +454,9 @@ applySubstitutionRegEntry sym substitution entry = case C.regType entry of
           Ctx.generate (Ctx.size field_types) $
           \i -> C.RegEntry (field_types Ctx.! i) $ C.unRV $ (C.regValue entry) Ctx.! i
       }
-  _ -> C.panic "SimpleLoopInvariant.applySubstitutionRegEntry" ["unsupported type: " ++ show (C.regType entry)]
+  _ -> error $ unlines [ "SimpleLoopInvariant.applySubstitutionRegEntry"
+                       , "unsupported type: " ++ show (C.regType entry)
+                       ]
 
 
 loadMemJoinVariables ::
@@ -644,23 +644,23 @@ simpleLoopInvariant ::
   (InvariantPhase -> [Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (InvariantEntry sym) -> IO (W4.Pred sym)) ->
   IO (C.ExecutionFeature p sym ext rtp)
 simpleLoopInvariant sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
+  -- TODO, can we lift this restriction to 64-bits? I don't think there
+  -- is anything fundamental about it.
   let ?ptrWidth = knownNat @64
 
-  --verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
-  --verb <- fromInteger <$> W4.getOpt verbSetting
+  verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
+  verb <- fromInteger <$> W4.getOpt verbSetting
 
   loop_map <- computeLoopMap loopNum (C.cfgWeakTopologicalOrdering cfg)
 
   fixpoint_state_ref <- newIORef @(FixpointState p sym ext rtp blocks) BeforeFixpoint
 
-  putStrLn "Setting up simple loop fixpoints feature."
-  putStrLn ("Loop map: " ++ show loop_map)
-  putStrLn ("WTO: " ++ show (C.cfgWeakTopologicalOrdering cfg))
-  putStrLn (show (C.cfgHandle cfg))
-  writeFile "bigcfg.txt" (show (C.ppCFG' True (C.postdomInfo cfg) cfg))
+  --putStrLn "Setting up simple loop fixpoints feature."
+  --putStrLn ("Loop map: " ++ show loop_map)
+  --putStrLn ("WTO: " ++ show (C.cfgWeakTopologicalOrdering cfg))
 
   return $ C.ExecutionFeature $ \exec_state -> do
-    let ?logMessage = \msg -> do -- when (verb >= (3 :: Natural)) $ do
+    let ?logMessage = \msg -> when (verb >= (3 :: Natural)) $ do
           let h = C.printHandle $ C.execStateContext exec_state
           System.IO.hPutStrLn h msg
           System.IO.hFlush h
@@ -708,7 +708,7 @@ simpleLoopInvariant sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
             case fixpoint_state of
               BeforeFixpoint -> C.panic "SimpleLoopInvariant.simpleLoopInvariant:" ["BeforeFixpoint"]
 
-              ComputeFixpoint _fixpoint_record -> do
+              ComputeFixpoint _assumeIdent _fixpoint_record -> do
                 -- continue in the loop
                 ?logMessage $ "SimpleLoopInvariant: SymbolicBranchState: ComputeFixpoint"
 
@@ -756,10 +756,9 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
       -- Get a fresh block value that doesn't correspond to any valid memory region
       havoc_blk <- W4.natLit sym =<< C.nextBlock (C.memImplBlockSource mem_impl)
 
-      writeIORef fixpoint_state_ref $ ComputeFixpoint $
+      writeIORef fixpoint_state_ref $ ComputeFixpoint assumption_frame_identifier $
         FixpointRecord
         { fixpointBlockId = block_id
-        , fixpointAssumptionFrameIdentifier = assumption_frame_identifier
         , fixpointSubstitution = VarSubst MapF.empty MapF.empty
         , fixpointRegMap = sim_state ^. (C.stateCrucibleFrame . C.frameRegs)
         , fixpointMemSubstitution = MemSubst mempty
@@ -770,7 +769,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
       return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
         sim_state & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
 
-    ComputeFixpoint fixpoint_record
+    ComputeFixpoint assumeFrame fixpoint_record
       | FixpointRecord { fixpointRegMap = reg_map
                        , fixpointInitialSimState = initSimState
                        , fixpointHavocBlock = havoc_blk
@@ -782,8 +781,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
 
 
         ?logMessage $ "SimpleLoopInvariant: RunningState: ComputeFixpoint: " ++ show block_id
-        _ <- C.popAssumptionFrameAndObligations bak $
-              fixpointAssumptionFrameIdentifier fixpoint_record
+        _ <- C.popAssumptionFrameAndObligations bak assumeFrame
 
         let body_mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
         let (header_mem_impl, mem_allocs, mem_writes) = dropMemStackFrame body_mem_impl
@@ -893,7 +891,6 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
               CheckFixpoint
                 FixpointRecord
                 { fixpointBlockId = block_id
-                , fixpointAssumptionFrameIdentifier = undefined --assumption_frame_identifier
                 , fixpointSubstitution = normal_substitution
                 , fixpointRegMap = C.RegMap res_reg_map
                 , fixpointMemSubstitution = mem_substitution
@@ -920,10 +917,10 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
               mem_substitution
               MapF.empty
 
-            writeIORef fixpoint_state_ref $ ComputeFixpoint
+            writeIORef fixpoint_state_ref $
+              ComputeFixpoint assumption_frame_identifier $
               FixpointRecord
               { fixpointBlockId = block_id
-              , fixpointAssumptionFrameIdentifier = assumption_frame_identifier
               , fixpointSubstitution = join_substitution
               , fixpointRegMap = C.RegMap join_reg_map
               , fixpointMemSubstitution = mem_substitution
