@@ -153,6 +153,7 @@ data InvariantPhase
   = InitialInvariant
   | HypotheticalInvariant
   | InductiveInvariant
+ deriving (Eq, Ord, Show)
 
 -- | When live loop-carried dependencies are discovered as we traverse
 --   a loop body, new "widening" variables are introduced to stand in
@@ -312,7 +313,7 @@ fixpointRecord (CheckFixpoint r) = Just r
 -- and such.  The included "SymNat" is a memory region number guaranteed not
 -- to be a valid memory region; it is used to implement "havoc" registers that
 -- we expect to be junk/scratch space across the loop boundary.
--- The state component tracks the variable subsitution we are computing.
+-- The state component tracks the variable substitution we are computing.
 newtype FixpointMonad sym a =
   FixpointMonad (ReaderT (W4.SymNat sym) (StateT (VariableSubst sym) IO) a)
  deriving (Functor, Applicative, Monad, MonadIO, MonadFail)
@@ -1135,13 +1136,16 @@ computeMemSubstitution sym fixpoint_record mem_writes =
 --   computed a substitution that is exactly compatible with the one we started with.
 --
 --   At some point, it may be necessary or desirable to allow more.
+--
+--   Note:, for this check we do not need to compare the identities of the actual join variables
+--   found in the substitution, just that the memory regions (positions and sizes) are equal.
 checkMemSubst :: forall sym.
   W4.IsSymExprBuilder sym =>
   sym ->
   MemorySubstitution sym ->
   MemorySubstitution sym ->
   ExceptT String IO (MemorySubstitution sym)
-checkMemSubst _sym orig candidate =
+checkMemSubst sym orig candidate =
   if Map.null (memSubst orig)
     then return candidate
     else do checkCandidateEqual
@@ -1156,30 +1160,43 @@ checkMemSubst _sym orig candidate =
                  Just e2 -> f k e1 e2
                  Nothing -> throwError ("Key sets differ when checking " ++ str)
 
-   checkCandidateEqual = checkEqualMaps "memory subsitution" checkMBD (memSubst orig) (memSubst candidate)
+   checkCandidateEqual =
+     checkEqualMaps "memory substitution" checkMBD
+       (memSubst orig) (memSubst candidate)
+
+   checkBVEq :: (1 <= w) => W4.SymBV sym w -> W4.SymBV sym w -> IO Bool
+   checkBVEq x y =
+      do diff <- W4.bvSub sym x y
+         case BV.asUnsigned <$> W4.asBV diff of
+           Just 0 -> return True
+           _      -> return False
 
    checkMBD n (RegularBlock b1 rmap1) (RegularBlock b2 rmap2) =
-      do unless (isJust (testEquality b1 b2))
-                (throwError ("base pointers differ for region " ++ show n))
+      do ok <- liftIO $ checkBVEq b1 b2
+         unless ok $ throwError $
+               unlines  ["base pointers differ for region " ++ show n
+                        , show (W4.printSymExpr b1)
+                        , show (W4.printSymExpr b2)
+                        ]
          checkEqualMaps ("region map for " ++ show n) (checkMemRegion n) rmap1 rmap2
-   checkMBD n (ArrayBlock a1 l1) (ArrayBlock a2 l2) =
-      do unless (isJust (testEquality a1 a2)) (throwError ("array values differ for region " ++ show n))
-         unless (isJust (testEquality l1 l2)) (throwError ("array lengths differ for region " ++ show n))
+   checkMBD n (ArrayBlock _a1 l1) (ArrayBlock _a2 l2) =
+      do ok <- liftIO $ checkBVEq l1 l2
+         unless ok $ throwError $
+             unlines [ "array lengths differ for region " ++ show n
+                     , show (W4.printSymExpr l1)
+                     , show (W4.printSymExpr l2)
+                     ]
    checkMBD n _ _ =
       throwError ("Regular block incompatible with array block in region " ++ show n)
 
    checkMemRegion :: Natural -> Natural -> MemoryRegion sym -> MemoryRegion sym -> ExceptT String IO ()
-   checkMemRegion n o r1@MemoryRegion{ regionJoinVar = jv1 }
-                      r2@MemoryRegion{ regionJoinVar = jv2 } =
+   checkMemRegion n o r1 r2 =
      do unless (regionOffset r1 == regionOffset r2)
                (throwError ("region offsets differ in region " ++ show n ++ " at " ++ show o))
         unless (regionSize r1 == regionSize r2)
                (throwError ("region sizes differ in region " ++ show n ++ " at " ++ show o))
         unless (regionStorage r1 == regionStorage r2)
                (throwError ("region storage types differ in region " ++ show n ++ " at " ++ show o))
-        unless (isJust (testEquality jv1 jv2))
-               (throwError ("region join variables differ in region " ++ show n ++ " at " ++ show o))
-
 
 data MaybePausedFrameTgtId f where
   JustPausedFrameTgtId :: C.Some (C.BlockID b) -> MaybePausedFrameTgtId (C.CrucibleLang b r)
