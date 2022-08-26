@@ -308,6 +308,11 @@ fixpointRecord (ComputeFixpoint _ r) = Just r
 fixpointRecord (CheckFixpoint r) = Just r
 
 
+-- The fixpoint monad is used to ease the process of computing variable widenings
+-- and such.  The included "SymNat" is a memory region number guaranteed not
+-- to be a valid memory region; it is used to implement "havoc" registers that
+-- we expect to be junk/scratch space across the loop boundary.
+-- The state component tracks the variable subsitution we are computing.
 newtype FixpointMonad sym a =
   FixpointMonad (ReaderT (W4.SymNat sym) (StateT (VariableSubst sym) IO) a)
  deriving (Functor, Applicative, Monad, MonadIO, MonadFail)
@@ -591,19 +596,37 @@ uninterpretedConstantEqualitySubstitution _sym (VarSubst substitution havoc) =
   (VarSubst normal_substitution havoc, uninterpreted_constant_substitution)
 
 
-computeLoopMap :: (k ~ C.Some (C.BlockID blocks)) => Integer -> [C.WTOComponent k] -> IO (Map k [k])
-computeLoopMap loopNum wto =
+-- | Given the WTO analysis results, find the nth loop.
+--   Return the identifier of the loop header, and a list of all the blocks
+--   that are part of the loop body. It is at this point that we check
+--   that the loop has the necessary properties; there must be a single
+--   entry point to the loop, and it must have a single back-edge. Otherwise,
+--   the analysis will not work correctly.
+computeLoopBlocks :: (k ~ C.Some (C.BlockID blocks)) =>
+  C.CFG ext blocks init ret ->
+  Integer ->
+  IO (k, [k])
+computeLoopBlocks cfg loopNum =
   case List.genericDrop loopNum (Map.toList loop_map) of
     [] -> fail ("Did not find " ++ show loopNum ++ " loop headers")
-    (p:_) -> return (Map.fromList [p])
-
-  --return loop_map
-  -- Doesn't really work if there are nested loops: loop datastructures will
-  -- overwrite each other.  Currently no error message.
-
-  -- Really only works for single-exit loops; need a message for that too.
+    (p:_) -> do checkSingleEntry p
+                checkSingleBackedge p
+                return p
 
  where
+  -- There should be exactly one block which is not part of the loop body that
+  -- can jump to @hd@.
+  checkSingleEntry (hd, body) =
+    case filter (\x -> not (elem x body) && elem hd (cfgSuccessors x)) allReachable of
+      [_] -> return ()
+      _   -> fail "SimpleLoopInvariant feature requires a single-entry loop!"
+
+  -- There should be exactly on block in the loop body which can jump to @hd@.
+  checkSingleBackedge (hd, body) =
+    case filter (\x -> elem hd (cfgSuccessors x)) body of
+      [_] -> return ()
+      _   -> fail "SimpleLoopInvariant feature requires a loop with a single backedge!"
+
   flattenWTOComponent = \case
     C.SCC C.SCCData{..} ->  wtoHead : concatMap flattenWTOComponent wtoComps
     C.Vertex v -> [v]
@@ -613,6 +636,10 @@ computeLoopMap loopNum wto =
       C.SCC C.SCCData{..} -> Just (wtoHead, wtoHead : concatMap flattenWTOComponent wtoComps)
       C.Vertex{} -> Nothing)
     wto
+
+  allReachable = concatMap flattenWTOComponents wto
+
+  wto = C.cfgWeakTopologicalOrdering cfg
 
 
 -- | This execution feature is designed to allow a limited form of
@@ -651,12 +678,11 @@ simpleLoopInvariant sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
   verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
   verb <- fromInteger <$> W4.getOpt verbSetting
 
-  loop_map <- computeLoopMap loopNum (C.cfgWeakTopologicalOrdering cfg)
+  (loop_header, loop_body_blocks) <- computeLoopBlocks cfg loopNum
 
   fixpoint_state_ref <- newIORef @(FixpointState p sym ext rtp blocks) BeforeFixpoint
 
   --putStrLn "Setting up simple loop fixpoints feature."
-  --putStrLn ("Loop map: " ++ show loop_map)
   --putStrLn ("WTO: " ++ show (C.cfgWeakTopologicalOrdering cfg))
 
   return $ C.ExecutionFeature $ \exec_state -> do
@@ -676,8 +702,8 @@ simpleLoopInvariant sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
             (fmapFC C.blockInputs cfgBlockMap)
             (fmapFC C.blockInputs $ C.frameBlockMap $ sim_state ^. C.stateCrucibleFrame)
 
-          -- loop map is what we computed above, is this state at a loop header
-        , Map.member (C.Some block_id) loop_map ->
+          -- is this state at thea loop header?
+        , C.Some block_id == loop_header ->
 
             advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_state fixpoint_state_ref
 
@@ -685,25 +711,24 @@ simpleLoopInvariant sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
             ?logMessage $ "SimpleLoopInvariant: RunningState: RunBlockStart: " ++ show block_id ++ " " ++ show (C.frameHandle (sim_state ^. C.stateCrucibleFrame))
             return C.ExecutionFeatureNoChange
 
-      -- TODO: maybe need to rework this, so that we are sure to capture even concrete exits from the loop.
       C.SymbolicBranchState branch_condition true_frame false_frame _target sim_state
-          | Just FixpointRecord{ fixpointBlockId = fixpoint_block_id } <- fixpointRecord fixpoint_state
-          , Just loop_body_some_block_ids <- Map.lookup (C.Some fixpoint_block_id) loop_map
+          | Just _fixpointRecord <- fixpointRecord fixpoint_state
           , JustPausedFrameTgtId true_frame_some_block_id <- pausedFrameTgtId true_frame
           , JustPausedFrameTgtId false_frame_some_block_id <- pausedFrameTgtId false_frame
           , C.SomeHandle cfgHandle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
           , Just Refl <- W4.testEquality
               (fmapFC C.blockInputs cfgBlockMap)
               (fmapFC C.blockInputs $ C.frameBlockMap $ sim_state ^. C.stateCrucibleFrame)
-          , elem true_frame_some_block_id loop_body_some_block_ids /= elem false_frame_some_block_id loop_body_some_block_ids -> do
+          , elem true_frame_some_block_id loop_body_blocks /=
+              elem false_frame_some_block_id loop_body_blocks -> do
 
-            (loop_condition, inside_loop_frame, _outside_loop_frame) <-
-              if elem true_frame_some_block_id loop_body_some_block_ids
+            (loop_condition, inside_loop_frame) <-
+              if elem true_frame_some_block_id loop_body_blocks
               then
-                return (branch_condition, true_frame, false_frame)
+                return (branch_condition, true_frame)
               else do
                 not_branch_condition <- W4.notPred sym branch_condition
-                return (not_branch_condition, false_frame, true_frame)
+                return (not_branch_condition, false_frame)
 
             case fixpoint_state of
               BeforeFixpoint -> C.panic "SimpleLoopInvariant.simpleLoopInvariant:" ["BeforeFixpoint"]
@@ -748,7 +773,10 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
     BeforeFixpoint -> do
       ?logMessage $ "SimpleLoopInvariant: RunningState: BeforeFixpoint -> ComputeFixpoint " ++ show block_id ++ " " ++ show (pretty (W4.plSourceLoc loc))
       assumption_frame_identifier <- C.pushAssumptionFrame bak
-      let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
+      let mem_impl = case C.lookupGlobal mem_var (sim_state ^. C.stateGlobals) of
+                       Just m -> m
+                       Nothing -> C.panic "SimpleLoopInvariant.advanceFixpointState"
+                                          ["LLVM Memory variable not found!"]
       let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
 
 --      ?logMessage $ "SimpleLoopInvariant: start memory\n" ++ (show (C.ppMem (C.memImplHeap mem_impl)))
