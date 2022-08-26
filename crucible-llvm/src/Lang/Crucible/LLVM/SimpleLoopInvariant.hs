@@ -602,7 +602,7 @@ uninterpretedConstantEqualitySubstitution _sym (VarSubst substitution havoc) =
 --   that the loop has the necessary properties; there must be a single
 --   entry point to the loop, and it must have a single back-edge. Otherwise,
 --   the analysis will not work correctly.
-computeLoopBlocks :: (k ~ C.Some (C.BlockID blocks)) =>
+computeLoopBlocks :: forall ext blocks init ret k. (k ~ C.Some (C.BlockID blocks)) =>
   C.CFG ext blocks init ret ->
   Integer ->
   IO (k, [k])
@@ -616,14 +616,16 @@ computeLoopBlocks cfg loopNum =
  where
   -- There should be exactly one block which is not part of the loop body that
   -- can jump to @hd@.
+  checkSingleEntry :: (k,[k]) -> IO ()
   checkSingleEntry (hd, body) =
-    case filter (\x -> not (elem x body) && elem hd (cfgSuccessors x)) allReachable of
+    case filter (\x -> not (elem x body) && elem hd (C.cfgSuccessors cfg x)) allReachable of
       [_] -> return ()
       _   -> fail "SimpleLoopInvariant feature requires a single-entry loop!"
 
   -- There should be exactly on block in the loop body which can jump to @hd@.
+  checkSingleBackedge :: (k,[k]) -> IO ()
   checkSingleBackedge (hd, body) =
-    case filter (\x -> elem hd (cfgSuccessors x)) body of
+    case filter (\x -> elem hd (C.cfgSuccessors cfg x)) body of
       [_] -> return ()
       _   -> fail "SimpleLoopInvariant feature requires a loop with a single backedge!"
 
@@ -637,7 +639,7 @@ computeLoopBlocks cfg loopNum =
       C.Vertex{} -> Nothing)
     wto
 
-  allReachable = concatMap flattenWTOComponents wto
+  allReachable = concatMap flattenWTOComponent wto
 
   wto = C.cfgWeakTopologicalOrdering cfg
 
@@ -1121,8 +1123,9 @@ computeMemSubstitution sym fixpoint_record mem_writes =
 
     case res of
       Left msg -> fail $ unlines $
-        ["SimpleLoopInvariant: failure constructing memory footprint for loop invariant"]
-        ++ msg
+        [ "SimpleLoopInvariant: failure constructing memory footprint for loop invariant"
+        , msg
+        ]
       Right x  -> return x
 
 
@@ -1132,37 +1135,50 @@ computeMemSubstitution sym fixpoint_record mem_writes =
 --   computed a substitution that is exactly compatible with the one we started with.
 --
 --   At some point, it may be necessary or desirable to allow more.
-
-checkMemSubst ::
+checkMemSubst :: forall sym.
+  W4.IsSymExprBuilder sym =>
   sym ->
   MemorySubstitution sym ->
   MemorySubstitution sym ->
-  ExceptT [String] IO (MemorySubstitution sym)
+  ExceptT String IO (MemorySubstitution sym)
 checkMemSubst _sym orig candidate =
-  -- TODO!! Actually perform the necessary checks here
   if Map.null (memSubst orig)
     then return candidate
-    else return orig
+    else do checkCandidateEqual
+            return orig
 
---  throwError ["TODO3!"]
-{- TODO!!
-  do -- check that the mem substitution always computes the same
-     -- footprint on every iteration (!?!)
-     regular_mem_substitution <- if Map.null (regularMemSubst orig)
-       then return (regularMemSubst candidate)
-       else if Map.keys (regularMemSubst candidate) == Map.keys (regularMemSubst orig)
-         then return (regularMemSubst orig)
-         else throwError ["SimpleLoopInvariant: unsupported memory writes change"]
+ where
+   checkEqualMaps str f m1 m2 =
+     do unless (Map.keysSet m1 == Map.keysSet m2)
+               (throwError ("Key sets differ when checking " ++ str))
+        forM_ (Map.assocs m1) $ \ (k,e1) ->
+               case Map.lookup k m2 of
+                 Just e2 -> f k e1 e2
+                 Nothing -> throwError ("Key sets differ when checking " ++ str)
 
-     -- check that the array mem substitution always computes the same footprint (!?!)
-     array_mem_substitution <- if Map.null (arrayMemSubst orig)
-       then return (arrayMemSubst candidate)
-       else if Map.keys (arrayMemSubst candidate) == Map.keys (arrayMemSubst orig)
-         then return $ arrayMemSubst orig
-         else throwError $ ["SimpleLoopInvariant: unsupported SMT array memory writes change"]
+   checkCandidateEqual = checkEqualMaps "memory subsitution" checkMBD (memSubst orig) (memSubst candidate)
 
-     return (MemSubst regular_mem_substitution array_mem_substitution)
--}
+   checkMBD n (RegularBlock b1 rmap1) (RegularBlock b2 rmap2) =
+      do unless (isJust (testEquality b1 b2))
+                (throwError ("base pointers differ for region " ++ show n))
+         checkEqualMaps ("region map for " ++ show n) (checkMemRegion n) rmap1 rmap2
+   checkMBD n (ArrayBlock a1 l1) (ArrayBlock a2 l2) =
+      do unless (isJust (testEquality a1 a2)) (throwError ("array values differ for region " ++ show n))
+         unless (isJust (testEquality l1 l2)) (throwError ("array lengths differ for region " ++ show n))
+   checkMBD n _ _ =
+      throwError ("Regular block incompatible with array block in region " ++ show n)
+
+   checkMemRegion :: Natural -> Natural -> MemoryRegion sym -> MemoryRegion sym -> ExceptT String IO ()
+   checkMemRegion n o r1@MemoryRegion{ regionJoinVar = jv1 }
+                      r2@MemoryRegion{ regionJoinVar = jv2 } =
+     do unless (regionOffset r1 == regionOffset r2)
+               (throwError ("region offsets differ in region " ++ show n ++ " at " ++ show o))
+        unless (regionSize r1 == regionSize r2)
+               (throwError ("region sizes differ in region " ++ show n ++ " at " ++ show o))
+        unless (regionStorage r1 == regionStorage r2)
+               (throwError ("region storage types differ in region " ++ show n ++ " at " ++ show o))
+        unless (isJust (testEquality jv1 jv2))
+               (throwError ("region join variables differ in region " ++ show n ++ " at " ++ show o))
 
 
 data MaybePausedFrameTgtId f where
