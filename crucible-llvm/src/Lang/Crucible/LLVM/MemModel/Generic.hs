@@ -790,7 +790,7 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
         else do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
                 -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
                 -- and we can be relatively sure the annotation will survive.
-                b <- freshConstant sym emptySymbol BaseBoolRepr
+                b <- freshConstant sym (safeSymbol "noSatisfyingWrite") BaseBoolRepr
                 Partial.Err <$>
                   Partial.annotateME sym mop (NoSatisfyingWrite tp) b
 
