@@ -205,14 +205,29 @@ jobs:
           LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
           CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
 
-      - shell: bash
-        run: .github/ci.sh bundle_crux_llvm_files
+      - name: Create binary artifact
+        shell: bash
+        run: |
+          NAME="crux-llvm-${{ needs.outputs.outputs.crux-llvm-version }}-${{ matrix.os }}-x86_64"
+          echo "NAME=$NAME" >> $GITHUB_ENV
+          .github/ci.sh bundle_crux_llvm_files
         if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
+          VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
+
+      - name: Sign binary artifact
+        # The SIGNING_PASSPHRASE and SIGNING_KEY secrets are only available on
+        # jobs run from the main repo, and as a result, they won't work when
+        # run from a fork. Signing binaries isn't essential to the rest of the
+        # workflow, so it is safe to skip this step on forks.
+        if: github.event.pull_request.head.repo.fork == false
+        shell: bash
+        env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
+        run: |
+          .github/ci.sh sign "${NAME}.tar.gz"
 
       - uses: actions/upload-artifact@v2
         if: github.repository == 'GaloisInc/crucible'

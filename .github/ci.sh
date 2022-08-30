@@ -114,8 +114,6 @@ zip_dist() {
   pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-x86_64"}"
   mv dist "$pkgname"
   tar -czf "$pkgname".tar.gz "$pkgname"
-  sign "$pkgname".tar.gz
-  [[ -f "$pkgname".tar.gz.sig ]] && [[ -f "$pkgname".tar.gz ]]
   rm -rf dist
 }
 
