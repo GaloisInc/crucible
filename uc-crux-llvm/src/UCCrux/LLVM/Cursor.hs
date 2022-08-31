@@ -75,6 +75,10 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
   Here :: FullTypeRepr m atTy -> Cursor m atTy atTy
   Dereference ::
     -- | Which array index?
+    --
+    -- This is an 'Int' and not a 'Numeric.Natural.Natural' because it is used
+    -- to index into a 'Data.Sequence.Seq', so it would have to be downcasted if
+    -- it were a 'Numeric.Natural.Natural'.
     Int ->
     Cursor m inTy atTy ->
     Cursor m ('FTPtr inTy) atTy
