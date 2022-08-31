@@ -98,6 +98,8 @@ library
     UCCrux.LLVM.Specs.Apply
     UCCrux.LLVM.Specs.Type
     UCCrux.LLVM.Stats
+    UCCrux.LLVM.Stats.Count
+    UCCrux.LLVM.Stats.Freq
     UCCrux.LLVM.View
     UCCrux.LLVM.View.Constraint
     UCCrux.LLVM.View.Cursor
