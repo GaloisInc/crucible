@@ -1,4 +1,3 @@
-{-# LANGUAGE ImplicitParams #-}
 {-
 Module       : UCCrux.LLVM.Run.Loop
 Description  : Run the simulator in a loop, creating a 'BugfindingResult'
@@ -10,8 +9,10 @@ Stability    : provisional
 TODO: Rename this module (and the functions in it) to something more useful,
 like \"Infer\".
 -}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -33,9 +34,11 @@ import           Control.Monad (foldM)
 import           Control.Exception (throw)
 import           Data.Foldable (toList)
 import           Data.Function ((&))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Merge.Strict as Map
+import           Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -65,7 +68,7 @@ import           Crux.LLVM.Overrides
  -- local
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString, functionNameFromString)
-import           UCCrux.LLVM.Context.App (AppContext, log)
+import           UCCrux.LLVM.Context.App (AppContext, log, soundness)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -81,7 +84,9 @@ import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingRes
 import qualified UCCrux.LLVM.Run.Result as Result
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness)
-import           UCCrux.LLVM.Specs.Type (SomeSpecs(SomeSpecs))
+import qualified UCCrux.LLVM.Soundness as Sound
+import           UCCrux.LLVM.Specs.Type (SomeSpecs)
+import qualified UCCrux.LLVM.Specs.Type as Spec
 {- ORMOLU_ENABLE -}
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
@@ -228,12 +233,37 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc specs =
     -- Callbacks that register overrides for all the provided function specs.
     callbacks =
       Sim.addOverrides
-        (map (uncurry mkSpecOverride) (Map.toList specs))
+        (map (uncurry mkSpecOverride) (filterSpecsBySoundness (Map.toList specs)))
         (fmap swap Sim.defaultCallbacks)
+
+    filterNonEmpty f = NE.nonEmpty . filter f . toList
+
+    filterSpecs ::
+      (Spec.Spec n fs -> Bool) ->
+      Spec.Specs n fs ->
+      Maybe (Spec.Specs n fs)
+    filterSpecs f = fmap Spec.Specs . filterNonEmpty f . Spec.getSpecs
+
+    filterSomeSpecs ::
+      (forall n fs. Spec.Spec n fs -> Bool) ->
+      Spec.SomeSpecs m ->
+      Maybe (Spec.SomeSpecs m)
+    filterSomeSpecs f (Spec.SomeSpecs fs ss) =
+      case filterSpecs f ss of
+        Nothing -> Nothing
+        Just specs' -> Just (Spec.SomeSpecs fs specs')
+
+    specSoundEnough :: forall n fs. Spec.Spec n fs -> Bool
+    specSoundEnough spec =
+      Spec.specPreSound spec `Sound.atLeastAsSound` soundness appCtx &&
+        Spec.specPostSound spec `Sound.atLeastAsSound` soundness appCtx
+
+    filterSpecsBySoundness specsList =
+      mapMaybe (\(x, ss) -> (x,) <$> filterSomeSpecs specSoundEnough ss) specsList
 
     mkSpecOverride funcSymb specs_ =
       Sim.CreateOverrideFn $ \bak tracker ->
-        do SomeSpecs fsRep@FuncSigRepr{} specs' <- return specs_
+        do Spec.SomeSpecs fsRep@FuncSigRepr{} specs' <- return specs_
            let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
            let ?memOpts = CruxLLVM.memOpts llvmOpts
            return (createSpecOverride modCtx bak tracker funcSymb fsRep specs')

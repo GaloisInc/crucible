@@ -94,6 +94,7 @@ library
     UCCrux.LLVM.Setup.Constraints
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
+    UCCrux.LLVM.Soundness
     UCCrux.LLVM.Specs.Apply
     UCCrux.LLVM.Specs.Type
     UCCrux.LLVM.Stats
