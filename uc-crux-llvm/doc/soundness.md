@@ -45,7 +45,7 @@ Overapprox    Underapprox
         Precise
 ```
 
-This Venn diagram shows some possible overlaps between these concepts:
+This Venn diagram shows some realizable overlaps between these concepts:
 
 <!-- Source: https://docs.google.com/drawings/d/1SGTh6XXOf-pT28x8a7dJLXPcQUBq6YkjZXkU0Nw_KPs -->
 
