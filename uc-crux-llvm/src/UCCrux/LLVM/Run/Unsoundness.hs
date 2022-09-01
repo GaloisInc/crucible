@@ -19,15 +19,22 @@ module UCCrux.LLVM.Run.Unsoundness
 where
 
 {- ORMOLU_DISABLE -}
+import           Data.Maybe (mapMaybe)
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import           Data.Void (Void)
 
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 
+import           UCCrux.LLVM.Newtypes.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(getSkipOverrideName))
+import           UCCrux.LLVM.Overrides.Spec (SpecUse)
+import qualified UCCrux.LLVM.Overrides.Spec as OvSpec
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(getUnsoundOverrideName))
+import           UCCrux.LLVM.Soundness (Soundness)
+import qualified UCCrux.LLVM.Soundness as Sound
 {- ORMOLU_ENABLE -}
 
 -- | Track sources of unsoundness
@@ -39,26 +46,45 @@ data WithUnsoundness a = WithUnsoundness
 
 data Unsoundness = Unsoundness
   { unsoundOverridesUsed :: Set UnsoundOverrideName,
-    unsoundSkipOverridesUsed :: Set SkipOverrideName
+    unsoundSkipOverridesUsed :: Set SkipOverrideName,
+    unsoundSpecsUsed :: Set SpecUse
   }
   deriving (Eq, Ord, Show)
 
-ppUnsoundness :: Unsoundness -> Doc Void
-ppUnsoundness u =
+ppUnsoundness ::
+  -- | What kind of unsoundness do you care about? For instance, if this is
+  -- 'Soundness.Overapprox', this function will print only things that are
+  -- unsound for verification.
+  Soundness ->
+  Unsoundness ->
+  Doc Void
+ppUnsoundness s u =
   PP.nest 2 $
     PP.vcat $
-      ( PP.pretty
-          "The following unsound overrides (built-in functions) were used:" :
-        bullets
-          (map getUnsoundOverrideName (Set.toList (unsoundOverridesUsed u)))
-      )
-        ++ ( PP.pretty
-               "Execution of the following functions was skipped:" :
-             bullets
-               (map getSkipOverrideName (Set.toList (unsoundSkipOverridesUsed u)))
-           )
+      concat
+        [ PP.pretty
+            "The following unsound overrides (built-in functions) were used:" :
+              bullets
+                (map getUnsoundOverrideName (Set.toList (unsoundOverridesUsed u)))
+        , PP.pretty
+            "Execution of the following functions was skipped:" :
+              bullets
+                (map getSkipOverrideName (Set.toList (unsoundSkipOverridesUsed u)))
+        , PP.pretty
+            "The following unsound specifications were applied:" :
+              bullets specs
+        ]
   where
     bullets = map ((PP.pretty "-" PP.<+>) . PP.pretty)
+    specs =
+      mapMaybe
+        (\(OvSpec.SpecUse nm s') ->
+           if Sound.atLeastAsSound s' s
+           then Nothing
+           else Just (Text.pack (functionNameToString nm)
+                        <> Text.pack ": "
+                        <> Text.pack (Sound.soundnessToString s')))
+        (Set.toList (unsoundSpecsUsed u))
 
 instance Semigroup Unsoundness where
   u1 <> u2 =
@@ -66,12 +92,14 @@ instance Semigroup Unsoundness where
       { unsoundOverridesUsed =
           unsoundOverridesUsed u1 <> unsoundOverridesUsed u2,
         unsoundSkipOverridesUsed =
-          unsoundSkipOverridesUsed u1 <> unsoundSkipOverridesUsed u2
+          unsoundSkipOverridesUsed u1 <> unsoundSkipOverridesUsed u2,
+        unsoundSpecsUsed = unsoundSpecsUsed u1 <> unsoundSpecsUsed u2
       }
 
 instance Monoid Unsoundness where
   mempty =
     Unsoundness
       { unsoundOverridesUsed = Set.empty,
-        unsoundSkipOverridesUsed = Set.empty
+        unsoundSkipOverridesUsed = Set.empty,
+        unsoundSpecsUsed = Set.empty
       }

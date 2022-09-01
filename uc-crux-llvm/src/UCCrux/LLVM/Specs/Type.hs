@@ -24,7 +24,8 @@ module UCCrux.LLVM.Specs.Type
     Specs(..),
     SomeSpecs(..),
     minimalSpec,
-    minimalSpecs
+    minimalSpecs,
+    specMaxSoundness
   )
 where
 
@@ -106,3 +107,9 @@ minimalSpecs = Specs . neSingleton . minimalSpec
   where
     -- | Added as NE.singleton in base-4.15/GHC 9.
     neSingleton x = x NE.:| []
+
+-- | The upper bound of the soundness of the pre- and post-condition of this
+-- spec. This can be considered as the "overall" soundness of the spec, i.e.,
+-- it reflects the unsoundness of both the pre- and post-condition.
+specMaxSoundness :: Spec m fs -> Soundness
+specMaxSoundness s = max (specPreSound s) (specPostSound s)

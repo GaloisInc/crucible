@@ -22,17 +22,26 @@ under-approximate.
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module UCCrux.LLVM.Overrides.Spec
-  ( specOverrides,
+  ( SpecUse(..),
+    specOverrides,
     createSpecOverride,
   )
 where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.))
+import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef (IORef)
+import qualified Data.IORef as IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Semigroup (Max(Max, getMax))
+import           Data.Semigroup.Foldable (foldMap1)
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Type.Equality ((:~:)(Refl))
+
+import qualified Text.LLVM as L
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
@@ -63,12 +72,22 @@ import           UCCrux.LLVM.ExprTracker (ExprTracker)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
-import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol)
+import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getFuncSymbol)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
+import           UCCrux.LLVM.Soundness (Soundness)
 import qualified UCCrux.LLVM.Specs.Apply as Spec
 import           UCCrux.LLVM.Specs.Type (SomeSpecs)
 import qualified UCCrux.LLVM.Specs.Type as Spec
 {- ORMOLU_ENABLE -}
+
+-- | A spec with this soundness was used in place of this function
+data SpecUse
+  = SpecUse
+    { specUseFn :: FunctionName
+    , specUseSoundness :: Soundness
+    }
+  deriving (Eq, Ord, Show)
 
 -- | Create specification-based overrides for each function in the 'Map'.
 specOverrides ::
@@ -79,16 +98,18 @@ specOverrides ::
   (?memOpts :: MemOptions) =>
   ModuleContext m arch ->
   bak ->
+  -- | Track any unsound specs used
+  IORef (Set SpecUse) ->
   -- | Origins of created values
   IORef (ExprTracker m sym argTypes) ->
   -- | Specs of each override, see 'Specs'.
   Map (FuncSymbol m) (SomeSpecs m) ->
   OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
-specOverrides modCtx bak tracker specs =
+specOverrides modCtx bak specsUsedRef tracker specs =
   do let llvmCtx = modCtx ^. moduleTranslation . transContext
      let ?lc = llvmCtx ^. llvmTypeCtx
      let create funcSymb (Spec.SomeSpecs fsRep@FuncSigRepr{} specs') =
-           createSpecOverride modCtx bak tracker funcSymb fsRep specs'
+           createSpecOverride modCtx bak specsUsedRef tracker funcSymb fsRep specs'
      pure $ map (uncurry create) (Map.toList specs)
 
 -- | Boilerplate to create an LLVM override
@@ -137,6 +158,8 @@ createSpecOverride ::
   (fs ~ 'FS.FuncSig va mft args) =>
   ModuleContext m arch ->
   bak ->
+  -- | Track any unsound specs used
+  IORef (Set SpecUse) ->
   -- | Origins of created values
   IORef (ExprTracker m sym argTypes) ->
   -- | Function to be overridden
@@ -147,7 +170,14 @@ createSpecOverride ::
   -- arguments or global variables
   Spec.Specs m fs ->
   PolymorphicLLVMOverride arch (personality sym) sym
-createSpecOverride modCtx bak tracker funcSymb fsRep specs =
+createSpecOverride modCtx bak specsUsedRef tracker funcSymb fsRep specs =
   mkOverride modCtx (Just bak) funcSymb fsRep $
-    \mvar args ->
+    \mvar args -> do
+      liftIO (IORef.modifyIORef specsUsedRef (Set.insert specUse))
       Spec.applySpecs bak modCtx tracker funcSymb specs fsRep mvar args
+  where
+    specUse =
+      let L.Symbol strNm = getFuncSymbol funcSymb
+          nm = functionNameFromString strNm
+          maxSound = foldMap1 (Max . Spec.specMaxSoundness) (Spec.getSpecs specs)
+      in SpecUse nm (getMax maxSound)

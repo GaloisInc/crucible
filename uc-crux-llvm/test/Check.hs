@@ -96,11 +96,11 @@ checkOverrideTests =
                             appCtx
                             modCtx
                             funCtxF
+                            Map.empty
                             fcgf
                             cruxOpts
                             llOpts
                             halloc
-                            Map.empty
 
                         -- Construct override that checks that y is nonnull
 
@@ -162,6 +162,7 @@ checkOverrideTests =
                             cruxOpts
                             llOpts
                             callbacks
+                            Map.empty
 
                         return ()
                     )

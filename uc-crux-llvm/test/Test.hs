@@ -217,7 +217,7 @@ hasBugs fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
-      Result.FoundBugs _bugs -> pure ()
+      Result.FoundBugs _unsoundness _bugs -> pure ()
       _ -> TH.assertFailure (unwords ["Expected", fn, "to have bugs"])
 
 isSafe :: Unsoundness -> String -> SomeBugfindingResult' -> IO ()
@@ -392,14 +392,24 @@ isUnimplemented file fn =
 
 skipOverrides :: [String] -> Unsoundness
 skipOverrides names =
-  Unsoundness Set.empty (Set.fromList (map (SkipOverrideName . Text.pack) names))
+  Unsoundness
+    { unsoundOverridesUsed = Set.empty
+    , unsoundSkipOverridesUsed =
+        Set.fromList (map (SkipOverrideName . Text.pack) names)
+    , unsoundSpecsUsed = Set.empty
+    }
 
 skipOverride :: String -> Unsoundness
 skipOverride = skipOverrides . (: [])
 
 unsoundOverride :: String -> Unsoundness
 unsoundOverride name =
-  Unsoundness (Set.singleton (UnsoundOverrideName (Text.pack name))) Set.empty
+  Unsoundness
+    { unsoundOverridesUsed =
+        Set.singleton (UnsoundOverrideName (Text.pack name))
+    , unsoundSkipOverridesUsed = Set.empty
+    , unsoundSpecsUsed = Set.empty
+    }
 
 inFileTests :: TT.TestTree
 inFileTests =

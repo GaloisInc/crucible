@@ -12,9 +12,12 @@ Stability        : provisional
 module UCCrux.LLVM.Soundness
   ( Soundness(..),
     stringToSoundness,
+    soundnessToString,
     atLeastAsSound
   )
 where
+
+import           Prelude hiding (min)
 
 -- | Description of the soundness of a feature of the analysis.
 --
@@ -50,6 +53,14 @@ stringToSoundness =
     "underapprox" -> Just Underapprox
     "indefinite" -> Just Indefinite
     _ -> Nothing
+
+soundnessToString :: Soundness -> String
+soundnessToString =
+  \case
+    Precise -> "precise"
+    Overapprox -> "overapprox"
+    Underapprox -> "underapprox"
+    Indefinite -> "indefinite"
 
 -- | The partial order on 'Soundness', asks whether the first 'Soundness' is at
 -- least as sound as the second.
