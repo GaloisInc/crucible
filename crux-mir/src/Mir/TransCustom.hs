@@ -42,6 +42,7 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
+import Data.Type.Equality (gcastWith) -- counterpart to NatRepr.withLeqProof but for Refl
 import Data.Parameterized.Peano
 import Data.Parameterized.Some
 import Data.Parameterized.WithRepr
@@ -981,12 +982,27 @@ mem_bswap ::  (ExplodedDefId, CustomRHS)
 mem_bswap = (["core", "intrinsics", "", "bswap"],
     \ substs -> case substs of
       Substs [tyT] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e@(MirExp argTy argExpr)] -> do
-            return $ traceShow (argTy, argExpr) e
-        _ -> mirFail $ "bad arguments to bswap: "
-          ++ show (tyT, ops)
-      _ -> Nothing
-    )
+        [e@(MirExp argTy@C.BVRepr{} argExpr)] -> return . MirExp argTy $ bswap argTy argExpr
+        _ -> mirFail $ "bswap expected `BVRepr w` but got: " ++ show (tyT, ops)
+      _ -> Nothing)
+  where
+    zero = knownNat @0
+    byte = knownNat @8
+    bswap :: C.TypeRepr (C.BVType w) -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w)
+    bswap (C.BVRepr w) bv
+        | Just Refl <- testEquality byte w = bv -- 8 ≡ w
+        | 0 <- natValue w `mod` natValue byte               -- 0 ≡ w%8
+        , Just (byteLEw@LeqProof) <- testLeq byte w         -- 8 ≤ w
+        , Left (byteLTw@LeqProof) <- testStrictLeq byte w = -- 8+1 ≤ w
+            let xsw = subNat w byte in -- size of int sans one byte
+            withLeqProof (leqSub (leqRefl w) byteLEw) $     -- w-8 ≤ w
+            withLeqProof (leqSub2 byteLTw (leqRefl byte)) $ -- 1 ≤ w-8
+            let xs = R.App $ E.BVSelect zero xsw w bv in -- int sans least significant byte
+            gcastWith (minusPlusCancel w byte) $            -- (w-8)+8 ≡ w
+            let x = R.App $ E.BVSelect xsw byte w bv in -- least significant byte
+            gcastWith (plusComm xsw byte) $                 -- 8+(w-8) ≡ w
+            R.App $ E.BVConcat byte xsw x (bswap (C.BVRepr xsw) xs)
+        | otherwise = panic "bswap" ["`BVRepr w` must satisfy `8 ≤ w ∧ w%8 ≡ 0`"]
 
 mem_transmute ::  (ExplodedDefId, CustomRHS)
 mem_transmute = (["core", "intrinsics", "", "transmute"],
