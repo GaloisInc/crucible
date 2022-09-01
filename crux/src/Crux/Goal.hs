@@ -434,7 +434,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                       Unsat () ->
                         -- build unsat core, which is the entire assertion set by default
                         do namemap <- readIORef nameMap
-                           core <- if (hasUnsatCores) then
+                           core <- if hasUnsatCores then
                                       map (lookupnm namemap) <$> getUnsatCore sp
                                    -- default unsat core: entire assertion set
                                    else return (Map.elems namemap)
@@ -444,7 +444,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                            modifyIORef' gn (updateProcessedGoals p pr)
                            
                            let locs = assumptionsTopLevelLocs assumptionsInScope
-                           if (howManyAbducts /= 0) then
+                           if howManyAbducts /= 0 then
                              inNewFrame2Close sp
                            else
                              return ()
@@ -458,10 +458,10 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                            end goalNumber
                            -- close the frame in which the final assertion and its 
                            -- checksat call were made, and then get the abducts
-                           if (howManyAbducts /= 0) then
+                           if howManyAbducts /= 0 then
                              do inNewFrame2Close sp
                            else return ()
-                           abds <- if (howManyAbducts /= 0) then 
+                           abds <- if howManyAbducts /= 0 then 
                                      getAbducts sp (fromIntegral howManyAbducts) "abd" (p ^. labeledPred)
                                    else
                                      return []
