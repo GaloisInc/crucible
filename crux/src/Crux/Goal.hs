@@ -377,8 +377,8 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
      -- make sure online features are enabled
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      _ <- setOpt enableOpt True
-     -- @go@ traverses a proof tree, processing/solving each goal as it traverses it
-     -- it also updates goal count and nameMap
+     -- @go@ traverses a proof tree, processing/solving each goal as it traverses it.
+     -- It also updates goal count and nameMap
      res <- withSolverProcess bak (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
               inNewFrame sp (go (start,end) sp mempty goalNum gs0 nameMap)
      nms <- readIORef goalNum
