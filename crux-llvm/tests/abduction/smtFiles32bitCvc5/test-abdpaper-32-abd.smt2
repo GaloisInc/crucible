@@ -4,6 +4,8 @@
 ; success
 (set-option :global-declarations true)
 ; success
+(set-option :produce-unsat-cores true)
+; success
 (set-option :produce-abducts true)
 ; success
 (set-logic ALL)
@@ -47,17 +49,17 @@
 (check-sat)
 ; sat
 (get-value (x))
-; ((x #b01111111111111111111111111111111))
+; ((x #b01000000000000000000000000000000))
 (get-value (y))
-; ((y #b00000000000000000000000000000001))
+; ((y #b01000000000000000000000000000000))
 (pop 2)
 ; success
-(get-abduct abd x!8 )
-; (define-fun abd () Bool (= x #b00000000000000000000000000000000))
+(get-abduct abd x!8)
+; (define-fun abd () Bool (bvult x #b00000000000000000000000000000001))
 (get-abduct-next)
-; (define-fun abd () Bool (bvult #b00000000000000000000000000000000 (bvashr x x)))
+; (define-fun abd () Bool (= (bvneg x) y))
 (get-abduct-next)
-; (define-fun abd () Bool (bvult y (bvsrem x y)))
+; (define-fun abd () Bool (= (bvneg #b00000000000000000000000000000001) x))
 (pop 1)
 ; success
 (push 1)
@@ -89,43 +91,17 @@
 (check-sat)
 ; sat
 (get-value (x))
-; ((x #b10000000010101010101010101010111))
+; ((x #b00100000000110100000000000000000))
 (get-value (y))
-; ((y #b01111110111111111111111111111111))
+; ((y #b01111111110010100000000000000000))
 (get-value (z))
-; ((z #b10000000101010101010101010011011))
+; ((z #b10011111111001000000000000000000))
 (get-value (x!11))
-; ((x!11 #b11111111010101010101010101010110))
+; ((x!11 #b10011111111001000000000000000000))
 (pop 2)
 ; success
-(get-abduct abd x!18 )
-; (define-fun abd () Bool (bvult z #b00000000000000000000000000000001))
+(get-abduct abd x!18)
+; (define-fun abd () Bool (= #b00000000000000000000000000000000 z))
 (get-abduct-next)
-; (define-fun abd () Bool (= (bvashr y z) y))
-(get-abduct-next)
-; (define-fun abd () Bool (= (bvneg y) x))
-(pop 1)
-; success
-(define-fun x!21 () (_ BitVec 32) (bvadd (bvadd z y) x))
-; success
-(define-fun x!22 () Bool (bvslt (_ bv0 32) x!21))
-; success
-(define-fun x!23 () Bool (not x!22))
-; success
-(push 2)
-; success
-(assert (! x!23 :named x!24))
-; success
-(check-sat)
-; sat
-(get-value (x))
-; ((x #b10000000010101010101010101011111))
-(get-value (y))
-; ((y #b01111110111111111111111111111100))
-(get-value (z))
-; ((z #b10000000101010101010101010100110))
-(pop 2)
-; success
-(get-abduct abd x!22 )
-; (define-fun abd () Bool (bvult (bvadd x z) #b00000000000000000000000000000001))
+; (define-fun abd () Bool (bvult y (bvudiv z z)))
 (get-abduct-next)

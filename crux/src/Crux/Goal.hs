@@ -434,11 +434,9 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                       Unsat () ->
                         -- build unsat core, which is the entire assertion set by default
                         do namemap <- readIORef nameMap
-                           -- default unsat core: entire assertion set
-                           -- if abduction is on, don't get unsat core
-                           -- FIXME: after cvc5-1.0.2, remove the abducts condition
-                           core <- if (howManyAbducts == 0 && hasUnsatCores) then
+                           core <- if (hasUnsatCores) then
                                       map (lookupnm namemap) <$> getUnsatCore sp
+                                   -- default unsat core: entire assertion set
                                    else return (Map.elems namemap)
                            end goalNumber
                            let pr = Proved core

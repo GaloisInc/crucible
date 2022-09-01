@@ -4,6 +4,8 @@
 ; success
 (set-option :global-declarations true)
 ; success
+(set-option :produce-unsat-cores true)
+; success
 (set-option :produce-abducts true)
 ; success
 (set-logic ALL)
@@ -40,8 +42,13 @@
 ; ((y #b00000000))
 (pop 2)
 ; success
-(get-abduct abd x!3 )
-; (define-fun abd () Bool (= y #b00000001))
+(get-abduct abd x!3)
+; (define-fun abd () Bool (= #b00000001 y))
 (get-abduct-next)
-; (define-fun abd () Bool (bvult #b00000000 (bvand y #b00000001)))
+; (define-fun abd () Bool (bvult (bvsrem #b00000001 y) #b00000001))
 (get-abduct-next)
+; (define-fun abd () Bool (= (bvmul y y) #b00000001))
+(pop 1)
+; success
+(exit)
+; success
