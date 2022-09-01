@@ -59,8 +59,9 @@ data ProofResult sym
    = Proved [Either (Assumption sym) (Assertion sym)]
    | NotProved (Doc Void) (Maybe (ModelView, [CrucibleEvent GroundValueWrapper])) [String]
      -- ^ The first argument is an explanation of the failure and
-     -- counter example as provided by the Explainer (if any) and the
-     -- second maybe a model for the counter-example.
+     -- counter example as provided by the Explainer (if any), the
+     -- second maybe a model for the counter-example, and the third 
+     -- is a list of abducts provided which may be empty
 
 type LPred sym   = LabeledPred (Pred sym)
 

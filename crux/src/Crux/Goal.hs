@@ -35,7 +35,7 @@ import What4.Protocol.Online( OnlineSolver, inNewFrame, inNewFrame2Open
                             , inNewFrame2Close, solverEvalFuns, solverConn
                             , check, getUnsatCore, getAbducts )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
-                               , assumeFormula, smtExprGroundEvalFn)
+                               , assumeFormula, smtExprGroundEvalFn )
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
@@ -392,8 +392,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
 
   hasUnsatCores = unsatCores opts && not (yicesMCSat opts)
 
-  howManyAbducts = case (getNAbducts opts) of Just n  -> n
-                                              Nothing -> 0
+  howManyAbducts = fromMaybe 0 (getNAbducts opts)
 
   failfast = proofGoalsFailFast opts
 
@@ -420,9 +419,10 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
            start goalNumber
            -- negate goal, create formula
            t <- mkFormula conn =<< notPred sym (p ^. labeledPred)
-           -- assert formula to SMT solver, create new name and add to nameMap
-           -- This is done in a new assertion frame if abduction is turned on
-           if (howManyAbducts /= 0) then
+           -- assert formula to SMT solver, create new name and add to nameMap.
+           -- This is done in a new assertion frame if abduction is turned on since
+           -- this assertion would need to be removed before asking for abducts
+           if howManyAbducts /= 0 then
              inNewFrame2Open sp
            else
              return ()
