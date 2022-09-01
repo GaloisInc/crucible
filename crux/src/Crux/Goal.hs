@@ -377,7 +377,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
      -- make sure online features are enabled
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      _ <- setOpt enableOpt True
-     -- go traverse a proof tree, processing/solving each goal as it traverses it
+     -- @go@ traverses a proof tree, processing/solving each goal as it traverses it
      -- it also updates goal count and nameMap
      res <- withSolverProcess bak (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
               inNewFrame sp (go (start,end) sp mempty goalNum gs0 nameMap)
@@ -420,7 +420,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
            start goalNumber
            -- negate goal, create formula
            t <- mkFormula conn =<< notPred sym (p ^. labeledPred)
-             -- assert formula to SMT solver, create new name and add to nameMap
+           -- assert formula to SMT solver, create new name and add to nameMap
            -- This is done in a new assertion frame if abduction is turned on
            if (howManyAbducts /= 0) then
              inNewFrame2Open sp
@@ -457,7 +457,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
                            explain <- explainFailure (Just f) p
                            end goalNumber
                            -- close the frame in which the final assertion and its 
-                           -- checksat call were made, and then get 3 abducts
+                           -- checksat call were made, and then get the abducts
                            if (howManyAbducts /= 0) then
                              do inNewFrame2Close sp
                            else return ()
