@@ -56,6 +56,7 @@ import qualified UCCrux.LLVM.Logging as Log
 import qualified UCCrux.LLVM.Main as Main
 import qualified UCCrux.LLVM.Run.EntryPoints as EntryPoints
 import qualified UCCrux.LLVM.Run.Simulate as Sim
+import qualified UCCrux.LLVM.Soundness as Sound
 
 import qualified Logging as Log
 {- ORMOLU_ENABLE -}
@@ -82,7 +83,7 @@ withOptions llvmModule file k =
   do
     withFile (testDir </> file <> ".output") WriteMode $ \h ->
       do
-        let appCtx = makeAppContext Log.Low
+        let appCtx = makeAppContext Sound.Indefinite Log.Low
         llOpts <- (\ll -> ll { CruxLLVM.noCompile = False }) <$> mkLLOpts ""
         let cruxOpts = mkCruxOpts [testDir </> file]
         let ?outputConfig =

@@ -22,10 +22,10 @@ module UCCrux.LLVM.View.Specs
     SpecPrecondsView(..),
     specPrecondsView,
     viewSpecPreconds,
-    -- * SpecSoundness
-    SpecSoundnessView(..),
+    -- * Soundness
+    SoundnessView(..),
     specSoundnessView,
-    viewSpecSoundness,
+    viewSoundness,
     -- * Spec
     SpecViewError,
     ppSpecViewError,
@@ -67,8 +67,10 @@ import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ModuleTypes)
 import           UCCrux.LLVM.Module (FuncSymbol, makeFuncSymbol, funcSymbol)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.Postcondition.Type (toUPostcond, typecheckPostcond, PostcondTypeError, ppPostcondTypeError)
+import           UCCrux.LLVM.Soundness (Soundness)
+import qualified UCCrux.LLVM.Soundness as Sound
 import qualified UCCrux.LLVM.Specs.Type as Spec
-import           UCCrux.LLVM.Specs.Type (SpecPreconds, SpecSoundness(..), Spec (Spec), Specs (Specs), SomeSpecs (SomeSpecs))
+import           UCCrux.LLVM.Specs.Type (SpecPreconds, Spec (Spec), Specs (Specs), SomeSpecs (SomeSpecs))
 import           UCCrux.LLVM.View.Constraint (ConstrainedShapeView, constrainedShapeView)
 import qualified UCCrux.LLVM.View.Options.Specs as Opts
 import           UCCrux.LLVM.View.Postcond (UPostcondView, uPostcondView, viewUPostcond, ViewUPostcondError, ppViewUPostcondError)
@@ -103,30 +105,30 @@ viewSpecPreconds mts argTys =
   fmap Spec.SpecPreconds . viewArgPreconds mts argTys . vSpecArgPreconds
 
 --------------------------------------------------------------------------------
--- * SpecSoundness
+-- * Soundness
 
-data SpecSoundnessView
-  = OverapproxView
+data SoundnessView
+  = PreciseView
+  | OverapproxView
   | UnderapproxView
-  | PreciseView
-  | ImpreciseView
+  | IndefiniteView
   deriving (Bounded, Data, Enum, Eq, Generic, Ord, Show)
 
-specSoundnessView :: SpecSoundness -> SpecSoundnessView
+specSoundnessView :: Soundness -> SoundnessView
 specSoundnessView =
   \case
-    Overapprox -> OverapproxView
-    Underapprox -> UnderapproxView
-    Precise -> PreciseView
-    Imprecise -> ImpreciseView
+    Sound.Precise -> PreciseView
+    Sound.Overapprox -> OverapproxView
+    Sound.Underapprox -> UnderapproxView
+    Sound.Indefinite -> IndefiniteView
 
-viewSpecSoundness :: SpecSoundnessView -> SpecSoundness
-viewSpecSoundness =
+viewSoundness :: SoundnessView -> Soundness
+viewSoundness =
   \case
-    OverapproxView -> Overapprox
-    UnderapproxView -> Underapprox
-    PreciseView -> Precise
-    ImpreciseView -> Imprecise
+    OverapproxView -> Sound.Overapprox
+    UnderapproxView -> Sound.Underapprox
+    PreciseView -> Sound.Precise
+    IndefiniteView -> Sound.Indefinite
 
 --------------------------------------------------------------------------------
 -- * Spec
@@ -146,9 +148,9 @@ ppSpecViewError =
 data SpecView
   = SpecView
       { vSpecPre :: SpecPrecondsView
-      , vSpecPreSound :: SpecSoundnessView
+      , vSpecPreSound :: SoundnessView
       , vSpecPost :: Maybe UPostcondView
-      , vSpecPostSound :: SpecSoundnessView
+      , vSpecPostSound :: SoundnessView
       }
   deriving (Eq, Generic, Ord, Show)
 
@@ -183,9 +185,9 @@ viewSpec modCtx fsRep@(FS.FuncSigRepr _ args _) vspec =
      return $
        Spec
          { Spec.specPre = pre
-         , Spec.specPreSound = viewSpecSoundness (vSpecPreSound vspec)
+         , Spec.specPreSound = viewSoundness (vSpecPreSound vspec)
          , Spec.specPost = post
-         , Spec.specPostSound = viewSpecSoundness (vSpecPostSound vspec)
+         , Spec.specPostSound = viewSoundness (vSpecPostSound vspec)
          }
   where
     mts = modCtx ^. moduleTypes
@@ -236,6 +238,6 @@ parseSpecs modCtx =
              return (Map.insert funcSymb (SomeSpecs fsRepr specs) mp, missingFuns)
 
 $(Aeson.TH.deriveJSON Opts.specPreconds ''SpecPrecondsView)
-$(Aeson.TH.deriveJSON Opts.specSoundness ''SpecSoundnessView)
+$(Aeson.TH.deriveJSON Opts.specSoundness ''SoundnessView)
 $(Aeson.TH.deriveJSON Opts.spec ''SpecView)
 $(Aeson.TH.deriveJSON Opts.specs ''SpecsView)

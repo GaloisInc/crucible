@@ -64,7 +64,7 @@ test() {
 
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
-    sudo apt-get update -q && sudo apt-get install -y clang-10 llvm-10-tools
+    sudo apt-get update -q && sudo apt-get install -y clang-12 llvm-12-tools
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
     brew install llvm@11
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
@@ -114,8 +114,6 @@ zip_dist() {
   pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-x86_64"}"
   mv dist "$pkgname"
   tar -czf "$pkgname".tar.gz "$pkgname"
-  sign "$pkgname".tar.gz
-  [[ -f "$pkgname".tar.gz.sig ]] && [[ -f "$pkgname".tar.gz ]]
   rm -rf dist
 }
 

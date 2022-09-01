@@ -1,6 +1,6 @@
 {-
 Module       : UCCrux.LLVM.Overrides.Unsound
-Description  : Additional overrides
+Description  : Unsound (indefinite) overrides, possibly helpful for bug-finding
 Copyright    : (c) Galois, Inc 2021
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
@@ -71,8 +71,8 @@ newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Tex
 -- ** Declarations
 
 -- | Some additional overrides that are useful for bugfinding, but not for
--- verification. They unsoundly under-approximate the environment. This helps
--- symbolic execution reach more code.
+-- verification. In the sense of @doc/soundness.md@, these overrides are
+-- /indefinite/.
 unsoundOverrides ::
   (?lc :: TypeContext, ?memOpts :: LLVMMem.MemOptions) =>
   IORef (Set UnsoundOverrideName) ->

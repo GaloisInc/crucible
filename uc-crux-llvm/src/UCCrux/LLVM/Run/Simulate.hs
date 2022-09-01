@@ -38,7 +38,7 @@ where
 import           Prelude hiding (log)
 
 import           Control.Lens ((^.), view, to)
-import           Control.Monad (void, unless)
+import           Control.Monad (void, unless, when)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.Foldable (for_, toList)
 import qualified Data.IORef as IORef
@@ -103,7 +103,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt)
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
 import           UCCrux.LLVM.Classify.Types (Located(Located), Explanation(..), Uncertainty(..))
-import           UCCrux.LLVM.Context.App (AppContext, log)
+import           UCCrux.LLVM.Context.App (AppContext, log, soundness)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -122,6 +122,8 @@ import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SymValue)
 import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Shape (Shape)
+import           UCCrux.LLVM.Soundness (Soundness)
+import qualified UCCrux.LLVM.Soundness as Sound
 {- ORMOLU_ENABLE -}
 
 newtype CreateOverrideFn m arch =
@@ -221,21 +223,27 @@ addOverrides newOverrides cbs =
            , resultHook = resHook
            }
 
+-- | Create intentionally unsound overrides for library functions.
+--
+-- If the soundness criterion is anything other than 'Sound.Imprecise', return
+-- an empty list of overrides.
 createUnsoundOverrides ::
   (?lc :: TypeContext) =>
   (?memOpts :: MemOptions) =>
   ArchOk arch =>
   proxy arch ->
+  Soundness ->
   IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn m arch])
-createUnsoundOverrides proxy =
+createUnsoundOverrides proxy sound =
   do unsoundOverrideRef <- IORef.newIORef Set.empty
      return
        ( unsoundOverrideRef
-       , map (\ov ->
-                CreateOverrideFn
-                  (\_sym _tracker -> pure (getForAllSymArch ov proxy)))
-             (unsoundOverrides unsoundOverrideRef)
+       , if sound /= Sound.Indefinite
+         then []
+         else map mkOverride (unsoundOverrides unsoundOverrideRef)
        )
+  where mkOverride ov =
+          CreateOverrideFn (\_sym _tracker -> pure (getForAllSymArch ov proxy))
 
 registerOverrides ::
   (?intrinsicsOpts :: LLVMIntrinsics.IntrinsicsOptions) =>
@@ -318,7 +326,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
        let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
            ?memOpts = memOpts llvmOpts
        (unsoundOverrideRef, uOverrides) <-
-         createUnsoundOverrides modCtx
+         createUnsoundOverrides modCtx (soundness appCtx)
 
        -- Hooks
        let ?recordLLVMAnnotation =
@@ -439,20 +447,21 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                     -- override to skip each function that is
                     -- declared-but-not-defined and doesn't yet have an override
                     -- registered.
-                    sOverrides <-
-                      unsoundSkipOverrides
-                        modCtx
-                        bak
-                        trans
-                        skipOverrideRef
-                        skipReturnValueAnnotations
-                        (constraints ^. postconds)
-                        (L.modDeclares (modCtx ^. llvmModule . to getModule))
-                    let sOverrides' =
-                          map
-                            (\ov -> getPolymorphicLLVMOverride ov)
-                            sOverrides
-                    registerOverrides appCtx modCtx sSkip sOverrides'
+                    when (soundness appCtx == Sound.Indefinite) $
+                      do sOverrides <-
+                           unsoundSkipOverrides
+                             modCtx
+                             bak
+                             trans
+                             skipOverrideRef
+                             skipReturnValueAnnotations
+                             (constraints ^. postconds)
+                             (L.modDeclares (modCtx ^. llvmModule . to getModule))
+                         let sOverrides' =
+                               map
+                                 (\ov -> getPolymorphicLLVMOverride ov)
+                                 sOverrides
+                         registerOverrides appCtx modCtx sSkip sOverrides'
 
                     liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                     printed <- ppRegMap modCtx funCtx (backendGetSym bak) mem args

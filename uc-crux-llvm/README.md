@@ -139,7 +139,7 @@ The `uc-crux-llvm` tool can be built by doing the following:
 
 * Clone the enclosing `crucible` repository:
 
-        git clone https://github.com/GaloisInc/crucible.git
+        git clone --recurse-submodules https://github.com/GaloisInc/crucible.git
 
 * Change to the `uc-crux-llvm` directory and run the build script:
 

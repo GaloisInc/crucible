@@ -20,7 +20,6 @@ See also user-facing docs in @doc/specs.md@.
 
 module UCCrux.LLVM.Specs.Type
   ( SpecPreconds(..),
-    SpecSoundness(..),
     Spec(..),
     Specs(..),
     SomeSpecs(..),
@@ -40,6 +39,8 @@ import           UCCrux.LLVM.FullType.Type (FullType)
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.Precondition (emptyArgPreconds)
 import           UCCrux.LLVM.Postcondition.Type (Postcond)
+import           UCCrux.LLVM.Soundness (Soundness)
+import qualified UCCrux.LLVM.Soundness as Sound
 
 -- | Preconditions required to hold for a 'Spec' to execute.
 --
@@ -51,43 +52,6 @@ data SpecPreconds m (args :: Ctx (FullType m))
         specArgPreconds :: Ctx.Assignment (ConstrainedShape m) args
       }
 
--- | Description of the soundness of spec pre- and post-conditions.
---
--- This type forms a partial order with the following Hasse diagram (of which
--- its 'Ord' instance is one of two compatible total orderings):
---
--- >        Imprecise
--- >       /         \
--- > Overapprox    Underapprox
--- >       \         /
--- >         Precise
---
--- The ordering means: Anything that is 'Precise' can also be counted as either
--- 'Overapprox' or 'Underapprox', and if you're willing to accept 'Imprecise',
--- then you would be willing to accept any degree of precision as well.
-data SpecSoundness
-  = -- | Precise: Both over-approximate and under-approximate, that is, a
-    -- specification that perfectly describes the possible behaviors of the
-    -- specified procedure.
-    Precise
-    -- | For preconditions, means that the specified preconditions are more
-    -- restrictive than the actual implementation. For postconditions, it means
-    -- that the specified postcondition encapsulates all possible effects of the
-    -- implementation on the program state under the accompanying precondition.
-  | Overapprox
-    -- | For preconditions, means that the specified preconditions are less
-    -- restrictive than the actual implementation. For postconditions, means
-    -- that the specified postcondition encapsulates some definitely possible
-    -- effects of the implementation on the program state under the accompanying
-    -- precondition.
-  | Underapprox
-  -- | Neither over-approximate nor under-approximate, that is, a specification
-  -- that bears none of the above relationships to the specified procedure (but
-  -- may still be useful in practice, e.g., if it's over- or under-approximate
-  -- for most---but not all---cases).
-  | Imprecise
-  deriving (Eq, Ord, Show)
-
 -- | If the precondition ('specPre') holds, then the function will have the
 -- effects on program state specified in the postcondition ('specPost') See
 -- "UCCrux.LLVM.Specs.Apply" for how preconditions are checked against and
@@ -98,12 +62,12 @@ data Spec m fs
       { -- | See 'UCCrux.LLVM.Specs.Apply.matchPreconds' for details of the
         -- semantics.
         specPre :: SpecPreconds m args
-      , specPreSound :: SpecSoundness
+      , specPreSound :: Soundness
       -- | A 'Nothing' causes a minimal, unconstrained, fresh, symbolic return
       -- value to be generated, see 'UCCrux.LLVM.Specs.Apply.applyPost' for
       -- details.
       , specPost :: Maybe (Postcond m fs)
-      , specPostSound :: SpecSoundness
+      , specPostSound :: Soundness
       }
 
 -- | A collection of specifications for a function.
@@ -129,11 +93,11 @@ minimalSpec :: FS.FuncSigRepr m fs -> Spec m fs
 minimalSpec (FS.FuncSigRepr _ args _) =
   Spec
     { specPre = SpecPreconds (emptyArgPreconds args)
-    , specPreSound = Underapprox
+    , specPreSound = Sound.Underapprox
     -- This causes the fresh, unconstrained, symbolic return value to be
     -- generated, see Spec.specPost
     , specPost = Nothing
-    , specPostSound = Imprecise
+    , specPostSound = Sound.Indefinite
     }
 
 -- | The minimal set of specs - just a single 'minimalSpec'.

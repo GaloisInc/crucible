@@ -56,7 +56,7 @@ The `crux-llvm` tool can be built by doing the following:
 
 * Clone (incl. the submodules) the `crucible` repository:
 
-        git clone --recursive https://github.com/GaloisInc/crucible.git
+        git clone --recurse-submodules https://github.com/GaloisInc/crucible.git
 
 * Build the `crux-llvm` package:
 
