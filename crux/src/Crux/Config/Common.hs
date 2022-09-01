@@ -449,7 +449,7 @@ cruxOptions = Config
         $ NoArg $ \opts -> Right opts { unsatCores = False }
       
       , Option "n" ["get-abducts"]
-        "Get these many abducts"
+        "Get these many abducts. Only works with cvc5, 0 otherwise."
         $ ReqArg "ABDUCTS"
         $ parsePosNum "abducts"
         $ \v opts -> opts { getNAbducts = Just v }
