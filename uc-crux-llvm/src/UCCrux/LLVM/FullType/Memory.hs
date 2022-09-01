@@ -24,6 +24,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.))
 import           Data.BitVector.Sized (mkBV)
+import           Numeric.Natural (Natural)
 
 import           Data.Parameterized.NatRepr (NatRepr, type (+))
 import qualified Data.Parameterized.Vector as PVec
@@ -35,7 +36,7 @@ import qualified What4.Interface as What4
 import qualified Lang.Crucible.Backend as Crucible
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
+import           Lang.Crucible.LLVM.Bytes (bytesToNatural)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
@@ -52,20 +53,23 @@ import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, dataLayou
 sizeInBytes ::
   ModuleTypes m ->
   FullTypeRepr m ft ->
-  Integer
+  Natural
 sizeInBytes mts ftRepr =
   let dl = dataLayout mts
       cdl = crucibleDataLayout dl
-  in bytesToInteger (memTypeSize cdl (toMemType dl ftRepr))
+  in bytesToNatural (memTypeSize cdl (toMemType dl ftRepr))
 
 -- | Size in bytes of an array of a given type with a given length.
 arraySizeInBytes ::
   ModuleTypes m ->
   FullTypeRepr m ft ->
   -- | Array length
-  Integer ->
-  Integer
+  Natural ->
+  Natural
 arraySizeInBytes mts ftRepr size = size * sizeInBytes mts ftRepr
+
+natToInt :: Natural -> Integer
+natToInt = toInteger  -- safe
 
 -- | A concrete bitvector representing the size (in bytes) of data of a given
 -- type in memory.
@@ -78,7 +82,8 @@ sizeBv ::
   FullTypeRepr m ft ->
   IO (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
 sizeBv modCtx sym ftRepr =
-  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (sizeInBytes (modCtx ^. moduleTypes) ftRepr))
+  let szNat = natToInt (sizeInBytes (modCtx ^. moduleTypes) ftRepr)
+  in What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth szNat)
 
 -- | A concrete bitvector representing the size (in bytes) of an array of data
 -- of a given type in memory.
@@ -90,10 +95,11 @@ arraySizeBv ::
   sym ->
   FullTypeRepr m ft ->
   -- | Array length
-  Integer ->
+  Natural ->
   IO (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
 arraySizeBv modCtx sym ftRepr size =
-  What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (arraySizeInBytes (modCtx ^. moduleTypes) ftRepr size))
+  let szNat = natToInt (arraySizeInBytes (modCtx ^. moduleTypes) ftRepr size)
+  in What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth szNat)
 
 -- | A vector of pointers created by repeatedly adding an offset to a given base
 -- pointer.
