@@ -171,6 +171,7 @@ withOptions llvmModule file k =
         , Crux.loopBound = Just 8
         , Crux.recursionBound = Just 8
         , Crux.makeCexes = False
+        , Crux.getNAbducts = Nothing
         , Crux.unsatCores = False
         -- With Yices, cast_float_to_pointer_write.c hangs
         , Crux.solver = "z3"
