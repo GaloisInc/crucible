@@ -16,8 +16,7 @@ where
 import qualified Data.BitVector.Sized as BV
 import           Data.Foldable ( toList )
 import           Data.Sequence (Seq)
-import           Data.Text ( Text )
-import           Data.List ( length )
+import qualified Data.Text as Text (Text)
 import           Prettyprinter ( (<+>) )
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PPR
@@ -109,5 +108,5 @@ sayWhatFailedGoals skipIncompl showVars allGls =
 
 
 
-ppToText :: PP.Doc ann -> Text
+ppToText :: PP.Doc ann -> Text.Text
 ppToText = PPR.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
