@@ -994,13 +994,12 @@ mem_bswap = (["core", "intrinsics", "", "bswap"],
         | 0 <- natValue w `mod` natValue byte               -- 0 ≡ w%8
         , Just (byteLEw@LeqProof) <- testLeq byte w         -- 8 ≤ w
         , Left (byteLTw@LeqProof) <- testStrictLeq byte w = -- 8+1 ≤ w
+            let x = R.App $ E.BVSelect zero byte w bv in -- least significant byte
             let xsw = subNat w byte in -- size of int sans one byte
-            withLeqProof (leqSub (leqRefl w) byteLEw) $     -- w-8 ≤ w
-            withLeqProof (leqSub2 byteLTw (leqRefl byte)) $ -- 1 ≤ w-8
-            let xs = R.App $ E.BVSelect zero xsw w bv in -- int sans least significant byte
+            gcastWith (plusComm xsw byte) $                 -- 8+(w-8) ≡ (w-8)+8
             gcastWith (minusPlusCancel w byte) $            -- (w-8)+8 ≡ w
-            let x = R.App $ E.BVSelect xsw byte w bv in -- least significant byte
-            gcastWith (plusComm xsw byte) $                 -- 8+(w-8) ≡ w
+            withLeqProof (leqSub2 byteLTw (leqRefl byte)) $ -- 1 ≤ w-8
+            let xs = R.App $ E.BVSelect byte xsw w bv in -- int sans least significant byte
             R.App $ E.BVConcat byte xsw x (bswap (C.BVRepr xsw) xs)
         | otherwise = panic "bswap" ["`BVRepr w` must satisfy `8 ≤ w ∧ w%8 ≡ 0`"]
 
