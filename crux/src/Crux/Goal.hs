@@ -31,10 +31,10 @@ import What4.Config (setOpt, getOptionSetting, Opt, ConfigOption)
 import What4.ProgramLoc (ProgramLoc)
 import What4.SatResult(SatResult(..))
 import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, GroundValueWrapper(..))
-import What4.Protocol.Online( OnlineSolver, inNewFrame, inNewFrame2Open
+import What4.Protocol.Online( OnlineSolver, SolverProcess, inNewFrame, inNewFrame2Open
                             , inNewFrame2Close, solverEvalFuns, solverConn
                             , check, getUnsatCore, getAbducts )
-import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
+import What4.Protocol.SMTWriter( SMTReadWriter, mkFormula, assumeFormulaWithFreshName
                                , assumeFormula, smtExprGroundEvalFn )
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
@@ -348,6 +348,7 @@ proverMilestoneCallbacks goals = do
 -- 'SimCtxt'.  We do that so that we can use separate solvers for path
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
+  forall sym personality p msgs goalSolver s st fs.
   ( sym ~ ExprBuilder s st fs
   , OnlineSolver goalSolver
   , Logs msgs
@@ -363,7 +364,7 @@ proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
 proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
-  do 
+  do
      -- send solver interactions to the correct file
      mapM_ (symCfg sym solverInteractionFile) (fmap Text.pack (onlineSolverOutput opts))
      -- initial goal count
@@ -394,6 +395,8 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
 
   howManyAbducts = fromMaybe 0 (getNAbducts opts)
 
+  usingAbducts = howManyAbducts > 0
+
   failfast = proofGoalsFailFast opts
 
   go (start,end) sp assumptionsInScope gn gs nameMap = do
@@ -422,65 +425,35 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
            -- assert formula to SMT solver, create new name and add to nameMap.
            -- This is done in a new assertion frame if abduction is turned on since
            -- this assertion would need to be removed before asking for abducts
-           if howManyAbducts /= 0 then
-             inNewFrame2Open sp
-           else
-             return ()
-           nm <- doAssume t
-           bindName nm (Right p) nameMap
-           -- check-sat with SMT solver, pattern match on result
-           res <- check sp "proof"
-           ret <- case res of
-                      Unsat () ->
-                        -- build unsat core, which is the entire assertion set by default
-                        do namemap <- readIORef nameMap
-                           core <- if hasUnsatCores then
-                                      map (lookupnm namemap) <$> getUnsatCore sp
-                                   -- default unsat core: entire assertion set
-                                   else return (Map.elems namemap)
-                           end goalNumber
-                           let pr = Proved core
-                           -- update goal count
-                           modifyIORef' gn (updateProcessedGoals p pr)
-                           
-                           let locs = assumptionsTopLevelLocs assumptionsInScope
-                           if howManyAbducts /= 0 then
-                             inNewFrame2Close sp
-                           else
-                             return ()
-                           return (Prove (p, locs, pr))
-                      Sat ()  ->
-                        do -- evaluate counter-example
-                           f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           evs <- concretizeEvents (groundEval f) assumptionsInScope
-                           let vals = evalModelFromEvents evs
-                           explain <- explainFailure (Just f) p
-                           end goalNumber
-                           -- close the frame in which the final assertion and its 
-                           -- checksat call were made, and then get the abducts
-                           if howManyAbducts /= 0 then
-                             do inNewFrame2Close sp
-                           else return ()
-                           abds <- if howManyAbducts /= 0 then 
-                                     getAbducts sp (fromIntegral howManyAbducts) "abd" (p ^. labeledPred)
-                                   else
-                                     return []
-                           let gt = NotProved explain (Just (vals,evs)) abds
-                           -- update goal count
-                           modifyIORef' gn (updateProcessedGoals p gt)
-                           when (failfast && not (isResourceExhausted p)) $
-                             sayCrux Log.FoundCounterExample
-                           let locs = map eventLoc evs
-                           return (Prove (p, locs, gt))
-                      Unknown ->
-                        do explain <- explainFailure Nothing p
-                           end goalNumber
-                           let gt = NotProved explain Nothing []
-                           modifyIORef' gn (updateProcessedGoals p gt)
-                           let locs = assumptionsTopLevelLocs assumptionsInScope
-                           inNewFrame2Close sp
-                           return (Prove (p, locs, gt))
-           return ret
+           let inNewFrame2ForAbducts =
+                 if usingAbducts then inNewFrame2 sp else id
+           ret <- inNewFrame2ForAbducts $ do
+             nm <- doAssume t
+             bindName nm (Right p) nameMap
+             -- check-sat with SMT solver, pattern match on result
+             res <- check sp "proof"
+             case res of
+               Unsat () ->
+                 -- build unsat core, which is the entire assertion set by default
+                 do namemap <- readIORef nameMap
+                    core <- if hasUnsatCores then
+                               map (lookupnm namemap) <$> getUnsatCore sp
+                            -- default unsat core: entire assertion set
+                            else return (Map.elems namemap)
+                    let locs = assumptionsTopLevelLocs assumptionsInScope
+                    return $ UnsatResult core locs
+               Sat ()  ->
+                 do -- evaluate counter-example
+                    f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
+                    evs <- concretizeEvents (groundEval f) assumptionsInScope
+                    explain <- explainFailure (Just f) p
+                    return $ SatResult explain evs
+               Unknown ->
+                 do explain <- explainFailure Nothing p
+                    let locs = assumptionsTopLevelLocs assumptionsInScope
+                    return $ UnknownResult explain locs
+           end goalNumber
+           smtResultToGoals p ret
       -- case: conjunction of goals
       ProveConj g1 g2 ->
         do g1' <- inNewFrame sp (go (start,end) sp assumptionsInScope gn g1 nameMap)
@@ -507,3 +480,57 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
       if hasUnsatCores
       then assumeFormulaWithFreshName conn formula
       else assumeFormula conn formula >> return (Text.pack ("x" ++ show (Map.size namemap)))
+
+    -- Convert an 'SMTResult' to a 'ProofResult'. This function should be
+    -- called /after/ 'inNewFrame2' so that the abducts can be queried properly
+    -- in the SatResult case.
+    smtResultToGoals :: LabeledPred (BoolExpr s) SimError
+                     -> SMTResult sym
+                     -> IO ( Goals asmp (LabeledPred (BoolExpr s) SimError
+                           , [ProgramLoc]
+                           , ProofResult sym)
+                           )
+    smtResultToGoals p smtRes = do
+      (locs, gt) <- case smtRes of
+        UnsatResult core locs -> do
+          let pr = Proved core
+          return (locs, pr)
+        SatResult explain evs -> do
+          let vals = evalModelFromEvents evs
+          abds <- if usingAbducts then
+                    getAbducts sp (fromIntegral howManyAbducts) "abd" (p ^. labeledPred)
+                  else
+                    return []
+          let gt = NotProved explain (Just (vals,evs)) abds
+          when (failfast && not (isResourceExhausted p)) $
+            sayCrux Log.FoundCounterExample
+          let locs = map eventLoc evs
+          return (locs, gt)
+        UnknownResult explain locs -> do
+          let gt = NotProved explain Nothing []
+          return (locs, gt)
+
+      -- update goal count
+      modifyIORef' gn (updateProcessedGoals p gt)
+      return (Prove (p, locs, gt))
+
+-- | Like 'inNewFrame', but specifically for frame @2@. This is used for the
+-- purpose of generating abducts.
+
+-- TODO: Upstream this to @what4@.
+inNewFrame2 :: SMTReadWriter solver => SolverProcess scope solver -> IO a -> IO a
+inNewFrame2 sp action = do
+  inNewFrame2Open sp
+  val <- action
+  inNewFrame2Close sp
+  return val
+
+-- | An intermediate data structure used in 'proveGoalsOnline'. This can be
+-- thought of as a halfway point between a 'SatResult' and a 'ProofResult'.
+data SMTResult sym
+  = UnsatResult [Either (Assumption sym) (Assertion sym)]
+                [ProgramLoc]
+  | SatResult (Doc Void)
+              [CrucibleEvent GroundValueWrapper]
+  | UnknownResult (Doc Void)
+                  [ProgramLoc]
