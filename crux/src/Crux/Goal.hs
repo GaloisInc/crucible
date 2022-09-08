@@ -517,7 +517,7 @@ proveGoalsOnline bak opts _ctxt explainFailure (Just gs0) =
 -- | Like 'inNewFrame', but specifically for frame @2@. This is used for the
 -- purpose of generating abducts.
 
--- TODO: Upstream this to @what4@.
+-- TODO: Upstream this to @what4@ (Issue what4#218).
 inNewFrame2 :: SMTReadWriter solver => SolverProcess scope solver -> IO a -> IO a
 inNewFrame2 sp action = do
   inNewFrame2Open sp
