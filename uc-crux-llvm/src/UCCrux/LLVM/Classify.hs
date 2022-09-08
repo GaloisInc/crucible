@@ -128,7 +128,7 @@ elemsFromOffset ::
 elemsFromOffset mts offset partType =
   let pointedTo = asFullType mts partType
       typeSize = sizeInBytes mts pointedTo
-   in 1 + fromIntegral (BV.asUnsigned (What4.fromConcreteBV offset) `div` typeSize)
+   in 1 + fromIntegral (BV.asNatural (What4.fromConcreteBV offset) `div` typeSize)
 
 unclass ::
   (MonadIO f, What4.IsExpr (What4.SymExpr sym)) =>

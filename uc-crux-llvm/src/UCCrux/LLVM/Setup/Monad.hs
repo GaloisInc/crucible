@@ -49,6 +49,7 @@ import           Control.Monad.RWS (RWST, runRWST)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Text (Text)
 import qualified Data.Text.IO as TextIO
+import           Numeric.Natural (Natural)
 
 import qualified Text.LLVM.AST as L
 
@@ -276,7 +277,7 @@ malloc ::
   -- | Path to this pointer
   Selector m argTypes inTy ('FTPtr atTy) ->
   -- | Size, as in number of elements. Should be strictly positive.
-  Integer ->
+  Natural ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
 malloc bak fullTypeRepr selector size =
   do
