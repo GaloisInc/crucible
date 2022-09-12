@@ -38,6 +38,7 @@ import qualified Lang.Crucible.Simulator.Operations as C
 import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.RegValue as C
 import qualified What4.FunctionName as W
+import What4.Expr (ExprBuilder)
 
 -- | This execution feature registers an override for a breakpoint.
 --   The override summarizes the execution from the breakpoint
@@ -46,7 +47,7 @@ import qualified What4.FunctionName as W
 --   to the list of breakpoints in the respective function with this
 --   execution feature.
 breakAndReturn ::
-  (C.IsSymInterface sym, C.IsSyntaxExtension ext) =>
+  (sym ~ ExprBuilder t st ft, C.IsSymInterface sym, C.IsSyntaxExtension ext) =>
   C.CFG ext blocks init ret ->
   C.BreakpointName ->
   Ctx.Assignment C.TypeRepr args ->

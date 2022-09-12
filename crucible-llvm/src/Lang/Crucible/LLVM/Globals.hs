@@ -74,6 +74,7 @@ import           Lang.Crucible.Backend
 import           What4.Interface
 
 import           GHC.Stack
+import What4.Expr (ExprBuilder)
 
 ------------------------------------------------------------------------
 -- GlobalInitializerMap
@@ -150,7 +151,7 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases
 -- allocates space for global variables, but does not set their
 -- initial values.
 initializeAllMemory
-   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+   :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => bak
    -> LLVMContext arch
@@ -159,7 +160,7 @@ initializeAllMemory
 initializeAllMemory = initializeMemory (const True)
 
 initializeMemoryConstGlobals
-   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+   :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => bak
    -> LLVMContext arch
@@ -168,7 +169,7 @@ initializeMemoryConstGlobals
 initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
 
 initializeMemory
-   :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+   :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => (L.Global -> Bool)
    -> bak
@@ -223,7 +224,7 @@ initializeMemory predicate bak llvm_ctx llvmModl = do
 
 
 allocLLVMFunPtr ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   LLVMContext arch ->
@@ -255,7 +256,8 @@ allocLLVMFunPtr bak llvm_ctx mem decl =
 --   This will (necessarily) populate any globals that the ones in the
 --   filtered list transitively reference.
 populateGlobals ::
-  ( ?lc :: TypeContext
+  ( sym ~ ExprBuilder s t st
+  , ?lc :: TypeContext
   , ?memOpts :: MemOptions
   , 16 <= wptr
   , HasPtrWidth wptr
@@ -276,7 +278,8 @@ populateGlobals select bak gimap mem0 = foldM f mem0 (Map.elems gimap)
 
 -- | Populate all the globals mentioned in the given @GlobalInitializerMap@.
 populateAllGlobals ::
-  ( ?lc :: TypeContext
+  ( sym ~ ExprBuilder s t st
+  , ?lc :: TypeContext
   , ?memOpts :: MemOptions
   , 16 <= wptr
   , HasPtrWidth wptr
@@ -292,7 +295,8 @@ populateAllGlobals = populateGlobals (const True)
 -- | Populate only the constant global variables mentioned in the
 --   given @GlobalInitializerMap@ (and any they transitively refer to).
 populateConstGlobals ::
-  ( ?lc :: TypeContext
+  ( sym ~ ExprBuilder s t st
+  , ?lc :: TypeContext
   , ?memOpts :: MemOptions
   , 16 <= wptr
   , HasPtrWidth wptr
@@ -344,8 +348,9 @@ populateExternalGlobal bak gl memty mem
 -- | Write the value of the given LLVMConst into the given global variable.
 --   This is intended to be used at initialization time, and will populate
 --   even read-only global data.
-populateGlobal :: forall sym bak wptr.
-  ( ?lc :: TypeContext
+populateGlobal :: forall sym bak wptr s t st.
+  ( sym ~ ExprBuilder s t st
+  , ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymBackend sym bak

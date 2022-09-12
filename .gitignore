@@ -1,4 +1,7 @@
 /build/
+/.history/
+/crux-build/
+/results/
 .cabal-sandbox
 .stack-work
 **/cabal.config

@@ -74,6 +74,7 @@ import qualified Lang.Crucible.LLVM.MemModel as C
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as C hiding (Mem)
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as C
 import qualified Lang.Crucible.LLVM.MemModel.Type as C
+import What4.Expr (ExprBuilder)
 
 
 -- | When live loop-carried dependencies are discovered as we traverse
@@ -379,7 +380,7 @@ loopIndexStartStepCondition sym LoopIndexBound{ index = loop_index, start = star
 
 
 loadMemJoinVariables ::
-  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
+  (sym ~ ExprBuilder s t st, C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
   Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
@@ -396,7 +397,7 @@ loadMemJoinVariables bak mem subst =
     (Map.toAscList subst)
 
 storeMemJoinVariables ::
-  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
+  (sym ~ ExprBuilder s t st, C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
   Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
@@ -479,8 +480,8 @@ userSymbol' = fromRight (C.panic "SimpleLoopFixpoint.userSymbol'" []) . W4.userS
 --   loop. The number and order of these variables depends on
 --   internal details of the representation, so is relatively fragile.
 simpleLoopFixpoint ::
-  forall sym ext p rtp blocks init ret .
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
+  forall sym ext p rtp blocks init ret s t st.
+  (sym ~ ExprBuilder s t st, C.IsSymInterface sym, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   sym ->
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
@@ -586,8 +587,8 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
 
 
 advanceFixpointState ::
-  forall sym bak ext p rtp blocks r args .
-  (C.IsSymBackend sym bak, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
+  forall sym bak ext p rtp blocks r args s t st.
+  (sym ~ ExprBuilder s t st, C.IsSymBackend sym bak, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
   bak ->
   C.GlobalVar C.Mem ->
   (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), W4.Pred sym)) ->

@@ -137,6 +137,13 @@ library
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Structural
 
+    Lang.Crucible.Protobuf.CrucibleEncodings
+
+    Lang.Crucible.Protobuf.Encodings.ExecState
+    Lang.Crucible.Protobuf.Encodings.Events
+    Lang.Crucible.Protobuf.Encodings.Assumptions
+    Lang.Crucible.Protobuf.Encodings.Abort
+
   if flag(unsafe-operations)
     cpp-options: -DUNSAFE_OPS
 

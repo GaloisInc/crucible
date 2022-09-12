@@ -36,6 +36,8 @@ import           Crux.LLVM.Compile
 import qualified Crux.LLVM.Log as Log
 import           Crux.LLVM.Simulate
 import           Paths_crux_llvm (version)
+import qualified Data.ByteString as SB
+import           CrucibleProtobufTrace.GlobalEncodingState (writeOutProtobufTrace, setOutDirRef, getOutDirRef)
 
 
 mainWithOutputTo :: Handle -> IO ExitCode
@@ -81,10 +83,13 @@ mainWithOptions ::
 mainWithOptions initOpts =
   do
     (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
+    setOutDirRef (Crux.outDir cruxOpts)
     bcFile <- genBitCode cruxOpts llvmOpts
     res <- Crux.runSimulator cruxOpts $ simulateLLVMFile bcFile llvmOpts
     makeCounterExamplesLLVM cruxOpts llvmOpts res
-    Crux.postprocessSimResult True cruxOpts res
+    x <- Crux.postprocessSimResult True cruxOpts res
+    writeOutProtobufTrace ((Crux.outDir cruxOpts) </> "trace.proto")
+    return x
 
 processLLVMOptions :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 processLLVMOptions (cruxOpts,llvmOpts) =

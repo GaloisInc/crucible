@@ -71,6 +71,7 @@ import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
+import What4.Expr (ExprBuilder)
 
 -- | This type represents an implementation of an LLVM intrinsic function in
 -- Crucible.
@@ -234,8 +235,8 @@ register_1arg_polymorphic_override prefix overrideFn =
          -> case overrideFn w of SomeLLVMOverride ovr -> register_llvm_override ovr
        _ -> empty
 
-basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+basic_llvm_override :: forall p args ret sym arch wptr l a rtp s t st.
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   LLVMOverride p sym args ret ->
   OverrideTemplate p sym arch rtp l a
 basic_llvm_override ovr = OverrideTemplate (ExactMatch nm) (register_llvm_override ovr)

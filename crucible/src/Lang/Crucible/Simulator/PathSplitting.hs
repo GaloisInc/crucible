@@ -154,8 +154,9 @@ pathSplittingFeature wl = ExecutionFeature $ \case
 --   The return value of this function is the number of paths that were
 --   completed, and a list of remaining paths (if any) that were not
 --   explored due to timeout or early exit.
-executeCrucibleDFSPaths :: forall p sym ext rtp.
-  ( IsSymInterface sym
+executeCrucibleDFSPaths :: forall p sym ext rtp s t st.
+  ( sym ~ (ExprBuilder s t st)
+  , IsSymInterface sym
   , IsSyntaxExtension ext
   , PP.Pretty rtp
   ) =>

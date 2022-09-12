@@ -37,6 +37,7 @@ obligations with a solver backend.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Lang.Crucible.Backend
   ( IsSymBackend(..)
   , IsSymInterface

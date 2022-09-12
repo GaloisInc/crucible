@@ -79,6 +79,7 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MuxTree
 
+import           Lang.Crucible.Protobuf.CrucibleEncodings ()
 
 -- | Retrieve the value of a register.
 evalReg ::
@@ -202,8 +203,8 @@ readRef bak iTypes tpr rs globs =
 --   statement of the Crucible evaluator.
 --
 --   This is allowed to throw user exceptions or 'SimError'.
-stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+stepStmt :: forall p sym ext rtp blocks r ctx ctx' s t st.
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
   Stmt ext ctx ctx' {- ^ Statement to evaluate -} ->
   StmtSeq ext blocks r ctx' {- ^ Remaining statements in the block -} ->
@@ -344,8 +345,8 @@ stepStmt verb stmt rest =
 --   statement of the Crucible evaluator.
 --
 --   This is allowed to throw user exceptions or 'SimError'.
-stepTerm :: forall p sym ext rtp blocks r ctx.
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+stepTerm :: forall p sym ext rtp blocks r ctx s t st.
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Verbosity -} ->
   TermStmt blocks r ctx {- ^ Terminating statement to evaluate -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
@@ -417,7 +418,7 @@ stepTerm _ (ErrorStmt msg) =
 -- | Checks whether the StmtSeq is a Cons or a Term,
 --   to give callers another chance to jump into Crucible's control flow
 checkConsTerm ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 checkConsTerm verb =
@@ -432,7 +433,7 @@ checkConsTerm verb =
 --
 --   This is allowed to throw user exceptions or 'SimError'.
 stepBasicBlock ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepBasicBlock verb =
@@ -463,7 +464,7 @@ ppStmtAndLoc h sh pl stmt = do
   hFlush h
 
 performStateRun ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, IsSyntaxExtension ext) =>
   RunningStateInfo blocks ctx ->
   Int {- ^ Current verbosity -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
@@ -480,7 +481,7 @@ performStateRun info verb = case info of
 --   for final results, or construct the appropriate 'ExecCont' for
 --   continuing the computation and enter the provided intermediate continuation.
 dispatchExecState ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  (sym ~ (ExprBuilder s t st), IsSymInterface sym, IsSyntaxExtension ext, PP.Pretty rtp) =>
   IO Int {- ^ Action to query the current verbosity -} ->
   ExecState p sym ext rtp {- ^ Current execution state of the simulator -} ->
   (ExecResult p sym ext rtp -> IO z) {- ^ Final continuation for results -} ->
@@ -556,7 +557,7 @@ advanceCrucibleState m st =
 
 -- | Run a single step of the Crucible symbolic simulator.
 singleStepCrucible ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  (sym ~ (ExprBuilder s t st), IsSymInterface sym, IsSyntaxExtension ext, PP.Pretty rtp) =>
   Int {- ^ Current verbosity -} ->
   ExecState p sym ext rtp ->
   IO (ExecState p sym ext rtp)
@@ -650,7 +651,8 @@ genericToExecutionFeature (GenericExecutionFeature f) = ExecutionFeature f
 --   'AbortExecReason' exceptions and 'UserError'
 --   exceptions and invoking the 'errorHandler'
 --   contained in the state.
-executeCrucible :: forall p sym ext rtp.
+executeCrucible :: forall p sym ext rtp s t st.
+  (sym ~ (ExprBuilder s t st), PP.Pretty rtp) =>
   ( IsSymInterface sym
   , IsSyntaxExtension ext
   ) =>

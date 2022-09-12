@@ -36,11 +36,11 @@ module Lang.Crucible.LLVM.MemModel.Pointer
     -- * Crucible pointer representation
   , LLVMPointerType
   , LLVMPtr
+  , LLVMPointer (..)
   , SomePointer(..)
   , pattern LLVMPointerRepr
   , pattern PtrRepr
   , pattern SizeT
-  , pattern LLVMPointer
   , ptrWidth
   , llvmPointerView
   , llvmPointerBlock

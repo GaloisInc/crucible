@@ -66,7 +66,7 @@ module Lang.Crucible.LLVM.MemModel
   , doMallocUnbounded
   , G.AllocType(..)
   , G.Mutability(..)
-  , doMallocHandle
+  -- , doMallocHandle
   , ME.FuncLookupError(..)
   , ME.ppFuncLookupError
   , doLookupHandle
@@ -198,7 +198,7 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
-import           Data.Text (Text)
+import           Data.Text (Text, pack)
 import           Data.Word
 import qualified GHC.Stack as GHC
 import           Numeric.Natural (Natural)
@@ -213,7 +213,7 @@ import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
 import           What4.Interface
-import           What4.Expr( GroundValue )
+import           What4.Expr( GroundValue, ExprBuilder, Expr )
 import           What4.InterpretedFloatingPoint
 import           What4.ProgramLoc
 
@@ -250,7 +250,19 @@ import           Lang.Crucible.Panic (panic)
 
 import           GHC.Stack (HasCallStack)
 import qualified Text.Printf as Text
+import           CrucibleProtobufTrace.Encoding (ProtoEncoding (encodeProto))
+import           CrucibleProtobufTrace.GlobalEncodingState (addProtobufTraceEvent)
+import           CrucibleProtobufTrace.What4Encodings (SymExprWrapper (SymExprWrapper), expr_id)
+import qualified CrucibleProtobufTrace.ProtoDefs.LlvmVal as ProtoL
+import qualified CrucibleProtobufTrace.ProtoDefs.MemoryState as ProtoMS
+import qualified CrucibleProtobufTrace.ProtoDefs.OperationTrace as ProtoOT
+import qualified CrucibleProtobufTrace.ProtoDefs.MemoryEvents as ProtoM
+import qualified CrucibleProtobufTrace.ProtoDefs.SymExpr as ProtoS
 
+import Data.ProtoLens (Message(defMessage))
+import Lang.Crucible.Protobuf.Encodings.Events (encodePathID)
+import Lang.Crucible.LLVM.MemModel.MemLog (WriteSource)
+import Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal(..))
 
 ----------------------------------------------------------------------
 -- The MemImpl type
@@ -355,7 +367,7 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec ::
-  (Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  (sym ~ ExprBuilder s t st, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   EvalStmtFunc p sym LLVM
 llvmStatementExec stmt cst =
   let simCtx = cst^.stateContext
@@ -369,8 +381,8 @@ type EvalM p sym ext rtp blocks ret args a =
 --   The semantics are explicitly organized as a state transformer monad
 --   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
-evalStmt :: forall p sym bak ext rtp blocks ret args tp.
-  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, GHC.HasCallStack, ?memOpts :: MemOptions) =>
+evalStmt :: forall p sym bak ext rtp blocks ret args tp s t st.
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak, Partial.HasLLVMAnn sym, GHC.HasCallStack, ?memOpts :: MemOptions) =>
   bak ->
   LLVMStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -551,7 +563,7 @@ ptrMessage msg ptr ty =
 
 -- | Allocate memory on the stack frame of the currently executing function.
 doAlloca ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -566,12 +578,15 @@ doAlloca bak mem sz alignment loc = do
   z <- liftIO $ bvLit sym PtrWidth (BV.zero PtrWidth)
 
   let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable loc (memImplHeap mem)
+
   let ptr   = LLVMPointer blk z
   let mem'  = mem{ memImplHeap = heap' }
   mem'' <- if laxLoadsAndStores ?memOpts
                 && indeterminateLoadBehavior ?memOpts == StableSymbolic
            then doConstStoreStableSymbolic bak mem' ptr (Just sz) alignment
            else pure mem'
+
+  recordMemAllocEvent bak mem (Just sz) G.StackAlloc G.Mutable loc alignment blkNum
   pure (ptr, mem'')
 
 -- | Load a 'RegValue' from memory. Both the 'StorageType' and 'TypeRepr'
@@ -581,7 +596,7 @@ doAlloca bak mem sz alignment loc = do
 --
 -- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -594,7 +609,7 @@ doLoad bak mem ptr valType tpr alignment = do
   let sym = backendGetSym bak
   unpackMemValue sym tpr =<<
     Partial.assertSafe bak =<<
-      loadRaw sym mem ptr valType alignment
+      loadRaw bak mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
 -- arguments should be computed from a single 'MemType' using
@@ -604,6 +619,7 @@ doLoad bak mem ptr valType tpr alignment = do
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doStore ::
   ( IsSymBackend sym bak
+  , sym ~ ExprBuilder s t st
   , HasPtrWidth wptr
   , Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
@@ -645,7 +661,7 @@ sextendBVTo sym w w' x
 --
 -- Precondition: the multiplication /size * number/ does not overflow.
 doCalloc ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -670,7 +686,7 @@ doCalloc bak mem sz num alignment = do
 
 -- | Allocate a memory region.
 doMalloc
-  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> G.AllocType {- ^ stack, heap, or global -}
@@ -684,7 +700,7 @@ doMalloc bak allocType mut loc mem sz alignment = doMallocSize (Just sz) bak all
 
 -- | Allocate a memory region of unbounded size.
 doMallocUnbounded
-  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> G.AllocType {- ^ stack, heap, or global -}
@@ -696,7 +712,7 @@ doMallocUnbounded
 doMallocUnbounded = doMallocSize Nothing
 
 doMallocSize
-  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => Maybe (SymBV sym wptr) {- ^ allocation size -}
   -> bak
@@ -713,6 +729,9 @@ doMallocSize sz bak allocType mut loc mem alignment = do
   z      <- bvLit sym PtrWidth (BV.zero PtrWidth)
   let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
+
+  recordMemAllocEvent bak mem sz allocType mut loc alignment blkNum
+
   let mem'  = mem{ memImplHeap = heap' }
   mem'' <- if laxLoadsAndStores ?memOpts
                 && allocType == G.HeapAlloc
@@ -804,7 +823,7 @@ doLookupHandle _sym mem ptr = do
 -- Precondition: the pointer either points to the beginning of an allocated
 -- region, or is null. Freeing a null pointer has no effect.
 doFree
-  :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+  :: (sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -814,6 +833,8 @@ doFree bak mem ptr = do
   let LLVMPointer blk _off = ptr
   loc <- show . plSourceLoc <$> getCurrentProgramLoc sym
   (heap', p1, p2, notFreed) <- G.freeMem sym PtrWidth ptr (memImplHeap mem) loc
+
+  recordMemFreeEvent bak mem ptr loc p1 p2 notFreed
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -837,7 +858,7 @@ doFree bak mem ptr = do
 --
 -- Precondition: the memory range falls within a valid allocated region.
 doMemset ::
-  (1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (sym ~ ExprBuilder s t st, 1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   bak ->
   NatRepr w ->
   MemImpl sym ->
@@ -850,6 +871,8 @@ doMemset bak w mem dest val len = do
   len' <- sextendBVTo sym w PtrWidth len
 
   (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
+
+  recordMemSetEvent bak mem dest val len' p
 
   let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
   assertUndefined bak callStack p $
@@ -997,7 +1020,7 @@ doArrayConstStoreSize len bak mem ptr alignment arr = do
 -- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
 doMemcpy ::
-  ( 1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ (ExprBuilder s t st), 1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   NatRepr w ->
@@ -1012,6 +1035,8 @@ doMemcpy bak w mem mustBeDisjoint dest src len = do
   len' <- sextendBVTo sym w PtrWidth len
 
   (heap', p1, p2) <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
+
+  recordMemCpyEvent bak mem mustBeDisjoint dest src len' p1 p2
 
   let gsym_dest = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) dest
   let gsym_src = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) src
@@ -1102,7 +1127,6 @@ doStoreStableSymbolic bak mem ptr mbSz alignment = do
   case mbSz of
     Just sz -> doArrayStore bak mem ptr alignment bytes sz
     Nothing -> doArrayStoreUnbounded bak mem ptr alignment bytes
-
 -- | Store a fresh symbolic value of the appropriate size in the supplied
 -- pointer. This is used in various spots whenever 'laxLoadsAndStores' is
 -- enabled and 'indeterminateLoadBehavior' is set to 'StableSymbolic'.
@@ -1164,7 +1188,7 @@ isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
 --   of the string may be symbolic; HOWEVER, this function will not terminate
 --   until it eventually reaches a concete null-terminator or a load error.
 strLen ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
@@ -1175,7 +1199,7 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
   sym = backendGetSym bak
 
   go !n cond p =
-    loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
+    loadRaw bak mem p (bitvectorType 1) noAlignment >>= \case
       Partial.Err pe ->
         do ast <- impliesPred sym cond pe
            assert bak ast $ AssertFailureSimError "Error during memory load: strlen" ""
@@ -1203,8 +1227,8 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
 -- terminated.  If a maximum number of characters is provided, no more
 -- than that number of charcters will be read.  In either case,
 -- `loadString` will stop reading if it encounters a null-terminator.
-loadString :: forall sym bak wptr.
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+loadString :: forall sym bak wptr s t st.
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions, GHC.HasCallStack ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
@@ -1234,7 +1258,7 @@ loadString bak mem = go id
 --   the pointer is null, we return Nothing.  Otherwise we load
 --   the string as with 'loadString' and return it.
 loadMaybeString ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions, GHC.HasCallStack ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
@@ -1276,22 +1300,33 @@ toStorableType mt =
 
 -- | Load an LLVM value from memory. Asserts that the pointer is valid and the
 -- result value is not undefined.
-loadRaw :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
-           , ?memOpts :: MemOptions )
-        => sym
+loadRaw ::
+  ( sym ~ ExprBuilder s t st
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions
+  )
+        => bak
         -> MemImpl sym
         -> LLVMPtr sym wptr
         -> StorageType
         -> Alignment
         -> IO (Partial.PartLLVMVal sym)
-loadRaw sym mem ptr valType alignment = do
+loadRaw bak mem ptr valType alignment = do
+  let sym = backendGetSym bak
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
-  G.readMem sym PtrWidth gsym ptr valType alignment (memImplHeap mem)
+  result <- G.readMem sym PtrWidth gsym ptr valType alignment (memImplHeap mem)
+
+  recordMemReadEvent bak mem ptr valType alignment result
+
+  return result
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.
 storeRaw ::
-     ( IsSymBackend sym bak
+     ( sym ~ ExprBuilder s t st
+     , IsSymBackend sym bak
      , HasPtrWidth wptr
      , Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
@@ -1306,6 +1341,8 @@ storeRaw bak mem ptr valType alignment val = do
     let sym = backendGetSym bak
     let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
     (heap', p1, p2) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
+
+    recordMemStoreEvent bak mem (truePred sym) False ptr valType alignment val p1 p2
 
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
@@ -1368,7 +1405,8 @@ mergeWriteOperations bak mem cond true_write_op false_write_op = do
 -- Asserts that the pointer is valid and points to a mutable memory
 -- region when cond is true.
 condStoreRaw ::
-     ( IsSymBackend sym bak
+     ( sym ~ ExprBuilder s t st
+     , IsSymBackend sym bak
      , HasPtrWidth wptr
      , Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions
@@ -1393,6 +1431,9 @@ condStoreRaw bak mem cond ptr valType alignment val = do
 
   -- Write to the heap
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
+
+  recordMemStoreEvent bak mem cond False ptr valType alignment val isAllocated isAligned
+
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
      assertStoreError bak mop UnwritableRegion condIsAllocated
@@ -1409,7 +1450,8 @@ condStoreRaw bak mem cond ptr valType alignment val = do
 -- be either mutable or immutable; thus 'storeConstRaw' can be used to
 -- initialize read-only memory regions.
 storeConstRaw ::
-     ( IsSymBackend sym bak
+     ( sym ~ ExprBuilder s t st
+     , IsSymBackend sym bak
      , HasPtrWidth wptr
      , Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
@@ -1425,6 +1467,8 @@ storeConstRaw bak mem ptr valType alignment val = do
     let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
     (heap', p1, p2) <- G.writeConstMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
+    recordMemStoreEvent bak mem (truePred sym) True ptr valType alignment val p1 p2
+
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
     assertStoreError bak mop UnwritableRegion p1
@@ -1435,7 +1479,7 @@ storeConstRaw bak mem ptr valType alignment val = do
 
 -- | Allocate a memory region on the heap, with no source location info.
 mallocRaw
-  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> MemImpl sym
@@ -1447,7 +1491,7 @@ mallocRaw bak mem sz alignment =
 
 -- | Allocate a read-only memory region on the heap, with no source location info.
 mallocConstRaw
-  :: ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  :: ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
      , ?memOpts :: MemOptions )
   => bak
   -> MemImpl sym
@@ -1852,7 +1896,7 @@ registerGlobal (MemImpl blockSource gMap sMap hMap mem) symbols ptr =
 -- | Allocate memory for each global, and register all the resulting
 -- pointers in the global map.
 allocGlobals ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   [(L.Global, [L.Symbol], Bytes, Alignment)] ->
@@ -1861,7 +1905,7 @@ allocGlobals ::
 allocGlobals bak gs mem = foldM (allocGlobal bak) mem gs
 
 allocGlobal ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym ->
@@ -1895,3 +1939,412 @@ concMemImpl sym conc mem =
   do heap' <- ML.concMem sym conc (memImplHeap mem)
      gm'   <- traverse (concSomePointer sym conc) (memImplGlobalMap mem)
      pure mem{ memImplHeap = heap', memImplGlobalMap = gm' }
+
+
+
+
+
+-------------------------------------------- PROTOBUF --------------------------------------------
+
+instance (sym ~ ExprBuilder s t st) => ProtoEncoding (FloatSize info) ProtoS.FloatSize where
+  encodeProto x = return $ case x of
+    SingleSize -> ProtoS.SINGLE
+    DoubleSize -> ProtoS.DOUBLE
+    X86_FP80Size -> ProtoS.X86_80
+
+instance (sym ~ ExprBuilder s t st)  => ProtoEncoding (LLVMVal sym) ProtoL.LLVMVal where
+    encodeProto (LLVMValInt block_num offset) = do
+      alloc_id <- (encodeProto block_num)
+      off <- (encodeProto $ (SymExprWrapper offset))
+      return
+        $ defMessage
+            & ProtoL.maybe'intValue .~ _Just # (
+                defMessage
+                    & ProtoL.allocationId .~ alloc_id
+                    & ProtoL.offset .~ off
+            )
+    encodeProto (LLVMValString bs) = do
+      return
+        $ defMessage
+            & ProtoL.maybe'stringValue .~ _Just # (
+                defMessage
+                    & ProtoL.bytes .~ bs
+            )
+
+    encodeProto (LLVMValZero st) = do
+      st' <- (encodeProto st)
+      return
+        $ defMessage
+            & ProtoL.maybe'zeroValue .~ _Just # (
+                defMessage
+                    & ProtoL.storageType .~ st'
+            )
+
+    -- encodeProto (LLVMValUndef st) = do
+    --   st' <- (encodeProto st)
+    --   return
+    --     $ defMessage
+    --         & ProtoL.maybe'undefValue .~ _Just # (
+    --             defMessage
+    --                 & ProtoL.storageType .~ st'
+    --         )
+
+    encodeProto (LLVMValArray st entries) = do
+      st' <- (encodeProto st)
+      entries' <- (mapM encodeProto entries)
+      return
+        $ defMessage
+            & ProtoL.maybe'arrayValue .~ _Just # (
+                defMessage
+                    & ProtoL.valueType .~ st'
+                    & ProtoL.arrayValues .~ V.toList entries'
+            )
+
+    encodeProto (LLVMValStruct fields) = do
+      fields' <- mapM encodeField fields
+      return
+        $ defMessage
+            & ProtoL.maybe'structValue .~ _Just # (
+                defMessage
+                    & ProtoL.fields .~ V.toList fields'
+            )
+      where
+        encodeField :: (Field StorageType, LLVMVal sym) -> IO ProtoL.LLVMValStructField
+        encodeField (fld, val)= do
+          fld' <- encodeProto fld
+          val' <- encodeProto val
+          return
+            $ defMessage
+              & ProtoL.fieldType .~ fld'
+              & ProtoL.fieldValue .~ val'
+
+    encodeProto (LLVMValFloat floatSize expr) = do
+      float_size <- encodeProto floatSize
+      expr' <- expr_id expr
+      return
+        $ defMessage
+            & ProtoL.maybe'floatValue .~ _Just # (
+                defMessage
+                    & ProtoL.floatSize .~ float_size
+                    & ProtoL.value .~ expr'
+            )
+
+    encodeProto x = return $ error $ Text.printf "encodeProto: LLVMVal: unsupported type: %s" $ show x
+
+instance sym ~ (ExprBuilder s t st) => ProtoEncoding (LLVMPointer sym w) ProtoL.LLVMPointer where
+    encodeProto (LLVMPointer block_num offset) = do
+      alloc_id <- encodeProto block_num
+      off <- (encodeProto $ (SymExprWrapper offset))
+      return
+        $ defMessage
+            & ProtoL.allocationId .~ alloc_id
+            & ProtoL.offset .~ off
+
+instance ProtoEncoding Alignment Word64 where
+  encodeProto = return . fromIntegral . bytesToInteger . fromAlignment
+
+instance ProtoEncoding (Field StorageType) ProtoL.StorageTypeStructField where
+  encodeProto fld = do
+    ty' <- encodeProto $ view fieldVal fld
+    return
+      $ defMessage
+          & ProtoL.offset .~ (fromIntegral . bytesToInteger $ fieldOffset fld)
+          & ProtoL.valType .~ ty'
+          & ProtoL.numBytesPadding .~ (fromIntegral . bytesToInteger $ fieldPad fld)
+
+
+instance ProtoEncoding StorageType ProtoL.StorageType where
+  encodeProto (StorageType tp size) = do
+    tp' <- encodeProto tp
+    return
+      $ defMessage
+          & ProtoL.storageType .~ tp'
+          & ProtoL.sizeInBytes .~ (fromIntegral size)
+
+instance ProtoEncoding (StorageTypeF StorageType) ProtoL.StorageTypeF where
+  encodeProto x = do
+    case x of
+      Bitvector w ->
+        return
+          $ defMessage
+              & ProtoL.maybe'bitVector .~ _Just # (
+                defMessage
+                  & ProtoL.numBytes .~ (fromIntegral w)
+              )
+      Float ->
+        return
+          $ defMessage
+            & ProtoL.maybe'float .~ _Just # (
+              defMessage
+                & ProtoL.size .~ ProtoS.SINGLE
+              )
+      Double ->
+        return
+          $ defMessage
+            & ProtoL.maybe'float .~ _Just # (
+              defMessage
+                & ProtoL.size .~ ProtoS.DOUBLE
+              )
+      X86_FP80 ->
+        return
+          $ defMessage
+            & ProtoL.maybe'float .~ _Just # (
+              defMessage
+                & ProtoL.size .~ ProtoS.X86_80
+              )
+      Array n tp -> do
+        encodedType <- encodeProto tp
+        return
+          $ defMessage
+            & ProtoL.maybe'array .~ _Just # (
+              defMessage
+                & ProtoL.numElements .~ (fromIntegral n)
+                & ProtoL.elementType .~ encodedType
+              )
+      Struct fields -> do
+        encodedFields <- mapM encodeProto fields
+        return
+          $ defMessage
+            & ProtoL.maybe'struct .~ _Just # (
+              defMessage
+                & ProtoL.fields .~ (V.toList encodedFields)
+              )
+
+instance sym ~ ExprBuilder s t st => ProtoEncoding (Partial.PartLLVMVal sym) ProtoL.PartialLLVMVal where
+  encodeProto (Err pred) = do
+    pred' <- encodeProto $ SymExprWrapper pred
+    return
+      $ defMessage
+          & ProtoL.predicate .~ pred'
+          & ProtoL.maybe'error .~ _Just # True
+
+  encodeProto (NoErr pred val) = do
+    pred' <- encodeProto $ SymExprWrapper pred
+    val' <- encodeProto val
+    -- let y = val' _
+    return
+      $ defMessage
+          & ProtoL.predicate .~ pred'
+          & ProtoL.maybe'result .~ _Just # val'
+
+recordMemAllocEvent :: (
+    sym ~ (ExprBuilder s t st)
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  MemImpl sym ->
+  Maybe (SymBV sym wptr) ->
+  G.AllocType ->
+  G.Mutability ->
+  String ->
+  Alignment ->
+  Natural ->
+  IO ()
+recordMemAllocEvent bak mem sz allocType mut loc alignment blkNum = do
+  let encodedAllocType = case allocType of
+        G.StackAlloc -> ProtoMS.STACK
+        G.HeapAlloc -> ProtoMS.HEAP
+        G.GlobalAlloc -> ProtoMS.GLOBAL
+
+  encodedAlignment <- encodeProto alignment
+
+  let msg_base = defMessage
+                    & ProtoM.allocationIdConcrete .~ (fromIntegral blkNum)
+                    & ProtoM.locationDescription .~ (Data.Text.pack loc)
+                    & ProtoM.allocationType .~ encodedAllocType
+                    & ProtoM.byteAlignment .~ encodedAlignment
+
+  msg_base' <- case sz of
+                  Just sz' -> do
+                    encodedSz <- encodeProto $ SymExprWrapper sz'
+                    return $ msg_base & ProtoM.size .~ encodedSz
+                  Nothing -> return msg_base
+
+  recordMemoryEvent bak
+        $ defMessage
+            & ProtoM.maybe'alloc .~ _Just # msg_base'
+
+recordMemFreeEvent :: (
+  sym ~ ExprBuilder s t st
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  MemImpl sym ->
+  LLVMPtr sym wptr ->
+  String ->
+  Pred sym    {- is_null_ptr -} ->
+  Pred sym  {- was_allocated -} ->
+  Pred sym       {- notFreed -} ->
+  IO ()
+
+recordMemFreeEvent bak mem ptr loc_desc isNullPtr wasAllocated notFreed = do
+  encodedPtr <- encodeProto ptr
+
+  recordMemoryEvent bak
+    $ defMessage
+        & ProtoM.maybe'free .~ _Just # (
+          defMessage
+            & ProtoM.ptrFreed .~ encodedPtr
+            & ProtoM.locationDescription .~ (pack loc_desc)
+        )
+
+
+recordMemStoreEvent :: (
+    sym ~ (ExprBuilder s t st)
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  MemImpl sym ->
+  Pred sym ->
+  Bool ->
+  LLVMPtr sym wptr ->
+  StorageType ->
+  Alignment ->
+  LLVMVal sym ->
+  Pred sym ->
+  Pred sym ->
+  IO ()
+recordMemStoreEvent bak mem condition isConstWrite ptr valType alignment val p1 p2 = do
+  encodedPtr <- encodeProto ptr
+  encodedCondition <- encodeProto $ SymExprWrapper condition
+  encodedStorageType <- encodeProto valType
+  encodedAlignment <- encodeProto alignment
+  encodedVal <- encodeProto val
+
+  recordMemoryEvent bak
+    $ defMessage
+      & ProtoM.maybe'write .~ _Just # (
+        defMessage
+          & ProtoM.condition .~ encodedCondition
+          & ProtoM.isConstWrite .~ isConstWrite
+          & ProtoM.dst .~ encodedPtr
+          & ProtoM.src .~ (
+            defMessage
+              & ProtoMS.maybe'srcMemStore .~ _Just # (
+                defMessage
+                  & ProtoMS.storageType .~ encodedStorageType
+                  & ProtoMS.byteAlignment .~ encodedAlignment
+                  & ProtoMS.value .~ encodedVal
+              )
+          )
+      )
+
+recordMemReadEvent :: (
+    sym ~ ExprBuilder s t st
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  MemImpl sym ->
+  LLVMPtr sym wptr ->
+  StorageType ->
+  Alignment ->
+  Partial.PartLLVMVal sym ->
+  IO ()
+recordMemReadEvent bak mem ptr valType alignment readResult = do
+  encodedPtr <- encodeProto ptr
+  encodedStorageType <- encodeProto valType
+  encodedAlignment <- encodeProto alignment
+  -- encodedReadResult <- encodeProto readResult
+
+  recordMemoryEvent bak
+    $ defMessage
+      & ProtoM.maybe'read .~ _Just # (
+        defMessage
+          & ProtoM.addr .~ encodedPtr
+          & ProtoM.valueType .~ encodedStorageType
+          & ProtoM.byteAlignment .~ encodedAlignment
+          -- & ProtoM.readValue .~ encodedReadResult
+      )
+
+
+
+recordMemCpyEvent :: (
+    sym ~ (ExprBuilder s t st)
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  MemImpl sym ->
+  Bool {- ^ if true, require disjoint memory regions -} ->
+  LLVMPtr sym wptr {- ^ destination -} ->
+  LLVMPtr sym wptr {- ^ source      -} ->
+  SymBV sym w      {- ^ length      -} ->
+  Pred sym         {- ^ src_valid   -} ->
+  Pred sym         {- ^ dst_valid   -}  ->
+  IO ()
+recordMemCpyEvent bak mem requireDisjoint dst src len src_is_valid_pred dst_is_valid_pred = do
+    encodedDest <- encodeProto dst
+    encodedSource <- encodeProto src
+    encodedLen <- encodeProto $ SymExprWrapper len
+
+    recordMemoryEvent bak $ defMessage
+        & ProtoM.maybe'write .~ _Just # (
+            defMessage
+              & ProtoM.dst .~ encodedDest
+              & ProtoM.src .~ (defMessage
+                  & ProtoMS.maybe'srcMemCopy .~ _Just # (defMessage
+                          & ProtoMS.addr .~ encodedSource
+                          & ProtoMS.size .~ encodedLen
+                          & ProtoMS.requireDisjoint .~ requireDisjoint
+                        )
+              )
+        )
+
+recordMemSetEvent ::  (
+    sym ~ (ExprBuilder s t st)
+  , IsSymBackend sym bak
+  , HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ destination -} ->
+  SymBV sym 8      {- ^ val      -} ->
+  SymBV sym w      {- ^ length      -} ->
+  Pred sym         {- ^ dst_valid   -}  ->
+  IO ()
+recordMemSetEvent bak mem dst val len pred_dst_valid = do
+  encodedDest <- encodeProto dst
+  encodedVal <- encodeProto $ SymExprWrapper val
+  encodedLen <- encodeProto $ SymExprWrapper len
+
+  recordMemoryEvent bak $ defMessage
+      & ProtoM.maybe'write .~ _Just # (
+          defMessage
+            & ProtoM.dst .~ encodedDest
+            & ProtoM.src .~ (defMessage
+                & ProtoMS.maybe'srcMemSet .~ _Just # (defMessage
+                        & ProtoMS.fillByteVal .~ encodedVal
+                        & ProtoM.size .~ encodedLen
+                      )
+            )
+      )
+
+recordMemoryEvent :: (
+    sym ~ (ExprBuilder s t st)
+  , IsSymBackend sym bak
+  , Partial.HasLLVMAnn sym
+  ) =>
+  bak ->
+  ProtoM.MemoryEvent ->
+  IO ()
+recordMemoryEvent bak event = do
+  let sym = backendGetSym bak
+  location <- getCurrentProgramLoc sym
+  loc_enc <- encodeProto $ Just location
+  _path_id <- saveAssumptionState bak >>= encodePathID
+
+  addProtobufTraceEvent
+        $ defMessage
+          & ProtoOT.pathId .~ _path_id
+          & ProtoOT.location .~ loc_enc
+          & ProtoOT.maybe'memoryEvent .~ _Just # event

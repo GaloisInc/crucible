@@ -50,6 +50,7 @@ import           Lang.Crucible.Simulator (regValue, FnVal(..))
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
+import What4.Expr (ExprBuilder)
 
 
 import           What4.Interface (getCurrentProgramLoc)
@@ -182,7 +183,7 @@ llvmGlobals
 llvmGlobals memVar mem = emptyGlobals & insertGlobal memVar mem
 
 llvmExtensionImpl ::
-  (HasLLVMAnn sym) =>
+  (sym ~ ExprBuilder s t st, HasLLVMAnn sym) =>
   MemOptions ->
   ExtensionImpl p sym LLVM
 llvmExtensionImpl mo =

@@ -39,6 +39,7 @@ import Prettyprinter
 -- what4
 import qualified What4.Expr.Builder as WEB
 import What4.Interface (bvLit, natLit)
+import What4.Expr (ExprBuilder)
 
 -- crucible
 import Lang.Crucible.Backend
@@ -100,7 +101,7 @@ import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (IsSymBackend sym bak, HasLLVMAnn sym) =>
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasLLVMAnn sym) =>
   HandleAllocator ->
   bak ->
   MemOptions ->
@@ -127,7 +128,7 @@ parseLLVM file =
 registerFunctions ::
   Crux.Logs msgs =>
   Log.SupportsCruxLLVMLogMessage msgs =>
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, ptrW ~ ArchWidth arch) =>
+  (sym ~ ExprBuilder s t st, ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, ptrW ~ ArchWidth arch) =>
   LLVMOptions ->
   LLVM.Module ->
   ModuleTranslation arch ->
@@ -231,7 +232,8 @@ data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
 -- file into the Crucible representation and add the globals and
 -- definitions from the file to the GlobalVar memory.
 
-prepLLVMModule :: IsSymBackend sym bak
+prepLLVMModule :: sym ~ ExprBuilder s t st
+               => IsSymBackend sym bak
                => HasLLVMAnn sym
                => Crux.Logs msgs
                => Log.SupportsCruxLLVMLogMessage msgs
@@ -266,7 +268,8 @@ sayTranslationWarning = Log.sayCruxLLVM . f
         Log.TranslationWarning (Text.pack (show (LLVM.ppSymbol s))) (Text.pack (show p)) msg
 
 checkFun ::
-  forall arch msgs personality sym.
+  forall arch msgs personality sym s t st.
+  sym ~ ExprBuilder s t st =>
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   ArchOk arch =>

@@ -98,7 +98,8 @@ library
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0,
-    template-haskell
+    template-haskell,
+    crucible-protobuf-trace,
 
 
 executable crux-llvm

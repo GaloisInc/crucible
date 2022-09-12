@@ -59,6 +59,7 @@ import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
 import           Lang.Crucible.LLVM.Intrinsics.Options
+import What4.Expr (ExprBuilder)
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmIntrinsicTypes =
@@ -68,7 +69,7 @@ llvmIntrinsicTypes =
 
 -- | Register all declare and define overrides
 register_llvm_overrides ::
-  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
@@ -122,7 +123,7 @@ register_llvm_overrides_ llvmctx acts decls =
          runMaybeT (flip runReaderT (decl,declnm,llvmctx) $ asum (map overrideTemplateAction acts'))
 
 register_llvm_define_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
@@ -133,7 +134,7 @@ register_llvm_define_overrides llvmModule addlOvrs llvmctx =
      (allModuleDeclares llvmModule)
 
 register_llvm_declare_overrides ::
-  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
@@ -147,7 +148,7 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
 
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
-  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   [OverrideTemplate p sym arch rtp l a]
 declare_overrides =

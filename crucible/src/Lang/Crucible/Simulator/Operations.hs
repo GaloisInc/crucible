@@ -105,6 +105,15 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import CrucibleProtobufTrace.What4Encodings (encodeProto, expr_id)
+import What4.Expr (ExprBuilder, curProgramLoc)
+import Lang.Crucible.Protobuf.Encodings.Events (buildTraceEvent, assembleBranchSwitchEvent, encodePathID, assemblePathSplitEvent, assemblePathMergeEvent, assembleCallEvent, assembleReturnEvent, assembleBranchAbortEvent)
+
+import CrucibleProtobufTrace.GlobalEncodingState (addProtobufTraceEvent)
+-- import Lang.Crucible.Protobuf.Encodings.Assumptions (encodeAssumptions, encodeFrameIdentifier)
+import Lang.Crucible.Protobuf.Encodings.Abort ()
+import Lang.Crucible.Protobuf.Encodings.Assumptions (encodeAssumptions)
+
 ---------------------------------------------------------------------
 -- Intermediate state branching/merging
 
@@ -431,7 +440,7 @@ jumpToBlock jmp = ReaderT $ return . ControlTransferState (CheckMergeResumption 
 {-# INLINE jumpToBlock #-}
 
 performControlTransfer ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   ControlResumption p sym ext rtp f ->
   ExecCont p sym ext rtp f ('Just a)
 performControlTransfer res =
@@ -481,7 +490,7 @@ conditionalBranch p xjmp yjmp = do
 --   In the final default case (corresponding to an empty list of branches),
 --   a 'VariantOptionsExhausted' abort will be executed.
 variantCases ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   [(Pred sym, ResolvedJump sym blocks)] {- ^ Variant branches to execute -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 
@@ -591,10 +600,28 @@ performIntraFrameMerge tgt = do
 
             -- We still have some more work to do, reactivate the other, postponed branch
             VFFActivePath next ->
-              do pathAssumes      <- liftIO $ popAssumptionFrame bak assume_frame
+              do
+                --  loc <- liftIO $ curProgramLoc sym
+                 _ <- liftIO $ putStrLn $ Text.printf "PathSwitch: %s" $ show $ pretty tgt
+                 assumption_state_pre <- liftIO $ (saveAssumptionState bak)
+                 pathAssumes      <- liftIO $ popAssumptionFrame bak assume_frame
                  pnot             <- liftIO $ notPred sym pred
                  new_assume_frame <-
                     liftIO $ assumeInNewFrame bak (BranchCondition loc (pausedLoc next) pnot)
+
+                 assumption_state_post <- liftIO $ (saveAssumptionState bak)
+
+                 liftIO $ do
+                  traceEvent <- buildTraceEvent
+                    (encodePathID assumption_state_pre)
+                    (curProgramLoc sym >>= (encodeProto . Just))
+                    $ assembleBranchSwitchEvent
+                        (encodePathID assumption_state_pre)
+                        (encodePathID assumption_state_post)
+                        (encodeAssumptions pathAssumes)
+                        (expr_id pred)
+                        (encodeProto $ Just loc)
+                  addProtobufTraceEvent traceEvent
 
                  -- The current branch is done
                  let new_other = VFFCompletePath pathAssumes er
@@ -605,12 +632,29 @@ performIntraFrameMerge tgt = do
               do ar <- ReaderT $ \s ->
                    mergePartialResult s tgt pred er other
 
+                 assumption_state_pre <- liftIO $ (saveAssumptionState bak)
                  -- Merge the assumptions from each branch and add to the
                  -- current assumption frame
                  pathAssumes <- liftIO $ popAssumptionFrame bak assume_frame
 
+                 assumption_state_base <- liftIO $ (saveAssumptionState bak)
                  liftIO $ addAssumptions bak
                    =<< mergeAssumptions sym pred pathAssumes otherAssumes
+
+                 assumption_state_post <- liftIO $ (saveAssumptionState bak)
+
+                 liftIO
+                  $ addProtobufTraceEvent =<< (
+                      buildTraceEvent
+                        (encodePathID assumption_state_pre)
+                        (curProgramLoc sym >>= (encodeProto . Just))
+                          $ assemblePathMergeEvent
+                                (encodePathID assumption_state_pre)
+                                (expr_id pred)
+                                (encodeAssumptions pathAssumes)
+                                (encodeAssumptions otherAssumes)
+                                (encodePathID assumption_state_post)
+                  )
 
                  -- Check for more potential merge targets.
                  withReaderT
@@ -632,7 +676,8 @@ performIntraFrameMerge tgt = do
       -- There are no pending merges to deal with.  Instead, complete
       -- the transfer of control by either transitioning into an ordinary
       -- running state, or by returning a value to the calling context.
-      _ -> case tgt of
+      _ -> do
+            case tgt of
              BlockTarget bid ->
                continue (RunPostBranchMerge bid)
              ReturnTarget ->
@@ -645,7 +690,7 @@ performIntraFrameMerge tgt = do
 -- Abort handling
 
 -- | The default abort handler calls `abortExecAndLog`.
-defaultAbortHandler :: IsSymInterface sym => AbortHandler p sym ext rtp
+defaultAbortHandler :: (sym ~ ExprBuilder s t st, IsSymInterface sym) => AbortHandler p sym ext rtp
 defaultAbortHandler = AH abortExecAndLog
 
 -- | Abort the current execution and roll back to the nearest
@@ -654,7 +699,7 @@ defaultAbortHandler = AH abortExecAndLog
 --
 --   The default abort handler calls this function.
 abortExecAndLog ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   AbortExecReason ->
   ExecCont p sym ext rtp f args
 abortExecAndLog rsn = do
@@ -676,7 +721,7 @@ abortExecAndLog rsn = do
 -- | Abort the current execution and roll back to the nearest
 --   symbolic branch point.
 abortExec ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   AbortExecReason ->
   ExecCont p sym ext rtp f args
 abortExec rsn = do
@@ -694,20 +739,22 @@ abortExec rsn = do
 
 -- | Resolve the fact that the current branch aborted.
 resumeValueFromFrameAbort ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   ValueFromFrame p sym ext r f ->
   AbortedResult sym ext {- ^ The execution that is being aborted. -} ->
   ExecCont p sym ext r g args
 resumeValueFromFrameAbort ctx0 ar0 = do
   simCtx <- view stateContext
   sym <- view stateSymInterface
+  loc <- liftIO $ getCurrentProgramLoc sym
   withBackend simCtx $ \bak ->
     case ctx0 of
-
       -- This is the first abort.
       VFFBranch ctx assume_frame loc pred other_branch tgt ->
         do pnot <- liftIO $ notPred sym pred
            let nextCtx = VFFPartial ctx loc pnot ar0 NeedsToBeAborted
+
+           assumption_state_pre <- liftIO $ (saveAssumptionState bak)
 
            -- Reset the backend path state
            _assumes <- liftIO $ popAssumptionFrame bak assume_frame
@@ -716,7 +763,12 @@ resumeValueFromFrameAbort ctx0 ar0 = do
 
              -- We have some more work to do.
              VFFActivePath n ->
-               do liftIO $ addAssumption bak (BranchCondition loc (pausedLoc n) pnot)
+               do
+                  liftIO $ addAssumption bak (BranchCondition loc (pausedLoc n) pnot)
+                  assumption_state_post <- liftIO $ (saveAssumptionState bak)
+
+                  liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleBranchAbortEvent (encodeProto ar0) (encodeAssumptions _assumes))
+
                   resumeFrame n nextCtx
 
              -- The other branch had finished successfully;
@@ -726,6 +778,8 @@ resumeValueFromFrameAbort ctx0 ar0 = do
                do -- We are committed to the other path,
                   -- assume all of its suspended assumptions
                   liftIO $ addAssumptions bak otherAssumes
+
+                  assumption_state_post <- liftIO $ (saveAssumptionState bak)
 
                   -- check for further merges, then continue onward.
                   withReaderT
@@ -742,7 +796,7 @@ resumeValueFromFrameAbort ctx0 ar0 = do
 -- | Run rest of execution given a value from value context and an aborted
 -- result.
 resumeValueFromValueAbort ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   ValueFromValue p sym ext r ret' ->
   AbortedResult sym ext ->
   ExecCont p sym ext r f a
@@ -787,17 +841,26 @@ handleSimReturn ::
   RegEntry sym ret {- ^ Value that is being returned. -} ->
   ExecCont p sym ext r f a
 handleSimReturn fnName vfv return_value =
-  ReaderT $ return . ReturnState fnName vfv return_value
+  ReaderT $ do
+    let _ = putStrLn "returning from function!!!"
+    return . ReturnState fnName vfv return_value
 
 
 -- | Resolve the return value, and begin executing in the caller's context again.
 performReturn ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   FunctionName {- ^ Name of the function we are returning from -} ->
   ValueFromValue p sym ext r ret {- ^ Context to return to. -} ->
   RegEntry sym ret {- ^ Value that is being returned. -} ->
   ExecCont p sym ext r f a
 performReturn fnName ctx0 v = do
+  simCtx <- view stateContext
+  assumption_state_pre <- withBackend simCtx (liftIO . saveAssumptionState)
+  sym <- view stateSymInterface
+  loc <- liftIO $ getCurrentProgramLoc sym
+
+  liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleReturnEvent fnName)
+
   case ctx0 of
     VFVCall ctx (MF f) (ReturnToCrucible tpr rest) ->
       do ActiveTree _oldctx pres <- view stateTree
@@ -925,7 +988,7 @@ intra_branch p t_label f_label tgt = do
 
 -- | Branch with a merge point inside this frame.
 performIntraFrameSplit ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   Pred sym
   {- ^ Branch condition -} ->
 
@@ -939,31 +1002,50 @@ performIntraFrameSplit ::
   {- ^ Postdominator merge point, where both branches meet again. -} ->
 
   ExecCont p sym ext rtp f ('Just dc_args)
-performIntraFrameSplit p a_frame o_frame tgt =
+performIntraFrameSplit pred a_frame o_frame tgt =
   do ctx <- asContFrame <$> view stateTree
      simCtx <- view stateContext
      sym <- view stateSymInterface
+     assumption_state_pre <- withBackend simCtx (\bak -> liftIO $ (saveAssumptionState bak))
      loc <- liftIO $ getCurrentProgramLoc sym
      a_frame' <- pushPausedFrame a_frame
      o_frame' <- pushPausedFrame o_frame
 
      assume_frame <- withBackend simCtx $ \bak ->
-       liftIO $ assumeInNewFrame bak (BranchCondition loc (pausedLoc a_frame') p)
+       liftIO $ assumeInNewFrame bak (BranchCondition loc (pausedLoc a_frame') pred)
+
+     assumption_state_post <- withBackend simCtx (liftIO . saveAssumptionState)
+
+     trace_event <- liftIO
+          $ buildTraceEvent
+            (encodePathID assumption_state_pre)
+            (encodeProto $ Just loc)
+            $ assemblePathSplitEvent (encodePathID assumption_state_post) (expr_id pred) -- (encodeFrameIdentifier assume_frame)
+
+     liftIO $ addProtobufTraceEvent trace_event
 
      -- Create context for paused frame.
      let todo = VFFActivePath o_frame'
-         ctx' = VFFBranch ctx assume_frame loc p todo tgt
+         ctx' = VFFBranch ctx assume_frame loc pred todo tgt
 
      -- Start a_state (where branch pred is p)
      resumeFrame a_frame' ctx'
 
 performFunctionCall ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s st ft, IsSymInterface sym) =>
   ReturnHandler ret p sym ext rtp outer_frame outer_args ->
   ResolvedCall p sym ext ret ->
   ExecCont p sym ext rtp outer_frame outer_args
 performFunctionCall retHandler frm =
-  do sym <- view stateSymInterface
+  do
+     simCtx <- view stateContext
+     assumption_state_pre <- withBackend simCtx (liftIO . saveAssumptionState)
+     sym <- view stateSymInterface
+     loc <- liftIO $ getCurrentProgramLoc sym
+
+     liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleCallEvent (resolvedCallName frm) False)
+
+     sym <- view stateSymInterface
      case frm of
        OverrideCall o f ->
          -- Eventually, locations should be nested. However, for now,
@@ -981,14 +1063,23 @@ performFunctionCall retHandler frm =
            (continue (RunBlockStart entryID))
 
 performTailCall ::
-  IsSymInterface sym =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   ValueFromValue p sym ext rtp ret ->
   ResolvedCall p sym ext ret ->
   ExecCont p sym ext rtp f a
 performTailCall vfv frm =
   do sym <- view stateSymInterface
+
+     simCtx <- view stateContext
+     assumption_state_pre <- withBackend simCtx (liftIO . saveAssumptionState)
+     sym <- view stateSymInterface
+     loc <- liftIO $ getCurrentProgramLoc sym
+
+     liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleCallEvent (resolvedCallName frm) True)
+
      let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
      liftIO $ setCurrentProgramLoc sym loc
+
      case frm of
        OverrideCall o f ->
          withReaderT

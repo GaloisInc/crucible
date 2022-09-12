@@ -33,6 +33,7 @@ import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 
 import What4.ProgramLoc( Position(..), ProgramLoc(..) )
 import What4.Symbol(userSymbol, emptySymbol)
+import What4.Expr (ExprBuilder)
 import What4.Interface
           (freshConstant, bvLit, bvAdd, asBV, predToBV,
           getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
@@ -80,7 +81,7 @@ type TBits n        = BVType n
 
 
 cruxLLVMOverrides ::
-  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
@@ -155,7 +156,7 @@ cruxLLVMOverrides arch =
 
 
 cbmcOverrides ::
-  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
@@ -259,7 +260,7 @@ cbmcOverrides arch =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
@@ -353,7 +354,7 @@ svCompOverrides =
 --------------------------------------------------------------------------------
 
 mkFresh ::
-  (IsSymInterface sym) =>
+  (sym ~ ExprBuilder s t st, IsSymInterface sym) =>
   String ->
   BaseTypeRepr ty ->
   OverM personality sym ext (RegValue sym (BaseToType ty))
@@ -387,7 +388,7 @@ mkFreshFloat nm fi = do
        return elt
 
 lookupString ::
-  ( IsSymInterface sym, HasLLVMAnn sym, ArchOk arch
+  ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, ArchOk arch
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM personality sym ext String
@@ -398,7 +399,7 @@ lookupString _ mvar ptr =
        return (BS8.unpack (BS.pack bytes))
 
 sv_comp_fresh_bits ::
-  (IsSymBackend sym bak, 1 <= w) =>
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak, 1 <= w) =>
   NatRepr w ->
   GlobalVar Mem ->
   bak ->
@@ -407,7 +408,7 @@ sv_comp_fresh_bits ::
 sv_comp_fresh_bits w _mvar _bak Empty = mkFresh "X" (BaseBVRepr w)
 
 sv_comp_fresh_float ::
-  (IsSymBackend sym bak) =>
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak) =>
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   bak ->
@@ -416,7 +417,7 @@ sv_comp_fresh_float ::
 sv_comp_fresh_float fi _mvar _bak Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
-  ( ArchOk arch, HasLLVMAnn sym, IsSymBackend sym bak, 1 <= w
+  ( sym ~ ExprBuilder s t st, ArchOk arch, HasLLVMAnn sym, IsSymBackend sym bak, 1 <= w
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   NatRepr w ->
@@ -429,7 +430,7 @@ fresh_bits arch w mvar _ (Empty :> pName) =
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
-  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   FloatInfoRepr fi ->
@@ -442,7 +443,7 @@ fresh_float arch fi mvar _ (Empty :> pName) =
      mkFreshFloat name fi
 
 fresh_str ::
-  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -481,7 +482,7 @@ fresh_str arch mvar bak (Empty :> pName :> maxLen) =
      return ptr
 
 do_assume ::
-  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -501,7 +502,7 @@ do_assume arch mvar bak (Empty :> p :> pFile :> line) =
      liftIO $ addAssumption bak (GenericAssumption loc' "crucible_assume" cond)
 
 do_assert ::
-  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
@@ -523,7 +524,7 @@ do_assert arch mvar bak (Empty :> p :> pFile :> line) =
      liftIO $ addDurableAssertion bak (LabeledPred cond (SimError loc' msg))
 
 do_print_uint32 ::
-  (IsSymBackend sym bak) =>
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak) =>
   GlobalVar Mem ->
   bak ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
@@ -533,7 +534,7 @@ do_print_uint32 _mvar _bak (Empty :> x) =
      liftIO $ hPutStrLn h (show (printSymExpr (regValue x)))
 
 do_havoc_memory ::
-  (ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
+  (sym ~ ExprBuilder s t st, ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym) =>
   Proxy# arch ->
   GlobalVar Mem ->
   bak ->
@@ -562,7 +563,7 @@ cprover_assume _mvar bak (Empty :> p) = liftIO $
 
 
 cprover_assert ::
-  ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->

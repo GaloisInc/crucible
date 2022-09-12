@@ -57,6 +57,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
+import What4.Expr (ExprBuilder)
 
 ------------------------------------------------------------------------
 -- ** Declarations
@@ -192,7 +193,7 @@ llvmStackrestore =
   (\_memOps _bak _args -> return ())
 
 llvmMemmoveOverride_8_8_32
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -204,7 +205,7 @@ llvmMemmoveOverride_8_8_32 =
      Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemmove bak memOps dst src len v) args)
 
 llvmMemmoveOverride_8_8_32_noalign
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -216,7 +217,7 @@ llvmMemmoveOverride_8_8_32_noalign =
 
 
 llvmMemmoveOverride_8_8_64
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -228,7 +229,7 @@ llvmMemmoveOverride_8_8_64 =
       Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemmove bak memOps dst src len v) args)
 
 llvmMemmoveOverride_8_8_64_noalign
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -239,7 +240,7 @@ llvmMemmoveOverride_8_8_64_noalign =
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemmove bak memOps) args)
 
 llvmMemsetOverride_8_64
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -266,7 +267,7 @@ llvmMemsetOverride_8_64_noalign =
 
 
 llvmMemsetOverride_8_32
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -280,7 +281,7 @@ llvmMemsetOverride_8_32 =
     Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset bak memOps dst val len v) args)
 
 llvmMemsetOverride_8_32_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -293,7 +294,7 @@ llvmMemsetOverride_8_32_noalign =
 
 
 llvmMemcpyOverride_8_8_32
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -305,7 +306,7 @@ llvmMemcpyOverride_8_8_32 =
     Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemcpy bak memOps dst src len v) args)
 
 llvmMemcpyOverride_8_8_32_noalign
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -317,7 +318,7 @@ llvmMemcpyOverride_8_8_32_noalign =
 
 
 llvmMemcpyOverride_8_8_64
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -330,7 +331,7 @@ llvmMemcpyOverride_8_8_64 =
 
 
 llvmMemcpyOverride_8_8_64_noalign
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  :: ( sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
@@ -836,6 +837,7 @@ llvmX86_pclmulqdq =
 
 llvmX86_SSE2_storeu_dq
   :: ( IsSymInterface sym
+     , sym ~ ExprBuilder s t st
      , HasLLVMAnn sym
      , HasPtrWidth wptr
      , ?memOpts :: MemOptions )
@@ -892,6 +894,7 @@ callX86_pclmulqdq bak _mvar
 
 callStoreudq
   :: ( IsSymBackend sym bak
+     , sym ~ ExprBuilder s t st
      , HasLLVMAnn sym
      , HasPtrWidth wptr
      , ?memOpts :: MemOptions )

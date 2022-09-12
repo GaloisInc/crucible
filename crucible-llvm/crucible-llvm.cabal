@@ -54,7 +54,12 @@ library
     transformers,
     unordered-containers,
     utf8-string,
-    vector
+    vector,
+    proto-lens,
+    proto-lens-runtime,
+    bytestring,
+    microlens,
+    crucible-protobuf-trace,
 
   hs-source-dirs: src
 
@@ -92,6 +97,8 @@ library
     Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext
 
+    Lang.Crucible.LLVM.Protobuf.CrucibleLLVMEncodings
+
   other-modules:
     Lang.Crucible.LLVM.Errors.Standards
     Lang.Crucible.LLVM.Extension.Arch
@@ -114,6 +121,8 @@ library
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
     Lang.Crucible.LLVM.Utils
+
+    Lang.Crucible.LLVM.Protobuf.Encodings.LLVMTypes
 
   default-extensions: NoStarIsType
 

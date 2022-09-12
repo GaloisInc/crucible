@@ -111,6 +111,7 @@ import qualified What4.Interface as W4
 import qualified What4.Partial as W4P
 
 import qualified Lang.Crucible.SymIO as SymIO
+import What4.Expr (ExprBuilder)
 
 -- | A representation of the filesystem for the LLVM frontend
 --
@@ -304,8 +305,8 @@ getHandle sym fdesc (FDescMap _ m) = case W4.asBV fdesc of
 -- 'SymIO.DataChunk' is a wrapper around a function to peek memory at a given
 -- offset one byte at a time.
 chunkFromMemory
-  :: forall sym bak wptr
-   . (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+  :: forall sym bak wptr s t st
+   . (sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -373,7 +374,7 @@ allocateFileDescriptor fsVars fh = do
     return (fdesc, FDescMap (next + 1) ptrMap')
 
 loadFileIdent
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => GlobalVar Mem
   -> LLVMPtr sym wptr
   -> OverrideSim p sym ext r args ret (SymIO.FileIdent sym)
@@ -399,7 +400,7 @@ returnIOError = do
   liftIO $ W4.bvLit sym PtrWidth (BVS.mkBV PtrWidth (-1))
 
 openFile
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym
            (EmptyCtx ::> LLVMPointerType wptr
@@ -411,7 +412,7 @@ openFile fsVars =
   (\memOps bak args -> uncurryAssignment (callOpenFile bak memOps fsVars) args)
 
 callOpenFile ::
-  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
   bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
@@ -521,7 +522,7 @@ doConcreteWrite ptrw handles symFD chunk size =
     _ -> return ()
 
 writeFileHandle
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym
            (EmptyCtx ::> BVType 32
@@ -533,7 +534,7 @@ writeFileHandle fsVars =
   (\memOps bak args -> uncurryAssignment (callWriteFileHandle bak memOps fsVars) args)
 
 callWriteFileHandle ::
-  (IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  (sym ~ ExprBuilder s t st, IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
   bak ->
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
@@ -557,7 +558,7 @@ callWriteFileHandle bak memOps fsVars filedesc buf count =
 --
 -- See the 'initialLLVMFileSystem' function for creating the initial filesystem state
 symio_overrides
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?memOpts :: MemOptions)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
   -> [OverrideTemplate p sym arch rtp l a]
 symio_overrides fs =
