@@ -440,6 +440,9 @@ transValue FloatType (L.ValFloat f) =
 transValue DoubleType (L.ValDouble d) =
   liftConstant (DoubleConst d)
 
+transValue X86_FP80Type (L.ValFP80 v) =
+  liftConstant (LongDoubleConst v)
+
 transValue (StructType _) (L.ValStruct vs) = do
      vs' <- mapM (\v -> transTypeAndValue v) vs
      return (StructExpr $ Seq.fromList $ vs')
