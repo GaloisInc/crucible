@@ -7,7 +7,7 @@
 -- License          : BSD3
 -- Stability        : provisional
 --
--- 
+--
 -- This module provides an execution feature that can be installed
 -- into the Crucible simulator which facilitates reasoning about
 -- certain kinds of loops by using loop invariants instead of
@@ -40,7 +40,7 @@
 -- unknown value of a loop-carried dependency. We continue this process
 -- until we reach a fixpoint; then we will have captured all the locations
 -- that are potentially of interest for the loop invariant.
--- 
+--
 -- Once we have found all the loop-carried dependencies, we assert
 -- that the loop invariant holds on the initial values upon entry to the
 -- loop. Then, we set up another execution starting from the loop head
@@ -125,6 +125,7 @@ import           Data.Parameterized.TraversableFC
 import qualified What4.Config as W4
 import qualified What4.Interface as W4
 import qualified What4.ProgramLoc as W4
+import           What4.Expr.Builder (ExprBuilder)
 
 import qualified Lang.Crucible.Analysis.Fixpoint.Components as C
 import qualified Lang.Crucible.Backend as C
@@ -466,6 +467,7 @@ applySubstitutionRegEntry sym substitution entry = case C.regType entry of
 
 
 loadMemJoinVariables ::
+  sym ~ ExprBuilder s t st =>
   (C.IsSymBackend sym bak, C.HasPtrWidth 64, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
@@ -493,25 +495,27 @@ loadMemJoinVariables bak mem (MemSubst subst) = do
                     do blk' <- W4.natLit sym blk
                        off' <- W4.bvAdd sym basePtr =<< W4.bvLit sym ?ptrWidth offBV
                        let ptr = C.LLVMPointer blk' off'
-                       val <- safeBVLoad sym mem ptr storage_type join_var C.noAlignment
+                       val <- safeBVLoad bak mem ptr storage_type join_var C.noAlignment
                        return (MapF.Pair join_var val)
 
   return (MapF.fromList (concat vars))
 
 
 safeBVLoad ::
-  ( C.IsSymInterface sym, C.HasPtrWidth wptr, C.HasLLVMAnn sym
+  ( sym ~ ExprBuilder s t st, C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym
   , ?memOpts :: C.MemOptions, 1 <= w ) =>
-  sym ->
+  bak ->
   C.MemImpl sym ->
   C.LLVMPtr sym wptr {- ^ pointer to load from      -} ->
   C.StorageType      {- ^ type of value to load     -} ->
   W4.SymBV sym w     {- ^ default value to return -} ->
   C.Alignment        {- ^ assumed pointer alignment -} ->
   IO (C.RegValue sym (C.BVType w))
-safeBVLoad sym mem ptr st def align =
-  do let w = W4.bvWidth def
-     pval <- C.loadRaw sym mem ptr st align
+safeBVLoad bak mem ptr st def align =
+  do
+     let sym = C.backendGetSym bak
+     let w = W4.bvWidth def
+     pval <- C.loadRaw bak mem ptr st align
      case pval of
        C.Err _ -> return def
        C.NoErr p v ->
@@ -521,7 +525,7 @@ safeBVLoad sym mem ptr st def align =
             W4.bvIte sym p' (C.llvmPointerOffset v') def
 
 storeMemJoinVariables ::
-  (C.IsSymBackend sym bak, C.HasPtrWidth 64, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
+  (sym ~ ExprBuilder s t st, C.IsSymBackend sym bak, C.HasPtrWidth 64, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
   MemorySubstitution sym ->
@@ -665,10 +669,11 @@ computeLoopBlocks cfg loopNum =
 --   loop. The number and order of these variables depends on
 --   internal details of the representation, so is relatively fragile.
 simpleLoopInvariant ::
-  forall sym ext p rtp blocks init ret .
+  forall sym ext p rtp blocks init ret s t st.
+  sym ~ ExprBuilder s t st =>
   (C.IsSymInterface sym, C.IsSyntaxExtension ext, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   sym ->
-  Integer {- ^ which of the discovered loop heads to install a loop invariant onto -}  -> 
+  Integer {- ^ which of the discovered loop heads to install a loop invariant onto -}  ->
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
   (InvariantPhase -> [Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (InvariantEntry sym) -> IO (W4.Pred sym)) ->
@@ -757,7 +762,8 @@ simpleLoopInvariant sym loopNum cfg@C.CFG{..} mem_var loop_invariant = do
 
 
 advanceFixpointState ::
-  forall sym bak ext p rtp blocks r args .
+  forall sym bak ext p rtp blocks r args s t st.
+  sym ~ ExprBuilder s t st =>
   (C.IsSymBackend sym bak, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
   bak ->
   C.GlobalVar C.Mem ->
@@ -851,7 +857,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
                   -- drop variables that don't appear along some back edge (? understand this better)
                   filterSubstitution sym $
                   join_substitution
-                  { varSubst = 
+                  { varSubst =
                     MapF.union (varSubst join_substitution) $
                     -- this implements zip, because the two maps have the same keys
                     MapF.intersectWithKeyMaybe

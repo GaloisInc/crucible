@@ -581,6 +581,7 @@ assumeInNewFrame bak asm =
 --   this point. If there are no pending merge points at this location,
 --   continue executing by transfering control to the given target.
 performIntraFrameMerge ::
+  sym ~ ExprBuilder s t st =>
   IsSymInterface sym =>
   CrucibleBranchTarget f args
     {- ^ The location of the block we are transferring to -} ->
@@ -602,7 +603,7 @@ performIntraFrameMerge tgt = do
             VFFActivePath next ->
               do
                 --  loc <- liftIO $ curProgramLoc sym
-                 _ <- liftIO $ putStrLn $ Text.printf "PathSwitch: %s" $ show $ pretty tgt
+                --  _ <- liftIO $ putStrLn $ Text.printf "PathSwitch: %s" $ show $ PP.pretty tgt
                  assumption_state_pre <- liftIO $ (saveAssumptionState bak)
                  pathAssumes      <- liftIO $ popAssumptionFrame bak assume_frame
                  pnot             <- liftIO $ notPred sym pred
@@ -653,6 +654,7 @@ performIntraFrameMerge tgt = do
                                 (expr_id pred)
                                 (encodeAssumptions pathAssumes)
                                 (encodeAssumptions otherAssumes)
+                                (encodePathID assumption_state_base)
                                 (encodePathID assumption_state_post)
                   )
 
@@ -746,13 +748,13 @@ resumeValueFromFrameAbort ::
 resumeValueFromFrameAbort ctx0 ar0 = do
   simCtx <- view stateContext
   sym <- view stateSymInterface
-  loc <- liftIO $ getCurrentProgramLoc sym
+  -- loc <- liftIO $ getCurrentProgramLoc sym
   withBackend simCtx $ \bak ->
     case ctx0 of
       -- This is the first abort.
-      VFFBranch ctx assume_frame loc pred other_branch tgt ->
+      VFFBranch ctx assume_frame branchLoc pred other_branch tgt ->
         do pnot <- liftIO $ notPred sym pred
-           let nextCtx = VFFPartial ctx loc pnot ar0 NeedsToBeAborted
+           let nextCtx = VFFPartial ctx branchLoc pnot ar0 NeedsToBeAborted
 
            assumption_state_pre <- liftIO $ (saveAssumptionState bak)
 
@@ -764,10 +766,15 @@ resumeValueFromFrameAbort ctx0 ar0 = do
              -- We have some more work to do.
              VFFActivePath n ->
                do
-                  liftIO $ addAssumption bak (BranchCondition loc (pausedLoc n) pnot)
+                  liftIO $ addAssumption bak (BranchCondition branchLoc (pausedLoc n) pnot)
                   assumption_state_post <- liftIO $ (saveAssumptionState bak)
 
-                  liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleBranchAbortEvent (encodeProto ar0) (encodeAssumptions _assumes))
+                  liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just branchLoc) (assembleBranchAbortEvent
+                    (encodeProto ar0)
+                    (encodeAssumptions _assumes)
+                    (encodePathID assumption_state_pre)
+                    (encodePathID assumption_state_post)
+                    )
 
                   resumeFrame n nextCtx
 
@@ -787,8 +794,8 @@ resumeValueFromFrameAbort ctx0 ar0 = do
                     (checkForIntraFrameMerge tgt)
 
       -- Both branches aborted
-      VFFPartial ctx loc pred ay _ ->
-        resumeValueFromFrameAbort ctx $ AbortedBranch loc pred ar0 ay
+      VFFPartial ctx loc' pred ay _ ->
+        resumeValueFromFrameAbort ctx $ AbortedBranch loc' pred ar0 ay
 
       VFFEnd ctx ->
         ReaderT $ return . UnwindCallState ctx ar0
@@ -863,29 +870,32 @@ performReturn fnName ctx0 v = do
 
   case ctx0 of
     VFVCall ctx (MF f) (ReturnToCrucible tpr rest) ->
-      do ActiveTree _oldctx pres <- view stateTree
+      do
+         ActiveTree _oldctx pres <- view stateTree
          let f' = extendFrame tpr (regValue v) rest f
          withReaderT
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ MF f'))
            (continue (RunReturnFrom fnName))
 
     VFVCall ctx _ TailReturnToCrucible ->
-      do ActiveTree _oldctx pres <- view stateTree
+      do
+         ActiveTree _oldctx pres <- view stateTree
          withReaderT
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ RF fnName v))
            (returnValue v)
 
     VFVCall ctx (OF f) (ReturnToOverride k) ->
-      do ActiveTree _oldctx pres <- view stateTree
+      do
+         ActiveTree _oldctx pres <- view stateTree
          withReaderT
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ OF f))
            (ReaderT (k v))
 
-    VFVPartial ctx loc pred r ->
-      do sym <- view stateSymInterface
+    VFVPartial ctx loc' pred r ->
+      do
          ActiveTree oldctx pres <- view stateTree
          newPres <- liftIO $
-           mergePartialAndAbortedResult sym loc pred pres r
+           mergePartialAndAbortedResult sym loc' pred pres r
          withReaderT
             (stateTree .~ ActiveTree oldctx newPres)
             (performReturn fnName ctx v)
@@ -1045,7 +1055,6 @@ performFunctionCall retHandler frm =
 
      liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleCallEvent (resolvedCallName frm) False)
 
-     sym <- view stateSymInterface
      case frm of
        OverrideCall o f ->
          -- Eventually, locations should be nested. However, for now,
@@ -1056,8 +1065,8 @@ performFunctionCall retHandler frm =
            (stateTree %~ pushCallFrame retHandler (OF f))
            (runOverride o)
        CrucibleCall entryID f -> do
-         let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
-         liftIO $ setCurrentProgramLoc sym loc
+         let loc' = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
+         liftIO $ setCurrentProgramLoc sym loc'
          withReaderT
            (stateTree %~ pushCallFrame retHandler (MF f))
            (continue (RunBlockStart entryID))
@@ -1068,8 +1077,7 @@ performTailCall ::
   ResolvedCall p sym ext ret ->
   ExecCont p sym ext rtp f a
 performTailCall vfv frm =
-  do sym <- view stateSymInterface
-
+  do
      simCtx <- view stateContext
      assumption_state_pre <- withBackend simCtx (liftIO . saveAssumptionState)
      sym <- view stateSymInterface
@@ -1077,8 +1085,8 @@ performTailCall vfv frm =
 
      liftIO $ addProtobufTraceEvent =<< buildTraceEvent (encodePathID assumption_state_pre) (encodeProto $ Just loc) (assembleCallEvent (resolvedCallName frm) True)
 
-     let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
-     liftIO $ setCurrentProgramLoc sym loc
+     let loc' = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
+     liftIO $ setCurrentProgramLoc sym loc'
 
      case frm of
        OverrideCall o f ->

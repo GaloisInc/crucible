@@ -87,15 +87,19 @@ assembleBranchSwitchEvent from to suspendedAssumptions pred branchLoc = do
           & OT.branchCondition .~ pred'
           & OT.branchLocation .~ branchLoc'
 
-assembleBranchAbortEvent :: IO AB.AbortedResult -> IO AS.Assumptions -> IO OT.TraceEvent'EventKind
-assembleBranchAbortEvent abortReason abortedAssumptions = do
+assembleBranchAbortEvent :: IO AB.AbortedResult -> IO AS.Assumptions -> IO OT.PathID -> IO OT.PathID -> IO OT.TraceEvent'EventKind
+assembleBranchAbortEvent abortReason abortedAssumptions abortedPID resumedPID = do
     abortReason' <- abortReason
     abortedAssumptions' <- abortedAssumptions
+    abortedPID' <- abortedPID
+    resumedPID' <- resumedPID
     return $
       OT.TraceEvent'BranchAbort $
         defMessage
           & OT.abortResult .~ abortReason'
           & OT.abortedAssumptions .~ abortedAssumptions'
+          & OT.idResumed .~ resumedPID'
+          & OT.idAborted .~ abortedPID'
 
 assemblePathSplitEvent :: IO OT.PathID -> IO SE.ExpressionID -> IO OT.TraceEvent'EventKind
 assemblePathSplitEvent newPId condition = do
@@ -108,13 +112,22 @@ assemblePathSplitEvent newPId condition = do
           & OT.splitCondition .~ cond
           & OT.continuingPathId .~ pid
 
-assemblePathMergeEvent :: IO OT.PathID -> IO SE.ExpressionID -> IO AS.Assumptions -> IO AS.Assumptions -> IO OT.PathID -> IO OT.TraceEvent'EventKind
-assemblePathMergeEvent oldPId condition pathAssumptions otherAssumptions newPId = do
+assemblePathMergeEvent ::
+  IO OT.PathID        ->
+  IO SE.ExpressionID  ->
+  IO AS.Assumptions   ->
+  IO AS.Assumptions   ->
+  IO OT.PathID        ->
+  IO OT.PathID        ->
+  IO OT.TraceEvent'EventKind
+
+assemblePathMergeEvent oldPId condition pathAssumptions otherAssumptions basePID newPID = do
     pid <- oldPId
     cond <- condition
     pathAssumptions' <- pathAssumptions
     otherAssumptions' <- otherAssumptions
-    newPId' <- newPId
+    basePID' <- basePID
+    newPID' <- newPID
     return
       $ OT.TraceEvent'PathMerge
         $ defMessage
@@ -122,7 +135,8 @@ assemblePathMergeEvent oldPId condition pathAssumptions otherAssumptions newPId 
           & OT.mergeCondition .~ cond
           & OT.pathAssumptions .~ pathAssumptions'
           & OT.otherAssumptions .~ otherAssumptions'
-          & OT.pathIdAfter .~ newPId'
+          & OT.pathIdBase .~ basePID'
+          & OT.pathIdAfter .~ newPID'
 
 assembleCallEvent :: FunctionName -> Bool -> IO OT.TraceEvent'EventKind
 assembleCallEvent funcName isTailCall = do

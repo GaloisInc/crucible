@@ -99,7 +99,7 @@ class CrucibleEventListener:
         val = self.load_LLVMVal(msg.field_value)
         return LoadedLLVMValStructField(st, val)
 
-    def load_FloatSize(self, msg) -> String:
+    def load_FloatSize(self, msg) -> str:
         assert isinstance(msg, int)
         return FloatSize.Name(msg)
 

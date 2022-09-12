@@ -23,7 +23,9 @@ class CrucibleMemoryModel(PrintingListener):
         self.parent = parent
 
         self.constraints = []
-        self.memory_model = LLVMMemory()
+        self.allocations = {}
+        self.writes = []
+        self.frees = []
 
         self.proof_goals = []
         self.solver: z3.Solver = solver or z3.Solver()
@@ -76,7 +78,6 @@ class CrucibleMemoryModel(PrintingListener):
 
             self.allocations[blkid] = (blkid, alloc_type, alignment, desc, size)
             print("Alloc: ", self.allocations[blkid])
-        elif kind ==
         elif kind == 'free':
             assert False, f"TODO: implement free {data=}"
         #     import ipdb; ipdb.set_trace()

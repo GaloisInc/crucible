@@ -254,7 +254,7 @@ llvmMemsetOverride_8_64 =
     Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset bak memOps dst val len v) args)
 
 llvmMemsetOverride_8_64_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (sym ~ ExprBuilder s t st, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8

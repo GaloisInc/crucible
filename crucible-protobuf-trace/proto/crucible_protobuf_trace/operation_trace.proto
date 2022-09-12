@@ -30,6 +30,7 @@ message PathMerge {
   Assumptions path_assumptions = 3;
   Assumptions other_assumptions = 4;
   PathID path_id_after = 5;
+  PathID path_id_base = 6;
 }
 
 message BranchSwitch {
@@ -43,6 +44,8 @@ message BranchSwitch {
 message BranchAbort {
   AbortedResult abort_result = 1;
   Assumptions aborted_assumptions = 2;
+  PathID id_resumed = 3;
+  PathID id_aborted = 4;
 }
 message ReturnFromFunction {
   string func_name = 1;
