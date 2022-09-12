@@ -21,8 +21,6 @@ def process_trace(trace_path: str, event_listener: CrucibleEventListener) -> Ope
         trace.ParseFromString(f.read())
 
     for i, event in enumerate(trace.events):
-        if i == 923:
-            import ipdb; ipdb.set_trace()
         event_listener.handle_crucible_event(i, event)
 
 if __name__ == '__main__':
