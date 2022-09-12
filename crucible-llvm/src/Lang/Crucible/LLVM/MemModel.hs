@@ -248,8 +248,9 @@ import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Panic (panic)
 
-
 import           GHC.Stack (HasCallStack)
+import qualified Text.Printf as Text
+
 
 ----------------------------------------------------------------------
 -- The MemImpl type

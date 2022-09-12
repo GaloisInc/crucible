@@ -55,6 +55,9 @@ import           Data.Time.Clock
 import           System.IO
 import           System.IO.Error as Ex
 import           Prettyprinter
+import qualified Prettyprinter as PP
+import           What4.Expr (ExprBuilder)
+
 
 import           What4.Config
 import           What4.Interface
@@ -484,46 +487,50 @@ dispatchExecState ::
   (forall f a. ExecCont p sym ext rtp f a -> SimState p sym ext rtp f a -> IO z)
     {- ^ Intermediate continuation for running states -} ->
   IO z
-dispatchExecState getVerb exst kresult k =
-  case exst of
+dispatchExecState getVerbosity executionState resultKontinuation intermediateKontinuation =
+  do
+    print $ PP.pretty "-->" PP.<+> PP.nest 4 (PP.pretty executionState)
+    return ()
+    >>
+  case executionState of
     ResultState res ->
-      kresult res
+      resultKontinuation res
 
     InitialState simctx globals ah ret cont ->
       do st <- initSimState simctx globals ah ret
-         k cont st
+         intermediateKontinuation cont st
 
     AbortState rsn st ->
       let (AH handler) = st^.abortHandler in
-      k (handler rsn) st
+      intermediateKontinuation (handler rsn) st
 
     OverrideState ovr st ->
-      k (overrideHandler ovr) st
+      intermediateKontinuation (overrideHandler ovr) st
 
-    SymbolicBranchState p a_frame o_frame tgt st ->
-      k (performIntraFrameSplit p a_frame o_frame tgt) st
+    SymbolicBranchState p a_frame o_frame tgt st -> do
+      intermediateKontinuation (performIntraFrameSplit p a_frame o_frame tgt) st
 
     ControlTransferState resumption st ->
-      k (performControlTransfer resumption) st
+      intermediateKontinuation (performControlTransfer resumption) st
 
-    BranchMergeState tgt st ->
-      k (performIntraFrameMerge tgt) st
+    BranchMergeState tgt st -> do
+      intermediateKontinuation (performIntraFrameMerge tgt) st
 
     UnwindCallState vfv ar st ->
-      k (resumeValueFromValueAbort vfv ar) st
+      intermediateKontinuation (resumeValueFromValueAbort vfv ar) st
 
     CallState retHandler frm st ->
-      k (performFunctionCall retHandler frm) st
+      intermediateKontinuation (performFunctionCall retHandler frm) st
 
     TailCallState vfv frm st ->
-      k (performTailCall vfv frm) st
+      intermediateKontinuation (performTailCall vfv frm) st
 
     ReturnState fnm vfv ret st ->
-      k (performReturn fnm vfv ret) st
+      intermediateKontinuation (performReturn fnm vfv ret) st
 
     RunningState info st ->
-      do v <- getVerb
-         k (performStateRun info v) st
+      do v <- getVerbosity
+         intermediateKontinuation (performStateRun info v) st
 {-# INLINE dispatchExecState #-}
 
 

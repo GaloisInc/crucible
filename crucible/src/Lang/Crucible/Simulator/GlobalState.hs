@@ -65,6 +65,14 @@ data GlobalTable f g =
   , globalRefs :: !(MapF.MapF RefCell g)
   }
 
+-- ppGlobalTable :: GlobalTable f g -> Doc ann
+-- ppGlobalTable (GlobalTable vars refs) =
+--   pretty "GlobalTable" <+>
+--   braces (
+--     pretty "globalVars" <+> equals <+> pretty (show vars) <+> comma <+>
+--     pretty "globalRefs" <+> equals <+> pretty (show refs)
+--   )
+
 updateGlobalVars ::
   (MapF.MapF GlobalVar v -> MapF.MapF GlobalVar v) ->
   GlobalTable v r -> GlobalTable v r

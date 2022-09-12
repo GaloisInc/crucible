@@ -67,6 +67,10 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Panic
+import qualified Prettyprinter as PP
+import Data.Parameterized.Context (toVector)
+import qualified Data.Vector as Vector
+import qualified Text.Printf as Text
 
 ------------------------------------------------------------------------
 -- RegMap
@@ -76,9 +80,33 @@ data RegEntry sym tp = RegEntry { regType :: !(TypeRepr tp)
                                 , regValue :: !(RegValue sym tp)
                                 }
 
+instance IsExpr (SymExpr sym) => PP.Pretty (RegEntry sym tp) where
+  pretty (RegEntry tp val) = case tp of
+    UnitRepr -> PP.parens $ PP.pretty "RegEntry(Unit)" PP.<+> PP.pretty val
+    IntrinsicRepr symbol _ -> PP.parens $ PP.pretty "RegEntry(Intrinsic)" PP.<+> PP.pretty (show symbol)
+    CharRepr -> PP.parens $ PP.pretty "RegEntry(Char8)" PP.<+> PP.pretty val
+    FunctionHandleRepr ptr1 ptr2 -> PP.parens $ PP.pretty "RegEntry(FunctionHandle)" PP.<+> PP.pretty (show ptr1) PP.<+> PP.pretty (show ptr2)
+    NatRepr -> PP.parens $ PP.pretty "RegEntry(Nat)" PP.<+> printSymNat val
+    BVRepr w -> PP.parens $ PP.pretty "RegEntry(BV)" PP.<+> PP.pretty (show w) PP.<+> printSymExpr val
+    BoolRepr -> PP.parens $ PP.pretty "RegEntry(Bool)" PP.<+> printSymExpr val
+    FloatRepr DoubleFloatRepr -> PP.parens $ PP.pretty "RegEntry(Float Double)" PP.<+> printSymExpr val
+    FloatRepr SingleFloatRepr -> PP.parens $ PP.pretty "RegEntry(Float Single)" PP.<+> printSymExpr val
+    FloatRepr HalfFloatRepr -> PP.parens $ PP.pretty "RegEntry(Float Half)" PP.<+> printSymExpr val
+    FloatRepr QuadFloatRepr -> PP.parens $ PP.pretty "RegEntry(Float Quad)" PP.<+> printSymExpr val
+    FloatRepr X86_80FloatRepr -> PP.parens $ PP.pretty "RegEntry(Float X86_80)" PP.<+> printSymExpr val
+    FloatRepr DoubleDoubleFloatRepr -> PP.parens $ PP.pretty "RegEntry(Float DoubleDouble)" PP.<+> printSymExpr val
+    StringRepr UnicodeRepr -> PP.parens $ PP.pretty "RegEntry(String Unicode)" PP.<+> printSymExpr val
+    StringRepr Char8Repr -> PP.parens $ PP.pretty "RegEntry(String Char8)" PP.<+> printSymExpr val
+    StringRepr Char16Repr -> PP.parens $ PP.pretty "RegEntry(String Char16)" PP.<+> printSymExpr val
+    VectorRepr elemType -> PP.parens $ PP.pretty "RegEntry(Vector)" PP.<+> PP.pretty (show elemType) -- PP.<+> printSymExpr val
+    _ -> error $ Text.printf "RegEntry: not a unit type Regentry tp=%v" (show tp)
+
 -- | A set of registers in an execution frame.
 newtype RegMap sym (ctx :: Ctx CrucibleType)
       = RegMap { regMap :: Ctx.Assignment (RegEntry sym) ctx }
+
+instance IsExpr (SymExpr sym) => PP.Pretty (RegMap sym ctx) where
+  pretty (RegMap m) = PP.pretty "RegMap" PP.<+> PP.vcat (Vector.toList (toVector m PP.pretty))
 
 regMapSize :: RegMap sym ctx -> Ctx.Size ctx
 regMapSize (RegMap s) = Ctx.size s

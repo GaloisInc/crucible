@@ -100,6 +100,7 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment, Endian
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
+import qualified Text.Printf as Text
 
 --------------------------------------------------------------------------------
 -- Allocations

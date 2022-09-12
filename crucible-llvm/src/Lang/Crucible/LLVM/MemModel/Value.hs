@@ -26,6 +26,7 @@ module Lang.Crucible.LLVM.MemModel.Value
   ( -- * LLVM Value representation
     LLVMVal(..)
   , ppLLVMValWithGlobals
+  , ppLLVMVal
   , FloatSize(..)
   , Field
   , ptrToPtrVal

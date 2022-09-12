@@ -50,6 +50,8 @@ import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.Operations
+import qualified Prettyprinter as PP
+import What4.Expr (ExprBuilder)
 
 
 -- | A `WorkItem` represents a suspended symbolic execution path that
@@ -155,6 +157,7 @@ pathSplittingFeature wl = ExecutionFeature $ \case
 executeCrucibleDFSPaths :: forall p sym ext rtp.
   ( IsSymInterface sym
   , IsSyntaxExtension ext
+  , PP.Pretty rtp
   ) =>
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->

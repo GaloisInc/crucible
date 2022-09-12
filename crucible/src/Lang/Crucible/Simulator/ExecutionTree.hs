@@ -32,6 +32,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds -Wall #-}
 module Lang.Crucible.Simulator.ExecutionTree
   ( -- * GlobalPair
@@ -153,7 +154,7 @@ import           System.IO
 import qualified Prettyprinter as PP
 
 import           What4.Config (Config)
-import           What4.Interface (Pred, getConfiguration)
+import           What4.Interface (Pred, getConfiguration, IsExpr (printSymExpr), SymExpr)
 import           What4.FunctionName (FunctionName, startFunctionName)
 import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 
@@ -170,6 +171,10 @@ import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.RegMap (RegMap, emptyRegMap, RegValue, RegEntry)
 import           Lang.Crucible.Types
+import What4.Expr (ppExpr)
+import What4.Expr.App (asApp)
+import Data.Maybe
+import Prettyprinter (pretty, (<+>))
 
 ------------------------------------------------------------------------
 -- GlobalPair
@@ -180,6 +185,12 @@ data GlobalPair sym (v :: Type) =
    { _gpValue :: !v
    , _gpGlobals :: !(SymGlobalState sym)
    }
+
+ppGlobalPair :: PP.Pretty v => GlobalPair sym v -> PP.Doc ann
+ppGlobalPair (GlobalPair v gs) = pretty v
+
+instance PP.Pretty v => PP.Pretty (GlobalPair sym v) where
+  pretty = ppGlobalPair
 
 -- | Access the value stored in the global pair.
 gpValue :: Lens (GlobalPair sym u) (GlobalPair sym v) u v
@@ -242,6 +253,20 @@ data AbortedResult sym ext where
     !(AbortedResult sym ext) {- The abort that occurred along the 'true' branch -} ->
     !(AbortedResult sym ext) {- The abort that occurred along the 'false' branch -} ->
     AbortedResult sym ext
+
+ppAbortedResult :: IsExpr (SymExpr sym) => AbortedResult sym ext -> PP.Doc ann
+ppAbortedResult (AbortedExec reason frame) =
+  PP.pretty "AbortedExec" PP.<+> PP.pretty reason PP.<+> PP.pretty frame
+
+ppAbortedResult (AbortedExit code) =
+  PP.pretty "AbortedExit" PP.<+> (PP.pretty $ show code)
+
+ppAbortedResult (AbortedBranch loc cond t f) =
+  PP.pretty "AbortedBranch" PP.<+> (PP.pretty $ show loc) PP.<+> (printSymExpr cond) PP.<+>
+  PP.pretty t PP.<+> PP.pretty f
+
+instance (IsExpr (SymExpr sym)) => PP.Pretty (AbortedResult sym ext) where
+  pretty = ppAbortedResult
 
 ------------------------------------------------------------------------
 -- SomeFrame
@@ -551,6 +576,11 @@ data RunningStateInfo blocks args
     --   we finished branch merging prior to the start of a block.
   | RunPostBranchMerge !(BlockID blocks args)
 
+instance PP.Pretty (RunningStateInfo blocks args) where
+  pretty (RunBlockStart bid) = PP.pretty "RunBlockStart" PP.<+> PP.pretty bid
+  pretty (RunBlockEnd blockid) = PP.pretty "RunBlockEnd" PP.<+> (PP.pretty $ show blockid)
+  pretty (RunReturnFrom funcname) = PP.pretty "RunReturnFrom" PP.<+> PP.pretty funcname
+  pretty (RunPostBranchMerge bid) = PP.pretty "RunPostBranchMerge" PP.<+> PP.pretty bid
 -- | A 'ResolvedJump' is a block label together with a collection of
 --   actual arguments that are expected by that block.  These data
 --   are sufficient to actually transfer control to the named label.
@@ -559,6 +589,9 @@ data ResolvedJump sym blocks
       ResolvedJump
         !(BlockID blocks args)
         !(RegMap sym args)
+
+instance IsExpr (SymExpr sym) => PP.Pretty (ResolvedJump sym blocks) where
+  pretty (ResolvedJump bid args) = PP.parens $ PP.pretty "ResolvedJump" PP.<+> PP.pretty bid PP.<+> PP.pretty args
 
 -- | When a path of execution is paused by the symbolic simulator
 --   (while it first explores other paths), a 'ControlResumption'
@@ -596,6 +629,19 @@ data ControlResumption p sym ext rtp f where
     !(RegMap sym args) ->
     ControlResumption p sym ext rtp (OverrideLang r)
 
+ppControlResumption :: IsExpr (SymExpr sym) => ControlResumption  p sym ext rtp f -> PP.Doc ann
+ppControlResumption (ContinueResumption rj) =
+  PP.pretty "ContinueResumption" PP.<+> PP.pretty rj
+ppControlResumption (CheckMergeResumption rj) =
+  PP.pretty "CheckMergeResumption" PP.<+> PP.pretty rj
+ppControlResumption (SwitchResumption branches) =
+  PP.pretty "SwitchResumption" PP.<+> PP.vcat (map (\(pred, jmp) -> printSymExpr pred PP.<+> PP.pretty jmp)  branches)
+ppControlResumption (OverrideResumption thunk args) =
+  prettyObject "OverrideResumption" $ ("args", args) :++: KVNil
+
+instance IsExpr (SymExpr sym) => PP.Pretty (ControlResumption p sym ext rtp f) where
+  pretty = PP.parens . ppControlResumption
+
 ------------------------------------------------------------------------
 -- Paused Frame
 
@@ -610,6 +656,13 @@ data PausedFrame p sym ext rtp f
        , resume       :: !(ControlResumption p sym ext rtp f)
        , pausedLoc    :: !(Maybe ProgramLoc)
        }
+
+ppPausedFrame :: IsExpr (SymExpr sym) => PausedFrame p sym ext rtp f -> PP.Doc ann
+ppPausedFrame (PausedFrame frame resumption loc) =
+  PP.pretty "PausedFrame" <+> pretty resumption <+> pretty (show loc)
+
+instance IsExpr (SymExpr sym) => PP.Pretty (PausedFrame p sym ext rtp f) where
+  pretty = PP.parens . ppPausedFrame
 
 -- | This describes the state of the sibling path at a symbolic branch point.
 --   A symbolic branch point starts with the sibling in the 'VFFActivePath'
@@ -791,6 +844,75 @@ instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
   pretty (VFFActivePath _)   = PP.pretty "active_path"
   pretty (VFFCompletePath _ _) = PP.pretty "complete_path"
 
+instance (IsExpr (SymExpr sym), PP.Pretty retvalT) => PP.Pretty (ExecResult personality sym ext retvalT) where
+  pretty = ppExecResult
+
+instance (IsExpr (SymExpr sym), PP.Pretty retvalT) => PP.Pretty (ExecState personality sym ext retvalT) where
+  pretty = ppExecState
+
+instance (IsExpr (SymExpr sym), PP.Pretty retvalT) => PP.Pretty (PartialResult sym ext retvalT) where
+  pretty = ppPartialResult
+
+ppPartialResult :: (IsExpr (SymExpr sym), PP.Pretty retvalT) => PartialResult sym ext retvalT -> PP.Doc ann
+ppPartialResult (TotalRes t) = prettyObject "TotalRes" $ t :+: KVNil
+ppPartialResult (PartialRes programLoc predicate abortedRes partialRes) = prettyObject "PartialRes" $
+       ("programLoc", plSourceLoc programLoc)
+  :++: ("predicate", show (printSymExpr predicate))
+  :++: ("abortedRes", abortedRes)
+  :++: ("partialRes", partialRes)
+  :++: KVNil
+  -- PP.<+>
+  --   PP.pretty predicate PP.<+> PP.pretty abortedRes PP.<+> PP.pretty partialRes
+
+
+data KeyValueList where
+  KVNil :: KeyValueList
+  (:+:) :: PP.Pretty a => a -> KeyValueList -> KeyValueList
+  (:++:) :: PP.Pretty a => (String, a) -> KeyValueList -> KeyValueList
+infixr 5 :+:
+infixr 5 :++:
+
+instance PP.Pretty KeyValueList where
+  pretty = PP.parens . ppKeyValueStore
+
+ppKeyValueStore :: KeyValueList -> PP.Doc ann
+ppKeyValueStore KVNil = PP.emptyDoc
+ppKeyValueStore (v :+: KVNil) = pretty v
+ppKeyValueStore (v :+: rest) = PP.vcat $ [pretty v, ppKeyValueStore rest]
+ppKeyValueStore ((k, v) :++: KVNil) = pretty k <> pretty "=" <> pretty v
+ppKeyValueStore ((k, v) :++: rest) = PP.vcat $ [pretty k <> pretty "=" <> pretty v, ppKeyValueStore rest]
+
+prettyObject :: String -> KeyValueList -> PP.Doc ann
+prettyObject name kvs = PP.nest 4 $ PP.parens $ PP.pretty name PP.<+> PP.nest 4 (ppKeyValueStore kvs)
+
+ppExecResult :: (IsExpr (SymExpr sym), PP.Pretty retvalT) => ExecResult personality sym ext retvalT -> PP.Doc ann
+ppExecResult res =
+  case res of
+    FinishedResult simcontext partialResult -> prettyObject "FinishedResult" $ ("partialResult", partialResult) :++: KVNil
+    AbortedResult  simcontext abortedResult  -> prettyObject "AbortedResult" $ ("abortedResult", abortedResult) :++: KVNil
+    TimeoutResult exec_state -> prettyObject "TimeoutResult" $ ("exec_state", exec_state) :++: KVNil
+
+ppExecState :: (IsExpr (SymExpr sym), PP.Pretty ret) => ExecState personality sym ext ret -> PP.Doc ann
+ppExecState exec_state =
+  case exec_state of
+    ResultState res -> prettyObject "ResultState" $ res :+: KVNil
+    AbortState reason _ -> prettyObject "AbortState" $ ("reason", reason) :++: KVNil
+    UnwindCallState callerctxt abortedResult state -> prettyObject "UnwindCallState" $ ("callerctxt", callerctxt) :++: ("abortedResult", abortedResult) :++: KVNil
+    CallState returnHandler resolvedCall state -> prettyObject "CallState" $ "<returnHandler>" :+: "<resolvedCall>" :+: KVNil
+    TailCallState _ _ _ -> PP.pretty "TailCallState"
+    ReturnState fname context retval _ -> prettyObject "ReturnState" $ ("function_name", fname) :++: ("context", context) :++: ("retval", retval) :++: KVNil
+    RunningState info _ -> prettyObject "RunningState" $ ("info", info) :++: KVNil
+    SymbolicBranchState branch_predicate pausedFrame1 pausedFrame2 postdom_target _ -> prettyObject "SymbolicBranchState" $
+      ("predicate", show $ printSymExpr branch_predicate) :++:
+      ("pausedFrame1", pausedFrame1) :++:
+      ("pausedFrame2", pausedFrame2) :++:
+      ("postdom_target", postdom_target) :++:
+      KVNil
+    ControlTransferState control_resumption state -> PP.pretty "ControlTransferState" PP.<+> PP.pretty control_resumption
+    OverrideState codeOverride _ -> PP.pretty "OverrideState" PP.<+> PP.pretty codeOverride
+    BranchMergeState branchTarget _ -> PP.pretty "BranchMergeState" PP.<+> PP.pretty branchTarget
+    InitialState context globalState abortHandler retTypeRepr entryCont -> prettyObject "InitialState" $ "<globalState>" :+: "<abortHandler>" :+: ("retTypeRepr", retTypeRepr) :++: "<entryCont>" :+: KVNil
+
 ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc ann
 ppValueFromFrame vff =
   case vff of
@@ -964,6 +1086,12 @@ data Override p sym ext (args :: Ctx CrucibleType) ret
    = Override { overrideName    :: FunctionName
               , overrideHandler :: forall r. ExecCont p sym ext r (OverrideLang ret) ('Just args)
               }
+
+ppOverride :: Override p sym ext args ret -> PP.Doc ann
+ppOverride Override { overrideName = name, overrideHandler = handler } = PP.pretty "Override" PP.<> PP.parens (PP.pretty "name=" PP.<> PP.pretty name)
+
+instance PP.Pretty (Override p sym ext (args :: Ctx CrucibleType) ret) where
+  pretty = ppOverride
 
 -- | State used to indicate what to do when function is called.  A function
 --   may either be defined by writing a Haskell 'Override' or by giving

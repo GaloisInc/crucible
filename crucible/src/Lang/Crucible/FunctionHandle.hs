@@ -58,6 +58,8 @@ import           What4.FunctionName
 
 import           Lang.Crucible.Types
 
+import qualified Prettyprinter as PP
+
 ------------------------------------------------------------------------
 -- FunctionHandle
 
@@ -83,6 +85,9 @@ instance Ord (FnHandle args ret) where
 instance Show (FnHandle args ret) where
   show h = show (handleName h)
 
+instance PP.Pretty (FnHandle args ret) where
+  pretty = PP.pretty . show
+
 instance Hashable (FnHandle args ret) where
   hashWithSalt s h = hashWithSalt s (handleID h)
 
@@ -97,6 +102,9 @@ handleType h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
 -- run of the simulator.  It has a set of expected arguments and return type.
 data SomeHandle where
    SomeHandle :: !(FnHandle args ret) -> SomeHandle
+
+instance PP.Pretty SomeHandle where
+  pretty (SomeHandle h) = PP.pretty h
 
 instance Eq SomeHandle where
   SomeHandle x == SomeHandle y = isJust (testEquality (handleID x) (handleID y))

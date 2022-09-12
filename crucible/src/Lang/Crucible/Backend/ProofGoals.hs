@@ -104,7 +104,7 @@ goalsToList =
 --   In a call to 'traverseGoals assumeAction transformer goals', the
 --   arguments are used as follows:
 --
---   * 'traverseGoals' is an action is called every time we encounter
+--   * 'assumeAction' is called every time we encounter
 --     an 'Assuming' constructor.  The first argument is the original
 --     sequence of assumptions.  The second argument is a continuation
 --     action.  The result is a sequence of transformed assumptions

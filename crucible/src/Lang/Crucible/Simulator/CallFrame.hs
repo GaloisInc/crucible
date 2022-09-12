@@ -20,6 +20,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Simulator.CallFrame
   ( -- * CrucibleBranchTarget
     CrucibleBranchTarget(..)
@@ -65,7 +66,7 @@ import           Data.Kind
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.FunctionName
-import           What4.Interface ( Pred )
+import           What4.Interface ( Pred, SymExpr, IsExpr )
 import           What4.ProgramLoc ( ProgramLoc )
 
 import           Lang.Crucible.Analysis.Postdom
@@ -74,6 +75,9 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Backend
+
+import qualified Prettyprinter as PP
+import Prettyprinter (pretty, (<+>))
 
 
 ------------------------------------------------------------------------
@@ -98,8 +102,11 @@ instance TestEquality (CrucibleBranchTarget f) where
   testEquality _ _ = Nothing
 
 ppBranchTarget :: CrucibleBranchTarget f args -> String
-ppBranchTarget (BlockTarget b) = "merge: " ++ show b
-ppBranchTarget ReturnTarget = "return"
+ppBranchTarget (BlockTarget b) = "BlockTarget: " ++ show b
+ppBranchTarget ReturnTarget = "ReturnTarget"
+
+instance PP.Pretty (CrucibleBranchTarget f args) where
+  pretty = PP.pretty . ppBranchTarget
 
 
 ------------------------------------------------------------------------
@@ -119,6 +126,21 @@ data CallFrame sym ext blocks ret args
      , _frameStmts     :: !(StmtSeq ext blocks ret args)
      , _framePostdom   :: !(Some (CrucibleBranchTarget (CrucibleLang blocks ret)))
      }
+
+ppCallFrame :: IsExpr (SymExpr sym) => CallFrame sym ext blocks ret args -> PP.Doc ann
+ppCallFrame cf =
+  PP.vcat [ PP.pretty "CallFrame"
+          -- , PP.pretty "  cfg: " <> PP.pretty (_frameCFG cf)
+          -- , PP.pretty "  postdom: " <> PP.pretty (_framePostdomMap cf)
+          , PP.pretty "  block: " <> PP.pretty (show $ _frameBlockID cf)
+          , PP.pretty "  regs: " <> PP.pretty (_frameRegs cf)
+          -- , PP.pretty "  stmts: " <> PP.pretty (show $ _frameStmts cf)
+          , PP.pretty "  postdom: " <> case _framePostdom cf of
+              Some val -> PP.pretty val
+          ]
+
+instance IsExpr (SymExpr sym) => PP.Pretty (CallFrame sym ext blocks ret args) where
+  pretty = PP.parens . ppCallFrame
 
 frameBlockMap :: CallFrame sym ext blocks ret ctx -> BlockMap ext blocks ret
 frameBlockMap CallFrame { _frameCFG = g } = cfgBlockMap g
@@ -257,6 +279,19 @@ data OverrideFrame sym (ret :: CrucibleType) args
                      -- ^ Arguments to override.
                    }
 
+ppOverrideFrame :: IsExpr (SymExpr sym) => OverrideFrame sym ret args -> PP.Doc ann
+ppOverrideFrame (OverrideFrame _override _overrideHandle _overrideRegMap) =
+  PP.pretty "OverrideFrame" PP.<+>
+  PP.pretty "override" PP.<+>
+  PP.pretty _override PP.<+>
+  PP.pretty "handle" PP.<+>
+  PP.pretty _overrideHandle PP.<+>
+  PP.pretty "regMap" PP.<+>
+  PP.pretty _overrideRegMap
+
+instance IsExpr (SymExpr sym) => PP.Pretty (OverrideFrame sym ret args) where
+  pretty = ppOverrideFrame
+
 override :: Simple Lens (OverrideFrame sym ret args) FunctionName
 override = lens _override (\o x -> o{ _override = x })
 
@@ -295,6 +330,13 @@ data SimFrame sym ext l (args :: Maybe (Ctx CrucibleType)) where
      -> !(RegEntry sym (FrameRetType f))
      -> SimFrame sym ext f 'Nothing
 
+ppSimFrame :: IsExpr (SymExpr sym) => SimFrame sym ext l args -> PP.Doc annotated
+ppSimFrame (OF f) = pretty f
+ppSimFrame (MF f) = pretty f
+ppSimFrame (RF f r) = pretty f <+> pretty "returns" <+> pretty r
+
+instance IsExpr (SymExpr sym) => PP.Pretty (SimFrame sym ext l args) where
+  pretty = PP.parens . ppSimFrame
 
 overrideSimFrame :: Lens (SimFrame sym ext (OverrideLang r) ('Just args))
                          (SimFrame sym ext (OverrideLang r') ('Just args'))

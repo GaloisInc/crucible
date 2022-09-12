@@ -64,7 +64,17 @@ library
     transformers,
     unordered-containers,
     vector,
-    what4 >= 0.4
+    what4 >= 0.4,
+    placeholders,
+    crucible-protobuf-trace,
+    proto-lens-runtime,
+    proto-lens,
+    microlens,
+    cryptohash-sha1,
+    base16-bytestring,
+    bytestring,
+    utf8-string,
+    directory,
 
   default-extensions:
      NondecreasingIndentation

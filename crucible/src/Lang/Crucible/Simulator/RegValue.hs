@@ -99,6 +99,10 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (StringMapType tp) = Map Text (PartExpr (Pred sym) (RegValue sym tp))
 
+-- instance IsExpr (SymExpr sym) => PP.Pretty (RegValue (sym :: Type) (tp::CrucibleType)) where
+--   pretty p = case p of
+--     IntrinsicRepr nm ctx -> undefined
+
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
 newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }

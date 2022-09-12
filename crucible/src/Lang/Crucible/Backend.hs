@@ -58,6 +58,7 @@ module Lang.Crucible.Backend
   , trivialAssumption
   , impossibleAssumption
   , ppAssumption
+  , ppAssertion
   , assumptionLoc
   , eventLoc
   , mergeAssumptions
@@ -125,6 +126,8 @@ import           What4.Expr (GroundValue, GroundValueWrapper(..))
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
+import Prettyprinter (pretty)
+import qualified Text.Printf as Text
 
 -- | This type describes assumptions made at some point during program execution.
 data CrucibleAssumption (e :: BaseType -> Type)
@@ -209,7 +212,7 @@ data CrucibleAssumptions (e :: BaseType -> Type) where
   SingleEvent      :: CrucibleEvent e -> CrucibleAssumptions e
   ManyAssumptions  :: Seq (CrucibleAssumptions e) -> CrucibleAssumptions e
   MergeAssumptions ::
-    e BaseBoolType {- ^ branch condition -} ->
+    e BaseBoolType        {- ^ branch condition -} ->
     CrucibleAssumptions e {- ^ "then" assumptions -} ->
     CrucibleAssumptions e {- ^ "else" assumptions -} ->
     CrucibleAssumptions e
@@ -350,6 +353,17 @@ ppAbortExecReason e =
     VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
     EarlyExit l -> ppLocated l "Program exited early."
 
+instance PP.Pretty AbortExecReason where
+  pretty = ppAbortExecReason
+
+ppAssertion :: (IsExpr (SymExpr sym)) => Assertion sym -> PP.Doc ann
+ppAssertion (LabeledPred p e) =
+  PP.vcat
+  [ "Assertion:"
+  , PP.indent 2 (printSymExpr p)
+  , "at"
+  , PP.indent 2 (ppSimError e)
+  ]
 ppAssumption :: (forall tp. e tp -> PP.Doc ann) -> CrucibleAssumption e -> PP.Doc ann
 ppAssumption ppDoc e =
   case e of

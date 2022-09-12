@@ -99,6 +99,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
+import Prettyprinter (pretty)
 
 data UnsatFeatures
   = NoUnsatFeatures

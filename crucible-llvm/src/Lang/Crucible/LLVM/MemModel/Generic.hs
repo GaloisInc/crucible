@@ -115,6 +115,7 @@ import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Simulator.RegMap (RegValue'(..))
+import qualified Text.Printf as Text
 
 --------------------------------------------------------------------------------
 -- Reading from memory
@@ -1211,13 +1212,13 @@ writeConstMem ::
   , HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   sym           ->
-  NatRepr w     ->
-  Maybe String  ->
-  LLVMPtr sym w ->
-  StorageType   ->
-  Alignment     ->
-  LLVMVal sym   ->
-  Mem sym       ->
+  NatRepr w      {- ^ pointer width -} ->
+  Maybe String   {- ^ pointer symbol name if present -} ->
+  LLVMPtr sym w  {- ^ pointer -} ->
+  StorageType    {- ^ value type -} ->
+  Alignment      {- ^ alignment required for the store -} ->
+  LLVMVal sym    {- ^ value to store -} ->
+  Mem sym        {- ^ memory before -} ->
   IO (Mem sym, Pred sym, Pred sym)
 writeConstMem = writeMemWithAllocationCheck isAllocated
 

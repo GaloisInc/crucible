@@ -86,6 +86,7 @@ import qualified Data.Vector as V
 import           Data.Type.Equality hiding (sym)
 import           System.IO
 import qualified Prettyprinter as PP
+import qualified Text.Printf as Text
 
 import           What4.Config
 import           What4.Interface
