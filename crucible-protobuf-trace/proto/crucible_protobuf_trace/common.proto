@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+// package trace.common;
+
+message SourcePosition {
+  string file = 1;
+  int64 line = 2;
+  int64 column = 3;
+}
+message BinaryPosition {
+  string file = 1;
+  int64 address = 2;
+}
+message OtherPosition {
+  string descriptor = 1;
+}
+message UnavailablePosition {
+}
+message InternalPosition {}
+message Position {
+  oneof by {
+    SourcePosition source = 1;
+    BinaryPosition binary = 2;
+    OtherPosition other = 3;
+    InternalPosition internal = 4;
+  }
+}
+message ProgramLoc {
+  string function_name = 1;
+  Position position = 2;
+}
+message MissingProgramLoc {}
+
+message MaybeProgramLoc {
+  oneof by {
+    ProgramLoc program_loc = 1;
+    MissingProgramLoc missing = 2;
+  }
+}

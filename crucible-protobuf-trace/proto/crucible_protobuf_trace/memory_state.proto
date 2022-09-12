@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+// package trace.memory_events;
+
+import "crucible_protobuf_trace/sym_expr.proto";
+import "crucible_protobuf_trace/llvm_val.proto";
+// import "crucible_protobuf_trace/memory_events.proto";
+
+enum AllocationType {
+  HEAP = 0;
+  STACK = 1;
+  GLOBAL = 2;
+}
+enum Mutability {
+  MUTABLE = 0;
+  IMMUTABLE = 1;
+}
+enum Endianness {
+    LITTLE_ENDIAN = 0;
+    BIG_ENDIAN = 1;
+}
+
+message AllocInfo {
+    AllocationType alloc_type = 1;
+    optional BVExpression size = 2;
+    Mutability mutability = 3;
+    int32 Alignment = 4;
+    string location_name = 5;
+}
+message MemStateAllocs {
+    map<int64, AllocInfo> allocations = 1;
+}
+message MemStateFree {
+    IntExpression blockId = 1;
+    string location_name = 2;
+}
+message MemStateAllocMerge {
+    BoolExpression cond = 1;
+    MemAllocs lhs = 2;
+    MemAllocs rhs = 3;
+}
+message MemAlloc {
+    oneof kind {
+        MemStateAllocs allocs = 1;
+        MemStateFree free = 2;
+        MemStateAllocMerge merge = 3;
+    }
+}
+message MemAllocs {
+    repeated MemAlloc allocs = 1;
+}
+
+message MemWriteSingle {
+    LLVMPointer ptr = 1;
+    WriteSource source = 2;
+}
+message MemWriteMerge {
+    BoolExpression cond = 1;
+    MemWrites lhs = 2;
+    MemWrites rhs = 3;
+}
+message MemWrite {
+    oneof kind {
+        MemWriteSingle single = 1;
+        MemWriteMerge merge = 2;
+    }
+}
+
+message MemWritesChunkFlat {
+    repeated MemWrite writes = 1;
+}
+message MemWritesChunkIndexed {
+    map<int64, MemWrite> writes = 1;
+}
+message MemWritesChunk {
+    oneof kind {
+        MemWritesChunkFlat flat = 1;
+        MemWritesChunkIndexed indexed = 2;
+    }
+}
+message MemWrites {
+    repeated MemWritesChunk chunks = 1;
+}
+
+message MemChanges {
+    MemAllocs allocations = 1;
+    MemWrites writes = 2;
+}
+
+message MemEmpty {
+    int64 num_allocs = 1;
+    int64 num_writes = 2;
+    MemChanges changes = 3;
+}
+message MemStackFrame {
+    int64 num_allocs = 1;
+    int64 num_writes = 2;
+    string frame_name = 3;
+    MemChanges changes = 4;
+    MemState base_state = 5;
+}
+message MemBranchFrame {
+    int64 num_allocs = 1;
+    int64 num_writes = 2;
+    MemChanges changes = 3;
+    MemState base_state = 4;
+}
+message MemState {
+    oneof kind {
+        MemEmpty empty = 1;
+        MemStackFrame stack_frame = 2;
+        MemBranchFrame branch_frame = 3;
+    }
+}
+
+message Mem {
+    Endianness endianness = 1;
+    MemState state = 2;
+}
+
+
+message WriteSourceMemCopy {
+    LLVMPointer addr = 1;
+    BVExpression size = 2;
+    bool require_disjoint = 3;
+  }
+  message WriteSourceMemSet {
+    BVExpression fill_byte_val = 1;
+    BVExpression size = 2;
+  }
+  message WriteSourceMemStore {
+    LLVMVal value = 1;
+    StorageType storage_type = 2;
+    uint64 byte_alignment = 3;
+  }
+  message WriteSourceMemArrayStore {
+  }
+  message WriteSourceMemInvalidate {
+    string message = 1;
+    BVExpression size = 2;
+  }
+  message WriteSource {
+    oneof src {
+      WriteSourceMemCopy src_mem_copy = 1;
+      WriteSourceMemSet src_mem_set = 2;
+      WriteSourceMemStore src_mem_store = 3;
+      WriteSourceMemArrayStore src_mem_array_store = 4;
+      WriteSourceMemInvalidate src_invalidate = 5;
+    }
+  }

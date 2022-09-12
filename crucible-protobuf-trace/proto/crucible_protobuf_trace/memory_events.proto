@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+// package trace.memory_events;
+
+import "crucible_protobuf_trace/sym_expr.proto";
+import "crucible_protobuf_trace/llvm_val.proto";
+import "crucible_protobuf_trace/memory_state.proto";
+
+message MemoryEventRead {
+  LLVMPointer addr = 1;
+  StorageType value_type = 2;
+  uint64 byte_alignment = 3;
+  PartialLLVMVal read_value = 4;
+}
+
+message MemoryEventWrite {
+  LLVMPointer dst = 1;
+  WriteSource src = 2;
+  BoolExpression condition = 3;
+  bool is_const_write = 4; // whether or not this write can bypass read-only access checks (aka initializers)
+}
+
+message MemoryEventAlloc {
+  optional BVExpression size = 1; // if size is not given => unbounded allocation
+  int64 allocation_id_concrete = 2;
+  string location_description = 3;
+  AllocationType allocation_type = 4;
+  uint64 byte_alignment = 5;
+}
+message MemoryEventFree {
+  LLVMPointer ptr_freed = 1;
+  string location_description = 2;
+}
+
+message MemoryEvent {
+  oneof event {
+    MemoryEventRead read = 1;
+    MemoryEventWrite write = 2;
+    MemoryEventAlloc alloc = 3;
+    MemoryEventFree free = 4;
+  }
+}

@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+import "crucible_protobuf_trace/sym_expr.proto";
+
+message StorageTypeBitVector {
+  uint64 num_bytes = 1;
+}
+message StorageTypeFloat {
+  FloatSize size = 1;
+}
+message StorageTypeArray {
+  StorageType element_type = 1;
+  uint64 num_elements = 2;
+}
+message StorageTypeStructField {
+  uint64 offset = 1;
+  StorageType val_type = 2;
+  uint64 num_bytes_padding = 3;
+}
+message StorageTypeStruct {
+  repeated StorageTypeStructField fields = 1;
+}
+message StorageTypeF {
+  oneof type {
+    StorageTypeBitVector bit_vector = 2;
+    StorageTypeFloat float_ = 3;
+    StorageTypeArray array = 4;
+    StorageTypeStruct struct_ = 5;
+  }
+}
+message StorageType {
+  uint64 size_in_bytes = 1;
+  StorageTypeF storage_type = 2;
+}
+
+message LLVMPointer {
+  IntExpression allocation_id = 1;
+  BVExpression offset = 2;
+}
+message LLVMValInt {
+  IntExpression allocation_id = 1; // should always be zero for global I believe
+  BVExpression offset = 2;
+}
+message LLVMValFloat {
+  FloatSize float_size = 1;
+  ExpressionID value = 2;
+}
+
+message LLVMValStructField {
+  StorageTypeStructField field_type = 1;
+  LLVMVal field_value = 2;
+}
+message LLVMValStruct {
+  repeated LLVMValStructField fields = 3;
+}
+message LLVMValArray {
+  StorageType value_type = 1;
+  repeated LLVMVal array_values = 2;
+}
+message LLVMValString {
+  bytes bytes = 1;
+}
+message LLVMValZero {
+  StorageType storage_type = 1;
+}
+message LLVMValUndef {
+  StorageType storage_type = 1;
+}
+
+message LLVMVal {
+  oneof value {
+    LLVMValInt int_value = 1;
+    LLVMValFloat float_value = 2;
+    LLVMValStruct struct_value = 3;
+    LLVMValArray array_value = 4;
+    LLVMValString string_value = 5;
+    LLVMValZero zero_value = 6;
+    LLVMValUndef undef_value = 7;
+  }
+}
+
+message PartialLLVMVal {
+  BoolExpression predicate = 1;
+  oneof value {
+    bool error = 2;
+    LLVMVal result = 3;
+  }
+}

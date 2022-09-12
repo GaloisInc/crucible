@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+// message ExpressionID {
+//   uint64 id = 1;
+// }
+message ConstExprBool {
+  bool value = 1;
+}
+message ConstExprInt {
+  int64 value = 1;
+}
+message ConstExprBV {
+  string hex_value = 1;
+  int64 width = 2;
+}
+message ConstExprFloat {
+  string value = 1;
+}
+message ExpressionID {
+  oneof id_kind {
+    uint64 serialized_id = 1;
+    ConstExprBool bool_const = 2;
+    ConstExprInt int_const = 3;
+    ConstExprBV bv_const = 4;
+    ConstExprFloat float_const = 5;
+  }
+}
+
+message ExpressionSortBV {
+  uint64 bits = 1;
+}
+message ExpressionSortBool {}
+message ExpressionSortInt {}
+
+enum FloatSize {
+  SINGLE = 0;
+  DOUBLE = 1;
+  X86_80 = 2;
+}
+
+message ExpressionSortFloat {
+  FloatSize size = 1;
+}
+message ExpressionSort {
+  oneof sort {
+    ExpressionSortBool sort_bool = 1;
+    ExpressionSortBV sort_bv = 2;
+    ExpressionSortInt sort_int = 3;
+    ExpressionSortFloat sort_float = 4;
+  }
+}
+message IntExpression {
+  ExpressionID id = 1;
+  ExpressionSortInt int_type = 2;
+}
+message BoolExpression {
+  ExpressionID id = 1;
+  ExpressionSortBool bool_type = 2;
+}
+message BVExpression {
+  ExpressionID id = 1;
+  ExpressionSortBV bv_type = 2;
+}
+message FloatExpression {
+  ExpressionID id = 1;
+  ExpressionID float_type = 2;
+}
+message AnyTypeExpression {
+  ExpressionID id = 1;
+  ExpressionSort type = 2;
+}
+
+message LabeledPredicate {
+  ExpressionID predicate_expression_id = 1;
+  string message = 2;
+}

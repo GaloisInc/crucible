@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+import "crucible_protobuf_trace/common.proto";
+import "crucible_protobuf_trace/sym_expr.proto";
+
+message AbortedExec {
+    string reason = 1;
+}
+message AbortedExit {
+    bool exit_success = 1;
+    int64 exit_code = 2;
+}
+message AbortedBranch { // both sides of a branch aborted
+    ProgramLoc source_location = 1;
+    BoolExpression symbolic_condition = 2;
+    AbortedResult abort_reason_true_branch = 3;
+    AbortedResult abort_reason_false_branch = 4;
+}
+
+message AbortedResult {
+    oneof kind {
+        AbortedExec abort_single = 1;
+        AbortedExit abort_exit = 2;
+        AbortedBranch abort_branch = 3;
+    }
+}

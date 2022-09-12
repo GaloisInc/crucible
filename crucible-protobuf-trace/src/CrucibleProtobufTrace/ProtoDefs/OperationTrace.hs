@@ -1,0 +1,4 @@
+module CrucibleProtobufTrace.ProtoDefs.OperationTrace (module OperationTrace) where
+
+import Proto.CrucibleProtobufTrace.OperationTrace as OperationTrace
+import Proto.CrucibleProtobufTrace.OperationTrace_Fields as OperationTrace

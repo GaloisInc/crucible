@@ -1,0 +1,107 @@
+Cabal-version: 2.2
+Name:          crucible-protobuf-trace
+Version:       0.1
+Author:        Galois Inc.
+Copyright:     (c) Galois, Inc 2014-2022
+Maintainer:    ldresel@galois.com
+License:       BSD-3-Clause
+License-file:  LICENSE
+Category:      Language
+Synopsis:      Logging Crucible simulation and memory events into a protobuf-based trace
+Description:
+   Allows for logging of Crucible simulation and memory events into a protobuf-based trace. This can be used to test and
+   experiment with external tools written in other languages (e.g. other memory models) and evaluating them on crucible
+   tasks without having to interface directly.
+
+Build-type:    Custom
+extra-source-files:
+  README.md,
+  proto/crucible_protobuf_trace/*.proto
+
+custom-setup
+  setup-depends: base, Cabal, proto-lens-setup
+
+common bldflags
+  ghc-options: -Wall
+               -Werror=incomplete-patterns
+               -Werror=missing-methods
+               -Werror=overlapping-patterns
+               -Wpartial-fields
+               -Wincomplete-uni-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+
+
+library
+  import: bldflags
+  build-tool-depends: proto-lens-protoc:proto-lens-protoc
+
+  build-depends:
+    base,
+    proto-lens-runtime,
+    proto-lens,
+    bytestring,
+    microlens,
+    what4,
+    parameterized-utils,
+    directory,
+    text,
+    containers,
+    filepath,
+    bv-sized,
+    bv,
+    libBF,
+
+  hs-source-dirs: src
+
+  autogen-modules:
+    Proto.CrucibleProtobufTrace.Common, Proto.CrucibleProtobufTrace.Common_Fields,
+    Proto.CrucibleProtobufTrace.Abort, Proto.CrucibleProtobufTrace.Abort_Fields,
+    Proto.CrucibleProtobufTrace.SymExpr, Proto.CrucibleProtobufTrace.SymExpr_Fields,
+    Proto.CrucibleProtobufTrace.LlvmVal, Proto.CrucibleProtobufTrace.LlvmVal_Fields,
+    Proto.CrucibleProtobufTrace.MemoryEvents, Proto.CrucibleProtobufTrace.MemoryEvents_Fields,
+    Proto.CrucibleProtobufTrace.MemoryState, Proto.CrucibleProtobufTrace.MemoryState_Fields,
+    Proto.CrucibleProtobufTrace.OperationTrace, Proto.CrucibleProtobufTrace.OperationTrace_Fields,
+    Proto.CrucibleProtobufTrace.Assumptions, Proto.CrucibleProtobufTrace.Assumptions_Fields
+
+  exposed-modules:
+    -- CrucibleProtobufTrace
+    CrucibleProtobufTrace.Encoding,
+    CrucibleProtobufTrace.What4Encodings,
+    CrucibleProtobufTrace.GlobalEncodingState,
+    CrucibleProtobufTrace.ProtoDefs.Common,
+    CrucibleProtobufTrace.ProtoDefs.Abort,
+    CrucibleProtobufTrace.ProtoDefs.SymExpr,
+    CrucibleProtobufTrace.ProtoDefs.LlvmVal,
+    CrucibleProtobufTrace.ProtoDefs.MemoryEvents,
+    CrucibleProtobufTrace.ProtoDefs.MemoryState,
+    CrucibleProtobufTrace.ProtoDefs.OperationTrace,
+    CrucibleProtobufTrace.ProtoDefs.Assumptions
+
+  other-modules:
+    Proto.CrucibleProtobufTrace.Common, Proto.CrucibleProtobufTrace.Common_Fields,
+    Proto.CrucibleProtobufTrace.Abort, Proto.CrucibleProtobufTrace.Abort_Fields,
+    Proto.CrucibleProtobufTrace.SymExpr, Proto.CrucibleProtobufTrace.SymExpr_Fields,
+    Proto.CrucibleProtobufTrace.LlvmVal, Proto.CrucibleProtobufTrace.LlvmVal_Fields,
+    Proto.CrucibleProtobufTrace.MemoryEvents, Proto.CrucibleProtobufTrace.MemoryEvents_Fields,
+    Proto.CrucibleProtobufTrace.MemoryState, Proto.CrucibleProtobufTrace.MemoryState_Fields,
+    Proto.CrucibleProtobufTrace.OperationTrace, Proto.CrucibleProtobufTrace.OperationTrace_Fields,
+    Proto.CrucibleProtobufTrace.Assumptions, Proto.CrucibleProtobufTrace.Assumptions_Fields
+
+  default-extensions: NoStarIsType
+
+
+-- test-suite crucible-protobuf-trace-test
+--   import: bldflags
+--   type: exitcode-stdio-1.0
+--   main-is: Tests.hs
+--   hs-source-dirs: test
+
+--   build-depends:
+--     base,
+--     crucible-protobuf-trace,
+--     proto-lens-runtime,
+--     proto-lens,
+--     microlens,
+--     what4,
+--     text

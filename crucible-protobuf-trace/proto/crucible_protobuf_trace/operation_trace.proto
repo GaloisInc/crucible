@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+// package CrucibleProtobufTrace.OperationTrace;
+
+
+import "crucible_protobuf_trace/common.proto";
+import "crucible_protobuf_trace/sym_expr.proto";
+import "crucible_protobuf_trace/memory_events.proto";
+import "crucible_protobuf_trace/assumptions.proto";
+import "crucible_protobuf_trace/abort.proto";
+
+message Assertion {
+  ExpressionID predicate = 1;
+  string message = 2;
+}
+
+message PathID {
+  // AssumptionFrames assumption_frames = 1;
+  string text = 1;
+}
+
+message PathSplit {
+  ExpressionID split_condition = 1;
+  PathID continuing_path_id = 2;
+  // AssumptionFrame suspended_assumption_frame = 3;
+}
+message PathMerge {
+  PathID merging_path_id = 1;
+  optional ExpressionID merge_condition = 2;
+  Assumptions path_assumptions = 3;
+  Assumptions other_assumptions = 4;
+  PathID path_id_after = 5;
+}
+
+message BranchSwitch {
+  PathID id_suspended = 1;
+  PathID id_resumed = 2;
+  ExpressionID branch_condition = 3;
+  MaybeProgramLoc branch_location = 4;
+  Assumptions suspended_assumptions = 5;
+}
+
+message BranchAbort {
+  AbortedResult abort_result = 1;
+  Assumptions aborted_assumptions = 2;
+}
+message ReturnFromFunction {
+  string func_name = 1;
+}
+
+message CallFunction {
+  string func_name = 1;
+  bool is_tail_call = 2;
+}
+
+message SolverPushFrame {}
+
+message SolverPopFrame {
+  PathID path_id_after = 1;
+}
+
+message Assume {
+  ExpressionID predicate = 1;
+  PathID new_path_id = 2;
+}
+
+message Check {
+  ExpressionID predicate = 1;
+  PathID new_path_id = 2;
+}
+
+message NewSymbolicVariable {
+  string name = 1;
+  AnyTypeExpression expression = 2;
+}
+
+message TraceEvent {
+  PathID path_id = 1;
+  MaybeProgramLoc location = 2;
+  oneof event_kind {
+    PathSplit path_split = 3;
+    PathMerge path_merge = 4;
+    BranchSwitch branch_switch = 5;
+    BranchAbort branch_abort = 6;
+    Assume assume = 7;
+    // Check check = 8; // I don't think we actually need this for the trace
+    ReturnFromFunction return_from_function = 9;
+    CallFunction call_function = 10;
+    NewSymbolicVariable new_symbolic_var = 11;
+    MemoryEvent memory_event = 12;
+  }
+}
+
+message OperationTrace {
+  repeated TraceEvent events = 1;
+}

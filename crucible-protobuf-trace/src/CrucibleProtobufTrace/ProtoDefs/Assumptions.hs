@@ -1,0 +1,4 @@
+module CrucibleProtobufTrace.ProtoDefs.Assumptions (module Assumptions) where
+
+import Proto.CrucibleProtobufTrace.Assumptions as Assumptions
+import Proto.CrucibleProtobufTrace.Assumptions_Fields as Assumptions

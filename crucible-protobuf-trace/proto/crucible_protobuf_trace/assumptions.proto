@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+import "crucible_protobuf_trace/common.proto";
+import "crucible_protobuf_trace/sym_expr.proto";
+
+message AssumptionKind_Generic {
+    ProgramLoc location = 1;
+    string message = 2;
+}
+message AssumptionKind_BranchCondition {
+    ProgramLoc location = 1;
+    MaybeProgramLoc branch_target = 2;
+}
+message AssumptionKind_SimulatorAssumingNoError {
+    string reason = 1;
+}
+message Assumption {
+    ExpressionID assumed_expr = 1;
+    oneof kind {
+        AssumptionKind_Generic generic = 2;
+        AssumptionKind_BranchCondition branch_condition = 3;
+        AssumptionKind_SimulatorAssumingNoError simulator_assuming_no_error = 4;
+    }
+}
+message AssumptionEvent_CreateVariable {
+    ProgramLoc location = 1;
+    string name = 2;
+    ExpressionSort sort = 3;
+    ExpressionID var_expr = 4;
+}
+message AssumptionEvent_LocationReached {
+    ProgramLoc location = 1;
+}
+message AssumptionEvent {
+    oneof ev {
+        AssumptionEvent_CreateVariable create_variable = 1;
+        AssumptionEvent_LocationReached location_reached = 2;
+    }
+}
+
+message Assumptions_Many {
+    repeated Assumptions assumptions = 1;
+}
+message Assumptions_Merged {
+    ExpressionID predicate = 1;
+    Assumptions assumptions_then = 2;
+    Assumptions assumptions_else = 3;
+}
+
+message Assumptions {
+    oneof kind {
+        Assumption single_assumption = 1;
+        AssumptionEvent single_event = 2;
+        Assumptions_Many many_assumptions = 3;
+        Assumptions_Merged merged_assumptions = 4;
+    }
+}
+
+message FrameIdentifier {
+    uint64 id = 1;
+}
+message AssumptionFrame {
+    FrameIdentifier frame_identifier = 1;
+    Assumptions assumptions = 2;
+}
+message AssumptionFrames {
+    Assumptions global_assumptions = 1;
+    repeated AssumptionFrame frames = 2;
+}
+

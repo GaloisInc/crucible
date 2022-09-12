@@ -1,0 +1,4 @@
+module CrucibleProtobufTrace.ProtoDefs.MemoryEvents (module MemoryEvents) where
+
+import Proto.CrucibleProtobufTrace.MemoryEvents as MemoryEvents
+import Proto.CrucibleProtobufTrace.MemoryEvents_Fields as MemoryEvents
