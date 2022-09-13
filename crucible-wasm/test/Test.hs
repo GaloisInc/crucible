@@ -35,7 +35,7 @@ cube :: TS.CUBE
 cube =
   TS.mkCUBE
   { TS.inputDirs = ["test-data/"]
-  , TS.rootName = "*.txt"
+  , TS.rootName = "*.wat"
   , TS.separators = "."
   , TS.expectedSuffix = "good"
   , TS.validParams =
