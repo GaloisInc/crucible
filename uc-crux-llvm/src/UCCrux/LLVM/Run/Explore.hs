@@ -24,7 +24,6 @@ import           Control.Scheduler (Comp(Par), traverseConcurrently)
 import           Control.Exception (displayException)
 import           Data.Function ((&))
 import           Data.Map (Map)
-import qualified Data.Map.Strict as Map
 import           Data.Text.IO (writeFile)
 import qualified Data.Text as Text
 import           Data.Traversable (for)
@@ -62,6 +61,7 @@ import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Loop (loopOnFunction)
 import           UCCrux.LLVM.Specs.Type (SomeSpecs)
 import           UCCrux.LLVM.Stats (Stats(unimplementedFreq), getStats, ppStats)
+import qualified UCCrux.LLVM.Stats.Freq as Freq
 {- ORMOLU_ENABLE -}
 
 withTimeout :: Int -> IO a -> IO (Either () a)
@@ -109,7 +109,7 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc specs dir defnSym =
               writeFile logFilePath (Text.pack (displayException unin))
               pure
                 ( mempty
-                    { unimplementedFreq = Map.singleton (panicComponent unin) 1
+                    { unimplementedFreq = Freq.singleton (panicComponent unin)
                     }
                 )
           Left () ->

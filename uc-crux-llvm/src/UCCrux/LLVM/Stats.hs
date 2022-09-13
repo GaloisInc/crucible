@@ -6,6 +6,7 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 
@@ -18,8 +19,6 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Data.Foldable (toList)
-import qualified Data.Map.Strict as Map
-import           Data.Map.Strict (Map)
 import           Data.Text (Text)
 import           Data.Void (Void)
 import           Panic (panicComponent)
@@ -29,27 +28,28 @@ import qualified Prettyprinter as PP
 
 import           UCCrux.LLVM.Bug (BugBehavior, bugBehavior)
 import           UCCrux.LLVM.Classify.Types (Located(..), ppLocated, DiagnosisTag, partitionUncertainty, diagnoseTag, TruePositive, ppTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, diagnosisTag)
+import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
+import           UCCrux.LLVM.Stats.Count (Count)
+import qualified UCCrux.LLVM.Stats.Count as Count
+import           UCCrux.LLVM.Stats.Freq (Freq)
+import qualified UCCrux.LLVM.Stats.Freq as Freq
 {- ORMOLU_ENABLE -}
 
 data Stats = Stats
-  { missingAnnotation :: !Word,
-    symbolicallyFailedAssert :: !Word,
-    timeouts :: !Word,
-    truePositiveFreq :: Map (Located TruePositive) Word,
-    unclassifiedFreq :: Map BugBehavior Word,
-    diagnosisFreq :: Map DiagnosisTag Word,
-    unimplementedFreq :: Map Unimplemented Word,
-    unfixableFreq :: Map Unfixable Word,
-    unfixedFreq :: Map Unfixed Word,
-    summaries :: Map FunctionSummaryTag Word
+  { missingAnnotation :: !Count,
+    symbolicallyFailedAssert :: !Count,
+    timeouts :: !Count,
+    truePositiveFreq :: Freq (Located TruePositive),
+    unclassifiedFreq :: Freq BugBehavior,
+    diagnosisFreq :: Freq DiagnosisTag,
+    unimplementedFreq :: Freq Unimplemented,
+    unfixableFreq :: Freq Unfixable,
+    unfixedFreq :: Freq Unfixed,
+    summaries :: Freq FunctionSummaryTag
   }
   deriving (Eq, Ord)
-
-frequencies :: Ord a => [a] -> Map a Word
-frequencies = foldr (\tag mp -> Map.insertWith (+) tag 1 mp) Map.empty
 
 getStats :: BugfindingResult m arch argTypes -> Stats
 getStats result =
@@ -60,15 +60,15 @@ getStats result =
           timeouts = toEnum $ length timeouts',
           truePositiveFreq =
             case Result.summary result of
-              Result.FoundBugs bugs -> frequencies (toList bugs)
-              _ -> Map.empty,
-          unclassifiedFreq = frequencies (map (bugBehavior . locatedValue) unclass),
+              Result.FoundBugs bugs -> Freq.count (toList bugs)
+              _ -> Freq.empty,
+          unclassifiedFreq = Freq.count (map (bugBehavior . locatedValue) unclass),
           diagnosisFreq =
-            frequencies (map diagnosisTag (deducedPreconditions result)),
-          unimplementedFreq = frequencies (map (panicComponent . locatedValue) unimplementeds),
-          unfixedFreq = frequencies (map locatedValue unfixed),
-          unfixableFreq = frequencies (map locatedValue unfixable),
-          summaries = Map.singleton (Result.functionSummaryTag (Result.summary result)) 1
+            Freq.count (map diagnosisTag (deducedPreconditions result)),
+          unimplementedFreq = Freq.count (map (panicComponent . locatedValue) unimplementeds),
+          unfixedFreq = Freq.count (map locatedValue unfixed),
+          unfixableFreq = Freq.count (map locatedValue unfixable),
+          summaries = Freq.singleton (Result.functionSummaryTag (Result.summary result))
         }
 
 ppStats :: Stats -> Doc Void
@@ -106,42 +106,41 @@ ppStats stats =
           ]
     ]
   where
-    ppFreq headline ppTag mp =
+    ppFreq headline ppTag fq =
       PP.nest 2 $
         PP.vsep
           ( PP.pretty (headline :: Text) :
             map
               (\(tag, freq) -> ppTag tag <> PP.pretty (": " :: Text) <> PP.viaShow freq)
-              (Map.toList mp)
+              (Freq.toList fq)
           )
 
 instance Semigroup Stats where
   stats1 <> stats2 =
-    let unionWithPlus field = Map.unionWith (+) (field stats1) (field stats2)
-     in Stats
-          { unclassifiedFreq = unionWithPlus unclassifiedFreq,
-            missingAnnotation = missingAnnotation stats1 + missingAnnotation stats2,
-            symbolicallyFailedAssert = symbolicallyFailedAssert stats1 + symbolicallyFailedAssert stats2,
-            timeouts = timeouts stats1 + timeouts stats2,
-            truePositiveFreq = unionWithPlus truePositiveFreq,
-            diagnosisFreq = unionWithPlus diagnosisFreq,
-            unimplementedFreq = unionWithPlus unimplementedFreq,
-            unfixedFreq = unionWithPlus unfixedFreq,
-            unfixableFreq = unionWithPlus unfixableFreq,
-            summaries = Map.unionWith (+) (summaries stats1) (summaries stats2)
-          }
+    Stats
+      { unclassifiedFreq = unclassifiedFreq stats1 <> unclassifiedFreq stats2,
+        missingAnnotation = missingAnnotation stats1 `Count.plus` missingAnnotation stats2,
+        symbolicallyFailedAssert = symbolicallyFailedAssert stats1 `Count.plus` symbolicallyFailedAssert stats2,
+        timeouts = timeouts stats1 `Count.plus` timeouts stats2,
+        truePositiveFreq = truePositiveFreq stats1 <> truePositiveFreq stats2,
+        diagnosisFreq = diagnosisFreq stats1 <> diagnosisFreq stats2,
+        unimplementedFreq = unimplementedFreq stats1 <> unimplementedFreq stats2,
+        unfixedFreq = unfixedFreq stats1 <> unfixedFreq stats2,
+        unfixableFreq = unfixableFreq stats1 <> unfixableFreq stats2,
+        summaries = summaries stats1 <> summaries stats2
+      }
 
 instance Monoid Stats where
   mempty =
     Stats
-      { unclassifiedFreq = Map.empty,
-        missingAnnotation = 0,
-        symbolicallyFailedAssert = 0,
-        timeouts = 0,
-        truePositiveFreq = Map.empty,
-        diagnosisFreq = Map.empty,
-        unimplementedFreq = Map.empty,
-        unfixedFreq = Map.empty,
-        unfixableFreq = Map.empty,
-        summaries = Map.empty
+      { unclassifiedFreq = Freq.empty,
+        missingAnnotation = Count.zero,
+        symbolicallyFailedAssert = Count.zero,
+        timeouts = Count.zero,
+        truePositiveFreq = Freq.empty,
+        diagnosisFreq = Freq.empty,
+        unimplementedFreq = Freq.empty,
+        unfixedFreq = Freq.empty,
+        unfixableFreq = Freq.empty,
+        summaries = Freq.empty
       }
