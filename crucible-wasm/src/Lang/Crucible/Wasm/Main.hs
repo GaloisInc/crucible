@@ -94,7 +94,7 @@ mainWithOutputConfig ::
   IO ExitCode
 mainWithOutputConfig mkOutCfg =
   Crux.withCruxLogMessage $ do
-    Crux.loadOptions mkOutCfg "crux-llvm" version cruxWasmConfig mainWithOptions
+    Crux.loadOptions mkOutCfg "crucible-wasm" version cruxWasmConfig mainWithOptions
 
 main :: IO ()
 main = do
