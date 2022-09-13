@@ -107,6 +107,9 @@ jobs:
       - name: Build
         shell: bash
         run: .github/ci.sh build exe:crucible-wasm
+      - name: Test
+        shell: bash
+        run: .github/ci.sh test crucible-wasm
       - name: Haddock
         shell: bash
         run: cabal v2-haddock crucible-wasm

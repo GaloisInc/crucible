@@ -14,8 +14,6 @@ executable crucible-wasm
 
   hs-source-dirs: tool
   main-is: Main.hs
-  other-modules: Paths_crucible_wasm
-  autogen-modules: Paths_crucible_wasm
 
   build-depends:
     base >= 4 && < 5,
@@ -35,6 +33,9 @@ executable crucible-wasm
 
 
 library
+
+  other-modules: Paths_crucible_wasm
+  autogen-modules: Paths_crucible_wasm
 
   build-depends:
     base >= 4.13 && < 5,
@@ -66,6 +67,7 @@ library
     Lang.Crucible.Wasm
     Lang.Crucible.Wasm.Extension
     Lang.Crucible.Wasm.Instantiate
+    Lang.Crucible.Wasm.Main
     Lang.Crucible.Wasm.Memory
     Lang.Crucible.Wasm.Translate
     Lang.Crucible.Wasm.Utils
@@ -74,3 +76,27 @@ library
   ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
+
+test-suite crucible-wasm-test
+  import: bldflags, testdefs
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+
+  main-is: Test.hs
+
+  build-depends:
+    base,
+    bytestring,
+    crucible-wasm,
+    crux,
+    deepseq,
+    extra,
+    filepath,
+    lens,
+    lumberjack,
+    parsec,
+    tasty >= 0.10,
+    tasty-hunit >= 0.10,
+    tasty-sugar >= 1.3 && < 1.4,
+    text,
+    versions
