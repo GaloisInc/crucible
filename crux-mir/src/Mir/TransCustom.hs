@@ -991,17 +991,22 @@ mem_bswap = (["core", "intrinsics", "", "bswap"],
     bswap :: C.TypeRepr (C.BVType w) -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w)
     bswap (C.BVRepr w) bv
         | Just Refl <- testEquality byte w = bv -- 8 ≡ w
-        | 0 <- natValue w `mod` natValue byte               -- 0 ≡ w%8
-        , Just (byteLEw@LeqProof) <- testLeq byte w         -- 8 ≤ w
-        , Left (byteLTw@LeqProof) <- testStrictLeq byte w = -- 8+1 ≤ w
-            let x = R.App $ E.BVSelect zero byte w bv in -- least significant byte
-            let xsw = subNat w byte in -- size of int sans one byte
-            gcastWith (plusComm xsw byte) $                 -- 8+(w-8) ≡ (w-8)+8
-            gcastWith (minusPlusCancel w byte) $            -- (w-8)+8 ≡ w
-            withLeqProof (leqSub2 byteLTw (leqRefl byte)) $ -- 1 ≤ w-8
-            let xs = R.App $ E.BVSelect byte xsw w bv in -- int sans least significant byte
-            R.App $ E.BVConcat byte xsw x (bswap (C.BVRepr xsw) xs)
+        | 0 <- natValue w `mod` natValue byte   -- 0 ≡ w%8
+        , Just (LeqProof, Refl, LeqProof) <- lemma w =
+            let x = R.App $ E.BVSelect zero byte w bv   -- least significant byte
+                xsw = subNat w byte                     -- size of int sans one byte
+                xs = R.App $ E.BVSelect byte xsw w bv   -- int sans least significant byte
+            in R.App $ E.BVConcat byte xsw x (bswap (C.BVRepr xsw) xs)
         | otherwise = panic "bswap" ["`BVRepr w` must satisfy `8 ≤ w ∧ w%8 ≡ 0`"]
+    lemma :: NatRepr w -> Maybe (LeqProof 8 w, 8 + (w - 8) :~: w, LeqProof 1 (w - 8))
+    lemma w
+        | Just LeqProof <- testLeq byte w               -- 8 ≤ w
+        , Left (lt@LeqProof) <- testStrictLeq byte w    -- 8+1 ≤ w
+        , Refl <- plusComm (subNat w byte) byte         -- 8+(w-8) ≡ (w-8)+8
+        , Refl <- minusPlusCancel w byte                -- (w-8)+8 ≡ w
+        , LeqProof <- leqSub2 lt (leqRefl byte)         -- 1 ≤ w-8
+        = Just (LeqProof, Refl, LeqProof)
+        | otherwise = Nothing
 
 mem_transmute ::  (ExplodedDefId, CustomRHS)
 mem_transmute = (["core", "intrinsics", "", "transmute"],
