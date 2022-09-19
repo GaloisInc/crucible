@@ -1,0 +1,20 @@
+[Crux] Using pointer width: 64 for file crux-build/crux~test-file-8.bc
+[Crux] Simulating function main
+[Crux] Attempting to prove verification conditions.
+[Crux] *** debug executable: results/test-file-8/debug-11
+[Crux] *** break on line: 11
+[Crux] Found counterexample for verification goal
+[Crux]   ./cFiles8bit/test-file-8.c:11:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux]   One of the following 3 fact(s) would entail the goal
+[Crux]   * (bvult x #b00000001)
+[Crux]   * (bvult #b01100100 x)
+[Crux]   * (= #b00000001 x)
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
