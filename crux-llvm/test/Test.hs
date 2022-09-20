@@ -35,7 +35,7 @@ cube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                  , TS.rootName = "*.c"
                  , TS.separators = "."
                  , TS.expectedSuffix = "good"
-                 , TS.validParams = [ ("solver", Just ["z3"])
+                 , TS.validParams = [ ("solver", Just ["z3", "cvc5"])
                                     , ("loop-merging", Just ["loopmerge", "loop"])
                                     , ("clang-range", Just ["pre-clang11", "at-least-clang12", "clang11", "clang12"])
                                     ]
@@ -142,6 +142,18 @@ getCVC4Version =
            then w !! 4 else "?"
       getVer (Left full) = full
   in mkVC "cvc4" . getVer <$> readProcessVersion "cvc4"
+
+getCVC5Version :: IO VersionCheck
+getCVC5Version =
+  let getVer (Right inp) =
+        -- example inp: "This is cvc5 version 1.0.2\ncompiled ..."
+        let w = words inp
+        in if and [ length w > 4
+                  , "This is cvc5 version" `isPrefixOf` inp
+                  ]
+           then w !! 4 else "?"
+      getVer (Left full) = full
+  in mkVC "cvc5" . getVer <$> readProcessVersion "cvc5"
 
 getBoolectorVersion :: IO VersionCheck
 getBoolectorVersion =
@@ -279,6 +291,7 @@ mkTest clangVer sweet _ expct =
       "yices" -> getYicesVersion
       "stp" -> getSTPVersion
       "cvc4" -> getCVC4Version
+      "cvc5" -> getCVC5Version
       "boolector" -> getBoolectorVersion
       _ -> return $ VC solver $ Left "unknown-solver-for-version"
 
