@@ -1,19 +1,8 @@
-[Crux] Using pointer width: 64 for file crux-build/crux~test-maxint-32.bc
-[Crux] Simulating function main
-[Crux] Attempting to prove verification conditions.
-[Crux] *** debug executable: results/test-maxint-32/debug-6
-[Crux] *** break on line: 6
 [Crux] Found counterexample for verification goal
-[Crux]   ./cFiles32bit/test-maxint-32.c:6:0: error: in main
+[Crux]   test-data/golden/abd-test-maxint-32.c:6:0: error: in main
 [Crux]   crucible_assert
 [Crux] 
 [Crux]   One of the following 2 fact(s) would entail the goal
 [Crux]   * (bvult x #b00000000000000000000000000000001)
 [Crux]   * (bvult x #b11111111111111111111111111111111)
-[Crux] Goal status:
-[Crux]   Total: 1
-[Crux]   Proved: 0
-[Crux]   Disproved: 1
-[Crux]   Incomplete: 0
-[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
