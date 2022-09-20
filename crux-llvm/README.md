@@ -532,6 +532,16 @@ a symbolic branch where both branches open a new file, the two branches will get
 sequential file descriptors. In contrast, the real program would allocate the
 same file descriptor to both (as only one branch would be taken).
 
+# Test suite
+
+The `crux-llvm` test suite is implemented in `test/Test.hs`, and the
+accompanying test case data can be found under `test-data`. Each test case
+comprises a C or LLVM bitcode file that is provided as input to `crux-llvm`,
+along with an expected output file. For most test cases, this expected output
+file will be named `<test-case>.z3.good`; this picks Z3 as a default solver to
+use when simulating the test case. There are also a handful of tests that
+require other solvers, e.g., `abd-test-file-32.cvc5.good`.
+
 # Acknowledgements
 
 Crux is partly based upon work supported by the Defense Advanced
