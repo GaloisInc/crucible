@@ -16,7 +16,7 @@ where
 import qualified Data.BitVector.Sized as BV
 import           Data.Foldable ( toList )
 import           Data.Sequence (Seq)
-import           Data.Text ( Text )
+import qualified Data.Text as Text (Text)
 import           Prettyprinter ( (<+>) )
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PPR
@@ -68,7 +68,7 @@ sayWhatFailedGoals skipIncompl showVars allGls =
   failedDoc = \case
     Branch gls1 gls2 -> failedDoc gls1 <> failedDoc gls2
     ProvedGoal{} -> []
-    NotProvedGoal _asmps err ex _locs mdl ->
+    NotProvedGoal _asmps err ex _locs mdl s ->
       if | skipIncompl, CSE.SimError _ (CSE.ResourceExhausted _) <- err -> []
          | Just (_m,evs) <- mdl ->
              [ PP.nest 2 $ PP.vcat (
@@ -81,8 +81,12 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                  -- variable events that led to this failure
                  ++ if showVars then
                       ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]
-                    else [])
-             ]
+                    else [] 
+                 -- print abducts, if any
+                 ++ if s /= [] then
+                      PP.pretty ("One of the following " ++ show (length s) ++ " fact(s) would entail the goal")
+                      : (map (\x -> PP.pretty ('*' : ' ' : x)) s)
+                    else [])]
          | otherwise ->
            [ PP.nest 2 $ PP.vcat [ "Failed to prove verification goal", ex ] ]
 
@@ -104,5 +108,5 @@ sayWhatFailedGoals skipIncompl showVars allGls =
 
 
 
-ppToText :: PP.Doc ann -> Text
+ppToText :: PP.Doc ann -> Text.Text
 ppToText = PPR.renderStrict . PP.layoutPretty PP.defaultLayoutOptions

@@ -72,7 +72,7 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20220812"
+          SOLVER_PKG_VERSION: "snapshot-20220902"
           BUILD_TARGET_OS: ${{ matrix.os }}
 
       - name: Setup Environment Vars

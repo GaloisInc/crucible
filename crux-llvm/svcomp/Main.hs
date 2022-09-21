@@ -218,7 +218,7 @@ mkViolationWitness gs =
   where
     findNotProvedGoal :: ProvedGoals -> Maybe (ModelView, [CrucibleEvent GroundValueWrapper])
     findNotProvedGoal (Branch pg1 pg2)          = findNotProvedGoal pg1 <|> findNotProvedGoal pg2
-    findNotProvedGoal (NotProvedGoal _ _ _ _ x) = x
+    findNotProvedGoal (NotProvedGoal _ _ _ _ x _) = x
     findNotProvedGoal ProvedGoal{}              = Nothing
 
     violationNodes :: Int -> [WitnessNode]

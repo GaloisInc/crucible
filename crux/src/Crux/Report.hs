@@ -99,7 +99,7 @@ provedGoalTraces =
     Branch pgs1 pgs2 -> provedGoalTraces pgs1 <> provedGoalTraces pgs2
     ProvedGoal _ err locs _ ->
       Seq.singleton (Seq.fromList locs Seq.|> simErrorLoc err)
-    NotProvedGoal _ err _ locs _ ->
+    NotProvedGoal _ err _ locs _ _ ->
       Seq.singleton (Seq.fromList locs Seq.|> simErrorLoc err)
 
 -- | Return a list of all files referenced in a set of proved goals.
@@ -134,7 +134,7 @@ renderSideConds opts = concatMapM go
         | skipSuccessReports opts -> pure []
         | otherwise -> jsProvedGoal locs asmps conc triv
 
-      NotProvedGoal asmps conc explain locs cex
+      NotProvedGoal asmps conc explain locs cex _
         | skipIncompleteReports opts
         , SimError _ (ResourceExhausted _) <- conc
         -> pure []

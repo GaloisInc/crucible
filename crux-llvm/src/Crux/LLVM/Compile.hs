@@ -249,11 +249,11 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
     -- skip proved goals
     ProvedGoal{} -> return ()
     -- skip unknown goals
-    NotProvedGoal _ _ _ _ Nothing -> return ()
+    NotProvedGoal _ _ _ _ Nothing _ -> return ()
     -- skip resource exhausted goals
-    NotProvedGoal _ (simErrorReason -> ResourceExhausted{}) _ _ _ -> return ()
+    NotProvedGoal _ (simErrorReason -> ResourceExhausted{}) _ _ _ _ -> return ()
     -- counterexample to non-resource-exhaustion goal
-    NotProvedGoal _ c _ _ (Just (m,_evs)) ->
+    NotProvedGoal _ c _ _ (Just (m,_evs)) _ ->
       do let suff = case plSourceLoc (simErrorLoc c) of
                       SourcePos _ l _ -> show l
                       _               -> "unknown"

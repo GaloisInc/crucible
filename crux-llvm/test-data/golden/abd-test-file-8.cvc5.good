@@ -1,0 +1,9 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/abd-test-file-8.c:11:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux]   One of the following 3 fact(s) would entail the goal
+[Crux]   * (bvult x #b00000001)
+[Crux]   * (bvult #b01100100 x)
+[Crux]   * (= #b00000001 x)
+[Crux] Overall status: Invalid.
