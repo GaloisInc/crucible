@@ -9,9 +9,6 @@ Stability    : provisional
 These overrides are useful for describing the behavior of external/library
 functions, or for soundly skipping complex functions even when they happen to be
 defined.
-
-TODO(lb, #932): Track which specs actually execute and whether they are over- or
-under-approximate.
 -}
 
 {-# LANGUAGE DataKinds #-}
