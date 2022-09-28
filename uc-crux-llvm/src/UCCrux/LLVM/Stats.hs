@@ -60,7 +60,7 @@ getStats result =
           timeouts = toEnum $ length timeouts',
           truePositiveFreq =
             case Result.summary result of
-              Result.FoundBugs bugs -> Freq.count (toList bugs)
+              Result.FoundBugs _unsoundness bugs -> Freq.count (toList bugs)
               _ -> Freq.empty,
           unclassifiedFreq = Freq.count (map (bugBehavior . locatedValue) unclass),
           diagnosisFreq =

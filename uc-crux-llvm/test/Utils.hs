@@ -20,6 +20,7 @@ module Utils
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.))
 import           Control.Exception (try)
+import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
 import           System.Environment (lookupEnv)
 import           System.FilePath ((</>))
@@ -241,4 +242,5 @@ simulateFunc file func makeCallbacks =
                   cruxOpts
                   llOpts
                   cbs
+                  Map.empty
     )

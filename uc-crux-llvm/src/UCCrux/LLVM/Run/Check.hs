@@ -176,18 +176,23 @@ checkInferredContracts appCtx modCtx funCtx halloc cruxOpts llOpts constraints c
      cfg
      cruxOpts
      llOpts
-     (Sim.SimulatorCallbacks $
-       do ovs <- overrides
-          return $
-            Sim.SimulatorHooks
-              { Sim.createOverrideHooks = map fst ovs
-              , Sim.resultHook =
-                \bak mem args cruxResult ucResult ->
-                  return $
-                    CheckResult $
-                      \k -> k bak mem args cruxResult ucResult (map snd ovs)
-              })
+     callbacks
+     Map.empty
   where
+
+    callbacks =
+      Sim.SimulatorCallbacks $
+        do ovs <- overrides
+           return $
+             Sim.SimulatorHooks
+               { Sim.createOverrideHooks = map fst ovs
+               , Sim.resultHook =
+                 \bak mem args cruxResult ucResult ->
+                   return $
+                     CheckResult $
+                       \k -> k bak mem args cruxResult ucResult (map snd ovs)
+               }
+
     -- Create one override for each function with preconditions we want to
     -- check, as well as a way to get the results ('SomeCheckedCalls').
     overrides ::

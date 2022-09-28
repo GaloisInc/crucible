@@ -18,6 +18,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module UCCrux.LLVM.Run.Simulate
   ( UCCruxSimulationResult (..),
@@ -44,8 +45,10 @@ import           Data.Foldable (for_, toList)
 import qualified Data.IORef as IORef
 import           Data.IORef (IORef)
 import           Data.List (isInfixOf)
+import qualified Data.List.NonEmpty as NE
+import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.Sequence (Seq)
 import qualified Data.Set as Set
 import           Data.Set (Set)
@@ -110,11 +113,13 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.ExprTracker (ExprTracker)
 import qualified UCCrux.LLVM.ExprTracker as ET
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
-import           UCCrux.LLVM.Module (getModule)
+import           UCCrux.LLVM.Module (FuncSymbol, getModule)
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, makePreSimulationMem)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
+import           UCCrux.LLVM.Overrides.Spec (SpecUse, createSpecOverride)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
+import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(..))
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap, ppProgramLoc)
 import           UCCrux.LLVM.Precondition (Preconds, postconds, relationalPreconds)
@@ -124,6 +129,8 @@ import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Shape (Shape)
 import           UCCrux.LLVM.Soundness (Soundness)
 import qualified UCCrux.LLVM.Soundness as Sound
+import           UCCrux.LLVM.Specs.Type (SomeSpecs)
+import qualified UCCrux.LLVM.Specs.Type as Spec
 {- ORMOLU_ENABLE -}
 
 newtype CreateOverrideFn m arch =
@@ -133,7 +140,7 @@ newtype CreateOverrideFn m arch =
         IsSymBackend sym bak =>
         HasLLVMAnn sym =>
         bak ->
-        -- Origins of created values
+        -- Origins of created values, see Note [IORefs]
         IORef (ExprTracker m sym args) ->
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
@@ -144,7 +151,7 @@ newtype SymCreateOverrideFn m sym bak arch =
     { runSymCreateOverrideFn ::
         forall args.
         bak ->
-        -- Origins of created values
+        -- Origins of created values, see Note [IORefs]
         IORef (ExprTracker m sym args) ->
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
@@ -223,6 +230,57 @@ addOverrides newOverrides cbs =
            , resultHook = resHook
            }
 
+-- | Create overrides from specifications.
+createSpecOverrides ::
+  (?lc :: TypeContext) =>
+  (?memOpts :: MemOptions) =>
+  ArchOk arch =>
+  ModuleContext m arch ->
+  Soundness ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
+  -- See Note [IORefs]
+  IO (IORef (Set SpecUse), [CreateOverrideFn m arch])
+createSpecOverrides modCtx sound specs =
+  do specsUsedRef <- IORef.newIORef Set.empty
+     return
+       ( specsUsedRef
+       , map
+           (uncurry (mkSpecOverride specsUsedRef))
+           (filterSpecsBySoundness (Map.toList specs))
+       )
+  where
+
+    filterNonEmpty f = NE.nonEmpty . filter f . toList
+
+    filterSpecs ::
+      (Spec.Spec n fs -> Bool) ->
+      Spec.Specs n fs ->
+      Maybe (Spec.Specs n fs)
+    filterSpecs f = fmap Spec.Specs . filterNonEmpty f . Spec.getSpecs
+
+    filterSomeSpecs ::
+      (forall n fs. Spec.Spec n fs -> Bool) ->
+      Spec.SomeSpecs m ->
+      Maybe (Spec.SomeSpecs m)
+    filterSomeSpecs f (Spec.SomeSpecs fs ss) =
+      case filterSpecs f ss of
+        Nothing -> Nothing
+        Just specs' -> Just (Spec.SomeSpecs fs specs')
+
+    specSoundEnough :: forall n fs. Spec.Spec n fs -> Bool
+    specSoundEnough spec =
+      Spec.specPreSound spec `Sound.atLeastAsSound` sound &&
+        Spec.specPostSound spec `Sound.atLeastAsSound` sound
+
+    filterSpecsBySoundness specsList =
+      mapMaybe (\(x, ss) -> (x,) <$> filterSomeSpecs specSoundEnough ss) specsList
+
+    mkSpecOverride specsUsedRef funcSymb specs_ =
+      CreateOverrideFn $ \bak tracker ->
+        do Spec.SomeSpecs fsRep@FuncSigRepr{} specs' <- return specs_
+           return (createSpecOverride modCtx bak specsUsedRef tracker funcSymb fsRep specs')
+
 -- | Create intentionally unsound overrides for library functions.
 --
 -- If the soundness criterion is anything other than 'Sound.Imprecise', return
@@ -233,6 +291,7 @@ createUnsoundOverrides ::
   ArchOk arch =>
   proxy arch ->
   Soundness ->
+  -- See Note [IORefs]
   IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn m arch])
 createUnsoundOverrides proxy sound =
   do unsoundOverrideRef <- IORef.newIORef Set.empty
@@ -309,24 +368,29 @@ mkCallbacks ::
   Preconds m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   LLVMOptions ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   Crux.SimulatorCallbacks msgs r
-mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
+mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs =
   Crux.SimulatorCallbacks $
-    do -- References written to during setup
+    do -- References written to during setup, see Note [IORefs]
        memRef <- IORef.newIORef Nothing
        argRef <- IORef.newIORef Nothing
        argAnnRef <- IORef.newIORef Nothing
        argShapeRef <- IORef.newIORef Nothing
 
-       -- References written to during simulation
+       -- References written to during simulation, see Note [IORef]
        bbMapRef <- IORef.newIORef (Map.empty :: LLVMAnnMap sym)
        explRef <- IORef.newIORef []
        skipReturnValueAnns <- IORef.newIORef ET.empty
        skipOverrideRef <- IORef.newIORef Set.empty
        let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
            ?memOpts = memOpts llvmOpts
+       (specsUsedRef, specOverrides) <-
+         createSpecOverrides modCtx (soundness appCtx) specs
        (unsoundOverrideRef, uOverrides) <-
          createUnsoundOverrides modCtx (soundness appCtx)
+       let ovs = uOverrides ++ specOverrides
 
        -- Hooks
        let ?recordLLVMAnnotation =
@@ -339,13 +403,13 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
          Crux.SimulatorHooks
            { Crux.setupHook =
              \bak _symOnline ->
-               setupHook bak uOverrides overrides skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnns
+               setupHook bak ovs overrides skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnns
            , Crux.onErrorHook =
              \bak ->
                return (onErrorHook bak skipOverrideRef memRef argRef argAnnRef argShapeRef bbMapRef explRef skipReturnValueAnns)
            , Crux.resultHook =
              \bak result ->
-               mkResultHook bak skipOverrideRef unsoundOverrideRef explRef memRef argShapeRef result resHook
+               mkResultHook bak skipOverrideRef specsUsedRef unsoundOverrideRef explRef memRef argShapeRef result resHook
            }
   where
     setupHook ::
@@ -353,10 +417,11 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IsSymBackend sym bak =>
       HasLLVMAnn sym =>
       bak ->
-      -- | Unsound overrides
+      -- | Unsound and spec overrides
       [CreateOverrideFn m arch] ->
       -- | Overrides that were passed in as arguments
       [SymCreateOverrideFn m sym bak arch] ->
+      -- See Note [IORef]
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
@@ -476,6 +541,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IsSymBackend sym bak =>
       (sym ~ What4.ExprBuilder t st fs) =>
       bak ->
+      -- See Note [IORef]
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
@@ -556,7 +622,9 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IsSymBackend sym bak =>
       (sym ~ What4.ExprBuilder t st fs) =>
       bak ->
+      -- See Note [IORef]
       IORef (Set SkipOverrideName) ->
+      IORef (Set SpecUse) ->
       IORef (Set UnsoundOverrideName) ->
       IORef [Located (Explanation m arch argTypes)] ->
       IORef (Maybe (PreSimulationMem sym)) ->
@@ -569,7 +637,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
         UCCruxSimulationResult m arch argTypes ->
         IO r) ->
       IO r
-    mkResultHook bak skipOverrideRef unsoundOverrideRef explRef memRef argShapeRef cruxResult resHook =
+    mkResultHook bak skipOverrideRef specsUsedRef unsoundOverrideRef explRef memRef argShapeRef cruxResult resHook =
       do for_ (traces cruxResult) $
            \trace ->
              do liftIO $ (appCtx ^. log) Hi "Trace:"
@@ -581,7 +649,8 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
          unsoundness' <-
            Unsoundness
              <$> IORef.readIORef unsoundOverrideRef
-               <*> IORef.readIORef skipOverrideRef
+             <*> IORef.readIORef skipOverrideRef
+             <*> IORef.readIORef specsUsedRef
          ucCruxResult <-
            UCCruxSimulationResult unsoundness'
              <$> case cruxResult of
@@ -621,8 +690,10 @@ runSimulatorWithCallbacks ::
   CruxOptions ->
   LLVMOptions ->
   SimulatorCallbacks m arch argTypes r ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   IO r
-runSimulatorWithCallbacks appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts callbacks =
+runSimulatorWithCallbacks appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts callbacks specs =
   Crux.runSimulator
     cruxOpts
     ( mkCallbacks
@@ -634,6 +705,7 @@ runSimulatorWithCallbacks appCtx modCtx funCtx halloc preconditions cfg cruxOpts
         preconditions
         cfg
         llvmOpts
+        specs
     )
 
 runSimulator ::
@@ -649,8 +721,10 @@ runSimulator ::
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
   LLVMOptions ->
+  -- | Specifications for (usually external) functions
+  Map (FuncSymbol m) (SomeSpecs m) ->
   IO (UCCruxSimulationResult m arch argTypes)
-runSimulator appCtx modCtx funCtx halloc overrides preconditions cfg cruxOpts llvmOpts =
+runSimulator appCtx modCtx funCtx halloc overrides preconditions cfg cruxOpts llvmOpts specs =
   runSimulatorWithCallbacks
     appCtx
     modCtx
@@ -660,10 +734,24 @@ runSimulator appCtx modCtx funCtx halloc overrides preconditions cfg cruxOpts ll
     cfg
     cruxOpts
     llvmOpts
-    (SimulatorCallbacks $
-      return $
-        SimulatorHooks
-          { createOverrideHooks = map symCreateOverrideFn overrides
-          , resultHook =
-              \_bak _mem _args _cruxResult ucCruxResult -> return ucCruxResult
-          })
+    callbacks
+    specs
+  where
+    callbacks =
+      SimulatorCallbacks $
+        return $
+          SimulatorHooks
+            { createOverrideHooks = map symCreateOverrideFn overrides
+            , resultHook =
+                \_bak _mem _args _cruxResult ucCruxResult -> return ucCruxResult
+            }
+
+{-
+Note [IORefs]
+~~~~~~~~~~~~~
+
+UC-Crux needs to track various occurrences during symbolic execution, such as
+the origins of symbolic terms ('ExprTracker') and the set of unsound overrides
+used. There is no "direct" way to return such data, so we instead stash them in
+IORefs.
+-}

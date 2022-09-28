@@ -46,6 +46,7 @@ import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr)
 import           UCCrux.LLVM.Precondition (isEmpty, ppPreconds, Preconds(..))
 import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
+import qualified UCCrux.LLVM.Soundness as Sound
 {- ORMOLU_ENABLE -}
 
 data FunctionSummaryTag
@@ -82,7 +83,7 @@ ppFunctionSummaryTag =
 -- 'Preconds'. What bug does a given constraint help avoid? On what line?
 data FunctionSummary m (argTypes :: Ctx (FullType m))
   = Unclear (NonEmpty (Located Uncertainty))
-  | FoundBugs (NonEmpty (Located TruePositive))
+  | FoundBugs Unsoundness (NonEmpty (Located TruePositive))
   | SafeWithPreconditions DidHitBounds Unsoundness (Preconds m argTypes)
   | SafeUpToBounds Unsoundness
   | AlwaysSafe Unsoundness
@@ -119,12 +120,14 @@ ppFunctionSummary fs =
             <> Text.intercalate
               "\n----------\n"
               (toList (fmap (ppLocated ppUncertainty) uncertainties))
-      FoundBugs bugs ->
-        PP.pretty $
-          ":\n"
-            <> Text.intercalate
-              "\n----------\n"
-              (toList (fmap (ppLocated ppTruePositive) bugs))
+      FoundBugs u bugs ->
+        PP.vsep
+          [ ppUnsoundnessForBugs u
+          , PP.pretty $
+              Text.intercalate
+                "\n----------\n"
+                (toList (fmap (ppLocated ppTruePositive) bugs))
+          ]
       SafeWithPreconditions b u preconditions ->
         PP.pretty
           (":\n" :: Text)
@@ -132,11 +135,11 @@ ppFunctionSummary fs =
             then PP.pretty ("The loop/recursion bound is not exceeded, and:\n" :: Text)
             else
               ppPreconds preconditions
-                <> ppUnsoundness' u
-      AlwaysSafe u -> "." <> ppUnsoundness' u
-      SafeUpToBounds u -> "." <> ppUnsoundness' u
+                <> ppUnsoundnessForSafety u
+      AlwaysSafe u -> "." <> ppUnsoundnessForSafety u
+      SafeUpToBounds u -> "." <> ppUnsoundnessForSafety u
   where
-    ppUnsoundness' u =
+    ppUnsoundnessForSafety u =
       if mempty == u
         then mempty
         else
@@ -147,7 +150,20 @@ ppFunctionSummary fs =
                   "safety claim:\n"
                 ]
             )
-            <> ppUnsoundness u
+            <> ppUnsoundness Sound.Overapprox u
+
+    ppUnsoundnessForBugs u =
+      if mempty == u
+        then mempty
+        else
+          PP.pretty
+            ( Text.unwords
+                [ "\nIn addition to any assumptions listed above, the",
+                  "following sources of unsoundness may invalidate this",
+                  "claim that there is a bug:\n"
+                ]
+            )
+            <> ppUnsoundness Sound.Underapprox u
 
 printFunctionSummary :: FunctionSummary m argTypes -> Text
 printFunctionSummary fs =
@@ -181,5 +197,5 @@ makeFunctionSummary preconditions uncertainties truePositives bounds unsoundness
     (True, [], [], DidntHitBounds) -> AlwaysSafe unsoundness
     (True, [], [], DidHitBounds) -> SafeUpToBounds unsoundness
     (False, [], [], b) -> SafeWithPreconditions b unsoundness preconditions
-    (_, [], t : ts, _) -> FoundBugs (t :| ts)
+    (_, [], t : ts, _) -> FoundBugs unsoundness (t :| ts)
     (_, u : us, _, _) -> Unclear (u :| us)
