@@ -45,6 +45,7 @@ data Soundness
   | Indefinite
   deriving (Eq, Ord, Show)
 
+-- | @'stringToSoundness' ('soundnessToString' s) == 'Just' s@
 stringToSoundness :: String -> Maybe Soundness
 stringToSoundness =
   \case
@@ -54,6 +55,8 @@ stringToSoundness =
     "indefinite" -> Just Indefinite
     _ -> Nothing
 
+-- | If @'stringToSoundness' s == 'Just' s0@, then
+-- @'soundnessToString' <$> 'stringToSoundness' s == 'Just' s@
 soundnessToString :: Soundness -> String
 soundnessToString =
   \case
