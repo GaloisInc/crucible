@@ -17,6 +17,7 @@
 
 module Lang.Crucible.LLVM.Extension
   ( module Lang.Crucible.LLVM.Extension.Arch
+  , module Lang.Crucible.LLVM.Extension.PtrSize
   , module Lang.Crucible.LLVM.Extension.Syntax
   , LLVM
   ) where
@@ -28,6 +29,7 @@ import GHC.Generics ( Generic )
 import Lang.Crucible.CFG.Extension
 
 import Lang.Crucible.LLVM.Extension.Arch
+import Lang.Crucible.LLVM.Extension.PtrSize
 import Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
