@@ -75,7 +75,10 @@ ppUnsoundness s u =
               bullets specs
         ]
   where
-    bullets = map ((PP.pretty "-" PP.<+>) . PP.pretty)
+    bullets l =
+      if null l
+      then [PP.pretty "[None]"]
+      else map ((PP.pretty "-" PP.<+>) . PP.pretty) l
     specs =
       mapMaybe
         (\(OvSpec.SpecUse nm s') ->
