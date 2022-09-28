@@ -80,7 +80,8 @@ import           UCCrux.LLVM.Specs.Type (SomeSpecs)
 import qualified UCCrux.LLVM.Specs.Type as Spec
 {- ORMOLU_ENABLE -}
 
--- | A spec with this soundness was used in place of this function
+-- | A user-supplied spec with the soundness specified here was used in place of
+-- analyzing the function directly.
 data SpecUse
   = SpecUse
     { specUseFn :: FunctionName
