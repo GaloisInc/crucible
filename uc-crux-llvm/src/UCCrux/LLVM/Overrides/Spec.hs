@@ -9,6 +9,8 @@ Stability    : provisional
 These overrides are useful for describing the behavior of external/library
 functions, or for soundly skipping complex functions even when they happen to be
 defined.
+
+See @doc/specs.md@.
 -}
 
 {-# LANGUAGE DataKinds #-}
