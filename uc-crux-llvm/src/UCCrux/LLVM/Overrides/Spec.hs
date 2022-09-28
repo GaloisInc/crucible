@@ -95,9 +95,9 @@ specOverrides ::
   (?memOpts :: MemOptions) =>
   ModuleContext m arch ->
   bak ->
-  -- | Track any unsound specs used
+  -- | Track any unsound specs used. See Note [IORefs].
   IORef (Set SpecUse) ->
-  -- | Origins of created values
+  -- | Origins of created values. See Note [IORefs].
   IORef (ExprTracker m sym argTypes) ->
   -- | Specs of each override, see 'Specs'.
   Map (FuncSymbol m) (SomeSpecs m) ->
@@ -155,9 +155,9 @@ createSpecOverride ::
   (fs ~ 'FS.FuncSig va mft args) =>
   ModuleContext m arch ->
   bak ->
-  -- | Track any unsound specs used
+  -- | Track any unsound specs used. See Note [IORefs].
   IORef (Set SpecUse) ->
-  -- | Origins of created values
+  -- | Origins of created values. See Note [IORefs].
   IORef (ExprTracker m sym argTypes) ->
   -- | Function to be overridden
   FuncSymbol m ->

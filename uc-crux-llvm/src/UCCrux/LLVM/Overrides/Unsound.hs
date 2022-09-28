@@ -75,6 +75,7 @@ newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Tex
 -- /indefinite/.
 unsoundOverrides ::
   (?lc :: TypeContext, ?memOpts :: LLVMMem.MemOptions) =>
+  -- | See Note [IORefs].
   IORef (Set UnsoundOverrideName) ->
   [ForAllSymArch PolymorphicLLVMOverride]
 unsoundOverrides usedRef =

@@ -102,9 +102,9 @@ unsoundSkipOverrides ::
   ModuleContext m arch ->
   bak ->
   ModuleTranslation arch ->
-  -- | Set of skip overrides encountered during execution
+  -- | Set of skip overrides encountered during execution, see Note [IORefs].
   IORef (Set SkipOverrideName) ->
-  -- | Origins of created values
+  -- | Origins of created values. See Note [IORefs].
   IORef (ExprTracker m sym argTypes) ->
   -- | Postconditions of each override (constraints on return values,
   -- information about clobbered pointer values such as arguments or global
@@ -197,8 +197,9 @@ createSkipOverride ::
   ) =>
   ModuleContext m arch ->
   bak ->
+  -- | Set of skip overrides encountered during execution, see Note [IORefs].
   IORef (Set SkipOverrideName) ->
-  -- | Origins of created values
+  -- | Origins of created values. See Note [IORefs].
   IORef (ExprTracker m sym argTypes) ->
   -- | Constraints on the return value, clobbered pointer values such as
   -- arguments or global variables

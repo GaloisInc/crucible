@@ -140,7 +140,7 @@ newtype CreateOverrideFn m arch =
         IsSymBackend sym bak =>
         HasLLVMAnn sym =>
         bak ->
-        -- Origins of created values
+        -- Origins of created values, see Note [IORefs]
         IORef (ExprTracker m sym args) ->
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
@@ -151,7 +151,7 @@ newtype SymCreateOverrideFn m sym bak arch =
     { runSymCreateOverrideFn ::
         forall args.
         bak ->
-        -- Origins of created values
+        -- Origins of created values, see Note [IORefs]
         IORef (ExprTracker m sym args) ->
         IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
     }
@@ -239,6 +239,7 @@ createSpecOverrides ::
   Soundness ->
   -- | Specifications for (usually external) functions
   Map (FuncSymbol m) (SomeSpecs m) ->
+  -- See Note [IORefs]
   IO (IORef (Set SpecUse), [CreateOverrideFn m arch])
 createSpecOverrides modCtx sound specs =
   do specsUsedRef <- IORef.newIORef Set.empty
@@ -290,6 +291,7 @@ createUnsoundOverrides ::
   ArchOk arch =>
   proxy arch ->
   Soundness ->
+  -- See Note [IORefs]
   IO (IORef (Set UnsoundOverrideName), [CreateOverrideFn m arch])
 createUnsoundOverrides proxy sound =
   do unsoundOverrideRef <- IORef.newIORef Set.empty
@@ -371,13 +373,13 @@ mkCallbacks ::
   Crux.SimulatorCallbacks msgs r
 mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs =
   Crux.SimulatorCallbacks $
-    do -- References written to during setup
+    do -- References written to during setup, see Note [IORefs]
        memRef <- IORef.newIORef Nothing
        argRef <- IORef.newIORef Nothing
        argAnnRef <- IORef.newIORef Nothing
        argShapeRef <- IORef.newIORef Nothing
 
-       -- References written to during simulation
+       -- References written to during simulation, see Note [IORef]
        bbMapRef <- IORef.newIORef (Map.empty :: LLVMAnnMap sym)
        explRef <- IORef.newIORef []
        skipReturnValueAnns <- IORef.newIORef ET.empty
@@ -419,6 +421,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
       [CreateOverrideFn m arch] ->
       -- | Overrides that were passed in as arguments
       [SymCreateOverrideFn m sym bak arch] ->
+      -- See Note [IORef]
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
@@ -538,6 +541,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
       IsSymBackend sym bak =>
       (sym ~ What4.ExprBuilder t st fs) =>
       bak ->
+      -- See Note [IORef]
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (PreSimulationMem sym)) ->
       IORef (Maybe (Crucible.RegMap sym (MapToCrucibleType arch argTypes))) ->
@@ -618,6 +622,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
       IsSymBackend sym bak =>
       (sym ~ What4.ExprBuilder t st fs) =>
       bak ->
+      -- See Note [IORef]
       IORef (Set SkipOverrideName) ->
       IORef (Set SpecUse) ->
       IORef (Set UnsoundOverrideName) ->
@@ -740,3 +745,13 @@ runSimulator appCtx modCtx funCtx halloc overrides preconditions cfg cruxOpts ll
             , resultHook =
                 \_bak _mem _args _cruxResult ucCruxResult -> return ucCruxResult
             }
+
+{-
+Note [IORefs]
+~~~~~~~~~~~~~
+
+UC-Crux needs to track various occurrences during symbolic execution, such as
+the origins of symbolic terms ('ExprTracker') and the set of unsound overrides
+used. There is no "direct" way to return such data, so we instead stash them in
+IORefs.
+-}

@@ -146,6 +146,8 @@ createCheckOverride ::
   -- predictes/constraints it checks (see 'CheckedCall') in this 'IORef'. The
   -- order of the calls will be the reverse of the order they were encountered
   -- during symbolic execution.
+  --
+  -- See Note [IORefs].
   IORef [CheckedCall m sym arch argTypes] ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
@@ -229,6 +231,8 @@ checkOverrideFromResult ::
   AppContext ->
   ModuleContext m arch ->
   -- | Predicates checked during simulation
+  --
+  -- See Note [IORefs].
   IORef [CheckedCall m sym arch argTypes] ->
   -- | Function argument types
   Ctx.Assignment (FullTypeRepr m) argTypes ->
