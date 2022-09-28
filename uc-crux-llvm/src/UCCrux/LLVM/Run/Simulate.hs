@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 {-
 Module       : UCCrux.LLVM.Run.Simulate
 Description  : Run the simulator once.
@@ -19,6 +18,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module UCCrux.LLVM.Run.Simulate
   ( UCCruxSimulationResult (..),
