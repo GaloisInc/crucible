@@ -59,7 +59,7 @@ one = Count 1
 
 -- | @inc == 'plus' 'one'@.
 inc :: Count -> Count
-inc = Count . (+1) . getCount
+inc = Count . (+ 1) . getCount
 
 -- | @'plus' c d == 'fromNat' ('toNat' c + 'toNat' d)@.
 plus :: Count -> Count -> Count
