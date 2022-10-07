@@ -51,7 +51,7 @@ library
                  aig,
                  crux,
                  scientific       >= 0.3,
-                 simple-get-opt,
+                 simple-get-opt < 0.5,
                  config-schema,
                  template-haskell
 
