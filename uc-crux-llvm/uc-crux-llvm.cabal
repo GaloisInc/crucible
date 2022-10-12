@@ -25,7 +25,7 @@ common bldflags
   -- A list of warnings and the GHC version in which they were introduced is
   -- available here:
   -- https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-warnings.html
-  
+
   -- Since GHC 8.10 or earlier:
   ghc-options:
     -Wall
@@ -65,9 +65,9 @@ common bldflags
     -Werror=unused-imports
     -Werror=warnings-deprecations
     -Werror=wrong-do-bind
-    
+
   if impl(ghc >= 9.2)
-    ghc-options: 
+    ghc-options:
       -Werror=ambiguous-fields
       -Werror=operator-whitespace
       -Werror=operator-whitespace-ext-conflict
@@ -75,7 +75,7 @@ common bldflags
 
   -- TODO(lb): Test these with GHC 9.4
   -- if impl(ghc >= 9.4)
-  --   ghc-options: 
+  --   ghc-options:
   --     -Werror=forall-identifier
   --     -Werror=misplaced-pragmas
   --     -Werror=redundant-strictness-flags
@@ -210,7 +210,7 @@ library
     prettyprinter >= 1.7.0,
     scheduler,
     semigroupoids,
-    simple-get-opt,
+    simple-get-opt < 0.5,
     template-haskell,
     text,
     vector,

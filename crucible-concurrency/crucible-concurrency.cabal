@@ -43,7 +43,7 @@ library
                      , parameterized-utils
                      , prettyprinter
                      , random
-                     , simple-get-opt
+                     , simple-get-opt < 0.5
                      , text
                      , transformers
                      , vector

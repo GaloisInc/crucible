@@ -44,9 +44,13 @@ jobs:
       matrix:
         os: [ubuntu-22.04]
         ghc: ["8.10.7", "9.0.2", "9.2.4"]
-        include:
-          - os: macos-12
-            ghc: 9.2.4
+        # include:
+          # Disable the macOS build for now due to
+          # https://github.com/GaloisInc/crucible/issues/1050
+          #
+          # - os: macos-12
+          #   ghc: 9.2.4
+
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
@@ -87,7 +91,7 @@ jobs:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
-          key: ${{ env.CACHE_VERSION }}-cabal-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
+          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
           restore-keys: |
             ${{ env.CACHE_VERSION }}-cabal-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
 

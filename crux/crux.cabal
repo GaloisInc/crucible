@@ -53,7 +53,7 @@ library
     ansi-terminal,
     Glob >= 0.10 && < 0.11,
     raw-strings-qq,
-    simple-get-opt,
+    simple-get-opt < 0.5,
     config-value,
     config-schema >= 1.2.2.0,
     semigroupoids,
