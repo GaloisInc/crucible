@@ -42,6 +42,7 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
+import Data.Type.Equality (gcastWith) -- counterpart to NatRepr.withLeqProof but for Refl
 import Data.Parameterized.Peano
 import Data.Parameterized.Some
 import Data.Parameterized.WithRepr
@@ -116,6 +117,7 @@ customOpDefs = Map.fromList $ [
                          , assert_inhabited
 
                          , mem_transmute
+                         , mem_bswap
                          , mem_crucible_identity_transmute
                          , array_from_slice
 
@@ -975,6 +977,36 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
           ++ show (tyT, tyU, ops)
       _ -> Nothing
     )
+
+mem_bswap ::  (ExplodedDefId, CustomRHS)
+mem_bswap = (["core", "intrinsics", "", "bswap"],
+    \ substs -> case substs of
+      Substs [tyT] -> Just $ CustomOp $ \ _ ops -> case ops of
+        [e@(MirExp argTy@C.BVRepr{} argExpr)] -> return . MirExp argTy $ bswap argTy argExpr
+        _ -> mirFail $ "bswap expected `BVRepr w` but got: " ++ show (tyT, ops)
+      _ -> Nothing)
+  where
+    zero = knownNat @0
+    byte = knownNat @8
+    bswap :: C.TypeRepr (C.BVType w) -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w)
+    bswap (C.BVRepr w) bv
+        | Just Refl <- testEquality byte w = bv -- 8 ≡ w
+        | 0 <- natValue w `mod` natValue byte   -- 0 ≡ w%8
+        , Just (LeqProof, Refl, LeqProof) <- lemma w =
+            let x = R.App $ E.BVSelect zero byte w bv   -- least significant byte
+                xsw = subNat w byte                     -- size of int sans one byte
+                xs = R.App $ E.BVSelect byte xsw w bv   -- int sans least significant byte
+            in R.App $ E.BVConcat byte xsw x (bswap (C.BVRepr xsw) xs)
+        | otherwise = panic "bswap" ["`BVRepr w` must satisfy `8 ≤ w ∧ w%8 ≡ 0`"]
+    lemma :: NatRepr w -> Maybe (LeqProof 8 w, 8 + (w - 8) :~: w, LeqProof 1 (w - 8))
+    lemma w
+        | Just LeqProof <- testLeq byte w               -- 8 ≤ w
+        , Left (lt@LeqProof) <- testStrictLeq byte w    -- 8+1 ≤ w
+        , Refl <- plusComm (subNat w byte) byte         -- 8+(w-8) ≡ (w-8)+8
+        , Refl <- minusPlusCancel w byte                -- (w-8)+8 ≡ w
+        , LeqProof <- leqSub2 lt (leqRefl byte)         -- 1 ≤ w-8
+        = Just (LeqProof, Refl, LeqProof)
+        | otherwise = Nothing
 
 mem_transmute ::  (ExplodedDefId, CustomRHS)
 mem_transmute = (["core", "intrinsics", "", "transmute"],
