@@ -15,6 +15,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Monoid
 import qualified Data.Parameterized.Context as Ctx
+import Data.Parameterized.Pair (Pair(..))
 import Data.Text (Text)
 import Data.Type.Equality (TestEquality(..), (:~:)(..))
 import qualified Data.Text as T
@@ -27,12 +28,15 @@ import Lang.Crucible.Syntax.Concrete hiding (SyntaxError)
 import Lang.Crucible.Backend (IsSymInterface)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.GlobalState (SymGlobalState, insertGlobal)
 import Lang.Crucible.Simulator.OverrideSim
+import Lang.Crucible.Syntax.Atoms (GlobalName(..))
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.ExprParse
 import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
 import Lang.Crucible.Types
+import Lang.Crucible.CFG.Common (GlobalVar)
 import Lang.Crucible.CFG.SSAConversion
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
@@ -278,3 +282,32 @@ resolvedForwardDecTest =
     fooOv = mkOverride "foo" $ do
       sym <- use (stateContext.ctxSymInterface)
       liftIO $ intLit sym 42
+
+-- | A basic test that ensures an extern behaves as expected after assigning a
+-- value to it after parsing.
+resolvedExternTest :: TestTree
+resolvedExternTest =
+  testGroup "Externs"
+  [ goldenFileTestCase ("test-data" </> "extern-tests" </> "main.cbl") $ \mainCbl mainOut ->
+    withFile mainOut WriteMode $ \outh ->
+    do mainContents <- T.readFile mainCbl
+       simulateProgram mainCbl mainContents outh Nothing testOptions $
+         defaultSimulateProgramHooks
+           { resolveExternsHook = resolveExterns
+           }
+  ]
+  where
+    resolveExterns ::
+      IsSymInterface sym =>
+      sym ->
+      Map GlobalName (Pair TypeRepr GlobalVar) ->
+      SymGlobalState sym ->
+      IO (SymGlobalState sym)
+    resolveExterns sym externs gst
+      | Just (Pair tp gv) <- Map.lookup (GlobalName "foo") externs
+      , Just Refl <- testEquality tp IntegerRepr
+      = do fooVal <- intLit sym 42
+           pure $ insertGlobal gv fooVal gst
+
+      | otherwise
+      = assertFailure "Could not find $$foo extern of the appropriate type"

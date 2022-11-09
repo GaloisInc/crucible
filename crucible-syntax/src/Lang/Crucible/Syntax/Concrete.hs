@@ -191,6 +191,10 @@ defaultParserHooks = ParserHooks empty empty
 data ParsedProgram ext = ParsedProgram
   { parsedProgGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
     -- ^ The parsed @defglobal@s.
+  , parsedProgExterns :: Map GlobalName (Pair TypeRepr GlobalVar)
+    -- ^ For each parsed @extern@, map its name to its type and global variable.
+    --   It is the responsibility of the caller to insert each global variable
+    --   into the 'SymGlobalState' alongside an appropriate 'RegValue'.
   , parsedProgCFGs :: [ACFG ext]
     -- ^ The CFGs for each parsed @defun@.
   , parsedProgForwardDecs :: Map FunctionName SomeHandle
@@ -1284,6 +1288,7 @@ data ProgramState s =
   ProgramState { _progFunctions :: Map FunctionName FunctionHeader
                , _progForwardDecs :: Map FunctionName FunctionHeader
                , _progGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
+               , _progExterns :: Map GlobalName (Pair TypeRepr GlobalVar)
                , _progHandleAlloc :: HandleAllocator
                }
 
@@ -1295,6 +1300,9 @@ progForwardDecs = lens _progForwardDecs (\s v -> s { _progForwardDecs = v })
 
 progGlobals :: Simple Lens (ProgramState s) (Map GlobalName (Pair TypeRepr GlobalVar))
 progGlobals = lens _progGlobals (\s v -> s { _progGlobals = v })
+
+progExterns :: Simple Lens (ProgramState s) (Map GlobalName (Pair TypeRepr GlobalVar))
+progExterns = lens _progExterns (\s v -> s { _progExterns = v })
 
 progHandleAlloc :: Simple Lens (ProgramState s) HandleAllocator
 progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
@@ -1309,7 +1317,7 @@ data SyntaxState s =
               }
 
 initProgState :: [(SomeHandle,Position)] -> HandleAllocator -> ProgramState s
-initProgState builtIns ha = ProgramState fns Map.empty Map.empty ha
+initProgState builtIns ha = ProgramState fns Map.empty Map.empty Map.empty ha
   where
   f tps = Ctx.generate
             (Ctx.size tps)
@@ -1354,6 +1362,8 @@ stxForwardDecs = stxProgState . progForwardDecs
 stxGlobals :: Simple Lens (SyntaxState s) (Map GlobalName (Pair TypeRepr GlobalVar))
 stxGlobals = stxProgState . progGlobals
 
+stxExterns :: Simple Lens (SyntaxState s) (Map GlobalName (Pair TypeRepr GlobalVar))
+stxExterns = stxProgState . progExterns
 
 newtype CFGParser s ret a =
   CFGParser { runCFGParser :: (?returnType :: TypeRepr ret)
@@ -1499,7 +1509,8 @@ globRef' =
   describe "known global variable name" $
   do x <- globalName
      perhapsGlobal <- view (stxGlobals . at x)
-     case perhapsGlobal of
+     perhapsExtern <- view (stxExterns . at x)
+     case perhapsGlobal <|> perhapsExtern of
        Just glob -> return glob
        Nothing -> empty
 
@@ -2038,6 +2049,17 @@ declare stx =
      stxForwardDecs %= Map.insert fnName header
      pure header
 
+-- | Parse an extern.
+extern :: (?parserHooks :: ParserHooks ext)
+       => AST s
+       -> TopParser s (Pair TypeRepr GlobalVar)
+extern stx =
+  do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary Extern globalName isType)) stx
+     ha <- use $ stxProgState  . progHandleAlloc
+     v <- liftIO $ freshGlobalVar ha varName t
+     stxExterns %= Map.insert var (Pair t v)
+     return $ Pair t v
+
 topLevel :: (?parserHooks :: ParserHooks ext)
          => AST s
          -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
@@ -2045,6 +2067,7 @@ topLevel ast =
   (Just <$> functionHeader ast) `catchError` \e ->
   (global ast $> Nothing)       `catchError` \_ ->
   (declare ast $> Nothing)      `catchError` \_ ->
+  (extern ast $> Nothing)       `catchError` \_ ->
   throwError e
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
@@ -2221,10 +2244,12 @@ prog defuns =
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
                    return $ ACFG types ret $ CFG handle entry (e' : rest)
      gs <- use stxGlobals
+     externs <- use stxExterns
      fds <- uses stxForwardDecs $ fmap $
               \(FunctionHeader _ _ _ handle _) -> SomeHandle handle
      return $ ParsedProgram
        { parsedProgGlobals = gs
+       , parsedProgExterns = externs
        , parsedProgCFGs = cs
        , parsedProgForwardDecs = fds
        }
