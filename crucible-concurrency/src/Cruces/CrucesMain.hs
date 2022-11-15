@@ -48,7 +48,6 @@ import What4.FunctionName
 import qualified Crux
 import           Crux.Types
 
-import Data.Parameterized.Pair
 import qualified SimpleGetOpt as GetOpt
 import Text.Read (readMaybe)
 
@@ -128,7 +127,7 @@ run (cruxOpts, opts) =
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
                      , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()
-                     , [Pair C.TypeRepr GlobalVar]
+                     , [Some GlobalVar]
                      , FunctionBindings (ThreadExec DPOR s () C.UnitType) s ()
                      )
                 mkSym _bak =

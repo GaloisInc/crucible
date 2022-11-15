@@ -15,7 +15,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Monoid
 import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.Pair (Pair(..))
+import Data.Parameterized.Some (Some(..))
 import Data.Text (Text)
 import Data.Type.Equality (TestEquality(..), (:~:)(..))
 import qualified Data.Text as T
@@ -36,7 +36,7 @@ import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.ExprParse
 import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
 import Lang.Crucible.Types
-import Lang.Crucible.CFG.Common (GlobalVar)
+import Lang.Crucible.CFG.Common (GlobalVar(..))
 import Lang.Crucible.CFG.SSAConversion
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
@@ -300,12 +300,12 @@ resolvedExternTest =
     resolveExterns ::
       IsSymInterface sym =>
       sym ->
-      Map GlobalName (Pair TypeRepr GlobalVar) ->
+      Map GlobalName (Some GlobalVar) ->
       SymGlobalState sym ->
       IO (SymGlobalState sym)
     resolveExterns sym externs gst
-      | Just (Pair tp gv) <- Map.lookup (GlobalName "foo") externs
-      , Just Refl <- testEquality tp IntegerRepr
+      | Just (Some gv) <- Map.lookup (GlobalName "foo") externs
+      , Just Refl <- testEquality (globalType gv) IntegerRepr
       = do fooVal <- intLit sym 42
            pure $ insertGlobal gv fooVal gst
 

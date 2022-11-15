@@ -26,7 +26,6 @@ import Text.Megaparsec as MP
 
 import Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as C
@@ -44,7 +43,6 @@ import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.Profiling
-import Lang.Crucible.Types (TypeRepr)
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
@@ -98,7 +96,7 @@ data SimulateProgramHooks = SimulateProgramHooks
     -- ^ Action to set up overrides before parsing a program.
   , resolveExternsHook ::
       forall sym t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-        sym -> Map GlobalName (Pair TypeRepr GlobalVar) -> SymGlobalState sym -> IO (SymGlobalState sym)
+        sym -> Map GlobalName (Some GlobalVar) -> SymGlobalState sym -> IO (SymGlobalState sym)
     -- ^ Action to resolve externs before simulating a program. If you do not
     --   intend to support externs, this is an appropriate place to error if a
     --   program contains one or more externs.
@@ -127,7 +125,7 @@ defaultSimulateProgramHooks = SimulateProgramHooks
        pure $ FnBindings emptyHandleMap
   }
 
-assertNoExterns :: Map GlobalName (Pair TypeRepr GlobalVar) -> IO ()
+assertNoExterns :: Map GlobalName (Some GlobalVar) -> IO ()
 assertNoExterns externs =
   unless (Map.null externs) $
   do putStrLn "Externs not currently supported"
