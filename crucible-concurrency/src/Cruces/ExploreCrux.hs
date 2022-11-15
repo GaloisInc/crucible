@@ -24,7 +24,6 @@ import           System.IO (Handle)
 import           What4.Interface
 import           What4.Config
 
-import           Data.Parameterized.Pair(Pair)
 import qualified Data.Parameterized.Context as Ctx
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
 import qualified Lang.Crucible.CFG.Core as C
@@ -58,7 +57,7 @@ exploreCallback :: forall alg.
    bak ->
         IO ( FnVal s Ctx.EmptyCtx C.UnitType
            , ExplorePrimitives (ThreadExec alg s () C.UnitType) s ()
-           , [Pair C.TypeRepr C.GlobalVar]
+           , [Some C.GlobalVar]
            , FunctionBindings (ThreadExec alg s () C.UnitType) s ())
            ) ->
   Crux.SimulatorCallbacks Crux.CruxLogMessage Crux.Types.CruxSimulationResult
@@ -111,7 +110,7 @@ exploreOvr :: forall sym bak ext alg ret rtp msgs.
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
   (?bound::Int, IsSymBackend sym bak, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
-  bak -> 
+  bak ->
   Maybe (Crux.SomeOnlineSolver sym bak) ->
   Crux.CruxOptions ->
   (forall rtp'. OverrideSim (Exploration alg ext ret sym) sym ext rtp' Ctx.EmptyCtx ret (RegValue sym ret)) ->

@@ -12,9 +12,12 @@
   TopParser s (ParsedProgram ext)
   ```
 
-  Where the `parsedProgGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)` and
+  Where the `parsedProgGlobals :: Map GlobalName (Some GlobalVar)` and
   `parsedProgCFGs :: [ACFG ext]` fields of `ParsedProgram` now serve the roles
-  previously filled by the first and second fields of the returned tuple.
+  previously filled by the first and second fields of the returned tuple. (Note
+  that `Pair TypeRepr GlobalVar` has been simplified to `Some GlobalVar`, as
+  the `TypeRepr` of a `GlobalVar` can be retrieved through its `globalType`
+  field.)
 * The type of `simulateProgram`'s last argument:
 
   ```hs

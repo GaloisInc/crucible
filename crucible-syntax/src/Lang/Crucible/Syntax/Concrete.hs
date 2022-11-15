@@ -177,9 +177,8 @@ data ParserHooks ext = ParserHooks {
        , ?parserHooks :: ParserHooks ext
        -- ParserHooks instance to use recursively when parsing.
        )
-    => m (Pair TypeRepr (Atom s))
-    -- ^ A pair containing a type and an atom of that type from evaluation of
-    -- syntax extension.
+    => m (Some (Atom s))
+    -- ^ The atom computed from evaluating the syntax extension.
 }
 
 -- | A ParserHooks instance that adds no extensions to the crucible-syntax
@@ -189,8 +188,12 @@ defaultParserHooks = ParserHooks empty empty
 
 -- | The results of parsing a program.
 data ParsedProgram ext = ParsedProgram
-  { parsedProgGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
+  { parsedProgGlobals :: Map GlobalName (Some GlobalVar)
     -- ^ The parsed @defglobal@s.
+  , parsedProgExterns :: Map GlobalName (Some GlobalVar)
+    -- ^ For each parsed @extern@, map its name to its global variable. It is
+    --   the responsibility of the caller to insert each global variable into
+    --   the 'SymGlobalState' alongside an appropriate 'RegValue'.
   , parsedProgCFGs :: [ACFG ext]
     -- ^ The CFGs for each parsed @defun@.
   , parsedProgForwardDecs :: Map FunctionName SomeHandle
@@ -548,13 +551,13 @@ synthExpr typeHint =
     okAtom theAtoms x =
       case Map.lookup x theAtoms of
         Nothing -> Nothing
-        Just (Pair t anAtom) -> Just $ SomeE t (EAtom anAtom)
+        Just (Some anAtom) -> Just $ SomeE (typeOfAtom anAtom) (EAtom anAtom)
 
     regRef :: m (SomeExpr ext s)
     regRef =
-      do Pair t r <- regRef'
+      do Some r <- regRef'
          loc <- position
-         return (SomeE t (EReg loc r))
+         return (SomeE (typeOfReg r) (EReg loc r))
 
     deref :: m (SomeExpr ext s)
     deref =
@@ -569,9 +572,9 @@ synthExpr typeHint =
 
     globRef :: m (SomeExpr ext s)
     globRef =
-      do Pair t g <- globRef'
+      do Some g <- globRef'
          loc <- position
-         return (SomeE t (EGlob loc g))
+         return (SomeE (globalType g) (EGlob loc g))
 
     crucibleAtom :: m (SomeExpr ext s)
     crucibleAtom =
@@ -1278,12 +1281,13 @@ check t =
 
 data LabelInfo :: Type -> Type where
   NoArgLbl :: Label s -> LabelInfo s
-  ArgLbl :: forall s ty . TypeRepr ty -> LambdaLabel s ty -> LabelInfo s
+  ArgLbl :: forall s ty . LambdaLabel s ty -> LabelInfo s
 
 data ProgramState s =
   ProgramState { _progFunctions :: Map FunctionName FunctionHeader
                , _progForwardDecs :: Map FunctionName FunctionHeader
-               , _progGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
+               , _progGlobals :: Map GlobalName (Some GlobalVar)
+               , _progExterns :: Map GlobalName (Some GlobalVar)
                , _progHandleAlloc :: HandleAllocator
                }
 
@@ -1293,8 +1297,11 @@ progFunctions = lens _progFunctions (\s v -> s { _progFunctions = v })
 progForwardDecs :: Simple Lens (ProgramState s) (Map FunctionName FunctionHeader)
 progForwardDecs = lens _progForwardDecs (\s v -> s { _progForwardDecs = v })
 
-progGlobals :: Simple Lens (ProgramState s) (Map GlobalName (Pair TypeRepr GlobalVar))
+progGlobals :: Simple Lens (ProgramState s) (Map GlobalName (Some GlobalVar))
 progGlobals = lens _progGlobals (\s v -> s { _progGlobals = v })
+
+progExterns :: Simple Lens (ProgramState s) (Map GlobalName (Some GlobalVar))
+progExterns = lens _progExterns (\s v -> s { _progExterns = v })
 
 progHandleAlloc :: Simple Lens (ProgramState s) HandleAllocator
 progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
@@ -1302,14 +1309,14 @@ progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
 
 data SyntaxState s =
   SyntaxState { _stxLabels :: Map LabelName (LabelInfo s)
-              , _stxAtoms :: Map AtomName (Pair TypeRepr (Atom s))
-              , _stxRegisters :: Map RegName (Pair TypeRepr (Reg s))
+              , _stxAtoms :: Map AtomName (Some (Atom s))
+              , _stxRegisters :: Map RegName (Some (Reg s))
               , _stxNonceGen :: NonceGenerator IO s
               , _stxProgState :: ProgramState s
               }
 
 initProgState :: [(SomeHandle,Position)] -> HandleAllocator -> ProgramState s
-initProgState builtIns ha = ProgramState fns Map.empty Map.empty ha
+initProgState builtIns ha = ProgramState fns Map.empty Map.empty Map.empty ha
   where
   f tps = Ctx.generate
             (Ctx.size tps)
@@ -1333,10 +1340,10 @@ initSyntaxState =
 stxLabels :: Simple Lens (SyntaxState s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
 
-stxAtoms :: Simple Lens (SyntaxState s) (Map AtomName (Pair TypeRepr (Atom s)))
+stxAtoms :: Simple Lens (SyntaxState s) (Map AtomName (Some (Atom s)))
 stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 
-stxRegisters :: Simple Lens (SyntaxState s) (Map RegName (Pair TypeRepr (Reg s)))
+stxRegisters :: Simple Lens (SyntaxState s) (Map RegName (Some (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
 stxNonceGen :: Getter (SyntaxState s) (NonceGenerator IO s)
@@ -1351,9 +1358,11 @@ stxFunctions = stxProgState . progFunctions
 stxForwardDecs :: Simple Lens (SyntaxState s) (Map FunctionName FunctionHeader)
 stxForwardDecs = stxProgState . progForwardDecs
 
-stxGlobals :: Simple Lens (SyntaxState s) (Map GlobalName (Pair TypeRepr GlobalVar))
+stxGlobals :: Simple Lens (SyntaxState s) (Map GlobalName (Some GlobalVar))
 stxGlobals = stxProgState . progGlobals
 
+stxExterns :: Simple Lens (SyntaxState s) (Map GlobalName (Some GlobalVar))
+stxExterns = stxProgState . progExterns
 
 newtype CFGParser s ret a =
   CFGParser { runCFGParser :: (?returnType :: TypeRepr ret)
@@ -1444,7 +1453,7 @@ lambdaLabelBinding :: ( MonadSyntax Atomic m
                       , MonadState (SyntaxState s) m
                       , MonadIO m
                       , ?parserHooks :: ParserHooks ext )
-                   => m (LabelName, (Pair TypeRepr (LambdaLabel s)))
+                   => m (LabelName, Some (LambdaLabel s))
 lambdaLabelBinding =
   call $
   depCons uniqueLabel $
@@ -1454,9 +1463,9 @@ lambdaLabelBinding =
       depCons isType $
       \(Some t) ->
         do (lbl, anAtom) <- freshLambdaLabel t
-           stxLabels %= Map.insert l (ArgLbl t lbl)
-           stxAtoms %= Map.insert x (Pair t anAtom)
-           return (l, (Pair t lbl))
+           stxLabels %= Map.insert l (ArgLbl lbl)
+           stxAtoms %= Map.insert x (Some anAtom)
+           return (l, Some lbl)
 
   where uniqueLabel =
           do labels <- use stxLabels
@@ -1485,7 +1494,7 @@ newUnassignedReg t =
                    , typeOfReg = t
                    }
 
-regRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState s) m) => m (Pair TypeRepr (Reg s))
+regRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState s) m) => m (Some (Reg s))
 regRef' =
   describe "known register name" $
   do rn <- regName
@@ -1494,12 +1503,13 @@ regRef' =
        Just reg -> return reg
        Nothing -> empty
 
-globRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState s) m) => m (Pair TypeRepr GlobalVar)
+globRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState s) m) => m (Some GlobalVar)
 globRef' =
   describe "known global variable name" $
   do x <- globalName
      perhapsGlobal <- view (stxGlobals . at x)
-     case perhapsGlobal of
+     perhapsExtern <- view (stxExterns . at x)
+     case perhapsGlobal <|> perhapsExtern of
        Just glob -> return glob
        Nothing -> empty
 
@@ -1518,7 +1528,7 @@ atomSetter :: forall m ext s
               , IsSyntaxExtension ext
               , ?parserHooks :: ParserHooks ext )
            => AtomName -- ^ The name of the atom being set, used for fresh name internals
-           -> m (Pair TypeRepr (Atom s))
+           -> m (Some (Atom s))
 atomSetter (AtomName anText) =
   call ( newref
      <|> emptyref
@@ -1534,20 +1544,20 @@ atomSetter (AtomName anText) =
          , MonadIO m
          , IsSyntaxExtension ext
          )
-      => m (Pair TypeRepr (Atom s))
+      => m (Some (Atom s))
 
     newref =
-      do Pair t e <- reading $ unary Ref synth
+      do Pair _ e <- reading $ unary Ref synth
          loc <- position
          anAtom <- eval loc e
          anotherAtom <- freshAtom loc (NewRef anAtom)
-         return $ Pair (ReferenceRepr t) anotherAtom
+         return $ Some anotherAtom
 
     emptyref =
       do Some t' <- reading $ unary EmptyRef isType
          loc <- position
          anAtom <- freshAtom loc (NewEmptyRef t')
-         return $ Pair (ReferenceRepr t') anAtom
+         return $ Some anAtom
 
     fresh =
       do t <- reading (unary Fresh isType)
@@ -1558,20 +1568,20 @@ atomSetter (AtomName anText) =
                do loc <- position
                   case t of
                     Some (FloatRepr fi) ->
-                      Pair (FloatRepr fi) <$>
+                      Some <$>
                         freshAtom loc (FreshFloat fi (Just nm))
                     Some NatRepr ->
-                      Pair NatRepr <$> freshAtom loc (FreshNat (Just nm))
+                      Some <$> freshAtom loc (FreshNat (Just nm))
                     Some tp
                       | AsBaseType bt <- asBaseType tp ->
-                          Pair tp <$> freshAtom loc (FreshConstant bt (Just nm))
+                          Some <$> freshAtom loc (FreshConstant bt (Just nm))
                       | otherwise -> describe "atomic type" $ empty
 
     evaluated =
-       do Pair tp e' <- reading synth
+       do Pair _ e' <- reading synth
           loc <- position
           anAtom <- eval loc e'
-          return $ Pair tp anAtom
+          return $ Some anAtom
 
 -- | Parse a list of operands (for example, the arguments to a function)
 operands :: forall s ext m tps
@@ -1609,7 +1619,7 @@ funcall
      , IsSyntaxExtension ext
      , ?parserHooks :: ParserHooks ext
      )
-  => m (Pair TypeRepr (Atom s))
+  => m (Some (Atom s))
 funcall =
   followedBy (kw Funcall) $
   depConsCond (reading synth) $
@@ -1620,7 +1630,7 @@ funcall =
              funAtom <- eval loc fun
              operandAtoms <- operands funArgs
              endAtom <- freshAtom loc $ Call funAtom operandAtoms ret
-             return $ Right $ Pair ret endAtom
+             return $ Right $ Some endAtom
         _ -> return $ Left "a function"
 
 
@@ -1667,8 +1677,8 @@ normStmt' =
           use (stxGlobals . at g) >>=
             \case
               Nothing -> return $ Left "known global variable name"
-              Just (Pair t var) ->
-                do (Posd loc e) <- fst <$> cons (located $ reading $ check t) emptyList
+              Just (Some var) ->
+                do (Posd loc e) <- fst <$> cons (located $ reading $ check $ globalType var) emptyList
                    a <- eval loc e
                    tell [Posd loc $ WriteGlobal var a]
                    return (Right ())
@@ -1676,8 +1686,8 @@ normStmt' =
     setReg =
       followedBy (kw SetRegister) $
       depCons (reading regRef') $
-      \(Pair ty r) ->
-        depCons (reading $ located $ check ty) $
+      \(Some r) ->
+        depCons (reading $ located $ check $ typeOfReg r) $
         \(Posd loc e) ->
           do emptyList
              v <- eval loc e
@@ -1781,17 +1791,17 @@ termStmt' retTy =
          later $ describe "known label with no arguments" $
            case l of
              Nothing -> empty
-             Just (ArgLbl _ _) -> empty
+             Just (ArgLbl _) -> empty
              Just (NoArgLbl lbl) -> pure lbl
 
-    lambdaLabel :: m (Pair TypeRepr (LambdaLabel s))
+    lambdaLabel :: m (Some (LambdaLabel s))
     lambdaLabel =
       do x <- labelName
          l <- use (stxLabels . at x)
          later $ describe "known label with an argument" $
            case l of
              Nothing -> empty
-             Just (ArgLbl t lbl) -> pure $ Pair t lbl
+             Just (ArgLbl lbl) -> pure $ Some lbl
              Just (NoArgLbl _) -> empty
 
     typedLambdaLabel :: TypeRepr t -> m (LambdaLabel s t)
@@ -1801,8 +1811,8 @@ termStmt' retTy =
          later $ describe ("known label with an " <> T.pack (show t) <> " argument") $
            case l of
              Nothing -> empty
-             Just (ArgLbl t' lbl) ->
-               case testEquality t' t of
+             Just (ArgLbl lbl) ->
+               case testEquality (typeOfAtom (lambdaAtom lbl)) t of
                  Nothing -> empty
                  Just Refl -> pure lbl
              Just (NoArgLbl _) -> empty
@@ -1894,8 +1904,8 @@ termStmt' retTy =
     out = followedBy (kw Output_) $
           do -- commit
              depCons lambdaLabel $
-               \(Pair argTy lbl) ->
-                 depCons (located (reading (check argTy))) $
+               \(Some lbl) ->
+                 depCons (located (reading (check (typeOfAtom (lambdaAtom lbl))))) $
                    \(Posd loc arg) ->
                      emptyList *>
                        (Output lbl <$> eval loc arg)
@@ -1949,16 +1959,16 @@ saveArgs :: (MonadState (SyntaxState s) m, MonadError (ExprErr s) m)
          -> m ()
 saveArgs ctx1 ctx2 =
   let combined = Ctx.zipWith
-                   (\(Arg x p t) argAtom ->
-                      (Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const p) argAtom)))))
+                   (\(Arg x p _) argAtom ->
+                      (Const (Some (Functor.Pair (Const x) (Functor.Pair (Const p) argAtom)))))
                    ctx1 ctx2
   in forFC_ combined $
-       \(Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const argPos) y)))) ->
+       \(Const (Some (Functor.Pair (Const x) (Functor.Pair (Const argPos) y)))) ->
          with (stxAtoms . at x) $
            \case
              Just _ -> throwError $ DuplicateAtom argPos x
              Nothing ->
-               do stxAtoms %= Map.insert x (Pair t y)
+               do stxAtoms %= Map.insert x (Some y)
 
 data FunctionHeader =
   forall args ret .
@@ -2010,13 +2020,14 @@ functionHeader defun =
 
 global :: (?parserHooks :: ParserHooks ext)
        => AST s
-       -> TopParser s (Pair TypeRepr GlobalVar)
+       -> TopParser s (Some GlobalVar)
 global stx =
   do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary DefGlobal globalName isType)) stx
      ha <- use $ stxProgState  . progHandleAlloc
      v <- liftIO $ freshGlobalVar ha varName t
-     stxGlobals %= Map.insert var (Pair t v)
-     return $ Pair t v
+     let sv = Some v
+     stxGlobals %= Map.insert var sv
+     return sv
 
 -- | Parse a forward declaration.
 declare :: (?parserHooks :: ParserHooks ext)
@@ -2038,6 +2049,18 @@ declare stx =
      stxForwardDecs %= Map.insert fnName header
      pure header
 
+-- | Parse an extern.
+extern :: (?parserHooks :: ParserHooks ext)
+       => AST s
+       -> TopParser s (Some GlobalVar)
+extern stx =
+  do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary Extern globalName isType)) stx
+     ha <- use $ stxProgState  . progHandleAlloc
+     v <- liftIO $ freshGlobalVar ha varName t
+     let sv = Some v
+     stxExterns %= Map.insert var sv
+     return sv
+
 topLevel :: (?parserHooks :: ParserHooks ext)
          => AST s
          -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
@@ -2045,6 +2068,7 @@ topLevel ast =
   (Just <$> functionHeader ast) `catchError` \e ->
   (global ast $> Nothing)       `catchError` \_ ->
   (declare ast $> Nothing)      `catchError` \_ ->
+  (extern ast $> Nothing)       `catchError` \_ ->
   throwError e
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
@@ -2107,7 +2131,7 @@ blocks ret =
         argBlock =
           call $
           depConsCond lambdaLabelBinding $
-          \ (l, (Pair _ lbl)) ->
+          \ (l, (Some lbl)) ->
             do pr <- progress
                body <- anything
                return $ Right (l, LambdaID lbl, pr, body)
@@ -2186,7 +2210,7 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
     saveRegister (L [A (Rg x), t]) =
       do Some ty <- liftSyntaxParse isType t
          r <- newUnassignedReg ty
-         stxRegisters %= Map.insert x (Pair ty r)
+         stxRegisters %= Map.insert x (Some r)
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
 
 cfgs :: ( IsSyntaxExtension ext
@@ -2211,7 +2235,7 @@ prog defuns =
             st <- get
             (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
             put st'
-            let vs = Set.fromList [ Some (AtomValue a) | Pair _ a <- args ]
+            let vs = Set.fromList [ Some (AtomValue a) | Some a <- args ]
             case theBlocks of
               []       -> error "found no blocks"
               (e:rest) ->
@@ -2221,10 +2245,12 @@ prog defuns =
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
                    return $ ACFG types ret $ CFG handle entry (e' : rest)
      gs <- use stxGlobals
+     externs <- use stxExterns
      fds <- uses stxForwardDecs $ fmap $
               \(FunctionHeader _ _ _ handle _) -> SomeHandle handle
      return $ ParsedProgram
        { parsedProgGlobals = gs
+       , parsedProgExterns = externs
        , parsedProgCFGs = cs
        , parsedProgForwardDecs = fds
        }

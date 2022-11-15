@@ -45,7 +45,6 @@ import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap as IntMap
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Pair
 import           Data.Parameterized.NatRepr
 import           Data.Text (Text)
 import qualified Data.Vector as V
@@ -87,7 +86,7 @@ scheduleFeature ::
   -- so the client can provide an assoc list of source variables here if they'd like. This can
   -- frequently be empty -- some of the crucible-syntax examples implement mutexes as global
   -- boolean variables, but this is likely not the right approach for most languages.
-  [Pair C.TypeRepr GlobalVar]  ->
+  [Some GlobalVar]  ->
   ExecutionFeature (ThreadExec alg sym ext ret) sym ext rtp
 scheduleFeature prims =
   ExecutionFeature . schedule prims
@@ -101,7 +100,7 @@ schedule ::
   , rtp ~ RegEntry sym ret
   ) =>
   ExplorePrimitives (ThreadExec alg sym ext ret) sym ext ->
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ExecState (ThreadExec alg sym ext ret) sym ext rtp ->
   IO (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext rtp)
 schedule prims globs = \case
@@ -160,7 +159,7 @@ scheduleCall ::
   , rtp ~ RegEntry sym ret
   ) =>
   ExplorePrimitives (ThreadExec alg sym ext ret) sym ext ->
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ReturnHandler rty (ThreadExec alg sym ext ret) sym ext rtp f a {-^ rh of original CallState -} ->
   C.BlockID callBlocks ctx {-^ block of original CrucibleTarget -} ->
   (CallFrame sym ext callBlocks rty ctx) {-^ callframe of original CrucibleTarget -} ->
@@ -213,7 +212,7 @@ scheduleJoin ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ThreadID ->
   ReturnHandler rty (ThreadExec alg sym ext ret) sym ext rtp (CrucibleLang blocks r) a ->
   ThreadExecM alg sym ext ret rtp (CrucibleLang blocks r) a
@@ -234,7 +233,7 @@ scheduleYield ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ReturnHandler rty (ThreadExec alg sym ext ret) sym ext rtp f a ->
   ResolvedCall (ThreadExec alg sym ext ret) sym ext rty {-^ The original call prompting the yield -} ->
   YieldSpec {-^ A description of what triggered the yield -} ->
@@ -302,7 +301,7 @@ yieldThread ::
   , HasCallStack -- better debugging here
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ThreadState alg sym ext ret {-^ The thread state to use for the currently executing thread -}  ->
   ThreadExecM alg sym ext ret rtp f a (Maybe (ExecState (ThreadExec alg sym ext ret) sym ext rtp))
 yieldThread globs ts0 =
@@ -340,7 +339,7 @@ maybeTerminate ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   (SimState (ThreadExec alg sym ext ret) sym ext rtp f a->
     ExecState (ThreadExec alg sym ext ret) sym ext rtp ) ->
   ThreadState alg sym ext ret ->
@@ -362,7 +361,7 @@ switchToPendingThread ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   Bool ->
   (ThreadID, Direction) ->
   ThreadExecM alg sym ext ret rtp f a (Maybe (ExecState (ThreadExec alg sym ext ret) sym ext rtp))
@@ -389,7 +388,7 @@ resumeThreadState ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ThreadID ->
   ThreadState alg sym ext ret ->
   Direction ->
@@ -427,7 +426,7 @@ startNewThread ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   C.TypeRepr ty ->
   RegValue sym ty ->
   FnHandle (Ctx.EmptyCtx Ctx.::> ty) retTy ->
@@ -660,7 +659,7 @@ notifyThread gv ts =
 -- | Return True if the given @ThreadState@ denotes an executable thread
 checkRunnable ::
   IsSymInterface sym =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ThreadState alg sym ext ret ->
   ThreadExecM alg sym ext ret r f a Bool
 checkRunnable globs ts =
@@ -672,7 +671,7 @@ checkRunnable globs ts =
 -- | Exit with an error if the given @ThreadState@ is is not runnable
 assertRunnable ::
   IsSymInterface sym =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ThreadID ->
   ThreadState alg sym ext ret ->
   ScheduleEvent EventInfo ->
@@ -688,7 +687,7 @@ assertRunnable globs thID thNext e =
 -- | Return all the threads that can be run
 runnableThreads ::
   IsSymInterface sym =>
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   ThreadExecM alg sym ext ret r f a [(Int, ThreadState alg sym ext ret)]
 runnableThreads globs =
   do globState <- use stateGlobals
@@ -700,7 +699,7 @@ runnable ::
   IsSymInterface sym =>
   SymGlobalState sym {-^ Current global state -} ->
   Map.Map Text (C.Some GlobalVar) {-^ Scheduler variables that we might want to inspect -} ->
-  [Pair C.TypeRepr GlobalVar] {-^ Program globals that we might want to inspect -} ->
+  [Some GlobalVar] {-^ Program globals that we might want to inspect -} ->
   V.Vector (ThreadState alg sym ext ret) {-^ State of all threads -} ->
   ThreadState alg sym ext ret {-^ Thread in question -} ->
   Bool

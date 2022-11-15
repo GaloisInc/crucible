@@ -64,7 +64,7 @@ import           Lang.Crucible.Analysis.Postdom (postdomInfo)
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.Utils.MuxTree (viewMuxTree)
 import           What4.FunctionName (FunctionName)
-import           Data.Parameterized.Pair
+import           Data.Parameterized.Some
 import           Lang.Crucible.Simulator.ExecutionTree (stateGlobals, SomeSimState(..))
 import           Data.Maybe (catMaybes)
 import           Lang.Crucible.Simulator.GlobalState (lookupGlobal)
@@ -74,7 +74,7 @@ newtype ExplorePrimMatch p sym ext = Match { runMatch :: ExplorePrimitiveMatcher
 
 type ExplorePrimitiveMatcher p sym ext =
   forall args blocks ret r.
-  [Pair C.TypeRepr GlobalVar] {-^ Program globals in scope -} ->
+  [Some GlobalVar] {-^ Program globals in scope -} ->
   FunctionName {-^ The function being called -} ->
   C.CtxRepr args {-^ The arguments passed to the function being called -} ->
   CallFrame sym ext blocks ret args  {-^ The function callframe -} ->
@@ -139,7 +139,7 @@ data YieldSpec =
 matchPrimitive ::
   (IsSymInterface sym) =>
   [ExplorePrimMatch p sym ext] ->
-  [Pair C.TypeRepr GlobalVar] ->
+  [Some GlobalVar] ->
   FunctionName ->
   C.CtxRepr args ->
   CallFrame sym ext blocks ret args ->
@@ -381,14 +381,16 @@ crucibleSyntaxPrims =
   , Match matchCondSignal
   ]
 
-referencedGlobals :: SymGlobalState sym -> [Pair C.TypeRepr GlobalVar] -> [Some RefCell] -> [Text]
+referencedGlobals :: SymGlobalState sym -> [Some GlobalVar] -> [Some RefCell] -> [Text]
 referencedGlobals gs globs refs =
   catMaybes
   [ case testEquality tp (refType rc) of
       Just Refl
         | referencesGlobal gs gv rc -> Just $ globalName gv
       _ -> Nothing
-  | Pair (C.ReferenceRepr tp) gv <- globs, C.Some rc <- refs ]
+  | Some gv <- globs
+  , C.ReferenceRepr tp <- pure (globalType gv)
+  , C.Some rc <- refs ]
 
 referencesGlobal :: SymGlobalState sym -> GlobalVar (C.ReferenceType a) -> RefCell a -> Bool
 referencesGlobal gs gv ref =
@@ -396,17 +398,17 @@ referencesGlobal gs gv ref =
     Just ref' -> ref `elem` (fst <$> viewMuxTree ref')
     Nothing -> False
 
-findGlobalVar :: [Pair C.TypeRepr GlobalVar] -> Text -> C.TypeRepr ty -> Maybe (GlobalVar ty)
+findGlobalVar :: [Some GlobalVar] -> Text -> C.TypeRepr ty -> Maybe (GlobalVar ty)
 findGlobalVar globals gvName gvType =
   case matches of
-    Pair ty gv:_
-      | Just Refl <- testEquality gvType ty ->
+    Some gv:_
+      | Just Refl <- testEquality gvType (globalType gv) ->
           Just gv
     _   -> Nothing
   where
     matches =
-      [ Pair ty gv | Pair ty gv <- globals
-                   , globalName gv == gvName ]
+      [ sgv | sgv@(Some gv) <- globals
+            , globalName gv == gvName ]
 
 evalGlobalPred ::
   IsSymInterface sym =>

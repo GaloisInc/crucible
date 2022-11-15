@@ -77,8 +77,10 @@ doParseCheck fn theInput pprint outh =
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
               Right (ParsedProgram{ parsedProgCFGs = ok
+                                  , parsedProgExterns = externs
                                   , parsedProgForwardDecs = fds
                                   }) -> do
+                assertNoExterns externs
                 assertNoForwardDecs fds
                 forM_ ok $
                  \(ACFG _ _ theCfg) ->
@@ -92,6 +94,12 @@ data SimulateProgramHooks = SimulateProgramHooks
       forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
          sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
     -- ^ Action to set up overrides before parsing a program.
+  , resolveExternsHook ::
+      forall sym t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+        sym -> Map GlobalName (Some GlobalVar) -> SymGlobalState sym -> IO (SymGlobalState sym)
+    -- ^ Action to resolve externs before simulating a program. If you do not
+    --   intend to support externs, this is an appropriate place to error if a
+    --   program contains one or more externs.
   , resolveForwardDeclarationsHook ::
       forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
         Map FunctionName SomeHandle -> IO (FunctionBindings p sym ext)
@@ -109,10 +117,19 @@ data SimulateProgramHooks = SimulateProgramHooks
 defaultSimulateProgramHooks :: SimulateProgramHooks
 defaultSimulateProgramHooks = SimulateProgramHooks
   { setupOverridesHook = \_sym _ha -> pure []
+  , resolveExternsHook = \_sym externs gst ->
+    do assertNoExterns externs
+       pure gst
   , resolveForwardDeclarationsHook = \fds ->
     do assertNoForwardDecs fds
        pure $ FnBindings emptyHandleMap
   }
+
+assertNoExterns :: Map GlobalName (Some GlobalVar) -> IO ()
+assertNoExterns externs =
+  unless (Map.null externs) $
+  do putStrLn "Externs not currently supported"
+     exitFailure
 
 assertNoForwardDecs :: Map FunctionName SomeHandle -> IO ()
 assertNoForwardDecs fds =
@@ -148,11 +165,13 @@ simulateProgram fn theInput outh profh opts hooks =
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
               Right (ParsedProgram{ parsedProgCFGs = cs
+                                  , parsedProgExterns = externs
                                   , parsedProgForwardDecs = fds
                                   }) -> do
                 case find isMain cs of
                   Just (ACFG Ctx.Empty retType mn) ->
-                    do fwdDecFnBindings <- resolveForwardDeclarationsHook hooks fds
+                    do gst <- resolveExternsHook hooks sym externs emptyGlobals
+                       fwdDecFnBindings <- resolveForwardDeclarationsHook hooks fds
                        let mainHdl = cfgHandle mn
                        let fns = foldl' (\(FnBindings m) (ACFG _ _ g) ->
                                           case toSSA g of
@@ -164,7 +183,7 @@ simulateProgram fn theInput outh profh opts hooks =
                                                   m)
                                         fwdDecFnBindings cs
                        let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
-                       let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler retType $
+                       let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
                                            regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap

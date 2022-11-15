@@ -48,7 +48,6 @@ import What4.FunctionName
 import qualified Crux
 import           Crux.Types
 
-import Data.Parameterized.Pair
 import qualified SimpleGetOpt as GetOpt
 import Text.Read (readMaybe)
 
@@ -128,7 +127,7 @@ run (cruxOpts, opts) =
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
                      , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()
-                     , [Pair C.TypeRepr GlobalVar]
+                     , [Some GlobalVar]
                      , FunctionBindings (ThreadExec DPOR s () C.UnitType) s ()
                      )
                 mkSym _bak =
@@ -141,9 +140,12 @@ run (cruxOpts, opts) =
                        Left err -> error $ show err
                        Right (ParsedProgram
                                { parsedProgGlobals = gs
+                               , parsedProgExterns = externs
                                , parsedProgCFGs = cs
                                , parsedProgForwardDecs = fds
                                }) -> do
+                         unless (Map.null externs) $
+                           error "Externs not currently supported"
                          unless (Map.null fds) $
                            error "Forward declarations not currently supported"
                          return ( findMain (fromString "main") cs

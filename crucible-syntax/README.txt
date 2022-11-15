@@ -87,6 +87,22 @@ of a function ahead of time, but you will know it at some point after parsing
 the program. It is the responsibility of the client to ensure that forward
 declarations are resolved to Crucible definitions before being invoked.
 
+Global variables
+
+A global variable is a form that begins with the keyword "defglobal", followed
+by an identifier prefixed with two dollar signs (e.g., $$global-name) as well
+as a type. A global variable is a mutable reference that scopes over all of the
+functions defined in the program. The value of a global variable can be set
+with the "set-global!" form.
+
+A program can reference a global variable defined externally by using an extern
+declaration. An extern declaration is exactly like a "defglobal" declaration,
+but using the "extern" keyword instead of "defglobal". The difference between
+an extern and a normal global variable is that the value of an extern may
+already have been set by the time that the .cbl file which declares the extern
+uses it. It is the responsibility of the client to ensure that externs are
+inserted into the Crucible symbolic global state before being accessed.
+
 Types
 
 si ::= 'Unicode' | 'Char16' | 'Char8'
