@@ -44,6 +44,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , isAllocatedGeneric
     -- * Write logs
   , WriteSource(..)
+  , writeSourceSize
   , MemWrite(..)
   , MemWrites(..)
   , MemWritesChunk(..)
@@ -527,15 +528,16 @@ multiUnion :: (Ord k, Semigroup a) => Map k a -> Map k a -> Map k a
 multiUnion = Map.unionWith (<>)
 
 writeSourceSize ::
-  (IsExprBuilder sym, HasPtrWidth w) =>
+  (IsExprBuilder sym, 1 <= w) =>
   sym ->
+  NatRepr w ->
   WriteSource sym w ->
   MaybeT IO (SymBV sym w)
-writeSourceSize sym = \case
+writeSourceSize sym w = \case
   MemCopy _src sz -> pure sz
   MemSet _val sz -> pure sz
   MemStore _val st _align ->
-    liftIO $ bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth $ toInteger $ typeEnd 0 st
+    liftIO $ bvLit sym w $ BV.mkBV w $ toInteger $ typeEnd 0 st
   MemArrayStore _arr Nothing -> MaybeT $ pure Nothing
   MemArrayStore _arr (Just sz) -> pure sz
   MemInvalidate _nm sz -> pure sz
@@ -550,7 +552,7 @@ writeRangesMemWrite sym = \case
     | Just Refl <- testEquality ?ptrWidth (ptrWidth ptr) ->
       case asNat (llvmPointerBlock ptr) of
         Just blk -> do
-          sz <- writeSourceSize sym wsrc
+          sz <- writeSourceSize sym ?ptrWidth wsrc
           pure $ Map.singleton blk [(llvmPointerOffset ptr, sz)]
         Nothing -> MaybeT $ pure Nothing
     | otherwise -> fail "foo"

@@ -58,6 +58,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchAbortMem
   , mergeMem
   , asMemAllocationArrayStore
+  , asMemMatchingArrayStore
   , isAligned
 
   , SomeAlloc(..)
@@ -78,6 +79,7 @@ import           Prelude hiding (pred)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.State.Strict
+import           Control.Monad.Trans.Maybe
 import           Data.IORef
 import           Data.Maybe
 import qualified Data.List as List
@@ -1659,6 +1661,20 @@ asMemAllocationArrayStore sym w ptr mem
 
   | otherwise = return Nothing
 
+asMemMatchingArrayStore ::
+  (IsSymInterface sym, 1 <= w) =>
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym w ->
+  SymBV sym w ->
+  Mem sym ->
+  IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
+asMemMatchingArrayStore sym w ptr sz mem
+  | Just blk_no <- asNat (llvmPointerBlock ptr)
+  , Just off <- asBV (llvmPointerOffset ptr) =
+    findArrayStore sym w blk_no off sz $ memWritesAtConstant blk_no $ memWrites mem
+  | otherwise = return Nothing
+
 findArrayStore ::
   (IsSymInterface sym, 1 <= w) =>
   sym ->
@@ -1682,6 +1698,46 @@ findArrayStore sym w blk_no off sz (head_mem_write : tail_mem_writes) =
       , MemArrayStore arr (Just arr_store_sz) <- write_source -> do
         ok <- bvEq sym sz arr_store_sz
         return (Just (ok, arr))
+
+      | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
+      , blk_no == write_blk_no
+      , Just Refl <- testEquality w (ptrWidth write_ptr)
+      , Just write_off <- asBV (llvmPointerOffset write_ptr)
+      , Just sz_bv <- asBV sz
+      , MemCopy src_ptr mem_copy_sz <- write_source
+      , Just mem_copy_sz_bv <- asBV mem_copy_sz
+      , BV.ule write_off off
+      , BV.ule (BV.add w off sz_bv) (BV.add w write_off mem_copy_sz_bv)
+      , Just src_blk_no <- asNat (llvmPointerBlock src_ptr)
+      , Just src_off <- asBV (llvmPointerOffset src_ptr) ->
+        findArrayStore sym w src_blk_no (BV.add w src_off $ BV.sub w off write_off) sz tail_mem_writes
+
+      | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
+      , blk_no == write_blk_no
+      , Just Refl <- testEquality w (ptrWidth write_ptr)
+      , Just write_off <- asBV (llvmPointerOffset write_ptr)
+      , Just sz_bv <- asBV sz
+      , MemSet val mem_set_sz <- write_source
+      , Just mem_set_sz_bv <- asBV mem_set_sz
+      , BV.ule write_off off
+      , BV.ule (BV.add w off sz_bv) (BV.add w write_off mem_set_sz_bv) -> do
+        arr <- constantArray sym (Ctx.singleton $ BaseBVRepr w) val
+        return $ Just (truePred sym, arr)
+
+      | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
+      , blk_no == write_blk_no
+      , Just Refl <- testEquality w (ptrWidth write_ptr)
+      , Just write_off <- asBV (llvmPointerOffset write_ptr) -> do
+        maybe_write_sz <- runMaybeT $ writeSourceSize sym w write_source
+        case maybe_write_sz of
+          Just write_sz
+            | Just sz_bv <- asBV sz
+            , Just write_sz_bv <- asBV write_sz
+            , end <- BV.add w off sz_bv
+            , write_end <- BV.add w write_off write_sz_bv
+            , BV.ule end write_off || BV.ule write_end off ->
+              findArrayStore sym w blk_no off sz tail_mem_writes
+          _ -> return Nothing
 
       | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
       , blk_no /= write_blk_no ->
