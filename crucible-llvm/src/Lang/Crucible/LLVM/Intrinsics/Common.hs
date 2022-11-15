@@ -139,53 +139,58 @@ newtype ValTransformer p sym tp tp' =
 
 transformLLVMArgs :: forall m p sym bak args args'.
   (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
+  FunctionName ->
   bak ->
   CtxRepr args' ->
   CtxRepr args ->
   m (ArgTransformer p sym args args')
-transformLLVMArgs _ Ctx.Empty Ctx.Empty =
+transformLLVMArgs _fnName _ Ctx.Empty Ctx.Empty =
   return (ArgTransformer (\_ -> return Ctx.Empty))
-transformLLVMArgs bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
+transformLLVMArgs fnName bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
   return (ArgTransformer
            (\(xs Ctx.:> x) ->
-              do (ValTransformer f)  <- transformLLVMRet bak tp tp'
-                 (ArgTransformer fs) <- transformLLVMArgs bak rest' rest
+              do (ValTransformer f)  <- transformLLVMRet fnName bak tp tp'
+                 (ArgTransformer fs) <- transformLLVMArgs fnName bak rest' rest
                  xs' <- fs xs
                  x'  <- RegEntry tp' <$> f (regValue x)
                  pure (xs' Ctx.:> x')))
-transformLLVMArgs _ _ _ =
+transformLLVMArgs fnName _ _ _ =
   panic "Intrinsics.transformLLVMArgs"
-    [ "transformLLVMArgs: argument shape mismatch!" ]
+    [ "transformLLVMArgs: argument shape mismatch!" 
+    , "in function: " ++ Text.unpack (functionName fnName)
+    ]
 
 transformLLVMRet ::
   (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
+  FunctionName ->
   bak ->
   TypeRepr ret  ->
   TypeRepr ret' ->
   m (ValTransformer p sym ret ret')
-transformLLVMRet bak (BVRepr w) (LLVMPointerRepr w')
+transformLLVMRet _fnName bak (BVRepr w) (LLVMPointerRepr w')
   | Just Refl <- testEquality w w'
   = return (ValTransformer (liftIO . llvmPointer_bv (backendGetSym bak)))
-transformLLVMRet bak (LLVMPointerRepr w) (BVRepr w')
+transformLLVMRet _fnName bak (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
   = return (ValTransformer (liftIO . projectLLVM_bv bak))
-transformLLVMRet bak (VectorRepr tp) (VectorRepr tp')
-  = do ValTransformer f <- transformLLVMRet bak tp tp'
+transformLLVMRet fnName bak (VectorRepr tp) (VectorRepr tp')
+  = do ValTransformer f <- transformLLVMRet fnName bak tp tp'
        return (ValTransformer (traverse f))
-transformLLVMRet bak (StructRepr ctx) (StructRepr ctx')
-  = do ArgTransformer tf <- transformLLVMArgs bak ctx' ctx
+transformLLVMRet fnName bak (StructRepr ctx) (StructRepr ctx')
+  = do ArgTransformer tf <- transformLLVMArgs fnName bak ctx' ctx
        return (ValTransformer (\vals ->
           let vals' = Ctx.zipWith (\tp (RV v) -> RegEntry tp v) ctx vals in
           fmapFC (\x -> RV (regValue x)) <$> tf vals'))
 
-transformLLVMRet _bak ret ret'
+transformLLVMRet _fnName _bak ret ret'
   | Just Refl <- testEquality ret ret'
   = return (ValTransformer return)
-transformLLVMRet _bak ret ret'
+transformLLVMRet fnName _bak ret ret'
   = panic "Intrinsics.transformLLVMRet"
       [ "Cannot transform types"
       , "*** Source type: " ++ show ret
       , "*** Target type: " ++ show ret'
+      , "in function: " ++ Text.unpack (functionName fnName)
       ]
 
 -- | Do some pipe-fitting to match a Crucible override function into the shape
@@ -205,8 +210,8 @@ build_llvm_override ::
   OverrideSim p sym LLVM rtp l a (Override p sym LLVM args' ret')
 build_llvm_override fnm args ret args' ret' llvmOverride =
   ovrWithBackend $ \bak ->
-  do fargs <- transformLLVMArgs bak args args'
-     fret  <- transformLLVMRet  bak ret  ret'
+  do fargs <- transformLLVMArgs fnm bak args args'
+     fret  <- transformLLVMRet fnm bak ret  ret'
      return $ mkOverride' fnm ret' $
             do RegMap xs <- getOverrideArgs
                ovrWithBackend $ \bak' ->
