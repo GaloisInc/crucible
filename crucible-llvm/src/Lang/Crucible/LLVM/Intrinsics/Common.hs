@@ -139,6 +139,7 @@ newtype ValTransformer p sym tp tp' =
 
 transformLLVMArgs :: forall m p sym bak args args'.
   (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
+  -- | This function name is only used in panic messages.
   FunctionName ->
   bak ->
   CtxRepr args' ->
@@ -162,6 +163,7 @@ transformLLVMArgs fnName _ _ _ =
 
 transformLLVMRet ::
   (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
+  -- | This function name is only used in panic messages.
   FunctionName ->
   bak ->
   TypeRepr ret  ->
