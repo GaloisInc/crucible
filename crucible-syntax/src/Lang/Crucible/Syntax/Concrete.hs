@@ -40,6 +40,7 @@ module Lang.Crucible.Syntax.Concrete
   , atomName
   , freshAtom
   , nat
+  , string
   , isType
   , operands
   -- * Rules for pretty-printing language syntax
