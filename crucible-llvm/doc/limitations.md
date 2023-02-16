@@ -22,11 +22,15 @@ Printf accuracy
 The `printf` implementation provided with `crucible-llvm` makes a
 reasonable effort to implement the various conversion codes, but there
 are some places where the formatting does not strictly conform to
-the specification (most notably, regarding displayed precision for
-floating-point values). We also do not implement the "%a" conversion
-code for binary formatted floating-point values.
-We also will simply print a collection of '?' characters for symbolic
-values.
+the specification. Most notably:
+
+* We do not correctly display precision for floating-point values.
+* We do not implement the `%a` conversion code for binary formatted
+  floating-point values.
+* We assume that all characters in C strings are exactly 1 byte in size, which
+  means that format strings using `%ls` will likely not work as expected.
+* We will simply print a collection of `?` characters for symbolic
+  values.
 
 Thus the exact printed output, number of characters printed, etc,
 may not exactly match that of a conforming implementation.
