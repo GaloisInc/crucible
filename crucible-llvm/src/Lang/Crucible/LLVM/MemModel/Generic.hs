@@ -1632,6 +1632,21 @@ possibleAllocs n mem =
     Just (AllocInfo atp sz mut alignment loc) ->
       [SomeAlloc atp n sz mut alignment loc]
 
+
+newtype MemoIO m a = MemoIO (IORef (Either (m a) a))
+
+putMemoIO :: MonadIO m => m a -> m (MemoIO m a)
+putMemoIO comp = MemoIO <$> (liftIO $ newIORef $ Left comp)
+
+getMemoIO :: MonadIO m => MemoIO m a -> m a
+getMemoIO (MemoIO ref) = (liftIO $ readIORef ref) >>= \case
+  Left comp -> do
+    res <- comp
+    liftIO $ writeIORef ref $ Right res
+    return res
+  Right res -> return res
+
+
 -- | Check if @LLVMPtr sym w@ points inside an allocation that is backed
 --   by an SMT array store. If true, return a predicate that indicates
 --   when the given array backs the given pointer, the SMT array,
@@ -1654,7 +1669,9 @@ asMemAllocationArrayStore sym w ptr mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
   , [SomeAlloc _ _ (Just sz) _ _ _] <- List.nub (possibleAllocs blk_no mem)
   , Just Refl <- testEquality w (bvWidth sz) =
-     do result <- findArrayStore sym w blk_no (BV.zero w) sz $ memWritesAtConstant blk_no $ memWrites mem
+     do memo_nothing <- putMemoIO $ return Nothing
+        result <- findArrayStore sym w blk_no (BV.zero w) sz memo_nothing $
+          memWritesAtConstant blk_no $ memWrites mem
         return $ case result of
           Just (ok, arr) -> Just (ok, arr, sz)
           Nothing -> Nothing
@@ -1671,8 +1688,9 @@ asMemMatchingArrayStore ::
   IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
 asMemMatchingArrayStore sym w ptr sz mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
-  , Just off <- asBV (llvmPointerOffset ptr) =
-    findArrayStore sym w blk_no off sz $ memWritesAtConstant blk_no $ memWrites mem
+  , Just off <- asBV (llvmPointerOffset ptr) = do
+    memo_nothing <- putMemoIO $ return Nothing
+    findArrayStore sym w blk_no off sz memo_nothing $ memWritesAtConstant blk_no $ memWrites mem
   | otherwise = return Nothing
 
 findArrayStore ::
@@ -1682,13 +1700,12 @@ findArrayStore ::
   Natural ->
   BV w ->
   SymBV sym w ->
+  MemoIO IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8))) ->
   [MemWrite sym] ->
   IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
-
-findArrayStore _ _ _ _ _ [] = return Nothing
-
-findArrayStore sym w blk_no off sz (head_mem_write : tail_mem_writes) =
-  case head_mem_write of
+findArrayStore sym w blk_no off sz memo_cont = \case
+  [] -> getMemoIO memo_cont
+  head_mem_write : tail_mem_writes -> case head_mem_write of
     MemWrite write_ptr write_source
       | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
       , blk_no == write_blk_no
@@ -1710,7 +1727,7 @@ findArrayStore sym w blk_no off sz (head_mem_write : tail_mem_writes) =
       , BV.ule (BV.add w off sz_bv) (BV.add w write_off mem_copy_sz_bv)
       , Just src_blk_no <- asNat (llvmPointerBlock src_ptr)
       , Just src_off <- asBV (llvmPointerOffset src_ptr) ->
-        findArrayStore sym w src_blk_no (BV.add w src_off $ BV.sub w off write_off) sz tail_mem_writes
+        findArrayStore sym w src_blk_no (BV.add w src_off $ BV.sub w off write_off) sz memo_cont tail_mem_writes
 
       | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
       , blk_no == write_blk_no
@@ -1736,57 +1753,40 @@ findArrayStore sym w blk_no off sz (head_mem_write : tail_mem_writes) =
             , end <- BV.add w off sz_bv
             , write_end <- BV.add w write_off write_sz_bv
             , BV.ule end write_off || BV.ule write_end off ->
-              findArrayStore sym w blk_no off sz tail_mem_writes
+              findArrayStore sym w blk_no off sz memo_cont tail_mem_writes
           _ -> return Nothing
 
       | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
       , blk_no /= write_blk_no ->
-        findArrayStore sym w blk_no off sz tail_mem_writes
+        findArrayStore sym w blk_no off sz memo_cont tail_mem_writes
 
       | otherwise -> return Nothing
 
     WriteMerge cond lhs_mem_writes rhs_mem_writes -> do
-      lhs_result <- findArrayStore sym w blk_no off sz (memWritesAtConstant blk_no lhs_mem_writes)
-      rhs_result <- findArrayStore sym w blk_no off sz (memWritesAtConstant blk_no rhs_mem_writes)
-
       -- Only traverse the tail if necessary, and be careful
       -- only to traverse it once
+      memo_tail <- putMemoIO $ findArrayStore sym w blk_no off sz memo_cont tail_mem_writes
+
+      lhs_result <- findArrayStore sym w blk_no off sz memo_tail (memWritesAtConstant blk_no lhs_mem_writes)
+      rhs_result <- findArrayStore sym w blk_no off sz memo_tail (memWritesAtConstant blk_no rhs_mem_writes)
+
       case (lhs_result, rhs_result) of
-        (Just _, Just _) -> combineResults sym cond lhs_result rhs_result
+        (Just (lhs_ok, lhs_arr), Just (rhs_ok, rhs_arr)) ->
+           do ok <- itePred sym cond lhs_ok rhs_ok
+              arr <- arrayIte sym cond lhs_arr rhs_arr
+              pure (Just (ok,arr))
 
-        (Just _, Nothing) ->
-          do rhs' <- findArrayStore sym w blk_no off sz tail_mem_writes
-             combineResults sym cond lhs_result rhs'
+        (Just (lhs_ok, lhs_arr), Nothing) ->
+           do ok <- andPred sym cond lhs_ok
+              pure (Just (ok, lhs_arr))
 
-        (Nothing, Just _) ->
-          do lhs' <- findArrayStore sym w blk_no off sz tail_mem_writes
-             combineResults sym cond lhs' rhs_result
+        (Nothing, Just (rhs_ok, rhs_arr)) ->
+           do cond' <- notPred sym cond
+              ok <- andPred sym cond' rhs_ok
+              pure (Just (ok, rhs_arr))
 
-        (Nothing, Nothing) -> findArrayStore sym w blk_no off sz tail_mem_writes
+        (Nothing, Nothing) -> pure Nothing
 
-combineResults ::
-  IsSymInterface sym =>
-  sym ->
-  Pred sym ->
-  Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) ->
-  Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) ->
-  IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
-
-combineResults sym cond (Just (lhs_ok, lhs_arr)) (Just (rhs_ok, rhs_arr)) =
-   do ok <- itePred sym cond lhs_ok rhs_ok
-      arr <- arrayIte sym cond lhs_arr rhs_arr
-      pure (Just (ok,arr))
-
-combineResults sym cond (Just (lhs_ok, lhs_arr)) Nothing =
-   do ok <- andPred sym cond lhs_ok
-      pure (Just (ok, lhs_arr))
-
-combineResults sym cond Nothing (Just (rhs_ok, rhs_arr)) =
-   do cond' <- notPred sym cond
-      ok <- andPred sym cond' rhs_ok
-      pure (Just (ok, rhs_arr))
-
-combineResults _cond _sym Nothing Nothing = pure Nothing
 
 {- Note [Memory Model Design]
 
