@@ -6,6 +6,11 @@
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
+--
+-- A model of C's @printf@ function. This does not entirely conform to the C
+-- standard's specification of @printf@; see @doc/limitations.md@ for the
+-- specifics.
+--
 ------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns #-}
@@ -32,10 +37,10 @@ module Lang.Crucible.LLVM.Printf
 
 import           Data.Char (toUpper)
 import qualified Numeric as N
-import qualified Codec.Binary.UTF8.Generic as UTF8
 import           Control.Applicative
 import           Data.Attoparsec.ByteString.Char8 hiding (take)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import           Data.Maybe
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -317,18 +322,25 @@ formatRational mr fmt minwidth prec flags =
               | otherwise ->
                    replicate pad ' ' ++ sgn ++ str
 
+-- | Given a list of 'PrintfDirective's, compute the resulting 'BS.ByteString'
+-- and its length.
+--
+-- We make an effort not to assume a particular text encoding for the
+-- 'BS.ByteString' that this returns. Some parts of the implementation do use
+-- functionality from "Data.ByteString.Char8", which is limited to the subset
+-- of Unicode covered by code points 0-255. We believe these uses are justified,
+-- however, and we have left comments explaining the reasoning behind each use.
 executeDirectives :: forall m. Monad m
                   => PrintfOperations m
                   -> [PrintfDirective]
-                  -> m (String, Int)
+                  -> m (BS.ByteString, Int)
 executeDirectives ops = go id 0 0
   where
-   go :: (String -> String) -> Int -> Int -> [PrintfDirective] -> m (String, Int)
-   go fstr !len !_fld [] = return (fstr [], len)
-   go fstr !len !fld ((StringDirective bs):xs) = do
-       let s     = UTF8.toString bs
-       let len'  = len + length s
-       let fstr' = fstr . (s ++)
+   go :: (BS.ByteString -> BS.ByteString) -> Int -> Int -> [PrintfDirective] -> m (BS.ByteString, Int)
+   go fstr !len !_fld [] = return (fstr BS.empty, len)
+   go fstr !len !fld ((StringDirective s):xs) = do
+       let len'  = len + BS.length s
+       let fstr' = fstr . BS.append s
        go fstr' len' fld xs
    go fstr !len !fld (ConversionDirective d:xs) =
        let fld' = fromMaybe (fld+1) (printfAccessField d) in
@@ -336,38 +348,49 @@ executeDirectives ops = go id 0 0
          Conversion_Integer fmt -> do
            let sgn = signedIntFormat fmt
            i <- printfGetInteger ops fld' sgn (printfLengthMod d)
-           let istr  = formatInteger i fmt (printfMinWidth d) (printfPrecision d) (printfFlags d)
-           let len'  = len + length istr
-           let fstr' = fstr . (istr ++)
+           -- The use of BSC.pack is fine here, as the output of formatInteger
+           -- consists solely of ASCII characters.
+           let istr  = BSC.pack $ formatInteger i fmt (printfMinWidth d) (printfPrecision d) (printfFlags d)
+           let len'  = len + BS.length istr
+           let fstr' = fstr . BS.append istr
            go fstr' len' fld' xs
          Conversion_Floating fmt -> do
            r <- printfGetFloat ops fld' (printfLengthMod d)
-           rstr <- case formatRational r fmt
+           -- The use of BSC.pack is fine here, as the output of formatRational
+           -- consists solely of ASCII characters.
+           rstr <- BSC.pack <$>
+                   case formatRational r fmt
                            (printfMinWidth d)
                            (printfPrecision d)
                            (printfFlags d) of
                      Left err -> printfUnsupported ops err
                      Right a -> return a
-           let len'  = len + length rstr
-           let fstr' = fstr . (rstr ++)
+           let len'  = len + BS.length rstr
+           let fstr' = fstr . BS.append rstr
            go fstr' len' fld' xs
          Conversion_String -> do
-           ws <- printfGetString ops fld' (printfPrecision d)
-           let s     = UTF8.toString ws
-           let len'  = len + length s
-           let fstr' = fstr . (s ++)
+           s <- BS.pack <$> printfGetString ops fld' (printfPrecision d)
+           let len'  = len + BS.length s
+           let fstr' = fstr . BS.append s
            go fstr' len' fld' xs
          Conversion_Char -> do
            let sgn  = False -- unsigned
            i <- printfGetInteger ops fld' sgn Len_NoMod
            let c :: Char = maybe '?' (toEnum . fromInteger) i
            let len'  = len + 1
-           let fstr' = fstr . (c:)
+           -- Note the use of BSC.cons here: this assumes on the assumption
+           -- that C strings are arrays of 1-byte characters.
+           let fstr' = fstr . BSC.cons c
            go fstr' len' fld' xs
          Conversion_Pointer -> do
-           pstr <- printfGetPointer ops fld'
-           let len'  = len + length pstr
-           let fstr' = fstr . (pstr ++)
+           -- Note the use of BSC.pack here: this assumes that the output of
+           -- printfGetPointer uses solely ASCII characters. For crux-llvm's
+           -- printf override, this is always the case, as pointers are
+           -- pretty-printed using the ppPtr function, which satisfies this
+           -- criterion.
+           pstr <- BSC.pack <$> printfGetPointer ops fld'
+           let len'  = len + BS.length pstr
+           let fstr' = fstr . BS.append pstr
            go fstr' len' fld' xs
          Conversion_CountChars -> do
            printfSetInteger ops fld' (printfLengthMod d) len
