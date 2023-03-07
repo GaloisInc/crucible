@@ -180,7 +180,16 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
-         llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
+             allBCInputFiles = map snd srcBCNames ++ libcxxBitcode
+         case allBCInputFiles of
+           [bcInputFile]
+             -> -- If there is only one input .bc file, just copy it to the
+                -- output destination instead of using llvm-link to produce it.
+                -- Not only is invoking llvm-link needlessly expensive, it can
+                -- sometimes rearrange the order of declarations in the bitcode,
+                -- which makes certain test cases fragile (see #1011).
+                copyFile bcInputFile finalBCFile
+           _ -> llvmLink llvmOpts allBCInputFiles finalBCFile
          mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
   return finalBCFile
 
