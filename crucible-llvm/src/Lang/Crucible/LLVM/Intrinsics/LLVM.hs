@@ -503,6 +503,50 @@ llvmUmulWithOverflow w =
   [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callUmulWithOverflow bak memOps) args)
 
+llvmUmax ::
+  (1 <= w, IsSymInterface sym) =>
+  NatRepr w ->
+  LLVMOverride p sym
+     (EmptyCtx ::> BVType w ::> BVType w)
+     (BVType w)
+llvmUmax w =
+  let nm = L.Symbol ("llvm.umax.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm( #w, #w ) |]
+    (\memOps bak args -> Ctx.uncurryAssignment (callUmax bak memOps) args)
+
+llvmUmin ::
+  (1 <= w, IsSymInterface sym) =>
+  NatRepr w ->
+  LLVMOverride p sym
+     (EmptyCtx ::> BVType w ::> BVType w)
+     (BVType w)
+llvmUmin w =
+  let nm = L.Symbol ("llvm.umin.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm( #w, #w ) |]
+    (\memOps bak args -> Ctx.uncurryAssignment (callUmin bak memOps) args)
+
+llvmSmax ::
+  (1 <= w, IsSymInterface sym) =>
+  NatRepr w ->
+  LLVMOverride p sym
+     (EmptyCtx ::> BVType w ::> BVType w)
+     (BVType w)
+llvmSmax w =
+  let nm = L.Symbol ("llvm.smax.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm( #w, #w ) |]
+    (\memOps bak args -> Ctx.uncurryAssignment (callSmax bak memOps) args)
+
+llvmSmin ::
+  (1 <= w, IsSymInterface sym) =>
+  NatRepr w ->
+  LLVMOverride p sym
+     (EmptyCtx ::> BVType w ::> BVType w)
+     (BVType w)
+llvmSmin w =
+  let nm = L.Symbol ("llvm.smin.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm( #w, #w ) |]
+    (\memOps bak args -> Ctx.uncurryAssignment (callSmin bak memOps) args)
+
 llvmCtlz
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
@@ -1144,6 +1188,54 @@ callUmulWithOverflow bak _mvar
        (ov, z) <- mulUnsignedOF sym x y
        ov' <- predToBV sym ov (knownNat @1)
        return (Empty :> RV z :> RV ov')
+
+callUmax
+  :: (1 <= w, IsSymBackend sym bak)
+  => bak
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callUmax bak _mvar (regValue -> x) (regValue -> y) = liftIO $
+  do let sym = backendGetSym bak
+     xGtY <- bvUgt sym x y
+     bvIte sym xGtY x y
+
+callUmin
+  :: (1 <= w, IsSymBackend sym bak)
+  => bak
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callUmin bak _mvar (regValue -> x) (regValue -> y) = liftIO $
+  do let sym = backendGetSym bak
+     xLtY <- bvUlt sym x y
+     bvIte sym xLtY x y
+
+callSmax
+  :: (1 <= w, IsSymBackend sym bak)
+  => bak
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callSmax bak _mvar (regValue -> x) (regValue -> y) = liftIO $
+  do let sym = backendGetSym bak
+     xGtY <- bvSgt sym x y
+     bvIte sym xGtY x y
+
+callSmin
+  :: (1 <= w, IsSymBackend sym bak)
+  => bak
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callSmin bak _mvar (regValue -> x) (regValue -> y) = liftIO $
+  do let sym = backendGetSym bak
+     xLtY <- bvSlt sym x y
+     bvIte sym xLtY x y
 
 
 callCttz

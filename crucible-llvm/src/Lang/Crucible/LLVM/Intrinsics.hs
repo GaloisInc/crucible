@@ -232,6 +232,15 @@ declare_overrides =
   , polymorphic1_llvm_override "llvm.umul.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
 
+  , polymorphic1_llvm_override "llvm.smax"
+      (\w -> SomeLLVMOverride (LLVM.llvmSmax w))
+  , polymorphic1_llvm_override "llvm.smin"
+      (\w -> SomeLLVMOverride (LLVM.llvmSmin w))
+  , polymorphic1_llvm_override "llvm.umax"
+      (\w -> SomeLLVMOverride (LLVM.llvmUmax w))
+  , polymorphic1_llvm_override "llvm.umin"
+      (\w -> SomeLLVMOverride (LLVM.llvmUmin w))
+
   , basic_llvm_override LLVM.llvmCopysignOverride_F32
   , basic_llvm_override LLVM.llvmCopysignOverride_F64
   , basic_llvm_override LLVM.llvmFabsF32
