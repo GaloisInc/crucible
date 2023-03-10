@@ -27,54 +27,29 @@ library
                  prettyprinter >= 1.7.0,
                  text,
                  time,
-                 unordered-containers,
                  crucible,
                  crucible-concurrency,
+                 crucible-mir,
                  parameterized-utils >= 1.0.8,
                  containers,
                  lens,
-                 lumberjack >= 1.0 && < 1.1,
                  vector,
                  mtl,
-                 regex-compat,
-                 regex-base,
                  transformers,
                  filepath,
                  directory,
                  what4,
                  process,
-                 tasty            >= 0.10,
-                 tasty-hunit      >= 0.10,
-                 tasty-quickcheck >= 0.8,
-                 tasty-golden     >= 2.3,
-                 parsec,
-                 aig,
                  crux,
-                 scientific       >= 0.3,
-                 simple-get-opt < 0.5,
-                 config-schema,
-                 template-haskell
+                 simple-get-opt < 0.5
 
 
   hs-source-dirs: src
-  exposed-modules: Mir.JSON
-                   Mir.Generator
+  exposed-modules: Mir.Generate
                    Mir.Language
                    Mir.Log
-                   Mir.Mir
-                   Mir.GenericOps
-                   Mir.Pass
-                   Mir.Pass.AllocateEnum
-                   Mir.PP
-                   Mir.Generate
-                   Mir.DefId
                    Mir.Concurrency
-                   Mir.FancyMuxTree
-                   Mir.Intrinsics
                    Mir.Overrides
-                   Mir.TransTy
-                   Mir.Trans
-                   Mir.TransCustom
   other-modules: Paths_crux_mir
   autogen-modules: Paths_crux_mir
 

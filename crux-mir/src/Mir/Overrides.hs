@@ -13,77 +13,57 @@
 
 module Mir.Overrides (bindFn, getString) where
 
-import Control.Exception (throwIO)
-import Control.Lens ((^.), (^?), (%=), (.=), use, ix, _Wrapped)
+import Control.Lens ((^?), (.=), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (get)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
-import Data.BitVector.Sized (mkBV)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
-import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe, catMaybes)
-import Data.Semigroup
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
-import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import System.IO (hPutStrLn)
 
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
-import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Some
-import Data.Parameterized.TraversableF
-import Data.Parameterized.TraversableFC
 
 import What4.Config( getOpt, setOpt, getOptionSetting )
-import qualified What4.Expr.ArrayUpdateMap as AUM
 import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
-import What4.LabeledPred (LabeledPred(..))
-import What4.Partial (PartExpr, pattern PE, pattern Unassigned, justPartExpr)
-import What4.Protocol.Online
-    ( OnlineSolver, inNewFrame, solverEvalFuns , solverConn, check
-    , getUnsatCore , checkWithAssumptionsAndModel )
-import What4.Protocol.SMTWriter
-    ( mkFormula, assumeFormulaWithFreshName , assumeFormula
-    , smtExprGroundEvalFn )
+import What4.Partial (PartExpr, pattern PE, pattern Unassigned)
+import What4.Protocol.Online ( checkWithAssumptionsAndModel )
 import What4.SatResult (SatResult(..))
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( CrucibleAssumption(..), IsSymBackend, LabeledPred(..), addAssumption
-    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface
+    ( CrucibleAssumption(..), IsSymBackend, addAssumption
+    , assert, getPathCondition, addFailedAssertion, IsSymInterface
     , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym
     , throwUnsupported )
 import Lang.Crucible.Backend.Online
-import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
+import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
-import Lang.Crucible.Simulator (SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.RegMap
-import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Types
 import Lang.Crucible.Utils.MuxTree
 
 
 import Crux (SomeOnlineSolver(..))
-import Crux.Types (Vals(..), Entry(..))
 
 import Mir.DefId
 import Mir.FancyMuxTree

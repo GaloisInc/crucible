@@ -27,11 +27,8 @@ module Mir.TransTy where
 import Control.Monad
 import Control.Lens
 import Data.List (findIndices)
-import qualified Data.Maybe as Maybe
-import qualified Data.String as String
 import           Data.String (fromString)
 import qualified Data.Vector as V
-import qualified Data.Text as Text
 
 import GHC.Stack
 
@@ -39,7 +36,6 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Peano
 import Data.Parameterized.Some
 
 
@@ -54,8 +50,7 @@ import qualified Lang.Crucible.Syntax as S
 import qualified Mir.DefId as M
 import qualified Mir.Mir as M
 
-import           Mir.PP (fmt)
-import           Mir.Generator 
+import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , mirVector_fromVector
@@ -169,7 +164,7 @@ tyToRepr col t0 = case t0 of
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr
-  
+
   -- non-empty tuples are mapped to structures of "maybe" types so
   -- that they can be allocated without being initialized
   M.TyTuple ts    -> tyListToCtxMaybe col ts $ \repr -> Some (C.StructRepr repr)
@@ -267,7 +262,7 @@ canInitialize col ty = case ty of
     M.TyUint _ -> True
     -- ADTs and related data structures
     M.TyTuple _ -> True
-    M.TyAdt _ _ _ 
+    M.TyAdt _ _ _
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
       | otherwise -> True
     M.TyClosure _ -> True
@@ -434,7 +429,7 @@ tyListToCtxMaybe col ts f =  go (map (tyToRepr col) ts) Ctx.empty
 
 exp_to_assgn :: HasCallStack => [MirExp s] -> (forall ctx. C.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> a) -> a
 exp_to_assgn =
-    go Ctx.empty Ctx.empty 
+    go Ctx.empty Ctx.empty
         where go :: C.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> [MirExp s] -> (forall ctx'. C.CtxRepr ctx' -> Ctx.Assignment (R.Expr MIR s) ctx' -> a) -> a
               go ctx asgn [] k = k ctx asgn
               go ctx asgn ((MirExp tyr ex):vs) k = go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k
@@ -442,14 +437,14 @@ exp_to_assgn =
 exp_to_assgn_Maybe :: HasCallStack => M.Collection -> [M.Ty] -> [Maybe (MirExp s)]
   -> (forall ctx. C.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> a) -> a
 exp_to_assgn_Maybe col =
-    go Ctx.empty Ctx.empty 
+    go Ctx.empty Ctx.empty
         where go :: C.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> [M.Ty] -> [Maybe (MirExp s)]
                 -> (forall ctx'. C.CtxRepr ctx' -> Ctx.Assignment (R.Expr MIR s) ctx' -> a) -> a
               go ctx asgn [] [] k = k ctx asgn
               go ctx asgn (_:tys) (Just (MirExp tyr ex):vs) k =
                 go (ctx Ctx.:> C.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.JustValue tyr ex)) tys vs k
               go ctx asgn (ty:tys) (Nothing:vs) k =
-                tyToReprCont col ty $ \tyr -> 
+                tyToReprCont col ty $ \tyr ->
                    go (ctx Ctx.:> C.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.NothingValue tyr)) tys vs k
               go _ _ _ _ _ = error "BUG in crux-mir: exp_to_assgn_Maybe"
 
@@ -508,7 +503,7 @@ accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
                     (R.App $ E.StringLit "Unitialized aggregate value")
             in return $ MirExp tpr' mv
         _ -> mirFail "accessAggregateMaybe: non-maybe struct"
-      
+
 accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field (maybe) " ++ (show b)
 
 modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
@@ -519,7 +514,7 @@ modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size agctx) = do
       let tpr = agctx Ctx.! idx
       case tpr of
-         C.MaybeRepr tpr' -> 
+         C.MaybeRepr tpr' ->
             case (testEquality tpr' instr) of
                 Just Refl -> do
                     let ins' = R.App (E.JustValue tpr' ins)
@@ -603,7 +598,7 @@ adjustStructField ctx idx f e = do
 
 readJust' :: C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) -> String ->
     MirGenerator h s ret (R.Expr MIR s tp)
-readJust' tpr e msg = 
+readJust' tpr e msg =
     G.fromJustExpr e $ R.App $ E.StringLit $ fromString msg
 
 buildNothing :: C.TypeRepr tp ->

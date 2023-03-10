@@ -13,20 +13,14 @@ import qualified Data.Text as Text
 import qualified Data.Parameterized.Context            as Ctx
 
 -- crucible
-import qualified Lang.Crucible.Simulator               as C
-import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.CallFrame     as C
 import qualified Lang.Crucible.Simulator.RegMap        as C
 import qualified Lang.Crucible.CFG.Core                as C
 import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
-import qualified Lang.Crucible.Utils.MuxTree           as C
 
 -- what4
 import qualified What4.Interface                       as W4
-import qualified What4.Config                          as W4
-import qualified What4.Partial                         as W4
-import qualified What4.ProgramLoc                      as W4
 import qualified What4.FunctionName                    as W4
 
 -- crucible-concurrency
@@ -36,10 +30,9 @@ import           Mir.Intrinsics ( MIR
                                 , pattern MirReferenceRepr
                                 , MirReferenceMux(..)
                                 , MirReference(..)
-                                , MirReferenceRoot(..)
                                 , MirReferencePath(..) )
 import           Mir.FancyMuxTree (viewFancyMuxTree)
-import           Mir.DefId (normDefId, textId, getTraitName, DefId)
+import           Mir.DefId (textId, getTraitName, DefId)
 import Data.Parameterized.Context (indexVal)
 
 mirExplorePrimitives ::
