@@ -3,7 +3,7 @@ struct Foo {
     x: bool,
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> Foo {
     // As of nightly-2020-03-22, this struct expression gets constant-folded down to `Scalar(1)`.
     // There is now code in mir-json to extract the fields in a form

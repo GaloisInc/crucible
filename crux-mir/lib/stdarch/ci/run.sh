@@ -10,9 +10,18 @@ set -ex
 #export RUST_TEST_NOCAPTURE=1
 #export RUST_TEST_THREADS=1
 
-RUSTFLAGS="$RUSTFLAGS -D warnings "
+export RUSTFLAGS="${RUSTFLAGS} -D warnings -Z merge-functions=disabled "
+
+export STDARCH_DISABLE_DEDUP_GUARD=1
 
 case ${TARGET} in
+    # On Windows the linker performs identical COMDAT folding (ICF) by default
+    # in release mode which removes identical COMDAT sections. This interferes
+    # with our instruction assertions just like LLVM's MergeFunctions pass so
+    # we disable it.
+    *-pc-windows-msvc)
+        export RUSTFLAGS="${RUSTFLAGS} -Clink-args=/OPT:NOICF"
+        ;;
     # On 32-bit use a static relocation model which avoids some extra
     # instructions when dealing with static data, notably allowing some
     # instruction assertion checks to pass below the 20 instruction limit. If
@@ -28,6 +37,18 @@ case ${TARGET} in
     mips-* | mipsel-*)
 	export RUSTFLAGS="${RUSTFLAGS} -C llvm-args=-fast-isel=false"
 	;;
+    # Some of our test dependencies use the deprecated `gcc` crates which is
+    # missing a fix from https://github.com/alexcrichton/cc-rs/pull/627. Apply
+    # the workaround manually here.
+    armv7-*eabihf | thumbv7-*eabihf)
+        export RUSTFLAGS="${RUSTFLAGS} -Ctarget-feature=+neon"
+        export TARGET_CFLAGS="-mfpu=vfpv3-d16"
+        ;;
+    # Some of our test dependencies use the deprecated `gcc` crates which
+    # doesn't detect RISC-V compilers automatically, so do it manually here.
+    riscv64*)
+        export TARGET_CC="riscv64-linux-gnu-gcc"
+        ;;
 esac
 
 echo "RUSTFLAGS=${RUSTFLAGS}"
@@ -44,12 +65,27 @@ cargo_test() {
     fi
     cmd="$cmd ${subcmd} --target=$TARGET $1"
     cmd="$cmd -- $2"
+
+    # wasm targets can't catch panics so if a test failures make sure the test
+    # harness isn't trying to capture output, otherwise we won't get any useful
+    # output.
+    case ${TARGET} in
+        wasm32*)
+            cmd="$cmd --nocapture"
+            ;;
+    esac
+
+    if [ "$SKIP_TESTS" != "" ]; then
+        cmd="$cmd --skip "$SKIP_TESTS
+    fi
     $cmd
 }
 
 CORE_ARCH="--manifest-path=crates/core_arch/Cargo.toml"
 STD_DETECT="--manifest-path=crates/std_detect/Cargo.toml"
 STDARCH_EXAMPLES="--manifest-path=examples/Cargo.toml"
+INTRINSIC_TEST="--manifest-path=crates/intrinsic-test/Cargo.toml"
+
 cargo_test "${CORE_ARCH} --release"
 
 if [ "$NOSTD" != "1" ]; then
@@ -71,21 +107,6 @@ case ${TARGET} in
         export STDARCH_DISABLE_ASSERT_INSTR=1
         export RUSTFLAGS="${RUSTFLAGS} -C target-feature=+avx"
         cargo_test "--release"
-        ;;
-    wasm32-unknown-unknown*)
-        # Attempt to actually run some SIMD tests in node.js. Unfortunately
-        # though node.js (transitively through v8) doesn't have support for the
-        # full SIMD spec yet, only some functions. As a result only pass in
-        # some target features and a special `--cfg`
-        # FIXME: broken
-        #export RUSTFLAGS="${RUSTFLAGS} -C target-feature=+simd128 --cfg only_node_compatible_functions"
-        #cargo_test "--release"
-
-        # After that passes make sure that all intrinsics compile, passing in
-        # the extra feature to compile in non-node-compatible SIMD.
-        # FIXME: broken
-        #export RUSTFLAGS="${RUSTFLAGS} -C target-feature=+simd128,+unimplemented-simd128"
-        #cargo_test "--release --no-run"
         ;;
     # FIXME: don't build anymore
     #mips-*gnu* | mipsel-*gnu*)
@@ -111,7 +132,15 @@ case ${TARGET} in
 
 esac
 
-if [ "$NORUN" != "1" ] && [ "$NOSTD" != 1 ] && [ "$TARGET" != "wasm32-unknown-unknown" ]; then
+if [ "${TARGET}" = "aarch64-unknown-linux-gnu" ]; then
+    export CPPFLAGS="-fuse-ld=lld -I/usr/aarch64-linux-gnu/include/ -I/usr/aarch64-linux-gnu/include/c++/9/aarch64-linux-gnu/"
+    RUST_LOG=warn cargo run ${INTRINSIC_TEST} --release --bin intrinsic-test -- crates/intrinsic-test/acle/tools/intrinsic_db/advsimd.csv --runner "${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER}" --cppcompiler "clang++-13" --skip crates/intrinsic-test/missing_aarch64.txt
+elif [ "${TARGET}" = "armv7-unknown-linux-gnueabihf" ]; then
+    export CPPFLAGS="-fuse-ld=lld -I/usr/arm-linux-gnueabihf/include/ -I/usr/arm-linux-gnueabihf/include/c++/9/arm-linux-gnueabihf/"
+    RUST_LOG=warn cargo run ${INTRINSIC_TEST} --release --bin intrinsic-test -- crates/intrinsic-test/acle/tools/intrinsic_db/advsimd.csv --runner "${CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER}" --cppcompiler "clang++-13" --skip crates/intrinsic-test/missing_arm.txt --a32
+fi
+
+if [ "$NORUN" != "1" ] && [ "$NOSTD" != 1 ]; then
     # Test examples
     (
         cd examples

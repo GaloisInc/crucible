@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() {
     let d = ptr::NonNull::<i32>::dangling().as_ptr();
     assert!(d != ptr::null_mut());

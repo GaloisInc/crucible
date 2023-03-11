@@ -22,18 +22,18 @@ use O::*;
 impl PPE for O {
     fn peq(&self, _other:&Self) -> bool { false }
     fn pne(&self, other: &Self) -> bool { !self.peq(other) }
-} 
-    
-impl PEq for O {} 
+}
+
+impl PEq for O {}
 
 fn g<T:PEq>(y : T) -> bool {
     y.peq(&y)
 }
 
-fn f (_y : u32) -> bool { 
+fn f (_y : u32) -> bool {
     let x: O = G;
     x.peq(&x) && g(x)
-    
+
 }
 
 const ARG: u32 = 1;
@@ -42,4 +42,4 @@ const ARG: u32 = 1;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }

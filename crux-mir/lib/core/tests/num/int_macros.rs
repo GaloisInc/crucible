@@ -1,11 +1,9 @@
 macro_rules! int_module {
-    ($T:ident, $T_i:ident) => {
+    ($T:ident) => {
         #[cfg(test)]
         mod tests {
-            use core::isize;
-            use core::mem;
             use core::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
-            use core::$T_i::*;
+            use core::$T::*;
 
             use crate::num;
 
@@ -83,30 +81,27 @@ macro_rules! int_module {
 
             #[test]
             fn test_count_zeros() {
-                let bits = mem::size_of::<$T>() * 8;
-                assert_eq!(A.count_zeros(), bits as u32 - 3);
-                assert_eq!(B.count_zeros(), bits as u32 - 2);
-                assert_eq!(C.count_zeros(), bits as u32 - 5);
+                assert_eq!(A.count_zeros(), $T::BITS - 3);
+                assert_eq!(B.count_zeros(), $T::BITS - 2);
+                assert_eq!(C.count_zeros(), $T::BITS - 5);
             }
 
             #[test]
             fn test_leading_trailing_ones() {
-                let bits = (mem::size_of::<$T>() * 8) as u32;
-
                 let a: $T = 0b0101_1111;
                 assert_eq!(a.trailing_ones(), 5);
-                assert_eq!((!a).leading_ones(), bits - 7);
+                assert_eq!((!a).leading_ones(), $T::BITS - 7);
 
                 assert_eq!(a.reverse_bits().leading_ones(), 5);
 
-                assert_eq!(_1.leading_ones(), bits);
-                assert_eq!(_1.trailing_ones(), bits);
+                assert_eq!(_1.leading_ones(), $T::BITS);
+                assert_eq!(_1.trailing_ones(), $T::BITS);
 
                 assert_eq!((_1 << 1).trailing_ones(), 0);
                 assert_eq!(MAX.leading_ones(), 0);
 
-                assert_eq!((_1 << 1).leading_ones(), bits - 1);
-                assert_eq!(MAX.trailing_ones(), bits - 1);
+                assert_eq!((_1 << 1).leading_ones(), $T::BITS - 1);
+                assert_eq!(MAX.trailing_ones(), $T::BITS - 1);
 
                 assert_eq!(_0.leading_ones(), 0);
                 assert_eq!(_0.trailing_ones(), 0);
@@ -136,9 +131,9 @@ macro_rules! int_module {
                 assert_eq!(B.rotate_left(0), B);
                 assert_eq!(C.rotate_left(0), C);
                 // Rotating by a multiple of word size should also have no effect
-                assert_eq!(A.rotate_left(64), A);
-                assert_eq!(B.rotate_left(64), B);
-                assert_eq!(C.rotate_left(64), C);
+                assert_eq!(A.rotate_left(128), A);
+                assert_eq!(B.rotate_left(128), B);
+                assert_eq!(C.rotate_left(128), C);
             }
 
             #[test]
@@ -209,8 +204,8 @@ macro_rules! int_module {
 
             #[test]
             fn test_from_str() {
-                fn from_str<T: ::std::str::FromStr>(t: &str) -> Option<T> {
-                    ::std::str::FromStr::from_str(t).ok()
+                fn from_str<T: std::str::FromStr>(t: &str) -> Option<T> {
+                    std::str::FromStr::from_str(t).ok()
                 }
                 assert_eq!(from_str::<$T>("0"), Some(0 as $T));
                 assert_eq!(from_str::<$T>("3"), Some(3 as $T));
@@ -256,12 +251,118 @@ macro_rules! int_module {
             #[test]
             fn test_pow() {
                 let mut r = 2 as $T;
-
                 assert_eq!(r.pow(2), 4 as $T);
                 assert_eq!(r.pow(0), 1 as $T);
+                assert_eq!(r.wrapping_pow(2), 4 as $T);
+                assert_eq!(r.wrapping_pow(0), 1 as $T);
+                assert_eq!(r.checked_pow(2), Some(4 as $T));
+                assert_eq!(r.checked_pow(0), Some(1 as $T));
+                assert_eq!(r.overflowing_pow(2), (4 as $T, false));
+                assert_eq!(r.overflowing_pow(0), (1 as $T, false));
+                assert_eq!(r.saturating_pow(2), 4 as $T);
+                assert_eq!(r.saturating_pow(0), 1 as $T);
+
+                r = MAX;
+                // use `^` to represent .pow() with no overflow.
+                // if itest::MAX == 2^j-1, then itest is a `j` bit int,
+                // so that `itest::MAX*itest::MAX == 2^(2*j)-2^(j+1)+1`,
+                // thussaturating_pow the overflowing result is exactly 1.
+                assert_eq!(r.wrapping_pow(2), 1 as $T);
+                assert_eq!(r.checked_pow(2), None);
+                assert_eq!(r.overflowing_pow(2), (1 as $T, true));
+                assert_eq!(r.saturating_pow(2), MAX);
+                //test for negative exponent.
                 r = -2 as $T;
                 assert_eq!(r.pow(2), 4 as $T);
                 assert_eq!(r.pow(3), -8 as $T);
+                assert_eq!(r.pow(0), 1 as $T);
+                assert_eq!(r.wrapping_pow(2), 4 as $T);
+                assert_eq!(r.wrapping_pow(3), -8 as $T);
+                assert_eq!(r.wrapping_pow(0), 1 as $T);
+                assert_eq!(r.checked_pow(2), Some(4 as $T));
+                assert_eq!(r.checked_pow(3), Some(-8 as $T));
+                assert_eq!(r.checked_pow(0), Some(1 as $T));
+                assert_eq!(r.overflowing_pow(2), (4 as $T, false));
+                assert_eq!(r.overflowing_pow(3), (-8 as $T, false));
+                assert_eq!(r.overflowing_pow(0), (1 as $T, false));
+                assert_eq!(r.saturating_pow(2), 4 as $T);
+                assert_eq!(r.saturating_pow(3), -8 as $T);
+                assert_eq!(r.saturating_pow(0), 1 as $T);
+            }
+
+            #[test]
+            fn test_div_floor() {
+                let a: $T = 8;
+                let b = 3;
+                assert_eq!(a.div_floor(b), 2);
+                assert_eq!(a.div_floor(-b), -3);
+                assert_eq!((-a).div_floor(b), -3);
+                assert_eq!((-a).div_floor(-b), 2);
+            }
+
+            #[test]
+            fn test_div_ceil() {
+                let a: $T = 8;
+                let b = 3;
+                assert_eq!(a.div_ceil(b), 3);
+                assert_eq!(a.div_ceil(-b), -2);
+                assert_eq!((-a).div_ceil(b), -2);
+                assert_eq!((-a).div_ceil(-b), 3);
+            }
+
+            #[test]
+            fn test_next_multiple_of() {
+                assert_eq!((16 as $T).next_multiple_of(8), 16);
+                assert_eq!((23 as $T).next_multiple_of(8), 24);
+                assert_eq!((16 as $T).next_multiple_of(-8), 16);
+                assert_eq!((23 as $T).next_multiple_of(-8), 16);
+                assert_eq!((-16 as $T).next_multiple_of(8), -16);
+                assert_eq!((-23 as $T).next_multiple_of(8), -16);
+                assert_eq!((-16 as $T).next_multiple_of(-8), -16);
+                assert_eq!((-23 as $T).next_multiple_of(-8), -24);
+                assert_eq!(MIN.next_multiple_of(-1), MIN);
+            }
+
+            #[test]
+            fn test_checked_next_multiple_of() {
+                assert_eq!((16 as $T).checked_next_multiple_of(8), Some(16));
+                assert_eq!((23 as $T).checked_next_multiple_of(8), Some(24));
+                assert_eq!((16 as $T).checked_next_multiple_of(-8), Some(16));
+                assert_eq!((23 as $T).checked_next_multiple_of(-8), Some(16));
+                assert_eq!((-16 as $T).checked_next_multiple_of(8), Some(-16));
+                assert_eq!((-23 as $T).checked_next_multiple_of(8), Some(-16));
+                assert_eq!((-16 as $T).checked_next_multiple_of(-8), Some(-16));
+                assert_eq!((-23 as $T).checked_next_multiple_of(-8), Some(-24));
+                assert_eq!((1 as $T).checked_next_multiple_of(0), None);
+                assert_eq!(MAX.checked_next_multiple_of(2), None);
+                assert_eq!(MIN.checked_next_multiple_of(-3), None);
+                assert_eq!(MIN.checked_next_multiple_of(-1), Some(MIN));
+            }
+
+            #[test]
+            fn test_carrying_add() {
+                assert_eq!($T::MAX.carrying_add(1, false), ($T::MIN, true));
+                assert_eq!($T::MAX.carrying_add(0, true), ($T::MIN, true));
+                assert_eq!($T::MAX.carrying_add(1, true), ($T::MIN + 1, true));
+                assert_eq!($T::MAX.carrying_add(-1, false), ($T::MAX - 1, false));
+                assert_eq!($T::MAX.carrying_add(-1, true), ($T::MAX, false)); // no intermediate overflow
+                assert_eq!($T::MIN.carrying_add(-1, false), ($T::MAX, true));
+                assert_eq!($T::MIN.carrying_add(-1, true), ($T::MIN, false)); // no intermediate overflow
+                assert_eq!((0 as $T).carrying_add($T::MAX, true), ($T::MIN, true));
+                assert_eq!((0 as $T).carrying_add($T::MIN, true), ($T::MIN + 1, false));
+            }
+
+            #[test]
+            fn test_borrowing_sub() {
+                assert_eq!($T::MIN.borrowing_sub(1, false), ($T::MAX, true));
+                assert_eq!($T::MIN.borrowing_sub(0, true), ($T::MAX, true));
+                assert_eq!($T::MIN.borrowing_sub(1, true), ($T::MAX - 1, true));
+                assert_eq!($T::MIN.borrowing_sub(-1, false), ($T::MIN + 1, false));
+                assert_eq!($T::MIN.borrowing_sub(-1, true), ($T::MIN, false)); // no intermediate overflow
+                assert_eq!($T::MAX.borrowing_sub(-1, false), ($T::MIN, true));
+                assert_eq!($T::MAX.borrowing_sub(-1, true), ($T::MAX, false)); // no intermediate overflow
+                assert_eq!((0 as $T).borrowing_sub($T::MIN, false), ($T::MIN, true));
+                assert_eq!((0 as $T).borrowing_sub($T::MIN, true), ($T::MAX, false));
             }
         }
     };

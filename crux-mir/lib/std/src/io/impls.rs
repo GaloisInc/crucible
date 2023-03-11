@@ -1,7 +1,12 @@
+#[cfg(test)]
+mod tests;
+
+use crate::alloc::Allocator;
 use crate::cmp;
+use crate::collections::VecDeque;
 use crate::fmt;
 use crate::io::{
-    self, BufRead, Error, ErrorKind, Initializer, IoSlice, IoSliceMut, Read, Seek, SeekFrom, Write,
+    self, BorrowedCursor, BufRead, ErrorKind, IoSlice, IoSliceMut, Read, Seek, SeekFrom, Write,
 };
 use crate::mem;
 
@@ -16,13 +21,18 @@ impl<R: Read + ?Sized> Read for &mut R {
     }
 
     #[inline]
+    fn read_buf(&mut self, cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        (**self).read_buf(cursor)
+    }
+
+    #[inline]
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         (**self).read_vectored(bufs)
     }
 
     #[inline]
-    unsafe fn initializer(&self) -> Initializer {
-        (**self).initializer()
+    fn is_read_vectored(&self) -> bool {
+        (**self).is_read_vectored()
     }
 
     #[inline]
@@ -53,6 +63,11 @@ impl<W: Write + ?Sized> Write for &mut W {
     }
 
     #[inline]
+    fn is_write_vectored(&self) -> bool {
+        (**self).is_write_vectored()
+    }
+
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         (**self).flush()
     }
@@ -72,6 +87,11 @@ impl<S: Seek + ?Sized> Seek for &mut S {
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         (**self).seek(pos)
+    }
+
+    #[inline]
+    fn stream_position(&mut self) -> io::Result<u64> {
+        (**self).stream_position()
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -105,13 +125,18 @@ impl<R: Read + ?Sized> Read for Box<R> {
     }
 
     #[inline]
+    fn read_buf(&mut self, cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        (**self).read_buf(cursor)
+    }
+
+    #[inline]
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         (**self).read_vectored(bufs)
     }
 
     #[inline]
-    unsafe fn initializer(&self) -> Initializer {
-        (**self).initializer()
+    fn is_read_vectored(&self) -> bool {
+        (**self).is_read_vectored()
     }
 
     #[inline]
@@ -142,6 +167,11 @@ impl<W: Write + ?Sized> Write for Box<W> {
     }
 
     #[inline]
+    fn is_write_vectored(&self) -> bool {
+        (**self).is_write_vectored()
+    }
+
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         (**self).flush()
     }
@@ -161,6 +191,11 @@ impl<S: Seek + ?Sized> Seek for Box<S> {
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         (**self).seek(pos)
+    }
+
+    #[inline]
+    fn stream_position(&mut self) -> io::Result<u64> {
+        (**self).stream_position()
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -183,20 +218,6 @@ impl<B: BufRead + ?Sized> BufRead for Box<B> {
     #[inline]
     fn read_line(&mut self, buf: &mut String) -> io::Result<usize> {
         (**self).read_line(buf)
-    }
-}
-
-// Used by panicking::default_hook
-#[cfg(test)]
-/// This impl is only used by printing logic, so any error returned is always
-/// of kind `Other`, and should be ignored.
-impl Write for Box<dyn (::realstd::io::Write) + Send> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        (**self).write(buf).map_err(|_| ErrorKind::Other.into())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        (**self).flush().map_err(|_| ErrorKind::Other.into())
     }
 }
 
@@ -228,6 +249,17 @@ impl Read for &[u8] {
     }
 
     #[inline]
+    fn read_buf(&mut self, mut cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        let amt = cmp::min(cursor.capacity(), self.len());
+        let (a, b) = self.split_at(amt);
+
+        cursor.append(a);
+
+        *self = b;
+        Ok(())
+    }
+
+    #[inline]
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         let mut nread = 0;
         for buf in bufs {
@@ -241,14 +273,17 @@ impl Read for &[u8] {
     }
 
     #[inline]
-    unsafe fn initializer(&self) -> Initializer {
-        Initializer::nop()
+    fn is_read_vectored(&self) -> bool {
+        true
     }
 
     #[inline]
     fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
         if buf.len() > self.len() {
-            return Err(Error::new(ErrorKind::UnexpectedEof, "failed to fill whole buffer"));
+            return Err(io::const_io_error!(
+                ErrorKind::UnexpectedEof,
+                "failed to fill whole buffer"
+            ));
         }
         let (a, b) = self.split_at(buf.len());
 
@@ -292,6 +327,10 @@ impl BufRead for &[u8] {
 ///
 /// Note that writing updates the slice to point to the yet unwritten part.
 /// The slice will be empty when it has been completely overwritten.
+///
+/// If the number of bytes to be written exceeds the size of the slice, write operations will
+/// return short writes: ultimately, `Ok(0)`; in this situation, `write_all` returns an error of
+/// kind `ErrorKind::WriteZero`.
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Write for &mut [u8] {
     #[inline]
@@ -317,11 +356,16 @@ impl Write for &mut [u8] {
     }
 
     #[inline]
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    #[inline]
     fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         if self.write(data)? == data.len() {
             Ok(())
         } else {
-            Err(Error::new(ErrorKind::WriteZero, "failed to write whole buffer"))
+            Err(io::const_io_error!(ErrorKind::WriteZero, "failed to write whole buffer"))
         }
     }
 
@@ -334,7 +378,7 @@ impl Write for &mut [u8] {
 /// Write is implemented for `Vec<u8>` by appending to the vector.
 /// The vector will grow as needed.
 #[stable(feature = "rust1", since = "1.0.0")]
-impl Write for Vec<u8> {
+impl<A: Allocator> Write for Vec<u8, A> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.extend_from_slice(buf);
@@ -352,6 +396,11 @@ impl Write for Vec<u8> {
     }
 
     #[inline]
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    #[inline]
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
         self.extend_from_slice(buf);
         Ok(())
@@ -363,63 +412,47 @@ impl Write for Vec<u8> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::io::prelude::*;
-
-    #[bench]
-    fn bench_read_slice(b: &mut test::Bencher) {
-        let buf = [5; 1024];
-        let mut dst = [0; 128];
-
-        b.iter(|| {
-            let mut rd = &buf[..];
-            for _ in 0..8 {
-                let _ = rd.read(&mut dst);
-                test::black_box(&dst);
-            }
-        })
+/// Read is implemented for `VecDeque<u8>` by consuming bytes from the front of the `VecDeque`.
+#[stable(feature = "vecdeque_read_write", since = "1.63.0")]
+impl<A: Allocator> Read for VecDeque<u8, A> {
+    /// Fill `buf` with the contents of the "front" slice as returned by
+    /// [`as_slices`][`VecDeque::as_slices`]. If the contained byte slices of the `VecDeque` are
+    /// discontiguous, multiple calls to `read` will be needed to read the entire content.
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let (ref mut front, _) = self.as_slices();
+        let n = Read::read(front, buf)?;
+        self.drain(..n);
+        Ok(n)
     }
 
-    #[bench]
-    fn bench_write_slice(b: &mut test::Bencher) {
-        let mut buf = [0; 1024];
-        let src = [5; 128];
+    #[inline]
+    fn read_buf(&mut self, cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        let (ref mut front, _) = self.as_slices();
+        let n = cmp::min(cursor.capacity(), front.len());
+        Read::read_buf(front, cursor)?;
+        self.drain(..n);
+        Ok(())
+    }
+}
 
-        b.iter(|| {
-            let mut wr = &mut buf[..];
-            for _ in 0..8 {
-                let _ = wr.write_all(&src);
-                test::black_box(&wr);
-            }
-        })
+/// Write is implemented for `VecDeque<u8>` by appending to the `VecDeque`, growing it as needed.
+#[stable(feature = "vecdeque_read_write", since = "1.63.0")]
+impl<A: Allocator> Write for VecDeque<u8, A> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.extend(buf);
+        Ok(buf.len())
     }
 
-    #[bench]
-    fn bench_read_vec(b: &mut test::Bencher) {
-        let buf = vec![5; 1024];
-        let mut dst = [0; 128];
-
-        b.iter(|| {
-            let mut rd = &buf[..];
-            for _ in 0..8 {
-                let _ = rd.read(&mut dst);
-                test::black_box(&dst);
-            }
-        })
+    #[inline]
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.extend(buf);
+        Ok(())
     }
 
-    #[bench]
-    fn bench_write_vec(b: &mut test::Bencher) {
-        let mut buf = Vec::with_capacity(1024);
-        let src = [5; 128];
-
-        b.iter(|| {
-            let mut wr = &mut buf[..];
-            for _ in 0..8 {
-                let _ = wr.write_all(&src);
-                test::black_box(&wr);
-            }
-        })
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }

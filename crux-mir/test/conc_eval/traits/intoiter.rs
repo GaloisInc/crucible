@@ -1,7 +1,7 @@
 #![cfg_attr(not(with_main), no_std)]
 
 // Test Associated Type translation when type parameters have predicates mentioning other parameters.
-// 
+//
 pub enum Opt<T> {
     /// No value
     N,
@@ -18,7 +18,7 @@ pub trait A {
 
 pub trait B {
     type K : A <I=Self::J>;
-    type J ;    
+    type J ;
     fn into_i(self) -> Self::K;
 }
 
@@ -39,7 +39,7 @@ impl B for [u8; 3] {
 
 
 
-fn f (_y : u32) -> i32 { 
+fn f (_y : u32) -> i32 {
     let x : [u8;3] = [1,2,3];
     let mut i = x.into_i();
     i.n();
@@ -53,4 +53,4 @@ const ARG: u32 = 1;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> i32 { f(ARG) }

@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(unused))] // RT initialization logic is not compiled for test
 
 use crate::io::Write;
+use core::arch::global_asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 // runtime features
@@ -15,7 +16,10 @@ pub mod tls;
 pub mod usercalls;
 
 #[cfg(not(test))]
-global_asm!(include_str!("entry.S"));
+global_asm!(include_str!("entry.S"), options(att_syntax));
+
+#[repr(C)]
+struct EntryReturn(u64, u64);
 
 #[cfg(not(test))]
 #[no_mangle]
@@ -33,20 +37,20 @@ unsafe extern "C" fn tcs_init(secondary: bool) {
     }
 
     // Try to atomically swap UNINIT with BUSY. The returned state can be:
-    match RELOC_STATE.compare_and_swap(UNINIT, BUSY, Ordering::Acquire) {
+    match RELOC_STATE.compare_exchange(UNINIT, BUSY, Ordering::Acquire, Ordering::Acquire) {
         // This thread just obtained the lock and other threads will observe BUSY
-        UNINIT => {
+        Ok(_) => {
             reloc::relocate_elf_rela();
             RELOC_STATE.store(DONE, Ordering::Release);
         }
         // We need to wait until the initialization is done.
-        BUSY => {
+        Err(BUSY) => {
             while RELOC_STATE.load(Ordering::Acquire) == BUSY {
-                core::arch::x86_64::_mm_pause()
+                core::hint::spin_loop();
             }
         }
         // Initialization is done.
-        DONE => {}
+        Err(DONE) => {}
         _ => unreachable!(),
     }
 }
@@ -56,15 +60,17 @@ unsafe extern "C" fn tcs_init(secondary: bool) {
 // able to specify this
 #[cfg(not(test))]
 #[no_mangle]
-extern "C" fn entry(p1: u64, p2: u64, p3: u64, secondary: bool, p4: u64, p5: u64) -> (u64, u64) {
+extern "C" fn entry(p1: u64, p2: u64, p3: u64, secondary: bool, p4: u64, p5: u64) -> EntryReturn {
     // FIXME: how to support TLS in library mode?
     let tls = Box::new(tls::Tls::new());
-    let _tls_guard = unsafe { tls.activate() };
+    let tls_guard = unsafe { tls.activate() };
 
     if secondary {
-        super::thread::Thread::entry();
+        let join_notifier = super::thread::Thread::entry();
+        drop(tls_guard);
+        drop(join_notifier);
 
-        (0, 0)
+        EntryReturn(0, 0)
     } else {
         extern "C" {
             fn main(argc: isize, argv: *const *const u8) -> isize;
@@ -89,7 +95,7 @@ extern "C" fn entry(p1: u64, p2: u64, p3: u64, secondary: bool, p4: u64, p5: u64
 pub(super) fn exit_with_code(code: isize) -> ! {
     if code != 0 {
         if let Some(mut out) = panic::SgxPanicOutput::new() {
-            let _ = write!(out, "Exited with status code {}", code);
+            let _ = write!(out, "Exited with status code {code}");
         }
     }
     usercalls::exit(code != 0);

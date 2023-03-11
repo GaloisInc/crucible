@@ -6,7 +6,7 @@ use std::mem;
 struct S((), [i32; 2], ());
 
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let x = [3_i32; 2];
     // Construct repr(transparent) struct

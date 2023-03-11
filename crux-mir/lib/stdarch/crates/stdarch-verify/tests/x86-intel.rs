@@ -32,28 +32,38 @@ struct Function {
 
 static F32: Type = Type::PrimFloat(32);
 static F64: Type = Type::PrimFloat(64);
+static I8: Type = Type::PrimSigned(8);
 static I16: Type = Type::PrimSigned(16);
 static I32: Type = Type::PrimSigned(32);
 static I64: Type = Type::PrimSigned(64);
-static I8: Type = Type::PrimSigned(8);
+static U8: Type = Type::PrimUnsigned(8);
 static U16: Type = Type::PrimUnsigned(16);
 static U32: Type = Type::PrimUnsigned(32);
 static U64: Type = Type::PrimUnsigned(64);
 static U128: Type = Type::PrimUnsigned(128);
-static U8: Type = Type::PrimUnsigned(8);
 static ORDERING: Type = Type::Ordering;
 
 static M64: Type = Type::M64;
 static M128: Type = Type::M128;
+static M128BH: Type = Type::M128BH;
 static M128I: Type = Type::M128I;
 static M128D: Type = Type::M128D;
 static M256: Type = Type::M256;
+static M256BH: Type = Type::M256BH;
 static M256I: Type = Type::M256I;
 static M256D: Type = Type::M256D;
 static M512: Type = Type::M512;
+static M512BH: Type = Type::M512BH;
 static M512I: Type = Type::M512I;
 static M512D: Type = Type::M512D;
+static MMASK8: Type = Type::MMASK8;
 static MMASK16: Type = Type::MMASK16;
+static MMASK32: Type = Type::MMASK32;
+static MMASK64: Type = Type::MMASK64;
+static MM_CMPINT_ENUM: Type = Type::MM_CMPINT_ENUM;
+static MM_MANTISSA_NORM_ENUM: Type = Type::MM_MANTISSA_NORM_ENUM;
+static MM_MANTISSA_SIGN_ENUM: Type = Type::MM_MANTISSA_SIGN_ENUM;
+static MM_PERM_ENUM: Type = Type::MM_PERM_ENUM;
 
 static TUPLE: Type = Type::Tuple;
 static CPUID: Type = Type::CpuidResult;
@@ -68,15 +78,25 @@ enum Type {
     ConstPtr(&'static Type),
     M64,
     M128,
+    M128BH,
     M128D,
     M128I,
     M256,
+    M256BH,
     M256D,
     M256I,
     M512,
+    M512BH,
     M512D,
     M512I,
+    MMASK8,
     MMASK16,
+    MMASK32,
+    MMASK64,
+    MM_CMPINT_ENUM,
+    MM_MANTISSA_NORM_ENUM,
+    MM_MANTISSA_SIGN_ENUM,
+    MM_PERM_ENUM,
     Tuple,
     CpuidResult,
     Never,
@@ -93,7 +113,8 @@ struct Data {
 
 #[derive(Deserialize)]
 struct Intrinsic {
-    rettype: String,
+    #[serde(rename = "return")]
+    return_: Return,
     name: String,
     #[serde(rename = "CPUID", default)]
     cpuid: Vec<String>,
@@ -105,6 +126,14 @@ struct Intrinsic {
 
 #[derive(Deserialize)]
 struct Parameter {
+    #[serde(rename = "type")]
+    type_: String,
+    #[serde(default)]
+    etype: String,
+}
+
+#[derive(Deserialize)]
+struct Return {
     #[serde(rename = "type")]
     type_: String,
 }
@@ -209,9 +238,6 @@ fn verify_all_signatures() {
                 "_mm256_undefined_si256",
                 "_bextr2_u32",
                 "_mm_tzcnt_32",
-                "_mm512_setzero_si512",
-                "_mm512_setr_epi32",
-                "_mm512_set1_epi64",
                 "_m_paddb",
                 "_m_paddw",
                 "_m_paddd",
@@ -274,6 +300,10 @@ fn verify_all_signatures() {
                 "_mm_tzcnt_64",
                 "_fxsave64",
                 "_fxrstor64",
+                "_mm512_undefined_ps",
+                "_mm512_undefined_pd",
+                "_mm512_undefined_epi32",
+                "_mm512_undefined",
             ];
             if !skip.contains(&rust.name) {
                 println!(
@@ -451,17 +481,36 @@ fn matches(rust: &Function, intel: &Intrinsic) -> Result<(), String> {
             // The XML file names IFMA as "avx512ifma52", while Rust calls
             // it "avx512ifma".
             "avx512ifma52" => String::from("avx512ifma"),
+            // The XML file names BITALG as "avx512_bitalg", while Rust calls
+            // it "avx512bitalg".
+            "avx512_bitalg" => String::from("avx512bitalg"),
+            // The XML file names VBMI as "avx512_vbmi", while Rust calls
+            // it "avx512vbmi".
+            "avx512_vbmi" => String::from("avx512vbmi"),
+            // The XML file names VBMI2 as "avx512_vbmi2", while Rust calls
+            // it "avx512vbmi2".
+            "avx512_vbmi2" => String::from("avx512vbmi2"),
+            // The XML file names VNNI as "avx512_vnni", while Rust calls
+            // it "avx512vnni".
+            "avx512_vnni" => String::from("avx512vnni"),
+            // Some AVX512f intrinsics are also supported by Knight's Corner.
+            // The XML lists them as avx512f/kncni, but we are solely gating
+            // them behind avx512f since we don't have a KNC feature yet.
+            "avx512f/kncni" => String::from("avx512f"),
             // See: https://github.com/rust-lang/stdarch/issues/738
             // The intrinsics guide calls `f16c` `fp16c` in disagreement with
             // Intel's architecture manuals.
             "fp16c" => String::from("f16c"),
+            "avx512_bf16" => String::from("avx512bf16"),
+            // The XML file names VNNI as "avx512_bf16", while Rust calls
+            // it "avx512bf16".
             _ => cpuid,
         };
         let fixed_cpuid = fixup_cpuid(cpuid);
 
         let rust_feature = rust
             .target_feature
-            .expect(&format!("no target feature listed for {}", rust.name));
+            .unwrap_or_else(|| panic!("no target feature listed for {}", rust.name));
 
         if rust_feature.contains(&fixed_cpuid) {
             continue;
@@ -501,12 +550,12 @@ fn matches(rust: &Function, intel: &Intrinsic) -> Result<(), String> {
 
     // Make sure we've got the right return type.
     if let Some(t) = rust.ret {
-        equate(t, &intel.rettype, rust.name, false)?;
-    } else if intel.rettype != "" && intel.rettype != "void" {
+        equate(t, &intel.return_.type_, "", rust.name, false)?;
+    } else if intel.return_.type_ != "" && intel.return_.type_ != "void" {
         bail!(
             "{} returns `{}` with intel, void in rust",
             rust.name,
-            intel.rettype
+            intel.return_.type_
         )
     }
 
@@ -523,7 +572,7 @@ fn matches(rust: &Function, intel: &Intrinsic) -> Result<(), String> {
         }
         for (i, (a, b)) in intel.parameters.iter().zip(rust.arguments).enumerate() {
             let is_const = rust.required_const.contains(&i);
-            equate(b, &a.type_, &intel.name, is_const)?;
+            equate(b, &a.type_, &a.etype, &intel.name, is_const)?;
         }
     }
 
@@ -532,10 +581,7 @@ fn matches(rust: &Function, intel: &Intrinsic) -> Result<(), String> {
         .iter()
         .cloned()
         .chain(rust.ret)
-        .any(|arg| match *arg {
-            Type::PrimSigned(64) | Type::PrimUnsigned(64) => true,
-            _ => false,
-        });
+        .any(|arg| matches!(*arg, Type::PrimSigned(64) | Type::PrimUnsigned(64)));
     let any_i64_exempt = match rust.name {
         // These intrinsics have all been manually verified against Clang's
         // headers to be available on x86, and the u64 arguments seem
@@ -545,8 +591,68 @@ fn matches(rust: &Function, intel: &Intrinsic) -> Result<(), String> {
 
         // Apparently all of clang/msvc/gcc accept these intrinsics on
         // 32-bit, so let's do the same
-        "_mm_set_epi64x" | "_mm_set1_epi64x" | "_mm256_set_epi64x" | "_mm256_setr_epi64x"
-        | "_mm256_set1_epi64x" | "_mm512_set1_epi64" => true,
+        "_mm_set_epi64x"
+        | "_mm_set1_epi64x"
+        | "_mm256_set_epi64x"
+        | "_mm256_setr_epi64x"
+        | "_mm256_set1_epi64x"
+        | "_mm512_set1_epi64"
+        | "_mm256_mask_set1_epi64"
+        | "_mm256_maskz_set1_epi64"
+        | "_mm_mask_set1_epi64"
+        | "_mm_maskz_set1_epi64"
+        | "_mm512_set4_epi64"
+        | "_mm512_setr4_epi64"
+        | "_mm512_set_epi64"
+        | "_mm512_setr_epi64"
+        | "_mm512_reduce_add_epi64"
+        | "_mm512_mask_reduce_add_epi64"
+        | "_mm512_reduce_mul_epi64"
+        | "_mm512_mask_reduce_mul_epi64"
+        | "_mm512_reduce_max_epi64"
+        | "_mm512_mask_reduce_max_epi64"
+        | "_mm512_reduce_max_epu64"
+        | "_mm512_mask_reduce_max_epu64"
+        | "_mm512_reduce_min_epi64"
+        | "_mm512_mask_reduce_min_epi64"
+        | "_mm512_reduce_min_epu64"
+        | "_mm512_mask_reduce_min_epu64"
+        | "_mm512_reduce_and_epi64"
+        | "_mm512_mask_reduce_and_epi64"
+        | "_mm512_reduce_or_epi64"
+        | "_mm512_mask_reduce_or_epi64"
+        | "_mm512_mask_set1_epi64"
+        | "_mm512_maskz_set1_epi64"
+        | "_mm_cvt_roundss_si64"
+        | "_mm_cvt_roundss_i64"
+        | "_mm_cvt_roundss_u64"
+        | "_mm_cvtss_i64"
+        | "_mm_cvtss_u64"
+        | "_mm_cvt_roundsd_si64"
+        | "_mm_cvt_roundsd_i64"
+        | "_mm_cvt_roundsd_u64"
+        | "_mm_cvtsd_i64"
+        | "_mm_cvtsd_u64"
+        | "_mm_cvt_roundi64_ss"
+        | "_mm_cvt_roundi64_sd"
+        | "_mm_cvt_roundsi64_ss"
+        | "_mm_cvt_roundsi64_sd"
+        | "_mm_cvt_roundu64_ss"
+        | "_mm_cvt_roundu64_sd"
+        | "_mm_cvti64_ss"
+        | "_mm_cvti64_sd"
+        | "_mm_cvtt_roundss_si64"
+        | "_mm_cvtt_roundss_i64"
+        | "_mm_cvtt_roundss_u64"
+        | "_mm_cvttss_i64"
+        | "_mm_cvttss_u64"
+        | "_mm_cvtt_roundsd_si64"
+        | "_mm_cvtt_roundsd_i64"
+        | "_mm_cvtt_roundsd_u64"
+        | "_mm_cvttsd_i64"
+        | "_mm_cvttsd_u64"
+        | "_mm_cvtu64_ss"
+        | "_mm_cvtu64_sd" => true,
 
         // These return a 64-bit argument but they're assembled from other
         // 32-bit registers, so these work on 32-bit just fine. See #308 for
@@ -565,7 +671,13 @@ fn matches(rust: &Function, intel: &Intrinsic) -> Result<(), String> {
     Ok(())
 }
 
-fn equate(t: &Type, intel: &str, intrinsic: &str, is_const: bool) -> Result<(), String> {
+fn equate(
+    t: &Type,
+    intel: &str,
+    etype: &str,
+    intrinsic: &str,
+    is_const: bool,
+) -> Result<(), String> {
     // Make pointer adjacent to the type: float * foo => float* foo
     let mut intel = intel.replace(" *", "*");
     // Make mutability modifier adjacent to the pointer:
@@ -573,23 +685,30 @@ fn equate(t: &Type, intel: &str, intrinsic: &str, is_const: bool) -> Result<(), 
     intel = intel.replace("const *", "const*");
     // Normalize mutability modifier to after the type:
     // const float* foo => float const*
-    if intel.starts_with("const") && intel.ends_with("*") {
+    if intel.starts_with("const") && intel.ends_with('*') {
         intel = intel.replace("const ", "");
         intel = intel.replace("*", " const*");
     }
-    let require_const = || {
-        if is_const {
-            return Ok(());
+    if etype == "IMM" {
+        // The _bittest intrinsics claim to only accept immediates but actually
+        // accept run-time values as well.
+        if !is_const && !intrinsic.starts_with("_bittest") {
+            return bail!("argument required to be const but isn't");
         }
-        Err(format!("argument required to be const but isn't"))
-    };
+    } else {
+        // const int must be an IMM
+        assert_ne!(intel, "const int");
+        if is_const {
+            return bail!("argument is const but shouldn't be");
+        }
+    }
     match (t, &intel[..]) {
         (&Type::PrimFloat(32), "float") => {}
         (&Type::PrimFloat(64), "double") => {}
         (&Type::PrimSigned(16), "__int16") => {}
         (&Type::PrimSigned(16), "short") => {}
         (&Type::PrimSigned(32), "__int32") => {}
-        (&Type::PrimSigned(32), "const int") => require_const()?,
+        (&Type::PrimSigned(32), "const int") => {}
         (&Type::PrimSigned(32), "int") => {}
         (&Type::PrimSigned(64), "__int64") => {}
         (&Type::PrimSigned(64), "long long") => {}
@@ -602,58 +721,91 @@ fn equate(t: &Type, intel: &str, intrinsic: &str, is_const: bool) -> Result<(), 
         (&Type::PrimUnsigned(8), "unsigned char") => {}
         (&Type::M64, "__m64") => {}
         (&Type::M128, "__m128") => {}
+        (&Type::M128BH, "__m128bh") => {}
         (&Type::M128I, "__m128i") => {}
         (&Type::M128D, "__m128d") => {}
         (&Type::M256, "__m256") => {}
+        (&Type::M256BH, "__m256bh") => {}
         (&Type::M256I, "__m256i") => {}
         (&Type::M256D, "__m256d") => {}
         (&Type::M512, "__m512") => {}
+        (&Type::M512BH, "__m512bh") => {}
         (&Type::M512I, "__m512i") => {}
         (&Type::M512D, "__m512d") => {}
+        (&Type::MMASK64, "__mmask64") => {}
+        (&Type::MMASK32, "__mmask32") => {}
+        (&Type::MMASK16, "__mmask16") => {}
+        (&Type::MMASK8, "__mmask8") => {}
 
         (&Type::MutPtr(&Type::PrimFloat(32)), "float*") => {}
         (&Type::MutPtr(&Type::PrimFloat(64)), "double*") => {}
+        (&Type::MutPtr(&Type::PrimFloat(32)), "void*") => {}
+        (&Type::MutPtr(&Type::PrimFloat(64)), "void*") => {}
+        (&Type::MutPtr(&Type::PrimSigned(32)), "void*") => {}
+        (&Type::MutPtr(&Type::PrimSigned(16)), "void*") => {}
+        (&Type::MutPtr(&Type::PrimSigned(8)), "void*") => {}
         (&Type::MutPtr(&Type::PrimSigned(32)), "int*") => {}
         (&Type::MutPtr(&Type::PrimSigned(32)), "__int32*") => {}
+        (&Type::MutPtr(&Type::PrimSigned(64)), "void*") => {}
         (&Type::MutPtr(&Type::PrimSigned(64)), "__int64*") => {}
         (&Type::MutPtr(&Type::PrimSigned(8)), "char*") => {}
         (&Type::MutPtr(&Type::PrimUnsigned(16)), "unsigned short*") => {}
         (&Type::MutPtr(&Type::PrimUnsigned(32)), "unsigned int*") => {}
         (&Type::MutPtr(&Type::PrimUnsigned(64)), "unsigned __int64*") => {}
         (&Type::MutPtr(&Type::PrimUnsigned(8)), "void*") => {}
+        (&Type::MutPtr(&Type::PrimUnsigned(32)), "__mmask32*") => {}
+        (&Type::MutPtr(&Type::PrimUnsigned(64)), "__mmask64*") => {}
         (&Type::MutPtr(&Type::M64), "__m64*") => {}
         (&Type::MutPtr(&Type::M128), "__m128*") => {}
+        (&Type::MutPtr(&Type::M128BH), "__m128bh*") => {}
         (&Type::MutPtr(&Type::M128I), "__m128i*") => {}
         (&Type::MutPtr(&Type::M128D), "__m128d*") => {}
         (&Type::MutPtr(&Type::M256), "__m256*") => {}
+        (&Type::MutPtr(&Type::M256BH), "__m256bh*") => {}
         (&Type::MutPtr(&Type::M256I), "__m256i*") => {}
         (&Type::MutPtr(&Type::M256D), "__m256d*") => {}
         (&Type::MutPtr(&Type::M512), "__m512*") => {}
+        (&Type::MutPtr(&Type::M512BH), "__m512bh*") => {}
         (&Type::MutPtr(&Type::M512I), "__m512i*") => {}
         (&Type::MutPtr(&Type::M512D), "__m512d*") => {}
 
         (&Type::ConstPtr(&Type::PrimFloat(32)), "float const*") => {}
         (&Type::ConstPtr(&Type::PrimFloat(64)), "double const*") => {}
+        (&Type::ConstPtr(&Type::PrimFloat(32)), "void const*") => {}
+        (&Type::ConstPtr(&Type::PrimFloat(64)), "void const*") => {}
         (&Type::ConstPtr(&Type::PrimSigned(32)), "int const*") => {}
         (&Type::ConstPtr(&Type::PrimSigned(32)), "__int32 const*") => {}
+        (&Type::ConstPtr(&Type::PrimSigned(8)), "void const*") => {}
+        (&Type::ConstPtr(&Type::PrimSigned(16)), "void const*") => {}
+        (&Type::ConstPtr(&Type::PrimSigned(32)), "void const*") => {}
+        (&Type::ConstPtr(&Type::PrimSigned(64)), "void const*") => {}
         (&Type::ConstPtr(&Type::PrimSigned(64)), "__int64 const*") => {}
         (&Type::ConstPtr(&Type::PrimSigned(8)), "char const*") => {}
         (&Type::ConstPtr(&Type::PrimUnsigned(16)), "unsigned short const*") => {}
         (&Type::ConstPtr(&Type::PrimUnsigned(32)), "unsigned int const*") => {}
         (&Type::ConstPtr(&Type::PrimUnsigned(64)), "unsigned __int64 const*") => {}
         (&Type::ConstPtr(&Type::PrimUnsigned(8)), "void const*") => {}
+        (&Type::ConstPtr(&Type::PrimUnsigned(32)), "void const*") => {}
         (&Type::ConstPtr(&Type::M64), "__m64 const*") => {}
         (&Type::ConstPtr(&Type::M128), "__m128 const*") => {}
+        (&Type::ConstPtr(&Type::M128BH), "__m128bh const*") => {}
         (&Type::ConstPtr(&Type::M128I), "__m128i const*") => {}
         (&Type::ConstPtr(&Type::M128D), "__m128d const*") => {}
         (&Type::ConstPtr(&Type::M256), "__m256 const*") => {}
+        (&Type::ConstPtr(&Type::M256BH), "__m256bh const*") => {}
         (&Type::ConstPtr(&Type::M256I), "__m256i const*") => {}
         (&Type::ConstPtr(&Type::M256D), "__m256d const*") => {}
         (&Type::ConstPtr(&Type::M512), "__m512 const*") => {}
+        (&Type::ConstPtr(&Type::M512BH), "__m512bh const*") => {}
         (&Type::ConstPtr(&Type::M512I), "__m512i const*") => {}
         (&Type::ConstPtr(&Type::M512D), "__m512d const*") => {}
+        (&Type::ConstPtr(&Type::PrimUnsigned(32)), "__mmask32*") => {}
+        (&Type::ConstPtr(&Type::PrimUnsigned(64)), "__mmask64*") => {}
 
-        (&Type::MMASK16, "__mmask16") => {}
+        (&Type::MM_CMPINT_ENUM, "_MM_CMPINT_ENUM") => {}
+        (&Type::MM_MANTISSA_NORM_ENUM, "_MM_MANTISSA_NORM_ENUM") => {}
+        (&Type::MM_MANTISSA_SIGN_ENUM, "_MM_MANTISSA_SIGN_ENUM") => {}
+        (&Type::MM_PERM_ENUM, "_MM_PERM_ENUM") => {}
 
         // This is a macro (?) in C which seems to mutate its arguments, but
         // that means that we're taking pointers to arguments in rust

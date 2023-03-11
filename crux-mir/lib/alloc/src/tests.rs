@@ -3,8 +3,6 @@
 use core::any::Any;
 use core::clone::Clone;
 use core::convert::TryInto;
-use core::f64;
-use core::i64;
 use core::ops::Deref;
 use core::result::Result::{Err, Ok};
 
@@ -49,19 +47,19 @@ fn any_move() {
 fn test_show() {
     let a = Box::new(8) as Box<dyn Any>;
     let b = Box::new(Test) as Box<dyn Any>;
-    let a_str = format!("{:?}", a);
-    let b_str = format!("{:?}", b);
-    assert_eq!(a_str, "Any");
-    assert_eq!(b_str, "Any");
+    let a_str = format!("{a:?}");
+    let b_str = format!("{b:?}");
+    assert_eq!(a_str, "Any { .. }");
+    assert_eq!(b_str, "Any { .. }");
 
     static EIGHT: usize = 8;
     static TEST: Test = Test;
     let a = &EIGHT as &dyn Any;
     let b = &TEST as &dyn Any;
-    let s = format!("{:?}", a);
-    assert_eq!(s, "Any");
-    let s = format!("{:?}", b);
-    assert_eq!(s, "Any");
+    let s = format!("{a:?}");
+    assert_eq!(s, "Any { .. }");
+    let s = format!("{b:?}");
+    assert_eq!(s, "Any { .. }");
 }
 
 #[test]

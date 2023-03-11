@@ -1,5 +1,4 @@
-extern crate proc_macro;
-extern crate proc_macro2;
+#![deny(rust_2018_idioms)]
 #[macro_use]
 extern crate quote;
 #[macro_use]
@@ -16,7 +15,14 @@ pub fn x86_functions(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn arm_functions(input: TokenStream) -> TokenStream {
-    functions(input, &["core_arch/src/arm", "core_arch/src/aarch64"])
+    functions(
+        input,
+        &[
+            "core_arch/src/arm",
+            "core_arch/src/aarch64",
+            "core_arch/src/arm_shared/neon",
+        ],
+    )
 }
 
 #[proc_macro]
@@ -81,12 +87,20 @@ fn functions(input: TokenStream, dirs: &[&str]) -> TokenStream {
             let name = &f.sig.ident;
             // println!("{}", name);
             let mut arguments = Vec::new();
+            let mut const_arguments = Vec::new();
             for input in f.sig.inputs.iter() {
                 let ty = match *input {
                     syn::FnArg::Typed(ref c) => &c.ty,
                     _ => panic!("invalid argument on {}", name),
                 };
                 arguments.push(to_type(ty));
+            }
+            for generic in f.sig.generics.params.iter() {
+                let ty = match *generic {
+                    syn::GenericParam::Const(ref c) => &c.ty,
+                    _ => panic!("invalid generic argument on {}", name),
+                };
+                const_arguments.push(to_type(ty));
             }
             let ret = match f.sig.output {
                 syn::ReturnType::Default => quote! { None },
@@ -101,7 +115,32 @@ fn functions(input: TokenStream, dirs: &[&str]) -> TokenStream {
             } else {
                 quote! { None }
             };
-            let required_const = find_required_const(&f.attrs);
+
+            let required_const = find_required_const("rustc_args_required_const", &f.attrs);
+            let mut legacy_const_generics =
+                find_required_const("rustc_legacy_const_generics", &f.attrs);
+            if !required_const.is_empty() && !legacy_const_generics.is_empty() {
+                panic!(
+                    "Can't have both #[rustc_args_required_const] and \
+                     #[rustc_legacy_const_generics]"
+                );
+            }
+
+            // The list of required consts, used to verify the arguments, comes from either the
+            // `rustc_args_required_const` or the `rustc_legacy_const_generics` attribute.
+            let required_const = if required_const.is_empty() {
+                legacy_const_generics.clone()
+            } else {
+                required_const
+            };
+
+            legacy_const_generics.sort();
+            for (idx, ty) in legacy_const_generics
+                .into_iter()
+                .zip(const_arguments.into_iter())
+            {
+                arguments.insert(idx, ty);
+            }
 
             // strip leading underscore from fn name when building a test
             // _mm_foo -> mm_foo such that the test name is test_mm_foo.
@@ -137,15 +176,25 @@ fn to_type(t: &syn::Type) -> proc_macro2::TokenStream {
         syn::Type::Path(ref p) => match extract_path_ident(&p.path).to_string().as_ref() {
             // x86 ...
             "__m128" => quote! { &M128 },
+            "__m128bh" => quote! { &M128BH },
             "__m128d" => quote! { &M128D },
             "__m128i" => quote! { &M128I },
             "__m256" => quote! { &M256 },
+            "__m256bh" => quote! { &M256BH },
             "__m256d" => quote! { &M256D },
             "__m256i" => quote! { &M256I },
             "__m512" => quote! { &M512 },
+            "__m512bh" => quote! { &M512BH },
             "__m512d" => quote! { &M512D },
             "__m512i" => quote! { &M512I },
+            "__mmask8" => quote! { &MMASK8 },
             "__mmask16" => quote! { &MMASK16 },
+            "__mmask32" => quote! { &MMASK32 },
+            "__mmask64" => quote! { &MMASK64 },
+            "_MM_CMPINT_ENUM" => quote! { &MM_CMPINT_ENUM },
+            "_MM_MANTISSA_NORM_ENUM" => quote! { &MM_MANTISSA_NORM_ENUM },
+            "_MM_MANTISSA_SIGN_ENUM" => quote! { &MM_MANTISSA_SIGN_ENUM },
+            "_MM_PERM_ENUM" => quote! { &MM_PERM_ENUM },
             "__m64" => quote! { &M64 },
             "bool" => quote! { &BOOL },
             "f32" => quote! { &F32 },
@@ -159,6 +208,8 @@ fn to_type(t: &syn::Type) -> proc_macro2::TokenStream {
             "u64" => quote! { &U64 },
             "u128" => quote! { &U128 },
             "u8" => quote! { &U8 },
+            "p8" => quote! { &P8 },
+            "p16" => quote! { &P16 },
             "Ordering" => quote! { &ORDERING },
             "CpuidResult" => quote! { &CPUID },
 
@@ -174,12 +225,31 @@ fn to_type(t: &syn::Type) -> proc_macro2::TokenStream {
             "int8x16_t" => quote! { &I8X16 },
             "int16x2_t" => quote! { &I16X2 },
             "int16x4_t" => quote! { &I16X4 },
+            "int16x4x2_t" => quote! { &I16X4X2 },
+            "int16x4x3_t" => quote! { &I16X4X3 },
+            "int16x4x4_t" => quote! { &I16X4X4 },
             "int16x8_t" => quote! { &I16X8 },
+            "int16x8x2_t" => quote! { &I16X8X2 },
+            "int16x8x3_t" => quote! { &I16X8X3 },
+            "int16x8x4_t" => quote! { &I16X8X4 },
             "int32x2_t" => quote! { &I32X2 },
+            "int32x2x2_t" => quote! { &I32X2X2 },
+            "int32x2x3_t" => quote! { &I32X2X3 },
+            "int32x2x4_t" => quote! { &I32X2X4 },
             "int32x4_t" => quote! { &I32X4 },
+            "int32x4x2_t" => quote! { &I32X4X2 },
+            "int32x4x3_t" => quote! { &I32X4X3 },
+            "int32x4x4_t" => quote! { &I32X4X4 },
             "int64x1_t" => quote! { &I64X1 },
+            "int64x1x2_t" => quote! { &I64X1X2 },
+            "int64x1x3_t" => quote! { &I64X1X3 },
+            "int64x1x4_t" => quote! { &I64X1X4 },
             "int64x2_t" => quote! { &I64X2 },
+            "int64x2x2_t" => quote! { &I64X2X2 },
+            "int64x2x3_t" => quote! { &I64X2X3 },
+            "int64x2x4_t" => quote! { &I64X2X4 },
             "uint8x8_t" => quote! { &U8X8 },
+            "uint8x4_t" => quote! { &U8X4 },
             "uint8x8x2_t" => quote! { &U8X8X2 },
             "uint8x16x2_t" => quote! { &U8X16X2 },
             "uint8x16x3_t" => quote! { &U8X16X3 },
@@ -188,15 +258,45 @@ fn to_type(t: &syn::Type) -> proc_macro2::TokenStream {
             "uint8x8x4_t" => quote! { &U8X8X4 },
             "uint8x16_t" => quote! { &U8X16 },
             "uint16x4_t" => quote! { &U16X4 },
+            "uint16x4x2_t" => quote! { &U16X4X2 },
+            "uint16x4x3_t" => quote! { &U16X4X3 },
+            "uint16x4x4_t" => quote! { &U16X4X4 },
             "uint16x8_t" => quote! { &U16X8 },
+            "uint16x8x2_t" => quote! { &U16X8X2 },
+            "uint16x8x3_t" => quote! { &U16X8X3 },
+            "uint16x8x4_t" => quote! { &U16X8X4 },
             "uint32x2_t" => quote! { &U32X2 },
+            "uint32x2x2_t" => quote! { &U32X2X2 },
+            "uint32x2x3_t" => quote! { &U32X2X3 },
+            "uint32x2x4_t" => quote! { &U32X2X4 },
             "uint32x4_t" => quote! { &U32X4 },
+            "uint32x4x2_t" => quote! { &U32X4X2 },
+            "uint32x4x3_t" => quote! { &U32X4X3 },
+            "uint32x4x4_t" => quote! { &U32X4X4 },
             "uint64x1_t" => quote! { &U64X1 },
+            "uint64x1x2_t" => quote! { &U64X1X2 },
+            "uint64x1x3_t" => quote! { &U64X1X3 },
+            "uint64x1x4_t" => quote! { &U64X1X4 },
             "uint64x2_t" => quote! { &U64X2 },
+            "uint64x2x2_t" => quote! { &U64X2X2 },
+            "uint64x2x3_t" => quote! { &U64X2X3 },
+            "uint64x2x4_t" => quote! { &U64X2X4 },
             "float32x2_t" => quote! { &F32X2 },
+            "float32x2x2_t" => quote! { &F32X2X2 },
+            "float32x2x3_t" => quote! { &F32X2X3 },
+            "float32x2x4_t" => quote! { &F32X2X4 },
             "float32x4_t" => quote! { &F32X4 },
+            "float32x4x2_t" => quote! { &F32X4X2 },
+            "float32x4x3_t" => quote! { &F32X4X3 },
+            "float32x4x4_t" => quote! { &F32X4X4 },
             "float64x1_t" => quote! { &F64X1 },
+            "float64x1x2_t" => quote! { &F64X1X2 },
+            "float64x1x3_t" => quote! { &F64X1X3 },
+            "float64x1x4_t" => quote! { &F64X1X4 },
             "float64x2_t" => quote! { &F64X2 },
+            "float64x2x2_t" => quote! { &F64X2X2 },
+            "float64x2x3_t" => quote! { &F64X2X3 },
+            "float64x2x4_t" => quote! { &F64X2X4 },
             "poly8x8_t" => quote! { &POLY8X8 },
             "poly8x8x2_t" => quote! { &POLY8X8X2 },
             "poly8x8x3_t" => quote! { &POLY8X8X3 },
@@ -204,11 +304,25 @@ fn to_type(t: &syn::Type) -> proc_macro2::TokenStream {
             "poly8x16x2_t" => quote! { &POLY8X16X2 },
             "poly8x16x3_t" => quote! { &POLY8X16X3 },
             "poly8x16x4_t" => quote! { &POLY8X16X4 },
+            "p64" => quote! { &P64 },
             "poly64x1_t" => quote! { &POLY64X1 },
             "poly64x2_t" => quote! { &POLY64X2 },
             "poly8x16_t" => quote! { &POLY8X16 },
             "poly16x4_t" => quote! { &POLY16X4 },
+            "poly16x4x2_t" => quote! { &P16X4X2 },
+            "poly16x4x3_t" => quote! { &P16X4X3 },
+            "poly16x4x4_t" => quote! { &P16X4X4 },
             "poly16x8_t" => quote! { &POLY16X8 },
+            "poly16x8x2_t" => quote! { &P16X8X2 },
+            "poly16x8x3_t" => quote! { &P16X8X3 },
+            "poly16x8x4_t" => quote! { &P16X8X4 },
+            "poly64x1x2_t" => quote! { &P64X1X2 },
+            "poly64x1x3_t" => quote! { &P64X1X3 },
+            "poly64x1x4_t" => quote! { &P64X1X4 },
+            "poly64x2x2_t" => quote! { &P64X2X2 },
+            "poly64x2x3_t" => quote! { &P64X2X3 },
+            "poly64x2x4_t" => quote! { &P64X2X4 },
+            "p128" => quote! { &P128 },
 
             "v16i8" => quote! { &v16i8 },
             "v8i16" => quote! { &v8i16 },
@@ -222,7 +336,7 @@ fn to_type(t: &syn::Type) -> proc_macro2::TokenStream {
             "v4f32" => quote! { &v4f32 },
             "v2f64" => quote! { &v2f64 },
 
-            s => panic!("unspported type: \"{}\"", s),
+            s => panic!("unsupported type: \"{}\"", s),
         },
         syn::Type::Ptr(syn::TypePtr {
             ref elem,
@@ -310,7 +424,7 @@ fn find_instrs(attrs: &[syn::Attribute]) -> Vec<String> {
     // TODO: should probably just reuse `Invoc` from the `assert-instr-macro`
     // crate.
     impl syn::parse::Parse for AssertInstr {
-        fn parse(content: syn::parse::ParseStream) -> syn::Result<Self> {
+        fn parse(content: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
             let input;
             parenthesized!(input in content);
             let _ = input.parse::<syn::Meta>()?;
@@ -329,7 +443,7 @@ fn find_instrs(attrs: &[syn::Attribute]) -> Vec<String> {
                 } else if let Ok(ident) = instrs.call(syn::Ident::parse_any) {
                     instr.push_str(&ident.to_string());
                 } else if instrs.parse::<Token![.]>().is_ok() {
-                    instr.push_str(".");
+                    instr.push('.');
                 } else if instrs.parse::<Token![,]>().is_ok() {
                     // consume everything remaining
                     drop(instrs.parse::<proc_macro2::TokenStream>());
@@ -376,11 +490,11 @@ fn find_target_feature(attrs: &[syn::Attribute]) -> Option<syn::Lit> {
         })
 }
 
-fn find_required_const(attrs: &[syn::Attribute]) -> Vec<usize> {
+fn find_required_const(name: &str, attrs: &[syn::Attribute]) -> Vec<usize> {
     attrs
         .iter()
         .flat_map(|a| {
-            if a.path.segments[0].ident == "rustc_args_required_const" {
+            if a.path.segments[0].ident == name {
                 syn::parse::<RustcArgsRequiredConst>(a.tokens.clone().into())
                     .unwrap()
                     .args
@@ -396,7 +510,7 @@ struct RustcArgsRequiredConst {
 }
 
 impl syn::parse::Parse for RustcArgsRequiredConst {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
         let content;
         parenthesized!(content in input);
         let list =

@@ -2,6 +2,9 @@
 
 #![allow(nonstandard_style)]
 
+#[cfg(test)]
+mod tests;
+
 use crate::os::windows::prelude::*;
 
 use crate::error::Error as StdError;
@@ -61,7 +64,7 @@ pub fn error_string(mut errnum: i32) -> String {
         if res == 0 {
             // Sometimes FormatMessageW can fail e.g., system doesn't like langId,
             let fm_err = errno();
-            return format!("OS Error {} (FormatMessageW() returned error {})", errnum, fm_err);
+            return format!("OS Error {errnum} (FormatMessageW() returned error {fm_err})");
         }
 
         match String::from_utf16(&buf[..res]) {
@@ -94,13 +97,13 @@ impl Iterator for Env {
                 if *self.cur == 0 {
                     return None;
                 }
-                let p = &*self.cur as *const u16;
+                let p = self.cur as *const u16;
                 let mut len = 0;
-                while *p.offset(len) != 0 {
+                while *p.add(len) != 0 {
                     len += 1;
                 }
-                let s = slice::from_raw_parts(p, len as usize);
-                self.cur = self.cur.offset(len + 1);
+                let s = slice::from_raw_parts(p, len);
+                self.cur = self.cur.add(len + 1);
 
                 // Windows allows environment variables to start with an equals
                 // symbol (in any other position, this is the separator between
@@ -131,7 +134,7 @@ impl Drop for Env {
 pub fn env() -> Env {
     unsafe {
         let ch = c::GetEnvironmentStringsW();
-        if ch as usize == 0 {
+        if ch.is_null() {
             panic!("failure getting env string from OS: {}", io::Error::last_os_error());
         }
         Env { base: ch, cur: ch }
@@ -154,7 +157,7 @@ impl<'a> Iterator for SplitPaths<'a> {
         // Double quotes are used as a way of introducing literal semicolons
         // (since c:\some;dir is a valid Windows path). Double quotes are not
         // themselves permitted in path names, so there is no way to escape a
-        // double quote.  Quoted regions can appear in arbitrary locations, so
+        // double quote. Quoted regions can appear in arbitrary locations, so
         //
         //   c:\foo;c:\som"e;di"r;c:\bar
         //
@@ -250,22 +253,13 @@ pub fn chdir(p: &path::Path) -> io::Result<()> {
     cvt(unsafe { c::SetCurrentDirectoryW(p.as_ptr()) }).map(drop)
 }
 
-pub fn getenv(k: &OsStr) -> io::Result<Option<OsString>> {
-    let k = to_u16s(k)?;
-    let res = super::fill_utf16_buf(
+pub fn getenv(k: &OsStr) -> Option<OsString> {
+    let k = to_u16s(k).ok()?;
+    super::fill_utf16_buf(
         |buf, sz| unsafe { c::GetEnvironmentVariableW(k.as_ptr(), buf, sz) },
         |buf| OsStringExt::from_wide(buf),
-    );
-    match res {
-        Ok(value) => Ok(Some(value)),
-        Err(e) => {
-            if e.raw_os_error() == Some(c::ERROR_ENVVAR_NOT_FOUND as i32) {
-                Ok(None)
-            } else {
-                Err(e)
-            }
-        }
-    }
+    )
+    .ok()
 }
 
 pub fn setenv(k: &OsStr, v: &OsStr) -> io::Result<()> {
@@ -281,12 +275,16 @@ pub fn unsetenv(n: &OsStr) -> io::Result<()> {
 }
 
 pub fn temp_dir() -> PathBuf {
-    super::fill_utf16_buf(|buf, sz| unsafe { c::GetTempPathW(sz, buf) }, super::os2path).unwrap()
+    super::fill_utf16_buf(|buf, sz| unsafe { c::GetTempPath2W(sz, buf) }, super::os2path).unwrap()
 }
 
 #[cfg(not(target_vendor = "uwp"))]
 fn home_dir_crt() -> Option<PathBuf> {
     unsafe {
+        // The magic constant -4 can be used as the token passed to GetUserProfileDirectoryW below
+        // instead of us having to go through these multiple steps to get a token. However this is
+        // not implemented on Windows 7, only Windows 8 and up. When we drop support for Windows 7
+        // we can simplify this code. See #90144 for details.
         use crate::sys::handle::Handle;
 
         let me = c::GetCurrentProcess();
@@ -294,7 +292,7 @@ fn home_dir_crt() -> Option<PathBuf> {
         if c::OpenProcessToken(me, c::TOKEN_READ, &mut token) == 0 {
             return None;
         }
-        let _handle = Handle::new(token);
+        let _handle = Handle::from_raw_handle(token);
         super::fill_utf16_buf(
             |buf, mut sz| {
                 match c::GetUserProfileDirectoryW(token, buf, &mut sz) {
@@ -327,21 +325,4 @@ pub fn exit(code: i32) -> ! {
 
 pub fn getpid() -> u32 {
     unsafe { c::GetCurrentProcessId() as u32 }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::io::Error;
-    use crate::sys::c;
-
-    // tests `error_string` above
-    #[test]
-    fn ntstatus_error() {
-        const STATUS_UNSUCCESSFUL: u32 = 0xc000_0001;
-        assert!(
-            !Error::from_raw_os_error((STATUS_UNSUCCESSFUL | c::FACILITY_NT_BIT) as _)
-                .to_string()
-                .contains("FormatMessageW() returned error")
-        );
-    }
 }

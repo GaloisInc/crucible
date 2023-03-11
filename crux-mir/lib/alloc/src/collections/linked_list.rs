@@ -7,8 +7,8 @@
 //! array-based containers are generally faster,
 //! more memory efficient, and make better use of CPU cache.
 //!
-//! [`Vec`]: ../../vec/struct.Vec.html
-//! [`VecDeque`]: ../vec_deque/struct.VecDeque.html
+//! [`Vec`]: crate::vec::Vec
+//! [`VecDeque`]: super::vec_deque::VecDeque
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -31,10 +31,22 @@ mod tests;
 /// The `LinkedList` allows pushing and popping elements at either end
 /// in constant time.
 ///
-/// NOTE: It is almost always better to use `Vec` or `VecDeque` because
+/// A `LinkedList` with a known list of items can be initialized from an array:
+/// ```
+/// use std::collections::LinkedList;
+///
+/// let list = LinkedList::from([1, 2, 3]);
+/// ```
+///
+/// NOTE: It is almost always better to use [`Vec`] or [`VecDeque`] because
 /// array-based containers are generally faster,
 /// more memory efficient, and make better use of CPU cache.
+///
+/// [`Vec`]: crate::vec::Vec
+/// [`VecDeque`]: super::vec_deque::VecDeque
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "LinkedList")]
+#[rustc_insignificant_dtor]
 pub struct LinkedList<T> {
     head: Option<NonNull<Node<T>>>,
     tail: Option<NonNull<Node<T>>>,
@@ -50,11 +62,9 @@ struct Node<T> {
 
 /// An iterator over the elements of a `LinkedList`.
 ///
-/// This `struct` is created by the [`iter`] method on [`LinkedList`]. See its
+/// This `struct` is created by [`LinkedList::iter()`]. See its
 /// documentation for more.
-///
-/// [`iter`]: struct.LinkedList.html#method.iter
-/// [`LinkedList`]: struct.LinkedList.html
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Iter<'a, T: 'a> {
     head: Option<NonNull<Node<T>>>,
@@ -66,7 +76,15 @@ pub struct Iter<'a, T: 'a> {
 #[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Iter").field(&self.len).finish()
+        f.debug_tuple("Iter")
+            .field(&*mem::ManuallyDrop::new(LinkedList {
+                head: self.head,
+                tail: self.tail,
+                len: self.len,
+                marker: PhantomData,
+            }))
+            .field(&self.len)
+            .finish()
     }
 }
 
@@ -80,36 +98,39 @@ impl<T> Clone for Iter<'_, T> {
 
 /// A mutable iterator over the elements of a `LinkedList`.
 ///
-/// This `struct` is created by the [`iter_mut`] method on [`LinkedList`]. See its
+/// This `struct` is created by [`LinkedList::iter_mut()`]. See its
 /// documentation for more.
-///
-/// [`iter_mut`]: struct.LinkedList.html#method.iter_mut
-/// [`LinkedList`]: struct.LinkedList.html
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct IterMut<'a, T: 'a> {
-    // We do *not* exclusively own the entire list here, references to node's `element`
-    // have been handed out by the iterator! So be careful when using this; the methods
-    // called must be aware that there can be aliasing pointers to `element`.
-    list: &'a mut LinkedList<T>,
     head: Option<NonNull<Node<T>>>,
     tail: Option<NonNull<Node<T>>>,
     len: usize,
+    marker: PhantomData<&'a mut Node<T>>,
 }
 
 #[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for IterMut<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("IterMut").field(&self.list).field(&self.len).finish()
+        f.debug_tuple("IterMut")
+            .field(&*mem::ManuallyDrop::new(LinkedList {
+                head: self.head,
+                tail: self.tail,
+                len: self.len,
+                marker: PhantomData,
+            }))
+            .field(&self.len)
+            .finish()
     }
 }
 
 /// An owning iterator over the elements of a `LinkedList`.
 ///
 /// This `struct` is created by the [`into_iter`] method on [`LinkedList`]
-/// (provided by the `IntoIterator` trait). See its documentation for more.
+/// (provided by the [`IntoIterator`] trait). See its documentation for more.
 ///
-/// [`into_iter`]: struct.LinkedList.html#method.into_iter
-/// [`LinkedList`]: struct.LinkedList.html
+/// [`into_iter`]: LinkedList::into_iter
+/// [`IntoIterator`]: core::iter::IntoIterator
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct IntoIter<T> {
@@ -143,7 +164,7 @@ impl<T> LinkedList<T> {
         unsafe {
             node.next = self.head;
             node.prev = None;
-            let node = Some(Box::into_raw_non_null(node));
+            let node = Some(Box::leak(node).into());
 
             match self.head {
                 None => self.tail = node,
@@ -184,7 +205,7 @@ impl<T> LinkedList<T> {
         unsafe {
             node.next = None;
             node.prev = self.tail;
-            let node = Some(Box::into_raw_non_null(node));
+            let node = Some(Box::leak(node).into());
 
             match self.tail {
                 None => self.head = node,
@@ -225,17 +246,17 @@ impl<T> LinkedList<T> {
     /// maintain validity of aliasing pointers.
     #[inline]
     unsafe fn unlink_node(&mut self, mut node: NonNull<Node<T>>) {
-        let node = node.as_mut(); // this one is ours now, we can create an &mut.
+        let node = unsafe { node.as_mut() }; // this one is ours now, we can create an &mut.
 
         // Not creating new mutable (unique!) references overlapping `element`.
         match node.prev {
-            Some(prev) => (*prev.as_ptr()).next = node.next,
+            Some(prev) => unsafe { (*prev.as_ptr()).next = node.next },
             // this node is the head node
             None => self.head = node.next,
         };
 
         match node.next {
-            Some(next) => (*next.as_ptr()).prev = node.prev,
+            Some(next) => unsafe { (*next.as_ptr()).prev = node.prev },
             // this node is the tail node
             None => self.tail = node.prev,
         };
@@ -258,17 +279,23 @@ impl<T> LinkedList<T> {
         // This method takes care not to create multiple mutable references to whole nodes at the same time,
         // to maintain validity of aliasing pointers into `element`.
         if let Some(mut existing_prev) = existing_prev {
-            existing_prev.as_mut().next = Some(splice_start);
+            unsafe {
+                existing_prev.as_mut().next = Some(splice_start);
+            }
         } else {
             self.head = Some(splice_start);
         }
         if let Some(mut existing_next) = existing_next {
-            existing_next.as_mut().prev = Some(splice_end);
+            unsafe {
+                existing_next.as_mut().prev = Some(splice_end);
+            }
         } else {
             self.tail = Some(splice_end);
         }
-        splice_start.as_mut().prev = existing_prev;
-        splice_end.as_mut().next = existing_next;
+        unsafe {
+            splice_start.as_mut().prev = existing_prev;
+            splice_end.as_mut().next = existing_next;
+        }
 
         self.len += splice_length;
     }
@@ -280,7 +307,10 @@ impl<T> LinkedList<T> {
         let tail = self.tail.take();
         let len = mem::replace(&mut self.len, 0);
         if let Some(head) = head {
-            let tail = tail.unwrap_or_else(|| unsafe { core::hint::unreachable_unchecked() });
+            // SAFETY: In a LinkedList, either both the head and tail are None because
+            // the list is empty, or both head and tail are Some because the list is populated.
+            // Since we have verified the head is Some, we are sure the tail is Some too.
+            let tail = unsafe { tail.unwrap_unchecked() };
             Some((head, tail, len))
         } else {
             None
@@ -297,9 +327,13 @@ impl<T> LinkedList<T> {
         if let Some(mut split_node) = split_node {
             let first_part_head;
             let first_part_tail;
-            first_part_tail = split_node.as_mut().prev.take();
+            unsafe {
+                first_part_tail = split_node.as_mut().prev.take();
+            }
             if let Some(mut tail) = first_part_tail {
-                tail.as_mut().next = None;
+                unsafe {
+                    tail.as_mut().next = None;
+                }
                 first_part_head = self.head;
             } else {
                 first_part_head = None;
@@ -333,9 +367,13 @@ impl<T> LinkedList<T> {
         if let Some(mut split_node) = split_node {
             let second_part_head;
             let second_part_tail;
-            second_part_head = split_node.as_mut().next.take();
+            unsafe {
+                second_part_head = split_node.as_mut().next.take();
+            }
             if let Some(mut head) = second_part_head {
-                head.as_mut().prev = None;
+                unsafe {
+                    head.as_mut().prev = None;
+                }
                 second_part_tail = self.tail;
             } else {
                 second_part_tail = None;
@@ -379,8 +417,9 @@ impl<T> LinkedList<T> {
     /// let list: LinkedList<u32> = LinkedList::new();
     /// ```
     #[inline]
-    #[rustc_const_stable(feature = "const_linked_list_new", since = "1.32.0")]
+    #[rustc_const_stable(feature = "const_linked_list_new", since = "1.39.0")]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[must_use]
     pub const fn new() -> Self {
         LinkedList { head: None, tail: None, len: 0, marker: PhantomData }
     }
@@ -390,7 +429,7 @@ impl<T> LinkedList<T> {
     /// This reuses all the nodes from `other` and moves them into `self`. After
     /// this operation, `other` becomes empty.
     ///
-    /// This operation should compute in O(1) time and O(1) memory.
+    /// This operation should compute in *O*(1) time and *O*(1) memory.
     ///
     /// # Examples
     ///
@@ -428,27 +467,6 @@ impl<T> LinkedList<T> {
                     }
 
                     self.tail = other.tail.take();
-                    self.len += mem::replace(&mut other.len, 0);
-                }
-            }
-        }
-    }
-
-    /// Moves all elements from `other` to the begin of the list.
-    #[unstable(feature = "linked_list_prepend", issue = "none")]
-    pub fn prepend(&mut self, other: &mut Self) {
-        match self.head {
-            None => mem::swap(self, other),
-            Some(mut head) => {
-                // `as_mut` is okay here because we have exclusive access to the entirety
-                // of both lists.
-                if let Some(mut other_tail) = other.tail.take() {
-                    unsafe {
-                        head.as_mut().prev = Some(other_tail);
-                        other_tail.as_mut().next = Some(head);
-                    }
-
-                    self.head = other.head.take();
                     self.len += mem::replace(&mut other.len, 0);
                 }
             }
@@ -506,13 +524,14 @@ impl<T> LinkedList<T> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
-        IterMut { head: self.head, tail: self.tail, len: self.len, list: self }
+        IterMut { head: self.head, tail: self.tail, len: self.len, marker: PhantomData }
     }
 
     /// Provides a cursor at the front element.
     ///
     /// The cursor is pointing to the "ghost" non-element if the list is empty.
     #[inline]
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn cursor_front(&self) -> Cursor<'_, T> {
         Cursor { index: 0, current: self.head, list: self }
@@ -522,6 +541,7 @@ impl<T> LinkedList<T> {
     ///
     /// The cursor is pointing to the "ghost" non-element if the list is empty.
     #[inline]
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, T> {
         CursorMut { index: 0, current: self.head, list: self }
@@ -531,6 +551,7 @@ impl<T> LinkedList<T> {
     ///
     /// The cursor is pointing to the "ghost" non-element if the list is empty.
     #[inline]
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn cursor_back(&self) -> Cursor<'_, T> {
         Cursor { index: self.len.checked_sub(1).unwrap_or(0), current: self.tail, list: self }
@@ -540,6 +561,7 @@ impl<T> LinkedList<T> {
     ///
     /// The cursor is pointing to the "ghost" non-element if the list is empty.
     #[inline]
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn cursor_back_mut(&mut self) -> CursorMut<'_, T> {
         CursorMut { index: self.len.checked_sub(1).unwrap_or(0), current: self.tail, list: self }
@@ -547,7 +569,7 @@ impl<T> LinkedList<T> {
 
     /// Returns `true` if the `LinkedList` is empty.
     ///
-    /// This operation should compute in O(1) time.
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -561,6 +583,7 @@ impl<T> LinkedList<T> {
     /// assert!(!dl.is_empty());
     /// ```
     #[inline]
+    #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn is_empty(&self) -> bool {
         self.head.is_none()
@@ -568,7 +591,7 @@ impl<T> LinkedList<T> {
 
     /// Returns the length of the `LinkedList`.
     ///
-    /// This operation should compute in O(1) time.
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -587,6 +610,7 @@ impl<T> LinkedList<T> {
     /// assert_eq!(dl.len(), 3);
     /// ```
     #[inline]
+    #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn len(&self) -> usize {
         self.len
@@ -594,7 +618,7 @@ impl<T> LinkedList<T> {
 
     /// Removes all elements from the `LinkedList`.
     ///
-    /// This operation should compute in O(n) time.
+    /// This operation should compute in *O*(*n*) time.
     ///
     /// # Examples
     ///
@@ -621,6 +645,8 @@ impl<T> LinkedList<T> {
     /// Returns `true` if the `LinkedList` contains an element equal to the
     /// given value.
     ///
+    /// This operation should compute linearly in *O*(*n*) time.
+    ///
     /// # Examples
     ///
     /// ```
@@ -646,6 +672,8 @@ impl<T> LinkedList<T> {
     /// Provides a reference to the front element, or `None` if the list is
     /// empty.
     ///
+    /// This operation should compute in *O*(1) time.
+    ///
     /// # Examples
     ///
     /// ```
@@ -658,6 +686,7 @@ impl<T> LinkedList<T> {
     /// assert_eq!(dl.front(), Some(&1));
     /// ```
     #[inline]
+    #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn front(&self) -> Option<&T> {
         unsafe { self.head.as_ref().map(|node| &node.as_ref().element) }
@@ -665,6 +694,8 @@ impl<T> LinkedList<T> {
 
     /// Provides a mutable reference to the front element, or `None` if the list
     /// is empty.
+    ///
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -684,6 +715,7 @@ impl<T> LinkedList<T> {
     /// assert_eq!(dl.front(), Some(&5));
     /// ```
     #[inline]
+    #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn front_mut(&mut self) -> Option<&mut T> {
         unsafe { self.head.as_mut().map(|node| &mut node.as_mut().element) }
@@ -691,6 +723,8 @@ impl<T> LinkedList<T> {
 
     /// Provides a reference to the back element, or `None` if the list is
     /// empty.
+    ///
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -704,6 +738,7 @@ impl<T> LinkedList<T> {
     /// assert_eq!(dl.back(), Some(&1));
     /// ```
     #[inline]
+    #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn back(&self) -> Option<&T> {
         unsafe { self.tail.as_ref().map(|node| &node.as_ref().element) }
@@ -711,6 +746,8 @@ impl<T> LinkedList<T> {
 
     /// Provides a mutable reference to the back element, or `None` if the list
     /// is empty.
+    ///
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -737,7 +774,7 @@ impl<T> LinkedList<T> {
 
     /// Adds an element first in the list.
     ///
-    /// This operation should compute in O(1) time.
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -754,13 +791,13 @@ impl<T> LinkedList<T> {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn push_front(&mut self, elt: T) {
-        self.push_front_node(box Node::new(elt));
+        self.push_front_node(Box::new(Node::new(elt)));
     }
 
     /// Removes the first element and returns it, or `None` if the list is
     /// empty.
     ///
-    /// This operation should compute in O(1) time.
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -783,7 +820,7 @@ impl<T> LinkedList<T> {
 
     /// Appends an element to the back of a list.
     ///
-    /// This operation should compute in O(1) time.
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -797,13 +834,13 @@ impl<T> LinkedList<T> {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn push_back(&mut self, elt: T) {
-        self.push_back_node(box Node::new(elt));
+        self.push_back_node(Box::new(Node::new(elt)));
     }
 
     /// Removes the last element from a list and returns it, or `None` if
     /// it is empty.
     ///
-    /// This operation should compute in O(1) time.
+    /// This operation should compute in *O*(1) time.
     ///
     /// # Examples
     ///
@@ -824,7 +861,7 @@ impl<T> LinkedList<T> {
     /// Splits the list into two at the given index. Returns everything after the given index,
     /// including the index.
     ///
-    /// This operation should compute in O(n) time.
+    /// This operation should compute in *O*(*n*) time.
     ///
     /// # Panics
     ///
@@ -880,7 +917,7 @@ impl<T> LinkedList<T> {
 
     /// Removes the element at the given index and returns it.
     ///
-    /// This operation should compute in O(n) time.
+    /// This operation should compute in *O*(*n*) time.
     ///
     /// # Panics
     /// Panics if at >= len
@@ -972,7 +1009,7 @@ unsafe impl<#[may_dangle] T> Drop for LinkedList<T> {
             fn drop(&mut self) {
                 // Continue the same loop we do below. This only runs when a destructor has
                 // panicked. If another one panics this will abort.
-                while let Some(_) = self.0.pop_front_node() {}
+                while self.0.pop_front_node().is_some() {}
             }
         }
 
@@ -1092,95 +1129,6 @@ impl<T> ExactSizeIterator for IterMut<'_, T> {}
 #[stable(feature = "fused", since = "1.26.0")]
 impl<T> FusedIterator for IterMut<'_, T> {}
 
-impl<T> IterMut<'_, T> {
-    /// Inserts the given element just after the element most recently returned by `.next()`.
-    /// The inserted element does not appear in the iteration.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(linked_list_extras)]
-    ///
-    /// use std::collections::LinkedList;
-    ///
-    /// let mut list: LinkedList<_> = vec![1, 3, 4].into_iter().collect();
-    ///
-    /// {
-    ///     let mut it = list.iter_mut();
-    ///     assert_eq!(it.next().unwrap(), &1);
-    ///     // insert `2` after `1`
-    ///     it.insert_next(2);
-    /// }
-    /// {
-    ///     let vec: Vec<_> = list.into_iter().collect();
-    ///     assert_eq!(vec, [1, 2, 3, 4]);
-    /// }
-    /// ```
-    #[inline]
-    #[unstable(
-        feature = "linked_list_extras",
-        reason = "this is probably better handled by a cursor type -- we'll see",
-        issue = "27794"
-    )]
-    pub fn insert_next(&mut self, element: T) {
-        match self.head {
-            // `push_back` is okay with aliasing `element` references
-            None => self.list.push_back(element),
-            Some(head) => unsafe {
-                let prev = match head.as_ref().prev {
-                    // `push_front` is okay with aliasing nodes
-                    None => return self.list.push_front(element),
-                    Some(prev) => prev,
-                };
-
-                let node = Some(Box::into_raw_non_null(box Node {
-                    next: Some(head),
-                    prev: Some(prev),
-                    element,
-                }));
-
-                // Not creating references to entire nodes to not invalidate the
-                // reference to `element` we handed to the user.
-                (*prev.as_ptr()).next = node;
-                (*head.as_ptr()).prev = node;
-
-                self.list.len += 1;
-            },
-        }
-    }
-
-    /// Provides a reference to the next element, without changing the iterator.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(linked_list_extras)]
-    ///
-    /// use std::collections::LinkedList;
-    ///
-    /// let mut list: LinkedList<_> = vec![1, 2, 3].into_iter().collect();
-    ///
-    /// let mut it = list.iter_mut();
-    /// assert_eq!(it.next().unwrap(), &1);
-    /// assert_eq!(it.peek_next().unwrap(), &2);
-    /// // We just peeked at 2, so it was not consumed from the iterator.
-    /// assert_eq!(it.next().unwrap(), &2);
-    /// ```
-    #[inline]
-    #[unstable(
-        feature = "linked_list_extras",
-        reason = "this is probably better handled by a cursor type -- we'll see",
-        issue = "27794"
-    )]
-    pub fn peek_next(&mut self) -> Option<&mut T> {
-        if self.len == 0 {
-            None
-        } else {
-            unsafe { self.head.as_mut().map(|node| &mut node.as_mut().element) }
-        }
-    }
-}
-
 /// A cursor over a `LinkedList`.
 ///
 /// A `Cursor` is like an iterator, except that it can freely seek back-and-forth.
@@ -1195,6 +1143,14 @@ pub struct Cursor<'a, T: 'a> {
     index: usize,
     current: Option<NonNull<Node<T>>>,
     list: &'a LinkedList<T>,
+}
+
+#[unstable(feature = "linked_list_cursors", issue = "58533")]
+impl<T> Clone for Cursor<'_, T> {
+    fn clone(&self) -> Self {
+        let Cursor { index, current, list } = *self;
+        Cursor { index, current, list }
+    }
 }
 
 #[unstable(feature = "linked_list_cursors", issue = "58533")]
@@ -1233,6 +1189,7 @@ impl<'a, T> Cursor<'a, T> {
     ///
     /// This returns `None` if the cursor is currently pointing to the
     /// "ghost" non-element.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn index(&self) -> Option<usize> {
         let _ = self.current?;
@@ -1287,6 +1244,7 @@ impl<'a, T> Cursor<'a, T> {
     ///
     /// This returns `None` if the cursor is currently pointing to the
     /// "ghost" non-element.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn current(&self) -> Option<&'a T> {
         unsafe { self.current.map(|current| &(*current.as_ptr()).element) }
@@ -1297,6 +1255,7 @@ impl<'a, T> Cursor<'a, T> {
     /// If the cursor is pointing to the "ghost" non-element then this returns
     /// the first element of the `LinkedList`. If it is pointing to the last
     /// element of the `LinkedList` then this returns `None`.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn peek_next(&self) -> Option<&'a T> {
         unsafe {
@@ -1313,6 +1272,7 @@ impl<'a, T> Cursor<'a, T> {
     /// If the cursor is pointing to the "ghost" non-element then this returns
     /// the last element of the `LinkedList`. If it is pointing to the first
     /// element of the `LinkedList` then this returns `None`.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn peek_prev(&self) -> Option<&'a T> {
         unsafe {
@@ -1323,6 +1283,22 @@ impl<'a, T> Cursor<'a, T> {
             prev.map(|prev| &(*prev.as_ptr()).element)
         }
     }
+
+    /// Provides a reference to the front element of the cursor's parent list,
+    /// or None if the list is empty.
+    #[must_use]
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn front(&self) -> Option<&'a T> {
+        self.list.front()
+    }
+
+    /// Provides a reference to the back element of the cursor's parent list,
+    /// or None if the list is empty.
+    #[must_use]
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn back(&self) -> Option<&'a T> {
+        self.list.back()
+    }
 }
 
 impl<'a, T> CursorMut<'a, T> {
@@ -1330,6 +1306,7 @@ impl<'a, T> CursorMut<'a, T> {
     ///
     /// This returns `None` if the cursor is currently pointing to the
     /// "ghost" non-element.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn index(&self) -> Option<usize> {
         let _ = self.current?;
@@ -1384,6 +1361,7 @@ impl<'a, T> CursorMut<'a, T> {
     ///
     /// This returns `None` if the cursor is currently pointing to the
     /// "ghost" non-element.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn current(&mut self) -> Option<&mut T> {
         unsafe { self.current.map(|current| &mut (*current.as_ptr()).element) }
@@ -1426,6 +1404,7 @@ impl<'a, T> CursorMut<'a, T> {
     /// The lifetime of the returned `Cursor` is bound to that of the
     /// `CursorMut`, which means it cannot outlive the `CursorMut` and that the
     /// `CursorMut` is frozen for the lifetime of the `Cursor`.
+    #[must_use]
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn as_cursor(&self) -> Cursor<'_, T> {
         Cursor { list: self.list, current: self.current, index: self.index }
@@ -1442,7 +1421,7 @@ impl<'a, T> CursorMut<'a, T> {
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn insert_after(&mut self, item: T) {
         unsafe {
-            let spliced_node = Box::into_raw_non_null(Box::new(Node::new(item)));
+            let spliced_node = Box::leak(Box::new(Node::new(item))).into();
             let node_next = match self.current {
                 None => self.list.head,
                 Some(node) => node.as_ref().next,
@@ -1462,7 +1441,7 @@ impl<'a, T> CursorMut<'a, T> {
     #[unstable(feature = "linked_list_cursors", issue = "58533")]
     pub fn insert_before(&mut self, item: T) {
         unsafe {
-            let spliced_node = Box::into_raw_non_null(Box::new(Node::new(item)));
+            let spliced_node = Box::leak(Box::new(Node::new(item))).into();
             let node_prev = match self.current {
                 None => self.list.tail,
                 Some(node) => node.as_ref().prev,
@@ -1487,6 +1466,31 @@ impl<'a, T> CursorMut<'a, T> {
             self.list.unlink_node(unlinked_node);
             let unlinked_node = Box::from_raw(unlinked_node.as_ptr());
             Some(unlinked_node.element)
+        }
+    }
+
+    /// Removes the current element from the `LinkedList` without deallocating the list node.
+    ///
+    /// The node that was removed is returned as a new `LinkedList` containing only this node.
+    /// The cursor is moved to point to the next element in the current `LinkedList`.
+    ///
+    /// If the cursor is currently pointing to the "ghost" non-element then no element
+    /// is removed and `None` is returned.
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn remove_current_as_list(&mut self) -> Option<LinkedList<T>> {
+        let mut unlinked_node = self.current?;
+        unsafe {
+            self.current = unlinked_node.as_ref().next;
+            self.list.unlink_node(unlinked_node);
+
+            unlinked_node.as_mut().prev = None;
+            unlinked_node.as_mut().next = None;
+            Some(LinkedList {
+                head: Some(unlinked_node),
+                tail: Some(unlinked_node),
+                len: 1,
+                marker: PhantomData,
+            })
         }
     }
 
@@ -1560,6 +1564,139 @@ impl<'a, T> CursorMut<'a, T> {
         let split_off_idx = self.index;
         self.index = 0;
         unsafe { self.list.split_off_before_node(self.current, split_off_idx) }
+    }
+
+    /// Appends an element to the front of the cursor's parent list. The node
+    /// that the cursor points to is unchanged, even if it is the "ghost" node.
+    ///
+    /// This operation should compute in *O*(1) time.
+    // `push_front` continues to point to "ghost" when it adds a node to mimic
+    // the behavior of `insert_before` on an empty list.
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn push_front(&mut self, elt: T) {
+        // Safety: We know that `push_front` does not change the position in
+        // memory of other nodes. This ensures that `self.current` remains
+        // valid.
+        self.list.push_front(elt);
+        self.index += 1;
+    }
+
+    /// Appends an element to the back of the cursor's parent list. The node
+    /// that the cursor points to is unchanged, even if it is the "ghost" node.
+    ///
+    /// This operation should compute in *O*(1) time.
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn push_back(&mut self, elt: T) {
+        // Safety: We know that `push_back` does not change the position in
+        // memory of other nodes. This ensures that `self.current` remains
+        // valid.
+        self.list.push_back(elt);
+        if self.current().is_none() {
+            // The index of "ghost" is the length of the list, so we just need
+            // to increment self.index to reflect the new length of the list.
+            self.index += 1;
+        }
+    }
+
+    /// Removes the first element from the cursor's parent list and returns it,
+    /// or None if the list is empty. The element the cursor points to remains
+    /// unchanged, unless it was pointing to the front element. In that case, it
+    /// points to the new front element.
+    ///
+    /// This operation should compute in *O*(1) time.
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn pop_front(&mut self) -> Option<T> {
+        // We can't check if current is empty, we must check the list directly.
+        // It is possible for `self.current == None` and the list to be
+        // non-empty.
+        if self.list.is_empty() {
+            None
+        } else {
+            // We can't point to the node that we pop. Copying the behavior of
+            // `remove_current`, we move on to the next node in the sequence.
+            // If the list is of length 1 then we end pointing to the "ghost"
+            // node at index 0, which is expected.
+            if self.list.head == self.current {
+                self.move_next();
+            } else {
+                self.index -= 1;
+            }
+            self.list.pop_front()
+        }
+    }
+
+    /// Removes the last element from the cursor's parent list and returns it,
+    /// or None if the list is empty. The element the cursor points to remains
+    /// unchanged, unless it was pointing to the back element. In that case, it
+    /// points to the "ghost" element.
+    ///
+    /// This operation should compute in *O*(1) time.
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn pop_back(&mut self) -> Option<T> {
+        if self.list.is_empty() {
+            None
+        } else {
+            if self.list.tail == self.current {
+                // The index now reflects the length of the list. It was the
+                // length of the list minus 1, but now the list is 1 smaller. No
+                // change is needed for `index`.
+                self.current = None;
+            } else if self.current.is_none() {
+                self.index = self.list.len - 1;
+            }
+            self.list.pop_back()
+        }
+    }
+
+    /// Provides a reference to the front element of the cursor's parent list,
+    /// or None if the list is empty.
+    #[must_use]
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn front(&self) -> Option<&T> {
+        self.list.front()
+    }
+
+    /// Provides a mutable reference to the front element of the cursor's
+    /// parent list, or None if the list is empty.
+    #[must_use]
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn front_mut(&mut self) -> Option<&mut T> {
+        self.list.front_mut()
+    }
+
+    /// Provides a reference to the back element of the cursor's parent list,
+    /// or None if the list is empty.
+    #[must_use]
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn back(&self) -> Option<&T> {
+        self.list.back()
+    }
+
+    /// Provides a mutable reference to back element of the cursor's parent
+    /// list, or `None` if the list is empty.
+    ///
+    /// # Examples
+    /// Building and mutating a list with a cursor, then getting the back element:
+    /// ```
+    /// #![feature(linked_list_cursors)]
+    /// use std::collections::LinkedList;
+    /// let mut dl = LinkedList::new();
+    /// dl.push_front(3);
+    /// dl.push_front(2);
+    /// dl.push_front(1);
+    /// let mut cursor = dl.cursor_front_mut();
+    /// *cursor.current().unwrap() = 99;
+    /// *cursor.back_mut().unwrap() = 0;
+    /// let mut contents = dl.into_iter();
+    /// assert_eq!(contents.next(), Some(99));
+    /// assert_eq!(contents.next(), Some(2));
+    /// assert_eq!(contents.next(), Some(0));
+    /// assert_eq!(contents.next(), None);
+    /// ```
+    #[must_use]
+    #[unstable(feature = "linked_list_cursors", issue = "58533")]
+    pub fn back_mut(&mut self) -> Option<&mut T> {
+        self.list.back_mut()
     }
 }
 
@@ -1717,6 +1854,11 @@ impl<T> Extend<T> for LinkedList<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         <Self as SpecExtend<I>>::spec_extend(self, iter);
     }
+
+    #[inline]
+    fn extend_one(&mut self, elem: T) {
+        self.push_back(elem);
+    }
 }
 
 impl<I: IntoIterator> SpecExtend<I> for LinkedList<I::Item> {
@@ -1735,6 +1877,11 @@ impl<T> SpecExtend<LinkedList<T>> for LinkedList<T> {
 impl<'a, T: 'a + Copy> Extend<&'a T> for LinkedList<T> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().cloned());
+    }
+
+    #[inline]
+    fn extend_one(&mut self, &elem: &'a T) {
+        self.push_back(elem);
     }
 }
 
@@ -1797,10 +1944,26 @@ impl<T: fmt::Debug> fmt::Debug for LinkedList<T> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Hash> Hash for LinkedList<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.len().hash(state);
+        state.write_length_prefix(self.len());
         for elt in self {
             elt.hash(state);
         }
+    }
+}
+
+#[stable(feature = "std_collections_from_array", since = "1.56.0")]
+impl<T, const N: usize> From<[T; N]> for LinkedList<T> {
+    /// Converts a `[T; N]` into a `LinkedList<T>`.
+    ///
+    /// ```
+    /// use std::collections::LinkedList;
+    ///
+    /// let list1 = LinkedList::from([1, 2, 3, 4]);
+    /// let list2: LinkedList<_> = [1, 2, 3, 4].into();
+    /// assert_eq!(list1, list2);
+    /// ```
+    fn from(arr: [T; N]) -> Self {
+        Self::from_iter(arr)
     }
 }
 
@@ -1835,3 +1998,15 @@ unsafe impl<T: Send> Send for IterMut<'_, T> {}
 
 #[stable(feature = "rust1", since = "1.0.0")]
 unsafe impl<T: Sync> Sync for IterMut<'_, T> {}
+
+#[unstable(feature = "linked_list_cursors", issue = "58533")]
+unsafe impl<T: Sync> Send for Cursor<'_, T> {}
+
+#[unstable(feature = "linked_list_cursors", issue = "58533")]
+unsafe impl<T: Sync> Sync for Cursor<'_, T> {}
+
+#[unstable(feature = "linked_list_cursors", issue = "58533")]
+unsafe impl<T: Send> Send for CursorMut<'_, T> {}
+
+#[unstable(feature = "linked_list_cursors", issue = "58533")]
+unsafe impl<T: Sync> Sync for CursorMut<'_, T> {}

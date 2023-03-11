@@ -108,7 +108,9 @@ instance Pretty CtorKind where
   pretty = viaShow
 
 instance Pretty Variant where
-  pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" nm dscr flds knd
+  pretty (Variant nm dscr flds knd mbVal) =
+    pretty "Variant" <>
+      tupled [pretty nm, pretty dscr, pretty flds, pretty knd, pretty mbVal]
 
 instance Pretty Field where
     pretty (Field nm ty) = pretty_fn2 "Field" nm ty
@@ -164,6 +166,13 @@ instance Pretty Statement where
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = pretty "nop" <> semi
+    pretty Deinit = pretty "DeInit"
+    pretty (StmtIntrinsic (NDIAssume op)) =
+      pretty "Intrinsic" <> brackets (pretty "Assume") <> parens (pretty op) <> semi
+    pretty (StmtIntrinsic (NDICopyNonOverlapping o1 o2 o3)) =
+      pretty "Intrinsic" <> brackets (pretty "CopyNonOverlapping")
+                         <> tupled (pretty <$> [o1, o2, o3])
+                         <> semi
 
 instance Pretty Lvalue where
     pretty (LBase base) = pretty base
@@ -196,6 +205,8 @@ instance Pretty Rvalue where
     pretty (Discriminant a) = pretty_fn1 "Discriminant" a
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
     pretty (RAdtAg a) = pretty a
+    pretty (ShallowInitBox ptr ty) = pretty_fn2 "ShallowInitBox" ptr ty
+    pretty (CopyForDeref lv) = pretty_fn1 "CopyForDeref" lv
 
 instance Pretty AdtAg where
   pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _) = pretty_fn3 "AdtAg" nm i ops
@@ -241,7 +252,7 @@ instance Pretty Constant where
 
 instance Pretty NullOp where
     pretty SizeOf = pretty "sizeof"
-    pretty Box    = pretty "box"
+    pretty AlignOf = pretty "alignof"
 
 instance Pretty BorrowKind where
     pretty = viaShow

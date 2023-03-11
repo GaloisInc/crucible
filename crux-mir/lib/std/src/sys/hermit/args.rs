@@ -1,32 +1,51 @@
-use crate::ffi::OsString;
-use crate::marker::PhantomData;
+use crate::ffi::{c_char, CStr, OsString};
+use crate::fmt;
+use crate::os::unix::ffi::OsStringExt;
+use crate::ptr;
+use crate::sync::atomic::{
+    AtomicIsize, AtomicPtr,
+    Ordering::{Acquire, Relaxed, Release},
+};
 use crate::vec;
+
+static ARGC: AtomicIsize = AtomicIsize::new(0);
+static ARGV: AtomicPtr<*const u8> = AtomicPtr::new(ptr::null_mut());
 
 /// One-time global initialization.
 pub unsafe fn init(argc: isize, argv: *const *const u8) {
-    imp::init(argc, argv)
-}
-
-/// One-time global cleanup.
-pub unsafe fn cleanup() {
-    imp::cleanup()
+    ARGC.store(argc, Relaxed);
+    // Use release ordering here to broadcast writes by the OS.
+    ARGV.store(argv as *mut *const u8, Release);
 }
 
 /// Returns the command line arguments
 pub fn args() -> Args {
-    imp::args()
+    // Synchronize with the store above.
+    let argv = ARGV.load(Acquire);
+    // If argv has not been initialized yet, do not return any arguments.
+    let argc = if argv.is_null() { 0 } else { ARGC.load(Relaxed) };
+    let args: Vec<OsString> = (0..argc)
+        .map(|i| unsafe {
+            let cstr = CStr::from_ptr(*argv.offset(i) as *const c_char);
+            OsStringExt::from_vec(cstr.to_bytes().to_vec())
+        })
+        .collect();
+
+    Args { iter: args.into_iter() }
 }
 
 pub struct Args {
     iter: vec::IntoIter<OsString>,
-    _dont_send_or_sync_me: PhantomData<*mut ()>,
 }
 
-impl Args {
-    pub fn inner_debug(&self) -> &[OsString] {
-        self.iter.as_slice()
+impl fmt::Debug for Args {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.iter.as_slice().fmt(f)
     }
 }
+
+impl !Send for Args {}
+impl !Sync for Args {}
 
 impl Iterator for Args {
     type Item = OsString;
@@ -47,47 +66,5 @@ impl ExactSizeIterator for Args {
 impl DoubleEndedIterator for Args {
     fn next_back(&mut self) -> Option<OsString> {
         self.iter.next_back()
-    }
-}
-
-mod imp {
-    use super::Args;
-    use crate::ffi::{CStr, OsString};
-    use crate::marker::PhantomData;
-    use crate::ptr;
-    use crate::sys_common::os_str_bytes::*;
-
-    use crate::sys_common::mutex::Mutex;
-
-    static mut ARGC: isize = 0;
-    static mut ARGV: *const *const u8 = ptr::null();
-    static LOCK: Mutex = Mutex::new();
-
-    pub unsafe fn init(argc: isize, argv: *const *const u8) {
-        let _guard = LOCK.lock();
-        ARGC = argc;
-        ARGV = argv;
-    }
-
-    pub unsafe fn cleanup() {
-        let _guard = LOCK.lock();
-        ARGC = 0;
-        ARGV = ptr::null();
-    }
-
-    pub fn args() -> Args {
-        Args { iter: clone().into_iter(), _dont_send_or_sync_me: PhantomData }
-    }
-
-    fn clone() -> Vec<OsString> {
-        unsafe {
-            let _guard = LOCK.lock();
-            (0..ARGC)
-                .map(|i| {
-                    let cstr = CStr::from_ptr(*ARGV.offset(i) as *const i8);
-                    OsStringExt::from_vec(cstr.to_bytes().to_vec())
-                })
-                .collect()
-        }
     }
 }

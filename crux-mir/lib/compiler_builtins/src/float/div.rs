@@ -1,5 +1,9 @@
+// The functions are complex with many branches, and explicit
+// `return`s makes it clear where function exit points are
+#![allow(clippy::needless_return)]
+
 use float::Float;
-use int::{CastInto, Int, WideInt};
+use int::{CastInto, DInt, HInt, Int};
 
 fn div32<F: Float>(a: F, b: F) -> F
 where
@@ -7,7 +11,7 @@ where
     F::Int: CastInto<u32>,
     i32: CastInto<F::Int>,
     F::Int: CastInto<i32>,
-    F::Int: WideInt,
+    F::Int: HInt,
 {
     let one = F::Int::ONE;
     let zero = F::Int::ZERO;
@@ -128,13 +132,14 @@ where
     // This doubles the number of correct binary digits in the approximation
     // with each iteration, so after three iterations, we have about 28 binary
     // digits of accuracy.
-    let mut correction: u32;
+
+    let mut correction: u32 =
+        negate_u32(((reciprocal as u64).wrapping_mul(q31b as u64) >> 32) as u32);
+    reciprocal = ((reciprocal as u64).wrapping_mul(correction as u64) >> 31) as u32;
     correction = negate_u32(((reciprocal as u64).wrapping_mul(q31b as u64) >> 32) as u32);
-    reciprocal = ((reciprocal as u64).wrapping_mul(correction as u64) as u64 >> 31) as u32;
+    reciprocal = ((reciprocal as u64).wrapping_mul(correction as u64) >> 31) as u32;
     correction = negate_u32(((reciprocal as u64).wrapping_mul(q31b as u64) >> 32) as u32);
-    reciprocal = ((reciprocal as u64).wrapping_mul(correction as u64) as u64 >> 31) as u32;
-    correction = negate_u32(((reciprocal as u64).wrapping_mul(q31b as u64) >> 32) as u32);
-    reciprocal = ((reciprocal as u64).wrapping_mul(correction as u64) as u64 >> 31) as u32;
+    reciprocal = ((reciprocal as u64).wrapping_mul(correction as u64) >> 31) as u32;
 
     // Exhaustive testing shows that the error in reciprocal after three steps
     // is in the interval [-0x1.f58108p-31, 0x1.d0e48cp-29], in line with our
@@ -156,7 +161,7 @@ where
     //       is the error in the reciprocal of b scaled by the maximum
     //       possible value of a.  As a consequence of this error bound,
     //       either q or nextafter(q) is the correctly rounded
-    let (mut quotient, _) = <F::Int as WideInt>::wide_mul(a_significand << 1, reciprocal.cast());
+    let mut quotient = (a_significand << 1).widen_mul(reciprocal.cast()).hi();
 
     // Two cases: quotient is in [0.5, 1.0) or quotient is in [1.0, 2.0).
     // In either case, we are going to compute a residual of the form
@@ -211,7 +216,7 @@ where
     F::Int: CastInto<u64>,
     i64: CastInto<F::Int>,
     F::Int: CastInto<i64>,
-    F::Int: WideInt,
+    F::Int: HInt,
 {
     let one = F::Int::ONE;
     let zero = F::Int::ZERO;
@@ -338,8 +343,9 @@ where
     // This doubles the number of correct binary digits in the approximation
     // with each iteration, so after three iterations, we have about 28 binary
     // digits of accuracy.
-    let mut correction32: u32;
-    correction32 = negate_u32(((recip32 as u64).wrapping_mul(q31b as u64) >> 32) as u32);
+
+    let mut correction32: u32 =
+        negate_u32(((recip32 as u64).wrapping_mul(q31b as u64) >> 32) as u32);
     recip32 = ((recip32 as u64).wrapping_mul(correction32 as u64) >> 31) as u32;
     correction32 = negate_u32(((recip32 as u64).wrapping_mul(q31b as u64) >> 32) as u32);
     recip32 = ((recip32 as u64).wrapping_mul(correction32 as u64) >> 31) as u32;
@@ -355,16 +361,15 @@ where
     // We need to perform one more iteration to get us to 56 binary digits;
     // The last iteration needs to happen with extra precision.
     let q63blo = CastInto::<u32>::cast(b_significand << 11.cast());
-    let correction: u64;
-    let mut reciprocal: u64;
-    correction = negate_u64(
+
+    let correction: u64 = negate_u64(
         (recip32 as u64)
             .wrapping_mul(q31b as u64)
             .wrapping_add((recip32 as u64).wrapping_mul(q63blo as u64) >> 32),
     );
     let c_hi = (correction >> 32) as u32;
     let c_lo = correction as u32;
-    reciprocal = (recip32 as u64)
+    let mut reciprocal: u64 = (recip32 as u64)
         .wrapping_mul(c_hi as u64)
         .wrapping_add((recip32 as u64).wrapping_mul(c_lo as u64) >> 32);
 
@@ -394,7 +399,7 @@ where
 
     // We need a 64 x 64 multiply high to compute q, which isn't a basic
     // operation in C, so we need to be a little bit fussy.
-    let (mut quotient, _) = <F::Int as WideInt>::wide_mul(a_significand << 2, reciprocal.cast());
+    let mut quotient = (a_significand << 2).widen_mul(reciprocal.cast()).hi();
 
     // Two cases: quotient is in [0.5, 1.0) or quotient is in [1.0, 2.0).
     // In either case, we are going to compute a residual of the form

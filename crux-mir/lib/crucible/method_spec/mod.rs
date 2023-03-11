@@ -53,7 +53,7 @@ impl fmt::Debug for MethodSpecBuilder {
 }
 
 impl MethodSpecBuilder {
-    pub fn new<Args, F: Fn<Args>>(f: F) -> MethodSpecBuilder {
+    pub fn new<Args: core::marker::Tuple, F: Fn<Args>>(f: F) -> MethodSpecBuilder {
         MethodSpecBuilder {
             raw: raw::builder_new::<F>(),
         }

@@ -8,6 +8,7 @@
 
 use crate::cell::UnsafeCell;
 use crate::cmp;
+use crate::fmt::Debug;
 use crate::hash::Hash;
 use crate::hash::Hasher;
 
@@ -29,7 +30,7 @@ use crate::hash::Hasher;
 /// [arc]: ../../std/sync/struct.Arc.html
 /// [ub]: ../../reference/behavior-considered-undefined.html
 #[stable(feature = "rust1", since = "1.0.0")]
-#[cfg_attr(not(test), rustc_diagnostic_item = "send_trait")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "Send")]
 #[rustc_on_unimplemented(
     message = "`{Self}` cannot be sent between threads safely",
     label = "`{Self}` cannot be sent between threads safely"
@@ -42,6 +43,12 @@ pub unsafe auto trait Send {
 impl<T: ?Sized> !Send for *const T {}
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> !Send for *mut T {}
+
+// Most instances arise automatically, but this instance is needed to link up `T: Sync` with
+// `&T: Send` (and it also removes the unsound default instance `T Send` -> `&T: Send` that would
+// otherwise exist).
+#[stable(feature = "rust1", since = "1.0.0")]
+unsafe impl<T: Sync + ?Sized> Send for &T {}
 
 /// Types with a constant size known at compile time.
 ///
@@ -80,17 +87,16 @@ impl<T: ?Sized> !Send for *mut T {}
 /// ```
 ///
 /// [trait object]: ../../book/ch17-02-trait-objects.html
+#[doc(alias = "?", alias = "?Sized")]
 #[stable(feature = "rust1", since = "1.0.0")]
 #[lang = "sized"]
 #[rustc_on_unimplemented(
-    on(parent_trait = "std::path::Path", label = "borrow the `Path` instead"),
     message = "the size for values of type `{Self}` cannot be known at compilation time",
-    label = "doesn't have a size known at compile-time",
-    note = "to learn more, visit <https://doc.rust-lang.org/book/\
-          ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>"
+    label = "doesn't have a size known at compile-time"
 )]
 #[fundamental] // for Default, for example, which requires that `[T]: !Default` be evaluatable
-#[cfg_attr(not(bootstrap), rustc_specialization_trait)]
+#[rustc_specialization_trait]
+#[rustc_deny_explicit_impl]
 pub trait Sized {
     // Empty.
 }
@@ -101,29 +107,28 @@ pub trait Sized {
 /// `Unsize<dyn fmt::Debug>`.
 ///
 /// All implementations of `Unsize` are provided automatically by the compiler.
+/// Those implementations are:
 ///
-/// `Unsize` is implemented for:
+/// - Arrays `[T; N]` implement `Unsize<[T]>`.
+/// - Types implementing a trait `Trait` also implement `Unsize<dyn Trait>`.
+/// - Structs `Foo<..., T, ...>` implement `Unsize<Foo<..., U, ...>>` if all of these conditions
+///   are met:
+///   - `T: Unsize<U>`.
+///   - Only the last field of `Foo` has a type involving `T`.
+///   - `Bar<T>: Unsize<Bar<U>>`, where `Bar<T>` stands for the actual type of that last field.
 ///
-/// - `[T; N]` is `Unsize<[T]>`
-/// - `T` is `Unsize<dyn Trait>` when `T: Trait`
-/// - `Foo<..., T, ...>` is `Unsize<Foo<..., U, ...>>` if:
-///   - `T: Unsize<U>`
-///   - Foo is a struct
-///   - Only the last field of `Foo` has a type involving `T`
-///   - `T` is not part of the type of any other fields
-///   - `Bar<T>: Unsize<Bar<U>>`, if the last field of `Foo` has type `Bar<T>`
-///
-/// `Unsize` is used along with [`ops::CoerceUnsized`][coerceunsized] to allow
-/// "user-defined" containers such as [`rc::Rc`][rc] to contain dynamically-sized
+/// `Unsize` is used along with [`ops::CoerceUnsized`] to allow
+/// "user-defined" containers such as [`Rc`] to contain dynamically-sized
 /// types. See the [DST coercion RFC][RFC982] and [the nomicon entry on coercion][nomicon-coerce]
 /// for more details.
 ///
-/// [coerceunsized]: ../ops/trait.CoerceUnsized.html
-/// [rc]: ../../std/rc/struct.Rc.html
+/// [`ops::CoerceUnsized`]: crate::ops::CoerceUnsized
+/// [`Rc`]: ../../std/rc/struct.Rc.html
 /// [RFC982]: https://github.com/rust-lang/rfcs/blob/master/text/0982-dst-coercion.md
 /// [nomicon-coerce]: ../../nomicon/coercions.html
-#[unstable(feature = "unsize", issue = "27732")]
+#[unstable(feature = "unsize", issue = "18598")]
 #[lang = "unsize"]
+#[rustc_deny_explicit_impl]
 pub trait Unsize<T: ?Sized> {
     // Empty.
 }
@@ -158,18 +163,18 @@ pub trait StructuralPartialEq {
 /// Required trait for constants used in pattern matches.
 ///
 /// Any type that derives `Eq` automatically implements this trait, *regardless*
-/// of whether its type-parameters implement `Eq`.
+/// of whether its type parameters implement `Eq`.
 ///
-/// This is a hack to workaround a limitation in our type-system.
+/// This is a hack to work around a limitation in our type system.
 ///
-/// Background:
+/// # Background
 ///
 /// We want to require that types of consts used in pattern matches
 /// have the attribute `#[derive(PartialEq, Eq)]`.
 ///
 /// In a more ideal world, we could check that requirement by just checking that
-/// the given type implements both (1.) the `StructuralPartialEq` trait *and*
-/// (2.) the `Eq` trait. However, you can have ADTs that *do* `derive(PartialEq, Eq)`,
+/// the given type implements both the `StructuralPartialEq` trait *and*
+/// the `Eq` trait. However, you can have ADTs that *do* `derive(PartialEq, Eq)`,
 /// and be a case that we want the compiler to accept, and yet the constant's
 /// type fails to implement `Eq`.
 ///
@@ -178,8 +183,11 @@ pub trait StructuralPartialEq {
 /// ```rust
 /// #[derive(PartialEq, Eq)]
 /// struct Wrap<X>(X);
+///
 /// fn higher_order(_: &()) { }
+///
 /// const CFN: Wrap<fn(&())> = Wrap(higher_order);
+///
 /// fn main() {
 ///     match CFN {
 ///         CFN => {}
@@ -220,7 +228,7 @@ pub trait StructuralEq {
 ///
 /// // `x` has moved into `y`, and so cannot be used
 ///
-/// // println!("{:?}", x); // error: use of moved value
+/// // println!("{x:?}"); // error: use of moved value
 /// ```
 ///
 /// However, if a type implements `Copy`, it instead has 'copy semantics':
@@ -237,7 +245,7 @@ pub trait StructuralEq {
 ///
 /// // `y` is a copy of `x`
 ///
-/// println!("{:?}", x); // A-OK!
+/// println!("{x:?}"); // A-OK!
 /// ```
 ///
 /// It's important to note that in these two examples, the only difference is whether you
@@ -293,6 +301,7 @@ pub trait StructuralEq {
 ///
 /// ```
 /// # #[allow(dead_code)]
+/// #[derive(Copy, Clone)]
 /// struct Point {
 ///    x: i32,
 ///    y: i32,
@@ -317,6 +326,20 @@ pub trait StructuralEq {
 /// the trait `Copy` may not be implemented for this type; field `points` does not implement `Copy`
 /// ```
 ///
+/// Shared references (`&T`) are also `Copy`, so a type can be `Copy`, even when it holds
+/// shared references of types `T` that are *not* `Copy`. Consider the following struct,
+/// which can implement `Copy`, because it only holds a *shared reference* to our non-`Copy`
+/// type `PointList` from above:
+///
+/// ```
+/// # #![allow(dead_code)]
+/// # struct PointList;
+/// #[derive(Copy, Clone)]
+/// struct PointListWrapper<'a> {
+///     point_list_ref: &'a PointList,
+/// }
+/// ```
+///
 /// ## When *can't* my type be `Copy`?
 ///
 /// Some types can't be copied safely. For example, copying `&mut T` would create an aliased
@@ -329,7 +352,7 @@ pub trait StructuralEq {
 /// If you try to implement `Copy` on a struct or enum containing non-`Copy` data, you will get
 /// the error [E0204].
 ///
-/// [E0204]: ../../error-index.html#E0204
+/// [E0204]: ../../error_codes/E0204.html
 ///
 /// ## When *should* my type be `Copy`?
 ///
@@ -345,8 +368,6 @@ pub trait StructuralEq {
 ///
 /// * Function item types (i.e., the distinct types defined for each function)
 /// * Function pointer types (e.g., `fn() -> i32`)
-/// * Array types, for all sizes, if the item type also implements `Copy` (e.g., `[i32; 123456]`)
-/// * Tuple types, if each component also implements `Copy` (e.g., `()`, `(i32, bool)`)
 /// * Closure types, if they capture no value from the environment
 ///   or if all such captured values implement `Copy` themselves.
 ///   Note that variables captured by shared reference always implement `Copy`
@@ -355,14 +376,18 @@ pub trait StructuralEq {
 ///
 /// [`Vec<T>`]: ../../std/vec/struct.Vec.html
 /// [`String`]: ../../std/string/struct.String.html
-/// [`Drop`]: ../../std/ops/trait.Drop.html
-/// [`size_of::<T>`]: ../../std/mem/fn.size_of.html
-/// [`Clone`]: ../clone/trait.Clone.html
-/// [`String`]: ../../std/string/struct.String.html
-/// [`i32`]: ../../std/primitive.i32.html
+/// [`size_of::<T>`]: crate::mem::size_of
 /// [impls]: #implementors
 #[stable(feature = "rust1", since = "1.0.0")]
 #[lang = "copy"]
+// FIXME(matthewjasper) This allows copying a type that doesn't implement
+// `Copy` because of unsatisfied lifetime bounds (copying `A<'_>` when only
+// `A<'static>: Copy` and `A<'_>: Clone`).
+// We have this attribute here for now only because there are quite a few
+// existing specializations on `Copy` that already exist in the standard
+// library, and there's no way to safely have this behavior right now.
+#[rustc_unsafe_specialization_marker]
+#[rustc_diagnostic_item = "Copy"]
 pub trait Copy: Clone {
     // Empty.
 }
@@ -380,18 +405,18 @@ pub macro Copy($item:item) {
 /// This trait is automatically implemented when the compiler determines
 /// it's appropriate.
 ///
-/// The precise definition is: a type `T` is `Sync` if and only if `&T` is
-/// [`Send`][send]. In other words, if there is no possibility of
+/// The precise definition is: a type `T` is [`Sync`] if and only if `&T` is
+/// [`Send`]. In other words, if there is no possibility of
 /// [undefined behavior][ub] (including data races) when passing
 /// `&T` references between threads.
 ///
-/// As one would expect, primitive types like [`u8`][u8] and [`f64`][f64]
-/// are all `Sync`, and so are simple aggregate types containing them,
-/// like tuples, structs and enums. More examples of basic `Sync`
+/// As one would expect, primitive types like [`u8`] and [`f64`]
+/// are all [`Sync`], and so are simple aggregate types containing them,
+/// like tuples, structs and enums. More examples of basic [`Sync`]
 /// types include "immutable" types like `&T`, and those with simple
 /// inherited mutability, such as [`Box<T>`][box], [`Vec<T>`][vec] and
-/// most other collection types. (Generic parameters need to be `Sync`
-/// for their container to be `Sync`.)
+/// most other collection types. (Generic parameters need to be [`Sync`]
+/// for their container to be [`Sync`].)
 ///
 /// A somewhat surprising consequence of the definition is that `&mut T`
 /// is `Sync` (if `T` is `Sync`) even though it seems like that might
@@ -401,15 +426,15 @@ pub macro Copy($item:item) {
 /// of a data race.
 ///
 /// Types that are not `Sync` are those that have "interior
-/// mutability" in a non-thread-safe form, such as [`cell::Cell`][cell]
-/// and [`cell::RefCell`][refcell]. These types allow for mutation of
+/// mutability" in a non-thread-safe form, such as [`Cell`][cell]
+/// and [`RefCell`][refcell]. These types allow for mutation of
 /// their contents even through an immutable, shared reference. For
 /// example the `set` method on [`Cell<T>`][cell] takes `&self`, so it requires
 /// only a shared reference [`&Cell<T>`][cell]. The method performs no
 /// synchronization, thus [`Cell`][cell] cannot be `Sync`.
 ///
 /// Another example of a non-`Sync` type is the reference-counting
-/// pointer [`rc::Rc`][rc]. Given any reference [`&Rc<T>`][rc], you can clone
+/// pointer [`Rc`][rc]. Given any reference [`&Rc<T>`][rc], you can clone
 /// a new [`Rc<T>`][rc], modifying the reference counts in a non-atomic way.
 ///
 /// For cases when one does need thread-safe interior mutability,
@@ -425,26 +450,23 @@ pub macro Copy($item:item) {
 /// [undefined behavior][ub]. For example, [`transmute`][transmute]-ing
 /// from `&T` to `&mut T` is invalid.
 ///
-/// See [the Nomicon](../../nomicon/send-and-sync.html) for more
-/// details about `Sync`.
+/// See [the Nomicon][nomicon-send-and-sync] for more details about `Sync`.
 ///
-/// [send]: trait.Send.html
-/// [u8]: ../../std/primitive.u8.html
-/// [f64]: ../../std/primitive.f64.html
 /// [box]: ../../std/boxed/struct.Box.html
 /// [vec]: ../../std/vec/struct.Vec.html
-/// [cell]: ../cell/struct.Cell.html
-/// [refcell]: ../cell/struct.RefCell.html
+/// [cell]: crate::cell::Cell
+/// [refcell]: crate::cell::RefCell
 /// [rc]: ../../std/rc/struct.Rc.html
 /// [arc]: ../../std/sync/struct.Arc.html
-/// [atomic data types]: ../sync/atomic/index.html
+/// [atomic data types]: crate::sync::atomic
 /// [mutex]: ../../std/sync/struct.Mutex.html
 /// [rwlock]: ../../std/sync/struct.RwLock.html
-/// [unsafecell]: ../cell/struct.UnsafeCell.html
+/// [unsafecell]: crate::cell::UnsafeCell
 /// [ub]: ../../reference/behavior-considered-undefined.html
-/// [transmute]: ../../std/mem/fn.transmute.html
+/// [transmute]: crate::mem::transmute
+/// [nomicon-send-and-sync]: ../../nomicon/send-and-sync.html
 #[stable(feature = "rust1", since = "1.0.0")]
-#[cfg_attr(not(test), rustc_diagnostic_item = "sync_trait")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "Sync")]
 #[lang = "sync"]
 #[rustc_on_unimplemented(
     message = "`{Self}` cannot be shared between threads safely",
@@ -468,63 +490,6 @@ pub unsafe auto trait Sync {
 impl<T: ?Sized> !Sync for *const T {}
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> !Sync for *mut T {}
-
-macro_rules! impls {
-    ($t: ident) => {
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> Hash for $t<T> {
-            #[inline]
-            fn hash<H: Hasher>(&self, _: &mut H) {}
-        }
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> cmp::PartialEq for $t<T> {
-            fn eq(&self, _other: &$t<T>) -> bool {
-                true
-            }
-        }
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> cmp::Eq for $t<T> {}
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> cmp::PartialOrd for $t<T> {
-            fn partial_cmp(&self, _other: &$t<T>) -> Option<cmp::Ordering> {
-                Option::Some(cmp::Ordering::Equal)
-            }
-        }
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> cmp::Ord for $t<T> {
-            fn cmp(&self, _other: &$t<T>) -> cmp::Ordering {
-                cmp::Ordering::Equal
-            }
-        }
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> Copy for $t<T> {}
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> Clone for $t<T> {
-            fn clone(&self) -> Self {
-                Self
-            }
-        }
-
-        #[stable(feature = "rust1", since = "1.0.0")]
-        impl<T: ?Sized> Default for $t<T> {
-            fn default() -> Self {
-                Self
-            }
-        }
-
-        #[unstable(feature = "structural_match", issue = "31434")]
-        impl<T: ?Sized> StructuralPartialEq for $t<T> {}
-
-        #[unstable(feature = "structural_match", issue = "31434")]
-        impl<T: ?Sized> StructuralEq for $t<T> {}
-    };
-}
 
 /// Zero-sized type used to mark things that "act like" they own a `T`.
 ///
@@ -630,9 +595,9 @@ macro_rules! impls {
 /// }
 ///
 /// impl<R: ResType> ExternalResource<R> {
-///     fn new() -> ExternalResource<R> {
+///     fn new() -> Self {
 ///         let size_of_res = mem::size_of::<R>();
-///         ExternalResource {
+///         Self {
 ///             resource_handle: foreign_lib::new(size_of_res),
 ///             resource_type: PhantomData,
 ///         }
@@ -658,19 +623,90 @@ macro_rules! impls {
 /// (ideally) or `PhantomData<*const T>` (if no lifetime applies), so
 /// as not to indicate ownership.
 ///
+/// ## Layout
+///
+/// For all `T`, the following are guaranteed:
+/// * `size_of::<PhantomData<T>>() == 0`
+/// * `align_of::<PhantomData<T>>() == 1`
+///
 /// [drop check]: ../../nomicon/dropck.html
 #[lang = "phantom_data"]
-#[structural_match]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct PhantomData<T: ?Sized>;
 
-impls! { PhantomData }
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> Hash for PhantomData<T> {
+    #[inline]
+    fn hash<H: Hasher>(&self, _: &mut H) {}
+}
 
-mod impls {
-    #[stable(feature = "rust1", since = "1.0.0")]
-    unsafe impl<T: Sync + ?Sized> Send for &T {}
-    #[stable(feature = "rust1", since = "1.0.0")]
-    unsafe impl<T: Send + ?Sized> Send for &mut T {}
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> cmp::PartialEq for PhantomData<T> {
+    fn eq(&self, _other: &PhantomData<T>) -> bool {
+        true
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> cmp::Eq for PhantomData<T> {}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> cmp::PartialOrd for PhantomData<T> {
+    fn partial_cmp(&self, _other: &PhantomData<T>) -> Option<cmp::Ordering> {
+        Option::Some(cmp::Ordering::Equal)
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> cmp::Ord for PhantomData<T> {
+    fn cmp(&self, _other: &PhantomData<T>) -> cmp::Ordering {
+        cmp::Ordering::Equal
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> Copy for PhantomData<T> {}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: ?Sized> Clone for PhantomData<T> {
+    fn clone(&self) -> Self {
+        Self
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+#[rustc_const_unstable(feature = "const_default_impls", issue = "87864")]
+impl<T: ?Sized> const Default for PhantomData<T> {
+    fn default() -> Self {
+        Self
+    }
+}
+
+#[unstable(feature = "structural_match", issue = "31434")]
+impl<T: ?Sized> StructuralPartialEq for PhantomData<T> {}
+
+#[unstable(feature = "structural_match", issue = "31434")]
+impl<T: ?Sized> StructuralEq for PhantomData<T> {}
+
+/// Compiler-internal trait used to indicate the type of enum discriminants.
+///
+/// This trait is automatically implemented for every type and does not add any
+/// guarantees to [`mem::Discriminant`]. It is **undefined behavior** to transmute
+/// between `DiscriminantKind::Discriminant` and `mem::Discriminant`.
+///
+/// [`mem::Discriminant`]: crate::mem::Discriminant
+#[unstable(
+    feature = "discriminant_kind",
+    issue = "none",
+    reason = "this trait is unlikely to ever be stabilized, use `mem::discriminant` instead"
+)]
+#[lang = "discriminant_kind"]
+#[rustc_deny_explicit_impl]
+pub trait DiscriminantKind {
+    /// The type of the discriminant, which must satisfy the trait
+    /// bounds required by `mem::Discriminant`.
+    #[lang = "discriminant_type"]
+    type Discriminant: Clone + Copy + Debug + Eq + PartialEq + Hash + Send + Sync + Unpin;
 }
 
 /// Compiler-internal trait used to determine whether a type contains
@@ -689,27 +725,28 @@ unsafe impl<T: ?Sized> Freeze for &mut T {}
 
 /// Types that can be safely moved after being pinned.
 ///
-/// Since Rust itself has no notion of immovable types, and considers moves
-/// (e.g., through assignment or [`mem::replace`]) to always be safe,
-/// this trait cannot prevent types from moving by itself.
+/// Rust itself has no notion of immovable types, and considers moves (e.g.,
+/// through assignment or [`mem::replace`]) to always be safe.
 ///
-/// Instead it is used to prevent moves through the type system,
-/// by controlling the behavior of pointers `P` wrapped in the [`Pin<P>`] wrapper,
-/// which "pin" the type in place by not allowing it to be moved out of them.
-/// See the [`pin module`] documentation for more information on pinning.
+/// The [`Pin`][Pin] type is used instead to prevent moves through the type
+/// system. Pointers `P<T>` wrapped in the [`Pin<P<T>>`][Pin] wrapper can't be
+/// moved out of. See the [`pin` module] documentation for more information on
+/// pinning.
 ///
-/// Implementing this trait lifts the restrictions of pinning off a type,
-/// which then allows it to move out with functions such as [`mem::replace`].
+/// Implementing the `Unpin` trait for `T` lifts the restrictions of pinning off
+/// the type, which then allows moving `T` out of [`Pin<P<T>>`][Pin] with
+/// functions such as [`mem::replace`].
 ///
 /// `Unpin` has no consequence at all for non-pinned data. In particular,
 /// [`mem::replace`] happily moves `!Unpin` data (it works for any `&mut T`, not
-/// just when `T: Unpin`). However, you cannot use
-/// [`mem::replace`] on data wrapped inside a [`Pin<P>`] because you cannot get the
-/// `&mut T` you need for that, and *that* is what makes this system work.
+/// just when `T: Unpin`). However, you cannot use [`mem::replace`] on data
+/// wrapped inside a [`Pin<P<T>>`][Pin] because you cannot get the `&mut T` you
+/// need for that, and *that* is what makes this system work.
 ///
 /// So this, for example, can only be done on types implementing `Unpin`:
 ///
 /// ```rust
+/// # #![allow(unused_must_use)]
 /// use std::mem;
 /// use std::pin::Pin;
 ///
@@ -724,12 +761,12 @@ unsafe impl<T: ?Sized> Freeze for &mut T {}
 ///
 /// This trait is automatically implemented for almost every type.
 ///
-/// [`mem::replace`]: ../../std/mem/fn.replace.html
-/// [`Pin<P>`]: ../pin/struct.Pin.html
-/// [`pin module`]: ../../std/pin/index.html
+/// [`mem::replace`]: crate::mem::replace
+/// [Pin]: crate::pin::Pin
+/// [`pin` module]: crate::pin
 #[stable(feature = "pin", since = "1.33.0")]
 #[rustc_on_unimplemented(
-    on(_Self = "std::future::Future", note = "consider using `Box::pin`",),
+    note = "consider using `Box::pin`",
     message = "`{Self}` cannot be unpinned"
 )]
 #[lang = "unpin"]
@@ -739,7 +776,7 @@ pub auto trait Unpin {}
 ///
 /// If a type contains a `PhantomPinned`, it will not implement `Unpin` by default.
 #[stable(feature = "pin", since = "1.33.0")]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PhantomPinned;
 
 #[stable(feature = "pin", since = "1.33.0")]
@@ -757,10 +794,41 @@ impl<T: ?Sized> Unpin for *const T {}
 #[stable(feature = "pin_raw", since = "1.38.0")]
 impl<T: ?Sized> Unpin for *mut T {}
 
+/// A marker for types that can be dropped.
+///
+/// This should be used for `~const` bounds,
+/// as non-const bounds will always hold for every type.
+#[unstable(feature = "const_trait_impl", issue = "67792")]
+#[lang = "destruct"]
+#[rustc_on_unimplemented(message = "can't drop `{Self}`", append_const_msg)]
+#[const_trait]
+#[rustc_deny_explicit_impl]
+pub trait Destruct {}
+
+/// A marker for tuple types.
+///
+/// The implementation of this trait is built-in and cannot be implemented
+/// for any user type.
+#[unstable(feature = "tuple_trait", issue = "none")]
+#[lang = "tuple_trait"]
+#[rustc_on_unimplemented(message = "`{Self}` is not a tuple")]
+#[rustc_deny_explicit_impl]
+pub trait Tuple {}
+
+/// A marker for things
+#[unstable(feature = "pointer_sized_trait", issue = "none")]
+#[lang = "pointer_sized"]
+#[rustc_on_unimplemented(
+    message = "`{Self}` needs to be a pointer-sized type",
+    label = "`{Self}` needs to be a pointer-sized type"
+)]
+pub trait PointerSized {}
+
 /// Implementations of `Copy` for primitive types.
 ///
 /// Implementations that cannot be described in Rust
-/// are implemented in `SelectionContext::copy_clone_conditions()` in librustc.
+/// are implemented in `traits::SelectionContext::copy_clone_conditions()`
+/// in `rustc_trait_selection`.
 mod copy_impls {
 
     use super::Copy;
@@ -790,7 +858,7 @@ mod copy_impls {
     #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Copy for *mut T {}
 
-    // Shared references can be copied, but mutable references *cannot*!
+    /// Shared references can be copied, but mutable references *cannot*!
     #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Copy for &T {}
 }

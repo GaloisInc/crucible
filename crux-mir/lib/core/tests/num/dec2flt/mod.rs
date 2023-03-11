@@ -1,9 +1,8 @@
 #![allow(overflowing_literals)]
 
-use std::{f32, f64, i64};
-
+mod float;
+mod lemire;
 mod parse;
-mod rawfp;
 
 // Take a float literal, turn it into a string in various ways (that are all trusted
 // to be correct) and see if those strings are parsed back to the value of the literal.
@@ -16,14 +15,13 @@ macro_rules! test_literal {
         for input in inputs {
             assert_eq!(input.parse(), Ok(x64));
             assert_eq!(input.parse(), Ok(x32));
-            let neg_input = &format!("-{}", input);
+            let neg_input = format!("-{input}");
             assert_eq!(neg_input.parse(), Ok(-x64));
             assert_eq!(neg_input.parse(), Ok(-x32));
         }
     }};
 }
 
-#[cfg_attr(all(target_arch = "wasm32", target_os = "emscripten"), ignore)] // issue 42630
 #[test]
 fn ordinary() {
     test_literal!(1.0);
@@ -31,16 +29,9 @@ fn ordinary() {
     test_literal!(0.1);
     test_literal!(12345.);
     test_literal!(0.9999999);
-
-    if cfg!(miri) {
-        // Miri is too slow
-        return;
-    }
-
     test_literal!(2.2250738585072014e-308);
 }
 
-#[cfg_attr(all(target_arch = "wasm32", target_os = "emscripten"), ignore)] // issue 42630
 #[test]
 fn special_code_paths() {
     test_literal!(36893488147419103229.0); // 2^65 - 3, triggers half-to-even with even significand
@@ -58,7 +49,6 @@ fn large() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)] // Miri is too slow
 fn subnormals() {
     test_literal!(5e-324);
     test_literal!(91e-324);
@@ -70,7 +60,6 @@ fn subnormals() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)] // Miri is too slow
 fn infinity() {
     test_literal!(1e400);
     test_literal!(1e309);
@@ -82,12 +71,6 @@ fn infinity() {
 fn zero() {
     test_literal!(0.0);
     test_literal!(1e-325);
-
-    if cfg!(miri) {
-        // Miri is too slow
-        return;
-    }
-
     test_literal!(1e-326);
     test_literal!(1e-500);
 }
@@ -140,9 +123,9 @@ fn inf() {
 #[test]
 fn massive_exponent() {
     let max = i64::MAX;
-    assert_eq!(format!("1e{}000", max).parse(), Ok(f64::INFINITY));
-    assert_eq!(format!("1e-{}000", max).parse(), Ok(0.0));
-    assert_eq!(format!("1e{}000", max).parse(), Ok(f64::INFINITY));
+    assert_eq!(format!("1e{max}000").parse(), Ok(f64::INFINITY));
+    assert_eq!(format!("1e-{max}000").parse(), Ok(0.0));
+    assert_eq!(format!("1e{max}000").parse(), Ok(f64::INFINITY));
 }
 
 #[test]

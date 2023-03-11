@@ -1,10 +1,12 @@
-use std::{f32, f64, fmt, i16, str};
+use std::mem::MaybeUninit;
+use std::{fmt, str};
 
 use core::num::flt2dec::{decode, DecodableFloat, Decoded, FullDecoded};
-use core::num::flt2dec::{round_up, Formatted, Part, Sign, MAX_SIG_DIGITS};
+use core::num::flt2dec::{round_up, Sign, MAX_SIG_DIGITS};
 use core::num::flt2dec::{
     to_exact_exp_str, to_exact_fixed_str, to_shortest_exp_str, to_shortest_str,
 };
+use core::num::fmt::{Formatted, Part};
 
 pub use test::Bencher;
 
@@ -18,7 +20,7 @@ mod random;
 pub fn decode_finite<T: DecodableFloat>(v: T) -> Decoded {
     match decode(v).1 {
         FullDecoded::Finite(decoded) => decoded,
-        full_decoded => panic!("expected finite, got {:?} instead", full_decoded),
+        full_decoded => panic!("expected finite, got {full_decoded:?} instead"),
     }
 }
 
@@ -36,20 +38,20 @@ macro_rules! check_shortest {
     );
 
     ($f:ident($v:expr) => $buf:expr, $exp:expr; $fmt:expr, $($key:ident = $val:expr),*) => ({
-        let mut buf = [b'_'; MAX_SIG_DIGITS];
-        let (len, k) = $f(&decode_finite($v), &mut buf);
-        assert!((&buf[..len], k) == ($buf, $exp),
-                $fmt, actual = (str::from_utf8(&buf[..len]).unwrap(), k),
+        let mut buf = [MaybeUninit::new(b'_'); MAX_SIG_DIGITS];
+        let (buf, k) = $f(&decode_finite($v), &mut buf);
+        assert!((buf, k) == ($buf, $exp),
+                $fmt, actual = (str::from_utf8(buf).unwrap(), k),
                       expected = (str::from_utf8($buf).unwrap(), $exp),
                       $($key = $val),*);
     });
 
     ($f:ident{$($k:ident: $v:expr),+} => $buf:expr, $exp:expr;
                                          $fmt:expr, $($key:ident = $val:expr),*) => ({
-        let mut buf = [b'_'; MAX_SIG_DIGITS];
-        let (len, k) = $f(&Decoded { $($k: $v),+ }, &mut buf);
-        assert!((&buf[..len], k) == ($buf, $exp),
-                $fmt, actual = (str::from_utf8(&buf[..len]).unwrap(), k),
+        let mut buf = [MaybeUninit::new(b'_'); MAX_SIG_DIGITS];
+        let (buf, k) = $f(&Decoded { $($k: $v),+ }, &mut buf);
+        assert!((buf, k) == ($buf, $exp),
+                $fmt, actual = (str::from_utf8(buf).unwrap(), k),
                       expected = (str::from_utf8($buf).unwrap(), $exp),
                       $($key = $val),*);
     })
@@ -58,9 +60,9 @@ macro_rules! check_shortest {
 macro_rules! try_exact {
     ($f:ident($decoded:expr) => $buf:expr, $expected:expr, $expectedk:expr;
                                 $fmt:expr, $($key:ident = $val:expr),*) => ({
-        let (len, k) = $f($decoded, &mut $buf[..$expected.len()], i16::MIN);
-        assert!((&$buf[..len], k) == ($expected, $expectedk),
-                $fmt, actual = (str::from_utf8(&$buf[..len]).unwrap(), k),
+        let (buf, k) = $f($decoded, &mut $buf[..$expected.len()], i16::MIN);
+        assert!((buf, k) == ($expected, $expectedk),
+                $fmt, actual = (str::from_utf8(buf).unwrap(), k),
                       expected = (str::from_utf8($expected).unwrap(), $expectedk),
                       $($key = $val),*);
     })
@@ -69,9 +71,9 @@ macro_rules! try_exact {
 macro_rules! try_fixed {
     ($f:ident($decoded:expr) => $buf:expr, $request:expr, $expected:expr, $expectedk:expr;
                                 $fmt:expr, $($key:ident = $val:expr),*) => ({
-        let (len, k) = $f($decoded, &mut $buf[..], $request);
-        assert!((&$buf[..len], k) == ($expected, $expectedk),
-                $fmt, actual = (str::from_utf8(&$buf[..len]).unwrap(), k),
+        let (buf, k) = $f($decoded, &mut $buf[..], $request);
+        assert!((buf, k) == ($expected, $expectedk),
+                $fmt, actual = (str::from_utf8(buf).unwrap(), k),
                       expected = (str::from_utf8($expected).unwrap(), $expectedk),
                       $($key = $val),*);
     })
@@ -93,10 +95,10 @@ fn ldexp_f64(a: f64, b: i32) -> f64 {
 fn check_exact<F, T>(mut f: F, v: T, vstr: &str, expected: &[u8], expectedk: i16)
 where
     T: DecodableFloat,
-    F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
 {
     // use a large enough buffer
-    let mut buf = [b'_'; 1024];
+    let mut buf = [MaybeUninit::new(b'_'); 1024];
     let mut expected_ = [b'_'; 1024];
 
     let decoded = decode_finite(v);
@@ -118,7 +120,7 @@ where
                 // we should always return `100..00` (`i` digits) instead, since that's
                 // what we can came up with `i` digits anyway. `round_up` assumes that
                 // the adjustment to the length is done by caller, which we simply ignore.
-                if let Some(_) = round_up(&mut expected_, i) {
+                if let Some(_) = round_up(&mut expected_[..i]) {
                     expectedk_ += 1;
                 }
             }
@@ -136,7 +138,7 @@ where
 
     // check exact rounding for zero- and negative-width cases
     let start;
-    if expected[0] >= b'5' {
+    if expected[0] > b'5' {
         try_fixed!(f(&decoded) => &mut buf, expectedk, b"1", expectedk + 1;
                    "zero-width rounding-up mismatch for v={v}: \
                     actual {actual:?}, expected {expected:?}",
@@ -193,10 +195,10 @@ impl TestableFloat for f64 {
 fn check_exact_one<F, T>(mut f: F, x: i64, e: isize, tstr: &str, expected: &[u8], expectedk: i16)
 where
     T: TestableFloat,
-    F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
 {
     // use a large enough buffer
-    let mut buf = [b'_'; 1024];
+    let mut buf = [MaybeUninit::new(b'_'); 1024];
     let v: T = TestableFloat::ldexpi(x, e);
     let decoded = decode_finite(v);
 
@@ -230,7 +232,7 @@ macro_rules! check_exact_one {
 
 pub fn f32_shortest_sanity_test<F>(mut f: F)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     // 0.0999999940395355224609375
     // 0.100000001490116119384765625
@@ -277,7 +279,7 @@ where
 
 pub fn f32_exact_sanity_test<F>(mut f: F)
 where
-    F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
 {
     let minf32 = ldexp_f32(1.0, -149);
 
@@ -321,7 +323,7 @@ where
 
 pub fn f64_shortest_sanity_test<F>(mut f: F)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     // 0.0999999999999999777955395074968691915273...
     // 0.1000000000000000055511151231257827021181...
@@ -387,7 +389,7 @@ where
 
 pub fn f64_exact_sanity_test<F>(mut f: F)
 where
-    F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
 {
     let minf64 = ldexp_f64(1.0, -1074);
 
@@ -474,7 +476,7 @@ where
 
 pub fn more_shortest_sanity_test<F>(mut f: F)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     check_shortest!(f{mant: 99_999_999_999_999_999, minus: 1, plus: 1,
                       exp: 0, inclusive: true} => b"1", 18);
@@ -484,10 +486,10 @@ where
 
 fn to_string_with_parts<F>(mut f: F) -> String
 where
-    F: for<'a> FnMut(&'a mut [u8], &'a mut [Part<'a>]) -> Formatted<'a>,
+    F: for<'a> FnMut(&'a mut [MaybeUninit<u8>], &'a mut [MaybeUninit<Part<'a>>]) -> Formatted<'a>,
 {
-    let mut buf = [0; 1024];
-    let mut parts = [Part::Zero(0); 16];
+    let mut buf = [MaybeUninit::new(0); 1024];
+    let mut parts = [MaybeUninit::new(Part::Zero(0)); 16];
     let formatted = f(&mut buf, &mut parts);
     let mut ret = vec![0; formatted.len()];
     assert_eq!(formatted.write(&mut ret), Some(ret.len()));
@@ -496,14 +498,14 @@ where
 
 pub fn to_shortest_str_test<F>(mut f_: F)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     use core::num::flt2dec::Sign::*;
 
     fn to_string<T, F>(f: &mut F, v: T, sign: Sign, frac_digits: usize) -> String
     where
         T: DecodableFloat,
-        F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+        F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
     {
         to_string_with_parts(|buf, parts| {
             to_shortest_str(|d, b| f(d, b), v, sign, frac_digits, buf, parts)
@@ -513,51 +515,38 @@ where
     let f = &mut f_;
 
     assert_eq!(to_string(f, 0.0, Minus, 0), "0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, 0), "0");
+    assert_eq!(to_string(f, 0.0, Minus, 0), "0");
     assert_eq!(to_string(f, 0.0, MinusPlus, 0), "+0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, 0), "+0");
-    assert_eq!(to_string(f, -0.0, Minus, 0), "0");
-    assert_eq!(to_string(f, -0.0, MinusRaw, 0), "-0");
-    assert_eq!(to_string(f, -0.0, MinusPlus, 0), "+0");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, 0), "-0");
+    assert_eq!(to_string(f, -0.0, Minus, 0), "-0");
+    assert_eq!(to_string(f, -0.0, MinusPlus, 0), "-0");
     assert_eq!(to_string(f, 0.0, Minus, 1), "0.0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, 1), "0.0");
+    assert_eq!(to_string(f, 0.0, Minus, 1), "0.0");
     assert_eq!(to_string(f, 0.0, MinusPlus, 1), "+0.0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, 1), "+0.0");
-    assert_eq!(to_string(f, -0.0, Minus, 8), "0.00000000");
-    assert_eq!(to_string(f, -0.0, MinusRaw, 8), "-0.00000000");
-    assert_eq!(to_string(f, -0.0, MinusPlus, 8), "+0.00000000");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, 8), "-0.00000000");
+    assert_eq!(to_string(f, -0.0, Minus, 8), "-0.00000000");
+    assert_eq!(to_string(f, -0.0, MinusPlus, 8), "-0.00000000");
 
     assert_eq!(to_string(f, 1.0 / 0.0, Minus, 0), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusRaw, 0), "inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, Minus, 0), "inf");
     assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, 0), "+inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlusRaw, 0), "+inf");
     assert_eq!(to_string(f, 0.0 / 0.0, Minus, 0), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusRaw, 1), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, 8), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlusRaw, 64), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, Minus, 1), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, 64), "NaN");
     assert_eq!(to_string(f, -1.0 / 0.0, Minus, 0), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusRaw, 1), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, 8), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlusRaw, 64), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, Minus, 1), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, 64), "-inf");
 
     assert_eq!(to_string(f, 3.14, Minus, 0), "3.14");
-    assert_eq!(to_string(f, 3.14, MinusRaw, 0), "3.14");
+    assert_eq!(to_string(f, 3.14, Minus, 0), "3.14");
     assert_eq!(to_string(f, 3.14, MinusPlus, 0), "+3.14");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, 0), "+3.14");
     assert_eq!(to_string(f, -3.14, Minus, 0), "-3.14");
-    assert_eq!(to_string(f, -3.14, MinusRaw, 0), "-3.14");
+    assert_eq!(to_string(f, -3.14, Minus, 0), "-3.14");
     assert_eq!(to_string(f, -3.14, MinusPlus, 0), "-3.14");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, 0), "-3.14");
     assert_eq!(to_string(f, 3.14, Minus, 1), "3.14");
-    assert_eq!(to_string(f, 3.14, MinusRaw, 2), "3.14");
-    assert_eq!(to_string(f, 3.14, MinusPlus, 3), "+3.140");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, 4), "+3.1400");
+    assert_eq!(to_string(f, 3.14, Minus, 2), "3.14");
+    assert_eq!(to_string(f, 3.14, MinusPlus, 4), "+3.1400");
     assert_eq!(to_string(f, -3.14, Minus, 8), "-3.14000000");
-    assert_eq!(to_string(f, -3.14, MinusRaw, 8), "-3.14000000");
+    assert_eq!(to_string(f, -3.14, Minus, 8), "-3.14000000");
     assert_eq!(to_string(f, -3.14, MinusPlus, 8), "-3.14000000");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, 8), "-3.14000000");
 
     assert_eq!(to_string(f, 7.5e-11, Minus, 0), "0.000000000075");
     assert_eq!(to_string(f, 7.5e-11, Minus, 3), "0.000000000075");
@@ -597,14 +586,14 @@ where
 
 pub fn to_shortest_exp_str_test<F>(mut f_: F)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     use core::num::flt2dec::Sign::*;
 
     fn to_string<T, F>(f: &mut F, v: T, sign: Sign, exp_bounds: (i16, i16), upper: bool) -> String
     where
         T: DecodableFloat,
-        F: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+        F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
     {
         to_string_with_parts(|buf, parts| {
             to_shortest_exp_str(|d, b| f(d, b), v, sign, exp_bounds, upper, buf, parts)
@@ -614,68 +603,48 @@ where
     let f = &mut f_;
 
     assert_eq!(to_string(f, 0.0, Minus, (-4, 16), false), "0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, (-4, 16), false), "0");
+    assert_eq!(to_string(f, 0.0, Minus, (-4, 16), false), "0");
     assert_eq!(to_string(f, 0.0, MinusPlus, (-4, 16), false), "+0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, (-4, 16), false), "+0");
-    assert_eq!(to_string(f, -0.0, Minus, (-4, 16), false), "0");
-    assert_eq!(to_string(f, -0.0, MinusRaw, (-4, 16), false), "-0");
-    assert_eq!(to_string(f, -0.0, MinusPlus, (-4, 16), false), "+0");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, (-4, 16), false), "-0");
+    assert_eq!(to_string(f, -0.0, Minus, (-4, 16), false), "-0");
+    assert_eq!(to_string(f, -0.0, MinusPlus, (-4, 16), false), "-0");
     assert_eq!(to_string(f, 0.0, Minus, (0, 0), true), "0E0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, (0, 0), false), "0e0");
-    assert_eq!(to_string(f, 0.0, MinusPlus, (-9, -5), true), "+0E0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, (5, 9), false), "+0e0");
-    assert_eq!(to_string(f, -0.0, Minus, (0, 0), true), "0E0");
-    assert_eq!(to_string(f, -0.0, MinusRaw, (0, 0), false), "-0e0");
-    assert_eq!(to_string(f, -0.0, MinusPlus, (-9, -5), true), "+0E0");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, (5, 9), false), "-0e0");
+    assert_eq!(to_string(f, 0.0, Minus, (0, 0), false), "0e0");
+    assert_eq!(to_string(f, 0.0, MinusPlus, (5, 9), false), "+0e0");
+    assert_eq!(to_string(f, -0.0, Minus, (0, 0), true), "-0E0");
+    assert_eq!(to_string(f, -0.0, MinusPlus, (5, 9), false), "-0e0");
 
     assert_eq!(to_string(f, 1.0 / 0.0, Minus, (-4, 16), false), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusRaw, (-4, 16), true), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, (-4, 16), false), "+inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlusRaw, (-4, 16), true), "+inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, Minus, (-4, 16), true), "inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, (-4, 16), true), "+inf");
     assert_eq!(to_string(f, 0.0 / 0.0, Minus, (0, 0), false), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusRaw, (0, 0), true), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, (-9, -5), false), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlusRaw, (5, 9), true), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, Minus, (0, 0), true), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, (5, 9), true), "NaN");
     assert_eq!(to_string(f, -1.0 / 0.0, Minus, (0, 0), false), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusRaw, (0, 0), true), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, (-9, -5), false), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlusRaw, (5, 9), true), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, Minus, (0, 0), true), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, (5, 9), true), "-inf");
 
     assert_eq!(to_string(f, 3.14, Minus, (-4, 16), false), "3.14");
-    assert_eq!(to_string(f, 3.14, MinusRaw, (-4, 16), false), "3.14");
     assert_eq!(to_string(f, 3.14, MinusPlus, (-4, 16), false), "+3.14");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, (-4, 16), false), "+3.14");
     assert_eq!(to_string(f, -3.14, Minus, (-4, 16), false), "-3.14");
-    assert_eq!(to_string(f, -3.14, MinusRaw, (-4, 16), false), "-3.14");
     assert_eq!(to_string(f, -3.14, MinusPlus, (-4, 16), false), "-3.14");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, (-4, 16), false), "-3.14");
     assert_eq!(to_string(f, 3.14, Minus, (0, 0), true), "3.14E0");
-    assert_eq!(to_string(f, 3.14, MinusRaw, (0, 0), false), "3.14e0");
-    assert_eq!(to_string(f, 3.14, MinusPlus, (-9, -5), true), "+3.14E0");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, (5, 9), false), "+3.14e0");
+    assert_eq!(to_string(f, 3.14, Minus, (0, 0), false), "3.14e0");
+    assert_eq!(to_string(f, 3.14, MinusPlus, (5, 9), false), "+3.14e0");
     assert_eq!(to_string(f, -3.14, Minus, (0, 0), true), "-3.14E0");
-    assert_eq!(to_string(f, -3.14, MinusRaw, (0, 0), false), "-3.14e0");
-    assert_eq!(to_string(f, -3.14, MinusPlus, (-9, -5), true), "-3.14E0");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, (5, 9), false), "-3.14e0");
+    assert_eq!(to_string(f, -3.14, Minus, (0, 0), false), "-3.14e0");
+    assert_eq!(to_string(f, -3.14, MinusPlus, (5, 9), false), "-3.14e0");
 
     assert_eq!(to_string(f, 0.1, Minus, (-4, 16), false), "0.1");
-    assert_eq!(to_string(f, 0.1, MinusRaw, (-4, 16), false), "0.1");
+    assert_eq!(to_string(f, 0.1, Minus, (-4, 16), false), "0.1");
     assert_eq!(to_string(f, 0.1, MinusPlus, (-4, 16), false), "+0.1");
-    assert_eq!(to_string(f, 0.1, MinusPlusRaw, (-4, 16), false), "+0.1");
     assert_eq!(to_string(f, -0.1, Minus, (-4, 16), false), "-0.1");
-    assert_eq!(to_string(f, -0.1, MinusRaw, (-4, 16), false), "-0.1");
     assert_eq!(to_string(f, -0.1, MinusPlus, (-4, 16), false), "-0.1");
-    assert_eq!(to_string(f, -0.1, MinusPlusRaw, (-4, 16), false), "-0.1");
     assert_eq!(to_string(f, 0.1, Minus, (0, 0), true), "1E-1");
-    assert_eq!(to_string(f, 0.1, MinusRaw, (0, 0), false), "1e-1");
-    assert_eq!(to_string(f, 0.1, MinusPlus, (-9, -5), true), "+1E-1");
-    assert_eq!(to_string(f, 0.1, MinusPlusRaw, (5, 9), false), "+1e-1");
+    assert_eq!(to_string(f, 0.1, Minus, (0, 0), false), "1e-1");
+    assert_eq!(to_string(f, 0.1, MinusPlus, (5, 9), false), "+1e-1");
     assert_eq!(to_string(f, -0.1, Minus, (0, 0), true), "-1E-1");
-    assert_eq!(to_string(f, -0.1, MinusRaw, (0, 0), false), "-1e-1");
-    assert_eq!(to_string(f, -0.1, MinusPlus, (-9, -5), true), "-1E-1");
-    assert_eq!(to_string(f, -0.1, MinusPlusRaw, (5, 9), false), "-1e-1");
+    assert_eq!(to_string(f, -0.1, Minus, (0, 0), false), "-1e-1");
+    assert_eq!(to_string(f, -0.1, MinusPlus, (5, 9), false), "-1e-1");
 
     assert_eq!(to_string(f, 7.5e-11, Minus, (-4, 16), false), "7.5e-11");
     assert_eq!(to_string(f, 7.5e-11, Minus, (-11, 10), false), "0.000000000075");
@@ -716,14 +685,14 @@ where
 
 pub fn to_exact_exp_str_test<F>(mut f_: F)
 where
-    F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
 {
     use core::num::flt2dec::Sign::*;
 
     fn to_string<T, F>(f: &mut F, v: T, sign: Sign, ndigits: usize, upper: bool) -> String
     where
         T: DecodableFloat,
-        F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+        F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
     {
         to_string_with_parts(|buf, parts| {
             to_exact_exp_str(|d, b, l| f(d, b, l), v, sign, ndigits, upper, buf, parts)
@@ -733,68 +702,51 @@ where
     let f = &mut f_;
 
     assert_eq!(to_string(f, 0.0, Minus, 1, true), "0E0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, 1, false), "0e0");
-    assert_eq!(to_string(f, 0.0, MinusPlus, 1, true), "+0E0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, 1, false), "+0e0");
-    assert_eq!(to_string(f, -0.0, Minus, 1, true), "0E0");
-    assert_eq!(to_string(f, -0.0, MinusRaw, 1, false), "-0e0");
-    assert_eq!(to_string(f, -0.0, MinusPlus, 1, true), "+0E0");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, 1, false), "-0e0");
+    assert_eq!(to_string(f, 0.0, Minus, 1, false), "0e0");
+    assert_eq!(to_string(f, 0.0, MinusPlus, 1, false), "+0e0");
+    assert_eq!(to_string(f, -0.0, Minus, 1, true), "-0E0");
+    assert_eq!(to_string(f, -0.0, MinusPlus, 1, false), "-0e0");
     assert_eq!(to_string(f, 0.0, Minus, 2, true), "0.0E0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, 2, false), "0.0e0");
-    assert_eq!(to_string(f, 0.0, MinusPlus, 2, true), "+0.0E0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, 2, false), "+0.0e0");
-    assert_eq!(to_string(f, -0.0, Minus, 8, true), "0.0000000E0");
-    assert_eq!(to_string(f, -0.0, MinusRaw, 8, false), "-0.0000000e0");
-    assert_eq!(to_string(f, -0.0, MinusPlus, 8, true), "+0.0000000E0");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, 8, false), "-0.0000000e0");
+    assert_eq!(to_string(f, 0.0, Minus, 2, false), "0.0e0");
+    assert_eq!(to_string(f, 0.0, MinusPlus, 2, false), "+0.0e0");
+    assert_eq!(to_string(f, -0.0, Minus, 8, false), "-0.0000000e0");
+    assert_eq!(to_string(f, -0.0, MinusPlus, 8, false), "-0.0000000e0");
 
     assert_eq!(to_string(f, 1.0 / 0.0, Minus, 1, false), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusRaw, 1, true), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, 1, false), "+inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlusRaw, 1, true), "+inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, Minus, 1, true), "inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, 1, true), "+inf");
     assert_eq!(to_string(f, 0.0 / 0.0, Minus, 8, false), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusRaw, 8, true), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, 8, false), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlusRaw, 8, true), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, Minus, 8, true), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, 8, true), "NaN");
     assert_eq!(to_string(f, -1.0 / 0.0, Minus, 64, false), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusRaw, 64, true), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, 64, false), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlusRaw, 64, true), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, Minus, 64, true), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, 64, true), "-inf");
 
     assert_eq!(to_string(f, 3.14, Minus, 1, true), "3E0");
-    assert_eq!(to_string(f, 3.14, MinusRaw, 1, false), "3e0");
-    assert_eq!(to_string(f, 3.14, MinusPlus, 1, true), "+3E0");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, 1, false), "+3e0");
+    assert_eq!(to_string(f, 3.14, Minus, 1, false), "3e0");
+    assert_eq!(to_string(f, 3.14, MinusPlus, 1, false), "+3e0");
     assert_eq!(to_string(f, -3.14, Minus, 2, true), "-3.1E0");
-    assert_eq!(to_string(f, -3.14, MinusRaw, 2, false), "-3.1e0");
-    assert_eq!(to_string(f, -3.14, MinusPlus, 2, true), "-3.1E0");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, 2, false), "-3.1e0");
+    assert_eq!(to_string(f, -3.14, Minus, 2, false), "-3.1e0");
+    assert_eq!(to_string(f, -3.14, MinusPlus, 2, false), "-3.1e0");
     assert_eq!(to_string(f, 3.14, Minus, 3, true), "3.14E0");
-    assert_eq!(to_string(f, 3.14, MinusRaw, 3, false), "3.14e0");
-    assert_eq!(to_string(f, 3.14, MinusPlus, 3, true), "+3.14E0");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, 3, false), "+3.14e0");
+    assert_eq!(to_string(f, 3.14, Minus, 3, false), "3.14e0");
+    assert_eq!(to_string(f, 3.14, MinusPlus, 3, false), "+3.14e0");
     assert_eq!(to_string(f, -3.14, Minus, 4, true), "-3.140E0");
-    assert_eq!(to_string(f, -3.14, MinusRaw, 4, false), "-3.140e0");
-    assert_eq!(to_string(f, -3.14, MinusPlus, 4, true), "-3.140E0");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, 4, false), "-3.140e0");
+    assert_eq!(to_string(f, -3.14, Minus, 4, false), "-3.140e0");
+    assert_eq!(to_string(f, -3.14, MinusPlus, 4, false), "-3.140e0");
 
     assert_eq!(to_string(f, 0.195, Minus, 1, false), "2e-1");
-    assert_eq!(to_string(f, 0.195, MinusRaw, 1, true), "2E-1");
-    assert_eq!(to_string(f, 0.195, MinusPlus, 1, false), "+2e-1");
-    assert_eq!(to_string(f, 0.195, MinusPlusRaw, 1, true), "+2E-1");
+    assert_eq!(to_string(f, 0.195, Minus, 1, true), "2E-1");
+    assert_eq!(to_string(f, 0.195, MinusPlus, 1, true), "+2E-1");
     assert_eq!(to_string(f, -0.195, Minus, 2, false), "-2.0e-1");
-    assert_eq!(to_string(f, -0.195, MinusRaw, 2, true), "-2.0E-1");
-    assert_eq!(to_string(f, -0.195, MinusPlus, 2, false), "-2.0e-1");
-    assert_eq!(to_string(f, -0.195, MinusPlusRaw, 2, true), "-2.0E-1");
+    assert_eq!(to_string(f, -0.195, Minus, 2, true), "-2.0E-1");
+    assert_eq!(to_string(f, -0.195, MinusPlus, 2, true), "-2.0E-1");
     assert_eq!(to_string(f, 0.195, Minus, 3, false), "1.95e-1");
-    assert_eq!(to_string(f, 0.195, MinusRaw, 3, true), "1.95E-1");
-    assert_eq!(to_string(f, 0.195, MinusPlus, 3, false), "+1.95e-1");
-    assert_eq!(to_string(f, 0.195, MinusPlusRaw, 3, true), "+1.95E-1");
+    assert_eq!(to_string(f, 0.195, Minus, 3, true), "1.95E-1");
+    assert_eq!(to_string(f, 0.195, MinusPlus, 3, true), "+1.95E-1");
     assert_eq!(to_string(f, -0.195, Minus, 4, false), "-1.950e-1");
-    assert_eq!(to_string(f, -0.195, MinusRaw, 4, true), "-1.950E-1");
-    assert_eq!(to_string(f, -0.195, MinusPlus, 4, false), "-1.950e-1");
-    assert_eq!(to_string(f, -0.195, MinusPlusRaw, 4, true), "-1.950E-1");
+    assert_eq!(to_string(f, -0.195, Minus, 4, true), "-1.950E-1");
+    assert_eq!(to_string(f, -0.195, MinusPlus, 4, true), "-1.950E-1");
 
     assert_eq!(to_string(f, 9.5, Minus, 1, false), "1e1");
     assert_eq!(to_string(f, 9.5, Minus, 2, false), "9.5e0");
@@ -989,14 +941,14 @@ where
 
 pub fn to_exact_fixed_str_test<F>(mut f_: F)
 where
-    F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
 {
     use core::num::flt2dec::Sign::*;
 
     fn to_string<T, F>(f: &mut F, v: T, sign: Sign, frac_digits: usize) -> String
     where
         T: DecodableFloat,
-        F: FnMut(&Decoded, &mut [u8], i16) -> (usize, i16),
+        F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>], i16) -> (&'a [u8], i16),
     {
         to_string_with_parts(|buf, parts| {
             to_exact_fixed_str(|d, b, l| f(d, b, l), v, sign, frac_digits, buf, parts)
@@ -1006,68 +958,48 @@ where
     let f = &mut f_;
 
     assert_eq!(to_string(f, 0.0, Minus, 0), "0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, 0), "0");
     assert_eq!(to_string(f, 0.0, MinusPlus, 0), "+0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, 0), "+0");
-    assert_eq!(to_string(f, -0.0, Minus, 0), "0");
-    assert_eq!(to_string(f, -0.0, MinusRaw, 0), "-0");
-    assert_eq!(to_string(f, -0.0, MinusPlus, 0), "+0");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, 0), "-0");
+    assert_eq!(to_string(f, -0.0, Minus, 0), "-0");
+    assert_eq!(to_string(f, -0.0, MinusPlus, 0), "-0");
     assert_eq!(to_string(f, 0.0, Minus, 1), "0.0");
-    assert_eq!(to_string(f, 0.0, MinusRaw, 1), "0.0");
     assert_eq!(to_string(f, 0.0, MinusPlus, 1), "+0.0");
-    assert_eq!(to_string(f, 0.0, MinusPlusRaw, 1), "+0.0");
-    assert_eq!(to_string(f, -0.0, Minus, 8), "0.00000000");
-    assert_eq!(to_string(f, -0.0, MinusRaw, 8), "-0.00000000");
-    assert_eq!(to_string(f, -0.0, MinusPlus, 8), "+0.00000000");
-    assert_eq!(to_string(f, -0.0, MinusPlusRaw, 8), "-0.00000000");
+    assert_eq!(to_string(f, -0.0, Minus, 8), "-0.00000000");
+    assert_eq!(to_string(f, -0.0, MinusPlus, 8), "-0.00000000");
 
     assert_eq!(to_string(f, 1.0 / 0.0, Minus, 0), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusRaw, 1), "inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, 8), "+inf");
-    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlusRaw, 64), "+inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, Minus, 1), "inf");
+    assert_eq!(to_string(f, 1.0 / 0.0, MinusPlus, 64), "+inf");
     assert_eq!(to_string(f, 0.0 / 0.0, Minus, 0), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusRaw, 1), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, 8), "NaN");
-    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlusRaw, 64), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, Minus, 1), "NaN");
+    assert_eq!(to_string(f, 0.0 / 0.0, MinusPlus, 64), "NaN");
     assert_eq!(to_string(f, -1.0 / 0.0, Minus, 0), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusRaw, 1), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, 8), "-inf");
-    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlusRaw, 64), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, Minus, 1), "-inf");
+    assert_eq!(to_string(f, -1.0 / 0.0, MinusPlus, 64), "-inf");
 
     assert_eq!(to_string(f, 3.14, Minus, 0), "3");
-    assert_eq!(to_string(f, 3.14, MinusRaw, 0), "3");
+    assert_eq!(to_string(f, 3.14, Minus, 0), "3");
     assert_eq!(to_string(f, 3.14, MinusPlus, 0), "+3");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, 0), "+3");
     assert_eq!(to_string(f, -3.14, Minus, 0), "-3");
-    assert_eq!(to_string(f, -3.14, MinusRaw, 0), "-3");
+    assert_eq!(to_string(f, -3.14, Minus, 0), "-3");
     assert_eq!(to_string(f, -3.14, MinusPlus, 0), "-3");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, 0), "-3");
     assert_eq!(to_string(f, 3.14, Minus, 1), "3.1");
-    assert_eq!(to_string(f, 3.14, MinusRaw, 2), "3.14");
-    assert_eq!(to_string(f, 3.14, MinusPlus, 3), "+3.140");
-    assert_eq!(to_string(f, 3.14, MinusPlusRaw, 4), "+3.1400");
+    assert_eq!(to_string(f, 3.14, Minus, 2), "3.14");
+    assert_eq!(to_string(f, 3.14, MinusPlus, 4), "+3.1400");
     assert_eq!(to_string(f, -3.14, Minus, 8), "-3.14000000");
-    assert_eq!(to_string(f, -3.14, MinusRaw, 8), "-3.14000000");
+    assert_eq!(to_string(f, -3.14, Minus, 8), "-3.14000000");
     assert_eq!(to_string(f, -3.14, MinusPlus, 8), "-3.14000000");
-    assert_eq!(to_string(f, -3.14, MinusPlusRaw, 8), "-3.14000000");
 
     assert_eq!(to_string(f, 0.195, Minus, 0), "0");
-    assert_eq!(to_string(f, 0.195, MinusRaw, 0), "0");
     assert_eq!(to_string(f, 0.195, MinusPlus, 0), "+0");
-    assert_eq!(to_string(f, 0.195, MinusPlusRaw, 0), "+0");
     assert_eq!(to_string(f, -0.195, Minus, 0), "-0");
-    assert_eq!(to_string(f, -0.195, MinusRaw, 0), "-0");
+    assert_eq!(to_string(f, -0.195, Minus, 0), "-0");
     assert_eq!(to_string(f, -0.195, MinusPlus, 0), "-0");
-    assert_eq!(to_string(f, -0.195, MinusPlusRaw, 0), "-0");
     assert_eq!(to_string(f, 0.195, Minus, 1), "0.2");
-    assert_eq!(to_string(f, 0.195, MinusRaw, 2), "0.20");
-    assert_eq!(to_string(f, 0.195, MinusPlus, 3), "+0.195");
-    assert_eq!(to_string(f, 0.195, MinusPlusRaw, 4), "+0.1950");
+    assert_eq!(to_string(f, 0.195, Minus, 2), "0.20");
+    assert_eq!(to_string(f, 0.195, MinusPlus, 4), "+0.1950");
     assert_eq!(to_string(f, -0.195, Minus, 5), "-0.19500");
-    assert_eq!(to_string(f, -0.195, MinusRaw, 6), "-0.195000");
-    assert_eq!(to_string(f, -0.195, MinusPlus, 7), "-0.1950000");
-    assert_eq!(to_string(f, -0.195, MinusPlusRaw, 8), "-0.19500000");
+    assert_eq!(to_string(f, -0.195, Minus, 6), "-0.195000");
+    assert_eq!(to_string(f, -0.195, MinusPlus, 8), "-0.19500000");
 
     assert_eq!(to_string(f, 999.5, Minus, 0), "1000");
     assert_eq!(to_string(f, 999.5, Minus, 1), "999.5");
@@ -1075,7 +1007,7 @@ where
     assert_eq!(to_string(f, 999.5, Minus, 3), "999.500");
     assert_eq!(to_string(f, 999.5, Minus, 30), "999.500000000000000000000000000000");
 
-    assert_eq!(to_string(f, 0.5, Minus, 0), "1");
+    assert_eq!(to_string(f, 0.5, Minus, 0), "0");
     assert_eq!(to_string(f, 0.5, Minus, 1), "0.5");
     assert_eq!(to_string(f, 0.5, Minus, 2), "0.50");
     assert_eq!(to_string(f, 0.5, Minus, 3), "0.500");

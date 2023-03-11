@@ -1,7 +1,12 @@
+use std::assert_matches::assert_matches;
 use std::borrow::Cow;
-use std::collections::TryReserveError::*;
-use std::mem::size_of;
-use std::{isize, usize};
+use std::cell::Cell;
+use std::collections::TryReserveErrorKind::*;
+use std::ops::Bound;
+use std::ops::Bound::*;
+use std::ops::RangeBounds;
+use std::panic;
+use std::str;
 
 pub trait IntoCow<'a, B: ?Sized>
 where
@@ -266,30 +271,34 @@ fn test_split_off_empty() {
 fn test_split_off_past_end() {
     let orig = "Hello, world!";
     let mut split = String::from(orig);
-    split.split_off(orig.len() + 1);
+    let _ = split.split_off(orig.len() + 1);
 }
 
 #[test]
 #[should_panic]
 fn test_split_off_mid_char() {
-    let mut orig = String::from("山");
-    orig.split_off(1);
+    let mut shan = String::from("山");
+    let _broken_mountain = shan.split_off(1);
 }
 
 #[test]
 fn test_split_off_ascii() {
     let mut ab = String::from("ABCD");
+    let orig_capacity = ab.capacity();
     let cd = ab.split_off(2);
     assert_eq!(ab, "AB");
     assert_eq!(cd, "CD");
+    assert_eq!(ab.capacity(), orig_capacity);
 }
 
 #[test]
 fn test_split_off_unicode() {
     let mut nihon = String::from("日本語");
+    let orig_capacity = nihon.capacity();
     let go = nihon.split_off("日本".len());
     assert_eq!(nihon, "日本");
     assert_eq!(go, "語");
+    assert_eq!(nihon.capacity(), orig_capacity);
 }
 
 #[test]
@@ -358,6 +367,33 @@ fn remove_bad() {
 }
 
 #[test]
+fn test_remove_matches() {
+    let mut s = "abc".to_string();
+
+    s.remove_matches('b');
+    assert_eq!(s, "ac");
+    s.remove_matches('b');
+    assert_eq!(s, "ac");
+
+    let mut s = "abcb".to_string();
+
+    s.remove_matches('b');
+    assert_eq!(s, "ac");
+
+    let mut s = "ศไทย中华Việt Nam; foobarศ".to_string();
+    s.remove_matches('ศ');
+    assert_eq!(s, "ไทย中华Việt Nam; foobar");
+
+    let mut s = "".to_string();
+    s.remove_matches("");
+    assert_eq!(s, "");
+
+    let mut s = "aaaaa".to_string();
+    s.remove_matches('a');
+    assert_eq!(s, "");
+}
+
+#[test]
 fn test_retain() {
     let mut s = String::from("α_β_γ");
 
@@ -375,6 +411,20 @@ fn test_retain() {
 
     s.retain(|_| false);
     assert_eq!(s, "");
+
+    let mut s = String::from("0è0");
+    let _ = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        let mut count = 0;
+        s.retain(|_| {
+            count += 1;
+            match count {
+                1 => false,
+                2 => true,
+                _ => panic!(),
+            }
+        });
+    }));
+    assert!(std::str::from_utf8(s.as_bytes()).is_ok());
 }
 
 #[test]
@@ -420,7 +470,7 @@ fn test_simple_types() {
 #[test]
 fn test_vectors() {
     let x: Vec<i32> = vec![];
-    assert_eq!(format!("{:?}", x), "[]");
+    assert_eq!(format!("{x:?}"), "[]");
     assert_eq!(format!("{:?}", vec![1]), "[1]");
     assert_eq!(format!("{:?}", vec![1, 2, 3]), "[1, 2, 3]");
     assert!(format!("{:?}", vec![vec![], vec![1], vec![1, 1]]) == "[[], [1], [1, 1]]");
@@ -439,7 +489,7 @@ fn test_from_iterator() {
     b.extend(u.chars());
     assert_eq!(s, b);
 
-    let c: String = vec![t, u].into_iter().collect();
+    let c: String = [t, u].into_iter().collect();
     assert_eq!(s, c);
 
     let mut d = t.to_string();
@@ -462,6 +512,20 @@ fn test_drain() {
     assert_eq!(t, "bcd");
     t.drain(..);
     assert_eq!(t, "");
+}
+
+#[test]
+#[should_panic]
+fn test_drain_start_overflow() {
+    let mut s = String::from("abc");
+    s.drain((Excluded(usize::MAX), Included(0)));
+}
+
+#[test]
+#[should_panic]
+fn test_drain_end_overflow() {
+    let mut s = String::from("abc");
+    s.drain((Included(0), Included(usize::MAX)));
 }
 
 #[test]
@@ -502,6 +566,20 @@ fn test_replace_range_inclusive_out_of_bounds() {
 }
 
 #[test]
+#[should_panic]
+fn test_replace_range_start_overflow() {
+    let mut s = String::from("123");
+    s.replace_range((Excluded(usize::MAX), Included(0)), "");
+}
+
+#[test]
+#[should_panic]
+fn test_replace_range_end_overflow() {
+    let mut s = String::from("456");
+    s.replace_range((Included(0), Included(usize::MAX)), "");
+}
+
+#[test]
 fn test_replace_range_empty() {
     let mut s = String::from("12345");
     s.replace_range(1..2, "");
@@ -513,6 +591,52 @@ fn test_replace_range_unbounded() {
     let mut s = String::from("12345");
     s.replace_range(.., "");
     assert_eq!(s, "");
+}
+
+#[test]
+fn test_replace_range_evil_start_bound() {
+    struct EvilRange(Cell<bool>);
+
+    impl RangeBounds<usize> for EvilRange {
+        fn start_bound(&self) -> Bound<&usize> {
+            Bound::Included(if self.0.get() {
+                &1
+            } else {
+                self.0.set(true);
+                &0
+            })
+        }
+        fn end_bound(&self) -> Bound<&usize> {
+            Bound::Unbounded
+        }
+    }
+
+    let mut s = String::from("🦀");
+    s.replace_range(EvilRange(Cell::new(false)), "");
+    assert_eq!(Ok(""), str::from_utf8(s.as_bytes()));
+}
+
+#[test]
+fn test_replace_range_evil_end_bound() {
+    struct EvilRange(Cell<bool>);
+
+    impl RangeBounds<usize> for EvilRange {
+        fn start_bound(&self) -> Bound<&usize> {
+            Bound::Included(&0)
+        }
+        fn end_bound(&self) -> Bound<&usize> {
+            Bound::Excluded(if self.0.get() {
+                &3
+            } else {
+                self.0.set(true);
+                &4
+            })
+        }
+    }
+
+    let mut s = String::from("🦀");
+    s.replace_range(EvilRange(Cell::new(false)), "");
+    assert_eq!(Ok(""), str::from_utf8(s.as_bytes()));
 }
 
 #[test]
@@ -556,6 +680,7 @@ fn test_reserve_exact() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Miri does not support signalling OOM
+#[cfg_attr(target_os = "android", ignore)] // Android used in CI has a broken dlmalloc
 fn test_try_reserve() {
     // These are the interesting cases:
     // * exactly isize::MAX should never trigger a CapacityOverflow (can be OOM)
@@ -568,83 +693,63 @@ fn test_try_reserve() {
     const MAX_CAP: usize = isize::MAX as usize;
     const MAX_USIZE: usize = usize::MAX;
 
-    // On 16/32-bit, we check that allocations don't exceed isize::MAX,
-    // on 64-bit, we assume the OS will give an OOM for such a ridiculous size.
-    // Any platform that succeeds for these requests is technically broken with
-    // ptr::offset because LLVM is the worst.
-    let guards_against_isize = size_of::<usize>() < 8;
-
     {
         // Note: basic stuff is checked by test_reserve
         let mut empty_string: String = String::new();
 
         // Check isize::MAX doesn't count as an overflow
-        if let Err(CapacityOverflow) = empty_string.try_reserve(MAX_CAP) {
+        if let Err(CapacityOverflow) = empty_string.try_reserve(MAX_CAP).map_err(|e| e.kind()) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
         // Play it again, frank! (just to be sure)
-        if let Err(CapacityOverflow) = empty_string.try_reserve(MAX_CAP) {
+        if let Err(CapacityOverflow) = empty_string.try_reserve(MAX_CAP).map_err(|e| e.kind()) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
 
-        if guards_against_isize {
-            // Check isize::MAX + 1 does count as overflow
-            if let Err(CapacityOverflow) = empty_string.try_reserve(MAX_CAP + 1) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an overflow!")
-            }
+        // Check isize::MAX + 1 does count as overflow
+        assert_matches!(
+            empty_string.try_reserve(MAX_CAP + 1).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "isize::MAX + 1 should trigger an overflow!"
+        );
 
-            // Check usize::MAX does count as overflow
-            if let Err(CapacityOverflow) = empty_string.try_reserve(MAX_USIZE) {
-            } else {
-                panic!("usize::MAX should trigger an overflow!")
-            }
-        } else {
-            // Check isize::MAX + 1 is an OOM
-            if let Err(AllocError { .. }) = empty_string.try_reserve(MAX_CAP + 1) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an OOM!")
-            }
-
-            // Check usize::MAX is an OOM
-            if let Err(AllocError { .. }) = empty_string.try_reserve(MAX_USIZE) {
-            } else {
-                panic!("usize::MAX should trigger an OOM!")
-            }
-        }
+        // Check usize::MAX does count as overflow
+        assert_matches!(
+            empty_string.try_reserve(MAX_USIZE).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "usize::MAX should trigger an overflow!"
+        );
     }
 
     {
         // Same basic idea, but with non-zero len
         let mut ten_bytes: String = String::from("0123456789");
 
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 10) {
+        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 10).map_err(|e| e.kind()) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 10) {
+        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 10).map_err(|e| e.kind()) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if guards_against_isize {
-            if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 9) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an overflow!");
-            }
-        } else {
-            if let Err(AllocError { .. }) = ten_bytes.try_reserve(MAX_CAP - 9) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an OOM!")
-            }
-        }
+
+        assert_matches!(
+            ten_bytes.try_reserve(MAX_CAP - 9).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "isize::MAX + 1 should trigger an overflow!"
+        );
+
         // Should always overflow in the add-to-len
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_USIZE) {
-        } else {
-            panic!("usize::MAX should trigger an overflow!")
-        }
+        assert_matches!(
+            ten_bytes.try_reserve(MAX_USIZE).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "usize::MAX should trigger an overflow!"
+        );
     }
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Miri does not support signalling OOM
+#[cfg_attr(target_os = "android", ignore)] // Android used in CI has a broken dlmalloc
 fn test_try_reserve_exact() {
     // This is exactly the same as test_try_reserve with the method changed.
     // See that test for comments.
@@ -652,64 +757,70 @@ fn test_try_reserve_exact() {
     const MAX_CAP: usize = isize::MAX as usize;
     const MAX_USIZE: usize = usize::MAX;
 
-    let guards_against_isize = size_of::<usize>() < 8;
-
     {
         let mut empty_string: String = String::new();
 
-        if let Err(CapacityOverflow) = empty_string.try_reserve_exact(MAX_CAP) {
+        if let Err(CapacityOverflow) = empty_string.try_reserve_exact(MAX_CAP).map_err(|e| e.kind())
+        {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if let Err(CapacityOverflow) = empty_string.try_reserve_exact(MAX_CAP) {
+        if let Err(CapacityOverflow) = empty_string.try_reserve_exact(MAX_CAP).map_err(|e| e.kind())
+        {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
 
-        if guards_against_isize {
-            if let Err(CapacityOverflow) = empty_string.try_reserve_exact(MAX_CAP + 1) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an overflow!")
-            }
+        assert_matches!(
+            empty_string.try_reserve_exact(MAX_CAP + 1).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "isize::MAX + 1 should trigger an overflow!"
+        );
 
-            if let Err(CapacityOverflow) = empty_string.try_reserve_exact(MAX_USIZE) {
-            } else {
-                panic!("usize::MAX should trigger an overflow!")
-            }
-        } else {
-            if let Err(AllocError { .. }) = empty_string.try_reserve_exact(MAX_CAP + 1) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an OOM!")
-            }
-
-            if let Err(AllocError { .. }) = empty_string.try_reserve_exact(MAX_USIZE) {
-            } else {
-                panic!("usize::MAX should trigger an OOM!")
-            }
-        }
+        assert_matches!(
+            empty_string.try_reserve_exact(MAX_USIZE).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "usize::MAX should trigger an overflow!"
+        );
     }
 
     {
         let mut ten_bytes: String = String::from("0123456789");
 
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve_exact(MAX_CAP - 10) {
+        if let Err(CapacityOverflow) =
+            ten_bytes.try_reserve_exact(MAX_CAP - 10).map_err(|e| e.kind())
+        {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve_exact(MAX_CAP - 10) {
+        if let Err(CapacityOverflow) =
+            ten_bytes.try_reserve_exact(MAX_CAP - 10).map_err(|e| e.kind())
+        {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if guards_against_isize {
-            if let Err(CapacityOverflow) = ten_bytes.try_reserve_exact(MAX_CAP - 9) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an overflow!");
-            }
-        } else {
-            if let Err(AllocError { .. }) = ten_bytes.try_reserve_exact(MAX_CAP - 9) {
-            } else {
-                panic!("isize::MAX + 1 should trigger an OOM!")
-            }
-        }
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve_exact(MAX_USIZE) {
-        } else {
-            panic!("usize::MAX should trigger an overflow!")
-        }
+
+        assert_matches!(
+            ten_bytes.try_reserve_exact(MAX_CAP - 9).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "isize::MAX + 1 should trigger an overflow!"
+        );
+
+        assert_matches!(
+            ten_bytes.try_reserve_exact(MAX_USIZE).map_err(|e| e.kind()),
+            Err(CapacityOverflow),
+            "usize::MAX should trigger an overflow!"
+        );
     }
+}
+
+#[test]
+fn test_from_char() {
+    assert_eq!(String::from('a'), 'a'.to_string());
+    let s: String = 'x'.into();
+    assert_eq!(s, 'x'.to_string());
+}
+
+#[test]
+fn test_str_concat() {
+    let a: String = "hello".to_string();
+    let b: String = "world".to_string();
+    let s: String = format!("{a}{b}");
+    assert_eq!(s.as_bytes()[9], 'd' as u8);
 }

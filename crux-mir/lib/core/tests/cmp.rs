@@ -1,4 +1,7 @@
-use core::cmp::{self, Ordering::*};
+use core::cmp::{
+    self,
+    Ordering::{self, *},
+};
 
 #[test]
 fn test_int_totalord() {
@@ -115,4 +118,133 @@ fn test_user_defined_eq() {
     // Now these binary operators will work when applied!
     assert!(SketchyNum { num: 37 } == SketchyNum { num: 34 });
     assert!(SketchyNum { num: 25 } != SketchyNum { num: 57 });
+}
+
+#[test]
+fn ordering_const() {
+    // test that the methods of `Ordering` are usable in a const context
+
+    const ORDERING: Ordering = Greater;
+
+    const REVERSE: Ordering = ORDERING.reverse();
+    assert_eq!(REVERSE, Less);
+
+    const THEN: Ordering = Equal.then(ORDERING);
+    assert_eq!(THEN, Greater);
+}
+
+#[test]
+fn ordering_structural_eq() {
+    // test that consts of type `Ordering` are usable in patterns
+
+    const ORDERING: Ordering = Greater;
+
+    const REVERSE: Ordering = ORDERING.reverse();
+    match Ordering::Less {
+        REVERSE => {}
+        _ => unreachable!(),
+    };
+}
+
+#[test]
+fn cmp_default() {
+    // Test default methods in PartialOrd and PartialEq
+
+    #[derive(Debug)]
+    struct Fool(bool);
+
+    impl PartialEq for Fool {
+        fn eq(&self, other: &Fool) -> bool {
+            let Fool(this) = *self;
+            let Fool(other) = *other;
+            this != other
+        }
+    }
+
+    struct Int(isize);
+
+    impl PartialEq for Int {
+        fn eq(&self, other: &Int) -> bool {
+            let Int(this) = *self;
+            let Int(other) = *other;
+            this == other
+        }
+    }
+
+    impl PartialOrd for Int {
+        fn partial_cmp(&self, other: &Int) -> Option<Ordering> {
+            let Int(this) = *self;
+            let Int(other) = *other;
+            this.partial_cmp(&other)
+        }
+    }
+
+    struct RevInt(isize);
+
+    impl PartialEq for RevInt {
+        fn eq(&self, other: &RevInt) -> bool {
+            let RevInt(this) = *self;
+            let RevInt(other) = *other;
+            this == other
+        }
+    }
+
+    impl PartialOrd for RevInt {
+        fn partial_cmp(&self, other: &RevInt) -> Option<Ordering> {
+            let RevInt(this) = *self;
+            let RevInt(other) = *other;
+            other.partial_cmp(&this)
+        }
+    }
+
+    assert!(Int(2) > Int(1));
+    assert!(Int(2) >= Int(1));
+    assert!(Int(1) >= Int(1));
+    assert!(Int(1) < Int(2));
+    assert!(Int(1) <= Int(2));
+    assert!(Int(1) <= Int(1));
+
+    assert!(RevInt(2) < RevInt(1));
+    assert!(RevInt(2) <= RevInt(1));
+    assert!(RevInt(1) <= RevInt(1));
+    assert!(RevInt(1) > RevInt(2));
+    assert!(RevInt(1) >= RevInt(2));
+    assert!(RevInt(1) >= RevInt(1));
+
+    assert_eq!(Fool(true), Fool(false));
+    assert!(Fool(true) != Fool(true));
+    assert!(Fool(false) != Fool(false));
+    assert_eq!(Fool(false), Fool(true));
+}
+
+mod const_cmp {
+    use super::*;
+
+    struct S(i32);
+
+    impl const PartialEq for S {
+        fn eq(&self, other: &Self) -> bool {
+            self.0 == other.0
+        }
+    }
+
+    impl const PartialOrd for S {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            let ret = match (self.0, other.0) {
+                (a, b) if a > b => Ordering::Greater,
+                (a, b) if a < b => Ordering::Less,
+                _ => Ordering::Equal,
+            };
+
+            Some(ret)
+        }
+    }
+
+    const _: () = assert!(S(1) == S(1));
+    const _: () = assert!(S(0) != S(1));
+
+    const _: () = assert!(S(1) <= S(1));
+    const _: () = assert!(S(1) >= S(1));
+    const _: () = assert!(S(0) < S(1));
+    const _: () = assert!(S(1) > S(0));
 }

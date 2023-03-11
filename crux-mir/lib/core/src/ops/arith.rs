@@ -69,15 +69,23 @@
     on(all(_Self = "{integer}", Rhs = "{float}"), message = "cannot add a float to an integer",),
     on(all(_Self = "{float}", Rhs = "{integer}"), message = "cannot add an integer to a float",),
     message = "cannot add `{Rhs}` to `{Self}`",
-    label = "no implementation for `{Self} + {Rhs}`"
+    label = "no implementation for `{Self} + {Rhs}`",
+    append_const_msg
 )]
 #[doc(alias = "+")]
+#[const_trait]
 pub trait Add<Rhs = Self> {
     /// The resulting type after applying the `+` operator.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output;
 
     /// Performs the `+` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// assert_eq!(12 + 1, 13);
+    /// ```
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn add(self, rhs: Rhs) -> Self::Output;
@@ -86,7 +94,8 @@ pub trait Add<Rhs = Self> {
 macro_rules! add_impl {
     ($($t:ty)*) => ($(
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Add for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Add for $t {
             type Output = $t;
 
             #[inline]
@@ -94,7 +103,7 @@ macro_rules! add_impl {
             fn add(self, other: $t) -> $t { self + other }
         }
 
-        forward_ref_binop! { impl Add, add for $t, $t }
+        forward_ref_binop! { impl const Add, add for $t, $t }
     )*)
 }
 
@@ -122,10 +131,10 @@ add_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 /// }
 ///
 /// impl Sub for Point {
-///     type Output = Point;
+///     type Output = Self;
 ///
-///     fn sub(self, other: Point) -> Point {
-///         Point {
+///     fn sub(self, other: Self) -> Self::Output {
+///         Self {
 ///             x: self.x - other.x,
 ///             y: self.y - other.y,
 ///         }
@@ -169,15 +178,23 @@ add_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_on_unimplemented(
     message = "cannot subtract `{Rhs}` from `{Self}`",
-    label = "no implementation for `{Self} - {Rhs}`"
+    label = "no implementation for `{Self} - {Rhs}`",
+    append_const_msg
 )]
 #[doc(alias = "-")]
+#[const_trait]
 pub trait Sub<Rhs = Self> {
     /// The resulting type after applying the `-` operator.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output;
 
     /// Performs the `-` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// assert_eq!(12 - 1, 11);
+    /// ```
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn sub(self, rhs: Rhs) -> Self::Output;
@@ -186,7 +203,8 @@ pub trait Sub<Rhs = Self> {
 macro_rules! sub_impl {
     ($($t:ty)*) => ($(
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Sub for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Sub for $t {
             type Output = $t;
 
             #[inline]
@@ -194,7 +212,7 @@ macro_rules! sub_impl {
             fn sub(self, other: $t) -> $t { self - other }
         }
 
-        forward_ref_binop! { impl Sub, sub for $t, $t }
+        forward_ref_binop! { impl const Sub, sub for $t, $t }
     )*)
 }
 
@@ -229,7 +247,7 @@ sub_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 ///         // Reduce to lowest terms by dividing by the greatest common
 ///         // divisor.
 ///         let gcd = gcd(numerator, denominator);
-///         Rational {
+///         Self {
 ///             numerator: numerator / gcd,
 ///             denominator: denominator / gcd,
 ///         }
@@ -243,7 +261,7 @@ sub_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 ///     fn mul(self, rhs: Self) -> Self {
 ///         let numerator = self.numerator * rhs.numerator;
 ///         let denominator = self.denominator * rhs.denominator;
-///         Rational::new(numerator, denominator)
+///         Self::new(numerator, denominator)
 ///     }
 /// }
 ///
@@ -279,7 +297,7 @@ sub_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 ///     type Output = Self;
 ///
 ///     fn mul(self, rhs: Scalar) -> Self::Output {
-///         Vector { value: self.value.iter().map(|v| v * rhs.value).collect() }
+///         Self { value: self.value.iter().map(|v| v * rhs.value).collect() }
 ///     }
 /// }
 ///
@@ -290,16 +308,23 @@ sub_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 #[lang = "mul"]
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_on_unimplemented(
-    message = "cannot multiply `{Rhs}` to `{Self}`",
+    message = "cannot multiply `{Self}` by `{Rhs}`",
     label = "no implementation for `{Self} * {Rhs}`"
 )]
 #[doc(alias = "*")]
+#[const_trait]
 pub trait Mul<Rhs = Self> {
     /// The resulting type after applying the `*` operator.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output;
 
     /// Performs the `*` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// assert_eq!(12 * 2, 24);
+    /// ```
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn mul(self, rhs: Rhs) -> Self::Output;
@@ -308,7 +333,8 @@ pub trait Mul<Rhs = Self> {
 macro_rules! mul_impl {
     ($($t:ty)*) => ($(
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Mul for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Mul for $t {
             type Output = $t;
 
             #[inline]
@@ -316,7 +342,7 @@ macro_rules! mul_impl {
             fn mul(self, other: $t) -> $t { self * other }
         }
 
-        forward_ref_binop! { impl Mul, mul for $t, $t }
+        forward_ref_binop! { impl const Mul, mul for $t, $t }
     )*)
 }
 
@@ -351,7 +377,7 @@ mul_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 ///         // Reduce to lowest terms by dividing by the greatest common
 ///         // divisor.
 ///         let gcd = gcd(numerator, denominator);
-///         Rational {
+///         Self {
 ///             numerator: numerator / gcd,
 ///             denominator: denominator / gcd,
 ///         }
@@ -369,7 +395,7 @@ mul_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 ///
 ///         let numerator = self.numerator * rhs.denominator;
 ///         let denominator = self.denominator * rhs.numerator;
-///         Rational::new(numerator, denominator)
+///         Self::new(numerator, denominator)
 ///     }
 /// }
 ///
@@ -405,7 +431,7 @@ mul_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 ///     type Output = Self;
 ///
 ///     fn div(self, rhs: Scalar) -> Self::Output {
-///         Vector { value: self.value.iter().map(|v| v / rhs.value).collect() }
+///         Self { value: self.value.iter().map(|v| v / rhs.value).collect() }
 ///     }
 /// }
 ///
@@ -420,46 +446,62 @@ mul_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
     label = "no implementation for `{Self} / {Rhs}`"
 )]
 #[doc(alias = "/")]
+#[const_trait]
 pub trait Div<Rhs = Self> {
     /// The resulting type after applying the `/` operator.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output;
 
     /// Performs the `/` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// assert_eq!(12 / 2, 6);
+    /// ```
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn div(self, rhs: Rhs) -> Self::Output;
 }
 
 macro_rules! div_impl_integer {
-    ($($t:ty)*) => ($(
+    ($(($($t:ty)*) => $panic:expr),*) => ($($(
         /// This operation rounds towards zero, truncating any
         /// fractional part of the exact result.
+        ///
+        /// # Panics
+        ///
+        #[doc = $panic]
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Div for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Div for $t {
             type Output = $t;
 
             #[inline]
             fn div(self, other: $t) -> $t { self / other }
         }
 
-        forward_ref_binop! { impl Div, div for $t, $t }
-    )*)
+        forward_ref_binop! { impl const Div, div for $t, $t }
+    )*)*)
 }
 
-div_impl_integer! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+div_impl_integer! {
+    (usize u8 u16 u32 u64 u128) => "This operation will panic if `other == 0`.",
+    (isize i8 i16 i32 i64 i128) => "This operation will panic if `other == 0` or the division results in overflow."
+}
 
 macro_rules! div_impl_float {
     ($($t:ty)*) => ($(
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Div for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Div for $t {
             type Output = $t;
 
             #[inline]
             fn div(self, other: $t) -> $t { self / other }
         }
 
-        forward_ref_binop! { impl Div, div for $t, $t }
+        forward_ref_binop! { impl const Div, div for $t, $t }
     )*)
 }
 
@@ -491,7 +533,7 @@ div_impl_float! { f32 f64 }
 ///         let len = self.slice.len();
 ///         let rem = len % modulus;
 ///         let start = len - rem;
-///         SplitSlice {slice: &self.slice[start..]}
+///         Self {slice: &self.slice[start..]}
 ///     }
 /// }
 ///
@@ -507,34 +549,49 @@ div_impl_float! { f32 f64 }
     label = "no implementation for `{Self} % {Rhs}`"
 )]
 #[doc(alias = "%")]
+#[const_trait]
 pub trait Rem<Rhs = Self> {
     /// The resulting type after applying the `%` operator.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output;
 
     /// Performs the `%` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// assert_eq!(12 % 10, 2);
+    /// ```
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn rem(self, rhs: Rhs) -> Self::Output;
 }
 
 macro_rules! rem_impl_integer {
-    ($($t:ty)*) => ($(
+    ($(($($t:ty)*) => $panic:expr),*) => ($($(
         /// This operation satisfies `n % d == n - (n / d) * d`. The
         /// result has the same sign as the left operand.
+        ///
+        /// # Panics
+        ///
+        #[doc = $panic]
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Rem for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Rem for $t {
             type Output = $t;
 
             #[inline]
             fn rem(self, other: $t) -> $t { self % other }
         }
 
-        forward_ref_binop! { impl Rem, rem for $t, $t }
-    )*)
+        forward_ref_binop! { impl const Rem, rem for $t, $t }
+    )*)*)
 }
 
-rem_impl_integer! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+rem_impl_integer! {
+    (usize u8 u16 u32 u64 u128) => "This operation will panic if `other == 0`.",
+    (isize i8 i16 i32 i64 i128) => "This operation will panic if `other == 0` or if `self / other` results in overflow."
+}
 
 macro_rules! rem_impl_float {
     ($($t:ty)*) => ($(
@@ -554,14 +611,15 @@ macro_rules! rem_impl_float {
         /// assert_eq!(x % y, remainder);
         /// ```
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Rem for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Rem for $t {
             type Output = $t;
 
             #[inline]
             fn rem(self, other: $t) -> $t { self % other }
         }
 
-        forward_ref_binop! { impl Rem, rem for $t, $t }
+        forward_ref_binop! { impl const Rem, rem for $t, $t }
     )*)
 }
 
@@ -585,7 +643,7 @@ rem_impl_float! { f32 f64 }
 /// }
 ///
 /// impl Neg for Sign {
-///     type Output = Sign;
+///     type Output = Self;
 ///
 ///     fn neg(self) -> Self::Output {
 ///         match self {
@@ -606,46 +664,42 @@ rem_impl_float! { f32 f64 }
 #[lang = "neg"]
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(alias = "-")]
+#[const_trait]
 pub trait Neg {
     /// The resulting type after applying the `-` operator.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output;
 
     /// Performs the unary `-` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let x: i32 = 12;
+    /// assert_eq!(-x, -12);
+    /// ```
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn neg(self) -> Self::Output;
 }
 
-macro_rules! neg_impl_core {
-    ($id:ident => $body:expr, $($t:ty)*) => ($(
+macro_rules! neg_impl {
+    ($($t:ty)*) => ($(
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl Neg for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const Neg for $t {
             type Output = $t;
 
             #[inline]
             #[rustc_inherit_overflow_checks]
-            fn neg(self) -> $t { let $id = self; $body }
+            fn neg(self) -> $t { -self }
         }
 
-        forward_ref_unop! { impl Neg, neg for $t }
+        forward_ref_unop! { impl const Neg, neg for $t }
     )*)
 }
 
-macro_rules! neg_impl_numeric {
-    ($($t:ty)*) => { neg_impl_core!{ x => -x, $($t)*} }
-}
-
-#[allow(unused_macros)]
-macro_rules! neg_impl_unsigned {
-    ($($t:ty)*) => {
-        neg_impl_core!{ x => {
-            !x.wrapping_add(1)
-        }, $($t)*} }
-}
-
-// neg_impl_unsigned! { usize u8 u16 u32 u64 }
-neg_impl_numeric! { isize i8 i16 i32 i64 i128 f32 f64 }
+neg_impl! { isize i8 i16 i32 i64 i128 f32 f64 }
 
 /// The addition assignment operator `+=`.
 ///
@@ -684,8 +738,17 @@ neg_impl_numeric! { isize i8 i16 i32 i64 i128 f32 f64 }
 )]
 #[doc(alias = "+")]
 #[doc(alias = "+=")]
+#[const_trait]
 pub trait AddAssign<Rhs = Self> {
     /// Performs the `+=` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut x: u32 = 12;
+    /// x += 1;
+    /// assert_eq!(x, 13);
+    /// ```
     #[stable(feature = "op_assign_traits", since = "1.8.0")]
     fn add_assign(&mut self, rhs: Rhs);
 }
@@ -693,13 +756,14 @@ pub trait AddAssign<Rhs = Self> {
 macro_rules! add_assign_impl {
     ($($t:ty)+) => ($(
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
-        impl AddAssign for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const AddAssign for $t {
             #[inline]
             #[rustc_inherit_overflow_checks]
             fn add_assign(&mut self, other: $t) { *self += other }
         }
 
-        forward_ref_op_assign! { impl AddAssign, add_assign for $t, $t }
+        forward_ref_op_assign! { impl const AddAssign, add_assign for $t, $t }
     )+)
 }
 
@@ -742,8 +806,17 @@ add_assign_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 )]
 #[doc(alias = "-")]
 #[doc(alias = "-=")]
+#[const_trait]
 pub trait SubAssign<Rhs = Self> {
     /// Performs the `-=` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut x: u32 = 12;
+    /// x -= 1;
+    /// assert_eq!(x, 11);
+    /// ```
     #[stable(feature = "op_assign_traits", since = "1.8.0")]
     fn sub_assign(&mut self, rhs: Rhs);
 }
@@ -751,13 +824,14 @@ pub trait SubAssign<Rhs = Self> {
 macro_rules! sub_assign_impl {
     ($($t:ty)+) => ($(
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
-        impl SubAssign for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const SubAssign for $t {
             #[inline]
             #[rustc_inherit_overflow_checks]
             fn sub_assign(&mut self, other: $t) { *self -= other }
         }
 
-        forward_ref_op_assign! { impl SubAssign, sub_assign for $t, $t }
+        forward_ref_op_assign! { impl const SubAssign, sub_assign for $t, $t }
     )+)
 }
 
@@ -786,13 +860,22 @@ sub_assign_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 #[lang = "mul_assign"]
 #[stable(feature = "op_assign_traits", since = "1.8.0")]
 #[rustc_on_unimplemented(
-    message = "cannot multiply-assign `{Rhs}` to `{Self}`",
+    message = "cannot multiply-assign `{Self}` by `{Rhs}`",
     label = "no implementation for `{Self} *= {Rhs}`"
 )]
 #[doc(alias = "*")]
 #[doc(alias = "*=")]
+#[const_trait]
 pub trait MulAssign<Rhs = Self> {
     /// Performs the `*=` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut x: u32 = 12;
+    /// x *= 2;
+    /// assert_eq!(x, 24);
+    /// ```
     #[stable(feature = "op_assign_traits", since = "1.8.0")]
     fn mul_assign(&mut self, rhs: Rhs);
 }
@@ -800,13 +883,14 @@ pub trait MulAssign<Rhs = Self> {
 macro_rules! mul_assign_impl {
     ($($t:ty)+) => ($(
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
-        impl MulAssign for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const MulAssign for $t {
             #[inline]
             #[rustc_inherit_overflow_checks]
             fn mul_assign(&mut self, other: $t) { *self *= other }
         }
 
-        forward_ref_op_assign! { impl MulAssign, mul_assign for $t, $t }
+        forward_ref_op_assign! { impl const MulAssign, mul_assign for $t, $t }
     )+)
 }
 
@@ -840,8 +924,17 @@ mul_assign_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 )]
 #[doc(alias = "/")]
 #[doc(alias = "/=")]
+#[const_trait]
 pub trait DivAssign<Rhs = Self> {
     /// Performs the `/=` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut x: u32 = 12;
+    /// x /= 2;
+    /// assert_eq!(x, 6);
+    /// ```
     #[stable(feature = "op_assign_traits", since = "1.8.0")]
     fn div_assign(&mut self, rhs: Rhs);
 }
@@ -849,12 +942,13 @@ pub trait DivAssign<Rhs = Self> {
 macro_rules! div_assign_impl {
     ($($t:ty)+) => ($(
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
-        impl DivAssign for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const DivAssign for $t {
             #[inline]
             fn div_assign(&mut self, other: $t) { *self /= other }
         }
 
-        forward_ref_op_assign! { impl DivAssign, div_assign for $t, $t }
+        forward_ref_op_assign! { impl const DivAssign, div_assign for $t, $t }
     )+)
 }
 
@@ -892,8 +986,17 @@ div_assign_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 )]
 #[doc(alias = "%")]
 #[doc(alias = "%=")]
+#[const_trait]
 pub trait RemAssign<Rhs = Self> {
     /// Performs the `%=` operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut x: u32 = 12;
+    /// x %= 10;
+    /// assert_eq!(x, 2);
+    /// ```
     #[stable(feature = "op_assign_traits", since = "1.8.0")]
     fn rem_assign(&mut self, rhs: Rhs);
 }
@@ -901,12 +1004,13 @@ pub trait RemAssign<Rhs = Self> {
 macro_rules! rem_assign_impl {
     ($($t:ty)+) => ($(
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
-        impl RemAssign for $t {
+        #[rustc_const_unstable(feature = "const_ops", issue = "90080")]
+        impl const RemAssign for $t {
             #[inline]
             fn rem_assign(&mut self, other: $t) { *self %= other }
         }
 
-        forward_ref_op_assign! { impl RemAssign, rem_assign for $t, $t }
+        forward_ref_op_assign! { impl const RemAssign, rem_assign for $t, $t }
     )+)
 }
 

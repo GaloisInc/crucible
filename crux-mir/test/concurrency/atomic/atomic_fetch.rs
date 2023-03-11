@@ -4,7 +4,7 @@ use std::thread;
 use std::sync::{Arc,atomic};
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test_nofail() {
     let N       = 3;
 

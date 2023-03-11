@@ -5,7 +5,7 @@ struct MyStruct {
     y: u8,
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> bool {
     let s = format!("{:?}", MyStruct { x: 1, y: 2 });
     &s == "MyStruct { x: 1, y: 2 }"

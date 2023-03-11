@@ -104,7 +104,6 @@ fn test_format_int() {
 
 #[test]
 fn test_format_int_exp_limits() {
-    use core::{i128, i16, i32, i64, i8, u128, u16, u32, u64, u8};
     assert_eq!(format!("{:e}", i8::MIN), "-1.28e2");
     assert_eq!(format!("{:e}", i8::MAX), "1.27e2");
     assert_eq!(format!("{:e}", i16::MIN), "-3.2768e4");
@@ -125,11 +124,9 @@ fn test_format_int_exp_limits() {
 
 #[test]
 fn test_format_int_exp_precision() {
-    use core::{i128, i16, i32, i64, i8};
-
     //test that float and integer match
     let big_int: u32 = 314_159_265;
-    assert_eq!(format!("{:.1e}", big_int), format!("{:.1e}", f64::from(big_int)));
+    assert_eq!(format!("{big_int:.1e}"), format!("{:.1e}", f64::from(big_int)));
 
     //test adding precision
     assert_eq!(format!("{:.10e}", i8::MIN), "-1.2800000000e2");
@@ -149,6 +146,7 @@ fn test_format_int_exp_precision() {
     assert_eq!(format!("{:.1000e}", 1), format!("1.{}e0", "0".repeat(1000)));
     //test zero precision
     assert_eq!(format!("{:.0e}", 1), format!("1e0",));
+    assert_eq!(format!("{:.0e}", 35), format!("4e1",));
 
     //test padding with precision (and sign)
     assert_eq!(format!("{:+10.3e}", 1), "  +1.000e0");
@@ -214,7 +212,6 @@ fn test_format_int_sign_padding() {
 
 #[test]
 fn test_format_int_twos_complement() {
-    use core::{i16, i32, i64, i8};
     assert_eq!(format!("{}", i8::MIN), "-128");
     assert_eq!(format!("{}", i16::MIN), "-32768");
     assert_eq!(format!("{}", i32::MIN), "-2147483648");

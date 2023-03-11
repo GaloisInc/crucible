@@ -4,13 +4,13 @@
 extern crate core;
 
 fn f(x:u16) -> bool {
-   let mut buf  = [0,0]; 
+   let mut buf  = [0,0];
    let res1 = x.ser(&mut buf);
     match res1 {
         Some(v) => true,
         None => false,
     }
-   
+
 }
 
 const ARG: u16 = 1;
@@ -36,4 +36,4 @@ impl Lmcp for u16 {
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }

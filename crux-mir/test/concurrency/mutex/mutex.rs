@@ -4,7 +4,7 @@ use std::thread;
 use std::sync::{Arc,Mutex};
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test_nofail() {
     let data    = Arc::new(Mutex::new(0 as u32));
     let N       = 3;
@@ -37,7 +37,7 @@ fn crux_test_nofail() {
     data.crucible_TEMP_unlock();
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test_fail() {
     let data    = Arc::new(Mutex::new(0 as u32));
     let N       = 2;

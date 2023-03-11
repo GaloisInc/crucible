@@ -19,7 +19,7 @@ extern "C" {
 ///
 /// The result is rounded according to the current rounding mode. If the result
 /// cannot be represented as a 64 bit integer the result will be
-/// `0x8000_0000_0000_0000` (`std::i64::MIN`) or trigger an invalid operation
+/// `0x8000_0000_0000_0000` (`i64::MIN`) or trigger an invalid operation
 /// floating point exception if unmasked (see
 /// [`_mm_setcsr`](fn._mm_setcsr.html)).
 ///
@@ -39,7 +39,7 @@ pub unsafe fn _mm_cvtss_si64(a: __m128) -> i64 {
 ///
 /// The result is rounded always using truncation (round towards zero). If the
 /// result cannot be represented as a 64 bit integer the result will be
-/// `0x8000_0000_0000_0000` (`std::i64::MIN`) or an invalid operation floating
+/// `0x8000_0000_0000_0000` (`i64::MIN`) or an invalid operation floating
 /// point exception if unmasked (see [`_mm_setcsr`](fn._mm_setcsr.html)).
 ///
 /// This corresponds to the `CVTTSS2SI` instruction (with 64 bit output).
@@ -71,7 +71,6 @@ pub unsafe fn _mm_cvtsi64_ss(a: __m128, b: i64) -> __m128 {
 #[cfg(test)]
 mod tests {
     use crate::core_arch::arch::x86_64::*;
-    use std::{f32::NAN, i64::MIN};
     use stdarch_test::simd_test;
 
     #[simd_test(enable = "sse")]
@@ -83,7 +82,7 @@ mod tests {
             (-34.5, -34),
             (4.0e10, 40_000_000_000),
             (4.0e-10, 0),
-            (NAN, MIN),
+            (f32::NAN, i64::MIN),
             (2147483500.1, 2147483520),
             (9.223371e18, 9223370937343148032),
         ];
@@ -110,10 +109,10 @@ mod tests {
             (-5.99, -5),
             (4.0e10, 40_000_000_000),
             (4.0e-10, 0),
-            (NAN, MIN),
+            (f32::NAN, i64::MIN),
             (2147483500.1, 2147483520),
             (9.223371e18, 9223370937343148032),
-            (9.223372e18, MIN),
+            (9.223372e18, i64::MIN),
         ];
         for i in 0..inputs.len() {
             let (xi, e) = inputs[i];

@@ -19,4 +19,4 @@ const LOCAL_KEY: LocalKey = LocalKey { fn_ptr: f };
 pub fn main() {
     println!("{:?}", LOCAL_KEY.get());
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i32 { LOCAL_KEY.get() }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> i32 { LOCAL_KEY.get() }

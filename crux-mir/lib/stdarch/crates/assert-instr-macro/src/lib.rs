@@ -7,12 +7,10 @@
 //! The procedural macro here is relatively simple, it simply appends a
 //! `#[test]` function to the original token stream which asserts that the
 //! function itself contains the relevant instruction.
+#![deny(rust_2018_idioms)]
 
-extern crate proc_macro;
-extern crate proc_macro2;
 #[macro_use]
 extern crate quote;
-extern crate syn;
 
 use proc_macro2::TokenStream;
 use quote::ToTokens;
@@ -43,6 +41,10 @@ pub fn assert_instr(
     // testing for.
     let disable_assert_instr = std::env::var("STDARCH_DISABLE_ASSERT_INSTR").is_ok();
 
+    // Disable dedup guard. Only works if the LLVM MergeFunctions pass is disabled, e.g.
+    // with `-Z merge-functions=disabled` in RUSTFLAGS.
+    let disable_dedup_guard = std::env::var("STDARCH_DISABLE_DEDUP_GUARD").is_ok();
+
     // If instruction tests are disabled avoid emitting this shim at all, just
     // return the original item without our attribute.
     if !cfg!(optimized) || disable_assert_instr {
@@ -60,8 +62,13 @@ pub fn assert_instr(
         &format!("stdarch_test_shim_{}_{}", name, instr_str),
         name.span(),
     );
+    let shim_name_ptr = syn::Ident::new(
+        &format!("stdarch_test_shim_{}_{}_ptr", name, instr_str).to_ascii_uppercase(),
+        name.span(),
+    );
     let mut inputs = Vec::new();
     let mut input_vals = Vec::new();
+    let mut const_vals = Vec::new();
     let ret = &func.sig.output;
     for arg in func.sig.inputs.iter() {
         let capture = match *arg {
@@ -80,6 +87,20 @@ pub fn assert_instr(
         } else {
             inputs.push(capture);
             input_vals.push(quote! { #ident });
+        }
+    }
+    for arg in func.sig.generics.params.iter() {
+        let c = match *arg {
+            syn::GenericParam::Const(ref c) => c,
+            ref v => panic!(
+                "only const generics are allowed: `{:?}`",
+                v.clone().into_token_stream()
+            ),
+        };
+        if let Some(&(_, ref tokens)) = invoc.args.iter().find(|a| c.ident == a.0) {
+            const_vals.push(quote! { #tokens });
+        } else {
+            panic!("const generics must have a value for tests");
         }
     }
 
@@ -101,56 +122,62 @@ pub fn assert_instr(
     // Use an ABI on Windows that passes SIMD values in registers, like what
     // happens on Unix (I think?) by default.
     let abi = if cfg!(windows) {
-        syn::LitStr::new("vectorcall", proc_macro2::Span::call_site())
+        let target = std::env::var("TARGET").unwrap();
+        if target.contains("x86_64") {
+            syn::LitStr::new("sysv64", proc_macro2::Span::call_site())
+        } else {
+            syn::LitStr::new("vectorcall", proc_macro2::Span::call_site())
+        }
     } else {
         syn::LitStr::new("C", proc_macro2::Span::call_site())
     };
     let shim_name_str = format!("{}{}", shim_name, assert_name);
-    let to_test = quote! {
-        #attrs
-        #[no_mangle]
-        #[inline(never)]
-        pub unsafe extern #abi fn #shim_name(#(#inputs),*) #ret {
-            // The compiler in optimized mode by default runs a pass called
-            // "mergefunc" where it'll merge functions that look identical.
-            // Turns out some intrinsics produce identical code and they're
-            // folded together, meaning that one just jumps to another. This
-            // messes up our inspection of the disassembly of this function and
-            // we're not a huge fan of that.
-            //
-            // To thwart this pass and prevent functions from being merged we
-            // generate some code that's hopefully very tight in terms of
-            // codegen but is otherwise unique to prevent code from being
-            // folded.
-            ::stdarch_test::_DONT_DEDUP.store(
-                std::mem::transmute(#shim_name_str.as_bytes().as_ptr()),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            #name(#(#input_vals),*)
+    let to_test = if disable_dedup_guard {
+        quote! {
+            #attrs
+            #[no_mangle]
+            #[inline(never)]
+            pub unsafe extern #abi fn #shim_name(#(#inputs),*) #ret {
+                #name::<#(#const_vals),*>(#(#input_vals),*)
+            }
+        }
+    } else {
+        quote! {
+
+            const #shim_name_ptr : *const u8 = #shim_name_str.as_ptr();
+
+            #attrs
+            #[no_mangle]
+            #[inline(never)]
+            pub unsafe extern #abi fn #shim_name(#(#inputs),*) #ret {
+                // The compiler in optimized mode by default runs a pass called
+                // "mergefunc" where it'll merge functions that look identical.
+                // Turns out some intrinsics produce identical code and they're
+                // folded together, meaning that one just jumps to another. This
+                // messes up our inspection of the disassembly of this function and
+                // we're not a huge fan of that.
+                //
+                // To thwart this pass and prevent functions from being merged we
+                // generate some code that's hopefully very tight in terms of
+                // codegen but is otherwise unique to prevent code from being
+                // folded.
+                ::stdarch_test::_DONT_DEDUP = #shim_name_ptr;
+                #name::<#(#const_vals),*>(#(#input_vals),*)
+            }
         }
     };
 
     let tokens: TokenStream = quote! {
-        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
-        #[cfg_attr(not(target_arch = "wasm32"), test)]
+        #[test]
         #[allow(non_snake_case)]
         fn #assert_name() {
             #to_test
-
-            // Make sure that the shim is not removed by leaking it to unknown
-            // code:
-            unsafe { asm!("" : : "r"(#shim_name as usize) : "memory" : "volatile") };
 
             ::stdarch_test::assert(#shim_name as usize,
                                    stringify!(#shim_name),
                                    #instr);
         }
     };
-    // why? necessary now to get tests to work?
-    let tokens: TokenStream = tokens
-        .to_string()
-        .parse()
-        .expect("cannot parse tokenstream");
 
     let tokens: TokenStream = quote! {
         #item
@@ -165,7 +192,7 @@ struct Invoc {
 }
 
 impl syn::parse::Parse for Invoc {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
         use syn::{ext::IdentExt, Token};
 
         let mut instr = String::new();
@@ -178,7 +205,7 @@ impl syn::parse::Parse for Invoc {
                 continue;
             }
             if input.parse::<Token![.]>().is_ok() {
-                instr.push_str(".");
+                instr.push('.');
                 continue;
             }
             if let Ok(s) = input.parse::<syn::LitStr>() {

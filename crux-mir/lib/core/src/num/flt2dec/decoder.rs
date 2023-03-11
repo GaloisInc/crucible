@@ -1,8 +1,7 @@
 //! Decodes a floating-point value into individual parts and error ranges.
 
-use crate::num::dec2flt::rawfp::RawFloat;
+use crate::num::dec2flt::float::RawFloat;
 use crate::num::FpCategory;
-use crate::{f32, f64};
 
 /// Decoded unsigned finite value, such that:
 ///

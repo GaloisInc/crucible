@@ -1,89 +1,25 @@
 #![allow(missing_copy_implementations)]
 
+#[cfg(test)]
+mod tests;
+
 use crate::fmt;
-use crate::io::{self, BufRead, ErrorKind, Initializer, IoSlice, IoSliceMut, Read, Write};
-use crate::mem::MaybeUninit;
-
-/// Copies the entire contents of a reader into a writer.
-///
-/// This function will continuously read data from `reader` and then
-/// write it into `writer` in a streaming fashion until `reader`
-/// returns EOF.
-///
-/// On success, the total number of bytes that were copied from
-/// `reader` to `writer` is returned.
-///
-/// If you’re wanting to copy the contents of one file to another and you’re
-/// working with filesystem paths, see the [`fs::copy`] function.
-///
-/// [`fs::copy`]: ../fs/fn.copy.html
-///
-/// # Errors
-///
-/// This function will return an error immediately if any call to `read` or
-/// `write` returns an error. All instances of `ErrorKind::Interrupted` are
-/// handled by this function and the underlying operation is retried.
-///
-/// # Examples
-///
-/// ```
-/// use std::io;
-///
-/// fn main() -> io::Result<()> {
-///     let mut reader: &[u8] = b"hello";
-///     let mut writer: Vec<u8> = vec![];
-///
-///     io::copy(&mut reader, &mut writer)?;
-///
-///     assert_eq!(&b"hello"[..], &writer[..]);
-///     Ok(())
-/// }
-/// ```
-#[stable(feature = "rust1", since = "1.0.0")]
-pub fn copy<R: ?Sized, W: ?Sized>(reader: &mut R, writer: &mut W) -> io::Result<u64>
-where
-    R: Read,
-    W: Write,
-{
-    let mut buf = MaybeUninit::<[u8; super::DEFAULT_BUF_SIZE]>::uninit();
-    // FIXME(#53491): This is calling `get_mut` and `get_ref` on an uninitialized
-    // `MaybeUninit`. Revisit this once we decided whether that is valid or not.
-    // This is still technically undefined behavior due to creating a reference
-    // to uninitialized data, but within libstd we can rely on more guarantees
-    // than if this code were in an external lib.
-    unsafe {
-        reader.initializer().initialize(buf.get_mut());
-    }
-
-    let mut written = 0;
-    loop {
-        let len = match reader.read(unsafe { buf.get_mut() }) {
-            Ok(0) => return Ok(written),
-            Ok(len) => len,
-            Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        writer.write_all(unsafe { &buf.get_ref()[..len] })?;
-        written += len as u64;
-    }
-}
+use crate::io::{
+    self, BorrowedCursor, BufRead, IoSlice, IoSliceMut, Read, Seek, SeekFrom, SizeHint, Write,
+};
 
 /// A reader which is always at EOF.
 ///
-/// This struct is generally created by calling [`empty`]. Please see
-/// the documentation of [`empty()`][`empty`] for more details.
-///
-/// [`empty`]: fn.empty.html
+/// This struct is generally created by calling [`empty()`]. Please see
+/// the documentation of [`empty()`] for more details.
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Empty {
-    _priv: (),
-}
+#[non_exhaustive]
+#[derive(Copy, Clone, Default)]
+pub struct Empty;
 
 /// Constructs a new handle to an empty reader.
 ///
-/// All reads from the returned reader will return [`Ok`]`(0)`.
-///
-/// [`Ok`]: ../result/enum.Result.html#variant.Ok
+/// All reads from the returned reader will return <code>[Ok]\(0)</code>.
 ///
 /// # Examples
 ///
@@ -96,9 +32,11 @@ pub struct Empty {
 /// io::empty().read_to_string(&mut buffer).unwrap();
 /// assert!(buffer.is_empty());
 /// ```
+#[must_use]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub fn empty() -> Empty {
-    Empty { _priv: () }
+#[rustc_const_unstable(feature = "const_io_structs", issue = "78812")]
+pub const fn empty() -> Empty {
+    Empty
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -109,8 +47,8 @@ impl Read for Empty {
     }
 
     #[inline]
-    unsafe fn initializer(&self) -> Initializer {
-        Initializer::nop()
+    fn read_buf(&mut self, _cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        Ok(())
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -123,19 +61,39 @@ impl BufRead for Empty {
     fn consume(&mut self, _n: usize) {}
 }
 
+#[stable(feature = "empty_seek", since = "1.51.0")]
+impl Seek for Empty {
+    fn seek(&mut self, _pos: SeekFrom) -> io::Result<u64> {
+        Ok(0)
+    }
+
+    fn stream_len(&mut self) -> io::Result<u64> {
+        Ok(0)
+    }
+
+    fn stream_position(&mut self) -> io::Result<u64> {
+        Ok(0)
+    }
+}
+
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for Empty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad("Empty { .. }")
+        f.debug_struct("Empty").finish_non_exhaustive()
+    }
+}
+
+impl SizeHint for Empty {
+    #[inline]
+    fn upper_bound(&self) -> Option<usize> {
+        Some(0)
     }
 }
 
 /// A reader which yields one byte over and over and over and over and over and...
 ///
-/// This struct is generally created by calling [`repeat`][repeat]. Please
-/// see the documentation of `repeat()` for more details.
-///
-/// [repeat]: fn.repeat.html
+/// This struct is generally created by calling [`repeat()`]. Please
+/// see the documentation of [`repeat()`] for more details.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Repeat {
     byte: u8,
@@ -155,8 +113,10 @@ pub struct Repeat {
 /// io::repeat(0b101).read_exact(&mut buffer).unwrap();
 /// assert_eq!(buffer, [0b101, 0b101, 0b101]);
 /// ```
+#[must_use]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub fn repeat(byte: u8) -> Repeat {
+#[rustc_const_unstable(feature = "const_io_structs", issue = "78812")]
+pub const fn repeat(byte: u8) -> Repeat {
     Repeat { byte }
 }
 
@@ -170,6 +130,22 @@ impl Read for Repeat {
         Ok(buf.len())
     }
 
+    fn read_buf(&mut self, mut buf: BorrowedCursor<'_>) -> io::Result<()> {
+        // SAFETY: No uninit bytes are being written
+        for slot in unsafe { buf.as_mut() } {
+            slot.write(self.byte);
+        }
+
+        let remaining = buf.capacity();
+
+        // SAFETY: the entire unfilled portion of buf has been initialized
+        unsafe {
+            buf.advance(remaining);
+        }
+
+        Ok(())
+    }
+
     #[inline]
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         let mut nwritten = 0;
@@ -180,33 +156,45 @@ impl Read for Repeat {
     }
 
     #[inline]
-    unsafe fn initializer(&self) -> Initializer {
-        Initializer::nop()
+    fn is_read_vectored(&self) -> bool {
+        true
+    }
+}
+
+impl SizeHint for Repeat {
+    #[inline]
+    fn lower_bound(&self) -> usize {
+        usize::MAX
+    }
+
+    #[inline]
+    fn upper_bound(&self) -> Option<usize> {
+        None
     }
 }
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for Repeat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad("Repeat { .. }")
+        f.debug_struct("Repeat").finish_non_exhaustive()
     }
 }
 
 /// A writer which will move data into the void.
 ///
-/// This struct is generally created by calling [`sink`][sink]. Please
-/// see the documentation of `sink()` for more details.
-///
-/// [sink]: fn.sink.html
+/// This struct is generally created by calling [`sink`]. Please
+/// see the documentation of [`sink()`] for more details.
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Sink {
-    _priv: (),
-}
+#[non_exhaustive]
+#[derive(Copy, Clone, Default)]
+pub struct Sink;
 
 /// Creates an instance of a writer which will successfully consume all data.
 ///
-/// All calls to `write` on the returned instance will return `Ok(buf.len())`
+/// All calls to [`write`] on the returned instance will return `Ok(buf.len())`
 /// and the contents of the buffer will not be inspected.
+///
+/// [`write`]: Write::write
 ///
 /// # Examples
 ///
@@ -217,9 +205,11 @@ pub struct Sink {
 /// let num_bytes = io::sink().write(&buffer).unwrap();
 /// assert_eq!(num_bytes, 5);
 /// ```
+#[must_use]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub fn sink() -> Sink {
-    Sink { _priv: () }
+#[rustc_const_unstable(feature = "const_io_structs", issue = "78812")]
+pub const fn sink() -> Sink {
+    Sink
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -236,6 +226,35 @@ impl Write for Sink {
     }
 
     #[inline]
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[stable(feature = "write_mt", since = "1.48.0")]
+impl Write for &Sink {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    #[inline]
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        let total_len = bufs.iter().map(|b| b.len()).sum();
+        Ok(total_len)
+    }
+
+    #[inline]
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -244,55 +263,6 @@ impl Write for Sink {
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for Sink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad("Sink { .. }")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::io::prelude::*;
-    use crate::io::{copy, empty, repeat, sink};
-
-    #[test]
-    fn copy_copies() {
-        let mut r = repeat(0).take(4);
-        let mut w = sink();
-        assert_eq!(copy(&mut r, &mut w).unwrap(), 4);
-
-        let mut r = repeat(0).take(1 << 17);
-        assert_eq!(copy(&mut r as &mut dyn Read, &mut w as &mut dyn Write).unwrap(), 1 << 17);
-    }
-
-    #[test]
-    fn sink_sinks() {
-        let mut s = sink();
-        assert_eq!(s.write(&[]).unwrap(), 0);
-        assert_eq!(s.write(&[0]).unwrap(), 1);
-        assert_eq!(s.write(&[0; 1024]).unwrap(), 1024);
-        assert_eq!(s.by_ref().write(&[0; 1024]).unwrap(), 1024);
-    }
-
-    #[test]
-    fn empty_reads() {
-        let mut e = empty();
-        assert_eq!(e.read(&mut []).unwrap(), 0);
-        assert_eq!(e.read(&mut [0]).unwrap(), 0);
-        assert_eq!(e.read(&mut [0; 1024]).unwrap(), 0);
-        assert_eq!(e.by_ref().read(&mut [0; 1024]).unwrap(), 0);
-    }
-
-    #[test]
-    fn repeat_repeats() {
-        let mut r = repeat(4);
-        let mut b = [0; 1024];
-        assert_eq!(r.read(&mut b).unwrap(), 1024);
-        assert!(b.iter().all(|b| *b == 4));
-    }
-
-    #[test]
-    fn take_some_bytes() {
-        assert_eq!(repeat(4).take(100).bytes().count(), 100);
-        assert_eq!(repeat(4).take(100).bytes().next().unwrap().unwrap(), 4);
-        assert_eq!(repeat(1).take(10).chain(repeat(2).take(10)).bytes().count(), 20);
+        f.debug_struct("Sink").finish_non_exhaustive()
     }
 }

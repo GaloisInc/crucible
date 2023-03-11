@@ -7,14 +7,14 @@ pub enum O<T> {
 use self::O::*;
 
 impl<T> O<T> {
-  
+
     pub fn as_mut(&mut self) -> O<&mut T> {
         match *self {
             S(ref mut x) => S(x),
             N => N,
         }
     }
-    
+
 }
 
 pub fn g(mut x:O<i32>) -> O<i32> {
@@ -23,7 +23,7 @@ pub fn g(mut x:O<i32>) -> O<i32> {
             S(y) => S(y+1),
             N    => x
         };
-    x      
+    x
 }
 
 
@@ -44,4 +44,4 @@ const ARG: i32 = 14;
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> i32 { f(ARG) }

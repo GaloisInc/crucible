@@ -2,10 +2,10 @@
 
 pub struct Rng<Idx> {
     /// The lower bound of the range (inclusive).
-    
+
     pub start: Idx,
     /// The upper bound of the range (exclusive).
-    
+
     pub end: Idx,
 }
 
@@ -22,4 +22,4 @@ const ARG : i32 = 2;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> i32 { f(ARG) }

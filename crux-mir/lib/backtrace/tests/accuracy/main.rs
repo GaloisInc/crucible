@@ -16,6 +16,33 @@ type Pos = (&'static str, u32);
 
 #[test]
 fn doit() {
+    if
+    // Skip musl which is by default statically linked and doesn't support
+    // dynamic libraries.
+    !cfg!(target_env = "musl")
+    // Skip Miri, since it doesn't support dynamic libraries.
+    && !cfg!(miri)
+    {
+        // TODO(#238) this shouldn't have to happen first in this function, but
+        // currently it does.
+        let mut dir = std::env::current_exe().unwrap();
+        dir.pop();
+        if cfg!(windows) {
+            dir.push("dylib_dep.dll");
+        } else if cfg!(target_os = "macos") {
+            dir.push("libdylib_dep.dylib");
+        } else {
+            dir.push("libdylib_dep.so");
+        }
+        unsafe {
+            let lib = libloading::Library::new(&dir).unwrap();
+            let api = lib.get::<extern "C" fn(Pos, fn(Pos, Pos))>(b"foo").unwrap();
+            api(pos!(), |a, b| {
+                check!(a, b);
+            });
+        }
+    }
+
     outer(pos!());
 }
 
@@ -39,14 +66,12 @@ fn inner(main_pos: Pos, outer_pos: Pos) {
 }
 
 #[inline(always)]
-#[cfg_attr(feature = "coresymbolication", inline(never))]
 #[rustfmt::skip]
 fn inner_inlined(main_pos: Pos, outer_pos: Pos) {
     check!(main_pos, outer_pos);
     check!(main_pos, outer_pos);
 
     #[inline(always)]
-    #[cfg_attr(feature = "coresymbolication", inline(never))]
     fn inner_further_inlined(main_pos: Pos, outer_pos: Pos, inner_pos: Pos) {
         check!(main_pos, outer_pos, inner_pos);
     }

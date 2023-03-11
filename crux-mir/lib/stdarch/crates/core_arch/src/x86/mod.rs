@@ -6,50 +6,6 @@ use crate::{intrinsics, marker::Sized, mem::transmute};
 mod macros;
 
 types! {
-    /// 64-bit wide integer vector type, x86-specific
-    ///
-    /// This type is the same as the `__m64` type defined by Intel,
-    /// representing a 64-bit SIMD register. Usage of this type typically
-    /// corresponds to the `mmx` target feature.
-    ///
-    /// Internally this type may be viewed as:
-    ///
-    /// * `i8x8` - eight `i8` variables packed together
-    /// * `i16x4` - four `i16` variables packed together
-    /// * `i32x2` - two `i32` variables packed together
-    ///
-    /// (as well as unsigned versions). Each intrinsic may interpret the
-    /// internal bits differently, check the documentation of the intrinsic
-    /// to see how it's being used.
-    ///
-    /// Note that this means that an instance of `__m64` typically just means
-    /// a "bag of bits" which is left up to interpretation at the point of use.
-    ///
-    /// Most intrinsics using `__m64` are prefixed with `_mm_` and the
-    /// integer types tend to correspond to suffixes like "pi8" or "pi32" (not
-    /// to be confused with "epiXX", used for `__m128i`).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #![feature(stdsimd, mmx_target_feature)]
-    /// #[cfg(target_arch = "x86")]
-    /// use std::arch::x86::*;
-    /// #[cfg(target_arch = "x86_64")]
-    /// use std::arch::x86_64::*;
-    ///
-    /// # fn main() {
-    /// # #[target_feature(enable = "mmx")]
-    /// # unsafe fn foo() {
-    /// let all_bytes_zero = _mm_setzero_si64();
-    /// let all_bytes_one = _mm_set1_pi8(1);
-    /// let two_i32 = _mm_set_pi32(1, 2);
-    /// # }
-    /// # if is_x86_feature_detected!("mmx") { unsafe { foo() } }
-    /// # }
-    /// ```
-    pub struct __m64(i64);
-
     /// 128-bit wide integer vector type, x86-specific
     ///
     /// This type is the same as the `__m128i` type defined by Intel,
@@ -340,11 +296,70 @@ types! {
     /// suffixed with "pd" (or otherwise contain "pd"). Not to be confused with
     /// "ps" which is used for `__m512`.
     pub struct __m512d(f64, f64, f64, f64, f64, f64, f64, f64);
+
+    /// 128-bit wide set of eight 'u16' types, x86-specific
+    ///
+    /// This type is representing a 128-bit SIMD register which internally is consisted of
+    /// eight packed `u16` instances. Its purpose is for bf16 related intrinsic
+    /// implementations.
+    pub struct __m128bh(u16, u16, u16, u16, u16, u16, u16, u16);
+
+    /// 256-bit wide set of 16 'u16' types, x86-specific
+    ///
+    /// This type is the same as the `__m256bh` type defined by Intel,
+    /// representing a 256-bit SIMD register which internally is consisted of
+    /// 16 packed `u16` instances. Its purpose is for bf16 related intrinsic
+    /// implementations.
+    pub struct __m256bh(
+        u16, u16, u16, u16, u16, u16, u16, u16,
+        u16, u16, u16, u16, u16, u16, u16, u16
+    );
+
+    /// 512-bit wide set of 32 'u16' types, x86-specific
+    ///
+    /// This type is the same as the `__m512bh` type defined by Intel,
+    /// representing a 512-bit SIMD register which internally is consisted of
+    /// 32 packed `u16` instances. Its purpose is for bf16 related intrinsic
+    /// implementations.
+    pub struct __m512bh(
+        u16, u16, u16, u16, u16, u16, u16, u16,
+        u16, u16, u16, u16, u16, u16, u16, u16,
+        u16, u16, u16, u16, u16, u16, u16, u16,
+        u16, u16, u16, u16, u16, u16, u16, u16
+    );
 }
+
+/// The `__mmask64` type used in AVX-512 intrinsics, a 64-bit integer
+#[allow(non_camel_case_types)]
+pub type __mmask64 = u64;
+
+/// The `__mmask32` type used in AVX-512 intrinsics, a 32-bit integer
+#[allow(non_camel_case_types)]
+pub type __mmask32 = u32;
 
 /// The `__mmask16` type used in AVX-512 intrinsics, a 16-bit integer
 #[allow(non_camel_case_types)]
-pub type __mmask16 = i16;
+pub type __mmask16 = u16;
+
+/// The `__mmask8` type used in AVX-512 intrinsics, a 8-bit integer
+#[allow(non_camel_case_types)]
+pub type __mmask8 = u8;
+
+/// The `_MM_CMPINT_ENUM` type used to specify comparison operations in AVX-512 intrinsics.
+#[allow(non_camel_case_types)]
+pub type _MM_CMPINT_ENUM = i32;
+
+/// The `MM_MANTISSA_NORM_ENUM` type used to specify mantissa normalized operations in AVX-512 intrinsics.
+#[allow(non_camel_case_types)]
+pub type _MM_MANTISSA_NORM_ENUM = i32;
+
+/// The `MM_MANTISSA_SIGN_ENUM` type used to specify mantissa signed operations in AVX-512 intrinsics.
+#[allow(non_camel_case_types)]
+pub type _MM_MANTISSA_SIGN_ENUM = i32;
+
+/// The `MM_PERM_ENUM` type used to specify shuffle operations in AVX-512 intrinsics.
+#[allow(non_camel_case_types)]
+pub type _MM_PERM_ENUM = i32;
 
 #[cfg(test)]
 mod test;
@@ -352,50 +367,7 @@ mod test;
 pub use self::test::*;
 
 #[allow(non_camel_case_types)]
-#[unstable(feature = "stdimd_internal", issue = "none")]
-pub(crate) trait m64Ext: Sized {
-    fn as_m64(self) -> __m64;
-
-    #[inline]
-    fn as_u8x8(self) -> crate::core_arch::simd::u8x8 {
-        unsafe { transmute(self.as_m64()) }
-    }
-
-    #[inline]
-    fn as_u16x4(self) -> crate::core_arch::simd::u16x4 {
-        unsafe { transmute(self.as_m64()) }
-    }
-
-    #[inline]
-    fn as_u32x2(self) -> crate::core_arch::simd::u32x2 {
-        unsafe { transmute(self.as_m64()) }
-    }
-
-    #[inline]
-    fn as_i8x8(self) -> crate::core_arch::simd::i8x8 {
-        unsafe { transmute(self.as_m64()) }
-    }
-
-    #[inline]
-    fn as_i16x4(self) -> crate::core_arch::simd::i16x4 {
-        unsafe { transmute(self.as_m64()) }
-    }
-
-    #[inline]
-    fn as_i32x2(self) -> crate::core_arch::simd::i32x2 {
-        unsafe { transmute(self.as_m64()) }
-    }
-}
-
-impl m64Ext for __m64 {
-    #[inline]
-    fn as_m64(self) -> Self {
-        self
-    }
-}
-
-#[allow(non_camel_case_types)]
-#[unstable(feature = "stdimd_internal", issue = "none")]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
 pub(crate) trait m128iExt: Sized {
     fn as_m128i(self) -> __m128i;
 
@@ -448,7 +420,7 @@ impl m128iExt for __m128i {
 }
 
 #[allow(non_camel_case_types)]
-#[unstable(feature = "stdimd_internal", issue = "none")]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
 pub(crate) trait m256iExt: Sized {
     fn as_m256i(self) -> __m256i;
 
@@ -501,12 +473,119 @@ impl m256iExt for __m256i {
 }
 
 #[allow(non_camel_case_types)]
-#[unstable(feature = "stdimd_internal", issue = "none")]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m128Ext: Sized {
+    fn as_m128(self) -> __m128;
+
+    #[inline]
+    fn as_f32x4(self) -> crate::core_arch::simd::f32x4 {
+        unsafe { transmute(self.as_m128()) }
+    }
+}
+
+impl m128Ext for __m128 {
+    #[inline]
+    fn as_m128(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m128dExt: Sized {
+    fn as_m128d(self) -> __m128d;
+
+    #[inline]
+    fn as_f64x2(self) -> crate::core_arch::simd::f64x2 {
+        unsafe { transmute(self.as_m128d()) }
+    }
+}
+
+impl m128dExt for __m128d {
+    #[inline]
+    fn as_m128d(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m256Ext: Sized {
+    fn as_m256(self) -> __m256;
+
+    #[inline]
+    fn as_f32x8(self) -> crate::core_arch::simd::f32x8 {
+        unsafe { transmute(self.as_m256()) }
+    }
+}
+
+impl m256Ext for __m256 {
+    #[inline]
+    fn as_m256(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m256dExt: Sized {
+    fn as_m256d(self) -> __m256d;
+
+    #[inline]
+    fn as_f64x4(self) -> crate::core_arch::simd::f64x4 {
+        unsafe { transmute(self.as_m256d()) }
+    }
+}
+
+impl m256dExt for __m256d {
+    #[inline]
+    fn as_m256d(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
 pub(crate) trait m512iExt: Sized {
     fn as_m512i(self) -> __m512i;
 
     #[inline]
+    fn as_u8x64(self) -> crate::core_arch::simd::u8x64 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
+    fn as_i8x64(self) -> crate::core_arch::simd::i8x64 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
+    fn as_u16x32(self) -> crate::core_arch::simd::u16x32 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
+    fn as_i16x32(self) -> crate::core_arch::simd::i16x32 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
+    fn as_u32x16(self) -> crate::core_arch::simd::u32x16 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
     fn as_i32x16(self) -> crate::core_arch::simd::i32x16 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
+    fn as_u64x8(self) -> crate::core_arch::simd::u64x8 {
+        unsafe { transmute(self.as_m512i()) }
+    }
+
+    #[inline]
+    fn as_i64x8(self) -> crate::core_arch::simd::i64x8 {
         unsafe { transmute(self.as_m512i()) }
     }
 }
@@ -514,6 +593,141 @@ pub(crate) trait m512iExt: Sized {
 impl m512iExt for __m512i {
     #[inline]
     fn as_m512i(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m512Ext: Sized {
+    fn as_m512(self) -> __m512;
+
+    #[inline]
+    fn as_f32x16(self) -> crate::core_arch::simd::f32x16 {
+        unsafe { transmute(self.as_m512()) }
+    }
+}
+
+impl m512Ext for __m512 {
+    #[inline]
+    fn as_m512(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m512dExt: Sized {
+    fn as_m512d(self) -> __m512d;
+
+    #[inline]
+    fn as_f64x8(self) -> crate::core_arch::simd::f64x8 {
+        unsafe { transmute(self.as_m512d()) }
+    }
+}
+
+impl m512dExt for __m512d {
+    #[inline]
+    fn as_m512d(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m128bhExt: Sized {
+    fn as_m128bh(self) -> __m128bh;
+
+    #[inline]
+    fn as_u16x8(self) -> crate::core_arch::simd::u16x8 {
+        unsafe { transmute(self.as_m128bh()) }
+    }
+
+    #[inline]
+    fn as_i16x8(self) -> crate::core_arch::simd::i16x8 {
+        unsafe { transmute(self.as_m128bh()) }
+    }
+
+    #[inline]
+    fn as_u32x4(self) -> crate::core_arch::simd::u32x4 {
+        unsafe { transmute(self.as_m128bh()) }
+    }
+
+    #[inline]
+    fn as_i32x4(self) -> crate::core_arch::simd::i32x4 {
+        unsafe { transmute(self.as_m128bh()) }
+    }
+}
+
+impl m128bhExt for __m128bh {
+    #[inline]
+    fn as_m128bh(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m256bhExt: Sized {
+    fn as_m256bh(self) -> __m256bh;
+
+    #[inline]
+    fn as_u16x16(self) -> crate::core_arch::simd::u16x16 {
+        unsafe { transmute(self.as_m256bh()) }
+    }
+
+    #[inline]
+    fn as_i16x16(self) -> crate::core_arch::simd::i16x16 {
+        unsafe { transmute(self.as_m256bh()) }
+    }
+
+    #[inline]
+    fn as_u32x8(self) -> crate::core_arch::simd::u32x8 {
+        unsafe { transmute(self.as_m256bh()) }
+    }
+
+    #[inline]
+    fn as_i32x8(self) -> crate::core_arch::simd::i32x8 {
+        unsafe { transmute(self.as_m256bh()) }
+    }
+}
+
+impl m256bhExt for __m256bh {
+    #[inline]
+    fn as_m256bh(self) -> Self {
+        self
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[unstable(feature = "stdsimd_internal", issue = "none")]
+pub(crate) trait m512bhExt: Sized {
+    fn as_m512bh(self) -> __m512bh;
+
+    #[inline]
+    fn as_u16x32(self) -> crate::core_arch::simd::u16x32 {
+        unsafe { transmute(self.as_m512bh()) }
+    }
+
+    #[inline]
+    fn as_i16x32(self) -> crate::core_arch::simd::i16x32 {
+        unsafe { transmute(self.as_m512bh()) }
+    }
+
+    #[inline]
+    fn as_u32x16(self) -> crate::core_arch::simd::u32x16 {
+        unsafe { transmute(self.as_m512bh()) }
+    }
+
+    #[inline]
+    fn as_i32x16(self) -> crate::core_arch::simd::i32x16 {
+        unsafe { transmute(self.as_m512bh()) }
+    }
+}
+
+impl m512bhExt for __m512bh {
+    #[inline]
+    fn as_m512bh(self) -> Self {
         self
     }
 }
@@ -572,9 +786,6 @@ mod tbm;
 #[cfg(not(stdarch_intel_sde))]
 pub use self::tbm::*;
 
-mod mmx;
-pub use self::mmx::*;
-
 mod pclmulqdq;
 pub use self::pclmulqdq::*;
 
@@ -603,8 +814,38 @@ pub unsafe fn ud2() -> ! {
 mod avx512f;
 pub use self::avx512f::*;
 
+mod avx512bw;
+pub use self::avx512bw::*;
+
+mod avx512cd;
+pub use self::avx512cd::*;
+
 mod avx512ifma;
 pub use self::avx512ifma::*;
+
+mod avx512vbmi;
+pub use self::avx512vbmi::*;
+
+mod avx512vbmi2;
+pub use self::avx512vbmi2::*;
+
+mod avx512vnni;
+pub use self::avx512vnni::*;
+
+mod avx512bitalg;
+pub use self::avx512bitalg::*;
+
+mod avx512gfni;
+pub use self::avx512gfni::*;
+
+mod avx512vpopcntdq;
+pub use self::avx512vpopcntdq::*;
+
+mod avx512vaes;
+pub use self::avx512vaes::*;
+
+mod avx512vpclmulqdq;
+pub use self::avx512vpclmulqdq::*;
 
 mod bt;
 pub use self::bt::*;
@@ -614,3 +855,6 @@ pub use self::rtm::*;
 
 mod f16c;
 pub use self::f16c::*;
+
+mod avx512bf16;
+pub use self::avx512bf16::*;

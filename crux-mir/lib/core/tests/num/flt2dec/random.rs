@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::i16;
+use std::mem::MaybeUninit;
 use std::str;
 
 use core::num::flt2dec::strategy::grisu::format_exact_opt;
@@ -9,20 +9,18 @@ use core::num::flt2dec::MAX_SIG_DIGITS;
 use core::num::flt2dec::{decode, DecodableFloat, Decoded, FullDecoded};
 
 use rand::distributions::{Distribution, Uniform};
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 
 pub fn decode_finite<T: DecodableFloat>(v: T) -> Decoded {
     match decode(v).1 {
         FullDecoded::Finite(decoded) => decoded,
-        full_decoded => panic!("expected finite, got {:?} instead", full_decoded),
+        full_decoded => panic!("expected finite, got {full_decoded:?} instead"),
     }
 }
 
 fn iterate<F, G, V>(func: &str, k: usize, n: usize, mut f: F, mut g: G, mut v: V) -> (usize, usize)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> Option<(usize, i16)>,
-    G: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> Option<(&'a [u8], i16)>,
+    G: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
     V: FnMut(usize) -> Decoded,
 {
     assert!(k <= 1024);
@@ -43,11 +41,11 @@ where
         }
 
         let decoded = v(i);
-        let mut buf1 = [0; 1024];
-        if let Some((len1, e1)) = f(&decoded, &mut buf1[..k]) {
-            let mut buf2 = [0; 1024];
-            let (len2, e2) = g(&decoded, &mut buf2[..k]);
-            if e1 == e2 && &buf1[..len1] == &buf2[..len2] {
+        let mut buf1 = [MaybeUninit::new(0); 1024];
+        if let Some((buf1, e1)) = f(&decoded, &mut buf1[..k]) {
+            let mut buf2 = [MaybeUninit::new(0); 1024];
+            let (buf2, e2) = g(&decoded, &mut buf2[..k]);
+            if e1 == e2 && buf1 == buf2 {
                 npassed += 1;
             } else {
                 println!(
@@ -55,9 +53,9 @@ where
                     i,
                     n,
                     decoded,
-                    str::from_utf8(&buf1[..len1]).unwrap(),
+                    str::from_utf8(buf1).unwrap(),
                     e1,
-                    str::from_utf8(&buf2[..len2]).unwrap(),
+                    str::from_utf8(buf2).unwrap(),
                     e2
                 );
             }
@@ -86,13 +84,13 @@ where
 
 pub fn f32_random_equivalence_test<F, G>(f: F, g: G, k: usize, n: usize)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> Option<(usize, i16)>,
-    G: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> Option<(&'a [u8], i16)>,
+    G: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     if cfg!(target_os = "emscripten") {
         return; // using rng pulls in i128 support, which doesn't work
     }
-    let mut rng = StdRng::from_entropy();
+    let mut rng = crate::test_rng();
     let f32_range = Uniform::new(0x0000_0001u32, 0x7f80_0000);
     iterate("f32_random_equivalence_test", k, n, f, g, |_| {
         let x = f32::from_bits(f32_range.sample(&mut rng));
@@ -102,13 +100,13 @@ where
 
 pub fn f64_random_equivalence_test<F, G>(f: F, g: G, k: usize, n: usize)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> Option<(usize, i16)>,
-    G: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> Option<(&'a [u8], i16)>,
+    G: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     if cfg!(target_os = "emscripten") {
         return; // using rng pulls in i128 support, which doesn't work
     }
-    let mut rng = StdRng::from_entropy();
+    let mut rng = crate::test_rng();
     let f64_range = Uniform::new(0x0000_0000_0000_0001u64, 0x7ff0_0000_0000_0000);
     iterate("f64_random_equivalence_test", k, n, f, g, |_| {
         let x = f64::from_bits(f64_range.sample(&mut rng));
@@ -118,8 +116,8 @@ where
 
 pub fn f32_exhaustive_equivalence_test<F, G>(f: F, g: G, k: usize)
 where
-    F: FnMut(&Decoded, &mut [u8]) -> Option<(usize, i16)>,
-    G: FnMut(&Decoded, &mut [u8]) -> (usize, i16),
+    F: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> Option<(&'a [u8], i16)>,
+    G: for<'a> FnMut(&Decoded, &'a mut [MaybeUninit<u8>]) -> (&'a [u8], i16),
 {
     // we have only 2^23 * (2^8 - 1) - 1 = 2,139,095,039 positive finite f32 values,
     // so why not simply testing all of them?
@@ -139,13 +137,11 @@ where
 #[test]
 fn shortest_random_equivalence_test() {
     use core::num::flt2dec::strategy::dragon::format_shortest as fallback;
-    #[cfg(not(miri))] // Miri is too slow
-    const N: usize = 10_000;
-    #[cfg(miri)]
-    const N: usize = 10;
+    // Miri is too slow
+    let n = if cfg!(miri) { 10 } else { 10_000 };
 
-    f64_random_equivalence_test(format_shortest_opt, fallback, MAX_SIG_DIGITS, N);
-    f32_random_equivalence_test(format_shortest_opt, fallback, MAX_SIG_DIGITS, N);
+    f64_random_equivalence_test(format_shortest_opt, fallback, MAX_SIG_DIGITS, n);
+    f32_random_equivalence_test(format_shortest_opt, fallback, MAX_SIG_DIGITS, n);
 }
 
 #[test]
@@ -174,17 +170,15 @@ fn shortest_f64_hard_random_equivalence_test() {
 #[test]
 fn exact_f32_random_equivalence_test() {
     use core::num::flt2dec::strategy::dragon::format_exact as fallback;
-    #[cfg(not(miri))] // Miri is too slow
-    const N: usize = 1_000;
-    #[cfg(miri)]
-    const N: usize = 3;
+    // Miri is too slow
+    let n = if cfg!(miri) { 3 } else { 1_000 };
 
     for k in 1..21 {
         f32_random_equivalence_test(
             |d, buf| format_exact_opt(d, buf, i16::MIN),
             |d, buf| fallback(d, buf, i16::MIN),
             k,
-            N,
+            n,
         );
     }
 }
@@ -192,17 +186,15 @@ fn exact_f32_random_equivalence_test() {
 #[test]
 fn exact_f64_random_equivalence_test() {
     use core::num::flt2dec::strategy::dragon::format_exact as fallback;
-    #[cfg(not(miri))] // Miri is too slow
-    const N: usize = 1_000;
-    #[cfg(miri)]
-    const N: usize = 3;
+    // Miri is too slow
+    let n = if cfg!(miri) { 2 } else { 1_000 };
 
     for k in 1..21 {
         f64_random_equivalence_test(
             |d, buf| format_exact_opt(d, buf, i16::MIN),
             |d, buf| fallback(d, buf, i16::MIN),
             k,
-            N,
+            n,
         );
     }
 }

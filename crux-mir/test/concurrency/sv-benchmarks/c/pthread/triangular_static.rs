@@ -34,7 +34,7 @@ fn t2(m:Arc<Mutex<()>>)
     }
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn triangular_1()
 {
     let m = Arc::new(Mutex::new(()));
@@ -54,7 +54,7 @@ fn triangular_1()
     crucible_assert!(! (condI || condJ) );
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn triangular_2()
 {
     let m = Arc::new(Mutex::new(()));

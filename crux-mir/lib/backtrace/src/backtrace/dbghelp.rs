@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Backtrace strategy for MSVC platforms.
 //!
 //! This module contains the ability to generate a backtrace on MSVC using one
@@ -21,15 +11,20 @@
 
 #![allow(bad_style)]
 
-use crate::dbghelp;
-use crate::windows::*;
+use super::super::{dbghelp, windows::*};
 use core::ffi::c_void;
 use core::mem;
 
 #[derive(Clone, Copy)]
-pub enum Frame {
+pub enum StackFrame {
     New(STACKFRAME_EX),
     Old(STACKFRAME64),
+}
+
+#[derive(Clone, Copy)]
+pub struct Frame {
+    pub(crate) stack_frame: StackFrame,
+    base_address: *mut c_void,
 }
 
 // we're just sending around raw pointers and reading them, never interpreting
@@ -42,35 +37,50 @@ impl Frame {
         self.addr_pc().Offset as *mut _
     }
 
+    pub fn sp(&self) -> *mut c_void {
+        self.addr_stack().Offset as *mut _
+    }
+
     pub fn symbol_address(&self) -> *mut c_void {
         self.ip()
     }
 
+    pub fn module_base_address(&self) -> Option<*mut c_void> {
+        Some(self.base_address)
+    }
+
     fn addr_pc(&self) -> &ADDRESS64 {
-        match self {
-            Frame::New(new) => &new.AddrPC,
-            Frame::Old(old) => &old.AddrPC,
+        match self.stack_frame {
+            StackFrame::New(ref new) => &new.AddrPC,
+            StackFrame::Old(ref old) => &old.AddrPC,
         }
     }
 
     fn addr_pc_mut(&mut self) -> &mut ADDRESS64 {
-        match self {
-            Frame::New(new) => &mut new.AddrPC,
-            Frame::Old(old) => &mut old.AddrPC,
+        match self.stack_frame {
+            StackFrame::New(ref mut new) => &mut new.AddrPC,
+            StackFrame::Old(ref mut old) => &mut old.AddrPC,
         }
     }
 
     fn addr_frame_mut(&mut self) -> &mut ADDRESS64 {
-        match self {
-            Frame::New(new) => &mut new.AddrFrame,
-            Frame::Old(old) => &mut old.AddrFrame,
+        match self.stack_frame {
+            StackFrame::New(ref mut new) => &mut new.AddrFrame,
+            StackFrame::Old(ref mut old) => &mut old.AddrFrame,
+        }
+    }
+
+    fn addr_stack(&self) -> &ADDRESS64 {
+        match self.stack_frame {
+            StackFrame::New(ref new) => &new.AddrStack,
+            StackFrame::Old(ref old) => &old.AddrStack,
         }
     }
 
     fn addr_stack_mut(&mut self) -> &mut ADDRESS64 {
-        match self {
-            Frame::New(new) => &mut new.AddrStack,
-            Frame::Old(old) => &mut old.AddrStack,
+        match self.stack_frame {
+            StackFrame::New(ref mut new) => &mut new.AddrStack,
+            StackFrame::Old(ref mut old) => &mut old.AddrStack,
         }
     }
 }
@@ -79,7 +89,7 @@ impl Frame {
 struct MyContext(CONTEXT);
 
 #[inline(always)]
-pub unsafe fn trace(cb: &mut FnMut(&super::Frame) -> bool) {
+pub unsafe fn trace(cb: &mut dyn FnMut(&super::Frame) -> bool) {
     // Allocate necessary structures for doing the stack walk
     let process = GetCurrentProcess();
     let thread = GetCurrentThread();
@@ -121,16 +131,23 @@ pub unsafe fn trace(cb: &mut FnMut(&super::Frame) -> bool) {
         }
     }
 
+    let process_handle = GetCurrentProcess();
+
     // Attempt to use `StackWalkEx` if we can, but fall back to `StackWalk64`
     // since it's in theory supported on more systems.
     match (*dbghelp.dbghelp()).StackWalkEx() {
         Some(StackWalkEx) => {
+            let mut inner: STACKFRAME_EX = mem::zeroed();
+            inner.StackFrameSize = mem::size_of::<STACKFRAME_EX>() as DWORD;
             let mut frame = super::Frame {
-                inner: Frame::New(mem::zeroed()),
+                inner: Frame {
+                    stack_frame: StackFrame::New(inner),
+                    base_address: 0 as _,
+                },
             };
             let image = init_frame(&mut frame.inner, &context.0);
-            let frame_ptr = match &mut frame.inner {
-                Frame::New(ptr) => ptr as *mut STACKFRAME_EX,
+            let frame_ptr = match &mut frame.inner.stack_frame {
+                StackFrame::New(ptr) => ptr as *mut STACKFRAME_EX,
                 _ => unreachable!(),
             };
 
@@ -147,6 +164,8 @@ pub unsafe fn trace(cb: &mut FnMut(&super::Frame) -> bool) {
                 0,
             ) == TRUE
             {
+                frame.inner.base_address = get_module_base(process_handle, frame.ip() as _) as _;
+
                 if !cb(&frame) {
                     break;
                 }
@@ -154,11 +173,14 @@ pub unsafe fn trace(cb: &mut FnMut(&super::Frame) -> bool) {
         }
         None => {
             let mut frame = super::Frame {
-                inner: Frame::Old(mem::zeroed()),
+                inner: Frame {
+                    stack_frame: StackFrame::Old(mem::zeroed()),
+                    base_address: 0 as _,
+                },
             };
             let image = init_frame(&mut frame.inner, &context.0);
-            let frame_ptr = match &mut frame.inner {
-                Frame::Old(ptr) => ptr as *mut STACKFRAME64,
+            let frame_ptr = match &mut frame.inner.stack_frame {
+                StackFrame::Old(ptr) => ptr as *mut STACKFRAME64,
                 _ => unreachable!(),
             };
 
@@ -174,6 +196,8 @@ pub unsafe fn trace(cb: &mut FnMut(&super::Frame) -> bool) {
                 None,
             ) == TRUE
             {
+                frame.inner.base_address = get_module_base(process_handle, frame.ip() as _) as _;
+
                 if !cb(&frame) {
                     break;
                 }

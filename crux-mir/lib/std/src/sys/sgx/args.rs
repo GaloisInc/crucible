@@ -1,5 +1,6 @@
 use super::abi::usercalls::{alloc, raw::ByteBuffer};
 use crate::ffi::OsString;
+use crate::fmt;
 use crate::slice;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sys::os_str::Buf;
@@ -13,7 +14,7 @@ type ArgsStore = Vec<OsString>;
 #[cfg_attr(test, allow(dead_code))]
 pub unsafe fn init(argc: isize, argv: *const *const u8) {
     if argc != 0 {
-        let args = alloc::User::<[ByteBuffer]>::from_raw_parts(argv as _, argc as _);
+        let args = unsafe { alloc::User::<[ByteBuffer]>::from_raw_parts(argv as _, argc as _) };
         let args = args
             .iter()
             .map(|a| OsString::from_inner(Buf { inner: a.copy_user_buffer() }))
@@ -22,8 +23,6 @@ pub unsafe fn init(argc: isize, argv: *const *const u8) {
     }
 }
 
-pub unsafe fn cleanup() {}
-
 pub fn args() -> Args {
     let args = unsafe { (ARGS.load(Ordering::Relaxed) as *const ArgsStore).as_ref() };
     if let Some(args) = args { Args(args.iter()) } else { Args([].iter()) }
@@ -31,9 +30,9 @@ pub fn args() -> Args {
 
 pub struct Args(slice::Iter<'static, OsString>);
 
-impl Args {
-    pub fn inner_debug(&self) -> &[OsString] {
-        self.0.as_slice()
+impl fmt::Debug for Args {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.as_slice().fmt(f)
     }
 }
 

@@ -1,41 +1,86 @@
-use crate::mem;
-use crate::slice;
-
 pub fn hashmap_random_keys() -> (u64, u64) {
-    let mut v = (0, 0);
-    unsafe {
-        let view = slice::from_raw_parts_mut(&mut v as *mut _ as *mut u8, mem::size_of_val(&v));
-        imp::fill_bytes(view);
-    }
-    v
+    const KEY_LEN: usize = core::mem::size_of::<u64>();
+
+    let mut v = [0u8; KEY_LEN * 2];
+    imp::fill_bytes(&mut v);
+
+    let key1 = v[0..KEY_LEN].try_into().unwrap();
+    let key2 = v[KEY_LEN..].try_into().unwrap();
+
+    (u64::from_ne_bytes(key1), u64::from_ne_bytes(key2))
 }
 
 #[cfg(all(
     unix,
+    not(target_os = "macos"),
     not(target_os = "ios"),
+    not(target_os = "watchos"),
     not(target_os = "openbsd"),
     not(target_os = "freebsd"),
     not(target_os = "netbsd"),
     not(target_os = "fuchsia"),
-    not(target_os = "redox")
+    not(target_os = "redox"),
+    not(target_os = "vxworks")
 ))]
 mod imp {
     use crate::fs::File;
     use crate::io::Read;
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    fn getrandom(buf: &mut [u8]) -> libc::c_long {
-        unsafe {
-            libc::syscall(libc::SYS_getrandom, buf.as_mut_ptr(), buf.len(), libc::GRND_NONBLOCK)
+    use crate::sys::weak::syscall;
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn getrandom(buf: &mut [u8]) -> libc::ssize_t {
+        use crate::sync::atomic::{AtomicBool, Ordering};
+        use crate::sys::os::errno;
+
+        // A weak symbol allows interposition, e.g. for perf measurements that want to
+        // disable randomness for consistency. Otherwise, we'll try a raw syscall.
+        // (`getrandom` was added in glibc 2.25, musl 1.1.20, android API level 28)
+        syscall! {
+            fn getrandom(
+                buffer: *mut libc::c_void,
+                length: libc::size_t,
+                flags: libc::c_uint
+            ) -> libc::ssize_t
         }
+
+        // This provides the best quality random numbers available at the given moment
+        // without ever blocking, and is preferable to falling back to /dev/urandom.
+        static GRND_INSECURE_AVAILABLE: AtomicBool = AtomicBool::new(true);
+        if GRND_INSECURE_AVAILABLE.load(Ordering::Relaxed) {
+            let ret = unsafe { getrandom(buf.as_mut_ptr().cast(), buf.len(), libc::GRND_INSECURE) };
+            if ret == -1 && errno() as libc::c_int == libc::EINVAL {
+                GRND_INSECURE_AVAILABLE.store(false, Ordering::Relaxed);
+            } else {
+                return ret;
+            }
+        }
+
+        unsafe { getrandom(buf.as_mut_ptr().cast(), buf.len(), libc::GRND_NONBLOCK) }
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(any(target_os = "espidf", target_os = "horizon"))]
+    fn getrandom(buf: &mut [u8]) -> libc::ssize_t {
+        unsafe { libc::getrandom(buf.as_mut_ptr().cast(), buf.len(), 0) }
+    }
+
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "espidf",
+        target_os = "horizon"
+    )))]
     fn getrandom_fill_bytes(_buf: &mut [u8]) -> bool {
         false
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "espidf",
+        target_os = "horizon"
+    ))]
     fn getrandom_fill_bytes(v: &mut [u8]) -> bool {
         use crate::sync::atomic::{AtomicBool, Ordering};
         use crate::sys::os::errno;
@@ -63,7 +108,7 @@ mod imp {
                 } else if err == libc::EAGAIN {
                     return false;
                 } else {
-                    panic!("unexpected getrandom error: {}", err);
+                    panic!("unexpected getrandom error: {err}");
                 }
             } else {
                 read += result as usize;
@@ -92,6 +137,43 @@ mod imp {
     }
 }
 
+#[cfg(target_os = "macos")]
+mod imp {
+    use crate::fs::File;
+    use crate::io::Read;
+    use crate::sys::os::errno;
+    use crate::sys::weak::weak;
+    use libc::{c_int, c_void, size_t};
+
+    fn getentropy_fill_bytes(v: &mut [u8]) -> bool {
+        weak!(fn getentropy(*mut c_void, size_t) -> c_int);
+
+        getentropy
+            .get()
+            .map(|f| {
+                // getentropy(2) permits a maximum buffer size of 256 bytes
+                for s in v.chunks_mut(256) {
+                    let ret = unsafe { f(s.as_mut_ptr() as *mut c_void, s.len()) };
+                    if ret == -1 {
+                        panic!("unexpected getentropy error: {}", errno());
+                    }
+                }
+                true
+            })
+            .unwrap_or(false)
+    }
+
+    pub fn fill_bytes(v: &mut [u8]) {
+        if getentropy_fill_bytes(v) {
+            return;
+        }
+
+        // for older macos which doesn't support getentropy
+        let mut file = File::open("/dev/urandom").expect("failed to open /dev/urandom");
+        file.read_exact(v).expect("failed to read /dev/urandom")
+    }
+}
+
 #[cfg(target_os = "openbsd")]
 mod imp {
     use crate::sys::os::errno;
@@ -114,7 +196,7 @@ mod imp {
 // once per thread in `hashmap_random_keys`. Therefore `SecRandomCopyBytes` is
 // only used on iOS where direct access to `/dev/urandom` is blocked by the
 // sandbox.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "watchos"))]
 mod imp {
     use crate::io;
     use crate::ptr;
@@ -189,5 +271,31 @@ mod imp {
         // Open rand:, read from it, and close it again.
         let mut file = File::open("rand:").expect("failed to open rand:");
         file.read_exact(v).expect("failed to read rand:")
+    }
+}
+
+#[cfg(target_os = "vxworks")]
+mod imp {
+    use crate::io;
+    use core::sync::atomic::{AtomicBool, Ordering::Relaxed};
+
+    pub fn fill_bytes(v: &mut [u8]) {
+        static RNG_INIT: AtomicBool = AtomicBool::new(false);
+        while !RNG_INIT.load(Relaxed) {
+            let ret = unsafe { libc::randSecure() };
+            if ret < 0 {
+                panic!("couldn't generate random bytes: {}", io::Error::last_os_error());
+            } else if ret > 0 {
+                RNG_INIT.store(true, Relaxed);
+                break;
+            }
+            unsafe { libc::usleep(10) };
+        }
+        let ret = unsafe {
+            libc::randABytes(v.as_mut_ptr() as *mut libc::c_uchar, v.len() as libc::c_int)
+        };
+        if ret < 0 {
+            panic!("couldn't generate random bytes: {}", io::Error::last_os_error());
+        }
     }
 }

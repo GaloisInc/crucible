@@ -9,19 +9,13 @@
 //! implementing `std::error::Error`) to get a causal chain of where an error
 //! was generated.
 //!
-//! > **Note**: this module is unstable and is designed in [RFC 2504], and you
-//! > can learn more about its status in the [tracking issue].
-//!
-//! [RFC 2504]: https://github.com/rust-lang/rfcs/blob/master/text/2504-fix-error.md
-//! [tracking issue]: https://github.com/rust-lang/rust/issues/53487
-//!
 //! ## Accuracy
 //!
 //! Backtraces are attempted to be as accurate as possible, but no guarantees
 //! are provided about the exact accuracy of a backtrace. Instruction pointers,
 //! symbol names, filenames, line numbers, etc, may all be incorrect when
-//! reported. Accuracy is attempted on a best-effort basis, however, and bugs
-//! are always welcome to indicate areas of improvement!
+//! reported. Accuracy is attempted on a best-effort basis, however, any bug
+//! reports are always welcome to indicate areas of improvement!
 //!
 //! For most platforms a backtrace with a filename/line number requires that
 //! programs be compiled with debug information. Without debug information
@@ -29,23 +23,23 @@
 //!
 //! ## Platform support
 //!
-//! Not all platforms that libstd compiles for support capturing backtraces.
-//! Some platforms simply do nothing when capturing a backtrace. To check
-//! whether the platform supports capturing backtraces you can consult the
-//! `BacktraceStatus` enum as a result of `Backtrace::status`.
+//! Not all platforms that std compiles for support capturing backtraces. Some
+//! platforms simply do nothing when capturing a backtrace. To check whether the
+//! platform supports capturing backtraces you can consult the `BacktraceStatus`
+//! enum as a result of `Backtrace::status`.
 //!
 //! Like above with accuracy platform support is done on a best effort basis.
-//! Sometimes libraries may not be available at runtime or something may go
+//! Sometimes libraries might not be available at runtime or something may go
 //! wrong which would cause a backtrace to not be captured. Please feel free to
 //! report issues with platforms where a backtrace cannot be captured though!
 //!
 //! ## Environment Variables
 //!
-//! The `Backtrace::capture` function may not actually capture a backtrace by
+//! The `Backtrace::capture` function might not actually capture a backtrace by
 //! default. Its behavior is governed by two environment variables:
 //!
 //! * `RUST_LIB_BACKTRACE` - if this is set to `0` then `Backtrace::capture`
-//!   will never capture a backtrace. Any other value this is set to will enable
+//!   will never capture a backtrace. Any other value set will enable
 //!   `Backtrace::capture`.
 //!
 //! * `RUST_BACKTRACE` - if `RUST_LIB_BACKTRACE` is not set, then this variable
@@ -61,10 +55,13 @@
 //! Note that the `Backtrace::force_capture` function can be used to ignore
 //! these environment variables. Also note that the state of environment
 //! variables is cached once the first backtrace is created, so altering
-//! `RUST_LIB_BACKTRACE` or `RUST_BACKTRACE` at runtime may not actually change
+//! `RUST_LIB_BACKTRACE` or `RUST_BACKTRACE` at runtime might not actually change
 //! how backtraces are captured.
 
-#![unstable(feature = "backtrace", issue = "53487")]
+#![stable(feature = "backtrace", since = "1.65.0")]
+
+#[cfg(test)]
+mod tests;
 
 // NB: A note on resolution of a backtrace:
 //
@@ -91,15 +88,15 @@
 // `Backtrace`, but that's a relatively small price to pay relative to capturing
 // a backtrace or actually symbolizing it.
 
+use crate::backtrace_rs::{self, BytesOrWideString};
+use crate::cell::UnsafeCell;
 use crate::env;
 use crate::ffi::c_void;
 use crate::fmt;
-use crate::sync::atomic::{AtomicUsize, Ordering::SeqCst};
-use crate::sync::Mutex;
+use crate::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use crate::sync::Once;
 use crate::sys_common::backtrace::{lock, output_filename};
 use crate::vec::Vec;
-use backtrace::BytesOrWideString;
-use backtrace_rs as backtrace;
 
 /// A captured OS thread stack backtrace.
 ///
@@ -107,30 +104,36 @@ use backtrace_rs as backtrace;
 /// previous point in time. In some instances the `Backtrace` type may
 /// internally be empty due to configuration. For more information see
 /// `Backtrace::capture`.
+#[stable(feature = "backtrace", since = "1.65.0")]
+#[must_use]
 pub struct Backtrace {
     inner: Inner,
 }
 
 /// The current status of a backtrace, indicating whether it was captured or
 /// whether it is empty for some other reason.
+#[stable(feature = "backtrace", since = "1.65.0")]
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq)]
 pub enum BacktraceStatus {
     /// Capturing a backtrace is not supported, likely because it's not
     /// implemented for the current platform.
+    #[stable(feature = "backtrace", since = "1.65.0")]
     Unsupported,
     /// Capturing a backtrace has been disabled through either the
     /// `RUST_LIB_BACKTRACE` or `RUST_BACKTRACE` environment variables.
+    #[stable(feature = "backtrace", since = "1.65.0")]
     Disabled,
     /// A backtrace has been captured and the `Backtrace` should print
     /// reasonable information when rendered.
+    #[stable(feature = "backtrace", since = "1.65.0")]
     Captured,
 }
 
 enum Inner {
     Unsupported,
     Disabled,
-    Captured(Mutex<Capture>),
+    Captured(LazilyResolvedCapture),
 }
 
 struct Capture {
@@ -144,13 +147,16 @@ fn _assert_send_sync() {
     _assert::<Backtrace>();
 }
 
-struct BacktraceFrame {
+/// A single frame of a backtrace.
+#[unstable(feature = "backtrace_frames", issue = "79676")]
+pub struct BacktraceFrame {
     frame: RawFrame,
     symbols: Vec<BacktraceSymbol>,
 }
 
+#[derive(Debug)]
 enum RawFrame {
-    Actual(backtrace::Frame),
+    Actual(backtrace_rs::Frame),
     #[cfg(test)]
     Fake,
 }
@@ -159,6 +165,7 @@ struct BacktraceSymbol {
     name: Option<Vec<u8>>,
     filename: Option<BytesOrWide>,
     lineno: Option<u32>,
+    colno: Option<u32>,
 }
 
 enum BytesOrWide {
@@ -166,14 +173,14 @@ enum BytesOrWide {
     Wide(Vec<u16>),
 }
 
+#[stable(feature = "backtrace", since = "1.65.0")]
 impl fmt::Debug for Backtrace {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut capture = match &self.inner {
+        let capture = match &self.inner {
             Inner::Unsupported => return fmt.write_str("<unsupported>"),
             Inner::Disabled => return fmt.write_str("<disabled>"),
-            Inner::Captured(c) => c.lock().unwrap(),
+            Inner::Captured(c) => c.force(),
         };
-        capture.resolve();
 
         let frames = &capture.frames[capture.actual_start..];
 
@@ -193,11 +200,24 @@ impl fmt::Debug for Backtrace {
     }
 }
 
+#[unstable(feature = "backtrace_frames", issue = "79676")]
+impl fmt::Debug for BacktraceFrame {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut dbg = fmt.debug_list();
+        dbg.entries(&self.symbols);
+        dbg.finish()
+    }
+}
+
 impl fmt::Debug for BacktraceSymbol {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // FIXME: improve formatting: https://github.com/rust-lang/rust/issues/65280
+        // FIXME: Also, include column numbers into the debug format as Display already has them.
+        // Until there are stable per-frame accessors, the format shouldn't be changed:
+        // https://github.com/rust-lang/rust/issues/65280#issuecomment-638966585
         write!(fmt, "{{ ")?;
 
-        if let Some(fn_name) = self.name.as_ref().map(|b| backtrace::SymbolName::new(b)) {
+        if let Some(fn_name) = self.name.as_ref().map(|b| backtrace_rs::SymbolName::new(b)) {
             write!(fmt, "fn: \"{:#}\"", fn_name)?;
         } else {
             write!(fmt, "fn: <unknown>")?;
@@ -207,7 +227,7 @@ impl fmt::Debug for BacktraceSymbol {
             write!(fmt, ", file: \"{:?}\"", fname)?;
         }
 
-        if let Some(line) = self.lineno.as_ref() {
+        if let Some(line) = self.lineno {
             write!(fmt, ", line: {:?}", line)?;
         }
 
@@ -223,7 +243,7 @@ impl fmt::Debug for BytesOrWide {
                 BytesOrWide::Bytes(w) => BytesOrWideString::Bytes(w),
                 BytesOrWide::Wide(w) => BytesOrWideString::Wide(w),
             },
-            backtrace::PrintFmt::Short,
+            backtrace_rs::PrintFmt::Short,
             crate::env::current_dir().as_ref().ok(),
         )
     }
@@ -237,7 +257,7 @@ impl Backtrace {
         // backtrace captures speedy, because otherwise reading environment
         // variables every time can be somewhat slow.
         static ENABLED: AtomicUsize = AtomicUsize::new(0);
-        match ENABLED.load(SeqCst) {
+        match ENABLED.load(Relaxed) {
             0 => {}
             1 => return false,
             _ => return true,
@@ -249,7 +269,7 @@ impl Backtrace {
                 Err(_) => false,
             },
         };
-        ENABLED.store(enabled as usize + 1, SeqCst);
+        ENABLED.store(enabled as usize + 1, Relaxed);
         enabled
     }
 
@@ -269,6 +289,7 @@ impl Backtrace {
     ///
     /// To forcibly capture a backtrace regardless of environment variables, use
     /// the `Backtrace::force_capture` function.
+    #[stable(feature = "backtrace", since = "1.65.0")]
     #[inline(never)] // want to make sure there's a frame here to remove
     pub fn capture() -> Backtrace {
         if !Backtrace::enabled() {
@@ -287,9 +308,18 @@ impl Backtrace {
     /// Note that capturing a backtrace can be an expensive operation on some
     /// platforms, so this should be used with caution in performance-sensitive
     /// parts of code.
+    #[stable(feature = "backtrace", since = "1.65.0")]
     #[inline(never)] // want to make sure there's a frame here to remove
     pub fn force_capture() -> Backtrace {
         Backtrace::create(Backtrace::force_capture as usize)
+    }
+
+    /// Forcibly captures a disabled backtrace, regardless of environment
+    /// variable configuration.
+    #[stable(feature = "backtrace", since = "1.65.0")]
+    #[rustc_const_stable(feature = "backtrace", since = "1.65.0")]
+    pub const fn disabled() -> Backtrace {
+        Backtrace { inner: Inner::Disabled }
     }
 
     // Capture a backtrace which start just before the function addressed by
@@ -299,12 +329,12 @@ impl Backtrace {
         let mut frames = Vec::new();
         let mut actual_start = None;
         unsafe {
-            backtrace::trace_unsynchronized(|frame| {
+            backtrace_rs::trace_unsynchronized(|frame| {
                 frames.push(BacktraceFrame {
                     frame: RawFrame::Actual(frame.clone()),
                     symbols: Vec::new(),
                 });
-                if frame.symbol_address() as usize == ip && actual_start.is_none() {
+                if frame.symbol_address().addr() == ip && actual_start.is_none() {
                     actual_start = Some(frames.len());
                 }
                 true
@@ -317,7 +347,7 @@ impl Backtrace {
         let inner = if frames.is_empty() {
             Inner::Unsupported
         } else {
-            Inner::Captured(Mutex::new(Capture {
+            Inner::Captured(LazilyResolvedCapture::new(Capture {
                 actual_start: actual_start.unwrap_or(0),
                 frames,
                 resolved: false,
@@ -330,6 +360,8 @@ impl Backtrace {
     /// Returns the status of this backtrace, indicating whether this backtrace
     /// request was unsupported, disabled, or a stack trace was actually
     /// captured.
+    #[stable(feature = "backtrace", since = "1.65.0")]
+    #[must_use]
     pub fn status(&self) -> BacktraceStatus {
         match self.inner {
             Inner::Unsupported => BacktraceStatus::Unsupported,
@@ -339,20 +371,29 @@ impl Backtrace {
     }
 }
 
+impl<'a> Backtrace {
+    /// Returns an iterator over the backtrace frames.
+    #[must_use]
+    #[unstable(feature = "backtrace_frames", issue = "79676")]
+    pub fn frames(&'a self) -> &'a [BacktraceFrame] {
+        if let Inner::Captured(c) = &self.inner { &c.force().frames } else { &[] }
+    }
+}
+
+#[stable(feature = "backtrace", since = "1.65.0")]
 impl fmt::Display for Backtrace {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut capture = match &self.inner {
+        let capture = match &self.inner {
             Inner::Unsupported => return fmt.write_str("unsupported backtrace"),
             Inner::Disabled => return fmt.write_str("disabled backtrace"),
-            Inner::Captured(c) => c.lock().unwrap(),
+            Inner::Captured(c) => c.force(),
         };
-        capture.resolve();
 
         let full = fmt.alternate();
         let (frames, style) = if full {
-            (&capture.frames[..], backtrace::PrintFmt::Full)
+            (&capture.frames[..], backtrace_rs::PrintFmt::Full)
         } else {
-            (&capture.frames[capture.actual_start..], backtrace::PrintFmt::Short)
+            (&capture.frames[capture.actual_start..], backtrace_rs::PrintFmt::Short)
         };
 
         // When printing paths we try to strip the cwd if it exists, otherwise
@@ -364,22 +405,22 @@ impl fmt::Display for Backtrace {
             output_filename(fmt, path, style, cwd.as_ref().ok())
         };
 
-        let mut f = backtrace::BacktraceFmt::new(fmt, style, &mut print_path);
+        let mut f = backtrace_rs::BacktraceFmt::new(fmt, style, &mut print_path);
         f.add_context()?;
         for frame in frames {
-            let mut f = f.frame();
             if frame.symbols.is_empty() {
-                f.print_raw(frame.frame.ip(), None, None, None)?;
+                f.frame().print_raw(frame.frame.ip(), None, None, None)?;
             } else {
                 for symbol in frame.symbols.iter() {
-                    f.print_raw(
+                    f.frame().print_raw_with_column(
                         frame.frame.ip(),
-                        symbol.name.as_ref().map(|b| backtrace::SymbolName::new(b)),
+                        symbol.name.as_ref().map(|b| backtrace_rs::SymbolName::new(b)),
                         symbol.filename.as_ref().map(|b| match b {
                             BytesOrWide::Bytes(w) => BytesOrWideString::Bytes(w),
                             BytesOrWide::Wide(w) => BytesOrWideString::Wide(w),
                         }),
                         symbol.lineno,
+                        symbol.colno,
                     )?;
                 }
             }
@@ -388,6 +429,33 @@ impl fmt::Display for Backtrace {
         Ok(())
     }
 }
+
+struct LazilyResolvedCapture {
+    sync: Once,
+    capture: UnsafeCell<Capture>,
+}
+
+impl LazilyResolvedCapture {
+    fn new(capture: Capture) -> Self {
+        LazilyResolvedCapture { sync: Once::new(), capture: UnsafeCell::new(capture) }
+    }
+
+    fn force(&self) -> &Capture {
+        self.sync.call_once(|| {
+            // SAFETY: This exclusive reference can't overlap with any others
+            // `Once` guarantees callers will block until this closure returns
+            // `Once` also guarantees only a single caller will enter this closure
+            unsafe { &mut *self.capture.get() }.resolve();
+        });
+
+        // SAFETY: This shared reference can't overlap with the exclusive reference above
+        unsafe { &*self.capture.get() }
+    }
+}
+
+// SAFETY: Access to the inner value is synchronized using a thread-safe `Once`
+// So long as `Capture` is `Sync`, `LazilyResolvedCapture` is too
+unsafe impl Sync for LazilyResolvedCapture where Capture: Sync {}
 
 impl Capture {
     fn resolve(&mut self) {
@@ -409,7 +477,7 @@ impl Capture {
                 RawFrame::Fake => unimplemented!(),
             };
             unsafe {
-                backtrace::resolve_frame_unsynchronized(frame, |symbol| {
+                backtrace_rs::resolve_frame_unsynchronized(frame, |symbol| {
                     symbols.push(BacktraceSymbol {
                         name: symbol.name().map(|m| m.as_bytes().to_vec()),
                         filename: symbol.filename_raw().map(|b| match b {
@@ -417,6 +485,7 @@ impl Capture {
                             BytesOrWideString::Wide(b) => BytesOrWide::Wide(b.to_owned()),
                         }),
                         lineno: symbol.lineno(),
+                        colno: symbol.colno(),
                     });
                 });
             }
@@ -429,59 +498,7 @@ impl RawFrame {
         match self {
             RawFrame::Actual(frame) => frame.ip(),
             #[cfg(test)]
-            RawFrame::Fake => 1 as *mut c_void,
+            RawFrame::Fake => crate::ptr::invalid_mut(1),
         }
     }
-}
-
-#[test]
-fn test_debug() {
-    let backtrace = Backtrace {
-        inner: Inner::Captured(Mutex::new(Capture {
-            actual_start: 1,
-            resolved: true,
-            frames: vec![
-                BacktraceFrame {
-                    frame: RawFrame::Fake,
-                    symbols: vec![BacktraceSymbol {
-                        name: Some(b"std::backtrace::Backtrace::create".to_vec()),
-                        filename: Some(BytesOrWide::Bytes(b"rust/backtrace.rs".to_vec())),
-                        lineno: Some(100),
-                    }],
-                },
-                BacktraceFrame {
-                    frame: RawFrame::Fake,
-                    symbols: vec![BacktraceSymbol {
-                        name: Some(b"__rust_maybe_catch_panic".to_vec()),
-                        filename: None,
-                        lineno: None,
-                    }],
-                },
-                BacktraceFrame {
-                    frame: RawFrame::Fake,
-                    symbols: vec![
-                        BacktraceSymbol {
-                            name: Some(b"std::rt::lang_start_internal".to_vec()),
-                            filename: Some(BytesOrWide::Bytes(b"rust/rt.rs".to_vec())),
-                            lineno: Some(300),
-                        },
-                        BacktraceSymbol {
-                            name: Some(b"std::rt::lang_start".to_vec()),
-                            filename: Some(BytesOrWide::Bytes(b"rust/rt.rs".to_vec())),
-                            lineno: Some(400),
-                        },
-                    ],
-                },
-            ],
-        })),
-    };
-
-    #[rustfmt::skip]
-    let expected = "Backtrace [\
-    \n    { fn: \"__rust_maybe_catch_panic\" },\
-    \n    { fn: \"std::rt::lang_start_internal\", file: \"rust/rt.rs\", line: 300 },\
-    \n    { fn: \"std::rt::lang_start\", file: \"rust/rt.rs\", line: 400 },\
-    \n]";
-
-    assert_eq!(format!("{:#?}", backtrace), expected);
 }

@@ -149,6 +149,7 @@ static U8X16X2: Type = Type::U(8, 16, 2);
 static U8X16X3: Type = Type::U(8, 16, 3);
 static U8X16X4: Type = Type::U(8, 16, 4);
 static U8X8: Type = Type::U(8, 8, 1);
+static U8X4: Type = Type::U(8, 4, 1);
 static U8X8X2: Type = Type::U(8, 8, 2);
 static U8X8X3: Type = Type::U(8, 8, 3);
 static U8X8X4: Type = Type::U(8, 8, 4);
@@ -330,6 +331,98 @@ fn verify_all_signatures() {
                 "_rbit_u64",
                 "_cls_u32",
                 "_cls_u64",
+                "_prefetch",
+                "vsli_n_s8",
+                "vsliq_n_s8",
+                "vsli_n_s16",
+                "vsliq_n_s16",
+                "vsli_n_s32",
+                "vsliq_n_s32",
+                "vsli_n_s64",
+                "vsliq_n_s64",
+                "vsli_n_u8",
+                "vsliq_n_u8",
+                "vsli_n_u16",
+                "vsliq_n_u16",
+                "vsli_n_u32",
+                "vsliq_n_u32",
+                "vsli_n_u64",
+                "vsliq_n_u64",
+                "vsli_n_p8",
+                "vsliq_n_p8",
+                "vsli_n_p16",
+                "vsliq_n_p16",
+                "vsli_n_p64",
+                "vsliq_n_p64",
+                "vsri_n_s8",
+                "vsriq_n_s8",
+                "vsri_n_s16",
+                "vsriq_n_s16",
+                "vsri_n_s32",
+                "vsriq_n_s32",
+                "vsri_n_s64",
+                "vsriq_n_s64",
+                "vsri_n_u8",
+                "vsriq_n_u8",
+                "vsri_n_u16",
+                "vsriq_n_u16",
+                "vsri_n_u32",
+                "vsriq_n_u32",
+                "vsri_n_u64",
+                "vsriq_n_u64",
+                "vsri_n_p8",
+                "vsriq_n_p8",
+                "vsri_n_p16",
+                "vsriq_n_p16",
+                "vsri_n_p64",
+                "vsriq_n_p64",
+                "__smulbb",
+                "__smultb",
+                "__smulbt",
+                "__smultt",
+                "__smulwb",
+                "__smulwt",
+                "__qadd",
+                "__qsub",
+                "__qdbl",
+                "__smlabb",
+                "__smlabt",
+                "__smlatb",
+                "__smlatt",
+                "__smlawb",
+                "__smlawt",
+                "__qadd8",
+                "__qsub8",
+                "__qsub16",
+                "__qadd16",
+                "__qasx",
+                "__qsax",
+                "__sadd16",
+                "__sadd8",
+                "__smlad",
+                "__smlsd",
+                "__sasx",
+                "__sel",
+                "__shadd8",
+                "__shadd16",
+                "__shsub8",
+                "__usub8",
+                "__ssub8",
+                "__shsub16",
+                "__smuad",
+                "__smuadx",
+                "__smusd",
+                "__smusdx",
+                "__usad8",
+                "__usada8",
+                "__ldrex",
+                "__strex",
+                "__ldrexb",
+                "__strexb",
+                "__ldrexh",
+                "__strexh",
+                "__clrex",
+                "__dbg",
             ];
             if !skip.contains(&rust.name) {
                 println!(
@@ -350,9 +443,161 @@ fn verify_all_signatures() {
         // Skip some intrinsics that aren't NEON and are located in different
         // places than the whitelists below.
         match rust.name {
-            "brk" | "__breakpoint" | "udf" => continue,
+            "brk" | "__breakpoint" | "udf" | "_prefetch" => continue,
             _ => {}
         }
+        // Skip some intrinsics that are present in GCC and Clang but
+        // are missing from the official documentation.
+        let skip_intrinsic_verify = [
+            "vmov_n_p64",
+            "vmovq_n_p64",
+            "vreinterpret_p64_s64",
+            "vreinterpret_f32_p64",
+            "vreinterpretq_f32_p64",
+            "vreinterpretq_p64_p128",
+            "vreinterpretq_p128_p64",
+            "vreinterpretq_f32_p128",
+            "vqrdmlahh_s16",
+            "vqrdmlahs_s32",
+            "vqrdmlahh_lane_s16",
+            "vqrdmlahh_laneq_s16",
+            "vqrdmlahs_lane_s32",
+            "vqrdmlahs_laneq_s32",
+            "vqrdmlah_s16",
+            "vqrdmlah_s32",
+            "vqrdmlahq_s16",
+            "vqrdmlahq_s32",
+            "vqrdmlah_lane_s16",
+            "vqrdmlah_laneq_s16",
+            "vqrdmlahq_lane_s16",
+            "vqrdmlahq_laneq_s16",
+            "vqrdmlah_lane_s32",
+            "vqrdmlah_laneq_s32",
+            "vqrdmlahq_lane_s32",
+            "vqrdmlahq_laneq_s32",
+            "vqrdmlshh_s16",
+            "vqrdmlshs_s32",
+            "vqrdmlshh_lane_s16",
+            "vqrdmlshh_laneq_s16",
+            "vqrdmlshs_lane_s32",
+            "vqrdmlshs_laneq_s32",
+            "vqrdmlsh_s16",
+            "vqrdmlshq_s16",
+            "vqrdmlsh_s32",
+            "vqrdmlshq_s32",
+            "vqrdmlsh_lane_s16",
+            "vqrdmlsh_laneq_s16",
+            "vqrdmlshq_lane_s16",
+            "vqrdmlshq_laneq_s16",
+            "vqrdmlsh_lane_s32",
+            "vqrdmlsh_laneq_s32",
+            "vqrdmlshq_lane_s32",
+            "vqrdmlshq_laneq_s32",
+            "vcadd_rot270_f32",
+            "vcadd_rot90_f32",
+            "vcaddq_rot270_f32",
+            "vcaddq_rot270_f64",
+            "vcaddq_rot90_f32",
+            "vcaddq_rot90_f64",
+            "vcmla_f32",
+            "vcmlaq_f32",
+            "vcmlaq_f64",
+            "vcmla_rot90_f32",
+            "vcmlaq_rot90_f32",
+            "vcmlaq_rot90_f64",
+            "vcmla_rot180_f32",
+            "vcmlaq_rot180_f32",
+            "vcmlaq_rot180_f64",
+            "vcmla_rot270_f32",
+            "vcmlaq_rot270_f32",
+            "vcmlaq_rot270_f64",
+            "vcmla_lane_f32",
+            "vcmla_laneq_f32",
+            "vcmlaq_lane_f32",
+            "vcmlaq_laneq_f32",
+            "vcmla_rot90_lane_f32",
+            "vcmla_rot90_laneq_f32",
+            "vcmlaq_rot90_lane_f32",
+            "vcmlaq_rot90_laneq_f32",
+            "vcmla_rot180_lane_f32",
+            "vcmla_rot180_laneq_f32",
+            "vcmlaq_rot180_lane_f32",
+            "vcmlaq_rot180_laneq_f32",
+            "vcmla_rot270_lane_f32",
+            "vcmla_rot270_laneq_f32",
+            "vcmlaq_rot270_lane_f32",
+            "vcmlaq_rot270_laneq_f32",
+            "vdot_s32",
+            "vdot_u32",
+            "vdotq_s32",
+            "vdotq_u32",
+            "vdot_lane_s32",
+            "vdot_laneq_s32",
+            "vdotq_lane_s32",
+            "vdotq_laneq_s32",
+            "vdot_lane_u32",
+            "vdot_laneq_u32",
+            "vdotq_lane_u32",
+            "vdotq_laneq_u32",
+            "vbcaxq_s8",
+            "vbcaxq_s16",
+            "vbcaxq_s32",
+            "vbcaxq_s64",
+            "vbcaxq_u8",
+            "vbcaxq_u16",
+            "vbcaxq_u32",
+            "vbcaxq_u64",
+            "veor3q_s8",
+            "veor3q_s16",
+            "veor3q_s32",
+            "veor3q_s64",
+            "veor3q_u8",
+            "veor3q_u16",
+            "veor3q_u32",
+            "veor3q_u64",
+            "vadd_p8",
+            "vadd_p16",
+            "vadd_p64",
+            "vaddq_p8",
+            "vaddq_p16",
+            "vaddq_p64",
+            "vaddq_p128",
+            "vsm4ekeyq_u32",
+            "vsm4eq_u32",
+            "vmmlaq_s32",
+            "vmmlaq_u32",
+            "vusmmlaq_s32",
+            "vsm3partw1q_u32",
+            "vsm3partw2q_u32",
+            "vsm3ss1q_u32",
+            "vsm3tt1aq_u32",
+            "vsm3tt1bq_u32",
+            "vsm3tt2aq_u32",
+            "vsm3tt2bq_u32",
+            "vrax1q_u64",
+            "vxarq_u64",
+            "vsha512hq_u64",
+            "vsha512h2q_u64",
+            "vsha512su0q_u64",
+            "vsha512su1q_u64",
+            "vrnd32x_f32",
+            "vrnd32xq_f32",
+            "vrnd32z_f32",
+            "vrnd32zq_f32",
+            "vrnd64x_f32",
+            "vrnd64xq_f32",
+            "vrnd64z_f32",
+            "vrnd64zq_f32",
+            "vcls_u8",
+            "vcls_u16",
+            "vcls_u32",
+            "vclsq_u8",
+            "vclsq_u16",
+            "vclsq_u32",
+            "vtst_p16",
+            "vtstq_p16",
+            "__dbg",
+        ];
         let arm = match map.get(rust.name) {
             Some(i) => i,
             None => {
@@ -362,10 +607,14 @@ fn verify_all_signatures() {
                 // TODO: we still need to verify these intrinsics or find a
                 // reference for them, need to figure out where though!
                 if !rust.file.ends_with("dsp.rs\"")
+                    && !rust.file.ends_with("simd32.rs\"")
                     && !rust.file.ends_with("cmsis.rs\"")
                     && !rust.file.ends_with("v6.rs\"")
                     && !rust.file.ends_with("v7.rs\"")
                     && !rust.file.ends_with("v8.rs\"")
+                    && !rust.file.ends_with("tme.rs\"")
+                    && !rust.file.ends_with("ex.rs\"")
+                    && !skip_intrinsic_verify.contains(&rust.name)
                 {
                     println!(
                         "missing arm definition for {:?} in {}",
@@ -426,7 +675,7 @@ fn matches(rust: &Function, arm: &Intrinsic) -> Result<(), String> {
             }
             // sometimes arm says `foo` and disassemblers say `vfoo`, or
             // sometimes disassemblers say `vfoo` and arm says `sfoo` or `ffoo`
-            if instr.starts_with("v")
+            if instr.starts_with('v')
                 && (arm.instruction.starts_with(&instr[1..])
                     || arm.instruction[1..].starts_with(&instr[1..]))
             {
@@ -449,10 +698,10 @@ fn matches(rust: &Function, arm: &Intrinsic) -> Result<(), String> {
 fn find_accordion(node: &Rc<Node>) -> Option<Rc<Node>> {
     if let NodeData::Element { attrs, .. } = &node.data {
         for attr in attrs.borrow().iter() {
-            if attr.name.local.eq_str_ignore_ascii_case("class") {
-                if attr.value.to_string() == "intrinsic-accordion" {
-                    return Some(node.clone());
-                }
+            if attr.name.local.eq_str_ignore_ascii_case("class")
+                && attr.value.to_string() == "intrinsic-accordion"
+            {
+                return Some(node.clone());
             }
         }
     }
@@ -480,7 +729,7 @@ fn parse_intrinsics(node: &Rc<Node>) -> HashMap<String, Intrinsic> {
             ret.insert(f.name.clone(), f);
         }
     }
-    return ret;
+    ret
 }
 
 fn parse_intrinsic(node: &Rc<Node>) -> Intrinsic {
@@ -493,10 +742,9 @@ fn parse_intrinsic(node: &Rc<Node>) -> Intrinsic {
     //    ...
 
     let children = node.children.borrow();
-    let mut children = children.iter().filter(|node| match node.data {
-        NodeData::Element { .. } => true,
-        _ => false,
-    });
+    let mut children = children
+        .iter()
+        .filter(|node| matches!(node.data, NodeData::Element { .. }));
     let _input = children.next().expect("no <input>");
     let label = children.next().expect("no <label>");
     let article = children.next().expect("no <article>");
@@ -516,10 +764,9 @@ fn parse_intrinsic(node: &Rc<Node>) -> Intrinsic {
 
     // Find contents of inner `<div>` in `<label>`
     let label_children = label.children.borrow();
-    let mut label_children = label_children.iter().filter(|node| match node.data {
-        NodeData::Element { .. } => true,
-        _ => false,
-    });
+    let mut label_children = label_children
+        .iter()
+        .filter(|node| matches!(node.data, NodeData::Element { .. }));
     let label_div = label_children.next().expect("no <div> in <label>");
     assert!(label_children.next().is_none());
     let text = label_div.children.borrow();
@@ -535,10 +782,9 @@ fn parse_intrinsic(node: &Rc<Node>) -> Intrinsic {
 
     // Find the instruction within the article
     let article_children = article.children.borrow();
-    let mut article_children = article_children.iter().filter(|node| match node.data {
-        NodeData::Element { .. } => true,
-        _ => false,
-    });
+    let mut article_children = article_children
+        .iter()
+        .filter(|node| matches!(node.data, NodeData::Element { .. }));
     let mut instruction = None;
     while let Some(child) = article_children.next() {
         let mut header = String::new();
@@ -567,9 +813,9 @@ fn parse_intrinsic(node: &Rc<Node>) -> Intrinsic {
         },
         instruction,
         arguments: args // "(...)"
-            .trim_start_matches("(") // "...)"
-            .trim_end_matches(")") // "..."
-            .split(",") // " Type name ", ".."
+            .trim_start_matches('(') // "...)"
+            .trim_end_matches(')') // "..."
+            .split(',') // " Type name ", ".."
             .map(|s| s.trim()) // "Type name"
             .map(|s| s.rsplitn(2, ' ').nth(1).unwrap()) // "Type"
             .map(|s| {
@@ -733,7 +979,7 @@ fn parse_ty_base(s: &str) -> &'static Type {
 
 fn collect_text(s: &mut String, node: &Node) {
     if let NodeData::Text { contents } = &node.data {
-        s.push_str(" ");
+        s.push(' ');
         s.push_str(&contents.borrow().to_string());
     }
     for child in node.children.borrow().iter() {

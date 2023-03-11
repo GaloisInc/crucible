@@ -2,13 +2,12 @@
 //!
 //! This macro expands to a `#[test]` function which tests the local machine
 //! for the appropriate cfg before calling the inner test function.
+#![deny(rust_2018_idioms)]
 
-extern crate proc_macro;
-extern crate proc_macro2;
 #[macro_use]
 extern crate quote;
 
-use proc_macro2::{Ident, Literal, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, Literal, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use std::env;
 
@@ -44,8 +43,6 @@ pub fn simd_test(
         .map(String::from)
         .collect();
 
-    let mmx = target_features.iter().any(|s| s.starts_with("mmx"));
-
     let enable_feature = string(enable_feature);
     let item = TokenStream::from(item);
     let name = find_name(item.clone());
@@ -67,6 +64,7 @@ pub fn simd_test(
         "i686" | "x86_64" | "i586" => "is_x86_feature_detected",
         "arm" | "armv7" => "is_arm_feature_detected",
         "aarch64" => "is_aarch64_feature_detected",
+        maybe_riscv if maybe_riscv.starts_with("riscv") => "is_riscv_feature_detected",
         "powerpc" | "powerpcle" => "is_powerpc_feature_detected",
         "powerpc64" | "powerpc64le" => "is_powerpc64_feature_detected",
         "mips" | "mipsel" | "mipsisa32r6" | "mipsisa32r6el" => {
@@ -106,15 +104,6 @@ pub fn simd_test(
         TokenStream::new()
     };
 
-    let emms = if mmx {
-        // note: if the test requires MMX we need to clear the FPU
-        // registers once the test finishes before interfacing with
-        // other x87 code:
-        quote! { unsafe { super::_mm_empty() }; }
-    } else {
-        TokenStream::new()
-    };
-
     let ret: TokenStream = quote_spanned! {
         proc_macro2::Span::call_site() =>
         #[allow(non_snake_case)]
@@ -123,7 +112,6 @@ pub fn simd_test(
         fn #name() {
             if #force_test | (#cfg_target_features) {
                 let v = unsafe { #name() };
-                #emms
                 return v;
             } else {
                 ::stdarch_test::assert_skip_test_ok(stringify!(#name));
@@ -146,8 +134,18 @@ fn find_name(item: TokenStream) -> Ident {
         }
     }
 
-    match tokens.next() {
-        Some(TokenTree::Ident(word)) => word,
-        _ => panic!("failed to find function name"),
+    fn get_ident(tt: TokenTree) -> Option<Ident> {
+        match tt {
+            TokenTree::Ident(i) => Some(i),
+            TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
+                get_ident(g.stream().into_iter().next()?)
+            }
+            _ => None,
+        }
     }
+
+    tokens
+        .next()
+        .and_then(get_ident)
+        .expect("failed to find function name")
 }

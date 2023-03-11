@@ -1,15 +1,14 @@
-#![doc(include = "core_arch_docs.md")]
+#![doc = include_str!("core_arch_docs.md")]
+#![allow(improper_ctypes_definitions)]
 #![allow(dead_code)]
 #![allow(unused_features)]
+#![deny(rust_2018_idioms)]
 #![feature(
-    const_fn,
-    const_fn_union,
     custom_inner_attributes,
     link_llvm_intrinsics,
     platform_intrinsics,
     repr_simd,
     simd_ffi,
-    asm,
     proc_macro_hygiene,
     stmt_expr_attributes,
     core_intrinsics,
@@ -18,23 +17,24 @@
     stdsimd,
     staged_api,
     doc_cfg,
-    mmx_target_feature,
     tbm_target_feature,
     sse4a_target_feature,
+    riscv_target_feature,
     arm_target_feature,
-    aarch64_target_feature,
     cmpxchg16b_target_feature,
     avx512_target_feature,
     mips_target_feature,
     powerpc_target_feature,
     wasm_target_feature,
     abi_unadjusted,
-    adx_target_feature,
     rtm_target_feature,
     f16c_target_feature,
-    external_doc
+    allow_internal_unstable,
+    decl_macro,
+    asm_const,
+    target_feature_11
 )]
-#![cfg_attr(test, feature(test, abi_vectorcall, untagged_unions))]
+#![cfg_attr(test, feature(test, abi_vectorcall))]
 #![deny(clippy::missing_inline_in_public_items)]
 #![allow(
     clippy::inline_always,
@@ -63,16 +63,13 @@ extern crate std;
 #[cfg(test)]
 #[macro_use]
 extern crate std_detect;
-#[cfg(test)]
-extern crate stdarch_test;
-
-#[cfg(all(test, target_arch = "wasm32"))]
-extern crate wasm_bindgen_test;
-
 #[path = "mod.rs"]
 mod core_arch;
 
-pub use self::core_arch::arch::*;
+pub mod arch {
+    pub use crate::core_arch::arch::*;
+    pub use core::arch::asm;
+}
 
 #[allow(unused_imports)]
-use core::{ffi, hint, intrinsics, marker, mem, ops, ptr, sync};
+use core::{convert, ffi, hint, intrinsics, marker, mem, ops, ptr, sync};

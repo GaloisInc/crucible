@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU16;
 use std::sync::atomic::Ordering::SeqCst;
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test_nofail() {
     let data    = Arc::new(Mutex::new(()));
     let ctr     = Arc::new(AtomicU16::new(0));

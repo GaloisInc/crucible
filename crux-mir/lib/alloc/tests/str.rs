@@ -1,6 +1,7 @@
+use std::assert_matches::assert_matches;
 use std::borrow::Cow;
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::str::from_utf8;
+use std::str::{from_utf8, from_utf8_unchecked};
 
 #[test]
 fn test_le() {
@@ -158,6 +159,36 @@ fn test_join_for_different_lengths_with_long_separator() {
     test_join!("a", ["a"], "～～～～～");
     test_join!("a～～～～～b", ["a", "b"], "～～～～～");
     test_join!("～～～～～a～～～～～bc", ["", "a", "bc"], "～～～～～");
+}
+
+#[test]
+fn test_join_issue_80335() {
+    use core::{borrow::Borrow, cell::Cell};
+
+    struct WeirdBorrow {
+        state: Cell<bool>,
+    }
+
+    impl Default for WeirdBorrow {
+        fn default() -> Self {
+            WeirdBorrow { state: Cell::new(false) }
+        }
+    }
+
+    impl Borrow<str> for WeirdBorrow {
+        fn borrow(&self) -> &str {
+            let state = self.state.get();
+            if state {
+                "0"
+            } else {
+                self.state.set(true);
+                "123456"
+            }
+        }
+    }
+
+    let arr: [WeirdBorrow; 3] = Default::default();
+    test_join!("0-0-0", arr, "-");
 }
 
 #[test]
@@ -504,7 +535,7 @@ mod slice_index {
     #[test]
     #[should_panic]
     fn test_slice_fail() {
-        &"中华Việt Nam"[0..2];
+        let _ = &"中华Việt Nam"[0..2];
     }
 
     panic_cases! {
@@ -529,6 +560,13 @@ mod slice_index {
             message: "out of bounds";
         }
 
+        in mod rangeinclusive_len {
+            data: "abcdef";
+            good: data[0..=5] == "abcdef";
+            bad: data[0..=6];
+            message: "out of bounds";
+        }
+
         in mod range_len_len {
             data: "abcdef";
             good: data[6..6] == "";
@@ -540,6 +578,28 @@ mod slice_index {
             data: "abcdef";
             good: data[6..=5] == "";
             bad: data[7..=6];
+            message: "out of bounds";
+        }
+    }
+
+    panic_cases! {
+        in mod rangeinclusive_exhausted {
+            data: "abcdef";
+
+            good: data[0..=5] == "abcdef";
+            good: data[{
+                let mut iter = 0..=5;
+                iter.by_ref().count(); // exhaust it
+                iter
+            }] == "";
+
+            // 0..=6 is out of bounds before exhaustion, so it
+            // stands to reason that it still would be after.
+            bad: data[{
+                let mut iter = 0..=6;
+                iter.by_ref().count(); // exhaust it
+                iter
+            }];
             message: "out of bounds";
         }
     }
@@ -566,13 +626,13 @@ mod slice_index {
                 data: "hello";
                 // note: using 0 specifically ensures that the result of overflowing is 0..0,
                 //       so that `get` doesn't simply return None for the wrong reason.
-                bad: data[0..=usize::max_value()];
+                bad: data[0..=usize::MAX];
                 message: "maximum usize";
             }
 
             in mod rangetoinclusive {
                 data: "hello";
-                bad: data[..=usize::max_value()];
+                bad: data[..=usize::MAX];
                 message: "maximum usize";
             }
         }
@@ -655,13 +715,13 @@ mod slice_index {
     #[test]
     #[should_panic(expected = "byte index 1024 is out of bounds of `Lorem ipsum dolor sit amet")]
     fn test_slice_fail_truncated_1() {
-        &LOREM_PARAGRAPH[..1024];
+        let _ = &LOREM_PARAGRAPH[..1024];
     }
     // check the truncation in the panic message
     #[test]
     #[should_panic(expected = "luctus, im`[...]")]
     fn test_slice_fail_truncated_2() {
-        &LOREM_PARAGRAPH[..1024];
+        let _ = &LOREM_PARAGRAPH[..1024];
     }
 }
 
@@ -676,7 +736,7 @@ fn test_str_slice_rangetoinclusive_ok() {
 #[should_panic]
 fn test_str_slice_rangetoinclusive_notok() {
     let s = "abcαβγ";
-    &s[..=3];
+    let _ = &s[..=3];
 }
 
 #[test]
@@ -692,7 +752,7 @@ fn test_str_slicemut_rangetoinclusive_ok() {
 fn test_str_slicemut_rangetoinclusive_notok() {
     let mut s = "abcαβγ".to_owned();
     let s: &mut str = &mut s;
-    &mut s[..=3];
+    let _ = &mut s[..=3];
 }
 
 #[test]
@@ -825,6 +885,33 @@ fn test_is_utf8() {
 }
 
 #[test]
+fn test_const_is_utf8() {
+    const _: () = {
+        // deny overlong encodings
+        assert!(from_utf8(&[0xc0, 0x80]).is_err());
+        assert!(from_utf8(&[0xc0, 0xae]).is_err());
+        assert!(from_utf8(&[0xe0, 0x80, 0x80]).is_err());
+        assert!(from_utf8(&[0xe0, 0x80, 0xaf]).is_err());
+        assert!(from_utf8(&[0xe0, 0x81, 0x81]).is_err());
+        assert!(from_utf8(&[0xf0, 0x82, 0x82, 0xac]).is_err());
+        assert!(from_utf8(&[0xf4, 0x90, 0x80, 0x80]).is_err());
+
+        // deny surrogates
+        assert!(from_utf8(&[0xED, 0xA0, 0x80]).is_err());
+        assert!(from_utf8(&[0xED, 0xBF, 0xBF]).is_err());
+
+        assert!(from_utf8(&[0xC2, 0x80]).is_ok());
+        assert!(from_utf8(&[0xDF, 0xBF]).is_ok());
+        assert!(from_utf8(&[0xE0, 0xA0, 0x80]).is_ok());
+        assert!(from_utf8(&[0xED, 0x9F, 0xBF]).is_ok());
+        assert!(from_utf8(&[0xEE, 0x80, 0x80]).is_ok());
+        assert!(from_utf8(&[0xEF, 0xBF, 0xBF]).is_ok());
+        assert!(from_utf8(&[0xF0, 0x90, 0x80, 0x80]).is_ok());
+        assert!(from_utf8(&[0xF4, 0x8F, 0xBF, 0xBF]).is_ok());
+    };
+}
+
+#[test]
 fn from_utf8_mostly_ascii() {
     // deny invalid bytes embedded in long stretches of ascii
     for i in 32..64 {
@@ -837,12 +924,42 @@ fn from_utf8_mostly_ascii() {
 }
 
 #[test]
+fn const_from_utf8_mostly_ascii() {
+    const _: () = {
+        // deny invalid bytes embedded in long stretches of ascii
+        let mut i = 32;
+        while i < 64 {
+            let mut data = [0; 128];
+            data[i] = 0xC0;
+            assert!(from_utf8(&data).is_err());
+            data[i] = 0xC2;
+            assert!(from_utf8(&data).is_err());
+
+            i = i + 1;
+        }
+    };
+}
+
+#[test]
 fn from_utf8_error() {
     macro_rules! test {
-        ($input: expr, $expected_valid_up_to: expr, $expected_error_len: expr) => {
+        ($input: expr, $expected_valid_up_to:pat, $expected_error_len:pat) => {
             let error = from_utf8($input).unwrap_err();
-            assert_eq!(error.valid_up_to(), $expected_valid_up_to);
-            assert_eq!(error.error_len(), $expected_error_len);
+            assert_matches!(error.valid_up_to(), $expected_valid_up_to);
+            assert_matches!(error.error_len(), $expected_error_len);
+
+            const _: () = {
+                match from_utf8($input) {
+                    Err(error) => {
+                        let valid_up_to = error.valid_up_to();
+                        let error_len = error.error_len();
+
+                        assert!(matches!(valid_up_to, $expected_valid_up_to));
+                        assert!(matches!(error_len, $expected_error_len));
+                    }
+                    Ok(_) => unreachable!(),
+                }
+            };
         };
     }
     test!(b"A\xC3\xA9 \xFF ", 4, Some(1));
@@ -893,11 +1010,11 @@ fn test_as_bytes_fail() {
 fn test_as_ptr() {
     let buf = "hello".as_ptr();
     unsafe {
-        assert_eq!(*buf.offset(0), b'h');
-        assert_eq!(*buf.offset(1), b'e');
-        assert_eq!(*buf.offset(2), b'l');
-        assert_eq!(*buf.offset(3), b'l');
-        assert_eq!(*buf.offset(4), b'o');
+        assert_eq!(*buf.add(0), b'h');
+        assert_eq!(*buf.add(1), b'e');
+        assert_eq!(*buf.add(2), b'l');
+        assert_eq!(*buf.add(3), b'l');
+        assert_eq!(*buf.add(4), b'o');
     }
 }
 
@@ -972,7 +1089,7 @@ fn test_split_at_mut() {
 #[should_panic]
 fn test_split_at_boundscheck() {
     let s = "ศไทย中华Việt Nam";
-    s.split_at(1);
+    let _ = s.split_at(1);
 }
 
 #[test]
@@ -999,7 +1116,7 @@ fn test_escape_debug() {
     assert_eq!("abc".escape_debug().to_string(), "abc");
     assert_eq!("a c".escape_debug().to_string(), "a c");
     assert_eq!("éèê".escape_debug().to_string(), "éèê");
-    assert_eq!("\r\n\t".escape_debug().to_string(), "\\r\\n\\t");
+    assert_eq!("\0\r\n\t".escape_debug().to_string(), "\\0\\r\\n\\t");
     assert_eq!("'\"\\".escape_debug().to_string(), "\\'\\\"\\\\");
     assert_eq!("\u{7f}\u{ff}".escape_debug().to_string(), "\\u{7f}\u{ff}");
     assert_eq!("\u{100}\u{ffff}".escape_debug().to_string(), "\u{100}\\u{ffff}");
@@ -1067,6 +1184,37 @@ fn test_rev_iterator() {
 }
 
 #[test]
+fn test_to_lowercase_rev_iterator() {
+    let s = "AÖßÜ💩ΣΤΙΓΜΑΣǅﬁİ";
+    let v = ['\u{307}', 'i', 'ﬁ', 'ǆ', 'σ', 'α', 'μ', 'γ', 'ι', 'τ', 'σ', '💩', 'ü', 'ß', 'ö', 'a'];
+
+    let mut pos = 0;
+    let it = s.chars().flat_map(|c| c.to_lowercase()).rev();
+
+    for c in it {
+        assert_eq!(c, v[pos]);
+        pos += 1;
+    }
+    assert_eq!(pos, v.len());
+}
+
+#[test]
+fn test_to_uppercase_rev_iterator() {
+    let s = "aößü💩στιγμαςǅﬁᾀ";
+    let v =
+        ['Ι', 'Ἀ', 'I', 'F', 'Ǆ', 'Σ', 'Α', 'Μ', 'Γ', 'Ι', 'Τ', 'Σ', '💩', 'Ü', 'S', 'S', 'Ö', 'A'];
+
+    let mut pos = 0;
+    let it = s.chars().flat_map(|c| c.to_uppercase()).rev();
+
+    for c in it {
+        assert_eq!(c, v[pos]);
+        pos += 1;
+    }
+    assert_eq!(pos, v.len());
+}
+
+#[test]
 #[cfg_attr(miri, ignore)] // Miri is too slow
 fn test_chars_decoding() {
     let mut bytes = [0; 4];
@@ -1111,7 +1259,7 @@ fn test_chars_debug() {
     let s = "ศไทย中华Việt Nam";
     let c = s.chars();
     assert_eq!(
-        format!("{:?}", c),
+        format!("{c:?}"),
         r#"Chars(['ศ', 'ไ', 'ท', 'ย', '中', '华', 'V', 'i', 'ệ', 't', ' ', 'N', 'a', 'm'])"#
     );
 }
@@ -1319,6 +1467,30 @@ fn test_rsplitn() {
 }
 
 #[test]
+fn test_split_once() {
+    assert_eq!("".split_once("->"), None);
+    assert_eq!("-".split_once("->"), None);
+    assert_eq!("->".split_once("->"), Some(("", "")));
+    assert_eq!("a->".split_once("->"), Some(("a", "")));
+    assert_eq!("->b".split_once("->"), Some(("", "b")));
+    assert_eq!("a->b".split_once("->"), Some(("a", "b")));
+    assert_eq!("a->b->c".split_once("->"), Some(("a", "b->c")));
+    assert_eq!("---".split_once("--"), Some(("", "-")));
+}
+
+#[test]
+fn test_rsplit_once() {
+    assert_eq!("".rsplit_once("->"), None);
+    assert_eq!("-".rsplit_once("->"), None);
+    assert_eq!("->".rsplit_once("->"), Some(("", "")));
+    assert_eq!("a->".rsplit_once("->"), Some(("a", "")));
+    assert_eq!("->b".rsplit_once("->"), Some(("", "b")));
+    assert_eq!("a->b".rsplit_once("->"), Some(("a", "b")));
+    assert_eq!("a->b->c".rsplit_once("->"), Some(("a->b", "c")));
+    assert_eq!("---".rsplit_once("--"), Some(("-", "")));
+}
+
+#[test]
 fn test_split_whitespace() {
     let data = "\n \tMäry   häd\tä  little lämb\nLittle lämb\n";
     let words: Vec<&str> = data.split_whitespace().collect();
@@ -1418,11 +1590,27 @@ fn test_bool_from_str() {
     assert_eq!("not even a boolean".parse::<bool>().ok(), None);
 }
 
-fn check_contains_all_substrings(s: &str) {
-    assert!(s.contains(""));
-    for i in 0..s.len() {
-        for j in i + 1..=s.len() {
-            assert!(s.contains(&s[i..j]));
+fn check_contains_all_substrings(haystack: &str) {
+    let mut modified_needle = String::new();
+
+    for i in 0..haystack.len() {
+        // check different haystack lengths since we special-case short haystacks.
+        let haystack = &haystack[0..i];
+        assert!(haystack.contains(""));
+        for j in 0..haystack.len() {
+            for k in j + 1..=haystack.len() {
+                let needle = &haystack[j..k];
+                assert!(haystack.contains(needle));
+                modified_needle.clear();
+                modified_needle.push_str(needle);
+                modified_needle.replace_range(0..1, "\0");
+                assert!(!haystack.contains(&modified_needle));
+
+                modified_needle.clear();
+                modified_needle.push_str(needle);
+                modified_needle.replace_range(needle.len() - 1..needle.len(), "\0");
+                assert!(!haystack.contains(&modified_needle));
+            }
         }
     }
 }
@@ -1441,6 +1629,18 @@ fn strslice_issue_16589() {
 fn strslice_issue_16878() {
     assert!(!"1234567ah012345678901ah".contains("hah"));
     assert!(!"00abc01234567890123456789abc".contains("bcabc"));
+}
+
+#[test]
+fn strslice_issue_104726() {
+    // Edge-case in the simd_contains impl.
+    // The first and last byte are the same so it backtracks by one byte
+    // which aligns with the end of the string. Previously incorrect offset calculations
+    // lead to out-of-bounds slicing.
+    #[rustfmt::skip]
+    let needle =                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaba";
+    let haystack = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab";
+    assert!(!haystack.contains(needle));
 }
 
 #[test]
@@ -1600,6 +1800,20 @@ fn to_lowercase() {
     assert_eq!("ΑΣΑ".to_lowercase(), "ασα");
     assert_eq!("ΑΣ'Α".to_lowercase(), "ασ'α");
     assert_eq!("ΑΣ''Α".to_lowercase(), "ασ''α");
+
+    // a really long string that has it's lowercase form
+    // even longer. this tests that implementations don't assume
+    // an incorrect upper bound on allocations
+    let upper = str::repeat("İ", 512);
+    let lower = str::repeat("i̇", 512);
+    assert_eq!(upper.to_lowercase(), lower);
+
+    // a really long ascii-only string.
+    // This test that the ascii hot-path
+    // functions correctly
+    let upper = str::repeat("A", 511);
+    let lower = str::repeat("a", 511);
+    assert_eq!(upper.to_lowercase(), lower);
 }
 
 #[test]
@@ -1698,7 +1912,7 @@ mod pattern {
         }
 
         if let Some(err) = err {
-            panic!("Input skipped range at {}", err);
+            panic!("Input skipped range at {err}");
         }
 
         if first_index != haystack.len() {
@@ -1790,6 +2004,47 @@ mod pattern {
         "* \t",
         [Reject(0, 1), Reject(1, 2), Reject(2, 3),]
     );
+
+    // See #85462
+    #[test]
+    fn str_searcher_empty_needle_after_done() {
+        // Empty needle and haystack
+        {
+            let mut searcher = "".into_searcher("");
+
+            assert_eq!(searcher.next(), SearchStep::Match(0, 0));
+            assert_eq!(searcher.next(), SearchStep::Done);
+            assert_eq!(searcher.next(), SearchStep::Done);
+            assert_eq!(searcher.next(), SearchStep::Done);
+
+            let mut searcher = "".into_searcher("");
+
+            assert_eq!(searcher.next_back(), SearchStep::Match(0, 0));
+            assert_eq!(searcher.next_back(), SearchStep::Done);
+            assert_eq!(searcher.next_back(), SearchStep::Done);
+            assert_eq!(searcher.next_back(), SearchStep::Done);
+        }
+        // Empty needle and non-empty haystack
+        {
+            let mut searcher = "".into_searcher("a");
+
+            assert_eq!(searcher.next(), SearchStep::Match(0, 0));
+            assert_eq!(searcher.next(), SearchStep::Reject(0, 1));
+            assert_eq!(searcher.next(), SearchStep::Match(1, 1));
+            assert_eq!(searcher.next(), SearchStep::Done);
+            assert_eq!(searcher.next(), SearchStep::Done);
+            assert_eq!(searcher.next(), SearchStep::Done);
+
+            let mut searcher = "".into_searcher("a");
+
+            assert_eq!(searcher.next_back(), SearchStep::Match(1, 1));
+            assert_eq!(searcher.next_back(), SearchStep::Reject(0, 1));
+            assert_eq!(searcher.next_back(), SearchStep::Match(0, 0));
+            assert_eq!(searcher.next_back(), SearchStep::Done);
+            assert_eq!(searcher.next_back(), SearchStep::Done);
+            assert_eq!(searcher.next_back(), SearchStep::Done);
+        }
+    }
 }
 
 macro_rules! generate_iterator_test {
@@ -1896,4 +2151,261 @@ fn different_str_pattern_forwarding_lifetimes() {
     }
 
     foo::<&str>("x");
+}
+
+#[test]
+fn test_str_multiline() {
+    let a: String = "this \
+is a test"
+        .to_string();
+    let b: String = "this \
+              is \
+              another \
+              test"
+        .to_string();
+    assert_eq!(a, "this is a test".to_string());
+    assert_eq!(b, "this is another test".to_string());
+}
+
+#[test]
+fn test_str_escapes() {
+    let x = "\\\\\
+    ";
+    assert_eq!(x, r"\\"); // extraneous whitespace stripped
+}
+
+#[test]
+fn const_str_ptr() {
+    const A: [u8; 2] = ['h' as u8, 'i' as u8];
+    const B: &'static [u8; 2] = &A;
+    const C: *const u8 = B as *const u8;
+
+    // Miri does not deduplicate consts (https://github.com/rust-lang/miri/issues/131)
+    #[cfg(not(miri))]
+    {
+        let foo = &A as *const u8;
+        assert_eq!(foo, C);
+    }
+
+    unsafe {
+        assert_eq!(from_utf8_unchecked(&A), "hi");
+        assert_eq!(*C, A[0]);
+        assert_eq!(*(&B[0] as *const u8), A[0]);
+    }
+}
+
+#[test]
+fn utf8() {
+    let yen: char = '¥'; // 0xa5
+    let c_cedilla: char = 'ç'; // 0xe7
+    let thorn: char = 'þ'; // 0xfe
+    let y_diaeresis: char = 'ÿ'; // 0xff
+    let pi: char = 'Π'; // 0x3a0
+
+    assert_eq!(yen as isize, 0xa5);
+    assert_eq!(c_cedilla as isize, 0xe7);
+    assert_eq!(thorn as isize, 0xfe);
+    assert_eq!(y_diaeresis as isize, 0xff);
+    assert_eq!(pi as isize, 0x3a0);
+
+    assert_eq!(pi as isize, '\u{3a0}' as isize);
+    assert_eq!('\x0a' as isize, '\n' as isize);
+
+    let bhutan: String = "འབྲུག་ཡུལ།".to_string();
+    let japan: String = "日本".to_string();
+    let uzbekistan: String = "Ўзбекистон".to_string();
+    let austria: String = "Österreich".to_string();
+
+    let bhutan_e: String =
+        "\u{f60}\u{f56}\u{fb2}\u{f74}\u{f42}\u{f0b}\u{f61}\u{f74}\u{f63}\u{f0d}".to_string();
+    let japan_e: String = "\u{65e5}\u{672c}".to_string();
+    let uzbekistan_e: String =
+        "\u{40e}\u{437}\u{431}\u{435}\u{43a}\u{438}\u{441}\u{442}\u{43e}\u{43d}".to_string();
+    let austria_e: String = "\u{d6}sterreich".to_string();
+
+    let oo: char = 'Ö';
+    assert_eq!(oo as isize, 0xd6);
+
+    fn check_str_eq(a: String, b: String) {
+        let mut i: isize = 0;
+        for ab in a.bytes() {
+            println!("{i}");
+            println!("{ab}");
+            let bb: u8 = b.as_bytes()[i as usize];
+            println!("{bb}");
+            assert_eq!(ab, bb);
+            i += 1;
+        }
+    }
+
+    check_str_eq(bhutan, bhutan_e);
+    check_str_eq(japan, japan_e);
+    check_str_eq(uzbekistan, uzbekistan_e);
+    check_str_eq(austria, austria_e);
+}
+
+#[test]
+fn utf8_chars() {
+    // Chars of 1, 2, 3, and 4 bytes
+    let chs: Vec<char> = vec!['e', 'é', '€', '\u{10000}'];
+    let s: String = chs.iter().cloned().collect();
+    let schs: Vec<char> = s.chars().collect();
+
+    assert_eq!(s.len(), 10);
+    assert_eq!(s.chars().count(), 4);
+    assert_eq!(schs.len(), 4);
+    assert_eq!(schs.iter().cloned().collect::<String>(), s);
+
+    assert!((from_utf8(s.as_bytes()).is_ok()));
+    // invalid prefix
+    assert!((!from_utf8(&[0x80]).is_ok()));
+    // invalid 2 byte prefix
+    assert!((!from_utf8(&[0xc0]).is_ok()));
+    assert!((!from_utf8(&[0xc0, 0x10]).is_ok()));
+    // invalid 3 byte prefix
+    assert!((!from_utf8(&[0xe0]).is_ok()));
+    assert!((!from_utf8(&[0xe0, 0x10]).is_ok()));
+    assert!((!from_utf8(&[0xe0, 0xff, 0x10]).is_ok()));
+    // invalid 4 byte prefix
+    assert!((!from_utf8(&[0xf0]).is_ok()));
+    assert!((!from_utf8(&[0xf0, 0x10]).is_ok()));
+    assert!((!from_utf8(&[0xf0, 0xff, 0x10]).is_ok()));
+    assert!((!from_utf8(&[0xf0, 0xff, 0xff, 0x10]).is_ok()));
+}
+
+#[test]
+fn utf8_char_counts() {
+    let strs = [("e", 1), ("é", 1), ("€", 1), ("\u{10000}", 1), ("eé€\u{10000}", 4)];
+    let spread = if cfg!(miri) { 4 } else { 8 };
+    let mut reps = [8, 64, 256, 512]
+        .iter()
+        .copied()
+        .flat_map(|n| n - spread..=n + spread)
+        .collect::<Vec<usize>>();
+    if cfg!(not(miri)) {
+        reps.extend([1024, 1 << 16].iter().copied().flat_map(|n| n - spread..=n + spread));
+    }
+    let counts = if cfg!(miri) { 0..1 } else { 0..8 };
+    let padding = counts.map(|len| " ".repeat(len)).collect::<Vec<String>>();
+
+    for repeat in reps {
+        for (tmpl_str, tmpl_char_count) in strs {
+            for pad_start in &padding {
+                for pad_end in &padding {
+                    // Create a string with padding...
+                    let with_padding =
+                        format!("{}{}{}", pad_start, tmpl_str.repeat(repeat), pad_end);
+                    // ...and then skip past that padding. This should ensure
+                    // that we test several different alignments for both head
+                    // and tail.
+                    let si = pad_start.len();
+                    let ei = with_padding.len() - pad_end.len();
+                    let target = &with_padding[si..ei];
+
+                    assert!(!target.starts_with(" ") && !target.ends_with(" "));
+                    let expected_count = tmpl_char_count * repeat;
+                    assert_eq!(
+                        expected_count,
+                        target.chars().count(),
+                        "wrong count for `{:?}.repeat({})` (padding: `{:?}`)",
+                        tmpl_str,
+                        repeat,
+                        (pad_start.len(), pad_end.len()),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn floor_char_boundary() {
+    fn check_many(s: &str, arg: impl IntoIterator<Item = usize>, ret: usize) {
+        for idx in arg {
+            assert_eq!(
+                s.floor_char_boundary(idx),
+                ret,
+                "{:?}.floor_char_boundary({:?}) != {:?}",
+                s,
+                idx,
+                ret
+            );
+        }
+    }
+
+    // edge case
+    check_many("", [0, 1, isize::MAX as usize, usize::MAX], 0);
+
+    // basic check
+    check_many("x", [0], 0);
+    check_many("x", [1, isize::MAX as usize, usize::MAX], 1);
+
+    // 1-byte chars
+    check_many("jp", [0], 0);
+    check_many("jp", [1], 1);
+    check_many("jp", 2..4, 2);
+
+    // 2-byte chars
+    check_many("ĵƥ", 0..2, 0);
+    check_many("ĵƥ", 2..4, 2);
+    check_many("ĵƥ", 4..6, 4);
+
+    // 3-byte chars
+    check_many("日本", 0..3, 0);
+    check_many("日本", 3..6, 3);
+    check_many("日本", 6..8, 6);
+
+    // 4-byte chars
+    check_many("🇯🇵", 0..4, 0);
+    check_many("🇯🇵", 4..8, 4);
+    check_many("🇯🇵", 8..10, 8);
+}
+
+#[test]
+fn ceil_char_boundary() {
+    fn check_many(s: &str, arg: impl IntoIterator<Item = usize>, ret: usize) {
+        for idx in arg {
+            assert_eq!(
+                s.ceil_char_boundary(idx),
+                ret,
+                "{:?}.ceil_char_boundary({:?}) != {:?}",
+                s,
+                idx,
+                ret
+            );
+        }
+    }
+
+    // edge case
+    check_many("", [0], 0);
+
+    // basic check
+    check_many("x", [0], 0);
+    check_many("x", [1], 1);
+
+    // 1-byte chars
+    check_many("jp", [0], 0);
+    check_many("jp", [1], 1);
+    check_many("jp", [2], 2);
+
+    // 2-byte chars
+    check_many("ĵƥ", 0..=0, 0);
+    check_many("ĵƥ", 1..=2, 2);
+    check_many("ĵƥ", 3..=4, 4);
+
+    // 3-byte chars
+    check_many("日本", 0..=0, 0);
+    check_many("日本", 1..=3, 3);
+    check_many("日本", 4..=6, 6);
+
+    // 4-byte chars
+    check_many("🇯🇵", 0..=0, 0);
+    check_many("🇯🇵", 1..=4, 4);
+    check_many("🇯🇵", 5..=8, 8);
+}
+
+#[test]
+#[should_panic]
+fn ceil_char_boundary_above_len_panic() {
+    let _ = "x".ceil_char_boundary(2);
 }

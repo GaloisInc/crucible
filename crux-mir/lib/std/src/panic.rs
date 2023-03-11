@@ -3,286 +3,73 @@
 #![stable(feature = "std_panic", since = "1.9.0")]
 
 use crate::any::Any;
-use crate::cell::UnsafeCell;
 use crate::collections;
-use crate::fmt;
-use crate::future::Future;
-use crate::ops::{Deref, DerefMut};
 use crate::panicking;
-use crate::pin::Pin;
-use crate::ptr::{NonNull, Unique};
-use crate::rc::Rc;
-use crate::sync::atomic;
-use crate::sync::{Arc, Mutex, RwLock};
-use crate::task::{Context, Poll};
+use crate::sync::atomic::{AtomicUsize, Ordering};
+use crate::sync::{Mutex, RwLock};
 use crate::thread::Result;
+
+#[doc(hidden)]
+#[unstable(feature = "edition_panic", issue = "none", reason = "use panic!() instead")]
+#[allow_internal_unstable(libstd_sys_internals, const_format_args, core_panic, rt)]
+#[cfg_attr(not(test), rustc_diagnostic_item = "std_panic_2015_macro")]
+#[rustc_macro_transparency = "semitransparent"]
+pub macro panic_2015 {
+    () => ({
+        $crate::rt::begin_panic("explicit panic")
+    }),
+    ($msg:expr $(,)?) => ({
+        $crate::rt::begin_panic($msg)
+    }),
+    // Special-case the single-argument case for const_panic.
+    ("{}", $arg:expr $(,)?) => ({
+        $crate::rt::panic_display(&$arg)
+    }),
+    ($fmt:expr, $($arg:tt)+) => ({
+        $crate::rt::panic_fmt($crate::const_format_args!($fmt, $($arg)+))
+    }),
+}
+
+#[doc(hidden)]
+#[unstable(feature = "edition_panic", issue = "none", reason = "use panic!() instead")]
+pub use core::panic::panic_2021;
 
 #[stable(feature = "panic_hooks", since = "1.10.0")]
 pub use crate::panicking::{set_hook, take_hook};
 
+#[unstable(feature = "panic_update_hook", issue = "92649")]
+pub use crate::panicking::update_hook;
+
 #[stable(feature = "panic_hooks", since = "1.10.0")]
 pub use core::panic::{Location, PanicInfo};
 
-/// A marker trait which represents "panic safe" types in Rust.
-///
-/// This trait is implemented by default for many types and behaves similarly in
-/// terms of inference of implementation to the [`Send`] and [`Sync`] traits. The
-/// purpose of this trait is to encode what types are safe to cross a [`catch_unwind`]
-/// boundary with no fear of unwind safety.
-///
-/// [`Send`]: ../marker/trait.Send.html
-/// [`Sync`]: ../marker/trait.Sync.html
-/// [`catch_unwind`]: ./fn.catch_unwind.html
-///
-/// ## What is unwind safety?
-///
-/// In Rust a function can "return" early if it either panics or calls a
-/// function which transitively panics. This sort of control flow is not always
-/// anticipated, and has the possibility of causing subtle bugs through a
-/// combination of two critical components:
-///
-/// 1. A data structure is in a temporarily invalid state when the thread
-///    panics.
-/// 2. This broken invariant is then later observed.
-///
-/// Typically in Rust, it is difficult to perform step (2) because catching a
-/// panic involves either spawning a thread (which in turns makes it difficult
-/// to later witness broken invariants) or using the `catch_unwind` function in this
-/// module. Additionally, even if an invariant is witnessed, it typically isn't a
-/// problem in Rust because there are no uninitialized values (like in C or C++).
-///
-/// It is possible, however, for **logical** invariants to be broken in Rust,
-/// which can end up causing behavioral bugs. Another key aspect of unwind safety
-/// in Rust is that, in the absence of `unsafe` code, a panic cannot lead to
-/// memory unsafety.
-///
-/// That was a bit of a whirlwind tour of unwind safety, but for more information
-/// about unwind safety and how it applies to Rust, see an [associated RFC][rfc].
-///
-/// [rfc]: https://github.com/rust-lang/rfcs/blob/master/text/1236-stabilize-catch-panic.md
-///
-/// ## What is `UnwindSafe`?
-///
-/// Now that we've got an idea of what unwind safety is in Rust, it's also
-/// important to understand what this trait represents. As mentioned above, one
-/// way to witness broken invariants is through the `catch_unwind` function in this
-/// module as it allows catching a panic and then re-using the environment of
-/// the closure.
-///
-/// Simply put, a type `T` implements `UnwindSafe` if it cannot easily allow
-/// witnessing a broken invariant through the use of `catch_unwind` (catching a
-/// panic). This trait is an auto trait, so it is automatically implemented for
-/// many types, and it is also structurally composed (e.g., a struct is unwind
-/// safe if all of its components are unwind safe).
-///
-/// Note, however, that this is not an unsafe trait, so there is not a succinct
-/// contract that this trait is providing. Instead it is intended as more of a
-/// "speed bump" to alert users of `catch_unwind` that broken invariants may be
-/// witnessed and may need to be accounted for.
-///
-/// ## Who implements `UnwindSafe`?
-///
-/// Types such as `&mut T` and `&RefCell<T>` are examples which are **not**
-/// unwind safe. The general idea is that any mutable state which can be shared
-/// across `catch_unwind` is not unwind safe by default. This is because it is very
-/// easy to witness a broken invariant outside of `catch_unwind` as the data is
-/// simply accessed as usual.
-///
-/// Types like `&Mutex<T>`, however, are unwind safe because they implement
-/// poisoning by default. They still allow witnessing a broken invariant, but
-/// they already provide their own "speed bumps" to do so.
-///
-/// ## When should `UnwindSafe` be used?
-///
-/// It is not intended that most types or functions need to worry about this trait.
-/// It is only used as a bound on the `catch_unwind` function and as mentioned
-/// above, the lack of `unsafe` means it is mostly an advisory. The
-/// [`AssertUnwindSafe`] wrapper struct can be used to force this trait to be
-/// implemented for any closed over variables passed to `catch_unwind`.
-///
-/// [`AssertUnwindSafe`]: ./struct.AssertUnwindSafe.html
 #[stable(feature = "catch_unwind", since = "1.9.0")]
-#[rustc_on_unimplemented(
-    message = "the type `{Self}` may not be safely transferred across an unwind boundary",
-    label = "`{Self}` may not be safely transferred across an unwind boundary"
-)]
-pub auto trait UnwindSafe {}
+pub use core::panic::{AssertUnwindSafe, RefUnwindSafe, UnwindSafe};
 
-/// A marker trait representing types where a shared reference is considered
-/// unwind safe.
+/// Panic the current thread with the given message as the panic payload.
 ///
-/// This trait is namely not implemented by [`UnsafeCell`], the root of all
-/// interior mutability.
+/// The message can be of any (`Any + Send`) type, not just strings.
 ///
-/// This is a "helper marker trait" used to provide impl blocks for the
-/// [`UnwindSafe`] trait, for more information see that documentation.
+/// The message is wrapped in a `Box<'static + Any + Send>`, which can be
+/// accessed later using [`PanicInfo::payload`].
 ///
-/// [`UnsafeCell`]: ../cell/struct.UnsafeCell.html
-/// [`UnwindSafe`]: ./trait.UnwindSafe.html
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-#[rustc_on_unimplemented(
-    message = "the type `{Self}` may contain interior mutability and a reference may not be safely \
-               transferrable across a catch_unwind boundary",
-    label = "`{Self}` may contain interior mutability and a reference may not be safely \
-             transferrable across a catch_unwind boundary"
-)]
-pub auto trait RefUnwindSafe {}
+/// See the [`panic!`] macro for more information about panicking.
+#[stable(feature = "panic_any", since = "1.51.0")]
+#[inline]
+#[track_caller]
+pub fn panic_any<M: 'static + Any + Send>(msg: M) -> ! {
+    crate::panicking::begin_panic(msg);
+}
 
-/// A simple wrapper around a type to assert that it is unwind safe.
-///
-/// When using [`catch_unwind`] it may be the case that some of the closed over
-/// variables are not unwind safe. For example if `&mut T` is captured the
-/// compiler will generate a warning indicating that it is not unwind safe. It
-/// may not be the case, however, that this is actually a problem due to the
-/// specific usage of [`catch_unwind`] if unwind safety is specifically taken into
-/// account. This wrapper struct is useful for a quick and lightweight
-/// annotation that a variable is indeed unwind safe.
-///
-/// [`catch_unwind`]: ./fn.catch_unwind.html
-/// # Examples
-///
-/// One way to use `AssertUnwindSafe` is to assert that the entire closure
-/// itself is unwind safe, bypassing all checks for all variables:
-///
-/// ```
-/// use std::panic::{self, AssertUnwindSafe};
-///
-/// let mut variable = 4;
-///
-/// // This code will not compile because the closure captures `&mut variable`
-/// // which is not considered unwind safe by default.
-///
-/// // panic::catch_unwind(|| {
-/// //     variable += 3;
-/// // });
-///
-/// // This, however, will compile due to the `AssertUnwindSafe` wrapper
-/// let result = panic::catch_unwind(AssertUnwindSafe(|| {
-///     variable += 3;
-/// }));
-/// // ...
-/// ```
-///
-/// Wrapping the entire closure amounts to a blanket assertion that all captured
-/// variables are unwind safe. This has the downside that if new captures are
-/// added in the future, they will also be considered unwind safe. Therefore,
-/// you may prefer to just wrap individual captures, as shown below. This is
-/// more annotation, but it ensures that if a new capture is added which is not
-/// unwind safe, you will get a compilation error at that time, which will
-/// allow you to consider whether that new capture in fact represent a bug or
-/// not.
-///
-/// ```
-/// use std::panic::{self, AssertUnwindSafe};
-///
-/// let mut variable = 4;
-/// let other_capture = 3;
-///
-/// let result = {
-///     let mut wrapper = AssertUnwindSafe(&mut variable);
-///     panic::catch_unwind(move || {
-///         **wrapper += other_capture;
-///     })
-/// };
-/// // ...
-/// ```
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-pub struct AssertUnwindSafe<T>(#[stable(feature = "catch_unwind", since = "1.9.0")] pub T);
-
-// Implementations of the `UnwindSafe` trait:
-//
-// * By default everything is unwind safe
-// * pointers T contains mutability of some form are not unwind safe
-// * Unique, an owning pointer, lifts an implementation
-// * Types like Mutex/RwLock which are explicitly poisoned are unwind safe
-// * Our custom AssertUnwindSafe wrapper is indeed unwind safe
-
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: ?Sized> !UnwindSafe for &mut T {}
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for &T {}
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for *const T {}
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for *mut T {}
-#[unstable(feature = "ptr_internals", issue = "none")]
-impl<T: UnwindSafe + ?Sized> UnwindSafe for Unique<T> {}
-#[stable(feature = "nonnull", since = "1.25.0")]
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for NonNull<T> {}
 #[stable(feature = "catch_unwind", since = "1.9.0")]
 impl<T: ?Sized> UnwindSafe for Mutex<T> {}
 #[stable(feature = "catch_unwind", since = "1.9.0")]
 impl<T: ?Sized> UnwindSafe for RwLock<T> {}
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T> UnwindSafe for AssertUnwindSafe<T> {}
-
-// not covered via the Shared impl above b/c the inner contents use
-// Cell/AtomicUsize, but the usage here is unwind safe so we can lift the
-// impl up one level to Arc/Rc itself
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for Rc<T> {}
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for Arc<T> {}
-
-// Pretty simple implementations for the `RefUnwindSafe` marker trait,
-// basically just saying that `UnsafeCell` is the
-// only thing which doesn't implement it (which then transitively applies to
-// everything else).
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T: ?Sized> !RefUnwindSafe for UnsafeCell<T> {}
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T> RefUnwindSafe for AssertUnwindSafe<T> {}
 
 #[stable(feature = "unwind_safe_lock_refs", since = "1.12.0")]
 impl<T: ?Sized> RefUnwindSafe for Mutex<T> {}
 #[stable(feature = "unwind_safe_lock_refs", since = "1.12.0")]
 impl<T: ?Sized> RefUnwindSafe for RwLock<T> {}
-
-#[cfg(target_has_atomic_load_store = "ptr")]
-#[stable(feature = "unwind_safe_atomic_refs", since = "1.14.0")]
-impl RefUnwindSafe for atomic::AtomicIsize {}
-#[cfg(target_has_atomic_load_store = "8")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicI8 {}
-#[cfg(target_has_atomic_load_store = "16")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicI16 {}
-#[cfg(target_has_atomic_load_store = "32")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicI32 {}
-#[cfg(target_has_atomic_load_store = "64")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicI64 {}
-#[cfg(target_has_atomic_load_store = "128")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicI128 {}
-
-#[cfg(target_has_atomic_load_store = "ptr")]
-#[stable(feature = "unwind_safe_atomic_refs", since = "1.14.0")]
-impl RefUnwindSafe for atomic::AtomicUsize {}
-#[cfg(target_has_atomic_load_store = "8")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicU8 {}
-#[cfg(target_has_atomic_load_store = "16")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicU16 {}
-#[cfg(target_has_atomic_load_store = "32")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicU32 {}
-#[cfg(target_has_atomic_load_store = "64")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicU64 {}
-#[cfg(target_has_atomic_load_store = "128")]
-#[unstable(feature = "integer_atomics", issue = "32976")]
-impl RefUnwindSafe for atomic::AtomicU128 {}
-
-#[cfg(target_has_atomic_load_store = "8")]
-#[stable(feature = "unwind_safe_atomic_refs", since = "1.14.0")]
-impl RefUnwindSafe for atomic::AtomicBool {}
-
-#[cfg(target_has_atomic_load_store = "ptr")]
-#[stable(feature = "unwind_safe_atomic_refs", since = "1.14.0")]
-impl<T> RefUnwindSafe for atomic::AtomicPtr<T> {}
 
 // https://github.com/rust-lang/rust/issues/62301
 #[stable(feature = "hashbrown", since = "1.36.0")]
@@ -292,48 +79,6 @@ where
     V: UnwindSafe,
     S: UnwindSafe,
 {
-}
-
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T> Deref for AssertUnwindSafe<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.0
-    }
-}
-
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<T> DerefMut for AssertUnwindSafe<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-}
-
-#[stable(feature = "catch_unwind", since = "1.9.0")]
-impl<R, F: FnOnce() -> R> FnOnce<()> for AssertUnwindSafe<F> {
-    type Output = R;
-
-    extern "rust-call" fn call_once(self, _args: ()) -> R {
-        (self.0)()
-    }
-}
-
-#[stable(feature = "std_debug", since = "1.16.0")]
-impl<T: fmt::Debug> fmt::Debug for AssertUnwindSafe<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("AssertUnwindSafe").field(&self.0).finish()
-    }
-}
-
-#[stable(feature = "futures_api", since = "1.36.0")]
-impl<F: Future> Future for AssertUnwindSafe<F> {
-    type Output = F::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let pinned_field = unsafe { Pin::map_unchecked_mut(self, |x| &mut x.0) };
-        F::poll(pinned_field, cx)
-    }
 }
 
 /// Invokes a closure, capturing the cause of an unwinding panic if one occurs.
@@ -352,8 +97,6 @@ impl<F: Future> Future for AssertUnwindSafe<F> {
 /// can fail on a regular basis. Additionally, this function is not guaranteed
 /// to catch all panics, see the "Notes" section below.
 ///
-/// [`Result`]: ../result/enum.Result.html
-///
 /// The closure provided is required to adhere to the [`UnwindSafe`] trait to ensure
 /// that all captured variables are safe to cross this boundary. The purpose of
 /// this bound is to encode the concept of [exception safety][rfc] in the type
@@ -362,17 +105,20 @@ impl<F: Future> Future for AssertUnwindSafe<F> {
 /// becomes a problem the [`AssertUnwindSafe`] wrapper struct can be used to quickly
 /// assert that the usage here is indeed unwind safe.
 ///
-/// [`AssertUnwindSafe`]: ./struct.AssertUnwindSafe.html
-/// [`UnwindSafe`]: ./trait.UnwindSafe.html
-///
 /// [rfc]: https://github.com/rust-lang/rfcs/blob/master/text/1236-stabilize-catch-panic.md
 ///
 /// # Notes
 ///
-/// Note that this function **may not catch all panics** in Rust. A panic in
+/// Note that this function **might not catch all panics** in Rust. A panic in
 /// Rust is not always implemented via unwinding, but can be implemented by
 /// aborting the process as well. This function *only* catches unwinding panics,
 /// not those that abort the process.
+///
+/// Note that if a custom panic hook has been set, it will be invoked before
+/// the panic is caught, before unwinding.
+///
+/// Also note that unwinding into Rust code with a foreign exception (e.g.
+/// an exception thrown from C++ code) is undefined behavior.
 ///
 /// # Examples
 ///
@@ -399,8 +145,6 @@ pub fn catch_unwind<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R> {
 /// This is designed to be used in conjunction with [`catch_unwind`] to, for
 /// example, carry a panic across a layer of C code.
 ///
-/// [`catch_unwind`]: ./fn.catch_unwind.html
-///
 /// # Notes
 ///
 /// Note that panics in Rust are not always implemented via unwinding, but they
@@ -425,3 +169,154 @@ pub fn catch_unwind<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R> {
 pub fn resume_unwind(payload: Box<dyn Any + Send>) -> ! {
     panicking::rust_panic_without_hook(payload)
 }
+
+/// Make all future panics abort directly without running the panic hook or unwinding.
+///
+/// There is no way to undo this; the effect lasts until the process exits or
+/// execs (or the equivalent).
+///
+/// # Use after fork
+///
+/// This function is particularly useful for calling after `libc::fork`.  After `fork`, in a
+/// multithreaded program it is (on many platforms) not safe to call the allocator.  It is also
+/// generally highly undesirable for an unwind to unwind past the `fork`, because that results in
+/// the unwind propagating to code that was only ever expecting to run in the parent.
+///
+/// `panic::always_abort()` helps avoid both of these.  It directly avoids any further unwinding,
+/// and if there is a panic, the abort will occur without allocating provided that the arguments to
+/// panic can be formatted without allocating.
+///
+/// Examples
+///
+/// ```no_run
+/// #![feature(panic_always_abort)]
+/// use std::panic;
+///
+/// panic::always_abort();
+///
+/// let _ = panic::catch_unwind(|| {
+///     panic!("inside the catch");
+/// });
+///
+/// // We will have aborted already, due to the panic.
+/// unreachable!();
+/// ```
+#[unstable(feature = "panic_always_abort", issue = "84438")]
+pub fn always_abort() {
+    crate::panicking::panic_count::set_always_abort();
+}
+
+/// The configuration for whether and how the default panic hook will capture
+/// and display the backtrace.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[unstable(feature = "panic_backtrace_config", issue = "93346")]
+#[non_exhaustive]
+pub enum BacktraceStyle {
+    /// Prints a terser backtrace which ideally only contains relevant
+    /// information.
+    Short,
+    /// Prints a backtrace with all possible information.
+    Full,
+    /// Disable collecting and displaying backtraces.
+    Off,
+}
+
+impl BacktraceStyle {
+    pub(crate) fn full() -> Option<Self> {
+        if cfg!(feature = "backtrace") { Some(BacktraceStyle::Full) } else { None }
+    }
+
+    fn as_usize(self) -> usize {
+        match self {
+            BacktraceStyle::Short => 1,
+            BacktraceStyle::Full => 2,
+            BacktraceStyle::Off => 3,
+        }
+    }
+
+    fn from_usize(s: usize) -> Option<Self> {
+        Some(match s {
+            0 => return None,
+            1 => BacktraceStyle::Short,
+            2 => BacktraceStyle::Full,
+            3 => BacktraceStyle::Off,
+            _ => unreachable!(),
+        })
+    }
+}
+
+// Tracks whether we should/can capture a backtrace, and how we should display
+// that backtrace.
+//
+// Internally stores equivalent of an Option<BacktraceStyle>.
+static SHOULD_CAPTURE: AtomicUsize = AtomicUsize::new(0);
+
+/// Configure whether the default panic hook will capture and display a
+/// backtrace.
+///
+/// The default value for this setting may be set by the `RUST_BACKTRACE`
+/// environment variable; see the details in [`get_backtrace_style`].
+#[unstable(feature = "panic_backtrace_config", issue = "93346")]
+pub fn set_backtrace_style(style: BacktraceStyle) {
+    if !cfg!(feature = "backtrace") {
+        // If the `backtrace` feature of this crate isn't enabled, skip setting.
+        return;
+    }
+    SHOULD_CAPTURE.store(style.as_usize(), Ordering::Release);
+}
+
+/// Checks whether the standard library's panic hook will capture and print a
+/// backtrace.
+///
+/// This function will, if a backtrace style has not been set via
+/// [`set_backtrace_style`], read the environment variable `RUST_BACKTRACE` to
+/// determine a default value for the backtrace formatting:
+///
+/// The first call to `get_backtrace_style` may read the `RUST_BACKTRACE`
+/// environment variable if `set_backtrace_style` has not been called to
+/// override the default value. After a call to `set_backtrace_style` or
+/// `get_backtrace_style`, any changes to `RUST_BACKTRACE` will have no effect.
+///
+/// `RUST_BACKTRACE` is read according to these rules:
+///
+/// * `0` for `BacktraceStyle::Off`
+/// * `full` for `BacktraceStyle::Full`
+/// * `1` for `BacktraceStyle::Short`
+/// * Other values are currently `BacktraceStyle::Short`, but this may change in
+///   the future
+///
+/// Returns `None` if backtraces aren't currently supported.
+#[unstable(feature = "panic_backtrace_config", issue = "93346")]
+pub fn get_backtrace_style() -> Option<BacktraceStyle> {
+    if !cfg!(feature = "backtrace") {
+        // If the `backtrace` feature of this crate isn't enabled quickly return
+        // `Unsupported` so this can be constant propagated all over the place
+        // to optimize away callers.
+        return None;
+    }
+    if let Some(style) = BacktraceStyle::from_usize(SHOULD_CAPTURE.load(Ordering::Acquire)) {
+        return Some(style);
+    }
+
+    let format = crate::env::var_os("RUST_BACKTRACE")
+        .map(|x| {
+            if &x == "0" {
+                BacktraceStyle::Off
+            } else if &x == "full" {
+                BacktraceStyle::Full
+            } else {
+                BacktraceStyle::Short
+            }
+        })
+        .unwrap_or(if cfg!(target_os = "fuchsia") {
+            // Fuchsia components default to full backtrace.
+            BacktraceStyle::Full
+        } else {
+            BacktraceStyle::Off
+        });
+    set_backtrace_style(format);
+    Some(format)
+}
+
+#[cfg(test)]
+mod tests;

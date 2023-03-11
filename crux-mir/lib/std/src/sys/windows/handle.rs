@@ -1,82 +1,86 @@
 #![unstable(issue = "none", feature = "windows_handle")]
 
+#[cfg(test)]
+mod tests;
+
 use crate::cmp;
-use crate::io::{self, ErrorKind, IoSlice, IoSliceMut, Read};
+use crate::io::{self, BorrowedCursor, ErrorKind, IoSlice, IoSliceMut, Read};
 use crate::mem;
-use crate::ops::Deref;
+use crate::os::windows::io::{
+    AsHandle, AsRawHandle, BorrowedHandle, FromRawHandle, IntoRawHandle, OwnedHandle, RawHandle,
+};
 use crate::ptr;
 use crate::sys::c;
 use crate::sys::cvt;
+use crate::sys_common::{AsInner, FromInner, IntoInner};
 
 /// An owned container for `HANDLE` object, closing them on Drop.
 ///
 /// All methods are inherited through a `Deref` impl to `RawHandle`
-pub struct Handle(RawHandle);
-
-/// A wrapper type for `HANDLE` objects to give them proper Send/Sync inference
-/// as well as Rust-y methods.
-///
-/// This does **not** drop the handle when it goes out of scope, use `Handle`
-/// instead for that.
-#[derive(Copy, Clone)]
-pub struct RawHandle(c::HANDLE);
-
-unsafe impl Send for RawHandle {}
-unsafe impl Sync for RawHandle {}
+pub struct Handle(OwnedHandle);
 
 impl Handle {
-    pub fn new(handle: c::HANDLE) -> Handle {
-        Handle(RawHandle::new(handle))
-    }
-
     pub fn new_event(manual: bool, init: bool) -> io::Result<Handle> {
         unsafe {
             let event =
                 c::CreateEventW(ptr::null_mut(), manual as c::BOOL, init as c::BOOL, ptr::null());
-            if event.is_null() { Err(io::Error::last_os_error()) } else { Ok(Handle::new(event)) }
+            if event.is_null() {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(Handle::from_raw_handle(event))
+            }
         }
-    }
-
-    pub fn into_raw(self) -> c::HANDLE {
-        let ret = self.raw();
-        mem::forget(self);
-        ret
     }
 }
 
-impl Deref for Handle {
-    type Target = RawHandle;
-    fn deref(&self) -> &RawHandle {
+impl AsInner<OwnedHandle> for Handle {
+    fn as_inner(&self) -> &OwnedHandle {
         &self.0
     }
 }
 
-impl Drop for Handle {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = c::CloseHandle(self.raw());
-        }
+impl IntoInner<OwnedHandle> for Handle {
+    fn into_inner(self) -> OwnedHandle {
+        self.0
     }
 }
 
-impl RawHandle {
-    pub fn new(handle: c::HANDLE) -> RawHandle {
-        RawHandle(handle)
+impl FromInner<OwnedHandle> for Handle {
+    fn from_inner(file_desc: OwnedHandle) -> Self {
+        Self(file_desc)
     }
+}
 
-    pub fn raw(&self) -> c::HANDLE {
-        self.0
+impl AsHandle for Handle {
+    fn as_handle(&self) -> BorrowedHandle<'_> {
+        self.0.as_handle()
     }
+}
 
+impl AsRawHandle for Handle {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.0.as_raw_handle()
+    }
+}
+
+impl IntoRawHandle for Handle {
+    fn into_raw_handle(self) -> RawHandle {
+        self.0.into_raw_handle()
+    }
+}
+
+impl FromRawHandle for Handle {
+    unsafe fn from_raw_handle(raw_handle: RawHandle) -> Self {
+        Self(FromRawHandle::from_raw_handle(raw_handle))
+    }
+}
+
+impl Handle {
     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut read = 0;
-        let len = cmp::min(buf.len(), <c::DWORD>::max_value() as usize) as c::DWORD;
-        let res = cvt(unsafe {
-            c::ReadFile(self.0, buf.as_mut_ptr() as c::LPVOID, len, &mut read, ptr::null_mut())
-        });
+        let res = unsafe { self.synchronous_read(buf.as_mut_ptr().cast(), buf.len(), None) };
 
         match res {
-            Ok(_) => Ok(read as usize),
+            Ok(read) => Ok(read as usize),
 
             // The special treatment of BrokenPipe is to deal with Windows
             // pipe semantics, which yields this error when *reading* from
@@ -92,18 +96,41 @@ impl RawHandle {
         crate::io::default_read_vectored(|buf| self.read(buf), bufs)
     }
 
+    #[inline]
+    pub fn is_read_vectored(&self) -> bool {
+        false
+    }
+
     pub fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
-        let mut read = 0;
-        let len = cmp::min(buf.len(), <c::DWORD>::max_value() as usize) as c::DWORD;
-        let res = unsafe {
-            let mut overlapped: c::OVERLAPPED = mem::zeroed();
-            overlapped.Offset = offset as u32;
-            overlapped.OffsetHigh = (offset >> 32) as u32;
-            cvt(c::ReadFile(self.0, buf.as_mut_ptr() as c::LPVOID, len, &mut read, &mut overlapped))
-        };
+        let res =
+            unsafe { self.synchronous_read(buf.as_mut_ptr().cast(), buf.len(), Some(offset)) };
+
         match res {
-            Ok(_) => Ok(read as usize),
+            Ok(read) => Ok(read as usize),
             Err(ref e) if e.raw_os_error() == Some(c::ERROR_HANDLE_EOF as i32) => Ok(0),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn read_buf(&self, mut cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        let res =
+            unsafe { self.synchronous_read(cursor.as_mut().as_mut_ptr(), cursor.capacity(), None) };
+
+        match res {
+            Ok(read) => {
+                // Safety: `read` bytes were written to the initialized portion of the buffer
+                unsafe {
+                    cursor.advance(read as usize);
+                }
+                Ok(())
+            }
+
+            // The special treatment of BrokenPipe is to deal with Windows
+            // pipe semantics, which yields this error when *reading* from
+            // a pipe after the other end has closed; we interpret that as
+            // EOF on the pipe.
+            Err(ref e) if e.kind() == ErrorKind::BrokenPipe => Ok(()),
+
             Err(e) => Err(e),
         }
     }
@@ -113,10 +140,15 @@ impl RawHandle {
         buf: &mut [u8],
         overlapped: *mut c::OVERLAPPED,
     ) -> io::Result<Option<usize>> {
-        let len = cmp::min(buf.len(), <c::DWORD>::max_value() as usize) as c::DWORD;
+        let len = cmp::min(buf.len(), <c::DWORD>::MAX as usize) as c::DWORD;
         let mut amt = 0;
-        let res =
-            cvt({ c::ReadFile(self.0, buf.as_ptr() as c::LPVOID, len, &mut amt, overlapped) });
+        let res = cvt(c::ReadFile(
+            self.as_handle(),
+            buf.as_ptr() as c::LPVOID,
+            len,
+            &mut amt,
+            overlapped,
+        ));
         match res {
             Ok(_) => Ok(Some(amt as usize)),
             Err(e) => {
@@ -139,7 +171,8 @@ impl RawHandle {
         unsafe {
             let mut bytes = 0;
             let wait = if wait { c::TRUE } else { c::FALSE };
-            let res = cvt({ c::GetOverlappedResult(self.raw(), overlapped, &mut bytes, wait) });
+            let res =
+                cvt(c::GetOverlappedResult(self.as_raw_handle(), overlapped, &mut bytes, wait));
             match res {
                 Ok(_) => Ok(bytes as usize),
                 Err(e) => {
@@ -156,38 +189,28 @@ impl RawHandle {
     }
 
     pub fn cancel_io(&self) -> io::Result<()> {
-        unsafe { cvt(c::CancelIo(self.raw())).map(drop) }
+        unsafe { cvt(c::CancelIo(self.as_raw_handle())).map(drop) }
     }
 
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        let mut amt = 0;
-        let len = cmp::min(buf.len(), <c::DWORD>::max_value() as usize) as c::DWORD;
-        cvt(unsafe {
-            c::WriteFile(self.0, buf.as_ptr() as c::LPVOID, len, &mut amt, ptr::null_mut())
-        })?;
-        Ok(amt as usize)
+        self.synchronous_write(&buf, None)
     }
 
     pub fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         crate::io::default_write_vectored(|buf| self.write(buf), bufs)
     }
 
+    #[inline]
+    pub fn is_write_vectored(&self) -> bool {
+        false
+    }
+
     pub fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
-        let mut written = 0;
-        let len = cmp::min(buf.len(), <c::DWORD>::max_value() as usize) as c::DWORD;
-        unsafe {
-            let mut overlapped: c::OVERLAPPED = mem::zeroed();
-            overlapped.Offset = offset as u32;
-            overlapped.OffsetHigh = (offset >> 32) as u32;
-            cvt(c::WriteFile(
-                self.0,
-                buf.as_ptr() as c::LPVOID,
-                len,
-                &mut written,
-                &mut overlapped,
-            ))?;
-        }
-        Ok(written as usize)
+        self.synchronous_write(&buf, Some(offset))
+    }
+
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self(self.0.try_clone()?))
     }
 
     pub fn duplicate(
@@ -195,25 +218,111 @@ impl RawHandle {
         access: c::DWORD,
         inherit: bool,
         options: c::DWORD,
-    ) -> io::Result<Handle> {
-        let mut ret = 0 as c::HANDLE;
-        cvt(unsafe {
-            let cur_proc = c::GetCurrentProcess();
-            c::DuplicateHandle(
-                cur_proc,
-                self.0,
-                cur_proc,
-                &mut ret,
-                access,
-                inherit as c::BOOL,
-                options,
+    ) -> io::Result<Self> {
+        Ok(Self(self.0.as_handle().duplicate(access, inherit, options)?))
+    }
+
+    /// Performs a synchronous read.
+    ///
+    /// If the handle is opened for asynchronous I/O then this abort the process.
+    /// See #81357.
+    ///
+    /// If `offset` is `None` then the current file position is used.
+    unsafe fn synchronous_read(
+        &self,
+        buf: *mut mem::MaybeUninit<u8>,
+        len: usize,
+        offset: Option<u64>,
+    ) -> io::Result<usize> {
+        let mut io_status = c::IO_STATUS_BLOCK::default();
+
+        // The length is clamped at u32::MAX.
+        let len = cmp::min(len, c::DWORD::MAX as usize) as c::DWORD;
+        let status = c::NtReadFile(
+            self.as_handle(),
+            ptr::null_mut(),
+            None,
+            ptr::null_mut(),
+            &mut io_status,
+            buf,
+            len,
+            offset.map(|n| n as _).as_ref(),
+            None,
+        );
+
+        let status = if status == c::STATUS_PENDING {
+            c::WaitForSingleObject(self.as_raw_handle(), c::INFINITE);
+            io_status.status()
+        } else {
+            status
+        };
+        match status {
+            // If the operation has not completed then abort the process.
+            // Doing otherwise means that the buffer and stack may be written to
+            // after this function returns.
+            c::STATUS_PENDING => rtabort!("I/O error: operation failed to complete synchronously"),
+
+            // Return `Ok(0)` when there's nothing more to read.
+            c::STATUS_END_OF_FILE => Ok(0),
+
+            // Success!
+            status if c::nt_success(status) => Ok(io_status.Information),
+
+            status => {
+                let error = c::RtlNtStatusToDosError(status);
+                Err(io::Error::from_raw_os_error(error as _))
+            }
+        }
+    }
+
+    /// Performs a synchronous write.
+    ///
+    /// If the handle is opened for asynchronous I/O then this abort the process.
+    /// See #81357.
+    ///
+    /// If `offset` is `None` then the current file position is used.
+    fn synchronous_write(&self, buf: &[u8], offset: Option<u64>) -> io::Result<usize> {
+        let mut io_status = c::IO_STATUS_BLOCK::default();
+
+        // The length is clamped at u32::MAX.
+        let len = cmp::min(buf.len(), c::DWORD::MAX as usize) as c::DWORD;
+        let status = unsafe {
+            c::NtWriteFile(
+                self.as_handle(),
+                ptr::null_mut(),
+                None,
+                ptr::null_mut(),
+                &mut io_status,
+                buf.as_ptr(),
+                len,
+                offset.map(|n| n as _).as_ref(),
+                None,
             )
-        })?;
-        Ok(Handle::new(ret))
+        };
+        let status = if status == c::STATUS_PENDING {
+            unsafe { c::WaitForSingleObject(self.as_raw_handle(), c::INFINITE) };
+            io_status.status()
+        } else {
+            status
+        };
+        match status {
+            // If the operation has not completed then abort the process.
+            // Doing otherwise means that the buffer may be read and the stack
+            // written to after this function returns.
+            c::STATUS_PENDING => rtabort!("I/O error: operation failed to complete synchronously"),
+
+            // Success!
+            status if c::nt_success(status) => Ok(io_status.Information),
+
+            status => {
+                let error = unsafe { c::RtlNtStatusToDosError(status) };
+                Err(io::Error::from_raw_os_error(error as _))
+            }
+        }
     }
 }
 
-impl<'a> Read for &'a RawHandle {
+impl<'a> Read for &'a Handle {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         (**self).read(buf)
     }

@@ -15,14 +15,14 @@ impl<T> Opt<T> {
         S(_) => self,
         N => f(),
     }
-  } 
+  }
 }
 
 fn g () -> Opt<u32> {
     S (3)
 }
 
-fn f (y : u32) -> bool { 
+fn f (y : u32) -> bool {
     let x: Opt<u32> = S(y);
     x.or_else(g);
     true
@@ -34,4 +34,4 @@ const ARG: u32 = 1;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }

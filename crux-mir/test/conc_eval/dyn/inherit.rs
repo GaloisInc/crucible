@@ -15,7 +15,7 @@ impl Bar for () {
 }
 
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let x = &() as &dyn Bar;
     let y = &() as &dyn Foo;

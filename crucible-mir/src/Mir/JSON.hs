@@ -166,10 +166,15 @@ instance FromJSON CtorKind where
     parseJSON = withObject "CtorKind" $ \v -> case lookupKM "kind" v of
                                                 Just (String "Fn") -> pure FnKind
                                                 Just (String "Const") -> pure ConstKind
-                                                Just (String "Fictive") -> pure FictiveKind
                                                 _ -> fail "unspported constructor kind"
 instance FromJSON Variant where
-    parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
+    parseJSON = withObject "Variant" $ \v ->
+        Variant <$> v .: "name"
+                <*> v .: "discr"
+                <*> v .: "fields"
+                <*> v .: "ctor_kind"
+                <*> do  val <- v .:? "discr_value"
+                        convertIntegerText `traverse` val
 
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty"
@@ -251,6 +256,19 @@ instance FromJSON Statement where
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
                              Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
                              Just (String "Nop") -> pure Nop
+                             Just (String "Deinit") -> pure Deinit
+                             Just (String "Intrinsic") -> do
+                                kind <- v .: "intrinsic_kind"
+                                ndi <- case kind of
+                                    "Assume" -> NDIAssume <$> v .: "operand"
+                                    "CopyNonOverlapping" ->
+                                        NDICopyNonOverlapping <$> v .: "src"
+                                                              <*> v .: "dst"
+                                                              <*> v .: "count"
+                                    _ -> fail $ "unknown Intrinsic kind" ++ kind
+
+                                return $ StmtIntrinsic ndi
+
                              k -> fail $ "kind not found for statement: " ++ show k
 
 
@@ -290,6 +308,8 @@ instance FromJSON Rvalue where
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
+                                              Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
+                                              Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON Terminator where
@@ -322,7 +342,7 @@ instance FromJSON Operand where
 instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
-                                             Just (String "Box") -> pure Box
+                                             Just (String "AlignOf") -> pure AlignOf
                                              x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where
@@ -374,13 +394,23 @@ instance FromJSON Vtable where
 
 instance FromJSON CastKind where
     parseJSON = withObject "CastKind" $ \v -> case lookupKM "kind" v of
-                                               Just (String "Misc") -> pure Misc
                                                Just (String "Pointer(ReifyFnPointer)") -> pure ReifyFnPointer
                                                Just (String "Pointer(ClosureFnPointer(Normal))") -> pure ClosureFnPointer
                                                Just (String "Pointer(UnsafeFnPointer)") -> pure UnsafeFnPointer
                                                Just (String "Pointer(Unsize)") -> pure Unsize
                                                Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
                                                Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
+                                               -- TODO: actually plumb this information through if it is relevant
+                                                --      instead of using Misc
+                                               Just (String "PointerExposeAddress") -> pure Misc
+                                               Just (String "PointerFromExposedAddress") -> pure Misc
+                                               Just (String "DynStar") -> pure Misc
+                                               Just (String "IntToInt") -> pure Misc
+                                               Just (String "FloatToInt") -> pure Misc
+                                               Just (String "FloatToFloat") -> pure Misc
+                                               Just (String "IntToFloat") -> pure Misc
+                                               Just (String "PtrToPtr") -> pure Misc
+                                               Just (String "FnPtrToPtr") -> pure Misc
                                                x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where
@@ -488,6 +518,17 @@ instance FromJSON RustcRenderedConst where
         Just (String "raw_ptr") -> do
             val <- convertIntegerText =<< v .: "val"
             return $ ConstRawPtr val
+
+        Just (String "array") -> do
+            elems <- map (\(RustcRenderedConst val) -> val) <$> v .: "elements"
+            return $ ConstArray elems
+
+        Just (String "tuple") -> do
+            elems <- map (\(RustcRenderedConst val) -> val) <$> v .: "elements"
+            return $ ConstArray elems
+
+        o -> do
+            fail $ "parseJSON - bad rendered constant kind: " ++ show o
 
 -- mir-json integers are expressed as strings of 128-bit unsigned values
 -- for example, -1 is displayed as "18446744073709551615"

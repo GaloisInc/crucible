@@ -43,8 +43,8 @@
 //! terminator, so the buffer length is really `len+1` characters.
 //! Rust strings don't have a nul terminator; their length is always
 //! stored and does not need to be calculated. While in Rust
-//! accessing a string's length is a O(1) operation (because the
-//! length is stored); in C it is an O(length) operation because the
+//! accessing a string's length is an *O*(1) operation (because the
+//! length is stored); in C it is an *O*(*n*) operation because the
 //! length needs to be computed by scanning the string for the nul
 //! terminator.
 //!
@@ -64,15 +64,15 @@
 //! string: it is nul-terminated, and has no internal nul characters.
 //! Rust code can create a [`CString`] out of a normal string (provided
 //! that the string doesn't have nul characters in the middle), and
-//! then use a variety of methods to obtain a raw `*mut `[`u8`] that can
+//! then use a variety of methods to obtain a raw <code>\*mut [u8]</code> that can
 //! then be passed as an argument to functions which use the C
 //! conventions for strings.
 //!
 //! * **From C to Rust:** [`CStr`] represents a borrowed C string; it
-//! is what you would use to wrap a raw `*const `[`u8`] that you got from
+//! is what you would use to wrap a raw <code>\*const [u8]</code> that you got from
 //! a C function. A [`CStr`] is guaranteed to be a nul-terminated array
 //! of bytes. Once you have a [`CStr`], you can convert it to a Rust
-//! [`&str`][`str`] if it's valid UTF-8, or lossily convert it by adding
+//! <code>&[str]</code> if it's valid UTF-8, or lossily convert it by adding
 //! replacement characters.
 //!
 //! [`OsString`] and [`OsStr`] are useful when you need to transfer
@@ -81,20 +81,20 @@
 //! [`OsStr`] and Rust strings work similarly to those for [`CString`]
 //! and [`CStr`].
 //!
-//! * [`OsString`] represents an owned string in whatever
-//! representation the operating system prefers. In the Rust standard
-//! library, various APIs that transfer strings to/from the operating
+//! * [`OsString`] losslessly represents an owned platform string. However, this
+//! representation is not necessarily in a form native to the platform.
+//! In the Rust standard library, various APIs that transfer strings to/from the operating
 //! system use [`OsString`] instead of plain strings. For example,
 //! [`env::var_os()`] is used to query environment variables; it
-//! returns an [`Option`]`<`[`OsString`]`>`. If the environment variable
-//! exists you will get a [`Some`]`(os_string)`, which you can *then* try to
-//! convert to a Rust string. This yields a [`Result<>`], so that
+//! returns an <code>[Option]<[OsString]></code>. If the environment variable
+//! exists you will get a <code>[Some]\(os_string)</code>, which you can
+//! *then* try to convert to a Rust string. This yields a [`Result`], so that
 //! your code can detect errors in case the environment variable did
 //! not in fact contain valid Unicode data.
 //!
-//! * [`OsStr`] represents a borrowed reference to a string in a
-//! format that can be passed to the operating system. It can be
-//! converted into an UTF-8 Rust string slice in a similar way to
+//! * [`OsStr`] losslessly represents a borrowed reference to a platform string.
+//! However, this representation is not necessarily in a form native to the platform.
+//! It can be converted into a UTF-8 Rust string slice in a similar way to
 //! [`OsString`].
 //!
 //! # Conversions
@@ -102,66 +102,63 @@
 //! ## On Unix
 //!
 //! On Unix, [`OsStr`] implements the
-//! `std::os::unix::ffi::`[`OsStrExt`][unix.OsStrExt] trait, which
+//! <code>std::os::unix::ffi::[OsStrExt][unix.OsStrExt]</code> trait, which
 //! augments it with two methods, [`from_bytes`] and [`as_bytes`].
-//! These do inexpensive conversions from and to UTF-8 byte slices.
+//! These do inexpensive conversions from and to byte slices.
 //!
 //! Additionally, on Unix [`OsString`] implements the
-//! `std::os::unix::ffi::`[`OsStringExt`][unix.OsStringExt] trait,
+//! <code>std::os::unix::ffi::[OsStringExt][unix.OsStringExt]</code> trait,
 //! which provides [`from_vec`] and [`into_vec`] methods that consume
 //! their arguments, and take or produce vectors of [`u8`].
 //!
 //! ## On Windows
 //!
+//! An [`OsStr`] can be losslessly converted to a native Windows string. And
+//! a native Windows string can be losslessly converted to an [`OsString`].
+//!
 //! On Windows, [`OsStr`] implements the
-//! `std::os::windows::ffi::`[`OsStrExt`][windows.OsStrExt] trait,
+//! <code>std::os::windows::ffi::[OsStrExt][windows.OsStrExt]</code> trait,
 //! which provides an [`encode_wide`] method. This provides an
-//! iterator that can be [`collect`]ed into a vector of [`u16`].
+//! iterator that can be [`collect`]ed into a vector of [`u16`]. After a nul
+//! characters is appended, this is the same as a native Windows string.
 //!
 //! Additionally, on Windows [`OsString`] implements the
-//! `std::os::windows:ffi::`[`OsStringExt`][windows.OsStringExt]
-//! trait, which provides a [`from_wide`] method. The result of this
-//! method is an [`OsString`] which can be round-tripped to a Windows
-//! string losslessly.
+//! <code>std::os::windows:ffi::[OsStringExt][windows.OsStringExt]</code>
+//! trait, which provides a [`from_wide`] method to convert a native Windows
+//! string (without the terminating nul character) to an [`OsString`].
 //!
-//! [`String`]: ../string/struct.String.html
-//! [`str`]: ../primitive.str.html
-//! [`char`]: ../primitive.char.html
-//! [`u8`]: ../primitive.u8.html
-//! [`u16`]: ../primitive.u16.html
-//! [Unicode scalar value]: http://www.unicode.org/glossary/#unicode_scalar_value
-//! [Unicode code point]: http://www.unicode.org/glossary/#code_point
-//! [`CString`]: struct.CString.html
-//! [`CStr`]: struct.CStr.html
-//! [`OsString`]: struct.OsString.html
-//! [`OsStr`]: struct.OsStr.html
-//! [`env::set_var()`]: ../env/fn.set_var.html
-//! [`env::var_os()`]: ../env/fn.var_os.html
-//! [`Result<>`]: ../result/enum.Result.html
-//! [unix.OsStringExt]: ../os/unix/ffi/trait.OsStringExt.html
-//! [`from_vec`]: ../os/unix/ffi/trait.OsStringExt.html#tymethod.from_vec
-//! [`into_vec`]: ../os/unix/ffi/trait.OsStringExt.html#tymethod.into_vec
-//! [unix.OsStrExt]: ../os/unix/ffi/trait.OsStrExt.html
-//! [`from_bytes`]: ../os/unix/ffi/trait.OsStrExt.html#tymethod.from_bytes
-//! [`as_bytes`]: ../os/unix/ffi/trait.OsStrExt.html#tymethod.as_bytes
-//! [`OsStrExt`]: ../os/unix/ffi/trait.OsStrExt.html
-//! [windows.OsStrExt]: ../os/windows/ffi/trait.OsStrExt.html
-//! [`encode_wide`]: ../os/windows/ffi/trait.OsStrExt.html#tymethod.encode_wide
-//! [`collect`]: ../iter/trait.Iterator.html#method.collect
-//! [windows.OsStringExt]: ../os/windows/ffi/trait.OsStringExt.html
-//! [`from_wide`]: ../os/windows/ffi/trait.OsStringExt.html#tymethod.from_wide
-//! [`Option`]: ../option/enum.Option.html
-//! [`Some`]: ../option/enum.Option.html#variant.Some
+//! [Unicode scalar value]: https://www.unicode.org/glossary/#unicode_scalar_value
+//! [Unicode code point]: https://www.unicode.org/glossary/#code_point
+//! [`env::set_var()`]: crate::env::set_var "env::set_var"
+//! [`env::var_os()`]: crate::env::var_os "env::var_os"
+//! [unix.OsStringExt]: crate::os::unix::ffi::OsStringExt "os::unix::ffi::OsStringExt"
+//! [`from_vec`]: crate::os::unix::ffi::OsStringExt::from_vec "os::unix::ffi::OsStringExt::from_vec"
+//! [`into_vec`]: crate::os::unix::ffi::OsStringExt::into_vec "os::unix::ffi::OsStringExt::into_vec"
+//! [unix.OsStrExt]: crate::os::unix::ffi::OsStrExt "os::unix::ffi::OsStrExt"
+//! [`from_bytes`]: crate::os::unix::ffi::OsStrExt::from_bytes "os::unix::ffi::OsStrExt::from_bytes"
+//! [`as_bytes`]: crate::os::unix::ffi::OsStrExt::as_bytes "os::unix::ffi::OsStrExt::as_bytes"
+//! [`OsStrExt`]: crate::os::unix::ffi::OsStrExt "os::unix::ffi::OsStrExt"
+//! [windows.OsStrExt]: crate::os::windows::ffi::OsStrExt "os::windows::ffi::OsStrExt"
+//! [`encode_wide`]: crate::os::windows::ffi::OsStrExt::encode_wide "os::windows::ffi::OsStrExt::encode_wide"
+//! [`collect`]: crate::iter::Iterator::collect "iter::Iterator::collect"
+//! [windows.OsStringExt]: crate::os::windows::ffi::OsStringExt "os::windows::ffi::OsStringExt"
+//! [`from_wide`]: crate::os::windows::ffi::OsStringExt::from_wide "os::windows::ffi::OsStringExt::from_wide"
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-#[stable(feature = "cstr_from_bytes", since = "1.10.0")]
-pub use self::c_str::FromBytesWithNulError;
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use self::c_str::{CStr, CString, IntoStringError, NulError};
+#[stable(feature = "alloc_c_string", since = "1.64.0")]
+pub use alloc::ffi::{CString, FromVecWithNulError, IntoStringError, NulError};
+#[stable(feature = "core_c_str", since = "1.64.0")]
+pub use core::ffi::{CStr, FromBytesWithNulError};
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::os_str::{OsStr, OsString};
+
+#[stable(feature = "core_ffi_c", since = "1.64.0")]
+pub use core::ffi::{
+    c_char, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint,
+    c_ulong, c_ulonglong, c_ushort,
+};
 
 #[stable(feature = "core_c_void", since = "1.30.0")]
 pub use core::ffi::c_void;
@@ -174,5 +171,4 @@ pub use core::ffi::c_void;
 )]
 pub use core::ffi::{VaList, VaListImpl};
 
-mod c_str;
 mod os_str;

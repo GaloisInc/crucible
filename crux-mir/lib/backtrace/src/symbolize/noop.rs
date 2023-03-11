@@ -1,20 +1,18 @@
 //! Empty symbolication strategy used to compile for platforms that have no
 //! support.
 
-use crate::symbolize::ResolveWhat;
-use crate::types::BytesOrWideString;
-use crate::SymbolName;
+use super::{BytesOrWideString, ResolveWhat, SymbolName};
 use core::ffi::c_void;
 use core::marker;
 
-pub unsafe fn resolve(_addr: ResolveWhat, _cb: &mut FnMut(&super::Symbol)) {}
+pub unsafe fn resolve(_addr: ResolveWhat<'_>, _cb: &mut dyn FnMut(&super::Symbol)) {}
 
 pub struct Symbol<'a> {
     _marker: marker::PhantomData<&'a i32>,
 }
 
 impl Symbol<'_> {
-    pub fn name(&self) -> Option<SymbolName> {
+    pub fn name(&self) -> Option<SymbolName<'_>> {
         None
     }
 
@@ -22,7 +20,7 @@ impl Symbol<'_> {
         None
     }
 
-    pub fn filename_raw(&self) -> Option<BytesOrWideString> {
+    pub fn filename_raw(&self) -> Option<BytesOrWideString<'_>> {
         None
     }
 
@@ -34,4 +32,10 @@ impl Symbol<'_> {
     pub fn lineno(&self) -> Option<u32> {
         None
     }
+
+    pub fn colno(&self) -> Option<u32> {
+        None
+    }
 }
+
+pub unsafe fn clear_symbol_cache() {}

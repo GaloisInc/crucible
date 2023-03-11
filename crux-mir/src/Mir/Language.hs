@@ -639,9 +639,9 @@ showRegEntry col mty (C.RegEntry tp rv) =
                     (var ^.. vfields . each . fty) vals
                 let varName = Text.unpack $ cleanVariantName (var^.vname)
                 case var ^. vctorkind of
-                    FnKind -> return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
-                    ConstKind -> return varName
-                    FictiveKind ->
+                    Just FnKind -> return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
+                    Just ConstKind -> return varName
+                    Nothing ->
                         let strs' = zipWith (\fn v -> case parseFieldName fn of
                                 Just x -> Text.unpack x ++ ": " ++ v
                                 Nothing -> v) (var ^.. vfields . each . fName) strs

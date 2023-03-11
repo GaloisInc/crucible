@@ -1,6 +1,4 @@
-//! LLVM's simd platform intrinsics
-//!
-//! TODO: should use `link_llvm_intrinsic` instead: issue #112
+//! LLVM's SIMD platform intrinsics
 
 extern "platform-intrinsic" {
     //pub fn simd_select_bitmask
@@ -11,20 +9,7 @@ extern "platform-intrinsic" {
     pub fn simd_gt<T, U>(x: T, y: T) -> U;
     pub fn simd_ge<T, U>(x: T, y: T) -> U;
 
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle2<T, U>(x: T, y: T, idx: [u32; 2]) -> U;
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle4<T, U>(x: T, y: T, idx: [u32; 4]) -> U;
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle8<T, U>(x: T, y: T, idx: [u32; 8]) -> U;
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle16<T, U>(x: T, y: T, idx: [u32; 16]) -> U;
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle32<T, U>(x: T, y: T, idx: [u32; 32]) -> U;
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle64<T, U>(x: T, y: T, idx: [u32; 64]) -> U;
-    #[rustc_args_required_const(2)]
-    pub fn simd_shuffle128<T, U>(x: T, y: T, idx: [u32; 128]) -> U;
+    pub fn simd_shuffle<T, U, V>(x: T, y: T, idx: U) -> V;
 
     #[rustc_const_unstable(feature = "const_simd_insert", issue = "none")]
     pub fn simd_insert<T, U>(x: T, idx: u32, val: U) -> T;
@@ -44,6 +29,8 @@ extern "platform-intrinsic" {
     pub fn simd_and<T>(x: T, y: T) -> T;
     pub fn simd_or<T>(x: T, y: T) -> T;
     pub fn simd_xor<T>(x: T, y: T) -> T;
+
+    pub fn simd_neg<T>(x: T) -> T;
 
     pub fn simd_saturating_add<T>(x: T, y: T) -> T;
     pub fn simd_saturating_sub<T>(x: T, y: T) -> T;

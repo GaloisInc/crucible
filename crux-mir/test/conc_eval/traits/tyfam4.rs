@@ -1,9 +1,9 @@
 #![cfg_attr(not(with_main), no_std)]
 trait F : Sized {
-    
+
     type Output : Sized;
-    fn ff(self) -> Self::Output; 
-    
+    fn ff(self) -> Self::Output;
+
 }
 
 impl F for [u8;5] {
@@ -34,4 +34,4 @@ const ARG: u8 = 23;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u8 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u8 { f(ARG) }

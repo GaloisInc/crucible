@@ -1,3 +1,4 @@
+use crate::backtrace_rs::{self, BacktraceFmt, BytesOrWideString, PrintFmt};
 use crate::borrow::Cow;
 /// Common code for printing the backtrace in the same way across the different
 /// supported platforms.
@@ -6,36 +7,20 @@ use crate::fmt;
 use crate::io;
 use crate::io::prelude::*;
 use crate::path::{self, Path, PathBuf};
-use crate::sync::atomic::{self, Ordering};
-use crate::sys::mutex::Mutex;
-
-use backtrace_rs::{BacktraceFmt, BytesOrWideString, PrintFmt};
+use crate::sync::{Mutex, PoisonError};
 
 /// Max number of frames to print.
 const MAX_NB_FRAMES: usize = 100;
 
 pub fn lock() -> impl Drop {
-    struct Guard;
-    static LOCK: Mutex = Mutex::new();
-
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            unsafe {
-                LOCK.unlock();
-            }
-        }
-    }
-
-    unsafe {
-        LOCK.lock();
-        Guard
-    }
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Prints the current backtrace.
 pub fn print(w: &mut dyn Write, format: PrintFmt) -> io::Result<()> {
     // There are issues currently linking libbacktrace into tests, and in
-    // general during libstd's own unit tests we're not testing this path. In
+    // general during std's own unit tests we're not testing this path. In
     // test mode immediately return here to optimize away any references to the
     // libbacktrace symbols
     if cfg!(test) {
@@ -75,6 +60,8 @@ unsafe fn _print_fmt(fmt: &mut fmt::Formatter<'_>, print_fmt: PrintFmt) -> fmt::
     bt_fmt.add_context()?;
     let mut idx = 0;
     let mut res = Ok(());
+    // Start immediately if we're not using a short backtrace.
+    let mut start = print_fmt != PrintFmt::Short;
     backtrace_rs::trace_unsynchronized(|frame| {
         if print_fmt == PrintFmt::Short && idx > MAX_NB_FRAMES {
             return false;
@@ -86,19 +73,25 @@ unsafe fn _print_fmt(fmt: &mut fmt::Formatter<'_>, print_fmt: PrintFmt) -> fmt::
             hit = true;
             if print_fmt == PrintFmt::Short {
                 if let Some(sym) = symbol.name().and_then(|s| s.as_str()) {
-                    if sym.contains("__rust_begin_short_backtrace") {
+                    if start && sym.contains("__rust_begin_short_backtrace") {
                         stop = true;
+                        return;
+                    }
+                    if sym.contains("__rust_end_short_backtrace") {
+                        start = true;
                         return;
                     }
                 }
             }
 
-            res = bt_fmt.frame().symbol(frame, symbol);
+            if start {
+                res = bt_fmt.frame().symbol(frame, symbol);
+            }
         });
         if stop {
             return false;
         }
-        if !hit {
+        if !hit && start {
             res = bt_fmt.frame().print_raw(frame.ip(), None, None, None);
         }
 
@@ -118,61 +111,35 @@ unsafe fn _print_fmt(fmt: &mut fmt::Formatter<'_>, print_fmt: PrintFmt) -> fmt::
 }
 
 /// Fixed frame used to clean the backtrace with `RUST_BACKTRACE=1`. Note that
-/// this is only inline(never) when backtraces in libstd are enabled, otherwise
+/// this is only inline(never) when backtraces in std are enabled, otherwise
 /// it's fine to optimize away.
 #[cfg_attr(feature = "backtrace", inline(never))]
 pub fn __rust_begin_short_backtrace<F, T>(f: F) -> T
 where
     F: FnOnce() -> T,
-    F: Send,
-    T: Send,
 {
-    f()
+    let result = f();
+
+    // prevent this frame from being tail-call optimised away
+    crate::hint::black_box(());
+
+    result
 }
 
-pub enum RustBacktrace {
-    Print(PrintFmt),
-    Disabled,
-    RuntimeDisabled,
-}
+/// Fixed frame used to clean the backtrace with `RUST_BACKTRACE=1`. Note that
+/// this is only inline(never) when backtraces in std are enabled, otherwise
+/// it's fine to optimize away.
+#[cfg_attr(feature = "backtrace", inline(never))]
+pub fn __rust_end_short_backtrace<F, T>(f: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    let result = f();
 
-// For now logging is turned off by default, and this function checks to see
-// whether the magical environment variable is present to see if it's turned on.
-pub fn rust_backtrace_env() -> RustBacktrace {
-    // If the `backtrace` feature of this crate isn't enabled quickly return
-    // `None` so this can be constant propagated all over the place to turn
-    // optimize away callers.
-    if !cfg!(feature = "backtrace") {
-        return RustBacktrace::Disabled;
-    }
+    // prevent this frame from being tail-call optimised away
+    crate::hint::black_box(());
 
-    // Setting environment variables for Fuchsia components isn't a standard
-    // or easily supported workflow. For now, always display backtraces.
-    if cfg!(target_os = "fuchsia") {
-        return RustBacktrace::Print(PrintFmt::Full);
-    }
-
-    static ENABLED: atomic::AtomicIsize = atomic::AtomicIsize::new(0);
-    match ENABLED.load(Ordering::SeqCst) {
-        0 => {}
-        1 => return RustBacktrace::RuntimeDisabled,
-        2 => return RustBacktrace::Print(PrintFmt::Short),
-        _ => return RustBacktrace::Print(PrintFmt::Full),
-    }
-
-    let (format, cache) = env::var_os("RUST_BACKTRACE")
-        .map(|x| {
-            if &x == "0" {
-                (RustBacktrace::RuntimeDisabled, 1)
-            } else if &x == "full" {
-                (RustBacktrace::Print(PrintFmt::Full), 3)
-            } else {
-                (RustBacktrace::Print(PrintFmt::Short), 2)
-            }
-        })
-        .unwrap_or((RustBacktrace::RuntimeDisabled, 1));
-    ENABLED.store(cache, Ordering::SeqCst);
-    format
+    result
 }
 
 /// Prints the filename of the backtrace frame.
@@ -206,7 +173,7 @@ pub fn output_filename(
         if let Some(cwd) = cwd {
             if let Ok(stripped) = file.strip_prefix(&cwd) {
                 if let Some(s) = stripped.to_str() {
-                    return write!(fmt, ".{}{}", path::MAIN_SEPARATOR, s);
+                    return write!(fmt, ".{}{s}", path::MAIN_SEPARATOR);
                 }
             }
         }

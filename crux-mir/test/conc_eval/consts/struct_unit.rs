@@ -3,7 +3,7 @@ struct Foo {
     x: (),
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> Result<(), Foo> {
     //None.ok_or(Foo { x: () })?;
     //Ok(())

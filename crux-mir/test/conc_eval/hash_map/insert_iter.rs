@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> [i32; 2] {
     let mut m = HashMap::new();
     m.insert(1, 11);

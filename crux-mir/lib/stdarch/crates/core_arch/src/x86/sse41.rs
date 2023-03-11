@@ -8,7 +8,7 @@ use crate::{
 #[cfg(test)]
 use stdarch_test::assert_instr;
 
-// SSE4 rounding constans
+// SSE4 rounding constants
 /// round to nearest
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub const _MM_FROUND_TO_NEAREST_INT: i32 = 0x00;
@@ -65,7 +65,7 @@ pub unsafe fn _mm_blendv_epi8(a: __m128i, b: __m128i, mask: __m128i) -> __m128i 
     transmute(pblendvb(a.as_i8x16(), b.as_i8x16(), mask.as_i8x16()))
 }
 
-/// Blend packed 16-bit integers from `a` and `b` using the mask `imm8`.
+/// Blend packed 16-bit integers from `a` and `b` using the mask `IMM8`.
 ///
 /// The mask bits determine the selection. A clear bit selects the
 /// corresponding element of `a`, and a set bit the corresponding
@@ -76,19 +76,13 @@ pub unsafe fn _mm_blendv_epi8(a: __m128i, b: __m128i, mask: __m128i) -> __m128i 
 #[target_feature(enable = "sse4.1")]
 // Note: LLVM7 prefers the single-precision floating-point domain when possible
 // see https://bugs.llvm.org/show_bug.cgi?id=38195
-// #[cfg_attr(test, assert_instr(pblendw, imm8 = 0xF0))]
-#[cfg_attr(test, assert_instr(blendps, imm8 = 0xF0))]
-#[rustc_args_required_const(2)]
+// #[cfg_attr(test, assert_instr(pblendw, IMM8 = 0xF0))]
+#[cfg_attr(test, assert_instr(blendps, IMM8 = 0xF0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_blend_epi16(a: __m128i, b: __m128i, imm8: i32) -> __m128i {
-    let a = a.as_i16x8();
-    let b = b.as_i16x8();
-    macro_rules! call {
-        ($imm8:expr) => {
-            pblendw(a, b, $imm8)
-        };
-    }
-    transmute(constify_imm8!(imm8, call))
+pub unsafe fn _mm_blend_epi16<const IMM8: i32>(a: __m128i, b: __m128i) -> __m128i {
+    static_assert_imm8!(IMM8);
+    transmute(pblendw(a.as_i16x8(), b.as_i16x8(), IMM8 as u8))
 }
 
 /// Blend packed double-precision (64-bit) floating-point elements from `a`
@@ -116,96 +110,110 @@ pub unsafe fn _mm_blendv_ps(a: __m128, b: __m128, mask: __m128) -> __m128 {
 }
 
 /// Blend packed double-precision (64-bit) floating-point elements from `a`
-/// and `b` using control mask `imm2`
+/// and `b` using control mask `IMM2`
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_blend_pd)
 #[inline]
 #[target_feature(enable = "sse4.1")]
 // Note: LLVM7 prefers the single-precision floating-point domain when possible
 // see https://bugs.llvm.org/show_bug.cgi?id=38195
-// #[cfg_attr(test, assert_instr(blendpd, imm2 = 0b10))]
-#[cfg_attr(test, assert_instr(blendps, imm2 = 0b10))]
-#[rustc_args_required_const(2)]
+// #[cfg_attr(test, assert_instr(blendpd, IMM2 = 0b10))]
+#[cfg_attr(test, assert_instr(blendps, IMM2 = 0b10))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_blend_pd(a: __m128d, b: __m128d, imm2: i32) -> __m128d {
-    macro_rules! call {
-        ($imm2:expr) => {
-            blendpd(a, b, $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+pub unsafe fn _mm_blend_pd<const IMM2: i32>(a: __m128d, b: __m128d) -> __m128d {
+    static_assert_imm2!(IMM2);
+    blendpd(a, b, IMM2 as u8)
 }
 
 /// Blend packed single-precision (32-bit) floating-point elements from `a`
-/// and `b` using mask `imm4`
+/// and `b` using mask `IMM4`
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_blend_ps)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(blendps, imm4 = 0b0101))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(blendps, IMM4 = 0b0101))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_blend_ps(a: __m128, b: __m128, imm4: i32) -> __m128 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            blendps(a, b, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+pub unsafe fn _mm_blend_ps<const IMM4: i32>(a: __m128, b: __m128) -> __m128 {
+    static_assert_imm4!(IMM4);
+    blendps(a, b, IMM4 as u8)
 }
 
 /// Extracts a single-precision (32-bit) floating-point element from `a`,
-/// selected with `imm8`
+/// selected with `IMM8`. The returned `i32` stores the float's bit-pattern,
+/// and may be converted back to a floating point number via casting.
 ///
+/// # Example
+/// ```rust
+/// # #[cfg(target_arch = "x86")]
+/// # use std::arch::x86::*;
+/// # #[cfg(target_arch = "x86_64")]
+/// # use std::arch::x86_64::*;
+/// # fn main() {
+/// #    if is_x86_feature_detected!("sse4.1") {
+/// #       #[target_feature(enable = "sse4.1")]
+/// #       unsafe fn worker() {
+/// let mut float_store = vec![1.0, 1.0, 2.0, 3.0];
+/// let simd_floats = _mm_set_ps(2.5, 5.0, 7.5, 10.0);
+/// let x: i32 = _mm_extract_ps::<2>(simd_floats);
+/// float_store.push(f32::from_bits(x as u32));
+/// assert_eq!(float_store, vec![1.0, 1.0, 2.0, 3.0, 5.0]);
+/// #       }
+/// #       unsafe { worker() }
+/// #   }
+/// # }
+/// ```
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_extract_ps)
 #[inline]
 #[target_feature(enable = "sse4.1")]
 #[cfg_attr(
     all(test, not(target_os = "windows")),
-    assert_instr(extractps, imm8 = 0)
+    assert_instr(extractps, IMM8 = 0)
 )]
-#[rustc_args_required_const(1)]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_extract_ps(a: __m128, imm8: i32) -> i32 {
-    transmute(simd_extract::<_, f32>(a, imm8 as u32 & 0b11))
+pub unsafe fn _mm_extract_ps<const IMM8: i32>(a: __m128) -> i32 {
+    static_assert_imm2!(IMM8);
+    transmute(simd_extract::<_, f32>(a, IMM8 as u32))
 }
 
-/// Extracts an 8-bit integer from `a`, selected with `imm8`. Returns a 32-bit
+/// Extracts an 8-bit integer from `a`, selected with `IMM8`. Returns a 32-bit
 /// integer containing the zero-extended integer data.
 ///
-/// See [LLVM commit D20468][https://reviews.llvm.org/D20468].
+/// See [LLVM commit D20468](https://reviews.llvm.org/D20468).
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_extract_epi8)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(pextrb, imm8 = 0))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(pextrb, IMM8 = 0))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_extract_epi8(a: __m128i, imm8: i32) -> i32 {
-    let imm8 = (imm8 & 15) as u32;
-    simd_extract::<_, u8>(a.as_u8x16(), imm8) as i32
+pub unsafe fn _mm_extract_epi8<const IMM8: i32>(a: __m128i) -> i32 {
+    static_assert_imm4!(IMM8);
+    simd_extract::<_, u8>(a.as_u8x16(), IMM8 as u32) as i32
 }
 
-/// Extracts an 32-bit integer from `a` selected with `imm8`
+/// Extracts an 32-bit integer from `a` selected with `IMM8`
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_extract_epi32)
 #[inline]
 #[target_feature(enable = "sse4.1")]
 #[cfg_attr(
     all(test, not(target_os = "windows")),
-    assert_instr(extractps, imm8 = 1)
+    assert_instr(extractps, IMM8 = 1)
 )]
-#[rustc_args_required_const(1)]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_extract_epi32(a: __m128i, imm8: i32) -> i32 {
-    let imm8 = (imm8 & 3) as u32;
-    simd_extract::<_, i32>(a.as_i32x4(), imm8)
+pub unsafe fn _mm_extract_epi32<const IMM8: i32>(a: __m128i) -> i32 {
+    static_assert_imm2!(IMM8);
+    simd_extract::<_, i32>(a.as_i32x4(), IMM8 as u32)
 }
 
 /// Select a single value in `a` to store at some position in `b`,
-/// Then zero elements according to `imm8`.
+/// Then zero elements according to `IMM8`.
 ///
-/// `imm8` specifies which bits from operand `a` will be copied, which bits in
+/// `IMM8` specifies which bits from operand `a` will be copied, which bits in
 /// the result they will be copied to, and which bits in the result will be
 /// cleared. The following assignments are made:
 ///
@@ -228,42 +236,40 @@ pub unsafe fn _mm_extract_epi32(a: __m128i, imm8: i32) -> i32 {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_insert_ps)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(insertps, imm8 = 0b1010))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(insertps, IMM8 = 0b1010))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_insert_ps(a: __m128, b: __m128, imm8: i32) -> __m128 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            insertps(a, b, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+pub unsafe fn _mm_insert_ps<const IMM8: i32>(a: __m128, b: __m128) -> __m128 {
+    static_assert_imm8!(IMM8);
+    insertps(a, b, IMM8 as u8)
 }
 
 /// Returns a copy of `a` with the 8-bit integer from `i` inserted at a
-/// location specified by `imm8`.
+/// location specified by `IMM8`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_insert_epi8)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(pinsrb, imm8 = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(pinsrb, IMM8 = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_insert_epi8(a: __m128i, i: i32, imm8: i32) -> __m128i {
-    transmute(simd_insert(a.as_i8x16(), (imm8 & 0b1111) as u32, i as i8))
+pub unsafe fn _mm_insert_epi8<const IMM8: i32>(a: __m128i, i: i32) -> __m128i {
+    static_assert_imm4!(IMM8);
+    transmute(simd_insert(a.as_i8x16(), IMM8 as u32, i as i8))
 }
 
 /// Returns a copy of `a` with the 32-bit integer from `i` inserted at a
-/// location specified by `imm8`.
+/// location specified by `IMM8`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_insert_epi32)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(pinsrd, imm8 = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(pinsrd, IMM8 = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_insert_epi32(a: __m128i, i: i32, imm8: i32) -> __m128i {
-    transmute(simd_insert(a.as_i32x4(), (imm8 & 0b11) as u32, i))
+pub unsafe fn _mm_insert_epi32<const IMM8: i32>(a: __m128i, i: i32) -> __m128i {
+    static_assert_imm2!(IMM8);
+    transmute(simd_insert(a.as_i32x4(), IMM8 as u32, i))
 }
 
 /// Compares packed 8-bit integers in `a` and `b` and returns packed maximum
@@ -394,7 +400,7 @@ pub unsafe fn _mm_cmpeq_epi64(a: __m128i, b: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepi8_epi16(a: __m128i) -> __m128i {
     let a = a.as_i8x16();
-    let a = simd_shuffle8::<_, i8x8>(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
+    let a: i8x8 = simd_shuffle8!(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
     transmute(simd_cast::<_, i16x8>(a))
 }
 
@@ -407,7 +413,7 @@ pub unsafe fn _mm_cvtepi8_epi16(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepi8_epi32(a: __m128i) -> __m128i {
     let a = a.as_i8x16();
-    let a = simd_shuffle4::<_, i8x4>(a, a, [0, 1, 2, 3]);
+    let a: i8x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute(simd_cast::<_, i32x4>(a))
 }
 
@@ -421,7 +427,7 @@ pub unsafe fn _mm_cvtepi8_epi32(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepi8_epi64(a: __m128i) -> __m128i {
     let a = a.as_i8x16();
-    let a = simd_shuffle2::<_, i8x2>(a, a, [0, 1]);
+    let a: i8x2 = simd_shuffle2!(a, a, [0, 1]);
     transmute(simd_cast::<_, i64x2>(a))
 }
 
@@ -434,7 +440,7 @@ pub unsafe fn _mm_cvtepi8_epi64(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepi16_epi32(a: __m128i) -> __m128i {
     let a = a.as_i16x8();
-    let a = simd_shuffle4::<_, i16x4>(a, a, [0, 1, 2, 3]);
+    let a: i16x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute(simd_cast::<_, i32x4>(a))
 }
 
@@ -447,7 +453,7 @@ pub unsafe fn _mm_cvtepi16_epi32(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepi16_epi64(a: __m128i) -> __m128i {
     let a = a.as_i16x8();
-    let a = simd_shuffle2::<_, i16x2>(a, a, [0, 1]);
+    let a: i16x2 = simd_shuffle2!(a, a, [0, 1]);
     transmute(simd_cast::<_, i64x2>(a))
 }
 
@@ -460,7 +466,7 @@ pub unsafe fn _mm_cvtepi16_epi64(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepi32_epi64(a: __m128i) -> __m128i {
     let a = a.as_i32x4();
-    let a = simd_shuffle2::<_, i32x2>(a, a, [0, 1]);
+    let a: i32x2 = simd_shuffle2!(a, a, [0, 1]);
     transmute(simd_cast::<_, i64x2>(a))
 }
 
@@ -473,7 +479,7 @@ pub unsafe fn _mm_cvtepi32_epi64(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepu8_epi16(a: __m128i) -> __m128i {
     let a = a.as_u8x16();
-    let a = simd_shuffle8::<_, u8x8>(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
+    let a: u8x8 = simd_shuffle8!(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
     transmute(simd_cast::<_, i16x8>(a))
 }
 
@@ -486,7 +492,7 @@ pub unsafe fn _mm_cvtepu8_epi16(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepu8_epi32(a: __m128i) -> __m128i {
     let a = a.as_u8x16();
-    let a = simd_shuffle4::<_, u8x4>(a, a, [0, 1, 2, 3]);
+    let a: u8x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute(simd_cast::<_, i32x4>(a))
 }
 
@@ -499,7 +505,7 @@ pub unsafe fn _mm_cvtepu8_epi32(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepu8_epi64(a: __m128i) -> __m128i {
     let a = a.as_u8x16();
-    let a = simd_shuffle2::<_, u8x2>(a, a, [0, 1]);
+    let a: u8x2 = simd_shuffle2!(a, a, [0, 1]);
     transmute(simd_cast::<_, i64x2>(a))
 }
 
@@ -513,7 +519,7 @@ pub unsafe fn _mm_cvtepu8_epi64(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepu16_epi32(a: __m128i) -> __m128i {
     let a = a.as_u16x8();
-    let a = simd_shuffle4::<_, u16x4>(a, a, [0, 1, 2, 3]);
+    let a: u16x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute(simd_cast::<_, i32x4>(a))
 }
 
@@ -527,7 +533,7 @@ pub unsafe fn _mm_cvtepu16_epi32(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepu16_epi64(a: __m128i) -> __m128i {
     let a = a.as_u16x8();
-    let a = simd_shuffle2::<_, u16x2>(a, a, [0, 1]);
+    let a: u16x2 = simd_shuffle2!(a, a, [0, 1]);
     transmute(simd_cast::<_, i64x2>(a))
 }
 
@@ -541,13 +547,13 @@ pub unsafe fn _mm_cvtepu16_epi64(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_cvtepu32_epi64(a: __m128i) -> __m128i {
     let a = a.as_u32x4();
-    let a = simd_shuffle2::<_, u32x2>(a, a, [0, 1]);
+    let a: u32x2 = simd_shuffle2!(a, a, [0, 1]);
     transmute(simd_cast::<_, i64x2>(a))
 }
 
 /// Returns the dot product of two __m128d vectors.
 ///
-/// `imm8[1:0]` is the broadcast mask, and `imm8[5:4]` is the condition mask.
+/// `IMM8[1:0]` is the broadcast mask, and `IMM8[5:4]` is the condition mask.
 /// If a condition mask bit is zero, the corresponding multiplication is
 /// replaced by a value of `0.0`. If a broadcast mask bit is one, the result of
 /// the dot product will be stored in the return value component. Otherwise if
@@ -556,21 +562,17 @@ pub unsafe fn _mm_cvtepu32_epi64(a: __m128i) -> __m128i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_dp_pd)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(dppd, imm8 = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(dppd, IMM8 = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_dp_pd(a: __m128d, b: __m128d, imm8: i32) -> __m128d {
-    macro_rules! call {
-        ($imm8:expr) => {
-            dppd(a, b, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+pub unsafe fn _mm_dp_pd<const IMM8: i32>(a: __m128d, b: __m128d) -> __m128d {
+    static_assert_imm8!(IMM8);
+    dppd(a, b, IMM8 as u8)
 }
 
 /// Returns the dot product of two __m128 vectors.
 ///
-/// `imm8[3:0]` is the broadcast mask, and `imm8[7:4]` is the condition mask.
+/// `IMM8[3:0]` is the broadcast mask, and `IMM8[7:4]` is the condition mask.
 /// If a condition mask bit is zero, the corresponding multiplication is
 /// replaced by a value of `0.0`. If a broadcast mask bit is one, the result of
 /// the dot product will be stored in the return value component. Otherwise if
@@ -579,16 +581,12 @@ pub unsafe fn _mm_dp_pd(a: __m128d, b: __m128d, imm8: i32) -> __m128d {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_dp_ps)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(dpps, imm8 = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(dpps, IMM8 = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_dp_ps(a: __m128, b: __m128, imm8: i32) -> __m128 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            dpps(a, b, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+pub unsafe fn _mm_dp_ps<const IMM8: i32>(a: __m128, b: __m128) -> __m128 {
+    static_assert_imm8!(IMM8);
+    dpps(a, b, IMM8 as u8)
 }
 
 /// Round the packed double-precision (64-bit) floating-point elements in `a`
@@ -704,7 +702,7 @@ pub unsafe fn _mm_ceil_ss(a: __m128, b: __m128) -> __m128 {
 }
 
 /// Round the packed double-precision (64-bit) floating-point elements in `a`
-/// using the `rounding` parameter, and stores the results as packed
+/// using the `ROUNDING` parameter, and stores the results as packed
 /// double-precision floating-point elements.
 /// Rounding is done according to the rounding parameter, which can be one of:
 ///
@@ -736,20 +734,16 @@ pub unsafe fn _mm_ceil_ss(a: __m128, b: __m128) -> __m128 {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_round_pd)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(roundpd, rounding = 0))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(roundpd, ROUNDING = 0))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_round_pd(a: __m128d, rounding: i32) -> __m128d {
-    macro_rules! call {
-        ($imm4:expr) => {
-            roundpd(a, $imm4)
-        };
-    }
-    constify_imm4!(rounding, call)
+pub unsafe fn _mm_round_pd<const ROUNDING: i32>(a: __m128d) -> __m128d {
+    static_assert_imm4!(ROUNDING);
+    roundpd(a, ROUNDING)
 }
 
 /// Round the packed single-precision (32-bit) floating-point elements in `a`
-/// using the `rounding` parameter, and stores the results as packed
+/// using the `ROUNDING` parameter, and stores the results as packed
 /// single-precision floating-point elements.
 /// Rounding is done according to the rounding parameter, which can be one of:
 ///
@@ -781,20 +775,16 @@ pub unsafe fn _mm_round_pd(a: __m128d, rounding: i32) -> __m128d {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_round_ps)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(roundps, rounding = 0))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(roundps, ROUNDING = 0))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_round_ps(a: __m128, rounding: i32) -> __m128 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            roundps(a, $imm4)
-        };
-    }
-    constify_imm4!(rounding, call)
+pub unsafe fn _mm_round_ps<const ROUNDING: i32>(a: __m128) -> __m128 {
+    static_assert_imm4!(ROUNDING);
+    roundps(a, ROUNDING)
 }
 
 /// Round the lower double-precision (64-bit) floating-point element in `b`
-/// using the `rounding` parameter, store the result as a double-precision
+/// using the `ROUNDING` parameter, store the result as a double-precision
 /// floating-point element in the lower element of the intrinsic result,
 /// and copies the upper element from `a` to the upper element of the intrinsic
 /// result.
@@ -828,23 +818,19 @@ pub unsafe fn _mm_round_ps(a: __m128, rounding: i32) -> __m128 {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_round_sd)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(roundsd, rounding = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(roundsd, ROUNDING = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_round_sd(a: __m128d, b: __m128d, rounding: i32) -> __m128d {
-    macro_rules! call {
-        ($imm4:expr) => {
-            roundsd(a, b, $imm4)
-        };
-    }
-    constify_imm4!(rounding, call)
+pub unsafe fn _mm_round_sd<const ROUNDING: i32>(a: __m128d, b: __m128d) -> __m128d {
+    static_assert_imm4!(ROUNDING);
+    roundsd(a, b, ROUNDING)
 }
 
 /// Round the lower single-precision (32-bit) floating-point element in `b`
-/// using the `rounding` parameter, store the result as a single-precision
+/// using the `ROUNDING` parameter, store the result as a single-precision
 /// floating-point element in the lower element of the intrinsic result,
 /// and copies the upper 3 packed elements from `a` to the upper elements
-/// of the instrinsic result.
+/// of the intrinsic result.
 /// Rounding is done according to the rounding parameter, which can be one of:
 ///
 /// ```
@@ -875,16 +861,12 @@ pub unsafe fn _mm_round_sd(a: __m128d, b: __m128d, rounding: i32) -> __m128d {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_round_ss)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(roundss, rounding = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(roundss, ROUNDING = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_round_ss(a: __m128, b: __m128, rounding: i32) -> __m128 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            roundss(a, b, $imm4)
-        };
-    }
-    constify_imm4!(rounding, call)
+pub unsafe fn _mm_round_ss<const ROUNDING: i32>(a: __m128, b: __m128) -> __m128 {
+    static_assert_imm4!(ROUNDING);
+    roundss(a, b, ROUNDING)
 }
 
 /// Finds the minimum unsigned 16-bit element in the 128-bit __m128i vector,
@@ -892,7 +874,7 @@ pub unsafe fn _mm_round_ss(a: __m128, b: __m128, rounding: i32) -> __m128 {
 /// index
 /// in its second position; all other elements are set to zero.
 ///
-/// This intrinsic corresponds to the <c> VPHMINPOSUW / PHMINPOSUW </c>
+/// This intrinsic corresponds to the `VPHMINPOSUW` / `PHMINPOSUW`
 /// instruction.
 ///
 /// Arguments:
@@ -952,8 +934,8 @@ pub unsafe fn _mm_mullo_epi32(a: __m128i, b: __m128i) -> __m128i {
 /// The following algorithm is performed:
 ///
 /// ```ignore
-/// i = imm8[2] * 4
-/// j = imm8[1:0] * 4
+/// i = IMM8[2] * 4
+/// j = IMM8[1:0] * 4
 /// for k := 0 to 7
 ///     d0 = abs(a[i + k + 0] - b[j + 0])
 ///     d1 = abs(a[i + k + 1] - b[j + 1])
@@ -966,7 +948,7 @@ pub unsafe fn _mm_mullo_epi32(a: __m128i, b: __m128i) -> __m128i {
 ///
 /// * `a` - A 128-bit vector of type `__m128i`.
 /// * `b` - A 128-bit vector of type `__m128i`.
-/// * `imm8` - An 8-bit immediate operand specifying how the absolute
+/// * `IMM8` - An 8-bit immediate operand specifying how the absolute
 ///   differences are to be calculated
 ///     * Bit `[2]` specify the offset for operand `a`
 ///     * Bits `[1:0]` specify the offset for operand `b`
@@ -979,18 +961,12 @@ pub unsafe fn _mm_mullo_epi32(a: __m128i, b: __m128i) -> __m128i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mpsadbw_epu8)
 #[inline]
 #[target_feature(enable = "sse4.1")]
-#[cfg_attr(test, assert_instr(mpsadbw, imm8 = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(mpsadbw, IMM8 = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mpsadbw_epu8(a: __m128i, b: __m128i, imm8: i32) -> __m128i {
-    let a = a.as_u8x16();
-    let b = b.as_u8x16();
-    macro_rules! call {
-        ($imm8:expr) => {
-            mpsadbw(a, b, $imm8)
-        };
-    }
-    transmute(constify_imm3!(imm8, call))
+pub unsafe fn _mm_mpsadbw_epu8<const IMM8: i32>(a: __m128i, b: __m128i) -> __m128i {
+    static_assert_imm3!(IMM8);
+    transmute(mpsadbw(a.as_u8x16(), b.as_u8x16(), IMM8 as u8))
 }
 
 /// Tests whether the specified bits in a 128-bit integer vector are all
@@ -1243,7 +1219,7 @@ mod tests {
     unsafe fn test_mm_blend_pd() {
         let a = _mm_set1_pd(0.0);
         let b = _mm_set1_pd(1.0);
-        let r = _mm_blend_pd(a, b, 0b10);
+        let r = _mm_blend_pd::<0b10>(a, b);
         let e = _mm_setr_pd(0.0, 1.0);
         assert_eq_m128d(r, e);
     }
@@ -1252,7 +1228,7 @@ mod tests {
     unsafe fn test_mm_blend_ps() {
         let a = _mm_set1_ps(0.0);
         let b = _mm_set1_ps(1.0);
-        let r = _mm_blend_ps(a, b, 0b1010);
+        let r = _mm_blend_ps::<0b1010>(a, b);
         let e = _mm_setr_ps(0.0, 1.0, 0.0, 1.0);
         assert_eq_m128(r, e);
     }
@@ -1261,7 +1237,7 @@ mod tests {
     unsafe fn test_mm_blend_epi16() {
         let a = _mm_set1_epi16(0);
         let b = _mm_set1_epi16(1);
-        let r = _mm_blend_epi16(a, b, 0b1010_1100);
+        let r = _mm_blend_epi16::<0b1010_1100>(a, b);
         let e = _mm_setr_epi16(0, 0, 1, 1, 0, 1, 0, 1);
         assert_eq_m128i(r, e);
     }
@@ -1269,10 +1245,10 @@ mod tests {
     #[simd_test(enable = "sse4.1")]
     unsafe fn test_mm_extract_ps() {
         let a = _mm_setr_ps(0.0, 1.0, 2.0, 3.0);
-        let r: f32 = transmute(_mm_extract_ps(a, 1));
+        let r: f32 = transmute(_mm_extract_ps::<1>(a));
         assert_eq!(r, 1.0);
-        let r: f32 = transmute(_mm_extract_ps(a, 5));
-        assert_eq!(r, 1.0);
+        let r: f32 = transmute(_mm_extract_ps::<3>(a));
+        assert_eq!(r, 3.0);
     }
 
     #[simd_test(enable = "sse4.1")]
@@ -1282,8 +1258,8 @@ mod tests {
             -1, 1, 2, 3, 4, 5, 6, 7,
             8, 9, 10, 11, 12, 13, 14, 15
         );
-        let r1 = _mm_extract_epi8(a, 0);
-        let r2 = _mm_extract_epi8(a, 19);
+        let r1 = _mm_extract_epi8::<0>(a);
+        let r2 = _mm_extract_epi8::<3>(a);
         assert_eq!(r1, 0xFF);
         assert_eq!(r2, 3);
     }
@@ -1291,17 +1267,17 @@ mod tests {
     #[simd_test(enable = "sse4.1")]
     unsafe fn test_mm_extract_epi32() {
         let a = _mm_setr_epi32(0, 1, 2, 3);
-        let r = _mm_extract_epi32(a, 1);
+        let r = _mm_extract_epi32::<1>(a);
         assert_eq!(r, 1);
-        let r = _mm_extract_epi32(a, 5);
-        assert_eq!(r, 1);
+        let r = _mm_extract_epi32::<3>(a);
+        assert_eq!(r, 3);
     }
 
     #[simd_test(enable = "sse4.1")]
     unsafe fn test_mm_insert_ps() {
         let a = _mm_set1_ps(1.0);
         let b = _mm_setr_ps(1.0, 2.0, 3.0, 4.0);
-        let r = _mm_insert_ps(a, b, 0b11_00_1100);
+        let r = _mm_insert_ps::<0b11_00_1100>(a, b);
         let e = _mm_setr_ps(4.0, 1.0, 0.0, 0.0);
         assert_eq_m128(r, e);
     }
@@ -1310,9 +1286,10 @@ mod tests {
     unsafe fn test_mm_insert_epi8() {
         let a = _mm_set1_epi8(0);
         let e = _mm_setr_epi8(0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-        let r = _mm_insert_epi8(a, 32, 1);
+        let r = _mm_insert_epi8::<1>(a, 32);
         assert_eq_m128i(r, e);
-        let r = _mm_insert_epi8(a, 32, 17);
+        let e = _mm_setr_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0);
+        let r = _mm_insert_epi8::<14>(a, 32);
         assert_eq_m128i(r, e);
     }
 
@@ -1320,9 +1297,10 @@ mod tests {
     unsafe fn test_mm_insert_epi32() {
         let a = _mm_set1_epi32(0);
         let e = _mm_setr_epi32(0, 32, 0, 0);
-        let r = _mm_insert_epi32(a, 32, 1);
+        let r = _mm_insert_epi32::<1>(a, 32);
         assert_eq_m128i(r, e);
-        let r = _mm_insert_epi32(a, 32, 5);
+        let e = _mm_setr_epi32(0, 0, 0, 32);
+        let r = _mm_insert_epi32::<3>(a, 32);
         assert_eq_m128i(r, e);
     }
 
@@ -1595,7 +1573,7 @@ mod tests {
         let a = _mm_setr_pd(2.0, 3.0);
         let b = _mm_setr_pd(1.0, 4.0);
         let e = _mm_setr_pd(14.0, 0.0);
-        assert_eq_m128d(_mm_dp_pd(a, b, 0b00110001), e);
+        assert_eq_m128d(_mm_dp_pd::<0b00110001>(a, b), e);
     }
 
     #[simd_test(enable = "sse4.1")]
@@ -1603,7 +1581,7 @@ mod tests {
         let a = _mm_setr_ps(2.0, 3.0, 1.0, 10.0);
         let b = _mm_setr_ps(1.0, 4.0, 0.5, 10.0);
         let e = _mm_setr_ps(14.5, 0.0, 14.5, 0.0);
-        assert_eq_m128(_mm_dp_ps(a, b, 0b01110101), e);
+        assert_eq_m128(_mm_dp_ps::<0b01110101>(a, b), e);
     }
 
     #[simd_test(enable = "sse4.1")]
@@ -1677,7 +1655,7 @@ mod tests {
     #[simd_test(enable = "sse4.1")]
     unsafe fn test_mm_round_pd() {
         let a = _mm_setr_pd(1.25, 3.75);
-        let r = _mm_round_pd(a, _MM_FROUND_TO_NEAREST_INT);
+        let r = _mm_round_pd::<_MM_FROUND_TO_NEAREST_INT>(a);
         let e = _mm_setr_pd(1.0, 4.0);
         assert_eq_m128d(r, e);
     }
@@ -1685,7 +1663,7 @@ mod tests {
     #[simd_test(enable = "sse4.1")]
     unsafe fn test_mm_round_ps() {
         let a = _mm_setr_ps(2.25, 4.75, -1.75, -4.25);
-        let r = _mm_round_ps(a, _MM_FROUND_TO_ZERO);
+        let r = _mm_round_ps::<_MM_FROUND_TO_ZERO>(a);
         let e = _mm_setr_ps(2.0, 4.0, -1.0, -4.0);
         assert_eq_m128(r, e);
     }
@@ -1696,7 +1674,7 @@ mod tests {
         let b = _mm_setr_pd(-2.5, -4.5);
         let old_mode = _MM_GET_ROUNDING_MODE();
         _MM_SET_ROUNDING_MODE(_MM_ROUND_TOWARD_ZERO);
-        let r = _mm_round_sd(a, b, _MM_FROUND_CUR_DIRECTION);
+        let r = _mm_round_sd::<_MM_FROUND_CUR_DIRECTION>(a, b);
         _MM_SET_ROUNDING_MODE(old_mode);
         let e = _mm_setr_pd(-2.0, 3.5);
         assert_eq_m128d(r, e);
@@ -1708,7 +1686,7 @@ mod tests {
         let b = _mm_setr_ps(-1.75, -4.5, -8.5, -16.5);
         let old_mode = _MM_GET_ROUNDING_MODE();
         _MM_SET_ROUNDING_MODE(_MM_ROUND_NEAREST);
-        let r = _mm_round_ss(a, b, _MM_FROUND_CUR_DIRECTION);
+        let r = _mm_round_ss::<_MM_FROUND_CUR_DIRECTION>(a, b);
         _MM_SET_ROUNDING_MODE(old_mode);
         let e = _mm_setr_ps(-2.0, 3.5, 7.5, 15.5);
         assert_eq_m128(r, e);
@@ -1788,23 +1766,23 @@ mod tests {
             8, 9, 10, 11, 12, 13, 14, 15,
         );
 
-        let r = _mm_mpsadbw_epu8(a, a, 0b000);
+        let r = _mm_mpsadbw_epu8::<0b000>(a, a);
         let e = _mm_setr_epi16(0, 4, 8, 12, 16, 20, 24, 28);
         assert_eq_m128i(r, e);
 
-        let r = _mm_mpsadbw_epu8(a, a, 0b001);
+        let r = _mm_mpsadbw_epu8::<0b001>(a, a);
         let e = _mm_setr_epi16(16, 12, 8, 4, 0, 4, 8, 12);
         assert_eq_m128i(r, e);
 
-        let r = _mm_mpsadbw_epu8(a, a, 0b100);
+        let r = _mm_mpsadbw_epu8::<0b100>(a, a);
         let e = _mm_setr_epi16(16, 20, 24, 28, 32, 36, 40, 44);
         assert_eq_m128i(r, e);
 
-        let r = _mm_mpsadbw_epu8(a, a, 0b101);
+        let r = _mm_mpsadbw_epu8::<0b101>(a, a);
         let e = _mm_setr_epi16(0, 4, 8, 12, 16, 20, 24, 28);
         assert_eq_m128i(r, e);
 
-        let r = _mm_mpsadbw_epu8(a, a, 0b111);
+        let r = _mm_mpsadbw_epu8::<0b111>(a, a);
         let e = _mm_setr_epi16(32, 28, 24, 20, 16, 12, 8, 4);
         assert_eq_m128i(r, e);
     }

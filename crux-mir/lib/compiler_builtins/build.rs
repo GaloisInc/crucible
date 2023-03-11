@@ -23,12 +23,24 @@ fn main() {
         return;
     }
 
-    // Forcibly enable memory intrinsics on wasm32 & SGX as we don't have a libc to
+    // Forcibly enable memory intrinsics on wasm & SGX as we don't have a libc to
     // provide them.
-    if (target.contains("wasm32") && !target.contains("wasi"))
+    if (target.contains("wasm") && !target.contains("wasi"))
         || (target.contains("sgx") && target.contains("fortanix"))
+        || target.contains("-none")
+        || target.contains("nvptx")
+        || target.contains("uefi")
     {
         println!("cargo:rustc-cfg=feature=\"mem\"");
+    }
+
+    // These targets have hardware unaligned access support.
+    if target.contains("x86_64")
+        || target.contains("i686")
+        || target.contains("aarch64")
+        || target.contains("bpf")
+    {
+        println!("cargo:rustc-cfg=feature=\"mem-unaligned\"");
     }
 
     // NOTE we are going to assume that llvm-target, what determines our codegen option, matches the
@@ -43,15 +55,17 @@ fn main() {
     if !cfg!(feature = "mangled-names") && cfg!(feature = "c") {
         // Don't use a C compiler for these targets:
         //
-        // * wasm32 - clang 8 for wasm is somewhat hard to come by and it's
+        // * wasm - clang for wasm is somewhat hard to come by and it's
         //   unlikely that the C is really that much better than our own Rust.
         // * nvptx - everything is bitcode, not compatible with mixed C/Rust
         // * riscv - the rust-lang/rust distribution container doesn't have a C
-        //   compiler nor is cc-rs ready for compilation to riscv (at this
-        //   time). This can probably be removed in the future
-        if !target.contains("wasm32") && !target.contains("nvptx") && !target.starts_with("riscv") {
+        //   compiler.
+        if !target.contains("wasm")
+            && !target.contains("nvptx")
+            && (!target.starts_with("riscv") || target.contains("xous"))
+        {
             #[cfg(feature = "c")]
-            c::compile(&llvm_target);
+            c::compile(&llvm_target, &target);
         }
     }
 
@@ -67,8 +81,13 @@ fn main() {
         println!("cargo:rustc-cfg=thumb_1")
     }
 
-    // Only emit the ARM Linux atomic emulation on pre-ARMv6 architectures.
-    if llvm_target[0] == "armv4t" || llvm_target[0] == "armv5te" {
+    // Only emit the ARM Linux atomic emulation on pre-ARMv6 architectures. This
+    // includes the old androideabi. It is deprecated but it is available as a
+    // rustc target (arm-linux-androideabi).
+    if llvm_target[0] == "armv4t"
+        || llvm_target[0] == "armv5te"
+        || target == "arm-linux-androideabi"
+    {
         println!("cargo:rustc-cfg=kernel_user_helpers")
     }
 }
@@ -77,9 +96,11 @@ fn main() {
 mod c {
     extern crate cc;
 
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
     use std::env;
-    use std::path::PathBuf;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
 
     struct Sources {
         // SYMBOL -> PATH TO SOURCE
@@ -121,12 +142,27 @@ mod c {
     }
 
     /// Compile intrinsics from the compiler-rt C source code
-    pub fn compile(llvm_target: &[&str]) {
+    pub fn compile(llvm_target: &[&str], target: &String) {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
         let target_vendor = env::var("CARGO_CFG_TARGET_VENDOR").unwrap();
+        let mut consider_float_intrinsics = true;
         let cfg = &mut cc::Build::new();
+
+        // AArch64 GCCs exit with an error condition when they encounter any kind of floating point
+        // code if the `nofp` and/or `nosimd` compiler flags have been set.
+        //
+        // Therefore, evaluate if those flags are present and set a boolean that causes any
+        // compiler-rt intrinsics that contain floating point source to be excluded for this target.
+        if target_arch == "aarch64" {
+            let cflags_key = String::from("CFLAGS_") + &(target.to_owned().replace("-", "_"));
+            if let Ok(cflags_value) = env::var(cflags_key) {
+                if cflags_value.contains("+nofp") || cflags_value.contains("+nosimd") {
+                    consider_float_intrinsics = false;
+                }
+            }
+        }
 
         cfg.warnings(false);
 
@@ -154,45 +190,63 @@ mod c {
             cfg.define("VISIBILITY_HIDDEN", None);
         }
 
+        // int_util.c tries to include stdlib.h if `_WIN32` is defined,
+        // which it is when compiling UEFI targets with clang. This is
+        // at odds with compiling with `-ffreestanding`, as the header
+        // may be incompatible or not present. Create a minimal stub
+        // header to use instead.
+        if target_os == "uefi" {
+            let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+            let include_dir = out_dir.join("include");
+            if !include_dir.exists() {
+                fs::create_dir(&include_dir).unwrap();
+            }
+            fs::write(include_dir.join("stdlib.h"), "#include <stddef.h>").unwrap();
+            cfg.flag(&format!("-I{}", include_dir.to_str().unwrap()));
+        }
+
         let mut sources = Sources::new();
         sources.extend(&[
             ("__absvdi2", "absvdi2.c"),
             ("__absvsi2", "absvsi2.c"),
             ("__addvdi3", "addvdi3.c"),
             ("__addvsi3", "addvsi3.c"),
-            ("apple_versioning", "apple_versioning.c"),
             ("__clzdi2", "clzdi2.c"),
             ("__clzsi2", "clzsi2.c"),
             ("__cmpdi2", "cmpdi2.c"),
             ("__ctzdi2", "ctzdi2.c"),
             ("__ctzsi2", "ctzsi2.c"),
-            ("__divdc3", "divdc3.c"),
-            ("__divsc3", "divsc3.c"),
-            ("__divxc3", "divxc3.c"),
-            ("__extendhfsf2", "extendhfsf2.c"),
             ("__int_util", "int_util.c"),
-            ("__muldc3", "muldc3.c"),
-            ("__mulsc3", "mulsc3.c"),
             ("__mulvdi3", "mulvdi3.c"),
             ("__mulvsi3", "mulvsi3.c"),
-            ("__mulxc3", "mulxc3.c"),
-            ("__negdf2", "negdf2.c"),
             ("__negdi2", "negdi2.c"),
-            ("__negsf2", "negsf2.c"),
             ("__negvdi2", "negvdi2.c"),
             ("__negvsi2", "negvsi2.c"),
             ("__paritydi2", "paritydi2.c"),
             ("__paritysi2", "paritysi2.c"),
             ("__popcountdi2", "popcountdi2.c"),
             ("__popcountsi2", "popcountsi2.c"),
-            ("__powixf2", "powixf2.c"),
             ("__subvdi3", "subvdi3.c"),
             ("__subvsi3", "subvsi3.c"),
-            ("__truncdfhf2", "truncdfhf2.c"),
-            ("__truncdfsf2", "truncdfsf2.c"),
-            ("__truncsfhf2", "truncsfhf2.c"),
             ("__ucmpdi2", "ucmpdi2.c"),
         ]);
+
+        if consider_float_intrinsics {
+            sources.extend(&[
+                ("__divdc3", "divdc3.c"),
+                ("__divsc3", "divsc3.c"),
+                ("__divxc3", "divxc3.c"),
+                ("__extendhfsf2", "extendhfsf2.c"),
+                ("__muldc3", "muldc3.c"),
+                ("__mulsc3", "mulsc3.c"),
+                ("__mulxc3", "mulxc3.c"),
+                ("__negdf2", "negdf2.c"),
+                ("__negsf2", "negsf2.c"),
+                ("__powixf2", "powixf2.c"),
+                ("__truncdfhf2", "truncdfhf2.c"),
+                ("__truncsfhf2", "truncsfhf2.c"),
+            ]);
+        }
 
         // When compiling in rustbuild (the rust-lang/rust repo) this library
         // also needs to satisfy intrinsics that jemalloc or C in general may
@@ -204,7 +258,10 @@ mod c {
 
         // On iOS and 32-bit OSX these are all just empty intrinsics, no need to
         // include them.
-        if target_os != "ios" && (target_vendor != "apple" || target_arch != "x86") {
+        if target_os != "ios"
+            && target_os != "watchos"
+            && (target_vendor != "apple" || target_arch != "x86")
+        {
             sources.extend(&[
                 ("__absvti2", "absvti2.c"),
                 ("__addvti3", "addvti3.c"),
@@ -214,12 +271,15 @@ mod c {
                 ("__ffsti2", "ffsti2.c"),
                 ("__mulvti3", "mulvti3.c"),
                 ("__negti2", "negti2.c"),
-                ("__negvti2", "negvti2.c"),
                 ("__parityti2", "parityti2.c"),
                 ("__popcountti2", "popcountti2.c"),
                 ("__subvti3", "subvti3.c"),
                 ("__ucmpti2", "ucmpti2.c"),
             ]);
+
+            if consider_float_intrinsics {
+                sources.extend(&[("__negvti2", "negvti2.c")]);
+            }
         }
 
         if target_vendor == "apple" {
@@ -238,10 +298,7 @@ mod c {
 
         if target_env == "msvc" {
             if target_arch == "x86_64" {
-                sources.extend(&[
-                    ("__floatdisf", "x86_64/floatdisf.c"),
-                    ("__floatdixf", "x86_64/floatdixf.c"),
-                ]);
+                sources.extend(&[("__floatdixf", "x86_64/floatdixf.c")]);
             }
         } else {
             // None of these seem to be used on x86_64 windows, and they've all
@@ -249,10 +306,7 @@ mod c {
             if target_os != "windows" {
                 if target_arch == "x86_64" {
                     sources.extend(&[
-                        ("__floatdisf", "x86_64/floatdisf.c"),
                         ("__floatdixf", "x86_64/floatdixf.c"),
-                        ("__floatundidf", "x86_64/floatundidf.S"),
-                        ("__floatundisf", "x86_64/floatundisf.S"),
                         ("__floatundixf", "x86_64/floatundixf.S"),
                     ]);
                 }
@@ -263,11 +317,7 @@ mod c {
                     ("__ashldi3", "i386/ashldi3.S"),
                     ("__ashrdi3", "i386/ashrdi3.S"),
                     ("__divdi3", "i386/divdi3.S"),
-                    ("__floatdidf", "i386/floatdidf.S"),
-                    ("__floatdisf", "i386/floatdisf.S"),
                     ("__floatdixf", "i386/floatdixf.S"),
-                    ("__floatundidf", "i386/floatundidf.S"),
-                    ("__floatundisf", "i386/floatundisf.S"),
                     ("__floatundixf", "i386/floatundixf.S"),
                     ("__lshrdi3", "i386/lshrdi3.S"),
                     ("__moddi3", "i386/moddi3.S"),
@@ -278,7 +328,11 @@ mod c {
             }
         }
 
-        if target_arch == "arm" && target_os != "ios" && target_env != "msvc" {
+        if target_arch == "arm"
+            && target_os != "ios"
+            && target_os != "watchos"
+            && target_env != "msvc"
+        {
             sources.extend(&[
                 ("__aeabi_div0", "arm/aeabi_div0.c"),
                 ("__aeabi_drsub", "arm/aeabi_drsub.c"),
@@ -372,7 +426,7 @@ mod c {
             ]);
         }
 
-        if target_arch == "aarch64" {
+        if target_arch == "aarch64" && consider_float_intrinsics {
             sources.extend(&[
                 ("__comparetf2", "comparetf2.c"),
                 ("__extenddftf2", "extenddftf2.c"),
@@ -389,6 +443,13 @@ mod c {
                 ("__floatunsitf", "floatunsitf.c"),
                 ("__trunctfdf2", "trunctfdf2.c"),
                 ("__trunctfsf2", "trunctfsf2.c"),
+                ("__addtf3", "addtf3.c"),
+                ("__multf3", "multf3.c"),
+                ("__subtf3", "subtf3.c"),
+                ("__divtf3", "divtf3.c"),
+                ("__powitf2", "powitf2.c"),
+                ("__fe_getround", "fp_mode.c"),
+                ("__fe_raise_inexact", "fp_mode.c"),
             ]);
 
             if target_os != "windows" {
@@ -396,8 +457,31 @@ mod c {
             }
         }
 
+        if target_arch == "mips" {
+            sources.extend(&[("__bswapsi2", "bswapsi2.c")]);
+        }
+
+        if target_arch == "mips64" {
+            sources.extend(&[
+                ("__extenddftf2", "extenddftf2.c"),
+                ("__netf2", "comparetf2.c"),
+                ("__addtf3", "addtf3.c"),
+                ("__multf3", "multf3.c"),
+                ("__subtf3", "subtf3.c"),
+                ("__fixtfsi", "fixtfsi.c"),
+                ("__floatsitf", "floatsitf.c"),
+                ("__fixunstfsi", "fixunstfsi.c"),
+                ("__floatunsitf", "floatunsitf.c"),
+                ("__fe_getround", "fp_mode.c"),
+                ("__divtf3", "divtf3.c"),
+                ("__trunctfdf2", "trunctfdf2.c"),
+                ("__trunctfsf2", "trunctfsf2.c"),
+            ]);
+        }
+
         // Remove the assembly implementations that won't compile for the target
-        if llvm_target[0] == "thumbv6m" || llvm_target[0] == "thumbv8m.base" {
+        if llvm_target[0] == "thumbv6m" || llvm_target[0] == "thumbv8m.base" || target_os == "uefi"
+        {
             let mut to_remove = Vec::new();
             for (k, v) in sources.map.iter() {
                 if v.ends_with(".S") {
@@ -412,6 +496,16 @@ mod c {
 
         if llvm_target[0] == "thumbv7m" || llvm_target[0] == "thumbv7em" {
             sources.remove(&["__aeabi_cdcmp", "__aeabi_cfcmp"]);
+        }
+
+        // Android uses emulated TLS so we need a runtime support function.
+        if target_os == "android" {
+            sources.extend(&[("__emutls_get_address", "emutls.c")]);
+
+            // Work around a bug in the NDK headers (fixed in
+            // https://r.android.com/2038949 which will be released in a future
+            // NDK version) by providing a definition of LONG_BIT.
+            cfg.define("LONG_BIT", "(8 * sizeof(long))");
         }
 
         // When compiling the C code we require the user to tell us where the
@@ -431,14 +525,75 @@ mod c {
         // use of that macro in lib/builtins/int_util.h in compiler-rt.
         cfg.flag_if_supported(&format!("-ffile-prefix-map={}=.", root.display()));
 
+        // Include out-of-line atomics for aarch64, which are all generated by supplying different
+        // sets of flags to the same source file.
+        // Note: Out-of-line aarch64 atomics are not supported by the msvc toolchain (#430).
         let src_dir = root.join("lib/builtins");
+        if target_arch == "aarch64" && target_env != "msvc" {
+            // See below for why we're building these as separate libraries.
+            build_aarch64_out_of_line_atomics_libraries(&src_dir, cfg);
+
+            // Some run-time CPU feature detection is necessary, as well.
+            sources.extend(&[("__aarch64_have_lse_atomics", "cpu_model.c")]);
+        }
+
+        let mut added_sources = HashSet::new();
         for (sym, src) in sources.map.iter() {
             let src = src_dir.join(src);
-            cfg.file(&src);
-            println!("cargo:rerun-if-changed={}", src.display());
+            if added_sources.insert(src.clone()) {
+                cfg.file(&src);
+                println!("cargo:rerun-if-changed={}", src.display());
+            }
             println!("cargo:rustc-cfg={}=\"optimized-c\"", sym);
         }
 
         cfg.compile("libcompiler-rt.a");
+    }
+
+    fn build_aarch64_out_of_line_atomics_libraries(builtins_dir: &Path, cfg: &mut cc::Build) {
+        let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+        let outlined_atomics_file = builtins_dir.join("aarch64/lse.S");
+        println!("cargo:rerun-if-changed={}", outlined_atomics_file.display());
+
+        cfg.include(&builtins_dir);
+
+        for instruction_type in &["cas", "swp", "ldadd", "ldclr", "ldeor", "ldset"] {
+            for size in &[1, 2, 4, 8, 16] {
+                if *size == 16 && *instruction_type != "cas" {
+                    continue;
+                }
+
+                for (model_number, model_name) in
+                    &[(1, "relax"), (2, "acq"), (3, "rel"), (4, "acq_rel")]
+                {
+                    // The original compiler-rt build system compiles the same
+                    // source file multiple times with different compiler
+                    // options. Here we do something slightly different: we
+                    // create multiple .S files with the proper #defines and
+                    // then include the original file.
+                    //
+                    // This is needed because the cc crate doesn't allow us to
+                    // override the name of object files and libtool requires
+                    // all objects in an archive to have unique names.
+                    let path =
+                        out_dir.join(format!("lse_{}{}_{}.S", instruction_type, size, model_name));
+                    let mut file = File::create(&path).unwrap();
+                    writeln!(file, "#define L_{}", instruction_type).unwrap();
+                    writeln!(file, "#define SIZE {}", size).unwrap();
+                    writeln!(file, "#define MODEL {}", model_number).unwrap();
+                    writeln!(
+                        file,
+                        "#include \"{}\"",
+                        outlined_atomics_file.canonicalize().unwrap().display()
+                    )
+                    .unwrap();
+                    drop(file);
+                    cfg.file(path);
+
+                    let sym = format!("__aarch64_{}{}_{}", instruction_type, size, model_name);
+                    println!("cargo:rustc-cfg={}=\"optimized-c\"", sym);
+                }
+            }
+        }
     }
 }

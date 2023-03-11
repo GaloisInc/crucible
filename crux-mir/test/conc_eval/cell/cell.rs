@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let x = Cell::new(1);
     x.set(2);

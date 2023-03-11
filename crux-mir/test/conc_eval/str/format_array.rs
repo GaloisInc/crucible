@@ -1,5 +1,5 @@
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> bool {
     let s = format!("{:?}", [1,2,3,4]);
     &s == "[1, 2, 3, 4]"

@@ -1,5 +1,4 @@
 //! Verification of MIPS MSA intrinsics
-#![feature(try_trait)]
 #![allow(bad_style, unused)]
 
 // This file is obtained from
@@ -139,47 +138,53 @@ struct MsaIntrinsic {
     instruction: String,
 }
 
+struct NoneError;
+
 impl std::convert::TryFrom<&'static str> for MsaIntrinsic {
     // The intrinsics are just C function declarations of the form:
     // $ret_ty __builtin_${fn_id}($($arg_ty),*);
-    type Error = std::option::NoneError;
+    type Error = NoneError;
     fn try_from(line: &'static str) -> Result<Self, Self::Error> {
-        let first_whitespace = line.find(char::is_whitespace)?;
-        let ret_ty = &line[0..first_whitespace];
-        let ret_ty = MsaTy::from(ret_ty);
+        return inner(line).ok_or(NoneError);
 
-        let first_parentheses = line.find('(')?;
-        assert!(first_parentheses > first_whitespace);
-        let id = &line[first_whitespace + 1..first_parentheses].trim();
-        assert!(id.starts_with("__builtin"));
-        let mut id_str = "_".to_string();
-        id_str += &id[9..];
-        let id = id_str;
+        fn inner(line: &'static str) -> Option<MsaIntrinsic> {
+            let first_whitespace = line.find(char::is_whitespace)?;
+            let ret_ty = &line[0..first_whitespace];
+            let ret_ty = MsaTy::from(ret_ty);
 
-        let mut arg_tys = Vec::new();
+            let first_parentheses = line.find('(')?;
+            assert!(first_parentheses > first_whitespace);
+            let id = &line[first_whitespace + 1..first_parentheses].trim();
+            assert!(id.starts_with("__builtin"));
+            let mut id_str = "_".to_string();
+            id_str += &id[9..];
+            let id = id_str;
 
-        let last_parentheses = line.find(')')?;
-        for arg in (&line[first_parentheses + 1..last_parentheses]).split(',') {
-            let arg = arg.trim();
-            arg_tys.push(MsaTy::from(arg));
+            let mut arg_tys = Vec::new();
+
+            let last_parentheses = line.find(')')?;
+            for arg in (&line[first_parentheses + 1..last_parentheses]).split(',') {
+                let arg = arg.trim();
+                arg_tys.push(MsaTy::from(arg));
+            }
+
+            // The instruction is the intrinsic name without the __msa_ prefix.
+            let instruction = &id[6..];
+            let mut instruction = instruction.to_string();
+            // With all underscores but the first one replaced with a `.`
+            if let Some(first_underscore) = instruction.find('_') {
+                let postfix = instruction[first_underscore + 1..].replace('_', ".");
+                instruction = instruction[0..=first_underscore].to_string();
+                instruction += &postfix;
+            }
+
+            Some(MsaIntrinsic {
+                id,
+                ret_ty,
+                arg_tys,
+                instruction,
+            })
         }
-
-        // The instruction is the intrinsic name without the __msa_ prefix.
-        let instruction = &id[6..];
-        let mut instruction = instruction.to_string();
-        // With all underscores but the first one replaced with a `.`
-        if let Some(first_underscore) = instruction.find('_') {
-            let postfix = instruction[first_underscore + 1..].replace('_', ".");
-            instruction = instruction[0..=first_underscore].to_string();
-            instruction += &postfix;
-        }
-
-        Ok(MsaIntrinsic {
-            id,
-            ret_ty,
-            arg_tys,
-            instruction,
-        })
     }
 }
 
@@ -193,8 +198,8 @@ fn verify_all_signatures() {
         }
 
         use std::convert::TryFrom;
-        let intrinsic: MsaIntrinsic =
-            TryFrom::try_from(line).expect(&format!("failed to parse line: \"{}\"", line));
+        let intrinsic: MsaIntrinsic = TryFrom::try_from(line)
+            .unwrap_or_else(|_| panic!("failed to parse line: \"{}\"", line));
         assert!(!intrinsics.contains_key(&intrinsic.id));
         intrinsics.insert(intrinsic.id.clone(), intrinsic);
     }
@@ -293,10 +298,7 @@ fn matches(rust: &Function, mips: &MsaIntrinsic) -> Result<(), String> {
             | MsaTy::imm_n1024_1022
             | MsaTy::imm_n2048_2044
             | MsaTy::imm_n4096_4088
-                if **rust_arg == I32 =>
-            {
-                ()
-            }
+                if **rust_arg == I32 => {}
             MsaTy::i32 if **rust_arg == I32 => (),
             MsaTy::i64 if **rust_arg == I64 => (),
             MsaTy::u32 if **rust_arg == U32 => (),
@@ -310,21 +312,21 @@ fn matches(rust: &Function, mips: &MsaIntrinsic) -> Result<(), String> {
             ),
         }
 
-        let is_const = match mips_arg {
+        let is_const = matches!(
+            mips_arg,
             MsaTy::imm0_1
-            | MsaTy::imm0_3
-            | MsaTy::imm0_7
-            | MsaTy::imm0_15
-            | MsaTy::imm0_31
-            | MsaTy::imm0_63
-            | MsaTy::imm0_255
-            | MsaTy::imm_n16_15
-            | MsaTy::imm_n512_511
-            | MsaTy::imm_n1024_1022
-            | MsaTy::imm_n2048_2044
-            | MsaTy::imm_n4096_4088 => true,
-            _ => false,
-        };
+                | MsaTy::imm0_3
+                | MsaTy::imm0_7
+                | MsaTy::imm0_15
+                | MsaTy::imm0_31
+                | MsaTy::imm0_63
+                | MsaTy::imm0_255
+                | MsaTy::imm_n16_15
+                | MsaTy::imm_n512_511
+                | MsaTy::imm_n1024_1022
+                | MsaTy::imm_n2048_2044
+                | MsaTy::imm_n4096_4088
+        );
         if is_const {
             nconst += 1;
             if !rust.required_const.contains(&i) {

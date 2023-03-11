@@ -1,4 +1,4 @@
-//! The Rust Prelude.
+//! # The Rust Prelude
 //!
 //! Rust comes with a variety of things in its standard library. However, if
 //! you had to manually import every single thing that you used, it would be
@@ -10,22 +10,6 @@
 //! things, particularly traits, which are used in almost every single Rust
 //! program.
 //!
-//! On a technical level, Rust inserts
-//!
-//! ```
-//! # #[allow(unused_extern_crates)]
-//! extern crate std;
-//! ```
-//!
-//! into the crate root of every crate, and
-//!
-//! ```
-//! # #[allow(unused_imports)]
-//! use std::prelude::v1::*;
-//! ```
-//!
-//! into every module.
-//!
 //! # Other preludes
 //!
 //! Preludes can be seen as a pattern to make using multiple types more
@@ -33,7 +17,7 @@
 //! such as [`std::io::prelude`]. Various libraries in the Rust ecosystem may
 //! also define their own preludes.
 //!
-//! [`std::io::prelude`]: ../io/prelude/index.html
+//! [`std::io::prelude`]: crate::io::prelude
 //!
 //! The difference between 'the prelude' and these other preludes is that they
 //! are not automatically `use`'d, and must be imported manually. This is still
@@ -41,91 +25,71 @@
 //!
 //! # Prelude contents
 //!
-//! The current version of the prelude (version 1) lives in
-//! [`std::prelude::v1`], and re-exports the following.
+//! The first version of the prelude is used in Rust 2015 and Rust 2018,
+//! and lives in [`std::prelude::v1`].
+//! [`std::prelude::rust_2015`] and [`std::prelude::rust_2018`] re-export this prelude.
+//! It re-exports the following:
 //!
-//! * [`std::marker`]::{[`Copy`], [`Send`], [`Sized`], [`Sync`], [`Unpin`]}. The
-//!   marker traits indicate fundamental properties of types.
-//! * [`std::ops`]::{[`Drop`], [`Fn`], [`FnMut`], [`FnOnce`]}. Various
+//! * <code>[std::marker]::{[Copy], [Send], [Sized], [Sync], [Unpin]}</code>,
+//!   marker traits that indicate fundamental properties of types.
+//! * <code>[std::ops]::{[Drop], [Fn], [FnMut], [FnOnce]}</code>, various
 //!   operations for both destructors and overloading `()`.
-//! * [`std::mem`]::[`drop`][`mem::drop`], a convenience function for explicitly
+//! * <code>[std::mem]::[drop][mem::drop]</code>, a convenience function for explicitly
 //!   dropping a value.
-//! * [`std::boxed`]::[`Box`], a way to allocate values on the heap.
-//! * [`std::borrow`]::[`ToOwned`], The conversion trait that defines
+//! * <code>[std::boxed]::[Box]</code>, a way to allocate values on the heap.
+//! * <code>[std::borrow]::[ToOwned]</code>, the conversion trait that defines
 //!   [`to_owned`], the generic method for creating an owned type from a
 //!   borrowed type.
-//! * [`std::clone`]::[`Clone`], the ubiquitous trait that defines
-//!   [`clone`][`Clone::clone`], the method for producing a copy of a value.
-//! * [`std::cmp`]::{[`PartialEq`], [`PartialOrd`], [`Eq`], [`Ord`] }. The
+//! * <code>[std::clone]::[Clone]</code>, the ubiquitous trait that defines
+//!   [`clone`][Clone::clone], the method for producing a copy of a value.
+//! * <code>[std::cmp]::{[PartialEq], [PartialOrd], [Eq], [Ord]}</code>, the
 //!   comparison traits, which implement the comparison operators and are often
 //!   seen in trait bounds.
-//! * [`std::convert`]::{[`AsRef`], [`AsMut`], [`Into`], [`From`]}. Generic
+//! * <code>[std::convert]::{[AsRef], [AsMut], [Into], [From]}</code>, generic
 //!   conversions, used by savvy API authors to create overloaded methods.
-//! * [`std::default`]::[`Default`], types that have default values.
-//! * [`std::iter`]::{[`Iterator`], [`Extend`], [`IntoIterator`],
-//!   [`DoubleEndedIterator`], [`ExactSizeIterator`]}. Iterators of various
+//! * <code>[std::default]::[Default]</code>, types that have default values.
+//! * <code>[std::iter]::{[Iterator], [Extend], [IntoIterator], [DoubleEndedIterator], [ExactSizeIterator]}</code>,
+//!   iterators of various
 //!   kinds.
-//! * [`std::option`]::[`Option`]::{`self`, `Some`, `None`}. A type which
-//!   expresses the presence or absence of a value. This type is so commonly
-//!   used, its variants are also exported.
-//! * [`std::result`]::[`Result`]::{`self`, `Ok`, `Err`}. A type for functions
-//!   that may succeed or fail. Like [`Option`], its variants are exported as
-//!   well.
-//! * [`std::string`]::{[`String`], [`ToString`]}, heap allocated strings.
-//! * [`std::vec`]::[`Vec`](../vec/struct.Vec.html), a growable, heap-allocated
-//!   vector.
+//! * <code>[std::option]::[Option]::{[self][Option], [Some], [None]}</code>, a
+//!   type which expresses the presence or absence of a value. This type is so
+//!   commonly used, its variants are also exported.
+//! * <code>[std::result]::[Result]::{[self][Result], [Ok], [Err]}</code>, a type
+//!   for functions that may succeed or fail. Like [`Option`], its variants are
+//!   exported as well.
+//! * <code>[std::string]::{[String], [ToString]}</code>, heap-allocated strings.
+//! * <code>[std::vec]::[Vec]</code>, a growable, heap-allocated vector.
 //!
-//! [`AsMut`]: ../convert/trait.AsMut.html
-//! [`AsRef`]: ../convert/trait.AsRef.html
-//! [`Box`]: ../boxed/struct.Box.html
-//! [`Clone`]: ../clone/trait.Clone.html
-//! [`Copy`]: ../marker/trait.Copy.html
-//! [`Default`]: ../default/trait.Default.html
-//! [`DoubleEndedIterator`]: ../iter/trait.DoubleEndedIterator.html
-//! [`Drop`]: ../ops/trait.Drop.html
-//! [`Eq`]: ../cmp/trait.Eq.html
-//! [`ExactSizeIterator`]: ../iter/trait.ExactSizeIterator.html
-//! [`Extend`]: ../iter/trait.Extend.html
-//! [`FnMut`]: ../ops/trait.FnMut.html
-//! [`FnOnce`]: ../ops/trait.FnOnce.html
-//! [`Fn`]: ../ops/trait.Fn.html
-//! [`From`]: ../convert/trait.From.html
-//! [`IntoIterator`]: ../iter/trait.IntoIterator.html
-//! [`Into`]: ../convert/trait.Into.html
-//! [`Iterator`]: ../iter/trait.Iterator.html
-//! [`Option`]: ../option/enum.Option.html
-//! [`Ord`]: ../cmp/trait.Ord.html
-//! [`PartialEq`]: ../cmp/trait.PartialEq.html
-//! [`PartialOrd`]: ../cmp/trait.PartialOrd.html
-//! [`Result`]: ../result/enum.Result.html
-//! [`Send`]: ../marker/trait.Send.html
-//! [`Sized`]: ../marker/trait.Sized.html
-//! [`SliceConcatExt`]: ../slice/trait.SliceConcatExt.html
-//! [`String`]: ../string/struct.String.html
-//! [`Sync`]: ../marker/trait.Sync.html
-//! [`ToOwned`]: ../borrow/trait.ToOwned.html
-//! [`ToString`]: ../string/trait.ToString.html
-//! [`Unpin`]: ../marker/trait.Unpin.html
-//! [`Vec`]: ../vec/struct.Vec.html
-//! [`Clone::clone`]: ../clone/trait.Clone.html#tymethod.clone
-//! [`mem::drop`]: ../mem/fn.drop.html
-//! [`std::borrow`]: ../borrow/index.html
-//! [`std::boxed`]: ../boxed/index.html
-//! [`std::clone`]: ../clone/index.html
-//! [`std::cmp`]: ../cmp/index.html
-//! [`std::convert`]: ../convert/index.html
-//! [`std::default`]: ../default/index.html
-//! [`std::iter`]: ../iter/index.html
-//! [`std::marker`]: ../marker/index.html
-//! [`std::mem`]: ../mem/index.html
-//! [`std::ops`]: ../ops/index.html
-//! [`std::option`]: ../option/index.html
-//! [`std::prelude::v1`]: v1/index.html
-//! [`std::result`]: ../result/index.html
-//! [`std::slice`]: ../slice/index.html
-//! [`std::string`]: ../string/index.html
-//! [`std::vec`]: ../vec/index.html
-//! [`to_owned`]: ../borrow/trait.ToOwned.html#tymethod.to_owned
+//! The prelude used in Rust 2021, [`std::prelude::rust_2021`], includes all of the above,
+//! and in addition re-exports:
+//!
+//! * <code>[std::convert]::{[TryFrom], [TryInto]}</code>,
+//! * <code>[std::iter]::[FromIterator]</code>.
+//!
+//! [mem::drop]: crate::mem::drop
+//! [std::borrow]: crate::borrow
+//! [std::boxed]: crate::boxed
+//! [std::clone]: crate::clone
+//! [std::cmp]: crate::cmp
+//! [std::convert]: crate::convert
+//! [std::default]: crate::default
+//! [std::iter]: crate::iter
+//! [std::marker]: crate::marker
+//! [std::mem]: crate::mem
+//! [std::ops]: crate::ops
+//! [std::option]: crate::option
+//! [`std::prelude::v1`]: v1
+//! [`std::prelude::rust_2015`]: rust_2015
+//! [`std::prelude::rust_2018`]: rust_2018
+//! [`std::prelude::rust_2021`]: rust_2021
+//! [std::result]: crate::result
+//! [std::slice]: crate::slice
+//! [std::string]: crate::string
+//! [std::vec]: mod@crate::vec
+//! [TryFrom]: crate::convert::TryFrom
+//! [TryInto]: crate::convert::TryInto
+//! [FromIterator]: crate::iter::FromIterator
+//! [`to_owned`]: crate::borrow::ToOwned::to_owned
 //! [book-closures]: ../../book/ch13-01-closures.html
 //! [book-dtor]: ../../book/ch15-03-drop.html
 //! [book-enums]: ../../book/ch06-01-defining-an-enum.html
@@ -134,3 +98,51 @@
 #![stable(feature = "rust1", since = "1.0.0")]
 
 pub mod v1;
+
+/// The 2015 version of the prelude of The Rust Standard Library.
+///
+/// See the [module-level documentation](self) for more.
+#[stable(feature = "prelude_2015", since = "1.55.0")]
+pub mod rust_2015 {
+    #[stable(feature = "prelude_2015", since = "1.55.0")]
+    #[doc(no_inline)]
+    pub use super::v1::*;
+}
+
+/// The 2018 version of the prelude of The Rust Standard Library.
+///
+/// See the [module-level documentation](self) for more.
+#[stable(feature = "prelude_2018", since = "1.55.0")]
+pub mod rust_2018 {
+    #[stable(feature = "prelude_2018", since = "1.55.0")]
+    #[doc(no_inline)]
+    pub use super::v1::*;
+}
+
+/// The 2021 version of the prelude of The Rust Standard Library.
+///
+/// See the [module-level documentation](self) for more.
+#[stable(feature = "prelude_2021", since = "1.55.0")]
+pub mod rust_2021 {
+    #[stable(feature = "prelude_2021", since = "1.55.0")]
+    #[doc(no_inline)]
+    pub use super::v1::*;
+
+    #[stable(feature = "prelude_2021", since = "1.55.0")]
+    #[doc(no_inline)]
+    pub use core::prelude::rust_2021::*;
+}
+
+/// The 2024 version of the prelude of The Rust Standard Library.
+///
+/// See the [module-level documentation](self) for more.
+#[unstable(feature = "prelude_2024", issue = "none")]
+pub mod rust_2024 {
+    #[unstable(feature = "prelude_2024", issue = "none")]
+    #[doc(no_inline)]
+    pub use super::v1::*;
+
+    #[unstable(feature = "prelude_2024", issue = "none")]
+    #[doc(no_inline)]
+    pub use core::prelude::rust_2024::*;
+}

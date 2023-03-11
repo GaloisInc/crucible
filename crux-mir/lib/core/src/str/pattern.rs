@@ -1,7 +1,36 @@
 //! The string Pattern API.
 //!
+//! The Pattern API provides a generic mechanism for using different pattern
+//! types when searching through a string.
+//!
 //! For more details, see the traits [`Pattern`], [`Searcher`],
 //! [`ReverseSearcher`], and [`DoubleEndedSearcher`].
+//!
+//! Although this API is unstable, it is exposed via stable APIs on the
+//! [`str`] type.
+//!
+//! # Examples
+//!
+//! [`Pattern`] is [implemented][pattern-impls] in the stable API for
+//! [`&str`][`str`], [`char`], slices of [`char`], and functions and closures
+//! implementing `FnMut(char) -> bool`.
+//!
+//! ```
+//! let s = "Can you find a needle in a haystack?";
+//!
+//! // &str pattern
+//! assert_eq!(s.find("you"), Some(4));
+//! // char pattern
+//! assert_eq!(s.find('n'), Some(2));
+//! // array of chars pattern
+//! assert_eq!(s.find(&['a', 'e', 'i', 'o', 'u']), Some(1));
+//! // slice of chars pattern
+//! assert_eq!(s.find(&['a', 'e', 'i', 'o', 'u'][..]), Some(1));
+//! // closure pattern
+//! assert_eq!(s.find(|c: char| c.is_ascii_punctuation()), Some(35));
+//! ```
+//!
+//! [pattern-impls]: Pattern#implementors
 
 #![unstable(
     feature = "pattern",
@@ -10,23 +39,63 @@
 )]
 
 use crate::cmp;
+use crate::cmp::Ordering;
 use crate::fmt;
 use crate::slice::memchr;
-use crate::usize;
 
 // Pattern
 
 /// A string pattern.
 ///
 /// A `Pattern<'a>` expresses that the implementing type
-/// can be used as a string pattern for searching in a `&'a str`.
+/// can be used as a string pattern for searching in a [`&'a str`][str].
 ///
 /// For example, both `'a'` and `"aa"` are patterns that
 /// would match at index `1` in the string `"baaaab"`.
 ///
 /// The trait itself acts as a builder for an associated
-/// `Searcher` type, which does the actual work of finding
+/// [`Searcher`] type, which does the actual work of finding
 /// occurrences of the pattern in a string.
+///
+/// Depending on the type of the pattern, the behaviour of methods like
+/// [`str::find`] and [`str::contains`] can change. The table below describes
+/// some of those behaviours.
+///
+/// | Pattern type             | Match condition                           |
+/// |--------------------------|-------------------------------------------|
+/// | `&str`                   | is substring                              |
+/// | `char`                   | is contained in string                    |
+/// | `&[char]`                | any char in slice is contained in string  |
+/// | `F: FnMut(char) -> bool` | `F` returns `true` for a char in string   |
+/// | `&&str`                  | is substring                              |
+/// | `&String`                | is substring                              |
+///
+/// # Examples
+///
+/// ```
+/// // &str
+/// assert_eq!("abaaa".find("ba"), Some(1));
+/// assert_eq!("abaaa".find("bac"), None);
+///
+/// // char
+/// assert_eq!("abaaa".find('a'), Some(0));
+/// assert_eq!("abaaa".find('b'), Some(1));
+/// assert_eq!("abaaa".find('c'), None);
+///
+/// // &[char; N]
+/// assert_eq!("ab".find(&['b', 'a']), Some(0));
+/// assert_eq!("abaaa".find(&['a', 'z']), Some(0));
+/// assert_eq!("abaaa".find(&['c', 'd']), None);
+///
+/// // &[char]
+/// assert_eq!("ab".find(&['b', 'a'][..]), Some(0));
+/// assert_eq!("abaaa".find(&['a', 'z'][..]), Some(0));
+/// assert_eq!("abaaa".find(&['c', 'd'][..]), None);
+///
+/// // FnMut(char) -> bool
+/// assert_eq!("abcdef_z".find(|ch| ch > 'd' && ch < 'y'), Some(4));
+/// assert_eq!("abcddd_z".find(|ch| ch > 'd' && ch < 'y'), None);
+/// ```
 pub trait Pattern<'a>: Sized {
     /// Associated searcher for this pattern
     type Searcher: Searcher<'a>;
@@ -55,11 +124,47 @@ pub trait Pattern<'a>: Sized {
     {
         matches!(self.into_searcher(haystack).next_back(), SearchStep::Match(_, j) if haystack.len() == j)
     }
+
+    /// Removes the pattern from the front of haystack, if it matches.
+    #[inline]
+    fn strip_prefix_of(self, haystack: &'a str) -> Option<&'a str> {
+        if let SearchStep::Match(start, len) = self.into_searcher(haystack).next() {
+            debug_assert_eq!(
+                start, 0,
+                "The first search step from Searcher \
+                 must include the first character"
+            );
+            // SAFETY: `Searcher` is known to return valid indices.
+            unsafe { Some(haystack.get_unchecked(len..)) }
+        } else {
+            None
+        }
+    }
+
+    /// Removes the pattern from the back of haystack, if it matches.
+    #[inline]
+    fn strip_suffix_of(self, haystack: &'a str) -> Option<&'a str>
+    where
+        Self::Searcher: ReverseSearcher<'a>,
+    {
+        if let SearchStep::Match(start, end) = self.into_searcher(haystack).next_back() {
+            debug_assert_eq!(
+                end,
+                haystack.len(),
+                "The first search step from ReverseSearcher \
+                 must include the last character"
+            );
+            // SAFETY: `Searcher` is known to return valid indices.
+            unsafe { Some(haystack.get_unchecked(..start)) }
+        } else {
+            None
+        }
+    }
 }
 
 // Searcher
 
-/// Result of calling `Searcher::next()` or `ReverseSearcher::next_back()`.
+/// Result of calling [`Searcher::next()`] or [`ReverseSearcher::next_back()`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SearchStep {
     /// Expresses that a match of the pattern has been found at
@@ -82,44 +187,47 @@ pub enum SearchStep {
 /// matches of a pattern starting from the front (left) of a string.
 ///
 /// It will be implemented by associated `Searcher`
-/// types of the `Pattern` trait.
+/// types of the [`Pattern`] trait.
 ///
 /// The trait is marked unsafe because the indices returned by the
-/// `next()` methods are required to lie on valid utf8 boundaries in
-/// the haystack. This enables consumers of this trait to
+/// [`next()`][Searcher::next] methods are required to lie on valid utf8
+/// boundaries in the haystack. This enables consumers of this trait to
 /// slice the haystack without additional runtime checks.
 pub unsafe trait Searcher<'a> {
     /// Getter for the underlying string to be searched in
     ///
-    /// Will always return the same `&str`
+    /// Will always return the same [`&str`][str].
     fn haystack(&self) -> &'a str;
 
     /// Performs the next search step starting from the front.
     ///
-    /// - Returns `Match(a, b)` if `haystack[a..b]` matches the pattern.
-    /// - Returns `Reject(a, b)` if `haystack[a..b]` can not match the
-    ///   pattern, even partially.
-    /// - Returns `Done` if every byte of the haystack has been visited
+    /// - Returns [`Match(a, b)`][SearchStep::Match] if `haystack[a..b]` matches
+    ///   the pattern.
+    /// - Returns [`Reject(a, b)`][SearchStep::Reject] if `haystack[a..b]` can
+    ///   not match the pattern, even partially.
+    /// - Returns [`Done`][SearchStep::Done] if every byte of the haystack has
+    ///   been visited.
     ///
-    /// The stream of `Match` and `Reject` values up to a `Done`
+    /// The stream of [`Match`][SearchStep::Match] and
+    /// [`Reject`][SearchStep::Reject] values up to a [`Done`][SearchStep::Done]
     /// will contain index ranges that are adjacent, non-overlapping,
     /// covering the whole haystack, and laying on utf8 boundaries.
     ///
-    /// A `Match` result needs to contain the whole matched pattern,
-    /// however `Reject` results may be split up into arbitrary
-    /// many adjacent fragments. Both ranges may have zero length.
+    /// A [`Match`][SearchStep::Match] result needs to contain the whole matched
+    /// pattern, however [`Reject`][SearchStep::Reject] results may be split up
+    /// into arbitrary many adjacent fragments. Both ranges may have zero length.
     ///
     /// As an example, the pattern `"aaa"` and the haystack `"cbaaaaab"`
     /// might produce the stream
     /// `[Reject(0, 1), Reject(1, 2), Match(2, 5), Reject(5, 8)]`
     fn next(&mut self) -> SearchStep;
 
-    /// Finds the next `Match` result. See `next()`
+    /// Finds the next [`Match`][SearchStep::Match] result. See [`next()`][Searcher::next].
     ///
-    /// Unlike next(), there is no guarantee that the returned ranges
-    /// of this and next_reject will overlap. This will return (start_match, end_match),
-    /// where start_match is the index of where the match begins, and end_match is
-    /// the index after the end of the match.
+    /// Unlike [`next()`][Searcher::next], there is no guarantee that the returned ranges
+    /// of this and [`next_reject`][Searcher::next_reject] will overlap. This will return
+    /// `(start_match, end_match)`, where start_match is the index of where
+    /// the match begins, and end_match is the index after the end of the match.
     #[inline]
     fn next_match(&mut self) -> Option<(usize, usize)> {
         loop {
@@ -131,10 +239,11 @@ pub unsafe trait Searcher<'a> {
         }
     }
 
-    /// Finds the next `Reject` result. See `next()` and `next_match()`
+    /// Finds the next [`Reject`][SearchStep::Reject] result. See [`next()`][Searcher::next]
+    /// and [`next_match()`][Searcher::next_match].
     ///
-    /// Unlike next(), there is no guarantee that the returned ranges
-    /// of this and next_match will overlap.
+    /// Unlike [`next()`][Searcher::next], there is no guarantee that the returned ranges
+    /// of this and [`next_match`][Searcher::next_match] will overlap.
     #[inline]
     fn next_reject(&mut self) -> Option<(usize, usize)> {
         loop {
@@ -152,37 +261,41 @@ pub unsafe trait Searcher<'a> {
 /// This trait provides methods for searching for non-overlapping
 /// matches of a pattern starting from the back (right) of a string.
 ///
-/// It will be implemented by associated `Searcher`
-/// types of the `Pattern` trait if the pattern supports searching
+/// It will be implemented by associated [`Searcher`]
+/// types of the [`Pattern`] trait if the pattern supports searching
 /// for it from the back.
 ///
 /// The index ranges returned by this trait are not required
 /// to exactly match those of the forward search in reverse.
 ///
-/// For the reason why this trait is marked unsafe, see them
-/// parent trait `Searcher`.
+/// For the reason why this trait is marked unsafe, see the
+/// parent trait [`Searcher`].
 pub unsafe trait ReverseSearcher<'a>: Searcher<'a> {
     /// Performs the next search step starting from the back.
     ///
-    /// - Returns `Match(a, b)` if `haystack[a..b]` matches the pattern.
-    /// - Returns `Reject(a, b)` if `haystack[a..b]` can not match the
-    ///   pattern, even partially.
-    /// - Returns `Done` if every byte of the haystack has been visited
+    /// - Returns [`Match(a, b)`][SearchStep::Match] if `haystack[a..b]`
+    ///   matches the pattern.
+    /// - Returns [`Reject(a, b)`][SearchStep::Reject] if `haystack[a..b]`
+    ///   can not match the pattern, even partially.
+    /// - Returns [`Done`][SearchStep::Done] if every byte of the haystack
+    ///   has been visited
     ///
-    /// The stream of `Match` and `Reject` values up to a `Done`
+    /// The stream of [`Match`][SearchStep::Match] and
+    /// [`Reject`][SearchStep::Reject] values up to a [`Done`][SearchStep::Done]
     /// will contain index ranges that are adjacent, non-overlapping,
     /// covering the whole haystack, and laying on utf8 boundaries.
     ///
-    /// A `Match` result needs to contain the whole matched pattern,
-    /// however `Reject` results may be split up into arbitrary
-    /// many adjacent fragments. Both ranges may have zero length.
+    /// A [`Match`][SearchStep::Match] result needs to contain the whole matched
+    /// pattern, however [`Reject`][SearchStep::Reject] results may be split up
+    /// into arbitrary many adjacent fragments. Both ranges may have zero length.
     ///
     /// As an example, the pattern `"aaa"` and the haystack `"cbaaaaab"`
     /// might produce the stream
-    /// `[Reject(7, 8), Match(4, 7), Reject(1, 4), Reject(0, 1)]`
+    /// `[Reject(7, 8), Match(4, 7), Reject(1, 4), Reject(0, 1)]`.
     fn next_back(&mut self) -> SearchStep;
 
-    /// Finds the next `Match` result. See `next_back()`
+    /// Finds the next [`Match`][SearchStep::Match] result.
+    /// See [`next_back()`][ReverseSearcher::next_back].
     #[inline]
     fn next_match_back(&mut self) -> Option<(usize, usize)> {
         loop {
@@ -194,7 +307,8 @@ pub unsafe trait ReverseSearcher<'a>: Searcher<'a> {
         }
     }
 
-    /// Finds the next `Reject` result. See `next_back()`
+    /// Finds the next [`Reject`][SearchStep::Reject] result.
+    /// See [`next_back()`][ReverseSearcher::next_back].
     #[inline]
     fn next_reject_back(&mut self) -> Option<(usize, usize)> {
         loop {
@@ -207,10 +321,10 @@ pub unsafe trait ReverseSearcher<'a>: Searcher<'a> {
     }
 }
 
-/// A marker trait to express that a `ReverseSearcher`
-/// can be used for a `DoubleEndedIterator` implementation.
+/// A marker trait to express that a [`ReverseSearcher`]
+/// can be used for a [`DoubleEndedIterator`] implementation.
 ///
-/// For this, the impl of `Searcher` and `ReverseSearcher` need
+/// For this, the impl of [`Searcher`] and [`ReverseSearcher`] need
 /// to follow these conditions:
 ///
 /// - All results of `next()` need to be identical
@@ -222,7 +336,7 @@ pub unsafe trait ReverseSearcher<'a>: Searcher<'a> {
 /// # Examples
 ///
 /// `char::Searcher` is a `DoubleEndedSearcher` because searching for a
-/// `char` only requires looking at one at a time, which behaves the same
+/// [`char`] only requires looking at one at a time, which behaves the same
 /// from both ends.
 ///
 /// `(&str)::Searcher` is not a `DoubleEndedSearcher` because
@@ -249,13 +363,13 @@ pub struct CharSearcher<'a> {
     /// `finger_back` is the current byte index of the reverse search.
     /// Imagine that it exists after the byte at its index, i.e.
     /// haystack[finger_back - 1] is the last byte of the slice we must inspect during
-    /// forward searching (and thus the first byte to be inspected when calling next_back())
+    /// forward searching (and thus the first byte to be inspected when calling next_back()).
     finger_back: usize,
     /// The character being searched for
     needle: char,
 
     // safety invariant: `utf8_size` must be less than 5
-    /// The number of bytes `needle` takes up when encoded in utf8
+    /// The number of bytes `needle` takes up when encoded in utf8.
     utf8_size: usize,
     /// A utf8 encoded copy of the `needle`
     utf8_encoded: [u8; 4],
@@ -415,7 +529,13 @@ unsafe impl<'a> ReverseSearcher<'a> for CharSearcher<'a> {
 
 impl<'a> DoubleEndedSearcher<'a> for CharSearcher<'a> {}
 
-/// Searches for chars that are equal to a given char
+/// Searches for chars that are equal to a given [`char`].
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!("Hello world".find('o'), Some(4));
+/// ```
 impl<'a> Pattern<'a> for char {
     type Searcher = CharSearcher<'a>;
 
@@ -449,11 +569,24 @@ impl<'a> Pattern<'a> for char {
     }
 
     #[inline]
+    fn strip_prefix_of(self, haystack: &'a str) -> Option<&'a str> {
+        self.encode_utf8(&mut [0u8; 4]).strip_prefix_of(haystack)
+    }
+
+    #[inline]
     fn is_suffix_of(self, haystack: &'a str) -> bool
     where
         Self::Searcher: ReverseSearcher<'a>,
     {
         self.encode_utf8(&mut [0u8; 4]).is_suffix_of(haystack)
+    }
+
+    #[inline]
+    fn strip_suffix_of(self, haystack: &'a str) -> Option<&'a str>
+    where
+        Self::Searcher: ReverseSearcher<'a>,
+    {
+        self.encode_utf8(&mut [0u8; 4]).strip_suffix_of(haystack)
     }
 }
 
@@ -473,6 +606,20 @@ where
     #[inline]
     fn matches(&mut self, c: char) -> bool {
         (*self)(c)
+    }
+}
+
+impl<const N: usize> MultiCharEq for [char; N] {
+    #[inline]
+    fn matches(&mut self, c: char) -> bool {
+        self.iter().any(|&m| m == c)
+    }
+}
+
+impl<const N: usize> MultiCharEq for &[char; N] {
+    #[inline]
+    fn matches(&mut self, c: char) -> bool {
+        self.iter().any(|&m| m == c)
     }
 }
 
@@ -570,11 +717,24 @@ macro_rules! pattern_methods {
         }
 
         #[inline]
+        fn strip_prefix_of(self, haystack: &'a str) -> Option<&'a str> {
+            ($pmap)(self).strip_prefix_of(haystack)
+        }
+
+        #[inline]
         fn is_suffix_of(self, haystack: &'a str) -> bool
         where
             $t: ReverseSearcher<'a>,
         {
             ($pmap)(self).is_suffix_of(haystack)
+        }
+
+        #[inline]
+        fn strip_suffix_of(self, haystack: &'a str) -> Option<&'a str>
+        where
+            $t: ReverseSearcher<'a>,
+        {
+            ($pmap)(self).strip_suffix_of(haystack)
         }
     };
 }
@@ -614,6 +774,58 @@ macro_rules! searcher_methods {
     };
 }
 
+/// Associated type for `<[char; N] as Pattern<'a>>::Searcher`.
+#[derive(Clone, Debug)]
+pub struct CharArraySearcher<'a, const N: usize>(
+    <MultiCharEqPattern<[char; N]> as Pattern<'a>>::Searcher,
+);
+
+/// Associated type for `<&[char; N] as Pattern<'a>>::Searcher`.
+#[derive(Clone, Debug)]
+pub struct CharArrayRefSearcher<'a, 'b, const N: usize>(
+    <MultiCharEqPattern<&'b [char; N]> as Pattern<'a>>::Searcher,
+);
+
+/// Searches for chars that are equal to any of the [`char`]s in the array.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!("Hello world".find(['l', 'l']), Some(2));
+/// assert_eq!("Hello world".find(['l', 'l']), Some(2));
+/// ```
+impl<'a, const N: usize> Pattern<'a> for [char; N] {
+    pattern_methods!(CharArraySearcher<'a, N>, MultiCharEqPattern, CharArraySearcher);
+}
+
+unsafe impl<'a, const N: usize> Searcher<'a> for CharArraySearcher<'a, N> {
+    searcher_methods!(forward);
+}
+
+unsafe impl<'a, const N: usize> ReverseSearcher<'a> for CharArraySearcher<'a, N> {
+    searcher_methods!(reverse);
+}
+
+/// Searches for chars that are equal to any of the [`char`]s in the array.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!("Hello world".find(&['l', 'l']), Some(2));
+/// assert_eq!("Hello world".find(&['l', 'l']), Some(2));
+/// ```
+impl<'a, 'b, const N: usize> Pattern<'a> for &'b [char; N] {
+    pattern_methods!(CharArrayRefSearcher<'a, 'b, N>, MultiCharEqPattern, CharArrayRefSearcher);
+}
+
+unsafe impl<'a, 'b, const N: usize> Searcher<'a> for CharArrayRefSearcher<'a, 'b, N> {
+    searcher_methods!(forward);
+}
+
+unsafe impl<'a, 'b, const N: usize> ReverseSearcher<'a> for CharArrayRefSearcher<'a, 'b, N> {
+    searcher_methods!(reverse);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // Impl for &[char]
 /////////////////////////////////////////////////////////////////////////////
@@ -634,7 +846,14 @@ unsafe impl<'a, 'b> ReverseSearcher<'a> for CharSliceSearcher<'a, 'b> {
 
 impl<'a, 'b> DoubleEndedSearcher<'a> for CharSliceSearcher<'a, 'b> {}
 
-/// Searches for chars that are equal to any of the chars in the array
+/// Searches for chars that are equal to any of the [`char`]s in the slice.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!("Hello world".find(&['l', 'l'] as &[_]), Some(2));
+/// assert_eq!("Hello world".find(&['l', 'l'][..]), Some(2));
+/// ```
 impl<'a, 'b> Pattern<'a> for &'b [char] {
     pattern_methods!(CharSliceSearcher<'a, 'b>, MultiCharEqPattern, CharSliceSearcher);
 }
@@ -676,7 +895,14 @@ where
 
 impl<'a, F> DoubleEndedSearcher<'a> for CharPredicateSearcher<'a, F> where F: FnMut(char) -> bool {}
 
-/// Searches for chars that match the given predicate
+/// Searches for [`char`]s that match the given predicate.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!("Hello world".find(char::is_uppercase), Some(0));
+/// assert_eq!("Hello world".find(|c| "aeiou".contains(c)), Some(1));
+/// ```
 impl<'a, F> Pattern<'a> for F
 where
     F: FnMut(char) -> bool,
@@ -701,6 +927,12 @@ impl<'a, 'b, 'c> Pattern<'a> for &'c &'b str {
 ///
 /// Will handle the pattern `""` as returning empty matches at each character
 /// boundary.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!("Hello world".find("world"), Some(6));
+/// ```
 impl<'a, 'b> Pattern<'a> for &'b str {
     type Searcher = StrSearcher<'a, 'b>;
 
@@ -709,16 +941,65 @@ impl<'a, 'b> Pattern<'a> for &'b str {
         StrSearcher::new(haystack, self)
     }
 
-    /// Checks whether the pattern matches at the front of the haystack
+    /// Checks whether the pattern matches at the front of the haystack.
     #[inline]
     fn is_prefix_of(self, haystack: &'a str) -> bool {
         haystack.as_bytes().starts_with(self.as_bytes())
     }
 
-    /// Checks whether the pattern matches at the back of the haystack
+    /// Checks whether the pattern matches anywhere in the haystack
+    #[inline]
+    fn is_contained_in(self, haystack: &'a str) -> bool {
+        if self.len() == 0 {
+            return true;
+        }
+
+        match self.len().cmp(&haystack.len()) {
+            Ordering::Less => {
+                if self.len() == 1 {
+                    return haystack.as_bytes().contains(&self.as_bytes()[0]);
+                }
+
+                #[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
+                if self.len() <= 32 {
+                    if let Some(result) = simd_contains(self, haystack) {
+                        return result;
+                    }
+                }
+
+                self.into_searcher(haystack).next_match().is_some()
+            }
+            _ => self == haystack,
+        }
+    }
+
+    /// Removes the pattern from the front of haystack, if it matches.
+    #[inline]
+    fn strip_prefix_of(self, haystack: &'a str) -> Option<&'a str> {
+        if self.is_prefix_of(haystack) {
+            // SAFETY: prefix was just verified to exist.
+            unsafe { Some(haystack.get_unchecked(self.as_bytes().len()..)) }
+        } else {
+            None
+        }
+    }
+
+    /// Checks whether the pattern matches at the back of the haystack.
     #[inline]
     fn is_suffix_of(self, haystack: &'a str) -> bool {
         haystack.as_bytes().ends_with(self.as_bytes())
+    }
+
+    /// Removes the pattern from the back of haystack, if it matches.
+    #[inline]
+    fn strip_suffix_of(self, haystack: &'a str) -> Option<&'a str> {
+        if self.is_suffix_of(haystack) {
+            let i = haystack.len() - self.as_bytes().len();
+            // SAFETY: suffix was just verified to exist.
+            unsafe { Some(haystack.get_unchecked(..i)) }
+        } else {
+            None
+        }
     }
 }
 
@@ -747,6 +1028,8 @@ struct EmptyNeedle {
     end: usize,
     is_match_fw: bool,
     is_match_bw: bool,
+    // Needed in case of an empty haystack, see #85462
+    is_finished: bool,
 }
 
 impl<'a, 'b> StrSearcher<'a, 'b> {
@@ -760,6 +1043,7 @@ impl<'a, 'b> StrSearcher<'a, 'b> {
                     end: haystack.len(),
                     is_match_fw: true,
                     is_match_bw: true,
+                    is_finished: false,
                 }),
             }
         } else {
@@ -785,13 +1069,19 @@ unsafe impl<'a, 'b> Searcher<'a> for StrSearcher<'a, 'b> {
     fn next(&mut self) -> SearchStep {
         match self.searcher {
             StrSearcherImpl::Empty(ref mut searcher) => {
+                if searcher.is_finished {
+                    return SearchStep::Done;
+                }
                 // empty needle rejects every char and matches every empty string between them
                 let is_match = searcher.is_match_fw;
                 searcher.is_match_fw = !searcher.is_match_fw;
                 let pos = searcher.position;
                 match self.haystack[pos..].chars().next() {
                     _ if is_match => SearchStep::Match(pos, pos),
-                    None => SearchStep::Done,
+                    None => {
+                        searcher.is_finished = true;
+                        SearchStep::Done
+                    }
                     Some(ch) => {
                         searcher.position += ch.len_utf8();
                         SearchStep::Reject(pos, searcher.position)
@@ -864,12 +1154,18 @@ unsafe impl<'a, 'b> ReverseSearcher<'a> for StrSearcher<'a, 'b> {
     fn next_back(&mut self) -> SearchStep {
         match self.searcher {
             StrSearcherImpl::Empty(ref mut searcher) => {
+                if searcher.is_finished {
+                    return SearchStep::Done;
+                }
                 let is_match = searcher.is_match_bw;
                 searcher.is_match_bw = !searcher.is_match_bw;
                 let end = searcher.end;
                 match self.haystack[..end].chars().next_back() {
                     _ if is_match => SearchStep::Match(end, end),
-                    None => SearchStep::Done,
+                    None => {
+                        searcher.is_finished = true;
+                        SearchStep::Done
+                    }
                     Some(ch) => {
                         searcher.end -= ch.len_utf8();
                         SearchStep::Reject(searcher.end, end)
@@ -1413,5 +1709,212 @@ impl TwoWayStrategy for RejectAndMatch {
     #[inline]
     fn matching(a: usize, b: usize) -> Self::Output {
         SearchStep::Match(a, b)
+    }
+}
+
+/// SIMD search for short needles based on
+/// Wojciech Muła's "SIMD-friendly algorithms for substring searching"[0]
+///
+/// It skips ahead by the vector width on each iteration (rather than the needle length as two-way
+/// does) by probing the first and last byte of the needle for the whole vector width
+/// and only doing full needle comparisons when the vectorized probe indicated potential matches.
+///
+/// Since the x86_64 baseline only offers SSE2 we only use u8x16 here.
+/// If we ever ship std with for x86-64-v3 or adapt this for other platforms then wider vectors
+/// should be evaluated.
+///
+/// For haystacks smaller than vector-size + needle length it falls back to
+/// a naive O(n*m) search so this implementation should not be called on larger needles.
+///
+/// [0]: http://0x80.pl/articles/simd-strfind.html#sse-avx2
+#[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
+#[inline]
+fn simd_contains(needle: &str, haystack: &str) -> Option<bool> {
+    let needle = needle.as_bytes();
+    let haystack = haystack.as_bytes();
+
+    debug_assert!(needle.len() > 1);
+
+    use crate::ops::BitAnd;
+    use crate::simd::mask8x16 as Mask;
+    use crate::simd::u8x16 as Block;
+    use crate::simd::{SimdPartialEq, ToBitMask};
+
+    let first_probe = needle[0];
+    let last_byte_offset = needle.len() - 1;
+
+    // the offset used for the 2nd vector
+    let second_probe_offset = if needle.len() == 2 {
+        // never bail out on len=2 needles because the probes will fully cover them and have
+        // no degenerate cases.
+        1
+    } else {
+        // try a few bytes in case first and last byte of the needle are the same
+        let Some(second_probe_offset) = (needle.len().saturating_sub(4)..needle.len()).rfind(|&idx| needle[idx] != first_probe) else {
+            // fall back to other search methods if we can't find any different bytes
+            // since we could otherwise hit some degenerate cases
+            return None;
+        };
+        second_probe_offset
+    };
+
+    // do a naive search if the haystack is too small to fit
+    if haystack.len() < Block::LANES + last_byte_offset {
+        return Some(haystack.windows(needle.len()).any(|c| c == needle));
+    }
+
+    let first_probe: Block = Block::splat(first_probe);
+    let second_probe: Block = Block::splat(needle[second_probe_offset]);
+    // first byte are already checked by the outer loop. to verify a match only the
+    // remainder has to be compared.
+    let trimmed_needle = &needle[1..];
+
+    // this #[cold] is load-bearing, benchmark before removing it...
+    let check_mask = #[cold]
+    |idx, mask: u16, skip: bool| -> bool {
+        if skip {
+            return false;
+        }
+
+        // and so is this. optimizations are weird.
+        let mut mask = mask;
+
+        while mask != 0 {
+            let trailing = mask.trailing_zeros();
+            let offset = idx + trailing as usize + 1;
+            // SAFETY: mask is between 0 and 15 trailing zeroes, we skip one additional byte that was already compared
+            // and then take trimmed_needle.len() bytes. This is within the bounds defined by the outer loop
+            unsafe {
+                let sub = haystack.get_unchecked(offset..).get_unchecked(..trimmed_needle.len());
+                if small_slice_eq(sub, trimmed_needle) {
+                    return true;
+                }
+            }
+            mask &= !(1 << trailing);
+        }
+        return false;
+    };
+
+    let test_chunk = |idx| -> u16 {
+        // SAFETY: this requires at least LANES bytes being readable at idx
+        // that is ensured by the loop ranges (see comments below)
+        let a: Block = unsafe { haystack.as_ptr().add(idx).cast::<Block>().read_unaligned() };
+        // SAFETY: this requires LANES + block_offset bytes being readable at idx
+        let b: Block = unsafe {
+            haystack.as_ptr().add(idx).add(second_probe_offset).cast::<Block>().read_unaligned()
+        };
+        let eq_first: Mask = a.simd_eq(first_probe);
+        let eq_last: Mask = b.simd_eq(second_probe);
+        let both = eq_first.bitand(eq_last);
+        let mask = both.to_bitmask();
+
+        return mask;
+    };
+
+    let mut i = 0;
+    let mut result = false;
+    // The loop condition must ensure that there's enough headroom to read LANE bytes,
+    // and not only at the current index but also at the index shifted by block_offset
+    const UNROLL: usize = 4;
+    while i + last_byte_offset + UNROLL * Block::LANES < haystack.len() && !result {
+        let mut masks = [0u16; UNROLL];
+        for j in 0..UNROLL {
+            masks[j] = test_chunk(i + j * Block::LANES);
+        }
+        for j in 0..UNROLL {
+            let mask = masks[j];
+            if mask != 0 {
+                result |= check_mask(i + j * Block::LANES, mask, result);
+            }
+        }
+        i += UNROLL * Block::LANES;
+    }
+    while i + last_byte_offset + Block::LANES < haystack.len() && !result {
+        let mask = test_chunk(i);
+        if mask != 0 {
+            result |= check_mask(i, mask, result);
+        }
+        i += Block::LANES;
+    }
+
+    // Process the tail that didn't fit into LANES-sized steps.
+    // This simply repeats the same procedure but as right-aligned chunk instead
+    // of a left-aligned one. The last byte must be exactly flush with the string end so
+    // we don't miss a single byte or read out of bounds.
+    let i = haystack.len() - last_byte_offset - Block::LANES;
+    let mask = test_chunk(i);
+    if mask != 0 {
+        result |= check_mask(i, mask, result);
+    }
+
+    Some(result)
+}
+
+/// Compares short slices for equality.
+///
+/// It avoids a call to libc's memcmp which is faster on long slices
+/// due to SIMD optimizations but it incurs a function call overhead.
+///
+/// # Safety
+///
+/// Both slices must have the same length.
+#[cfg(all(target_arch = "x86_64", target_feature = "sse2"))] // only called on x86
+#[inline]
+unsafe fn small_slice_eq(x: &[u8], y: &[u8]) -> bool {
+    debug_assert_eq!(x.len(), y.len());
+    // This function is adapted from
+    // https://github.com/BurntSushi/memchr/blob/8037d11b4357b0f07be2bb66dc2659d9cf28ad32/src/memmem/util.rs#L32
+
+    // If we don't have enough bytes to do 4-byte at a time loads, then
+    // fall back to the naive slow version.
+    //
+    // Potential alternative: We could do a copy_nonoverlapping combined with a mask instead
+    // of a loop. Benchmark it.
+    if x.len() < 4 {
+        for (&b1, &b2) in x.iter().zip(y) {
+            if b1 != b2 {
+                return false;
+            }
+        }
+        return true;
+    }
+    // When we have 4 or more bytes to compare, then proceed in chunks of 4 at
+    // a time using unaligned loads.
+    //
+    // Also, why do 4 byte loads instead of, say, 8 byte loads? The reason is
+    // that this particular version of memcmp is likely to be called with tiny
+    // needles. That means that if we do 8 byte loads, then a higher proportion
+    // of memcmp calls will use the slower variant above. With that said, this
+    // is a hypothesis and is only loosely supported by benchmarks. There's
+    // likely some improvement that could be made here. The main thing here
+    // though is to optimize for latency, not throughput.
+
+    // SAFETY: Via the conditional above, we know that both `px` and `py`
+    // have the same length, so `px < pxend` implies that `py < pyend`.
+    // Thus, derefencing both `px` and `py` in the loop below is safe.
+    //
+    // Moreover, we set `pxend` and `pyend` to be 4 bytes before the actual
+    // end of `px` and `py`. Thus, the final dereference outside of the
+    // loop is guaranteed to be valid. (The final comparison will overlap with
+    // the last comparison done in the loop for lengths that aren't multiples
+    // of four.)
+    //
+    // Finally, we needn't worry about alignment here, since we do unaligned
+    // loads.
+    unsafe {
+        let (mut px, mut py) = (x.as_ptr(), y.as_ptr());
+        let (pxend, pyend) = (px.add(x.len() - 4), py.add(y.len() - 4));
+        while px < pxend {
+            let vx = (px as *const u32).read_unaligned();
+            let vy = (py as *const u32).read_unaligned();
+            if vx != vy {
+                return false;
+            }
+            px = px.add(4);
+            py = py.add(4);
+        }
+        let vx = (pxend as *const u32).read_unaligned();
+        let vy = (pyend as *const u32).read_unaligned();
+        vx == vy
     }
 }

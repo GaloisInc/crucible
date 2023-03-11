@@ -5,12 +5,13 @@ use crate::error::Error as StdError;
 use crate::ffi::{OsStr, OsString};
 use crate::fmt;
 use crate::io;
+use crate::marker::PhantomData;
 use crate::path::{self, PathBuf};
 use crate::str;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::Mutex;
 use crate::sync::Once;
-use crate::sys::{decode_error_kind, sgx_ineffective, unsupported, Void};
+use crate::sys::{decode_error_kind, sgx_ineffective, unsupported};
 use crate::vec;
 
 pub fn errno() -> i32 {
@@ -21,7 +22,7 @@ pub fn error_string(errno: i32) -> String {
     if errno == RESULT_SUCCESS {
         "operation successful".into()
     } else if ((Error::UserRangeStart as _)..=(Error::UserRangeEnd as _)).contains(&errno) {
-        format!("user-specified error {:08x}", errno)
+        format!("user-specified error {errno:08x}")
     } else {
         decode_error_kind(errno).as_str().into()
     }
@@ -35,7 +36,7 @@ pub fn chdir(_: &path::Path) -> io::Result<()> {
     sgx_ineffective(())
 }
 
-pub struct SplitPaths<'a>(&'a Void);
+pub struct SplitPaths<'a>(!, PhantomData<&'a ()>);
 
 pub fn split_paths(_unparsed: &OsStr) -> SplitPaths<'_> {
     panic!("unsupported")
@@ -44,7 +45,7 @@ pub fn split_paths(_unparsed: &OsStr) -> SplitPaths<'_> {
 impl<'a> Iterator for SplitPaths<'a> {
     type Item = PathBuf;
     fn next(&mut self) -> Option<PathBuf> {
-        match *self.0 {}
+        self.0
     }
 }
 
@@ -105,8 +106,8 @@ pub fn env() -> Env {
     get_env_store().map(|env| clone_to_vec(&env.lock().unwrap())).unwrap_or_default().into_iter()
 }
 
-pub fn getenv(k: &OsStr) -> io::Result<Option<OsString>> {
-    Ok(get_env_store().and_then(|s| s.lock().unwrap().get(k).cloned()))
+pub fn getenv(k: &OsStr) -> Option<OsString> {
+    get_env_store().and_then(|s| s.lock().unwrap().get(k).cloned())
 }
 
 pub fn setenv(k: &OsStr, v: &OsStr) -> io::Result<()> {

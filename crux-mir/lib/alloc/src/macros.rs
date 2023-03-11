@@ -29,33 +29,46 @@
 /// to the same boxed integer value, not five references pointing to independently
 /// boxed integers.
 ///
-/// [`Vec`]: ../std/vec/struct.Vec.html
-/// [`Clone`]: ../std/clone/trait.Clone.html
-#[cfg(not(test))]
+/// Also, note that `vec![expr; 0]` is allowed, and produces an empty vector.
+/// This will still evaluate `expr`, however, and immediately drop the resulting value, so
+/// be mindful of side effects.
+///
+/// [`Vec`]: crate::vec::Vec
+#[cfg(all(not(no_global_oom_handling), not(test)))]
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
-#[allow_internal_unstable(box_syntax)]
+#[rustc_diagnostic_item = "vec_macro"]
+#[allow_internal_unstable(rustc_attrs, liballoc_internals)]
 macro_rules! vec {
+    () => (
+        $crate::__rust_force_expr!($crate::vec::Vec::new())
+    );
     ($elem:expr; $n:expr) => (
-        $crate::vec::from_elem($elem, $n)
+        $crate::__rust_force_expr!($crate::vec::from_elem($elem, $n))
     );
-    ($($x:expr),*) => (
-        <[_]>::into_vec(box [$($x),*])
+    ($($x:expr),+ $(,)?) => (
+        $crate::__rust_force_expr!(<[_]>::into_vec(
+            #[rustc_box]
+            $crate::boxed::Box::new([$($x),+])
+        ))
     );
-    ($($x:expr,)*) => ($crate::vec![$($x),*])
 }
 
 // HACK(japaric): with cfg(test) the inherent `[T]::into_vec` method, which is
 // required for this macro definition, is not available. Instead use the
 // `slice::into_vec`  function which is only available with cfg(test)
 // NB see the slice::hack module in slice.rs for more information
-#[cfg(test)]
+#[cfg(all(not(no_global_oom_handling), test))]
+#[allow(unused_macro_rules)]
 macro_rules! vec {
+    () => (
+        $crate::vec::Vec::new()
+    );
     ($elem:expr; $n:expr) => (
         $crate::vec::from_elem($elem, $n)
     );
     ($($x:expr),*) => (
-        $crate::slice::into_vec(box [$($x),*])
+        $crate::slice::into_vec($crate::boxed::Box::new([$($x),*]))
     );
     ($($x:expr,)*) => (vec![$($x),*])
 }
@@ -67,7 +80,7 @@ macro_rules! vec {
 ///
 /// Additional parameters passed to `format!` replace the `{}`s within the
 /// formatting string in the order given unless named or positional parameters
-/// are used; see [`std::fmt`][fmt] for more information.
+/// are used; see [`std::fmt`] for more information.
 ///
 /// A common use for `format!` is concatenation and interpolation of strings.
 /// The same convention is used with [`print!`] and [`write!`] macros,
@@ -76,11 +89,11 @@ macro_rules! vec {
 /// To convert a single value to a string, use the [`to_string`] method. This
 /// will use the [`Display`] formatting trait.
 ///
-/// [fmt]: ../std/fmt/index.html
+/// [`std::fmt`]: ../std/fmt/index.html
 /// [`print!`]: ../std/macro.print.html
-/// [`write!`]: ../std/macro.write.html
-/// [`to_string`]: ../std/string/trait.ToString.html
-/// [`Display`]: ../std/fmt/trait.Display.html
+/// [`write!`]: core::write
+/// [`to_string`]: crate::string::ToString
+/// [`Display`]: core::fmt::Display
 ///
 /// # Panics
 ///
@@ -94,12 +107,25 @@ macro_rules! vec {
 /// format!("test");
 /// format!("hello {}", "world!");
 /// format!("x = {}, y = {y}", 10, y = 30);
+/// let (x, y) = (1, 2);
+/// format!("{x} + {y} = 3");
 /// ```
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "format_macro")]
 macro_rules! format {
     ($($arg:tt)*) => {{
         let res = $crate::fmt::format($crate::__export::format_args!($($arg)*));
         res
     }}
+}
+
+/// Force AST node to an expression to improve diagnostics in pattern position.
+#[doc(hidden)]
+#[macro_export]
+#[unstable(feature = "liballoc_internals", issue = "none", reason = "implementation detail")]
+macro_rules! __rust_force_expr {
+    ($e:expr) => {
+        $e
+    };
 }

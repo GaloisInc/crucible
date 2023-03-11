@@ -12,8 +12,8 @@ extern "C" {
     // callback on each call. 'size' gives the size of the dl_phdr_info.
     #[allow(improper_ctypes)]
     fn dl_iterate_phdr(
-        f: extern "C" fn(info: &dl_phdr_info, size: usize, data: &mut DsoPrinter) -> i32,
-        data: &mut DsoPrinter,
+        f: extern "C" fn(info: &dl_phdr_info, size: usize, data: &mut DsoPrinter<'_, '_>) -> i32,
+        data: &mut DsoPrinter<'_, '_>,
     ) -> i32;
 }
 
@@ -224,7 +224,7 @@ const PERM_W: u32 = 0b00000010;
 const PERM_R: u32 = 0b00000100;
 
 impl core::fmt::Display for Perm {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let v = self.0;
         if v & PERM_R != 0 {
             f.write_char('r')?
@@ -286,7 +286,7 @@ struct Dso<'a> {
     /// of a shared object it will be the soname (see DT_SONAME).
     name: &'a str,
     /// On Fuchsia virtually all binaries have build IDs but this is not a strict
-    /// requierment. There's no way to match up DSO information with a real ELF
+    /// requirement. There's no way to match up DSO information with a real ELF
     /// file afterwards if there is no build_id so we require that every DSO
     /// have one here. DSO's without a build_id are ignored.
     build_id: &'a [u8],
@@ -310,7 +310,7 @@ struct HexSlice<'a> {
 }
 
 impl fmt::Display for HexSlice<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.bytes {
             write!(f, "{:02x}", byte)?;
         }
@@ -349,8 +349,12 @@ enum Error {
 /// # Arguments
 ///
 /// * `visitor` - A DsoPrinter that will have one of eats methods called foreach DSO.
-fn for_each_dso(mut visitor: &mut DsoPrinter) {
-    extern "C" fn callback(info: &dl_phdr_info, _size: usize, visitor: &mut DsoPrinter) -> i32 {
+fn for_each_dso(mut visitor: &mut DsoPrinter<'_, '_>) {
+    extern "C" fn callback(
+        info: &dl_phdr_info,
+        _size: usize,
+        visitor: &mut DsoPrinter<'_, '_>,
+    ) -> i32 {
         // dl_iterate_phdr ensures that info.name will point to a valid
         // location.
         let name_len = unsafe { libc::strlen(info.name) };

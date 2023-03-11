@@ -7,7 +7,7 @@ use std::ptr;
 struct MyPtr<T: ?Sized>(*const T);
 impl<T: Unsize<U> + ?Sized, U: ?Sized> CoerceUnsized<MyPtr<U>> for MyPtr<T> {}
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> (i32, i32) {
     let a = [1, 2];
     let arr_ptr = MyPtr(&a as *const [i32; 2]);

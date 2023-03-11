@@ -1,11 +1,8 @@
 use crate::convert::From;
 use crate::fmt;
 use crate::marker::{PhantomData, Unsize};
-use crate::mem;
 use crate::ops::{CoerceUnsized, DispatchFromDyn};
 use crate::ptr::NonNull;
-
-// ignore-tidy-undocumented-unsafe
 
 /// A wrapper around a raw non-null `*mut T` that indicates that the possessor
 /// of this wrapper owns the referent. Useful for building abstractions like
@@ -35,9 +32,8 @@ use crate::ptr::NonNull;
 )]
 #[doc(hidden)]
 #[repr(transparent)]
-#[rustc_layout_scalar_valid_range_start(1)]
 pub struct Unique<T: ?Sized> {
-    pointer: *const T,
+    pointer: NonNull<T>,
     // NOTE: this marker has no consequences for variance, but is necessary
     // for dropck to understand that we logically own a `T`.
     //
@@ -71,10 +67,10 @@ impl<T: Sized> Unique<T> {
     /// a `T`, which means this must not be used as a "not yet initialized"
     /// sentinel value. Types that lazily allocate must track initialization by
     /// some other means.
-    // FIXME: rename to dangling() to match NonNull?
+    #[must_use]
     #[inline]
-    pub const fn empty() -> Self {
-        unsafe { Unique::new_unchecked(mem::align_of::<T>() as *mut T) }
+    pub const fn dangling() -> Self {
+        Self::from(NonNull::dangling())
     }
 }
 
@@ -87,23 +83,25 @@ impl<T: ?Sized> Unique<T> {
     /// `ptr` must be non-null.
     #[inline]
     pub const unsafe fn new_unchecked(ptr: *mut T) -> Self {
-        Unique { pointer: ptr as _, _marker: PhantomData }
+        // SAFETY: the caller must guarantee that `ptr` is non-null.
+        unsafe { Unique { pointer: NonNull::new_unchecked(ptr), _marker: PhantomData } }
     }
 
     /// Creates a new `Unique` if `ptr` is non-null.
     #[inline]
-    pub fn new(ptr: *mut T) -> Option<Self> {
-        if !ptr.is_null() {
-            Some(unsafe { Unique { pointer: ptr as _, _marker: PhantomData } })
+    pub const fn new(ptr: *mut T) -> Option<Self> {
+        if let Some(pointer) = NonNull::new(ptr) {
+            Some(Unique { pointer, _marker: PhantomData })
         } else {
             None
         }
     }
 
     /// Acquires the underlying `*mut` pointer.
+    #[must_use = "`self` will be dropped if the result is not used"]
     #[inline]
     pub const fn as_ptr(self) -> *mut T {
-        self.pointer as *mut T
+        self.pointer.as_ptr()
     }
 
     /// Dereferences the content.
@@ -111,9 +109,12 @@ impl<T: ?Sized> Unique<T> {
     /// The resulting lifetime is bound to self so this behaves "as if"
     /// it were actually an instance of T that is getting borrowed. If a longer
     /// (unbound) lifetime is needed, use `&*my_ptr.as_ptr()`.
+    #[must_use]
     #[inline]
-    pub unsafe fn as_ref(&self) -> &T {
-        &*self.as_ptr()
+    pub const unsafe fn as_ref(&self) -> &T {
+        // SAFETY: the caller must guarantee that `self` meets all the
+        // requirements for a reference.
+        unsafe { self.pointer.as_ref() }
     }
 
     /// Mutably dereferences the content.
@@ -121,20 +122,25 @@ impl<T: ?Sized> Unique<T> {
     /// The resulting lifetime is bound to self so this behaves "as if"
     /// it were actually an instance of T that is getting borrowed. If a longer
     /// (unbound) lifetime is needed, use `&mut *my_ptr.as_ptr()`.
+    #[must_use]
     #[inline]
-    pub unsafe fn as_mut(&mut self) -> &mut T {
-        &mut *self.as_ptr()
+    pub const unsafe fn as_mut(&mut self) -> &mut T {
+        // SAFETY: the caller must guarantee that `self` meets all the
+        // requirements for a mutable reference.
+        unsafe { self.pointer.as_mut() }
     }
 
     /// Casts to a pointer of another type.
+    #[must_use = "`self` will be dropped if the result is not used"]
     #[inline]
     pub const fn cast<U>(self) -> Unique<U> {
-        unsafe { Unique::new_unchecked(self.as_ptr() as *mut U) }
+        Unique::from(self.pointer.cast())
     }
 }
 
 #[unstable(feature = "ptr_internals", issue = "none")]
-impl<T: ?Sized> Clone for Unique<T> {
+#[rustc_const_unstable(feature = "const_clone", issue = "91805")]
+impl<T: ?Sized> const Clone for Unique<T> {
     #[inline]
     fn clone(&self) -> Self {
         *self
@@ -165,25 +171,23 @@ impl<T: ?Sized> fmt::Pointer for Unique<T> {
 }
 
 #[unstable(feature = "ptr_internals", issue = "none")]
-impl<T: ?Sized> From<&mut T> for Unique<T> {
+impl<T: ?Sized> const From<&mut T> for Unique<T> {
+    /// Converts a `&mut T` to a `Unique<T>`.
+    ///
+    /// This conversion is infallible since references cannot be null.
     #[inline]
     fn from(reference: &mut T) -> Self {
-        unsafe { Unique { pointer: reference as *mut T, _marker: PhantomData } }
+        Self::from(NonNull::from(reference))
     }
 }
 
 #[unstable(feature = "ptr_internals", issue = "none")]
-impl<T: ?Sized> From<&T> for Unique<T> {
+impl<T: ?Sized> const From<NonNull<T>> for Unique<T> {
+    /// Converts a `NonNull<T>` to a `Unique<T>`.
+    ///
+    /// This conversion is infallible since `NonNull` cannot be null.
     #[inline]
-    fn from(reference: &T) -> Self {
-        unsafe { Unique { pointer: reference as *const T, _marker: PhantomData } }
-    }
-}
-
-#[unstable(feature = "ptr_internals", issue = "none")]
-impl<T: ?Sized> From<NonNull<T>> for Unique<T> {
-    #[inline]
-    fn from(p: NonNull<T>) -> Self {
-        unsafe { Unique::new_unchecked(p.as_ptr()) }
+    fn from(pointer: NonNull<T>) -> Self {
+        Unique { pointer, _marker: PhantomData }
     }
 }

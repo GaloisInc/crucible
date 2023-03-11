@@ -7,19 +7,22 @@ authors = [
     "Gonzalo Brito Gadeschi <gonzalobg88@gmail.com>",
 ]
 description = "Examples of the stdarch crate."
+edition = "2018"
+default-run = "hex"
 
 [dependencies]
 core_arch = { path = "../crates/core_arch" }
 std_detect = { path = "../crates/std_detect" }
-quickcheck = "0.8"
+quickcheck = "0.9"
 rand = "0.7"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-rand = { version = "0.6", features = ["wasm-bindgen"] }
 
 [[bin]]
 name = "hex"
 path = "hex.rs"
+
+[[bin]]
+name = "connect5"
+path = "connect5.rs"
 
 [[example]]
 name = "wasm"

@@ -1,15 +1,14 @@
-//! Linux-specific raw type definitions
+//! Linux-specific raw type definitions.
 
 #![stable(feature = "raw_ext", since = "1.1.0")]
-#![rustc_deprecated(
+#![deprecated(
     since = "1.8.0",
-    reason = "these type aliases are no longer supported by \
-              the standard library, the `libc` crate on \
-              crates.io should be used instead for the correct \
-              definitions"
+    note = "these type aliases are no longer supported by \
+            the standard library, the `libc` crate on \
+            crates.io should be used instead for the correct \
+            definitions"
 )]
 #![allow(deprecated)]
-#![allow(missing_debug_implementations)]
 
 use crate::os::raw::c_ulong;
 
@@ -28,7 +27,9 @@ pub use self::arch::{blkcnt_t, blksize_t, ino_t, nlink_t, off_t, stat, time_t};
 #[cfg(any(
     target_arch = "x86",
     target_arch = "le32",
+    target_arch = "m68k",
     target_arch = "powerpc",
+    target_arch = "sparc",
     target_arch = "arm",
     target_arch = "asmjs",
     target_arch = "wasm32"
@@ -170,63 +171,63 @@ mod arch {
 
 #[cfg(target_arch = "hexagon")]
 mod arch {
-    use crate::os::raw::{c_int, c_long, c_longlong, culonglong};
+    use crate::os::raw::{c_int, c_long, c_uint};
 
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type blkcnt_t = c_longlong;
+    pub type blkcnt_t = i64;
     #[stable(feature = "raw_ext", since = "1.1.0")]
     pub type blksize_t = c_long;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type ino_t = c_ulonglong;
+    pub type ino_t = u64;
     #[stable(feature = "raw_ext", since = "1.1.0")]
     pub type nlink_t = c_uint;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type off_t = c_longlong;
+    pub type off_t = i64;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type time_t = c_long;
+    pub type time_t = i64;
 
     #[repr(C)]
     #[derive(Clone)]
     #[stable(feature = "raw_ext", since = "1.1.0")]
     pub struct stat {
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_dev: ::dev_t,
+        pub st_dev: u64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_ino: ::c_ulonglong,
+        pub st_ino: u64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_mode: ::c_uint,
+        pub st_mode: u32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_nlink: ::c_uint,
+        pub st_nlink: u32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_uid: ::c_uint,
+        pub st_uid: u32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_gid: ::c_uint,
+        pub st_gid: u32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_rdev: ::c_ulonglong,
+        pub st_rdev: u64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub __pad1: ::c_ulong,
+        pub __pad1: u32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_size: ::c_longlong,
+        pub st_size: i64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_blksize: ::blksize_t,
+        pub st_blksize: i32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub __pad2: ::c_int,
+        pub __pad2: i32,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_blocks: ::blkcnt_t,
+        pub st_blocks: i64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_atime: ::time_t,
+        pub st_atime: i64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_atime_nsec: ::c_long,
+        pub st_atime_nsec: c_long,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_mtime: ::time_t,
+        pub st_mtime: i64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_mtime_nsec: ::c_long,
+        pub st_mtime_nsec: c_long,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_ctime: ::time_t,
+        pub st_ctime: i64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_ctime_nsec: ::c_long,
+        pub st_ctime_nsec: c_long,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub __pad3: [::c_int; 2],
+        pub __pad3: [c_int; 2],
     }
 }
 
@@ -234,9 +235,11 @@ mod arch {
     target_arch = "mips64",
     target_arch = "s390x",
     target_arch = "sparc64",
-    target_arch = "riscv64"
+    target_arch = "riscv64",
+    target_arch = "riscv32"
 ))]
 mod arch {
+    #[stable(feature = "raw_ext", since = "1.1.0")]
     pub use libc::{blkcnt_t, blksize_t, ino_t, nlink_t, off_t, stat, time_t};
 }
 
@@ -245,17 +248,17 @@ mod arch {
     use crate::os::raw::{c_int, c_long};
 
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type blkcnt_t = u64;
+    pub type blkcnt_t = i64;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type blksize_t = u64;
+    pub type blksize_t = i32;
     #[stable(feature = "raw_ext", since = "1.1.0")]
     pub type ino_t = u64;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type nlink_t = u64;
+    pub type nlink_t = u32;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type off_t = u64;
+    pub type off_t = i64;
     #[stable(feature = "raw_ext", since = "1.1.0")]
-    pub type time_t = i64;
+    pub type time_t = c_long;
 
     #[repr(C)]
     #[derive(Clone)]
@@ -286,15 +289,15 @@ mod arch {
         #[stable(feature = "raw_ext", since = "1.1.0")]
         pub st_blocks: i64,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_atime: i64,
+        pub st_atime: time_t,
         #[stable(feature = "raw_ext", since = "1.1.0")]
         pub st_atime_nsec: c_long,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_mtime: i64,
+        pub st_mtime: time_t,
         #[stable(feature = "raw_ext", since = "1.1.0")]
         pub st_mtime_nsec: c_long,
         #[stable(feature = "raw_ext", since = "1.1.0")]
-        pub st_ctime: i64,
+        pub st_ctime: time_t,
         #[stable(feature = "raw_ext", since = "1.1.0")]
         pub st_ctime_nsec: c_long,
         #[stable(feature = "raw_ext", since = "1.1.0")]

@@ -1,7 +1,7 @@
-use crate::convert::TryInto;
 use crate::fmt;
 use crate::io;
 use crate::mem;
+use crate::num::{NonZeroI32, NonZeroI64};
 use crate::ptr;
 
 use crate::sys::process::process_common::*;
@@ -22,7 +22,7 @@ impl Command {
         let envp = self.capture_env();
 
         if self.saw_nul() {
-            return Err(io::Error::new(
+            return Err(io::const_io_error!(
                 io::ErrorKind::InvalidInput,
                 "nul byte found in provided data",
             ));
@@ -35,9 +35,17 @@ impl Command {
         Ok((Process { handle: Handle::new(process_handle) }, ours))
     }
 
+    pub fn output(&mut self) -> io::Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+        let (proc, pipes) = self.spawn(Stdio::MakePipe, false)?;
+        crate::sys_common::process::wait_with_output(proc, pipes)
+    }
+
     pub fn exec(&mut self, default: Stdio) -> io::Error {
         if self.saw_nul() {
-            return io::Error::new(io::ErrorKind::InvalidInput, "nul byte found in provided data");
+            return io::const_io_error!(
+                io::ErrorKind::InvalidInput,
+                "nul byte found in provided data",
+            );
         }
 
         match self.setup_io(default, true) {
@@ -118,8 +126,9 @@ impl Command {
             FDIO_SPAWN_CLONE_JOB
                 | FDIO_SPAWN_CLONE_LDSVC
                 | FDIO_SPAWN_CLONE_NAMESPACE
-                | FDIO_SPAWN_CLONE_ENVIRON, // this is ignored when envp is non-null
-            self.get_program().as_ptr(),
+                | FDIO_SPAWN_CLONE_ENVIRON // this is ignored when envp is non-null
+                | FDIO_SPAWN_CLONE_UTC_CLOCK,
+            self.get_program_cstr().as_ptr(),
             self.get_argv().as_ptr(),
             envp,
             actions.len() as size_t,
@@ -181,7 +190,7 @@ impl Process {
             ))?;
         }
         if actual != 1 {
-            return Err(io::Error::new(
+            return Err(io::const_io_error!(
                 io::ErrorKind::InvalidData,
                 "Failed to get exit status of process",
             ));
@@ -206,7 +215,7 @@ impl Process {
                     return Ok(None);
                 }
                 _ => {
-                    panic!("Failed to wait on process handle: {}", status);
+                    panic!("Failed to wait on process handle: {status}");
                 }
             }
             zx_cvt(zx_object_get_info(
@@ -219,7 +228,7 @@ impl Process {
             ))?;
         }
         if actual != 1 {
-            return Err(io::Error::new(
+            return Err(io::const_io_error!(
                 io::ErrorKind::InvalidData,
                 "Failed to get exit status of process",
             ));
@@ -232,8 +241,11 @@ impl Process {
 pub struct ExitStatus(i64);
 
 impl ExitStatus {
-    pub fn success(&self) -> bool {
-        self.code() == Some(0)
+    pub fn exit_ok(&self) -> Result<(), ExitStatusError> {
+        match NonZeroI64::try_from(self.0) {
+            /* was nonzero */ Ok(failure) => Err(ExitStatusError(failure)),
+            /* was zero, couldn't convert */ Err(_) => Ok(()),
+        }
     }
 
     pub fn code(&self) -> Option<i32> {
@@ -244,8 +256,53 @@ impl ExitStatus {
     pub fn signal(&self) -> Option<i32> {
         None
     }
+
+    // FIXME: The actually-Unix implementation in process_unix.rs uses WSTOPSIG, WCOREDUMP et al.
+    // I infer from the implementation of `success`, `code` and `signal` above that these are not
+    // available on Fuchsia.
+    //
+    // It does not appear that Fuchsia is Unix-like enough to implement ExitStatus (or indeed many
+    // other things from std::os::unix) properly. This veneer is always going to be a bodge. So
+    // while I don't know if these implementations are actually correct, I think they will do for
+    // now at least.
+    pub fn core_dumped(&self) -> bool {
+        false
+    }
+    pub fn stopped_signal(&self) -> Option<i32> {
+        None
+    }
+    pub fn continued(&self) -> bool {
+        false
+    }
+
+    pub fn into_raw(&self) -> c_int {
+        // We don't know what someone who calls into_raw() will do with this value, but it should
+        // have the conventional Unix representation. Despite the fact that this is not
+        // standardised in SuS or POSIX, all Unix systems encode the signal and exit status the
+        // same way. (Ie the WIFEXITED, WEXITSTATUS etc. macros have identical behaviour on every
+        // Unix.)
+        //
+        // The caller of `std::os::unix::into_raw` is probably wanting a Unix exit status, and may
+        // do their own shifting and masking, or even pass the status to another computer running a
+        // different Unix variant.
+        //
+        // The other view would be to say that the caller on Fuchsia ought to know that `into_raw`
+        // will give a raw Fuchsia status (whatever that is - I don't know, personally). That is
+        // not possible here because we must return a c_int because that's what Unix (including
+        // SuS and POSIX) say a wait status is, but Fuchsia apparently uses a u64, so it won't
+        // necessarily fit.
+        //
+        // It seems to me that the right answer would be to provide std::os::fuchsia with its
+        // own ExitStatusExt, rather that trying to provide a not very convincing imitation of
+        // Unix. Ie, std::os::unix::process:ExitStatusExt ought not to exist on Fuchsia. But
+        // fixing this up that is beyond the scope of my efforts now.
+        let exit_status_as_if_unix: u8 = self.0.try_into().expect("Fuchsia process return code bigger than 8 bits, but std::os::unix::ExitStatusExt::into_raw() was called to try to convert the value into a traditional Unix-style wait status, which cannot represent values greater than 255.");
+        let wait_status_as_if_unix = (exit_status_as_if_unix as c_int) << 8;
+        wait_status_as_if_unix
+    }
 }
 
+/// Converts a raw `c_int` to a type-safe `ExitStatus` by wrapping it without copying.
 impl From<c_int> for ExitStatus {
     fn from(a: c_int) -> ExitStatus {
         ExitStatus(a as i64)
@@ -255,5 +312,21 @@ impl From<c_int> for ExitStatus {
 impl fmt::Display for ExitStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "exit code: {}", self.0)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub struct ExitStatusError(NonZeroI64);
+
+impl Into<ExitStatus> for ExitStatusError {
+    fn into(self) -> ExitStatus {
+        ExitStatus(self.0.into())
+    }
+}
+
+impl ExitStatusError {
+    pub fn code(self) -> Option<NonZeroI32> {
+        // fixme: affected by the same bug as ExitStatus::code()
+        ExitStatus(self.0.into()).code().map(|st| st.try_into().unwrap())
     }
 }

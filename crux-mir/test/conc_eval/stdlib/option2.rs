@@ -15,7 +15,7 @@ fn g<T> (x : Opt<T>) -> T {
 }
 
 
-fn f (y : u32) -> u32 { 
+fn f (y : u32) -> u32 {
     let x: Opt<u32> = S(0);
     return g(x);
 }
@@ -26,4 +26,4 @@ const ARG: u32 = 1;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u32 { f(ARG) }
