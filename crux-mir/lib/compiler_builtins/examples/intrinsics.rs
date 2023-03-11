@@ -6,7 +6,7 @@
 #![allow(unused_features)]
 #![cfg_attr(thumb, no_main)]
 #![deny(dead_code)]
-#![feature(asm)]
+#![feature(bench_black_box)]
 #![feature(lang_items)]
 #![feature(start)]
 #![feature(allocator_api)]
@@ -14,7 +14,7 @@
 
 extern crate panic_handler;
 
-#[cfg(all(not(thumb), not(windows)))]
+#[cfg(all(not(thumb), not(windows), not(target_arch = "wasm32")))]
 #[link(name = "c")]
 extern "C" {}
 
@@ -24,16 +24,9 @@ extern "C" {}
 // have an additional comment: the function name is the ARM name for the intrinsic and the comment
 // in the non-ARM name for the intrinsic.
 mod intrinsics {
-    // trunccdfsf2
+    // truncdfsf2
     pub fn aeabi_d2f(x: f64) -> f32 {
-        // This is only implemented in C currently, so only test it there.
-        #[cfg(feature = "c")]
-        return x as f32;
-        #[cfg(not(feature = "c"))]
-        {
-            drop(x);
-            0.0
-        }
+        x as f32
     }
 
     // fixdfsi
@@ -276,13 +269,8 @@ mod intrinsics {
 }
 
 fn run() {
+    use core::hint::black_box as bb;
     use intrinsics::*;
-
-    // A copy of "test::black_box". Used to prevent LLVM from optimizing away the intrinsics during LTO
-    fn bb<T>(dummy: T) -> T {
-        unsafe { asm!("" : : "r"(&dummy)) }
-        dummy
-    }
 
     bb(aeabi_d2f(bb(2.)));
     bb(aeabi_d2i(bb(2.)));
@@ -340,11 +328,11 @@ fn run() {
     something_with_a_dtor(&|| assert_eq!(bb(1), 1));
 
     extern "C" {
-        fn rust_begin_unwind();
+        fn rust_begin_unwind(x: usize);
     }
     // if bb(false) {
     unsafe {
-        rust_begin_unwind();
+        rust_begin_unwind(0);
     }
     // }
 }

@@ -1,7 +1,13 @@
 //! Generic hashing support.
 //!
-//! This module provides a generic way to compute the hash of a value. The
-//! simplest way to make a type hashable is to use `#[derive(Hash)]`:
+//! This module provides a generic way to compute the [hash] of a value.
+//! Hashes are most commonly used with [`HashMap`] and [`HashSet`].
+//!
+//! [hash]: https://en.wikipedia.org/wiki/Hash_function
+//! [`HashMap`]: ../../std/collections/struct.HashMap.html
+//! [`HashSet`]: ../../std/collections/struct.HashSet.html
+//!
+//! The simplest way to make a type hashable is to use `#[derive(Hash)]`:
 //!
 //! # Examples
 //!
@@ -38,8 +44,6 @@
 //!
 //! If you need more control over how a value is hashed, you need to implement
 //! the [`Hash`] trait:
-//!
-//! [`Hash`]: trait.Hash.html
 //!
 //! ```rust
 //! use std::collections::hash_map::DefaultHasher;
@@ -79,12 +83,11 @@
 //! }
 //! ```
 
-// ignore-tidy-undocumented-unsafe
-
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::fmt;
-use crate::marker;
+use crate::intrinsics::const_eval_select;
+use crate::marker::{self, Destruct};
 
 #[stable(feature = "rust1", since = "1.0.0")]
 #[allow(deprecated)]
@@ -151,12 +154,37 @@ mod sip;
 /// Thankfully, you won't need to worry about upholding this property when
 /// deriving both [`Eq`] and `Hash` with `#[derive(PartialEq, Eq, Hash)]`.
 ///
-/// [`Eq`]: ../../std/cmp/trait.Eq.html
-/// [`Hasher`]: trait.Hasher.html
+/// ## Prefix collisions
+///
+/// Implementations of `hash` should ensure that the data they
+/// pass to the `Hasher` are prefix-free. That is,
+/// unequal values should cause two different sequences of values to be written,
+/// and neither of the two sequences should be a prefix of the other.
+///
+/// For example, the standard implementation of [`Hash` for `&str`][impl] passes an extra
+/// `0xFF` byte to the `Hasher` so that the values `("ab", "c")` and `("a",
+/// "bc")` hash differently.
+///
+/// ## Portability
+///
+/// Due to differences in endianness and type sizes, data fed by `Hash` to a `Hasher`
+/// should not be considered portable across platforms. Additionally the data passed by most
+/// standard library types should not be considered stable between compiler versions.
+///
+/// This means tests shouldn't probe hard-coded hash values or data fed to a `Hasher` and
+/// instead should check consistency with `Eq`.
+///
+/// Serialization formats intended to be portable between platforms or compiler versions should
+/// either avoid encoding hashes or only rely on `Hash` and `Hasher` implementations that
+/// provide additional guarantees.
+///
 /// [`HashMap`]: ../../std/collections/struct.HashMap.html
 /// [`HashSet`]: ../../std/collections/struct.HashSet.html
-/// [`hash`]: #tymethod.hash
+/// [`hash`]: Hash::hash
+/// [impl]: ../../std/primitive.str.html#impl-Hash-for-str
 #[stable(feature = "rust1", since = "1.0.0")]
+#[rustc_diagnostic_item = "Hash"]
+#[const_trait]
 pub trait Hash {
     /// Feeds this value into the given [`Hasher`].
     ///
@@ -170,12 +198,25 @@ pub trait Hash {
     /// 7920.hash(&mut hasher);
     /// println!("Hash is {:x}!", hasher.finish());
     /// ```
-    ///
-    /// [`Hasher`]: trait.Hasher.html
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn hash<H: Hasher>(&self, state: &mut H);
+    fn hash<H: ~const Hasher>(&self, state: &mut H);
 
     /// Feeds a slice of this type into the given [`Hasher`].
+    ///
+    /// This method is meant as a convenience, but its implementation is
+    /// also explicitly left unspecified. It isn't guaranteed to be
+    /// equivalent to repeated calls of [`hash`] and implementations of
+    /// [`Hash`] should keep that in mind and call [`hash`] themselves
+    /// if the slice isn't treated as a whole unit in the [`PartialEq`]
+    /// implementation.
+    ///
+    /// For example, a [`VecDeque`] implementation might naïvely call
+    /// [`as_slices`] and then [`hash_slice`] on each slice, but this
+    /// is wrong since the two slices can change with a call to
+    /// [`make_contiguous`] without affecting the [`PartialEq`]
+    /// result. Since these slices aren't treated as singular
+    /// units, and instead part of a larger deque, this method cannot
+    /// be used.
     ///
     /// # Examples
     ///
@@ -189,15 +230,31 @@ pub trait Hash {
     /// println!("Hash is {:x}!", hasher.finish());
     /// ```
     ///
-    /// [`Hasher`]: trait.Hasher.html
+    /// [`VecDeque`]: ../../std/collections/struct.VecDeque.html
+    /// [`as_slices`]: ../../std/collections/struct.VecDeque.html#method.as_slices
+    /// [`make_contiguous`]: ../../std/collections/struct.VecDeque.html#method.make_contiguous
+    /// [`hash`]: Hash::hash
+    /// [`hash_slice`]: Hash::hash_slice
     #[stable(feature = "hash_slice", since = "1.3.0")]
-    fn hash_slice<H: Hasher>(data: &[Self], state: &mut H)
+    fn hash_slice<H: ~const Hasher>(data: &[Self], state: &mut H)
     where
         Self: Sized,
     {
-        for piece in data {
-            piece.hash(state);
+        //FIXME(const_trait_impl): revert to only a for loop
+        fn rt<T: Hash, H: Hasher>(data: &[T], state: &mut H) {
+            for piece in data {
+                piece.hash(state)
+            }
         }
+        const fn ct<T: ~const Hash, H: ~const Hasher>(data: &[T], state: &mut H) {
+            let mut i = 0;
+            while i < data.len() {
+                data[i].hash(state);
+                i += 1;
+            }
+        }
+        // SAFETY: same behavior, CT just uses while instead of for
+        unsafe { const_eval_select((data, state), ct, rt) };
     }
 }
 
@@ -225,6 +282,30 @@ pub use macros::Hash;
 /// instance (with [`write`] and [`write_u8`] etc.). Most of the time, `Hasher`
 /// instances are used in conjunction with the [`Hash`] trait.
 ///
+/// This trait provides no guarantees about how the various `write_*` methods are
+/// defined and implementations of [`Hash`] should not assume that they work one
+/// way or another. You cannot assume, for example, that a [`write_u32`] call is
+/// equivalent to four calls of [`write_u8`].  Nor can you assume that adjacent
+/// `write` calls are merged, so it's possible, for example, that
+/// ```
+/// # fn foo(hasher: &mut impl std::hash::Hasher) {
+/// hasher.write(&[1, 2]);
+/// hasher.write(&[3, 4, 5, 6]);
+/// # }
+/// ```
+/// and
+/// ```
+/// # fn foo(hasher: &mut impl std::hash::Hasher) {
+/// hasher.write(&[1, 2, 3, 4]);
+/// hasher.write(&[5, 6]);
+/// # }
+/// ```
+/// end up producing different hashes.
+///
+/// Thus to produce the same hash value, [`Hash`] implementations must ensure
+/// for equivalent items that exactly the same sequence of calls is made -- the
+/// same methods with the same parameters in the same order.
+///
 /// # Examples
 ///
 /// ```
@@ -241,11 +322,12 @@ pub use macros::Hash;
 /// println!("Hash is {:x}!", hasher.finish());
 /// ```
 ///
-/// [`Hash`]: trait.Hash.html
-/// [`finish`]: #tymethod.finish
-/// [`write`]: #tymethod.write
-/// [`write_u8`]: #method.write_u8
+/// [`finish`]: Hasher::finish
+/// [`write`]: Hasher::write
+/// [`write_u8`]: Hasher::write_u8
+/// [`write_u32`]: Hasher::write_u32
 #[stable(feature = "rust1", since = "1.0.0")]
+#[const_trait]
 pub trait Hasher {
     /// Returns the hash value for the values written so far.
     ///
@@ -266,7 +348,7 @@ pub trait Hasher {
     /// println!("Hash is {:x}!", hasher.finish());
     /// ```
     ///
-    /// [`write`]: #tymethod.write
+    /// [`write`]: Hasher::write
     #[stable(feature = "rust1", since = "1.0.0")]
     fn finish(&self) -> u64;
 
@@ -285,6 +367,12 @@ pub trait Hasher {
     ///
     /// println!("Hash is {:x}!", hasher.finish());
     /// ```
+    ///
+    /// # Note to Implementers
+    ///
+    /// You generally should not do length-prefixing as part of implementing
+    /// this method.  It's up to the [`Hash`] implementation to call
+    /// [`Hasher::write_length_prefix`] before sequences that need it.
     #[stable(feature = "rust1", since = "1.0.0")]
     fn write(&mut self, bytes: &[u8]);
 
@@ -335,36 +423,158 @@ pub trait Hasher {
     #[inline]
     #[stable(feature = "hasher_write", since = "1.3.0")]
     fn write_i16(&mut self, i: i16) {
-        self.write(&i.to_ne_bytes())
+        self.write_u16(i as u16)
     }
     /// Writes a single `i32` into this hasher.
     #[inline]
     #[stable(feature = "hasher_write", since = "1.3.0")]
     fn write_i32(&mut self, i: i32) {
-        self.write(&i.to_ne_bytes())
+        self.write_u32(i as u32)
     }
     /// Writes a single `i64` into this hasher.
     #[inline]
     #[stable(feature = "hasher_write", since = "1.3.0")]
     fn write_i64(&mut self, i: i64) {
-        self.write(&i.to_ne_bytes())
+        self.write_u64(i as u64)
     }
     /// Writes a single `i128` into this hasher.
     #[inline]
     #[stable(feature = "i128", since = "1.26.0")]
     fn write_i128(&mut self, i: i128) {
-        self.write(&i.to_ne_bytes())
+        self.write_u128(i as u128)
     }
     /// Writes a single `isize` into this hasher.
     #[inline]
     #[stable(feature = "hasher_write", since = "1.3.0")]
     fn write_isize(&mut self, i: isize) {
-        self.write(&i.to_ne_bytes())
+        self.write_usize(i as usize)
+    }
+
+    /// Writes a length prefix into this hasher, as part of being prefix-free.
+    ///
+    /// If you're implementing [`Hash`] for a custom collection, call this before
+    /// writing its contents to this `Hasher`.  That way
+    /// `(collection![1, 2, 3], collection![4, 5])` and
+    /// `(collection![1, 2], collection![3, 4, 5])` will provide different
+    /// sequences of values to the `Hasher`
+    ///
+    /// The `impl<T> Hash for [T]` includes a call to this method, so if you're
+    /// hashing a slice (or array or vector) via its `Hash::hash` method,
+    /// you should **not** call this yourself.
+    ///
+    /// This method is only for providing domain separation.  If you want to
+    /// hash a `usize` that represents part of the *data*, then it's important
+    /// that you pass it to [`Hasher::write_usize`] instead of to this method.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(hasher_prefixfree_extras)]
+    /// # // Stubs to make the `impl` below pass the compiler
+    /// # struct MyCollection<T>(Option<T>);
+    /// # impl<T> MyCollection<T> {
+    /// #     fn len(&self) -> usize { todo!() }
+    /// # }
+    /// # impl<'a, T> IntoIterator for &'a MyCollection<T> {
+    /// #     type Item = T;
+    /// #     type IntoIter = std::iter::Empty<T>;
+    /// #     fn into_iter(self) -> Self::IntoIter { todo!() }
+    /// # }
+    ///
+    /// use std::hash::{Hash, Hasher};
+    /// impl<T: Hash> Hash for MyCollection<T> {
+    ///     fn hash<H: Hasher>(&self, state: &mut H) {
+    ///         state.write_length_prefix(self.len());
+    ///         for elt in self {
+    ///             elt.hash(state);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Note to Implementers
+    ///
+    /// If you've decided that your `Hasher` is willing to be susceptible to
+    /// Hash-DoS attacks, then you might consider skipping hashing some or all
+    /// of the `len` provided in the name of increased performance.
+    #[inline]
+    #[unstable(feature = "hasher_prefixfree_extras", issue = "96762")]
+    fn write_length_prefix(&mut self, len: usize) {
+        self.write_usize(len);
+    }
+
+    /// Writes a single `str` into this hasher.
+    ///
+    /// If you're implementing [`Hash`], you generally do not need to call this,
+    /// as the `impl Hash for str` does, so you should prefer that instead.
+    ///
+    /// This includes the domain separator for prefix-freedom, so you should
+    /// **not** call `Self::write_length_prefix` before calling this.
+    ///
+    /// # Note to Implementers
+    ///
+    /// There are at least two reasonable default ways to implement this.
+    /// Which one will be the default is not yet decided, so for now
+    /// you probably want to override it specifically.
+    ///
+    /// ## The general answer
+    ///
+    /// It's always correct to implement this with a length prefix:
+    ///
+    /// ```
+    /// # #![feature(hasher_prefixfree_extras)]
+    /// # struct Foo;
+    /// # impl std::hash::Hasher for Foo {
+    /// # fn finish(&self) -> u64 { unimplemented!() }
+    /// # fn write(&mut self, _bytes: &[u8]) { unimplemented!() }
+    /// fn write_str(&mut self, s: &str) {
+    ///     self.write_length_prefix(s.len());
+    ///     self.write(s.as_bytes());
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// And, if your `Hasher` works in `usize` chunks, this is likely a very
+    /// efficient way to do it, as anything more complicated may well end up
+    /// slower than just running the round with the length.
+    ///
+    /// ## If your `Hasher` works byte-wise
+    ///
+    /// One nice thing about `str` being UTF-8 is that the `b'\xFF'` byte
+    /// never happens.  That means that you can append that to the byte stream
+    /// being hashed and maintain prefix-freedom:
+    ///
+    /// ```
+    /// # #![feature(hasher_prefixfree_extras)]
+    /// # struct Foo;
+    /// # impl std::hash::Hasher for Foo {
+    /// # fn finish(&self) -> u64 { unimplemented!() }
+    /// # fn write(&mut self, _bytes: &[u8]) { unimplemented!() }
+    /// fn write_str(&mut self, s: &str) {
+    ///     self.write(s.as_bytes());
+    ///     self.write_u8(0xff);
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// This does require that your implementation not add extra padding, and
+    /// thus generally requires that you maintain a buffer, running a round
+    /// only once that buffer is full (or `finish` is called).
+    ///
+    /// That's because if `write` pads data out to a fixed chunk size, it's
+    /// likely that it does it in such a way that `"a"` and `"a\x00"` would
+    /// end up hashing the same sequence of things, introducing conflicts.
+    #[inline]
+    #[unstable(feature = "hasher_prefixfree_extras", issue = "96762")]
+    fn write_str(&mut self, s: &str) {
+        self.write(s.as_bytes());
+        self.write_u8(0xff);
     }
 }
 
 #[stable(feature = "indirect_hasher_impl", since = "1.22.0")]
-impl<H: Hasher + ?Sized> Hasher for &mut H {
+#[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+impl<H: ~const Hasher + ?Sized> const Hasher for &mut H {
     fn finish(&self) -> u64 {
         (**self).finish()
     }
@@ -407,6 +617,12 @@ impl<H: Hasher + ?Sized> Hasher for &mut H {
     fn write_isize(&mut self, i: isize) {
         (**self).write_isize(i)
     }
+    fn write_length_prefix(&mut self, len: usize) {
+        (**self).write_length_prefix(len)
+    }
+    fn write_str(&mut self, s: &str) {
+        (**self).write_str(s)
+    }
 }
 
 /// A trait for creating instances of [`Hasher`].
@@ -435,10 +651,10 @@ impl<H: Hasher + ?Sized> Hasher for &mut H {
 /// assert_eq!(hasher_1.finish(), hasher_2.finish());
 /// ```
 ///
-/// [`build_hasher`]: #tymethod.build_hasher
-/// [`Hasher`]: trait.Hasher.html
+/// [`build_hasher`]: BuildHasher::build_hasher
 /// [`HashMap`]: ../../std/collections/struct.HashMap.html
 #[stable(since = "1.7.0", feature = "build_hasher")]
+#[const_trait]
 pub trait BuildHasher {
     /// Type of the hasher that will be created.
     #[stable(since = "1.7.0", feature = "build_hasher")]
@@ -458,10 +674,56 @@ pub trait BuildHasher {
     /// let s = RandomState::new();
     /// let new_s = s.build_hasher();
     /// ```
-    ///
-    /// [`Hasher`]: trait.Hasher.html
     #[stable(since = "1.7.0", feature = "build_hasher")]
     fn build_hasher(&self) -> Self::Hasher;
+
+    /// Calculates the hash of a single value.
+    ///
+    /// This is intended as a convenience for code which *consumes* hashes, such
+    /// as the implementation of a hash table or in unit tests that check
+    /// whether a custom [`Hash`] implementation behaves as expected.
+    ///
+    /// This must not be used in any code which *creates* hashes, such as in an
+    /// implementation of [`Hash`].  The way to create a combined hash of
+    /// multiple values is to call [`Hash::hash`] multiple times using the same
+    /// [`Hasher`], not to call this method repeatedly and combine the results.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// #![feature(build_hasher_simple_hash_one)]
+    ///
+    /// use std::cmp::{max, min};
+    /// use std::hash::{BuildHasher, Hash, Hasher};
+    /// struct OrderAmbivalentPair<T: Ord>(T, T);
+    /// impl<T: Ord + Hash> Hash for OrderAmbivalentPair<T> {
+    ///     fn hash<H: Hasher>(&self, hasher: &mut H) {
+    ///         min(&self.0, &self.1).hash(hasher);
+    ///         max(&self.0, &self.1).hash(hasher);
+    ///     }
+    /// }
+    ///
+    /// // Then later, in a `#[test]` for the type...
+    /// let bh = std::collections::hash_map::RandomState::new();
+    /// assert_eq!(
+    ///     bh.hash_one(OrderAmbivalentPair(1, 2)),
+    ///     bh.hash_one(OrderAmbivalentPair(2, 1))
+    /// );
+    /// assert_eq!(
+    ///     bh.hash_one(OrderAmbivalentPair(10, 2)),
+    ///     bh.hash_one(&OrderAmbivalentPair(2, 10))
+    /// );
+    /// ```
+    #[unstable(feature = "build_hasher_simple_hash_one", issue = "86161")]
+    fn hash_one<T: ~const Hash + ~const Destruct>(&self, x: T) -> u64
+    where
+        Self: Sized,
+        Self::Hasher: ~const Hasher + ~const Destruct,
+    {
+        let mut hasher = self.build_hasher();
+        x.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 /// Used to create a default [`BuildHasher`] instance for types that implement
@@ -472,7 +734,7 @@ pub trait BuildHasher {
 /// defined.
 ///
 /// Any `BuildHasherDefault` is [zero-sized]. It can be created with
-/// [`default`][method.Default]. When using `BuildHasherDefault` with [`HashMap`] or
+/// [`default`][method.default]. When using `BuildHasherDefault` with [`HashMap`] or
 /// [`HashSet`], this doesn't need to be done, since they implement appropriate
 /// [`Default`] instances themselves.
 ///
@@ -505,25 +767,23 @@ pub trait BuildHasher {
 /// let hash_map = HashMap::<u32, u32, MyBuildHasher>::default();
 /// ```
 ///
-/// [`BuildHasher`]: trait.BuildHasher.html
-/// [`Default`]: ../default/trait.Default.html
-/// [method.default]: #method.default
-/// [`Hasher`]: trait.Hasher.html
+/// [method.default]: BuildHasherDefault::default
 /// [`HashMap`]: ../../std/collections/struct.HashMap.html
 /// [`HashSet`]: ../../std/collections/struct.HashSet.html
 /// [zero-sized]: https://doc.rust-lang.org/nomicon/exotic-sizes.html#zero-sized-types-zsts
 #[stable(since = "1.7.0", feature = "build_hasher")]
-pub struct BuildHasherDefault<H>(marker::PhantomData<H>);
+pub struct BuildHasherDefault<H>(marker::PhantomData<fn() -> H>);
 
 #[stable(since = "1.9.0", feature = "core_impl_debug")]
 impl<H> fmt::Debug for BuildHasherDefault<H> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad("BuildHasherDefault")
+        f.debug_struct("BuildHasherDefault").finish()
     }
 }
 
 #[stable(since = "1.7.0", feature = "build_hasher")]
-impl<H: Default + Hasher> BuildHasher for BuildHasherDefault<H> {
+#[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+impl<H: ~const Default + Hasher> const BuildHasher for BuildHasherDefault<H> {
     type Hasher = H;
 
     fn build_hasher(&self) -> H {
@@ -539,7 +799,8 @@ impl<H> Clone for BuildHasherDefault<H> {
 }
 
 #[stable(since = "1.7.0", feature = "build_hasher")]
-impl<H> Default for BuildHasherDefault<H> {
+#[rustc_const_unstable(feature = "const_default_impls", issue = "87864")]
+impl<H> const Default for BuildHasherDefault<H> {
     fn default() -> BuildHasherDefault<H> {
         BuildHasherDefault(marker::PhantomData)
     }
@@ -564,14 +825,21 @@ mod impls {
     macro_rules! impl_write {
         ($(($ty:ident, $meth:ident),)*) => {$(
             #[stable(feature = "rust1", since = "1.0.0")]
-            impl Hash for $ty {
-                fn hash<H: Hasher>(&self, state: &mut H) {
+            #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+            impl const Hash for $ty {
+                #[inline]
+                fn hash<H: ~const Hasher>(&self, state: &mut H) {
                     state.$meth(*self)
                 }
 
-                fn hash_slice<H: Hasher>(data: &[$ty], state: &mut H) {
+                #[inline]
+                fn hash_slice<H: ~const Hasher>(data: &[$ty], state: &mut H) {
                     let newlen = data.len() * mem::size_of::<$ty>();
                     let ptr = data.as_ptr() as *const u8;
+                    // SAFETY: `ptr` is valid and aligned, as this macro is only used
+                    // for numeric primitives which have no padding. The new slice only
+                    // spans across `data` and is never mutated, and its total size is the
+                    // same as the original `data` so it can't be over `isize::MAX`.
                     state.write(unsafe { slice::from_raw_parts(ptr, newlen) })
                 }
             }
@@ -594,30 +862,37 @@ mod impls {
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl Hash for bool {
-        fn hash<H: Hasher>(&self, state: &mut H) {
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl const Hash for bool {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, state: &mut H) {
             state.write_u8(*self as u8)
         }
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl Hash for char {
-        fn hash<H: Hasher>(&self, state: &mut H) {
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl const Hash for char {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, state: &mut H) {
             state.write_u32(*self as u32)
         }
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl Hash for str {
-        fn hash<H: Hasher>(&self, state: &mut H) {
-            state.write(self.as_bytes());
-            state.write_u8(0xff)
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl const Hash for str {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, state: &mut H) {
+            state.write_str(self);
         }
     }
 
     #[stable(feature = "never_hash", since = "1.29.0")]
-    impl Hash for ! {
-        fn hash<H: Hasher>(&self, _: &mut H) {
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl const Hash for ! {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, _: &mut H) {
             *self
         }
     }
@@ -625,21 +900,42 @@ mod impls {
     macro_rules! impl_hash_tuple {
         () => (
             #[stable(feature = "rust1", since = "1.0.0")]
-            impl Hash for () {
-                fn hash<H: Hasher>(&self, _state: &mut H) {}
+            #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+            impl const Hash for () {
+                #[inline]
+                fn hash<H: ~const Hasher>(&self, _state: &mut H) {}
             }
         );
 
         ( $($name:ident)+) => (
-            #[stable(feature = "rust1", since = "1.0.0")]
-            impl<$($name: Hash),+> Hash for ($($name,)+) where last_type!($($name,)+): ?Sized {
-                #[allow(non_snake_case)]
-                fn hash<S: Hasher>(&self, state: &mut S) {
-                    let ($(ref $name,)+) = *self;
-                    $($name.hash(state);)+
+            maybe_tuple_doc! {
+                $($name)+ @
+                #[stable(feature = "rust1", since = "1.0.0")]
+                #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+                impl<$($name: ~const Hash),+> const Hash for ($($name,)+) where last_type!($($name,)+): ?Sized {
+                    #[allow(non_snake_case)]
+                    #[inline]
+                    fn hash<S: ~const Hasher>(&self, state: &mut S) {
+                        let ($(ref $name,)+) = *self;
+                        $($name.hash(state);)+
+                    }
                 }
             }
         );
+    }
+
+    macro_rules! maybe_tuple_doc {
+        ($a:ident @ #[$meta:meta] $item:item) => {
+            #[doc(fake_variadic)]
+            #[doc = "This trait is implemented for tuples up to twelve items long."]
+            #[$meta]
+            $item
+        };
+        ($a:ident $($rest_a:ident)+ @ #[$meta:meta] $item:item) => {
+            #[doc(hidden)]
+            #[$meta]
+            $item
+        };
     }
 
     macro_rules! last_type {
@@ -648,68 +944,64 @@ mod impls {
     }
 
     impl_hash_tuple! {}
-    impl_hash_tuple! { A }
-    impl_hash_tuple! { A B }
-    impl_hash_tuple! { A B C }
-    impl_hash_tuple! { A B C D }
-    impl_hash_tuple! { A B C D E }
-    impl_hash_tuple! { A B C D E F }
-    impl_hash_tuple! { A B C D E F G }
-    impl_hash_tuple! { A B C D E F G H }
-    impl_hash_tuple! { A B C D E F G H I }
-    impl_hash_tuple! { A B C D E F G H I J }
-    impl_hash_tuple! { A B C D E F G H I J K }
-    impl_hash_tuple! { A B C D E F G H I J K L }
+    impl_hash_tuple! { T }
+    impl_hash_tuple! { T B }
+    impl_hash_tuple! { T B C }
+    impl_hash_tuple! { T B C D }
+    impl_hash_tuple! { T B C D E }
+    impl_hash_tuple! { T B C D E F }
+    impl_hash_tuple! { T B C D E F G }
+    impl_hash_tuple! { T B C D E F G H }
+    impl_hash_tuple! { T B C D E F G H I }
+    impl_hash_tuple! { T B C D E F G H I J }
+    impl_hash_tuple! { T B C D E F G H I J K }
+    impl_hash_tuple! { T B C D E F G H I J K L }
 
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl<T: Hash> Hash for [T] {
-        fn hash<H: Hasher>(&self, state: &mut H) {
-            self.len().hash(state);
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl<T: ~const Hash> const Hash for [T] {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, state: &mut H) {
+            state.write_length_prefix(self.len());
             Hash::hash_slice(self, state)
         }
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl<T: ?Sized + Hash> Hash for &T {
-        fn hash<H: Hasher>(&self, state: &mut H) {
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl<T: ?Sized + ~const Hash> const Hash for &T {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, state: &mut H) {
             (**self).hash(state);
         }
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl<T: ?Sized + Hash> Hash for &mut T {
-        fn hash<H: Hasher>(&self, state: &mut H) {
+    #[rustc_const_unstable(feature = "const_hash", issue = "104061")]
+    impl<T: ?Sized + ~const Hash> const Hash for &mut T {
+        #[inline]
+        fn hash<H: ~const Hasher>(&self, state: &mut H) {
             (**self).hash(state);
         }
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Hash for *const T {
+        #[inline]
         fn hash<H: Hasher>(&self, state: &mut H) {
-            if mem::size_of::<Self>() == mem::size_of::<usize>() {
-                // Thin pointer
-                state.write_usize(*self as *const () as usize);
-            } else {
-                // Fat pointer
-                let (a, b) = unsafe { *(self as *const Self as *const (usize, usize)) };
-                state.write_usize(a);
-                state.write_usize(b);
-            }
+            let (address, metadata) = self.to_raw_parts();
+            state.write_usize(address.addr());
+            metadata.hash(state);
         }
     }
 
     #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Hash for *mut T {
+        #[inline]
         fn hash<H: Hasher>(&self, state: &mut H) {
-            if mem::size_of::<Self>() == mem::size_of::<usize>() {
-                // Thin pointer
-                state.write_usize(*self as *const () as usize);
-            } else {
-                // Fat pointer
-                let (a, b) = unsafe { *(self as *const Self as *const (usize, usize)) };
-                state.write_usize(a);
-                state.write_usize(b);
-            }
+            let (address, metadata) = self.to_raw_parts();
+            state.write_usize(address.addr());
+            metadata.hash(state);
         }
     }
 }

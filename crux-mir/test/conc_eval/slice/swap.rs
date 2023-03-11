@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() -> i32 {
     let mut v = [1, 2];
     unsafe {

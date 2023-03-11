@@ -50,7 +50,7 @@ fn trait_object() {
 
 #[test]
 fn float_nan_ne() {
-    let x = Arc::new(std::f32::NAN);
+    let x = Arc::new(f32::NAN);
     assert!(x != x);
     assert!(!(x == x));
 }
@@ -194,4 +194,19 @@ fn shared_from_iter_trustedlen_no_fuse() {
     let iter = Iter(vec.into_iter());
     assert_trusted_len(&iter);
     assert_eq!(&[Box::new(42), Box::new(24)], &*iter.collect::<Rc<[_]>>());
+}
+
+#[test]
+fn weak_may_dangle() {
+    fn hmm<'a>(val: &'a mut Weak<&'a str>) -> Weak<&'a str> {
+        val.clone()
+    }
+
+    // Without #[may_dangle] we get:
+    let mut val = Weak::new();
+    hmm(&mut val);
+    //  ~~~~~~~~ borrowed value does not live long enough
+    //
+    // `val` dropped here while still borrowed
+    // borrow might be used here, when `val` is dropped and runs the `Drop` code for type `std::sync::Weak`
 }

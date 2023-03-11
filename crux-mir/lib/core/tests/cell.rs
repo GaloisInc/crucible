@@ -3,6 +3,38 @@ use core::default::Default;
 use std::mem::drop;
 
 #[test]
+fn smoketest_unsafe_cell() {
+    let mut x = UnsafeCell::new(10);
+    let ref_mut = &mut x;
+    unsafe {
+        // The asserts are repeated in order to ensure that `get()`
+        // is non-mutating.
+        assert_eq!(*ref_mut.get(), 10);
+        assert_eq!(*ref_mut.get(), 10);
+        *ref_mut.get_mut() += 5;
+        assert_eq!(*ref_mut.get(), 15);
+        assert_eq!(*ref_mut.get(), 15);
+        assert_eq!(x.into_inner(), 15);
+    }
+}
+
+#[test]
+fn unsafe_cell_raw_get() {
+    let x = UnsafeCell::new(10);
+    let ptr = &x as *const UnsafeCell<i32>;
+    unsafe {
+        // The asserts are repeated in order to ensure that `raw_get()`
+        // is non-mutating.
+        assert_eq!(*UnsafeCell::raw_get(ptr), 10);
+        assert_eq!(*UnsafeCell::raw_get(ptr), 10);
+        *UnsafeCell::raw_get(ptr) += 5;
+        assert_eq!(*UnsafeCell::raw_get(ptr), 15);
+        assert_eq!(*UnsafeCell::raw_get(ptr), 15);
+        assert_eq!(x.into_inner(), 15);
+    }
+}
+
+#[test]
 fn smoketest_cell() {
     let x = Cell::new(10);
     assert_eq!(x, Cell::new(10));
@@ -30,10 +62,10 @@ fn cell_update() {
 #[test]
 fn cell_has_sensible_show() {
     let x = Cell::new("foo bar");
-    assert!(format!("{:?}", x).contains(x.get()));
+    assert!(format!("{x:?}").contains(x.get()));
 
     x.set("baz qux");
-    assert!(format!("{:?}", x).contains(x.get()));
+    assert!(format!("{x:?}").contains(x.get()));
 }
 
 #[test]
@@ -41,11 +73,13 @@ fn ref_and_refmut_have_sensible_show() {
     let refcell = RefCell::new("foo");
 
     let refcell_refmut = refcell.borrow_mut();
-    assert!(format!("{:?}", refcell_refmut).contains("foo"));
+    assert_eq!(format!("{refcell_refmut}"), "foo"); // Display
+    assert!(format!("{refcell_refmut:?}").contains("foo")); // Debug
     drop(refcell_refmut);
 
     let refcell_ref = refcell.borrow();
-    assert!(format!("{:?}", refcell_ref).contains("foo"));
+    assert_eq!(format!("{refcell_ref}"), "foo"); // Display
+    assert!(format!("{refcell_ref:?}").contains("foo")); // Debug
     drop(refcell_ref);
 }
 
@@ -304,6 +338,53 @@ fn cell_into_inner() {
 }
 
 #[test]
+fn cell_exterior() {
+    #[derive(Copy, Clone)]
+    #[allow(dead_code)]
+    struct Point {
+        x: isize,
+        y: isize,
+        z: isize,
+    }
+
+    fn f(p: &Cell<Point>) {
+        assert_eq!(p.get().z, 12);
+        p.set(Point { x: 10, y: 11, z: 13 });
+        assert_eq!(p.get().z, 13);
+    }
+
+    let a = Point { x: 10, y: 11, z: 12 };
+    let b = &Cell::new(a);
+    assert_eq!(b.get().z, 12);
+    f(b);
+    assert_eq!(a.z, 12);
+    assert_eq!(b.get().z, 13);
+}
+
+#[test]
+fn cell_does_not_clone() {
+    #[derive(Copy)]
+    #[allow(dead_code)]
+    struct Foo {
+        x: isize,
+    }
+
+    impl Clone for Foo {
+        fn clone(&self) -> Foo {
+            // Using Cell in any way should never cause clone() to be
+            // invoked -- after all, that would permit evil user code to
+            // abuse `Cell` and trigger crashes.
+
+            panic!();
+        }
+    }
+
+    let x = Cell::new(Foo { x: 22 });
+    let _y = x.get();
+    let _z = x.clone();
+}
+
+#[test]
 fn refcell_default() {
     let cell: RefCell<u64> = Default::default();
     assert_eq!(0, *cell.borrow());
@@ -366,4 +447,33 @@ fn refcell_replace_borrows() {
     let x = RefCell::new(0);
     let _b = x.borrow();
     x.replace(1);
+}
+
+#[test]
+fn refcell_format() {
+    let name = RefCell::new("rust");
+    let what = RefCell::new("rocks");
+    let msg = format!("{name} {}", &*what.borrow(), name = &*name.borrow());
+    assert_eq!(msg, "rust rocks".to_string());
+}
+
+#[allow(dead_code)]
+fn const_cells() {
+    const UNSAFE_CELL: UnsafeCell<i32> = UnsafeCell::new(3);
+    const _: i32 = UNSAFE_CELL.into_inner();
+
+    const REF_CELL: RefCell<i32> = RefCell::new(3);
+    const _: i32 = REF_CELL.into_inner();
+
+    const CELL: Cell<i32> = Cell::new(3);
+    const _: i32 = CELL.into_inner();
+
+    const UNSAFE_CELL_FROM: UnsafeCell<i32> = UnsafeCell::from(3);
+    const _: i32 = UNSAFE_CELL.into_inner();
+
+    const REF_CELL_FROM: RefCell<i32> = RefCell::from(3);
+    const _: i32 = REF_CELL.into_inner();
+
+    const CELL_FROM: Cell<i32> = Cell::from(3);
+    const _: i32 = CELL.into_inner();
 }

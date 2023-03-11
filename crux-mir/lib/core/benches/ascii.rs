@@ -1,3 +1,5 @@
+mod is_ascii;
+
 // Lower-case ASCII 'a' is the first byte that has its highest bit set
 // after wrap-adding 0x1F:
 //
@@ -63,6 +65,8 @@ macro_rules! benches {
 
 use test::black_box;
 use test::Bencher;
+
+const ASCII_CASE_MASK: u8 = 0b0010_0000;
 
 benches! {
     fn case00_alloc_only(_bytes: &mut [u8]) {}
@@ -202,7 +206,7 @@ benches! {
             }
         }
         for byte in bytes {
-            *byte &= !((is_ascii_lowercase(*byte) as u8) << 5)
+            *byte &= !((is_ascii_lowercase(*byte) as u8) * ASCII_CASE_MASK)
         }
     }
 
@@ -214,7 +218,7 @@ benches! {
             }
         }
         for byte in bytes {
-            *byte -= (is_ascii_lowercase(*byte) as u8) << 5
+            *byte -= (is_ascii_lowercase(*byte) as u8) * ASCII_CASE_MASK
         }
     }
 
@@ -251,9 +255,9 @@ macro_rules! repeat {
     };
 }
 
-const SHORT: &'static str = "Alice's";
-const MEDIUM: &'static str = "Alice's Adventures in Wonderland";
-const LONG: &'static str = repeat!(
+const SHORT: &str = "Alice's";
+const MEDIUM: &str = "Alice's Adventures in Wonderland";
+const LONG: &str = repeat!(
     r#"
     La Guida di Bragia, a Ballad Opera for the Marionette Theatre (around 1850)
     Alice's Adventures in Wonderland (1865)

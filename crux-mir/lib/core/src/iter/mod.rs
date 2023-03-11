@@ -39,11 +39,11 @@
 //! ```
 //!
 //! An iterator has a method, [`next`], which when called, returns an
-//! [`Option`]`<Item>`. [`next`] will return `Some(Item)` as long as there
+//! <code>[Option]\<Item></code>. Calling [`next`] will return [`Some(Item)`] as long as there
 //! are elements, and once they've all been exhausted, will return `None` to
 //! indicate that iteration is finished. Individual iterators may choose to
 //! resume iteration, and so calling [`next`] again may or may not eventually
-//! start returning `Some(Item)` again at some point (for example, see [`TryIter`]).
+//! start returning [`Some(Item)`] again at some point (for example, see [`TryIter`]).
 //!
 //! [`Iterator`]'s full definition includes a number of other methods as well,
 //! but they are default methods, built on top of [`next`], and so you get
@@ -53,9 +53,8 @@
 //! more complex forms of processing. See the [Adapters](#adapters) section
 //! below for more details.
 //!
-//! [`Iterator`]: trait.Iterator.html
-//! [`next`]: trait.Iterator.html#tymethod.next
-//! [`Option`]: ../../std/option/enum.Option.html
+//! [`Some(Item)`]: Some
+//! [`next`]: Iterator::next
 //! [`TryIter`]: ../../std/sync/mpsc/struct.TryIter.html
 //!
 //! # The three forms of iteration
@@ -72,9 +71,9 @@
 //! # Implementing Iterator
 //!
 //! Creating an iterator of your own involves two steps: creating a `struct` to
-//! hold the iterator's state, and then `impl`ementing [`Iterator`] for that
-//! `struct`. This is why there are so many `struct`s in this module: there is
-//! one for each iterator and iterator adapter.
+//! hold the iterator's state, and then implementing [`Iterator`] for that `struct`.
+//! This is why there are so many `struct`s in this module: there is one for
+//! each iterator and iterator adapter.
 //!
 //! Let's make an iterator named `Counter` which counts from `1` to `5`:
 //!
@@ -136,7 +135,7 @@
 //! methods like `nth` and `fold` if an iterator can compute them more efficiently without calling
 //! `next`.
 //!
-//! # for Loops and IntoIterator
+//! # `for` loops and `IntoIterator`
 //!
 //! Rust's `for` loop syntax is actually sugar for iterators. Here's a basic
 //! example of `for`:
@@ -145,7 +144,7 @@
 //! let values = vec![1, 2, 3, 4, 5];
 //!
 //! for x in values {
-//!     println!("{}", x);
+//!     println!("{x}");
 //! }
 //! ```
 //!
@@ -159,14 +158,13 @@
 //! Let's take a look at that `for` loop again, and what the compiler converts
 //! it into:
 //!
-//! [`IntoIterator`]: trait.IntoIterator.html
-//! [`into_iter`]: trait.IntoIterator.html#tymethod.into_iter
+//! [`into_iter`]: IntoIterator::into_iter
 //!
 //! ```
 //! let values = vec![1, 2, 3, 4, 5];
 //!
 //! for x in values {
-//!     println!("{}", x);
+//!     println!("{x}");
 //! }
 //! ```
 //!
@@ -183,7 +181,7 @@
 //!                 None => break,
 //!             };
 //!             let x = next;
-//!             let () = { println!("{}", x); };
+//!             let () = { println!("{x}"); };
 //!         },
 //!     };
 //!     result
@@ -208,6 +206,50 @@
 //! 2. If you're creating a collection, implementing [`IntoIterator`] for it
 //!    will allow your collection to be used with the `for` loop.
 //!
+//! # Iterating by reference
+//!
+//! Since [`into_iter()`] takes `self` by value, using a `for` loop to iterate
+//! over a collection consumes that collection. Often, you may want to iterate
+//! over a collection without consuming it. Many collections offer methods that
+//! provide iterators over references, conventionally called `iter()` and
+//! `iter_mut()` respectively:
+//!
+//! ```
+//! let mut values = vec![41];
+//! for x in values.iter_mut() {
+//!     *x += 1;
+//! }
+//! for x in values.iter() {
+//!     assert_eq!(*x, 42);
+//! }
+//! assert_eq!(values.len(), 1); // `values` is still owned by this function.
+//! ```
+//!
+//! If a collection type `C` provides `iter()`, it usually also implements
+//! `IntoIterator` for `&C`, with an implementation that just calls `iter()`.
+//! Likewise, a collection `C` that provides `iter_mut()` generally implements
+//! `IntoIterator` for `&mut C` by delegating to `iter_mut()`. This enables a
+//! convenient shorthand:
+//!
+//! ```
+//! let mut values = vec![41];
+//! for x in &mut values { // same as `values.iter_mut()`
+//!     *x += 1;
+//! }
+//! for x in &values { // same as `values.iter()`
+//!     assert_eq!(*x, 42);
+//! }
+//! assert_eq!(values.len(), 1);
+//! ```
+//!
+//! While many collections offer `iter()`, not all offer `iter_mut()`. For
+//! example, mutating the keys of a [`HashSet<T>`] could put the collection
+//! into an inconsistent state if the key hashes change, so this collection
+//! only offers `iter()`.
+//!
+//! [`into_iter()`]: IntoIterator::into_iter
+//! [`HashSet<T>`]: ../../std/collections/struct.HashSet.html
+//!
 //! # Adapters
 //!
 //! Functions which take an [`Iterator`] and return another [`Iterator`] are
@@ -222,9 +264,9 @@
 //! across versions of Rust, so you should avoid relying on the exact values
 //! returned by an iterator which panicked.
 //!
-//! [`map`]: trait.Iterator.html#method.map
-//! [`take`]: trait.Iterator.html#method.take
-//! [`filter`]: trait.Iterator.html#method.filter
+//! [`map`]: Iterator::map
+//! [`take`]: Iterator::take
+//! [`filter`]: Iterator::filter
 //!
 //! # Laziness
 //!
@@ -237,7 +279,7 @@
 //! ```
 //! # #![allow(unused_must_use)]
 //! let v = vec![1, 2, 3, 4, 5];
-//! v.iter().map(|x| println!("{}", x));
+//! v.iter().map(|x| println!("{x}"));
 //! ```
 //!
 //! This will not print any values, as we only created an iterator, rather than
@@ -254,20 +296,20 @@
 //! ```
 //! let v = vec![1, 2, 3, 4, 5];
 //!
-//! v.iter().for_each(|x| println!("{}", x));
+//! v.iter().for_each(|x| println!("{x}"));
 //! // or
 //! for x in &v {
-//!     println!("{}", x);
+//!     println!("{x}");
 //! }
 //! ```
 //!
-//! [`map`]: trait.Iterator.html#method.map
-//! [`for_each`]: trait.Iterator.html#method.for_each
+//! [`map`]: Iterator::map
+//! [`for_each`]: Iterator::for_each
 //!
 //! Another common way to evaluate an iterator is to use the [`collect`]
 //! method to produce a new collection.
 //!
-//! [`collect`]: trait.Iterator.html#method.collect
+//! [`collect`]: Iterator::collect
 //!
 //! # Infinity
 //!
@@ -286,14 +328,14 @@
 //! let five_numbers = numbers.take(5);
 //!
 //! for number in five_numbers {
-//!     println!("{}", number);
+//!     println!("{number}");
 //! }
 //! ```
 //!
 //! This will print the numbers `0` through `4`, each on their own line.
 //!
 //! Bear in mind that methods on infinite iterators, even those for which a
-//! result can be determined mathematically in finite time, may not terminate.
+//! result can be determined mathematically in finite time, might not terminate.
 //! Specifically, methods such as [`min`], which in the general case require
 //! traversing every element in the iterator, are likely not to return
 //! successfully for any infinite iterators.
@@ -302,15 +344,36 @@
 //! let ones = std::iter::repeat(1);
 //! let least = ones.min().unwrap(); // Oh no! An infinite loop!
 //! // `ones.min()` causes an infinite loop, so we won't reach this point!
-//! println!("The smallest number one is {}.", least);
+//! println!("The smallest number one is {least}.");
 //! ```
 //!
-//! [`take`]: trait.Iterator.html#method.take
-//! [`min`]: trait.Iterator.html#method.min
+//! [`take`]: Iterator::take
+//! [`min`]: Iterator::min
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use crate::ops::Try;
+// This needs to be up here in order to be usable in the child modules
+macro_rules! impl_fold_via_try_fold {
+    (fold -> try_fold) => {
+        impl_fold_via_try_fold! { @internal fold -> try_fold }
+    };
+    (rfold -> try_rfold) => {
+        impl_fold_via_try_fold! { @internal rfold -> try_rfold }
+    };
+    (@internal $fold:ident -> $try_fold:ident) => {
+        #[inline]
+        fn $fold<AAA, FFF>(mut self, init: AAA, mut fold: FFF) -> AAA
+        where
+            FFF: FnMut(AAA, Self::Item) -> AAA,
+        {
+            use crate::const_closure::ConstFnMutClosure;
+            use crate::ops::NeverShortCircuit;
+
+            let fold = ConstFnMutClosure::new(&mut fold, NeverShortCircuit::wrap_mut_2_imp);
+            self.$try_fold(init, fold).0
+        }
+    };
+}
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::traits::Iterator;
@@ -322,6 +385,12 @@ pub use self::traits::Iterator;
 )]
 pub use self::range::Step;
 
+#[unstable(
+    feature = "iter_from_generator",
+    issue = "43122",
+    reason = "generators are unstable"
+)]
+pub use self::sources::from_generator;
 #[stable(feature = "iter_empty", since = "1.2.0")]
 pub use self::sources::{empty, Empty};
 #[stable(feature = "iter_from_fn", since = "1.34.0")]
@@ -332,6 +401,8 @@ pub use self::sources::{once, Once};
 pub use self::sources::{once_with, OnceWith};
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::sources::{repeat, Repeat};
+#[unstable(feature = "iter_repeat_n", issue = "104434")]
+pub use self::sources::{repeat_n, RepeatN};
 #[stable(feature = "iterator_repeat_with", since = "1.28.0")]
 pub use self::sources::{repeat_with, RepeatWith};
 #[stable(feature = "iter_successors", since = "1.34.0")]
@@ -339,87 +410,50 @@ pub use self::sources::{successors, Successors};
 
 #[stable(feature = "fused", since = "1.26.0")]
 pub use self::traits::FusedIterator;
+#[unstable(issue = "none", feature = "inplace_iteration")]
+pub use self::traits::InPlaceIterable;
 #[unstable(feature = "trusted_len", issue = "37572")]
 pub use self::traits::TrustedLen;
+#[unstable(feature = "trusted_step", issue = "85731")]
+pub use self::traits::TrustedStep;
 #[stable(feature = "rust1", since = "1.0.0")]
-pub use self::traits::{DoubleEndedIterator, Extend, FromIterator, IntoIterator};
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use self::traits::{ExactSizeIterator, Product, Sum};
+pub use self::traits::{
+    DoubleEndedIterator, ExactSizeIterator, Extend, FromIterator, IntoIterator, Product, Sum,
+};
 
+#[stable(feature = "iter_zip", since = "1.59.0")]
+pub use self::adapters::zip;
+#[unstable(feature = "iter_array_chunks", reason = "recently added", issue = "100450")]
+pub use self::adapters::ArrayChunks;
+#[unstable(feature = "std_internals", issue = "none")]
+pub use self::adapters::ByRefSized;
 #[stable(feature = "iter_cloned", since = "1.1.0")]
 pub use self::adapters::Cloned;
 #[stable(feature = "iter_copied", since = "1.36.0")]
 pub use self::adapters::Copied;
 #[stable(feature = "iterator_flatten", since = "1.29.0")]
 pub use self::adapters::Flatten;
-#[unstable(feature = "iter_map_while", reason = "recently added", issue = "68537")]
+#[stable(feature = "iter_map_while", since = "1.57.0")]
 pub use self::adapters::MapWhile;
+#[unstable(feature = "inplace_iteration", issue = "none")]
+pub use self::adapters::SourceIter;
 #[stable(feature = "iterator_step_by", since = "1.28.0")]
 pub use self::adapters::StepBy;
+#[unstable(feature = "trusted_random_access", issue = "none")]
+pub use self::adapters::TrustedRandomAccess;
+#[unstable(feature = "trusted_random_access", issue = "none")]
+pub use self::adapters::TrustedRandomAccessNoCoerce;
 #[stable(feature = "rust1", since = "1.0.0")]
-pub use self::adapters::{Chain, Cycle, Enumerate, Filter, FilterMap, Map, Rev, Zip};
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use self::adapters::{FlatMap, Peekable, Scan, Skip, SkipWhile, Take, TakeWhile};
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use self::adapters::{Fuse, Inspect};
+pub use self::adapters::{
+    Chain, Cycle, Enumerate, Filter, FilterMap, FlatMap, Fuse, Inspect, Map, Peekable, Rev, Scan,
+    Skip, SkipWhile, Take, TakeWhile, Zip,
+};
+#[unstable(feature = "iter_intersperse", reason = "recently added", issue = "79524")]
+pub use self::adapters::{Intersperse, IntersperseWith};
 
-pub(crate) use self::adapters::{process_results, TrustedRandomAccess};
+pub(crate) use self::adapters::try_process;
 
 mod adapters;
 mod range;
 mod sources;
 mod traits;
-
-/// Used to make try_fold closures more like normal loops
-#[derive(PartialEq)]
-enum LoopState<C, B> {
-    Continue(C),
-    Break(B),
-}
-
-impl<C, B> Try for LoopState<C, B> {
-    type Ok = C;
-    type Error = B;
-    #[inline]
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
-        match self {
-            LoopState::Continue(y) => Ok(y),
-            LoopState::Break(x) => Err(x),
-        }
-    }
-    #[inline]
-    fn from_error(v: Self::Error) -> Self {
-        LoopState::Break(v)
-    }
-    #[inline]
-    fn from_ok(v: Self::Ok) -> Self {
-        LoopState::Continue(v)
-    }
-}
-
-impl<C, B> LoopState<C, B> {
-    #[inline]
-    fn break_value(self) -> Option<B> {
-        match self {
-            LoopState::Continue(..) => None,
-            LoopState::Break(x) => Some(x),
-        }
-    }
-}
-
-impl<R: Try> LoopState<R::Ok, R> {
-    #[inline]
-    fn from_try(r: R) -> Self {
-        match Try::into_result(r) {
-            Ok(v) => LoopState::Continue(v),
-            Err(v) => LoopState::Break(Try::from_error(v)),
-        }
-    }
-    #[inline]
-    fn into_try(self) -> R {
-        match self {
-            LoopState::Continue(v) => Try::from_ok(v),
-            LoopState::Break(v) => v,
-        }
-    }
-}

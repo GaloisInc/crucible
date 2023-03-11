@@ -1,25 +1,32 @@
+#[cfg(all(test, not(target_os = "emscripten")))]
+mod tests;
+
 use crate::os::unix::prelude::*;
 
 use crate::collections::BTreeMap;
 use crate::ffi::{CStr, CString, OsStr, OsString};
 use crate::fmt;
 use crate::io;
+use crate::path::Path;
 use crate::ptr;
 use crate::sys::fd::FileDesc;
 use crate::sys::fs::File;
 use crate::sys::pipe::{self, AnonPipe};
-use crate::sys_common::process::CommandEnv;
+use crate::sys_common::process::{CommandEnv, CommandEnvs};
+use crate::sys_common::IntoInner;
 
 #[cfg(not(target_os = "fuchsia"))]
 use crate::sys::fs::OpenOptions;
 
-use libc::{c_char, c_int, gid_t, uid_t, EXIT_FAILURE, EXIT_SUCCESS};
+use libc::{c_char, c_int, gid_t, pid_t, uid_t, EXIT_FAILURE, EXIT_SUCCESS};
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "fuchsia")] {
         // fuchsia doesn't have /dev/null
     } else if #[cfg(target_os = "redox")] {
         const DEV_NULL: &str = "null:\0";
+    } else if #[cfg(target_os = "vxworks")] {
+        const DEV_NULL: &str = "/null\0";
     } else {
         const DEV_NULL: &str = "/dev/null\0";
     }
@@ -28,20 +35,43 @@ cfg_if::cfg_if! {
 // Android with api less than 21 define sig* functions inline, so it is not
 // available for dynamic link. Implementing sigemptyset and sigaddset allow us
 // to support older Android version (independent of libc version).
-// The following implementations are based on https://git.io/vSkNf
+// The following implementations are based on
+// https://github.com/aosp-mirror/platform_bionic/blob/ad8dcd6023294b646e5a8288c0ed431b0845da49/libc/include/android/legacy_signal_inlines.h
 cfg_if::cfg_if! {
     if #[cfg(target_os = "android")] {
+        #[allow(dead_code)]
         pub unsafe fn sigemptyset(set: *mut libc::sigset_t) -> libc::c_int {
             set.write_bytes(0u8, 1);
             return 0;
         }
+
         #[allow(dead_code)]
         pub unsafe fn sigaddset(set: *mut libc::sigset_t, signum: libc::c_int) -> libc::c_int {
-            use crate::{slice, mem};
+            use crate::{
+                mem::{align_of, size_of},
+                slice,
+            };
+            use libc::{c_ulong, sigset_t};
 
-            let raw = slice::from_raw_parts_mut(set as *mut u8, mem::size_of::<libc::sigset_t>());
+            // The implementations from bionic (android libc) type pun `sigset_t` as an
+            // array of `c_ulong`. This works, but lets add a smoke check to make sure
+            // that doesn't change.
+            const _: () = assert!(
+                align_of::<c_ulong>() == align_of::<sigset_t>()
+                    && (size_of::<sigset_t>() % size_of::<c_ulong>()) == 0
+            );
+
             let bit = (signum - 1) as usize;
-            raw[bit / 8] |= 1 << (bit % 8);
+            if set.is_null() || bit >= (8 * size_of::<sigset_t>()) {
+                crate::sys::unix::os::set_errno(libc::EINVAL);
+                return -1;
+            }
+            let raw = slice::from_raw_parts_mut(
+                set as *mut c_ulong,
+                size_of::<sigset_t>() / size_of::<c_ulong>(),
+            );
+            const LONG_BIT: usize = size_of::<c_ulong>() * 8;
+            raw[bit / LONG_BIT] |= 1 << (bit % LONG_BIT);
             return 0;
         }
     } else {
@@ -54,43 +84,38 @@ cfg_if::cfg_if! {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct Command {
-    // Currently we try hard to ensure that the call to `.exec()` doesn't
-    // actually allocate any memory. While many platforms try to ensure that
-    // memory allocation works after a fork in a multithreaded process, it's
-    // been observed to be buggy and somewhat unreliable, so we do our best to
-    // just not do it at all!
-    //
-    // Along those lines, the `argv` and `envp` raw pointers here are exactly
-    // what's gonna get passed to `execvp`. The `argv` array starts with the
-    // `program` and ends with a NULL, and the `envp` pointer, if present, is
-    // also null-terminated.
-    //
-    // Right now we don't support removing arguments, so there's no much fancy
-    // support there, but we support adding and removing environment variables,
-    // so a side table is used to track where in the `envp` array each key is
-    // located. Whenever we add a key we update it in place if it's already
-    // present, and whenever we remove a key we update the locations of all
-    // other keys.
     program: CString,
     args: Vec<CString>,
+    /// Exactly what will be passed to `execvp`.
+    ///
+    /// First element is a pointer to `program`, followed by pointers to
+    /// `args`, followed by a `null`. Be careful when modifying `program` or
+    /// `args` to properly update this as well.
     argv: Argv,
     env: CommandEnv,
 
+    program_kind: ProgramKind,
     cwd: Option<CString>,
     uid: Option<uid_t>,
     gid: Option<gid_t>,
     saw_nul: bool,
     closures: Vec<Box<dyn FnMut() -> io::Result<()> + Send + Sync>>,
+    groups: Option<Box<[gid_t]>>,
     stdin: Option<Stdio>,
     stdout: Option<Stdio>,
     stderr: Option<Stdio>,
+    #[cfg(target_os = "linux")]
+    create_pidfd: bool,
+    pgroup: Option<pid_t>,
 }
 
-// Create a new type for argv, so that we can make it `Send`
+// Create a new type for argv, so that we can make it `Send` and `Sync`
 struct Argv(Vec<*const c_char>);
 
-// It is safe to make Argv Send, because it contains pointers to memory owned by `Command.args`
+// It is safe to make `Argv` `Send` and `Sync`, because it contains
+// pointers to memory owned by `Command.args`
 unsafe impl Send for Argv {}
+unsafe impl Sync for Argv {}
 
 // passed back to std::process with the pipes connected to the child, if any
 // were requested
@@ -119,6 +144,7 @@ pub enum ChildStdio {
     Null,
 }
 
+#[derive(Debug)]
 pub enum Stdio {
     Inherit,
     Null,
@@ -126,23 +152,76 @@ pub enum Stdio {
     Fd(FileDesc),
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ProgramKind {
+    /// A program that would be looked up on the PATH (e.g. `ls`)
+    PathLookup,
+    /// A relative path (e.g. `my-dir/foo`, `../foo`, `./foo`)
+    Relative,
+    /// An absolute path.
+    Absolute,
+}
+
+impl ProgramKind {
+    fn new(program: &OsStr) -> Self {
+        if program.bytes().starts_with(b"/") {
+            Self::Absolute
+        } else if program.bytes().contains(&b'/') {
+            // If the program has more than one component in it, it is a relative path.
+            Self::Relative
+        } else {
+            Self::PathLookup
+        }
+    }
+}
+
 impl Command {
+    #[cfg(not(target_os = "linux"))]
     pub fn new(program: &OsStr) -> Command {
         let mut saw_nul = false;
+        let program_kind = ProgramKind::new(program.as_ref());
         let program = os2c(program, &mut saw_nul);
         Command {
             argv: Argv(vec![program.as_ptr(), ptr::null()]),
             args: vec![program.clone()],
             program,
+            program_kind,
             env: Default::default(),
             cwd: None,
             uid: None,
             gid: None,
             saw_nul,
             closures: Vec::new(),
+            groups: None,
             stdin: None,
             stdout: None,
             stderr: None,
+            pgroup: None,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn new(program: &OsStr) -> Command {
+        let mut saw_nul = false;
+        let program_kind = ProgramKind::new(program.as_ref());
+        let program = os2c(program, &mut saw_nul);
+        Command {
+            argv: Argv(vec![program.as_ptr(), ptr::null()]),
+            args: vec![program.clone()],
+            program,
+            program_kind,
+            env: Default::default(),
+            cwd: None,
+            uid: None,
+            gid: None,
+            saw_nul,
+            closures: Vec::new(),
+            groups: None,
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            create_pidfd: false,
+            pgroup: None,
         }
     }
 
@@ -155,7 +234,7 @@ impl Command {
     }
 
     pub fn arg(&mut self, arg: &OsStr) {
-        // Overwrite the trailing NULL pointer in `argv` and then add a new null
+        // Overwrite the trailing null pointer in `argv` and then add a new null
         // pointer.
         let arg = os2c(arg, &mut self.saw_nul);
         self.argv.0[self.args.len()] = arg.as_ptr();
@@ -175,15 +254,61 @@ impl Command {
     pub fn gid(&mut self, id: gid_t) {
         self.gid = Some(id);
     }
+    pub fn groups(&mut self, groups: &[gid_t]) {
+        self.groups = Some(Box::from(groups));
+    }
+    pub fn pgroup(&mut self, pgroup: pid_t) {
+        self.pgroup = Some(pgroup);
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn create_pidfd(&mut self, val: bool) {
+        self.create_pidfd = val;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[allow(dead_code)]
+    pub fn get_create_pidfd(&self) -> bool {
+        false
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn get_create_pidfd(&self) -> bool {
+        self.create_pidfd
+    }
 
     pub fn saw_nul(&self) -> bool {
         self.saw_nul
     }
+
+    pub fn get_program(&self) -> &OsStr {
+        OsStr::from_bytes(self.program.as_bytes())
+    }
+
+    #[allow(dead_code)]
+    pub fn get_program_kind(&self) -> ProgramKind {
+        self.program_kind
+    }
+
+    pub fn get_args(&self) -> CommandArgs<'_> {
+        let mut iter = self.args.iter();
+        iter.next();
+        CommandArgs { iter }
+    }
+
+    pub fn get_envs(&self) -> CommandEnvs<'_> {
+        self.env.iter()
+    }
+
+    pub fn get_current_dir(&self) -> Option<&Path> {
+        self.cwd.as_ref().map(|cs| Path::new(OsStr::from_bytes(cs.as_bytes())))
+    }
+
     pub fn get_argv(&self) -> &Vec<*const c_char> {
         &self.argv.0
     }
 
-    pub fn get_program(&self) -> &CStr {
+    pub fn get_program_cstr(&self) -> &CStr {
         &*self.program
     }
 
@@ -198,6 +323,14 @@ impl Command {
     #[allow(dead_code)]
     pub fn get_gid(&self) -> Option<gid_t> {
         self.gid
+    }
+    #[allow(dead_code)]
+    pub fn get_groups(&self) -> Option<&[gid_t]> {
+        self.groups.as_deref()
+    }
+    #[allow(dead_code)]
+    pub fn get_pgroup(&self) -> Option<pid_t> {
+        self.pgroup
     }
 
     pub fn get_closures(&mut self) -> &mut Vec<Box<dyn FnMut() -> io::Result<()> + Send + Sync>> {
@@ -228,9 +361,15 @@ impl Command {
         let maybe_env = self.env.capture_if_changed();
         maybe_env.map(|env| construct_envp(env, &mut self.saw_nul))
     }
+
     #[allow(dead_code)]
     pub fn env_saw_path(&self) -> bool {
         self.env.have_changed_path()
+    }
+
+    #[allow(dead_code)]
+    pub fn program_is_path(&self) -> bool {
+        self.program.to_bytes().contains(&b'/')
     }
 
     pub fn setup_io(
@@ -317,17 +456,17 @@ impl Stdio {
             // stderr. No matter which we dup first, the second will get
             // overwritten prematurely.
             Stdio::Fd(ref fd) => {
-                if fd.raw() >= 0 && fd.raw() <= libc::STDERR_FILENO {
+                if fd.as_raw_fd() >= 0 && fd.as_raw_fd() <= libc::STDERR_FILENO {
                     Ok((ChildStdio::Owned(fd.duplicate()?), None))
                 } else {
-                    Ok((ChildStdio::Explicit(fd.raw()), None))
+                    Ok((ChildStdio::Explicit(fd.as_raw_fd()), None))
                 }
             }
 
             Stdio::MakePipe => {
                 let (reader, writer) = pipe::anon_pipe()?;
                 let (ours, theirs) = if readable { (writer, reader) } else { (reader, writer) };
-                Ok((ChildStdio::Owned(theirs.into_fd()), Some(ours)))
+                Ok((ChildStdio::Owned(theirs.into_inner()), Some(ours)))
             }
 
             #[cfg(not(target_os = "fuchsia"))]
@@ -337,7 +476,7 @@ impl Stdio {
                 opts.write(!readable);
                 let path = unsafe { CStr::from_ptr(DEV_NULL.as_ptr() as *const _) };
                 let fd = File::open_c(&path, &opts)?;
-                Ok((ChildStdio::Owned(fd.into_fd()), None))
+                Ok((ChildStdio::Owned(fd.into_inner()), None))
             }
 
             #[cfg(target_os = "fuchsia")]
@@ -348,13 +487,13 @@ impl Stdio {
 
 impl From<AnonPipe> for Stdio {
     fn from(pipe: AnonPipe) -> Stdio {
-        Stdio::Fd(pipe.into_fd())
+        Stdio::Fd(pipe.into_inner())
     }
 }
 
 impl From<File> for Stdio {
     fn from(file: File) -> Stdio {
-        Stdio::Fd(file.into_fd())
+        Stdio::Fd(file.into_inner())
     }
 }
 
@@ -363,7 +502,7 @@ impl ChildStdio {
         match *self {
             ChildStdio::Inherit => None,
             ChildStdio::Explicit(fd) => Some(fd),
-            ChildStdio::Owned(ref fd) => Some(fd.raw()),
+            ChildStdio::Owned(ref fd) => Some(fd.as_raw_fd()),
 
             #[cfg(target_os = "fuchsia")]
             ChildStdio::Null => None,
@@ -372,21 +511,79 @@ impl ChildStdio {
 }
 
 impl fmt::Debug for Command {
+    // show all attributes but `self.closures` which does not implement `Debug`
+    // and `self.argv` which is not useful for debugging
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.program != self.args[0] {
-            write!(f, "[{:?}] ", self.program)?;
-        }
-        write!(f, "{:?}", self.args[0])?;
+        if f.alternate() {
+            let mut debug_command = f.debug_struct("Command");
+            debug_command.field("program", &self.program).field("args", &self.args);
+            if !self.env.is_unchanged() {
+                debug_command.field("env", &self.env);
+            }
 
-        for arg in &self.args[1..] {
-            write!(f, " {:?}", arg)?;
+            if self.cwd.is_some() {
+                debug_command.field("cwd", &self.cwd);
+            }
+            if self.uid.is_some() {
+                debug_command.field("uid", &self.uid);
+            }
+            if self.gid.is_some() {
+                debug_command.field("gid", &self.gid);
+            }
+
+            if self.groups.is_some() {
+                debug_command.field("groups", &self.groups);
+            }
+
+            if self.stdin.is_some() {
+                debug_command.field("stdin", &self.stdin);
+            }
+            if self.stdout.is_some() {
+                debug_command.field("stdout", &self.stdout);
+            }
+            if self.stderr.is_some() {
+                debug_command.field("stderr", &self.stderr);
+            }
+            if self.pgroup.is_some() {
+                debug_command.field("pgroup", &self.pgroup);
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                debug_command.field("create_pidfd", &self.create_pidfd);
+            }
+
+            debug_command.finish()
+        } else {
+            if let Some(ref cwd) = self.cwd {
+                write!(f, "cd {cwd:?} && ")?;
+            }
+            for (key, value_opt) in self.get_envs() {
+                if let Some(value) = value_opt {
+                    write!(f, "{}={value:?} ", key.to_string_lossy())?;
+                }
+            }
+            if self.program != self.args[0] {
+                write!(f, "[{:?}] ", self.program)?;
+            }
+            write!(f, "{:?}", self.args[0])?;
+
+            for arg in &self.args[1..] {
+                write!(f, " {:?}", arg)?;
+            }
+            Ok(())
         }
-        Ok(())
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct ExitCode(u8);
+
+impl fmt::Debug for ExitCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("unix_exit_status").field(&self.0).finish()
+    }
+}
 
 impl ExitCode {
     pub const SUCCESS: ExitCode = ExitCode(EXIT_SUCCESS as _);
@@ -398,69 +595,37 @@ impl ExitCode {
     }
 }
 
-#[cfg(all(test, not(target_os = "emscripten")))]
-mod tests {
-    use super::*;
-
-    use crate::ffi::OsStr;
-    use crate::mem;
-    use crate::ptr;
-    use crate::sys::cvt;
-
-    macro_rules! t {
-        ($e:expr) => {
-            match $e {
-                Ok(t) => t,
-                Err(e) => panic!("received error for `{}`: {}", stringify!($e), e),
-            }
-        };
+impl From<u8> for ExitCode {
+    fn from(code: u8) -> Self {
+        Self(code)
     }
+}
 
-    // See #14232 for more information, but it appears that signal delivery to a
-    // newly spawned process may just be raced in the macOS, so to prevent this
-    // test from being flaky we ignore it on macOS.
-    #[test]
-    #[cfg_attr(target_os = "macos", ignore)]
-    // When run under our current QEMU emulation test suite this test fails,
-    // although the reason isn't very clear as to why. For now this test is
-    // ignored there.
-    #[cfg_attr(target_arch = "arm", ignore)]
-    #[cfg_attr(target_arch = "aarch64", ignore)]
-    fn test_process_mask() {
-        unsafe {
-            // Test to make sure that a signal mask does not get inherited.
-            let mut cmd = Command::new(OsStr::new("cat"));
+pub struct CommandArgs<'a> {
+    iter: crate::slice::Iter<'a, CString>,
+}
 
-            let mut set = mem::MaybeUninit::<libc::sigset_t>::uninit();
-            let mut old_set = mem::MaybeUninit::<libc::sigset_t>::uninit();
-            t!(cvt(sigemptyset(set.as_mut_ptr())));
-            t!(cvt(sigaddset(set.as_mut_ptr(), libc::SIGINT)));
-            t!(cvt(libc::pthread_sigmask(libc::SIG_SETMASK, set.as_ptr(), old_set.as_mut_ptr())));
+impl<'a> Iterator for CommandArgs<'a> {
+    type Item = &'a OsStr;
+    fn next(&mut self) -> Option<&'a OsStr> {
+        self.iter.next().map(|cs| OsStr::from_bytes(cs.as_bytes()))
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
 
-            cmd.stdin(Stdio::MakePipe);
-            cmd.stdout(Stdio::MakePipe);
+impl<'a> ExactSizeIterator for CommandArgs<'a> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.iter.is_empty()
+    }
+}
 
-            let (mut cat, mut pipes) = t!(cmd.spawn(Stdio::Null, true));
-            let stdin_write = pipes.stdin.take().unwrap();
-            let stdout_read = pipes.stdout.take().unwrap();
-
-            t!(cvt(libc::pthread_sigmask(libc::SIG_SETMASK, old_set.as_ptr(), ptr::null_mut())));
-
-            t!(cvt(libc::kill(cat.id() as libc::pid_t, libc::SIGINT)));
-            // We need to wait until SIGINT is definitely delivered. The
-            // easiest way is to write something to cat, and try to read it
-            // back: if SIGINT is unmasked, it'll get delivered when cat is
-            // next scheduled.
-            let _ = stdin_write.write(b"Hello");
-            drop(stdin_write);
-
-            // Either EOF or failure (EPIPE) is okay.
-            let mut buf = [0; 5];
-            if let Ok(ret) = stdout_read.read(&mut buf) {
-                assert_eq!(ret, 0);
-            }
-
-            t!(cat.wait());
-        }
+impl<'a> fmt::Debug for CommandArgs<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter.clone()).finish()
     }
 }

@@ -1,25 +1,29 @@
 //! Slice sorting
 //!
-//! This module contains an sort algorithm based on Orson Peters' pattern-defeating quicksort,
-//! published at: https://github.com/orlp/pdqsort
+//! This module contains a sorting algorithm based on Orson Peters' pattern-defeating quicksort,
+//! published at: <https://github.com/orlp/pdqsort>
 //!
-//! Unstable sorting is compatible with libcore because it doesn't allocate memory, unlike our
+//! Unstable sorting is compatible with core because it doesn't allocate memory, unlike our
 //! stable sorting implementation.
-
-// ignore-tidy-undocumented-unsafe
+//!
+//! In addition it also contains the core logic of the stable sort used by `slice::sort` based on
+//! TimSort.
 
 use crate::cmp;
-use crate::mem::{self, MaybeUninit};
+use crate::mem::{self, MaybeUninit, SizedTypeProperties};
 use crate::ptr;
 
 /// When dropped, copies from `src` into `dest`.
 struct CopyOnDrop<T> {
-    src: *mut T,
+    src: *const T,
     dest: *mut T,
 }
 
 impl<T> Drop for CopyOnDrop<T> {
     fn drop(&mut self) {
+        // SAFETY: This is a helper class.
+        //         Please refer to its usage for correctness.
+        //         Namely, one must be sure that `src` and `dst` does not overlap as required by `ptr::copy_nonoverlapping`.
         unsafe {
             ptr::copy_nonoverlapping(self.src, self.dest, 1);
         }
@@ -32,24 +36,40 @@ where
     F: FnMut(&T, &T) -> bool,
 {
     let len = v.len();
+    // SAFETY: The unsafe operations below involves indexing without a bounds check (by offsetting a
+    // pointer) and copying memory (`ptr::copy_nonoverlapping`).
+    //
+    // a. Indexing:
+    //  1. We checked the size of the array to >=2.
+    //  2. All the indexing that we will do is always between {0 <= index < len} at most.
+    //
+    // b. Memory copying
+    //  1. We are obtaining pointers to references which are guaranteed to be valid.
+    //  2. They cannot overlap because we obtain pointers to difference indices of the slice.
+    //     Namely, `i` and `i-1`.
+    //  3. If the slice is properly aligned, the elements are properly aligned.
+    //     It is the caller's responsibility to make sure the slice is properly aligned.
+    //
+    // See comments below for further detail.
     unsafe {
         // If the first two elements are out-of-order...
         if len >= 2 && is_less(v.get_unchecked(1), v.get_unchecked(0)) {
             // Read the first element into a stack-allocated variable. If a following comparison
             // operation panics, `hole` will get dropped and automatically write the element back
             // into the slice.
-            let mut tmp = mem::ManuallyDrop::new(ptr::read(v.get_unchecked(0)));
-            let mut hole = CopyOnDrop { src: &mut *tmp, dest: v.get_unchecked_mut(1) };
-            ptr::copy_nonoverlapping(v.get_unchecked(1), v.get_unchecked_mut(0), 1);
+            let tmp = mem::ManuallyDrop::new(ptr::read(v.get_unchecked(0)));
+            let v = v.as_mut_ptr();
+            let mut hole = CopyOnDrop { src: &*tmp, dest: v.add(1) };
+            ptr::copy_nonoverlapping(v.add(1), v.add(0), 1);
 
             for i in 2..len {
-                if !is_less(v.get_unchecked(i), &*tmp) {
+                if !is_less(&*v.add(i), &*tmp) {
                     break;
                 }
 
                 // Move `i`-th element one place to the left, thus shifting the hole to the right.
-                ptr::copy_nonoverlapping(v.get_unchecked(i), v.get_unchecked_mut(i - 1), 1);
-                hole.dest = v.get_unchecked_mut(i);
+                ptr::copy_nonoverlapping(v.add(i), v.add(i - 1), 1);
+                hole.dest = v.add(i);
             }
             // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
         }
@@ -62,24 +82,40 @@ where
     F: FnMut(&T, &T) -> bool,
 {
     let len = v.len();
+    // SAFETY: The unsafe operations below involves indexing without a bound check (by offsetting a
+    // pointer) and copying memory (`ptr::copy_nonoverlapping`).
+    //
+    // a. Indexing:
+    //  1. We checked the size of the array to >= 2.
+    //  2. All the indexing that we will do is always between `0 <= index < len-1` at most.
+    //
+    // b. Memory copying
+    //  1. We are obtaining pointers to references which are guaranteed to be valid.
+    //  2. They cannot overlap because we obtain pointers to difference indices of the slice.
+    //     Namely, `i` and `i+1`.
+    //  3. If the slice is properly aligned, the elements are properly aligned.
+    //     It is the caller's responsibility to make sure the slice is properly aligned.
+    //
+    // See comments below for further detail.
     unsafe {
         // If the last two elements are out-of-order...
         if len >= 2 && is_less(v.get_unchecked(len - 1), v.get_unchecked(len - 2)) {
             // Read the last element into a stack-allocated variable. If a following comparison
             // operation panics, `hole` will get dropped and automatically write the element back
             // into the slice.
-            let mut tmp = mem::ManuallyDrop::new(ptr::read(v.get_unchecked(len - 1)));
-            let mut hole = CopyOnDrop { src: &mut *tmp, dest: v.get_unchecked_mut(len - 2) };
-            ptr::copy_nonoverlapping(v.get_unchecked(len - 2), v.get_unchecked_mut(len - 1), 1);
+            let tmp = mem::ManuallyDrop::new(ptr::read(v.get_unchecked(len - 1)));
+            let v = v.as_mut_ptr();
+            let mut hole = CopyOnDrop { src: &*tmp, dest: v.add(len - 2) };
+            ptr::copy_nonoverlapping(v.add(len - 2), v.add(len - 1), 1);
 
             for i in (0..len - 2).rev() {
-                if !is_less(&*tmp, v.get_unchecked(i)) {
+                if !is_less(&*tmp, &*v.add(i)) {
                     break;
                 }
 
                 // Move `i`-th element one place to the right, thus shifting the hole to the left.
-                ptr::copy_nonoverlapping(v.get_unchecked(i), v.get_unchecked_mut(i + 1), 1);
-                hole.dest = v.get_unchecked_mut(i);
+                ptr::copy_nonoverlapping(v.add(i), v.add(i + 1), 1);
+                hole.dest = v.add(i);
             }
             // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
         }
@@ -88,7 +124,7 @@ where
 
 /// Partially sorts a slice by shifting several out-of-order elements around.
 ///
-/// Returns `true` if the slice is sorted at the end. This function is `O(n)` worst-case.
+/// Returns `true` if the slice is sorted at the end. This function is *O*(*n*) worst-case.
 #[cold]
 fn partial_insertion_sort<T, F>(v: &mut [T], is_less: &mut F) -> bool
 where
@@ -103,6 +139,8 @@ where
     let mut i = 1;
 
     for _ in 0..MAX_STEPS {
+        // SAFETY: We already explicitly did the bound checking with `i < len`.
+        // All our subsequent indexing is only in the range `0 <= index < len`
         unsafe {
             // Find the next pair of adjacent out-of-order elements.
             while i < len && !is_less(v.get_unchecked(i), v.get_unchecked(i - 1)) {
@@ -133,7 +171,7 @@ where
     false
 }
 
-/// Sorts a slice using insertion sort, which is `O(n^2)` worst-case.
+/// Sorts a slice using insertion sort, which is *O*(*n*^2) worst-case.
 fn insertion_sort<T, F>(v: &mut [T], is_less: &mut F)
 where
     F: FnMut(&T, &T) -> bool,
@@ -143,31 +181,35 @@ where
     }
 }
 
-/// Sorts `v` using heapsort, which guarantees `O(n log n)` worst-case.
+/// Sorts `v` using heapsort, which guarantees *O*(*n* \* log(*n*)) worst-case.
 #[cold]
-pub fn heapsort<T, F>(v: &mut [T], is_less: &mut F)
+#[unstable(feature = "sort_internals", reason = "internal to sort module", issue = "none")]
+pub fn heapsort<T, F>(v: &mut [T], mut is_less: F)
 where
     F: FnMut(&T, &T) -> bool,
 {
     // This binary heap respects the invariant `parent >= child`.
     let mut sift_down = |v: &mut [T], mut node| {
         loop {
-            // Children of `node`:
-            let left = 2 * node + 1;
-            let right = 2 * node + 2;
+            // Children of `node`.
+            let mut child = 2 * node + 1;
+            if child >= v.len() {
+                break;
+            }
 
             // Choose the greater child.
-            let greater =
-                if right < v.len() && is_less(&v[left], &v[right]) { right } else { left };
+            if child + 1 < v.len() && is_less(&v[child], &v[child + 1]) {
+                child += 1;
+            }
 
             // Stop if the invariant holds at `node`.
-            if greater >= v.len() || !is_less(&v[node], &v[greater]) {
+            if !is_less(&v[node], &v[child]) {
                 break;
             }
 
             // Swap `node` with the greater child, move one step down, and continue sifting.
-            v.swap(node, greater);
-            node = greater;
+            v.swap(node, child);
+            node = child;
         }
     };
 
@@ -191,7 +233,7 @@ where
 /// Partitioning is performed block-by-block in order to minimize the cost of branching operations.
 /// This idea is presented in the [BlockQuicksort][pdf] paper.
 ///
-/// [pdf]: http://drops.dagstuhl.de/opus/volltexte/2016/6389/pdf/LIPIcs-ESA-2016-38.pdf
+/// [pdf]: https://drops.dagstuhl.de/opus/volltexte/2016/6389/pdf/LIPIcs-ESA-2016-38.pdf
 fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
 where
     F: FnMut(&T, &T) -> bool,
@@ -220,6 +262,7 @@ where
     let mut offsets_l = [MaybeUninit::<u8>::uninit(); BLOCK];
 
     // The current block on the right side (from `r.sub(block_r)` to `r`).
+    // SAFETY: The documentation for .add() specifically mention that `vec.as_ptr().add(vec.len())` is always safe`
     let mut r = unsafe { l.add(v.len()) };
     let mut block_r = BLOCK;
     let mut start_r = ptr::null_mut();
@@ -232,7 +275,9 @@ where
     // Returns the number of elements between pointers `l` (inclusive) and `r` (exclusive).
     fn width<T>(l: *mut T, r: *mut T) -> usize {
         assert!(mem::size_of::<T>() > 0);
-        (r as usize - l as usize) / mem::size_of::<T>()
+        // FIXME: this should *likely* use `offset_from`, but more
+        // investigation is needed (including running tests in miri).
+        (r.addr() - l.addr()) / mem::size_of::<T>()
     }
 
     loop {
@@ -254,6 +299,9 @@ where
             } else if start_r < end_r {
                 block_l = rem;
             } else {
+                // There were the same number of elements to switch on both blocks during the last
+                // iteration, so there are no remaining elements on either block. Cover the remaining
+                // items with roughly equally-sized blocks.
                 block_l = rem / 2;
                 block_r = rem - block_l;
             }
@@ -263,32 +311,53 @@ where
 
         if start_l == end_l {
             // Trace `block_l` elements from the left side.
-            start_l = MaybeUninit::first_ptr_mut(&mut offsets_l);
-            end_l = MaybeUninit::first_ptr_mut(&mut offsets_l);
+            start_l = MaybeUninit::slice_as_mut_ptr(&mut offsets_l);
+            end_l = start_l;
             let mut elem = l;
 
             for i in 0..block_l {
+                // SAFETY: The unsafety operations below involve the usage of the `offset`.
+                //         According to the conditions required by the function, we satisfy them because:
+                //         1. `offsets_l` is stack-allocated, and thus considered separate allocated object.
+                //         2. The function `is_less` returns a `bool`.
+                //            Casting a `bool` will never overflow `isize`.
+                //         3. We have guaranteed that `block_l` will be `<= BLOCK`.
+                //            Plus, `end_l` was initially set to the begin pointer of `offsets_` which was declared on the stack.
+                //            Thus, we know that even in the worst case (all invocations of `is_less` returns false) we will only be at most 1 byte pass the end.
+                //        Another unsafety operation here is dereferencing `elem`.
+                //        However, `elem` was initially the begin pointer to the slice which is always valid.
                 unsafe {
                     // Branchless comparison.
                     *end_l = i as u8;
-                    end_l = end_l.offset(!is_less(&*elem, pivot) as isize);
-                    elem = elem.offset(1);
+                    end_l = end_l.add(!is_less(&*elem, pivot) as usize);
+                    elem = elem.add(1);
                 }
             }
         }
 
         if start_r == end_r {
             // Trace `block_r` elements from the right side.
-            start_r = MaybeUninit::first_ptr_mut(&mut offsets_r);
-            end_r = MaybeUninit::first_ptr_mut(&mut offsets_r);
+            start_r = MaybeUninit::slice_as_mut_ptr(&mut offsets_r);
+            end_r = start_r;
             let mut elem = r;
 
             for i in 0..block_r {
+                // SAFETY: The unsafety operations below involve the usage of the `offset`.
+                //         According to the conditions required by the function, we satisfy them because:
+                //         1. `offsets_r` is stack-allocated, and thus considered separate allocated object.
+                //         2. The function `is_less` returns a `bool`.
+                //            Casting a `bool` will never overflow `isize`.
+                //         3. We have guaranteed that `block_r` will be `<= BLOCK`.
+                //            Plus, `end_r` was initially set to the begin pointer of `offsets_` which was declared on the stack.
+                //            Thus, we know that even in the worst case (all invocations of `is_less` returns true) we will only be at most 1 byte pass the end.
+                //        Another unsafety operation here is dereferencing `elem`.
+                //        However, `elem` was initially `1 * sizeof(T)` past the end and we decrement it by `1 * sizeof(T)` before accessing it.
+                //        Plus, `block_r` was asserted to be less than `BLOCK` and `elem` will therefore at most be pointing to the beginning of the slice.
                 unsafe {
                     // Branchless comparison.
-                    elem = elem.offset(-1);
+                    elem = elem.sub(1);
                     *end_r = i as u8;
-                    end_r = end_r.offset(is_less(&*elem, pivot) as isize);
+                    end_r = end_r.add(is_less(&*elem, pivot) as usize);
                 }
             }
         }
@@ -299,44 +368,70 @@ where
         if count > 0 {
             macro_rules! left {
                 () => {
-                    l.offset(*start_l as isize)
+                    l.add(usize::from(*start_l))
                 };
             }
             macro_rules! right {
                 () => {
-                    r.offset(-(*start_r as isize) - 1)
+                    r.sub(usize::from(*start_r) + 1)
                 };
             }
 
             // Instead of swapping one pair at the time, it is more efficient to perform a cyclic
             // permutation. This is not strictly equivalent to swapping, but produces a similar
             // result using fewer memory operations.
+
+            // SAFETY: The use of `ptr::read` is valid because there is at least one element in
+            // both `offsets_l` and `offsets_r`, so `left!` is a valid pointer to read from.
+            //
+            // The uses of `left!` involve calls to `offset` on `l`, which points to the
+            // beginning of `v`. All the offsets pointed-to by `start_l` are at most `block_l`, so
+            // these `offset` calls are safe as all reads are within the block. The same argument
+            // applies for the uses of `right!`.
+            //
+            // The calls to `start_l.offset` are valid because there are at most `count-1` of them,
+            // plus the final one at the end of the unsafe block, where `count` is the minimum number
+            // of collected offsets in `offsets_l` and `offsets_r`, so there is no risk of there not
+            // being enough elements. The same reasoning applies to the calls to `start_r.offset`.
+            //
+            // The calls to `copy_nonoverlapping` are safe because `left!` and `right!` are guaranteed
+            // not to overlap, and are valid because of the reasoning above.
             unsafe {
                 let tmp = ptr::read(left!());
                 ptr::copy_nonoverlapping(right!(), left!(), 1);
 
                 for _ in 1..count {
-                    start_l = start_l.offset(1);
+                    start_l = start_l.add(1);
                     ptr::copy_nonoverlapping(left!(), right!(), 1);
-                    start_r = start_r.offset(1);
+                    start_r = start_r.add(1);
                     ptr::copy_nonoverlapping(right!(), left!(), 1);
                 }
 
                 ptr::copy_nonoverlapping(&tmp, right!(), 1);
                 mem::forget(tmp);
-                start_l = start_l.offset(1);
-                start_r = start_r.offset(1);
+                start_l = start_l.add(1);
+                start_r = start_r.add(1);
             }
         }
 
         if start_l == end_l {
             // All out-of-order elements in the left block were moved. Move to the next block.
-            l = unsafe { l.offset(block_l as isize) };
+
+            // block-width-guarantee
+            // SAFETY: if `!is_done` then the slice width is guaranteed to be at least `2*BLOCK` wide. There
+            // are at most `BLOCK` elements in `offsets_l` because of its size, so the `offset` operation is
+            // safe. Otherwise, the debug assertions in the `is_done` case guarantee that
+            // `width(l, r) == block_l + block_r`, namely, that the block sizes have been adjusted to account
+            // for the smaller number of remaining elements.
+            l = unsafe { l.add(block_l) };
         }
 
         if start_r == end_r {
             // All out-of-order elements in the right block were moved. Move to the previous block.
-            r = unsafe { r.offset(-(block_r as isize)) };
+
+            // SAFETY: Same argument as [block-width-guarantee]. Either this is a full block `2*BLOCK`-wide,
+            // or `block_r` has been adjusted for the last handful of elements.
+            r = unsafe { r.sub(block_r) };
         }
 
         if is_done {
@@ -353,10 +448,21 @@ where
         // Move its remaining out-of-order elements to the far right.
         debug_assert_eq!(width(l, r), block_l);
         while start_l < end_l {
+            // remaining-elements-safety
+            // SAFETY: while the loop condition holds there are still elements in `offsets_l`, so it
+            // is safe to point `end_l` to the previous element.
+            //
+            // The `ptr::swap` is safe if both its arguments are valid for reads and writes:
+            //  - Per the debug assert above, the distance between `l` and `r` is `block_l`
+            //    elements, so there can be at most `block_l` remaining offsets between `start_l`
+            //    and `end_l`. This means `r` will be moved at most `block_l` steps back, which
+            //    makes the `r.offset` calls valid (at that point `l == r`).
+            //  - `offsets_l` contains valid offsets into `v` collected during the partitioning of
+            //    the last block, so the `l.offset` calls are valid.
             unsafe {
-                end_l = end_l.offset(-1);
-                ptr::swap(l.offset(*end_l as isize), r.offset(-1));
-                r = r.offset(-1);
+                end_l = end_l.sub(1);
+                ptr::swap(l.add(usize::from(*end_l)), r.sub(1));
+                r = r.sub(1);
             }
         }
         width(v.as_mut_ptr(), r)
@@ -365,10 +471,11 @@ where
         // Move its remaining out-of-order elements to the far left.
         debug_assert_eq!(width(l, r), block_r);
         while start_r < end_r {
+            // SAFETY: See the reasoning in [remaining-elements-safety].
             unsafe {
-                end_r = end_r.offset(-1);
-                ptr::swap(l, r.offset(-(*end_r as isize) - 1));
-                l = l.offset(1);
+                end_r = end_r.sub(1);
+                ptr::swap(l, r.sub(usize::from(*end_r) + 1));
+                l = l.add(1);
             }
         }
         width(v.as_mut_ptr(), l)
@@ -397,15 +504,22 @@ where
 
         // Read the pivot into a stack-allocated variable for efficiency. If a following comparison
         // operation panics, the pivot will be automatically written back into the slice.
-        let mut tmp = mem::ManuallyDrop::new(unsafe { ptr::read(pivot) });
-        let _pivot_guard = CopyOnDrop { src: &mut *tmp, dest: pivot };
+
+        // SAFETY: `pivot` is a reference to the first element of `v`, so `ptr::read` is safe.
+        let tmp = mem::ManuallyDrop::new(unsafe { ptr::read(pivot) });
+        let _pivot_guard = CopyOnDrop { src: &*tmp, dest: pivot };
         let pivot = &*tmp;
 
         // Find the first pair of out-of-order elements.
         let mut l = 0;
         let mut r = v.len();
+
+        // SAFETY: The unsafety below involves indexing an array.
+        // For the first one: We already do the bounds checking here with `l < r`.
+        // For the second one: We initially have `l == 0` and `r == v.len()` and we checked that `l < r` at every indexing operation.
+        //                     From here we know that `r` must be at least `r == l` which was shown to be valid from the first one.
         unsafe {
-            // Find the first element greater then or equal to the pivot.
+            // Find the first element greater than or equal to the pivot.
             while l < r && is_less(v.get_unchecked(l), pivot) {
                 l += 1;
             }
@@ -444,16 +558,21 @@ where
 
     // Read the pivot into a stack-allocated variable for efficiency. If a following comparison
     // operation panics, the pivot will be automatically written back into the slice.
-    let mut tmp = mem::ManuallyDrop::new(unsafe { ptr::read(pivot) });
-    let _pivot_guard = CopyOnDrop { src: &mut *tmp, dest: pivot };
+    // SAFETY: The pointer here is valid because it is obtained from a reference to a slice.
+    let tmp = mem::ManuallyDrop::new(unsafe { ptr::read(pivot) });
+    let _pivot_guard = CopyOnDrop { src: &*tmp, dest: pivot };
     let pivot = &*tmp;
 
     // Now partition the slice.
     let mut l = 0;
     let mut r = v.len();
     loop {
+        // SAFETY: The unsafety below involves indexing an array.
+        // For the first one: We already do the bounds checking here with `l < r`.
+        // For the second one: We initially have `l == 0` and `r == v.len()` and we checked that `l < r` at every indexing operation.
+        //                     From here we know that `r` must be at least `r == l` which was shown to be valid from the first one.
         unsafe {
-            // Find the first element greater that the pivot.
+            // Find the first element greater than the pivot.
             while l < r && !is_less(pivot, v.get_unchecked(l)) {
                 l += 1;
             }
@@ -470,7 +589,8 @@ where
 
             // Swap the found pair of out-of-order elements.
             r -= 1;
-            ptr::swap(v.get_unchecked_mut(l), v.get_unchecked_mut(r));
+            let ptr = v.as_mut_ptr();
+            ptr::swap(ptr.add(l), ptr.add(r));
             l += 1;
         }
     }
@@ -497,7 +617,7 @@ fn break_patterns<T>(v: &mut [T]) {
             random
         };
         let mut gen_usize = || {
-            if mem::size_of::<usize>() <= 4 {
+            if usize::BITS <= 32 {
                 gen_u32() as usize
             } else {
                 (((gen_u32() as u64) << 32) | (gen_u32() as u64)) as usize
@@ -552,6 +672,12 @@ where
 
     if len >= 8 {
         // Swaps indices so that `v[a] <= v[b]`.
+        // SAFETY: `len >= 8` so there are at least two elements in the neighborhoods of
+        // `a`, `b` and `c`. This means the three calls to `sort_adjacent` result in
+        // corresponding calls to `sort3` with valid 3-item neighborhoods around each
+        // pointer, which in turn means the calls to `sort2` are done with valid
+        // references. Thus the `v.get_unchecked` calls are safe, as is the `ptr::swap`
+        // call.
         let mut sort2 = |a: &mut usize, b: &mut usize| unsafe {
             if is_less(v.get_unchecked(*b), v.get_unchecked(*a)) {
                 ptr::swap(a, b);
@@ -599,7 +725,7 @@ where
 ///
 /// `limit` is the number of allowed imbalanced partitions before switching to `heapsort`. If zero,
 /// this function will immediately switch to heapsort.
-fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T>, mut limit: usize)
+fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T>, mut limit: u32)
 where
     F: FnMut(&T, &T) -> bool,
 {
@@ -621,7 +747,7 @@ where
         }
 
         // If too many bad pivot choices were made, simply fall back to heapsort in order to
-        // guarantee `O(n log n)` worst-case.
+        // guarantee `O(n * log(n))` worst-case.
         if limit == 0 {
             heapsort(v, is_less);
             return;
@@ -655,7 +781,7 @@ where
                 let mid = partition_equal(v, pivot, is_less);
 
                 // Continue sorting elements greater than the pivot.
-                v = &mut { v }[mid..];
+                v = &mut v[mid..];
                 continue;
             }
         }
@@ -666,7 +792,7 @@ where
         was_partitioned = was_p;
 
         // Split the slice into `left`, `pivot`, and `right`.
-        let (left, right) = { v }.split_at_mut(mid);
+        let (left, right) = v.split_at_mut(mid);
         let (pivot, right) = right.split_at_mut(1);
         let pivot = &pivot[0];
 
@@ -684,18 +810,18 @@ where
     }
 }
 
-/// Sorts `v` using pattern-defeating quicksort, which is `O(n log n)` worst-case.
+/// Sorts `v` using pattern-defeating quicksort, which is *O*(*n* \* log(*n*)) worst-case.
 pub fn quicksort<T, F>(v: &mut [T], mut is_less: F)
 where
     F: FnMut(&T, &T) -> bool,
 {
     // Sorting has no meaningful behavior on zero-sized types.
-    if mem::size_of::<T>() == 0 {
+    if T::IS_ZST {
         return;
     }
 
     // Limit the number of imbalanced partitions to `floor(log2(len)) + 1`.
-    let limit = mem::size_of::<usize>() * 8 - v.len().leading_zeros() as usize;
+    let limit = usize::BITS - v.len().leading_zeros();
 
     recurse(v, &mut is_less, None, limit);
 }
@@ -708,12 +834,33 @@ fn partition_at_index_loop<'a, T, F>(
 ) where
     F: FnMut(&T, &T) -> bool,
 {
+    // Limit the amount of iterations and fall back to heapsort, similarly to `slice::sort_unstable`.
+    // This lowers the worst case running time from O(n^2) to O(n log n).
+    // FIXME: Investigate whether it would be better to use something like Median of Medians
+    // or Fast Deterministic Selection to guarantee O(n) worst case.
+    let mut limit = usize::BITS - v.len().leading_zeros();
+
+    // True if the last partitioning was reasonably balanced.
+    let mut was_balanced = true;
+
     loop {
         // For slices of up to this length it's probably faster to simply sort them.
         const MAX_INSERTION: usize = 10;
         if v.len() <= MAX_INSERTION {
             insertion_sort(v, is_less);
             return;
+        }
+
+        if limit == 0 {
+            heapsort(v, is_less);
+            return;
+        }
+
+        // If the last partitioning was imbalanced, try breaking patterns in the slice by shuffling
+        // some elements around. Hopefully we'll choose a better pivot this time.
+        if !was_balanced {
+            break_patterns(v);
+            limit -= 1;
         }
 
         // Choose a pivot
@@ -740,9 +887,10 @@ fn partition_at_index_loop<'a, T, F>(
         }
 
         let (mid, _) = partition(v, pivot, is_less);
+        was_balanced = cmp::min(mid, v.len() - mid) >= v.len() / 8;
 
         // Split the slice into `left`, `pivot`, and `right`.
-        let (left, right) = { v }.split_at_mut(mid);
+        let (left, right) = v.split_at_mut(mid);
         let (pivot, right) = right.split_at_mut(1);
         let pivot = &pivot[0];
 
@@ -760,6 +908,7 @@ fn partition_at_index_loop<'a, T, F>(
     }
 }
 
+/// Reorder the slice such that the element at `index` is at its final sorted position.
 pub fn partition_at_index<T, F>(
     v: &mut [T],
     index: usize,
@@ -775,7 +924,7 @@ where
         panic!("partition_at_index index {} greater than length of slice {}", index, v.len());
     }
 
-    if mem::size_of::<T>() == 0 {
+    if T::IS_ZST {
         // Sorting has no meaningful behavior on zero-sized types. Do nothing.
     } else if index == v.len() - 1 {
         // Find max element and place it in the last position of the array. We're free to use
@@ -803,4 +952,514 @@ where
     let (pivot, right) = right.split_at_mut(1);
     let pivot = &mut pivot[0];
     (left, pivot, right)
+}
+
+/// Inserts `v[0]` into pre-sorted sequence `v[1..]` so that whole `v[..]` becomes sorted.
+///
+/// This is the integral subroutine of insertion sort.
+fn insert_head<T, F>(v: &mut [T], is_less: &mut F)
+where
+    F: FnMut(&T, &T) -> bool,
+{
+    if v.len() >= 2 && is_less(&v[1], &v[0]) {
+        // SAFETY: Copy tmp back even if panic, and ensure unique observation.
+        unsafe {
+            // There are three ways to implement insertion here:
+            //
+            // 1. Swap adjacent elements until the first one gets to its final destination.
+            //    However, this way we copy data around more than is necessary. If elements are big
+            //    structures (costly to copy), this method will be slow.
+            //
+            // 2. Iterate until the right place for the first element is found. Then shift the
+            //    elements succeeding it to make room for it and finally place it into the
+            //    remaining hole. This is a good method.
+            //
+            // 3. Copy the first element into a temporary variable. Iterate until the right place
+            //    for it is found. As we go along, copy every traversed element into the slot
+            //    preceding it. Finally, copy data from the temporary variable into the remaining
+            //    hole. This method is very good. Benchmarks demonstrated slightly better
+            //    performance than with the 2nd method.
+            //
+            // All methods were benchmarked, and the 3rd showed best results. So we chose that one.
+            let tmp = mem::ManuallyDrop::new(ptr::read(&v[0]));
+
+            // Intermediate state of the insertion process is always tracked by `hole`, which
+            // serves two purposes:
+            // 1. Protects integrity of `v` from panics in `is_less`.
+            // 2. Fills the remaining hole in `v` in the end.
+            //
+            // Panic safety:
+            //
+            // If `is_less` panics at any point during the process, `hole` will get dropped and
+            // fill the hole in `v` with `tmp`, thus ensuring that `v` still holds every object it
+            // initially held exactly once.
+            let mut hole = InsertionHole { src: &*tmp, dest: &mut v[1] };
+            ptr::copy_nonoverlapping(&v[1], &mut v[0], 1);
+
+            for i in 2..v.len() {
+                if !is_less(&v[i], &*tmp) {
+                    break;
+                }
+                ptr::copy_nonoverlapping(&v[i], &mut v[i - 1], 1);
+                hole.dest = &mut v[i];
+            }
+            // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
+        }
+    }
+
+    // When dropped, copies from `src` into `dest`.
+    struct InsertionHole<T> {
+        src: *const T,
+        dest: *mut T,
+    }
+
+    impl<T> Drop for InsertionHole<T> {
+        fn drop(&mut self) {
+            // SAFETY: The caller must ensure that src and dest are correctly set.
+            unsafe {
+                ptr::copy_nonoverlapping(self.src, self.dest, 1);
+            }
+        }
+    }
+}
+
+/// Merges non-decreasing runs `v[..mid]` and `v[mid..]` using `buf` as temporary storage, and
+/// stores the result into `v[..]`.
+///
+/// # Safety
+///
+/// The two slices must be non-empty and `mid` must be in bounds. Buffer `buf` must be long enough
+/// to hold a copy of the shorter slice. Also, `T` must not be a zero-sized type.
+unsafe fn merge<T, F>(v: &mut [T], mid: usize, buf: *mut T, is_less: &mut F)
+where
+    F: FnMut(&T, &T) -> bool,
+{
+    let len = v.len();
+    let v = v.as_mut_ptr();
+
+    // SAFETY: mid and len must be in-bounds of v.
+    let (v_mid, v_end) = unsafe { (v.add(mid), v.add(len)) };
+
+    // The merge process first copies the shorter run into `buf`. Then it traces the newly copied
+    // run and the longer run forwards (or backwards), comparing their next unconsumed elements and
+    // copying the lesser (or greater) one into `v`.
+    //
+    // As soon as the shorter run is fully consumed, the process is done. If the longer run gets
+    // consumed first, then we must copy whatever is left of the shorter run into the remaining
+    // hole in `v`.
+    //
+    // Intermediate state of the process is always tracked by `hole`, which serves two purposes:
+    // 1. Protects integrity of `v` from panics in `is_less`.
+    // 2. Fills the remaining hole in `v` if the longer run gets consumed first.
+    //
+    // Panic safety:
+    //
+    // If `is_less` panics at any point during the process, `hole` will get dropped and fill the
+    // hole in `v` with the unconsumed range in `buf`, thus ensuring that `v` still holds every
+    // object it initially held exactly once.
+    let mut hole;
+
+    if mid <= len - mid {
+        // The left run is shorter.
+
+        // SAFETY: buf must have enough capacity for `v[..mid]`.
+        unsafe {
+            ptr::copy_nonoverlapping(v, buf, mid);
+            hole = MergeHole { start: buf, end: buf.add(mid), dest: v };
+        }
+
+        // Initially, these pointers point to the beginnings of their arrays.
+        let left = &mut hole.start;
+        let mut right = v_mid;
+        let out = &mut hole.dest;
+
+        while *left < hole.end && right < v_end {
+            // Consume the lesser side.
+            // If equal, prefer the left run to maintain stability.
+
+            // SAFETY: left and right must be valid and part of v same for out.
+            unsafe {
+                let to_copy = if is_less(&*right, &**left) {
+                    get_and_increment(&mut right)
+                } else {
+                    get_and_increment(left)
+                };
+                ptr::copy_nonoverlapping(to_copy, get_and_increment(out), 1);
+            }
+        }
+    } else {
+        // The right run is shorter.
+
+        // SAFETY: buf must have enough capacity for `v[mid..]`.
+        unsafe {
+            ptr::copy_nonoverlapping(v_mid, buf, len - mid);
+            hole = MergeHole { start: buf, end: buf.add(len - mid), dest: v_mid };
+        }
+
+        // Initially, these pointers point past the ends of their arrays.
+        let left = &mut hole.dest;
+        let right = &mut hole.end;
+        let mut out = v_end;
+
+        while v < *left && buf < *right {
+            // Consume the greater side.
+            // If equal, prefer the right run to maintain stability.
+
+            // SAFETY: left and right must be valid and part of v same for out.
+            unsafe {
+                let to_copy = if is_less(&*right.sub(1), &*left.sub(1)) {
+                    decrement_and_get(left)
+                } else {
+                    decrement_and_get(right)
+                };
+                ptr::copy_nonoverlapping(to_copy, decrement_and_get(&mut out), 1);
+            }
+        }
+    }
+    // Finally, `hole` gets dropped. If the shorter run was not fully consumed, whatever remains of
+    // it will now be copied into the hole in `v`.
+
+    unsafe fn get_and_increment<T>(ptr: &mut *mut T) -> *mut T {
+        let old = *ptr;
+
+        // SAFETY: ptr.add(1) must still be a valid pointer and part of `v`.
+        *ptr = unsafe { ptr.add(1) };
+        old
+    }
+
+    unsafe fn decrement_and_get<T>(ptr: &mut *mut T) -> *mut T {
+        // SAFETY: ptr.sub(1) must still be a valid pointer and part of `v`.
+        *ptr = unsafe { ptr.sub(1) };
+        *ptr
+    }
+
+    // When dropped, copies the range `start..end` into `dest..`.
+    struct MergeHole<T> {
+        start: *mut T,
+        end: *mut T,
+        dest: *mut T,
+    }
+
+    impl<T> Drop for MergeHole<T> {
+        fn drop(&mut self) {
+            // SAFETY: `T` is not a zero-sized type, and these are pointers into a slice's elements.
+            unsafe {
+                let len = self.end.sub_ptr(self.start);
+                ptr::copy_nonoverlapping(self.start, self.dest, len);
+            }
+        }
+    }
+}
+
+/// This merge sort borrows some (but not all) ideas from TimSort, which used to be described in
+/// detail [here](https://github.com/python/cpython/blob/main/Objects/listsort.txt). However Python
+/// has switched to a Powersort based implementation.
+///
+/// The algorithm identifies strictly descending and non-descending subsequences, which are called
+/// natural runs. There is a stack of pending runs yet to be merged. Each newly found run is pushed
+/// onto the stack, and then some pairs of adjacent runs are merged until these two invariants are
+/// satisfied:
+///
+/// 1. for every `i` in `1..runs.len()`: `runs[i - 1].len > runs[i].len`
+/// 2. for every `i` in `2..runs.len()`: `runs[i - 2].len > runs[i - 1].len + runs[i].len`
+///
+/// The invariants ensure that the total running time is *O*(*n* \* log(*n*)) worst-case.
+pub fn merge_sort<T, CmpF, ElemAllocF, ElemDeallocF, RunAllocF, RunDeallocF>(
+    v: &mut [T],
+    is_less: &mut CmpF,
+    elem_alloc_fn: ElemAllocF,
+    elem_dealloc_fn: ElemDeallocF,
+    run_alloc_fn: RunAllocF,
+    run_dealloc_fn: RunDeallocF,
+) where
+    CmpF: FnMut(&T, &T) -> bool,
+    ElemAllocF: Fn(usize) -> *mut T,
+    ElemDeallocF: Fn(*mut T, usize),
+    RunAllocF: Fn(usize) -> *mut TimSortRun,
+    RunDeallocF: Fn(*mut TimSortRun, usize),
+{
+    // Slices of up to this length get sorted using insertion sort.
+    const MAX_INSERTION: usize = 20;
+    // Very short runs are extended using insertion sort to span at least this many elements.
+    const MIN_RUN: usize = 10;
+
+    // The caller should have already checked that.
+    debug_assert!(!T::IS_ZST);
+
+    let len = v.len();
+
+    // Short arrays get sorted in-place via insertion sort to avoid allocations.
+    if len <= MAX_INSERTION {
+        if len >= 2 {
+            for i in (0..len - 1).rev() {
+                insert_head(&mut v[i..], is_less);
+            }
+        }
+        return;
+    }
+
+    // Allocate a buffer to use as scratch memory. We keep the length 0 so we can keep in it
+    // shallow copies of the contents of `v` without risking the dtors running on copies if
+    // `is_less` panics. When merging two sorted runs, this buffer holds a copy of the shorter run,
+    // which will always have length at most `len / 2`.
+    let buf = BufGuard::new(len / 2, elem_alloc_fn, elem_dealloc_fn);
+    let buf_ptr = buf.buf_ptr;
+
+    let mut runs = RunVec::new(run_alloc_fn, run_dealloc_fn);
+
+    // In order to identify natural runs in `v`, we traverse it backwards. That might seem like a
+    // strange decision, but consider the fact that merges more often go in the opposite direction
+    // (forwards). According to benchmarks, merging forwards is slightly faster than merging
+    // backwards. To conclude, identifying runs by traversing backwards improves performance.
+    let mut end = len;
+    while end > 0 {
+        // Find the next natural run, and reverse it if it's strictly descending.
+        let mut start = end - 1;
+        if start > 0 {
+            start -= 1;
+
+            // SAFETY: The v.get_unchecked must be fed with correct inbound indicies.
+            unsafe {
+                if is_less(v.get_unchecked(start + 1), v.get_unchecked(start)) {
+                    while start > 0 && is_less(v.get_unchecked(start), v.get_unchecked(start - 1)) {
+                        start -= 1;
+                    }
+                    v[start..end].reverse();
+                } else {
+                    while start > 0 && !is_less(v.get_unchecked(start), v.get_unchecked(start - 1))
+                    {
+                        start -= 1;
+                    }
+                }
+            }
+        }
+
+        // Insert some more elements into the run if it's too short. Insertion sort is faster than
+        // merge sort on short sequences, so this significantly improves performance.
+        while start > 0 && end - start < MIN_RUN {
+            start -= 1;
+            insert_head(&mut v[start..end], is_less);
+        }
+
+        // Push this run onto the stack.
+        runs.push(TimSortRun { start, len: end - start });
+        end = start;
+
+        // Merge some pairs of adjacent runs to satisfy the invariants.
+        while let Some(r) = collapse(runs.as_slice()) {
+            let left = runs[r + 1];
+            let right = runs[r];
+            // SAFETY: `buf_ptr` must hold enough capacity for the shorter of the two sides, and
+            // neither side may be on length 0.
+            unsafe {
+                merge(&mut v[left.start..right.start + right.len], left.len, buf_ptr, is_less);
+            }
+            runs[r] = TimSortRun { start: left.start, len: left.len + right.len };
+            runs.remove(r + 1);
+        }
+    }
+
+    // Finally, exactly one run must remain in the stack.
+    debug_assert!(runs.len() == 1 && runs[0].start == 0 && runs[0].len == len);
+
+    // Examines the stack of runs and identifies the next pair of runs to merge. More specifically,
+    // if `Some(r)` is returned, that means `runs[r]` and `runs[r + 1]` must be merged next. If the
+    // algorithm should continue building a new run instead, `None` is returned.
+    //
+    // TimSort is infamous for its buggy implementations, as described here:
+    // http://envisage-project.eu/timsort-specification-and-verification/
+    //
+    // The gist of the story is: we must enforce the invariants on the top four runs on the stack.
+    // Enforcing them on just top three is not sufficient to ensure that the invariants will still
+    // hold for *all* runs in the stack.
+    //
+    // This function correctly checks invariants for the top four runs. Additionally, if the top
+    // run starts at index 0, it will always demand a merge operation until the stack is fully
+    // collapsed, in order to complete the sort.
+    #[inline]
+    fn collapse(runs: &[TimSortRun]) -> Option<usize> {
+        let n = runs.len();
+        if n >= 2
+            && (runs[n - 1].start == 0
+                || runs[n - 2].len <= runs[n - 1].len
+                || (n >= 3 && runs[n - 3].len <= runs[n - 2].len + runs[n - 1].len)
+                || (n >= 4 && runs[n - 4].len <= runs[n - 3].len + runs[n - 2].len))
+        {
+            if n >= 3 && runs[n - 3].len < runs[n - 1].len { Some(n - 3) } else { Some(n - 2) }
+        } else {
+            None
+        }
+    }
+
+    // Extremely basic versions of Vec.
+    // Their use is super limited and by having the code here, it allows reuse between the sort
+    // implementations.
+    struct BufGuard<T, ElemDeallocF>
+    where
+        ElemDeallocF: Fn(*mut T, usize),
+    {
+        buf_ptr: *mut T,
+        capacity: usize,
+        elem_dealloc_fn: ElemDeallocF,
+    }
+
+    impl<T, ElemDeallocF> BufGuard<T, ElemDeallocF>
+    where
+        ElemDeallocF: Fn(*mut T, usize),
+    {
+        fn new<ElemAllocF>(
+            len: usize,
+            elem_alloc_fn: ElemAllocF,
+            elem_dealloc_fn: ElemDeallocF,
+        ) -> Self
+        where
+            ElemAllocF: Fn(usize) -> *mut T,
+        {
+            Self { buf_ptr: elem_alloc_fn(len), capacity: len, elem_dealloc_fn }
+        }
+    }
+
+    impl<T, ElemDeallocF> Drop for BufGuard<T, ElemDeallocF>
+    where
+        ElemDeallocF: Fn(*mut T, usize),
+    {
+        fn drop(&mut self) {
+            (self.elem_dealloc_fn)(self.buf_ptr, self.capacity);
+        }
+    }
+
+    struct RunVec<RunAllocF, RunDeallocF>
+    where
+        RunAllocF: Fn(usize) -> *mut TimSortRun,
+        RunDeallocF: Fn(*mut TimSortRun, usize),
+    {
+        buf_ptr: *mut TimSortRun,
+        capacity: usize,
+        len: usize,
+        run_alloc_fn: RunAllocF,
+        run_dealloc_fn: RunDeallocF,
+    }
+
+    impl<RunAllocF, RunDeallocF> RunVec<RunAllocF, RunDeallocF>
+    where
+        RunAllocF: Fn(usize) -> *mut TimSortRun,
+        RunDeallocF: Fn(*mut TimSortRun, usize),
+    {
+        fn new(run_alloc_fn: RunAllocF, run_dealloc_fn: RunDeallocF) -> Self {
+            // Most slices can be sorted with at most 16 runs in-flight.
+            const START_RUN_CAPACITY: usize = 16;
+
+            Self {
+                buf_ptr: run_alloc_fn(START_RUN_CAPACITY),
+                capacity: START_RUN_CAPACITY,
+                len: 0,
+                run_alloc_fn,
+                run_dealloc_fn,
+            }
+        }
+
+        fn push(&mut self, val: TimSortRun) {
+            if self.len == self.capacity {
+                let old_capacity = self.capacity;
+                let old_buf_ptr = self.buf_ptr;
+
+                self.capacity = self.capacity * 2;
+                self.buf_ptr = (self.run_alloc_fn)(self.capacity);
+
+                // SAFETY: buf_ptr new and old were correctly allocated and old_buf_ptr has
+                // old_capacity valid elements.
+                unsafe {
+                    ptr::copy_nonoverlapping(old_buf_ptr, self.buf_ptr, old_capacity);
+                }
+
+                (self.run_dealloc_fn)(old_buf_ptr, old_capacity);
+            }
+
+            // SAFETY: The invariant was just checked.
+            unsafe {
+                self.buf_ptr.add(self.len).write(val);
+            }
+            self.len += 1;
+        }
+
+        fn remove(&mut self, index: usize) {
+            if index >= self.len {
+                panic!("Index out of bounds");
+            }
+
+            // SAFETY: buf_ptr needs to be valid and len invariant upheld.
+            unsafe {
+                // the place we are taking from.
+                let ptr = self.buf_ptr.add(index);
+
+                // Shift everything down to fill in that spot.
+                ptr::copy(ptr.add(1), ptr, self.len - index - 1);
+            }
+            self.len -= 1;
+        }
+
+        fn as_slice(&self) -> &[TimSortRun] {
+            // SAFETY: Safe as long as buf_ptr is valid and len invariant was upheld.
+            unsafe { &*ptr::slice_from_raw_parts(self.buf_ptr, self.len) }
+        }
+
+        fn len(&self) -> usize {
+            self.len
+        }
+    }
+
+    impl<RunAllocF, RunDeallocF> core::ops::Index<usize> for RunVec<RunAllocF, RunDeallocF>
+    where
+        RunAllocF: Fn(usize) -> *mut TimSortRun,
+        RunDeallocF: Fn(*mut TimSortRun, usize),
+    {
+        type Output = TimSortRun;
+
+        fn index(&self, index: usize) -> &Self::Output {
+            if index < self.len {
+                // SAFETY: buf_ptr and len invariant must be upheld.
+                unsafe {
+                    return &*(self.buf_ptr.add(index));
+                }
+            }
+
+            panic!("Index out of bounds");
+        }
+    }
+
+    impl<RunAllocF, RunDeallocF> core::ops::IndexMut<usize> for RunVec<RunAllocF, RunDeallocF>
+    where
+        RunAllocF: Fn(usize) -> *mut TimSortRun,
+        RunDeallocF: Fn(*mut TimSortRun, usize),
+    {
+        fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+            if index < self.len {
+                // SAFETY: buf_ptr and len invariant must be upheld.
+                unsafe {
+                    return &mut *(self.buf_ptr.add(index));
+                }
+            }
+
+            panic!("Index out of bounds");
+        }
+    }
+
+    impl<RunAllocF, RunDeallocF> Drop for RunVec<RunAllocF, RunDeallocF>
+    where
+        RunAllocF: Fn(usize) -> *mut TimSortRun,
+        RunDeallocF: Fn(*mut TimSortRun, usize),
+    {
+        fn drop(&mut self) {
+            // As long as TimSortRun is Copy we don't need to drop them individually but just the
+            // whole allocation.
+            (self.run_dealloc_fn)(self.buf_ptr, self.capacity);
+        }
+    }
+}
+
+/// Internal type used by merge_sort.
+#[derive(Clone, Copy, Debug)]
+pub struct TimSortRun {
+    len: usize,
+    start: usize,
 }

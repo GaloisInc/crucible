@@ -7,8 +7,8 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::backtrace::Frame;
-use crate::types::BytesOrWideString;
+use super::backtrace::Frame;
+use super::types::BytesOrWideString;
 use core::ffi::c_void;
 use rustc_demangle::{try_demangle, Demangle};
 
@@ -66,7 +66,7 @@ pub fn resolve<F: FnMut(&Symbol)>(addr: *mut c_void, cb: F) {
 /// Resolve a previously capture frame to a symbol, passing the symbol to the
 /// specified closure.
 ///
-/// This functin performs the same function as `resolve` except that it takes a
+/// This function performs the same function as `resolve` except that it takes a
 /// `Frame` as an argument instead of an address. This can allow some platform
 /// implementations of backtracing to provide more accurate symbol information
 /// or information about inline frames for example. It's recommended to use this
@@ -148,7 +148,7 @@ fn adjust_ip(a: *mut c_void) -> *mut c_void {
 
 /// Same as `resolve`, only unsafe as it's unsynchronized.
 ///
-/// This function does not have synchronization guarentees but is available when
+/// This function does not have synchronization guarantees but is available when
 /// the `std` feature of this crate isn't compiled in. See the `resolve`
 /// function for more documentation and examples.
 ///
@@ -159,12 +159,12 @@ pub unsafe fn resolve_unsynchronized<F>(addr: *mut c_void, mut cb: F)
 where
     F: FnMut(&Symbol),
 {
-    resolve_imp(ResolveWhat::Address(addr), &mut cb)
+    imp::resolve(ResolveWhat::Address(addr), &mut cb)
 }
 
 /// Same as `resolve_frame`, only unsafe as it's unsynchronized.
 ///
-/// This function does not have synchronization guarentees but is available
+/// This function does not have synchronization guarantees but is available
 /// when the `std` feature of this crate isn't compiled in. See the
 /// `resolve_frame` function for more documentation and examples.
 ///
@@ -175,7 +175,7 @@ pub unsafe fn resolve_frame_unsynchronized<F>(frame: &Frame, mut cb: F)
 where
     F: FnMut(&Symbol),
 {
-    resolve_imp(ResolveWhat::Frame(frame), &mut cb)
+    imp::resolve(ResolveWhat::Frame(frame), &mut cb)
 }
 
 /// A trait representing the resolution of a symbol in a file.
@@ -191,7 +191,7 @@ pub struct Symbol {
     // TODO: this lifetime bound needs to be persisted eventually to `Symbol`,
     // but that's currently a breaking change. For now this is safe since
     // `Symbol` is only ever handed out by reference and can't be cloned.
-    inner: SymbolImp<'static>,
+    inner: imp::Symbol<'static>,
 }
 
 impl Symbol {
@@ -204,7 +204,7 @@ impl Symbol {
     /// * The raw `str` value of the symbol can be accessed (if it's valid
     ///   utf-8).
     /// * The raw bytes for the symbol name can be accessed.
-    pub fn name(&self) -> Option<SymbolName> {
+    pub fn name(&self) -> Option<SymbolName<'_>> {
         self.inner.name()
     }
 
@@ -215,8 +215,16 @@ impl Symbol {
 
     /// Returns the raw filename as a slice. This is mainly useful for `no_std`
     /// environments.
-    pub fn filename_raw(&self) -> Option<BytesOrWideString> {
+    pub fn filename_raw(&self) -> Option<BytesOrWideString<'_>> {
         self.inner.filename_raw()
+    }
+
+    /// Returns the column number for where this symbol is currently executing.
+    ///
+    /// Only gimli currently provides a value here and even then only if `filename`
+    /// returns `Some`, and so it is then consequently subject to similar caveats.
+    pub fn colno(&self) -> Option<u32> {
+        self.inner.colno()
     }
 
     /// Returns the line number for where this symbol is currently executing.
@@ -229,8 +237,8 @@ impl Symbol {
 
     /// Returns the file name where this function was defined.
     ///
-    /// This is currently only available when libbacktrace is being used (e.g.
-    /// unix platforms other than OSX) and when a binary is compiled with
+    /// This is currently only available when libbacktrace or gimli is being
+    /// used (e.g. unix platforms other) and when a binary is compiled with
     /// debuginfo. If neither of these conditions is met then this will likely
     /// return `None`.
     ///
@@ -246,7 +254,7 @@ impl Symbol {
 }
 
 impl fmt::Debug for Symbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("Symbol");
         if let Some(name) = self.name() {
             d.field("name", &name);
@@ -349,9 +357,9 @@ impl<'a> SymbolName<'a> {
 }
 
 fn format_symbol_name(
-    fmt: fn(&str, &mut fmt::Formatter) -> fmt::Result,
+    fmt: fn(&str, &mut fmt::Formatter<'_>) -> fmt::Result,
     mut bytes: &[u8],
-    f: &mut fmt::Formatter,
+    f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result {
     while bytes.len() > 0 {
         match str::from_utf8(bytes) {
@@ -375,7 +383,7 @@ fn format_symbol_name(
 cfg_if::cfg_if! {
     if #[cfg(feature = "cpp_demangle")] {
         impl<'a> fmt::Display for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 if let Some(ref s) = self.demangled {
                     s.fmt(f)
                 } else if let Some(ref cpp) = self.cpp_demangled.0 {
@@ -387,7 +395,7 @@ cfg_if::cfg_if! {
         }
     } else {
         impl<'a> fmt::Display for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 if let Some(ref s) = self.demangled {
                     s.fmt(f)
                 } else {
@@ -401,7 +409,7 @@ cfg_if::cfg_if! {
 cfg_if::cfg_if! {
     if #[cfg(all(feature = "std", feature = "cpp_demangle"))] {
         impl<'a> fmt::Debug for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 use std::fmt::Write;
 
                 if let Some(ref s) = self.demangled {
@@ -423,7 +431,7 @@ cfg_if::cfg_if! {
         }
     } else {
         impl<'a> fmt::Debug for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 if let Some(ref s) = self.demangled {
                     s.fmt(f)
                 } else {
@@ -451,64 +459,27 @@ cfg_if::cfg_if! {
 pub fn clear_symbol_cache() {
     let _guard = crate::lock::lock();
     unsafe {
-        clear_symbol_cache_imp();
+        imp::clear_symbol_cache();
     }
 }
 
-mod dladdr;
-
 cfg_if::cfg_if! {
-    if #[cfg(all(windows, target_env = "msvc", feature = "dbghelp", not(target_vendor = "uwp")))] {
+    if #[cfg(miri)] {
+        mod miri;
+        use miri as imp;
+    } else if #[cfg(all(windows, target_env = "msvc", not(target_vendor = "uwp")))] {
         mod dbghelp;
-        use self::dbghelp::resolve as resolve_imp;
-        use self::dbghelp::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
+        use dbghelp as imp;
     } else if #[cfg(all(
-        feature = "std",
-        feature = "gimli-symbolize",
-        any(
-            target_os = "linux",
-            target_os = "macos",
-            windows,
-        ),
+        any(unix, windows),
+        not(target_vendor = "uwp"),
+        not(target_os = "emscripten"),
+        any(not(backtrace_in_libstd), feature = "backtrace"),
     ))] {
         mod gimli;
-        use self::gimli::resolve as resolve_imp;
-        use self::gimli::Symbol as SymbolImp;
-        use self::gimli::clear_symbol_cache as clear_symbol_cache_imp;
-    // Note that we only enable coresymbolication on iOS when debug assertions
-    // are enabled because it's helpful in debug mode but it looks like apps get
-    // rejected from the app store if they use this API, see #92 for more info
-    } else if #[cfg(all(feature = "coresymbolication",
-                        any(target_os = "macos",
-                            all(target_os = "ios", debug_assertions))))] {
-        mod coresymbolication;
-        use self::coresymbolication::resolve as resolve_imp;
-        use self::coresymbolication::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
-    } else if #[cfg(all(feature = "libbacktrace",
-                        any(unix, all(windows, not(target_vendor = "uwp"), target_env = "gnu")),
-                        not(target_os = "fuchsia"),
-                        not(target_os = "emscripten"),
-                        not(target_env = "uclibc")))] {
-        mod libbacktrace;
-        use self::libbacktrace::resolve as resolve_imp;
-        use self::libbacktrace::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
-    } else if #[cfg(all(unix,
-                        not(target_os = "emscripten"),
-                        not(target_os = "fuchsia"),
-                        not(target_env = "uclibc"),
-                        feature = "dladdr"))] {
-        mod dladdr_resolve;
-        use self::dladdr_resolve::resolve as resolve_imp;
-        use self::dladdr_resolve::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
+        use gimli as imp;
     } else {
         mod noop;
-        use self::noop::resolve as resolve_imp;
-        use self::noop::Symbol as SymbolImp;
-        #[allow(unused)]
-        unsafe fn clear_symbol_cache_imp() {}
+        use noop as imp;
     }
 }

@@ -1,15 +1,19 @@
-//! This module provides constants which are specific to the implementation
-//! of the `f64` floating point data type.
+//! Constants for the `f64` double-precision floating point type.
 //!
-//! *[See also the `f64` primitive type](../../std/primitive.f64.html).*
+//! *[See also the `f64` primitive type](primitive@f64).*
 //!
 //! Mathematically significant numbers are provided in the `consts` sub-module.
 //!
-//! Although using these constants won’t cause compilation warnings,
-//! new code should use the associated constants directly on the primitive type.
+//! For the constants defined directly in this module
+//! (as distinct from those defined in the `consts` sub-module),
+//! new code should instead use the associated constants
+//! defined directly on the `f64` type.
 
 #![stable(feature = "rust1", since = "1.0.0")]
 #![allow(missing_docs)]
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(not(test))]
 use crate::intrinsics;
@@ -17,20 +21,15 @@ use crate::intrinsics;
 use crate::sys::cmath;
 
 #[stable(feature = "rust1", since = "1.0.0")]
-pub use core::f64::consts;
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use core::f64::{DIGITS, EPSILON, MANTISSA_DIGITS, RADIX};
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use core::f64::{INFINITY, MAX_10_EXP, NAN, NEG_INFINITY};
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use core::f64::{MAX, MIN, MIN_POSITIVE};
-#[stable(feature = "rust1", since = "1.0.0")]
-pub use core::f64::{MAX_EXP, MIN_10_EXP, MIN_EXP};
+#[allow(deprecated, deprecated_in_future)]
+pub use core::f64::{
+    consts, DIGITS, EPSILON, INFINITY, MANTISSA_DIGITS, MAX, MAX_10_EXP, MAX_EXP, MIN, MIN_10_EXP,
+    MIN_EXP, MIN_POSITIVE, NAN, NEG_INFINITY, RADIX,
+};
 
 #[cfg(not(test))]
-#[lang = "f64_runtime"]
 impl f64 {
-    /// Returns the largest integer less than or equal to a number.
+    /// Returns the largest integer less than or equal to `self`.
     ///
     /// # Examples
     ///
@@ -43,6 +42,7 @@ impl f64 {
     /// assert_eq!(g.floor(), 3.0);
     /// assert_eq!(h.floor(), -4.0);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -50,7 +50,7 @@ impl f64 {
         unsafe { intrinsics::floorf64(self) }
     }
 
-    /// Returns the smallest integer greater than or equal to a number.
+    /// Returns the smallest integer greater than or equal to `self`.
     ///
     /// # Examples
     ///
@@ -61,6 +61,7 @@ impl f64 {
     /// assert_eq!(f.ceil(), 4.0);
     /// assert_eq!(g.ceil(), 4.0);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -68,7 +69,7 @@ impl f64 {
         unsafe { intrinsics::ceilf64(self) }
     }
 
-    /// Returns the nearest integer to a number. Round half-way cases away from
+    /// Returns the nearest integer to `self`. Round half-way cases away from
     /// `0.0`.
     ///
     /// # Examples
@@ -76,10 +77,13 @@ impl f64 {
     /// ```
     /// let f = 3.3_f64;
     /// let g = -3.3_f64;
+    /// let h = -3.7_f64;
     ///
     /// assert_eq!(f.round(), 3.0);
     /// assert_eq!(g.round(), -3.0);
+    /// assert_eq!(h.round(), -4.0);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -87,7 +91,8 @@ impl f64 {
         unsafe { intrinsics::roundf64(self) }
     }
 
-    /// Returns the integer part of a number.
+    /// Returns the integer part of `self`.
+    /// This means that non-integer numbers are always truncated towards zero.
     ///
     /// # Examples
     ///
@@ -100,6 +105,7 @@ impl f64 {
     /// assert_eq!(g.trunc(), 3.0);
     /// assert_eq!(h.trunc(), -3.0);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -107,7 +113,7 @@ impl f64 {
         unsafe { intrinsics::truncf64(self) }
     }
 
-    /// Returns the fractional part of a number.
+    /// Returns the fractional part of `self`.
     ///
     /// # Examples
     ///
@@ -120,6 +126,7 @@ impl f64 {
     /// assert!(abs_difference_x < 1e-10);
     /// assert!(abs_difference_y < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -127,14 +134,11 @@ impl f64 {
         self - self.trunc()
     }
 
-    /// Computes the absolute value of `self`. Returns `NAN` if the
-    /// number is `NAN`.
+    /// Computes the absolute value of `self`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
     /// let x = 3.5_f64;
     /// let y = -3.5_f64;
     ///
@@ -146,6 +150,7 @@ impl f64 {
     ///
     /// assert!(f64::NAN.abs().is_nan());
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -157,13 +162,11 @@ impl f64 {
     ///
     /// - `1.0` if the number is positive, `+0.0` or `INFINITY`
     /// - `-1.0` if the number is negative, `-0.0` or `NEG_INFINITY`
-    /// - `NAN` if the number is `NAN`
+    /// - NaN if the number is NaN
     ///
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
     /// let f = 3.5_f64;
     ///
     /// assert_eq!(f.signum(), 1.0);
@@ -171,25 +174,26 @@ impl f64 {
     ///
     /// assert!(f64::NAN.signum().is_nan());
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn signum(self) -> f64 {
-        if self.is_nan() { NAN } else { 1.0_f64.copysign(self) }
+        if self.is_nan() { Self::NAN } else { 1.0_f64.copysign(self) }
     }
 
     /// Returns a number composed of the magnitude of `self` and the sign of
     /// `sign`.
     ///
     /// Equal to `self` if the sign of `self` and `sign` are the same, otherwise
-    /// equal to `-self`. If `self` is a `NAN`, then a `NAN` with the sign of
-    /// `sign` is returned.
+    /// equal to `-self`. If `self` is a NaN, then a NaN with the sign bit of
+    /// `sign` is returned. Note, however, that conserving the sign bit on NaN
+    /// across arithmetical operations is not generally guaranteed.
+    /// See [explanation of NaN as a special value](primitive@f32) for more info.
     ///
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
     /// let f = 3.5_f64;
     ///
     /// assert_eq!(f.copysign(0.42), 3.5_f64);
@@ -199,6 +203,7 @@ impl f64 {
     ///
     /// assert!(f64::NAN.copysign(1.0).is_nan());
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "copysign", since = "1.35.0")]
     #[inline]
@@ -209,8 +214,10 @@ impl f64 {
     /// Fused multiply-add. Computes `(self * a) + b` with only one rounding
     /// error, yielding a more accurate result than an unfused multiply-add.
     ///
-    /// Using `mul_add` can be more performant than an unfused multiply-add if
-    /// the target architecture has a dedicated `fma` CPU instruction.
+    /// Using `mul_add` *may* be more performant than an unfused multiply-add if
+    /// the target architecture has a dedicated `fma` CPU instruction. However,
+    /// this is not always true, and will be heavily dependant on designing
+    /// algorithms with specific target hardware in mind.
     ///
     /// # Examples
     ///
@@ -224,6 +231,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -248,6 +256,7 @@ impl f64 {
     /// assert_eq!(a.div_euclid(-b), -1.0); // 7.0 >= -4.0 * -1.0
     /// assert_eq!((-a).div_euclid(-b), 2.0); // -7.0 >= -4.0 * 2.0
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[inline]
     #[stable(feature = "euclidean_division", since = "1.38.0")]
@@ -268,7 +277,7 @@ impl f64 {
     /// This result is not an element of the function's codomain, but it is the
     /// closest floating point number in the real numbers and thus fulfills the
     /// property `self == self.div_euclid(rhs) * rhs + self.rem_euclid(rhs)`
-    /// approximatively.
+    /// approximately.
     ///
     /// # Examples
     ///
@@ -280,8 +289,9 @@ impl f64 {
     /// assert_eq!(a.rem_euclid(-b), 3.0);
     /// assert_eq!((-a).rem_euclid(-b), 1.0);
     /// // limitation due to round-off error
-    /// assert!((-std::f64::EPSILON).rem_euclid(3.0) != 0.0);
+    /// assert!((-f64::EPSILON).rem_euclid(3.0) != 0.0);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[inline]
     #[stable(feature = "euclidean_division", since = "1.38.0")]
@@ -292,7 +302,9 @@ impl f64 {
 
     /// Raises a number to an integer power.
     ///
-    /// Using this function is generally faster than using `powf`
+    /// Using this function is generally faster than using `powf`.
+    /// It might have a different sequence of rounding operations than `powf`,
+    /// so the results are not guaranteed to agree.
     ///
     /// # Examples
     ///
@@ -302,6 +314,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -319,6 +332,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -328,19 +342,22 @@ impl f64 {
 
     /// Returns the square root of a number.
     ///
-    /// Returns NaN if `self` is a negative number.
+    /// Returns NaN if `self` is a negative number other than `-0.0`.
     ///
     /// # Examples
     ///
     /// ```
     /// let positive = 4.0_f64;
     /// let negative = -4.0_f64;
+    /// let negative_zero = -0.0_f64;
     ///
     /// let abs_difference = (positive.sqrt() - 2.0).abs();
     ///
     /// assert!(abs_difference < 1e-10);
     /// assert!(negative.sqrt().is_nan());
+    /// assert!(negative_zero.sqrt() == negative_zero);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -362,6 +379,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -381,6 +399,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -402,6 +421,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -411,7 +431,7 @@ impl f64 {
 
     /// Returns the logarithm of the number with respect to an arbitrary base.
     ///
-    /// The result may not be correctly rounded owing to implementation details;
+    /// The result might not be correctly rounded owing to implementation details;
     /// `self.log2()` can produce more accurate results for base 2, and
     /// `self.log10()` can produce more accurate results for base 10.
     ///
@@ -425,6 +445,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -444,6 +465,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -468,6 +490,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -492,24 +515,25 @@ impl f64 {
     /// assert!(abs_difference_x < 1e-10);
     /// assert!(abs_difference_y < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
-    #[rustc_deprecated(
+    #[deprecated(
         since = "1.10.0",
-        reason = "you probably meant `(self - other).abs()`: \
-                  this operation is `(self - other).max(0.0)` \
-                  except that `abs_sub` also propagates NaNs (also \
-                  known as `fdim` in C). If you truly need the positive \
-                  difference, consider using that expression or the C function \
-                  `fdim`, depending on how you wish to handle NaN (please consider \
-                  filing an issue describing your use-case too)."
+        note = "you probably meant `(self - other).abs()`: \
+                this operation is `(self - other).max(0.0)` \
+                except that `abs_sub` also propagates NaNs (also \
+                known as `fdim` in C). If you truly need the positive \
+                difference, consider using that expression or the C function \
+                `fdim`, depending on how you wish to handle NaN (please consider \
+                filing an issue describing your use-case too)."
     )]
     pub fn abs_sub(self, other: f64) -> f64 {
         unsafe { cmath::fdim(self, other) }
     }
 
-    /// Returns the cubic root of a number.
+    /// Returns the cube root of a number.
     ///
     /// # Examples
     ///
@@ -521,6 +545,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -542,6 +567,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -554,14 +580,13 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let x = f64::consts::FRAC_PI_2;
+    /// let x = std::f64::consts::FRAC_PI_2;
     ///
     /// let abs_difference = (x.sin() - 1.0).abs();
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -574,14 +599,13 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let x = 2.0 * f64::consts::PI;
+    /// let x = 2.0 * std::f64::consts::PI;
     ///
     /// let abs_difference = (x.cos() - 1.0).abs();
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -594,13 +618,12 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let x = f64::consts::FRAC_PI_4;
+    /// let x = std::f64::consts::FRAC_PI_4;
     /// let abs_difference = (x.tan() - 1.0).abs();
     ///
     /// assert!(abs_difference < 1e-14);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -615,15 +638,14 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let f = f64::consts::FRAC_PI_2;
+    /// let f = std::f64::consts::FRAC_PI_2;
     ///
     /// // asin(sin(pi/2))
-    /// let abs_difference = (f.sin().asin() - f64::consts::FRAC_PI_2).abs();
+    /// let abs_difference = (f.sin().asin() - std::f64::consts::FRAC_PI_2).abs();
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -638,15 +660,14 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let f = f64::consts::FRAC_PI_4;
+    /// let f = std::f64::consts::FRAC_PI_4;
     ///
     /// // acos(cos(pi/4))
-    /// let abs_difference = (f.cos().acos() - f64::consts::FRAC_PI_4).abs();
+    /// let abs_difference = (f.cos().acos() - std::f64::consts::FRAC_PI_4).abs();
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -667,6 +688,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -684,8 +706,6 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
     /// // Positive angles measured counter-clockwise
     /// // from positive x axis
     /// // -pi/4 radians (45 deg clockwise)
@@ -696,12 +716,13 @@ impl f64 {
     /// let x2 = -3.0_f64;
     /// let y2 = 3.0_f64;
     ///
-    /// let abs_difference_1 = (y1.atan2(x1) - (-f64::consts::FRAC_PI_4)).abs();
-    /// let abs_difference_2 = (y2.atan2(x2) - (3.0 * f64::consts::FRAC_PI_4)).abs();
+    /// let abs_difference_1 = (y1.atan2(x1) - (-std::f64::consts::FRAC_PI_4)).abs();
+    /// let abs_difference_2 = (y2.atan2(x2) - (3.0 * std::f64::consts::FRAC_PI_4)).abs();
     ///
     /// assert!(abs_difference_1 < 1e-10);
     /// assert!(abs_difference_2 < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -715,9 +736,7 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let x = f64::consts::FRAC_PI_4;
+    /// let x = std::f64::consts::FRAC_PI_4;
     /// let f = x.sin_cos();
     ///
     /// let abs_difference_0 = (f.0 - x.sin()).abs();
@@ -726,6 +745,7 @@ impl f64 {
     /// assert!(abs_difference_0 < 1e-10);
     /// assert!(abs_difference_1 < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn sin_cos(self) -> (f64, f64) {
@@ -738,13 +758,15 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// let x = 7.0_f64;
+    /// let x = 1e-16_f64;
     ///
-    /// // e^(ln(7)) - 1
-    /// let abs_difference = (x.ln().exp_m1() - 6.0).abs();
+    /// // for very small x, e^x is approximately 1 + x + x^2 / 2
+    /// let approx = x + x * x / 2.0;
+    /// let abs_difference = (x.exp_m1() - approx).abs();
     ///
-    /// assert!(abs_difference < 1e-10);
+    /// assert!(abs_difference < 1e-20);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -758,15 +780,15 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
+    /// let x = 1e-16_f64;
     ///
-    /// let x = f64::consts::E - 1.0;
+    /// // for very small x, ln(1 + x) is approximately x - x^2 / 2
+    /// let approx = x - x * x / 2.0;
+    /// let abs_difference = (x.ln_1p() - approx).abs();
     ///
-    /// // ln(1 + (e - 1)) == ln(e) == 1
-    /// let abs_difference = (x.ln_1p() - 1.0).abs();
-    ///
-    /// assert!(abs_difference < 1e-10);
+    /// assert!(abs_difference < 1e-20);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -779,9 +801,7 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let e = f64::consts::E;
+    /// let e = std::f64::consts::E;
     /// let x = 1.0_f64;
     ///
     /// let f = x.sinh();
@@ -791,6 +811,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -803,9 +824,7 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let e = f64::consts::E;
+    /// let e = std::f64::consts::E;
     /// let x = 1.0_f64;
     /// let f = x.cosh();
     /// // Solving cosh() at 1 gives this result
@@ -815,6 +834,7 @@ impl f64 {
     /// // Same result
     /// assert!(abs_difference < 1.0e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -827,9 +847,7 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let e = f64::consts::E;
+    /// let e = std::f64::consts::E;
     /// let x = 1.0_f64;
     ///
     /// let f = x.tanh();
@@ -839,6 +857,7 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1.0e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -858,15 +877,14 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1.0e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn asinh(self) -> f64 {
-        if self == NEG_INFINITY {
-            NEG_INFINITY
-        } else {
-            (self + ((self * self) + 1.0).sqrt()).ln().copysign(self)
-        }
+        let ax = self.abs();
+        let ix = 1.0 / ax;
+        (ax + (ax / (Self::hypot(1.0, ix) + ix))).ln_1p().copysign(self)
     }
 
     /// Inverse hyperbolic cosine function.
@@ -881,11 +899,16 @@ impl f64 {
     ///
     /// assert!(abs_difference < 1.0e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn acosh(self) -> f64 {
-        if self < 1.0 { NAN } else { (self + ((self * self) - 1.0).sqrt()).ln() }
+        if self < 1.0 {
+            Self::NAN
+        } else {
+            (self + ((self - 1.0).sqrt() * (self + 1.0).sqrt())).ln()
+        }
     }
 
     /// Inverse hyperbolic tangent function.
@@ -893,15 +916,14 @@ impl f64 {
     /// # Examples
     ///
     /// ```
-    /// use std::f64;
-    ///
-    /// let e = f64::consts::E;
+    /// let e = std::f64::consts::E;
     /// let f = e.tanh().atanh();
     ///
     /// let abs_difference = (f - e).abs();
     ///
     /// assert!(abs_difference < 1.0e-10);
     /// ```
+    #[rustc_allow_incoherent_impl]
     #[must_use = "method returns a new number and does not mutate the original value"]
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
@@ -909,679 +931,27 @@ impl f64 {
         0.5 * ((2.0 * self) / (1.0 - self)).ln_1p()
     }
 
-    /// Restrict a value to a certain interval unless it is NaN.
-    ///
-    /// Returns `max` if `self` is greater than `max`, and `min` if `self` is
-    /// less than `min`. Otherwise this returns `self`.
-    ///
-    /// Not that this function returns NaN if the initial value was NaN as
-    /// well.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `min > max`, `min` is NaN, or `max` is NaN.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(clamp)]
-    /// assert!((-3.0f64).clamp(-2.0, 1.0) == -2.0);
-    /// assert!((0.0f64).clamp(-2.0, 1.0) == 0.0);
-    /// assert!((2.0f64).clamp(-2.0, 1.0) == 1.0);
-    /// assert!((std::f64::NAN).clamp(-2.0, 1.0).is_nan());
-    /// ```
-    #[must_use = "method returns a new number and does not mutate the original value"]
-    #[unstable(feature = "clamp", issue = "44095")]
-    #[inline]
-    pub fn clamp(self, min: f64, max: f64) -> f64 {
-        assert!(min <= max);
-        let mut x = self;
-        if x < min {
-            x = min;
-        }
-        if x > max {
-            x = max;
-        }
-        x
-    }
-
     // Solaris/Illumos requires a wrapper around log, log2, and log10 functions
     // because of their non-standard behavior (e.g., log(-n) returns -Inf instead
     // of expected NaN).
+    #[rustc_allow_incoherent_impl]
     fn log_wrapper<F: Fn(f64) -> f64>(self, log_fn: F) -> f64 {
-        if !cfg!(target_os = "solaris") {
+        if !cfg!(any(target_os = "solaris", target_os = "illumos")) {
             log_fn(self)
-        } else {
-            if self.is_finite() {
-                if self > 0.0 {
-                    log_fn(self)
-                } else if self == 0.0 {
-                    NEG_INFINITY // log(0) = -Inf
-                } else {
-                    NAN // log(-n) = NaN
-                }
-            } else if self.is_nan() {
-                self // log(NaN) = NaN
-            } else if self > 0.0 {
-                self // log(Inf) = Inf
+        } else if self.is_finite() {
+            if self > 0.0 {
+                log_fn(self)
+            } else if self == 0.0 {
+                Self::NEG_INFINITY // log(0) = -Inf
             } else {
-                NAN // log(-Inf) = NaN
+                Self::NAN // log(-n) = NaN
             }
+        } else if self.is_nan() {
+            self // log(NaN) = NaN
+        } else if self > 0.0 {
+            self // log(Inf) = Inf
+        } else {
+            Self::NAN // log(-Inf) = NaN
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::f64;
-    use crate::f64::*;
-    use crate::num::FpCategory as Fp;
-    use crate::num::*;
-
-    #[test]
-    fn test_num_f64() {
-        test_num(10f64, 2f64);
-    }
-
-    #[test]
-    fn test_min_nan() {
-        assert_eq!(NAN.min(2.0), 2.0);
-        assert_eq!(2.0f64.min(NAN), 2.0);
-    }
-
-    #[test]
-    fn test_max_nan() {
-        assert_eq!(NAN.max(2.0), 2.0);
-        assert_eq!(2.0f64.max(NAN), 2.0);
-    }
-
-    #[test]
-    fn test_nan() {
-        let nan: f64 = NAN;
-        assert!(nan.is_nan());
-        assert!(!nan.is_infinite());
-        assert!(!nan.is_finite());
-        assert!(!nan.is_normal());
-        assert!(nan.is_sign_positive());
-        assert!(!nan.is_sign_negative());
-        assert_eq!(Fp::Nan, nan.classify());
-    }
-
-    #[test]
-    fn test_infinity() {
-        let inf: f64 = INFINITY;
-        assert!(inf.is_infinite());
-        assert!(!inf.is_finite());
-        assert!(inf.is_sign_positive());
-        assert!(!inf.is_sign_negative());
-        assert!(!inf.is_nan());
-        assert!(!inf.is_normal());
-        assert_eq!(Fp::Infinite, inf.classify());
-    }
-
-    #[test]
-    fn test_neg_infinity() {
-        let neg_inf: f64 = NEG_INFINITY;
-        assert!(neg_inf.is_infinite());
-        assert!(!neg_inf.is_finite());
-        assert!(!neg_inf.is_sign_positive());
-        assert!(neg_inf.is_sign_negative());
-        assert!(!neg_inf.is_nan());
-        assert!(!neg_inf.is_normal());
-        assert_eq!(Fp::Infinite, neg_inf.classify());
-    }
-
-    #[test]
-    fn test_zero() {
-        let zero: f64 = 0.0f64;
-        assert_eq!(0.0, zero);
-        assert!(!zero.is_infinite());
-        assert!(zero.is_finite());
-        assert!(zero.is_sign_positive());
-        assert!(!zero.is_sign_negative());
-        assert!(!zero.is_nan());
-        assert!(!zero.is_normal());
-        assert_eq!(Fp::Zero, zero.classify());
-    }
-
-    #[test]
-    fn test_neg_zero() {
-        let neg_zero: f64 = -0.0;
-        assert_eq!(0.0, neg_zero);
-        assert!(!neg_zero.is_infinite());
-        assert!(neg_zero.is_finite());
-        assert!(!neg_zero.is_sign_positive());
-        assert!(neg_zero.is_sign_negative());
-        assert!(!neg_zero.is_nan());
-        assert!(!neg_zero.is_normal());
-        assert_eq!(Fp::Zero, neg_zero.classify());
-    }
-
-    #[cfg_attr(all(target_arch = "wasm32", target_os = "emscripten"), ignore)] // issue 42630
-    #[test]
-    fn test_one() {
-        let one: f64 = 1.0f64;
-        assert_eq!(1.0, one);
-        assert!(!one.is_infinite());
-        assert!(one.is_finite());
-        assert!(one.is_sign_positive());
-        assert!(!one.is_sign_negative());
-        assert!(!one.is_nan());
-        assert!(one.is_normal());
-        assert_eq!(Fp::Normal, one.classify());
-    }
-
-    #[test]
-    fn test_is_nan() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert!(nan.is_nan());
-        assert!(!0.0f64.is_nan());
-        assert!(!5.3f64.is_nan());
-        assert!(!(-10.732f64).is_nan());
-        assert!(!inf.is_nan());
-        assert!(!neg_inf.is_nan());
-    }
-
-    #[test]
-    fn test_is_infinite() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert!(!nan.is_infinite());
-        assert!(inf.is_infinite());
-        assert!(neg_inf.is_infinite());
-        assert!(!0.0f64.is_infinite());
-        assert!(!42.8f64.is_infinite());
-        assert!(!(-109.2f64).is_infinite());
-    }
-
-    #[test]
-    fn test_is_finite() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert!(!nan.is_finite());
-        assert!(!inf.is_finite());
-        assert!(!neg_inf.is_finite());
-        assert!(0.0f64.is_finite());
-        assert!(42.8f64.is_finite());
-        assert!((-109.2f64).is_finite());
-    }
-
-    #[cfg_attr(all(target_arch = "wasm32", target_os = "emscripten"), ignore)] // issue 42630
-    #[test]
-    fn test_is_normal() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let zero: f64 = 0.0f64;
-        let neg_zero: f64 = -0.0;
-        assert!(!nan.is_normal());
-        assert!(!inf.is_normal());
-        assert!(!neg_inf.is_normal());
-        assert!(!zero.is_normal());
-        assert!(!neg_zero.is_normal());
-        assert!(1f64.is_normal());
-        assert!(1e-307f64.is_normal());
-        assert!(!1e-308f64.is_normal());
-    }
-
-    #[cfg_attr(all(target_arch = "wasm32", target_os = "emscripten"), ignore)] // issue 42630
-    #[test]
-    fn test_classify() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let zero: f64 = 0.0f64;
-        let neg_zero: f64 = -0.0;
-        assert_eq!(nan.classify(), Fp::Nan);
-        assert_eq!(inf.classify(), Fp::Infinite);
-        assert_eq!(neg_inf.classify(), Fp::Infinite);
-        assert_eq!(zero.classify(), Fp::Zero);
-        assert_eq!(neg_zero.classify(), Fp::Zero);
-        assert_eq!(1e-307f64.classify(), Fp::Normal);
-        assert_eq!(1e-308f64.classify(), Fp::Subnormal);
-    }
-
-    #[test]
-    fn test_floor() {
-        assert_approx_eq!(1.0f64.floor(), 1.0f64);
-        assert_approx_eq!(1.3f64.floor(), 1.0f64);
-        assert_approx_eq!(1.5f64.floor(), 1.0f64);
-        assert_approx_eq!(1.7f64.floor(), 1.0f64);
-        assert_approx_eq!(0.0f64.floor(), 0.0f64);
-        assert_approx_eq!((-0.0f64).floor(), -0.0f64);
-        assert_approx_eq!((-1.0f64).floor(), -1.0f64);
-        assert_approx_eq!((-1.3f64).floor(), -2.0f64);
-        assert_approx_eq!((-1.5f64).floor(), -2.0f64);
-        assert_approx_eq!((-1.7f64).floor(), -2.0f64);
-    }
-
-    #[test]
-    fn test_ceil() {
-        assert_approx_eq!(1.0f64.ceil(), 1.0f64);
-        assert_approx_eq!(1.3f64.ceil(), 2.0f64);
-        assert_approx_eq!(1.5f64.ceil(), 2.0f64);
-        assert_approx_eq!(1.7f64.ceil(), 2.0f64);
-        assert_approx_eq!(0.0f64.ceil(), 0.0f64);
-        assert_approx_eq!((-0.0f64).ceil(), -0.0f64);
-        assert_approx_eq!((-1.0f64).ceil(), -1.0f64);
-        assert_approx_eq!((-1.3f64).ceil(), -1.0f64);
-        assert_approx_eq!((-1.5f64).ceil(), -1.0f64);
-        assert_approx_eq!((-1.7f64).ceil(), -1.0f64);
-    }
-
-    #[test]
-    fn test_round() {
-        assert_approx_eq!(1.0f64.round(), 1.0f64);
-        assert_approx_eq!(1.3f64.round(), 1.0f64);
-        assert_approx_eq!(1.5f64.round(), 2.0f64);
-        assert_approx_eq!(1.7f64.round(), 2.0f64);
-        assert_approx_eq!(0.0f64.round(), 0.0f64);
-        assert_approx_eq!((-0.0f64).round(), -0.0f64);
-        assert_approx_eq!((-1.0f64).round(), -1.0f64);
-        assert_approx_eq!((-1.3f64).round(), -1.0f64);
-        assert_approx_eq!((-1.5f64).round(), -2.0f64);
-        assert_approx_eq!((-1.7f64).round(), -2.0f64);
-    }
-
-    #[test]
-    fn test_trunc() {
-        assert_approx_eq!(1.0f64.trunc(), 1.0f64);
-        assert_approx_eq!(1.3f64.trunc(), 1.0f64);
-        assert_approx_eq!(1.5f64.trunc(), 1.0f64);
-        assert_approx_eq!(1.7f64.trunc(), 1.0f64);
-        assert_approx_eq!(0.0f64.trunc(), 0.0f64);
-        assert_approx_eq!((-0.0f64).trunc(), -0.0f64);
-        assert_approx_eq!((-1.0f64).trunc(), -1.0f64);
-        assert_approx_eq!((-1.3f64).trunc(), -1.0f64);
-        assert_approx_eq!((-1.5f64).trunc(), -1.0f64);
-        assert_approx_eq!((-1.7f64).trunc(), -1.0f64);
-    }
-
-    #[test]
-    fn test_fract() {
-        assert_approx_eq!(1.0f64.fract(), 0.0f64);
-        assert_approx_eq!(1.3f64.fract(), 0.3f64);
-        assert_approx_eq!(1.5f64.fract(), 0.5f64);
-        assert_approx_eq!(1.7f64.fract(), 0.7f64);
-        assert_approx_eq!(0.0f64.fract(), 0.0f64);
-        assert_approx_eq!((-0.0f64).fract(), -0.0f64);
-        assert_approx_eq!((-1.0f64).fract(), -0.0f64);
-        assert_approx_eq!((-1.3f64).fract(), -0.3f64);
-        assert_approx_eq!((-1.5f64).fract(), -0.5f64);
-        assert_approx_eq!((-1.7f64).fract(), -0.7f64);
-    }
-
-    #[test]
-    fn test_abs() {
-        assert_eq!(INFINITY.abs(), INFINITY);
-        assert_eq!(1f64.abs(), 1f64);
-        assert_eq!(0f64.abs(), 0f64);
-        assert_eq!((-0f64).abs(), 0f64);
-        assert_eq!((-1f64).abs(), 1f64);
-        assert_eq!(NEG_INFINITY.abs(), INFINITY);
-        assert_eq!((1f64 / NEG_INFINITY).abs(), 0f64);
-        assert!(NAN.abs().is_nan());
-    }
-
-    #[test]
-    fn test_signum() {
-        assert_eq!(INFINITY.signum(), 1f64);
-        assert_eq!(1f64.signum(), 1f64);
-        assert_eq!(0f64.signum(), 1f64);
-        assert_eq!((-0f64).signum(), -1f64);
-        assert_eq!((-1f64).signum(), -1f64);
-        assert_eq!(NEG_INFINITY.signum(), -1f64);
-        assert_eq!((1f64 / NEG_INFINITY).signum(), -1f64);
-        assert!(NAN.signum().is_nan());
-    }
-
-    #[test]
-    fn test_is_sign_positive() {
-        assert!(INFINITY.is_sign_positive());
-        assert!(1f64.is_sign_positive());
-        assert!(0f64.is_sign_positive());
-        assert!(!(-0f64).is_sign_positive());
-        assert!(!(-1f64).is_sign_positive());
-        assert!(!NEG_INFINITY.is_sign_positive());
-        assert!(!(1f64 / NEG_INFINITY).is_sign_positive());
-        assert!(NAN.is_sign_positive());
-        assert!(!(-NAN).is_sign_positive());
-    }
-
-    #[test]
-    fn test_is_sign_negative() {
-        assert!(!INFINITY.is_sign_negative());
-        assert!(!1f64.is_sign_negative());
-        assert!(!0f64.is_sign_negative());
-        assert!((-0f64).is_sign_negative());
-        assert!((-1f64).is_sign_negative());
-        assert!(NEG_INFINITY.is_sign_negative());
-        assert!((1f64 / NEG_INFINITY).is_sign_negative());
-        assert!(!NAN.is_sign_negative());
-        assert!((-NAN).is_sign_negative());
-    }
-
-    #[test]
-    fn test_mul_add() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_approx_eq!(12.3f64.mul_add(4.5, 6.7), 62.05);
-        assert_approx_eq!((-12.3f64).mul_add(-4.5, -6.7), 48.65);
-        assert_approx_eq!(0.0f64.mul_add(8.9, 1.2), 1.2);
-        assert_approx_eq!(3.4f64.mul_add(-0.0, 5.6), 5.6);
-        assert!(nan.mul_add(7.8, 9.0).is_nan());
-        assert_eq!(inf.mul_add(7.8, 9.0), inf);
-        assert_eq!(neg_inf.mul_add(7.8, 9.0), neg_inf);
-        assert_eq!(8.9f64.mul_add(inf, 3.2), inf);
-        assert_eq!((-3.2f64).mul_add(2.4, neg_inf), neg_inf);
-    }
-
-    #[test]
-    fn test_recip() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(1.0f64.recip(), 1.0);
-        assert_eq!(2.0f64.recip(), 0.5);
-        assert_eq!((-0.4f64).recip(), -2.5);
-        assert_eq!(0.0f64.recip(), inf);
-        assert!(nan.recip().is_nan());
-        assert_eq!(inf.recip(), 0.0);
-        assert_eq!(neg_inf.recip(), 0.0);
-    }
-
-    #[test]
-    fn test_powi() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(1.0f64.powi(1), 1.0);
-        assert_approx_eq!((-3.1f64).powi(2), 9.61);
-        assert_approx_eq!(5.9f64.powi(-2), 0.028727);
-        assert_eq!(8.3f64.powi(0), 1.0);
-        assert!(nan.powi(2).is_nan());
-        assert_eq!(inf.powi(3), inf);
-        assert_eq!(neg_inf.powi(2), inf);
-    }
-
-    #[test]
-    fn test_powf() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(1.0f64.powf(1.0), 1.0);
-        assert_approx_eq!(3.4f64.powf(4.5), 246.408183);
-        assert_approx_eq!(2.7f64.powf(-3.2), 0.041652);
-        assert_approx_eq!((-3.1f64).powf(2.0), 9.61);
-        assert_approx_eq!(5.9f64.powf(-2.0), 0.028727);
-        assert_eq!(8.3f64.powf(0.0), 1.0);
-        assert!(nan.powf(2.0).is_nan());
-        assert_eq!(inf.powf(2.0), inf);
-        assert_eq!(neg_inf.powf(3.0), neg_inf);
-    }
-
-    #[test]
-    fn test_sqrt_domain() {
-        assert!(NAN.sqrt().is_nan());
-        assert!(NEG_INFINITY.sqrt().is_nan());
-        assert!((-1.0f64).sqrt().is_nan());
-        assert_eq!((-0.0f64).sqrt(), -0.0);
-        assert_eq!(0.0f64.sqrt(), 0.0);
-        assert_eq!(1.0f64.sqrt(), 1.0);
-        assert_eq!(INFINITY.sqrt(), INFINITY);
-    }
-
-    #[test]
-    fn test_exp() {
-        assert_eq!(1.0, 0.0f64.exp());
-        assert_approx_eq!(2.718282, 1.0f64.exp());
-        assert_approx_eq!(148.413159, 5.0f64.exp());
-
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let nan: f64 = NAN;
-        assert_eq!(inf, inf.exp());
-        assert_eq!(0.0, neg_inf.exp());
-        assert!(nan.exp().is_nan());
-    }
-
-    #[test]
-    fn test_exp2() {
-        assert_eq!(32.0, 5.0f64.exp2());
-        assert_eq!(1.0, 0.0f64.exp2());
-
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let nan: f64 = NAN;
-        assert_eq!(inf, inf.exp2());
-        assert_eq!(0.0, neg_inf.exp2());
-        assert!(nan.exp2().is_nan());
-    }
-
-    #[test]
-    fn test_ln() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_approx_eq!(1.0f64.exp().ln(), 1.0);
-        assert!(nan.ln().is_nan());
-        assert_eq!(inf.ln(), inf);
-        assert!(neg_inf.ln().is_nan());
-        assert!((-2.3f64).ln().is_nan());
-        assert_eq!((-0.0f64).ln(), neg_inf);
-        assert_eq!(0.0f64.ln(), neg_inf);
-        assert_approx_eq!(4.0f64.ln(), 1.386294);
-    }
-
-    #[test]
-    fn test_log() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(10.0f64.log(10.0), 1.0);
-        assert_approx_eq!(2.3f64.log(3.5), 0.664858);
-        assert_eq!(1.0f64.exp().log(1.0f64.exp()), 1.0);
-        assert!(1.0f64.log(1.0).is_nan());
-        assert!(1.0f64.log(-13.9).is_nan());
-        assert!(nan.log(2.3).is_nan());
-        assert_eq!(inf.log(10.0), inf);
-        assert!(neg_inf.log(8.8).is_nan());
-        assert!((-2.3f64).log(0.1).is_nan());
-        assert_eq!((-0.0f64).log(2.0), neg_inf);
-        assert_eq!(0.0f64.log(7.0), neg_inf);
-    }
-
-    #[test]
-    fn test_log2() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_approx_eq!(10.0f64.log2(), 3.321928);
-        assert_approx_eq!(2.3f64.log2(), 1.201634);
-        assert_approx_eq!(1.0f64.exp().log2(), 1.442695);
-        assert!(nan.log2().is_nan());
-        assert_eq!(inf.log2(), inf);
-        assert!(neg_inf.log2().is_nan());
-        assert!((-2.3f64).log2().is_nan());
-        assert_eq!((-0.0f64).log2(), neg_inf);
-        assert_eq!(0.0f64.log2(), neg_inf);
-    }
-
-    #[test]
-    fn test_log10() {
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(10.0f64.log10(), 1.0);
-        assert_approx_eq!(2.3f64.log10(), 0.361728);
-        assert_approx_eq!(1.0f64.exp().log10(), 0.434294);
-        assert_eq!(1.0f64.log10(), 0.0);
-        assert!(nan.log10().is_nan());
-        assert_eq!(inf.log10(), inf);
-        assert!(neg_inf.log10().is_nan());
-        assert!((-2.3f64).log10().is_nan());
-        assert_eq!((-0.0f64).log10(), neg_inf);
-        assert_eq!(0.0f64.log10(), neg_inf);
-    }
-
-    #[test]
-    fn test_to_degrees() {
-        let pi: f64 = consts::PI;
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(0.0f64.to_degrees(), 0.0);
-        assert_approx_eq!((-5.8f64).to_degrees(), -332.315521);
-        assert_eq!(pi.to_degrees(), 180.0);
-        assert!(nan.to_degrees().is_nan());
-        assert_eq!(inf.to_degrees(), inf);
-        assert_eq!(neg_inf.to_degrees(), neg_inf);
-    }
-
-    #[test]
-    fn test_to_radians() {
-        let pi: f64 = consts::PI;
-        let nan: f64 = NAN;
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        assert_eq!(0.0f64.to_radians(), 0.0);
-        assert_approx_eq!(154.6f64.to_radians(), 2.698279);
-        assert_approx_eq!((-332.31f64).to_radians(), -5.799903);
-        assert_eq!(180.0f64.to_radians(), pi);
-        assert!(nan.to_radians().is_nan());
-        assert_eq!(inf.to_radians(), inf);
-        assert_eq!(neg_inf.to_radians(), neg_inf);
-    }
-
-    #[test]
-    fn test_asinh() {
-        assert_eq!(0.0f64.asinh(), 0.0f64);
-        assert_eq!((-0.0f64).asinh(), -0.0f64);
-
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let nan: f64 = NAN;
-        assert_eq!(inf.asinh(), inf);
-        assert_eq!(neg_inf.asinh(), neg_inf);
-        assert!(nan.asinh().is_nan());
-        assert!((-0.0f64).asinh().is_sign_negative());
-        // issue 63271
-        assert_approx_eq!(2.0f64.asinh(), 1.443635475178810342493276740273105f64);
-        assert_approx_eq!((-2.0f64).asinh(), -1.443635475178810342493276740273105f64);
-    }
-
-    #[test]
-    fn test_acosh() {
-        assert_eq!(1.0f64.acosh(), 0.0f64);
-        assert!(0.999f64.acosh().is_nan());
-
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let nan: f64 = NAN;
-        assert_eq!(inf.acosh(), inf);
-        assert!(neg_inf.acosh().is_nan());
-        assert!(nan.acosh().is_nan());
-        assert_approx_eq!(2.0f64.acosh(), 1.31695789692481670862504634730796844f64);
-        assert_approx_eq!(3.0f64.acosh(), 1.76274717403908605046521864995958461f64);
-    }
-
-    #[test]
-    fn test_atanh() {
-        assert_eq!(0.0f64.atanh(), 0.0f64);
-        assert_eq!((-0.0f64).atanh(), -0.0f64);
-
-        let inf: f64 = INFINITY;
-        let neg_inf: f64 = NEG_INFINITY;
-        let nan: f64 = NAN;
-        assert_eq!(1.0f64.atanh(), inf);
-        assert_eq!((-1.0f64).atanh(), neg_inf);
-        assert!(2f64.atanh().atanh().is_nan());
-        assert!((-2f64).atanh().atanh().is_nan());
-        assert!(inf.atanh().is_nan());
-        assert!(neg_inf.atanh().is_nan());
-        assert!(nan.atanh().is_nan());
-        assert_approx_eq!(0.5f64.atanh(), 0.54930614433405484569762261846126285f64);
-        assert_approx_eq!((-0.5f64).atanh(), -0.54930614433405484569762261846126285f64);
-    }
-
-    #[test]
-    fn test_real_consts() {
-        use super::consts;
-        let pi: f64 = consts::PI;
-        let frac_pi_2: f64 = consts::FRAC_PI_2;
-        let frac_pi_3: f64 = consts::FRAC_PI_3;
-        let frac_pi_4: f64 = consts::FRAC_PI_4;
-        let frac_pi_6: f64 = consts::FRAC_PI_6;
-        let frac_pi_8: f64 = consts::FRAC_PI_8;
-        let frac_1_pi: f64 = consts::FRAC_1_PI;
-        let frac_2_pi: f64 = consts::FRAC_2_PI;
-        let frac_2_sqrtpi: f64 = consts::FRAC_2_SQRT_PI;
-        let sqrt2: f64 = consts::SQRT_2;
-        let frac_1_sqrt2: f64 = consts::FRAC_1_SQRT_2;
-        let e: f64 = consts::E;
-        let log2_e: f64 = consts::LOG2_E;
-        let log10_e: f64 = consts::LOG10_E;
-        let ln_2: f64 = consts::LN_2;
-        let ln_10: f64 = consts::LN_10;
-
-        assert_approx_eq!(frac_pi_2, pi / 2f64);
-        assert_approx_eq!(frac_pi_3, pi / 3f64);
-        assert_approx_eq!(frac_pi_4, pi / 4f64);
-        assert_approx_eq!(frac_pi_6, pi / 6f64);
-        assert_approx_eq!(frac_pi_8, pi / 8f64);
-        assert_approx_eq!(frac_1_pi, 1f64 / pi);
-        assert_approx_eq!(frac_2_pi, 2f64 / pi);
-        assert_approx_eq!(frac_2_sqrtpi, 2f64 / pi.sqrt());
-        assert_approx_eq!(sqrt2, 2f64.sqrt());
-        assert_approx_eq!(frac_1_sqrt2, 1f64 / 2f64.sqrt());
-        assert_approx_eq!(log2_e, e.log2());
-        assert_approx_eq!(log10_e, e.log10());
-        assert_approx_eq!(ln_2, 2f64.ln());
-        assert_approx_eq!(ln_10, 10f64.ln());
-    }
-
-    #[test]
-    fn test_float_bits_conv() {
-        assert_eq!((1f64).to_bits(), 0x3ff0000000000000);
-        assert_eq!((12.5f64).to_bits(), 0x4029000000000000);
-        assert_eq!((1337f64).to_bits(), 0x4094e40000000000);
-        assert_eq!((-14.25f64).to_bits(), 0xc02c800000000000);
-        assert_approx_eq!(f64::from_bits(0x3ff0000000000000), 1.0);
-        assert_approx_eq!(f64::from_bits(0x4029000000000000), 12.5);
-        assert_approx_eq!(f64::from_bits(0x4094e40000000000), 1337.0);
-        assert_approx_eq!(f64::from_bits(0xc02c800000000000), -14.25);
-
-        // Check that NaNs roundtrip their bits regardless of signalingness
-        // 0xA is 0b1010; 0x5 is 0b0101 -- so these two together clobbers all the mantissa bits
-        let masked_nan1 = f64::NAN.to_bits() ^ 0x000A_AAAA_AAAA_AAAA;
-        let masked_nan2 = f64::NAN.to_bits() ^ 0x0005_5555_5555_5555;
-        assert!(f64::from_bits(masked_nan1).is_nan());
-        assert!(f64::from_bits(masked_nan2).is_nan());
-
-        assert_eq!(f64::from_bits(masked_nan1).to_bits(), masked_nan1);
-        assert_eq!(f64::from_bits(masked_nan2).to_bits(), masked_nan2);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_clamp_min_greater_than_max() {
-        let _ = 1.0f64.clamp(3.0, 1.0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_clamp_min_is_nan() {
-        let _ = 1.0f64.clamp(NAN, 1.0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_clamp_max_is_nan() {
-        let _ = 1.0f64.clamp(3.0, NAN);
     }
 }

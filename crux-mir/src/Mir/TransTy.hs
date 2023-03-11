@@ -330,7 +330,7 @@ reprTransparentFieldTy col adt = do
 
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Some C.CtxRepr
-variantFields col (M.Variant _vn _vd vfs _vct) =
+variantFields col (M.Variant _vn _vd vfs _vct _mbVal) =
     tyReprListToCtx
         (map (mapSome fieldType . tyToFieldRepr col . (^. M.fty)) vfs)
         (\repr -> Some repr)
@@ -365,7 +365,7 @@ tyToFieldRepr col ty
   | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr col ty)
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Some FieldCtxRepr
-variantFields' col (M.Variant _vn _vd vfs _vct) =
+variantFields' col (M.Variant _vn _vd vfs _vct _mbVal) =
     fieldReprListToCtx
         (map (tyToFieldRepr col . (^. M.fty)) vfs)
         (\x -> Some x)

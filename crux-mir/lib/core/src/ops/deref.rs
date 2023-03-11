@@ -18,8 +18,8 @@
 ///
 /// If `T` implements `Deref<Target = U>`, and `x` is a value of type `T`, then:
 ///
-/// * In immutable contexts, `*x` on non-pointer types is equivalent to
-///   `*Deref::deref(&x)`.
+/// * In immutable contexts, `*x` (where `T` is neither a reference nor a raw pointer)
+///   is equivalent to `*Deref::deref(&x)`.
 /// * Values of type `&T` are coerced to values of type `&U`
 /// * `T` implicitly implements all the (immutable) methods of the type `U`.
 ///
@@ -28,7 +28,6 @@
 /// [method resolution] and [type coercions].
 ///
 /// [book]: ../../book/ch15-02-deref.html
-/// [`DerefMut`]: trait.DerefMut.html
 /// [more]: #more-on-deref-coercion
 /// [ref-deref-op]: ../../reference/expressions/operator-expr.html#the-dereference-operator
 /// [method resolution]: ../../reference/expressions/method-call-expr.html
@@ -61,28 +60,39 @@
 #[doc(alias = "*")]
 #[doc(alias = "&*")]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[rustc_diagnostic_item = "Deref"]
+#[const_trait]
 pub trait Deref {
     /// The resulting type after dereferencing.
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[rustc_diagnostic_item = "deref_target"]
+    #[lang = "deref_target"]
     type Target: ?Sized;
 
     /// Dereferences the value.
     #[must_use]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[rustc_diagnostic_item = "deref_method"]
     fn deref(&self) -> &Self::Target;
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> Deref for &T {
+#[rustc_const_unstable(feature = "const_deref", issue = "88955")]
+impl<T: ?Sized> const Deref for &T {
     type Target = T;
 
+    #[rustc_diagnostic_item = "noop_method_deref"]
     fn deref(&self) -> &T {
         *self
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> Deref for &mut T {
+impl<T: ?Sized> !DerefMut for &T {}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+#[rustc_const_unstable(feature = "const_deref", issue = "88955")]
+impl<T: ?Sized> const Deref for &mut T {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -112,8 +122,8 @@ impl<T: ?Sized> Deref for &mut T {
 /// If `T` implements `DerefMut<Target = U>`, and `x` is a value of type `T`,
 /// then:
 ///
-/// * In mutable contexts, `*x` on non-pointer types is equivalent to
-///   `*DerefMut::deref_mut(&mut x)`.
+/// * In mutable contexts, `*x` (where `T` is neither a reference nor a raw pointer)
+///   is equivalent to `*DerefMut::deref_mut(&mut x)`.
 /// * Values of type `&mut T` are coerced to values of type `&mut U`
 /// * `T` implicitly implements all the (mutable) methods of the type `U`.
 ///
@@ -122,7 +132,6 @@ impl<T: ?Sized> Deref for &mut T {
 /// [method resolution] and [type coercions].
 ///
 /// [book]: ../../book/ch15-02-deref.html
-/// [`Deref`]: trait.Deref.html
 /// [more]: #more-on-deref-coercion
 /// [ref-deref-op]: ../../reference/expressions/operator-expr.html#the-dereference-operator
 /// [method resolution]: ../../reference/expressions/method-call-expr.html
@@ -156,11 +165,12 @@ impl<T: ?Sized> Deref for &mut T {
 ///
 /// let mut x = DerefMutExample { value: 'a' };
 /// *x = 'b';
-/// assert_eq!('b', *x);
+/// assert_eq!('b', x.value);
 /// ```
 #[lang = "deref_mut"]
 #[doc(alias = "*")]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[const_trait]
 pub trait DerefMut: Deref {
     /// Mutably dereferences the value.
     #[stable(feature = "rust1", since = "1.0.0")]

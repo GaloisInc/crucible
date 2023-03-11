@@ -1,20 +1,22 @@
 //! Standard library macros
 //!
-//! This modules contains a set of macros which are exported from the standard
+//! This module contains a set of macros which are exported from the standard
 //! library. Each macro is available for use when linking against the standard
 //! library.
+// ignore-tidy-dbg
 
-#[doc(include = "../libcore/macros/panic.md")]
+#[doc = include_str!("../../core/src/macros/panic.md")]
 #[macro_export]
+#[rustc_builtin_macro(std_panic)]
 #[stable(feature = "rust1", since = "1.0.0")]
-#[allow_internal_unstable(libstd_sys_internals)]
+#[allow_internal_unstable(edition_panic)]
+#[cfg_attr(not(test), rustc_diagnostic_item = "std_panic_macro")]
 macro_rules! panic {
-    () => ({ $crate::panic!("explicit panic") });
-    ($msg:expr) => ({ $crate::rt::begin_panic($msg) });
-    ($msg:expr,) => ({ $crate::panic!($msg) });
-    ($fmt:expr, $($arg:tt)+) => ({
-        $crate::rt::begin_panic_fmt(&$crate::format_args!($fmt, $($arg)+))
-    });
+    // Expands to either `$crate::panic::panic_2015` or `$crate::panic::panic_2021`
+    // depending on the edition of the caller.
+    ($($arg:tt)*) => {
+        /* compiler built-in */
+    };
 }
 
 /// Prints to the standard output.
@@ -26,16 +28,30 @@ macro_rules! panic {
 /// necessary to use [`io::stdout().flush()`][flush] to ensure the output is emitted
 /// immediately.
 ///
+/// The `print!` macro will lock the standard output on each call. If you call
+/// `print!` within a hot loop, this behavior may be the bottleneck of the loop.
+/// To avoid this, lock stdout with [`io::stdout().lock()`][lock]:
+/// ```
+/// use std::io::{stdout, Write};
+///
+/// let mut lock = stdout().lock();
+/// write!(lock, "hello world").unwrap();
+/// ```
+///
 /// Use `print!` only for the primary output of your program. Use
 /// [`eprint!`] instead to print error and progress messages.
 ///
-/// [`println!`]: ../std/macro.println.html
-/// [flush]: ../std/io/trait.Write.html#tymethod.flush
-/// [`eprint!`]: ../std/macro.eprint.html
+/// [flush]: crate::io::Write::flush
+/// [`println!`]: crate::println
+/// [`eprint!`]: crate::eprint
+/// [lock]: crate::io::Stdout
 ///
 /// # Panics
 ///
 /// Panics if writing to `io::stdout()` fails.
+///
+/// Writing to non-blocking stdout can cause an error, which will lead
+/// this macro to panic.
 ///
 /// # Examples
 ///
@@ -58,9 +74,12 @@ macro_rules! panic {
 /// ```
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "print_macro")]
 #[allow_internal_unstable(print_internals)]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::io::_print($crate::format_args!($($arg)*)));
+    ($($arg:tt)*) => {{
+        $crate::io::_print($crate::format_args!($($arg)*));
+    }};
 }
 
 /// Prints to the standard output, with a newline.
@@ -68,18 +87,34 @@ macro_rules! print {
 /// On all platforms, the newline is the LINE FEED character (`\n`/`U+000A`) alone
 /// (no additional CARRIAGE RETURN (`\r`/`U+000D`)).
 ///
-/// Use the [`format!`] syntax to write data to the standard output.
+/// This macro uses the same syntax as [`format!`], but writes to the standard output instead.
 /// See [`std::fmt`] for more information.
+///
+/// The `println!` macro will lock the standard output on each call. If you call
+/// `println!` within a hot loop, this behavior may be the bottleneck of the loop.
+/// To avoid this, lock stdout with [`io::stdout().lock()`][lock]:
+/// ```
+/// use std::io::{stdout, Write};
+///
+/// let mut lock = stdout().lock();
+/// writeln!(lock, "hello world").unwrap();
+/// ```
 ///
 /// Use `println!` only for the primary output of your program. Use
 /// [`eprintln!`] instead to print error and progress messages.
 ///
-/// [`format!`]: ../std/macro.format.html
-/// [`std::fmt`]: ../std/fmt/index.html
-/// [`eprintln!`]: ../std/macro.eprintln.html
+/// [`std::fmt`]: crate::fmt
+/// [`eprintln!`]: crate::eprintln
+/// [lock]: crate::io::Stdout
+///
 /// # Panics
 ///
-/// Panics if writing to `io::stdout` fails.
+/// Panics if writing to [`io::stdout`] fails.
+///
+/// Writing to non-blocking stdout can cause an error, which will lead
+/// this macro to panic.
+///
+/// [`io::stdout`]: crate::io::stdout
 ///
 /// # Examples
 ///
@@ -87,32 +122,40 @@ macro_rules! print {
 /// println!(); // prints just a newline
 /// println!("hello there!");
 /// println!("format {} arguments", "some");
+/// let local_variable = "some";
+/// println!("format {local_variable} arguments");
 /// ```
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "println_macro")]
 #[allow_internal_unstable(print_internals, format_args_nl)]
 macro_rules! println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ({
+    () => {
+        $crate::print!("\n")
+    };
+    ($($arg:tt)*) => {{
         $crate::io::_print($crate::format_args_nl!($($arg)*));
-    })
+    }};
 }
 
 /// Prints to the standard error.
 ///
 /// Equivalent to the [`print!`] macro, except that output goes to
-/// [`io::stderr`] instead of `io::stdout`. See [`print!`] for
+/// [`io::stderr`] instead of [`io::stdout`]. See [`print!`] for
 /// example usage.
 ///
 /// Use `eprint!` only for error and progress messages. Use `print!`
 /// instead for the primary output of your program.
 ///
-/// [`io::stderr`]: ../std/io/struct.Stderr.html
-/// [`print!`]: ../std/macro.print.html
+/// [`io::stderr`]: crate::io::stderr
+/// [`io::stdout`]: crate::io::stdout
 ///
 /// # Panics
 ///
 /// Panics if writing to `io::stderr` fails.
+///
+/// Writing to non-blocking stdout can cause an error, which will lead
+/// this macro to panic.
 ///
 /// # Examples
 ///
@@ -121,26 +164,33 @@ macro_rules! println {
 /// ```
 #[macro_export]
 #[stable(feature = "eprint", since = "1.19.0")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "eprint_macro")]
 #[allow_internal_unstable(print_internals)]
 macro_rules! eprint {
-    ($($arg:tt)*) => ($crate::io::_eprint($crate::format_args!($($arg)*)));
+    ($($arg:tt)*) => {{
+        $crate::io::_eprint($crate::format_args!($($arg)*));
+    }};
 }
 
 /// Prints to the standard error, with a newline.
 ///
 /// Equivalent to the [`println!`] macro, except that output goes to
-/// [`io::stderr`] instead of `io::stdout`. See [`println!`] for
+/// [`io::stderr`] instead of [`io::stdout`]. See [`println!`] for
 /// example usage.
 ///
 /// Use `eprintln!` only for error and progress messages. Use `println!`
 /// instead for the primary output of your program.
 ///
-/// [`io::stderr`]: ../std/io/struct.Stderr.html
-/// [`println!`]: ../std/macro.println.html
+/// [`io::stderr`]: crate::io::stderr
+/// [`io::stdout`]: crate::io::stdout
+/// [`println!`]: crate::println
 ///
 /// # Panics
 ///
 /// Panics if writing to `io::stderr` fails.
+///
+/// Writing to non-blocking stdout can cause an error, which will lead
+/// this macro to panic.
 ///
 /// # Examples
 ///
@@ -149,12 +199,15 @@ macro_rules! eprint {
 /// ```
 #[macro_export]
 #[stable(feature = "eprint", since = "1.19.0")]
+#[cfg_attr(not(test), rustc_diagnostic_item = "eprintln_macro")]
 #[allow_internal_unstable(print_internals, format_args_nl)]
 macro_rules! eprintln {
-    () => ($crate::eprint!("\n"));
-    ($($arg:tt)*) => ({
+    () => {
+        $crate::eprint!("\n")
+    };
+    ($($arg:tt)*) => {{
         $crate::io::_eprint($crate::format_args_nl!($($arg)*));
-    })
+    }};
 }
 
 /// Prints and returns the value of a given expression for quick and dirty
@@ -185,9 +238,10 @@ macro_rules! eprintln {
 /// builds or when debugging in release mode is significantly faster.
 ///
 /// Note that the macro is intended as a debugging tool and therefore you
-/// should avoid having uses of it in version control for long periods.
-/// Use cases involving debug output that should be added to version control
-/// are better served by macros such as [`debug!`] from the [`log`] crate.
+/// should avoid having uses of it in version control for long periods
+/// (other than in tests and similar).
+/// Debug output from production code is better done with other facilities
+/// such as the [`debug!`] macro from the [`log`] crate.
 ///
 /// # Stability
 ///
@@ -281,12 +335,17 @@ macro_rules! eprintln {
 /// [`debug!`]: https://docs.rs/log/*/log/macro.debug.html
 /// [`log`]: https://crates.io/crates/log
 #[macro_export]
+#[cfg_attr(not(test), rustc_diagnostic_item = "dbg_macro")]
 #[stable(feature = "dbg_macro", since = "1.32.0")]
 macro_rules! dbg {
+    // NOTE: We cannot use `concat!` to make a static string as a format argument
+    // of `eprintln!` because `file!` could contain a `{` or
+    // `$val` expression could be a block (`{ .. }`), in which case the `eprintln!`
+    // will be malformed.
     () => {
-        $crate::eprintln!("[{}:{}]", $crate::file!(), $crate::line!());
+        $crate::eprintln!("[{}:{}]", $crate::file!(), $crate::line!())
     };
-    ($val:expr) => {
+    ($val:expr $(,)?) => {
         // Use of `match` here is intentional because it affects the lifetimes
         // of temporaries - https://stackoverflow.com/a/48732525/1063961
         match $val {
@@ -297,8 +356,6 @@ macro_rules! dbg {
             }
         }
     };
-    // Trailing comma with single argument is ignored
-    ($val:expr,) => { $crate::dbg!($val) };
     ($($val:expr),+ $(,)?) => {
         ($($crate::dbg!($val)),+,)
     };

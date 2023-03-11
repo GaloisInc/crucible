@@ -1,7 +1,7 @@
 #![cfg_attr(not(with_main), no_std)]
 // Remove the Scalar64 ADT
 
-// Remove the L constant. These operations are NOT correct. 
+// Remove the L constant. These operations are NOT correct.
 
 pub fn zero() -> [u64;5] {
     [0,0,0,0,0]
@@ -10,14 +10,14 @@ pub fn zero() -> [u64;5] {
 pub fn add(a: &[u64;5], b: &[u64;5]) -> [u64;5] {
     let mut sum = zero();
     let mask = (1u64 << 52) - 1;
-    
+
     // a + b
     let mut carry: u64 = 0;
     for i in 0..5 {
         carry = a[i] + b[i] + (carry >> 52);
         sum[i] = carry & mask;
     }
-    
+
     // subtract l if the sum is >= l
     //sub(&sum, &constants::L)
     sum
@@ -56,7 +56,7 @@ fn f(_w : u64 ) -> bool {
          0x00000532da9fab8c];
 
     // b = 4885590095775723760407499321843594317911456947580037491039278279440296187236
-    let b = 
+    let b =
         [0x000d3fae55421564, 0x000c2df24f65a4bc, 0x0005b5587d69fb0b, 0x00094c091b013b3b,
          0x00000acd25605473];
 
@@ -74,4 +74,4 @@ fn f(_w : u64 ) -> bool {
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }

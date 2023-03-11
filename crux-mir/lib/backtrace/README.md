@@ -14,18 +14,12 @@ backtrace like libstd's panics.
 backtrace = "0.3"
 ```
 
-Note that this crate requires `cc` and `ar` to be present on Unix systems when
-`libbacktrace` is used (which is the default). For configuring C compilers see
-the [`cc` crate documentation](https://github.com/alexcrichton/cc-rs).
-
 ## Usage
 
 To simply capture a backtrace and defer dealing with it until a later time,
 you can use the top-level `Backtrace` type.
 
 ```rust
-extern crate backtrace;
-
 use backtrace::Backtrace;
 
 fn main() {
@@ -41,8 +35,6 @@ If, however, you'd like more raw access to the actual tracing functionality, you
 can use the `trace` and `resolve` functions directly.
 
 ```rust
-extern crate backtrace;
-
 fn main() {
     backtrace::trace(|frame| {
         let ip = frame.ip();
@@ -68,9 +60,9 @@ fn main() {
 This project is licensed under either of
 
  * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
-   http://www.apache.org/licenses/LICENSE-2.0)
+   https://www.apache.org/licenses/LICENSE-2.0)
  * MIT license ([LICENSE-MIT](LICENSE-MIT) or
-   http://opensource.org/licenses/MIT)
+   https://opensource.org/licenses/MIT)
 
 at your option.
 

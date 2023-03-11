@@ -1,5 +1,5 @@
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() {
     let x = (1, 2);
     let y = x.clone();

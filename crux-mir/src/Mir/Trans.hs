@@ -577,19 +577,9 @@ transCheckedBinOp op a b = do
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
-transNullaryOp M.Box ty = do
-    -- Box<T> has special translation to ensure that its representation is just
-    -- an ordinary pointer.
-    Some tpr <- tyToReprM ty
-    ptr <- newMirRef tpr
-    maybeInitVal <- initialValue ty
-    case maybeInitVal of
-        Just (MirExp tpr' initVal) -> do
-            Refl <- testEqualityOrFail tpr tpr' $
-                "bad initial value for box: expected " ++ show tpr ++ " but got " ++ show tpr'
-            writeMirRef ptr initVal
-        Nothing -> return ()
-    return $ MirExp (MirReferenceRepr tpr) ptr
+transNullaryOp M.AlignOf ty = do
+    -- TODO: return the actual alignment
+    return $ MirExp UsizeRepr $ R.App $ usizeLit 4
 transNullaryOp M.SizeOf _ = do
     -- TODO: return the actual size, once mir-json exports size/layout info
     return $ MirExp UsizeRepr $ R.App $ usizeLit 1
@@ -982,6 +972,9 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 
+-- TODO: are these correct?
+evalRval rv@(M.ShallowInitBox op ty) = evalOperand op
+evalRval rv@(M.CopyForDeref lv) = evalLvalue lv
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
@@ -1161,6 +1154,8 @@ transStatement (M.SetDiscriminant lv i) = do
     -- simultaneously), then we could remove AllocateEnum.
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatement M.Nop = return ()
+transStatement M.Deinit = return ()
+transStatement (M.StmtIntrinsic _) = return () --TODO: is this true?
 
 -- | Add a new `BranchTransInfo` entry for the current function.  Returns the
 -- index of the new entry.
@@ -1463,9 +1458,14 @@ transTerminator (M.DropAndReplace dlv dop dtarg _ dropFn) _ = do
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
-transTerminator (M.Call (M.OpConstant (M.Constant _ (M.ConstFunction funid))) cargs cretdest _) tr = do
+-- transTerminator (M.Call (M.OpConstant (M.Constant _ (M.ConstFunction funid))) cargs cretdest _) tr = do
+--     isCustom <- resolveCustom funid
+--     doCall funid cargs cretdest tr -- cleanup ignored
+
+transTerminator (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid
     doCall funid cargs cretdest tr -- cleanup ignored
+
 
 transTerminator (M.Call funcOp cargs cretdest _) tr = do
     func <- evalOperand funcOp

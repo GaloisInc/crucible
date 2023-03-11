@@ -1,55 +1,88 @@
+use crate::arch::asm;
 #[cfg(test)]
 use stdarch_test::assert_instr;
+
+// x32 wants to use a 32-bit address size, but asm! defaults to using the full
+// register name (e.g. rax). We have to explicitly override the placeholder to
+// use the 32-bit register name in that case.
+#[cfg(target_pointer_width = "32")]
+macro_rules! bt {
+    ($inst:expr) => {
+        concat!($inst, " {b:e}, ({p:e})")
+    };
+}
+#[cfg(target_pointer_width = "64")]
+macro_rules! bt {
+    ($inst:expr) => {
+        concat!($inst, " {b:e}, ({p})")
+    };
+}
 
 /// Returns the bit in position `b` of the memory addressed by `p`.
 #[inline]
 #[cfg_attr(test, assert_instr(bt))]
-#[unstable(feature = "simd_x86_bittest", issue = "59414")]
+#[stable(feature = "simd_x86_bittest", since = "1.55.0")]
 pub unsafe fn _bittest(p: *const i32, b: i32) -> u8 {
     let r: u8;
-    asm!("btl $2, $1\n\tsetc ${0:b}"
-         : "=r"(r)
-         : "*m"(p), "r"(b)
-         : "cc", "memory");
+    asm!(
+        bt!("btl"),
+        "setc {r}",
+        p = in(reg) p,
+        b = in(reg) b,
+        r = out(reg_byte) r,
+        options(readonly, nostack, pure, att_syntax)
+    );
     r
 }
 
 /// Returns the bit in position `b` of the memory addressed by `p`, then sets the bit to `1`.
 #[inline]
 #[cfg_attr(test, assert_instr(bts))]
-#[unstable(feature = "simd_x86_bittest", issue = "59414")]
+#[stable(feature = "simd_x86_bittest", since = "1.55.0")]
 pub unsafe fn _bittestandset(p: *mut i32, b: i32) -> u8 {
     let r: u8;
-    asm!("btsl $2, $1\n\tsetc ${0:b}"
-         : "=r"(r), "+*m"(p)
-         : "r"(b)
-         : "cc", "memory");
+    asm!(
+        bt!("btsl"),
+        "setc {r}",
+        p = in(reg) p,
+        b = in(reg) b,
+        r = out(reg_byte) r,
+        options(nostack, att_syntax)
+    );
     r
 }
 
 /// Returns the bit in position `b` of the memory addressed by `p`, then resets that bit to `0`.
 #[inline]
 #[cfg_attr(test, assert_instr(btr))]
-#[unstable(feature = "simd_x86_bittest", issue = "59414")]
+#[stable(feature = "simd_x86_bittest", since = "1.55.0")]
 pub unsafe fn _bittestandreset(p: *mut i32, b: i32) -> u8 {
     let r: u8;
-    asm!("btrl $2, $1\n\tsetc ${0:b}"
-         : "=r"(r), "+*m"(p)
-         : "r"(b)
-         : "cc", "memory");
+    asm!(
+        bt!("btrl"),
+        "setc {r}",
+        p = in(reg) p,
+        b = in(reg) b,
+        r = out(reg_byte) r,
+        options(nostack, att_syntax)
+    );
     r
 }
 
 /// Returns the bit in position `b` of the memory addressed by `p`, then inverts that bit.
 #[inline]
 #[cfg_attr(test, assert_instr(btc))]
-#[unstable(feature = "simd_x86_bittest", issue = "59414")]
+#[stable(feature = "simd_x86_bittest", since = "1.55.0")]
 pub unsafe fn _bittestandcomplement(p: *mut i32, b: i32) -> u8 {
     let r: u8;
-    asm!("btcl $2, $1\n\tsetc ${0:b}"
-         : "=r"(r), "+*m"(p)
-         : "r"(b)
-         : "cc", "memory");
+    asm!(
+        bt!("btcl"),
+        "setc {r}",
+        p = in(reg) p,
+        b = in(reg) b,
+        r = out(reg_byte) r,
+        options(nostack, att_syntax)
+    );
     r
 }
 

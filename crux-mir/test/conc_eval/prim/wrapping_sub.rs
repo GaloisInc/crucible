@@ -2,9 +2,9 @@
 fn f(_x : u16) -> bool {
     let y : u16 = 20;
     let z : i16 = 20;
-    
+
     let mut res : bool = true;
-    
+
     res = res && y.wrapping_sub(22) == 65534;
     res = res && y.wrapping_sub(18) == 2;
     res = res && z.wrapping_sub(22) == 65534_u16 as i16;
@@ -19,4 +19,4 @@ const ARG : u16 = 20;
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }

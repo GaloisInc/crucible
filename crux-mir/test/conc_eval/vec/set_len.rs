@@ -1,4 +1,4 @@
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> usize {
     let mut v = vec![1, 2, 3];
     unsafe { v.set_len(2); }

@@ -1,10 +1,13 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use crate::ffi::CStr;
 use crate::io;
 use crate::mem;
-use crate::sys::{unsupported, Void};
+use crate::num::NonZeroUsize;
+use crate::sys::unsupported;
 use crate::time::Duration;
 
-pub struct Thread(Void);
+pub struct Thread(!);
 
 pub const DEFAULT_MIN_STACK_SIZE: usize = 4096;
 
@@ -25,7 +28,7 @@ impl Thread {
 
     pub fn sleep(dur: Duration) {
         let nanos = dur.as_nanos();
-        assert!(nanos <= u64::max_value() as u128);
+        assert!(nanos <= u64::MAX as u128);
 
         const USERDATA: wasi::Userdata = 0x0123_45678;
 
@@ -38,8 +41,7 @@ impl Thread {
 
         let in_ = wasi::Subscription {
             userdata: USERDATA,
-            r#type: wasi::EVENTTYPE_CLOCK,
-            u: wasi::SubscriptionU { clock },
+            u: wasi::SubscriptionU { tag: 0, u: wasi::SubscriptionUU { clock } },
         };
         unsafe {
             let mut event: wasi::Event = mem::zeroed();
@@ -48,7 +50,10 @@ impl Thread {
                 (
                     Ok(1),
                     wasi::Event {
-                        userdata: USERDATA, error: 0, r#type: wasi::EVENTTYPE_CLOCK, ..
+                        userdata: USERDATA,
+                        error: wasi::ERRNO_SUCCESS,
+                        type_: wasi::EVENTTYPE_CLOCK,
+                        ..
                     },
                 ) => {}
                 _ => panic!("thread::sleep(): unexpected result of poll_oneoff"),
@@ -57,8 +62,12 @@ impl Thread {
     }
 
     pub fn join(self) {
-        match self.0 {}
+        self.0
     }
+}
+
+pub fn available_parallelism() -> io::Result<NonZeroUsize> {
+    unsupported()
 }
 
 pub mod guard {

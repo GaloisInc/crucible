@@ -5,9 +5,6 @@
 /// [`IndexMut`] is used instead. This allows nice things such as
 /// `let value = v[index]` if the type of `value` implements [`Copy`].
 ///
-/// [`IndexMut`]: ../../std/ops/trait.IndexMut.html
-/// [`Copy`]: ../../std/marker/trait.Copy.html
-///
 /// # Examples
 ///
 /// The following example implements `Index` on a read-only `NucleotideCount`
@@ -58,13 +55,19 @@
 #[doc(alias = "]")]
 #[doc(alias = "[")]
 #[doc(alias = "[]")]
+#[const_trait]
 pub trait Index<Idx: ?Sized> {
     /// The returned type after indexing.
     #[stable(feature = "rust1", since = "1.0.0")]
     type Output: ?Sized;
 
     /// Performs the indexing (`container[index]`) operation.
+    ///
+    /// # Panics
+    ///
+    /// May panic if the index is out of bounds.
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[track_caller]
     fn index(&self, index: Idx) -> &Self::Output;
 }
 
@@ -75,15 +78,13 @@ pub trait Index<Idx: ?Sized> {
 /// an immutable value is requested, the [`Index`] trait is used instead. This
 /// allows nice things such as `v[index] = value`.
 ///
-/// [`Index`]: ../../std/ops/trait.Index.html
-///
 /// # Examples
 ///
 /// A very simple implementation of a `Balance` struct that has two sides, where
 /// each can be indexed mutably and immutably.
 ///
 /// ```
-/// use std::ops::{Index,IndexMut};
+/// use std::ops::{Index, IndexMut};
 ///
 /// #[derive(Debug)]
 /// enum Side {
@@ -106,7 +107,7 @@ pub trait Index<Idx: ?Sized> {
 ///     type Output = Weight;
 ///
 ///     fn index(&self, index: Side) -> &Self::Output {
-///         println!("Accessing {:?}-side of balance immutably", index);
+///         println!("Accessing {index:?}-side of balance immutably");
 ///         match index {
 ///             Side::Left => &self.left,
 ///             Side::Right => &self.right,
@@ -116,7 +117,7 @@ pub trait Index<Idx: ?Sized> {
 ///
 /// impl IndexMut<Side> for Balance {
 ///     fn index_mut(&mut self, index: Side) -> &mut Self::Output {
-///         println!("Accessing {:?}-side of balance mutably", index);
+///         println!("Accessing {index:?}-side of balance mutably");
 ///         match index {
 ///             Side::Left => &mut self.left,
 ///             Side::Right => &mut self.right,
@@ -163,8 +164,14 @@ see chapter in The Book <https://doc.rust-lang.org/book/ch08-02-strings.html#ind
 #[doc(alias = "[")]
 #[doc(alias = "]")]
 #[doc(alias = "[]")]
-pub trait IndexMut<Idx: ?Sized>: Index<Idx> {
+#[const_trait]
+pub trait IndexMut<Idx: ?Sized>: ~const Index<Idx> {
     /// Performs the mutable indexing (`container[index]`) operation.
+    ///
+    /// # Panics
+    ///
+    /// May panic if the index is out of bounds.
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[track_caller]
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output;
 }

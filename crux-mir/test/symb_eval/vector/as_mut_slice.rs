@@ -2,7 +2,7 @@
 #[macro_use] extern crate crucible;
 use crucible::vector::Vector;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() {
     let mut v = Vector::<u8>::new().push(12).push(34);
     crucible_assert!(v.len() == 2);

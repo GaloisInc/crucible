@@ -196,11 +196,10 @@ data VariantDiscr
 data CtorKind
   = FnKind
   | ConstKind
-  | FictiveKind
   deriving (Eq, Ord, Show, Generic)
 
 
-data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
+data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: Maybe CtorKind, _discrval :: Maybe Integer }
     deriving (Eq, Ord,Show, Generic)
 
 
@@ -284,6 +283,13 @@ data Statement =
       | StorageLive { _slv :: Var }
       | StorageDead { _sdv :: Var }
       | Nop
+      | Deinit
+      | StmtIntrinsic NonDivergingIntrinsic
+    deriving (Show,Eq, Ord, Generic)
+
+data NonDivergingIntrinsic =
+        NDIAssume Operand
+      | NDICopyNonOverlapping Operand Operand Operand
     deriving (Show,Eq, Ord, Generic)
 
 data PlaceElem =
@@ -321,6 +327,8 @@ data Rvalue =
       | Discriminant { _dvar :: Lvalue }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
+      | ShallowInitBox { _sibptr :: Operand, _sibty :: Ty }
+      | CopyForDeref Lvalue
     deriving (Show,Eq, Ord, Generic)
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
@@ -377,7 +385,7 @@ data Operand =
 
 data NullOp =
         SizeOf
-      | Box
+      | AlignOf
       deriving (Show,Eq, Ord, Generic)
 
 
@@ -427,15 +435,16 @@ data Vtable = Vtable
     }
     deriving (Show, Eq, Ord, Generic)
 
+-- TODO: add other castkinds (see json)
 data CastKind =
-        Misc
-      | ReifyFnPointer
-      | ClosureFnPointer
-      | UnsafeFnPointer
-      | Unsize
-      | UnsizeVtable VtableName
-      | MutToConstPointer
-      deriving (Show,Eq, Ord, Generic)
+    Misc
+  | ReifyFnPointer
+  | ClosureFnPointer
+  | UnsafeFnPointer
+  | Unsize
+  | UnsizeVtable VtableName
+  | MutToConstPointer
+  deriving (Show,Eq, Ord, Generic)
 
 data Constant = Constant Ty ConstVal
   deriving (Eq, Ord, Show, Generic)
@@ -672,7 +681,7 @@ instance TypeOf Rvalue where
     in TyTuple [resTy, TyBool]
   typeOf (NullaryOp op ty) = case op of
     SizeOf -> TyUint USize
-    Box -> TyAdt (textId "type::adt") (textId "alloc::boxed::Box") (Substs [ty])
+    AlignOf -> TyUint USize
   typeOf (UnaryOp op x) =
     let ty = typeOf x
     in case op of
@@ -683,6 +692,8 @@ instance TypeOf Rvalue where
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
+  typeOf (ShallowInitBox _ ty) = ty
+  typeOf (CopyForDeref lv) = typeOf lv
 
 instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv

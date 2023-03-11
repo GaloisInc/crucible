@@ -1,13 +1,9 @@
-use std::cell::Cell;
-use std::cmp::Ordering::{self, Equal, Greater, Less};
+use std::cmp::Ordering::{Equal, Greater, Less};
+use std::convert::identity;
+use std::fmt;
 use std::mem;
 use std::panic;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
-
-use rand::distributions::Standard;
-use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng, RngCore};
 
 fn square(n: usize) -> usize {
     n * n
@@ -266,9 +262,9 @@ fn test_swap_remove_fail() {
 fn test_swap_remove_noncopyable() {
     // Tests that we don't accidentally run destructors twice.
     let mut v: Vec<Box<_>> = Vec::new();
-    v.push(box 0);
-    v.push(box 0);
-    v.push(box 0);
+    v.push(Box::new(0));
+    v.push(Box::new(0));
+    v.push(Box::new(0));
     let mut _e = v.swap_remove(0);
     assert_eq!(v.len(), 2);
     _e = v.swap_remove(1);
@@ -294,7 +290,7 @@ fn test_push() {
 
 #[test]
 fn test_truncate() {
-    let mut v: Vec<Box<_>> = vec![box 6, box 5, box 4];
+    let mut v: Vec<Box<_>> = vec![Box::new(6), Box::new(5), Box::new(4)];
     v.truncate(1);
     let v = v;
     assert_eq!(v.len(), 1);
@@ -304,7 +300,7 @@ fn test_truncate() {
 
 #[test]
 fn test_clear() {
-    let mut v: Vec<Box<_>> = vec![box 6, box 5, box 4];
+    let mut v: Vec<Box<_>> = vec![Box::new(6), Box::new(5), Box::new(4)];
     v.clear();
     assert_eq!(v.len(), 0);
     // If the unsafe block didn't drop things properly, we blow up here.
@@ -384,129 +380,6 @@ fn test_reverse() {
     let mut v = (-50..51i16).collect::<Vec<_>>();
     v.reverse();
     assert_eq!(v, (-50..51i16).rev().collect::<Vec<_>>());
-}
-
-#[test]
-#[cfg_attr(miri, ignore)] // Miri is too slow
-fn test_sort() {
-    let mut rng = thread_rng();
-
-    for len in (2..25).chain(500..510) {
-        for &modulus in &[5, 10, 100, 1000] {
-            for _ in 0..10 {
-                let orig: Vec<_> =
-                    rng.sample_iter::<i32, _>(&Standard).map(|x| x % modulus).take(len).collect();
-
-                // Sort in default order.
-                let mut v = orig.clone();
-                v.sort();
-                assert!(v.windows(2).all(|w| w[0] <= w[1]));
-
-                // Sort in ascending order.
-                let mut v = orig.clone();
-                v.sort_by(|a, b| a.cmp(b));
-                assert!(v.windows(2).all(|w| w[0] <= w[1]));
-
-                // Sort in descending order.
-                let mut v = orig.clone();
-                v.sort_by(|a, b| b.cmp(a));
-                assert!(v.windows(2).all(|w| w[0] >= w[1]));
-
-                // Sort in lexicographic order.
-                let mut v1 = orig.clone();
-                let mut v2 = orig.clone();
-                v1.sort_by_key(|x| x.to_string());
-                v2.sort_by_cached_key(|x| x.to_string());
-                assert!(v1.windows(2).all(|w| w[0].to_string() <= w[1].to_string()));
-                assert!(v1 == v2);
-
-                // Sort with many pre-sorted runs.
-                let mut v = orig.clone();
-                v.sort();
-                v.reverse();
-                for _ in 0..5 {
-                    let a = rng.gen::<usize>() % len;
-                    let b = rng.gen::<usize>() % len;
-                    if a < b {
-                        v[a..b].reverse();
-                    } else {
-                        v.swap(a, b);
-                    }
-                }
-                v.sort();
-                assert!(v.windows(2).all(|w| w[0] <= w[1]));
-            }
-        }
-    }
-
-    // Sort using a completely random comparison function.
-    // This will reorder the elements *somehow*, but won't panic.
-    let mut v = [0; 500];
-    for i in 0..v.len() {
-        v[i] = i as i32;
-    }
-    v.sort_by(|_, _| *[Less, Equal, Greater].choose(&mut rng).unwrap());
-    v.sort();
-    for i in 0..v.len() {
-        assert_eq!(v[i], i as i32);
-    }
-
-    // Should not panic.
-    [0i32; 0].sort();
-    [(); 10].sort();
-    [(); 100].sort();
-
-    let mut v = [0xDEADBEEFu64];
-    v.sort();
-    assert!(v == [0xDEADBEEF]);
-}
-
-#[test]
-fn test_sort_stability() {
-    #[cfg(not(miri))] // Miri is too slow
-    let large_range = 500..510;
-    #[cfg(not(miri))] // Miri is too slow
-    let rounds = 10;
-
-    #[cfg(miri)]
-    let large_range = 0..0; // empty range
-    #[cfg(miri)]
-    let rounds = 1;
-
-    for len in (2..25).chain(large_range) {
-        for _ in 0..rounds {
-            let mut counts = [0; 10];
-
-            // create a vector like [(6, 1), (5, 1), (6, 2), ...],
-            // where the first item of each tuple is random, but
-            // the second item represents which occurrence of that
-            // number this element is, i.e., the second elements
-            // will occur in sorted order.
-            let orig: Vec<_> = (0..len)
-                .map(|_| {
-                    let n = thread_rng().gen::<usize>() % 10;
-                    counts[n] += 1;
-                    (n, counts[n])
-                })
-                .collect();
-
-            let mut v = orig.clone();
-            // Only sort on the first element, so an unstable sort
-            // may mix up the counts.
-            v.sort_by(|&(a, _), &(b, _)| a.cmp(&b));
-
-            // This comparison includes the count (the second item
-            // of the tuple), so elements with equal first items
-            // will need to be ordered with increasing
-            // counts... i.e., exactly asserting that this sort is
-            // stable.
-            assert!(v.windows(2).all(|w| w[0] <= w[1]));
-
-            let mut v = orig.clone();
-            v.sort_by_cached_key(|&(x, _)| x);
-            assert!(v.windows(2).all(|w| w[0] <= w[1]));
-        }
-    }
 }
 
 #[test]
@@ -867,7 +740,7 @@ fn test_splitator_inclusive() {
     assert_eq!(xs.split_inclusive(|_| true).collect::<Vec<&[i32]>>(), splits);
 
     let xs: &[i32] = &[];
-    let splits: &[&[i32]] = &[&[]];
+    let splits: &[&[i32]] = &[];
     assert_eq!(xs.split_inclusive(|x| *x == 5).collect::<Vec<&[i32]>>(), splits);
 }
 
@@ -887,7 +760,7 @@ fn test_splitator_inclusive_reverse() {
     assert_eq!(xs.split_inclusive(|_| true).rev().collect::<Vec<_>>(), splits);
 
     let xs: &[i32] = &[];
-    let splits: &[&[i32]] = &[&[]];
+    let splits: &[&[i32]] = &[];
     assert_eq!(xs.split_inclusive(|x| *x == 5).rev().collect::<Vec<_>>(), splits);
 }
 
@@ -907,7 +780,7 @@ fn test_splitator_mut_inclusive() {
     assert_eq!(xs.split_inclusive_mut(|_| true).collect::<Vec<_>>(), splits);
 
     let xs: &mut [i32] = &mut [];
-    let splits: &[&[i32]] = &[&[]];
+    let splits: &[&[i32]] = &[];
     assert_eq!(xs.split_inclusive_mut(|x| *x == 5).collect::<Vec<_>>(), splits);
 }
 
@@ -927,7 +800,7 @@ fn test_splitator_mut_inclusive_reverse() {
     assert_eq!(xs.split_inclusive_mut(|_| true).rev().collect::<Vec<_>>(), splits);
 
     let xs: &mut [i32] = &mut [];
-    let splits: &[&[i32]] = &[&[]];
+    let splits: &[&[i32]] = &[];
     assert_eq!(xs.split_inclusive_mut(|x| *x == 5).rev().collect::<Vec<_>>(), splits);
 }
 
@@ -996,6 +869,66 @@ fn test_rsplitnator() {
     let splits: &[&[i32]] = &[&[]];
     assert_eq!(xs.rsplitn(2, |x| *x == 5).collect::<Vec<&[i32]>>(), splits);
     assert!(xs.rsplitn(0, |x| *x % 2 == 0).next().is_none());
+}
+
+#[test]
+fn test_split_iterators_size_hint() {
+    #[derive(Copy, Clone)]
+    enum Bounds {
+        Lower,
+        Upper,
+    }
+    fn assert_tight_size_hints(mut it: impl Iterator, which: Bounds, ctx: impl fmt::Display) {
+        match which {
+            Bounds::Lower => {
+                let mut lower_bounds = vec![it.size_hint().0];
+                while let Some(_) = it.next() {
+                    lower_bounds.push(it.size_hint().0);
+                }
+                let target: Vec<_> = (0..lower_bounds.len()).rev().collect();
+                assert_eq!(lower_bounds, target, "lower bounds incorrect or not tight: {}", ctx);
+            }
+            Bounds::Upper => {
+                let mut upper_bounds = vec![it.size_hint().1];
+                while let Some(_) = it.next() {
+                    upper_bounds.push(it.size_hint().1);
+                }
+                let target: Vec<_> = (0..upper_bounds.len()).map(Some).rev().collect();
+                assert_eq!(upper_bounds, target, "upper bounds incorrect or not tight: {}", ctx);
+            }
+        }
+    }
+
+    for len in 0..=2 {
+        let mut v: Vec<u8> = (0..len).collect();
+
+        // p: predicate, b: bound selection
+        for (p, b) in [
+            // with a predicate always returning false, the split*-iterators
+            // become maximally short, so the size_hint lower bounds are tight
+            ((|_| false) as fn(&_) -> _, Bounds::Lower),
+            // with a predicate always returning true, the split*-iterators
+            // become maximally long, so the size_hint upper bounds are tight
+            ((|_| true) as fn(&_) -> _, Bounds::Upper),
+        ] {
+            use assert_tight_size_hints as a;
+            use format_args as f;
+
+            a(v.split(p), b, "split");
+            a(v.split_mut(p), b, "split_mut");
+            a(v.split_inclusive(p), b, "split_inclusive");
+            a(v.split_inclusive_mut(p), b, "split_inclusive_mut");
+            a(v.rsplit(p), b, "rsplit");
+            a(v.rsplit_mut(p), b, "rsplit_mut");
+
+            for n in 0..=3 {
+                a(v.splitn(n, p), b, f!("splitn, n = {n}"));
+                a(v.splitn_mut(n, p), b, f!("splitn_mut, n = {n}"));
+                a(v.rsplitn(n, p), b, f!("rsplitn, n = {n}"));
+                a(v.rsplitn_mut(n, p), b, f!("rsplitn_mut, n = {n}"));
+            }
+        }
+    }
 }
 
 #[test]
@@ -1128,8 +1061,8 @@ fn test_show() {
     macro_rules! test_show_vec {
         ($x:expr, $x_str:expr) => {{
             let (x, x_str) = ($x, $x_str);
-            assert_eq!(format!("{:?}", x), x_str);
-            assert_eq!(format!("{:?}", x), x_str);
+            assert_eq!(format!("{x:?}"), x_str);
+            assert_eq!(format!("{x:?}"), x_str);
         }};
     }
     let empty = Vec::<i32>::new();
@@ -1460,9 +1393,18 @@ fn test_mut_last() {
 
 #[test]
 fn test_to_vec() {
-    let xs: Box<_> = box [1, 2, 3];
+    let xs: Box<_> = Box::new([1, 2, 3]);
     let ys = xs.to_vec();
     assert_eq!(ys, [1, 2, 3]);
+}
+
+#[test]
+fn test_in_place_iterator_specialization() {
+    let src: Box<[usize]> = Box::new([1, 2, 3]);
+    let src_ptr = src.as_ptr();
+    let sink: Box<_> = src.into_vec().into_iter().map(std::convert::identity).collect();
+    let sink_ptr = sink.as_ptr();
+    assert_eq!(src_ptr, sink_ptr);
 }
 
 #[test]
@@ -1528,7 +1470,7 @@ fn test_copy_from_slice() {
 }
 
 #[test]
-#[should_panic(expected = "destination and source slices have different lengths")]
+#[should_panic(expected = "source slice length (4) does not match destination slice length (5)")]
 fn test_copy_from_slice_dst_longer() {
     let src = [0, 1, 2, 3];
     let mut dst = [0; 5];
@@ -1536,242 +1478,11 @@ fn test_copy_from_slice_dst_longer() {
 }
 
 #[test]
-#[should_panic(expected = "destination and source slices have different lengths")]
+#[should_panic(expected = "source slice length (4) does not match destination slice length (3)")]
 fn test_copy_from_slice_dst_shorter() {
     let src = [0, 1, 2, 3];
     let mut dst = [0; 3];
     dst.copy_from_slice(&src);
-}
-
-const MAX_LEN: usize = 80;
-
-static DROP_COUNTS: [AtomicUsize; MAX_LEN] = [
-    // FIXME(RFC 1109): AtomicUsize is not Copy.
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-    AtomicUsize::new(0),
-];
-
-static VERSIONS: AtomicUsize = AtomicUsize::new(0);
-
-#[derive(Clone, Eq)]
-struct DropCounter {
-    x: u32,
-    id: usize,
-    version: Cell<usize>,
-}
-
-impl PartialEq for DropCounter {
-    fn eq(&self, other: &Self) -> bool {
-        self.partial_cmp(other) == Some(Ordering::Equal)
-    }
-}
-
-impl PartialOrd for DropCounter {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.version.set(self.version.get() + 1);
-        other.version.set(other.version.get() + 1);
-        VERSIONS.fetch_add(2, Relaxed);
-        self.x.partial_cmp(&other.x)
-    }
-}
-
-impl Ord for DropCounter {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
-
-impl Drop for DropCounter {
-    fn drop(&mut self) {
-        DROP_COUNTS[self.id].fetch_add(1, Relaxed);
-        VERSIONS.fetch_sub(self.version.get(), Relaxed);
-    }
-}
-
-macro_rules! test {
-    ($input:ident, $func:ident) => {
-        let len = $input.len();
-
-        // Work out the total number of comparisons required to sort
-        // this array...
-        let mut count = 0usize;
-        $input.to_owned().$func(|a, b| {
-            count += 1;
-            a.cmp(b)
-        });
-
-        // ... and then panic on each and every single one.
-        for panic_countdown in 0..count {
-            // Refresh the counters.
-            VERSIONS.store(0, Relaxed);
-            for i in 0..len {
-                DROP_COUNTS[i].store(0, Relaxed);
-            }
-
-            let v = $input.to_owned();
-            let _ = std::panic::catch_unwind(move || {
-                let mut v = v;
-                let mut panic_countdown = panic_countdown;
-                v.$func(|a, b| {
-                    if panic_countdown == 0 {
-                        SILENCE_PANIC.with(|s| s.set(true));
-                        panic!();
-                    }
-                    panic_countdown -= 1;
-                    a.cmp(b)
-                })
-            });
-
-            // Check that the number of things dropped is exactly
-            // what we expect (i.e., the contents of `v`).
-            for (i, c) in DROP_COUNTS.iter().enumerate().take(len) {
-                let count = c.load(Relaxed);
-                assert!(count == 1, "found drop count == {} for i == {}, len == {}", count, i, len);
-            }
-
-            // Check that the most recent versions of values were dropped.
-            assert_eq!(VERSIONS.load(Relaxed), 0);
-        }
-    };
-}
-
-thread_local!(static SILENCE_PANIC: Cell<bool> = Cell::new(false));
-
-#[test]
-#[cfg_attr(target_os = "emscripten", ignore)] // no threads
-fn panic_safe() {
-    let prev = panic::take_hook();
-    panic::set_hook(Box::new(move |info| {
-        if !SILENCE_PANIC.with(|s| s.get()) {
-            prev(info);
-        }
-    }));
-
-    let mut rng = thread_rng();
-
-    #[cfg(not(miri))] // Miri is too slow
-    let lens = (1..20).chain(70..MAX_LEN);
-    #[cfg(not(miri))] // Miri is too slow
-    let moduli = &[5, 20, 50];
-
-    #[cfg(miri)]
-    let lens = 1..10;
-    #[cfg(miri)]
-    let moduli = &[5];
-
-    for len in lens {
-        for &modulus in moduli {
-            for &has_runs in &[false, true] {
-                let mut input = (0..len)
-                    .map(|id| DropCounter {
-                        x: rng.next_u32() % modulus,
-                        id: id,
-                        version: Cell::new(0),
-                    })
-                    .collect::<Vec<_>>();
-
-                if has_runs {
-                    for c in &mut input {
-                        c.x = c.id as u32;
-                    }
-
-                    for _ in 0..5 {
-                        let a = rng.gen::<usize>() % len;
-                        let b = rng.gen::<usize>() % len;
-                        if a < b {
-                            input[a..b].reverse();
-                        } else {
-                            input.swap(a, b);
-                        }
-                    }
-                }
-
-                test!(input, sort_by);
-                test!(input, sort_unstable_by);
-            }
-        }
-    }
-
-    // Set default panic hook again.
-    drop(panic::take_hook());
 }
 
 #[test]
@@ -1780,4 +1491,181 @@ fn repeat_generic_slice() {
     assert_eq!([1, 2, 3, 4].repeat(0), vec![]);
     assert_eq!([1, 2, 3, 4].repeat(1), vec![1, 2, 3, 4]);
     assert_eq!([1, 2, 3, 4].repeat(3), vec![1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
+}
+
+#[test]
+#[allow(unreachable_patterns)]
+fn subslice_patterns() {
+    // This test comprehensively checks the passing static and dynamic semantics
+    // of subslice patterns `..`, `x @ ..`, `ref x @ ..`, and `ref mut @ ..`
+    // in slice patterns `[$($pat), $(,)?]` .
+
+    #[derive(PartialEq, Debug, Clone)]
+    struct N(u8);
+
+    macro_rules! n {
+        ($($e:expr),* $(,)?) => {
+            [$(N($e)),*]
+        }
+    }
+
+    macro_rules! c {
+        ($inp:expr, $typ:ty, $out:expr $(,)?) => {
+            assert_eq!($out, identity::<$typ>($inp))
+        };
+    }
+
+    macro_rules! m {
+        ($e:expr, $p:pat => $b:expr) => {
+            match $e {
+                $p => $b,
+                _ => panic!(),
+            }
+        };
+    }
+
+    // == Slices ==
+
+    // Matching slices using `ref` patterns:
+    let mut v = vec![N(0), N(1), N(2), N(3), N(4)];
+    let mut vc = (0..=4).collect::<Vec<u8>>();
+
+    let [..] = v[..]; // Always matches.
+    m!(v[..], [N(0), ref sub @ .., N(4)] => c!(sub, &[N], n![1, 2, 3]));
+    m!(v[..], [N(0), ref sub @ ..] => c!(sub, &[N], n![1, 2, 3, 4]));
+    m!(v[..], [ref sub @ .., N(4)] => c!(sub, &[N], n![0, 1, 2, 3]));
+    m!(v[..], [ref sub @ .., _, _, _, _, _] => c!(sub, &[N], &n![] as &[N]));
+    m!(v[..], [_, _, _, _, _, ref sub @ ..] => c!(sub, &[N], &n![] as &[N]));
+    m!(vc[..], [x, .., y] => c!((x, y), (u8, u8), (0, 4)));
+
+    // Matching slices using `ref mut` patterns:
+    let [..] = v[..]; // Always matches.
+    m!(v[..], [N(0), ref mut sub @ .., N(4)] => c!(sub, &mut [N], n![1, 2, 3]));
+    m!(v[..], [N(0), ref mut sub @ ..] => c!(sub, &mut [N], n![1, 2, 3, 4]));
+    m!(v[..], [ref mut sub @ .., N(4)] => c!(sub, &mut [N], n![0, 1, 2, 3]));
+    m!(v[..], [ref mut sub @ .., _, _, _, _, _] => c!(sub, &mut [N], &mut n![] as &mut [N]));
+    m!(v[..], [_, _, _, _, _, ref mut sub @ ..] => c!(sub, &mut [N], &mut n![] as &mut [N]));
+    m!(vc[..], [x, .., y] => c!((x, y), (u8, u8), (0, 4)));
+
+    // Matching slices using default binding modes (&):
+    let [..] = &v[..]; // Always matches.
+    m!(&v[..], [N(0), sub @ .., N(4)] => c!(sub, &[N], n![1, 2, 3]));
+    m!(&v[..], [N(0), sub @ ..] => c!(sub, &[N], n![1, 2, 3, 4]));
+    m!(&v[..], [sub @ .., N(4)] => c!(sub, &[N], n![0, 1, 2, 3]));
+    m!(&v[..], [sub @ .., _, _, _, _, _] => c!(sub, &[N], &n![] as &[N]));
+    m!(&v[..], [_, _, _, _, _, sub @ ..] => c!(sub, &[N], &n![] as &[N]));
+    m!(&vc[..], [x, .., y] => c!((x, y), (&u8, &u8), (&0, &4)));
+
+    // Matching slices using default binding modes (&mut):
+    let [..] = &mut v[..]; // Always matches.
+    m!(&mut v[..], [N(0), sub @ .., N(4)] => c!(sub, &mut [N], n![1, 2, 3]));
+    m!(&mut v[..], [N(0), sub @ ..] => c!(sub, &mut [N], n![1, 2, 3, 4]));
+    m!(&mut v[..], [sub @ .., N(4)] => c!(sub, &mut [N], n![0, 1, 2, 3]));
+    m!(&mut v[..], [sub @ .., _, _, _, _, _] => c!(sub, &mut [N], &mut n![] as &mut [N]));
+    m!(&mut v[..], [_, _, _, _, _, sub @ ..] => c!(sub, &mut [N], &mut n![] as &mut [N]));
+    m!(&mut vc[..], [x, .., y] => c!((x, y), (&mut u8, &mut u8), (&mut 0, &mut 4)));
+
+    // == Arrays ==
+    let mut v = n![0, 1, 2, 3, 4];
+    let vc = [0, 1, 2, 3, 4];
+
+    // Matching arrays by value:
+    m!(v.clone(), [N(0), sub @ .., N(4)] => c!(sub, [N; 3], n![1, 2, 3]));
+    m!(v.clone(), [N(0), sub @ ..] => c!(sub, [N; 4], n![1, 2, 3, 4]));
+    m!(v.clone(), [sub @ .., N(4)] => c!(sub, [N; 4], n![0, 1, 2, 3]));
+    m!(v.clone(), [sub @ .., _, _, _, _, _] => c!(sub, [N; 0], n![] as [N; 0]));
+    m!(v.clone(), [_, _, _, _, _, sub @ ..] => c!(sub, [N; 0], n![] as [N; 0]));
+    m!(v.clone(), [x, .., y] => c!((x, y), (N, N), (N(0), N(4))));
+    m!(v.clone(), [..] => ());
+
+    // Matching arrays by ref patterns:
+    m!(v, [N(0), ref sub @ .., N(4)] => c!(sub, &[N; 3], &n![1, 2, 3]));
+    m!(v, [N(0), ref sub @ ..] => c!(sub, &[N; 4], &n![1, 2, 3, 4]));
+    m!(v, [ref sub @ .., N(4)] => c!(sub, &[N; 4], &n![0, 1, 2, 3]));
+    m!(v, [ref sub @ .., _, _, _, _, _] => c!(sub, &[N; 0], &n![] as &[N; 0]));
+    m!(v, [_, _, _, _, _, ref sub @ ..] => c!(sub, &[N; 0], &n![] as &[N; 0]));
+    m!(vc, [x, .., y] => c!((x, y), (u8, u8), (0, 4)));
+
+    // Matching arrays by ref mut patterns:
+    m!(v, [N(0), ref mut sub @ .., N(4)] => c!(sub, &mut [N; 3], &mut n![1, 2, 3]));
+    m!(v, [N(0), ref mut sub @ ..] => c!(sub, &mut [N; 4], &mut n![1, 2, 3, 4]));
+    m!(v, [ref mut sub @ .., N(4)] => c!(sub, &mut [N; 4], &mut n![0, 1, 2, 3]));
+    m!(v, [ref mut sub @ .., _, _, _, _, _] => c!(sub, &mut [N; 0], &mut n![] as &mut [N; 0]));
+    m!(v, [_, _, _, _, _, ref mut sub @ ..] => c!(sub, &mut [N; 0], &mut n![] as &mut [N; 0]));
+
+    // Matching arrays by default binding modes (&):
+    m!(&v, [N(0), sub @ .., N(4)] => c!(sub, &[N; 3], &n![1, 2, 3]));
+    m!(&v, [N(0), sub @ ..] => c!(sub, &[N; 4], &n![1, 2, 3, 4]));
+    m!(&v, [sub @ .., N(4)] => c!(sub, &[N; 4], &n![0, 1, 2, 3]));
+    m!(&v, [sub @ .., _, _, _, _, _] => c!(sub, &[N; 0], &n![] as &[N; 0]));
+    m!(&v, [_, _, _, _, _, sub @ ..] => c!(sub, &[N; 0], &n![] as &[N; 0]));
+    m!(&v, [..] => ());
+    m!(&v, [x, .., y] => c!((x, y), (&N, &N), (&N(0), &N(4))));
+
+    // Matching arrays by default binding modes (&mut):
+    m!(&mut v, [N(0), sub @ .., N(4)] => c!(sub, &mut [N; 3], &mut n![1, 2, 3]));
+    m!(&mut v, [N(0), sub @ ..] => c!(sub, &mut [N; 4], &mut n![1, 2, 3, 4]));
+    m!(&mut v, [sub @ .., N(4)] => c!(sub, &mut [N; 4], &mut n![0, 1, 2, 3]));
+    m!(&mut v, [sub @ .., _, _, _, _, _] => c!(sub, &mut [N; 0], &mut n![] as &[N; 0]));
+    m!(&mut v, [_, _, _, _, _, sub @ ..] => c!(sub, &mut [N; 0], &mut n![] as &[N; 0]));
+    m!(&mut v, [..] => ());
+    m!(&mut v, [x, .., y] => c!((x, y), (&mut N, &mut N), (&mut N(0), &mut N(4))));
+}
+
+#[test]
+fn test_group_by() {
+    let slice = &[1, 1, 1, 3, 3, 2, 2, 2, 1, 0];
+
+    let mut iter = slice.group_by(|a, b| a == b);
+    assert_eq!(iter.next(), Some(&[1, 1, 1][..]));
+    assert_eq!(iter.next(), Some(&[3, 3][..]));
+    assert_eq!(iter.next(), Some(&[2, 2, 2][..]));
+    assert_eq!(iter.next(), Some(&[1][..]));
+    assert_eq!(iter.next(), Some(&[0][..]));
+    assert_eq!(iter.next(), None);
+
+    let mut iter = slice.group_by(|a, b| a == b);
+    assert_eq!(iter.next_back(), Some(&[0][..]));
+    assert_eq!(iter.next_back(), Some(&[1][..]));
+    assert_eq!(iter.next_back(), Some(&[2, 2, 2][..]));
+    assert_eq!(iter.next_back(), Some(&[3, 3][..]));
+    assert_eq!(iter.next_back(), Some(&[1, 1, 1][..]));
+    assert_eq!(iter.next_back(), None);
+
+    let mut iter = slice.group_by(|a, b| a == b);
+    assert_eq!(iter.next(), Some(&[1, 1, 1][..]));
+    assert_eq!(iter.next_back(), Some(&[0][..]));
+    assert_eq!(iter.next(), Some(&[3, 3][..]));
+    assert_eq!(iter.next_back(), Some(&[1][..]));
+    assert_eq!(iter.next(), Some(&[2, 2, 2][..]));
+    assert_eq!(iter.next_back(), None);
+}
+
+#[test]
+fn test_group_by_mut() {
+    let slice = &mut [1, 1, 1, 3, 3, 2, 2, 2, 1, 0];
+
+    let mut iter = slice.group_by_mut(|a, b| a == b);
+    assert_eq!(iter.next(), Some(&mut [1, 1, 1][..]));
+    assert_eq!(iter.next(), Some(&mut [3, 3][..]));
+    assert_eq!(iter.next(), Some(&mut [2, 2, 2][..]));
+    assert_eq!(iter.next(), Some(&mut [1][..]));
+    assert_eq!(iter.next(), Some(&mut [0][..]));
+    assert_eq!(iter.next(), None);
+
+    let mut iter = slice.group_by_mut(|a, b| a == b);
+    assert_eq!(iter.next_back(), Some(&mut [0][..]));
+    assert_eq!(iter.next_back(), Some(&mut [1][..]));
+    assert_eq!(iter.next_back(), Some(&mut [2, 2, 2][..]));
+    assert_eq!(iter.next_back(), Some(&mut [3, 3][..]));
+    assert_eq!(iter.next_back(), Some(&mut [1, 1, 1][..]));
+    assert_eq!(iter.next_back(), None);
+
+    let mut iter = slice.group_by_mut(|a, b| a == b);
+    assert_eq!(iter.next(), Some(&mut [1, 1, 1][..]));
+    assert_eq!(iter.next_back(), Some(&mut [0][..]));
+    assert_eq!(iter.next(), Some(&mut [3, 3][..]));
+    assert_eq!(iter.next_back(), Some(&mut [1][..]));
+    assert_eq!(iter.next(), Some(&mut [2, 2, 2][..]));
+    assert_eq!(iter.next_back(), None);
 }

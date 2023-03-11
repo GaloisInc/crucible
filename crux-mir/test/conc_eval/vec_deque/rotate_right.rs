@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> [i32; 5] {
     let mut v: VecDeque<_> = vec![1, 2, 3, 4, 5].into();
     v.rotate_right(2);

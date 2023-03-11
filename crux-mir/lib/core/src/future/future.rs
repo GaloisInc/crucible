@@ -5,9 +5,9 @@ use crate::ops;
 use crate::pin::Pin;
 use crate::task::{Context, Poll};
 
-/// A future represents an asynchronous computation.
+/// A future represents an asynchronous computation obtained by use of [`async`].
 ///
-/// A future is a value that may not have finished computing yet. This kind of
+/// A future is a value that might not have finished computing yet. This kind of
 /// "asynchronous value" makes it possible for a thread to continue doing useful
 /// work while it waits for the value to become available.
 ///
@@ -23,13 +23,21 @@ use crate::task::{Context, Poll};
 /// When using a future, you generally won't call `poll` directly, but instead
 /// `.await` the value.
 ///
-/// [`Waker`]: ../task/struct.Waker.html
+/// [`async`]: ../../std/keyword.async.html
+/// [`Waker`]: crate::task::Waker
+#[doc(notable_trait)]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 #[stable(feature = "futures_api", since = "1.36.0")]
 #[lang = "future_trait"]
+#[rustc_on_unimplemented(
+    label = "`{Self}` is not a future",
+    message = "`{Self}` is not a future",
+    note = "{Self} must be a future or must implement `IntoFuture` to be awaited"
+)]
 pub trait Future {
     /// The type of value produced on completion.
     #[stable(feature = "futures_api", since = "1.36.0")]
+    #[rustc_diagnostic_item = "FutureOutput"]
     type Output;
 
     /// Attempt to resolve the future to a final value, registering
@@ -89,11 +97,10 @@ pub trait Future {
     /// (memory corruption, incorrect use of `unsafe` functions, or the like),
     /// regardless of the future's state.
     ///
-    /// [`Poll::Pending`]: ../task/enum.Poll.html#variant.Pending
-    /// [`Poll::Ready(val)`]: ../task/enum.Poll.html#variant.Ready
-    /// [`Context`]: ../task/struct.Context.html
-    /// [`Waker`]: ../task/struct.Waker.html
-    /// [`Waker::wake`]: ../task/struct.Waker.html#method.wake
+    /// [`Poll::Ready(val)`]: Poll::Ready
+    /// [`Waker`]: crate::task::Waker
+    /// [`Waker::wake`]: crate::task::Waker::wake
+    #[lang = "poll"]
     #[stable(feature = "futures_api", since = "1.36.0")]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>;
 }
@@ -110,11 +117,11 @@ impl<F: ?Sized + Future + Unpin> Future for &mut F {
 #[stable(feature = "futures_api", since = "1.36.0")]
 impl<P> Future for Pin<P>
 where
-    P: Unpin + ops::DerefMut<Target: Future>,
+    P: ops::DerefMut<Target: Future>,
 {
     type Output = <<P as ops::Deref>::Target as Future>::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::get_mut(self).as_mut().poll(cx)
+        <P::Target as Future>::poll(self.as_deref_mut(), cx)
     }
 }

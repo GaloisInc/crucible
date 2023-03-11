@@ -7,17 +7,7 @@ edition = "2018"
 [dependencies.backtrace]
 path = "../.."
 default-features = false
-features = [
-  # make sure a trace can be acquired
-  'libunwind',
-  'dbghelp',
-
-  # Allow fallback to dladdr
-  'dladdr',
-
-  # Yes, we have `std`
-  'std',
-]
+features = ['std']
 
 [profile.dev]
 debug = false
@@ -27,5 +17,4 @@ debug = false
 
 [features]
 libbacktrace = ['backtrace/libbacktrace']
-coresymbolication = ['backtrace/coresymbolication']
 gimli-symbolize = ['backtrace/gimli-symbolize']

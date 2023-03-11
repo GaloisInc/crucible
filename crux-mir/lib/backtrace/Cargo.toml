@@ -1,7 +1,8 @@
 [package]
 name = "backtrace"
-version = "0.3.44"
+version = "0.3.66"
 authors = ["The Rust Project Developers"]
+build = "build.rs"
 license = "MIT/Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/rust-lang/backtrace-rs"
@@ -15,89 +16,56 @@ autotests = true
 edition = "2018"
 
 [workspace]
-members = ['crates/cpp_smoke_test']
-exclude = ['crates/without_debuginfo']
+members = ['crates/cpp_smoke_test', 'crates/as-if-std']
+exclude = [
+   'crates/without_debuginfo',
+   'crates/macos_frames_test',
+   'crates/line-tables-only',
+   'crates/debuglink',
+]
 
 [dependencies]
-cfg-if = "0.1.10"
+cfg-if = "1.0"
 rustc-demangle = "0.1.4"
-backtrace-sys = { path = "crates/backtrace-sys", version = "0.1.32", optional = true }
-libc = { version = "0.2.45", default-features = false }
-core = { version = "1.0.0", optional = true, package = 'rustc-std-workspace-core' }
-compiler_builtins = { version = '0.1.2', optional = true }
+libc = { version = "0.2.94", default-features = false }
 
-# Optionally enable the ability to serialize a `Backtrace`
+# Optionally enable the ability to serialize a `Backtrace`, controlled through
+# the `serialize-*` features below.
 serde = { version = "1.0", optional = true, features = ['derive'] }
 rustc-serialize = { version = "0.3", optional = true }
 
 # Optionally demangle C++ frames' symbols in backtraces.
-cpp_demangle = { default-features = false, version = "0.2.3", optional = true }
+cpp_demangle = { default-features = false, version = "0.3.0", optional = true }
 
-# Optional dependencies enabled through the `gimli-symbolize` feature
-addr2line = { version = "0.11.0", optional = true, default-features = false, features = ['std'] }
-findshlibs = { version = "0.5.0", optional = true }
-memmap = { version = "0.7.0", optional = true }
-goblin = { version = "0.1.3", optional = true, default-features = false, features = ['elf32', 'elf64', 'mach32', 'mach64', 'pe32', 'pe64', 'std'] }
+
+# Optional dependencies enabled through the `gimli-symbolize` feature, do not
+# use these features directly.
+addr2line = { version = "0.17.0", default-features = false }
+miniz_oxide = { version = "0.5.0", default-features = false }
+
+[dependencies.object]
+version = "0.29.0"
+default-features = false
+features = ['read_core', 'elf', 'macho', 'pe', 'unaligned', 'archive']
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.3", optional = true }
+winapi = { version = "0.3.9", optional = true }
 
-# Each feature controls the two phases of finding a backtrace: getting a
-# backtrace and then resolving instruction pointers to symbols. The default
-# feature enables all the necessary features for each platform this library
-# supports, but it can be disabled to have finer grained control over the
-# dependencies.
-#
-# Note that not all features are available on all platforms, so even though a
-# feature is enabled some other feature may be used instead.
+[build-dependencies]
+# Only needed for Android, but cannot be target dependent
+# https://github.com/rust-lang/cargo/issues/4932
+cc = "1.0.67"
+
+[dev-dependencies]
+dylib-dep = { path = "crates/dylib-dep" }
+libloading = "0.7"
+
 [features]
-default = ["std", "libunwind", "libbacktrace", "dladdr", "dbghelp"]
+# By default libstd support and gimli-symbolize is used to symbolize addresses.
+default = ["std"]
 
-# Include std support.
+# Include std support. This enables types like `Backtrace`.
 std = []
-
-#=======================================
-# Methods of acquiring a backtrace
-#
-# - libunwind: when using this the libgcc library is linked against to get
-#   the unwinding support. This is generally the most reliable method to get
-#   a backtrace on unix.
-# - unix-backtrace: this uses the backtrace(3) function to acquire a
-#   backtrace, but is not as reliable as libunwind. It is, however,
-#   generally found in more locations.
-# - dbghelp: on windows this enables usage of dbghelp.dll to find a
-#   backtrace at runtime
-# - kernel32: on windows this enables using RtlCaptureStackBackTrace as the
-#   function to acquire a backtrace
-libunwind = []
-unix-backtrace = []
-dbghelp = []
-kernel32 = []
-
-#=======================================
-# Methods of resolving symbols
-#
-# - libbacktrace: this feature activates the `backtrace-sys` dependency,
-#   building the libbacktrace library found in gcc repos. This library
-#   parses the DWARF info of ELF executables to find symbol names, and it
-#   can also provide filename/line number information if debuginfo is
-#   compiled in. This library currently only primarily works on unixes that
-#   are not OSX, however.
-# - dladdr: this feature uses the dladdr(3) function (a glibc extension) to
-#   resolve symbol names. This is fairly unreliable on linux, but works well
-#   enough on OSX.
-# - coresymbolication: this feature uses the undocumented core symbolication
-#   framework on OS X to symbolize. Note that this is not turned on default due
-#   to various issues, you can see more in #202.
-# - gimli-symbolize: use the `gimli-rs/addr2line` crate to symbolicate
-#   addresses into file, line, and name using DWARF debug information. At
-#   the moment, this is only possible when targetting Linux, since macOS
-#   splits DWARF out into a separate object file. Enabling this feature
-#   means one less C dependency.
-libbacktrace = ["backtrace-sys"]
-dladdr = []
-coresymbolication = []
-gimli-symbolize = ["addr2line", "findshlibs", "memmap", "goblin"]
 
 #=======================================
 # Methods of serialization
@@ -107,24 +75,29 @@ serialize-rustc = ["rustc-serialize"]
 serialize-serde = ["serde"]
 
 #=======================================
-# Internal features for testing and such.
+# Deprecated/internal features
+#
+# Only here for backwards compatibility purposes or for internal testing
+# purposes. New code should use none of these features.
+coresymbolication = []
+dbghelp = []
+dladdr = []
+gimli-symbolize = []
+kernel32 = []
+libbacktrace = []
+libunwind = []
+unix-backtrace = []
 verify-winapi = [
   'winapi/dbghelp',
   'winapi/handleapi',
   'winapi/libloaderapi',
+  'winapi/memoryapi',
   'winapi/minwindef',
   'winapi/processthreadsapi',
   'winapi/synchapi',
+  'winapi/tlhelp32',
   'winapi/winbase',
   'winapi/winnt',
-]
-rustc-dep-of-std = [
-  'backtrace-sys/rustc-dep-of-std',
-  'cfg-if/rustc-dep-of-std',
-  'core',
-  'compiler_builtins',
-  'libc/rustc-dep-of-std',
-  'rustc-demangle/rustc-dep-of-std',
 ]
 
 [[example]]
@@ -150,7 +123,7 @@ edition = '2018'
 
 [[test]]
 name = "accuracy"
-required-features = ["std", "dbghelp", "libbacktrace", "libunwind"]
+required-features = ["std"]
 edition = '2018'
 
 [[test]]

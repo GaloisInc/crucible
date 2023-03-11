@@ -87,7 +87,10 @@ compileMirJson keepRlib quiet rustFile = do
     rlibsDir <- getRlibsDir
     -- TODO: don't hardcode -L library path
     let cp = Proc.proc "mir-json"
-            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2018"
+            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2021"
+            , "--extern", "core=" ++ rlibsDir ++ "/libcore.rlib"
+            , "--extern", "std=" ++ rlibsDir ++ "/libstd.rlib"
+            , "--extern", "compiler_builtins=" ++ rlibsDir ++ "/libcompiler_builtins.rlib"
             , "--cfg", "crux", "--cfg", "crux_top_level"
             , "-o", outFile]
     let cp' = if not quiet then cp else
@@ -140,19 +143,21 @@ maybeLinkJson jsonFiles cacheFile = do
 libJsonFiles =
     [ "libcore.mir"
     , "libcompiler_builtins.mir"
-    , "libint512.mir"
-    , "libcrucible.mir"
-
-    , "liballoc.mir"
     , "libstd.mir"
-    , "libunwind.mir"
-    , "libcfg_if.mir"
-    , "libhashbrown.mir"
-    , "liblibc.mir"
-
-    , "libbyteorder.mir"
-    , "libbytes.mir"
     ]
+    -- , "libint512.mir"
+    -- , "libcrucible.mir"
+
+    -- , "liballoc.mir"
+    -- , "libstd.mir"
+    -- , "libunwind.mir"
+    -- , "libcfg_if.mir"
+    -- , "libhashbrown.mir"
+    -- , "liblibc.mir"
+
+    -- , "libbyteorder.mir"
+    -- , "libbytes.mir"
+    -- ]
 
 
 -- | Run mir-json on the input, generating lib file on disk

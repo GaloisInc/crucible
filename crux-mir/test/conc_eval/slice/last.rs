@@ -1,4 +1,4 @@
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let arr = [1, 2, 3];
     // `.last` uses `from_end: true` indexing mode.

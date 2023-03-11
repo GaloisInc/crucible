@@ -1,7 +1,7 @@
 //! Check that `Instant` can be used without triggering a panic or FFI call.
 use std::time::Instant;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() {
     let start = Instant::now();
     let dur = start.elapsed();

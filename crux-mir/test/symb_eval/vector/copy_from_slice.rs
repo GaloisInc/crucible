@@ -2,7 +2,7 @@
 #[macro_use] extern crate crucible;
 use crucible::vector::Vector;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() {
     let v = Vector::<u8>::copy_from_slice(&[1, 2, 3, 4]);
     crucible_assert!(v.len() == 4);

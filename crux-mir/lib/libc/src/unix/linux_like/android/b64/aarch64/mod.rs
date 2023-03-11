@@ -1,12 +1,13 @@
 pub type c_char = u8;
 pub type wchar_t = u32;
+pub type __u64 = ::c_ulonglong;
 
 s! {
     pub struct stat {
         pub st_dev: ::dev_t,
         pub st_ino: ::ino_t,
         pub st_mode: ::c_uint,
-        pub st_nlink: ::c_uint,
+        pub st_nlink: ::nlink_t,
         pub st_uid: ::uid_t,
         pub st_gid: ::gid_t,
         pub st_rdev: ::dev_t,
@@ -29,7 +30,7 @@ s! {
         pub st_dev: ::dev_t,
         pub st_ino: ::ino_t,
         pub st_mode: ::c_uint,
-        pub st_nlink: ::c_uint,
+        pub st_nlink: ::nlink_t,
         pub st_uid: ::uid_t,
         pub st_gid: ::gid_t,
         pub st_rdev: ::dev_t,
@@ -47,6 +48,13 @@ s! {
         __unused4: ::c_uint,
         __unused5: ::c_uint,
     }
+
+    pub struct user_regs_struct {
+        pub regs: [u64; 31],
+        pub sp: u64,
+        pub pc: u64,
+        pub pstate: u64,
+    }
 }
 
 pub const O_DIRECT: ::c_int = 0x10000;
@@ -56,6 +64,49 @@ pub const O_LARGEFILE: ::c_int = 0o400000;
 
 pub const SIGSTKSZ: ::size_t = 16384;
 pub const MINSIGSTKSZ: ::size_t = 5120;
+
+// From NDK's asm/hwcap.h
+pub const HWCAP_FP: ::c_ulong = 1 << 0;
+pub const HWCAP_ASIMD: ::c_ulong = 1 << 1;
+pub const HWCAP_EVTSTRM: ::c_ulong = 1 << 2;
+pub const HWCAP_AES: ::c_ulong = 1 << 3;
+pub const HWCAP_PMULL: ::c_ulong = 1 << 4;
+pub const HWCAP_SHA1: ::c_ulong = 1 << 5;
+pub const HWCAP_SHA2: ::c_ulong = 1 << 6;
+pub const HWCAP_CRC32: ::c_ulong = 1 << 7;
+pub const HWCAP_ATOMICS: ::c_ulong = 1 << 8;
+pub const HWCAP_FPHP: ::c_ulong = 1 << 9;
+pub const HWCAP_ASIMDHP: ::c_ulong = 1 << 10;
+pub const HWCAP_CPUID: ::c_ulong = 1 << 11;
+pub const HWCAP_ASIMDRDM: ::c_ulong = 1 << 12;
+pub const HWCAP_JSCVT: ::c_ulong = 1 << 13;
+pub const HWCAP_FCMA: ::c_ulong = 1 << 14;
+pub const HWCAP_LRCPC: ::c_ulong = 1 << 15;
+pub const HWCAP_DCPOP: ::c_ulong = 1 << 16;
+pub const HWCAP_SHA3: ::c_ulong = 1 << 17;
+pub const HWCAP_SM3: ::c_ulong = 1 << 18;
+pub const HWCAP_SM4: ::c_ulong = 1 << 19;
+pub const HWCAP_ASIMDDP: ::c_ulong = 1 << 20;
+pub const HWCAP_SHA512: ::c_ulong = 1 << 21;
+pub const HWCAP_SVE: ::c_ulong = 1 << 22;
+pub const HWCAP_ASIMDFHM: ::c_ulong = 1 << 23;
+pub const HWCAP_DIT: ::c_ulong = 1 << 24;
+pub const HWCAP_USCAT: ::c_ulong = 1 << 25;
+pub const HWCAP_ILRCPC: ::c_ulong = 1 << 26;
+pub const HWCAP_FLAGM: ::c_ulong = 1 << 27;
+pub const HWCAP_SSBS: ::c_ulong = 1 << 28;
+pub const HWCAP_SB: ::c_ulong = 1 << 29;
+pub const HWCAP_PACA: ::c_ulong = 1 << 30;
+pub const HWCAP_PACG: ::c_ulong = 1 << 31;
+pub const HWCAP2_DCPODP: ::c_ulong = 1 << 0;
+pub const HWCAP2_SVE2: ::c_ulong = 1 << 1;
+pub const HWCAP2_SVEAES: ::c_ulong = 1 << 2;
+pub const HWCAP2_SVEPMULL: ::c_ulong = 1 << 3;
+pub const HWCAP2_SVEBITPERM: ::c_ulong = 1 << 4;
+pub const HWCAP2_SVESHA3: ::c_ulong = 1 << 5;
+pub const HWCAP2_SVESM4: ::c_ulong = 1 << 6;
+pub const HWCAP2_FLAGM2: ::c_ulong = 1 << 7;
+pub const HWCAP2_FRINT: ::c_ulong = 1 << 8;
 
 pub const SYS_io_setup: ::c_long = 0;
 pub const SYS_io_destroy: ::c_long = 1;
@@ -82,6 +133,7 @@ pub const SYS_epoll_ctl: ::c_long = 21;
 pub const SYS_epoll_pwait: ::c_long = 22;
 pub const SYS_dup: ::c_long = 23;
 pub const SYS_dup3: ::c_long = 24;
+pub const SYS_fcntl: ::c_long = 25;
 pub const SYS_inotify_init1: ::c_long = 26;
 pub const SYS_inotify_add_watch: ::c_long = 27;
 pub const SYS_inotify_rm_watch: ::c_long = 28;
@@ -322,11 +374,18 @@ pub const SYS_pwritev2: ::c_long = 287;
 pub const SYS_pkey_mprotect: ::c_long = 288;
 pub const SYS_pkey_alloc: ::c_long = 289;
 pub const SYS_pkey_free: ::c_long = 290;
-pub const SYS_syscalls: ::c_long = 292;
+pub const SYS_syscalls: ::c_long = 436;
 
 cfg_if! {
     if #[cfg(libc_align)] {
         mod align;
         pub use self::align::*;
+    }
+}
+
+cfg_if! {
+    if #[cfg(libc_int128)] {
+        mod int128;
+        pub use self::int128::*;
     }
 }

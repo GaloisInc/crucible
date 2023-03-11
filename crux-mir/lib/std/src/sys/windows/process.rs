@@ -1,26 +1,33 @@
 #![unstable(feature = "process_internals", issue = "none")]
 
-use crate::borrow::Borrow;
+#[cfg(test)]
+mod tests;
+
+use crate::cmp;
 use crate::collections::BTreeMap;
 use crate::env;
-use crate::env::split_paths;
+use crate::env::consts::{EXE_EXTENSION, EXE_SUFFIX};
 use crate::ffi::{OsStr, OsString};
 use crate::fmt;
-use crate::fs;
 use crate::io::{self, Error, ErrorKind};
 use crate::mem;
-use crate::os::windows::ffi::OsStrExt;
-use crate::path::Path;
+use crate::num::NonZeroI32;
+use crate::os::windows::ffi::{OsStrExt, OsStringExt};
+use crate::os::windows::io::{AsHandle, AsRawHandle, BorrowedHandle, FromRawHandle, IntoRawHandle};
+use crate::path::{Path, PathBuf};
 use crate::ptr;
+use crate::sync::Mutex;
+use crate::sys::args::{self, Arg};
 use crate::sys::c;
+use crate::sys::c::NonZeroDWORD;
 use crate::sys::cvt;
 use crate::sys::fs::{File, OpenOptions};
 use crate::sys::handle::Handle;
-use crate::sys::mutex::Mutex;
+use crate::sys::path;
 use crate::sys::pipe::{self, AnonPipe};
 use crate::sys::stdio;
-use crate::sys_common::process::CommandEnv;
-use crate::sys_common::{AsInner, FromInner, IntoInner};
+use crate::sys_common::process::{CommandEnv, CommandEnvs};
+use crate::sys_common::IntoInner;
 
 use libc::{c_void, EXIT_FAILURE, EXIT_SUCCESS};
 
@@ -28,39 +35,121 @@ use libc::{c_void, EXIT_FAILURE, EXIT_SUCCESS};
 // Command
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq)]
 #[doc(hidden)]
-pub struct EnvKey(OsString);
+pub struct EnvKey {
+    os_string: OsString,
+    // This stores a UTF-16 encoded string to workaround the mismatch between
+    // Rust's OsString (WTF-8) and the Windows API string type (UTF-16).
+    // Normally converting on every API call is acceptable but here
+    // `c::CompareStringOrdinal` will be called for every use of `==`.
+    utf16: Vec<u16>,
+}
 
+impl EnvKey {
+    fn new<T: Into<OsString>>(key: T) -> Self {
+        EnvKey::from(key.into())
+    }
+}
+
+// Comparing Windows environment variable keys[1] are behaviourally the
+// composition of two operations[2]:
+//
+// 1. Case-fold both strings. This is done using a language-independent
+// uppercase mapping that's unique to Windows (albeit based on data from an
+// older Unicode spec). It only operates on individual UTF-16 code units so
+// surrogates are left unchanged. This uppercase mapping can potentially change
+// between Windows versions.
+//
+// 2. Perform an ordinal comparison of the strings. A comparison using ordinal
+// is just a comparison based on the numerical value of each UTF-16 code unit[3].
+//
+// Because the case-folding mapping is unique to Windows and not guaranteed to
+// be stable, we ask the OS to compare the strings for us. This is done by
+// calling `CompareStringOrdinal`[4] with `bIgnoreCase` set to `TRUE`.
+//
+// [1] https://docs.microsoft.com/en-us/dotnet/standard/base-types/best-practices-strings#choosing-a-stringcomparison-member-for-your-method-call
+// [2] https://docs.microsoft.com/en-us/dotnet/standard/base-types/best-practices-strings#stringtoupper-and-stringtolower
+// [3] https://docs.microsoft.com/en-us/dotnet/api/system.stringcomparison?view=net-5.0#System_StringComparison_Ordinal
+// [4] https://docs.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-comparestringordinal
+impl Ord for EnvKey {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        unsafe {
+            let result = c::CompareStringOrdinal(
+                self.utf16.as_ptr(),
+                self.utf16.len() as _,
+                other.utf16.as_ptr(),
+                other.utf16.len() as _,
+                c::TRUE,
+            );
+            match result {
+                c::CSTR_LESS_THAN => cmp::Ordering::Less,
+                c::CSTR_EQUAL => cmp::Ordering::Equal,
+                c::CSTR_GREATER_THAN => cmp::Ordering::Greater,
+                // `CompareStringOrdinal` should never fail so long as the parameters are correct.
+                _ => panic!("comparing environment keys failed: {}", Error::last_os_error()),
+            }
+        }
+    }
+}
+impl PartialOrd for EnvKey {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for EnvKey {
+    fn eq(&self, other: &Self) -> bool {
+        if self.utf16.len() != other.utf16.len() {
+            false
+        } else {
+            self.cmp(other) == cmp::Ordering::Equal
+        }
+    }
+}
+impl PartialOrd<str> for EnvKey {
+    fn partial_cmp(&self, other: &str) -> Option<cmp::Ordering> {
+        Some(self.cmp(&EnvKey::new(other)))
+    }
+}
+impl PartialEq<str> for EnvKey {
+    fn eq(&self, other: &str) -> bool {
+        if self.os_string.len() != other.len() {
+            false
+        } else {
+            self.cmp(&EnvKey::new(other)) == cmp::Ordering::Equal
+        }
+    }
+}
+
+// Environment variable keys should preserve their original case even though
+// they are compared using a caseless string mapping.
 impl From<OsString> for EnvKey {
     fn from(k: OsString) -> Self {
-        let mut buf = k.into_inner().into_inner();
-        buf.make_ascii_uppercase();
-        EnvKey(FromInner::from_inner(FromInner::from_inner(buf)))
+        EnvKey { utf16: k.encode_wide().collect(), os_string: k }
     }
 }
 
 impl From<EnvKey> for OsString {
     fn from(k: EnvKey) -> Self {
-        k.0
+        k.os_string
     }
 }
 
-impl Borrow<OsStr> for EnvKey {
-    fn borrow(&self) -> &OsStr {
-        &self.0
+impl From<&OsStr> for EnvKey {
+    fn from(k: &OsStr) -> Self {
+        Self::from(k.to_os_string())
     }
 }
 
 impl AsRef<OsStr> for EnvKey {
     fn as_ref(&self) -> &OsStr {
-        &self.0
+        &self.os_string
     }
 }
 
-fn ensure_no_nuls<T: AsRef<OsStr>>(str: T) -> io::Result<T> {
+pub(crate) fn ensure_no_nuls<T: AsRef<OsStr>>(str: T) -> io::Result<T> {
     if str.as_ref().encode_wide().any(|b| b == 0) {
-        Err(io::Error::new(ErrorKind::InvalidInput, "nul byte found in provided data"))
+        Err(io::const_io_error!(ErrorKind::InvalidInput, "nul byte found in provided data"))
     } else {
         Ok(str)
     }
@@ -68,7 +157,7 @@ fn ensure_no_nuls<T: AsRef<OsStr>>(str: T) -> io::Result<T> {
 
 pub struct Command {
     program: OsString,
-    args: Vec<OsString>,
+    args: Vec<Arg>,
     env: CommandEnv,
     cwd: Option<OsString>,
     flags: u32,
@@ -76,12 +165,14 @@ pub struct Command {
     stdin: Option<Stdio>,
     stdout: Option<Stdio>,
     stderr: Option<Stdio>,
+    force_quotes_enabled: bool,
 }
 
 pub enum Stdio {
     Inherit,
     Null,
     MakePipe,
+    Pipe(AnonPipe),
     Handle(Handle),
 }
 
@@ -89,10 +180,6 @@ pub struct StdioPipes {
     pub stdin: Option<AnonPipe>,
     pub stdout: Option<AnonPipe>,
     pub stderr: Option<AnonPipe>,
-}
-
-struct DropGuard<'a> {
-    lock: &'a Mutex,
 }
 
 impl Command {
@@ -107,11 +194,12 @@ impl Command {
             stdin: None,
             stdout: None,
             stderr: None,
+            force_quotes_enabled: false,
         }
     }
 
     pub fn arg(&mut self, arg: &OsStr) {
-        self.args.push(arg.to_os_string())
+        self.args.push(Arg::Regular(arg.to_os_string()))
     }
     pub fn env_mut(&mut self) -> &mut CommandEnv {
         &mut self.env
@@ -132,37 +220,62 @@ impl Command {
         self.flags = flags;
     }
 
+    pub fn force_quotes(&mut self, enabled: bool) {
+        self.force_quotes_enabled = enabled;
+    }
+
+    pub fn raw_arg(&mut self, command_str_to_append: &OsStr) {
+        self.args.push(Arg::Raw(command_str_to_append.to_os_string()))
+    }
+
+    pub fn get_program(&self) -> &OsStr {
+        &self.program
+    }
+
+    pub fn get_args(&self) -> CommandArgs<'_> {
+        let iter = self.args.iter();
+        CommandArgs { iter }
+    }
+
+    pub fn get_envs(&self) -> CommandEnvs<'_> {
+        self.env.iter()
+    }
+
+    pub fn get_current_dir(&self) -> Option<&Path> {
+        self.cwd.as_ref().map(|cwd| Path::new(cwd))
+    }
+
     pub fn spawn(
         &mut self,
         default: Stdio,
         needs_stdin: bool,
     ) -> io::Result<(Process, StdioPipes)> {
         let maybe_env = self.env.capture_if_changed();
-        // To have the spawning semantics of unix/windows stay the same, we need
-        // to read the *child's* PATH if one is provided. See #15149 for more
-        // details.
-        let program = maybe_env.as_ref().and_then(|env| {
-            if let Some(v) = env.get(OsStr::new("PATH")) {
-                // Split the value and test each path to see if the
-                // program exists.
-                for path in split_paths(&v) {
-                    let path = path
-                        .join(self.program.to_str().unwrap())
-                        .with_extension(env::consts::EXE_EXTENSION);
-                    if fs::metadata(&path).is_ok() {
-                        return Some(path.into_os_string());
-                    }
-                }
-            }
+
+        let child_paths = if let Some(env) = maybe_env.as_ref() {
+            env.get(&EnvKey::new("PATH")).map(|s| s.as_os_str())
+        } else {
             None
-        });
-
-        let mut si = zeroed_startupinfo();
-        si.cb = mem::size_of::<c::STARTUPINFO>() as c::DWORD;
-        si.dwFlags = c::STARTF_USESTDHANDLES;
-
-        let program = program.as_ref().unwrap_or(&self.program);
-        let mut cmd_str = make_command_line(program, &self.args)?;
+        };
+        let program = resolve_exe(&self.program, || env::var_os("PATH"), child_paths)?;
+        // Case insensitive "ends_with" of UTF-16 encoded ".bat" or ".cmd"
+        let is_batch_file = matches!(
+            program.len().checked_sub(5).and_then(|i| program.get(i..)),
+            Some([46, 98 | 66, 97 | 65, 116 | 84, 0] | [46, 99 | 67, 109 | 77, 100 | 68, 0])
+        );
+        let (program, mut cmd_str) = if is_batch_file {
+            (
+                command_prompt()?,
+                args::make_bat_command_line(
+                    &args::to_user_path(program)?,
+                    &self.args,
+                    self.force_quotes_enabled,
+                )?,
+            )
+        } else {
+            let cmd_str = make_command_line(&self.program, &self.args, self.force_quotes_enabled)?;
+            (program, cmd_str)
+        };
         cmd_str.push(0); // add null terminator
 
         // stolen from the libuv code.
@@ -183,9 +296,10 @@ impl Command {
         // the remaining portion of this spawn in a mutex.
         //
         // For more information, msdn also has an article about this race:
-        // http://support.microsoft.com/kb/315939
-        static CREATE_PROCESS_LOCK: Mutex = Mutex::new();
-        let _guard = DropGuard::new(&CREATE_PROCESS_LOCK);
+        // https://support.microsoft.com/kb/315939
+        static CREATE_PROCESS_LOCK: Mutex<()> = Mutex::new(());
+
+        let _guard = CREATE_PROCESS_LOCK.lock();
 
         let mut pipes = StdioPipes { stdin: None, stdout: None, stderr: None };
         let null = Stdio::Null;
@@ -196,13 +310,25 @@ impl Command {
         let stdin = stdin.to_handle(c::STD_INPUT_HANDLE, &mut pipes.stdin)?;
         let stdout = stdout.to_handle(c::STD_OUTPUT_HANDLE, &mut pipes.stdout)?;
         let stderr = stderr.to_handle(c::STD_ERROR_HANDLE, &mut pipes.stderr)?;
-        si.hStdInput = stdin.raw();
-        si.hStdOutput = stdout.raw();
-        si.hStdError = stderr.raw();
+
+        let mut si = zeroed_startupinfo();
+        si.cb = mem::size_of::<c::STARTUPINFO>() as c::DWORD;
+
+        // If at least one of stdin, stdout or stderr are set (i.e. are non null)
+        // then set the `hStd` fields in `STARTUPINFO`.
+        // Otherwise skip this and allow the OS to apply its default behaviour.
+        // This provides more consistent behaviour between Win7 and Win8+.
+        let is_set = |stdio: &Handle| !stdio.as_raw_handle().is_null();
+        if is_set(&stderr) || is_set(&stdout) || is_set(&stdin) {
+            si.dwFlags |= c::STARTF_USESTDHANDLES;
+            si.hStdInput = stdin.as_raw_handle();
+            si.hStdOutput = stdout.as_raw_handle();
+            si.hStdError = stderr.as_raw_handle();
+        }
 
         unsafe {
             cvt(c::CreateProcessW(
-                ptr::null(),
+                program.as_ptr(),
                 cmd_str.as_mut_ptr(),
                 ptr::null_mut(),
                 ptr::null_mut(),
@@ -215,38 +341,184 @@ impl Command {
             ))
         }?;
 
-        // We close the thread handle because we don't care about keeping
-        // the thread id valid, and we aren't keeping the thread handle
-        // around to be able to close it later.
-        drop(Handle::new(pi.hThread));
+        unsafe {
+            Ok((
+                Process {
+                    handle: Handle::from_raw_handle(pi.hProcess),
+                    main_thread_handle: Handle::from_raw_handle(pi.hThread),
+                },
+                pipes,
+            ))
+        }
+    }
 
-        Ok((Process { handle: Handle::new(pi.hProcess) }, pipes))
+    pub fn output(&mut self) -> io::Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+        let (proc, pipes) = self.spawn(Stdio::MakePipe, false)?;
+        crate::sys_common::process::wait_with_output(proc, pipes)
     }
 }
 
 impl fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.program)?;
+        self.program.fmt(f)?;
         for arg in &self.args {
-            write!(f, " {:?}", arg)?;
+            f.write_str(" ")?;
+            match arg {
+                Arg::Regular(s) => s.fmt(f),
+                Arg::Raw(s) => f.write_str(&s.to_string_lossy()),
+            }?;
         }
         Ok(())
     }
 }
 
-impl<'a> DropGuard<'a> {
-    fn new(lock: &'a Mutex) -> DropGuard<'a> {
-        unsafe {
-            lock.lock();
-            DropGuard { lock }
+// Resolve `exe_path` to the executable name.
+//
+// * If the path is simply a file name then use the paths given by `search_paths` to find the executable.
+// * Otherwise use the `exe_path` as given.
+//
+// This function may also append `.exe` to the name. The rationale for doing so is as follows:
+//
+// It is a very strong convention that Windows executables have the `exe` extension.
+// In Rust, it is common to omit this extension.
+// Therefore this functions first assumes `.exe` was intended.
+// It falls back to the plain file name if a full path is given and the extension is omitted
+// or if only a file name is given and it already contains an extension.
+fn resolve_exe<'a>(
+    exe_path: &'a OsStr,
+    parent_paths: impl FnOnce() -> Option<OsString>,
+    child_paths: Option<&OsStr>,
+) -> io::Result<Vec<u16>> {
+    // Early return if there is no filename.
+    if exe_path.is_empty() || path::has_trailing_slash(exe_path) {
+        return Err(io::const_io_error!(
+            io::ErrorKind::InvalidInput,
+            "program path has no file name",
+        ));
+    }
+    // Test if the file name has the `exe` extension.
+    // This does a case-insensitive `ends_with`.
+    let has_exe_suffix = if exe_path.len() >= EXE_SUFFIX.len() {
+        exe_path.bytes()[exe_path.len() - EXE_SUFFIX.len()..]
+            .eq_ignore_ascii_case(EXE_SUFFIX.as_bytes())
+    } else {
+        false
+    };
+
+    // If `exe_path` is an absolute path or a sub-path then don't search `PATH` for it.
+    if !path::is_file_name(exe_path) {
+        if has_exe_suffix {
+            // The application name is a path to a `.exe` file.
+            // Let `CreateProcessW` figure out if it exists or not.
+            return path::maybe_verbatim(Path::new(exe_path));
+        }
+        let mut path = PathBuf::from(exe_path);
+
+        // Append `.exe` if not already there.
+        path = path::append_suffix(path, EXE_SUFFIX.as_ref());
+        if let Some(path) = program_exists(&path) {
+            return Ok(path);
+        } else {
+            // It's ok to use `set_extension` here because the intent is to
+            // remove the extension that was just added.
+            path.set_extension("");
+            return path::maybe_verbatim(&path);
+        }
+    } else {
+        ensure_no_nuls(exe_path)?;
+        // From the `CreateProcessW` docs:
+        // > If the file name does not contain an extension, .exe is appended.
+        // Note that this rule only applies when searching paths.
+        let has_extension = exe_path.bytes().contains(&b'.');
+
+        // Search the directories given by `search_paths`.
+        let result = search_paths(parent_paths, child_paths, |mut path| {
+            path.push(&exe_path);
+            if !has_extension {
+                path.set_extension(EXE_EXTENSION);
+            }
+            program_exists(&path)
+        });
+        if let Some(path) = result {
+            return Ok(path);
         }
     }
+    // If we get here then the executable cannot be found.
+    Err(io::const_io_error!(io::ErrorKind::NotFound, "program not found"))
 }
 
-impl<'a> Drop for DropGuard<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            self.lock.unlock();
+// Calls `f` for every path that should be used to find an executable.
+// Returns once `f` returns the path to an executable or all paths have been searched.
+fn search_paths<Paths, Exists>(
+    parent_paths: Paths,
+    child_paths: Option<&OsStr>,
+    mut exists: Exists,
+) -> Option<Vec<u16>>
+where
+    Paths: FnOnce() -> Option<OsString>,
+    Exists: FnMut(PathBuf) -> Option<Vec<u16>>,
+{
+    // 1. Child paths
+    // This is for consistency with Rust's historic behaviour.
+    if let Some(paths) = child_paths {
+        for path in env::split_paths(paths).filter(|p| !p.as_os_str().is_empty()) {
+            if let Some(path) = exists(path) {
+                return Some(path);
+            }
+        }
+    }
+
+    // 2. Application path
+    if let Ok(mut app_path) = env::current_exe() {
+        app_path.pop();
+        if let Some(path) = exists(app_path) {
+            return Some(path);
+        }
+    }
+
+    // 3 & 4. System paths
+    // SAFETY: This uses `fill_utf16_buf` to safely call the OS functions.
+    unsafe {
+        if let Ok(Some(path)) = super::fill_utf16_buf(
+            |buf, size| c::GetSystemDirectoryW(buf, size),
+            |buf| exists(PathBuf::from(OsString::from_wide(buf))),
+        ) {
+            return Some(path);
+        }
+        #[cfg(not(target_vendor = "uwp"))]
+        {
+            if let Ok(Some(path)) = super::fill_utf16_buf(
+                |buf, size| c::GetWindowsDirectoryW(buf, size),
+                |buf| exists(PathBuf::from(OsString::from_wide(buf))),
+            ) {
+                return Some(path);
+            }
+        }
+    }
+
+    // 5. Parent paths
+    if let Some(parent_paths) = parent_paths() {
+        for path in env::split_paths(&parent_paths).filter(|p| !p.as_os_str().is_empty()) {
+            if let Some(path) = exists(path) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// Check if a file exists without following symlinks.
+fn program_exists(path: &Path) -> Option<Vec<u16>> {
+    unsafe {
+        let path = path::maybe_verbatim(path).ok()?;
+        // Getting attributes using `GetFileAttributesW` does not follow symlinks
+        // and it will almost always be successful if the link exists.
+        // There are some exceptions for special system files (e.g. the pagefile)
+        // but these are not executable.
+        if c::GetFileAttributesW(path.as_ptr()) == c::INVALID_FILE_ATTRIBUTES {
+            None
+        } else {
+            Some(path)
         }
     }
 }
@@ -254,17 +526,15 @@ impl<'a> Drop for DropGuard<'a> {
 impl Stdio {
     fn to_handle(&self, stdio_id: c::DWORD, pipe: &mut Option<AnonPipe>) -> io::Result<Handle> {
         match *self {
-            // If no stdio handle is available, then inherit means that it
-            // should still be unavailable so propagate the
-            // INVALID_HANDLE_VALUE.
             Stdio::Inherit => match stdio::get_handle(stdio_id) {
-                Ok(io) => {
-                    let io = Handle::new(io);
+                Ok(io) => unsafe {
+                    let io = Handle::from_raw_handle(io);
                     let ret = io.duplicate(0, true, c::DUPLICATE_SAME_ACCESS);
-                    io.into_raw();
+                    io.into_raw_handle();
                     ret
-                }
-                Err(..) => Ok(Handle::new(c::INVALID_HANDLE_VALUE)),
+                },
+                // If no stdio handle is available, then propagate the null value.
+                Err(..) => unsafe { Ok(Handle::from_raw_handle(ptr::null_mut())) },
             },
 
             Stdio::MakePipe => {
@@ -272,6 +542,11 @@ impl Stdio {
                 let pipes = pipe::anon_pipe(ours_readable, true)?;
                 *pipe = Some(pipes.ours);
                 Ok(pipes.theirs.into_handle())
+            }
+
+            Stdio::Pipe(ref source) => {
+                let ours_readable = stdio_id != c::STD_INPUT_HANDLE;
+                pipe::spawn_pipe_relay(source, ours_readable, true).map(AnonPipe::into_handle)
             }
 
             Stdio::Handle(ref handle) => handle.duplicate(0, true, c::DUPLICATE_SAME_ACCESS),
@@ -290,7 +565,7 @@ impl Stdio {
                 opts.read(stdio_id == c::STD_INPUT_HANDLE);
                 opts.write(stdio_id != c::STD_INPUT_HANDLE);
                 opts.security_attributes(&mut sa);
-                File::open(Path::new("NUL"), &opts).map(|file| file.into_handle())
+                File::open(Path::new("NUL"), &opts).map(|file| file.into_inner())
             }
         }
     }
@@ -298,13 +573,13 @@ impl Stdio {
 
 impl From<AnonPipe> for Stdio {
     fn from(pipe: AnonPipe) -> Stdio {
-        Stdio::Handle(pipe.into_handle())
+        Stdio::Pipe(pipe)
     }
 }
 
 impl From<File> for Stdio {
     fn from(file: File) -> Stdio {
-        Stdio::Handle(file.into_handle())
+        Stdio::Handle(file.into_inner())
     }
 }
 
@@ -319,33 +594,38 @@ impl From<File> for Stdio {
 /// for the process to terminate.
 pub struct Process {
     handle: Handle,
+    main_thread_handle: Handle,
 }
 
 impl Process {
     pub fn kill(&mut self) -> io::Result<()> {
-        cvt(unsafe { c::TerminateProcess(self.handle.raw(), 1) })?;
+        cvt(unsafe { c::TerminateProcess(self.handle.as_raw_handle(), 1) })?;
         Ok(())
     }
 
     pub fn id(&self) -> u32 {
-        unsafe { c::GetProcessId(self.handle.raw()) as u32 }
+        unsafe { c::GetProcessId(self.handle.as_raw_handle()) as u32 }
+    }
+
+    pub fn main_thread_handle(&self) -> BorrowedHandle<'_> {
+        self.main_thread_handle.as_handle()
     }
 
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
         unsafe {
-            let res = c::WaitForSingleObject(self.handle.raw(), c::INFINITE);
+            let res = c::WaitForSingleObject(self.handle.as_raw_handle(), c::INFINITE);
             if res != c::WAIT_OBJECT_0 {
                 return Err(Error::last_os_error());
             }
             let mut status = 0;
-            cvt(c::GetExitCodeProcess(self.handle.raw(), &mut status))?;
+            cvt(c::GetExitCodeProcess(self.handle.as_raw_handle(), &mut status))?;
             Ok(ExitStatus(status))
         }
     }
 
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         unsafe {
-            match c::WaitForSingleObject(self.handle.raw(), 0) {
+            match c::WaitForSingleObject(self.handle.as_raw_handle(), 0) {
                 c::WAIT_OBJECT_0 => {}
                 c::WAIT_TIMEOUT => {
                     return Ok(None);
@@ -353,7 +633,7 @@ impl Process {
                 _ => return Err(io::Error::last_os_error()),
             }
             let mut status = 0;
-            cvt(c::GetExitCodeProcess(self.handle.raw(), &mut status))?;
+            cvt(c::GetExitCodeProcess(self.handle.as_raw_handle(), &mut status))?;
             Ok(Some(ExitStatus(status)))
         }
     }
@@ -371,14 +651,18 @@ impl Process {
 pub struct ExitStatus(c::DWORD);
 
 impl ExitStatus {
-    pub fn success(&self) -> bool {
-        self.0 == 0
+    pub fn exit_ok(&self) -> Result<(), ExitStatusError> {
+        match NonZeroDWORD::try_from(self.0) {
+            /* was nonzero */ Ok(failure) => Err(ExitStatusError(failure)),
+            /* was zero, couldn't convert */ Err(_) => Ok(()),
+        }
     }
     pub fn code(&self) -> Option<i32> {
         Some(self.0 as i32)
     }
 }
 
+/// Converts a raw `c::DWORD` to a type-safe `ExitStatus` by wrapping it without copying.
 impl From<c::DWORD> for ExitStatus {
     fn from(u: c::DWORD) -> ExitStatus {
         ExitStatus(u)
@@ -401,6 +685,21 @@ impl fmt::Display for ExitStatus {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub struct ExitStatusError(c::NonZeroDWORD);
+
+impl Into<ExitStatus> for ExitStatusError {
+    fn into(self) -> ExitStatus {
+        ExitStatus(self.0.into())
+    }
+}
+
+impl ExitStatusError {
+    pub fn code(self) -> Option<NonZeroI32> {
+        Some((u32::from(self.0) as i32).try_into().unwrap())
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct ExitCode(c::DWORD);
 
 impl ExitCode {
@@ -410,6 +709,18 @@ impl ExitCode {
     #[inline]
     pub fn as_i32(&self) -> i32 {
         self.0 as i32
+    }
+}
+
+impl From<u8> for ExitCode {
+    fn from(code: u8) -> Self {
+        ExitCode(c::DWORD::from(code))
+    }
+}
+
+impl From<u32> for ExitCode {
+    fn from(code: u32) -> Self {
+        ExitCode(c::DWORD::from(code))
     }
 }
 
@@ -430,9 +741,9 @@ fn zeroed_startupinfo() -> c::STARTUPINFO {
         wShowWindow: 0,
         cbReserved2: 0,
         lpReserved2: ptr::null_mut(),
-        hStdInput: c::INVALID_HANDLE_VALUE,
-        hStdOutput: c::INVALID_HANDLE_VALUE,
-        hStdError: c::INVALID_HANDLE_VALUE,
+        hStdInput: ptr::null_mut(),
+        hStdOutput: ptr::null_mut(),
+        hStdError: ptr::null_mut(),
     }
 }
 
@@ -447,53 +758,34 @@ fn zeroed_process_information() -> c::PROCESS_INFORMATION {
 
 // Produces a wide string *without terminating null*; returns an error if
 // `prog` or any of the `args` contain a nul.
-fn make_command_line(prog: &OsStr, args: &[OsString]) -> io::Result<Vec<u16>> {
+fn make_command_line(argv0: &OsStr, args: &[Arg], force_quotes: bool) -> io::Result<Vec<u16>> {
     // Encode the command and arguments in a command line string such
     // that the spawned process may recover them using CommandLineToArgvW.
     let mut cmd: Vec<u16> = Vec::new();
-    // Always quote the program name so CreateProcess doesn't interpret args as
-    // part of the name if the binary wasn't found first time.
-    append_arg(&mut cmd, prog, true)?;
+
+    // Always quote the program name so CreateProcess to avoid ambiguity when
+    // the child process parses its arguments.
+    // Note that quotes aren't escaped here because they can't be used in arg0.
+    // But that's ok because file paths can't contain quotes.
+    cmd.push(b'"' as u16);
+    cmd.extend(argv0.encode_wide());
+    cmd.push(b'"' as u16);
+
     for arg in args {
         cmd.push(' ' as u16);
-        append_arg(&mut cmd, arg, false)?;
+        args::append_arg(&mut cmd, arg, force_quotes)?;
     }
-    return Ok(cmd);
+    Ok(cmd)
+}
 
-    fn append_arg(cmd: &mut Vec<u16>, arg: &OsStr, force_quotes: bool) -> io::Result<()> {
-        // If an argument has 0 characters then we need to quote it to ensure
-        // that it actually gets passed through on the command line or otherwise
-        // it will be dropped entirely when parsed on the other end.
-        ensure_no_nuls(arg)?;
-        let arg_bytes = &arg.as_inner().inner.as_inner();
-        let quote = force_quotes
-            || arg_bytes.iter().any(|c| *c == b' ' || *c == b'\t')
-            || arg_bytes.is_empty();
-        if quote {
-            cmd.push('"' as u16);
-        }
-
-        let mut backslashes: usize = 0;
-        for x in arg.encode_wide() {
-            if x == '\\' as u16 {
-                backslashes += 1;
-            } else {
-                if x == '"' as u16 {
-                    // Add n+1 backslashes to total 2n+1 before internal '"'.
-                    cmd.extend((0..=backslashes).map(|_| '\\' as u16));
-                }
-                backslashes = 0;
-            }
-            cmd.push(x);
-        }
-
-        if quote {
-            // Add n backslashes to total 2n before ending '"'.
-            cmd.extend((0..backslashes).map(|_| '\\' as u16));
-            cmd.push('"' as u16);
-        }
-        Ok(())
-    }
+// Get `cmd.exe` for use with bat scripts, encoded as a UTF-16 string.
+fn command_prompt() -> io::Result<Vec<u16>> {
+    let mut system: Vec<u16> = super::fill_utf16_buf(
+        |buf, size| unsafe { c::GetSystemDirectoryW(buf, size) },
+        |buf| buf.into(),
+    )?;
+    system.extend("\\cmd.exe".encode_utf16().chain([0]));
+    Ok(system)
 }
 
 fn make_envp(maybe_env: Option<BTreeMap<EnvKey, OsString>>) -> io::Result<(*mut c_void, Vec<u16>)> {
@@ -503,8 +795,15 @@ fn make_envp(maybe_env: Option<BTreeMap<EnvKey, OsString>>) -> io::Result<(*mut 
     if let Some(env) = maybe_env {
         let mut blk = Vec::new();
 
+        // If there are no environment variables to set then signal this by
+        // pushing a null.
+        if env.is_empty() {
+            blk.push(0);
+        }
+
         for (k, v) in env {
-            blk.extend(ensure_no_nuls(k.0)?.encode_wide());
+            ensure_no_nuls(k.os_string)?;
+            blk.extend(k.utf16);
             blk.push('=' as u16);
             blk.extend(ensure_no_nuls(v)?.encode_wide());
             blk.push(0);
@@ -527,40 +826,33 @@ fn make_dirp(d: Option<&OsString>) -> io::Result<(*const u16, Vec<u16>)> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::make_command_line;
-    use crate::ffi::{OsStr, OsString};
+pub struct CommandArgs<'a> {
+    iter: crate::slice::Iter<'a, Arg>,
+}
 
-    #[test]
-    fn test_make_command_line() {
-        fn test_wrapper(prog: &str, args: &[&str]) -> String {
-            let command_line = &make_command_line(
-                OsStr::new(prog),
-                &args.iter().map(|a| OsString::from(a)).collect::<Vec<OsString>>(),
-            )
-            .unwrap();
-            String::from_utf16(command_line).unwrap()
-        }
+impl<'a> Iterator for CommandArgs<'a> {
+    type Item = &'a OsStr;
+    fn next(&mut self) -> Option<&'a OsStr> {
+        self.iter.next().map(|arg| match arg {
+            Arg::Regular(s) | Arg::Raw(s) => s.as_ref(),
+        })
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
 
-        assert_eq!(test_wrapper("prog", &["aaa", "bbb", "ccc"]), "\"prog\" aaa bbb ccc");
+impl<'a> ExactSizeIterator for CommandArgs<'a> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.iter.is_empty()
+    }
+}
 
-        assert_eq!(
-            test_wrapper("C:\\Program Files\\blah\\blah.exe", &["aaa"]),
-            "\"C:\\Program Files\\blah\\blah.exe\" aaa"
-        );
-        assert_eq!(
-            test_wrapper("C:\\Program Files\\test", &["aa\"bb"]),
-            "\"C:\\Program Files\\test\" aa\\\"bb"
-        );
-        assert_eq!(test_wrapper("echo", &["a b c"]), "\"echo\" \"a b c\"");
-        assert_eq!(
-            test_wrapper("echo", &["\" \\\" \\", "\\"]),
-            "\"echo\" \"\\\" \\\\\\\" \\\\\" \\"
-        );
-        assert_eq!(
-            test_wrapper("\u{03c0}\u{042f}\u{97f3}\u{00e6}\u{221e}", &[]),
-            "\"\u{03c0}\u{042f}\u{97f3}\u{00e6}\u{221e}\""
-        );
+impl<'a> fmt::Debug for CommandArgs<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter.clone()).finish()
     }
 }

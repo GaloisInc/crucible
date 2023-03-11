@@ -1,7 +1,5 @@
 #![allow(non_camel_case_types, unused)]
 
-use crate::convert::TryInto;
-use crate::i64;
 use crate::io;
 use crate::mem::MaybeUninit;
 use crate::os::raw::c_char;
@@ -26,9 +24,12 @@ pub const ZX_TASK_TERMINATED: zx_signals_t = ZX_OBJECT_SIGNAL_3;
 
 pub const ZX_RIGHT_SAME_RIGHTS: zx_rights_t = 1 << 31;
 
+// The upper four bits gives the minor version.
 pub type zx_object_info_topic_t = u32;
 
-pub const ZX_INFO_PROCESS: zx_object_info_topic_t = 3;
+pub const ZX_INFO_PROCESS: zx_object_info_topic_t = 3 | (1 << 28);
+
+pub type zx_info_process_flags_t = u32;
 
 pub fn zx_cvt<T>(t: T) -> io::Result<T>
 where
@@ -69,9 +70,9 @@ impl Drop for Handle {
 #[repr(C)]
 pub struct zx_info_process_t {
     pub return_code: i64,
-    pub started: bool,
-    pub exited: bool,
-    pub debugger_attached: bool,
+    pub start_time: zx_time_t,
+    pub flags: zx_info_process_flags_t,
+    pub reserved1: u32,
 }
 
 extern "C" {
@@ -138,6 +139,7 @@ pub const FDIO_SPAWN_CLONE_LDSVC: u32 = 0x0002;
 pub const FDIO_SPAWN_CLONE_NAMESPACE: u32 = 0x0004;
 pub const FDIO_SPAWN_CLONE_STDIO: u32 = 0x0008;
 pub const FDIO_SPAWN_CLONE_ENVIRON: u32 = 0x0010;
+pub const FDIO_SPAWN_CLONE_UTC_CLOCK: u32 = 0x0020;
 pub const FDIO_SPAWN_CLONE_ALL: u32 = 0xFFFF;
 
 // fdio_spawn_etc actions

@@ -9,7 +9,7 @@ impl Drop for S {
     }
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() {
     let v = vec![S(1), S(2), S(3)];
     drop(v);

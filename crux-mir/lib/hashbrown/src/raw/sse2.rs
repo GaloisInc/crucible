@@ -25,26 +25,29 @@ impl Group {
     pub const WIDTH: usize = mem::size_of::<Self>();
 
     /// Returns a full group of empty bytes, suitable for use as the initial
-    /// value for an empty hash table. This value is explicitly declared as
-    /// a static variable to ensure the address is consistent across dylibs.
+    /// value for an empty hash table.
     ///
     /// This is guaranteed to be aligned to the group size.
-    pub fn static_empty() -> &'static [u8] {
-        union AlignedBytes {
-            _align: Group,
+    #[inline]
+    #[allow(clippy::items_after_statements)]
+    pub const fn static_empty() -> &'static [u8; Group::WIDTH] {
+        #[repr(C)]
+        struct AlignedBytes {
+            _align: [Group; 0],
             bytes: [u8; Group::WIDTH],
-        };
-        static ALIGNED_BYTES: AlignedBytes = AlignedBytes {
+        }
+        const ALIGNED_BYTES: AlignedBytes = AlignedBytes {
+            _align: [],
             bytes: [EMPTY; Group::WIDTH],
         };
-        unsafe { &ALIGNED_BYTES.bytes }
+        &ALIGNED_BYTES.bytes
     }
 
     /// Loads a group of bytes starting at the given address.
     #[inline]
     #[allow(clippy::cast_ptr_alignment)] // unaligned load
     pub unsafe fn load(ptr: *const u8) -> Self {
-        Group(x86::_mm_loadu_si128(ptr as *const _))
+        Group(x86::_mm_loadu_si128(ptr.cast()))
     }
 
     /// Loads a group of bytes starting at the given address, which must be
@@ -54,7 +57,7 @@ impl Group {
     pub unsafe fn load_aligned(ptr: *const u8) -> Self {
         // FIXME: use align_offset once it stabilizes
         debug_assert_eq!(ptr as usize & (mem::align_of::<Self>() - 1), 0);
-        Group(x86::_mm_load_si128(ptr as *const _))
+        Group(x86::_mm_load_si128(ptr.cast()))
     }
 
     /// Stores the group of bytes to the given address, which must be
@@ -64,7 +67,7 @@ impl Group {
     pub unsafe fn store_aligned(self, ptr: *mut u8) {
         // FIXME: use align_offset once it stabilizes
         debug_assert_eq!(ptr as usize & (mem::align_of::<Self>() - 1), 0);
-        x86::_mm_store_si128(ptr as *mut _, self.0);
+        x86::_mm_store_si128(ptr.cast(), self.0);
     }
 
     /// Returns a `BitMask` indicating all bytes in the group which have

@@ -1,15 +1,19 @@
 #![stable(feature = "futures_api", since = "1.36.0")]
 
-use crate::ops::Try;
+use crate::convert;
+use crate::ops::{self, ControlFlow};
 use crate::result::Result;
+use crate::task::Ready;
 
 /// Indicates whether a value is available or if the current task has been
 /// scheduled to receive a wakeup instead.
 #[must_use = "this `Poll` may be a `Pending` variant, which should be handled"]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[lang = "Poll"]
 #[stable(feature = "futures_api", since = "1.36.0")]
 pub enum Poll<T> {
     /// Represents that a value is immediately ready.
+    #[lang = "Ready"]
     #[stable(feature = "futures_api", since = "1.36.0")]
     Ready(#[stable(feature = "futures_api", since = "1.36.0")] T),
 
@@ -18,12 +22,28 @@ pub enum Poll<T> {
     /// When a function returns `Pending`, the function *must* also
     /// ensure that the current task is scheduled to be awoken when
     /// progress can be made.
+    #[lang = "Pending"]
     #[stable(feature = "futures_api", since = "1.36.0")]
     Pending,
 }
 
 impl<T> Poll<T> {
-    /// Changes the ready value of this `Poll` with the closure provided.
+    /// Maps a `Poll<T>` to `Poll<U>` by applying a function to a contained value.
+    ///
+    /// # Examples
+    ///
+    /// Converts a <code>Poll<[String]></code> into a <code>Poll<[usize]></code>, consuming
+    /// the original:
+    ///
+    /// [String]: ../../std/string/struct.String.html "String"
+    /// ```
+    /// # use core::task::Poll;
+    /// let poll_some_string = Poll::Ready(String::from("Hello, World!"));
+    /// // `Poll::map` takes self *by value*, consuming `poll_some_string`
+    /// let poll_some_len = poll_some_string.map(|s| s.len());
+    ///
+    /// assert_eq!(poll_some_len, Poll::Ready(13));
+    /// ```
     #[stable(feature = "futures_api", since = "1.36.0")]
     pub fn map<U, F>(self, f: F) -> Poll<U>
     where
@@ -35,23 +55,94 @@ impl<T> Poll<T> {
         }
     }
 
-    /// Returns `true` if this is `Poll::Ready`
+    /// Returns `true` if the poll is a [`Poll::Ready`] value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// let x: Poll<u32> = Poll::Ready(2);
+    /// assert_eq!(x.is_ready(), true);
+    ///
+    /// let x: Poll<u32> = Poll::Pending;
+    /// assert_eq!(x.is_ready(), false);
+    /// ```
     #[inline]
+    #[rustc_const_stable(feature = "const_poll", since = "1.49.0")]
     #[stable(feature = "futures_api", since = "1.36.0")]
-    pub fn is_ready(&self) -> bool {
+    pub const fn is_ready(&self) -> bool {
         matches!(*self, Poll::Ready(_))
     }
 
-    /// Returns `true` if this is `Poll::Pending`
+    /// Returns `true` if the poll is a [`Pending`] value.
+    ///
+    /// [`Pending`]: Poll::Pending
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// let x: Poll<u32> = Poll::Ready(2);
+    /// assert_eq!(x.is_pending(), false);
+    ///
+    /// let x: Poll<u32> = Poll::Pending;
+    /// assert_eq!(x.is_pending(), true);
+    /// ```
     #[inline]
+    #[rustc_const_stable(feature = "const_poll", since = "1.49.0")]
     #[stable(feature = "futures_api", since = "1.36.0")]
-    pub fn is_pending(&self) -> bool {
+    pub const fn is_pending(&self) -> bool {
         !self.is_ready()
+    }
+
+    /// Extracts the successful type of a [`Poll<T>`].
+    ///
+    /// When combined with the `?` operator, this function will
+    /// propagate any [`Poll::Pending`] values to the caller, and
+    /// extract the `T` from [`Poll::Ready`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// #![feature(poll_ready)]
+    ///
+    /// use std::task::{Context, Poll};
+    /// use std::future::{self, Future};
+    /// use std::pin::Pin;
+    ///
+    /// pub fn do_poll(cx: &mut Context<'_>) -> Poll<()> {
+    ///     let mut fut = future::ready(42);
+    ///     let fut = Pin::new(&mut fut);
+    ///
+    ///     let num = fut.poll(cx).ready()?;
+    ///     # drop(num);
+    ///     // ... use num
+    ///
+    ///     Poll::Ready(())
+    /// }
+    /// ```
+    #[inline]
+    #[unstable(feature = "poll_ready", issue = "89780")]
+    pub fn ready(self) -> Ready<T> {
+        Ready(self)
     }
 }
 
 impl<T, E> Poll<Result<T, E>> {
-    /// Changes the success value of this `Poll` with the closure provided.
+    /// Maps a `Poll<Result<T, E>>` to `Poll<Result<U, E>>` by applying a
+    /// function to a contained `Poll::Ready(Ok)` value, leaving all other
+    /// variants untouched.
+    ///
+    /// This function can be used to compose the results of two functions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// let res: Poll<Result<u8, _>> = Poll::Ready("12".parse());
+    /// let squared = res.map_ok(|n| n * n);
+    /// assert_eq!(squared, Poll::Ready(Ok(144)));
+    /// ```
     #[stable(feature = "futures_api", since = "1.36.0")]
     pub fn map_ok<U, F>(self, f: F) -> Poll<Result<U, E>>
     where
@@ -64,7 +155,21 @@ impl<T, E> Poll<Result<T, E>> {
         }
     }
 
-    /// Changes the error value of this `Poll` with the closure provided.
+    /// Maps a `Poll::Ready<Result<T, E>>` to `Poll::Ready<Result<T, F>>` by
+    /// applying a function to a contained `Poll::Ready(Err)` value, leaving all other
+    /// variants untouched.
+    ///
+    /// This function can be used to pass through a successful result while handling
+    /// an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// let res: Poll<Result<u8, _>> = Poll::Ready("oops".parse());
+    /// let res = res.map_err(|_| 0_u8);
+    /// assert_eq!(res, Poll::Ready(Err(0)));
+    /// ```
     #[stable(feature = "futures_api", since = "1.36.0")]
     pub fn map_err<U, F>(self, f: F) -> Poll<Result<T, U>>
     where
@@ -79,8 +184,21 @@ impl<T, E> Poll<Result<T, E>> {
 }
 
 impl<T, E> Poll<Option<Result<T, E>>> {
-    /// Changes the success value of this `Poll` with the closure provided.
-    #[unstable(feature = "poll_map", issue = "63514")]
+    /// Maps a `Poll<Option<Result<T, E>>>` to `Poll<Option<Result<U, E>>>` by
+    /// applying a function to a contained `Poll::Ready(Some(Ok))` value,
+    /// leaving all other variants untouched.
+    ///
+    /// This function can be used to compose the results of two functions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// let res: Poll<Option<Result<u8, _>>> = Poll::Ready(Some("12".parse()));
+    /// let squared = res.map_ok(|n| n * n);
+    /// assert_eq!(squared, Poll::Ready(Some(Ok(144))));
+    /// ```
+    #[stable(feature = "poll_map", since = "1.51.0")]
     pub fn map_ok<U, F>(self, f: F) -> Poll<Option<Result<U, E>>>
     where
         F: FnOnce(T) -> U,
@@ -93,8 +211,23 @@ impl<T, E> Poll<Option<Result<T, E>>> {
         }
     }
 
-    /// Changes the error value of this `Poll` with the closure provided.
-    #[unstable(feature = "poll_map", issue = "63514")]
+    /// Maps a `Poll::Ready<Option<Result<T, E>>>` to
+    /// `Poll::Ready<Option<Result<T, F>>>` by applying a function to a
+    /// contained `Poll::Ready(Some(Err))` value, leaving all other variants
+    /// untouched.
+    ///
+    /// This function can be used to pass through a successful result while handling
+    /// an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// let res: Poll<Option<Result<u8, _>>> = Poll::Ready(Some("oops".parse()));
+    /// let res = res.map_err(|_| 0_u8);
+    /// assert_eq!(res, Poll::Ready(Some(Err(0))));
+    /// ```
+    #[stable(feature = "poll_map", since = "1.51.0")]
     pub fn map_err<U, F>(self, f: F) -> Poll<Option<Result<T, U>>>
     where
         F: FnOnce(E) -> U,
@@ -109,59 +242,80 @@ impl<T, E> Poll<Option<Result<T, E>>> {
 }
 
 #[stable(feature = "futures_api", since = "1.36.0")]
-impl<T> From<T> for Poll<T> {
+#[rustc_const_unstable(feature = "const_convert", issue = "88674")]
+impl<T> const From<T> for Poll<T> {
+    /// Moves the value into a [`Poll::Ready`] to make a `Poll<T>`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use core::task::Poll;
+    /// assert_eq!(Poll::from(true), Poll::Ready(true));
+    /// ```
     fn from(t: T) -> Poll<T> {
         Poll::Ready(t)
     }
 }
 
-#[stable(feature = "futures_api", since = "1.36.0")]
-impl<T, E> Try for Poll<Result<T, E>> {
-    type Ok = Poll<T>;
-    type Error = E;
+#[unstable(feature = "try_trait_v2", issue = "84277")]
+impl<T, E> ops::Try for Poll<Result<T, E>> {
+    type Output = Poll<T>;
+    type Residual = Result<convert::Infallible, E>;
 
     #[inline]
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
+    fn from_output(c: Self::Output) -> Self {
+        c.map(Ok)
+    }
+
+    #[inline]
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
-            Poll::Ready(Ok(x)) => Ok(Poll::Ready(x)),
-            Poll::Ready(Err(e)) => Err(e),
-            Poll::Pending => Ok(Poll::Pending),
+            Poll::Ready(Ok(x)) => ControlFlow::Continue(Poll::Ready(x)),
+            Poll::Ready(Err(e)) => ControlFlow::Break(Err(e)),
+            Poll::Pending => ControlFlow::Continue(Poll::Pending),
         }
-    }
-
-    #[inline]
-    fn from_error(e: Self::Error) -> Self {
-        Poll::Ready(Err(e))
-    }
-
-    #[inline]
-    fn from_ok(x: Self::Ok) -> Self {
-        x.map(Ok)
     }
 }
 
-#[stable(feature = "futures_api", since = "1.36.0")]
-impl<T, E> Try for Poll<Option<Result<T, E>>> {
-    type Ok = Poll<Option<T>>;
-    type Error = E;
-
+#[unstable(feature = "try_trait_v2", issue = "84277")]
+impl<T, E, F: From<E>> ops::FromResidual<Result<convert::Infallible, E>> for Poll<Result<T, F>> {
     #[inline]
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
-        match self {
-            Poll::Ready(Some(Ok(x))) => Ok(Poll::Ready(Some(x))),
-            Poll::Ready(Some(Err(e))) => Err(e),
-            Poll::Ready(None) => Ok(Poll::Ready(None)),
-            Poll::Pending => Ok(Poll::Pending),
+    fn from_residual(x: Result<convert::Infallible, E>) -> Self {
+        match x {
+            Err(e) => Poll::Ready(Err(From::from(e))),
         }
     }
+}
+
+#[unstable(feature = "try_trait_v2", issue = "84277")]
+impl<T, E> ops::Try for Poll<Option<Result<T, E>>> {
+    type Output = Poll<Option<T>>;
+    type Residual = Result<convert::Infallible, E>;
 
     #[inline]
-    fn from_error(e: Self::Error) -> Self {
-        Poll::Ready(Some(Err(e)))
+    fn from_output(c: Self::Output) -> Self {
+        c.map(|x| x.map(Ok))
     }
 
     #[inline]
-    fn from_ok(x: Self::Ok) -> Self {
-        x.map(|x| x.map(Ok))
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Poll::Ready(Some(Ok(x))) => ControlFlow::Continue(Poll::Ready(Some(x))),
+            Poll::Ready(Some(Err(e))) => ControlFlow::Break(Err(e)),
+            Poll::Ready(None) => ControlFlow::Continue(Poll::Ready(None)),
+            Poll::Pending => ControlFlow::Continue(Poll::Pending),
+        }
+    }
+}
+
+#[unstable(feature = "try_trait_v2", issue = "84277")]
+impl<T, E, F: From<E>> ops::FromResidual<Result<convert::Infallible, E>>
+    for Poll<Option<Result<T, F>>>
+{
+    #[inline]
+    fn from_residual(x: Result<convert::Infallible, E>) -> Self {
+        match x {
+            Err(e) => Poll::Ready(Some(Err(From::from(e)))),
+        }
     }
 }

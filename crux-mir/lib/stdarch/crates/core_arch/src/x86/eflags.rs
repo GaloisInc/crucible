@@ -1,19 +1,21 @@
 //! `i386` intrinsics
 
+use crate::arch::asm;
+
 /// Reads EFLAGS.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=__readeflags)
 #[cfg(target_arch = "x86")]
 #[inline(always)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-#[rustc_deprecated(
+#[deprecated(
     since = "1.29.0",
-    reason = "See issue #51810 - use inline assembly instead"
+    note = "See issue #51810 - use inline assembly instead"
 )]
 #[doc(hidden)]
 pub unsafe fn __readeflags() -> u32 {
     let eflags: u32;
-    asm!("pushfd; popl $0" : "=r"(eflags) : : : "volatile");
+    asm!("pushfd", "pop {}", out(reg) eflags, options(nomem, att_syntax));
     eflags
 }
 
@@ -23,14 +25,14 @@ pub unsafe fn __readeflags() -> u32 {
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-#[rustc_deprecated(
+#[deprecated(
     since = "1.29.0",
-    reason = "See issue #51810 - use inline assembly instead"
+    note = "See issue #51810 - use inline assembly instead"
 )]
 #[doc(hidden)]
 pub unsafe fn __readeflags() -> u64 {
     let eflags: u64;
-    asm!("pushfq; popq $0" : "=r"(eflags) : : : "volatile");
+    asm!("pushfq", "pop {}", out(reg) eflags, options(nomem, att_syntax));
     eflags
 }
 
@@ -40,13 +42,13 @@ pub unsafe fn __readeflags() -> u64 {
 #[cfg(target_arch = "x86")]
 #[inline(always)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-#[rustc_deprecated(
+#[deprecated(
     since = "1.29.0",
-    reason = "See issue #51810 - use inline assembly instead"
+    note = "See issue #51810 - use inline assembly instead"
 )]
 #[doc(hidden)]
 pub unsafe fn __writeeflags(eflags: u32) {
-    asm!("pushl $0; popfd" : : "r"(eflags) : "cc", "flags" : "volatile");
+    asm!("push {}", "popfd", in(reg) eflags, options(nomem, att_syntax));
 }
 
 /// Write EFLAGS.
@@ -55,13 +57,13 @@ pub unsafe fn __writeeflags(eflags: u32) {
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-#[rustc_deprecated(
+#[deprecated(
     since = "1.29.0",
-    reason = "See issue #51810 - use inline assembly instead"
+    note = "See issue #51810 - use inline assembly instead"
 )]
 #[doc(hidden)]
 pub unsafe fn __writeeflags(eflags: u64) {
-    asm!("pushq $0; popfq" : : "r"(eflags) : "cc", "flags" : "volatile");
+    asm!("push {}", "popfq", in(reg) eflags, options(nomem, att_syntax));
 }
 
 #[cfg(test)]

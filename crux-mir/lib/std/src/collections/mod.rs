@@ -86,7 +86,7 @@
 //! cost are suffixed with a `~`.
 //!
 //! All amortized costs are for the potential need to resize when capacity is
-//! exhausted. If a resize occurs it will take O(n) time. Our collections never
+//! exhausted. If a resize occurs it will take *O*(*n*) time. Our collections never
 //! automatically shrink, so removal operations aren't amortized. Over a
 //! sufficiently large series of operations, the average cost per operation will
 //! deterministically equal the given cost.
@@ -97,11 +97,11 @@
 //!
 //! ## Sequences
 //!
-//! |                | get(i)         | insert(i)       | remove(i)      | append | split_off(i)   |
-//! |----------------|----------------|-----------------|----------------|--------|----------------|
-//! | [`Vec`]        | O(1)           | O(n-i)*         | O(n-i)         | O(m)*  | O(n-i)         |
-//! | [`VecDeque`]   | O(1)           | O(min(i, n-i))* | O(min(i, n-i)) | O(m)*  | O(min(i, n-i)) |
-//! | [`LinkedList`] | O(min(i, n-i)) | O(min(i, n-i))  | O(min(i, n-i)) | O(1)   | O(min(i, n-i)) |
+//! |                | get(i)                 | insert(i)               | remove(i)              | append    | split_off(i)           |
+//! |----------------|------------------------|-------------------------|------------------------|-----------|------------------------|
+//! | [`Vec`]        | *O*(1)                 | *O*(*n*-*i*)*           | *O*(*n*-*i*)           | *O*(*m*)* | *O*(*n*-*i*)           |
+//! | [`VecDeque`]   | *O*(1)                 | *O*(min(*i*, *n*-*i*))* | *O*(min(*i*, *n*-*i*)) | *O*(*m*)* | *O*(min(*i*, *n*-*i*)) |
+//! | [`LinkedList`] | *O*(min(*i*, *n*-*i*)) | *O*(min(*i*, *n*-*i*))  | *O*(min(*i*, *n*-*i*)) | *O*(1)    | *O*(min(*i*, *n*-*i*)) |
 //!
 //! Note that where ties occur, [`Vec`] is generally going to be faster than [`VecDeque`], and
 //! [`VecDeque`] is generally going to be faster than [`LinkedList`].
@@ -110,10 +110,10 @@
 //!
 //! For Sets, all operations have the cost of the equivalent Map operation.
 //!
-//! |              | get       | insert   | remove   | predecessor | append |
-//! |--------------|-----------|----------|----------|-------------|--------|
-//! | [`HashMap`]  | O(1)~     | O(1)~*   | O(1)~    | N/A         | N/A    |
-//! | [`BTreeMap`] | O(log n)  | O(log n) | O(log n) | O(log n)    | O(n+m) |
+//! |              | get           | insert        | remove        | range         | append       |
+//! |--------------|---------------|---------------|---------------|---------------|--------------|
+//! | [`HashMap`]  | *O*(1)~       | *O*(1)~*      | *O*(1)~       | N/A           | N/A          |
+//! | [`BTreeMap`] | *O*(log(*n*)) | *O*(log(*n*)) | *O*(log(*n*)) | *O*(log(*n*)) | *O*(*n*+*m*) |
 //!
 //! # Correct and Efficient Usage of Collections
 //!
@@ -199,7 +199,7 @@
 //! ```
 //! let vec = vec![1, 2, 3, 4];
 //! for x in vec.iter() {
-//!    println!("vec contained {}", x);
+//!    println!("vec contained {x:?}");
 //! }
 //! ```
 //!
@@ -217,7 +217,7 @@
 //! contents by-value. This is great when the collection itself is no longer
 //! needed, and the values are needed elsewhere. Using `extend` with `into_iter`
 //! is the main way that contents of one collection are moved into another.
-//! `extend` automatically calls `into_iter`, and takes any `T: `[`IntoIterator`].
+//! `extend` automatically calls `into_iter`, and takes any <code>T: [IntoIterator]</code>.
 //! Calling `collect` on an iterator itself is also a great way to convert one
 //! collection into another. Both of these methods should internally use the
 //! capacity management tools discussed in the previous section to do this as
@@ -232,21 +232,21 @@
 //! ```
 //! use std::collections::VecDeque;
 //!
-//! let vec = vec![1, 2, 3, 4];
+//! let vec = [1, 2, 3, 4];
 //! let buf: VecDeque<_> = vec.into_iter().collect();
 //! ```
 //!
 //! Iterators also provide a series of *adapter* methods for performing common
 //! threads to sequences. Among the adapters are functional favorites like `map`,
 //! `fold`, `skip` and `take`. Of particular interest to collections is the
-//! `rev` adapter, that reverses any iterator that supports this operation. Most
+//! `rev` adapter, which reverses any iterator that supports this operation. Most
 //! collections provide reversible iterators as the way to iterate over them in
 //! reverse order.
 //!
 //! ```
 //! let vec = vec![1, 2, 3, 4];
 //! for x in vec.iter().rev() {
-//!    println!("vec contained {}", x);
+//!    println!("vec contained {x:?}");
 //! }
 //! ```
 //!
@@ -268,7 +268,7 @@
 //! not. Normally, this would require a `find` followed by an `insert`,
 //! effectively duplicating the search effort on each insertion.
 //!
-//! When a user calls `map.entry(&key)`, the map will search for the key and
+//! When a user calls `map.entry(key)`, the map will search for the key and
 //! then yield a variant of the `Entry` enum.
 //!
 //! If a `Vacant(entry)` is yielded, then the key *was not* found. In this case
@@ -306,7 +306,7 @@
 //!
 //! println!("Number of occurrences of each character");
 //! for (char, count) in &count {
-//!     println!("{}: {}", char, count);
+//!     println!("{char}: {count}");
 //! }
 //! ```
 //!
@@ -339,7 +339,7 @@
 //!     // Check if they're sober enough to have another beer.
 //!     if person.blood_alcohol > 0.3 {
 //!         // Too drunk... for now.
-//!         println!("Sorry {}, I have to cut you off", id);
+//!         println!("Sorry {id}, I have to cut you off");
 //!     } else {
 //!         // Have another!
 //!         person.blood_alcohol += 0.1;
@@ -396,22 +396,16 @@
 //! assert_eq!(map.keys().next().unwrap().b, "baz");
 //! ```
 //!
-//! [`Vec`]: ../../std/vec/struct.Vec.html
-//! [`HashMap`]: ../../std/collections/struct.HashMap.html
-//! [`VecDeque`]: ../../std/collections/struct.VecDeque.html
-//! [`LinkedList`]: ../../std/collections/struct.LinkedList.html
-//! [`BTreeMap`]: ../../std/collections/struct.BTreeMap.html
-//! [`HashSet`]: ../../std/collections/struct.HashSet.html
-//! [`BTreeSet`]: ../../std/collections/struct.BTreeSet.html
-//! [`BinaryHeap`]: ../../std/collections/struct.BinaryHeap.html
-//! [`IntoIterator`]: ../../std/iter/trait.IntoIterator.html
+//! [IntoIterator]: crate::iter::IntoIterator "iter::IntoIterator"
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[rustc_deprecated(reason = "moved to `std::ops::Bound`", since = "1.26.0")]
+// FIXME(#82080) The deprecation here is only theoretical, and does not actually produce a warning.
+#[deprecated(note = "moved to `std::ops::Bound`", since = "1.26.0")]
 #[doc(hidden)]
 pub use crate::ops::Bound;
+
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use alloc_crate::collections::{binary_heap, btree_map, btree_set};
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -426,8 +420,14 @@ pub use self::hash_map::HashMap;
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::hash_set::HashSet;
 
-#[unstable(feature = "try_reserve", reason = "new API", issue = "48043")]
+#[stable(feature = "try_reserve", since = "1.57.0")]
 pub use alloc_crate::collections::TryReserveError;
+#[unstable(
+    feature = "try_reserve_kind",
+    reason = "Uncertain how much info should be exposed",
+    issue = "48043"
+)]
+pub use alloc_crate::collections::TryReserveErrorKind;
 
 mod hash;
 

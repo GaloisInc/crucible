@@ -1,3 +1,7 @@
+//! Linux-specific extensions to primitives in the [`std::fs`] module.
+//!
+//! [`std::fs`]: crate::fs
+
 #![stable(feature = "metadata_ext", since = "1.1.0")]
 
 use crate::fs::Metadata;
@@ -8,7 +12,7 @@ use crate::os::linux::raw;
 
 /// OS-specific extensions to [`fs::Metadata`].
 ///
-/// [`fs::Metadata`]: ../../../../std/fs/struct.Metadata.html
+/// [`fs::Metadata`]: crate::fs::Metadata
 #[stable(feature = "metadata_ext", since = "1.1.0")]
 pub trait MetadataExt {
     /// Gain a reference to the underlying `stat` structure which contains
@@ -18,7 +22,7 @@ pub trait MetadataExt {
     /// Unix platforms. The `os::unix::fs::MetadataExt` trait contains the
     /// cross-Unix abstractions contained within the raw stat.
     ///
-    /// [`stat`]: ../../../../std/os/linux/raw/struct.stat.html
+    /// [`stat`]: struct@crate::os::linux::raw::stat
     ///
     /// # Examples
     ///
@@ -34,7 +38,7 @@ pub trait MetadataExt {
     /// }
     /// ```
     #[stable(feature = "metadata_ext", since = "1.1.0")]
-    #[rustc_deprecated(since = "1.8.0", reason = "other methods of this trait are now preferred")]
+    #[deprecated(since = "1.8.0", note = "other methods of this trait are now preferred")]
     #[allow(deprecated)]
     fn as_raw_stat(&self) -> &raw::stat;
 
@@ -196,7 +200,7 @@ pub trait MetadataExt {
     fn st_atime(&self) -> i64;
     /// Returns the last access time of the file, in nanoseconds since [`st_atime`].
     ///
-    /// [`st_atime`]: #tymethod.st_atime
+    /// [`st_atime`]: Self::st_atime
     ///
     /// # Examples
     ///
@@ -232,7 +236,7 @@ pub trait MetadataExt {
     fn st_mtime(&self) -> i64;
     /// Returns the last modification time of the file, in nanoseconds since [`st_mtime`].
     ///
-    /// [`st_mtime`]: #tymethod.st_mtime
+    /// [`st_mtime`]: Self::st_mtime
     ///
     /// # Examples
     ///
@@ -268,7 +272,7 @@ pub trait MetadataExt {
     fn st_ctime(&self) -> i64;
     /// Returns the last status change time of the file, in nanoseconds since [`st_ctime`].
     ///
-    /// [`st_ctime`]: #tymethod.st_ctime
+    /// [`st_ctime`]: Self::st_ctime
     ///
     /// # Examples
     ///
@@ -285,7 +289,7 @@ pub trait MetadataExt {
     /// ```
     #[stable(feature = "metadata_ext2", since = "1.8.0")]
     fn st_ctime_nsec(&self) -> i64;
-    /// Returns the "preferred" blocksize for efficient filesystem I/O.
+    /// Returns the "preferred" block size for efficient filesystem I/O.
     ///
     /// # Examples
     ///
@@ -352,19 +356,34 @@ impl MetadataExt for Metadata {
         self.as_inner().as_inner().st_size as u64
     }
     fn st_atime(&self) -> i64 {
-        self.as_inner().as_inner().st_atime as i64
+        let file_attr = self.as_inner();
+        #[cfg(all(target_env = "gnu", target_pointer_width = "32"))]
+        if let Some(atime) = file_attr.stx_atime() {
+            return atime.tv_sec;
+        }
+        file_attr.as_inner().st_atime as i64
     }
     fn st_atime_nsec(&self) -> i64 {
         self.as_inner().as_inner().st_atime_nsec as i64
     }
     fn st_mtime(&self) -> i64 {
-        self.as_inner().as_inner().st_mtime as i64
+        let file_attr = self.as_inner();
+        #[cfg(all(target_env = "gnu", target_pointer_width = "32"))]
+        if let Some(mtime) = file_attr.stx_mtime() {
+            return mtime.tv_sec;
+        }
+        file_attr.as_inner().st_mtime as i64
     }
     fn st_mtime_nsec(&self) -> i64 {
         self.as_inner().as_inner().st_mtime_nsec as i64
     }
     fn st_ctime(&self) -> i64 {
-        self.as_inner().as_inner().st_ctime as i64
+        let file_attr = self.as_inner();
+        #[cfg(all(target_env = "gnu", target_pointer_width = "32"))]
+        if let Some(ctime) = file_attr.stx_ctime() {
+            return ctime.tv_sec;
+        }
+        file_attr.as_inner().st_ctime as i64
     }
     fn st_ctime_nsec(&self) -> i64 {
         self.as_inner().as_inner().st_ctime_nsec as i64

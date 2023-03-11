@@ -1,13 +1,3 @@
-// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Symbolication strategy using `dbghelp.dll` on Windows, only used for MSVC
 //!
 //! This symbolication strategy, like with backtraces, uses dynamically loaded
@@ -27,12 +17,8 @@
 
 #![allow(bad_style)]
 
-use crate::backtrace::FrameImp as Frame;
-use crate::dbghelp;
-use crate::symbolize::ResolveWhat;
-use crate::types::BytesOrWideString;
-use crate::windows::*;
-use crate::SymbolName;
+use super::super::{backtrace::StackFrame, dbghelp, windows::*};
+use super::{BytesOrWideString, ResolveWhat, SymbolName};
 use core::char;
 use core::ffi::c_void;
 use core::marker;
@@ -53,7 +39,7 @@ pub struct Symbol<'a> {
 }
 
 impl Symbol<'_> {
-    pub fn name(&self) -> Option<SymbolName> {
+    pub fn name(&self) -> Option<SymbolName<'_>> {
         Some(SymbolName::new(unsafe { &*self.name }))
     }
 
@@ -61,9 +47,13 @@ impl Symbol<'_> {
         Some(self.addr as *mut _)
     }
 
-    pub fn filename_raw(&self) -> Option<BytesOrWideString> {
+    pub fn filename_raw(&self) -> Option<BytesOrWideString<'_>> {
         self.filename
             .map(|slice| unsafe { BytesOrWideString::Wide(&*slice) })
+    }
+
+    pub fn colno(&self) -> Option<u32> {
+        None
     }
 
     pub fn lineno(&self) -> Option<u32> {
@@ -81,7 +71,7 @@ impl Symbol<'_> {
 #[repr(C, align(8))]
 struct Aligned8<T>(T);
 
-pub unsafe fn resolve(what: ResolveWhat, cb: &mut FnMut(&super::Symbol)) {
+pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol)) {
     // Ensure this process's symbols are initialized
     let dbghelp = match dbghelp::init() {
         Ok(dbghelp) => dbghelp,
@@ -90,9 +80,9 @@ pub unsafe fn resolve(what: ResolveWhat, cb: &mut FnMut(&super::Symbol)) {
 
     match what {
         ResolveWhat::Address(_) => resolve_without_inline(&dbghelp, what.address_or_ip(), cb),
-        ResolveWhat::Frame(frame) => match &frame.inner {
-            Frame::New(frame) => resolve_with_inline(&dbghelp, frame, cb),
-            Frame::Old(_) => resolve_without_inline(&dbghelp, frame.ip(), cb),
+        ResolveWhat::Frame(frame) => match &frame.inner.stack_frame {
+            StackFrame::New(frame) => resolve_with_inline(&dbghelp, frame, cb),
+            StackFrame::Old(_) => resolve_without_inline(&dbghelp, frame.ip(), cb),
         },
     }
 }
@@ -100,7 +90,7 @@ pub unsafe fn resolve(what: ResolveWhat, cb: &mut FnMut(&super::Symbol)) {
 unsafe fn resolve_with_inline(
     dbghelp: &dbghelp::Init,
     frame: &STACKFRAME_EX,
-    cb: &mut FnMut(&super::Symbol),
+    cb: &mut dyn FnMut(&super::Symbol),
 ) {
     do_resolve(
         |info| {
@@ -129,7 +119,7 @@ unsafe fn resolve_with_inline(
 unsafe fn resolve_without_inline(
     dbghelp: &dbghelp::Init,
     addr: *mut c_void,
-    cb: &mut FnMut(&super::Symbol),
+    cb: &mut dyn FnMut(&super::Symbol),
 ) {
     do_resolve(
         |info| dbghelp.SymFromAddrW()(GetCurrentProcess(), addr as DWORD64, &mut 0, info),
@@ -141,7 +131,7 @@ unsafe fn resolve_without_inline(
 unsafe fn do_resolve(
     sym_from_addr: impl FnOnce(*mut SYMBOL_INFOW) -> BOOL,
     get_line_from_addr: impl FnOnce(&mut IMAGEHLP_LINEW64) -> BOOL,
-    cb: &mut FnMut(&super::Symbol),
+    cb: &mut dyn FnMut(&super::Symbol),
 ) {
     const SIZE: usize = 2 * MAX_SYM_NAME + mem::size_of::<SYMBOL_INFOW>();
     let mut data = Aligned8([0u8; SIZE]);
@@ -224,3 +214,5 @@ unsafe fn cache(filename: Option<*const [u16]>) -> Option<::std::ffi::OsString> 
 
 #[cfg(not(feature = "std"))]
 unsafe fn cache(_filename: Option<*const [u16]>) {}
+
+pub unsafe fn clear_symbol_cache() {}

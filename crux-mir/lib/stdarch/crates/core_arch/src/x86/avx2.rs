@@ -153,29 +153,29 @@ pub unsafe fn _mm256_adds_epu16(a: __m256i, b: __m256i) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_alignr_epi8)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpalignr, n = 7))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpalignr, IMM8 = 7))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
-    let n = n as u32;
-    // If `palignr` is shifting the pair of vectors more than the size of two
+pub unsafe fn _mm256_alignr_epi8<const IMM8: i32>(a: __m256i, b: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    // If palignr is shifting the pair of vectors more than the size of two
     // lanes, emit zero.
-    if n > 32 {
+    if IMM8 > 32 {
         return _mm256_set1_epi8(0);
     }
-    // If `palignr` is shifting the pair of input vectors more than one lane,
+    // If palignr is shifting the pair of input vectors more than one lane,
     // but less than two lanes, convert to shifting in zeroes.
-    let (a, b, n) = if n > 16 {
-        (_mm256_set1_epi8(0), a, n - 16)
+    let (a, b) = if IMM8 > 16 {
+        (_mm256_set1_epi8(0), a)
     } else {
-        (a, b, n)
+        (a, b)
     };
 
     let a = a.as_i8x32();
     let b = b.as_i8x32();
 
-    let r: i8x32 = match n {
-        0 => simd_shuffle32(
+    let r: i8x32 = match IMM8 % 16 {
+        0 => simd_shuffle32!(
             b,
             a,
             [
@@ -183,7 +183,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 23, 24, 25, 26, 27, 28, 29, 30, 31,
             ],
         ),
-        1 => simd_shuffle32(
+        1 => simd_shuffle32!(
             b,
             a,
             [
@@ -191,7 +191,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 24, 25, 26, 27, 28, 29, 30, 31, 48,
             ],
         ),
-        2 => simd_shuffle32(
+        2 => simd_shuffle32!(
             b,
             a,
             [
@@ -199,7 +199,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 25, 26, 27, 28, 29, 30, 31, 48, 49,
             ],
         ),
-        3 => simd_shuffle32(
+        3 => simd_shuffle32!(
             b,
             a,
             [
@@ -207,7 +207,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 25, 26, 27, 28, 29, 30, 31, 48, 49, 50,
             ],
         ),
-        4 => simd_shuffle32(
+        4 => simd_shuffle32!(
             b,
             a,
             [
@@ -215,7 +215,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 26, 27, 28, 29, 30, 31, 48, 49, 50, 51,
             ],
         ),
-        5 => simd_shuffle32(
+        5 => simd_shuffle32!(
             b,
             a,
             [
@@ -223,7 +223,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 27, 28, 29, 30, 31, 48, 49, 50, 51, 52,
             ],
         ),
-        6 => simd_shuffle32(
+        6 => simd_shuffle32!(
             b,
             a,
             [
@@ -231,7 +231,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 28, 29, 30, 31, 48, 49, 50, 51, 52, 53,
             ],
         ),
-        7 => simd_shuffle32(
+        7 => simd_shuffle32!(
             b,
             a,
             [
@@ -239,7 +239,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 28, 29, 30, 31, 48, 49, 50, 51, 52, 53, 54,
             ],
         ),
-        8 => simd_shuffle32(
+        8 => simd_shuffle32!(
             b,
             a,
             [
@@ -247,7 +247,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 29, 30, 31, 48, 49, 50, 51, 52, 53, 54, 55,
             ],
         ),
-        9 => simd_shuffle32(
+        9 => simd_shuffle32!(
             b,
             a,
             [
@@ -255,7 +255,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 30, 31, 48, 49, 50, 51, 52, 53, 54, 55, 56,
             ],
         ),
-        10 => simd_shuffle32(
+        10 => simd_shuffle32!(
             b,
             a,
             [
@@ -263,7 +263,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 31, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57,
             ],
         ),
-        11 => simd_shuffle32(
+        11 => simd_shuffle32!(
             b,
             a,
             [
@@ -271,7 +271,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58,
             ],
         ),
-        12 => simd_shuffle32(
+        12 => simd_shuffle32!(
             b,
             a,
             [
@@ -279,7 +279,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
             ],
         ),
-        13 => simd_shuffle32(
+        13 => simd_shuffle32!(
             b,
             a,
             [
@@ -287,7 +287,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
             ],
         ),
-        14 => simd_shuffle32(
+        14 => simd_shuffle32!(
             b,
             a,
             [
@@ -295,7 +295,7 @@ pub unsafe fn _mm256_alignr_epi8(a: __m256i, b: __m256i, n: i32) -> __m256i {
                 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
             ],
         ),
-        15 => simd_shuffle32(
+        15 => simd_shuffle32!(
             b,
             a,
             [
@@ -358,209 +358,95 @@ pub unsafe fn _mm256_avg_epu8(a: __m256i, b: __m256i) -> __m256i {
     transmute(pavgb(a.as_u8x32(), b.as_u8x32()))
 }
 
-/// Blends packed 32-bit integers from `a` and `b` using control mask `imm8`.
+/// Blends packed 32-bit integers from `a` and `b` using control mask `IMM4`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_blend_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vblendps, imm8 = 9))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vblendps, IMM4 = 9))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_blend_epi32(a: __m128i, b: __m128i, imm8: i32) -> __m128i {
-    let imm8 = (imm8 & 0xFF) as u8;
+pub unsafe fn _mm_blend_epi32<const IMM4: i32>(a: __m128i, b: __m128i) -> __m128i {
+    static_assert_imm4!(IMM4);
     let a = a.as_i32x4();
     let b = b.as_i32x4();
-    macro_rules! blend2 {
-        ($a:expr, $b:expr, $c:expr, $d:expr) => {
-            simd_shuffle4(a, b, [$a, $b, $c, $d]);
-        };
-    }
-    macro_rules! blend1 {
-        ($a:expr, $b:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => blend2!($a, $b, 2, 3),
-                0b01 => blend2!($a, $b, 6, 3),
-                0b10 => blend2!($a, $b, 2, 7),
-                _ => blend2!($a, $b, 6, 7),
-            }
-        };
-    }
-    let r: i32x4 = match imm8 & 0b11 {
-        0b00 => blend1!(0, 1),
-        0b01 => blend1!(4, 1),
-        0b10 => blend1!(0, 5),
-        _ => blend1!(4, 5),
-    };
+    let r: i32x4 = simd_shuffle4!(
+        a,
+        b,
+        <const IMM4: i32> [
+            [0, 4, 0, 4][IMM4 as usize & 0b11],
+            [1, 1, 5, 5][IMM4 as usize & 0b11],
+            [2, 6, 2, 6][(IMM4 as usize >> 2) & 0b11],
+            [3, 3, 7, 7][(IMM4 as usize >> 2) & 0b11],
+        ],
+    );
     transmute(r)
 }
 
-/// Blends packed 32-bit integers from `a` and `b` using control mask `imm8`.
+/// Blends packed 32-bit integers from `a` and `b` using control mask `IMM8`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_blend_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vblendps, imm8 = 9))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vblendps, IMM8 = 9))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_blend_epi32(a: __m256i, b: __m256i, imm8: i32) -> __m256i {
-    let imm8 = (imm8 & 0xFF) as u8;
+pub unsafe fn _mm256_blend_epi32<const IMM8: i32>(a: __m256i, b: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
     let a = a.as_i32x8();
     let b = b.as_i32x8();
-    macro_rules! blend4 {
-        (
-            $a:expr,
-            $b:expr,
-            $c:expr,
-            $d:expr,
-            $e:expr,
-            $f:expr,
-            $g:expr,
-            $h:expr
-        ) => {
-            simd_shuffle8(a, b, [$a, $b, $c, $d, $e, $f, $g, $h]);
-        };
-    }
-    macro_rules! blend3 {
-        ($a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => blend4!($a, $b, $c, $d, $e, $f, 6, 7),
-                0b01 => blend4!($a, $b, $c, $d, $e, $f, 14, 7),
-                0b10 => blend4!($a, $b, $c, $d, $e, $f, 6, 15),
-                _ => blend4!($a, $b, $c, $d, $e, $f, 14, 15),
-            }
-        };
-    }
-    macro_rules! blend2 {
-        ($a:expr, $b:expr, $c:expr, $d:expr) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => blend3!($a, $b, $c, $d, 4, 5),
-                0b01 => blend3!($a, $b, $c, $d, 12, 5),
-                0b10 => blend3!($a, $b, $c, $d, 4, 13),
-                _ => blend3!($a, $b, $c, $d, 12, 13),
-            }
-        };
-    }
-    macro_rules! blend1 {
-        ($a:expr, $b:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => blend2!($a, $b, 2, 3),
-                0b01 => blend2!($a, $b, 10, 3),
-                0b10 => blend2!($a, $b, 2, 11),
-                _ => blend2!($a, $b, 10, 11),
-            }
-        };
-    }
-    let r: i32x8 = match imm8 & 0b11 {
-        0b00 => blend1!(0, 1),
-        0b01 => blend1!(8, 1),
-        0b10 => blend1!(0, 9),
-        _ => blend1!(8, 9),
-    };
+    let r: i32x8 = simd_shuffle8!(
+        a,
+        b,
+        <const IMM8: i32> [
+            [0, 8, 0, 8][IMM8 as usize & 0b11],
+            [1, 1, 9, 9][IMM8 as usize & 0b11],
+            [2, 10, 2, 10][(IMM8 as usize >> 2) & 0b11],
+            [3, 3, 11, 11][(IMM8 as usize >> 2) & 0b11],
+            [4, 12, 4, 12][(IMM8 as usize >> 4) & 0b11],
+            [5, 5, 13, 13][(IMM8 as usize >> 4) & 0b11],
+            [6, 14, 6, 14][(IMM8 as usize >> 6) & 0b11],
+            [7, 7, 15, 15][(IMM8 as usize >> 6) & 0b11],
+        ],
+    );
     transmute(r)
 }
 
-/// Blends packed 16-bit integers from `a` and `b` using control mask `imm8`.
+/// Blends packed 16-bit integers from `a` and `b` using control mask `IMM8`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_blend_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpblendw, imm8 = 9))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpblendw, IMM8 = 9))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_blend_epi16(a: __m256i, b: __m256i, imm8: i32) -> __m256i {
-    let imm8 = (imm8 & 0xFF) as u8;
+pub unsafe fn _mm256_blend_epi16<const IMM8: i32>(a: __m256i, b: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
     let a = a.as_i16x16();
     let b = b.as_i16x16();
-    macro_rules! blend4 {
-        (
-            $a:expr,
-            $b:expr,
-            $c:expr,
-            $d:expr,
-            $e:expr,
-            $f:expr,
-            $g:expr,
-            $h:expr,
-            $i:expr,
-            $j:expr,
-            $k:expr,
-            $l:expr,
-            $m:expr,
-            $n:expr,
-            $o:expr,
-            $p:expr
-        ) => {
-            simd_shuffle16(
-                a,
-                b,
-                [
-                    $a, $b, $c, $d, $e, $f, $g, $h, $i, $j, $k, $l, $m, $n, $o, $p,
-                ],
-            )
-        };
-    }
-    macro_rules! blend3 {
-        (
-            $a:expr,
-            $b:expr,
-            $c:expr,
-            $d:expr,
-            $e:expr,
-            $f:expr,
-            $a2:expr,
-            $b2:expr,
-            $c2:expr,
-            $d2:expr,
-            $e2:expr,
-            $f2:expr
-        ) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => blend4!($a, $b, $c, $d, $e, $f, 6, 7, $a2, $b2, $c2, $d2, $e2, $f2, 14, 15),
-                0b01 => {
-                    blend4!($a, $b, $c, $d, $e, $f, 22, 7, $a2, $b2, $c2, $d2, $e2, $f2, 30, 15)
-                }
-                0b10 => {
-                    blend4!($a, $b, $c, $d, $e, $f, 6, 23, $a2, $b2, $c2, $d2, $e2, $f2, 14, 31)
-                }
-                _ => blend4!($a, $b, $c, $d, $e, $f, 22, 23, $a2, $b2, $c2, $d2, $e2, $f2, 30, 31),
-            }
-        };
-    }
-    macro_rules! blend2 {
-        (
-            $a:expr,
-            $b:expr,
-            $c:expr,
-            $d:expr,
-            $a2:expr,
-            $b2:expr,
-            $c2:expr,
-            $d2:expr
-        ) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => blend3!($a, $b, $c, $d, 4, 5, $a2, $b2, $c2, $d2, 12, 13),
-                0b01 => blend3!($a, $b, $c, $d, 20, 5, $a2, $b2, $c2, $d2, 28, 13),
-                0b10 => blend3!($a, $b, $c, $d, 4, 21, $a2, $b2, $c2, $d2, 12, 29),
-                _ => blend3!($a, $b, $c, $d, 20, 21, $a2, $b2, $c2, $d2, 28, 29),
-            }
-        };
-    }
-    macro_rules! blend1 {
-        ($a1:expr, $b1:expr, $a2:expr, $b2:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => blend2!($a1, $b1, 2, 3, $a2, $b2, 10, 11),
-                0b01 => blend2!($a1, $b1, 18, 3, $a2, $b2, 26, 11),
-                0b10 => blend2!($a1, $b1, 2, 19, $a2, $b2, 10, 27),
-                _ => blend2!($a1, $b1, 18, 19, $a2, $b2, 26, 27),
-            }
-        };
-    }
-    let r: i16x16 = match imm8 & 0b11 {
-        0b00 => blend1!(0, 1, 8, 9),
-        0b01 => blend1!(16, 1, 24, 9),
-        0b10 => blend1!(0, 17, 8, 25),
-        _ => blend1!(16, 17, 24, 25),
-    };
+
+    let r: i16x16 = simd_shuffle16!(
+        a,
+        b,
+        <const IMM8: i32> [
+            [0, 16, 0, 16][IMM8 as usize & 0b11],
+            [1, 1, 17, 17][IMM8 as usize & 0b11],
+            [2, 18, 2, 18][(IMM8 as usize >> 2) & 0b11],
+            [3, 3, 19, 19][(IMM8 as usize >> 2) & 0b11],
+            [4, 20, 4, 20][(IMM8 as usize >> 4) & 0b11],
+            [5, 5, 21, 21][(IMM8 as usize >> 4) & 0b11],
+            [6, 22, 6, 22][(IMM8 as usize >> 6) & 0b11],
+            [7, 7, 23, 23][(IMM8 as usize >> 6) & 0b11],
+            [8, 24, 8, 24][IMM8 as usize & 0b11],
+            [9, 9, 25, 25][IMM8 as usize & 0b11],
+            [10, 26, 10, 26][(IMM8 as usize >> 2) & 0b11],
+            [11, 11, 27, 27][(IMM8 as usize >> 2) & 0b11],
+            [12, 28, 12, 28][(IMM8 as usize >> 4) & 0b11],
+            [13, 13, 29, 29][(IMM8 as usize >> 4) & 0b11],
+            [14, 30, 14, 30][(IMM8 as usize >> 6) & 0b11],
+            [15, 15, 31, 31][(IMM8 as usize >> 6) & 0b11],
+        ],
+    );
     transmute(r)
 }
 
@@ -585,7 +471,7 @@ pub unsafe fn _mm256_blendv_epi8(a: __m256i, b: __m256i, mask: __m256i) -> __m25
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastb_epi8(a: __m128i) -> __m128i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle16(a.as_i8x16(), zero.as_i8x16(), [0_u32; 16]);
+    let ret = simd_shuffle16!(a.as_i8x16(), zero.as_i8x16(), [0_u32; 16]);
     transmute::<i8x16, _>(ret)
 }
 
@@ -599,7 +485,7 @@ pub unsafe fn _mm_broadcastb_epi8(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastb_epi8(a: __m128i) -> __m256i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle32(a.as_i8x16(), zero.as_i8x16(), [0_u32; 32]);
+    let ret = simd_shuffle32!(a.as_i8x16(), zero.as_i8x16(), [0_u32; 32]);
     transmute::<i8x32, _>(ret)
 }
 
@@ -615,7 +501,7 @@ pub unsafe fn _mm256_broadcastb_epi8(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastd_epi32(a: __m128i) -> __m128i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle4(a.as_i32x4(), zero.as_i32x4(), [0_u32; 4]);
+    let ret = simd_shuffle4!(a.as_i32x4(), zero.as_i32x4(), [0_u32; 4]);
     transmute::<i32x4, _>(ret)
 }
 
@@ -631,7 +517,7 @@ pub unsafe fn _mm_broadcastd_epi32(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastd_epi32(a: __m128i) -> __m256i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle8(a.as_i32x4(), zero.as_i32x4(), [0_u32; 8]);
+    let ret = simd_shuffle8!(a.as_i32x4(), zero.as_i32x4(), [0_u32; 8]);
     transmute::<i32x8, _>(ret)
 }
 
@@ -645,7 +531,7 @@ pub unsafe fn _mm256_broadcastd_epi32(a: __m128i) -> __m256i {
 #[cfg_attr(test, assert_instr(vmovddup))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastq_epi64(a: __m128i) -> __m128i {
-    let ret = simd_shuffle2(a.as_i64x2(), a.as_i64x2(), [0_u32; 2]);
+    let ret = simd_shuffle2!(a.as_i64x2(), a.as_i64x2(), [0_u32; 2]);
     transmute::<i64x2, _>(ret)
 }
 
@@ -658,7 +544,7 @@ pub unsafe fn _mm_broadcastq_epi64(a: __m128i) -> __m128i {
 #[cfg_attr(test, assert_instr(vbroadcastsd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastq_epi64(a: __m128i) -> __m256i {
-    let ret = simd_shuffle4(a.as_i64x2(), a.as_i64x2(), [0_u32; 4]);
+    let ret = simd_shuffle4!(a.as_i64x2(), a.as_i64x2(), [0_u32; 4]);
     transmute::<i64x4, _>(ret)
 }
 
@@ -671,7 +557,7 @@ pub unsafe fn _mm256_broadcastq_epi64(a: __m128i) -> __m256i {
 #[cfg_attr(test, assert_instr(vmovddup))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastsd_pd(a: __m128d) -> __m128d {
-    simd_shuffle2(a, _mm_setzero_pd(), [0_u32; 2])
+    simd_shuffle2!(a, _mm_setzero_pd(), [0_u32; 2])
 }
 
 /// Broadcasts the low double-precision (64-bit) floating-point element
@@ -683,7 +569,7 @@ pub unsafe fn _mm_broadcastsd_pd(a: __m128d) -> __m128d {
 #[cfg_attr(test, assert_instr(vbroadcastsd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastsd_pd(a: __m128d) -> __m256d {
-    simd_shuffle4(a, _mm_setzero_pd(), [0_u32; 4])
+    simd_shuffle4!(a, _mm_setzero_pd(), [0_u32; 4])
 }
 
 // N.B., `broadcastsi128_si256` is often compiled to `vinsertf128` or
@@ -697,7 +583,7 @@ pub unsafe fn _mm256_broadcastsd_pd(a: __m128d) -> __m256d {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastsi128_si256(a: __m128i) -> __m256i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle4(a.as_i64x2(), zero.as_i64x2(), [0, 1, 0, 1]);
+    let ret = simd_shuffle4!(a.as_i64x2(), zero.as_i64x2(), [0, 1, 0, 1]);
     transmute::<i64x4, _>(ret)
 }
 
@@ -710,7 +596,7 @@ pub unsafe fn _mm256_broadcastsi128_si256(a: __m128i) -> __m256i {
 #[cfg_attr(test, assert_instr(vbroadcastss))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastss_ps(a: __m128) -> __m128 {
-    simd_shuffle4(a, _mm_setzero_ps(), [0_u32; 4])
+    simd_shuffle4!(a, _mm_setzero_ps(), [0_u32; 4])
 }
 
 /// Broadcasts the low single-precision (32-bit) floating-point element
@@ -722,7 +608,7 @@ pub unsafe fn _mm_broadcastss_ps(a: __m128) -> __m128 {
 #[cfg_attr(test, assert_instr(vbroadcastss))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastss_ps(a: __m128) -> __m256 {
-    simd_shuffle8(a, _mm_setzero_ps(), [0_u32; 8])
+    simd_shuffle8!(a, _mm_setzero_ps(), [0_u32; 8])
 }
 
 /// Broadcasts the low packed 16-bit integer from a to all elements of
@@ -735,7 +621,7 @@ pub unsafe fn _mm256_broadcastss_ps(a: __m128) -> __m256 {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastw_epi16(a: __m128i) -> __m128i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle8(a.as_i16x8(), zero.as_i16x8(), [0_u32; 8]);
+    let ret = simd_shuffle8!(a.as_i16x8(), zero.as_i16x8(), [0_u32; 8]);
     transmute::<i16x8, _>(ret)
 }
 
@@ -749,7 +635,7 @@ pub unsafe fn _mm_broadcastw_epi16(a: __m128i) -> __m128i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastw_epi16(a: __m128i) -> __m256i {
     let zero = _mm_setzero_si128();
-    let ret = simd_shuffle16(a.as_i16x8(), zero.as_i16x8(), [0_u32; 16]);
+    let ret = simd_shuffle16!(a.as_i16x8(), zero.as_i16x8(), [0_u32; 16]);
     transmute::<i16x16, _>(ret)
 }
 
@@ -861,7 +747,7 @@ pub unsafe fn _mm256_cvtepi16_epi32(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_cvtepi16_epi64(a: __m128i) -> __m256i {
     let a = a.as_i16x8();
-    let v64: i16x4 = simd_shuffle4(a, a, [0, 1, 2, 3]);
+    let v64: i16x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute::<i64x4, _>(simd_cast(v64))
 }
 
@@ -896,7 +782,7 @@ pub unsafe fn _mm256_cvtepi8_epi16(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_cvtepi8_epi32(a: __m128i) -> __m256i {
     let a = a.as_i8x16();
-    let v64: i8x8 = simd_shuffle8(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
+    let v64: i8x8 = simd_shuffle8!(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
     transmute::<i32x8, _>(simd_cast(v64))
 }
 
@@ -909,7 +795,7 @@ pub unsafe fn _mm256_cvtepi8_epi32(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_cvtepi8_epi64(a: __m128i) -> __m256i {
     let a = a.as_i8x16();
-    let v32: i8x4 = simd_shuffle4(a, a, [0, 1, 2, 3]);
+    let v32: i8x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute::<i64x4, _>(simd_cast(v32))
 }
 
@@ -935,7 +821,7 @@ pub unsafe fn _mm256_cvtepu16_epi32(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_cvtepu16_epi64(a: __m128i) -> __m256i {
     let a = a.as_u16x8();
-    let v64: u16x4 = simd_shuffle4(a, a, [0, 1, 2, 3]);
+    let v64: u16x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute::<i64x4, _>(simd_cast(v64))
 }
 
@@ -971,7 +857,7 @@ pub unsafe fn _mm256_cvtepu8_epi16(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_cvtepu8_epi32(a: __m128i) -> __m256i {
     let a = a.as_u8x16();
-    let v64: u8x8 = simd_shuffle8(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
+    let v64: u8x8 = simd_shuffle8!(a, a, [0, 1, 2, 3, 4, 5, 6, 7]);
     transmute::<i32x8, _>(simd_cast(v64))
 }
 
@@ -985,28 +871,26 @@ pub unsafe fn _mm256_cvtepu8_epi32(a: __m128i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_cvtepu8_epi64(a: __m128i) -> __m256i {
     let a = a.as_u8x16();
-    let v32: u8x4 = simd_shuffle4(a, a, [0, 1, 2, 3]);
+    let v32: u8x4 = simd_shuffle4!(a, a, [0, 1, 2, 3]);
     transmute::<i64x4, _>(simd_cast(v32))
 }
 
-/// Extracts 128 bits (of integer data) from `a` selected with `imm8`.
+/// Extracts 128 bits (of integer data) from `a` selected with `IMM1`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_extracti128_si256)
 #[inline]
 #[target_feature(enable = "avx2")]
 #[cfg_attr(
     all(test, not(target_os = "windows")),
-    assert_instr(vextractf128, imm8 = 1)
+    assert_instr(vextractf128, IMM1 = 1)
 )]
-#[rustc_args_required_const(1)]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_extracti128_si256(a: __m256i, imm8: i32) -> __m128i {
+pub unsafe fn _mm256_extracti128_si256<const IMM1: i32>(a: __m256i) -> __m128i {
+    static_assert_imm1!(IMM1);
     let a = a.as_i64x4();
     let b = _mm256_undefined_si256().as_i64x4();
-    let dst: i64x2 = match imm8 & 0b01 {
-        0 => simd_shuffle2(a, b, [0, 1]),
-        _ => simd_shuffle2(a, b, [2, 3]),
-    };
+    let dst: i64x2 = simd_shuffle2!(a, b, <const IMM1: i32> [[0, 1], [2, 3]][IMM1 as usize]);
     transmute(dst)
 }
 
@@ -1080,871 +964,756 @@ pub unsafe fn _mm256_hsubs_epi16(a: __m256i, b: __m256i) -> __m256i {
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i32gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherdd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i32gather_epi32(slice: *const i32, offsets: __m128i, scale: i32) -> __m128i {
+pub unsafe fn _mm_i32gather_epi32<const SCALE: i32>(
+    slice: *const i32,
+    offsets: __m128i,
+) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_si128().as_i32x4();
     let neg_one = _mm_set1_epi32(-1).as_i32x4();
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherdd(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i32gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherdd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i32gather_epi32(
+pub unsafe fn _mm_mask_i32gather_epi32<const SCALE: i32>(
     src: __m128i,
     slice: *const i32,
     offsets: __m128i,
     mask: __m128i,
-    scale: i32,
 ) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i32x4();
     let mask = mask.as_i32x4();
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherdd(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i32gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherdd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i32gather_epi32(slice: *const i32, offsets: __m256i, scale: i32) -> __m256i {
+pub unsafe fn _mm256_i32gather_epi32<const SCALE: i32>(
+    slice: *const i32,
+    offsets: __m256i,
+) -> __m256i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm256_setzero_si256().as_i32x8();
     let neg_one = _mm256_set1_epi32(-1).as_i32x8();
     let offsets = offsets.as_i32x8();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherdd(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i32gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherdd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i32gather_epi32(
+pub unsafe fn _mm256_mask_i32gather_epi32<const SCALE: i32>(
     src: __m256i,
     slice: *const i32,
     offsets: __m256i,
     mask: __m256i,
-    scale: i32,
 ) -> __m256i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i32x8();
     let mask = mask.as_i32x8();
     let offsets = offsets.as_i32x8();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherdd(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i32gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdps, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherdps, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i32gather_ps(slice: *const f32, offsets: __m128i, scale: i32) -> __m128 {
+pub unsafe fn _mm_i32gather_ps<const SCALE: i32>(slice: *const f32, offsets: __m128i) -> __m128 {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_ps();
     let neg_one = _mm_set1_ps(-1.0);
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdps(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherdps(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i32gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdps, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherdps, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i32gather_ps(
+pub unsafe fn _mm_mask_i32gather_ps<const SCALE: i32>(
     src: __m128,
     slice: *const f32,
     offsets: __m128i,
     mask: __m128,
-    scale: i32,
 ) -> __m128 {
+    static_assert_imm8_scale!(SCALE);
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdps(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherdps(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i32gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdps, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherdps, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i32gather_ps(slice: *const f32, offsets: __m256i, scale: i32) -> __m256 {
+pub unsafe fn _mm256_i32gather_ps<const SCALE: i32>(slice: *const f32, offsets: __m256i) -> __m256 {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm256_setzero_ps();
     let neg_one = _mm256_set1_ps(-1.0);
     let offsets = offsets.as_i32x8();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdps(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherdps(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i32gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdps, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherdps, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i32gather_ps(
+pub unsafe fn _mm256_mask_i32gather_ps<const SCALE: i32>(
     src: __m256,
     slice: *const f32,
     offsets: __m256i,
     mask: __m256,
-    scale: i32,
 ) -> __m256 {
+    static_assert_imm8_scale!(SCALE);
     let offsets = offsets.as_i32x8();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdps(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherdps(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i32gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdq, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherdq, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i32gather_epi64(slice: *const i64, offsets: __m128i, scale: i32) -> __m128i {
+pub unsafe fn _mm_i32gather_epi64<const SCALE: i32>(
+    slice: *const i64,
+    offsets: __m128i,
+) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_si128().as_i64x2();
     let neg_one = _mm_set1_epi64x(-1).as_i64x2();
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdq(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherdq(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i32gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdq, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherdq, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i32gather_epi64(
+pub unsafe fn _mm_mask_i32gather_epi64<const SCALE: i32>(
     src: __m128i,
     slice: *const i64,
     offsets: __m128i,
     mask: __m128i,
-    scale: i32,
 ) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i64x2();
     let mask = mask.as_i64x2();
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdq(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherdq(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i32gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdq, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherdq, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i32gather_epi64(slice: *const i64, offsets: __m128i, scale: i32) -> __m256i {
+pub unsafe fn _mm256_i32gather_epi64<const SCALE: i32>(
+    slice: *const i64,
+    offsets: __m128i,
+) -> __m256i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm256_setzero_si256().as_i64x4();
     let neg_one = _mm256_set1_epi64x(-1).as_i64x4();
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdq(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherdq(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i32gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherdq, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherdq, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i32gather_epi64(
+pub unsafe fn _mm256_mask_i32gather_epi64<const SCALE: i32>(
     src: __m256i,
     slice: *const i64,
     offsets: __m128i,
     mask: __m256i,
-    scale: i32,
 ) -> __m256i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i64x4();
     let mask = mask.as_i64x4();
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdq(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherdq(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i32gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdpd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherdpd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i32gather_pd(slice: *const f64, offsets: __m128i, scale: i32) -> __m128d {
+pub unsafe fn _mm_i32gather_pd<const SCALE: i32>(slice: *const f64, offsets: __m128i) -> __m128d {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_pd();
     let neg_one = _mm_set1_pd(-1.0);
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdpd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherdpd(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i32gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdpd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherdpd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i32gather_pd(
+pub unsafe fn _mm_mask_i32gather_pd<const SCALE: i32>(
     src: __m128d,
     slice: *const f64,
     offsets: __m128i,
     mask: __m128d,
-    scale: i32,
 ) -> __m128d {
+    static_assert_imm8_scale!(SCALE);
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherdpd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherdpd(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i32gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdpd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherdpd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i32gather_pd(slice: *const f64, offsets: __m128i, scale: i32) -> __m256d {
+pub unsafe fn _mm256_i32gather_pd<const SCALE: i32>(
+    slice: *const f64,
+    offsets: __m128i,
+) -> __m256d {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm256_setzero_pd();
     let neg_one = _mm256_set1_pd(-1.0);
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdpd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherdpd(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i32gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherdpd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherdpd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i32gather_pd(
+pub unsafe fn _mm256_mask_i32gather_pd<const SCALE: i32>(
     src: __m256d,
     slice: *const f64,
     offsets: __m128i,
     mask: __m256d,
-    scale: i32,
 ) -> __m256d {
+    static_assert_imm8_scale!(SCALE);
     let offsets = offsets.as_i32x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherdpd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherdpd(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i64gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherqd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i64gather_epi32(slice: *const i32, offsets: __m128i, scale: i32) -> __m128i {
+pub unsafe fn _mm_i64gather_epi32<const SCALE: i32>(
+    slice: *const i32,
+    offsets: __m128i,
+) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_si128().as_i32x4();
     let neg_one = _mm_set1_epi64x(-1).as_i32x4();
     let offsets = offsets.as_i64x2();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherqd(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i64gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherqd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i64gather_epi32(
+pub unsafe fn _mm_mask_i64gather_epi32<const SCALE: i32>(
     src: __m128i,
     slice: *const i32,
     offsets: __m128i,
     mask: __m128i,
-    scale: i32,
 ) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i32x4();
     let mask = mask.as_i32x4();
     let offsets = offsets.as_i64x2();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherqd(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i64gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherqd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i64gather_epi32(slice: *const i32, offsets: __m256i, scale: i32) -> __m128i {
+pub unsafe fn _mm256_i64gather_epi32<const SCALE: i32>(
+    slice: *const i32,
+    offsets: __m256i,
+) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_si128().as_i32x4();
     let neg_one = _mm_set1_epi64x(-1).as_i32x4();
     let offsets = offsets.as_i64x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherqd(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i64gather_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherqd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i64gather_epi32(
+pub unsafe fn _mm256_mask_i64gather_epi32<const SCALE: i32>(
     src: __m128i,
     slice: *const i32,
     offsets: __m256i,
     mask: __m128i,
-    scale: i32,
 ) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i32x4();
     let mask = mask.as_i32x4();
     let offsets = offsets.as_i64x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherqd(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i64gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqps, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherqps, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i64gather_ps(slice: *const f32, offsets: __m128i, scale: i32) -> __m128 {
+pub unsafe fn _mm_i64gather_ps<const SCALE: i32>(slice: *const f32, offsets: __m128i) -> __m128 {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_ps();
     let neg_one = _mm_set1_ps(-1.0);
     let offsets = offsets.as_i64x2();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqps(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherqps(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i64gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqps, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherqps, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i64gather_ps(
+pub unsafe fn _mm_mask_i64gather_ps<const SCALE: i32>(
     src: __m128,
     slice: *const f32,
     offsets: __m128i,
     mask: __m128,
-    scale: i32,
 ) -> __m128 {
+    static_assert_imm8_scale!(SCALE);
     let offsets = offsets.as_i64x2();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqps(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherqps(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i64gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqps, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherqps, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i64gather_ps(slice: *const f32, offsets: __m256i, scale: i32) -> __m128 {
+pub unsafe fn _mm256_i64gather_ps<const SCALE: i32>(slice: *const f32, offsets: __m256i) -> __m128 {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_ps();
     let neg_one = _mm_set1_ps(-1.0);
     let offsets = offsets.as_i64x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqps(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherqps(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i64gather_ps)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqps, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherqps, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i64gather_ps(
+pub unsafe fn _mm256_mask_i64gather_ps<const SCALE: i32>(
     src: __m128,
     slice: *const f32,
     offsets: __m256i,
     mask: __m128,
-    scale: i32,
 ) -> __m128 {
+    static_assert_imm8_scale!(SCALE);
     let offsets = offsets.as_i64x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqps(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherqps(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i64gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqq, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherqq, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i64gather_epi64(slice: *const i64, offsets: __m128i, scale: i32) -> __m128i {
+pub unsafe fn _mm_i64gather_epi64<const SCALE: i32>(
+    slice: *const i64,
+    offsets: __m128i,
+) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_si128().as_i64x2();
     let neg_one = _mm_set1_epi64x(-1).as_i64x2();
     let slice = slice as *const i8;
     let offsets = offsets.as_i64x2();
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqq(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherqq(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i64gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqq, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherqq, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i64gather_epi64(
+pub unsafe fn _mm_mask_i64gather_epi64<const SCALE: i32>(
     src: __m128i,
     slice: *const i64,
     offsets: __m128i,
     mask: __m128i,
-    scale: i32,
 ) -> __m128i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i64x2();
     let mask = mask.as_i64x2();
     let offsets = offsets.as_i64x2();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqq(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = pgatherqq(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i64gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqq, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vpgatherqq, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i64gather_epi64(slice: *const i64, offsets: __m256i, scale: i32) -> __m256i {
+pub unsafe fn _mm256_i64gather_epi64<const SCALE: i32>(
+    slice: *const i64,
+    offsets: __m256i,
+) -> __m256i {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm256_setzero_si256().as_i64x4();
     let neg_one = _mm256_set1_epi64x(-1).as_i64x4();
     let slice = slice as *const i8;
     let offsets = offsets.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqq(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherqq(zero, slice, offsets, neg_one, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i64gather_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpgatherqq, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vpgatherqq, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i64gather_epi64(
+pub unsafe fn _mm256_mask_i64gather_epi64<const SCALE: i32>(
     src: __m256i,
     slice: *const i64,
     offsets: __m256i,
     mask: __m256i,
-    scale: i32,
 ) -> __m256i {
+    static_assert_imm8_scale!(SCALE);
     let src = src.as_i64x4();
     let mask = mask.as_i64x4();
     let offsets = offsets.as_i64x4();
     let slice = slice as *const i8;
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqq(src, slice, offsets, mask, $imm8)
-        };
-    }
-    let r = constify_imm8!(scale, call);
+    let r = vpgatherqq(src, slice, offsets, mask, SCALE as i8);
     transmute(r)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_i64gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqpd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherqpd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_i64gather_pd(slice: *const f64, offsets: __m128i, scale: i32) -> __m128d {
+pub unsafe fn _mm_i64gather_pd<const SCALE: i32>(slice: *const f64, offsets: __m128i) -> __m128d {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm_setzero_pd();
     let neg_one = _mm_set1_pd(-1.0);
     let slice = slice as *const i8;
     let offsets = offsets.as_i64x2();
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqpd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherqpd(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_mask_i64gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqpd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherqpd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_mask_i64gather_pd(
+pub unsafe fn _mm_mask_i64gather_pd<const SCALE: i32>(
     src: __m128d,
     slice: *const f64,
     offsets: __m128i,
     mask: __m128d,
-    scale: i32,
 ) -> __m128d {
+    static_assert_imm8_scale!(SCALE);
     let slice = slice as *const i8;
     let offsets = offsets.as_i64x2();
-    macro_rules! call {
-        ($imm8:expr) => {
-            pgatherqpd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    pgatherqpd(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8.
+/// `scale` should be 1, 2, 4 or 8.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_i64gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqpd, scale = 1))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vgatherqpd, SCALE = 1))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_i64gather_pd(slice: *const f64, offsets: __m256i, scale: i32) -> __m256d {
+pub unsafe fn _mm256_i64gather_pd<const SCALE: i32>(
+    slice: *const f64,
+    offsets: __m256i,
+) -> __m256d {
+    static_assert_imm8_scale!(SCALE);
     let zero = _mm256_setzero_pd();
     let neg_one = _mm256_set1_pd(-1.0);
     let slice = slice as *const i8;
     let offsets = offsets.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqpd(zero, slice, offsets, neg_one, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherqpd(zero, slice, offsets, neg_one, SCALE as i8)
 }
 
 /// Returns values from `slice` at offsets determined by `offsets * scale`,
 /// where
-/// `scale` is between 1 and 8. If mask is set, load the value from `src` in
+/// `scale` should be 1, 2, 4 or 8. If mask is set, load the value from `src` in
 /// that position instead.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mask_i64gather_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vgatherqpd, scale = 1))]
-#[rustc_args_required_const(4)]
+#[cfg_attr(test, assert_instr(vgatherqpd, SCALE = 1))]
+#[rustc_legacy_const_generics(4)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mask_i64gather_pd(
+pub unsafe fn _mm256_mask_i64gather_pd<const SCALE: i32>(
     src: __m256d,
     slice: *const f64,
     offsets: __m256i,
     mask: __m256d,
-    scale: i32,
 ) -> __m256d {
+    static_assert_imm8_scale!(SCALE);
     let slice = slice as *const i8;
     let offsets = offsets.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpgatherqpd(src, slice, offsets, mask, $imm8)
-        };
-    }
-    constify_imm8!(scale, call)
+    vpgatherqpd(src, slice, offsets, mask, SCALE as i8)
 }
 
 /// Copies `a` to `dst`, then insert 128 bits (of integer data) from `b` at the
-/// location specified by `imm8`.
+/// location specified by `IMM1`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_inserti128_si256)
 #[inline]
 #[target_feature(enable = "avx2")]
 #[cfg_attr(
     all(test, not(target_os = "windows")),
-    assert_instr(vinsertf128, imm8 = 1)
+    assert_instr(vinsertf128, IMM1 = 1)
 )]
-#[rustc_args_required_const(2)]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_inserti128_si256(a: __m256i, b: __m128i, imm8: i32) -> __m256i {
+pub unsafe fn _mm256_inserti128_si256<const IMM1: i32>(a: __m256i, b: __m128i) -> __m256i {
+    static_assert_imm1!(IMM1);
     let a = a.as_i64x4();
     let b = _mm256_castsi128_si256(b).as_i64x4();
-    let dst: i64x4 = match imm8 & 0b01 {
-        0 => simd_shuffle4(a, b, [4, 5, 2, 3]),
-        _ => simd_shuffle4(a, b, [0, 1, 4, 5]),
-    };
+    let dst: i64x4 =
+        simd_shuffle4!(a, b, <const IMM1: i32> [[4, 5, 2, 3], [0, 1, 4, 5]][IMM1 as usize]);
     transmute(dst)
 }
 
@@ -2232,7 +2001,7 @@ pub unsafe fn _mm256_min_epu8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpmovmskb))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_movemask_epi8(a: __m256i) -> i32 {
-    pmovmskb(a.as_i8x32())
+    simd_bitmask::<_, u32>(a.as_i8x32()) as i32
 }
 
 /// Computes the sum of absolute differences (SADs) of quadruplets of unsigned
@@ -2246,19 +2015,12 @@ pub unsafe fn _mm256_movemask_epi8(a: __m256i) -> i32 {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_mpsadbw_epu8)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vmpsadbw, imm8 = 0))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vmpsadbw, IMM8 = 0))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_mpsadbw_epu8(a: __m256i, b: __m256i, imm8: i32) -> __m256i {
-    let a = a.as_u8x32();
-    let b = b.as_u8x32();
-    macro_rules! call {
-        ($imm8:expr) => {
-            mpsadbw(a, b, $imm8)
-        };
-    }
-    let r = constify_imm8!(imm8, call);
-    transmute(r)
+pub unsafe fn _mm256_mpsadbw_epu8<const IMM8: i32>(a: __m256i, b: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(mpsadbw(a.as_u8x32(), b.as_u8x32(), IMM8))
 }
 
 /// Multiplies the low 32-bit integers from each packed 64-bit element in
@@ -2434,54 +2196,22 @@ pub unsafe fn _mm256_permutevar8x32_epi32(a: __m256i, b: __m256i) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_permute4x64_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpermpd, imm8 = 9))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpermpd, IMM8 = 9))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_permute4x64_epi64(a: __m256i, imm8: i32) -> __m256i {
-    let imm8 = (imm8 & 0xFF) as u8;
+pub unsafe fn _mm256_permute4x64_epi64<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
     let zero = _mm256_setzero_si256().as_i64x4();
-    let a = a.as_i64x4();
-    macro_rules! permute4 {
-        ($a:expr, $b:expr, $c:expr, $d:expr) => {
-            simd_shuffle4(a, zero, [$a, $b, $c, $d]);
-        };
-    }
-    macro_rules! permute3 {
-        ($a:expr, $b:expr, $c:expr) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => permute4!($a, $b, $c, 0),
-                0b01 => permute4!($a, $b, $c, 1),
-                0b10 => permute4!($a, $b, $c, 2),
-                _ => permute4!($a, $b, $c, 3),
-            }
-        };
-    }
-    macro_rules! permute2 {
-        ($a:expr, $b:expr) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => permute3!($a, $b, 0),
-                0b01 => permute3!($a, $b, 1),
-                0b10 => permute3!($a, $b, 2),
-                _ => permute3!($a, $b, 3),
-            }
-        };
-    }
-    macro_rules! permute1 {
-        ($a:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => permute2!($a, 0),
-                0b01 => permute2!($a, 1),
-                0b10 => permute2!($a, 2),
-                _ => permute2!($a, 3),
-            }
-        };
-    }
-    let r: i64x4 = match imm8 & 0b11 {
-        0b00 => permute1!(0),
-        0b01 => permute1!(1),
-        0b10 => permute1!(2),
-        _ => permute1!(3),
-    };
+    let r: i64x4 = simd_shuffle4!(
+        a.as_i64x4(),
+        zero,
+        <const IMM8: i32> [
+            IMM8 as u32 & 0b11,
+            (IMM8 as u32 >> 2) & 0b11,
+            (IMM8 as u32 >> 4) & 0b11,
+            (IMM8 as u32 >> 6) & 0b11,
+        ],
+    );
     transmute(r)
 }
 
@@ -2490,18 +2220,12 @@ pub unsafe fn _mm256_permute4x64_epi64(a: __m256i, imm8: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_permute2x128_si256)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vperm2f128, imm8 = 9))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(vperm2f128, IMM8 = 9))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_permute2x128_si256(a: __m256i, b: __m256i, imm8: i32) -> __m256i {
-    let a = a.as_i64x4();
-    let b = b.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vperm2i128(a, b, $imm8)
-        };
-    }
-    transmute(constify_imm8!(imm8, call))
+pub unsafe fn _mm256_permute2x128_si256<const IMM8: i32>(a: __m256i, b: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(vperm2i128(a.as_i64x4(), b.as_i64x4(), IMM8 as i8))
 }
 
 /// Shuffles 64-bit floating-point elements in `a` across lanes using the
@@ -2510,53 +2234,21 @@ pub unsafe fn _mm256_permute2x128_si256(a: __m256i, b: __m256i, imm8: i32) -> __
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_permute4x64_pd)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpermpd, imm8 = 1))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpermpd, IMM8 = 1))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_permute4x64_pd(a: __m256d, imm8: i32) -> __m256d {
-    let imm8 = (imm8 & 0xFF) as u8;
-    let undef = _mm256_undefined_pd();
-    macro_rules! shuffle_done {
-        ($x01:expr, $x23:expr, $x45:expr, $x67:expr) => {
-            simd_shuffle4(a, undef, [$x01, $x23, $x45, $x67])
-        };
-    }
-    macro_rules! shuffle_x67 {
-        ($x01:expr, $x23:expr, $x45:expr) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => shuffle_done!($x01, $x23, $x45, 0),
-                0b01 => shuffle_done!($x01, $x23, $x45, 1),
-                0b10 => shuffle_done!($x01, $x23, $x45, 2),
-                _ => shuffle_done!($x01, $x23, $x45, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x45 {
-        ($x01:expr, $x23:expr) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => shuffle_x67!($x01, $x23, 0),
-                0b01 => shuffle_x67!($x01, $x23, 1),
-                0b10 => shuffle_x67!($x01, $x23, 2),
-                _ => shuffle_x67!($x01, $x23, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x23 {
-        ($x01:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => shuffle_x45!($x01, 0),
-                0b01 => shuffle_x45!($x01, 1),
-                0b10 => shuffle_x45!($x01, 2),
-                _ => shuffle_x45!($x01, 3),
-            }
-        };
-    }
-    match imm8 & 0b11 {
-        0b00 => shuffle_x23!(0),
-        0b01 => shuffle_x23!(1),
-        0b10 => shuffle_x23!(2),
-        _ => shuffle_x23!(3),
-    }
+pub unsafe fn _mm256_permute4x64_pd<const IMM8: i32>(a: __m256d) -> __m256d {
+    static_assert_imm8!(IMM8);
+    simd_shuffle4!(
+        a,
+        _mm256_undefined_pd(),
+        <const IMM8: i32> [
+            IMM8 as u32 & 0b11,
+            (IMM8 as u32 >> 2) & 0b11,
+            (IMM8 as u32 >> 4) & 0b11,
+            (IMM8 as u32 >> 6) & 0b11,
+        ],
+    )
 }
 
 /// Shuffles eight 32-bit foating-point elements in `a` across lanes using
@@ -2587,13 +2279,12 @@ pub unsafe fn _mm256_sad_epu8(a: __m256i, b: __m256i) -> __m256i {
 
 /// Shuffles bytes from `a` according to the content of `b`.
 ///
-/// The last 4 bits of each byte of `b` are used as addresses into the 32 bytes
-/// of `a`.
+/// For each of the 128-bit low and high halves of the vectors, the last
+/// 4 bits of each byte of `b` are used as addresses into the respective
+/// low or high 16 bytes of `a`. That is, the halves are shuffled separately.
 ///
 /// In addition, if the highest significant bit of a byte of `b` is set, the
 /// respective destination byte is set to 0.
-///
-/// The low and high halves of the vectors are shuffled separately.
 ///
 /// Picturing `a` and `b` as `[u8; 32]`, `_mm256_shuffle_epi8` is logically
 /// equivalent to:
@@ -2656,74 +2347,25 @@ pub unsafe fn _mm256_shuffle_epi8(a: __m256i, b: __m256i) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_shuffle_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpermilps, imm8 = 9))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpermilps, MASK = 9))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_shuffle_epi32(a: __m256i, imm8: i32) -> __m256i {
-    // simd_shuffleX requires that its selector parameter be made up of
-    // constant values, but we can't enforce that here. In spirit, we need
-    // to write a `match` on all possible values of a byte, and for each value,
-    // hard-code the correct `simd_shuffleX` call using only constants. We
-    // then hope for LLVM to do the rest.
-    //
-    // Of course, that's... awful. So we try to use macros to do it for us.
-    let imm8 = (imm8 & 0xFF) as u8;
-
-    let a = a.as_i32x8();
-    macro_rules! shuffle_done {
-        ($x01:expr, $x23:expr, $x45:expr, $x67:expr) => {
-            simd_shuffle8(
-                a,
-                a,
-                [
-                    $x01,
-                    $x23,
-                    $x45,
-                    $x67,
-                    4 + $x01,
-                    4 + $x23,
-                    4 + $x45,
-                    4 + $x67,
-                ],
-            )
-        };
-    }
-    macro_rules! shuffle_x67 {
-        ($x01:expr, $x23:expr, $x45:expr) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => shuffle_done!($x01, $x23, $x45, 0),
-                0b01 => shuffle_done!($x01, $x23, $x45, 1),
-                0b10 => shuffle_done!($x01, $x23, $x45, 2),
-                _ => shuffle_done!($x01, $x23, $x45, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x45 {
-        ($x01:expr, $x23:expr) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => shuffle_x67!($x01, $x23, 0),
-                0b01 => shuffle_x67!($x01, $x23, 1),
-                0b10 => shuffle_x67!($x01, $x23, 2),
-                _ => shuffle_x67!($x01, $x23, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x23 {
-        ($x01:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => shuffle_x45!($x01, 0),
-                0b01 => shuffle_x45!($x01, 1),
-                0b10 => shuffle_x45!($x01, 2),
-                _ => shuffle_x45!($x01, 3),
-            }
-        };
-    }
-    let r: i32x8 = match imm8 & 0b11 {
-        0b00 => shuffle_x23!(0),
-        0b01 => shuffle_x23!(1),
-        0b10 => shuffle_x23!(2),
-        _ => shuffle_x23!(3),
-    };
+pub unsafe fn _mm256_shuffle_epi32<const MASK: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(MASK);
+    let r: i32x8 = simd_shuffle8!(
+        a.as_i32x8(),
+        a.as_i32x8(),
+        <const MASK: i32> [
+            MASK as u32 & 0b11,
+            (MASK as u32 >> 2) & 0b11,
+            (MASK as u32 >> 4) & 0b11,
+            (MASK as u32 >> 6) & 0b11,
+            (MASK as u32 & 0b11) + 4,
+            ((MASK as u32 >> 2) & 0b11) + 4,
+            ((MASK as u32 >> 4) & 0b11) + 4,
+            ((MASK as u32 >> 6) & 0b11) + 4,
+        ],
+    );
     transmute(r)
 }
 
@@ -2734,57 +2376,34 @@ pub unsafe fn _mm256_shuffle_epi32(a: __m256i, imm8: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_shufflehi_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpshufhw, imm8 = 9))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpshufhw, IMM8 = 9))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_shufflehi_epi16(a: __m256i, imm8: i32) -> __m256i {
-    let imm8 = (imm8 & 0xFF) as u8;
+pub unsafe fn _mm256_shufflehi_epi16<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
     let a = a.as_i16x16();
-    macro_rules! shuffle_done {
-        ($x01:expr, $x23:expr, $x45:expr, $x67:expr) => {
-            #[rustfmt::skip]
-                        simd_shuffle16(a, a, [
-                            0, 1, 2, 3, 4+$x01, 4+$x23, 4+$x45, 4+$x67,
-                            8, 9, 10, 11, 12+$x01, 12+$x23, 12+$x45, 12+$x67
-                        ]);
-        };
-    }
-    macro_rules! shuffle_x67 {
-        ($x01:expr, $x23:expr, $x45:expr) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => shuffle_done!($x01, $x23, $x45, 0),
-                0b01 => shuffle_done!($x01, $x23, $x45, 1),
-                0b10 => shuffle_done!($x01, $x23, $x45, 2),
-                _ => shuffle_done!($x01, $x23, $x45, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x45 {
-        ($x01:expr, $x23:expr) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => shuffle_x67!($x01, $x23, 0),
-                0b01 => shuffle_x67!($x01, $x23, 1),
-                0b10 => shuffle_x67!($x01, $x23, 2),
-                _ => shuffle_x67!($x01, $x23, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x23 {
-        ($x01:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => shuffle_x45!($x01, 0),
-                0b01 => shuffle_x45!($x01, 1),
-                0b10 => shuffle_x45!($x01, 2),
-                _ => shuffle_x45!($x01, 3),
-            }
-        };
-    }
-    let r: i16x16 = match imm8 & 0b11 {
-        0b00 => shuffle_x23!(0),
-        0b01 => shuffle_x23!(1),
-        0b10 => shuffle_x23!(2),
-        _ => shuffle_x23!(3),
-    };
+    let r: i16x16 = simd_shuffle16!(
+        a,
+        a,
+        <const IMM8: i32> [
+            0,
+            1,
+            2,
+            3,
+            4 + (IMM8 as u32 & 0b11),
+            4 + ((IMM8 as u32 >> 2) & 0b11),
+            4 + ((IMM8 as u32 >> 4) & 0b11),
+            4 + ((IMM8 as u32 >> 6) & 0b11),
+            8,
+            9,
+            10,
+            11,
+            12 + (IMM8 as u32 & 0b11),
+            12 + ((IMM8 as u32 >> 2) & 0b11),
+            12 + ((IMM8 as u32 >> 4) & 0b11),
+            12 + ((IMM8 as u32 >> 6) & 0b11),
+        ],
+    );
     transmute(r)
 }
 
@@ -2795,57 +2414,34 @@ pub unsafe fn _mm256_shufflehi_epi16(a: __m256i, imm8: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_shufflelo_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpshuflw, imm8 = 9))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpshuflw, IMM8 = 9))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_shufflelo_epi16(a: __m256i, imm8: i32) -> __m256i {
-    let imm8 = (imm8 & 0xFF) as u8;
+pub unsafe fn _mm256_shufflelo_epi16<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
     let a = a.as_i16x16();
-    macro_rules! shuffle_done {
-        ($x01: expr, $x23: expr, $x45: expr, $x67: expr) => {
-            #[rustfmt::skip]
-                        simd_shuffle16(a, a, [
-                            0+$x01, 0+$x23, 0+$x45, 0+$x67, 4, 5, 6, 7,
-                            8+$x01, 8+$x23, 8+$x45, 8+$x67, 12, 13, 14, 15,
-                        ]);
-        };
-    }
-    macro_rules! shuffle_x67 {
-        ($x01:expr, $x23:expr, $x45:expr) => {
-            match (imm8 >> 6) & 0b11 {
-                0b00 => shuffle_done!($x01, $x23, $x45, 0),
-                0b01 => shuffle_done!($x01, $x23, $x45, 1),
-                0b10 => shuffle_done!($x01, $x23, $x45, 2),
-                _ => shuffle_done!($x01, $x23, $x45, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x45 {
-        ($x01:expr, $x23:expr) => {
-            match (imm8 >> 4) & 0b11 {
-                0b00 => shuffle_x67!($x01, $x23, 0),
-                0b01 => shuffle_x67!($x01, $x23, 1),
-                0b10 => shuffle_x67!($x01, $x23, 2),
-                _ => shuffle_x67!($x01, $x23, 3),
-            }
-        };
-    }
-    macro_rules! shuffle_x23 {
-        ($x01:expr) => {
-            match (imm8 >> 2) & 0b11 {
-                0b00 => shuffle_x45!($x01, 0),
-                0b01 => shuffle_x45!($x01, 1),
-                0b10 => shuffle_x45!($x01, 2),
-                _ => shuffle_x45!($x01, 3),
-            }
-        };
-    }
-    let r: i16x16 = match imm8 & 0b11 {
-        0b00 => shuffle_x23!(0),
-        0b01 => shuffle_x23!(1),
-        0b10 => shuffle_x23!(2),
-        _ => shuffle_x23!(3),
-    };
+    let r: i16x16 = simd_shuffle16!(
+        a,
+        a,
+        <const IMM8: i32> [
+            0 + (IMM8 as u32 & 0b11),
+            0 + ((IMM8 as u32 >> 2) & 0b11),
+            0 + ((IMM8 as u32 >> 4) & 0b11),
+            0 + ((IMM8 as u32 >> 6) & 0b11),
+            4,
+            5,
+            6,
+            7,
+            8 + (IMM8 as u32 & 0b11),
+            8 + ((IMM8 as u32 >> 2) & 0b11),
+            8 + ((IMM8 as u32 >> 4) & 0b11),
+            8 + ((IMM8 as u32 >> 6) & 0b11),
+            12,
+            13,
+            14,
+            15,
+        ],
+    );
     transmute(r)
 }
 
@@ -2924,40 +2520,46 @@ pub unsafe fn _mm256_sll_epi64(a: __m256i, count: __m128i) -> __m256i {
     transmute(psllq(a.as_i64x4(), count.as_i64x2()))
 }
 
-/// Shifts packed 16-bit integers in `a` left by `imm8` while
+/// Shifts packed 16-bit integers in `a` left by `IMM8` while
 /// shifting in zeros, return the results;
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_slli_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsllw))]
+#[cfg_attr(test, assert_instr(vpsllw, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_slli_epi16(a: __m256i, imm8: i32) -> __m256i {
-    transmute(pslliw(a.as_i16x16(), imm8))
+pub unsafe fn _mm256_slli_epi16<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(pslliw(a.as_i16x16(), IMM8))
 }
 
-/// Shifts packed 32-bit integers in `a` left by `imm8` while
+/// Shifts packed 32-bit integers in `a` left by `IMM8` while
 /// shifting in zeros, return the results;
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_slli_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpslld))]
+#[cfg_attr(test, assert_instr(vpslld, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_slli_epi32(a: __m256i, imm8: i32) -> __m256i {
-    transmute(psllid(a.as_i32x8(), imm8))
+pub unsafe fn _mm256_slli_epi32<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(psllid(a.as_i32x8(), IMM8))
 }
 
-/// Shifts packed 64-bit integers in `a` left by `imm8` while
+/// Shifts packed 64-bit integers in `a` left by `IMM8` while
 /// shifting in zeros, return the results;
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_slli_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsllq))]
+#[cfg_attr(test, assert_instr(vpsllq, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_slli_epi64(a: __m256i, imm8: i32) -> __m256i {
-    transmute(pslliq(a.as_i64x4(), imm8))
+pub unsafe fn _mm256_slli_epi64<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(pslliq(a.as_i64x4(), IMM8))
 }
 
 /// Shifts 128-bit lanes in `a` left by `imm8` bytes while shifting in zeros.
@@ -2965,17 +2567,12 @@ pub unsafe fn _mm256_slli_epi64(a: __m256i, imm8: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_slli_si256)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpslldq, imm8 = 3))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpslldq, IMM8 = 3))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_slli_si256(a: __m256i, imm8: i32) -> __m256i {
-    let a = a.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpslldq(a, $imm8)
-        };
-    }
-    transmute(constify_imm8!(imm8 * 8, call))
+pub unsafe fn _mm256_slli_si256<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    _mm256_bslli_epi128::<IMM8>(a)
 }
 
 /// Shifts 128-bit lanes in `a` left by `imm8` bytes while shifting in zeros.
@@ -2983,17 +2580,60 @@ pub unsafe fn _mm256_slli_si256(a: __m256i, imm8: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_bslli_epi128)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpslldq, imm8 = 3))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpslldq, IMM8 = 3))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_bslli_epi128(a: __m256i, imm8: i32) -> __m256i {
-    let a = a.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpslldq(a, $imm8)
-        };
+pub unsafe fn _mm256_bslli_epi128<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    const fn mask(shift: i32, i: u32) -> u32 {
+        let shift = shift as u32 & 0xff;
+        if shift > 15 || i % 16 < shift {
+            0
+        } else {
+            32 + (i - shift)
+        }
     }
-    transmute(constify_imm8!(imm8 * 8, call))
+    let a = a.as_i8x32();
+    let zero = _mm256_setzero_si256().as_i8x32();
+    let r: i8x32 = simd_shuffle32!(
+        zero,
+        a,
+        <const IMM8: i32> [
+            mask(IMM8, 0),
+            mask(IMM8, 1),
+            mask(IMM8, 2),
+            mask(IMM8, 3),
+            mask(IMM8, 4),
+            mask(IMM8, 5),
+            mask(IMM8, 6),
+            mask(IMM8, 7),
+            mask(IMM8, 8),
+            mask(IMM8, 9),
+            mask(IMM8, 10),
+            mask(IMM8, 11),
+            mask(IMM8, 12),
+            mask(IMM8, 13),
+            mask(IMM8, 14),
+            mask(IMM8, 15),
+            mask(IMM8, 16),
+            mask(IMM8, 17),
+            mask(IMM8, 18),
+            mask(IMM8, 19),
+            mask(IMM8, 20),
+            mask(IMM8, 21),
+            mask(IMM8, 22),
+            mask(IMM8, 23),
+            mask(IMM8, 24),
+            mask(IMM8, 25),
+            mask(IMM8, 26),
+            mask(IMM8, 27),
+            mask(IMM8, 28),
+            mask(IMM8, 29),
+            mask(IMM8, 30),
+            mask(IMM8, 31),
+        ],
+    );
+    transmute(r)
 }
 
 /// Shifts packed 32-bit integers in `a` left by the amount
@@ -3072,28 +2712,32 @@ pub unsafe fn _mm256_sra_epi32(a: __m256i, count: __m128i) -> __m256i {
     transmute(psrad(a.as_i32x8(), count.as_i32x4()))
 }
 
-/// Shifts packed 16-bit integers in `a` right by `imm8` while
+/// Shifts packed 16-bit integers in `a` right by `IMM8` while
 /// shifting in sign bits.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_srai_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsraw))]
+#[cfg_attr(test, assert_instr(vpsraw, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_srai_epi16(a: __m256i, imm8: i32) -> __m256i {
-    transmute(psraiw(a.as_i16x16(), imm8))
+pub unsafe fn _mm256_srai_epi16<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(psraiw(a.as_i16x16(), IMM8))
 }
 
-/// Shifts packed 32-bit integers in `a` right by `imm8` while
+/// Shifts packed 32-bit integers in `a` right by `IMM8` while
 /// shifting in sign bits.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_srai_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsrad))]
+#[cfg_attr(test, assert_instr(vpsrad, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_srai_epi32(a: __m256i, imm8: i32) -> __m256i {
-    transmute(psraid(a.as_i32x8(), imm8))
+pub unsafe fn _mm256_srai_epi32<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(psraid(a.as_i32x8(), IMM8))
 }
 
 /// Shifts packed 32-bit integers in `a` right by the amount specified by the
@@ -3125,17 +2769,12 @@ pub unsafe fn _mm256_srav_epi32(a: __m256i, count: __m256i) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_srli_si256)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsrldq, imm8 = 3))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpsrldq, IMM8 = 1))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_srli_si256(a: __m256i, imm8: i32) -> __m256i {
-    let a = a.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpsrldq(a, $imm8)
-        };
-    }
-    transmute(constify_imm8!(imm8 * 8, call))
+pub unsafe fn _mm256_srli_si256<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    _mm256_bsrli_epi128::<IMM8>(a)
 }
 
 /// Shifts 128-bit lanes in `a` right by `imm8` bytes while shifting in zeros.
@@ -3143,17 +2782,145 @@ pub unsafe fn _mm256_srli_si256(a: __m256i, imm8: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_bsrli_epi128)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsrldq, imm8 = 3))]
-#[rustc_args_required_const(1)]
+#[cfg_attr(test, assert_instr(vpsrldq, IMM8 = 1))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_bsrli_epi128(a: __m256i, imm8: i32) -> __m256i {
-    let a = a.as_i64x4();
-    macro_rules! call {
-        ($imm8:expr) => {
-            vpsrldq(a, $imm8)
-        };
-    }
-    transmute(constify_imm8!(imm8 * 8, call))
+pub unsafe fn _mm256_bsrli_epi128<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    let a = a.as_i8x32();
+    let zero = _mm256_setzero_si256().as_i8x32();
+    let r: i8x32 = match IMM8 % 16 {
+        0 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31,
+            ],
+        ),
+        1 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32,
+            ],
+        ),
+        2 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 18, 19, 20, 21, 22, 23, 24,
+                25, 26, 27, 28, 29, 30, 31, 32, 32,
+            ],
+        ),
+        3 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 19, 20, 21, 22, 23, 24,
+                25, 26, 27, 28, 29, 30, 31, 32, 32, 32,
+            ],
+        ),
+        4 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 20, 21, 22, 23, 24, 25,
+                26, 27, 28, 29, 30, 31, 32, 32, 32, 32,
+            ],
+        ),
+        5 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 21, 22, 23, 24, 25, 26,
+                27, 28, 29, 30, 31, 32, 32, 32, 32, 32,
+            ],
+        ),
+        6 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 22, 23, 24, 25, 26, 27,
+                28, 29, 30, 31, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        7 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                7, 8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 23, 24, 25, 26, 27,
+                28, 29, 30, 31, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        8 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                8, 9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 24, 25, 26, 27, 28,
+                29, 30, 31, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        9 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                9, 10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 32, 25, 26, 27, 28, 29,
+                30, 31, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        10 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                10, 11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 26, 27, 28, 29, 30,
+                31, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        11 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                11, 12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 27, 28, 29, 30, 31,
+                32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        12 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                12, 13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 28, 29, 30, 31, 32,
+                32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        13 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                13, 14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 29, 30, 31, 32, 32,
+                32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        14 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                14, 15, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 30, 31, 32, 32, 32,
+                32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        15 => simd_shuffle32!(
+            a,
+            zero,
+            [
+                14, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 31, 32, 32, 32, 32,
+                32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+            ],
+        ),
+        _ => zero,
+    };
+    transmute(r)
 }
 
 /// Shifts packed 16-bit integers in `a` right by `count` while shifting in
@@ -3192,40 +2959,46 @@ pub unsafe fn _mm256_srl_epi64(a: __m256i, count: __m128i) -> __m256i {
     transmute(psrlq(a.as_i64x4(), count.as_i64x2()))
 }
 
-/// Shifts packed 16-bit integers in `a` right by `imm8` while shifting in
+/// Shifts packed 16-bit integers in `a` right by `IMM8` while shifting in
 /// zeros
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_srli_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsrlw))]
+#[cfg_attr(test, assert_instr(vpsrlw, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_srli_epi16(a: __m256i, imm8: i32) -> __m256i {
-    transmute(psrliw(a.as_i16x16(), imm8))
+pub unsafe fn _mm256_srli_epi16<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(psrliw(a.as_i16x16(), IMM8))
 }
 
-/// Shifts packed 32-bit integers in `a` right by `imm8` while shifting in
+/// Shifts packed 32-bit integers in `a` right by `IMM8` while shifting in
 /// zeros
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_srli_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsrld))]
+#[cfg_attr(test, assert_instr(vpsrld, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_srli_epi32(a: __m256i, imm8: i32) -> __m256i {
-    transmute(psrlid(a.as_i32x8(), imm8))
+pub unsafe fn _mm256_srli_epi32<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(psrlid(a.as_i32x8(), IMM8))
 }
 
-/// Shifts packed 64-bit integers in `a` right by `imm8` while shifting in
+/// Shifts packed 64-bit integers in `a` right by `IMM8` while shifting in
 /// zeros
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_srli_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpsrlq))]
+#[cfg_attr(test, assert_instr(vpsrlq, IMM8 = 7))]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_srli_epi64(a: __m256i, imm8: i32) -> __m256i {
-    transmute(psrliq(a.as_i64x4(), imm8))
+pub unsafe fn _mm256_srli_epi64<const IMM8: i32>(a: __m256i) -> __m256i {
+    static_assert_imm8!(IMM8);
+    transmute(psrliq(a.as_i64x4(), IMM8))
 }
 
 /// Shifts packed 32-bit integers in `a` right by the amount specified by
@@ -3289,7 +3062,7 @@ pub unsafe fn _mm256_sub_epi16(a: __m256i, b: __m256i) -> __m256i {
     transmute(simd_sub(a.as_i16x16(), b.as_i16x16()))
 }
 
-/// Subtract packed 32-bit integers in `b` from packed 16-bit integers in `a`
+/// Subtract packed 32-bit integers in `b` from packed 32-bit integers in `a`
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_sub_epi32)
 #[inline]
@@ -3300,7 +3073,7 @@ pub unsafe fn _mm256_sub_epi32(a: __m256i, b: __m256i) -> __m256i {
     transmute(simd_sub(a.as_i32x8(), b.as_i32x8()))
 }
 
-/// Subtract packed 64-bit integers in `b` from packed 16-bit integers in `a`
+/// Subtract packed 64-bit integers in `b` from packed 64-bit integers in `a`
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_sub_epi64)
 #[inline]
@@ -3311,7 +3084,7 @@ pub unsafe fn _mm256_sub_epi64(a: __m256i, b: __m256i) -> __m256i {
     transmute(simd_sub(a.as_i64x4(), b.as_i64x4()))
 }
 
-/// Subtract packed 8-bit integers in `b` from packed 16-bit integers in `a`
+/// Subtract packed 8-bit integers in `b` from packed 8-bit integers in `a`
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_sub_epi8)
 #[inline]
@@ -3415,7 +3188,7 @@ pub unsafe fn _mm256_subs_epu8(a: __m256i, b: __m256i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpackhi_epi8(a: __m256i, b: __m256i) -> __m256i {
     #[rustfmt::skip]
-    let r: i8x32 = simd_shuffle32(a.as_i8x32(), b.as_i8x32(), [
+    let r: i8x32 = simd_shuffle32!(a.as_i8x32(), b.as_i8x32(), [
             8, 40, 9, 41, 10, 42, 11, 43,
             12, 44, 13, 45, 14, 46, 15, 47,
             24, 56, 25, 57, 26, 58, 27, 59,
@@ -3468,7 +3241,7 @@ pub unsafe fn _mm256_unpackhi_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpacklo_epi8(a: __m256i, b: __m256i) -> __m256i {
     #[rustfmt::skip]
-    let r: i8x32 = simd_shuffle32(a.as_i8x32(), b.as_i8x32(), [
+    let r: i8x32 = simd_shuffle32!(a.as_i8x32(), b.as_i8x32(), [
         0, 32, 1, 33, 2, 34, 3, 35,
         4, 36, 5, 37, 6, 38, 7, 39,
         16, 48, 17, 49, 18, 50, 19, 51,
@@ -3516,7 +3289,7 @@ pub unsafe fn _mm256_unpacklo_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpunpckhwd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpackhi_epi16(a: __m256i, b: __m256i) -> __m256i {
-    let r: i16x16 = simd_shuffle16(
+    let r: i16x16 = simd_shuffle16!(
         a.as_i16x16(),
         b.as_i16x16(),
         [4, 20, 5, 21, 6, 22, 7, 23, 12, 28, 13, 29, 14, 30, 15, 31],
@@ -3564,7 +3337,7 @@ pub unsafe fn _mm256_unpackhi_epi16(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpunpcklwd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpacklo_epi16(a: __m256i, b: __m256i) -> __m256i {
-    let r: i16x16 = simd_shuffle16(
+    let r: i16x16 = simd_shuffle16!(
         a.as_i16x16(),
         b.as_i16x16(),
         [0, 16, 1, 17, 2, 18, 3, 19, 8, 24, 9, 25, 10, 26, 11, 27],
@@ -3605,7 +3378,7 @@ pub unsafe fn _mm256_unpacklo_epi16(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vunpckhps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpackhi_epi32(a: __m256i, b: __m256i) -> __m256i {
-    let r: i32x8 = simd_shuffle8(a.as_i32x8(), b.as_i32x8(), [2, 10, 3, 11, 6, 14, 7, 15]);
+    let r: i32x8 = simd_shuffle8!(a.as_i32x8(), b.as_i32x8(), [2, 10, 3, 11, 6, 14, 7, 15]);
     transmute(r)
 }
 
@@ -3642,7 +3415,7 @@ pub unsafe fn _mm256_unpackhi_epi32(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vunpcklps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpacklo_epi32(a: __m256i, b: __m256i) -> __m256i {
-    let r: i32x8 = simd_shuffle8(a.as_i32x8(), b.as_i32x8(), [0, 8, 1, 9, 4, 12, 5, 13]);
+    let r: i32x8 = simd_shuffle8!(a.as_i32x8(), b.as_i32x8(), [0, 8, 1, 9, 4, 12, 5, 13]);
     transmute(r)
 }
 
@@ -3679,7 +3452,7 @@ pub unsafe fn _mm256_unpacklo_epi32(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vunpckhpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpackhi_epi64(a: __m256i, b: __m256i) -> __m256i {
-    let r: i64x4 = simd_shuffle4(a.as_i64x4(), b.as_i64x4(), [1, 5, 3, 7]);
+    let r: i64x4 = simd_shuffle4!(a.as_i64x4(), b.as_i64x4(), [1, 5, 3, 7]);
     transmute(r)
 }
 
@@ -3716,7 +3489,7 @@ pub unsafe fn _mm256_unpackhi_epi64(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vunpcklpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_unpacklo_epi64(a: __m256i, b: __m256i) -> __m256i {
-    let r: i64x4 = simd_shuffle4(a.as_i64x4(), b.as_i64x4(), [0, 4, 2, 6]);
+    let r: i64x4 = simd_shuffle4!(a.as_i64x4(), b.as_i64x4(), [0, 4, 2, 6]);
     transmute(r)
 }
 
@@ -3732,49 +3505,49 @@ pub unsafe fn _mm256_xor_si256(a: __m256i, b: __m256i) -> __m256i {
     transmute(simd_xor(a.as_i64x4(), b.as_i64x4()))
 }
 
-/// Extracts an 8-bit integer from `a`, selected with `imm8`. Returns a 32-bit
+/// Extracts an 8-bit integer from `a`, selected with `INDEX`. Returns a 32-bit
 /// integer containing the zero-extended integer data.
 ///
-/// See [LLVM commit D20468][https://reviews.llvm.org/D20468].
+/// See [LLVM commit D20468](https://reviews.llvm.org/D20468).
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_extract_epi8)
 #[inline]
 #[target_feature(enable = "avx2")]
 // This intrinsic has no corresponding instruction.
-#[rustc_args_required_const(1)]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_extract_epi8(a: __m256i, imm8: i32) -> i8 {
-    let imm8 = (imm8 & 31) as u32;
-    simd_extract(a.as_i8x32(), imm8)
+pub unsafe fn _mm256_extract_epi8<const INDEX: i32>(a: __m256i) -> i32 {
+    static_assert_imm5!(INDEX);
+    simd_extract::<_, u8>(a.as_u8x32(), INDEX as u32) as i32
 }
 
-/// Extracts a 16-bit integer from `a`, selected with `imm8`. Returns a 32-bit
+/// Extracts a 16-bit integer from `a`, selected with `INDEX`. Returns a 32-bit
 /// integer containing the zero-extended integer data.
 ///
-/// See [LLVM commit D20468][https://reviews.llvm.org/D20468].
+/// See [LLVM commit D20468](https://reviews.llvm.org/D20468).
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_extract_epi16)
 #[inline]
 #[target_feature(enable = "avx2")]
 // This intrinsic has no corresponding instruction.
-#[rustc_args_required_const(1)]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_extract_epi16(a: __m256i, imm8: i32) -> i16 {
-    let imm8 = (imm8 & 15) as u32;
-    simd_extract(a.as_i16x16(), imm8)
+pub unsafe fn _mm256_extract_epi16<const INDEX: i32>(a: __m256i) -> i32 {
+    static_assert_imm4!(INDEX);
+    simd_extract::<_, u16>(a.as_u16x16(), INDEX as u32) as i32
 }
 
-/// Extracts a 32-bit integer from `a`, selected with `imm8`.
+/// Extracts a 32-bit integer from `a`, selected with `INDEX`.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_extract_epi32)
 #[inline]
 #[target_feature(enable = "avx2")]
 // This intrinsic has no corresponding instruction.
-#[rustc_args_required_const(1)]
+#[rustc_legacy_const_generics(1)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm256_extract_epi32(a: __m256i, imm8: i32) -> i32 {
-    let imm8 = (imm8 & 7) as u32;
-    simd_extract(a.as_i32x8(), imm8)
+pub unsafe fn _mm256_extract_epi32<const INDEX: i32>(a: __m256i) -> i32 {
+    static_assert_imm3!(INDEX);
+    simd_extract(a.as_i32x8(), INDEX as u32)
 }
 
 /// Returns the first element of the input vector of `[4 x double]`.
@@ -3869,8 +3642,6 @@ extern "C" {
     fn pminud(a: u32x8, b: u32x8) -> u32x8;
     #[link_name = "llvm.x86.avx2.pminu.b"]
     fn pminub(a: u8x32, b: u8x32) -> u8x32;
-    #[link_name = "llvm.x86.avx2.pmovmskb"]
-    fn pmovmskb(a: i8x32) -> i32;
     #[link_name = "llvm.x86.avx2.mpsadbw"]
     fn mpsadbw(a: u8x32, b: u8x32, imm8: i32) -> u16x16;
     #[link_name = "llvm.x86.avx2.pmulhu.w"]
@@ -4037,7 +3808,7 @@ extern "C" {
 
 #[cfg(test)]
 mod tests {
-    use std;
+
     use stdarch_test::simd_test;
 
     use crate::core_arch::x86::*;
@@ -4046,14 +3817,14 @@ mod tests {
     unsafe fn test_mm256_abs_epi32() {
         #[rustfmt::skip]
         let a = _mm256_setr_epi32(
-            0, 1, -1, std::i32::MAX,
-            std::i32::MIN, 100, -100, -32,
+            0, 1, -1, i32::MAX,
+            i32::MIN, 100, -100, -32,
         );
         let r = _mm256_abs_epi32(a);
         #[rustfmt::skip]
         let e = _mm256_setr_epi32(
-            0, 1, 1, std::i32::MAX,
-            std::i32::MAX.wrapping_add(1), 100, 100, 32,
+            0, 1, 1, i32::MAX,
+            i32::MAX.wrapping_add(1), 100, 100, 32,
         );
         assert_eq_m256i(r, e);
     }
@@ -4063,13 +3834,13 @@ mod tests {
         #[rustfmt::skip]
         let a = _mm256_setr_epi16(
             0,  1, -1, 2, -2, 3, -3, 4,
-            -4, 5, -5, std::i16::MAX, std::i16::MIN, 100, -100, -32,
+            -4, 5, -5, i16::MAX, i16::MIN, 100, -100, -32,
         );
         let r = _mm256_abs_epi16(a);
         #[rustfmt::skip]
         let e = _mm256_setr_epi16(
             0, 1, 1, 2, 2, 3, 3, 4,
-            4, 5, 5, std::i16::MAX, std::i16::MAX.wrapping_add(1), 100, 100, 32,
+            4, 5, 5, i16::MAX, i16::MAX.wrapping_add(1), 100, 100, 32,
         );
         assert_eq_m256i(r, e);
     }
@@ -4079,17 +3850,17 @@ mod tests {
         #[rustfmt::skip]
         let a = _mm256_setr_epi8(
             0, 1, -1, 2, -2, 3, -3, 4,
-            -4, 5, -5, std::i8::MAX, std::i8::MIN, 100, -100, -32,
+            -4, 5, -5, i8::MAX, i8::MIN, 100, -100, -32,
             0, 1, -1, 2, -2, 3, -3, 4,
-            -4, 5, -5, std::i8::MAX, std::i8::MIN, 100, -100, -32,
+            -4, 5, -5, i8::MAX, i8::MIN, 100, -100, -32,
         );
         let r = _mm256_abs_epi8(a);
         #[rustfmt::skip]
         let e = _mm256_setr_epi8(
             0, 1, 1, 2, 2, 3, 3, 4,
-            4, 5, 5, std::i8::MAX, std::i8::MAX.wrapping_add(1), 100, 100, 32,
+            4, 5, 5, i8::MAX, i8::MAX.wrapping_add(1), 100, 100, 32,
             0, 1, 1, 2, 2, 3, 3, 4,
-            4, 5, 5, std::i8::MAX, std::i8::MAX.wrapping_add(1), 100, 100, 32,
+            4, 5, 5, i8::MAX, i8::MAX.wrapping_add(1), 100, 100, 32,
         );
         assert_eq_m256i(r, e);
     }
@@ -4340,10 +4111,10 @@ mod tests {
     unsafe fn test_mm_blend_epi32() {
         let (a, b) = (_mm_set1_epi32(3), _mm_set1_epi32(9));
         let e = _mm_setr_epi32(9, 3, 3, 3);
-        let r = _mm_blend_epi32(a, b, 0x01 as i32);
+        let r = _mm_blend_epi32::<0x01>(a, b);
         assert_eq_m128i(r, e);
 
-        let r = _mm_blend_epi32(b, a, 0x0E as i32);
+        let r = _mm_blend_epi32::<0x0E>(b, a);
         assert_eq_m128i(r, e);
     }
 
@@ -4351,15 +4122,15 @@ mod tests {
     unsafe fn test_mm256_blend_epi32() {
         let (a, b) = (_mm256_set1_epi32(3), _mm256_set1_epi32(9));
         let e = _mm256_setr_epi32(9, 3, 3, 3, 3, 3, 3, 3);
-        let r = _mm256_blend_epi32(a, b, 0x01 as i32);
+        let r = _mm256_blend_epi32::<0x01>(a, b);
         assert_eq_m256i(r, e);
 
         let e = _mm256_setr_epi32(3, 9, 3, 3, 3, 3, 3, 9);
-        let r = _mm256_blend_epi32(a, b, 0x82 as i32);
+        let r = _mm256_blend_epi32::<0x82>(a, b);
         assert_eq_m256i(r, e);
 
         let e = _mm256_setr_epi32(3, 3, 9, 9, 9, 9, 9, 3);
-        let r = _mm256_blend_epi32(a, b, 0x7C as i32);
+        let r = _mm256_blend_epi32::<0x7C>(a, b);
         assert_eq_m256i(r, e);
     }
 
@@ -4367,32 +4138,32 @@ mod tests {
     unsafe fn test_mm256_blend_epi16() {
         let (a, b) = (_mm256_set1_epi16(3), _mm256_set1_epi16(9));
         let e = _mm256_setr_epi16(9, 3, 3, 3, 3, 3, 3, 3, 9, 3, 3, 3, 3, 3, 3, 3);
-        let r = _mm256_blend_epi16(a, b, 0x01 as i32);
+        let r = _mm256_blend_epi16::<0x01>(a, b);
         assert_eq_m256i(r, e);
 
-        let r = _mm256_blend_epi16(b, a, 0xFE as i32);
+        let r = _mm256_blend_epi16::<0xFE>(b, a);
         assert_eq_m256i(r, e);
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_blendv_epi8() {
         let (a, b) = (_mm256_set1_epi8(4), _mm256_set1_epi8(2));
-        let mask = _mm256_insert_epi8(_mm256_set1_epi8(0), -1, 2);
-        let e = _mm256_insert_epi8(_mm256_set1_epi8(4), 2, 2);
+        let mask = _mm256_insert_epi8::<2>(_mm256_set1_epi8(0), -1);
+        let e = _mm256_insert_epi8::<2>(_mm256_set1_epi8(4), 2);
         let r = _mm256_blendv_epi8(a, b, mask);
         assert_eq_m256i(r, e);
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm_broadcastb_epi8() {
-        let a = _mm_insert_epi8(_mm_set1_epi8(0x00), 0x2a, 0);
+        let a = _mm_insert_epi8::<0>(_mm_set1_epi8(0x00), 0x2a);
         let res = _mm_broadcastb_epi8(a);
         assert_eq_m128i(res, _mm_set1_epi8(0x2a));
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_broadcastb_epi8() {
-        let a = _mm_insert_epi8(_mm_set1_epi8(0x00), 0x2a, 0);
+        let a = _mm_insert_epi8::<0>(_mm_set1_epi8(0x00), 0x2a);
         let res = _mm256_broadcastb_epi8(a);
         assert_eq_m256i(res, _mm256_set1_epi8(0x2a));
     }
@@ -4468,14 +4239,14 @@ mod tests {
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm_broadcastw_epi16() {
-        let a = _mm_insert_epi16(_mm_set1_epi16(0x2a), 0x22b, 0);
+        let a = _mm_insert_epi16::<0>(_mm_set1_epi16(0x2a), 0x22b);
         let res = _mm_broadcastw_epi16(a);
         assert_eq_m128i(res, _mm_set1_epi16(0x22b));
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_broadcastw_epi16() {
-        let a = _mm_insert_epi16(_mm_set1_epi16(0x2a), 0x22b, 0);
+        let a = _mm_insert_epi16::<0>(_mm_set1_epi16(0x2a), 0x22b);
         let res = _mm256_broadcastw_epi16(a);
         assert_eq_m256i(res, _mm256_set1_epi16(0x22b));
     }
@@ -4497,7 +4268,7 @@ mod tests {
             7, 6, 5, 4, 3, 2, 1, 0,
         );
         let r = _mm256_cmpeq_epi8(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi8(_mm256_set1_epi8(0), !0, 2));
+        assert_eq_m256i(r, _mm256_insert_epi8::<2>(_mm256_set1_epi8(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
@@ -4513,7 +4284,7 @@ mod tests {
             7, 6, 5, 4, 3, 2, 1, 0,
         );
         let r = _mm256_cmpeq_epi16(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi16(_mm256_set1_epi16(0), !0, 2));
+        assert_eq_m256i(r, _mm256_insert_epi16::<2>(_mm256_set1_epi16(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
@@ -4522,7 +4293,7 @@ mod tests {
         let b = _mm256_setr_epi32(7, 6, 2, 4, 3, 2, 1, 0);
         let r = _mm256_cmpeq_epi32(a, b);
         let e = _mm256_set1_epi32(0);
-        let e = _mm256_insert_epi32(e, !0, 2);
+        let e = _mm256_insert_epi32::<2>(e, !0);
         assert_eq_m256i(r, e);
     }
 
@@ -4531,39 +4302,39 @@ mod tests {
         let a = _mm256_setr_epi64x(0, 1, 2, 3);
         let b = _mm256_setr_epi64x(3, 2, 2, 0);
         let r = _mm256_cmpeq_epi64(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi64(_mm256_set1_epi64x(0), !0, 2));
+        assert_eq_m256i(r, _mm256_insert_epi64::<2>(_mm256_set1_epi64x(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_cmpgt_epi8() {
-        let a = _mm256_insert_epi8(_mm256_set1_epi8(0), 5, 0);
+        let a = _mm256_insert_epi8::<0>(_mm256_set1_epi8(0), 5);
         let b = _mm256_set1_epi8(0);
         let r = _mm256_cmpgt_epi8(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi8(_mm256_set1_epi8(0), !0, 0));
+        assert_eq_m256i(r, _mm256_insert_epi8::<0>(_mm256_set1_epi8(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_cmpgt_epi16() {
-        let a = _mm256_insert_epi16(_mm256_set1_epi16(0), 5, 0);
+        let a = _mm256_insert_epi16::<0>(_mm256_set1_epi16(0), 5);
         let b = _mm256_set1_epi16(0);
         let r = _mm256_cmpgt_epi16(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi16(_mm256_set1_epi16(0), !0, 0));
+        assert_eq_m256i(r, _mm256_insert_epi16::<0>(_mm256_set1_epi16(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_cmpgt_epi32() {
-        let a = _mm256_insert_epi32(_mm256_set1_epi32(0), 5, 0);
+        let a = _mm256_insert_epi32::<0>(_mm256_set1_epi32(0), 5);
         let b = _mm256_set1_epi32(0);
         let r = _mm256_cmpgt_epi32(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi32(_mm256_set1_epi32(0), !0, 0));
+        assert_eq_m256i(r, _mm256_insert_epi32::<0>(_mm256_set1_epi32(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_cmpgt_epi64() {
-        let a = _mm256_insert_epi64(_mm256_set1_epi64x(0), 5, 0);
+        let a = _mm256_insert_epi64::<0>(_mm256_set1_epi64x(0), 5);
         let b = _mm256_set1_epi64x(0);
         let r = _mm256_cmpgt_epi64(a, b);
-        assert_eq_m256i(r, _mm256_insert_epi64(_mm256_set1_epi64x(0), !0, 0));
+        assert_eq_m256i(r, _mm256_insert_epi64::<0>(_mm256_set1_epi64x(0), !0));
     }
 
     #[simd_test(enable = "avx2")]
@@ -4685,7 +4456,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_extracti128_si256() {
         let a = _mm256_setr_epi64x(1, 2, 3, 4);
-        let r = _mm256_extracti128_si256(a, 0b01);
+        let r = _mm256_extracti128_si256::<1>(a);
         let e = _mm_setr_epi64x(3, 4);
         assert_eq_m128i(r, e);
     }
@@ -4711,8 +4482,8 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_hadds_epi16() {
         let a = _mm256_set1_epi16(2);
-        let a = _mm256_insert_epi16(a, 0x7fff, 0);
-        let a = _mm256_insert_epi16(a, 1, 1);
+        let a = _mm256_insert_epi16::<0>(a, 0x7fff);
+        let a = _mm256_insert_epi16::<1>(a, 1);
         let b = _mm256_set1_epi16(4);
         let r = _mm256_hadds_epi16(a, b);
         #[rustfmt::skip]
@@ -4744,11 +4515,11 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_hsubs_epi16() {
         let a = _mm256_set1_epi16(2);
-        let a = _mm256_insert_epi16(a, 0x7fff, 0);
-        let a = _mm256_insert_epi16(a, -1, 1);
+        let a = _mm256_insert_epi16::<0>(a, 0x7fff);
+        let a = _mm256_insert_epi16::<1>(a, -1);
         let b = _mm256_set1_epi16(4);
         let r = _mm256_hsubs_epi16(a, b);
-        let e = _mm256_insert_epi16(_mm256_set1_epi16(0), 0x7FFF, 0);
+        let e = _mm256_insert_epi16::<0>(_mm256_set1_epi16(0), 0x7FFF);
         assert_eq_m256i(r, e);
     }
 
@@ -4765,7 +4536,7 @@ mod tests {
     unsafe fn test_mm256_inserti128_si256() {
         let a = _mm256_setr_epi64x(1, 2, 3, 4);
         let b = _mm_setr_epi64x(7, 8);
-        let r = _mm256_inserti128_si256(a, b, 0b01);
+        let r = _mm256_inserti128_si256::<1>(a, b);
         let e = _mm256_setr_epi64x(1, 2, 7, 8);
         assert_eq_m256i(r, e);
     }
@@ -4967,7 +4738,7 @@ mod tests {
     unsafe fn test_mm256_mpsadbw_epu8() {
         let a = _mm256_set1_epi8(2);
         let b = _mm256_set1_epi8(4);
-        let r = _mm256_mpsadbw_epu8(a, b, 0);
+        let r = _mm256_mpsadbw_epu8::<0>(a, b);
         let e = _mm256_set1_epi16(8);
         assert_eq_m256i(r, e);
     }
@@ -5116,7 +4887,7 @@ mod tests {
             0, 1, 2, 3, 44, 22, 22, 11,
             4, 5, 6, 7, 88, 66, 66, 55,
         );
-        let r = _mm256_shufflehi_epi16(a, 0b00_01_01_11);
+        let r = _mm256_shufflehi_epi16::<0b00_01_01_11>(a);
         assert_eq_m256i(r, e);
     }
 
@@ -5132,7 +4903,7 @@ mod tests {
             44, 22, 22, 11, 0, 1, 2, 3,
             88, 66, 66, 55, 4, 5, 6, 7,
         );
-        let r = _mm256_shufflelo_epi16(a, 0b00_01_01_11);
+        let r = _mm256_shufflelo_epi16::<0b00_01_01_11>(a);
         assert_eq_m256i(r, e);
     }
 
@@ -5166,7 +4937,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_sll_epi16() {
         let a = _mm256_set1_epi16(0xFF);
-        let b = _mm_insert_epi16(_mm_set1_epi16(0), 4, 0);
+        let b = _mm_insert_epi16::<0>(_mm_set1_epi16(0), 4);
         let r = _mm256_sll_epi16(a, b);
         assert_eq_m256i(r, _mm256_set1_epi16(0xFF0));
     }
@@ -5174,7 +4945,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_sll_epi32() {
         let a = _mm256_set1_epi32(0xFFFF);
-        let b = _mm_insert_epi32(_mm_set1_epi32(0), 4, 0);
+        let b = _mm_insert_epi32::<0>(_mm_set1_epi32(0), 4);
         let r = _mm256_sll_epi32(a, b);
         assert_eq_m256i(r, _mm256_set1_epi32(0xFFFF0));
     }
@@ -5182,7 +4953,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_sll_epi64() {
         let a = _mm256_set1_epi64x(0xFFFFFFFF);
-        let b = _mm_insert_epi64(_mm_set1_epi64x(0), 4, 0);
+        let b = _mm_insert_epi64::<0>(_mm_set1_epi64x(0), 4);
         let r = _mm256_sll_epi64(a, b);
         assert_eq_m256i(r, _mm256_set1_epi64x(0xFFFFFFFF0));
     }
@@ -5190,7 +4961,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_slli_epi16() {
         assert_eq_m256i(
-            _mm256_slli_epi16(_mm256_set1_epi16(0xFF), 4),
+            _mm256_slli_epi16::<4>(_mm256_set1_epi16(0xFF)),
             _mm256_set1_epi16(0xFF0),
         );
     }
@@ -5198,7 +4969,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_slli_epi32() {
         assert_eq_m256i(
-            _mm256_slli_epi32(_mm256_set1_epi32(0xFFFF), 4),
+            _mm256_slli_epi32::<4>(_mm256_set1_epi32(0xFFFF)),
             _mm256_set1_epi32(0xFFFF0),
         );
     }
@@ -5206,7 +4977,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_slli_epi64() {
         assert_eq_m256i(
-            _mm256_slli_epi64(_mm256_set1_epi64x(0xFFFFFFFF), 4),
+            _mm256_slli_epi64::<4>(_mm256_set1_epi64x(0xFFFFFFFF)),
             _mm256_set1_epi64x(0xFFFFFFFF0),
         );
     }
@@ -5214,7 +4985,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_slli_si256() {
         let a = _mm256_set1_epi64x(0xFFFFFFFF);
-        let r = _mm256_slli_si256(a, 3);
+        let r = _mm256_slli_si256::<3>(a);
         assert_eq_m256i(r, _mm256_set1_epi64x(0xFFFFFFFF000000));
     }
 
@@ -5265,7 +5036,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_sra_epi32() {
         let a = _mm256_set1_epi32(-1);
-        let b = _mm_insert_epi32(_mm_set1_epi32(0), 1, 0);
+        let b = _mm_insert_epi32::<0>(_mm_set1_epi32(0), 1);
         let r = _mm256_sra_epi32(a, b);
         assert_eq_m256i(r, _mm256_set1_epi32(-1));
     }
@@ -5273,7 +5044,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srai_epi16() {
         assert_eq_m256i(
-            _mm256_srai_epi16(_mm256_set1_epi16(-1), 1),
+            _mm256_srai_epi16::<1>(_mm256_set1_epi16(-1)),
             _mm256_set1_epi16(-1),
         );
     }
@@ -5281,7 +5052,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srai_epi32() {
         assert_eq_m256i(
-            _mm256_srai_epi32(_mm256_set1_epi32(-1), 1),
+            _mm256_srai_epi32::<1>(_mm256_set1_epi32(-1)),
             _mm256_set1_epi32(-1),
         );
     }
@@ -5313,7 +5084,7 @@ mod tests {
             17, 18, 19, 20, 21, 22, 23, 24,
             25, 26, 27, 28, 29, 30, 31, 32,
         );
-        let r = _mm256_srli_si256(a, 3);
+        let r = _mm256_srli_si256::<3>(a);
         #[rustfmt::skip]
         let e = _mm256_setr_epi8(
             4, 5, 6, 7, 8, 9, 10, 11,
@@ -5327,7 +5098,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srl_epi16() {
         let a = _mm256_set1_epi16(0xFF);
-        let b = _mm_insert_epi16(_mm_set1_epi16(0), 4, 0);
+        let b = _mm_insert_epi16::<0>(_mm_set1_epi16(0), 4);
         let r = _mm256_srl_epi16(a, b);
         assert_eq_m256i(r, _mm256_set1_epi16(0xF));
     }
@@ -5335,7 +5106,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srl_epi32() {
         let a = _mm256_set1_epi32(0xFFFF);
-        let b = _mm_insert_epi32(_mm_set1_epi32(0), 4, 0);
+        let b = _mm_insert_epi32::<0>(_mm_set1_epi32(0), 4);
         let r = _mm256_srl_epi32(a, b);
         assert_eq_m256i(r, _mm256_set1_epi32(0xFFF));
     }
@@ -5351,7 +5122,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srli_epi16() {
         assert_eq_m256i(
-            _mm256_srli_epi16(_mm256_set1_epi16(0xFF), 4),
+            _mm256_srli_epi16::<4>(_mm256_set1_epi16(0xFF)),
             _mm256_set1_epi16(0xF),
         );
     }
@@ -5359,7 +5130,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srli_epi32() {
         assert_eq_m256i(
-            _mm256_srli_epi32(_mm256_set1_epi32(0xFFFF), 4),
+            _mm256_srli_epi32::<4>(_mm256_set1_epi32(0xFFFF)),
             _mm256_set1_epi32(0xFFF),
         );
     }
@@ -5367,7 +5138,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_srli_epi64() {
         assert_eq_m256i(
-            _mm256_srli_epi64(_mm256_set1_epi64x(0xFFFFFFFF), 4),
+            _mm256_srli_epi64::<4>(_mm256_set1_epi64x(0xFFFFFFFF)),
             _mm256_set1_epi64x(0xFFFFFFF),
         );
     }
@@ -5496,10 +5267,10 @@ mod tests {
             -17, -18, -19, -20, -21, -22, -23, -24,
             -25, -26, -27, -28, -29, -30, -31, -32,
         );
-        let r = _mm256_alignr_epi8(a, b, 33);
+        let r = _mm256_alignr_epi8::<33>(a, b);
         assert_eq_m256i(r, _mm256_set1_epi8(0));
 
-        let r = _mm256_alignr_epi8(a, b, 17);
+        let r = _mm256_alignr_epi8::<17>(a, b);
         #[rustfmt::skip]
         let expected = _mm256_setr_epi8(
             2, 3, 4, 5, 6, 7, 8, 9,
@@ -5509,7 +5280,7 @@ mod tests {
         );
         assert_eq_m256i(r, expected);
 
-        let r = _mm256_alignr_epi8(a, b, 4);
+        let r = _mm256_alignr_epi8::<4>(a, b);
         #[rustfmt::skip]
         let expected = _mm256_setr_epi8(
             -5, -6, -7, -8, -9, -10, -11, -12,
@@ -5526,10 +5297,10 @@ mod tests {
             -18, -19, -20, -21, -22, -23, -24, -25,
             -26, -27, -28, -29, -30, -31, -32,
         );
-        let r = _mm256_alignr_epi8(a, b, 16);
+        let r = _mm256_alignr_epi8::<16>(a, b);
         assert_eq_m256i(r, expected);
 
-        let r = _mm256_alignr_epi8(a, b, 15);
+        let r = _mm256_alignr_epi8::<15>(a, b);
         #[rustfmt::skip]
         let expected = _mm256_setr_epi8(
             -16, 1, 2, 3, 4, 5, 6, 7,
@@ -5539,7 +5310,7 @@ mod tests {
         );
         assert_eq_m256i(r, expected);
 
-        let r = _mm256_alignr_epi8(a, b, 0);
+        let r = _mm256_alignr_epi8::<0>(a, b);
         assert_eq_m256i(r, b);
     }
 
@@ -5583,7 +5354,7 @@ mod tests {
     unsafe fn test_mm256_permute4x64_epi64() {
         let a = _mm256_setr_epi64x(100, 200, 300, 400);
         let expected = _mm256_setr_epi64x(400, 100, 200, 100);
-        let r = _mm256_permute4x64_epi64(a, 0b00010011);
+        let r = _mm256_permute4x64_epi64::<0b00010011>(a);
         assert_eq_m256i(r, expected);
     }
 
@@ -5591,7 +5362,7 @@ mod tests {
     unsafe fn test_mm256_permute2x128_si256() {
         let a = _mm256_setr_epi64x(100, 200, 500, 600);
         let b = _mm256_setr_epi64x(300, 400, 700, 800);
-        let r = _mm256_permute2x128_si256(a, b, 0b00_01_00_11);
+        let r = _mm256_permute2x128_si256::<0b00_01_00_11>(a, b);
         let e = _mm256_setr_epi64x(700, 800, 500, 600);
         assert_eq_m256i(r, e);
     }
@@ -5599,7 +5370,7 @@ mod tests {
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_permute4x64_pd() {
         let a = _mm256_setr_pd(1., 2., 3., 4.);
-        let r = _mm256_permute4x64_pd(a, 0b00_01_00_11);
+        let r = _mm256_permute4x64_pd::<0b00_01_00_11>(a);
         let e = _mm256_setr_pd(4., 1., 2., 1.);
         assert_eq_m256d(r, e);
     }
@@ -5620,7 +5391,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm_i32gather_epi32(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48), 4);
+        let r = _mm_i32gather_epi32::<4>(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48));
         assert_eq_m128i(r, _mm_setr_epi32(0, 16, 32, 48));
     }
 
@@ -5631,12 +5402,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm_mask_i32gather_epi32(
+        let r = _mm_mask_i32gather_epi32::<4>(
             _mm_set1_epi32(256),
             arr.as_ptr(),
             _mm_setr_epi32(0, 16, 64, 96),
             _mm_setr_epi32(-1, -1, -1, 0),
-            4,
         );
         assert_eq_m128i(r, _mm_setr_epi32(0, 16, 64, 256));
     }
@@ -5648,11 +5418,8 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm256_i32gather_epi32(
-            arr.as_ptr(),
-            _mm256_setr_epi32(0, 16, 32, 48, 1, 2, 3, 4),
-            4,
-        );
+        let r =
+            _mm256_i32gather_epi32::<4>(arr.as_ptr(), _mm256_setr_epi32(0, 16, 32, 48, 1, 2, 3, 4));
         assert_eq_m256i(r, _mm256_setr_epi32(0, 16, 32, 48, 1, 2, 3, 4));
     }
 
@@ -5663,12 +5430,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm256_mask_i32gather_epi32(
+        let r = _mm256_mask_i32gather_epi32::<4>(
             _mm256_set1_epi32(256),
             arr.as_ptr(),
             _mm256_setr_epi32(0, 16, 64, 96, 0, 0, 0, 0),
             _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0),
-            4,
         );
         assert_eq_m256i(r, _mm256_setr_epi32(0, 16, 64, 256, 256, 256, 256, 256));
     }
@@ -5682,7 +5448,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm_i32gather_ps(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48), 4);
+        let r = _mm_i32gather_ps::<4>(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48));
         assert_eq_m128(r, _mm_setr_ps(0.0, 16.0, 32.0, 48.0));
     }
 
@@ -5695,12 +5461,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm_mask_i32gather_ps(
+        let r = _mm_mask_i32gather_ps::<4>(
             _mm_set1_ps(256.0),
             arr.as_ptr(),
             _mm_setr_epi32(0, 16, 64, 96),
             _mm_setr_ps(-1.0, -1.0, -1.0, 0.0),
-            4,
         );
         assert_eq_m128(r, _mm_setr_ps(0.0, 16.0, 64.0, 256.0));
     }
@@ -5714,11 +5479,8 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm256_i32gather_ps(
-            arr.as_ptr(),
-            _mm256_setr_epi32(0, 16, 32, 48, 1, 2, 3, 4),
-            4,
-        );
+        let r =
+            _mm256_i32gather_ps::<4>(arr.as_ptr(), _mm256_setr_epi32(0, 16, 32, 48, 1, 2, 3, 4));
         assert_eq_m256(r, _mm256_setr_ps(0.0, 16.0, 32.0, 48.0, 1.0, 2.0, 3.0, 4.0));
     }
 
@@ -5731,12 +5493,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm256_mask_i32gather_ps(
+        let r = _mm256_mask_i32gather_ps::<4>(
             _mm256_set1_ps(256.0),
             arr.as_ptr(),
             _mm256_setr_epi32(0, 16, 64, 96, 0, 0, 0, 0),
             _mm256_setr_ps(-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-            4,
         );
         assert_eq_m256(
             r,
@@ -5751,7 +5512,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm_i32gather_epi64(arr.as_ptr(), _mm_setr_epi32(0, 16, 0, 0), 8);
+        let r = _mm_i32gather_epi64::<8>(arr.as_ptr(), _mm_setr_epi32(0, 16, 0, 0));
         assert_eq_m128i(r, _mm_setr_epi64x(0, 16));
     }
 
@@ -5762,12 +5523,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm_mask_i32gather_epi64(
+        let r = _mm_mask_i32gather_epi64::<8>(
             _mm_set1_epi64x(256),
             arr.as_ptr(),
             _mm_setr_epi32(16, 16, 16, 16),
             _mm_setr_epi64x(-1, 0),
-            8,
         );
         assert_eq_m128i(r, _mm_setr_epi64x(16, 256));
     }
@@ -5779,7 +5539,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm256_i32gather_epi64(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48), 8);
+        let r = _mm256_i32gather_epi64::<8>(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48));
         assert_eq_m256i(r, _mm256_setr_epi64x(0, 16, 32, 48));
     }
 
@@ -5790,12 +5550,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm256_mask_i32gather_epi64(
+        let r = _mm256_mask_i32gather_epi64::<8>(
             _mm256_set1_epi64x(256),
             arr.as_ptr(),
             _mm_setr_epi32(0, 16, 64, 96),
             _mm256_setr_epi64x(-1, -1, -1, 0),
-            8,
         );
         assert_eq_m256i(r, _mm256_setr_epi64x(0, 16, 64, 256));
     }
@@ -5809,7 +5568,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm_i32gather_pd(arr.as_ptr(), _mm_setr_epi32(0, 16, 0, 0), 8);
+        let r = _mm_i32gather_pd::<8>(arr.as_ptr(), _mm_setr_epi32(0, 16, 0, 0));
         assert_eq_m128d(r, _mm_setr_pd(0.0, 16.0));
     }
 
@@ -5822,12 +5581,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm_mask_i32gather_pd(
+        let r = _mm_mask_i32gather_pd::<8>(
             _mm_set1_pd(256.0),
             arr.as_ptr(),
             _mm_setr_epi32(16, 16, 16, 16),
             _mm_setr_pd(-1.0, 0.0),
-            8,
         );
         assert_eq_m128d(r, _mm_setr_pd(16.0, 256.0));
     }
@@ -5841,7 +5599,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm256_i32gather_pd(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48), 8);
+        let r = _mm256_i32gather_pd::<8>(arr.as_ptr(), _mm_setr_epi32(0, 16, 32, 48));
         assert_eq_m256d(r, _mm256_setr_pd(0.0, 16.0, 32.0, 48.0));
     }
 
@@ -5854,12 +5612,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm256_mask_i32gather_pd(
+        let r = _mm256_mask_i32gather_pd::<8>(
             _mm256_set1_pd(256.0),
             arr.as_ptr(),
             _mm_setr_epi32(0, 16, 64, 96),
             _mm256_setr_pd(-1.0, -1.0, -1.0, 0.0),
-            8,
         );
         assert_eq_m256d(r, _mm256_setr_pd(0.0, 16.0, 64.0, 256.0));
     }
@@ -5871,7 +5628,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm_i64gather_epi32(arr.as_ptr(), _mm_setr_epi64x(0, 16), 4);
+        let r = _mm_i64gather_epi32::<4>(arr.as_ptr(), _mm_setr_epi64x(0, 16));
         assert_eq_m128i(r, _mm_setr_epi32(0, 16, 0, 0));
     }
 
@@ -5882,12 +5639,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm_mask_i64gather_epi32(
+        let r = _mm_mask_i64gather_epi32::<4>(
             _mm_set1_epi32(256),
             arr.as_ptr(),
             _mm_setr_epi64x(0, 16),
             _mm_setr_epi32(-1, 0, -1, 0),
-            4,
         );
         assert_eq_m128i(r, _mm_setr_epi32(0, 256, 0, 0));
     }
@@ -5899,7 +5655,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm256_i64gather_epi32(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48), 4);
+        let r = _mm256_i64gather_epi32::<4>(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48));
         assert_eq_m128i(r, _mm_setr_epi32(0, 16, 32, 48));
     }
 
@@ -5910,12 +5666,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 4 is word-addressing
-        let r = _mm256_mask_i64gather_epi32(
+        let r = _mm256_mask_i64gather_epi32::<4>(
             _mm_set1_epi32(256),
             arr.as_ptr(),
             _mm256_setr_epi64x(0, 16, 64, 96),
             _mm_setr_epi32(-1, -1, -1, 0),
-            4,
         );
         assert_eq_m128i(r, _mm_setr_epi32(0, 16, 64, 256));
     }
@@ -5929,7 +5684,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm_i64gather_ps(arr.as_ptr(), _mm_setr_epi64x(0, 16), 4);
+        let r = _mm_i64gather_ps::<4>(arr.as_ptr(), _mm_setr_epi64x(0, 16));
         assert_eq_m128(r, _mm_setr_ps(0.0, 16.0, 0.0, 0.0));
     }
 
@@ -5942,12 +5697,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm_mask_i64gather_ps(
+        let r = _mm_mask_i64gather_ps::<4>(
             _mm_set1_ps(256.0),
             arr.as_ptr(),
             _mm_setr_epi64x(0, 16),
             _mm_setr_ps(-1.0, 0.0, -1.0, 0.0),
-            4,
         );
         assert_eq_m128(r, _mm_setr_ps(0.0, 256.0, 0.0, 0.0));
     }
@@ -5961,7 +5715,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm256_i64gather_ps(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48), 4);
+        let r = _mm256_i64gather_ps::<4>(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48));
         assert_eq_m128(r, _mm_setr_ps(0.0, 16.0, 32.0, 48.0));
     }
 
@@ -5974,12 +5728,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 4 is word-addressing for f32s
-        let r = _mm256_mask_i64gather_ps(
+        let r = _mm256_mask_i64gather_ps::<4>(
             _mm_set1_ps(256.0),
             arr.as_ptr(),
             _mm256_setr_epi64x(0, 16, 64, 96),
             _mm_setr_ps(-1.0, -1.0, -1.0, 0.0),
-            4,
         );
         assert_eq_m128(r, _mm_setr_ps(0.0, 16.0, 64.0, 256.0));
     }
@@ -5991,7 +5744,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm_i64gather_epi64(arr.as_ptr(), _mm_setr_epi64x(0, 16), 8);
+        let r = _mm_i64gather_epi64::<8>(arr.as_ptr(), _mm_setr_epi64x(0, 16));
         assert_eq_m128i(r, _mm_setr_epi64x(0, 16));
     }
 
@@ -6002,12 +5755,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm_mask_i64gather_epi64(
+        let r = _mm_mask_i64gather_epi64::<8>(
             _mm_set1_epi64x(256),
             arr.as_ptr(),
             _mm_setr_epi64x(16, 16),
             _mm_setr_epi64x(-1, 0),
-            8,
         );
         assert_eq_m128i(r, _mm_setr_epi64x(16, 256));
     }
@@ -6019,7 +5771,7 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm256_i64gather_epi64(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48), 8);
+        let r = _mm256_i64gather_epi64::<8>(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48));
         assert_eq_m256i(r, _mm256_setr_epi64x(0, 16, 32, 48));
     }
 
@@ -6030,12 +5782,11 @@ mod tests {
             arr[i as usize] = i;
         }
         // A multiplier of 8 is word-addressing for i64s
-        let r = _mm256_mask_i64gather_epi64(
+        let r = _mm256_mask_i64gather_epi64::<8>(
             _mm256_set1_epi64x(256),
             arr.as_ptr(),
             _mm256_setr_epi64x(0, 16, 64, 96),
             _mm256_setr_epi64x(-1, -1, -1, 0),
-            8,
         );
         assert_eq_m256i(r, _mm256_setr_epi64x(0, 16, 64, 256));
     }
@@ -6049,7 +5800,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm_i64gather_pd(arr.as_ptr(), _mm_setr_epi64x(0, 16), 8);
+        let r = _mm_i64gather_pd::<8>(arr.as_ptr(), _mm_setr_epi64x(0, 16));
         assert_eq_m128d(r, _mm_setr_pd(0.0, 16.0));
     }
 
@@ -6062,12 +5813,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm_mask_i64gather_pd(
+        let r = _mm_mask_i64gather_pd::<8>(
             _mm_set1_pd(256.0),
             arr.as_ptr(),
             _mm_setr_epi64x(16, 16),
             _mm_setr_pd(-1.0, 0.0),
-            8,
         );
         assert_eq_m128d(r, _mm_setr_pd(16.0, 256.0));
     }
@@ -6081,7 +5831,7 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm256_i64gather_pd(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48), 8);
+        let r = _mm256_i64gather_pd::<8>(arr.as_ptr(), _mm256_setr_epi64x(0, 16, 32, 48));
         assert_eq_m256d(r, _mm256_setr_pd(0.0, 16.0, 32.0, 48.0));
     }
 
@@ -6094,12 +5844,11 @@ mod tests {
             j += 1.0;
         }
         // A multiplier of 8 is word-addressing for f64s
-        let r = _mm256_mask_i64gather_pd(
+        let r = _mm256_mask_i64gather_pd::<8>(
             _mm256_set1_pd(256.0),
             arr.as_ptr(),
             _mm256_setr_epi64x(0, 16, 64, 96),
             _mm256_setr_pd(-1.0, -1.0, -1.0, 0.0),
-            8,
         );
         assert_eq_m256d(r, _mm256_setr_pd(0.0, 16.0, 64.0, 256.0));
     }
@@ -6113,9 +5862,9 @@ mod tests {
             16, 17, 18, 19, 20, 21, 22, 23,
             24, 25, 26, 27, 28, 29, 30, 31
         );
-        let r1 = _mm256_extract_epi8(a, 0);
-        let r2 = _mm256_extract_epi8(a, 35);
-        assert_eq!(r1, -1);
+        let r1 = _mm256_extract_epi8::<0>(a);
+        let r2 = _mm256_extract_epi8::<3>(a);
+        assert_eq!(r1, 0xFF);
         assert_eq!(r2, 3);
     }
 
@@ -6126,17 +5875,17 @@ mod tests {
             -1, 1, 2, 3, 4, 5, 6, 7,
             8, 9, 10, 11, 12, 13, 14, 15,
         );
-        let r1 = _mm256_extract_epi16(a, 0);
-        let r2 = _mm256_extract_epi16(a, 19);
-        assert_eq!(r1, -1);
+        let r1 = _mm256_extract_epi16::<0>(a);
+        let r2 = _mm256_extract_epi16::<3>(a);
+        assert_eq!(r1, 0xFFFF);
         assert_eq!(r2, 3);
     }
 
     #[simd_test(enable = "avx2")]
     unsafe fn test_mm256_extract_epi32() {
         let a = _mm256_setr_epi32(-1, 1, 2, 3, 4, 5, 6, 7);
-        let r1 = _mm256_extract_epi32(a, 0);
-        let r2 = _mm256_extract_epi32(a, 11);
+        let r1 = _mm256_extract_epi32::<0>(a);
+        let r2 = _mm256_extract_epi32::<3>(a);
         assert_eq!(r1, -1);
         assert_eq!(r2, 3);
     }

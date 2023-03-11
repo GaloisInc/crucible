@@ -3,7 +3,7 @@
 //! This includes functions to deal with memory isolation, usercalls, and the
 //! SGX instruction set.
 
-#![deny(missing_docs, missing_debug_implementations)]
+#![deny(missing_docs)]
 #![unstable(feature = "sgx_platform", issue = "56975")]
 
 /// Low-level interfaces to usercalls. See the [ABI documentation] for more
@@ -26,10 +26,13 @@ pub mod usercalls {
             free, insecure_time, launch_thread, read, read_alloc, send, wait, write,
         };
         pub use crate::sys::abi::usercalls::raw::{do_usercall, Usercalls as UsercallNrs};
+        pub use crate::sys::abi::usercalls::raw::{Register, RegisterArgument, ReturnValue};
 
         // fortanix-sgx-abi re-exports
         pub use crate::sys::abi::usercalls::raw::Error;
-        pub use crate::sys::abi::usercalls::raw::{ByteBuffer, FifoDescriptor, Return, Usercall};
+        pub use crate::sys::abi::usercalls::raw::{
+            ByteBuffer, Cancel, FifoDescriptor, Return, Usercall,
+        };
         pub use crate::sys::abi::usercalls::raw::{Fd, Result, Tcs};
         pub use crate::sys::abi::usercalls::raw::{
             EV_RETURNQ_NOT_EMPTY, EV_UNPARK, EV_USERCALLQ_NOT_FULL, FD_STDERR, FD_STDIN, FD_STDOUT,
@@ -43,7 +46,9 @@ pub mod mem {
     pub use crate::sys::abi::mem::*;
 }
 
-pub use crate::sys::ext::{arch, ffi, io};
+pub mod arch;
+pub mod ffi;
+pub mod io;
 
 /// Functions for querying thread-related information.
 pub mod thread {

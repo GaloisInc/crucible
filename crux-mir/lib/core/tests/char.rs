@@ -5,6 +5,8 @@ use std::{char, str};
 #[test]
 fn test_convert() {
     assert_eq!(u32::from('a'), 0x61);
+    assert_eq!(u64::from('b'), 0x62);
+    assert_eq!(u128::from('c'), 0x63);
     assert_eq!(char::from(b'\0'), '\0');
     assert_eq!(char::from(b'a'), 'a');
     assert_eq!(char::from(b'\xFF'), '\u{FF}');
@@ -17,6 +19,16 @@ fn test_convert() {
     assert_eq!(char::try_from(0x10FFFF_u32), Ok('\u{10FFFF}'));
     assert!(char::try_from(0x110000_u32).is_err());
     assert!(char::try_from(0xFFFF_FFFF_u32).is_err());
+}
+
+#[test]
+const fn test_convert_const() {
+    assert!(u32::from('a') == 0x61);
+    assert!(u64::from('b') == 0x62);
+    assert!(u128::from('c') == 0x63);
+    assert!(char::from(b'\0') == '\0');
+    assert!(char::from(b'a') == 'a');
+    assert!(char::from(b'\xFF') == '\u{FF}');
 }
 
 #[test]
@@ -67,10 +79,20 @@ fn test_to_digit() {
     assert_eq!('A'.to_digit(16), Some(10));
     assert_eq!('b'.to_digit(16), Some(11));
     assert_eq!('B'.to_digit(16), Some(11));
+    assert_eq!('A'.to_digit(36), Some(10));
     assert_eq!('z'.to_digit(36), Some(35));
     assert_eq!('Z'.to_digit(36), Some(35));
-    assert_eq!(' '.to_digit(10), None);
+    assert_eq!('['.to_digit(36), None);
+    assert_eq!('`'.to_digit(36), None);
+    assert_eq!('{'.to_digit(36), None);
     assert_eq!('$'.to_digit(36), None);
+    assert_eq!('@'.to_digit(16), None);
+    assert_eq!('G'.to_digit(16), None);
+    assert_eq!('g'.to_digit(16), None);
+    assert_eq!(' '.to_digit(10), None);
+    assert_eq!('/'.to_digit(10), None);
+    assert_eq!(':'.to_digit(10), None);
+    assert_eq!(':'.to_digit(11), None);
 }
 
 #[test]
@@ -81,6 +103,9 @@ fn test_to_lowercase() {
         let iter: String = c.to_lowercase().collect();
         let disp: String = c.to_lowercase().to_string();
         assert_eq!(iter, disp);
+        let iter_rev: String = c.to_lowercase().rev().collect();
+        let disp_rev: String = disp.chars().rev().collect();
+        assert_eq!(iter_rev, disp_rev);
         iter
     }
     assert_eq!(lower('A'), "a");
@@ -108,6 +133,9 @@ fn test_to_uppercase() {
         let iter: String = c.to_uppercase().collect();
         let disp: String = c.to_uppercase().to_string();
         assert_eq!(iter, disp);
+        let iter_rev: String = c.to_uppercase().rev().collect();
+        let disp_rev: String = disp.chars().rev().collect();
+        assert_eq!(iter_rev, disp_rev);
         iter
     }
     assert_eq!(upper('a'), "A");
@@ -169,7 +197,7 @@ fn test_escape_debug() {
     assert_eq!(string('~'), "~");
     assert_eq!(string('é'), "é");
     assert_eq!(string('文'), "文");
-    assert_eq!(string('\x00'), "\\u{0}");
+    assert_eq!(string('\x00'), "\\0");
     assert_eq!(string('\x1f'), "\\u{1f}");
     assert_eq!(string('\x7f'), "\\u{7f}");
     assert_eq!(string('\u{80}'), "\\u{80}");
@@ -278,6 +306,37 @@ fn test_decode_utf16() {
     }
     check(&[0xD800, 0x41, 0x42], &[Err(0xD800), Ok('A'), Ok('B')]);
     check(&[0xD800, 0], &[Err(0xD800), Ok('\0')]);
+    check(&[0xD800], &[Err(0xD800)]);
+    check(&[0xD840, 0xDC00], &[Ok('\u{20000}')]);
+    check(&[0xD840, 0xD840, 0xDC00], &[Err(0xD840), Ok('\u{20000}')]);
+    check(&[0xDC00, 0xD840], &[Err(0xDC00), Err(0xD840)]);
+}
+
+#[test]
+fn test_decode_utf16_size_hint() {
+    fn check(s: &[u16]) {
+        let mut iter = char::decode_utf16(s.iter().cloned());
+
+        loop {
+            let count = iter.clone().count();
+            let (lower, upper) = iter.size_hint();
+
+            assert!(
+                lower <= count && count <= upper.unwrap(),
+                "lower = {lower}, count = {count}, upper = {upper:?}"
+            );
+
+            if let None = iter.next() {
+                break;
+            }
+        }
+    }
+
+    check(&[0xD800, 0xD800, 0xDC00]);
+    check(&[0xD800, 0xD800, 0x0]);
+    check(&[0xD800, 0x41, 0x42]);
+    check(&[0xD800, 0]);
+    check(&[0xD834, 0x006d]);
 }
 
 #[test]

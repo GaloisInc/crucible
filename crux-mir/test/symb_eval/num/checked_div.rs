@@ -8,7 +8,7 @@ fn div_unsigned(x: u8, y: u8) -> u8 {
     x / y
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> u8 {
     let a: i8 = div_signed(1, 1);
     let b: i8 = div_signed(-128, -1);   // Should fail

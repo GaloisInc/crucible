@@ -1,10 +1,9 @@
 use crate::io::{self, IoSlice, IoSliceMut};
 use crate::mem;
-use crate::sync::atomic::{AtomicBool, Ordering};
+use crate::os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
 use crate::sys::fd::FileDesc;
 use crate::sys::{cvt, cvt_r};
-
-use libc::c_int;
+use crate::sys_common::IntoInner;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Anonymous pipes
@@ -13,46 +12,36 @@ use libc::c_int;
 pub struct AnonPipe(FileDesc);
 
 pub fn anon_pipe() -> io::Result<(AnonPipe, AnonPipe)> {
-    syscall! { fn pipe2(fds: *mut c_int, flags: c_int) -> c_int }
-    static INVALID: AtomicBool = AtomicBool::new(false);
-
     let mut fds = [0; 2];
 
-    // Unfortunately the only known way right now to create atomically set the
-    // CLOEXEC flag is to use the `pipe2` syscall on Linux. This was added in
-    // 2.6.27, however, and because we support 2.6.18 we must detect this
-    // support dynamically.
-    if cfg!(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "redox"
-    )) && !INVALID.load(Ordering::SeqCst)
-    {
-        // Note that despite calling a glibc function here we may still
-        // get ENOSYS. Glibc has `pipe2` since 2.9 and doesn't try to
-        // emulate on older kernels, so if you happen to be running on
-        // an older kernel you may see `pipe2` as a symbol but still not
-        // see the syscall.
-        match cvt(unsafe { pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }) {
-            Ok(_) => {
-                return Ok((AnonPipe(FileDesc::new(fds[0])), AnonPipe(FileDesc::new(fds[1]))));
+    // The only known way right now to create atomically set the CLOEXEC flag is
+    // to use the `pipe2` syscall. This was added to Linux in 2.6.27, glibc 2.9
+    // and musl 0.9.3, and some other targets also have it.
+    cfg_if::cfg_if! {
+        if #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "linux",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "redox"
+        ))] {
+            unsafe {
+                cvt(libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC))?;
+                Ok((AnonPipe(FileDesc::from_raw_fd(fds[0])), AnonPipe(FileDesc::from_raw_fd(fds[1]))))
             }
-            Err(ref e) if e.raw_os_error() == Some(libc::ENOSYS) => {
-                INVALID.store(true, Ordering::SeqCst);
+        } else {
+            unsafe {
+                cvt(libc::pipe(fds.as_mut_ptr()))?;
+
+                let fd0 = FileDesc::from_raw_fd(fds[0]);
+                let fd1 = FileDesc::from_raw_fd(fds[1]);
+                fd0.set_cloexec()?;
+                fd1.set_cloexec()?;
+                Ok((AnonPipe(fd0), AnonPipe(fd1)))
             }
-            Err(e) => return Err(e),
         }
     }
-    cvt(unsafe { libc::pipe(fds.as_mut_ptr()) })?;
-
-    let fd0 = FileDesc::new(fds[0]);
-    let fd1 = FileDesc::new(fds[1]);
-    fd0.set_cloexec()?;
-    fd1.set_cloexec()?;
-    Ok((AnonPipe(fd0), AnonPipe(fd1)))
 }
 
 impl AnonPipe {
@@ -64,6 +53,15 @@ impl AnonPipe {
         self.0.read_vectored(bufs)
     }
 
+    #[inline]
+    pub fn is_read_vectored(&self) -> bool {
+        self.0.is_read_vectored()
+    }
+
+    pub fn read_to_end(&self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        self.0.read_to_end(buf)
+    }
+
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
         self.0.write(buf)
     }
@@ -72,10 +70,14 @@ impl AnonPipe {
         self.0.write_vectored(bufs)
     }
 
-    pub fn fd(&self) -> &FileDesc {
-        &self.0
+    #[inline]
+    pub fn is_write_vectored(&self) -> bool {
+        self.0.is_write_vectored()
     }
-    pub fn into_fd(self) -> FileDesc {
+}
+
+impl IntoInner<FileDesc> for AnonPipe {
+    fn into_inner(self) -> FileDesc {
         self.0
     }
 }
@@ -83,15 +85,15 @@ impl AnonPipe {
 pub fn read2(p1: AnonPipe, v1: &mut Vec<u8>, p2: AnonPipe, v2: &mut Vec<u8>) -> io::Result<()> {
     // Set both pipes into nonblocking mode as we're gonna be reading from both
     // in the `select` loop below, and we wouldn't want one to block the other!
-    let p1 = p1.into_fd();
-    let p2 = p2.into_fd();
+    let p1 = p1.into_inner();
+    let p2 = p2.into_inner();
     p1.set_nonblocking(true)?;
     p2.set_nonblocking(true)?;
 
     let mut fds: [libc::pollfd; 2] = unsafe { mem::zeroed() };
-    fds[0].fd = p1.raw();
+    fds[0].fd = p1.as_raw_fd();
     fds[0].events = libc::POLLIN;
-    fds[1].fd = p2.raw();
+    fds[1].fd = p2.as_raw_fd();
     fds[1].events = libc::POLLIN;
     loop {
         // wait for either pipe to become readable using `poll`
@@ -125,5 +127,29 @@ pub fn read2(p1: AnonPipe, v1: &mut Vec<u8>, p2: AnonPipe, v2: &mut Vec<u8>) -> 
                 }
             }
         }
+    }
+}
+
+impl AsRawFd for AnonPipe {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl AsFd for AnonPipe {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+impl IntoRawFd for AnonPipe {
+    fn into_raw_fd(self) -> RawFd {
+        self.0.into_raw_fd()
+    }
+}
+
+impl FromRawFd for AnonPipe {
+    unsafe fn from_raw_fd(raw_fd: RawFd) -> Self {
+        Self(FromRawFd::from_raw_fd(raw_fd))
     }
 }

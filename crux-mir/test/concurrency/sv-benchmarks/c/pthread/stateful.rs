@@ -45,14 +45,14 @@ fn run_threads() -> (i32, i32)
     return r
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn stateful01_1()
 {
     let (d1, d2) = run_threads();
     crucible_assert!( !(d1 == 16 && d2 == 5) );
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn stateful01_2()
 {
     let (d1, d2) = run_threads();

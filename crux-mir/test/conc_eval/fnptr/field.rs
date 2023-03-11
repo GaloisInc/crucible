@@ -7,7 +7,7 @@ struct Test {
     f: fn(i32) -> i32,
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let f = Test { f: test_func };
     (f.f)(1)

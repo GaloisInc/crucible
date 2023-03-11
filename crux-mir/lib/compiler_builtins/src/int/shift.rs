@@ -1,79 +1,79 @@
-use int::{Int, LargeInt};
+use int::{DInt, HInt, Int};
 
-trait Ashl: Int + LargeInt {
+trait Ashl: DInt {
     /// Returns `a << b`, requires `b < Self::BITS`
-    fn ashl(self, offset: u32) -> Self
-    where
-        Self: LargeInt<HighHalf = <Self as LargeInt>::LowHalf>,
-    {
-        let half_bits = Self::BITS / 2;
-        if offset & half_bits != 0 {
-            Self::from_parts(Int::ZERO, self.low() << (offset - half_bits))
-        } else if offset == 0 {
+    fn ashl(self, shl: u32) -> Self {
+        let n_h = Self::H::BITS;
+        if shl & n_h != 0 {
+            // we only need `self.lo()` because `self.hi()` will be shifted out entirely
+            self.lo().wrapping_shl(shl - n_h).widen_hi()
+        } else if shl == 0 {
             self
         } else {
-            Self::from_parts(
-                self.low() << offset,
-                (self.high() << offset) | (self.low() >> (half_bits - offset)),
+            Self::from_lo_hi(
+                self.lo().wrapping_shl(shl),
+                self.lo().logical_shr(n_h - shl) | self.hi().wrapping_shl(shl),
             )
         }
     }
 }
 
+impl Ashl for u32 {}
 impl Ashl for u64 {}
 impl Ashl for u128 {}
 
-trait Ashr: Int + LargeInt {
+trait Ashr: DInt {
     /// Returns arithmetic `a >> b`, requires `b < Self::BITS`
-    fn ashr(self, offset: u32) -> Self
-    where
-        Self: LargeInt<LowHalf = <<Self as LargeInt>::HighHalf as Int>::UnsignedInt>,
-    {
-        let half_bits = Self::BITS / 2;
-        if offset & half_bits != 0 {
-            Self::from_parts(
-                (self.high() >> (offset - half_bits)).unsigned(),
-                self.high() >> (half_bits - 1),
+    fn ashr(self, shr: u32) -> Self {
+        let n_h = Self::H::BITS;
+        if shr & n_h != 0 {
+            Self::from_lo_hi(
+                self.hi().wrapping_shr(shr - n_h),
+                // smear the sign bit
+                self.hi().wrapping_shr(n_h - 1),
             )
-        } else if offset == 0 {
+        } else if shr == 0 {
             self
         } else {
-            let high_unsigned = self.high().unsigned();
-            Self::from_parts(
-                (high_unsigned << (half_bits - offset)) | (self.low() >> offset),
-                self.high() >> offset,
+            Self::from_lo_hi(
+                self.lo().logical_shr(shr) | self.hi().wrapping_shl(n_h - shr),
+                self.hi().wrapping_shr(shr),
             )
         }
     }
 }
 
+impl Ashr for i32 {}
 impl Ashr for i64 {}
 impl Ashr for i128 {}
 
-trait Lshr: Int + LargeInt {
+trait Lshr: DInt {
     /// Returns logical `a >> b`, requires `b < Self::BITS`
-    fn lshr(self, offset: u32) -> Self
-    where
-        Self: LargeInt<HighHalf = <Self as LargeInt>::LowHalf>,
-    {
-        let half_bits = Self::BITS / 2;
-        if offset & half_bits != 0 {
-            Self::from_parts(self.high() >> (offset - half_bits), Int::ZERO)
-        } else if offset == 0 {
+    fn lshr(self, shr: u32) -> Self {
+        let n_h = Self::H::BITS;
+        if shr & n_h != 0 {
+            self.hi().logical_shr(shr - n_h).zero_widen()
+        } else if shr == 0 {
             self
         } else {
-            Self::from_parts(
-                (self.high() << (half_bits - offset)) | (self.low() >> offset),
-                self.high() >> offset,
+            Self::from_lo_hi(
+                self.lo().logical_shr(shr) | self.hi().wrapping_shl(n_h - shr),
+                self.hi().logical_shr(shr),
             )
         }
     }
 }
 
+impl Lshr for u32 {}
 impl Lshr for u64 {}
 impl Lshr for u128 {}
 
 intrinsics! {
+    #[maybe_use_optimized_c_shim]
+    pub extern "C" fn __ashlsi3(a: u32, b: u32) -> u32 {
+        a.ashl(b)
+    }
+
     #[maybe_use_optimized_c_shim]
     #[arm_aeabi_alias = __aeabi_llsl]
     pub extern "C" fn __ashldi3(a: u64, b: u32) -> u64 {
@@ -82,6 +82,11 @@ intrinsics! {
 
     pub extern "C" fn __ashlti3(a: u128, b: u32) -> u128 {
         a.ashl(b)
+    }
+
+    #[maybe_use_optimized_c_shim]
+    pub extern "C" fn __ashrsi3(a: i32, b: u32) -> i32 {
+        a.ashr(b)
     }
 
     #[maybe_use_optimized_c_shim]
@@ -95,6 +100,11 @@ intrinsics! {
     }
 
     #[maybe_use_optimized_c_shim]
+    pub extern "C" fn __lshrsi3(a: u32, b: u32) -> u32 {
+        a.lshr(b)
+    }
+
+    #[maybe_use_optimized_c_shim]
     #[arm_aeabi_alias = __aeabi_llsr]
     pub extern "C" fn __lshrdi3(a: u64, b: u32) -> u64 {
         a.lshr(b)
@@ -102,21 +112,5 @@ intrinsics! {
 
     pub extern "C" fn __lshrti3(a: u128, b: u32) -> u128 {
         a.lshr(b)
-    }
-
-    pub extern "C" fn __rust_i128_shlo(a: i128, b: u128) -> (i128, bool) {
-        (__ashlti3(a as _, b as _) as _, b >= 128)
-    }
-
-    pub extern "C" fn __rust_u128_shlo(a: u128, b: u128) -> (u128, bool) {
-        (__ashlti3(a, b as _), b >= 128)
-    }
-
-    pub extern "C" fn __rust_i128_shro(a: i128, b: u128) -> (i128, bool) {
-        (__ashrti3(a, b as _), b >= 128)
-    }
-
-    pub extern "C" fn __rust_u128_shro(a: u128, b: u128) -> (u128, bool) {
-        (__lshrti3(a, b as _), b >= 128)
     }
 }

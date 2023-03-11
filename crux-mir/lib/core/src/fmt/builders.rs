@@ -1,4 +1,6 @@
-use crate::fmt;
+#![allow(unused_imports)]
+
+use crate::fmt::{self, Debug, Formatter};
 
 struct PadAdapter<'buf, 'state> {
     buf: &'buf mut (dyn fmt::Write + 'buf),
@@ -21,46 +23,31 @@ impl<'buf, 'state> PadAdapter<'buf, 'state> {
         slot: &'slot mut Option<Self>,
         state: &'state mut PadAdapterState,
     ) -> fmt::Formatter<'slot> {
-        fmt.wrap_buf(move |buf| {
-            *slot = Some(PadAdapter { buf, state });
-            slot.as_mut().unwrap()
-        })
+        fmt.wrap_buf(move |buf| slot.insert(PadAdapter { buf, state }))
     }
 }
 
 impl fmt::Write for PadAdapter<'_, '_> {
-    fn write_str(&mut self, mut s: &str) -> fmt::Result {
-        while !s.is_empty() {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for s in s.split_inclusive('\n') {
             if self.state.on_newline {
                 self.buf.write_str("    ")?;
             }
 
-            let split = match s.find('\n') {
-                Some(pos) => {
-                    self.state.on_newline = true;
-                    pos + 1
-                }
-                None => {
-                    self.state.on_newline = false;
-                    s.len()
-                }
-            };
-            self.buf.write_str(&s[..split])?;
-            s = &s[split..];
+            self.state.on_newline = s.ends_with('\n');
+            self.buf.write_str(s)?;
         }
 
         Ok(())
     }
 }
 
-/// A struct to help with [`fmt::Debug`](trait.Debug.html) implementations.
+/// A struct to help with [`fmt::Debug`](Debug) implementations.
 ///
 /// This is useful when you wish to output a formatted struct as a part of your
-/// [`Debug::fmt`](trait.Debug.html#tymethod.fmt) implementation.
+/// [`Debug::fmt`] implementation.
 ///
-/// This can be constructed by the
-/// [`Formatter::debug_struct`](struct.Formatter.html#method.debug_struct)
-/// method.
+/// This can be constructed by the [`Formatter::debug_struct`] method.
 ///
 /// # Examples
 ///
@@ -141,7 +128,7 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
                 }
                 let mut slot = None;
                 let mut state = Default::default();
-                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut state);
+                let mut writer = PadAdapter::wrap(self.fmt, &mut slot, &mut state);
                 writer.write_str(name)?;
                 writer.write_str(": ")?;
                 value.fmt(&mut writer)?;
@@ -165,7 +152,6 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(debug_non_exhaustive)]
     /// use std::fmt;
     ///
     /// struct Bar {
@@ -186,31 +172,22 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
     ///     "Bar { bar: 10, .. }",
     /// );
     /// ```
-    #[unstable(feature = "debug_non_exhaustive", issue = "67364")]
+    #[stable(feature = "debug_non_exhaustive", since = "1.53.0")]
     pub fn finish_non_exhaustive(&mut self) -> fmt::Result {
         self.result = self.result.and_then(|_| {
-            // Draw non-exhaustive dots (`..`), and open brace if necessary (no fields).
-            if self.is_pretty() {
-                if !self.has_fields {
-                    self.fmt.write_str(" {\n")?;
-                }
-                let mut slot = None;
-                let mut state = Default::default();
-                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut state);
-                writer.write_str("..\n")?;
-            } else {
-                if self.has_fields {
-                    self.fmt.write_str(", ..")?;
+            if self.has_fields {
+                if self.is_pretty() {
+                    let mut slot = None;
+                    let mut state = Default::default();
+                    let mut writer = PadAdapter::wrap(self.fmt, &mut slot, &mut state);
+                    writer.write_str("..\n")?;
+                    self.fmt.write_str("}")
                 } else {
-                    self.fmt.write_str(" { ..")?;
+                    self.fmt.write_str(", .. }")
                 }
-            }
-            if self.is_pretty() {
-                self.fmt.write_str("}")?
             } else {
-                self.fmt.write_str(" }")?;
+                self.fmt.write_str(" { .. }")
             }
-            Ok(())
         });
         self.result
     }
@@ -257,14 +234,12 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
     }
 }
 
-/// A struct to help with [`fmt::Debug`](trait.Debug.html) implementations.
+/// A struct to help with [`fmt::Debug`](Debug) implementations.
 ///
 /// This is useful when you wish to output a formatted tuple as a part of your
-/// [`Debug::fmt`](trait.Debug.html#tymethod.fmt) implementation.
+/// [`Debug::fmt`] implementation.
 ///
-/// This can be constructed by the
-/// [`Formatter::debug_tuple`](struct.Formatter.html#method.debug_tuple)
-/// method.
+/// This can be constructed by the [`Formatter::debug_tuple`] method.
 ///
 /// # Examples
 ///
@@ -338,7 +313,7 @@ impl<'a, 'b: 'a> DebugTuple<'a, 'b> {
                 }
                 let mut slot = None;
                 let mut state = Default::default();
-                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut state);
+                let mut writer = PadAdapter::wrap(self.fmt, &mut slot, &mut state);
                 value.fmt(&mut writer)?;
                 writer.write_str(",\n")
             } else {
@@ -409,7 +384,7 @@ impl<'a, 'b: 'a> DebugInner<'a, 'b> {
                 }
                 let mut slot = None;
                 let mut state = Default::default();
-                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut state);
+                let mut writer = PadAdapter::wrap(self.fmt, &mut slot, &mut state);
                 entry.fmt(&mut writer)?;
                 writer.write_str(",\n")
             } else {
@@ -428,14 +403,12 @@ impl<'a, 'b: 'a> DebugInner<'a, 'b> {
     }
 }
 
-/// A struct to help with [`fmt::Debug`](trait.Debug.html) implementations.
+/// A struct to help with [`fmt::Debug`](Debug) implementations.
 ///
 /// This is useful when you wish to output a formatted set of items as a part
-/// of your [`Debug::fmt`](trait.Debug.html#tymethod.fmt) implementation.
+/// of your [`Debug::fmt`] implementation.
 ///
-/// This can be constructed by the
-/// [`Formatter::debug_set`](struct.Formatter.html#method.debug_set)
-/// method.
+/// This can be constructed by the [`Formatter::debug_set`] method.
 ///
 /// # Examples
 ///
@@ -560,14 +533,12 @@ impl<'a, 'b: 'a> DebugSet<'a, 'b> {
     }
 }
 
-/// A struct to help with [`fmt::Debug`](trait.Debug.html) implementations.
+/// A struct to help with [`fmt::Debug`](Debug) implementations.
 ///
 /// This is useful when you wish to output a formatted list of items as a part
-/// of your [`Debug::fmt`](trait.Debug.html#tymethod.fmt) implementation.
+/// of your [`Debug::fmt`] implementation.
 ///
-/// This can be constructed by the
-/// [`Formatter::debug_list`](struct.Formatter.html#method.debug_list)
-/// method.
+/// This can be constructed by the [`Formatter::debug_list`] method.
 ///
 /// # Examples
 ///
@@ -692,14 +663,12 @@ impl<'a, 'b: 'a> DebugList<'a, 'b> {
     }
 }
 
-/// A struct to help with [`fmt::Debug`](trait.Debug.html) implementations.
+/// A struct to help with [`fmt::Debug`](Debug) implementations.
 ///
 /// This is useful when you wish to output a formatted map as a part of your
-/// [`Debug::fmt`](trait.Debug.html#tymethod.fmt) implementation.
+/// [`Debug::fmt`] implementation.
 ///
-/// This can be constructed by the
-/// [`Formatter::debug_map`](struct.Formatter.html#method.debug_map)
-/// method.
+/// This can be constructed by the [`Formatter::debug_map`] method.
 ///
 /// # Examples
 ///
@@ -810,7 +779,7 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
                 }
                 let mut slot = None;
                 self.state = Default::default();
-                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut self.state);
+                let mut writer = PadAdapter::wrap(self.fmt, &mut slot, &mut self.state);
                 key.fmt(&mut writer)?;
                 writer.write_str(": ")?;
             } else {
@@ -866,7 +835,7 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
 
             if self.is_pretty() {
                 let mut slot = None;
-                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut self.state);
+                let mut writer = PadAdapter::wrap(self.fmt, &mut slot, &mut self.state);
                 value.fmt(&mut writer)?;
                 writer.write_str(",\n")?;
             } else {

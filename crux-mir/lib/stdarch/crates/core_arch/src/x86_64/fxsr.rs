@@ -1,4 +1,4 @@
-//! FXSR floating-point context fast save and restor.
+//! FXSR floating-point context fast save and restore.
 
 #[cfg(test)]
 use stdarch_test::assert_instr;
@@ -6,9 +6,9 @@ use stdarch_test::assert_instr;
 #[allow(improper_ctypes)]
 extern "C" {
     #[link_name = "llvm.x86.fxsave64"]
-    fn fxsave64(p: *mut u8) -> ();
+    fn fxsave64(p: *mut u8);
     #[link_name = "llvm.x86.fxrstor64"]
-    fn fxrstor64(p: *const u8) -> ();
+    fn fxrstor64(p: *const u8);
 }
 
 /// Saves the `x87` FPU, `MMX` technology, `XMM`, and `MXCSR` registers to the
@@ -87,7 +87,7 @@ mod tests {
     }
 
     impl fmt::Debug for FxsaveArea {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "[")?;
             for i in 0..self.data.len() {
                 write!(f, "{}", self.data[i])?;

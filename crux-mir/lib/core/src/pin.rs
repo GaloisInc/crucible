@@ -6,18 +6,23 @@
 //! as moving an object with pointers to itself will invalidate them, which could cause undefined
 //! behavior.
 //!
-//! A [`Pin<P>`] ensures that the pointee of any pointer type `P` has a stable location in memory,
-//! meaning it cannot be moved elsewhere and its memory cannot be deallocated
-//! until it gets dropped. We say that the pointee is "pinned".
+//! At a high level, a <code>[Pin]\<P></code> ensures that the pointee of any pointer type
+//! `P` has a stable location in memory, meaning it cannot be moved elsewhere
+//! and its memory cannot be deallocated until it gets dropped. We say that the
+//! pointee is "pinned". Things get more subtle when discussing types that
+//! combine pinned with non-pinned data; [see below](#projections-and-structural-pinning)
+//! for more details.
 //!
 //! By default, all types in Rust are movable. Rust allows passing all types by-value,
-//! and common smart-pointer types such as [`Box<T>`] and `&mut T` allow replacing and
-//! moving the values they contain: you can move out of a [`Box<T>`], or you can use [`mem::swap`].
-//! [`Pin<P>`] wraps a pointer type `P`, so [`Pin`]`<`[`Box`]`<T>>` functions much like a regular
-//! [`Box<T>`]: when a [`Pin`]`<`[`Box`]`<T>>` gets dropped, so do its contents, and the memory gets
-//! deallocated. Similarly, [`Pin`]`<&mut T>` is a lot like `&mut T`. However, [`Pin<P>`] does
-//! not let clients actually obtain a [`Box<T>`] or `&mut T` to pinned data, which implies that you
-//! cannot use operations such as [`mem::swap`]:
+//! and common smart-pointer types such as <code>[Box]\<T></code> and <code>[&mut] T</code> allow
+//! replacing and moving the values they contain: you can move out of a <code>[Box]\<T></code>,
+//! or you can use [`mem::swap`]. <code>[Pin]\<P></code> wraps a pointer type `P`, so
+//! <code>[Pin]<[Box]\<T>></code> functions much like a regular <code>[Box]\<T></code>:
+//! when a <code>[Pin]<[Box]\<T>></code> gets dropped, so do its contents, and the memory gets
+//! deallocated. Similarly, <code>[Pin]<[&mut] T></code> is a lot like <code>[&mut] T</code>.
+//! However, <code>[Pin]\<P></code> does not let clients actually obtain a <code>[Box]\<T></code>
+//! or <code>[&mut] T</code> to pinned data, which implies that you cannot use operations such
+//! as [`mem::swap`]:
 //!
 //! ```
 //! use std::pin::Pin;
@@ -29,18 +34,18 @@
 //! }
 //! ```
 //!
-//! It is worth reiterating that [`Pin<P>`] does *not* change the fact that a Rust compiler
-//! considers all types movable. [`mem::swap`] remains callable for any `T`. Instead, [`Pin<P>`]
-//! prevents certain *values* (pointed to by pointers wrapped in [`Pin<P>`]) from being
-//! moved by making it impossible to call methods that require `&mut T` on them
-//! (like [`mem::swap`]).
+//! It is worth reiterating that <code>[Pin]\<P></code> does *not* change the fact that a Rust
+//! compiler considers all types movable. [`mem::swap`] remains callable for any `T`. Instead,
+//! <code>[Pin]\<P></code> prevents certain *values* (pointed to by pointers wrapped in
+//! <code>[Pin]\<P></code>) from being moved by making it impossible to call methods that require
+//! <code>[&mut] T</code> on them (like [`mem::swap`]).
 //!
-//! [`Pin<P>`] can be used to wrap any pointer type `P`, and as such it interacts with
-//! [`Deref`] and [`DerefMut`]. A [`Pin<P>`] where `P: Deref` should be considered
-//! as a "`P`-style pointer" to a pinned `P::Target` -- so, a [`Pin`]`<`[`Box`]`<T>>` is
-//! an owned pointer to a pinned `T`, and a [`Pin`]`<`[`Rc`]`<T>>` is a reference-counted
-//! pointer to a pinned `T`.
-//! For correctness, [`Pin<P>`] relies on the implementations of [`Deref`] and
+//! <code>[Pin]\<P></code> can be used to wrap any pointer type `P`, and as such it interacts with
+//! [`Deref`] and [`DerefMut`]. A <code>[Pin]\<P></code> where <code>P: [Deref]</code> should be
+//! considered as a "`P`-style pointer" to a pinned <code>P::[Target]</code> – so, a
+//! <code>[Pin]<[Box]\<T>></code> is an owned pointer to a pinned `T`, and a
+//! <code>[Pin]<[Rc]\<T>></code> is a reference-counted pointer to a pinned `T`.
+//! For correctness, <code>[Pin]\<P></code> relies on the implementations of [`Deref`] and
 //! [`DerefMut`] not to move out of their `self` parameter, and only ever to
 //! return a pointer to pinned data when they are called on a pinned pointer.
 //!
@@ -50,16 +55,20 @@
 //! rely on having a stable address. This includes all the basic types (like
 //! [`bool`], [`i32`], and references) as well as types consisting solely of these
 //! types. Types that do not care about pinning implement the [`Unpin`]
-//! auto-trait, which cancels the effect of [`Pin<P>`]. For `T: Unpin`,
-//! [`Pin`]`<`[`Box`]`<T>>` and [`Box<T>`] function identically, as do [`Pin`]`<&mut T>` and
-//! `&mut T`.
+//! auto-trait, which cancels the effect of <code>[Pin]\<P></code>. For <code>T: [Unpin]</code>,
+//! <code>[Pin]<[Box]\<T>></code> and <code>[Box]\<T></code> function identically, as do
+//! <code>[Pin]<[&mut] T></code> and <code>[&mut] T</code>.
 //!
-//! Note that pinning and [`Unpin`] only affect the pointed-to type `P::Target`, not the pointer
-//! type `P` itself that got wrapped in [`Pin<P>`]. For example, whether or not [`Box<T>`] is
-//! [`Unpin`] has no effect on the behavior of [`Pin`]`<`[`Box`]`<T>>` (here, `T` is the
-//! pointed-to type).
+//! Note that pinning and [`Unpin`] only affect the pointed-to type <code>P::[Target]</code>,
+//! not the pointer type `P` itself that got wrapped in <code>[Pin]\<P></code>. For example,
+//! whether or not <code>[Box]\<T></code> is [`Unpin`] has no effect on the behavior of
+//! <code>[Pin]<[Box]\<T>></code> (here, `T` is the pointed-to type).
 //!
 //! # Example: self-referential struct
+//!
+//! Before we go into more details to explain the guarantees and choices
+//! associated with <code>[Pin]\<P></code>, we discuss some examples for how it might be used.
+//! Feel free to [skip to where the theoretical discussion continues](#drop-guarantee).
 //!
 //! ```rust
 //! use std::pin::Pin;
@@ -122,13 +131,13 @@
 //!
 //! To make this work, every element has pointers to its predecessor and successor in
 //! the list. Elements can only be added when they are pinned, because moving the elements
-//! around would invalidate the pointers. Moreover, the [`Drop`] implementation of a linked
+//! around would invalidate the pointers. Moreover, the [`Drop`][Drop] implementation of a linked
 //! list element will patch the pointers of its predecessor and successor to remove itself
 //! from the list.
 //!
 //! Crucially, we have to be able to rely on [`drop`] being called. If an element
 //! could be deallocated or otherwise invalidated without calling [`drop`], the pointers into it
-//! from its neighbouring elements would become invalid, which would break the data structure.
+//! from its neighboring elements would become invalid, which would break the data structure.
 //!
 //! Therefore, pinning also comes with a [`drop`]-related guarantee.
 //!
@@ -139,35 +148,37 @@
 //! otherwise invalidating the memory used to store the data is restricted, too.
 //! Concretely, for pinned data you have to maintain the invariant
 //! that *its memory will not get invalidated or repurposed from the moment it gets pinned until
-//! when [`drop`] is called*. Memory can be invalidated by deallocation, but also by
-//! replacing a [`Some(v)`] by [`None`], or calling [`Vec::set_len`] to "kill" some elements
-//! off of a vector. It can be repurposed by using [`ptr::write`] to overwrite it without
-//! calling the destructor first.
+//! when [`drop`] is called*.  Only once [`drop`] returns or panics, the memory may be reused.
+//!
+//! Memory can be "invalidated" by deallocation, but also by
+//! replacing a <code>[Some]\(v)</code> by [`None`], or calling [`Vec::set_len`] to "kill" some
+//! elements off of a vector. It can be repurposed by using [`ptr::write`] to overwrite it without
+//! calling the destructor first. None of this is allowed for pinned data without calling [`drop`].
 //!
 //! This is exactly the kind of guarantee that the intrusive linked list from the previous
 //! section needs to function correctly.
 //!
 //! Notice that this guarantee does *not* mean that memory does not leak! It is still
-//! completely okay not ever to call [`drop`] on a pinned element (e.g., you can still
-//! call [`mem::forget`] on a [`Pin`]`<`[`Box`]`<T>>`). In the example of the doubly-linked
-//! list, that element would just stay in the list. However you may not free or reuse the storage
+//! completely okay to not ever call [`drop`] on a pinned element (e.g., you can still
+//! call [`mem::forget`] on a <code>[Pin]<[Box]\<T>></code>). In the example of the doubly-linked
+//! list, that element would just stay in the list. However you must not free or reuse the storage
 //! *without calling [`drop`]*.
 //!
 //! # `Drop` implementation
 //!
 //! If your type uses pinning (such as the two examples above), you have to be careful
-//! when implementing [`Drop`]. The [`drop`] function takes `&mut self`, but this
+//! when implementing [`Drop`][Drop]. The [`drop`] function takes <code>[&mut] self</code>, but this
 //! is called *even if your type was previously pinned*! It is as if the
 //! compiler automatically called [`Pin::get_unchecked_mut`].
 //!
 //! This can never cause a problem in safe code because implementing a type that
 //! relies on pinning requires unsafe code, but be aware that deciding to make
 //! use of pinning in your type (for example by implementing some operation on
-//! [`Pin`]`<&Self>` or [`Pin`]`<&mut Self>`) has consequences for your [`Drop`]
-//! implementation as well: if an element of your type could have been pinned,
-//! you must treat [`Drop`] as implicitly taking [`Pin`]`<&mut Self>`.
+//! <code>[Pin]<[&]Self></code> or <code>[Pin]<[&mut] Self></code>) has consequences for your
+//! [`Drop`][Drop] implementation as well: if an element of your type could have been pinned,
+//! you must treat [`Drop`][Drop] as implicitly taking <code>[Pin]<[&mut] Self></code>.
 //!
-//! For example, you could implement `Drop` as follows:
+//! For example, you could implement [`Drop`][Drop] as follows:
 //!
 //! ```rust,no_run
 //! # use std::pin::Pin;
@@ -195,18 +206,18 @@
 //! # Projections and Structural Pinning
 //!
 //! When working with pinned structs, the question arises how one can access the
-//! fields of that struct in a method that takes just [`Pin`]`<&mut Struct>`.
+//! fields of that struct in a method that takes just <code>[Pin]<[&mut] Struct></code>.
 //! The usual approach is to write helper methods (so called *projections*)
-//! that turn [`Pin`]`<&mut Struct>` into a reference to the field, but what
-//! type should that reference have? Is it [`Pin`]`<&mut Field>` or `&mut Field`?
+//! that turn <code>[Pin]<[&mut] Struct></code> into a reference to the field, but what type should
+//! that reference have? Is it <code>[Pin]<[&mut] Field></code> or <code>[&mut] Field</code>?
 //! The same question arises with the fields of an `enum`, and also when considering
-//! container/wrapper types such as [`Vec<T>`], [`Box<T>`], or [`RefCell<T>`].
-//! (This question applies to both mutable and shared references, we just
-//! use the more common case of mutable references here for illustration.)
+//! container/wrapper types such as <code>[Vec]\<T></code>, <code>[Box]\<T></code>,
+//! or <code>[RefCell]\<T></code>. (This question applies to both mutable and shared references,
+//! we just use the more common case of mutable references here for illustration.)
 //!
-//! It turns out that it is actually up to the author of the data structure
-//! to decide whether the pinned projection for a particular field turns
-//! [`Pin`]`<&mut Struct>` into [`Pin`]`<&mut Field>` or `&mut Field`. There are some
+//! It turns out that it is actually up to the author of the data structure to decide whether
+//! the pinned projection for a particular field turns <code>[Pin]<[&mut] Struct></code>
+//! into <code>[Pin]<[&mut] Field></code> or <code>[&mut] Field</code>. There are some
 //! constraints though, and the most important constraint is *consistency*:
 //! every field can be *either* projected to a pinned reference, *or* have
 //! pinning removed as part of the projection. If both are done for the same field,
@@ -221,12 +232,12 @@
 //! ## Pinning *is not* structural for `field`
 //!
 //! It may seem counter-intuitive that the field of a pinned struct might not be pinned,
-//! but that is actually the easiest choice: if a [`Pin`]`<&mut Field>` is never created,
+//! but that is actually the easiest choice: if a <code>[Pin]<[&mut] Field></code> is never created,
 //! nothing can go wrong! So, if you decide that some field does not have structural pinning,
 //! all you have to ensure is that you never create a pinned reference to that field.
 //!
 //! Fields without structural pinning may have a projection method that turns
-//! [`Pin`]`<&mut Struct>` into `&mut Field`:
+//! <code>[Pin]<[&mut] Struct></code> into <code>[&mut] Field</code>:
 //!
 //! ```rust,no_run
 //! # use std::pin::Pin;
@@ -240,16 +251,16 @@
 //! }
 //! ```
 //!
-//! You may also `impl Unpin for Struct` *even if* the type of `field`
+//! You may also <code>impl [Unpin] for Struct</code> *even if* the type of `field`
 //! is not [`Unpin`]. What that type thinks about pinning is not relevant
-//! when no [`Pin`]`<&mut Field>` is ever created.
+//! when no <code>[Pin]<[&mut] Field></code> is ever created.
 //!
 //! ## Pinning *is* structural for `field`
 //!
 //! The other option is to decide that pinning is "structural" for `field`,
 //! meaning that if the struct is pinned then so is the field.
 //!
-//! This allows writing a projection that creates a [`Pin`]`<&mut Field>`, thus
+//! This allows writing a projection that creates a <code>[Pin]<[&mut] Field></code>, thus
 //! witnessing that the field is pinned:
 //!
 //! ```rust,no_run
@@ -269,34 +280,36 @@
 //! 1.  The struct must only be [`Unpin`] if all the structural fields are
 //!     [`Unpin`]. This is the default, but [`Unpin`] is a safe trait, so as the author of
 //!     the struct it is your responsibility *not* to add something like
-//!     `impl<T> Unpin for Struct<T>`. (Notice that adding a projection operation
+//!     <code>impl\<T> [Unpin] for Struct\<T></code>. (Notice that adding a projection operation
 //!     requires unsafe code, so the fact that [`Unpin`] is a safe trait does not break
-//!     the principle that you only have to worry about any of this if you use `unsafe`.)
+//!     the principle that you only have to worry about any of this if you use [`unsafe`].)
 //! 2.  The destructor of the struct must not move structural fields out of its argument. This
-//!     is the exact point that was raised in the [previous section][drop-impl]: `drop` takes
-//!     `&mut self`, but the struct (and hence its fields) might have been pinned before.
-//!     You have to guarantee that you do not move a field inside your [`Drop`] implementation.
-//!     In particular, as explained previously, this means that your struct must *not*
-//!     be `#[repr(packed)]`.
+//!     is the exact point that was raised in the [previous section][drop-impl]: [`drop`] takes
+//!     <code>[&mut] self</code>, but the struct (and hence its fields) might have been pinned
+//!     before. You have to guarantee that you do not move a field inside your [`Drop`][Drop]
+//!     implementation. In particular, as explained previously, this means that your struct
+//!     must *not* be `#[repr(packed)]`.
 //!     See that section for how to write [`drop`] in a way that the compiler can help you
 //!     not accidentally break pinning.
 //! 3.  You must make sure that you uphold the [`Drop` guarantee][drop-guarantee]:
 //!     once your struct is pinned, the memory that contains the
 //!     content is not overwritten or deallocated without calling the content's destructors.
-//!     This can be tricky, as witnessed by [`VecDeque<T>`]: the destructor of [`VecDeque<T>`]
-//!     can fail to call [`drop`] on all elements if one of the destructors panics. This violates
-//!     the [`Drop`] guarantee, because it can lead to elements being deallocated without
-//!     their destructor being called. ([`VecDeque<T>`] has no pinning projections, so this
+//!     This can be tricky, as witnessed by <code>[VecDeque]\<T></code>: the destructor of
+//!     <code>[VecDeque]\<T></code> can fail to call [`drop`] on all elements if one of the
+//!     destructors panics. This violates the [`Drop`][Drop] guarantee, because it can lead to
+//!     elements being deallocated without their destructor being called.
+//!     (<code>[VecDeque]\<T></code> has no pinning projections, so this
 //!     does not cause unsoundness.)
 //! 4.  You must not offer any other operations that could lead to data being moved out of
 //!     the structural fields when your type is pinned. For example, if the struct contains an
-//!     [`Option<T>`] and there is a `take`-like operation with type
-//!     `fn(Pin<&mut Struct<T>>) -> Option<T>`,
-//!     that operation can be used to move a `T` out of a pinned `Struct<T>` -- which means
+//!     <code>[Option]\<T></code> and there is a [`take`][Option::take]-like operation with type
+//!     <code>fn([Pin]<[&mut] Struct\<T>>) -> [Option]\<T></code>,
+//!     that operation can be used to move a `T` out of a pinned `Struct<T>` – which means
 //!     pinning cannot be structural for the field holding this data.
 //!
-//!     For a more complex example of moving data out of a pinned type, imagine if [`RefCell<T>`]
-//!     had a method `fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut T>`.
+//!     For a more complex example of moving data out of a pinned type,
+//!     imagine if <code>[RefCell]\<T></code> had a method
+//!     <code>fn get_pin_mut(self: [Pin]<[&mut] Self>) -> [Pin]<[&mut] T></code>.
 //!     Then we could do the following:
 //!     ```compile_fail
 //!     fn exploit_ref_cell<T>(rc: Pin<&mut RefCell<T>>) {
@@ -306,71 +319,65 @@
 //!         let content = &mut *b; // And here we have `&mut T` to the same data.
 //!     }
 //!     ```
-//!     This is catastrophic, it means we can first pin the content of the [`RefCell<T>`]
-//!     (using `RefCell::get_pin_mut`) and then move that content using the mutable
-//!     reference we got later.
+//!     This is catastrophic, it means we can first pin the content of the
+//!     <code>[RefCell]\<T></code> (using <code>[RefCell]::get_pin_mut</code>) and then move that
+//!     content using the mutable reference we got later.
 //!
 //! ## Examples
 //!
-//! For a type like [`Vec<T>`], both possibilities (structural pinning or not) make sense.
-//! A [`Vec<T>`] with structural pinning could have `get_pin`/`get_pin_mut` methods to get
-//! pinned references to elements. However, it could *not* allow calling
-//! [`pop`][Vec::pop] on a pinned [`Vec<T>`] because that would move the (structurally pinned)
-//! contents! Nor could it allow [`push`][Vec::push], which might reallocate and thus also move the
-//! contents.
+//! For a type like <code>[Vec]\<T></code>, both possibilities (structural pinning or not) make
+//! sense. A <code>[Vec]\<T></code> with structural pinning could have `get_pin`/`get_pin_mut`
+//! methods to get pinned references to elements. However, it could *not* allow calling
+//! [`pop`][Vec::pop] on a pinned <code>[Vec]\<T></code> because that would move the (structurally
+//! pinned) contents! Nor could it allow [`push`][Vec::push], which might reallocate and thus also
+//! move the contents.
 //!
-//! A [`Vec<T>`] without structural pinning could `impl<T> Unpin for Vec<T>`, because the contents
-//! are never pinned and the [`Vec<T>`] itself is fine with being moved as well.
+//! A <code>[Vec]\<T></code> without structural pinning could
+//! <code>impl\<T> [Unpin] for [Vec]\<T></code>, because the contents are never pinned
+//! and the <code>[Vec]\<T></code> itself is fine with being moved as well.
 //! At that point pinning just has no effect on the vector at all.
 //!
 //! In the standard library, pointer types generally do not have structural pinning,
-//! and thus they do not offer pinning projections. This is why `Box<T>: Unpin` holds for all `T`.
-//! It makes sense to do this for pointer types, because moving the `Box<T>`
-//! does not actually move the `T`: the [`Box<T>`] can be freely movable (aka `Unpin`) even if
-//! the `T` is not. In fact, even [`Pin`]`<`[`Box`]`<T>>` and [`Pin`]`<&mut T>` are always
-//! [`Unpin`] themselves, for the same reason: their contents (the `T`) are pinned, but the
-//! pointers themselves can be moved without moving the pinned data. For both [`Box<T>`] and
-//! [`Pin`]`<`[`Box`]`<T>>`, whether the content is pinned is entirely independent of whether the
+//! and thus they do not offer pinning projections. This is why <code>[Box]\<T>: [Unpin]</code>
+//! holds for all `T`. It makes sense to do this for pointer types, because moving the
+//! <code>[Box]\<T></code> does not actually move the `T`: the <code>[Box]\<T></code> can be freely
+//! movable (aka [`Unpin`]) even if the `T` is not. In fact, even <code>[Pin]<[Box]\<T>></code> and
+//! <code>[Pin]<[&mut] T></code> are always [`Unpin`] themselves, for the same reason:
+//! their contents (the `T`) are pinned, but the pointers themselves can be moved without moving
+//! the pinned data. For both <code>[Box]\<T></code> and <code>[Pin]<[Box]\<T>></code>,
+//! whether the content is pinned is entirely independent of whether the
 //! pointer is pinned, meaning pinning is *not* structural.
 //!
 //! When implementing a [`Future`] combinator, you will usually need structural pinning
 //! for the nested futures, as you need to get pinned references to them to call [`poll`].
 //! But if your combinator contains any other data that does not need to be pinned,
 //! you can make those fields not structural and hence freely access them with a
-//! mutable reference even when you just have [`Pin`]`<&mut Self>` (such as in your own
+//! mutable reference even when you just have <code>[Pin]<[&mut] Self></code> (such as in your own
 //! [`poll`] implementation).
 //!
-//! [`Pin<P>`]: struct.Pin.html
-//! [`Unpin`]: ../marker/trait.Unpin.html
-//! [`Deref`]: ../ops/trait.Deref.html
-//! [`DerefMut`]: ../ops/trait.DerefMut.html
-//! [`mem::swap`]: ../mem/fn.swap.html
-//! [`mem::forget`]: ../mem/fn.forget.html
-//! [`Box<T>`]: ../../std/boxed/struct.Box.html
-//! [`Vec<T>`]: ../../std/vec/struct.Vec.html
-//! [`Vec::set_len`]: ../../std/vec/struct.Vec.html#method.set_len
-//! [`Pin`]: struct.Pin.html
-//! [`Box`]: ../../std/boxed/struct.Box.html
-//! [Vec::pop]: ../../std/vec/struct.Vec.html#method.pop
-//! [Vec::push]: ../../std/vec/struct.Vec.html#method.push
-//! [`Rc`]: ../../std/rc/struct.Rc.html
-//! [`RefCell<T>`]: ../../std/cell/struct.RefCell.html
-//! [`Drop`]: ../../std/ops/trait.Drop.html
-//! [`drop`]: ../../std/ops/trait.Drop.html#tymethod.drop
-//! [`VecDeque<T>`]: ../../std/collections/struct.VecDeque.html
-//! [`Option<T>`]: ../../std/option/enum.Option.html
-//! [`VecDeque<T>`]: ../../std/collections/struct.VecDeque.html
-//! [`RefCell<T>`]: ../cell/struct.RefCell.html
-//! [`None`]: ../option/enum.Option.html#variant.None
-//! [`Some(v)`]: ../option/enum.Option.html#variant.Some
-//! [`ptr::write`]: ../ptr/fn.write.html
-//! [`Future`]: ../future/trait.Future.html
+//! [Deref]: crate::ops::Deref "ops::Deref"
+//! [`Deref`]: crate::ops::Deref "ops::Deref"
+//! [Target]: crate::ops::Deref::Target "ops::Deref::Target"
+//! [`DerefMut`]: crate::ops::DerefMut "ops::DerefMut"
+//! [`mem::swap`]: crate::mem::swap "mem::swap"
+//! [`mem::forget`]: crate::mem::forget "mem::forget"
+//! [Vec]: ../../std/vec/struct.Vec.html "Vec"
+//! [`Vec::set_len`]: ../../std/vec/struct.Vec.html#method.set_len "Vec::set_len"
+//! [Box]: ../../std/boxed/struct.Box.html "Box"
+//! [Vec::pop]: ../../std/vec/struct.Vec.html#method.pop "Vec::pop"
+//! [Vec::push]: ../../std/vec/struct.Vec.html#method.push "Vec::push"
+//! [Rc]: ../../std/rc/struct.Rc.html "rc::Rc"
+//! [RefCell]: crate::cell::RefCell "cell::RefCell"
+//! [`drop`]: Drop::drop
+//! [VecDeque]: ../../std/collections/struct.VecDeque.html "collections::VecDeque"
+//! [`ptr::write`]: crate::ptr::write "ptr::write"
+//! [`Future`]: crate::future::Future "future::Future"
 //! [drop-impl]: #drop-implementation
 //! [drop-guarantee]: #drop-guarantee
-//! [`poll`]: ../../std/future/trait.Future.html#tymethod.poll
-//! [`Pin::get_unchecked_mut`]: struct.Pin.html#method.get_unchecked_mut
-//! [`bool`]: ../../std/primitive.bool.html
-//! [`i32`]: ../../std/primitive.i32.html
+//! [`poll`]: crate::future::Future::poll "future::Future::poll"
+//! [&]: reference "shared reference"
+//! [&mut]: reference "mutable reference"
+//! [`unsafe`]: ../../std/keyword.unsafe.html "keyword unsafe"
 
 #![stable(feature = "pin", since = "1.33.0")]
 
@@ -388,8 +395,7 @@ use crate::ops::{CoerceUnsized, Deref, DerefMut, DispatchFromDyn, Receiver};
 ///
 /// *See the [`pin` module] documentation for an explanation of pinning.*
 ///
-/// [`Unpin`]: ../../std/marker/trait.Unpin.html
-/// [`pin` module]: ../../std/pin/index.html
+/// [`pin` module]: self
 //
 // Note: the `Clone` derive below causes unsoundness as it's possible to implement
 // `Clone` for mutable references.
@@ -400,7 +406,14 @@ use crate::ops::{CoerceUnsized, Deref, DerefMut, DispatchFromDyn, Receiver};
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct Pin<P> {
-    pointer: P,
+    // FIXME(#93176): this field is made `#[unstable] #[doc(hidden)] pub` to:
+    //   - deter downstream users from accessing it (which would be unsound!),
+    //   - let the `pin!` macro access it (such a macro requires using struct
+    //     literal syntax in order to benefit from lifetime extension).
+    // Long-term, `unsafe` fields or macro hygiene are expected to offer more robust alternatives.
+    #[unstable(feature = "unsafe_pin_internals", issue = "none")]
+    #[doc(hidden)]
+    pub pointer: P,
 }
 
 // The following implementations aren't derived in order to avoid soundness
@@ -473,24 +486,44 @@ impl<P: Deref<Target: Unpin>> Pin<P> {
     /// Unlike `Pin::new_unchecked`, this method is safe because the pointer
     /// `P` dereferences to an [`Unpin`] type, which cancels the pinning guarantees.
     ///
-    /// [`Unpin`]: ../../std/marker/trait.Unpin.html
-    #[stable(feature = "pin", since = "1.33.0")]
+    /// # Examples
+    ///
+    /// ```
+    /// use std::pin::Pin;
+    ///
+    /// let mut val: u8 = 5;
+    /// // We can pin the value, since it doesn't care about being moved
+    /// let mut pinned: Pin<&mut u8> = Pin::new(&mut val);
+    /// ```
     #[inline(always)]
-    pub fn new(pointer: P) -> Pin<P> {
-        // Safety: the value pointed to is `Unpin`, and so has no requirements
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    #[stable(feature = "pin", since = "1.33.0")]
+    pub const fn new(pointer: P) -> Pin<P> {
+        // SAFETY: the value pointed to is `Unpin`, and so has no requirements
         // around pinning.
         unsafe { Pin::new_unchecked(pointer) }
     }
 
     /// Unwraps this `Pin<P>` returning the underlying pointer.
     ///
-    /// This requires that the data inside this `Pin` is [`Unpin`] so that we
+    /// This requires that the data inside this `Pin` implements [`Unpin`] so that we
     /// can ignore the pinning invariants when unwrapping it.
     ///
-    /// [`Unpin`]: ../../std/marker/trait.Unpin.html
-    #[stable(feature = "pin_into_inner", since = "1.39.0")]
+    /// # Examples
+    ///
+    /// ```
+    /// use std::pin::Pin;
+    ///
+    /// let mut val: u8 = 5;
+    /// let pinned: Pin<&mut u8> = Pin::new(&mut val);
+    /// // Unwrap the pin to get a reference to the value
+    /// let r = Pin::into_inner(pinned);
+    /// assert_eq!(*r, 5);
+    /// ```
     #[inline(always)]
-    pub fn into_inner(pin: Pin<P>) -> P {
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    #[stable(feature = "pin_into_inner", since = "1.39.0")]
+    pub const fn into_inner(pin: Pin<P>) -> P {
         pin.pointer
     }
 }
@@ -532,7 +565,7 @@ impl<P: Deref> Pin<P> {
     ///         let p: Pin<&mut T> = Pin::new_unchecked(&mut a);
     ///         // This should mean the pointee `a` can never move again.
     ///     }
-    ///     mem::swap(&mut a, &mut b);
+    ///     mem::swap(&mut a, &mut b); // Potential UB down the road ⚠️
     ///     // The address of `a` changed to `b`'s stack slot, so `a` got moved even
     ///     // though we have previously pinned it! We have violated the pinning API contract.
     /// }
@@ -546,23 +579,77 @@ impl<P: Deref> Pin<P> {
     /// use std::pin::Pin;
     ///
     /// fn move_pinned_rc<T>(mut x: Rc<T>) {
-    ///     let pinned = unsafe { Pin::new_unchecked(x.clone()) };
+    ///     let pinned = unsafe { Pin::new_unchecked(Rc::clone(&x)) };
     ///     {
     ///         let p: Pin<&T> = pinned.as_ref();
     ///         // This should mean the pointee can never move again.
     ///     }
     ///     drop(pinned);
-    ///     let content = Rc::get_mut(&mut x).unwrap();
+    ///     let content = Rc::get_mut(&mut x).unwrap(); // Potential UB down the road ⚠️
     ///     // Now, if `x` was the only reference, we have a mutable reference to
     ///     // data that we pinned above, which we could use to move it as we have
     ///     // seen in the previous example. We have violated the pinning API contract.
     ///  }
     ///  ```
     ///
-    /// [`mem::swap`]: ../../std/mem/fn.swap.html
-    #[stable(feature = "pin", since = "1.33.0")]
+    /// ## Pinning of closure captures
+    ///
+    /// Particular care is required when using `Pin::new_unchecked` in a closure:
+    /// `Pin::new_unchecked(&mut var)` where `var` is a by-value (moved) closure capture
+    /// implicitly makes the promise that the closure itself is pinned, and that *all* uses
+    /// of this closure capture respect that pinning.
+    /// ```
+    /// use std::pin::Pin;
+    /// use std::task::Context;
+    /// use std::future::Future;
+    ///
+    /// fn move_pinned_closure(mut x: impl Future, cx: &mut Context<'_>) {
+    ///     // Create a closure that moves `x`, and then internally uses it in a pinned way.
+    ///     let mut closure = move || unsafe {
+    ///         let _ignore = Pin::new_unchecked(&mut x).poll(cx);
+    ///     };
+    ///     // Call the closure, so the future can assume it has been pinned.
+    ///     closure();
+    ///     // Move the closure somewhere else. This also moves `x`!
+    ///     let mut moved = closure;
+    ///     // Calling it again means we polled the future from two different locations,
+    ///     // violating the pinning API contract.
+    ///     moved(); // Potential UB ⚠️
+    /// }
+    /// ```
+    /// When passing a closure to another API, it might be moving the closure any time, so
+    /// `Pin::new_unchecked` on closure captures may only be used if the API explicitly documents
+    /// that the closure is pinned.
+    ///
+    /// The better alternative is to avoid all that trouble and do the pinning in the outer function
+    /// instead (here using the [`pin!`][crate::pin::pin] macro):
+    /// ```
+    /// use std::pin::pin;
+    /// use std::task::Context;
+    /// use std::future::Future;
+    ///
+    /// fn move_pinned_closure(mut x: impl Future, cx: &mut Context<'_>) {
+    ///     let mut x = pin!(x);
+    ///     // Create a closure that captures `x: Pin<&mut _>`, which is safe to move.
+    ///     let mut closure = move || {
+    ///         let _ignore = x.as_mut().poll(cx);
+    ///     };
+    ///     // Call the closure, so the future can assume it has been pinned.
+    ///     closure();
+    ///     // Move the closure somewhere else.
+    ///     let mut moved = closure;
+    ///     // Calling it again here is fine (except that we might be polling a future that already
+    ///     // returned `Poll::Ready`, but that is a separate problem).
+    ///     moved();
+    /// }
+    /// ```
+    ///
+    /// [`mem::swap`]: crate::mem::swap
+    #[lang = "new_unchecked"]
     #[inline(always)]
-    pub unsafe fn new_unchecked(pointer: P) -> Pin<P> {
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    #[stable(feature = "pin", since = "1.33.0")]
+    pub const unsafe fn new_unchecked(pointer: P) -> Pin<P> {
         Pin { pointer }
     }
 
@@ -593,12 +680,10 @@ impl<P: Deref> Pin<P> {
     ///
     /// If the underlying data is [`Unpin`], [`Pin::into_inner`] should be used
     /// instead.
-    ///
-    /// [`Unpin`]: ../../std/marker/trait.Unpin.html
-    /// [`Pin::into_inner`]: #method.into_inner
-    #[stable(feature = "pin_into_inner", since = "1.39.0")]
     #[inline(always)]
-    pub unsafe fn into_inner_unchecked(pin: Pin<P>) -> P {
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    #[stable(feature = "pin_into_inner", since = "1.39.0")]
+    pub const unsafe fn into_inner_unchecked(pin: Pin<P>) -> P {
         pin.pointer
     }
 }
@@ -643,6 +728,18 @@ impl<P: DerefMut> Pin<P> {
     ///
     /// This overwrites pinned data, but that is okay: its destructor gets
     /// run before being overwritten, so no pinning guarantee is violated.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::pin::Pin;
+    ///
+    /// let mut val: u8 = 5;
+    /// let mut pinned: Pin<&mut u8> = Pin::new(&mut val);
+    /// println!("{}", pinned); // 5
+    /// pinned.as_mut().set(10);
+    /// println!("{}", pinned); // 10
+    /// ```
     #[stable(feature = "pin", since = "1.33.0")]
     #[inline(always)]
     pub fn set(&mut self, value: P::Target)
@@ -656,7 +753,7 @@ impl<P: DerefMut> Pin<P> {
 impl<'a, T: ?Sized> Pin<&'a T> {
     /// Constructs a new pin by mapping the interior value.
     ///
-    /// For example, if you  wanted to get a `Pin` of a field of something,
+    /// For example, if you wanted to get a `Pin` of a field of something,
     /// you could use this to get access to that field in one line of code.
     /// However, there are several gotchas with these "pinning projections";
     /// see the [`pin` module] documentation for further details on that topic.
@@ -668,7 +765,7 @@ impl<'a, T: ?Sized> Pin<&'a T> {
     /// because it is one of the fields of that value), and also that you do
     /// not move out of the argument you receive to the interior function.
     ///
-    /// [`pin` module]: ../../std/pin/index.html#projections-and-structural-pinning
+    /// [`pin` module]: self#projections-and-structural-pinning
     #[stable(feature = "pin", since = "1.33.0")]
     pub unsafe fn map_unchecked<U, F>(self, func: F) -> Pin<&'a U>
     where
@@ -677,7 +774,10 @@ impl<'a, T: ?Sized> Pin<&'a T> {
     {
         let pointer = &*self.pointer;
         let new_pointer = func(pointer);
-        Pin::new_unchecked(new_pointer)
+
+        // SAFETY: the safety contract for `new_unchecked` must be
+        // upheld by the caller.
+        unsafe { Pin::new_unchecked(new_pointer) }
     }
 
     /// Gets a shared reference out of a pin.
@@ -696,19 +796,23 @@ impl<'a, T: ?Sized> Pin<&'a T> {
     /// the `Pin` itself. This method allows turning the `Pin` into a reference
     /// with the same lifetime as the original `Pin`.
     ///
-    /// ["pinning projections"]: ../../std/pin/index.html#projections-and-structural-pinning
-    #[stable(feature = "pin", since = "1.33.0")]
+    /// ["pinning projections"]: self#projections-and-structural-pinning
     #[inline(always)]
-    pub fn get_ref(self) -> &'a T {
+    #[must_use]
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    #[stable(feature = "pin", since = "1.33.0")]
+    pub const fn get_ref(self) -> &'a T {
         self.pointer
     }
 }
 
 impl<'a, T: ?Sized> Pin<&'a mut T> {
     /// Converts this `Pin<&mut T>` into a `Pin<&T>` with the same lifetime.
-    #[stable(feature = "pin", since = "1.33.0")]
     #[inline(always)]
-    pub fn into_ref(self) -> Pin<&'a T> {
+    #[must_use = "`self` will be dropped if the result is not used"]
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    #[stable(feature = "pin", since = "1.33.0")]
+    pub const fn into_ref(self) -> Pin<&'a T> {
         Pin { pointer: self.pointer }
     }
 
@@ -721,9 +825,11 @@ impl<'a, T: ?Sized> Pin<&'a mut T> {
     /// that lives for as long as the borrow of the `Pin`, not the lifetime of
     /// the `Pin` itself. This method allows turning the `Pin` into a reference
     /// with the same lifetime as the original `Pin`.
-    #[stable(feature = "pin", since = "1.33.0")]
     #[inline(always)]
-    pub fn get_mut(self) -> &'a mut T
+    #[must_use = "`self` will be dropped if the result is not used"]
+    #[stable(feature = "pin", since = "1.33.0")]
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    pub const fn get_mut(self) -> &'a mut T
     where
         T: Unpin,
     {
@@ -740,15 +846,17 @@ impl<'a, T: ?Sized> Pin<&'a mut T> {
     ///
     /// If the underlying data is `Unpin`, `Pin::get_mut` should be used
     /// instead.
-    #[stable(feature = "pin", since = "1.33.0")]
     #[inline(always)]
-    pub unsafe fn get_unchecked_mut(self) -> &'a mut T {
+    #[must_use = "`self` will be dropped if the result is not used"]
+    #[stable(feature = "pin", since = "1.33.0")]
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    pub const unsafe fn get_unchecked_mut(self) -> &'a mut T {
         self.pointer
     }
 
     /// Construct a new pin by mapping the interior value.
     ///
-    /// For example, if you  wanted to get a `Pin` of a field of something,
+    /// For example, if you wanted to get a `Pin` of a field of something,
     /// you could use this to get access to that field in one line of code.
     /// However, there are several gotchas with these "pinning projections";
     /// see the [`pin` module] documentation for further details on that topic.
@@ -760,16 +868,88 @@ impl<'a, T: ?Sized> Pin<&'a mut T> {
     /// because it is one of the fields of that value), and also that you do
     /// not move out of the argument you receive to the interior function.
     ///
-    /// [`pin` module]: ../../std/pin/index.html#projections-and-structural-pinning
+    /// [`pin` module]: self#projections-and-structural-pinning
+    #[must_use = "`self` will be dropped if the result is not used"]
     #[stable(feature = "pin", since = "1.33.0")]
     pub unsafe fn map_unchecked_mut<U, F>(self, func: F) -> Pin<&'a mut U>
     where
         U: ?Sized,
         F: FnOnce(&mut T) -> &mut U,
     {
-        let pointer = Pin::get_unchecked_mut(self);
+        // SAFETY: the caller is responsible for not moving the
+        // value out of this reference.
+        let pointer = unsafe { Pin::get_unchecked_mut(self) };
         let new_pointer = func(pointer);
-        Pin::new_unchecked(new_pointer)
+        // SAFETY: as the value of `this` is guaranteed to not have
+        // been moved out, this call to `new_unchecked` is safe.
+        unsafe { Pin::new_unchecked(new_pointer) }
+    }
+}
+
+impl<T: ?Sized> Pin<&'static T> {
+    /// Get a pinned reference from a static reference.
+    ///
+    /// This is safe, because `T` is borrowed for the `'static` lifetime, which
+    /// never ends.
+    #[stable(feature = "pin_static_ref", since = "1.61.0")]
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    pub const fn static_ref(r: &'static T) -> Pin<&'static T> {
+        // SAFETY: The 'static borrow guarantees the data will not be
+        // moved/invalidated until it gets dropped (which is never).
+        unsafe { Pin::new_unchecked(r) }
+    }
+}
+
+impl<'a, P: DerefMut> Pin<&'a mut Pin<P>> {
+    /// Gets a pinned mutable reference from this nested pinned pointer.
+    ///
+    /// This is a generic method to go from `Pin<&mut Pin<Pointer<T>>>` to `Pin<&mut T>`. It is
+    /// safe because the existence of a `Pin<Pointer<T>>` ensures that the pointee, `T`, cannot
+    /// move in the future, and this method does not enable the pointee to move. "Malicious"
+    /// implementations of `P::DerefMut` are likewise ruled out by the contract of
+    /// `Pin::new_unchecked`.
+    #[unstable(feature = "pin_deref_mut", issue = "86918")]
+    #[must_use = "`self` will be dropped if the result is not used"]
+    #[inline(always)]
+    pub fn as_deref_mut(self) -> Pin<&'a mut P::Target> {
+        // SAFETY: What we're asserting here is that going from
+        //
+        //     Pin<&mut Pin<P>>
+        //
+        // to
+        //
+        //     Pin<&mut P::Target>
+        //
+        // is safe.
+        //
+        // We need to ensure that two things hold for that to be the case:
+        //
+        // 1) Once we give out a `Pin<&mut P::Target>`, an `&mut P::Target` will not be given out.
+        // 2) By giving out a `Pin<&mut P::Target>`, we do not risk of violating `Pin<&mut Pin<P>>`
+        //
+        // The existence of `Pin<P>` is sufficient to guarantee #1: since we already have a
+        // `Pin<P>`, it must already uphold the pinning guarantees, which must mean that
+        // `Pin<&mut P::Target>` does as well, since `Pin::as_mut` is safe. We do not have to rely
+        // on the fact that P is _also_ pinned.
+        //
+        // For #2, we need to ensure that code given a `Pin<&mut P::Target>` cannot cause the
+        // `Pin<P>` to move? That is not possible, since `Pin<&mut P::Target>` no longer retains
+        // any access to the `P` itself, much less the `Pin<P>`.
+        unsafe { self.get_unchecked_mut() }.as_mut()
+    }
+}
+
+impl<T: ?Sized> Pin<&'static mut T> {
+    /// Get a pinned mutable reference from a static mutable reference.
+    ///
+    /// This is safe, because `T` is borrowed for the `'static` lifetime, which
+    /// never ends.
+    #[stable(feature = "pin_static_ref", since = "1.61.0")]
+    #[rustc_const_unstable(feature = "const_pin", issue = "76654")]
+    pub const fn static_mut(r: &'static mut T) -> Pin<&'static mut T> {
+        // SAFETY: The 'static borrow guarantees the data will not be
+        // moved/invalidated until it gets dropped (which is never).
+        unsafe { Pin::new_unchecked(r) }
     }
 }
 
@@ -822,3 +1002,241 @@ impl<P, U> CoerceUnsized<Pin<U>> for Pin<P> where P: CoerceUnsized<U> {}
 
 #[stable(feature = "pin", since = "1.33.0")]
 impl<P, U> DispatchFromDyn<Pin<U>> for Pin<P> where P: DispatchFromDyn<U> {}
+
+/// Constructs a <code>[Pin]<[&mut] T></code>, by pinning[^1] a `value: T` _locally_[^2].
+///
+/// Unlike [`Box::pin`], this does not involve a heap allocation.
+///
+/// [^1]: If the (type `T` of the) given value does not implement [`Unpin`], then this
+/// effectively pins the `value` in memory, where it will be unable to be moved.
+/// Otherwise, <code>[Pin]<[&mut] T></code> behaves like <code>[&mut] T</code>, and operations such
+/// as [`mem::replace()`][crate::mem::replace] will allow extracting that value, and therefore,
+/// moving it.
+/// See [the `Unpin` section of the `pin` module][self#unpin] for more info.
+///
+/// [^2]: This is usually dubbed "stack"-pinning. And whilst local values are almost always located
+/// in the stack (_e.g._, when within the body of a non-`async` function), the truth is that inside
+/// the body of an `async fn` or block —more generally, the body of a generator— any locals crossing
+/// an `.await` point —a `yield` point— end up being part of the state captured by the `Future` —by
+/// the `Generator`—, and thus will be stored wherever that one is.
+///
+/// ## Examples
+///
+/// ### Basic usage
+///
+/// ```rust
+/// # use core::marker::PhantomPinned as Foo;
+/// use core::pin::{pin, Pin};
+///
+/// fn stuff(foo: Pin<&mut Foo>) {
+///     // …
+///     # let _ = foo;
+/// }
+///
+/// let pinned_foo = pin!(Foo { /* … */ });
+/// stuff(pinned_foo);
+/// // or, directly:
+/// stuff(pin!(Foo { /* … */ }));
+/// ```
+///
+/// ### Manually polling a `Future` (without `Unpin` bounds)
+///
+/// ```rust
+/// use std::{
+///     future::Future,
+///     pin::pin,
+///     task::{Context, Poll},
+///     thread,
+/// };
+/// # use std::{sync::Arc, task::Wake, thread::Thread};
+///
+/// # /// A waker that wakes up the current thread when called.
+/// # struct ThreadWaker(Thread);
+/// #
+/// # impl Wake for ThreadWaker {
+/// #     fn wake(self: Arc<Self>) {
+/// #         self.0.unpark();
+/// #     }
+/// # }
+/// #
+/// /// Runs a future to completion.
+/// fn block_on<Fut: Future>(fut: Fut) -> Fut::Output {
+///     let waker_that_unparks_thread = // …
+///         # Arc::new(ThreadWaker(thread::current())).into();
+///     let mut cx = Context::from_waker(&waker_that_unparks_thread);
+///     // Pin the future so it can be polled.
+///     let mut pinned_fut = pin!(fut);
+///     loop {
+///         match pinned_fut.as_mut().poll(&mut cx) {
+///             Poll::Pending => thread::park(),
+///             Poll::Ready(res) => return res,
+///         }
+///     }
+/// }
+/// #
+/// # assert_eq!(42, block_on(async { 42 }));
+/// ```
+///
+/// ### With `Generator`s
+///
+/// ```rust
+/// #![feature(generators, generator_trait)]
+/// use core::{
+///     ops::{Generator, GeneratorState},
+///     pin::pin,
+/// };
+///
+/// fn generator_fn() -> impl Generator<Yield = usize, Return = ()> /* not Unpin */ {
+///  // Allow generator to be self-referential (not `Unpin`)
+///  // vvvvvv        so that locals can cross yield points.
+///     static || {
+///         let foo = String::from("foo");
+///         let foo_ref = &foo; // ------+
+///         yield 0;                  // | <- crosses yield point!
+///         println!("{foo_ref}"); // <--+
+///         yield foo.len();
+///     }
+/// }
+///
+/// fn main() {
+///     let mut generator = pin!(generator_fn());
+///     match generator.as_mut().resume(()) {
+///         GeneratorState::Yielded(0) => {},
+///         _ => unreachable!(),
+///     }
+///     match generator.as_mut().resume(()) {
+///         GeneratorState::Yielded(3) => {},
+///         _ => unreachable!(),
+///     }
+///     match generator.resume(()) {
+///         GeneratorState::Yielded(_) => unreachable!(),
+///         GeneratorState::Complete(()) => {},
+///     }
+/// }
+/// ```
+///
+/// ## Remarks
+///
+/// Precisely because a value is pinned to local storage, the resulting <code>[Pin]<[&mut] T></code>
+/// reference ends up borrowing a local tied to that block: it can't escape it.
+///
+/// The following, for instance, fails to compile:
+///
+/// ```rust,compile_fail
+/// use core::pin::{pin, Pin};
+/// # use core::{marker::PhantomPinned as Foo, mem::drop as stuff};
+///
+/// let x: Pin<&mut Foo> = {
+///     let x: Pin<&mut Foo> = pin!(Foo { /* … */ });
+///     x
+/// }; // <- Foo is dropped
+/// stuff(x); // Error: use of dropped value
+/// ```
+///
+/// <details><summary>Error message</summary>
+///
+/// ```console
+/// error[E0716]: temporary value dropped while borrowed
+///   --> src/main.rs:9:28
+///    |
+/// 8  | let x: Pin<&mut Foo> = {
+///    |     - borrow later stored here
+/// 9  |     let x: Pin<&mut Foo> = pin!(Foo { /* … */ });
+///    |                            ^^^^^^^^^^^^^^^^^^^^^ creates a temporary value which is freed while still in use
+/// 10 |     x
+/// 11 | }; // <- Foo is dropped
+///    | - temporary value is freed at the end of this statement
+///    |
+///    = note: consider using a `let` binding to create a longer lived value
+/// ```
+///
+/// </details>
+///
+/// This makes [`pin!`] **unsuitable to pin values when intending to _return_ them**. Instead, the
+/// value is expected to be passed around _unpinned_ until the point where it is to be consumed,
+/// where it is then useful and even sensible to pin the value locally using [`pin!`].
+///
+/// If you really need to return a pinned value, consider using [`Box::pin`] instead.
+///
+/// On the other hand, pinning to the stack[<sup>2</sup>](#fn2) using [`pin!`] is likely to be
+/// cheaper than pinning into a fresh heap allocation using [`Box::pin`]. Moreover, by virtue of not
+/// even needing an allocator, [`pin!`] is the main non-`unsafe` `#![no_std]`-compatible [`Pin`]
+/// constructor.
+///
+/// [`Box::pin`]: ../../std/boxed/struct.Box.html#method.pin
+#[stable(feature = "pin_macro", since = "CURRENT_RUSTC_VERSION")]
+#[rustc_macro_transparency = "semitransparent"]
+#[allow_internal_unstable(unsafe_pin_internals)]
+pub macro pin($value:expr $(,)?) {
+    // This is `Pin::new_unchecked(&mut { $value })`, so, for starters, let's
+    // review such a hypothetical macro (that any user-code could define):
+    //
+    // ```rust
+    // macro_rules! pin {( $value:expr ) => (
+    //     match &mut { $value } { at_value => unsafe { // Do not wrap `$value` in an `unsafe` block.
+    //         $crate::pin::Pin::<&mut _>::new_unchecked(at_value)
+    //     }}
+    // )}
+    // ```
+    //
+    // Safety:
+    //   - `type P = &mut _`. There are thus no pathological `Deref{,Mut}` impls
+    //     that would break `Pin`'s invariants.
+    //   - `{ $value }` is braced, making it a _block expression_, thus **moving**
+    //     the given `$value`, and making it _become an **anonymous** temporary_.
+    //     By virtue of being anonymous, it can no longer be accessed, thus
+    //     preventing any attempts to `mem::replace` it or `mem::forget` it, _etc._
+    //
+    // This gives us a `pin!` definition that is sound, and which works, but only
+    // in certain scenarios:
+    //   - If the `pin!(value)` expression is _directly_ fed to a function call:
+    //     `let poll = pin!(fut).poll(cx);`
+    //   - If the `pin!(value)` expression is part of a scrutinee:
+    //     ```rust
+    //     match pin!(fut) { pinned_fut => {
+    //         pinned_fut.as_mut().poll(...);
+    //         pinned_fut.as_mut().poll(...);
+    //     }} // <- `fut` is dropped here.
+    //     ```
+    // Alas, it doesn't work for the more straight-forward use-case: `let` bindings.
+    // ```rust
+    // let pinned_fut = pin!(fut); // <- temporary value is freed at the end of this statement
+    // pinned_fut.poll(...) // error[E0716]: temporary value dropped while borrowed
+    //                      // note: consider using a `let` binding to create a longer lived value
+    // ```
+    //   - Issues such as this one are the ones motivating https://github.com/rust-lang/rfcs/pull/66
+    //
+    // This makes such a macro incredibly unergonomic in practice, and the reason most macros
+    // out there had to take the path of being a statement/binding macro (_e.g._, `pin!(future);`)
+    // instead of featuring the more intuitive ergonomics of an expression macro.
+    //
+    // Luckily, there is a way to avoid the problem. Indeed, the problem stems from the fact that a
+    // temporary is dropped at the end of its enclosing statement when it is part of the parameters
+    // given to function call, which has precisely been the case with our `Pin::new_unchecked()`!
+    // For instance,
+    // ```rust
+    // let p = Pin::new_unchecked(&mut <temporary>);
+    // ```
+    // becomes:
+    // ```rust
+    // let p = { let mut anon = <temporary>; &mut anon };
+    // ```
+    //
+    // However, when using a literal braced struct to construct the value, references to temporaries
+    // can then be taken. This makes Rust change the lifespan of such temporaries so that they are,
+    // instead, dropped _at the end of the enscoping block_.
+    // For instance,
+    // ```rust
+    // let p = Pin { pointer: &mut <temporary> };
+    // ```
+    // becomes:
+    // ```rust
+    // let mut anon = <temporary>;
+    // let p = Pin { pointer: &mut anon };
+    // ```
+    // which is *exactly* what we want.
+    //
+    // See https://doc.rust-lang.org/1.58.1/reference/destructors.html#temporary-lifetime-extension
+    // for more info.
+    $crate::pin::Pin::<&mut _> { pointer: &mut { $value } }
+}

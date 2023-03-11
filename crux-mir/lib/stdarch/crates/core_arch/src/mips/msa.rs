@@ -161,13 +161,13 @@ extern "C" {
     fn msa_aver_s_w(a: v4i32, b: v4i32) -> v4i32;
     #[link_name = "llvm.mips.aver.s.d"]
     fn msa_aver_s_d(a: v2i64, b: v2i64) -> v2i64;
-    #[link_name = "llvm.mips.aver.s.b"]
+    #[link_name = "llvm.mips.aver.u.b"]
     fn msa_aver_u_b(a: v16u8, b: v16u8) -> v16u8;
-    #[link_name = "llvm.mips.aver.s.h"]
+    #[link_name = "llvm.mips.aver.u.h"]
     fn msa_aver_u_h(a: v8u16, b: v8u16) -> v8u16;
-    #[link_name = "llvm.mips.aver.s.w"]
+    #[link_name = "llvm.mips.aver.u.w"]
     fn msa_aver_u_w(a: v4u32, b: v4u32) -> v4u32;
-    #[link_name = "llvm.mips.aver.s.d"]
+    #[link_name = "llvm.mips.aver.u.d"]
     fn msa_aver_u_d(a: v2u64, b: v2u64) -> v2u64;
     #[link_name = "llvm.mips.bclr.b"]
     fn msa_bclr_b(a: v16u8, b: v16u8) -> v16u8;
@@ -415,7 +415,7 @@ extern "C" {
     fn msa_dpadd_s_w(a: v4i32, b: v8i16, c: v8i16) -> v4i32;
     #[link_name = "llvm.mips.dpadd.s.d"]
     fn msa_dpadd_s_d(a: v2i64, b: v4i32, c: v4i32) -> v2i64;
-    #[link_name = "llvm.mips.dpadd.s.h"]
+    #[link_name = "llvm.mips.dpadd.u.h"]
     fn msa_dpadd_u_h(a: v8u16, b: v16u8, c: v16u8) -> v8u16;
     #[link_name = "llvm.mips.dpadd.u.w"]
     fn msa_dpadd_u_w(a: v4u32, b: v8u16, c: v8u16) -> v4u32;
@@ -498,8 +498,8 @@ extern "C" {
     fn msa_fexp2_w(a: v4f32, b: v4i32) -> v4f32;
     #[link_name = "llvm.mips.fexp2.d"]
     fn msa_fexp2_d(a: v2f64, b: v2i64) -> v2f64;
-    #[link_name = "llvm.mips.fexupl.w"]
     // FIXME: 16-bit floats
+    // #[link_name = "llvm.mips.fexupl.w"]
     // fn msa_fexupl_w(a: f16x8) -> v4f32;
     #[link_name = "llvm.mips.fexupl.d"]
     fn msa_fexupl_d(a: v4f32) -> v2f64;
@@ -1411,14 +1411,10 @@ pub unsafe fn __msa_addv_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(addvi.b, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_addvi_b(a: v16i8, imm5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_addvi_b(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_addvi_b<const IMM5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm5!(IMM5);
+    msa_addvi_b(a, IMM5)
 }
 
 /// Immediate Add
@@ -1430,14 +1426,10 @@ pub unsafe fn __msa_addvi_b(a: v16i8, imm5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(addvi.h, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_addvi_h(a: v8i16, imm5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_addvi_h(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_addvi_h<const IMM5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm5!(IMM5);
+    msa_addvi_h(a, IMM5)
 }
 
 /// Immediate Add
@@ -1449,14 +1441,10 @@ pub unsafe fn __msa_addvi_h(a: v8i16, imm5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(addvi.w, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_addvi_w(a: v4i32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_addvi_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_addvi_w<const IMM5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_addvi_w(a, IMM5)
 }
 
 /// Immediate Add
@@ -1468,14 +1456,10 @@ pub unsafe fn __msa_addvi_w(a: v4i32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(addvi.d, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_addvi_d(a: v2i64, imm5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_addvi_d(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_addvi_d<const IMM5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm5!(IMM5);
+    msa_addvi_d(a, IMM5)
 }
 
 /// Vector Logical And
@@ -1501,14 +1485,10 @@ pub unsafe fn __msa_and_v(a: v16u8, b: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(andi.b, imm8 = 0b10010111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_andi_b(a: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_andi_b(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_andi_b<const IMM8: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_andi_b(a, IMM8)
 }
 
 /// Vector Absolute Values of Signed Subtract
@@ -1928,14 +1908,10 @@ pub unsafe fn __msa_bclr_d(a: v2u64, b: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bclri.b, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bclri_b(a: v16u8, imm3: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_bclri_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bclri_b<const IMM3: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm3!(IMM3);
+    msa_bclri_b(a, IMM3)
 }
 
 /// Immediate Bit Clear
@@ -1947,14 +1923,10 @@ pub unsafe fn __msa_bclri_b(a: v16u8, imm3: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bclri.h, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bclri_h(a: v8u16, imm4: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_bclri_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bclri_h<const IMM4: i32>(a: v8u16) -> v8u16 {
+    static_assert_imm4!(IMM4);
+    msa_bclri_h(a, IMM4)
 }
 
 /// Immediate Bit Clear
@@ -1966,14 +1938,10 @@ pub unsafe fn __msa_bclri_h(a: v8u16, imm4: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bclri.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bclri_w(a: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_bclri_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bclri_w<const IMM5: i32>(a: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_bclri_w(a, IMM5)
 }
 
 /// Immediate Bit Clear
@@ -1985,14 +1953,10 @@ pub unsafe fn __msa_bclri_w(a: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bclri.d, imm6 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bclri_d(a: v2u64, imm6: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_bclri_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bclri_d<const IMM6: i32>(a: v2u64) -> v2u64 {
+    static_assert_imm6!(IMM6);
+    msa_bclri_d(a, IMM6)
 }
 
 /// Vector Bit Insert Left
@@ -2060,14 +2024,10 @@ pub unsafe fn __msa_binsl_d(a: v2u64, b: v2u64, c: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsli.b, imm3 = 0b111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsli_b(a: v16u8, b: v16u8, imm3: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_binsli_b(a, mem::transmute(b), $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsli_b<const IMM3: i32>(a: v16u8, b: v16u8) -> v16u8 {
+    static_assert_imm3!(IMM3);
+    msa_binsli_b(a, mem::transmute(b), IMM3)
 }
 
 /// Immediate Bit Insert Left
@@ -2079,14 +2039,10 @@ pub unsafe fn __msa_binsli_b(a: v16u8, b: v16u8, imm3: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsli.h, imm4 = 0b1111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsli_h(a: v8u16, b: v8u16, imm4: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_binsli_h(a, mem::transmute(b), $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsli_h<const IMM4: i32>(a: v8u16, b: v8u16) -> v8u16 {
+    static_assert_imm4!(IMM4);
+    msa_binsli_h(a, mem::transmute(b), IMM4)
 }
 
 /// Immediate Bit Insert Left
@@ -2098,14 +2054,10 @@ pub unsafe fn __msa_binsli_h(a: v8u16, b: v8u16, imm4: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsli.w, imm5 = 0b11111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsli_w(a: v4u32, b: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_binsli_w(a, mem::transmute(b), $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsli_w<const IMM5: i32>(a: v4u32, b: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_binsli_w(a, mem::transmute(b), IMM5)
 }
 
 /// Immediate Bit Insert Left
@@ -2117,14 +2069,10 @@ pub unsafe fn __msa_binsli_w(a: v4u32, b: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsli.d, imm6 = 0b111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsli_d(a: v2u64, b: v2u64, imm6: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_binsli_d(a, mem::transmute(b), $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsli_d<const IMM6: i32>(a: v2u64, b: v2u64) -> v2u64 {
+    static_assert_imm6!(IMM6);
+    msa_binsli_d(a, mem::transmute(b), IMM6)
 }
 
 /// Vector Bit Insert Right
@@ -2192,14 +2140,10 @@ pub unsafe fn __msa_binsr_d(a: v2u64, b: v2u64, c: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsri.b, imm3 = 0b111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsri_b(a: v16u8, b: v16u8, imm3: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_binsri_b(a, mem::transmute(b), $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsri_b<const IMM3: i32>(a: v16u8, b: v16u8) -> v16u8 {
+    static_assert_imm3!(IMM3);
+    msa_binsri_b(a, mem::transmute(b), IMM3)
 }
 
 /// Immediate Bit Insert Right
@@ -2211,14 +2155,10 @@ pub unsafe fn __msa_binsri_b(a: v16u8, b: v16u8, imm3: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsri.h, imm4 = 0b1111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsri_h(a: v8u16, b: v8u16, imm4: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_binsri_h(a, mem::transmute(b), $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsri_h<const IMM4: i32>(a: v8u16, b: v8u16) -> v8u16 {
+    static_assert_imm4!(IMM4);
+    msa_binsri_h(a, mem::transmute(b), IMM4)
 }
 
 /// Immediate Bit Insert Right
@@ -2230,14 +2170,10 @@ pub unsafe fn __msa_binsri_h(a: v8u16, b: v8u16, imm4: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsri.w, imm5 = 0b11111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsri_w(a: v4u32, b: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_binsri_w(a, mem::transmute(b), $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsri_w<const IMM5: i32>(a: v4u32, b: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_binsri_w(a, mem::transmute(b), IMM5)
 }
 
 /// Immediate Bit Insert Right
@@ -2249,14 +2185,10 @@ pub unsafe fn __msa_binsri_w(a: v4u32, b: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(binsri.d, imm6 = 0b111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_binsri_d(a: v2u64, b: v2u64, imm6: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_binsri_d(a, mem::transmute(b), $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_binsri_d<const IMM6: i32>(a: v2u64, b: v2u64) -> v2u64 {
+    static_assert_imm6!(IMM6);
+    msa_binsri_d(a, mem::transmute(b), IMM6)
 }
 
 /// Vector Bit Move If Not Zero
@@ -2282,14 +2214,10 @@ pub unsafe fn __msa_bmnz_v(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bmnzi.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_bmnzi_b(a: v16u8, b: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_bmnzi_b(a, mem::transmute(b), $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_bmnzi_b<const IMM8: i32>(a: v16u8, b: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_bmnzi_b(a, mem::transmute(b), IMM8)
 }
 
 /// Vector Bit Move If Zero
@@ -2315,14 +2243,10 @@ pub unsafe fn __msa_bmz_v(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bmzi.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_bmzi_b(a: v16u8, b: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_bmzi_b(a, mem::transmute(b), $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_bmzi_b<const IMM8: i32>(a: v16u8, b: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_bmzi_b(a, mem::transmute(b), IMM8)
 }
 
 /// Vector Bit Negate
@@ -2390,14 +2314,10 @@ pub unsafe fn __msa_bneg_d(a: v2u64, b: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bnegi.b, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bnegi_b(a: v16u8, imm3: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_bnegi_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bnegi_b<const IMM3: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm3!(IMM3);
+    msa_bnegi_b(a, IMM3)
 }
 
 /// Immediate Bit Negate
@@ -2409,14 +2329,10 @@ pub unsafe fn __msa_bnegi_b(a: v16u8, imm3: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bnegi.h, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bnegi_h(a: v8u16, imm4: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_bnegi_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bnegi_h<const IMM4: i32>(a: v8u16) -> v8u16 {
+    static_assert_imm4!(IMM4);
+    msa_bnegi_h(a, IMM4)
 }
 
 /// Immediate Bit Negate
@@ -2428,14 +2344,10 @@ pub unsafe fn __msa_bnegi_h(a: v8u16, imm4: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bnegi.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bnegi_w(a: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_bnegi_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bnegi_w<const IMM5: i32>(a: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_bnegi_w(a, IMM5)
 }
 
 /// Immediate Bit Negate
@@ -2447,14 +2359,10 @@ pub unsafe fn __msa_bnegi_w(a: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bnegi.d, imm6 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bnegi_d(a: v2u64, imm6: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_bnegi_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bnegi_d<const IMM6: i32>(a: v2u64) -> v2u64 {
+    static_assert_imm6!(IMM6);
+    msa_bnegi_d(a, IMM6)
 }
 
 /// Immediate Branch If All Elements Are Not Zero
@@ -2536,14 +2444,10 @@ pub unsafe fn __msa_bsel_v(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bseli.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_bseli_b(a: v16u8, b: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_bseli_b(a, mem::transmute(b), $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_bseli_b<const IMM8: i32>(a: v16u8, b: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_bseli_b(a, mem::transmute(b), IMM8)
 }
 
 /// Vector Bit Set
@@ -2611,14 +2515,10 @@ pub unsafe fn __msa_bset_d(a: v2u64, b: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bseti.b, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bseti_b(a: v16u8, imm3: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_bseti_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bseti_b<const IMM3: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm3!(IMM3);
+    msa_bseti_b(a, IMM3)
 }
 
 /// Immediate Bit Set
@@ -2630,14 +2530,10 @@ pub unsafe fn __msa_bseti_b(a: v16u8, imm3: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bseti.h, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bseti_h(a: v8u16, imm4: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_bseti_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bseti_h<const IMM4: i32>(a: v8u16) -> v8u16 {
+    static_assert_imm4!(IMM4);
+    msa_bseti_h(a, IMM4)
 }
 
 /// Immediate Bit Set
@@ -2649,14 +2545,10 @@ pub unsafe fn __msa_bseti_h(a: v8u16, imm4: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bseti.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bseti_w(a: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_bseti_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bseti_w<const IMM5: i32>(a: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_bseti_w(a, IMM5)
 }
 
 /// Immediate Bit Set
@@ -2668,14 +2560,10 @@ pub unsafe fn __msa_bseti_w(a: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(bseti.d, imm6 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_bseti_d(a: v2u64, imm6: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_bseti_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_bseti_d<const IMM6: i32>(a: v2u64) -> v2u64 {
+    static_assert_imm6!(IMM6);
+    msa_bseti_d(a, IMM6)
 }
 
 /// Immediate Branch If At Least One Element Is Zero
@@ -2795,14 +2683,10 @@ pub unsafe fn __msa_ceq_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ceqi.b, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ceqi_b(a: v16i8, imm_s5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_ceqi_b(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ceqi_b<const IMM_S5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_ceqi_b(a, IMM_S5)
 }
 
 /// Immediate Compare Equal
@@ -2814,14 +2698,10 @@ pub unsafe fn __msa_ceqi_b(a: v16i8, imm_s5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ceqi.h, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ceqi_h(a: v8i16, imm_s5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_ceqi_h(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ceqi_h<const IMM_S5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_ceqi_h(a, IMM_S5)
 }
 
 /// Immediate Compare Equal
@@ -2833,14 +2713,10 @@ pub unsafe fn __msa_ceqi_h(a: v8i16, imm_s5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ceqi.w, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ceqi_w(a: v4i32, imm_s5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_ceqi_w(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ceqi_w<const IMM_S5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_ceqi_w(a, IMM_S5)
 }
 
 /// Immediate Compare Equal
@@ -2852,14 +2728,10 @@ pub unsafe fn __msa_ceqi_w(a: v4i32, imm_s5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ceqi.d, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ceqi_d(a: v2i64, imm_s5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_ceqi_d(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ceqi_d<const IMM_S5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_ceqi_d(a, IMM_S5)
 }
 
 /// GPR Copy from MSA Control Register
@@ -2870,14 +2742,10 @@ pub unsafe fn __msa_ceqi_d(a: v2i64, imm_s5: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(cfcmsa, imm5 = 0b11111))]
-#[rustc_args_required_const(0)]
-pub unsafe fn __msa_cfcmsa(imm5: i32) -> i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_cfcmsa($imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(0)]
+pub unsafe fn __msa_cfcmsa<const IMM5: i32>() -> i32 {
+    static_assert_imm5!(IMM5);
+    msa_cfcmsa(IMM5)
 }
 
 /// Vector Compare Signed Less Than or Equal
@@ -3002,14 +2870,10 @@ pub unsafe fn __msa_cle_u_d(a: v2u64, b: v2u64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_s.b, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clei_s_b(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_s_b<const IMM_S5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clei_s_b(a, IMM_S5)
 }
 
 /// Immediate Compare Signed Less Than or Equal
@@ -3022,14 +2886,10 @@ pub unsafe fn __msa_clei_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_s.h, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clei_s_h(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_s_h<const IMM_S5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clei_s_h(a, IMM_S5)
 }
 
 /// Immediate Compare Signed Less Than or Equal
@@ -3042,14 +2902,10 @@ pub unsafe fn __msa_clei_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_s.w, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clei_s_w(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_s_w<const IMM_S5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clei_s_w(a, IMM_S5)
 }
 
 /// Immediate Compare Signed Less Than or Equal
@@ -3062,14 +2918,10 @@ pub unsafe fn __msa_clei_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_s.d, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clei_s_d(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_s_d<const IMM_S5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clei_s_d(a, IMM_S5)
 }
 
 /// Immediate Compare Unsigned Less Than or Equal
@@ -3082,14 +2934,10 @@ pub unsafe fn __msa_clei_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_u.b, imm5 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_u_b(a: v16u8, imm5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clei_u_b(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_u_b<const IMM5: i32>(a: v16u8) -> v16i8 {
+    static_assert_imm5!(IMM5);
+    msa_clei_u_b(a, IMM5)
 }
 
 /// Immediate Compare Unsigned Less Than or Equal
@@ -3102,14 +2950,10 @@ pub unsafe fn __msa_clei_u_b(a: v16u8, imm5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_u.h, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_u_h(a: v8u16, imm5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clei_u_h(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_u_h<const IMM5: i32>(a: v8u16) -> v8i16 {
+    static_assert_imm5!(IMM5);
+    msa_clei_u_h(a, IMM5)
 }
 
 /// Immediate Compare Unsigned Less Than or Equal
@@ -3122,14 +2966,10 @@ pub unsafe fn __msa_clei_u_h(a: v8u16, imm5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_u.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_u_w(a: v4u32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clei_u_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_u_w<const IMM5: i32>(a: v4u32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_clei_u_w(a, IMM5)
 }
 
 /// Immediate Compare Unsigned Less Than or Equal
@@ -3142,14 +2982,10 @@ pub unsafe fn __msa_clei_u_w(a: v4u32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clei_u.d, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clei_u_d(a: v2u64, imm5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clei_u_d(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clei_u_d<const IMM5: i32>(a: v2u64) -> v2i64 {
+    static_assert_imm5!(IMM5);
+    msa_clei_u_d(a, IMM5)
 }
 
 /// Vector Compare Signed Less Than
@@ -3274,14 +3110,10 @@ pub unsafe fn __msa_clt_u_d(a: v2u64, b: v2u64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_s.b, imm_s5 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clti_s_b(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_s_b<const IMM_S5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clti_s_b(a, IMM_S5)
 }
 
 /// Immediate Compare Signed Less Than
@@ -3294,14 +3126,10 @@ pub unsafe fn __msa_clti_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_s.h, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clti_s_h(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_s_h<const IMM_S5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clti_s_h(a, IMM_S5)
 }
 
 /// Immediate Compare Signed Less Than
@@ -3314,14 +3142,10 @@ pub unsafe fn __msa_clti_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_s.w, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clti_s_w(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_s_w<const IMM_S5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clti_s_w(a, IMM_S5)
 }
 
 /// Immediate Compare Signed Less Than
@@ -3334,14 +3158,10 @@ pub unsafe fn __msa_clti_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_s.d, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_clti_s_d(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_s_d<const IMM_S5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_clti_s_d(a, IMM_S5)
 }
 
 /// Immediate Compare Unsigned Less Than
@@ -3354,14 +3174,10 @@ pub unsafe fn __msa_clti_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_u.b, imm5 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_u_b(a: v16u8, imm5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clti_u_b(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_u_b<const IMM5: i32>(a: v16u8) -> v16i8 {
+    static_assert_imm5!(IMM5);
+    msa_clti_u_b(a, IMM5)
 }
 
 /// Immediate Compare Unsigned Less Than
@@ -3374,14 +3190,10 @@ pub unsafe fn __msa_clti_u_b(a: v16u8, imm5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_u.h, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_u_h(a: v8u16, imm5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clti_u_h(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_u_h<const IMM5: i32>(a: v8u16) -> v8i16 {
+    static_assert_imm5!(IMM5);
+    msa_clti_u_h(a, IMM5)
 }
 
 /// Immediate Compare Unsigned Less Than
@@ -3394,14 +3206,10 @@ pub unsafe fn __msa_clti_u_h(a: v8u16, imm5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_u.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_u_w(a: v4u32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clti_u_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_u_w<const IMM5: i32>(a: v4u32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_clti_u_w(a, IMM5)
 }
 
 /// Immediate Compare Unsigned Less Than
@@ -3414,14 +3222,10 @@ pub unsafe fn __msa_clti_u_w(a: v4u32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(clti_u.d, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_clti_u_d(a: v2u64, imm5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_clti_u_d(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_clti_u_d<const IMM5: i32>(a: v2u64) -> v2i64 {
+    static_assert_imm5!(IMM5);
+    msa_clti_u_d(a, IMM5)
 }
 
 /// Element Copy to GPR Signed
@@ -3432,14 +3236,10 @@ pub unsafe fn __msa_clti_u_d(a: v2u64, imm5: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_s.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_s_b(a: v16i8, imm4: i32) -> i32 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_copy_s_b(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_s_b<const IMM4: i32>(a: v16i8) -> i32 {
+    static_assert_imm4!(IMM4);
+    msa_copy_s_b(a, IMM4)
 }
 
 /// Element Copy to GPR Signed
@@ -3450,14 +3250,10 @@ pub unsafe fn __msa_copy_s_b(a: v16i8, imm4: i32) -> i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_s.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_s_h(a: v8i16, imm3: i32) -> i32 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_copy_s_h(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_s_h<const IMM3: i32>(a: v8i16) -> i32 {
+    static_assert_imm3!(IMM3);
+    msa_copy_s_h(a, IMM3)
 }
 
 /// Element Copy to GPR Signed
@@ -3468,14 +3264,10 @@ pub unsafe fn __msa_copy_s_h(a: v8i16, imm3: i32) -> i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_s.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_s_w(a: v4i32, imm2: i32) -> i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_copy_s_w(a, $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_s_w<const IMM2: i32>(a: v4i32) -> i32 {
+    static_assert_imm2!(IMM2);
+    msa_copy_s_w(a, IMM2)
 }
 
 /// Element Copy to GPR Signed
@@ -3486,14 +3278,10 @@ pub unsafe fn __msa_copy_s_w(a: v4i32, imm2: i32) -> i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_s.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_s_d(a: v2i64, imm1: i32) -> i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_copy_s_d(a, $imm1)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_s_d<const IMM1: i32>(a: v2i64) -> i64 {
+    static_assert_imm1!(IMM1);
+    msa_copy_s_d(a, IMM1)
 }
 
 /// Element Copy to GPR Unsigned
@@ -3504,14 +3292,10 @@ pub unsafe fn __msa_copy_s_d(a: v2i64, imm1: i32) -> i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_u.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_u_b(a: v16i8, imm4: i32) -> u32 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_copy_u_b(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_u_b<const IMM4: i32>(a: v16i8) -> u32 {
+    static_assert_imm4!(IMM4);
+    msa_copy_u_b(a, IMM4)
 }
 
 /// Element Copy to GPR Unsigned
@@ -3522,14 +3306,10 @@ pub unsafe fn __msa_copy_u_b(a: v16i8, imm4: i32) -> u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_u.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_u_h(a: v8i16, imm3: i32) -> u32 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_copy_u_h(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_u_h<const IMM3: i32>(a: v8i16) -> u32 {
+    static_assert_imm3!(IMM3);
+    msa_copy_u_h(a, IMM3)
 }
 
 /// Element Copy to GPR Unsigned
@@ -3540,14 +3320,10 @@ pub unsafe fn __msa_copy_u_h(a: v8i16, imm3: i32) -> u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_u.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_u_w(a: v4i32, imm2: i32) -> u32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_copy_u_w(a, $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_u_w<const IMM2: i32>(a: v4i32) -> u32 {
+    static_assert_imm2!(IMM2);
+    msa_copy_u_w(a, IMM2)
 }
 
 /// Element Copy to GPR Unsigned
@@ -3558,14 +3334,10 @@ pub unsafe fn __msa_copy_u_w(a: v4i32, imm2: i32) -> u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(copy_u.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_copy_u_d(a: v2i64, imm1: i32) -> u64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_copy_u_d(a, $imm1)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_copy_u_d<const IMM1: i32>(a: v2i64) -> u64 {
+    static_assert_imm1!(IMM1);
+    msa_copy_u_d(a, IMM1)
 }
 
 /// GPR Copy to MSA Control Register
@@ -3578,14 +3350,10 @@ pub unsafe fn __msa_copy_u_d(a: v2i64, imm1: i32) -> u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ctcmsa, imm1 = 0b1))]
-#[rustc_args_required_const(0)]
-pub unsafe fn __msa_ctcmsa(imm5: i32, a: i32) -> () {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_ctcmsa($imm5, a)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(0)]
+pub unsafe fn __msa_ctcmsa<const IMM5: i32>(a: i32) -> () {
+    static_assert_imm5!(IMM5);
+    msa_ctcmsa(IMM5, a)
 }
 
 /// Vector Signed Divide
@@ -5798,14 +5566,10 @@ pub unsafe fn __msa_ilvr_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insert.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insert_b(a: v16i8, imm4: i32, c: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_insert_b(a, $imm4, c)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insert_b<const IMM4: i32>(a: v16i8, c: i32) -> v16i8 {
+    static_assert_imm4!(IMM4);
+    msa_insert_b(a, IMM4, c)
 }
 
 /// GPR Insert Element
@@ -5817,14 +5581,10 @@ pub unsafe fn __msa_insert_b(a: v16i8, imm4: i32, c: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insert.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insert_h(a: v8i16, imm3: i32, c: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_insert_h(a, $imm3, c)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insert_h<const IMM3: i32>(a: v8i16, c: i32) -> v8i16 {
+    static_assert_imm3!(IMM3);
+    msa_insert_h(a, IMM3, c)
 }
 
 /// GPR Insert Element
@@ -5836,14 +5596,10 @@ pub unsafe fn __msa_insert_h(a: v8i16, imm3: i32, c: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insert.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insert_w(a: v4i32, imm2: i32, c: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_insert_w(a, $imm2, c)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insert_w<const IMM2: i32>(a: v4i32, c: i32) -> v4i32 {
+    static_assert_imm2!(IMM2);
+    msa_insert_w(a, IMM2, c)
 }
 
 /// GPR Insert Element
@@ -5855,14 +5611,10 @@ pub unsafe fn __msa_insert_w(a: v4i32, imm2: i32, c: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insert.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insert_d(a: v2i64, imm1: i32, c: i64) -> v2i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_insert_d(a, $imm1, c)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insert_d<const IMM1: i32>(a: v2i64, c: i64) -> v2i64 {
+    static_assert_imm1!(IMM1);
+    msa_insert_d(a, IMM1, c)
 }
 
 /// Element Insert Element
@@ -5874,14 +5626,10 @@ pub unsafe fn __msa_insert_d(a: v2i64, imm1: i32, c: i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insve.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insve_b(a: v16i8, imm4: i32, c: v16i8) -> v16i8 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_insve_b(a, $imm4, c)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insve_b<const IMM4: i32>(a: v16i8, c: v16i8) -> v16i8 {
+    static_assert_imm4!(IMM4);
+    msa_insve_b(a, IMM4, c)
 }
 
 /// Element Insert Element
@@ -5893,14 +5641,10 @@ pub unsafe fn __msa_insve_b(a: v16i8, imm4: i32, c: v16i8) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insve.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insve_h(a: v8i16, imm3: i32, c: v8i16) -> v8i16 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_insve_h(a, $imm3, c)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insve_h<const IMM3: i32>(a: v8i16, c: v8i16) -> v8i16 {
+    static_assert_imm3!(IMM3);
+    msa_insve_h(a, IMM3, c)
 }
 
 /// Element Insert Element
@@ -5912,14 +5656,10 @@ pub unsafe fn __msa_insve_h(a: v8i16, imm3: i32, c: v8i16) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insve.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insve_w(a: v4i32, imm2: i32, c: v4i32) -> v4i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_insve_w(a, $imm2, c)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insve_w<const IMM2: i32>(a: v4i32, c: v4i32) -> v4i32 {
+    static_assert_imm2!(IMM2);
+    msa_insve_w(a, IMM2, c)
 }
 
 /// Element Insert Element
@@ -5931,14 +5671,10 @@ pub unsafe fn __msa_insve_w(a: v4i32, imm2: i32, c: v4i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(insve.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_insve_d(a: v2i64, imm1: i32, c: v2i64) -> v2i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_insve_d(a, $imm1, c)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_insve_d<const IMM1: i32>(a: v2i64, c: v2i64) -> v2i64 {
+    static_assert_imm1!(IMM1);
+    msa_insve_d(a, IMM1, c)
 }
 
 /// Vector Load
@@ -5950,14 +5686,10 @@ pub unsafe fn __msa_insve_d(a: v2i64, imm1: i32, c: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ld.b, imm_s10 = 0b1111111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ld_b(mem_addr: *mut u8, imm_s10: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s10:expr) => {
-            msa_ld_b(mem_addr, $imm_s10)
-        };
-    }
-    constify_imm_s10!(imm_s10, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ld_b<const IMM_S10: i32>(mem_addr: *mut u8) -> v16i8 {
+    static_assert_imm_s10!(IMM_S10);
+    msa_ld_b(mem_addr, IMM_S10)
 }
 
 /// Vector Load
@@ -5969,14 +5701,11 @@ pub unsafe fn __msa_ld_b(mem_addr: *mut u8, imm_s10: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ld.h, imm_s11 = 0b11111111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ld_h(mem_addr: *mut u8, imm_s11: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s11:expr) => {
-            msa_ld_h(mem_addr, $imm_s11)
-        };
-    }
-    constify_imm_s11!(imm_s11, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ld_h<const IMM_S11: i32>(mem_addr: *mut u8) -> v8i16 {
+    static_assert_imm_s11!(IMM_S11);
+    static_assert!(IMM_S11: i32 where IMM_S11 % 2 == 0);
+    msa_ld_h(mem_addr, IMM_S11)
 }
 
 /// Vector Load
@@ -5988,14 +5717,11 @@ pub unsafe fn __msa_ld_h(mem_addr: *mut u8, imm_s11: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ld.w, imm_s12 = 0b111111111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ld_w(mem_addr: *mut u8, imm_s12: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s12:expr) => {
-            msa_ld_w(mem_addr, $imm_s12)
-        };
-    }
-    constify_imm_s12!(imm_s12, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ld_w<const IMM_S12: i32>(mem_addr: *mut u8) -> v4i32 {
+    static_assert_imm_s12!(IMM_S12);
+    static_assert!(IMM_S12: i32 where IMM_S12 % 4 == 0);
+    msa_ld_w(mem_addr, IMM_S12)
 }
 
 /// Vector Load
@@ -6007,14 +5733,11 @@ pub unsafe fn __msa_ld_w(mem_addr: *mut u8, imm_s12: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ld.d, imm_s13 = 0b1111111111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ld_d(mem_addr: *mut u8, imm_s13: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s13:expr) => {
-            msa_ld_d(mem_addr, $imm_s13)
-        };
-    }
-    constify_imm_s13!(imm_s13, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ld_d<const IMM_S13: i32>(mem_addr: *mut u8) -> v2i64 {
+    static_assert_imm_s13!(IMM_S13);
+    static_assert!(IMM_S13: i32 where IMM_S13 % 8 == 0);
+    msa_ld_d(mem_addr, IMM_S13)
 }
 
 /// Immediate Load
@@ -6026,14 +5749,10 @@ pub unsafe fn __msa_ld_d(mem_addr: *mut u8, imm_s13: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ldi.b, imm_s10 = 0b1111111111))]
-#[rustc_args_required_const(0)]
-pub unsafe fn __msa_ldi_b(imm_s10: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s10:expr) => {
-            msa_ldi_b($imm_s10)
-        };
-    }
-    constify_imm_s10!(imm_s10, call)
+#[rustc_legacy_const_generics(0)]
+pub unsafe fn __msa_ldi_b<const IMM_S10: i32>() -> v16i8 {
+    static_assert_imm_s10!(IMM_S10);
+    msa_ldi_b(IMM_S10)
 }
 
 /// Immediate Load
@@ -6045,14 +5764,10 @@ pub unsafe fn __msa_ldi_b(imm_s10: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ldi.h, imm_s10 = 0b1111111111))]
-#[rustc_args_required_const(0)]
-pub unsafe fn __msa_ldi_h(imm_s10: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s10:expr) => {
-            msa_ldi_h($imm_s10)
-        };
-    }
-    constify_imm_s10!(imm_s10, call)
+#[rustc_legacy_const_generics(0)]
+pub unsafe fn __msa_ldi_h<const IMM_S10: i32>() -> v8i16 {
+    static_assert_imm_s10!(IMM_S10);
+    msa_ldi_h(IMM_S10)
 }
 
 /// Immediate Load
@@ -6064,14 +5779,10 @@ pub unsafe fn __msa_ldi_h(imm_s10: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ldi.w, imm_s10 = 0b1111111111))]
-#[rustc_args_required_const(0)]
-pub unsafe fn __msa_ldi_w(imm_s10: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s10:expr) => {
-            msa_ldi_w($imm_s10)
-        };
-    }
-    constify_imm_s10!(imm_s10, call)
+#[rustc_legacy_const_generics(0)]
+pub unsafe fn __msa_ldi_w<const IMM_S10: i32>() -> v4i32 {
+    static_assert_imm_s10!(IMM_S10);
+    msa_ldi_w(IMM_S10)
 }
 
 /// Immediate Load
@@ -6083,14 +5794,10 @@ pub unsafe fn __msa_ldi_w(imm_s10: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ldi.d, imm_s10 = 0b1111111111))]
-#[rustc_args_required_const(0)]
-pub unsafe fn __msa_ldi_d(imm_s10: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s10:expr) => {
-            msa_ldi_d($imm_s10)
-        };
-    }
-    constify_imm_s10!(imm_s10, call)
+#[rustc_legacy_const_generics(0)]
+pub unsafe fn __msa_ldi_d<const IMM_S10: i32>() -> v2i64 {
+    static_assert_imm_s10!(IMM_S10);
+    msa_ldi_d(IMM_S10)
 }
 
 /// Vector Fixed-Point Multiply and Add
@@ -6378,14 +6085,10 @@ pub unsafe fn __msa_max_u_d(a: v2u64, b: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_s.b, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_maxi_s_b(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_s_b<const IMM_S5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_maxi_s_b(a, IMM_S5)
 }
 
 /// Immediate Signed Maximum
@@ -6397,14 +6100,10 @@ pub unsafe fn __msa_maxi_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_s.h, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_maxi_s_h(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_s_h<const IMM_S5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_maxi_s_h(a, IMM_S5)
 }
 
 /// Immediate Signed Maximum
@@ -6416,14 +6115,10 @@ pub unsafe fn __msa_maxi_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_s.w, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_maxi_s_w(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_s_w<const IMM_S5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_maxi_s_w(a, IMM_S5)
 }
 
 /// Immediate Signed Maximum
@@ -6435,14 +6130,10 @@ pub unsafe fn __msa_maxi_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_s.d, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_maxi_s_d(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_s_d<const IMM_S5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_maxi_s_d(a, IMM_S5)
 }
 
 /// Immediate Unsigned Maximum
@@ -6454,14 +6145,10 @@ pub unsafe fn __msa_maxi_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_u.b, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_u_b(a: v16u8, imm5: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_maxi_u_b(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_u_b<const IMM5: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm5!(IMM5);
+    msa_maxi_u_b(a, IMM5)
 }
 
 /// Immediate Unsigned Maximum
@@ -6473,14 +6160,10 @@ pub unsafe fn __msa_maxi_u_b(a: v16u8, imm5: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_u.h, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_u_h(a: v8u16, imm5: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_maxi_u_h(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_u_h<const IMM5: i32>(a: v8u16) -> v8u16 {
+    static_assert_imm5!(IMM5);
+    msa_maxi_u_h(a, IMM5)
 }
 
 /// Immediate Unsigned Maximum
@@ -6492,14 +6175,10 @@ pub unsafe fn __msa_maxi_u_h(a: v8u16, imm5: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_u.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_u_w(a: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_maxi_u_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_u_w<const IMM5: i32>(a: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_maxi_u_w(a, IMM5)
 }
 
 /// Immediate Unsigned Maximum
@@ -6511,14 +6190,10 @@ pub unsafe fn __msa_maxi_u_w(a: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(maxi_u.d, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_maxi_u_d(a: v2u64, imm5: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_maxi_u_d(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_maxi_u_d<const IMM5: i32>(a: v2u64) -> v2u64 {
+    static_assert_imm5!(IMM5);
+    msa_maxi_u_d(a, IMM5)
 }
 
 /// Vector Minimum Based on Absolute Value
@@ -6638,14 +6313,10 @@ pub unsafe fn __msa_min_s_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_s.b, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_mini_s_b(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_s_b<const IMM_S5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_mini_s_b(a, IMM_S5)
 }
 
 /// Immediate Signed Minimum
@@ -6657,14 +6328,10 @@ pub unsafe fn __msa_mini_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_s.h, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_mini_s_h(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_s_h<const IMM_S5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_mini_s_h(a, IMM_S5)
 }
 
 /// Immediate Signed Minimum
@@ -6676,14 +6343,10 @@ pub unsafe fn __msa_mini_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_s.w, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_mini_s_w(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_s_w<const IMM_S5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_mini_s_w(a, IMM_S5)
 }
 
 /// Immediate Signed Minimum
@@ -6695,14 +6358,10 @@ pub unsafe fn __msa_mini_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_s.d, imm_s5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm_s5:expr) => {
-            msa_mini_s_d(a, $imm_s5)
-        };
-    }
-    constify_imm_s5!(imm_s5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_s_d<const IMM_S5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm_s5!(IMM_S5);
+    msa_mini_s_d(a, IMM_S5)
 }
 
 /// Vector Unsigned Minimum
@@ -6766,14 +6425,10 @@ pub unsafe fn __msa_min_u_d(a: v2u64, b: v2u64) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_u.b, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_u_b(a: v16u8, imm5: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_mini_u_b(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_u_b<const IMM5: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm5!(IMM5);
+    msa_mini_u_b(a, IMM5)
 }
 
 /// Immediate Unsigned Minimum
@@ -6785,14 +6440,10 @@ pub unsafe fn __msa_mini_u_b(a: v16u8, imm5: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_u.h, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_u_h(a: v8u16, imm5: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_mini_u_h(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_u_h<const IMM5: i32>(a: v8u16) -> v8u16 {
+    static_assert_imm5!(IMM5);
+    msa_mini_u_h(a, IMM5)
 }
 
 /// Immediate Unsigned Minimum
@@ -6804,14 +6455,10 @@ pub unsafe fn __msa_mini_u_h(a: v8u16, imm5: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_u.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_u_w(a: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_mini_u_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_u_w<const IMM5: i32>(a: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_mini_u_w(a, IMM5)
 }
 
 /// Immediate Unsigned Minimum
@@ -6823,14 +6470,10 @@ pub unsafe fn __msa_mini_u_w(a: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(mini_u.d, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_mini_u_d(a: v2u64, imm5: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_mini_u_d(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_mini_u_d<const IMM5: i32>(a: v2u64) -> v2u64 {
+    static_assert_imm5!(IMM5);
+    msa_mini_u_d(a, IMM5)
 }
 
 /// Vector Signed Modulo
@@ -7313,14 +6956,10 @@ pub unsafe fn __msa_nor_v(a: v16u8, b: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(nori.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_nori_b(a: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_nori_b(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_nori_b<const IMM8: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_nori_b(a, IMM8)
 }
 
 /// Vector Logical Or
@@ -7347,14 +6986,10 @@ pub unsafe fn __msa_or_v(a: v16u8, b: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ori.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_ori_b(a: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_ori_b(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_ori_b<const IMM8: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_ori_b(a, IMM8)
 }
 
 /// Vector Pack Even
@@ -7518,14 +7153,10 @@ pub unsafe fn __msa_pcnt_d(a: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_s.b, imm4 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_s_b(a: v16i8, imm3: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_sat_s_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_s_b<const IMM3: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm3!(IMM3);
+    msa_sat_s_b(a, IMM3)
 }
 
 /// Immediate Signed Saturate
@@ -7537,14 +7168,10 @@ pub unsafe fn __msa_sat_s_b(a: v16i8, imm3: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_s.h, imm3 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_s_h(a: v8i16, imm4: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_sat_s_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_s_h<const IMM4: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm4!(IMM4);
+    msa_sat_s_h(a, IMM4)
 }
 
 /// Immediate Signed Saturate
@@ -7556,14 +7183,10 @@ pub unsafe fn __msa_sat_s_h(a: v8i16, imm4: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_s.w, imm2 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_s_w(a: v4i32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_sat_s_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_s_w<const IMM5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_sat_s_w(a, IMM5)
 }
 
 /// Immediate Signed Saturate
@@ -7575,14 +7198,10 @@ pub unsafe fn __msa_sat_s_w(a: v4i32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_s.d, imm1 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_s_d(a: v2i64, imm6: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_sat_s_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_s_d<const IMM6: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm6!(IMM6);
+    msa_sat_s_d(a, IMM6)
 }
 
 /// Immediate Unsigned Saturate
@@ -7594,14 +7213,10 @@ pub unsafe fn __msa_sat_s_d(a: v2i64, imm6: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_u.b, imm4 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_u_b(a: v16u8, imm3: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_sat_u_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_u_b<const IMM3: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm3!(IMM3);
+    msa_sat_u_b(a, IMM3)
 }
 
 /// Immediate Unsigned Saturate
@@ -7613,14 +7228,10 @@ pub unsafe fn __msa_sat_u_b(a: v16u8, imm3: i32) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_u.h, imm3 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_u_h(a: v8u16, imm4: i32) -> v8u16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_sat_u_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_u_h<const IMM4: i32>(a: v8u16) -> v8u16 {
+    static_assert_imm4!(IMM4);
+    msa_sat_u_h(a, IMM4)
 }
 
 /// Immediate Unsigned Saturate
@@ -7632,14 +7243,10 @@ pub unsafe fn __msa_sat_u_h(a: v8u16, imm4: i32) -> v8u16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_u.w, imm2 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_u_w(a: v4u32, imm5: i32) -> v4u32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_sat_u_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_u_w<const IMM5: i32>(a: v4u32) -> v4u32 {
+    static_assert_imm5!(IMM5);
+    msa_sat_u_w(a, IMM5)
 }
 
 /// Immediate Unsigned Saturate
@@ -7651,14 +7258,10 @@ pub unsafe fn __msa_sat_u_w(a: v4u32, imm5: i32) -> v4u32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sat_u.d, imm1 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_sat_u_d(a: v2u64, imm6: i32) -> v2u64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_sat_u_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_sat_u_d<const IMM6: i32>(a: v2u64) -> v2u64 {
+    static_assert_imm6!(IMM6);
+    msa_sat_u_d(a, IMM6)
 }
 
 /// Immediate Set Shuffle Elements
@@ -7671,14 +7274,10 @@ pub unsafe fn __msa_sat_u_d(a: v2u64, imm6: i32) -> v2u64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(shf.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_shf_b(a: v16i8, imm8: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_shf_b(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_shf_b<const IMM8: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm8!(IMM8);
+    msa_shf_b(a, IMM8)
 }
 
 /// Immediate Set Shuffle Elements
@@ -7691,14 +7290,10 @@ pub unsafe fn __msa_shf_b(a: v16i8, imm8: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(shf.h, imm8 = 0b11111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_shf_h(a: v8i16, imm8: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_shf_h(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_shf_h<const IMM8: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm8!(IMM8);
+    msa_shf_h(a, IMM8)
 }
 
 /// Immediate Set Shuffle Elements
@@ -7711,14 +7306,10 @@ pub unsafe fn __msa_shf_h(a: v8i16, imm8: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(shf.w, imm8 = 0b11111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_shf_w(a: v4i32, imm8: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_shf_w(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_shf_w<const IMM8: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm8!(IMM8);
+    msa_shf_w(a, IMM8)
 }
 
 /// GPR Columns Slide
@@ -7815,14 +7406,10 @@ pub unsafe fn __msa_sld_d(a: v2i64, b: v2i64, c: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sldi.b, imm4 = 0b1111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_sldi_b(a: v16i8, b: v16i8, imm4: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_sldi_b(a, mem::transmute(b), $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_sldi_b<const IMM4: i32>(a: v16i8, b: v16i8) -> v16i8 {
+    static_assert_imm4!(IMM4);
+    msa_sldi_b(a, mem::transmute(b), IMM4)
 }
 
 /// Immediate Columns Slide
@@ -7839,14 +7426,10 @@ pub unsafe fn __msa_sldi_b(a: v16i8, b: v16i8, imm4: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sldi.h, imm3 = 0b111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_sldi_h(a: v8i16, b: v8i16, imm3: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_sldi_h(a, mem::transmute(b), $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_sldi_h<const IMM3: i32>(a: v8i16, b: v8i16) -> v8i16 {
+    static_assert_imm3!(IMM3);
+    msa_sldi_h(a, mem::transmute(b), IMM3)
 }
 
 /// Immediate Columns Slide
@@ -7863,14 +7446,10 @@ pub unsafe fn __msa_sldi_h(a: v8i16, b: v8i16, imm3: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sldi.w, imm2 = 0b11))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_sldi_w(a: v4i32, b: v4i32, imm2: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_sldi_w(a, mem::transmute(b), $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_sldi_w<const IMM2: i32>(a: v4i32, b: v4i32) -> v4i32 {
+    static_assert_imm2!(IMM2);
+    msa_sldi_w(a, mem::transmute(b), IMM2)
 }
 
 /// Immediate Columns Slide
@@ -7887,14 +7466,10 @@ pub unsafe fn __msa_sldi_w(a: v4i32, b: v4i32, imm2: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(sldi.d, imm1 = 0b1))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_sldi_d(a: v2i64, b: v2i64, imm1: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_sldi_d(a, mem::transmute(b), $imm1)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_sldi_d<const IMM1: i32>(a: v2i64, b: v2i64) -> v2i64 {
+    static_assert_imm1!(IMM1);
+    msa_sldi_d(a, mem::transmute(b), IMM1)
 }
 
 /// Vector Shift Left
@@ -7962,14 +7537,10 @@ pub unsafe fn __msa_sll_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(slli.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_slli_b(a: v16i8, imm4: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_slli_b(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_slli_b<const IMM4: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm4!(IMM4);
+    msa_slli_b(a, IMM4)
 }
 
 /// Immediate Shift Left
@@ -7981,14 +7552,10 @@ pub unsafe fn __msa_slli_b(a: v16i8, imm4: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(slli.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_slli_h(a: v8i16, imm3: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_slli_h(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_slli_h<const IMM3: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm3!(IMM3);
+    msa_slli_h(a, IMM3)
 }
 
 /// Immediate Shift Left
@@ -8000,14 +7567,10 @@ pub unsafe fn __msa_slli_h(a: v8i16, imm3: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(slli.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_slli_w(a: v4i32, imm2: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_slli_w(a, $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_slli_w<const IMM2: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm2!(IMM2);
+    msa_slli_w(a, IMM2)
 }
 
 /// Immediate Shift Left
@@ -8019,14 +7582,10 @@ pub unsafe fn __msa_slli_w(a: v4i32, imm2: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(slli.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_slli_d(a: v2i64, imm1: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_slli_d(a, $imm1)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_slli_d<const IMM1: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm1!(IMM1);
+    msa_slli_d(a, IMM1)
 }
 
 /// GPR Element Splat
@@ -8093,14 +7652,10 @@ pub unsafe fn __msa_splat_d(a: v2i64, b: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(splati.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_splati_b(a: v16i8, imm4: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_splati_b(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_splati_b<const IMM4: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm4!(IMM4);
+    msa_splati_b(a, IMM4)
 }
 
 /// Immediate Element Splat
@@ -8111,14 +7666,10 @@ pub unsafe fn __msa_splati_b(a: v16i8, imm4: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(splati.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_splati_h(a: v8i16, imm3: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_splati_h(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_splati_h<const IMM3: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm3!(IMM3);
+    msa_splati_h(a, IMM3)
 }
 
 /// Immediate Element Splat
@@ -8129,14 +7680,10 @@ pub unsafe fn __msa_splati_h(a: v8i16, imm3: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(splati.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_splati_w(a: v4i32, imm2: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_splati_w(a, $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_splati_w<const IMM2: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm2!(IMM2);
+    msa_splati_w(a, IMM2)
 }
 
 /// Immediate Element Splat
@@ -8147,14 +7694,10 @@ pub unsafe fn __msa_splati_w(a: v4i32, imm2: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(splati.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_splati_d(a: v2i64, imm1: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_splati_d(a, $imm1)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_splati_d<const IMM1: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm1!(IMM1);
+    msa_splati_d(a, IMM1)
 }
 
 /// Vector Shift Right Arithmetic
@@ -8222,14 +7765,10 @@ pub unsafe fn __msa_sra_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srai.b, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srai_b(a: v16i8, imm3: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_srai_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srai_b<const IMM3: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm3!(IMM3);
+    msa_srai_b(a, IMM3)
 }
 
 /// Immediate Shift Right Arithmetic
@@ -8241,14 +7780,10 @@ pub unsafe fn __msa_srai_b(a: v16i8, imm3: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srai.h, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srai_h(a: v8i16, imm4: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_srai_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srai_h<const IMM4: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm4!(IMM4);
+    msa_srai_h(a, IMM4)
 }
 
 /// Immediate Shift Right Arithmetic
@@ -8260,14 +7795,10 @@ pub unsafe fn __msa_srai_h(a: v8i16, imm4: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srai.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srai_w(a: v4i32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_srai_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srai_w<const IMM5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_srai_w(a, IMM5)
 }
 
 /// Immediate Shift Right Arithmetic
@@ -8279,14 +7810,10 @@ pub unsafe fn __msa_srai_w(a: v4i32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srai.d, imm6 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srai_d(a: v2i64, imm6: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_srai_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srai_d<const IMM6: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm6!(IMM6);
+    msa_srai_d(a, IMM6)
 }
 
 /// Vector Shift Right Arithmetic Rounded
@@ -8359,14 +7886,10 @@ pub unsafe fn __msa_srar_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srari.b, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srari_b(a: v16i8, imm3: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_srari_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srari_b<const IMM3: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm3!(IMM3);
+    msa_srari_b(a, IMM3)
 }
 
 /// Immediate Shift Right Arithmetic Rounded
@@ -8379,14 +7902,10 @@ pub unsafe fn __msa_srari_b(a: v16i8, imm3: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srari.h, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srari_h(a: v8i16, imm4: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_srari_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srari_h<const IMM4: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm4!(IMM4);
+    msa_srari_h(a, IMM4)
 }
 
 /// Immediate Shift Right Arithmetic Rounded
@@ -8399,14 +7918,10 @@ pub unsafe fn __msa_srari_h(a: v8i16, imm4: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srari.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srari_w(a: v4i32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_srari_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srari_w<const IMM5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_srari_w(a, IMM5)
 }
 
 /// Immediate Shift Right Arithmetic Rounded
@@ -8419,14 +7934,10 @@ pub unsafe fn __msa_srari_w(a: v4i32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srari.d, imm6 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srari_d(a: v2i64, imm6: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_srari_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srari_d<const IMM6: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm6!(IMM6);
+    msa_srari_d(a, IMM6)
 }
 
 /// Vector Shift Right Logical
@@ -8494,14 +8005,10 @@ pub unsafe fn __msa_srl_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srli.b, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srli_b(a: v16i8, imm4: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_srli_b(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srli_b<const IMM4: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm4!(IMM4);
+    msa_srli_b(a, IMM4)
 }
 
 /// Immediate Shift Right Logical
@@ -8513,14 +8020,10 @@ pub unsafe fn __msa_srli_b(a: v16i8, imm4: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srli.h, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srli_h(a: v8i16, imm3: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_srli_h(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srli_h<const IMM3: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm3!(IMM3);
+    msa_srli_h(a, IMM3)
 }
 
 /// Immediate Shift Right Logical
@@ -8532,14 +8035,10 @@ pub unsafe fn __msa_srli_h(a: v8i16, imm3: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srli.w, imm2 = 0b11))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srli_w(a: v4i32, imm2: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm2:expr) => {
-            msa_srli_w(a, $imm2)
-        };
-    }
-    constify_imm2!(imm2, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srli_w<const IMM2: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm2!(IMM2);
+    msa_srli_w(a, IMM2)
 }
 
 /// Immediate Shift Right Logical
@@ -8551,14 +8050,10 @@ pub unsafe fn __msa_srli_w(a: v4i32, imm2: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srli.d, imm1 = 0b1))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srli_d(a: v2i64, imm1: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm1:expr) => {
-            msa_srli_d(a, $imm1)
-        };
-    }
-    constify_imm1!(imm1, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srli_d<const IMM1: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm1!(IMM1);
+    msa_srli_d(a, IMM1)
 }
 
 /// Vector Shift Right Logical Rounded
@@ -8631,14 +8126,10 @@ pub unsafe fn __msa_srlr_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srlri.b, imm3 = 0b111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srlri_b(a: v16i8, imm3: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm3:expr) => {
-            msa_srlri_b(a, $imm3)
-        };
-    }
-    constify_imm3!(imm3, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srlri_b<const IMM3: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm3!(IMM3);
+    msa_srlri_b(a, IMM3)
 }
 
 /// Immediate Shift Right Logical Rounded
@@ -8651,14 +8142,10 @@ pub unsafe fn __msa_srlri_b(a: v16i8, imm3: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srlri.h, imm4 = 0b1111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srlri_h(a: v8i16, imm4: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm4:expr) => {
-            msa_srlri_h(a, $imm4)
-        };
-    }
-    constify_imm4!(imm4, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srlri_h<const IMM4: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm4!(IMM4);
+    msa_srlri_h(a, IMM4)
 }
 
 /// Immediate Shift Right Logical Rounded
@@ -8671,14 +8158,10 @@ pub unsafe fn __msa_srlri_h(a: v8i16, imm4: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srlri.w, imm5 = 0b11111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srlri_w(a: v4i32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_srlri_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srlri_w<const IMM5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_srlri_w(a, IMM5)
 }
 
 /// Immediate Shift Right Logical Rounded
@@ -8691,14 +8174,10 @@ pub unsafe fn __msa_srlri_w(a: v4i32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(srlri.d, imm6 = 0b111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_srlri_d(a: v2i64, imm6: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm6:expr) => {
-            msa_srlri_d(a, $imm6)
-        };
-    }
-    constify_imm6!(imm6, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_srlri_d<const IMM6: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm6!(IMM6);
+    msa_srlri_d(a, IMM6)
 }
 
 /// Vector Store
@@ -8710,14 +8189,10 @@ pub unsafe fn __msa_srlri_d(a: v2i64, imm6: i32) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(st.b, imm_s10 = 0b1111111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_st_b(a: v16i8, mem_addr: *mut u8, imm_s10: i32) -> () {
-    macro_rules! call {
-        ($imm_s10:expr) => {
-            msa_st_b(a, mem_addr, $imm_s10)
-        };
-    }
-    constify_imm_s10!(imm_s10, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_st_b<const IMM_S10: i32>(a: v16i8, mem_addr: *mut u8) -> () {
+    static_assert_imm_s10!(IMM_S10);
+    msa_st_b(a, mem_addr, IMM_S10)
 }
 
 /// Vector Store
@@ -8729,14 +8204,11 @@ pub unsafe fn __msa_st_b(a: v16i8, mem_addr: *mut u8, imm_s10: i32) -> () {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(st.h, imm_s11 = 0b11111111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_st_h(a: v8i16, mem_addr: *mut u8, imm_s11: i32) -> () {
-    macro_rules! call {
-        ($imm_s11:expr) => {
-            msa_st_h(a, mem_addr, $imm_s11)
-        };
-    }
-    constify_imm_s11!(imm_s11, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_st_h<const IMM_S11: i32>(a: v8i16, mem_addr: *mut u8) -> () {
+    static_assert_imm_s11!(IMM_S11);
+    static_assert!(IMM_S11: i32 where IMM_S11 % 2 == 0);
+    msa_st_h(a, mem_addr, IMM_S11)
 }
 
 /// Vector Store
@@ -8748,14 +8220,11 @@ pub unsafe fn __msa_st_h(a: v8i16, mem_addr: *mut u8, imm_s11: i32) -> () {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(st.w, imm_s12 = 0b111111111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_st_w(a: v4i32, mem_addr: *mut u8, imm_s12: i32) -> () {
-    macro_rules! call {
-        ($imm_s12:expr) => {
-            msa_st_w(a, mem_addr, $imm_s12)
-        };
-    }
-    constify_imm_s12!(imm_s12, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_st_w<const IMM_S12: i32>(a: v4i32, mem_addr: *mut u8) -> () {
+    static_assert_imm_s12!(IMM_S12);
+    static_assert!(IMM_S12: i32 where IMM_S12 % 4 == 0);
+    msa_st_w(a, mem_addr, IMM_S12)
 }
 
 /// Vector Store
@@ -8767,14 +8236,11 @@ pub unsafe fn __msa_st_w(a: v4i32, mem_addr: *mut u8, imm_s12: i32) -> () {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(st.d, imm_s13 = 0b1111111111111))]
-#[rustc_args_required_const(2)]
-pub unsafe fn __msa_st_d(a: v2i64, mem_addr: *mut u8, imm_s13: i32) -> () {
-    macro_rules! call {
-        ($imm_s13:expr) => {
-            msa_st_d(a, mem_addr, $imm_s13)
-        };
-    }
-    constify_imm_s13!(imm_s13, call)
+#[rustc_legacy_const_generics(2)]
+pub unsafe fn __msa_st_d<const IMM_S13: i32>(a: v2i64, mem_addr: *mut u8) -> () {
+    static_assert_imm_s13!(IMM_S13);
+    static_assert!(IMM_S13: i32 where IMM_S13 % 8 == 0);
+    msa_st_d(a, mem_addr, IMM_S13)
 }
 
 /// Vector Signed Saturated Subtract of Signed Values
@@ -9062,14 +8528,10 @@ pub unsafe fn __msa_subv_d(a: v2i64, b: v2i64) -> v2i64 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(subvi.b, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_subvi_b(a: v16i8, imm5: i32) -> v16i8 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_subvi_b(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_subvi_b<const IMM5: i32>(a: v16i8) -> v16i8 {
+    static_assert_imm5!(IMM5);
+    msa_subvi_b(a, IMM5)
 }
 
 /// Immediate Subtract
@@ -9081,14 +8543,10 @@ pub unsafe fn __msa_subvi_b(a: v16i8, imm5: i32) -> v16i8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(subvi.h, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_subvi_h(a: v8i16, imm5: i32) -> v8i16 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_subvi_h(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_subvi_h<const IMM5: i32>(a: v8i16) -> v8i16 {
+    static_assert_imm5!(IMM5);
+    msa_subvi_h(a, IMM5)
 }
 
 /// Immediate Subtract
@@ -9100,14 +8558,10 @@ pub unsafe fn __msa_subvi_h(a: v8i16, imm5: i32) -> v8i16 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(subvi.w, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_subvi_w(a: v4i32, imm5: i32) -> v4i32 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_subvi_w(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_subvi_w<const IMM5: i32>(a: v4i32) -> v4i32 {
+    static_assert_imm5!(IMM5);
+    msa_subvi_w(a, IMM5)
 }
 
 /// Immediate Subtract
@@ -9119,14 +8573,10 @@ pub unsafe fn __msa_subvi_w(a: v4i32, imm5: i32) -> v4i32 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(subvi.d, imm5 = 0b10111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_subvi_d(a: v2i64, imm5: i32) -> v2i64 {
-    macro_rules! call {
-        ($imm5:expr) => {
-            msa_subvi_d(a, $imm5)
-        };
-    }
-    constify_imm5!(imm5, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_subvi_d<const IMM5: i32>(a: v2i64) -> v2i64 {
+    static_assert_imm5!(IMM5);
+    msa_subvi_d(a, IMM5)
 }
 
 /// Vector Data Preserving Shuffle
@@ -9221,14 +8671,10 @@ pub unsafe fn __msa_xor_v(a: v16u8, b: v16u8) -> v16u8 {
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(xori.b, imm8 = 0b11111111))]
-#[rustc_args_required_const(1)]
-pub unsafe fn __msa_xori_b(a: v16u8, imm8: i32) -> v16u8 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            msa_xori_b(a, $imm8)
-        };
-    }
-    constify_imm8!(imm8, call)
+#[rustc_legacy_const_generics(1)]
+pub unsafe fn __msa_xori_b<const IMM8: i32>(a: v16u8) -> v16u8 {
+    static_assert_imm8!(IMM8);
+    msa_xori_b(a, IMM8)
 }
 
 #[cfg(test)]
@@ -9319,10 +8765,10 @@ mod tests {
     unsafe fn test_msa_adds_a_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            100, i8::max_value(), 100, i8::max_value(),
-            100, i8::max_value(), 100, i8::max_value(),
-            100, i8::max_value(), 100, i8::max_value(),
-            100, i8::max_value(), 100, i8::max_value()
+            100, i8::MAX, 100, i8::MAX,
+            100, i8::MAX, 100, i8::MAX,
+            100, i8::MAX, 100, i8::MAX,
+            100, i8::MAX, 100, i8::MAX
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -9349,15 +8795,15 @@ mod tests {
     unsafe fn test_msa_adds_a_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            100, i16::max_value(), 100, i16::max_value(), 
-            100, i16::max_value(), 100, i16::max_value()
+            100, i16::MAX, 100, i16::MAX, 
+            100, i16::MAX, 100, i16::MAX
         );
         #[rustfmt::skip]
         let b = i16x8::new(-4, -3, -2, -1, -4, -3, -2, -1);
         #[rustfmt::skip]
         let r = i16x8::new(
-            104, i16::max_value(), 102, i16::max_value(),
-            104, i16::max_value(), 102, i16::max_value()
+            104, i16::MAX, 102, i16::MAX,
+            104, i16::MAX, 102, i16::MAX
         );
 
         assert_eq!(
@@ -9369,11 +8815,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_adds_a_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, i32::max_value(), 100, i32::max_value());
+        let a = i32x4::new(100, i32::MAX, 100, i32::MAX);
         #[rustfmt::skip]
         let b = i32x4::new(-4, -3, -2, -1);
         #[rustfmt::skip]
-        let r = i32x4::new(104, i32::max_value(), 102, i32::max_value());
+        let r = i32x4::new(104, i32::MAX, 102, i32::MAX);
 
         assert_eq!(
             r,
@@ -9384,11 +8830,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_adds_a_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::max_value());
+        let a = i64x2::new(100, i64::MAX);
         #[rustfmt::skip]
         let b = i64x2::new(-4, -3);
         #[rustfmt::skip]
-        let r = i64x2::new(104, i64::max_value());
+        let r = i64x2::new(104, i64::MAX);
 
         assert_eq!(
             r,
@@ -9400,10 +8846,10 @@ mod tests {
     unsafe fn test_msa_adds_s_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            100, i8::min_value(), 100, i8::max_value(),
-            100, i8::min_value(), 100, i8::max_value(),
-            100, i8::min_value(), 100, i8::max_value(),
-            100, i8::min_value(), 100, i8::max_value()
+            100, i8::MIN, 100, i8::MAX,
+            100, i8::MIN, 100, i8::MAX,
+            100, i8::MIN, 100, i8::MAX,
+            100, i8::MIN, 100, i8::MAX
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -9414,10 +8860,10 @@ mod tests {
         );
         #[rustfmt::skip]
         let r = i8x16::new(
-            96, i8::min_value(), 98, i8::max_value(), 
-            96, i8::min_value(), 98, i8::max_value(), 
-            96, i8::min_value(), 98, i8::max_value(), 
-            96, i8::min_value(), 98, i8::max_value()
+            96, i8::MIN, 98, i8::MAX, 
+            96, i8::MIN, 98, i8::MAX, 
+            96, i8::MIN, 98, i8::MAX, 
+            96, i8::MIN, 98, i8::MAX
         );
 
         assert_eq!(
@@ -9430,15 +8876,15 @@ mod tests {
     unsafe fn test_msa_adds_s_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            100, i16::min_value(), 100, i16::max_value(), 
-            100, i16::min_value(), 100, i16::max_value()
+            100, i16::MIN, 100, i16::MAX, 
+            100, i16::MIN, 100, i16::MAX
         );
         #[rustfmt::skip]
         let b = i16x8::new(-4, -3, -2, 1, -4, -3, -2, 1);
         #[rustfmt::skip]
         let r = i16x8::new(
-            96, i16::min_value(), 98, i16::max_value(), 
-            96, i16::min_value(), 98, i16::max_value()
+            96, i16::MIN, 98, i16::MAX, 
+            96, i16::MIN, 98, i16::MAX
         );
 
         assert_eq!(
@@ -9450,11 +8896,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_adds_s_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, i32::max_value(), 100, i32::min_value());
+        let a = i32x4::new(100, i32::MAX, 100, i32::MIN);
         #[rustfmt::skip]
         let b = i32x4::new(-4, 3, -2, -1);
         #[rustfmt::skip]
-        let r = i32x4::new(96, i32::max_value(), 98, i32::min_value());
+        let r = i32x4::new(96, i32::MAX, 98, i32::MIN);
 
         assert_eq!(
             r,
@@ -9465,11 +8911,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_adds_s_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::min_value());
+        let a = i64x2::new(100, i64::MIN);
         #[rustfmt::skip]
         let b = i64x2::new(-4, -3);
         #[rustfmt::skip]
-        let r = i64x2::new(96, i64::min_value());
+        let r = i64x2::new(96, i64::MIN);
 
         assert_eq!(
             r,
@@ -9481,10 +8927,10 @@ mod tests {
     unsafe fn test_msa_adds_u_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value()
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX
         );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -9495,10 +8941,10 @@ mod tests {
         );
         #[rustfmt::skip]
         let r = u8x16::new(
-            104, u8::max_value(), 102, u8::max_value(), 
-            104, u8::max_value(), 102, u8::max_value(), 
-            104, u8::max_value(), 102, u8::max_value(), 
-            104, u8::max_value(), 102, u8::max_value()
+            104, u8::MAX, 102, u8::MAX, 
+            104, u8::MAX, 102, u8::MAX, 
+            104, u8::MAX, 102, u8::MAX, 
+            104, u8::MAX, 102, u8::MAX
         );
 
         assert_eq!(
@@ -9511,15 +8957,15 @@ mod tests {
     unsafe fn test_msa_adds_u_h() {
         #[rustfmt::skip]
         let a = u16x8::new(
-            100, u16::max_value(), 100, u16::max_value(), 
-            100, u16::max_value(), 100, u16::max_value()
+            100, u16::MAX, 100, u16::MAX, 
+            100, u16::MAX, 100, u16::MAX
         );
         #[rustfmt::skip]
         let b = u16x8::new(4, 3, 2, 1, 4, 3, 2, 1);
         #[rustfmt::skip]
         let r = u16x8::new(
-            104, u16::max_value(), 102, u16::max_value(), 
-            104, u16::max_value(), 102, u16::max_value()
+            104, u16::MAX, 102, u16::MAX, 
+            104, u16::MAX, 102, u16::MAX
         );
 
         assert_eq!(
@@ -9531,11 +8977,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_adds_u_w() {
         #[rustfmt::skip]
-        let a = u32x4::new(100, u32::max_value(), 100, u32::max_value());
+        let a = u32x4::new(100, u32::MAX, 100, u32::MAX);
         #[rustfmt::skip]
         let b = u32x4::new(4, 3, 2, 1);
         #[rustfmt::skip]
-        let r = u32x4::new(104, u32::max_value(), 102, u32::max_value());
+        let r = u32x4::new(104, u32::MAX, 102, u32::MAX);
 
         assert_eq!(
             r,
@@ -9546,11 +8992,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_adds_u_d() {
         #[rustfmt::skip]
-        let a = u64x2::new(100, u64::max_value());
+        let a = u64x2::new(100, u64::MAX);
         #[rustfmt::skip]
         let b = u64x2::new(4, 3);
         #[rustfmt::skip]
-        let r = u64x2::new(104, u64::max_value());
+        let r = u64x2::new(104, u64::MAX);
 
         assert_eq!(
             r,
@@ -9562,10 +9008,10 @@ mod tests {
     unsafe fn test_msa_addv_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            100, i8::min_value(), 100, i8::max_value(),
-            100, i8::min_value(), 100, i8::max_value(),
-            100, i8::min_value(), 100, i8::max_value(),
-            100, i8::min_value(), 100, i8::max_value()
+            100, i8::MIN, 100, i8::MAX,
+            100, i8::MIN, 100, i8::MAX,
+            100, i8::MIN, 100, i8::MAX,
+            100, i8::MIN, 100, i8::MAX
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -9592,8 +9038,8 @@ mod tests {
     unsafe fn test_msa_addv_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            100, i16::min_value(), 100, i16::max_value(), 
-            100, i16::min_value(), 100, i16::max_value()
+            100, i16::MIN, 100, i16::MAX, 
+            100, i16::MIN, 100, i16::MAX
         );
         #[rustfmt::skip]
         let b = i16x8::new(-4, -3, -2, 1, -4, -3, -2, 1);
@@ -9609,7 +9055,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_addv_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, i32::max_value(), 100, i32::min_value());
+        let a = i32x4::new(100, i32::MAX, 100, i32::MIN);
         #[rustfmt::skip]
         let b = i32x4::new(-4, 3, -2, -1);
         #[rustfmt::skip]
@@ -9624,7 +9070,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_addv_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::min_value());
+        let a = i64x2::new(100, i64::MIN);
         #[rustfmt::skip]
         let b = i64x2::new(-4, -3);
         #[rustfmt::skip]
@@ -9640,10 +9086,10 @@ mod tests {
     unsafe fn test_msa_addvi_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            100, i8::max_value(), 100, i8::max_value(),
-            100, i8::max_value(), 100, i8::max_value(),
-            100, i8::max_value(), 100, i8::max_value(),
-            100, i8::max_value(), 100, i8::max_value()
+            100, i8::MAX, 100, i8::MAX,
+            100, i8::MAX, 100, i8::MAX,
+            100, i8::MAX, 100, i8::MAX,
+            100, i8::MAX, 100, i8::MAX
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -9660,8 +9106,8 @@ mod tests {
     unsafe fn test_msa_addvi_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 3276, -100, -127, 
-            i16::max_value(), 3276, -100, -127
+            i16::MAX, 3276, -100, -127, 
+            i16::MAX, 3276, -100, -127
         );
         #[rustfmt::skip]
         let r = i16x8::new(
@@ -9675,7 +9121,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_addvi_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, i32::max_value(), 100, i32::min_value());
+        let a = i32x4::new(100, i32::MAX, 100, i32::MIN);
         #[rustfmt::skip]
         let r = i32x4::new(103, -2147483646, 103, -2147483645);
 
@@ -9685,7 +9131,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_addvi_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::min_value());
+        let a = i64x2::new(100, i64::MIN);
         #[rustfmt::skip]
         let r = i64x2::new(117, -9223372036854775791);
 
@@ -9696,10 +9142,10 @@ mod tests {
     unsafe fn test_msa_and_v() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value()
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX
     );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -9726,10 +9172,10 @@ mod tests {
     unsafe fn test_msa_andi_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value(),
-            100, u8::max_value(), 100, u8::max_value()
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX,
+            100, u8::MAX, 100, u8::MAX
         );
         #[rustfmt::skip]
         let r = u8x16::new(
@@ -10437,10 +9883,10 @@ mod tests {
     unsafe fn test_msa_binsli_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1
         );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -10721,10 +10167,10 @@ mod tests {
     unsafe fn test_msa_bmnz_v() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1
         );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -10762,17 +10208,17 @@ mod tests {
     unsafe fn test_msa_bmnzi_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1
         );
         #[rustfmt::skip]
         let b = u8x16::new(
-            1, u8::max_value(), 155, 55,
-            1, u8::max_value(), 155, 55,
-            1, u8::max_value(), 155, 55,
-            1, u8::max_value(), 155, 55
+            1, u8::MAX, 155, 55,
+            1, u8::MAX, 155, 55,
+            1, u8::MAX, 155, 55,
+            1, u8::MAX, 155, 55
         );
         #[rustfmt::skip]
         let r = u8x16::new(
@@ -10792,10 +10238,10 @@ mod tests {
     unsafe fn test_msa_bmz_v() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1
         );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -10833,10 +10279,10 @@ mod tests {
     unsafe fn test_msa_bmzi_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1,
-            u8::max_value(), 155, 55, 1
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1,
+            u8::MAX, 155, 55, 1
         );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -10938,10 +10384,10 @@ mod tests {
     unsafe fn test_msa_bnegi_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            50, 100, 127, u8::max_value(),
-            50, 100, 127, u8::max_value(),
-            50, 100, 127, u8::max_value(),
-            50, 100, 127, u8::max_value()
+            50, 100, 127, u8::MAX,
+            50, 100, 127, u8::MAX,
+            50, 100, 127, u8::MAX,
+            50, 100, 127, u8::MAX
         );
         #[rustfmt::skip]
         let r = u8x16::new(
@@ -11518,17 +10964,17 @@ mod tests {
     unsafe fn test_msa_cle_u_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 127, 55, 2,
-            u8::max_value(), 127, 55, 2,
-            u8::max_value(), 127, 55, 2,
-            u8::max_value(), 127, 55, 2
+            u8::MAX, 127, 55, 2,
+            u8::MAX, 127, 55, 2,
+            u8::MAX, 127, 55, 2,
+            u8::MAX, 127, 55, 2
         );
         #[rustfmt::skip]
         let b = u8x16::new(
-            u8::max_value(), 126, 55, 1,
-            u8::max_value(), 126, 55, 1,
-            u8::max_value(), 126, 55, 1,
-            u8::max_value(), 126, 55, 1
+            u8::MAX, 126, 55, 1,
+            u8::MAX, 126, 55, 1,
+            u8::MAX, 126, 55, 1,
+            u8::MAX, 126, 55, 1
         );
         #[rustfmt::skip]
         let r = i8x16::new(-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0);
@@ -11543,13 +10989,13 @@ mod tests {
     unsafe fn test_msa_cle_u_h() {
         #[rustfmt::skip]
         let a = u16x8::new(
-            u16::max_value(), 155, 55, 2, 
-            u16::max_value(), 155, 55, 2
+            u16::MAX, 155, 55, 2, 
+            u16::MAX, 155, 55, 2
         );
         #[rustfmt::skip]
         let b = u16x8::new(
-            u16::max_value(), 155, 56, 1, 
-            u16::max_value(), 155, 56, 1
+            u16::MAX, 155, 56, 1, 
+            u16::MAX, 155, 56, 1
         );
         #[rustfmt::skip]
         let r = i16x8::new(-1, -1, -1, 0, -1, -1, -1, 0);
@@ -11563,9 +11009,9 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_cle_u_w() {
         #[rustfmt::skip]
-        let a = u32x4::new(u32::max_value(), 155, 55, 2);
+        let a = u32x4::new(u32::MAX, 155, 55, 2);
         #[rustfmt::skip]
-        let b = u32x4::new(u32::max_value(), 156, 55, 1);
+        let b = u32x4::new(u32::MAX, 156, 55, 1);
         #[rustfmt::skip]
         let r = i32x4::new(-1, -1, -1, 0);
 
@@ -11578,9 +11024,9 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_cle_u_d() {
         #[rustfmt::skip]
-        let a = u64x2::new(u64::max_value(), 155);
+        let a = u64x2::new(u64::MAX, 155);
         #[rustfmt::skip]
-        let b = u64x2::new(u64::max_value(), 156);
+        let b = u64x2::new(u64::MAX, 156);
         #[rustfmt::skip]
         let r = i64x2::new(-1, -1);
 
@@ -12041,7 +11487,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_copy_u_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(3, i64::max_value());
+        let a = i64x2::new(3, i64::MAX);
         #[rustfmt::skip]
         let r = 9223372036854775807 as u64;
 
@@ -14701,7 +14147,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_insert_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(3, i64::max_value());
+        let a = i64x2::new(3, i64::MAX);
         #[rustfmt::skip]
         let r = i64x2::new(3, 100);
 
@@ -14712,10 +14158,10 @@ mod tests {
     unsafe fn test_msa_insve_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            -100, i8::max_value(), 4, i8::max_value(),
-            -100, i8::max_value(), 4, i8::max_value(),
-            -100, i8::max_value(), 4, i8::max_value(),
-            -100, i8::max_value(), 4, i8::max_value()
+            -100, i8::MAX, 4, i8::MAX,
+            -100, i8::MAX, 4, i8::MAX,
+            -100, i8::MAX, 4, i8::MAX,
+            -100, i8::MAX, 4, i8::MAX
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -14742,8 +14188,8 @@ mod tests {
     unsafe fn test_msa_insve_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 3276, 100, 11,
-            i16::max_value(), 3276, 100, 11
+            i16::MAX, 3276, 100, 11,
+            i16::MAX, 3276, 100, 11
         );
         #[rustfmt::skip]
         let b = i16x8::new(
@@ -14780,7 +14226,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_insve_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(3, i64::max_value());
+        let a = i64x2::new(3, i64::MAX);
         #[rustfmt::skip]
         let b = i64x2::new(1, 2);
         #[rustfmt::skip]
@@ -14895,7 +14341,7 @@ mod tests {
     unsafe fn test_msa_madd_q_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 1024, i16::min_value(), -1024,
+            i16::MAX, 1024, i16::MIN, -1024,
             1, 2, 3, 4
         );
         #[rustfmt::skip]
@@ -14905,7 +14351,7 @@ mod tests {
         );
         #[rustfmt::skip]
         let c = i16x8::new(
-            i16::max_value(), i16::max_value(), 1, -1,
+            i16::MAX, i16::MAX, 1, -1,
             33, 66, 99, 132
         );
         #[rustfmt::skip]
@@ -14924,7 +14370,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_madd_q_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::max_value(), i32::min_value(), 1, 2);
+        let a = i32x4::new(i32::MAX, i32::MIN, 1, 2);
         #[rustfmt::skip]
         let b = i32x4::new(102401, 102401, 102401, 102401);
         #[rustfmt::skip]
@@ -14975,7 +14421,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_maddr_q_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::max_value(), i32::min_value(), 1, 2);
+        let a = i32x4::new(i32::MAX, i32::MIN, 1, 2);
         #[rustfmt::skip]
         let b = i32x4::new(102401, 102401, 102401, 102401);
         #[rustfmt::skip]
@@ -16007,7 +15453,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_msubr_q_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::max_value(), -2147483647, 1, 2);
+        let a = i32x4::new(i32::MAX, -2147483647, 1, 2);
         #[rustfmt::skip]
         let b = i32x4::new(10240, 10240, 10240, 10240);
         #[rustfmt::skip]
@@ -16154,8 +15600,8 @@ mod tests {
     unsafe fn test_msa_mul_q_w() {
         #[rustfmt::skip]
         let a = i32x4::new(
-            i32::max_value(), i32::max_value(),
-            i32::min_value(), i32::min_value()
+            i32::MAX, i32::MAX,
+            i32::MIN, i32::MIN
         );
         #[rustfmt::skip]
         let b = i32x4::new(30, 60, 30, 60);
@@ -16193,8 +15639,8 @@ mod tests {
     unsafe fn test_msa_mulr_q_w() {
         #[rustfmt::skip]
         let a = i32x4::new(
-            i32::max_value(), i32::max_value(),
-            i32::min_value(), i32::min_value()
+            i32::MAX, i32::MAX,
+            i32::MIN, i32::MIN
         );
         #[rustfmt::skip]
         let b = i32x4::new(30, 60, 30, 60);
@@ -16325,8 +15771,8 @@ mod tests {
     unsafe fn test_msa_nloc_w() {
         #[rustfmt::skip]
         let a = i32x4::new(
-            i32::min_value(), -1073741824,
-            1073741824, i32::max_value()
+            i32::MIN, -1073741824,
+            1073741824, i32::MAX
         );
         #[rustfmt::skip]
         let r = i32x4::new(1, 2, 0, 0);
@@ -16337,7 +15783,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_nloc_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::min_value(), i64::max_value());
+        let a = i64x2::new(i64::MIN, i64::MAX);
         #[rustfmt::skip]
         let r = i64x2::new(1, 0);
 
@@ -16684,8 +16130,8 @@ mod tests {
     unsafe fn test_msa_pcnt_w() {
         #[rustfmt::skip]
         let a = i32x4::new(
-            i32::min_value(), -1073741824,
-            1073741824, i32::max_value()
+            i32::MIN, -1073741824,
+            1073741824, i32::MAX
         );
         #[rustfmt::skip]
         let r = i32x4::new(1, 2, 1, 31);
@@ -16707,10 +16153,10 @@ mod tests {
     unsafe fn test_msa_sat_s_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            i8::max_value(), 105, 30, 1,
-            i8::max_value(), 105, 30, 1,
-            i8::max_value(), 105, 30, 1,
-            i8::max_value(), 105, 30, 1
+            i8::MAX, 105, 30, 1,
+            i8::MAX, 105, 30, 1,
+            i8::MAX, 105, 30, 1,
+            i8::MAX, 105, 30, 1
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -16727,8 +16173,8 @@ mod tests {
     unsafe fn test_msa_sat_s_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 1155, 155, 1,
-            i16::max_value(), 1155, 155, 1
+            i16::MAX, 1155, 155, 1,
+            i16::MAX, 1155, 155, 1
         );
         #[rustfmt::skip]
         let r = i16x8::new(127, 127, 127, 1, 127, 127, 127, 1);
@@ -16739,7 +16185,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_sat_s_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::max_value(), 111111155, i32::max_value(), 1);
+        let a = i32x4::new(i32::MAX, 111111155, i32::MAX, 1);
         #[rustfmt::skip]
         let r = i32x4::new(131071, 131071, 131071, 1);
 
@@ -16749,7 +16195,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_sat_s_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::max_value(), 1);
+        let a = i64x2::new(i64::MAX, 1);
         #[rustfmt::skip]
         let r = i64x2::new(137438953471, 1);
 
@@ -16760,10 +16206,10 @@ mod tests {
     unsafe fn test_msa_sat_u_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 105, 30, 1,
-            u8::max_value(), 105, 30, 1,
-            u8::max_value(), 105, 30, 1,
-            u8::max_value(), 105, 30, 1
+            u8::MAX, 105, 30, 1,
+            u8::MAX, 105, 30, 1,
+            u8::MAX, 105, 30, 1,
+            u8::MAX, 105, 30, 1
         );
         #[rustfmt::skip]
         let r = u8x16::new(
@@ -16780,8 +16226,8 @@ mod tests {
     unsafe fn test_msa_sat_u_h() {
         #[rustfmt::skip]
         let a = u16x8::new(
-            u16::max_value(), 1155, 155, 1,
-            u16::max_value(), 1155, 155, 1
+            u16::MAX, 1155, 155, 1,
+            u16::MAX, 1155, 155, 1
         );
         #[rustfmt::skip]
         let r = u16x8::new(255, 255, 155, 1, 255, 255, 155, 1);
@@ -16792,7 +16238,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_sat_u_w() {
         #[rustfmt::skip]
-        let a = u32x4::new(u32::max_value(), 111111155, u32::max_value(), 1);
+        let a = u32x4::new(u32::MAX, 111111155, u32::MAX, 1);
         #[rustfmt::skip]
         let r = u32x4::new(262143, 262143, 262143, 1);
 
@@ -16802,7 +16248,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_sat_u_d() {
         #[rustfmt::skip]
-        let a = u64x2::new(u64::max_value(), 1);
+        let a = u64x2::new(u64::MAX, 1);
         #[rustfmt::skip]
         let r = u64x2::new(274877906943, 1);
 
@@ -17293,7 +16739,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_sra_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::min_value(), -1073741824, 1, 2);
+        let a = i32x4::new(i32::MIN, -1073741824, 1, 2);
         #[rustfmt::skip]
         let b = i32x4::new(16, 15, 16, 15);
         #[rustfmt::skip]
@@ -17308,7 +16754,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_sra_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::min_value(), i64::max_value());
+        let a = i64x2::new(i64::MIN, i64::MAX);
         #[rustfmt::skip]
         let b = i64x2::new(32, 31);
         #[rustfmt::skip]
@@ -17324,10 +16770,10 @@ mod tests {
     unsafe fn test_msa_srai_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            i8::max_value(), 125, 55, 1,
-            i8::max_value(), 125, 55, 1,
-            i8::max_value(), 125, 55, 1,
-            i8::max_value(), 125, 55, 1
+            i8::MAX, 125, 55, 1,
+            i8::MAX, 125, 55, 1,
+            i8::MAX, 125, 55, 1,
+            i8::MAX, 125, 55, 1
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -17344,8 +16790,8 @@ mod tests {
     unsafe fn test_msa_srai_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 125, 55, 1, 
-            i16::max_value(), 125, 55, 1
+            i16::MAX, 125, 55, 1, 
+            i16::MAX, 125, 55, 1
         );
         #[rustfmt::skip]
         let r = i16x8::new(8191, 31, 13, 0, 8191, 31, 13, 0);
@@ -17356,7 +16802,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srai_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::max_value(), 125, 55, 1);
+        let a = i32x4::new(i32::MAX, 125, 55, 1);
         let r = i32x4::new(536870911, 31, 13, 0);
 
         assert_eq!(r, mem::transmute(__msa_srai_w(mem::transmute(a), 2)));
@@ -17365,7 +16811,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srai_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::max_value(), 55);
+        let a = i64x2::new(i64::MAX, 55);
         #[rustfmt::skip]
         let r = i64x2::new(2305843009213693951, 13);
 
@@ -17406,7 +16852,7 @@ mod tests {
     unsafe fn test_msa_srar_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::min_value(), -16384, -8192, -4096,
+            i16::MIN, -16384, -8192, -4096,
             150, 50, 25, 15
         );
         #[rustfmt::skip]
@@ -17429,7 +16875,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srar_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::min_value(), -1073741824, 100, 50);
+        let a = i32x4::new(i32::MIN, -1073741824, 100, 50);
         #[rustfmt::skip]
         let b = i32x4::new(16, 15, 1, 2);
         #[rustfmt::skip]
@@ -17444,7 +16890,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srar_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::min_value(), i64::max_value());
+        let a = i64x2::new(i64::MIN, i64::MAX);
         #[rustfmt::skip]
         let b = i64x2::new(32, 31);
         #[rustfmt::skip]
@@ -17460,10 +16906,10 @@ mod tests {
     unsafe fn test_msa_srari_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            125, i8::max_value(), 55, 1,
-            125, i8::max_value(), 55, 1,
-            125, i8::max_value(), 55, 1,
-            125, i8::max_value(), 55, 1
+            125, i8::MAX, 55, 1,
+            125, i8::MAX, 55, 1,
+            125, i8::MAX, 55, 1,
+            125, i8::MAX, 55, 1
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -17560,7 +17006,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srl_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::min_value(), -1073741824, 1, 2);
+        let a = i32x4::new(i32::MIN, -1073741824, 1, 2);
         #[rustfmt::skip]
         let b = i32x4::new(16, 15, 16, 15);
         #[rustfmt::skip]
@@ -17575,7 +17021,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srl_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::min_value(), i64::max_value());
+        let a = i64x2::new(i64::MIN, i64::MAX);
         #[rustfmt::skip]
         let b = i64x2::new(32, 31);
         #[rustfmt::skip]
@@ -17611,8 +17057,8 @@ mod tests {
     unsafe fn test_msa_srli_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 3276, 100, 127,
-            i16::max_value(), 3276, 100, 127
+            i16::MAX, 3276, 100, 127,
+            i16::MAX, 3276, 100, 127
         );
         #[rustfmt::skip]
         let r = i16x8::new(
@@ -17626,7 +17072,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srli_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, i32::max_value(), 100, i32::max_value());
+        let a = i32x4::new(100, i32::MAX, 100, i32::MAX);
         #[rustfmt::skip]
         let r = i32x4::new(25, 536870911, 25, 536870911);
 
@@ -17636,7 +17082,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srli_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::max_value());
+        let a = i64x2::new(100, i64::MAX);
         #[rustfmt::skip]
         let r = i64x2::new(50, 4611686018427387903);
 
@@ -17697,7 +17143,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srlr_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::min_value(), -1073741824, 1, 2);
+        let a = i32x4::new(i32::MIN, -1073741824, 1, 2);
         #[rustfmt::skip]
         let b = i32x4::new(16, 15, 16, 15);
         let r = i32x4::new(32768, 98304, 0, 0);
@@ -17711,7 +17157,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srlr_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::min_value(), i64::max_value());
+        let a = i64x2::new(i64::MIN, i64::MAX);
         #[rustfmt::skip]
         let b = i64x2::new(32, 31);
         #[rustfmt::skip]
@@ -17727,10 +17173,10 @@ mod tests {
     unsafe fn test_msa_srlri_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            25, 50, 100, i8::max_value(),
-            25, 50, 100, i8::max_value(),
-            25, 50, 100, i8::max_value(),
-            25, 50, 100, i8::max_value()
+            25, 50, 100, i8::MAX,
+            25, 50, 100, i8::MAX,
+            25, 50, 100, i8::MAX,
+            25, 50, 100, i8::MAX
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -17747,8 +17193,8 @@ mod tests {
     unsafe fn test_msa_srlri_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 3276, 100, 127,
-            i16::max_value(), 3276, 100, 127
+            i16::MAX, 3276, 100, 127,
+            i16::MAX, 3276, 100, 127
         );
         let r = i16x8::new(8192, 819, 25, 32, 8192, 819, 25, 32);
 
@@ -17758,7 +17204,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srlri_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, 150, 200, i32::max_value());
+        let a = i32x4::new(100, 150, 200, i32::MAX);
         #[rustfmt::skip]
         let r = i32x4::new(25, 38, 50, 536870912);
 
@@ -17768,7 +17214,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_srlri_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::max_value());
+        let a = i64x2::new(100, i64::MAX);
         #[rustfmt::skip]
         let r = i64x2::new(50, 4611686018427387904);
 
@@ -17839,10 +17285,10 @@ mod tests {
     unsafe fn test_msa_subs_s_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            i8::min_value(), -2, -3, -4,
-            i8::min_value(), -2, -3, -4,
-            i8::min_value(), -2, -3, -4,
-            i8::min_value(), -2, -3, -4
+            i8::MIN, -2, -3, -4,
+            i8::MIN, -2, -3, -4,
+            i8::MIN, -2, -3, -4,
+            i8::MIN, -2, -3, -4
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -17853,10 +17299,10 @@ mod tests {
         );
         #[rustfmt::skip]
         let r = i8x16::new(
-            i8::min_value(), 5, -11, 5,
-            i8::min_value(), 5, -11, 5,
-            i8::min_value(), 5, -11, 5,
-            i8::min_value(), 5, -11, 5
+            i8::MIN, 5, -11, 5,
+            i8::MIN, 5, -11, 5,
+            i8::MIN, 5, -11, 5,
+            i8::MIN, 5, -11, 5
         );
 
         assert_eq!(
@@ -17869,15 +17315,15 @@ mod tests {
     unsafe fn test_msa_subs_s_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::min_value(), -2, -3, -4,
-            i16::min_value(), -2, -3, -4
+            i16::MIN, -2, -3, -4,
+            i16::MIN, -2, -3, -4
         );
         #[rustfmt::skip]
         let b = i16x8::new(6, -7, 8, -9, 6, -7, 8, -9);
         #[rustfmt::skip]
         let r = i16x8::new(
-            i16::min_value(), 5, -11, 5,
-            i16::min_value(), 5, -11, 5
+            i16::MIN, 5, -11, 5,
+            i16::MIN, 5, -11, 5
         );
 
         assert_eq!(
@@ -17889,11 +17335,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subs_s_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::min_value(), -2, -3, -4);
+        let a = i32x4::new(i32::MIN, -2, -3, -4);
         #[rustfmt::skip]
         let b = i32x4::new(6, -7, 8, -9);
         #[rustfmt::skip]
-        let r = i32x4::new(i32::min_value(), 5, -11, 5);
+        let r = i32x4::new(i32::MIN, 5, -11, 5);
 
         assert_eq!(
             r,
@@ -17904,11 +17350,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subs_s_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::min_value(), -2);
+        let a = i64x2::new(i64::MIN, -2);
         #[rustfmt::skip]
         let b = i64x2::new(6, -7);
         #[rustfmt::skip]
-        let r = i64x2::new(i64::min_value(), 5);
+        let r = i64x2::new(i64::MIN, 5);
 
         assert_eq!(
             r,
@@ -17920,10 +17366,10 @@ mod tests {
     unsafe fn test_msa_subs_u_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4
         );
         #[rustfmt::skip]
         let b = u8x16::new(
@@ -17950,8 +17396,8 @@ mod tests {
     unsafe fn test_msa_subs_u_h() {
         #[rustfmt::skip]
         let a = u16x8::new(
-            u16::max_value(), 2, 3, 4, 
-            u16::max_value(), 2, 3, 4
+            u16::MAX, 2, 3, 4, 
+            u16::MAX, 2, 3, 4
         );
         #[rustfmt::skip]
         let b = u16x8::new(6, 7, 8, 9, 6, 7, 8, 9);
@@ -17967,7 +17413,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subs_u_w() {
         #[rustfmt::skip]
-        let a = u32x4::new(u32::max_value(), 2, 3, 4);
+        let a = u32x4::new(u32::MAX, 2, 3, 4);
         #[rustfmt::skip]
         let b = u32x4::new(6, 7, 8, 9);
         #[rustfmt::skip]
@@ -17982,7 +17428,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subs_u_d() {
         #[rustfmt::skip]
-        let a = u64x2::new(u64::max_value(), 2);
+        let a = u64x2::new(u64::MAX, 2);
         #[rustfmt::skip]
         let b = u64x2::new(6, 7);
         #[rustfmt::skip]
@@ -17998,10 +17444,10 @@ mod tests {
     unsafe fn test_msa_subsus_u_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -18028,8 +17474,8 @@ mod tests {
     unsafe fn test_msa_subsus_u_h() {
         #[rustfmt::skip]
         let a = u16x8::new(
-            u16::max_value(), 2, 3, 4,
-            u16::max_value(), 2, 3, 4
+            u16::MAX, 2, 3, 4,
+            u16::MAX, 2, 3, 4
         );
         #[rustfmt::skip]
         let b = i16x8::new(-6, -7, -8, -9, -6, -7, -8, -9);
@@ -18045,7 +17491,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subsus_u_w() {
         #[rustfmt::skip]
-        let a = u32x4::new(u32::max_value(), 2, 3, 4);
+        let a = u32x4::new(u32::MAX, 2, 3, 4);
         #[rustfmt::skip]
         let b = i32x4::new(-6, -7, -8, -9);
         #[rustfmt::skip]
@@ -18060,7 +17506,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subsus_u_d() {
         #[rustfmt::skip]
-        let a = u64x2::new(u64::max_value(), 2);
+        let a = u64x2::new(u64::MAX, 2);
         #[rustfmt::skip]
         let b = i64x2::new(-6, -7);
         #[rustfmt::skip]
@@ -18076,17 +17522,17 @@ mod tests {
     unsafe fn test_msa_subsuu_s_b() {
         #[rustfmt::skip]
         let a = u8x16::new(
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4,
-            u8::max_value(), 2, 3, 4
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4,
+            u8::MAX, 2, 3, 4
         );
         #[rustfmt::skip]
         let b = u8x16::new(
-            6, 7, 8, u8::max_value(),
-            6, 7, 8, u8::max_value(),
-            6, 7, 8, u8::max_value(),
-            6, 7, 8, u8::max_value()
+            6, 7, 8, u8::MAX,
+            6, 7, 8, u8::MAX,
+            6, 7, 8, u8::MAX,
+            6, 7, 8, u8::MAX
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -18106,8 +17552,8 @@ mod tests {
     unsafe fn test_msa_subsuu_s_h() {
         #[rustfmt::skip]
         let a = u16x8::new(
-            u16::max_value(), 2, 3, 
-            4, u16::max_value(), 2, 3, 4
+            u16::MAX, 2, 3, 
+            4, u16::MAX, 2, 3, 4
         );
         #[rustfmt::skip]
         let b = u16x8::new(6, 7, 8, 65535, 6, 7, 8, 65535);
@@ -18123,7 +17569,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subsuu_s_w() {
         #[rustfmt::skip]
-        let a = u32x4::new(u32::max_value(), 2, 3, 4);
+        let a = u32x4::new(u32::MAX, 2, 3, 4);
         #[rustfmt::skip]
         let b = u32x4::new(6, 7, 8, 4294967295);
         #[rustfmt::skip]
@@ -18138,11 +17584,11 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subsuu_s_d() {
         #[rustfmt::skip]
-        let a = u64x2::new(u64::max_value(), 2);
+        let a = u64x2::new(u64::MAX, 2);
         #[rustfmt::skip]
         let b = u64x2::new(6, 7);
         #[rustfmt::skip]
-        let r = i64x2::new(i64::max_value(), -5);
+        let r = i64x2::new(i64::MAX, -5);
 
         assert_eq!(
             r,
@@ -18154,10 +17600,10 @@ mod tests {
     unsafe fn test_msa_subv_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            i8::min_value(), -2, -3, -4,
-            i8::min_value(), -2, -3, -4,
-            i8::min_value(), -2, -3, -4,
-            i8::min_value(), -2, -3, -4
+            i8::MIN, -2, -3, -4,
+            i8::MIN, -2, -3, -4,
+            i8::MIN, -2, -3, -4,
+            i8::MIN, -2, -3, -4
         );
         #[rustfmt::skip]
         let b = i8x16::new(
@@ -18184,8 +17630,8 @@ mod tests {
     unsafe fn test_msa_subv_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::min_value(), -2, -3, -4,
-            i16::min_value(), -2, -3, -4
+            i16::MIN, -2, -3, -4,
+            i16::MIN, -2, -3, -4
         );
         #[rustfmt::skip]
         let b = i16x8::new(6, -7, 8, -9, 6, -7, 8, -9);
@@ -18201,7 +17647,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subv_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(i32::min_value(), -2, -3, -4);
+        let a = i32x4::new(i32::MIN, -2, -3, -4);
         #[rustfmt::skip]
         let b = i32x4::new(6, -7, 8, -9);
         #[rustfmt::skip]
@@ -18216,7 +17662,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subv_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(i64::max_value(), -2);
+        let a = i64x2::new(i64::MAX, -2);
         #[rustfmt::skip]
         let b = i64x2::new(6, -7);
         #[rustfmt::skip]
@@ -18232,10 +17678,10 @@ mod tests {
     unsafe fn test_msa_subvi_b() {
         #[rustfmt::skip]
         let a = i8x16::new(
-            100, i8::max_value(), 50, i8::min_value(),
-            100, i8::max_value(), 50, i8::min_value(),
-            100, i8::max_value(), 50, i8::min_value(),
-            100, i8::max_value(), 50, i8::min_value()
+            100, i8::MAX, 50, i8::MIN,
+            100, i8::MAX, 50, i8::MIN,
+            100, i8::MAX, 50, i8::MIN,
+            100, i8::MAX, 50, i8::MIN
         );
         #[rustfmt::skip]
         let r = i8x16::new(
@@ -18252,8 +17698,8 @@ mod tests {
     unsafe fn test_msa_subvi_h() {
         #[rustfmt::skip]
         let a = i16x8::new(
-            i16::max_value(), 3276, -100, i16::min_value(),
-            i16::max_value(), 3276, -100, i16::min_value()
+            i16::MAX, 3276, -100, i16::MIN,
+            i16::MAX, 3276, -100, i16::MIN
         );
         #[rustfmt::skip]
         let r = i16x8::new(
@@ -18267,7 +17713,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subvi_w() {
         #[rustfmt::skip]
-        let a = i32x4::new(100, 150, 200, i32::max_value());
+        let a = i32x4::new(100, 150, 200, i32::MAX);
         #[rustfmt::skip]
         let r = i32x4::new(95, 145, 195, 2147483642);
 
@@ -18277,7 +17723,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_subvi_d() {
         #[rustfmt::skip]
-        let a = i64x2::new(100, i64::max_value());
+        let a = i64x2::new(100, i64::MAX);
         #[rustfmt::skip]
         let r = i64x2::new(95, 9223372036854775802);
 

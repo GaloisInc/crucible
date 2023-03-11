@@ -55,7 +55,7 @@ pub fn trace<F: FnMut(&Frame) -> bool>(cb: F) {
 
 /// Same as `trace`, only unsafe as it's unsynchronized.
 ///
-/// This function does not have synchronization guarentees but is available
+/// This function does not have synchronization guarantees but is available
 /// when the `std` feature of this crate isn't compiled in. See the `trace`
 /// function for more documentation and examples.
 ///
@@ -90,6 +90,14 @@ impl Frame {
         self.inner.ip()
     }
 
+    /// Returns the current stack pointer of this frame.
+    ///
+    /// In the case that a backend cannot recover the stack pointer for this
+    /// frame, a null pointer is returned.
+    pub fn sp(&self) -> *mut c_void {
+        self.inner.sp()
+    }
+
     /// Returns the starting symbol address of the frame of this function.
     ///
     /// This will attempt to rewind the instruction pointer returned by `ip` to
@@ -101,10 +109,15 @@ impl Frame {
     pub fn symbol_address(&self) -> *mut c_void {
         self.inner.symbol_address()
     }
+
+    /// Returns the base address of the module to which the frame belongs.
+    pub fn module_base_address(&self) -> Option<*mut c_void> {
+        self.inner.module_base_address()
+    }
 }
 
 impl fmt::Debug for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Frame")
             .field("ip", &self.ip())
             .field("symbol_address", &self.symbol_address())
@@ -113,13 +126,18 @@ impl fmt::Debug for Frame {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(
+    // This needs to come first, to ensure that
+    // Miri takes priority over the host platform
+    if #[cfg(miri)] {
+        pub(crate) mod miri;
+        use self::miri::trace as trace_imp;
+        pub(crate) use self::miri::Frame as FrameImp;
+    } else if #[cfg(
         any(
             all(
                 unix,
                 not(target_os = "emscripten"),
                 not(all(target_os = "ios", target_arch = "arm")),
-                feature = "libunwind",
             ),
             all(
                 target_env = "sgx",
@@ -130,20 +148,12 @@ cfg_if::cfg_if! {
         mod libunwind;
         use self::libunwind::trace as trace_imp;
         pub(crate) use self::libunwind::Frame as FrameImp;
-    } else if #[cfg(
-        all(
-            unix,
-            not(target_os = "emscripten"),
-            feature = "unix-backtrace",
-        )
-    )] {
-        mod unix_backtrace;
-        use self::unix_backtrace::trace as trace_imp;
-        pub(crate) use self::unix_backtrace::Frame as FrameImp;
-    } else if #[cfg(all(windows, feature = "dbghelp", not(target_vendor = "uwp")))] {
+    } else if #[cfg(all(windows, not(target_vendor = "uwp")))] {
         mod dbghelp;
         use self::dbghelp::trace as trace_imp;
         pub(crate) use self::dbghelp::Frame as FrameImp;
+        #[cfg(target_env = "msvc")] // only used in dbghelp symbolize
+        pub(crate) use self::dbghelp::StackFrame;
     } else {
         mod noop;
         use self::noop::trace as trace_imp;

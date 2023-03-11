@@ -1,6 +1,6 @@
 use std::char;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> char {
     unsafe { char::from_u32_unchecked(0x41) }
 }

@@ -5,7 +5,7 @@ pub struct S {
     y: u16,
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() {
     // If the field ordering used in `buildStruct` is wrong, then this will fail due to type
     // mismatches between BVRepr 8 and BVRepr 16.

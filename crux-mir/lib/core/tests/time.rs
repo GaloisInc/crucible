@@ -14,7 +14,7 @@ fn creation() {
 #[test]
 #[should_panic]
 fn new_overflow() {
-    let _ = Duration::new(::core::u64::MAX, 1_000_000_000);
+    let _ = Duration::new(u64::MAX, 1_000_000_000);
 }
 
 #[test]
@@ -86,7 +86,17 @@ fn checked_add() {
         Duration::new(0, 500_000_000).checked_add(Duration::new(0, 500_000_001)),
         Some(Duration::new(1, 1))
     );
-    assert_eq!(Duration::new(1, 0).checked_add(Duration::new(::core::u64::MAX, 0)), None);
+    assert_eq!(Duration::new(1, 0).checked_add(Duration::new(u64::MAX, 0)), None);
+}
+
+#[test]
+fn saturating_add() {
+    assert_eq!(Duration::new(0, 0).saturating_add(Duration::new(0, 1)), Duration::new(0, 1));
+    assert_eq!(
+        Duration::new(0, 500_000_000).saturating_add(Duration::new(0, 500_000_001)),
+        Duration::new(1, 1)
+    );
+    assert_eq!(Duration::new(1, 0).saturating_add(Duration::new(u64::MAX, 0)), Duration::MAX);
 }
 
 #[test]
@@ -98,13 +108,24 @@ fn sub() {
 
 #[test]
 fn checked_sub() {
-    let zero = Duration::new(0, 0);
-    let one_nano = Duration::new(0, 1);
-    let one_sec = Duration::new(1, 0);
-    assert_eq!(one_nano.checked_sub(zero), Some(Duration::new(0, 1)));
-    assert_eq!(one_sec.checked_sub(one_nano), Some(Duration::new(0, 999_999_999)));
-    assert_eq!(zero.checked_sub(one_nano), None);
-    assert_eq!(zero.checked_sub(one_sec), None);
+    assert_eq!(Duration::NANOSECOND.checked_sub(Duration::ZERO), Some(Duration::NANOSECOND));
+    assert_eq!(
+        Duration::SECOND.checked_sub(Duration::NANOSECOND),
+        Some(Duration::new(0, 999_999_999))
+    );
+    assert_eq!(Duration::ZERO.checked_sub(Duration::NANOSECOND), None);
+    assert_eq!(Duration::ZERO.checked_sub(Duration::SECOND), None);
+}
+
+#[test]
+fn saturating_sub() {
+    assert_eq!(Duration::NANOSECOND.saturating_sub(Duration::ZERO), Duration::NANOSECOND);
+    assert_eq!(
+        Duration::SECOND.saturating_sub(Duration::NANOSECOND),
+        Duration::new(0, 999_999_999)
+    );
+    assert_eq!(Duration::ZERO.saturating_sub(Duration::NANOSECOND), Duration::ZERO);
+    assert_eq!(Duration::ZERO.saturating_sub(Duration::SECOND), Duration::ZERO);
 }
 
 #[test]
@@ -133,7 +154,16 @@ fn checked_mul() {
     assert_eq!(Duration::new(1, 1).checked_mul(3), Some(Duration::new(3, 3)));
     assert_eq!(Duration::new(0, 500_000_001).checked_mul(4), Some(Duration::new(2, 4)));
     assert_eq!(Duration::new(0, 500_000_001).checked_mul(4000), Some(Duration::new(2000, 4000)));
-    assert_eq!(Duration::new(::core::u64::MAX - 1, 0).checked_mul(2), None);
+    assert_eq!(Duration::new(u64::MAX - 1, 0).checked_mul(2), None);
+}
+
+#[test]
+fn saturating_mul() {
+    assert_eq!(Duration::new(0, 1).saturating_mul(2), Duration::new(0, 2));
+    assert_eq!(Duration::new(1, 1).saturating_mul(3), Duration::new(3, 3));
+    assert_eq!(Duration::new(0, 500_000_001).saturating_mul(4), Duration::new(2, 4));
+    assert_eq!(Duration::new(0, 500_000_001).saturating_mul(4000), Duration::new(2000, 4000));
+    assert_eq!(Duration::new(u64::MAX - 1, 0).saturating_mul(2), Duration::MAX);
 }
 
 #[test]
@@ -141,6 +171,32 @@ fn div() {
     assert_eq!(Duration::new(0, 1) / 2, Duration::new(0, 0));
     assert_eq!(Duration::new(1, 1) / 3, Duration::new(0, 333_333_333));
     assert_eq!(Duration::new(99, 999_999_000) / 100, Duration::new(0, 999_999_990));
+}
+
+#[test]
+fn div_duration_f32() {
+    assert_eq!(Duration::ZERO.div_duration_f32(Duration::MAX), 0.0);
+    assert_eq!(Duration::MAX.div_duration_f32(Duration::ZERO), f32::INFINITY);
+    assert_eq!((Duration::SECOND * 2).div_duration_f32(Duration::SECOND), 2.0);
+    assert!(Duration::ZERO.div_duration_f32(Duration::ZERO).is_nan());
+    // These tests demonstrate it doesn't panic with extreme values.
+    // Accuracy of the computed value is not a huge concern, we know floats don't work well
+    // at these extremes.
+    assert!((Duration::MAX).div_duration_f32(Duration::NANOSECOND) > 10.0f32.powf(28.0));
+    assert!((Duration::NANOSECOND).div_duration_f32(Duration::MAX) < 0.1);
+}
+
+#[test]
+fn div_duration_f64() {
+    assert_eq!(Duration::ZERO.div_duration_f64(Duration::MAX), 0.0);
+    assert_eq!(Duration::MAX.div_duration_f64(Duration::ZERO), f64::INFINITY);
+    assert_eq!((Duration::SECOND * 2).div_duration_f64(Duration::SECOND), 2.0);
+    assert!(Duration::ZERO.div_duration_f64(Duration::ZERO).is_nan());
+    // These tests demonstrate it doesn't panic with extreme values.
+    // Accuracy of the computed value is not a huge concern, we know floats don't work well
+    // at these extremes.
+    assert!((Duration::MAX).div_duration_f64(Duration::NANOSECOND) > 10.0f64.powf(28.0));
+    assert!((Duration::NANOSECOND).div_duration_f64(Duration::MAX) < 0.1);
 }
 
 #[test]
@@ -167,9 +223,31 @@ fn correct_sum() {
 #[test]
 fn debug_formatting_extreme_values() {
     assert_eq!(
-        format!("{:?}", Duration::new(18_446_744_073_709_551_615, 123_456_789)),
+        format!("{:?}", Duration::new(u64::MAX, 123_456_789)),
         "18446744073709551615.123456789s"
     );
+    assert_eq!(format!("{:.0?}", Duration::MAX), "18446744073709551616s");
+    assert_eq!(format!("{:.0?}", Duration::new(u64::MAX, 500_000_000)), "18446744073709551616s");
+    assert_eq!(format!("{:.0?}", Duration::new(u64::MAX, 499_999_999)), "18446744073709551615s");
+    assert_eq!(
+        format!("{:.3?}", Duration::new(u64::MAX, 999_500_000)),
+        "18446744073709551616.000s"
+    );
+    assert_eq!(
+        format!("{:.3?}", Duration::new(u64::MAX, 999_499_999)),
+        "18446744073709551615.999s"
+    );
+    assert_eq!(
+        format!("{:.8?}", Duration::new(u64::MAX, 999_999_995)),
+        "18446744073709551616.00000000s"
+    );
+    assert_eq!(
+        format!("{:.8?}", Duration::new(u64::MAX, 999_999_994)),
+        "18446744073709551615.99999999s"
+    );
+    assert_eq!(format!("{:21.0?}", Duration::MAX), "18446744073709551616s");
+    assert_eq!(format!("{:22.0?}", Duration::MAX), "18446744073709551616s ");
+    assert_eq!(format!("{:24.0?}", Duration::MAX), "18446744073709551616s   ");
 }
 
 #[test]
@@ -284,10 +362,142 @@ fn debug_formatting_precision_two() {
 }
 
 #[test]
+fn debug_formatting_padding() {
+    assert_eq!("0ns      ", format!("{:<9?}", Duration::new(0, 0)));
+    assert_eq!("      0ns", format!("{:>9?}", Duration::new(0, 0)));
+    assert_eq!("   0ns   ", format!("{:^9?}", Duration::new(0, 0)));
+    assert_eq!("123ns    ", format!("{:<9.0?}", Duration::new(0, 123)));
+    assert_eq!("    123ns", format!("{:>9.0?}", Duration::new(0, 123)));
+    assert_eq!("  123ns  ", format!("{:^9.0?}", Duration::new(0, 123)));
+    assert_eq!("123.0ns  ", format!("{:<9.1?}", Duration::new(0, 123)));
+    assert_eq!("  123.0ns", format!("{:>9.1?}", Duration::new(0, 123)));
+    assert_eq!(" 123.0ns ", format!("{:^9.1?}", Duration::new(0, 123)));
+    assert_eq!("7.1µs    ", format!("{:<9?}", Duration::new(0, 7_100)));
+    assert_eq!("    7.1µs", format!("{:>9?}", Duration::new(0, 7_100)));
+    assert_eq!("  7.1µs  ", format!("{:^9?}", Duration::new(0, 7_100)));
+    assert_eq!("999.123456ms", format!("{:<9?}", Duration::new(0, 999_123_456)));
+    assert_eq!("999.123456ms", format!("{:>9?}", Duration::new(0, 999_123_456)));
+    assert_eq!("999.123456ms", format!("{:^9?}", Duration::new(0, 999_123_456)));
+    assert_eq!("5s       ", format!("{:<9?}", Duration::new(5, 0)));
+    assert_eq!("       5s", format!("{:>9?}", Duration::new(5, 0)));
+    assert_eq!("   5s    ", format!("{:^9?}", Duration::new(5, 0)));
+    assert_eq!("5.000000000000s", format!("{:<9.12?}", Duration::new(5, 0)));
+    assert_eq!("5.000000000000s", format!("{:>9.12?}", Duration::new(5, 0)));
+    assert_eq!("5.000000000000s", format!("{:^9.12?}", Duration::new(5, 0)));
+
+    // default alignment is left:
+    assert_eq!("5s       ", format!("{:9?}", Duration::new(5, 0)));
+}
+
+#[test]
 fn debug_formatting_precision_high() {
     assert_eq!(format!("{:.5?}", Duration::new(0, 23_678)), "23.67800µs");
 
     assert_eq!(format!("{:.9?}", Duration::new(1, 000_000_000)), "1.000000000s");
     assert_eq!(format!("{:.10?}", Duration::new(4, 001_000_000)), "4.0010000000s");
     assert_eq!(format!("{:.20?}", Duration::new(4, 001_000_000)), "4.00100000000000000000s");
+}
+
+#[test]
+fn duration_const() {
+    // test that the methods of `Duration` are usable in a const context
+
+    const DURATION: Duration = Duration::new(0, 123_456_789);
+
+    const SUB_SEC_MILLIS: u32 = DURATION.subsec_millis();
+    assert_eq!(SUB_SEC_MILLIS, 123);
+
+    const SUB_SEC_MICROS: u32 = DURATION.subsec_micros();
+    assert_eq!(SUB_SEC_MICROS, 123_456);
+
+    const SUB_SEC_NANOS: u32 = DURATION.subsec_nanos();
+    assert_eq!(SUB_SEC_NANOS, 123_456_789);
+
+    const IS_ZERO: bool = Duration::ZERO.is_zero();
+    assert!(IS_ZERO);
+
+    const SECONDS: u64 = Duration::SECOND.as_secs();
+    assert_eq!(SECONDS, 1);
+
+    const FROM_SECONDS: Duration = Duration::from_secs(1);
+    assert_eq!(FROM_SECONDS, Duration::SECOND);
+
+    const SECONDS_F32: f32 = Duration::SECOND.as_secs_f32();
+    assert_eq!(SECONDS_F32, 1.0);
+
+    const FROM_SECONDS_F32: Duration = Duration::from_secs_f32(1.0);
+    assert_eq!(FROM_SECONDS_F32, Duration::SECOND);
+
+    const SECONDS_F64: f64 = Duration::SECOND.as_secs_f64();
+    assert_eq!(SECONDS_F64, 1.0);
+
+    const FROM_SECONDS_F64: Duration = Duration::from_secs_f64(1.0);
+    assert_eq!(FROM_SECONDS_F64, Duration::SECOND);
+
+    const MILLIS: u128 = Duration::SECOND.as_millis();
+    assert_eq!(MILLIS, 1_000);
+
+    const FROM_MILLIS: Duration = Duration::from_millis(1_000);
+    assert_eq!(FROM_MILLIS, Duration::SECOND);
+
+    const MICROS: u128 = Duration::SECOND.as_micros();
+    assert_eq!(MICROS, 1_000_000);
+
+    const FROM_MICROS: Duration = Duration::from_micros(1_000_000);
+    assert_eq!(FROM_MICROS, Duration::SECOND);
+
+    const NANOS: u128 = Duration::SECOND.as_nanos();
+    assert_eq!(NANOS, 1_000_000_000);
+
+    const FROM_NANOS: Duration = Duration::from_nanos(1_000_000_000);
+    assert_eq!(FROM_NANOS, Duration::SECOND);
+
+    const MAX: Duration = Duration::new(u64::MAX, 999_999_999);
+
+    const CHECKED_ADD: Option<Duration> = MAX.checked_add(Duration::SECOND);
+    assert_eq!(CHECKED_ADD, None);
+
+    const CHECKED_SUB: Option<Duration> = Duration::ZERO.checked_sub(Duration::SECOND);
+    assert_eq!(CHECKED_SUB, None);
+
+    const CHECKED_MUL: Option<Duration> = Duration::SECOND.checked_mul(1);
+    assert_eq!(CHECKED_MUL, Some(Duration::SECOND));
+
+    const MUL_F32: Duration = Duration::SECOND.mul_f32(1.0);
+    assert_eq!(MUL_F32, Duration::SECOND);
+
+    const MUL_F64: Duration = Duration::SECOND.mul_f64(1.0);
+    assert_eq!(MUL_F64, Duration::SECOND);
+
+    const CHECKED_DIV: Option<Duration> = Duration::SECOND.checked_div(1);
+    assert_eq!(CHECKED_DIV, Some(Duration::SECOND));
+
+    const DIV_F32: Duration = Duration::SECOND.div_f32(1.0);
+    assert_eq!(DIV_F32, Duration::SECOND);
+
+    const DIV_F64: Duration = Duration::SECOND.div_f64(1.0);
+    assert_eq!(DIV_F64, Duration::SECOND);
+
+    const DIV_DURATION_F32: f32 = Duration::SECOND.div_duration_f32(Duration::SECOND);
+    assert_eq!(DIV_DURATION_F32, 1.0);
+
+    const DIV_DURATION_F64: f64 = Duration::SECOND.div_duration_f64(Duration::SECOND);
+    assert_eq!(DIV_DURATION_F64, 1.0);
+
+    const SATURATING_ADD: Duration = MAX.saturating_add(Duration::SECOND);
+    assert_eq!(SATURATING_ADD, MAX);
+
+    const SATURATING_SUB: Duration = Duration::ZERO.saturating_sub(Duration::SECOND);
+    assert_eq!(SATURATING_SUB, Duration::ZERO);
+
+    const SATURATING_MUL: Duration = MAX.saturating_mul(2);
+    assert_eq!(SATURATING_MUL, MAX);
+}
+
+#[test]
+fn from_neg_zero() {
+    assert_eq!(Duration::try_from_secs_f32(-0.0), Ok(Duration::ZERO));
+    assert_eq!(Duration::try_from_secs_f64(-0.0), Ok(Duration::ZERO));
+    assert_eq!(Duration::from_secs_f32(-0.0), Duration::ZERO);
+    assert_eq!(Duration::from_secs_f64(-0.0), Duration::ZERO);
 }

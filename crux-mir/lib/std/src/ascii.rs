@@ -10,9 +10,6 @@
 //!
 //! The [`escape_default`] function provides an iterator over the bytes of an
 //! escaped version of the character given.
-//!
-//! [`AsciiExt`]: trait.AsciiExt.html
-//! [`escape_default`]: fn.escape_default.html
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -42,7 +39,7 @@ pub use core::ascii::{escape_default, EscapeDefault};
 ///
 /// [combining character]: https://en.wikipedia.org/wiki/Combining_character
 #[stable(feature = "rust1", since = "1.0.0")]
-#[rustc_deprecated(since = "1.26.0", reason = "use inherent methods instead")]
+#[deprecated(since = "1.26.0", note = "use inherent methods instead")]
 pub trait AsciiExt {
     /// Container type for copied ASCII characters.
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -52,7 +49,7 @@ pub trait AsciiExt {
     ///
     /// # Note
     ///
-    /// This method will be deprecated in favor of the identically-named
+    /// This method is deprecated in favor of the identically-named
     /// inherent methods on `u8`, `char`, `[u8]` and `str`.
     #[stable(feature = "rust1", since = "1.0.0")]
     fn is_ascii(&self) -> bool;
@@ -69,11 +66,10 @@ pub trait AsciiExt {
     ///
     /// # Note
     ///
-    /// This method will be deprecated in favor of the identically-named
+    /// This method is deprecated in favor of the identically-named
     /// inherent methods on `u8`, `char`, `[u8]` and `str`.
     ///
-    /// [`make_ascii_uppercase`]: #tymethod.make_ascii_uppercase
-    /// [`str::to_uppercase`]: ../primitive.str.html#method.to_uppercase
+    /// [`make_ascii_uppercase`]: AsciiExt::make_ascii_uppercase
     #[stable(feature = "rust1", since = "1.0.0")]
     #[allow(deprecated)]
     fn to_ascii_uppercase(&self) -> Self::Owned;
@@ -90,11 +86,10 @@ pub trait AsciiExt {
     ///
     /// # Note
     ///
-    /// This method will be deprecated in favor of the identically-named
+    /// This method is deprecated in favor of the identically-named
     /// inherent methods on `u8`, `char`, `[u8]` and `str`.
     ///
-    /// [`make_ascii_lowercase`]: #tymethod.make_ascii_lowercase
-    /// [`str::to_lowercase`]: ../primitive.str.html#method.to_lowercase
+    /// [`make_ascii_lowercase`]: AsciiExt::make_ascii_lowercase
     #[stable(feature = "rust1", since = "1.0.0")]
     #[allow(deprecated)]
     fn to_ascii_lowercase(&self) -> Self::Owned;
@@ -106,7 +101,7 @@ pub trait AsciiExt {
     ///
     /// # Note
     ///
-    /// This method will be deprecated in favor of the identically-named
+    /// This method is deprecated in favor of the identically-named
     /// inherent methods on `u8`, `char`, `[u8]` and `str`.
     #[stable(feature = "rust1", since = "1.0.0")]
     fn eq_ignore_ascii_case(&self, other: &Self) -> bool;
@@ -121,10 +116,10 @@ pub trait AsciiExt {
     ///
     /// # Note
     ///
-    /// This method will be deprecated in favor of the identically-named
+    /// This method is deprecated in favor of the identically-named
     /// inherent methods on `u8`, `char`, `[u8]` and `str`.
     ///
-    /// [`to_ascii_uppercase`]: #tymethod.to_ascii_uppercase
+    /// [`to_ascii_uppercase`]: AsciiExt::to_ascii_uppercase
     #[stable(feature = "ascii", since = "1.9.0")]
     fn make_ascii_uppercase(&mut self);
 
@@ -138,10 +133,10 @@ pub trait AsciiExt {
     ///
     /// # Note
     ///
-    /// This method will be deprecated in favor of the identically-named
+    /// This method is deprecated in favor of the identically-named
     /// inherent methods on `u8`, `char`, `[u8]` and `str`.
     ///
-    /// [`to_ascii_lowercase`]: #tymethod.to_ascii_lowercase
+    /// [`to_ascii_lowercase`]: AsciiExt::to_ascii_lowercase
     #[stable(feature = "ascii", since = "1.9.0")]
     fn make_ascii_lowercase(&mut self);
 }
@@ -149,23 +144,35 @@ pub trait AsciiExt {
 macro_rules! delegating_ascii_methods {
     () => {
         #[inline]
-        fn is_ascii(&self) -> bool { self.is_ascii() }
+        fn is_ascii(&self) -> bool {
+            self.is_ascii()
+        }
 
         #[inline]
-        fn to_ascii_uppercase(&self) -> Self::Owned { self.to_ascii_uppercase() }
+        fn to_ascii_uppercase(&self) -> Self::Owned {
+            self.to_ascii_uppercase()
+        }
 
         #[inline]
-        fn to_ascii_lowercase(&self) -> Self::Owned { self.to_ascii_lowercase() }
+        fn to_ascii_lowercase(&self) -> Self::Owned {
+            self.to_ascii_lowercase()
+        }
 
         #[inline]
-        fn eq_ignore_ascii_case(&self, o: &Self) -> bool { self.eq_ignore_ascii_case(o) }
+        fn eq_ignore_ascii_case(&self, o: &Self) -> bool {
+            self.eq_ignore_ascii_case(o)
+        }
 
         #[inline]
-        fn make_ascii_uppercase(&mut self) { self.make_ascii_uppercase(); }
+        fn make_ascii_uppercase(&mut self) {
+            self.make_ascii_uppercase();
+        }
 
         #[inline]
-        fn make_ascii_lowercase(&mut self) { self.make_ascii_lowercase(); }
-    }
+        fn make_ascii_lowercase(&mut self) {
+            self.make_ascii_lowercase();
+        }
+    };
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]

@@ -14,82 +14,66 @@
 //! compiling for wasm. That way it's a compile time error for something that's
 //! guaranteed to be a runtime error!
 
-use crate::os::raw::c_char;
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod alloc;
+#[path = "../unsupported/args.rs"]
 pub mod args;
+#[path = "../unix/cmath.rs"]
 pub mod cmath;
 pub mod env;
-pub mod fast_thread_local;
+#[path = "../unsupported/fs.rs"]
 pub mod fs;
+#[path = "../unsupported/io.rs"]
 pub mod io;
-pub mod memchr;
+#[path = "../unsupported/net.rs"]
 pub mod net;
+#[path = "../unsupported/os.rs"]
 pub mod os;
+#[path = "../unix/os_str.rs"]
+pub mod os_str;
+#[path = "../unix/path.rs"]
 pub mod path;
+#[path = "../unsupported/pipe.rs"]
 pub mod pipe;
+#[path = "../unsupported/process.rs"]
 pub mod process;
-pub mod stack_overflow;
+#[path = "../unsupported/stdio.rs"]
 pub mod stdio;
-pub mod thread;
-pub mod thread_local;
+#[path = "../unsupported/thread_local_dtor.rs"]
+pub mod thread_local_dtor;
+#[path = "../unsupported/thread_local_key.rs"]
+pub mod thread_local_key;
+#[path = "../unsupported/time.rs"]
 pub mod time;
-
-pub use crate::sys_common::os_str_bytes as os_str;
 
 cfg_if::cfg_if! {
     if #[cfg(target_feature = "atomics")] {
-        #[path = "condvar_atomics.rs"]
-        pub mod condvar;
-        #[path = "mutex_atomics.rs"]
-        pub mod mutex;
-        #[path = "rwlock_atomics.rs"]
-        pub mod rwlock;
+        #[path = "../unix/locks"]
+        pub mod locks {
+            #![allow(unsafe_op_in_unsafe_fn)]
+            mod futex_condvar;
+            mod futex_mutex;
+            mod futex_rwlock;
+            pub(crate) use futex_condvar::Condvar;
+            pub(crate) use futex_mutex::Mutex;
+            pub(crate) use futex_rwlock::RwLock;
+        }
+        #[path = "atomics/futex.rs"]
+        pub mod futex;
+        #[path = "atomics/thread.rs"]
+        pub mod thread;
     } else {
-        pub mod condvar;
-        pub mod mutex;
-        pub mod rwlock;
+        #[path = "../unsupported/locks/mod.rs"]
+        pub mod locks;
+        #[path = "../unsupported/once.rs"]
+        pub mod once;
+        #[path = "../unsupported/thread.rs"]
+        pub mod thread;
     }
 }
 
-#[cfg(not(test))]
-pub fn init() {}
-
-pub fn unsupported<T>() -> crate::io::Result<T> {
-    Err(unsupported_err())
-}
-
-pub fn unsupported_err() -> crate::io::Error {
-    crate::io::Error::new(crate::io::ErrorKind::Other, "operation not supported on wasm yet")
-}
-
-pub fn decode_error_kind(_code: i32) -> crate::io::ErrorKind {
-    crate::io::ErrorKind::Other
-}
-
-// This enum is used as the storage for a bunch of types which can't actually
-// exist.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub enum Void {}
-
-pub unsafe fn strlen(mut s: *const c_char) -> usize {
-    let mut n = 0;
-    while *s != 0 {
-        n += 1;
-        s = s.offset(1);
-    }
-    return n;
-}
-
-pub unsafe fn abort_internal() -> ! {
-    crate::arch::wasm32::unreachable()
-}
-
-// We don't have randomness yet, but I totally used a random number generator to
-// generate these numbers.
-//
-// More seriously though this is just for DOS protection in hash maps. It's ok
-// if we don't do that on wasm just yet.
-pub fn hashmap_random_keys() -> (u64, u64) {
-    (1, 2)
-}
+#[path = "../unsupported/common.rs"]
+#[deny(unsafe_op_in_unsafe_fn)]
+mod common;
+pub use common::*;

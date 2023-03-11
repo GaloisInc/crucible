@@ -1,4 +1,3 @@
-use core::mem;
 use core::ops;
 
 use super::int::Int;
@@ -11,10 +10,13 @@ pub mod extend;
 pub mod mul;
 pub mod pow;
 pub mod sub;
+pub mod trunc;
 
+public_test_dep! {
 /// Trait for some basic operations on floats
-pub trait Float:
+pub(crate) trait Float:
     Copy
+    + core::fmt::Debug
     + PartialEq
     + PartialOrd
     + ops::AddAssign
@@ -24,11 +26,14 @@ pub trait Float:
     + ops::Div<Output = Self>
     + ops::Rem<Output = Self>
 {
-    /// A uint of the same with as the float
+    /// A uint of the same width as the float
     type Int: Int;
 
-    /// A int of the same with as the float
+    /// A int of the same width as the float
     type SignedInt: Int;
+
+    /// An int capable of containing the exponent bits plus a sign bit. This is signed.
+    type ExpInt: Int;
 
     const ZERO: Self;
     const ONE: Self;
@@ -66,11 +71,22 @@ pub trait Float:
     /// Returns `self` transmuted to `Self::SignedInt`
     fn signed_repr(self) -> Self::SignedInt;
 
-    #[cfg(test)]
     /// Checks if two floats have the same bit representation. *Except* for NaNs! NaN can be
     /// represented in multiple different ways. This method returns `true` if two NaNs are
     /// compared.
     fn eq_repr(self, rhs: Self) -> bool;
+
+    /// Returns the sign bit
+    fn sign(self) -> bool;
+
+    /// Returns the exponent with bias
+    fn exp(self) -> Self::ExpInt;
+
+    /// Returns the significand with no implicit bit (or the "fractional" part)
+    fn frac(self) -> Self::Int;
+
+    /// Returns the significand with implicit bit
+    fn imp_frac(self) -> Self::Int;
 
     /// Returns a `Self::Int` transmuted back to `Self`
     fn from_repr(a: Self::Int) -> Self;
@@ -80,15 +96,19 @@ pub trait Float:
 
     /// Returns (normalized exponent, normalized significand)
     fn normalize(significand: Self::Int) -> (i32, Self::Int);
+
+    /// Returns if `self` is subnormal
+    fn is_subnormal(self) -> bool;
+}
 }
 
-// FIXME: Some of this can be removed if RFC Issue #1424 is resolved
-//        https://github.com/rust-lang/rfcs/issues/1424
 macro_rules! float_impl {
-    ($ty:ident, $ity:ident, $sity:ident, $bits:expr, $significand_bits:expr) => {
+    ($ty:ident, $ity:ident, $sity:ident, $expty:ident, $bits:expr, $significand_bits:expr) => {
         impl Float for $ty {
             type Int = $ity;
             type SignedInt = $sity;
+            type ExpInt = $expty;
+
             const ZERO: Self = 0.0;
             const ONE: Self = 1.0;
 
@@ -101,12 +121,11 @@ macro_rules! float_impl {
             const EXPONENT_MASK: Self::Int = !(Self::SIGN_MASK | Self::SIGNIFICAND_MASK);
 
             fn repr(self) -> Self::Int {
-                unsafe { mem::transmute(self) }
+                self.to_bits()
             }
             fn signed_repr(self) -> Self::SignedInt {
-                unsafe { mem::transmute(self) }
+                self.to_bits() as Self::SignedInt
             }
-            #[cfg(test)]
             fn eq_repr(self, rhs: Self) -> bool {
                 if self.is_nan() && rhs.is_nan() {
                     true
@@ -114,8 +133,20 @@ macro_rules! float_impl {
                     self.repr() == rhs.repr()
                 }
             }
+            fn sign(self) -> bool {
+                self.signed_repr() < Self::SignedInt::ZERO
+            }
+            fn exp(self) -> Self::ExpInt {
+                ((self.to_bits() & Self::EXPONENT_MASK) >> Self::SIGNIFICAND_BITS) as Self::ExpInt
+            }
+            fn frac(self) -> Self::Int {
+                self.to_bits() & Self::SIGNIFICAND_MASK
+            }
+            fn imp_frac(self) -> Self::Int {
+                self.frac() | Self::IMPLICIT_BIT
+            }
             fn from_repr(a: Self::Int) -> Self {
-                unsafe { mem::transmute(a) }
+                Self::from_bits(a)
             }
             fn from_parts(sign: bool, exponent: Self::Int, significand: Self::Int) -> Self {
                 Self::from_repr(
@@ -133,9 +164,12 @@ macro_rules! float_impl {
                     significand << shift as Self::Int,
                 )
             }
+            fn is_subnormal(self) -> bool {
+                (self.repr() & Self::EXPONENT_MASK) == Self::Int::ZERO
+            }
         }
     };
 }
 
-float_impl!(f32, u32, i32, 32, 23);
-float_impl!(f64, u64, i64, 64, 52);
+float_impl!(f32, u32, i32, i16, 32, 23);
+float_impl!(f64, u64, i64, i16, 64, 52);

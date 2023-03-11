@@ -1,13 +1,16 @@
 #![allow(unused)]
 
+use crate::arch::asm;
 use crate::cell::UnsafeCell;
+use crate::cmp;
+use crate::convert::TryInto;
 use crate::mem;
 use crate::ops::{CoerceUnsized, Deref, DerefMut, Index, IndexMut};
 use crate::ptr::{self, NonNull};
 use crate::slice;
 use crate::slice::SliceIndex;
 
-use super::super::mem::is_user_range;
+use super::super::mem::{is_enclave_range, is_user_range};
 use fortanix_sgx_abi::*;
 
 /// A type that can be safely read from or written to userspace.
@@ -53,6 +56,8 @@ unsafe impl UserSafeSized for Usercall {}
 #[unstable(feature = "sgx_platform", issue = "56975")]
 unsafe impl UserSafeSized for Return {}
 #[unstable(feature = "sgx_platform", issue = "56975")]
+unsafe impl UserSafeSized for Cancel {}
+#[unstable(feature = "sgx_platform", issue = "56975")]
 unsafe impl<T: UserSafeSized> UserSafeSized for [T; 2] {}
 
 /// A type that can be represented in memory as one or more `UserSafeSized`s.
@@ -89,9 +94,12 @@ pub unsafe trait UserSafe {
     /// * the pointed-to range is not in user memory.
     unsafe fn from_raw_sized(ptr: *mut u8, size: usize) -> NonNull<Self> {
         assert!(ptr.wrapping_add(size) >= ptr);
-        let ret = Self::from_raw_sized_unchecked(ptr, size);
-        Self::check_ptr(ret);
-        NonNull::new_unchecked(ret as _)
+        // SAFETY: The caller has guaranteed the pointer is valid
+        let ret = unsafe { Self::from_raw_sized_unchecked(ptr, size) };
+        unsafe {
+            Self::check_ptr(ret);
+            NonNull::new_unchecked(ret as _)
+        }
     }
 
     /// Checks if a pointer may point to `Self` in user memory.
@@ -109,10 +117,10 @@ pub unsafe trait UserSafe {
     /// * the pointer is null.
     /// * the pointed-to range is not in user memory.
     unsafe fn check_ptr(ptr: *const Self) {
-        let is_aligned = |p| -> bool { 0 == (p as usize) & (Self::align_of() - 1) };
+        let is_aligned = |p: *const u8| -> bool { p.is_aligned_to(Self::align_of()) };
 
         assert!(is_aligned(ptr as *const u8));
-        assert!(is_user_range(ptr as _, mem::size_of_val(&*ptr)));
+        assert!(is_user_range(ptr as _, mem::size_of_val(unsafe { &*ptr })));
         assert!(!ptr.is_null());
     }
 }
@@ -135,11 +143,23 @@ unsafe impl<T: UserSafeSized> UserSafe for [T] {
         mem::align_of::<T>()
     }
 
+    /// # Safety
+    /// Behavior is undefined if any of these conditions are violated:
+    /// * `ptr` must be [valid] for writes of `size` many bytes, and it must be
+    ///   properly aligned.
+    ///
+    /// [valid]: core::ptr#safety
+    /// # Panics
+    ///
+    /// This function panics if:
+    ///
+    /// * the element size is not a factor of the size
     unsafe fn from_raw_sized_unchecked(ptr: *mut u8, size: usize) -> *mut Self {
         let elem_size = mem::size_of::<T>();
         assert_eq!(size % elem_size, 0);
         let len = size / elem_size;
-        slice::from_raw_parts_mut(ptr as _, len)
+        // SAFETY: The caller must uphold the safety contract for `from_raw_sized_unchecked`
+        unsafe { slice::from_raw_parts_mut(ptr as _, len) }
     }
 }
 
@@ -170,13 +190,15 @@ trait NewUserRef<T: ?Sized> {
 
 impl<T: ?Sized> NewUserRef<*mut T> for NonNull<UserRef<T>> {
     unsafe fn new_userref(v: *mut T) -> Self {
-        NonNull::new_unchecked(v as _)
+        // SAFETY: The caller has guaranteed the pointer is valid
+        unsafe { NonNull::new_unchecked(v as _) }
     }
 }
 
 impl<T: ?Sized> NewUserRef<NonNull<T>> for NonNull<UserRef<T>> {
     unsafe fn new_userref(v: NonNull<T>) -> Self {
-        NonNull::new_userref(v.as_ptr())
+        // SAFETY: The caller has guaranteed the pointer is valid
+        unsafe { NonNull::new_userref(v.as_ptr()) }
     }
 }
 
@@ -193,7 +215,9 @@ where
         unsafe {
             // Mustn't call alloc with size 0.
             let ptr = if size > 0 {
-                rtunwrap!(Ok, super::alloc(size, T::align_of())) as _
+                // `copy_to_userspace` is more efficient when data is 8-byte aligned
+                let alignment = cmp::max(T::align_of(), 8);
+                rtunwrap!(Ok, super::alloc(size, alignment)) as _
             } else {
                 T::align_of() as _ // dangling pointer ok for size 0
             };
@@ -208,13 +232,9 @@ where
     /// Copies `val` into freshly allocated space in user memory.
     pub fn new_from_enclave(val: &T) -> Self {
         unsafe {
-            let ret = Self::new_uninit_bytes(mem::size_of_val(val));
-            ptr::copy(
-                val as *const T as *const u8,
-                ret.0.as_ptr() as *mut u8,
-                mem::size_of_val(val),
-            );
-            ret
+            let mut user = Self::new_uninit_bytes(mem::size_of_val(val));
+            user.copy_from_enclave(val);
+            user
         }
     }
 
@@ -231,8 +251,9 @@ where
     /// * The pointer is null
     /// * The pointed-to range is not in user memory
     pub unsafe fn from_raw(ptr: *mut T) -> Self {
-        T::check_ptr(ptr);
-        User(NonNull::new_userref(ptr))
+        // SAFETY: the caller must uphold the safety contract for `from_raw`.
+        unsafe { T::check_ptr(ptr) };
+        User(unsafe { NonNull::new_userref(ptr) })
     }
 
     /// Converts this value into a raw pointer. The value will no longer be
@@ -280,7 +301,221 @@ where
     /// * The pointed-to range does not fit in the address space
     /// * The pointed-to range is not in user memory
     pub unsafe fn from_raw_parts(ptr: *mut T, len: usize) -> Self {
-        User(NonNull::new_userref(<[T]>::from_raw_sized(ptr as _, len * mem::size_of::<T>())))
+        User(unsafe {
+            NonNull::new_userref(<[T]>::from_raw_sized(ptr as _, len * mem::size_of::<T>()))
+        })
+    }
+}
+
+// Split a memory region ptr..ptr + len into three parts:
+//   +--------+
+//   | small0 | Chunk smaller than 8 bytes
+//   +--------+
+//   |   big  | Chunk 8-byte aligned, and size a multiple of 8 bytes
+//   +--------+
+//   | small1 | Chunk smaller than 8 bytes
+//   +--------+
+fn region_as_aligned_chunks(ptr: *const u8, len: usize) -> (usize, usize, usize) {
+    let small0_size = if ptr.is_aligned_to(8) { 0 } else { 8 - ptr.addr() % 8 };
+    let small1_size = (len - small0_size) % 8;
+    let big_size = len - small0_size - small1_size;
+
+    (small0_size, big_size, small1_size)
+}
+
+unsafe fn copy_quadwords(src: *const u8, dst: *mut u8, len: usize) {
+    unsafe {
+        asm!(
+            "rep movsq (%rsi), (%rdi)",
+            inout("rcx") len / 8 => _,
+            inout("rdi") dst => _,
+            inout("rsi") src => _,
+            options(att_syntax, nostack, preserves_flags)
+        );
+    }
+}
+
+/// Copies `len` bytes of data from enclave pointer `src` to userspace `dst`
+///
+/// This function mitigates stale data vulnerabilities by ensuring all writes to untrusted memory are either:
+///  - preceded by the VERW instruction and followed by the MFENCE; LFENCE instruction sequence
+///  - or are in multiples of 8 bytes, aligned to an 8-byte boundary
+///
+/// # Panics
+/// This function panics if:
+///
+/// * The `src` pointer is null
+/// * The `dst` pointer is null
+/// * The `src` memory range is not in enclave memory
+/// * The `dst` memory range is not in user memory
+///
+/// # References
+///  - https://www.intel.com/content/www/us/en/security-center/advisory/intel-sa-00615.html
+///  - https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/processor-mmio-stale-data-vulnerabilities.html#inpage-nav-3-2-2
+pub(crate) unsafe fn copy_to_userspace(src: *const u8, dst: *mut u8, len: usize) {
+    unsafe fn copy_bytewise_to_userspace(src: *const u8, dst: *mut u8, len: usize) {
+        unsafe {
+            let mut seg_sel: u16 = 0;
+            for off in 0..len {
+                asm!("
+                    mov %ds, ({seg_sel})
+                    verw ({seg_sel})
+                    movb {val}, ({dst})
+                    mfence
+                    lfence
+                    ",
+                    val = in(reg_byte) *src.add(off),
+                    dst = in(reg) dst.add(off),
+                    seg_sel = in(reg) &mut seg_sel,
+                    options(nostack, att_syntax)
+                );
+            }
+        }
+    }
+
+    assert!(!src.is_null());
+    assert!(!dst.is_null());
+    assert!(is_enclave_range(src, len));
+    assert!(is_user_range(dst, len));
+    assert!(len < isize::MAX as usize);
+    assert!(!src.addr().overflowing_add(len).1);
+    assert!(!dst.addr().overflowing_add(len).1);
+
+    if len < 8 {
+        // Can't align on 8 byte boundary: copy safely byte per byte
+        unsafe {
+            copy_bytewise_to_userspace(src, dst, len);
+        }
+    } else if len % 8 == 0 && dst.is_aligned_to(8) {
+        // Copying 8-byte aligned quadwords: copy quad word per quad word
+        unsafe {
+            copy_quadwords(src, dst, len);
+        }
+    } else {
+        // Split copies into three parts:
+        //   +--------+
+        //   | small0 | Chunk smaller than 8 bytes
+        //   +--------+
+        //   |   big  | Chunk 8-byte aligned, and size a multiple of 8 bytes
+        //   +--------+
+        //   | small1 | Chunk smaller than 8 bytes
+        //   +--------+
+        let (small0_size, big_size, small1_size) = region_as_aligned_chunks(dst, len);
+
+        unsafe {
+            // Copy small0
+            copy_bytewise_to_userspace(src, dst, small0_size);
+
+            // Copy big
+            let big_src = src.add(small0_size);
+            let big_dst = dst.add(small0_size);
+            copy_quadwords(big_src, big_dst, big_size);
+
+            // Copy small1
+            let small1_src = src.add(big_size + small0_size);
+            let small1_dst = dst.add(big_size + small0_size);
+            copy_bytewise_to_userspace(small1_src, small1_dst, small1_size);
+        }
+    }
+}
+
+/// Copies `len` bytes of data from userspace pointer `src` to enclave pointer `dst`
+///
+/// This function mitigates AEPIC leak vulnerabilities by ensuring all reads from untrusted memory are 8-byte aligned
+///
+/// # Panics
+/// This function panics if:
+///
+/// * The `src` pointer is null
+/// * The `dst` pointer is null
+/// * The `src` memory range is not in user memory
+/// * The `dst` memory range is not in enclave memory
+///
+/// # References
+///  - https://www.intel.com/content/www/us/en/security-center/advisory/intel-sa-00657.html
+///  - https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/advisory-guidance/stale-data-read-from-xapic.html
+pub(crate) unsafe fn copy_from_userspace(src: *const u8, dst: *mut u8, len: usize) {
+    // Copies memory region `src..src + len` to the enclave at `dst`. The source memory region
+    // is:
+    //  - strictly less than 8 bytes in size and may be
+    //  - located at a misaligned memory location
+    fn copy_misaligned_chunk_to_enclave(src: *const u8, dst: *mut u8, len: usize) {
+        let mut tmp_buff = [0u8; 16];
+
+        unsafe {
+            // Compute an aligned memory region to read from
+            // +--------+ <-- aligned_src + aligned_len (8B-aligned)
+            // |  pad1  |
+            // +--------+ <-- src + len (misaligned)
+            // |        |
+            // |        |
+            // |        |
+            // +--------+ <-- src (misaligned)
+            // |  pad0  |
+            // +--------+ <-- aligned_src (8B-aligned)
+            let pad0_size = src as usize % 8;
+            let aligned_src = src.sub(pad0_size);
+
+            let pad1_size = 8 - (src.add(len) as usize % 8);
+            let aligned_len = pad0_size + len + pad1_size;
+
+            debug_assert!(len < 8);
+            debug_assert_eq!(aligned_src as usize % 8, 0);
+            debug_assert_eq!(aligned_len % 8, 0);
+            debug_assert!(aligned_len <= 16);
+
+            // Copy the aligned buffer to a temporary buffer
+            // Note: copying from a slightly different memory location is a bit odd. In this case it
+            // can't lead to page faults or inadvertent copying from the enclave as we only ensured
+            // that the `src` pointer is aligned at an 8 byte boundary. As pages are 4096 bytes
+            // aligned, `aligned_src` must be on the same page as `src`. A similar argument can be made
+            // for `src + len`
+            copy_quadwords(aligned_src as _, tmp_buff.as_mut_ptr(), aligned_len);
+
+            // Copy the correct parts of the temporary buffer to the destination
+            ptr::copy(tmp_buff.as_ptr().add(pad0_size), dst, len);
+        }
+    }
+
+    assert!(!src.is_null());
+    assert!(!dst.is_null());
+    assert!(is_user_range(src, len));
+    assert!(is_enclave_range(dst, len));
+    assert!(!(src as usize).overflowing_add(len + 8).1);
+    assert!(!(dst as usize).overflowing_add(len + 8).1);
+
+    if len < 8 {
+        copy_misaligned_chunk_to_enclave(src, dst, len);
+    } else if len % 8 == 0 && src as usize % 8 == 0 {
+        // Copying 8-byte aligned quadwords: copy quad word per quad word
+        unsafe {
+            copy_quadwords(src, dst, len);
+        }
+    } else {
+        // Split copies into three parts:
+        //   +--------+
+        //   | small0 | Chunk smaller than 8 bytes
+        //   +--------+
+        //   |   big  | Chunk 8-byte aligned, and size a multiple of 8 bytes
+        //   +--------+
+        //   | small1 | Chunk smaller than 8 bytes
+        //   +--------+
+        let (small0_size, big_size, small1_size) = region_as_aligned_chunks(dst, len);
+
+        unsafe {
+            // Copy small0
+            copy_misaligned_chunk_to_enclave(src, dst, small0_size);
+
+            // Copy big
+            let big_src = src.add(small0_size);
+            let big_dst = dst.add(small0_size);
+            copy_quadwords(big_src, big_dst, big_size);
+
+            // Copy small1
+            let small1_src = src.add(big_size + small0_size);
+            let small1_dst = dst.add(big_size + small0_size);
+            copy_misaligned_chunk_to_enclave(small1_src, small1_dst, small1_size);
+        }
     }
 }
 
@@ -301,8 +536,9 @@ where
     /// * The pointer is null
     /// * The pointed-to range is not in user memory
     pub unsafe fn from_ptr<'a>(ptr: *const T) -> &'a Self {
-        T::check_ptr(ptr);
-        &*(ptr as *const Self)
+        // SAFETY: The caller must uphold the safety contract for `from_ptr`.
+        unsafe { T::check_ptr(ptr) };
+        unsafe { &*(ptr as *const Self) }
     }
 
     /// Creates a `&mut UserRef<[T]>` from a raw pointer. See the struct
@@ -318,8 +554,9 @@ where
     /// * The pointer is null
     /// * The pointed-to range is not in user memory
     pub unsafe fn from_mut_ptr<'a>(ptr: *mut T) -> &'a mut Self {
-        T::check_ptr(ptr);
-        &mut *(ptr as *mut Self)
+        // SAFETY: The caller must uphold the safety contract for `from_mut_ptr`.
+        unsafe { T::check_ptr(ptr) };
+        unsafe { &mut *(ptr as *mut Self) }
     }
 
     /// Copies `val` into user memory.
@@ -330,7 +567,7 @@ where
     pub fn copy_from_enclave(&mut self, val: &T) {
         unsafe {
             assert_eq!(mem::size_of_val(val), mem::size_of_val(&*self.0.get()));
-            ptr::copy(
+            copy_to_userspace(
                 val as *const T as *const u8,
                 self.0.get() as *mut T as *mut u8,
                 mem::size_of_val(val),
@@ -346,7 +583,7 @@ where
     pub fn copy_to_enclave(&self, dest: &mut T) {
         unsafe {
             assert_eq!(mem::size_of_val(dest), mem::size_of_val(&*self.0.get()));
-            ptr::copy(
+            copy_from_userspace(
                 self.0.get() as *const T as *const u8,
                 dest as *mut T as *mut u8,
                 mem::size_of_val(dest),
@@ -372,7 +609,11 @@ where
 {
     /// Copies the value from user memory into enclave memory.
     pub fn to_enclave(&self) -> T {
-        unsafe { ptr::read(self.0.get()) }
+        unsafe {
+            let mut data: T = mem::MaybeUninit::uninit().assume_init();
+            copy_from_userspace(self.0.get() as _, &mut data as *mut T as _, mem::size_of::<T>());
+            data
+        }
     }
 }
 
@@ -394,7 +635,10 @@ where
     /// * The pointed-to range does not fit in the address space
     /// * The pointed-to range is not in user memory
     pub unsafe fn from_raw_parts<'a>(ptr: *const T, len: usize) -> &'a Self {
-        &*(<[T]>::from_raw_sized(ptr as _, len * mem::size_of::<T>()).as_ptr() as *const Self)
+        // SAFETY: The caller must uphold the safety contract for `from_raw_parts`.
+        unsafe {
+            &*(<[T]>::from_raw_sized(ptr as _, len * mem::size_of::<T>()).as_ptr() as *const Self)
+        }
     }
 
     /// Creates a `&mut UserRef<[T]>` from a raw thin pointer and a slice length.
@@ -412,7 +656,10 @@ where
     /// * The pointed-to range does not fit in the address space
     /// * The pointed-to range is not in user memory
     pub unsafe fn from_raw_parts_mut<'a>(ptr: *mut T, len: usize) -> &'a mut Self {
-        &mut *(<[T]>::from_raw_sized(ptr as _, len * mem::size_of::<T>()).as_ptr() as *mut Self)
+        // SAFETY: The caller must uphold the safety contract for `from_raw_parts_mut`.
+        unsafe {
+            &mut *(<[T]>::from_raw_sized(ptr as _, len * mem::size_of::<T>()).as_ptr() as *mut Self)
+        }
     }
 
     /// Obtain a raw pointer to the first element of this user slice.
@@ -437,13 +684,12 @@ where
     /// This function panics if the destination doesn't have the same size as
     /// the source. This can happen for dynamically-sized types such as slices.
     pub fn copy_to_enclave_vec(&self, dest: &mut Vec<T>) {
-        unsafe {
-            if let Some(missing) = self.len().checked_sub(dest.capacity()) {
-                dest.reserve(missing)
-            }
-            dest.set_len(self.len());
-            self.copy_to_enclave(&mut dest[..]);
+        if let Some(missing) = self.len().checked_sub(dest.capacity()) {
+            dest.reserve(missing)
         }
+        // SAFETY: We reserve enough space above.
+        unsafe { dest.set_len(self.len()) };
+        self.copy_to_enclave(&mut dest[..]);
     }
 
     /// Copies the value from user memory into a vector in enclave memory.
@@ -544,7 +790,8 @@ impl<T: CoerceUnsized<U>, U> CoerceUnsized<UserRef<U>> for UserRef<T> {}
 impl<T, I> Index<I> for UserRef<[T]>
 where
     [T]: UserSafe,
-    I: SliceIndex<[T], Output: UserSafe>,
+    I: SliceIndex<[T]>,
+    I::Output: UserSafe,
 {
     type Output = UserRef<I::Output>;
 
@@ -564,7 +811,8 @@ where
 impl<T, I> IndexMut<I> for UserRef<[T]>
 where
     [T]: UserSafe,
-    I: SliceIndex<[T], Output: UserSafe>,
+    I: SliceIndex<[T]>,
+    I::Output: UserSafe,
 {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut UserRef<I::Output> {

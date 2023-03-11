@@ -37,7 +37,7 @@ fn find_entries(tid:usize,
     count.crucible_TEMP_unlock();
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn pthread_finding_k_matches()
 {
     let mut vals = vec![];
