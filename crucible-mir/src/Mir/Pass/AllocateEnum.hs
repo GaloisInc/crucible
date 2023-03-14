@@ -15,20 +15,15 @@
 module Mir.Pass.AllocateEnum
 ( passAllocateEnum
 ) where
- 
+
 import Control.Lens hiding (op)
-import Control.Monad.State.Lazy
 import qualified Data.Text as T
-import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.DefId
 import Mir.Mir
-import Mir.GenericOps
 
 import GHC.Stack
-
-import Debug.Trace
 
 {-
 
@@ -63,7 +58,7 @@ data FieldUpdate = FieldUpdate { adtLvalue :: Lvalue,
 
 lookupAdt :: (?col :: Collection) => DefId -> Maybe Adt
 lookupAdt defid = find (\adt -> _adtname adt == defid) (?col^.adts)
-  
+
 
 isAdtFieldUpdate :: Statement -> Maybe FieldUpdate
 isAdtFieldUpdate (Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs) pos) =
@@ -91,7 +86,7 @@ makeAggregate updates (lv, k, adt) =
   pos = case updates of
           u:_ -> upos u
           []  -> "internal"
-    
+
 
 findAllocEnum :: (?col :: Collection) => [Statement] -> Maybe ( Statement, [Statement] )
 findAllocEnum ss = f ss [] where

@@ -26,8 +26,6 @@ module Mir.TransCustom(customOps) where
 import Data.Bits (shift)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Maybe as Maybe
-import qualified Data.String as String
 import           Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -42,9 +40,7 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Peano
 import Data.Parameterized.Some
-import Data.Parameterized.WithRepr
 
 
 -- crucible
@@ -54,21 +50,15 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.CFG.Reg as R
 
-import qualified What4.ProgramLoc as PL
-
-
 
 import qualified Mir.DefId as M
 import           Mir.DefId (ExplodedDefId)
 import           Mir.Mir
 
-import           Mir.PP (fmt)
 import           Mir.Generator hiding (customOps)
 import           Mir.Intrinsics
 import           Mir.TransTy
 import           Mir.Trans
-
-import Debug.Trace
 
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -187,7 +177,7 @@ customOpDefs = Map.fromList $ [
                          ] ++ bv_funcs ++ atomic_funcs
 
 
- 
+
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Exit
 
@@ -1046,8 +1036,8 @@ array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_fro
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
   (["core","slice","{{impl}}","len", "crucible_slice_len_hook"]
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
-     case ops of 
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops ->
+     case ops of
        [MirExp (MirSliceRepr _) e] -> do
             return $ MirExp UsizeRepr $ getSliceLen e
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
@@ -1245,7 +1235,7 @@ bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
         col <- use $ cs . collection
         impl col u ops)
   where
-    impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
+    impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
     impl col u ops
       | [MirExp (C.BVRepr w1) v] <- ops
       , Some (C.BVRepr w2) <- tyToRepr col u

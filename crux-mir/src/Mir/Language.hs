@@ -106,8 +106,9 @@ import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, pattern MirVectorRepr, MirVector(..))
 import           Mir.Generator
-import           Mir.Generate (generateMIR, translateMIR)
+import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
+import           Mir.ParseTranslate (translateMIR)
 import           Mir.Trans (transStatics)
 import           Mir.TransTy
 import           Mir.Concurrency
