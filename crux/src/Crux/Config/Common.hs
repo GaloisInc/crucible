@@ -174,6 +174,9 @@ data CruxOptions = CruxOptions
   , onlineSolverOutput       :: Maybe FilePath
     -- ^ The file to store the interaction with the online goal solver (if
     -- solving is being performed online)
+  , offlineSolverOutput      :: Maybe FilePath
+    -- ^ A template to use for files to store interactions with offline goal
+    -- solvers (if solving is being performed offline).
 
   , yicesMCSat               :: Bool
     -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
@@ -295,6 +298,10 @@ cruxOptions = Config
           onlineSolverOutput <-
             sectionMaybe "online-solver-output" stringSpec
             "The file to store the interaction with the online goal solver (if any) (default: none)"
+
+          offlineSolverOutput <-
+            sectionMaybe "offine-solver-output" stringSpec
+            (pack offlineSolverOutputHelp)
 
           simVerbose <-
             section "sim-verbose" numSpec 1
@@ -447,7 +454,7 @@ cruxOptions = Config
       , Option [] ["no-unsat-cores"]
         "Disable computing unsat cores for successful proofs"
         $ NoArg $ \opts -> Right opts { unsatCores = False }
-      
+
       , Option "n" ["get-abducts"]
         "Get these many abducts. Only works with cvc5, 0 otherwise."
         $ ReqArg "ABDUCTS"
@@ -476,6 +483,10 @@ cruxOptions = Config
       , Option [] ["online-solver-output"]
         "The file to store the interaction with the online goal solver (if any) (default: none)"
         $ ReqArg "FILE" $ \f opts -> Right opts { onlineSolverOutput = Just f }
+
+      , Option [] ["offline-solver-output"]
+        offlineSolverOutputHelp
+        $ ReqArg "FILE" $ \f opts -> Right opts { offlineSolverOutput = Just f }
 
       , Option [] ["mcsat"]
         "Enable the MC-SAT solver in Yices (disables unsat cores)"
@@ -516,6 +527,15 @@ cruxOptions = Config
         $ ReqArg "FPREP" $ \v opts -> Right opts { floatMode = map toLower v }
       ]
   }
+
+offlineSolverOutputHelp :: String
+offlineSolverOutputHelp = unlines
+  [ "A template to use for files to store interactions with offline goal solvers"
+  , "(if any) (default: none). For example, if the template is `offline-output.smt2`,"
+  , "then each file will be named `offline-output-<goal number>-<solver name>.smt2,"
+  , "where <goal number> is the number of the goal that was proven (starting at 0)"
+  , "and <solver name> is the name of the solver used to dispatch that goal."
+  ]
 
 dflt :: String -> (String -> OptSetter opts) -> (Maybe String -> OptSetter opts)
 dflt x p mb = p (fromMaybe x mb)
