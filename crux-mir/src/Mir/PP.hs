@@ -108,9 +108,9 @@ instance Pretty CtorKind where
   pretty = viaShow
 
 instance Pretty Variant where
-  pretty (Variant nm dscr flds knd mbVal) =
+  pretty (Variant nm dscr flds knd mbVal inh) =
     pretty "Variant" <>
-      tupled [pretty nm, pretty dscr, pretty flds, pretty knd, pretty mbVal]
+      tupled [pretty nm, pretty dscr, pretty flds, pretty knd, pretty mbVal, pretty inh]
 
 instance Pretty Field where
     pretty (Field nm ty) = pretty_fn2 "Field" nm ty

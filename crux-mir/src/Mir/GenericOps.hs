@@ -72,9 +72,9 @@ adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
             lastExplicit' = if isExplicit v then discr else lastExplicit
         in discr : go lastExplicit' vs
 
-    getDiscr _ (Variant _ _ _ _ (Just i)) = i
+    getDiscr _ (Variant _ _ _ _ (Just i) _) = i
 
-    getDiscr _ (Variant name (Explicit did) _fields _knd _) = case Map.lookup did (_functions col) of
+    getDiscr _ (Variant name (Explicit did) _fields _knd _ _) = case Map.lookup did (_functions col) of
         Just fn -> case fn^.fbody.mblocks of
             ( BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i)))) _loc] _term) ):_ ->
                 fromIntegerLit i
@@ -83,10 +83,10 @@ adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
           
         Nothing -> error $ "cannot find discriminant constant " ++ show did ++
             " for variant " ++ show name
-    getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind _) =
+    getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind _ _) =
         lastExplicit + toInteger i
 
-    isExplicit (Variant _ (Explicit _) _ _ _) = True
+    isExplicit (Variant _ (Explicit _) _ _ _ _) = True
     isExplicit _ = False
 
 --------------------------------------------------------------------------------------

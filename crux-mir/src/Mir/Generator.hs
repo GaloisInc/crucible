@@ -75,6 +75,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import           Data.Char(isDigit)
 import           Data.Functor.Identity
 import           GHC.Generics (Generic)
 
@@ -110,6 +111,7 @@ import           Mir.PP
 import           Unsafe.Coerce(unsafeCoerce)
 import           Debug.Trace
 import           GHC.Stack
+import Control.Applicative ((<|>))
 
 
 --------------------------------------------------------------------------------------
@@ -475,13 +477,23 @@ resolveCustom instDefId = do
                     show (intr ^. intrInst . inDefId)
             _ -> do
                 let origDefId = intr ^. intrInst . inDefId
-                let origSubsts = intr ^. intrInst . inSubsts
-                let edid = idKey origDefId
+                    origSubsts = intr ^. intrInst . inSubsts
+                    edid = idKey origDefId
+                    -- remove section numbers (if any)
+                    removeSectionNumber w =
+                      Maybe.fromMaybe w (Text.dropWhile isDigit <$> Text.stripPrefix "#" w)
+                    stripSectionNumbers w =
+                      let (part1, part2) = Text.breakOn "#" w
+                      in  part1 <> removeSectionNumber part2
+
+                    edidSimpl = stripSectionNumbers <$> edid
                 optOp <- use $ customOps . opDefs .  at edid
-                case optOp of
+                optOpSimpl <- use $ customOps . opDefs .  at edidSimpl
+                case optOp <|> optOpSimpl of
                     Nothing -> return Nothing
                     Just f -> do
                         return $ f origSubsts
+
 
 ---------------------------------------------------------------------------------------------------
 -- ** Adding new temporaries to the VarMap

@@ -199,7 +199,13 @@ data CtorKind
   deriving (Eq, Ord, Show, Generic)
 
 
-data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: Maybe CtorKind, _discrval :: Maybe Integer }
+data Variant = Variant {
+  _vname :: DefId,
+  _vdiscr :: VariantDiscr,
+  _vfields :: [Field],
+  _vctorkind :: Maybe CtorKind,
+  _discrval :: Maybe Integer,
+  _vinhabited :: Bool }
     deriving (Eq, Ord,Show, Generic)
 
 

@@ -87,11 +87,10 @@ makeAggregate updates (lv, k, adt) =
     (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos) where
   adt_did = _adtname adt
   ty  = typeOf lv
-  ops = map rhs $ sortOn fieldNum updates
   pos = case updates of
           u:_ -> upos u
           []  -> "internal"
-    
+  ops = map rhs $ sortOn fieldNum updates
 
 findAllocEnum :: (?col :: Collection) => [Statement] -> Maybe ( Statement, [Statement] )
 findAllocEnum ss = f ss [] where

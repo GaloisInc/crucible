@@ -113,6 +113,7 @@ customOpDefs = Map.fromList $ [
                          , min_align_of
                          , intrinsics_assume
                          , assert_inhabited
+                         , unlikely
 
                          , mem_transmute
                          , mem_crucible_identity_transmute
@@ -689,7 +690,7 @@ makeArithWithOverflow name isSignedOverride bop =
 
 add_with_overflow ::  (ExplodedDefId, CustomRHS)
 add_with_overflow =
-    ( ["core","intrinsics", "", "add_with_overflow"]
+    ( ["core","intrinsics", "{extern}", "add_with_overflow"]
     , makeArithWithOverflow "add_with_overflow" Nothing Add
     )
 
@@ -1531,6 +1532,15 @@ atomic_funcs =
         "acq_failrelaxed", "acqrel_failrelaxed", "failrelaxed", "failacq"]
     fenceVariants = ["acq", "rel", "acqrel"]
 
+--------------------------------------------------------------------------------------------------------------------------
+
+unlikely :: (ExplodedDefId, CustomRHS)
+unlikely = (name, rhs)
+    where
+        name = ["core", "intrinsics", "{extern}", "unlikely"]
+        rhs substs = Just $ CustomOp $ \_ [op] -> pure op
+
+
 
 --------------------------------------------------------------------------------------------------------------------------
 -- MaybeUninit
@@ -1545,6 +1555,17 @@ maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{{impl}}", "uninit"],
                 Just v -> return v
                 Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
         _ -> Nothing)
+
+
+--------------------------------------------------------------------------------------------------------------------------
+intrinsicName :: String -> [String]
+intrinsicName name = ["core", "intrinsics", "", name]
+
+-- ctpop :: (ExplodedDefId, CustomRHS)
+-- ctpop = (intrinsicName "ctpop", rhs)
+--     where
+--         rhs [_sz] =
+--             Just $ CustomOp $
 
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -1614,6 +1635,7 @@ cloneShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implement
 
 cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneFromShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
+
 
 
 --------------------------------------------------------------------------------------------------------------------------
