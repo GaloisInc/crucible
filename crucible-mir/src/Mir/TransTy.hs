@@ -49,6 +49,7 @@ import qualified Lang.Crucible.Syntax as S
 
 import qualified Mir.DefId as M
 import qualified Mir.Mir as M
+import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
@@ -325,7 +326,7 @@ reprTransparentFieldTy col adt = do
 
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Some C.CtxRepr
-variantFields col (M.Variant _vn _vd vfs _vct _mbVal) =
+variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) =
     tyReprListToCtx
         (map (mapSome fieldType . tyToFieldRepr col . (^. M.fty)) vfs)
         (\repr -> Some repr)
@@ -360,7 +361,7 @@ tyToFieldRepr col ty
   | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr col ty)
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Some FieldCtxRepr
-variantFields' col (M.Variant _vn _vd vfs _vct _mbVal) =
+variantFields' col (M.Variant _vn _vd vfs _vct _mbVal _inh) =
     fieldReprListToCtx
         (map (tyToFieldRepr col . (^. M.fty)) vfs)
         (\x -> Some x)
@@ -842,7 +843,9 @@ buildStructAssign' ctx es = go ctx $ reverse es
     go ctx (optExp : rest) = case Ctx.viewAssign ctx of
         Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
             (FieldRepr (FkInit tpr), Nothing) ->
-                Left $ "got Nothing for mandatory field " ++ show (length rest)
+                case tpr of
+                    C.UnitRepr -> continue ctx' rest tpr (R.App $ E.NothingValue tpr)
+                    _ -> Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
             (FieldRepr (FkInit tpr), Just (Some e)) ->
                 continue ctx' rest tpr e
             (FieldRepr (FkMaybe tpr), Nothing) ->
@@ -902,7 +905,8 @@ buildEnum' adt i es = do
 
     Some fctx' <- variantFieldsM' var
     asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es of
-        Left err -> mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err
+        Left err ->
+            mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err ++ " -- " ++ show es
         Right x -> return x
     Refl <- testEqualityOrFail (fieldCtxType fctx') ctx' $
         "got wrong fields for " ++ show (adt ^. M.adtname, i) ++ "?"

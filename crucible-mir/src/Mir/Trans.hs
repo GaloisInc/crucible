@@ -181,6 +181,8 @@ transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
        return $ MirExp (C.BVRepr w) (S.app $ eBVLit w i)
 transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
+transConstVal _ty (Some C.UnitRepr) (M.ConstTuple []) =
+    return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -1630,14 +1632,20 @@ initialValue (M.TyAdt nm _ _) = do
             let var = M.onlyVariant adt
             fldExps <- mapM initField (var^.M.vfields)
             Just <$> buildStruct' adt fldExps
-        Enum -> case adt ^. adtvariants of
-            -- Uninhabited enums can't be initialized.
-            [] -> return Nothing
-            -- Inhabited enums get initialized to their first variant.
-            (var : _) -> do
-                fldExps <- mapM initField (var^.M.vfields)
-                Just <$> buildEnum' adt 0 fldExps
+        Enum -> do
+            case inhabited (adt ^. adtvariants) of
+                -- Uninhabited enums can't be initialized.
+                [] -> return Nothing
+                -- Inhabited enums get initialized to their first inhabited variant.
+                vs@(var : _) -> do
+                    fldExps <- mapM initField (var^.M.vfields)
+                    Just <$> buildEnum' adt 0 fldExps
         Union -> return Nothing
+    where
+        inhabited vars = filter _vinhabited vars
+
+
+
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
 initialValue (M.TyDynamic _) = return $ Nothing
@@ -1647,6 +1655,8 @@ initialValue _ = return Nothing
 
 initField :: Field -> MirGenerator h s ret (Maybe (MirExp s))
 initField (Field _name ty) = initialValue ty
+
+
 
 -- | Allocate RefCells for all locals and populate `varMap`.  Locals are
 -- default-initialized when possible using the result of `initialValue`.

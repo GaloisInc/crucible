@@ -175,6 +175,7 @@ instance FromJSON Variant where
                 <*> v .: "ctor_kind"
                 <*> do  val <- v .:? "discr_value"
                         convertIntegerText `traverse` val
+                <*> v .: "inhabited"
 
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty"
@@ -525,7 +526,7 @@ instance FromJSON RustcRenderedConst where
 
         Just (String "tuple") -> do
             elems <- map (\(RustcRenderedConst val) -> val) <$> v .: "elements"
-            return $ ConstArray elems
+            return $ ConstTuple elems
 
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
