@@ -31,7 +31,7 @@ import qualified CruxLLVMMain as C
 
 
 cube :: TS.CUBE
-cube = TS.mkCUBE { TS.inputDir = "test-data/golden"
+cube = TS.mkCUBE { TS.inputDirs = ["test-data/golden"]
                  , TS.rootName = "*.c"
                  , TS.separators = "."
                  , TS.expectedSuffix = "good"
@@ -46,7 +46,7 @@ cube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                  }
 
 main :: IO ()
-main = do let cubes = [ cube { TS.inputDir = dir, TS.rootName = rootName }
+main = do let cubes = [ cube { TS.inputDirs = [dir], TS.rootName = rootName }
                       | dir <- [ "test-data/golden"
                                , "test-data/golden/golden"
                                , "test-data/golden/golden-loop-merging"
