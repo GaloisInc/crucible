@@ -59,8 +59,8 @@ jobs:
           nix_path: nixpkgs=channel:21.11
           install_url: https://releases.nixos.org/nix/nix-2.10.3/install
 
-      - uses: actions/cache@v2
-        name: Cache cabal store
+      - uses: actions/cache/restore@v3
+        name: Restore cabal store cache
         with:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
@@ -113,3 +113,12 @@ jobs:
       - name: Haddock
         shell: bash
         run: cabal v2-haddock crucible-wasm
+
+      - uses: actions/cache/save@v3
+        name: Save cabal store cache
+        if: always()
+        with:
+          path: |
+            ${{ steps.setup-haskell.outputs.cabal-store }}
+            dist-newstyle
+          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
