@@ -6,6 +6,7 @@
 {-# Language PatternSynonyms #-}
 {-# Language ScopedTypeVariables #-}
 {-# Language TypeFamilies #-}
+{-# Language TypeOperators #-}
 {-# Language ViewPatterns #-}
 
 module Crux.Goal where

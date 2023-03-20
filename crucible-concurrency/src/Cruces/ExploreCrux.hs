@@ -10,6 +10,7 @@ Maintainer       : Alexander Bakst <abakst@galois.com>
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Cruces.ExploreCrux where
 
