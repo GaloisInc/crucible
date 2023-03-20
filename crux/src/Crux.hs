@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoMonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -607,7 +606,7 @@ runSimulator cruxOpts simCallback = do
     Right (CCS.OnlyOfflineSolvers offSolvers) ->
       withFloatRepr (WE.EmptyExprBuilderState @s) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
-          sym <- WE.newExprBuilder floatRepr WE.EmptyExprBuilderState nonceGen 
+          sym <- WE.newExprBuilder floatRepr WE.EmptyExprBuilderState nonceGen
           bak <- CBS.newSimpleBackend sym
           setupSolver cruxOpts Nothing sym
           -- Since we have a bare SimpleBackend here, we have to initialize it
@@ -640,6 +639,7 @@ runSimulator cruxOpts simCallback = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
+  forall sym bak r t st fs msgs.
   sym ~ WE.ExprBuilder t st fs =>
   IsSymBackend sym bak =>
   Logs msgs =>
@@ -689,6 +689,13 @@ doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProv
  where
  failfast = proofGoalsFailFast cruxOpts
 
+ resultCont ::
+      IORef ProgramCompleteness
+   -> IORef (Seq.Seq (ProcessedGoals, ProvedGoals))
+   -> FrameIdentifier
+   -> (Maybe (WE.GroundEvalFn t) -> LabeledPred (WE.Expr t BaseBoolType) SimError -> IO (Doc Void))
+   -> Result personality (WE.ExprBuilder t st fs)
+   -> IO Bool
  resultCont compRef glsRef frm explainFailure (Result res) =
    do timedOut <-
         case res of
