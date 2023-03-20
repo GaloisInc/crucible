@@ -905,9 +905,13 @@ discriminant_value = (["core","intrinsics", "", "discriminant_value"],
         ([TyRef (TyAdt nm _ _) Immut], [eRef]) -> do
             adt <- findAdt nm
             e <- derefExp eRef >>= readPlace
-            MirExp IsizeRepr e' <- enumDiscriminant adt e
-            return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
-                isizeToBv knownRepr R.App e'
+            MirExp tp' e' <- enumDiscriminant adt e
+            case testEquality tp' IsizeRepr of
+              Just Refl ->
+                return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
+                    isizeToBv knownRepr R.App e'
+              Nothing ->
+                mirFail "unexpected non-isize discriminant"
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)
