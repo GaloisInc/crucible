@@ -11,10 +11,6 @@ mir-json lib/libc/src/lib.rs  --crate-name libc -L rlibs --out-dir rlibs --crate
 echo 'Building compiler_builtins...'
 mir-json lib/compiler_builtins/src/lib.rs  --crate-name compiler_builtins -L rlibs --out-dir rlibs --crate-type rlib --cfg 'feature="compiler-builtins"' --cfg 'feature="core"' --cfg 'feature="default"' --cfg 'feature="rustc-dep-of-std"' --cfg 'feature="unstable"' --cfg 'feature="mem-unaligned"`' --extern core=rlibs/libcore.rlib
 
-#added crucible manually here
-echo "Building crucible..."
-mir-json lib/crucible/lib.rs --crate-name crucible --edition=2021 -L rlibs --out-dir rlibs --crate-type rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib --extern core=rlibs/libcore.rlib
-
 echo 'Building alloc...'
 mir-json lib/alloc/src/lib.rs --edition=2021 --crate-name alloc -L rlibs --out-dir rlibs --crate-type rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib --extern core=rlibs/libcore.rlib
 
@@ -65,4 +61,17 @@ mir-json lib/std/src/lib.rs --edition=2021 --crate-name std -L rlibs --out-dir r
 
 echo 'Building proc_macro...'
 mir-json lib/proc_macro/src/lib.rs --edition=2021 --crate-name proc_macro -L rlibs --out-dir rlibs --crate-type rlib --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib
+
+# extra libs (added manually)
+echo "Building crucible..."
+mir-json lib/crucible/lib.rs --crate-name crucible --edition=2021 -L rlibs --out-dir rlibs --crate-type rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib --extern core=rlibs/libcore.rlib
+
+echo 'Building int512...'
+mir-json lib/int512.rs --crate-name int512 -L rlibs --out-dir rlibs --crate-type rlib --extern core=rlibs/libcore.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib
+
+echo 'Building bytes...'
+mir-json lib/bytes.rs --edition=2021 --crate-name bytes -L rlibs --out-dir rlibs --crate-type rlib --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib --extern crucible=rlibs/libcrucible.rlib
+
+echo 'Building byteorder...'
+mir-json lib/byteorder/lib.rs --edition=2021 --crate-name byteorder -L rlibs --out-dir rlibs --crate-type rlib --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib
 
