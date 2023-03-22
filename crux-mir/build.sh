@@ -1,4 +1,7 @@
 set -e
+
+export STD_ENV_ARCH=$(uname -m)
+
 echo 'Building core...'
 mir-json lib/core/src/lib.rs --edition=2021 --crate-name core -L rlibs --out-dir rlibs --crate-type rlib
 
