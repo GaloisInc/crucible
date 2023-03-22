@@ -38,6 +38,7 @@ import Mir.PP()
 import Debug.Trace
 
 
+
 getModificationTimeIfExists :: FilePath -> IO (Maybe UTCTime)
 getModificationTimeIfExists path = doesFileExist path >>= \case
     False -> return Nothing
@@ -121,23 +122,33 @@ maybeLinkJson jsonFiles cacheFile = do
 
 libJsonFiles :: [FilePath]
 libJsonFiles =
+    -- std and its dependencies
     [ "libcore.mir"
+    , "librustc_std_workspace_core.mir"
+    , "liblibc.mir"
     , "libcompiler_builtins.mir"
+    , "liballoc.mir"
+    , "libcfg_if.mir"
+    , "libmemchr.mir"
+    , "libadler.mir"
+    , "librustc_demangle.mir"
+    , "libunwind.mir"
+    , "libpanic_unwind.mir"
+    , "librustc_std_workspace_alloc.mir"
+    , "libpanic_abort.mir"
+    , "libgimli.mir"
+    , "libstd_detect.mir"
+    , "libobject.mir"
+    , "libminiz_oxide.mir"
+    , "libhashbrown.mir"
+    , "libaddr2line.mir"
     , "libstd.mir"
+    -- additional libs
+    , "libcrucible.mir"
+    , "libint512.mir"
+    , "libbyteorder.mir"
+    , "libbytes.mir"
     ]
-    -- , "libint512.mir"
-    -- , "libcrucible.mir"
-
-    -- , "liballoc.mir"
-    -- , "libstd.mir"
-    -- , "libunwind.mir"
-    -- , "libcfg_if.mir"
-    -- , "libhashbrown.mir"
-    -- , "liblibc.mir"
-
-    -- , "libbyteorder.mir"
-    -- , "libbytes.mir"
-    -- ]
 
 
 -- | Run mir-json on the input, generating lib file on disk
