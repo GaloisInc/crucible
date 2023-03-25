@@ -116,7 +116,7 @@ execCommand (Wasm.ModuleDef mdef) ss =
               , scriptCurrentModule = Just (nm,vm,im)
               }
 
-execCommand (Wasm.Assertion a) ss =
+execCommand (Wasm.Assertion _ a) ss =
   do execAssertion a ss
      return ss
 
