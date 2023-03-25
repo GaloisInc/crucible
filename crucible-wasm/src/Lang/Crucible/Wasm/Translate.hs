@@ -812,9 +812,29 @@ genIUnOp :: (1 <= w) => NatRepr w -> Wasm.IUnOp -> WasmGenerator s ret ()
 genIUnOp w op =
   do v <- popInteger w
      pushInteger w case op of
-       Wasm.IClz    -> App (BVCountLeadingZeros w v)
-       Wasm.ICtz    -> App (BVCountTrailingZeros w v)
-       Wasm.IPopcnt -> App (BVPopcount w v)
+       Wasm.IClz       -> App (BVCountLeadingZeros w v)
+       Wasm.ICtz       -> App (BVCountTrailingZeros w v)
+       Wasm.IPopcnt    -> App (BVPopcount w v)
+       Wasm.IExtend8S  -> extendS 8 v
+       Wasm.IExtend16S -> extendS 16 v
+       Wasm.IExtend32S -> extendS 32 v
+  where
+    -- The extend_N_S numeric operations are somewhat unusual in that the
+    -- argument type is the *same* as the result type. Instead, these operations
+    -- clear everything except the N lowest bits and then sign-extend the N-bit
+    -- value to the result bitwidth. For more information, see the corresponding
+    -- WebAssembly proposal here:
+    -- https://github.com/WebAssembly/spec/pull/1144
+    --
+    -- This implementation is based on the reference interpreter here:
+    -- https://github.com/WebAssembly/spec/blob/2cdd5acb214dff87a857374945487290e2cf422b/interpreter/exec/ixx.ml#L272-L274
+    -- Alternatively, we could implement this in terms of BVSext/BVTrunc, but
+    -- this would require some extra runtime checks to handle the cases where
+    -- `n < w` and `n == w`. In any case, the resulting What4 formulas should
+    -- be pretty similar.
+    extendS n x =
+      let shift = App $ BVLit w $ BV.sub w (BV.width w) (BV.mkBV w n) in
+      App (BVAshr w (App (BVShl w x shift)) shift)
 
 genIBinOp :: (1 <= w) => NatRepr w -> Wasm.IBinOp -> WasmGenerator s ret ()
 genIBinOp w op =
