@@ -50,7 +50,9 @@ cube =
 
 main :: IO ()
 main = do
-  let cubes = [cube]
+  let cubes = [ cube { TS.rootName = rootName }
+              | rootName <- ["*.wasm", "*.wast", "*.wat"]
+              ]
   sweets <- concat <$> mapM TS.findSugar cubes
   tests <- TS.withSugarGroups sweets TT.testGroup mkTest
   let ingredients = TT.includingOptions TS.sugarOptions :
