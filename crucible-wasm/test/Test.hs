@@ -138,16 +138,13 @@ mkTest sweet _ expct =
         when (testLevel == "0" && longTests) $
           putStrLn "*** Longer running test skipped; set CI_TEST_LEVEL=1 env var to enable"
         return []
-      else do
-        let cfg = lookup "config" (TS.associated expct)
-        case cfg of
-          Nothing -> return []
-          _ -> return
-               [ TT.testGroup "tests"
-                 [ TT.testGroup (TS.rootBaseName sweet) $ catMaybes
-                   [ runCrux
-                   , TT.after TT.AllSucceed runCruxName <$> checkResult
-                   , TT.after TT.AllSucceed runCruxName <$> checkOutput
-                   ]
-                 ]
-               ]
+      else
+        return
+          [ TT.testGroup "tests"
+            [ TT.testGroup (TS.rootBaseName sweet) $ catMaybes
+              [ runCrux
+              , TT.after TT.AllSucceed runCruxName <$> checkResult
+              , TT.after TT.AllSucceed runCruxName <$> checkOutput
+              ]
+            ]
+          ]
