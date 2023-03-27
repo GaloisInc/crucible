@@ -417,7 +417,7 @@ installElemSegment im es@Wasm.ElemSegment{ .. } =
 
   updStore :: Int -> Store -> Maybe Store
   updStore off st =
-    do (Wasm.TableType (Wasm.Limit lmin _) Wasm.AnyFunc, addr) <- resolveTableIndex tableIndex im
+    do (Wasm.TableType (Wasm.Limit lmin _) Wasm.FuncRef, addr) <- resolveTableIndex tableIndex im
        functab <- Seq.lookup addr (storeTables st)
        guard (toInteger off + toInteger (length funcIndexes) <= toInteger lmin)
        funaddrs <- mapM (\i -> resolveFuncIndex i im) funcIndexes

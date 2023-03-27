@@ -340,8 +340,7 @@ translateFunction fty fn@Wasm.Function{ .. } im st hdl =
 
   genBody :: WasmGenerator s ret (Expr WasmExt s ret)
   genBody =
-    do let body' = Wasm.Block (Wasm.results fty) body
-       genInstruction (genReturn >>= returnFromFunction) im st [] body'
+    do genBlock (genReturn >>= returnFromFunction) im st [] (Wasm.results fty) body
        genReturn
 
 -- | Control-flow labels, together with registers that
@@ -420,6 +419,49 @@ getMemVar im st =
          Nothing -> panic "getMemVar" ["Could not resolve memory address", show addr]
          Just gv -> pure gv
 
+-- Adapted from a similar function in haskell-wasm:
+-- https://github.com/SPY/haskell-wasm/blob/efba9c2b504e793776f328c8ba661811e120021d/src/Language/Wasm/Validate.hs#L193-L198
+getBlockResultType ::
+  HasCallStack =>
+  ModuleInstance ->
+  Wasm.BlockType ->
+  WasmGenerator s ret Wasm.ResultType
+getBlockResultType im bt =
+  case bt of
+    Wasm.Inline Nothing -> pure []
+    Wasm.Inline (Just valType) -> pure [valType]
+    Wasm.TypeIndex typeIdx ->
+      case resolveTypeIndex typeIdx im of
+        Nothing -> panic "getBlockResultType" ["Could not load type at index", show typeIdx]
+        Just (Wasm.FuncType { results = resultTy }) -> pure resultTy
+
+-- | Construct a CFG for a straight-line block of instructions. This is useful
+-- both for translating the dedicated 'Wasm.Block' instruction as well as for
+-- generating a top-level block for a function definition.
+genBlock ::
+  WasmGenerator s ret () ->
+  ModuleInstance ->
+  Store ->
+  ControlStack s ->
+  Wasm.ResultType {- ^ The result type of the block instructions -} ->
+  [Wasm.Instruction Natural] {- ^ The block instructions -} ->
+  WasmGenerator s ret ()
+genBlock genReturn im st ctrlStack vts is =
+  do let n = length vts
+     blockEnd <- setupWasmLabel vts
+
+     -- Translate the body of the block, jumping
+     -- to the block end label at the end of the body.
+     -- Then, continue translating in the context of
+     -- the block continuation label.
+     restoreStack $ continue (fst blockEnd) $
+       do mapM_ (genInstruction genReturn im st (blockEnd:ctrlStack)) is
+          jumpToWasmLabel blockEnd =<< popStackN n
+
+     -- Grab our stack values out of the block registers
+     -- and continue translation
+     setupLabelStack (snd blockEnd)
+
 genInstruction ::
   WasmGenerator s ret () ->
   ModuleInstance ->
@@ -435,23 +477,11 @@ genInstruction genReturn im st ctrlStack instr =
     Wasm.Unreachable ->
       reportError (App (StringLit (UnicodeLiteral "unreachable")))
 
-    Wasm.Block{ resultType = vts, body = is } ->
-      do let n = length vts
-         blockEnd <- setupWasmLabel vts
+    Wasm.Block{ blockType = bt, body = is } ->
+      do vts <- getBlockResultType im bt
+         genBlock genReturn im st ctrlStack vts is
 
-         -- Translate the body of the block, jumping
-         -- to the block end label at the end of the body.
-         -- Then, continue translating in the context of
-         -- the block continuation label.
-         restoreStack $ continue (fst blockEnd) $
-           do mapM_ (genInstruction genReturn im st (blockEnd:ctrlStack)) is
-              jumpToWasmLabel blockEnd =<< popStackN n
-
-         -- Grab our stack values out of the block registers
-         -- and continue translation
-         setupLabelStack (snd blockEnd)
-
-    Wasm.Loop{ resultType = _vts, body = is } ->
+    Wasm.Loop{ body = is } ->
       do -- NB in WebAssembly 1.0, loop-carried dependencies cannot
          -- be on the stack, so we just need a standard label
          loopHead <- newLabel
@@ -462,8 +492,9 @@ genInstruction genReturn im st ctrlStack instr =
          -- Define the body of the loop
          mapM_ (genInstruction genReturn im st ((loopHead,mempty):ctrlStack)) is
 
-    Wasm.If{ resultType = vts, true = true_is, false = false_is } ->
-      do let n = length vts
+    Wasm.If{ blockType = bt, true = true_is, false = false_is } ->
+      do vts <- getBlockResultType im bt
+         let n = length vts
          blockEnd <- setupWasmLabel vts
          trueLab  <- newLabel
          falseLab <- newLabel
@@ -812,9 +843,29 @@ genIUnOp :: (1 <= w) => NatRepr w -> Wasm.IUnOp -> WasmGenerator s ret ()
 genIUnOp w op =
   do v <- popInteger w
      pushInteger w case op of
-       Wasm.IClz    -> App (BVCountLeadingZeros w v)
-       Wasm.ICtz    -> App (BVCountTrailingZeros w v)
-       Wasm.IPopcnt -> App (BVPopcount w v)
+       Wasm.IClz       -> App (BVCountLeadingZeros w v)
+       Wasm.ICtz       -> App (BVCountTrailingZeros w v)
+       Wasm.IPopcnt    -> App (BVPopcount w v)
+       Wasm.IExtend8S  -> extendS 8 v
+       Wasm.IExtend16S -> extendS 16 v
+       Wasm.IExtend32S -> extendS 32 v
+  where
+    -- The extend_N_S numeric operations are somewhat unusual in that the
+    -- argument type is the *same* as the result type. Instead, these operations
+    -- clear everything except the N lowest bits and then sign-extend the N-bit
+    -- value to the result bitwidth. For more information, see the corresponding
+    -- WebAssembly proposal here:
+    -- https://github.com/WebAssembly/spec/pull/1144
+    --
+    -- This implementation is based on the reference interpreter here:
+    -- https://github.com/WebAssembly/spec/blob/2cdd5acb214dff87a857374945487290e2cf422b/interpreter/exec/ixx.ml#L272-L274
+    -- Alternatively, we could implement this in terms of BVSext/BVTrunc, but
+    -- this would require some extra runtime checks to handle the cases where
+    -- `n < w` and `n == w`. In any case, the resulting What4 formulas should
+    -- be pretty similar.
+    extendS n x =
+      let shift = App $ BVLit w $ BV.sub w (BV.width w) (BV.mkBV w n) in
+      App (BVAshr w (App (BVShl w x shift)) shift)
 
 genIBinOp :: (1 <= w) => NatRepr w -> Wasm.IBinOp -> WasmGenerator s ret ()
 genIBinOp w op =
