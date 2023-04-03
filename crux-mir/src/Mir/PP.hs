@@ -145,7 +145,7 @@ instance Pretty MirBody where
     pretty (MirBody mvs mbs _) =
       vcat (map pretty_temp mvs ++
             map pretty      mbs)
-    
+
 instance Pretty BasicBlock where
     pretty (BasicBlock info dat) =
       vcat [
@@ -307,7 +307,7 @@ instance Pretty FloatLit where
 
 instance Pretty Substs where
   pretty (Substs b) = langle <> hcat (punctuate comma (map pretty b)) <> rangle
-  
+
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
     pretty (ConstInt i)     = pretty i

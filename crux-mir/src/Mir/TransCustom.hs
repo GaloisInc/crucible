@@ -188,7 +188,7 @@ customOpDefs = Map.fromList $ [
                          ] ++ bv_funcs ++ atomic_funcs
 
 
- 
+
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Exit
 
@@ -1047,8 +1047,8 @@ array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_fro
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
   (["core","slice","{{impl}}","len", "crucible_slice_len_hook"]
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
-     case ops of 
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops ->
+     case ops of
        [MirExp (MirSliceRepr _) e] -> do
             return $ MirExp UsizeRepr $ getSliceLen e
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
@@ -1246,7 +1246,7 @@ bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
         col <- use $ cs . collection
         impl col u ops)
   where
-    impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
+    impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
     impl col u ops
       | [MirExp (C.BVRepr w1) v] <- ops
       , Some (C.BVRepr w2) <- tyToRepr col u

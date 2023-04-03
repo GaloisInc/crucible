@@ -212,7 +212,7 @@ parseMir path f = do
           traceM "--------------------------------------------------------------"
           traceM $ "Loaded module: " ++ path
           traceM $ show (pretty col)
-          traceM "--------------------------------------------------------------"  
+          traceM "--------------------------------------------------------------"
         return $ uninternMir col
 
 uninternMir :: Collection -> Collection
@@ -228,7 +228,7 @@ uninternMir col = uninternTys unintern (col { _namedTys = mempty })
 
 
 -- | Translate a MIR collection to Crucible
-translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool) 
+translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
    => CollectionState -> Collection -> C.HandleAllocator -> IO RustModule
 translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
