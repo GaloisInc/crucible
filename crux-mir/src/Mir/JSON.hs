@@ -424,7 +424,7 @@ instance FromJSON Constant where
       rend <- v .:? "rendered"
       init <- v .:? "initializer"
       case (rend, init) of
-        (Just (RustcRenderedConst rend), _) ->
+        (Just rend, _) ->
             pure $ Constant ty rend
         (Nothing, Just (RustcConstInitializer defid)) ->
             pure $ Constant ty $ ConstInitializer defid
@@ -438,11 +438,9 @@ instance FromJSON RustcConstInitializer where
     parseJSON = withObject "Initializer" $ \v ->
         RustcConstInitializer <$> v .: "def_id"
 
-newtype RustcRenderedConst = RustcRenderedConst ConstVal
-
-instance FromJSON RustcRenderedConst where
-    parseJSON = withObject "RenderedConst" $ \v ->
-      RustcRenderedConst <$> case lookupKM "kind" v of
+instance FromJSON ConstVal where
+    parseJSON = withObject "ConstVal" $ \v ->
+      case lookupKM "kind" v of
         Just (String "isize") -> do
             val <- convertIntegerText =<< v .: "val"
             pure $ ConstInt $ Isize val
@@ -509,12 +507,11 @@ instance FromJSON RustcRenderedConst where
             bytes <- mapM (withScientific "byte" f) val
             return $ ConstArray $ V.toList bytes
 
-        Just (String "struct") -> do
-            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
-            return $ ConstStruct fields
+        Just (String "struct") ->
+            ConstStruct <$> v .: "fields"
         Just (String "enum") -> do
             variant <- v .: "variant"
-            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
+            fields <- v .: "fields"
             return $ ConstEnum variant fields
 
         Just (String "fndef") -> ConstFunction <$> v .: "def_id"
@@ -524,13 +521,11 @@ instance FromJSON RustcRenderedConst where
             val <- convertIntegerText =<< v .: "val"
             return $ ConstRawPtr val
 
-        Just (String "array") -> do
-            elems <- map (\(RustcRenderedConst val) -> val) <$> v .: "elements"
-            return $ ConstArray elems
+        Just (String "array") ->
+            ConstArray <$> v .: "elements"
 
-        Just (String "tuple") -> do
-            elems <- map (\(RustcRenderedConst val) -> val) <$> v .: "elements"
-            return $ ConstTuple elems
+        Just (String "tuple") ->
+            ConstTuple <$> v .: "elements"
 
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
