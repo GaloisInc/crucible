@@ -147,5 +147,5 @@ test-suite crucible-llvm-tests
     tasty,
     tasty-quickcheck,
     tasty-hunit,
-    tasty-sugar >= 2.0 && < 2.1,
+    tasty-sugar >= 2.0 && < 2.2,
     vector

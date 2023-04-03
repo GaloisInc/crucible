@@ -97,6 +97,6 @@ test-suite crucible-wasm-test
     parsec,
     tasty >= 0.10,
     tasty-hunit >= 0.10,
-    tasty-sugar >= 2.0 && < 2.1,
+    tasty-sugar >= 2.0 && < 2.2,
     text,
     versions
