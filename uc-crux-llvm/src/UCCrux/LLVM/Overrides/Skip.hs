@@ -13,6 +13,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Overrides.Skip
   ( SkipOverrideName (..),

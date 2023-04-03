@@ -14,7 +14,7 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 common shared
-  build-depends:       base >=4.12 && <4.17,
+  build-depends:       base >=4.12 && <4.18,
                        aeson,
                        bv-sized,
                        bytestring,
@@ -56,7 +56,7 @@ test-suite crucible-symio-tests
   main-is: TestMain.hs
   hs-source-dirs: tests, src
   ghc-options: -Wall -Wcompat
-  build-depends: base >=4.12 && <4.17,
+  build-depends: base >=4.12 && <4.18,
                  what4,
                  crucible,
                  crucible-symio,

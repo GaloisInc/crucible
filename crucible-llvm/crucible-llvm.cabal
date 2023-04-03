@@ -28,7 +28,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.17,
+    base >= 4.13 && < 4.18,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,

@@ -27,12 +27,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        ghc: ["8.10.7", "9.0.2", "9.2.4"]
+        cabal: ["3.8.1.0"]
+        ghc: ["8.10.7", "9.2.7", "9.4.4"]
         include:
           - os: macos-12
-            ghc: 9.2.4
+            cabal: 3.8.1.0
+            ghc: 9.4.4
           - os: windows-2019
-            ghc: 9.2.4
+            cabal: 3.8.1.0
+            ghc: 9.4.4
     name: crucible-wasm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
@@ -43,6 +46,7 @@ jobs:
         id: setup-haskell
         with:
           ghc-version: ${{ matrix.ghc }}
+          cabal-version: ${{ matrix.cabal }}
 
       - name: Post-GHC installation fixups on Windows
         shell: bash
@@ -82,8 +86,8 @@ jobs:
         run: |
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
           case ${{ matrix.ghc }} in
-            9.0.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-22.05 ;;
-            9.2.4) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            9.2.7) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
+            9.4.4) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-unstable ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac
           echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV

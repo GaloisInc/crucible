@@ -436,7 +436,7 @@ mirFail str = do
          when (db > 2) $ do
            traceM (fmt f)
          G.reportError (S.litExpr (Text.pack msg))
-       else fail msg
+       else error msg
 
 
 -------------------------------------------------------------------------------------------------------
