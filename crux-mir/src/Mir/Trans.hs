@@ -1721,9 +1721,8 @@ buildLabel (M.BasicBlock bi _) = do
 initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             => CollectionState
             -> Fn
-            -> FH.FnHandle args ret
             -> FnState s
-initFnState colState fn handle =
+initFnState colState fn =
   FnState { _varMap     = Map.empty,
             _currentFn  = fn,
             _debugLevel = ?debug,
@@ -1830,7 +1829,7 @@ transDefine colState fn@(M.Fn fname fargs fsig _) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR FnState args ret (ST h)
           def inputs = (s,f) where
-            s = initFnState colState fn handle
+            s = initFnState colState fn
             f = do
                 lbl <- genFn fn rettype inputs
                 fti <- use transInfo
