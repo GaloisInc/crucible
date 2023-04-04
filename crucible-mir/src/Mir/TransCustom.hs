@@ -192,20 +192,20 @@ abort = (["core", "intrinsics", "", "abort"], \s ->
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
 panicking_begin_panic = (["std", "panicking", "begin_panic"], \s -> Just $ CustomOpExit $ \ops -> do
-    name <- use $ currentFn . fname
-    return $ "panicking::begin_panic, called from " <> M.idText name
+    fn <- expectFnContext
+    return $ "panicking::begin_panic, called from " <> M.idText (fn^.fname)
     )
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
 panicking_panic = (["core", "panicking", "panic"], \s -> Just $ CustomOpExit $ \ops -> do
-    name <- use $ currentFn . fname
-    return $ "panicking::panic, called from " <> M.idText name
+    fn <- expectFnContext
+    return $ "panicking::panic, called from " <> M.idText (fn^.fname)
     )
 
 panicking_panic_fmt :: (ExplodedDefId, CustomRHS)
 panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \s -> Just $ CustomOpExit $ \ops -> do
-    name <- use $ currentFn . fname
-    return $ "panicking::panic_fmt, called from " <> M.idText name
+    fn <- expectFnContext
+    return $ "panicking::panic_fmt, called from " <> M.idText (fn^.fname)
     )
 
 panicking_panicking :: (ExplodedDefId, CustomRHS)

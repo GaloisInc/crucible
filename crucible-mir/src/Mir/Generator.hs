@@ -168,12 +168,19 @@ data FnState (s :: Type)
   = FnState { _varMap     :: !(VarMap s),
               _labelMap   :: !(LabelMap s),
               _debugLevel :: !Int,
-              _currentFn  :: !Fn,
+              _transContext :: !FnTransContext,
               _cs         :: !CollectionState,
               _customOps  :: !CustomOpMap,
               _assertFalseOnError :: !Bool,
               _transInfo  :: !FnTransInfo
             }
+
+-- | The current translation context
+data FnTransContext
+  = FnContext Fn
+    -- ^ We are translating a function definition.
+  | StaticContext
+    -- ^ We are translating the initializer for static values.
 
 -- | State about the entire collection used for the translation
 data CollectionState
@@ -392,6 +399,19 @@ instance Pretty MirHandle where
       viaShow nm <> colon <> pretty sig
 
 
+instance Pretty FnTransContext where
+    pretty (FnContext f) = pretty f
+    pretty StaticContext = "the static initializer"
+
+expectFnContext :: MirGenerator h s ret Fn
+expectFnContext = do
+  transCtxt <- use transContext
+  case transCtxt of
+    FnContext f -> pure f
+    StaticContext ->
+      mirFail "expected function when translating static initializer"
+
+
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
 varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
 varInfoRepr (VarReference reg0) =
@@ -430,13 +450,16 @@ mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
-  f  <- use currentFn
-  let msg = "Translation error in " ++ show (f^.fname) ++ ": " ++ str
+  transCtxt <- use transContext
+  let loc = case transCtxt of
+              FnContext f   -> show (f^.fname)
+              StaticContext -> "the static initializer"
+      msg = "Translation error in " ++ loc ++ ": " ++ str
   if b then do
          when (db > 1) $ do
            traceM ("Translation failure: " ++ str)
          when (db > 2) $ do
-           traceM (fmt f)
+           traceM (fmt transCtxt)
          G.reportError (S.litExpr (Text.pack msg))
        else error msg
 

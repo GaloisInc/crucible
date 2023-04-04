@@ -1250,7 +1250,8 @@ transSwitch pos exp vals blks = do
 -- and false cases, even when the false case is empty.
 switchIsDropFlagCheck :: [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret Bool
 switchIsDropFlagCheck [0] [f, t] = do
-    optTrueBb <- use $ currentFn . fbody . mblockmap . at t
+    fn <- expectFnContext
+    let optTrueBb = fn ^. fbody . mblockmap . at t
     trueBb <- case optTrueBb of
         Just x -> return $ x
         Nothing -> mirFail $ "bad switch target " ++ show t
@@ -1284,7 +1285,8 @@ doReturn tr = do
     --
     -- To detect if the current function is a static initializer, we check if
     -- there's an entry in `statics` matching the current `fname`.
-    curName <- use $ currentFn . fname
+    fn <- expectFnContext
+    let curName = fn^.fname
     isStatic <- use $ cs . collection . statics . to (Map.member curName)
     when (not isStatic) cleanupLocals
 
@@ -1721,11 +1723,11 @@ buildLabel (M.BasicBlock bi _) = do
 -- | Build the initial state for translation of functions
 initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             => CollectionState
-            -> Fn
+            -> FnTransContext
             -> FnState s
-initFnState colState fn =
+initFnState colState transCtxt =
   FnState { _varMap     = Map.empty,
-            _currentFn  = fn,
+            _transContext = transCtxt,
             _debugLevel = ?debug,
             _cs         = colState,
             _labelMap   = Map.empty,
@@ -1830,7 +1832,7 @@ transDefine colState fn@(M.Fn fname _ _ _) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR FnState args ret (ST h)
           def inputs = (s,f) where
-            s = initFnState colState fn
+            s = initFnState colState (FnContext fn)
             f = do
                 lbl <- genFn fn rettype inputs
                 fti <- use transInfo
