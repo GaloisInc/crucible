@@ -110,6 +110,7 @@ import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
 import           Mir.ParseTranslate (translateMIR)
 import           Mir.Trans (transStatics)
+import qualified Mir.TransCustom as TransCustom
 import           Mir.TransTy
 import           Mir.Concurrency
 import           Paths_crux_mir (version)
@@ -210,6 +211,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
     let ?defaultRlibsDir    = defaultRlibsDir mirOpts
+    let ?customOps          = TransCustom.customOps
 
     let (filename, nameFilter) = case cargoTestFile mirOpts of
             -- This case is terrible a hack.  The goal is to mimic the behavior

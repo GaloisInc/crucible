@@ -516,6 +516,8 @@ data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static
   , _sTy            :: Ty
   , _sMutable       :: Bool             -- ^ true for "static mut"
+  , _sConstVal      :: Maybe ConstVal   -- ^ 'Just' if this static is initialized
+                                        -- with a constant value. 'Nothing' otherwise.
   }
   deriving (Show, Eq, Ord, Generic)
 
