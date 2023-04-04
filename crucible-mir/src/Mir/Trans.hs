@@ -1763,7 +1763,7 @@ genFn :: HasCallStack =>
     C.TypeRepr ret ->
     Ctx.Assignment (R.Atom s) args ->
     MirGenerator h s ret (G.Label s)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs = do
+genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = do
 
   lm <- buildLabelMap body
   labelMap .= lm
@@ -1822,7 +1822,7 @@ transDefine :: forall h.
   => CollectionState
   -> M.Fn
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
-transDefine colState fn@(M.Fn fname fargs fsig _) =
+transDefine colState fn@(M.Fn fname _ _ _) =
   case (Map.lookup fname (colState^.handleMap)) of
     Nothing -> error "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
