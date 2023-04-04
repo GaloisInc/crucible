@@ -356,8 +356,9 @@ instance Pretty Trait where
           rbrace]
 
 instance Pretty Static where
-  pretty (Static nm ty mut) =
-    pretty mut <+> pretty nm <+> pretty ":" <+> pretty ty
+  pretty (Static nm ty mut mbConst) =
+    pretty mut <+> pretty nm <+> pretty ":" <+> pretty ty <+>
+    maybe mempty (\c -> pretty "=" <+> pretty c) mbConst
 
 instance Pretty Intrinsic where
   pretty (Intrinsic name inst) = pretty name <+> pretty "=" <+> pretty inst

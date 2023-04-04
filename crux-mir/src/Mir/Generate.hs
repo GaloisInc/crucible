@@ -52,7 +52,7 @@ import Mir.Intrinsics(MIR)
 import Mir.PP()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
-import Mir.Generator(RustModule(..),CollectionState(..), rmCS, rmCFGs, collection)
+import Mir.Generator(RustModule(..),CollectionState(..), CustomOpMap, rmCS, rmCFGs, collection)
 import Mir.Trans(transCollection, transStatics)
 import qualified Mir.TransCustom as Mir
 
@@ -228,9 +228,10 @@ uninternMir col = uninternTys unintern (col { _namedTys = mempty })
 
 
 -- | Translate a MIR collection to Crucible
-translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
+translateMIR ::
+      ( HasCallStack, ?debug::Int, ?assertFalseOnError::Bool
+      , ?customOps::CustomOpMap, ?printCrucible::Bool )
    => CollectionState -> Collection -> C.HandleAllocator -> IO RustModule
 translateMIR lib col halloc =
-  let ?customOps = Mir.customOps in
   let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
   in let ?libCS = lib in transCollection col0 halloc

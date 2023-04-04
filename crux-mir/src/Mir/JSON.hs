@@ -581,6 +581,7 @@ instance FromJSON Static where
     Static <$> v .: "name"
            <*> v .: "ty"
            <*> v .: "mutable"
+           <*> v .:? "rendered"
 
 
 --  LocalWords:  initializer supertraits deserialization impls

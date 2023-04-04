@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -2289,32 +2290,47 @@ transCollection col halloc = do
 
 -- | Produce a crucible CFG that initializes the global variables for the static
 -- part of the crate
-transStatics :: CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
+transStatics ::
+  (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool) =>
+  CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
 transStatics colState halloc = do
   let sm = colState^.staticMap
   let hmap = colState^.handleMap
-  let initializeStatic :: forall h s r . Static -> G.Generator MIR s (Const ()) r (ST h) ()
-      initializeStatic static = do
-        case Map.lookup (static^.sName) sm of
-          Just (StaticVar g) -> do
-            let repr = G.globalType g
-            case Map.lookup (static^.sName) hmap of
-               Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
-                | Just Refl <- testEquality repr        (FH.handleReturnType handle)
-                , Just Refl <- testEquality (Ctx.empty) (FH.handleArgTypes handle)
-                -> do  val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
-                       G.writeGlobal g val
-               Just (MirHandle _ _ handle) ->
-                  fail $ "BUG: invalid type for initializer " ++ fmt (static^.sName)
-               Nothing -> fail $ "BUG: cannot find handle for static " ++ fmt (static^.sName)
-          Nothing -> fail $ "BUG: cannot find global for " ++ fmt (static^.sName)
+  let initializeStatic :: forall h s r . Static -> MirGenerator h s r ()
+      initializeStatic static =
+        let staticName = static^.sName in
+        case Map.lookup staticName sm of
+          Just (StaticVar g) ->
+            let repr = G.globalType g in
+            if |  Just constval <- static^.sConstVal
+               -> do let constty = static^.sTy
+                     Some tpr <- tyToReprM constty
+                     MirExp constty' constval' <- transConstVal constty (Some tpr) constval
+                     case testEquality repr constty' of
+                       Just Refl -> G.writeGlobal g constval'
+                       Nothing -> fail $ "BUG: invalid type for constant initializer " ++ fmt staticName
+
+               |  Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
+                    <- Map.lookup staticName hmap
+               -> case ( testEquality repr        (FH.handleReturnType handle)
+                       , testEquality (Ctx.empty) (FH.handleArgTypes handle)
+                       ) of
+                    (Just Refl, Just Refl) -> do
+                      val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
+                      G.writeGlobal g val
+
+                    _ -> fail $ "BUG: invalid type for initializer function " ++ fmt staticName
+
+               |  otherwise
+               -> fail $ "BUG: cannot find initializer for static " ++ fmt staticName
+          Nothing -> fail $ "BUG: cannot find global for " ++ fmt staticName
 
   -- TODO: make the name of the static initialization function configurable
   let initName = FN.functionNameFromText "static_initializer"
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
-  let def :: G.FunctionDef MIR (Const ()) Ctx.EmptyCtx C.UnitType (ST w)
+  let def :: G.FunctionDef MIR FnState Ctx.EmptyCtx C.UnitType (ST w)
       def inputs = (s, f) where
-          s = Const ()
+          s = initFnState colState StaticContext
           f = do mapM_ initializeStatic (colState^.collection.statics)
                  return (R.App $ E.EmptyApp)
   init_cfg <- stToIO $ do
