@@ -171,6 +171,8 @@ customOpDefs = Map.fromList $ [
 
                          , maybe_uninit_uninit
 
+                         , ctpop
+
                          , integer_from_u8
                          , integer_from_i32
                          , integer_from_u64
@@ -1558,14 +1560,15 @@ maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{{impl}}", "uninit"],
 
 
 --------------------------------------------------------------------------------------------------------------------------
-intrinsicName :: String -> [String]
-intrinsicName name = ["core", "intrinsics", "", name]
 
--- ctpop :: (ExplodedDefId, CustomRHS)
--- ctpop = (intrinsicName "ctpop", rhs)
---     where
---         rhs [_sz] =
---             Just $ CustomOp $
+ctpop :: (ExplodedDefId, CustomRHS)
+ctpop = (["core", "intrinsics", "{extern}", "ctpop"],
+    \(Substs substs) -> case substs of
+        [_] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp tpr@(C.BVRepr w) val] ->
+                return $ MirExp tpr $ R.App $ E.BVPopcount w val
+            _ -> mirFail $ "bad arguments to intrinsics::ctpop: " ++ show ops
+        _ -> Nothing)
 
 
 --------------------------------------------------------------------------------------------------------------------------
