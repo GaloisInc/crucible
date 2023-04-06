@@ -37,7 +37,7 @@ cube = TS.mkCUBE { TS.inputDirs = ["test-data/golden"]
                  , TS.expectedSuffix = "good"
                  , TS.validParams = [ ("solver", Just ["z3", "cvc5"])
                                     , ("loop-merging", Just ["loopmerge", "loop"])
-                                    , ("clang-range", Just ["pre-clang11", "at-least-clang12", "clang11", "clang12"])
+                                    , ("clang-range", Just ["pre-clang11", "at-least-clang12"])
                                     ]
                  , TS.associatedNames = [ ("config",      "config")
                                         , ("test-result", "result")
