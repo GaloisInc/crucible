@@ -542,6 +542,36 @@ file will be named `<test-case>.z3.good`; this picks Z3 as a default solver to
 use when simulating the test case. There are also a handful of tests that
 require other solvers, e.g., `abd-test-file-32.cvc5.good`.
 
+Some of the test cases have slightly different output depending on which Clang
+version is used. These test cases will have accompanying
+`<test-case>.pre-clang<version>.<...>.good` files, where `pre-clang<version>`
+indicates that this test output is used for all Clang versions up to (but not
+including) `<version>`. Note that if a test case has multiple
+`pre-clang<version>` `.good` files, then the `<version>` that is closest to the
+current Clang version (without going over) is picked.
+
+To illustrate this with a concrete example, consider suppose we have a test
+case `foo` with the following `.good` files
+
+* `foo.pre-clang11.z3.good`
+* `foo.pre-clang13.z3.good`
+* `foo.z3.good`
+
+The following `.good` files would be used for the following Clang versions:
+
+* Clang 10: `foo.pre-clang11.z3.good`
+* Clang 11: `foo.pre-clang13.z3.good`
+* Clang 12: `foo.pre-clang13.z3.good`
+* Clang 13 or later: `foo.z3.good`
+
+There are some test cases that require a sufficiently recent Clang version to
+run. To indicate that a test should not be run on Clangs older than
+`<version>`, create a `pre-clang<version>` `.good` file with `SKIP_TEST` as the
+first line. The use of `SKIP_TEST` signals that this test should be skipped
+when using Clangs older than `<version>`. Note that the test suite will not
+read anything past `SKIP_TEST`, so the rest of the file can be used to document
+why the test is skipped on that particular configuration.
+
 # Acknowledgements
 
 Crux is partly based upon work supported by the Defense Advanced

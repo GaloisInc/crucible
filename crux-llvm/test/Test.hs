@@ -6,22 +6,25 @@ module Main where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
 import           Control.Lens ( (^.), (^?), _Right, to )
-import           Control.Monad ( unless, when )
+import           Control.Monad ( guard, unless, when )
 import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
 import           Data.Char ( isLetter, isSpace )
 import           Data.List.Extra ( isInfixOf, isPrefixOf, stripPrefix )
-import           Data.Maybe ( catMaybes, fromMaybe, isJust )
+import           Data.Maybe ( catMaybes, fromMaybe, mapMaybe )
+import qualified Data.Set as Set
+import           Data.Set ( Set )
 import qualified Data.Text as T
 import           Data.Versions ( Versioning, versioning, prettyV, major )
 import qualified GHC.IO.Exception as GE
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
-import           System.FilePath ( (-<.>) )
+import           System.FilePath ( (-<.>), takeFileName )
 import           System.IO
 import           System.Process ( readProcess )
+import           Text.Read ( readMaybe )
 
 import qualified Test.Tasty as TT
 import           Test.Tasty.HUnit ( testCase, assertFailure )
@@ -37,11 +40,13 @@ cube = TS.mkCUBE { TS.inputDirs = ["test-data/golden"]
                  , TS.expectedSuffix = "good"
                  , TS.validParams = [ ("solver", Just ["z3", "cvc5"])
                                     , ("loop-merging", Just ["loopmerge", "loop"])
-                                    , ("clang-range", Just ["pre-clang11", "at-least-clang12", "clang11", "clang12"])
+                                    , ("clang-range", Just [ "recent-clang"
+                                                           , "pre-clang11"
+                                                           , "pre-clang12"
+                                                           ])
                                     ]
                  , TS.associatedNames = [ ("config",      "config")
                                         , ("test-result", "result")
-                                        , ("skip",        "skip")   -- when present, test config is skipped
                                         ]
                  }
 
@@ -83,6 +88,16 @@ vcVersioning (VC _ v) = v
 
 mkVC :: String -> String -> VersionCheck
 mkVC nm raw = let r = T.pack raw in VC nm $ first (const r) $ versioning r
+
+-- Check if a VersionCheck version is less than the numeric value of another
+-- version (represented as a Word).
+vcLT :: VersionCheck -> Word -> Bool
+vcLT vc verNum = (vcVersioning vc ^? (_Right . major)) < Just verNum
+
+-- Check if a VersionCheck version is greater than or equal to the numeric
+-- value of another version (represented as a Word).
+vcGE :: VersionCheck -> Word -> Bool
+vcGE vc verNum = (vcVersioning vc ^? (_Right . major)) >= Just verNum
 
 getClangVersion :: IO VersionCheck
 getClangVersion = do
@@ -296,20 +311,52 @@ mkTest clangVer sweet _ expct =
       _ -> return $ VC solver $ Left "unknown-solver-for-version"
 
     -- Match any clang version range specification in the .good
-    -- expected file against the current version of clang.  If the
-    -- current clang version doesn't match, no test should be
-    -- generated (i.e. only run tests for the version of clang
-    -- available).
+    -- expected file against the current version of clang. This implements a
+    -- combination of Case 3 and Case 3a from this tasty-sugar document:
+    -- https://github.com/kquick/tasty-sugar/blob/1fc06bee124e02f49f6478bc1e1df13704cc4916/Ranges.org#case-3---explicit-and-a-weaker-match
+    -- In particular, we use `recent-clang` as an explicit super-supremum (as in
+    -- Case 3a), but we also consult the set of Expectations in the full Sweets
+    -- value to avoid generating duplicate tests for `recent-clang` (as
+    -- described in Case 3).
     let clangMatch =
-          let specMatchesInstalled v =
-                or [ v == vcTag clangVer
-                   , and [ v == "pre-clang11"
-                         , vcMajor clangVer `elem` (show <$> [3..10 :: Int])
-                         ]
-                   , case stripPrefix "at-least-clang" v of
+          let allMatchingExpectations =
+                filter
+                  (\e -> (tname ++ ".") `isPrefixOf` takeFileName (TS.expectedFile e))
+                  (TS.expected sweet)
+
+              supportedPreClangs :: Set Word
+              supportedPreClangs =
+                Set.fromList $
+                mapMaybe
+                  (\e -> do
+                    TS.Explicit v <- lookup "clang-range" (TS.expParamsMatch e)
+                    verStr <- stripPrefix "pre-clang" v
+                    ver <- readMaybe verStr
+                    guard $ vcLT clangVer ver
+                    pure ver)
+                  allMatchingExpectations
+
+              -- Implement the "check" step described in Case 3/3a of the
+              -- tasty-sugar document linked above.
+              specMatchesInstalled v =
+                or [ case stripPrefix "pre-clang" v of
                        Nothing -> False
-                       Just verStr ->
-                         (vcVersioning clangVer ^? (_Right . major)) >= Just (read verStr)
+                       Just verStr
+                         |  Just ver <- readMaybe verStr
+                         -- Check that the current Clang version is less than
+                         -- the <ver> in the `pre-clang<ver>` file...
+                         ,  vcLT clangVer ver
+                         -- ...moreover, also check that <ver> is the closest
+                         -- `pre-clang` version (without going over). For
+                         -- instance, if the current Clang version is 10 and
+                         -- there are both `pre-clang11` and `pre-clang12`
+                         -- `.good` files, we only want to run with the
+                         -- `pre-clang11` configuration to avoid duplicate
+                         -- tests.
+                         ,  Just closestPreClang <- Set.lookupMin supportedPreClangs
+                         -> ver == closestPreClang
+                         |  otherwise
+                         -> False
                      -- as a fallback, if the testing code here is
                      -- unable to determine the version, run all
                      -- tests.  This is likely to cause a failure, but
@@ -318,9 +365,26 @@ mkTest clangVer sweet _ expct =
                      -- done anything.
                    , vcMajor clangVer == "[missing]"
                    ]
-          in case lookup "clang-range" (TS.expParamsMatch expct) of
-               Just (TS.Explicit v) -> specMatchesInstalled v
-               Just (TS.Assumed  v) -> specMatchesInstalled v
+          in -- Implement the "filter" step described in Case 3/3a of the
+             -- tasty-sugar document linked above.
+             case lookup "clang-range" (TS.expParamsMatch expct) of
+               Just (TS.Explicit v)
+                 -- Explicit matches are always allowed.
+                 -> specMatchesInstalled v
+               Just (TS.Assumed  v)
+                 -- The only allowable Assumed match is for `recent-clang`, the
+                 -- super-supremum value...
+                 |  v == "recent-clang"
+                 -> case Set.lookupMax supportedPreClangs of
+                      -- ...if there are no `pre-clang` .good files, then allow
+                      -- it...
+                      Nothing -> True
+                      -- ...otherwise, check that the current Clang version is
+                      -- larger than anything specified by a `pre-clang` .good
+                      -- file.
+                      Just largestPreClang -> vcGE clangVer largestPreClang
+                 |  otherwise
+                 -> False
                _ -> error "clang-range unknown"
 
     -- Some tests take longer, so only run one of them in fast-test mode
@@ -339,9 +403,11 @@ mkTest clangVer sweet _ expct =
                        , TS.rootBaseName sweet == "nested_unsafe"
                        ]
 
-    -- Presence of a .skip file means this test should be skipped.
+    -- If a .good file begins with SKIP_TEST, skip that test entirely. For test
+    -- cases that require a minimum Clang version, this technique is used to
+    -- prevent running the test on older Clang versions.
 
-    let skipTest = isJust $ lookup "skip" (TS.associated expct)
+    skipTest <- ("SKIP_TEST" `BSIO.isPrefixOf`) <$> BSIO.readFile (TS.expectedFile expct)
 
     if or [ skipTest, not clangMatch, testLevel == "0" && longTests ]
       then do
