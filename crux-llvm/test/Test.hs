@@ -320,7 +320,11 @@ mkTest clangVer sweet _ expct =
                    ]
           in case lookup "clang-range" (TS.expParamsMatch expct) of
                Just (TS.Explicit v) -> specMatchesInstalled v
-               Just (TS.Assumed  v) -> specMatchesInstalled v
+               Just (TS.Assumed  v)
+                 |  v == "pre-clang11" || v == "at-least-clang12"
+                 -> specMatchesInstalled v
+                 |  otherwise
+                 -> False
                _ -> error "clang-range unknown"
 
     -- Some tests take longer, so only run one of them in fast-test mode
