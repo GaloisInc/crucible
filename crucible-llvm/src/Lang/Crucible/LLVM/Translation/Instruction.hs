@@ -155,9 +155,7 @@ instrResultType instr =
     L.CallBr (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
     L.CallBr ty _ _ _ _ -> throwError $ unwords ["unexpected non-function type in callbr:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
-    L.Load x _ _ -> case L.typedType x of
-                   L.PtrTo ty -> liftMemType ty
-                   _ -> throwError $ unwords ["load through non-pointer type", show (L.typedType x)]
+    L.Load ty _ _ _ -> liftMemType ty
     L.ICmp _op tv _ -> do
       inpType <- liftMemType (L.typedType tv)
       case inpType of
@@ -1538,7 +1536,7 @@ generateInstr retType lab defSet instr assign_f k =
 
     -- We don't care if it's atomic, since the symbolic simulator is
     -- effectively single-threaded.
-    L.Load ptr _atomic align -> do
+    L.Load _tp ptr _atomic align -> do
       tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
