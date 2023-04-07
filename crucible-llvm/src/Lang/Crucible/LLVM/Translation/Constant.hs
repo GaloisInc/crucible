@@ -152,14 +152,15 @@ instance Traversable GEPResult where
 translateGEP :: forall wptr m.
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   Bool              {- ^ inbounds flag -} ->
+  L.Type            {- ^ base type for calculations -} ->
   L.Typed L.Value   {- ^ base pointer expression -} ->
   [L.Typed L.Value] {- ^ index arguments -} ->
   m (GEPResult (L.Typed L.Value))
 
-translateGEP _ _ [] =
+translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
-translateGEP inbounds base elts =
+translateGEP inbounds baseTy base elts =
   do mt <- liftMemType (L.typedType base)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
      -- types), and the pointed-to type must be representable as a memory type.
@@ -182,7 +183,7 @@ translateGEP inbounds base elts =
        _ -> badGEP
  where
  badGEP :: m a
- badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds base elts) ]
+ badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy base elts) ]
 
  -- This auxilary function builds up the intermediate GEP mini-instructions that compute
  -- the overall GEP, as well as the resulting memory type of the final pointers and the
@@ -1051,9 +1052,8 @@ transConstantExpr :: forall m wptr.
   L.ConstExpr ->
   m LLVMConst
 transConstantExpr expr = case expr of
-  L.ConstGEP _ _ _ [] -> badExp "Constant GEP must have at least two arguments"
-  L.ConstGEP inbounds _inrange _ (base:exps) -> -- TODO? pay attention to the inrange flag
-    do gep <- translateGEP inbounds base exps
+  L.ConstGEP inbounds _inrange baseTy base exps -> -- TODO? pay attention to the inrange flag
+    do gep <- translateGEP inbounds baseTy base exps
        gep' <- traverse transConstant gep
        snd <$> evalConstGEP gep'
 
