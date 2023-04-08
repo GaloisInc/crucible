@@ -141,6 +141,7 @@ llvmTypeToRepr (VecType _ tp)    = Just $ llvmTypeAsRepr tp (\t-> Some (VectorRe
 llvmTypeToRepr (StructType si)   = Just $ llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))
   where tps = map fiType $ toList $ siFields si
 llvmTypeToRepr (PtrType _)  = Just $ Some (LLVMPointerRepr PtrWidth)
+llvmTypeToRepr PtrOpaqueType = Just $ Some (LLVMPointerRepr PtrWidth)
 llvmTypeToRepr FloatType    = Just $ Some (FloatRepr SingleFloatRepr)
 llvmTypeToRepr DoubleType   = Just $ Some (FloatRepr DoubleFloatRepr)
 llvmTypeToRepr X86_FP80Type = Just $ Some (FloatRepr X86_80FloatRepr)

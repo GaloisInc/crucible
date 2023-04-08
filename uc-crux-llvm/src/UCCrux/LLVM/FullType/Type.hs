@@ -203,6 +203,8 @@ data FullType (m :: Type) where
     -- | Pointed-to type
     FullType m ->
     FullType m
+  FTPtrOpaque ::
+    FullType m
   FTFloat :: CrucibleTypes.FloatInfo -> FullType m
   -- | LLVM syntax: @[<# elements> x <elementtype>]@
   FTArray ::
@@ -259,6 +261,10 @@ type family ToCrucibleType arch (ft :: FullType m) :: CrucibleTypes.CrucibleType
     CrucibleTypes.IntrinsicType
       "LLVM_pointer"
       (Ctx.EmptyCtx Ctx.::> CrucibleTypes.BVType (ArchWidth arch))
+  ToCrucibleType arch 'FTPtrOpaque =
+    CrucibleTypes.IntrinsicType
+      "LLVM_pointer"
+      (Ctx.EmptyCtx Ctx.::> CrucibleTypes.BVType (ArchWidth arch))
   ToCrucibleType arch ('FTFloat flt) = CrucibleTypes.FloatType flt
   ToCrucibleType arch ('FTArray _n ft) =
     CrucibleTypes.VectorType (ToCrucibleType arch ft)
@@ -282,6 +288,7 @@ type family MapToBaseType (sym :: Type) (ctx :: Ctx (FullType m)) :: Ctx Crucibl
 type family ToBaseType (sym :: Type) (ft :: FullType m) :: CrucibleTypes.BaseType where
   ToBaseType sym ('FTInt n) = CrucibleTypes.BaseBVType n
   ToBaseType sym ('FTPtr _ft) = CrucibleTypes.BaseIntegerType
+  ToBaseType sym 'FTPtrOpaque = CrucibleTypes.BaseIntegerType
   ToBaseType sym ('FTFloat flt) = W4IFP.SymInterpretedFloatType sym flt
   ToBaseType sym ('FTStruct _sp ctx) =
     CrucibleTypes.BaseStructType (MapToBaseType sym ctx)
@@ -301,6 +308,8 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
   FTPtrRepr ::
     PartTypeRepr m ft ->
     FullTypeRepr m ('FTPtr ft)
+  FTPtrOpaqueRepr ::
+    FullTypeRepr m 'FTPtrOpaque
   FTFloatRepr ::
     !(CrucibleTypes.FloatInfoRepr flt) ->
     FullTypeRepr m ('FTFloat flt)
@@ -532,6 +541,8 @@ toFullTypeM ::
   f (Some (FullTypeRepr m))
 toFullTypeM memType =
   case memType of
+    PtrOpaqueType ->
+      pure $ Some FTPtrOpaqueRepr
     PtrType (MemType memType') ->
       do
         Some pointedTo <- toFullTypeM memType'

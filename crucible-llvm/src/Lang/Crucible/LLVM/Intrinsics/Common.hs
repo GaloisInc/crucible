@@ -157,7 +157,7 @@ transformLLVMArgs fnName bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
                  pure (xs' Ctx.:> x')))
 transformLLVMArgs fnName _ _ _ =
   panic "Intrinsics.transformLLVMArgs"
-    [ "transformLLVMArgs: argument shape mismatch!" 
+    [ "transformLLVMArgs: argument shape mismatch!"
     , "in function: " ++ Text.unpack (functionName fnName)
     ]
 
@@ -256,7 +256,7 @@ isMatchingDeclaration ::
 isMatchingDeclaration requested provided = and
   [ L.decName requested == L.decName provided
   , matchingArgList (L.decArgs requested) (L.decArgs provided)
-  , L.decRetType requested == L.decRetType provided
+  , L.decRetType requested `L.eqTypeModuloOpaquePtrs` L.decRetType provided
   -- TODO? do we need to pay attention to various attributes?
   ]
 
@@ -264,7 +264,7 @@ isMatchingDeclaration requested provided = and
  matchingArgList [] [] = True
  matchingArgList [] _  = L.decVarArgs requested
  matchingArgList _  [] = L.decVarArgs provided
- matchingArgList (x:xs) (y:ys) = x == y && matchingArgList xs ys
+ matchingArgList (x:xs) (y:ys) = x `L.eqTypeModuloOpaquePtrs` y && matchingArgList xs ys
 
 register_llvm_override :: forall p args ret sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>

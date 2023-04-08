@@ -127,6 +127,7 @@ viewFloatInfoRepr =
 data FullTypeReprView
   = FTIntReprView Width
   | FTPtrReprView PartTypeReprView
+  | FTPtrOpaqueReprView
   | FTFloatReprView FloatInfoReprView
   | FTArrayReprView Natural FullTypeReprView
   | FTUnboundedArrayReprView FullTypeReprView
@@ -141,6 +142,7 @@ fullTypeReprView =
   \case
     FTIntRepr natRepr -> FTIntReprView (Width (NatRepr.natValue natRepr))
     FTPtrRepr ptRepr -> FTPtrReprView (partTypeReprView ptRepr)
+    FTPtrOpaqueRepr -> FTPtrOpaqueReprView
     FTFloatRepr floatInfo -> FTFloatReprView (floatInfoReprView floatInfo)
     FTArrayRepr natRepr elems ->
       FTArrayReprView (NatRepr.natValue natRepr) (fullTypeReprView elems)
@@ -185,6 +187,8 @@ viewFullTypeRepr mts =
     FTPtrReprView vpt ->
       do Some pt <- viewPartTypeRepr mts vpt
          return (Some (FTPtrRepr pt))
+    FTPtrOpaqueReprView ->
+      return (Some FTPtrOpaqueRepr)
     FTFloatReprView vfi ->
       do Some fi <- return (viewFloatInfoRepr vfi)
          return (Some (FTFloatRepr fi))

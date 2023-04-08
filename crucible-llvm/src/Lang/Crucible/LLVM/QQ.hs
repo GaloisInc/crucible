@@ -46,6 +46,7 @@ data QQType
   | QQSSizeT          -- ^ This constructor represents a signed integer type that is the same width as a pointer
   | QQPrim L.PrimType
   | QQPtrTo QQType
+  | QQPtrOpaque
   | QQAlias L.Ident
   | QQArray Int32 QQType
   | QQFunTy QQType [QQType] Bool
@@ -183,6 +184,7 @@ parseType =
              , pure QQOpaque <* AT.string "opaque"
              , pure QQSizeT  <* AT.string "size_t"
              , pure QQSSizeT  <* AT.string "ssize_t"
+             , pure QQPtrOpaque <* AT.string "ptr"
              ]
      base' <- AT.choice
               [ do AT.skipSpace
@@ -229,6 +231,7 @@ liftQQType tp =
     QQAlias nm   -> [| L.Alias nm |]
     QQPrim pt    -> [| L.PrimType pt |]
     QQPtrTo t    -> [| L.PtrTo $(liftQQType t) |]
+    QQPtrOpaque  -> [| L.PtrOpaque |]
     QQArray n t  -> [| L.Array n $(liftQQType t) |]
     QQVector n t -> [| L.Vector n $(liftQQType t) |]
     QQStruct ts  -> [| L.Struct $(listE (map liftQQType ts)) |]
@@ -264,6 +267,7 @@ liftTypeRepr t = case t of
     QQSSizeT      -> [| SSizeT |]
     QQPrim pt     -> liftPrim pt
     QQPtrTo _t    -> [| PtrRepr |]
+    QQPtrOpaque   -> [| PtrRepr |]
     QQArray _ t'  -> [| VectorRepr $(liftTypeRepr t') |]
     QQVector _ t' -> [| VectorRepr $(liftTypeRepr t') |]
     QQStruct ts   -> [| StructRepr $(liftArgs ts False) |]

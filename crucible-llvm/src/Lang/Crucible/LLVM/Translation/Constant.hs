@@ -161,26 +161,28 @@ translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
 translateGEP inbounds baseTy base elts =
-  do mt <- liftMemType (L.typedType base)
+  do baseMemType <- liftMemType baseTy
+     mt <- liftMemType (L.typedType base)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
-     -- types), and the pointed-to type must be representable as a memory type.
-     -- The resulting memory type drives the interpretation of the GEP arguments.
+     -- types), and the base type used for calculations must be representable
+     -- as a memory type. The resulting memory type drives the interpretation of
+     -- the GEP arguments.
      case mt of
        -- Vector base case, with as many lanes as there are input pointers
-       VecType n (PtrType baseSymType)
-         | Right baseMemType <- asMemType baseSymType
+       VecType n vmt
+         | isPointerMemType vmt
          , Some lanes <- mkNatRepr n
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
              go lanes mt' (GEP_vector_base lanes base) elts
 
        -- Scalar base case with exactly 1 lane
-       PtrType baseSymType
-         | Right baseMemType <- asMemType baseSymType
+       _ | isPointerMemType mt
          ->  let mt' = ArrayType 0 baseMemType in
              go (knownNat @1) mt' (GEP_scalar_base base) elts
 
-       _ -> badGEP
+         | otherwise
+         ->  badGEP
  where
  badGEP :: m a
  badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy base elts) ]
@@ -411,10 +413,14 @@ transConstant' X86_FP80Type (L.ValFP80 ld) =
   return (LongDoubleConst ld)
 transConstant' (PtrType _) (L.ValSymbol s) =
   return (SymbolConst s 0)
+transConstant' PtrOpaqueType (L.ValSymbol s) =
+  return (SymbolConst s 0)
 transConstant' tp L.ValZeroInit =
   return (ZeroConst tp)
 transConstant' (PtrType stp) L.ValNull =
   return (ZeroConst (PtrType stp))
+transConstant' PtrOpaqueType L.ValNull =
+  return (ZeroConst PtrOpaqueType)
 transConstant' (VecType n tp) (L.ValVector _tp xs)
   | n == fromIntegral (length xs)
   = VectorConst tp <$> traverse (transConstant' tp) xs
@@ -925,6 +931,9 @@ evalBitCast _ _ (ZeroConst _) tgtT = return (ZeroConst tgtT)
 
 -- pointer casts always succeed
 evalBitCast _ (PtrType _) expr (PtrType _) = return expr
+evalBitCast _ (PtrType _) expr PtrOpaqueType = return expr
+evalBitCast _ PtrOpaqueType expr (PtrType _) = return expr
+evalBitCast _ PtrOpaqueType expr PtrOpaqueType = return expr
 
 -- casts between vectors of the same length can just be done pointwise
 evalBitCast expr (VecType n srcT) (VectorConst _ xs) (VecType n' tgtT)

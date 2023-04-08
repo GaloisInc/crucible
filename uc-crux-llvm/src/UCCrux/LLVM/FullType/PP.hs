@@ -48,6 +48,7 @@ ppFullTypeRepr =
   \case
     FTIntRepr width -> CruPP.ppIntType (natValue width :: Natural)
     FTPtrRepr ptRep -> CruPP.ppPtrType (ppPartTypeRepr ptRep)
+    FTPtrOpaqueRepr -> "ptr"
     FTFloatRepr HalfFloatRepr -> "half"
     FTFloatRepr SingleFloatRepr -> "float"
     FTFloatRepr DoubleFloatRepr -> "double"

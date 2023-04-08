@@ -46,6 +46,7 @@ toMemType dl =
   \case
     FTIntRepr natRepr -> IntType (natValue natRepr)
     FTPtrRepr ptRepr -> PtrType (toSymType dl ptRepr)
+    FTPtrOpaqueRepr -> PtrOpaqueType
     FTFloatRepr W4IFP.SingleFloatRepr -> FloatType
     FTFloatRepr W4IFP.DoubleFloatRepr -> DoubleType
     FTFloatRepr W4IFP.X86_80FloatRepr -> X86_FP80Type

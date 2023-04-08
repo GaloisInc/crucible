@@ -155,8 +155,12 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmLifetimeEndOverride
   , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "start" (knownNat @8))
   , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "end" (knownNat @8))
+  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload_opaque "start")
+  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload_opaque "end")
   , basic_llvm_override (LLVM.llvmInvariantStartOverride (knownNat @8))
+  , basic_llvm_override LLVM.llvmInvariantStartOverride_opaque
   , basic_llvm_override (LLVM.llvmInvariantEndOverride (knownNat @8))
+  , basic_llvm_override LLVM.llvmInvariantEndOverride_opaque
 
   , basic_llvm_override LLVM.llvmAssumeOverride
   , basic_llvm_override LLVM.llvmTrapOverride
@@ -164,18 +168,24 @@ declare_overrides =
 
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
+  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign_opaque
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64_noalign
+  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64_noalign_opaque
 
   , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32
   , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32_noalign
+  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32_noalign_opaque
   , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64
   , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64_noalign
+  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64_noalign_opaque
 
   , basic_llvm_override LLVM.llvmMemsetOverride_8_32
   , basic_llvm_override LLVM.llvmMemsetOverride_8_32_noalign
+  , basic_llvm_override LLVM.llvmMemsetOverride_8_32_noalign_opaque
   , basic_llvm_override LLVM.llvmMemsetOverride_8_64
   , basic_llvm_override LLVM.llvmMemsetOverride_8_64_noalign
+  , basic_llvm_override LLVM.llvmMemsetOverride_8_64_noalign_opaque
 
   , basic_llvm_override LLVM.llvmObjectsizeOverride_32
   , basic_llvm_override LLVM.llvmObjectsizeOverride_64
@@ -186,7 +196,11 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null_dynamic
   , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null_dynamic
 
+  , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null_dynamic_opaque
+  , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null_dynamic_opaque
+
   , basic_llvm_override LLVM.llvmPrefetchOverride
+  , basic_llvm_override LLVM.llvmPrefetchOverride_opaque
   , basic_llvm_override LLVM.llvmPrefetchOverride_preLLVM10
 
   , basic_llvm_override LLVM.llvmStacksave

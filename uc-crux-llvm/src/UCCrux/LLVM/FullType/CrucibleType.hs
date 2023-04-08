@@ -80,6 +80,7 @@ toCrucibleType proxy =
   \case
     FTIntRepr natRepr -> LLVMMem.LLVMPointerRepr natRepr
     FTPtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
+    FTPtrOpaqueRepr -> LLVMMem.LLVMPointerRepr ?ptrWidth
     FTVoidFuncPtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
     FTNonVoidFuncPtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
     FTOpaquePtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth

@@ -373,6 +373,7 @@ minimal =
     FTIntRepr {} -> ShapeInt c
     FTFloatRepr {} -> ShapeFloat c
     FTPtrRepr {} -> ShapePtr c ShapeUnallocated
+    FTPtrOpaqueRepr -> error "TODO RGS: Figure out what to do here"
     FTVoidFuncPtrRepr {} -> ShapeFuncPtr c
     FTNonVoidFuncPtrRepr {} -> ShapeFuncPtr c
     FTOpaquePtrRepr {} -> ShapeOpaquePtr c
