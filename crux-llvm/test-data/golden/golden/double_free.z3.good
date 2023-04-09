@@ -1,6 +1,6 @@
 ????
 [Crux] Found counterexample for verification goal
-[Crux]   test-data/golden/golden/double_free.c:16:3: error: in main
+[Crux]   test-data/golden/golden/double_free.c:17:3: error: in main
 [Crux]   Undefined behavior encountered
 [Crux]   Details:
 [Crux]     `free` called on a pointer to already-freed memory
