@@ -51,7 +51,6 @@ library
                      , mtl >= 2.1
                      , data-default-class
                      , what4 >= 0.4
-                     , transformers >= 0.3
                      , crux
                      , vector >= 0.7
                      , bv-sized

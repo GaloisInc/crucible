@@ -60,30 +60,7 @@ executable crux-mir
 
   build-depends:
                 base >= 4.7 && < 5,
-                crux-mir,
-                aeson,
-                bytestring,
-                text,
-                unordered-containers,
-                crucible,
-                parameterized-utils,
-                containers,
-                lens,
-                vector,
-                mtl,
-                regex-compat,
-                regex-base,
-                transformers,
-                filepath,
-                directory,
-                what4,
-                process,
-                tasty            >= 0.10,
-                tasty-hunit      >= 0.10,
-                tasty-quickcheck >= 0.8,
-                tasty-golden     >= 2.3,
-                parsec,
-                crux
+                crux-mir
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -101,24 +78,16 @@ test-suite test
 
   build-depends:
                 base             >= 4.7,
-                containers,
-                deepseq,
                 directory,
                 filepath,
-                lens,
-                lumberjack,
-                parsec,
                 process,
                 crux-mir,
-                QuickCheck,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
-                tasty-quickcheck >= 0.8,
                 tasty-golden     >= 2.3,
                 tasty-expected-failure >= 0.11,
                 temporary        >= 1.3,
                 crux,
-                crucible,
                 config-schema,
                 config-value,
                 bytestring,
