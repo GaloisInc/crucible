@@ -6,5 +6,4 @@ packages:
   crux-mir/
 
 optional-packages:
-  dependencies/aig/
   dependencies/what4/what4/

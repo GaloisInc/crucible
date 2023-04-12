@@ -30,7 +30,6 @@ library
   hs-source-dirs: src
   -- other-extensions:
   build-depends:       base >=4.7 && < 5
-                     , bv-sized
                      , containers
                      , crucible
                      , crucible-syntax
@@ -39,13 +38,9 @@ library
                      , lens
                      , megaparsec
                      , mtl
-                     , optparse-applicative
                      , parameterized-utils
-                     , prettyprinter
-                     , random
                      , simple-get-opt < 0.5
                      , text
-                     , transformers
                      , vector
                      , what4
   -- hs-source-dirs:
@@ -58,16 +53,8 @@ executable cruces
   autogen-modules:     Paths_crucible_concurrency
   -- other-extensions:
   build-depends:       base >=4.7 && < 5
-                     , crucible
                      , crucible-concurrency
-                     , crucible-syntax
                      , crux
-                     , lens
-                     , optparse-simple
-                     , parameterized-utils
-                     , prettyprinter
-                     , text
-                     , what4
   -- hs-source-dirs:
   default-language:    Haskell2010
   GHC-options: -Wall
