@@ -21,7 +21,6 @@ packages:
   uc-crux-llvm/
 
 optional-packages:
-  dependencies/aig/
   dependencies/golang/
   dependencies/jvm-parser/
   dependencies/haskell-wasm/

@@ -23,7 +23,6 @@ library
     base >= 4 && < 5,
     aeson < 2.2,
     aeson-typescript,
-    aig,
     array,
     async,
     attoparsec,

@@ -20,7 +20,6 @@ executable crucible-jvm
   build-depends:
     base >= 4 && < 5,
     bv-sized >= 1.0.0,
-    aig,
     array,
     containers,
     crucible,
@@ -53,7 +52,6 @@ library
 
   build-depends:
     base >= 4.13 && < 5,
-    aig,
     array,
     base16-bytestring >= 0.1 && < 1.1,
     bv-sized >= 1.0.0,

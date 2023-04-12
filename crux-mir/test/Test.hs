@@ -28,8 +28,6 @@ import qualified Mir.Language as Mir
 import qualified Crux as Crux
 import qualified Crux.Config.Common as Crux
 
-import qualified Data.AIG.Interface as AIG
-
 import qualified Config
 import qualified Config.Schema as Config
 
@@ -193,10 +191,6 @@ suite = do
 
 
 
-
--- For newSAWCoreBackend
-proxy :: AIG.Proxy AIG.BasicLit AIG.BasicGraph
-proxy = AIG.basicProxy
 
 -- | Compile using 'rustc' and run executable
 compileAndRun :: FilePath -> String -> IO (Maybe String)
