@@ -7,6 +7,7 @@ use core::mem::{self, ManuallyDrop, MaybeUninit, SizedTypeProperties};
 use core::ops::Drop;
 use core::ptr::{self, NonNull, Unique};
 use core::slice;
+use crucible;
 
 #[cfg(not(no_global_oom_handling))]
 use crate::alloc::handle_alloc_error;
@@ -171,23 +172,10 @@ impl<T, A: Allocator> RawVec<T, A> {
         if T::IS_ZST || capacity == 0 {
             Self::new_in(alloc)
         } else {
-            // We avoid `unwrap_or_else` here because it bloats the amount of
-            // LLVM IR generated.
-            let layout = match Layout::array::<T>(capacity) {
-                Ok(layout) => layout,
-                Err(_) => capacity_overflow(),
-            };
-            match alloc_guard(layout.size()) {
-                Ok(_) => {}
-                Err(_) => capacity_overflow(),
-            }
-            let result = match init {
-                AllocInit::Uninitialized => alloc.allocate(layout),
-                AllocInit::Zeroed => alloc.allocate_zeroed(layout),
-            };
-            let ptr = match result {
-                Ok(ptr) => ptr,
-                Err(_) => handle_alloc_error(layout),
+            let ptr = {
+            // NB: This ignores both the choice of allocator and the `init` argument
+                let ptr = crucible::alloc::allocate::<T>(capacity);
+                unsafe { NonNull::new_unchecked(ptr) }
             };
 
             // Allocators currently return a `NonNull<[u8]>` whose length
@@ -235,19 +223,6 @@ impl<T, A: Allocator> RawVec<T, A> {
     /// Returns a shared reference to the allocator backing this `RawVec`.
     pub fn allocator(&self) -> &A {
         &self.alloc
-    }
-
-    fn current_memory(&self) -> Option<(NonNull<u8>, Layout)> {
-        if T::IS_ZST || self.cap == 0 {
-            None
-        } else {
-            // We have an allocated chunk of memory, so we can bypass runtime
-            // checks to get our current layout.
-            unsafe {
-                let layout = Layout::array::<T>(self.cap).unwrap_unchecked();
-                Some((self.ptr.cast().into(), layout))
-            }
-        }
     }
 
     /// Ensures that the buffer contains at least enough space to hold `len +
@@ -394,11 +369,14 @@ impl<T, A: Allocator> RawVec<T, A> {
         let cap = cmp::max(self.cap * 2, required_cap);
         let cap = cmp::max(Self::MIN_NON_ZERO_CAP, cap);
 
-        let new_layout = Layout::array::<T>(cap);
-
-        // `finish_grow` is non-generic over `T`.
-        let ptr = finish_grow(new_layout, self.current_memory(), &mut self.alloc)?;
-        self.set_ptr_and_cap(ptr, cap);
+        if self.cap == 0 {
+            unsafe {
+                self.ptr = NonNull::new_unchecked(crucible::alloc::allocate::<T>(cap)).into();
+            }
+        } else {
+            crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), cap);
+            self.cap = cap;
+        }
         Ok(())
     }
 
@@ -413,11 +391,15 @@ impl<T, A: Allocator> RawVec<T, A> {
         }
 
         let cap = len.checked_add(additional).ok_or(CapacityOverflow)?;
-        let new_layout = Layout::array::<T>(cap);
 
-        // `finish_grow` is non-generic over `T`.
-        let ptr = finish_grow(new_layout, self.current_memory(), &mut self.alloc)?;
-        self.set_ptr_and_cap(ptr, cap);
+        if self.cap == 0 {
+            unsafe {
+                self.ptr = NonNull::new_unchecked(crucible::alloc::allocate::<T>(cap)).into();
+            }
+        } else {
+            crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), cap);
+            self.cap = cap;
+        }
         Ok(())
     }
 
@@ -425,59 +407,22 @@ impl<T, A: Allocator> RawVec<T, A> {
     fn shrink(&mut self, cap: usize) -> Result<(), TryReserveError> {
         assert!(cap <= self.capacity(), "Tried to shrink to a larger capacity");
 
-        let (ptr, layout) = if let Some(mem) = self.current_memory() { mem } else { return Ok(()) };
-
-        let ptr = unsafe {
-            // `Layout::array` cannot overflow here because it would have
-            // overflowed earlier when capacity was larger.
-            let new_layout = Layout::array::<T>(cap).unwrap_unchecked();
-            self.alloc
-                .shrink(ptr, layout, new_layout)
-                .map_err(|_| AllocError { layout: new_layout, non_exhaustive: () })?
-        };
-        self.set_ptr_and_cap(ptr, cap);
+        if self.cap == 0 {
+            unsafe {
+                self.ptr = NonNull::new_unchecked(crucible::alloc::allocate::<T>(cap)).into();
+            }
+        } else {
+            crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), cap);
+            self.cap = cap;
+        }
         Ok(())
     }
-}
-
-// This function is outside `RawVec` to minimize compile times. See the comment
-// above `RawVec::grow_amortized` for details. (The `A` parameter isn't
-// significant, because the number of different `A` types seen in practice is
-// much smaller than the number of `T` types.)
-#[inline(never)]
-fn finish_grow<A>(
-    new_layout: Result<Layout, LayoutError>,
-    current_memory: Option<(NonNull<u8>, Layout)>,
-    alloc: &mut A,
-) -> Result<NonNull<[u8]>, TryReserveError>
-where
-    A: Allocator,
-{
-    // Check for the error here to minimize the size of `RawVec::grow_*`.
-    let new_layout = new_layout.map_err(|_| CapacityOverflow)?;
-
-    alloc_guard(new_layout.size())?;
-
-    let memory = if let Some((ptr, old_layout)) = current_memory {
-        debug_assert_eq!(old_layout.align(), new_layout.align());
-        unsafe {
-            // The allocator checks for alignment equality
-            intrinsics::assume(old_layout.align() == new_layout.align());
-            alloc.grow(ptr, old_layout, new_layout)
-        }
-    } else {
-        alloc.allocate(new_layout)
-    };
-
-    memory.map_err(|_| AllocError { layout: new_layout, non_exhaustive: () }.into())
 }
 
 unsafe impl<#[may_dangle] T, A: Allocator> Drop for RawVec<T, A> {
     /// Frees the memory owned by the `RawVec` *without* trying to drop its contents.
     fn drop(&mut self) {
-        if let Some((ptr, layout)) = self.current_memory() {
-            unsafe { self.alloc.deallocate(ptr, layout) }
-        }
+        // Crucible currently doesn't provide a deallocate operation.
     }
 }
 
