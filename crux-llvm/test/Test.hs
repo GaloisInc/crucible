@@ -110,9 +110,14 @@ getClangVersion = do
   clangBin <- fromMaybe "clang" <$> lookupEnv "CLANG"
   let isVerLine = isInfixOf "clang version"
       dropLetter = dropWhile (all isLetter)
+      -- Remove any characters that give `versions` parsers a hard time, such
+      -- as tildes (cf. https://github.com/fosskers/versions/issues/62).
+      -- These have been observed in the wild (e.g., 12.0.0-3ubuntu1~20.04.5).
+      scrubProblemChars = filter (/= '~')
       getVer (Right inp) =
         -- example inp: "clang version 10.0.1"
-        head $ dropLetter $ words $ head $ filter isVerLine $ lines inp
+        scrubProblemChars $ head $ dropLetter $ words $
+        head $ filter isVerLine $ lines inp
       getVer (Left full) = full
   mkVC "clang" . getVer <$> readProcessVersion clangBin
 
