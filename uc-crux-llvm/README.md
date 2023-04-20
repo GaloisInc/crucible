@@ -129,7 +129,7 @@ Before running `uc-crux-llvm`, you'll need to install the following software:
 
 We recommend Yices 2.6.x, and Z3 4.8.x. Technically, only one of Yices or Z3 is
 required, and CVC4 will work, as well. However, in practice, having both tends
-to be convenient. Finally, LLVM versions from 3.6 through 10 are likely to work
+to be convenient. Finally, LLVM versions from 3.6 through 14 are likely to work
 well, and any failures with versions in that range should be considered
 [bugs](https://github.com/GaloisInc/crucible/issues).
 

@@ -212,10 +212,13 @@ jobs:
           LLVM_AS: "${{ github.workspace }}/llvm/bin/llvm-as"
           CLANG: "${{ github.workspace }}/llvm/bin/clang"
 
+        # We disable the crux-llvm test suite on macOS due to
+        # https://github.com/GaloisInc/crucible/issues/885 and
+        # https://github.com/GaloisInc/crucible/issues/999
       - shell: bash
         name: Test crux-llvm (macOS)
         run: .github/ci.sh test crux-llvm
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && false
         env:
           LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
           CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
