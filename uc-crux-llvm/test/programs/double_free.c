@@ -1,11 +1,11 @@
 #include <stdlib.h>
-void free_if_even(int *ptr, x) {
+void free_if_even(int *ptr, int x) {
   if (x % 2 == 0) {
     free(ptr);
   }
 }
 
-void free_if_multiple_of_three(int *ptr, x) {
+void free_if_multiple_of_three(int *ptr, int x) {
   if (x % 3 == 0) {
     free(ptr);
   }
