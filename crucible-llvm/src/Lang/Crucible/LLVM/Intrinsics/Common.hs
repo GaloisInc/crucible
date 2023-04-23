@@ -157,7 +157,7 @@ transformLLVMArgs fnName bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
                  pure (xs' Ctx.:> x')))
 transformLLVMArgs fnName _ _ _ =
   panic "Intrinsics.transformLLVMArgs"
-    [ "transformLLVMArgs: argument shape mismatch!" 
+    [ "transformLLVMArgs: argument shape mismatch!"
     , "in function: " ++ Text.unpack (functionName fnName)
     ]
 
