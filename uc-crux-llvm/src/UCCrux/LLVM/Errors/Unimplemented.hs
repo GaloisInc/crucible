@@ -32,6 +32,7 @@ data Unimplemented
   | OpaqueType
   | UnsupportedType
   | MetadataType
+  | PointerOpaqueType
   | GetHostNameNegativeSize
   | GetHostNameSmallSize
   | NonEmptyUnboundedSizeArrays
@@ -51,6 +52,7 @@ ppUnimplemented =
     OpaqueType -> "Opaque (undefined) types in globals or arguments"
     UnsupportedType -> "Unsupported types in globals or arguments"
     MetadataType -> "LLVM metadata types in globals or arguments"
+    PointerOpaqueType -> "Opaque pointer types in globals or arguments"
     GetHostNameNegativeSize -> "`gethostname` called with a negative length"
     GetHostNameSmallSize -> "`gethostname` called with a small length"
     NonEmptyUnboundedSizeArrays -> "Generating arrays with unbounded size"
