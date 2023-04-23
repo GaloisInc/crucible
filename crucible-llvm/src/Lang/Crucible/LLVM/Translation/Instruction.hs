@@ -155,9 +155,7 @@ instrResultType instr =
     L.CallBr (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
     L.CallBr ty _ _ _ _ -> throwError $ unwords ["unexpected non-function type in callbr:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
-    L.Load _tp x _ _ -> case L.typedType x of
-                   L.PtrTo ty -> liftMemType ty
-                   _ -> throwError $ unwords ["load through non-pointer type", show (L.typedType x)]
+    L.Load tp _ _ _ -> liftMemType tp
     L.ICmp _op tv _ -> do
       inpType <- liftMemType (L.typedType tv)
       case inpType of
@@ -214,9 +212,7 @@ instrResultType instr =
     L.LandingPad x _ _ _ -> liftMemType x
 
     -- LLVM Language Reference: "The original value at the location is returned."
-    L.AtomicRW _ _ x _ _ _ -> case L.typedType x of
-                   L.PtrTo ty -> liftMemType ty
-                   _ -> throwError $ unwords ["atomicrmw through non-pointer type", show (L.typedType x)]
+    L.AtomicRW _ _ _ v _ _ -> liftMemType (L.typedType v)
 
     L.CmpXchg _weak _volatile _ptr _old new _ _ _ ->
       do let dl = llvmDataLayout ?lc
@@ -1541,41 +1537,26 @@ generateInstr retType lab defSet instr assign_f k =
 
     -- We don't care if it's atomic, since the symbolic simulator is
     -- effectively single-threaded.
-    L.Load _tp ptr _atomic align -> do
-      tp'  <- liftMemType' (L.typedType ptr)
-      ptr' <- transValue tp' (L.typedValue ptr)
-      case tp' of
-        PtrType (MemType resTy) ->
-          llvmTypeAsRepr resTy $ \expectTy -> do
-            let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
-            let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
-            res <- callLoad resTy expectTy ptr' align'
-            assign_f res
-            k
-        _ ->
-          fail $ unwords ["Invalid argument type on load", show ptr]
+    L.Load tp ptr _atomic align -> do
+      resTy <- liftMemType' tp
+      ptr' <- transTypedValue ptr
+      llvmTypeAsRepr resTy $ \expectTy -> do
+        let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
+        let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
+        res <- callLoad resTy expectTy ptr' align'
+        assign_f res
+        k
 
     -- We don't care if it's atomic, since the symbolic simulator is
     -- effectively single-threaded.
     L.Store v ptr _atomic align -> do
-      tp'  <- liftMemType' (L.typedType ptr)
-      ptr' <- transValue tp' (L.typedValue ptr)
-      case tp' of
-        PtrType (MemType resTy) ->
-          do let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
-             let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
-
-             vTp <- liftMemType' (L.typedType v)
-             v' <- transValue vTp (L.typedValue v)
-             unless (resTy == vTp)
-                (fail $ unlines [ "Pointer type does not match value type in store instruction"
-                                , "Pointer type: " ++ show tp'
-                                , "Value type:   " ++ show vTp
-                                ])
-             callStore vTp ptr' v' align'
-             k
-        _ ->
-          fail $ unwords ["Invalid argument type on store", show ptr]
+      vTp <- liftMemType' (L.typedType v)
+      ptr' <- transTypedValue ptr
+      let a0 = memTypeAlign (llvmDataLayout ?lc) vTp
+      let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
+      v' <- transValue vTp (L.typedValue v)
+      callStore vTp ptr' v' align'
+      k
 
     -- NB We treat every GEP as though it has the "inbounds" flag set;
     --    thus, the calculation of out-of-bounds pointers results in
@@ -1701,47 +1682,44 @@ generateInstr retType lab defSet instr assign_f k =
     -- NB, the symbolic simulator is essentially single-threaded, so cmpxchg
     -- always succeeds if the expected value is found in memory.
     L.CmpXchg _weak _volatile ptr compareValue newValue _syncScope _syncOrderSuccess _syncOrderFail ->
-      do tp'  <- liftMemType' (L.typedType ptr)
-         ptr' <- transValue tp' (L.typedValue ptr)
-         case tp' of
-           PtrType (MemType resTy@(IntType _)) ->
-             llvmTypeAsRepr resTy $ \expectTy ->
-               do cmpVal <- transValue resTy (L.typedValue compareValue)
-                  newVal <- transValue resTy (L.typedValue newValue)
+      do resTy <- liftMemType' (L.typedType compareValue)
+         ptr' <- transTypedValue ptr
+         llvmTypeAsRepr resTy $ \expectTy ->
+           do cmpVal <- transValue resTy (L.typedValue compareValue)
+              newVal <- transValue resTy (L.typedValue newValue)
 
-                  let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
-                  oldVal <- callLoad resTy expectTy ptr' a0
-                  cmp <- scalarIntegerCompare L.Ieq oldVal cmpVal
-                  let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
-                                      (BitvectorAsPointerExpr knownNat
-                                         (App (BoolToBV knownNat cmp)))
-                  ifte_ cmp
-                    -- success case, write the new value
-                    (callStore resTy ptr' newVal a0)
-                    -- failure case, do nothing
-                    (return ())
-                  assign_f (StructExpr (Seq.fromList [(resTy,oldVal),(IntType 1,flag)]))
-                  k
-           _ -> fail $ unwords ["Invalid argument type on cmpxchg, expected pointer to integer type", show ptr]
+              let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
+              oldVal <- callLoad resTy expectTy ptr' a0
+              cmp <- scalarIntegerCompare L.Ieq oldVal cmpVal
+              let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
+                                  (BitvectorAsPointerExpr knownNat
+                                     (App (BoolToBV knownNat cmp)))
+              ifte_ cmp
+                -- success case, write the new value
+                (callStore resTy ptr' newVal a0)
+                -- failure case, do nothing
+                (return ())
+              assign_f (StructExpr (Seq.fromList [(resTy,oldVal),(IntType 1,flag)]))
+              k
 
     -- NB, the symbolic simulator is essentially single-threaded, so no special
     -- actions need to be taken to make operations atomic.  We simply execute
     -- their straightforward load/modify/store semantics.
     L.AtomicRW _volatile op ptr val _syncScope _ordering ->
-      do tp'  <- liftMemType' (L.typedType ptr)
-         ptr' <- transValue tp' (L.typedValue ptr)
-         case tp' of
-           PtrType (MemType valTy@(IntType _)) ->
-             llvmTypeAsRepr valTy $ \expectTy ->
-               do val' <- transValue valTy $ L.typedValue val
-                  let a0 = memTypeAlign (llvmDataLayout ?lc) valTy
-                  oldVal <- callLoad valTy expectTy ptr' a0
-                  newVal <- atomicRWOp op oldVal val'
-                  callStore valTy ptr' newVal a0
-                  assign_f oldVal
-                  k
-
-           _ -> fail $ unwords ["Invalid argument type on atomicrw, expected pointer to integer type", show ptr]
+      do valTy <- liftMemType' (L.typedType val)
+         ptr' <- transTypedValue ptr
+         case valTy of
+           IntType _ -> pure ()
+           _ -> fail $ unwords
+             ["Invalid argument type on atomicrw, expected integer type", show ptr]
+         llvmTypeAsRepr valTy $ \expectTy ->
+           do val' <- transValue valTy $ L.typedValue val
+              let a0 = memTypeAlign (llvmDataLayout ?lc) valTy
+              oldVal <- callLoad valTy expectTy ptr' a0
+              newVal <- atomicRWOp op oldVal val'
+              callStore valTy ptr' newVal a0
+              assign_f oldVal
+              k
 
     -- We translate `freeze` instructions by simply passing the argument value
     -- through unchanged. This doesn't quite adhere to LLVM's own semantics for

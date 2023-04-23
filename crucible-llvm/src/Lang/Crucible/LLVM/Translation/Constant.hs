@@ -161,26 +161,28 @@ translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
 translateGEP inbounds baseTy base elts =
-  do mt <- liftMemType (L.typedType base)
+  do baseMemType <- liftMemType baseTy
+     mt <- liftMemType (L.typedType base)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
-     -- types), and the pointed-to type must be representable as a memory type.
-     -- The resulting memory type drives the interpretation of the GEP arguments.
+     -- types), and the base type used for calculations must be representable
+     -- as a memory type. The resulting memory type drives the interpretation of
+     -- the GEP arguments.
      case mt of
        -- Vector base case, with as many lanes as there are input pointers
-       VecType n (PtrType baseSymType)
-         | Right baseMemType <- asMemType baseSymType
+       VecType n vmt
+         | isPointerMemType vmt
          , Some lanes <- mkNatRepr n
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
              go lanes mt' (GEP_vector_base lanes base) elts
 
        -- Scalar base case with exactly 1 lane
-       PtrType baseSymType
-         | Right baseMemType <- asMemType baseSymType
+       _ | isPointerMemType mt
          ->  let mt' = ArrayType 0 baseMemType in
              go (knownNat @1) mt' (GEP_scalar_base base) elts
 
-       _ -> badGEP
+         | otherwise
+         -> badGEP
  where
  badGEP :: m a
  badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy base elts) ]
