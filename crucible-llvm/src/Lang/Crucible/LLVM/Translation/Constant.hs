@@ -411,10 +411,14 @@ transConstant' X86_FP80Type (L.ValFP80 ld) =
   return (LongDoubleConst ld)
 transConstant' (PtrType _) (L.ValSymbol s) =
   return (SymbolConst s 0)
+transConstant' PtrOpaqueType (L.ValSymbol s) =
+  return (SymbolConst s 0)
 transConstant' tp L.ValZeroInit =
   return (ZeroConst tp)
 transConstant' (PtrType stp) L.ValNull =
   return (ZeroConst (PtrType stp))
+transConstant' PtrOpaqueType L.ValNull =
+  return (ZeroConst PtrOpaqueType)
 transConstant' (VecType n tp) (L.ValVector _tp xs)
   | n == fromIntegral (length xs)
   = VectorConst tp <$> traverse (transConstant' tp) xs
@@ -925,6 +929,9 @@ evalBitCast _ _ (ZeroConst _) tgtT = return (ZeroConst tgtT)
 
 -- pointer casts always succeed
 evalBitCast _ (PtrType _) expr (PtrType _) = return expr
+evalBitCast _ (PtrType _) expr PtrOpaqueType = return expr
+evalBitCast _ PtrOpaqueType expr (PtrType _) = return expr
+evalBitCast _ PtrOpaqueType expr PtrOpaqueType = return expr
 
 -- casts between vectors of the same length can just be done pointwise
 evalBitCast expr (VecType n srcT) (VectorConst _ xs) (VecType n' tgtT)

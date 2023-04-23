@@ -702,6 +702,9 @@ bitCast _ (UndefExpr _) tgtT = return (UndefExpr tgtT)
 
 -- pointer casts always succeed
 bitCast (PtrType _) expr (PtrType _) = return expr
+bitCast (PtrType _) expr PtrOpaqueType = return expr
+bitCast PtrOpaqueType expr (PtrType _) = return expr
+bitCast PtrOpaqueType expr PtrOpaqueType = return expr
 
 -- casts between vectors of the same length can just be done pointwise
 bitCast (VecType n srcT) (explodeVector n -> Just xs) (VecType n' tgtT)
