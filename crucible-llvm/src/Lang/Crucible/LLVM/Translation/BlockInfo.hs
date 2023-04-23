@@ -239,7 +239,7 @@ instrUse from i bim = Set.unions $ case i of
   L.AtomicRW _vol _op p v _s _o -> [useTypedVal p, useTypedVal v]
   L.ICmp _op x y -> [useTypedVal x, useVal y]
   L.FCmp _op x y -> [useTypedVal x, useVal y]
-  L.GEP _ib base args -> useTypedVal base : map useTypedVal args
+  L.GEP _ib _tp base args -> useTypedVal base : map useTypedVal args
   L.Select c x y -> [ useTypedVal c, useTypedVal x, useVal y ]
   L.ExtractValue x _ixs -> [useTypedVal x]
   L.InsertValue x y _ixs -> [useTypedVal x, useTypedVal y]
