@@ -1962,13 +1962,17 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
                  , "llvm.dbg.addr"
                  , "llvm.dbg.value"
                  , "llvm.lifetime.start"
+                 , "llvm.lifetime.start.p0"
                  , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"
+                 , "llvm.lifetime.end.p0"
                  , "llvm.lifetime.end.p0i8"
                  , "llvm.invariant.start"
                  , "llvm.invariant.start.p0i8"
+                 , "llvm.invariant.start.p0"
                  , "llvm.invariant.end"
                  , "llvm.invariant.end.p0i8"
+                 , "llvm.invariant.end.p0"
                  ] = return ()
 
      | L.ValSymbol (L.Symbol nm) <- fn
