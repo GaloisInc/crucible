@@ -232,7 +232,7 @@ instrUse from i bim = Set.unions $ case i of
       map useTypedVal args
   L.Alloca _tp Nothing  _align -> []
   L.Alloca _tp (Just x) _align -> [useTypedVal x]
-  L.Load p _ord _align -> [useTypedVal p]
+  L.Load _tp p _ord _align -> [useTypedVal p]
   L.Store p v _ord _align -> [useTypedVal p, useTypedVal v]
   L.Fence{} -> []
   L.CmpXchg _weak _vol p v1 v2 _s _o1 _o2 -> map useTypedVal [p,v1,v2]
