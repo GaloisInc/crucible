@@ -19,3 +19,7 @@ identify all of the code that was changed in each patch.
   built-in Crucible allocation functions (e.g., `crucible::alloc::allocate`).
   We also make sure to avoid the `Layout::array` function, which has a
   particularly tricky use of `transmute` that we do not currently support.
+
+* Reimplement `core::fmt` using `crucible::any::Any` (last applied: May 2, 2023)
+
+  TODO: Describe why this is necessary
