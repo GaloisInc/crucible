@@ -64,6 +64,7 @@ import qualified Data.Set as Set
 import Data.STRef
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Traversable as Trav
 import qualified Data.Vector as V
 import Data.String (fromString)
 import Numeric
@@ -131,9 +132,6 @@ eBVLit w i = E.BVLit w (BV.mkBV w i)
 --------------------------------------------------------------------------------------
 -- ** Expressions
 
-u8ToBV8 :: ConstVal -> R.Expr MIR s (C.BVType 8)
-u8ToBV8 (ConstInt (U8 c)) = R.App (eBVLit knownRepr c)
-u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 -- Expressions: variables and constants
 --
 
@@ -173,10 +171,15 @@ transConstVal _ty (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
             knownRepr
             (Ctx.Empty Ctx.:> ref Ctx.:> len)
     return $ MirExp (MirSliceRepr u8Repr) struct
-transConstVal _ty (Some (MirVectorRepr w)) (M.ConstArray arr)
-      | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
-      = do let bytes = V.fromList (map u8ToBV8 arr)
-           MirExp (MirVectorRepr w) <$> mirVector_fromVector w (R.App $ E.VectorLit w bytes)
+transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) = do
+    arr' <- Trav.for arr $ \e -> do
+        MirExp tpr' e' <- transConstVal ty (Some tpr) e
+        Refl <- testEqualityOrFail tpr tpr' $
+            "transConstVal (ConstArray): returned wrong type: expected " ++
+            show tpr ++ ", got " ++ show tpr'
+        pure e'
+    vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList arr'
+    return $ MirExp (MirVectorRepr tpr) vec
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ eBVLit w i)
