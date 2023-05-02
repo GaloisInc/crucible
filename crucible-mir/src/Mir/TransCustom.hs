@@ -221,14 +221,14 @@ panicking_panicking = (["std", "panicking", "panicking"], \_ -> Just $ CustomOp 
 -- Methods for crucible::vector::Vector<T> (which has custom representation)
 
 vector_new :: (ExplodedDefId, CustomRHS)
-vector_new = ( ["crucible","vector","{{impl}}", "new"], ) $ \substs -> case substs of
+vector_new = ( ["crucible","vector","{impl}", "new"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ -> do
         Some tpr <- tyToReprM t
         return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorLit tpr V.empty)
     _ -> Nothing
 
 vector_replicate :: (ExplodedDefId, CustomRHS)
-vector_replicate = ( ["crucible","vector","{{impl}}", "replicate"], ) $ \substs -> case substs of
+vector_replicate = ( ["crucible","vector","{impl}", "replicate"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp tpr eVal, MirExp UsizeRepr eLen] -> do
             let eLenNat = R.App $ usizeToNat eLen
@@ -237,7 +237,7 @@ vector_replicate = ( ["crucible","vector","{{impl}}", "replicate"], ) $ \substs 
     _ -> Nothing
 
 vector_len :: (ExplodedDefId, CustomRHS)
-vector_len = ( ["crucible","vector","{{impl}}", "len"], ) $ \substs -> case substs of
+vector_len = ( ["crucible","vector","{impl}", "len"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirReferenceRepr (C.VectorRepr tpr)) eRef] -> do
             e <- readMirRef (C.VectorRepr tpr) eRef
@@ -246,7 +246,7 @@ vector_len = ( ["crucible","vector","{{impl}}", "len"], ) $ \substs -> case subs
     _ -> Nothing
 
 vector_push :: (ExplodedDefId, CustomRHS)
-vector_push = ( ["crucible","vector","{{impl}}", "push"], ) $ \substs -> case substs of
+vector_push = ( ["crucible","vector","{impl}", "push"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
           | Just Refl <- testEquality tpr tpr' -> do
@@ -256,7 +256,7 @@ vector_push = ( ["crucible","vector","{{impl}}", "push"], ) $ \substs -> case su
     _ -> Nothing
 
 vector_push_front :: (ExplodedDefId, CustomRHS)
-vector_push_front = ( ["crucible","vector","{{impl}}", "push_front"], ) $ \substs -> case substs of
+vector_push_front = ( ["crucible","vector","{impl}", "push_front"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
           | Just Refl <- testEquality tpr tpr' -> do
@@ -266,7 +266,7 @@ vector_push_front = ( ["crucible","vector","{{impl}}", "push_front"], ) $ \subst
     _ -> Nothing
 
 vector_pop :: (ExplodedDefId, CustomRHS)
-vector_pop = ( ["crucible","vector","{{impl}}", "pop"], ) $ \substs -> case substs of
+vector_pop = ( ["crucible","vector","{impl}", "pop"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
             meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
@@ -277,7 +277,7 @@ vector_pop = ( ["crucible","vector","{{impl}}", "pop"], ) $ \substs -> case subs
     _ -> Nothing
 
 vector_pop_front :: (ExplodedDefId, CustomRHS)
-vector_pop_front = ( ["crucible","vector","{{impl}}", "pop_front"], ) $ \substs -> case substs of
+vector_pop_front = ( ["crucible","vector","{impl}", "pop_front"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
             -- `Option<T>` must exist because it appears in the return type.
@@ -306,13 +306,13 @@ vector_as_slice_impl _ = Nothing
 -- `&Vector<T>` and `&[T]` use the same representations as `&mut Vector<T>` and
 -- `&mut [T]`, so we can use the same implementation.
 vector_as_slice :: (ExplodedDefId, CustomRHS)
-vector_as_slice = ( ["crucible","vector","{{impl}}", "as_slice"], vector_as_slice_impl )
+vector_as_slice = ( ["crucible","vector","{impl}", "as_slice"], vector_as_slice_impl )
 
 vector_as_mut_slice :: (ExplodedDefId, CustomRHS)
-vector_as_mut_slice = ( ["crucible","vector","{{impl}}", "as_mut_slice"], vector_as_slice_impl )
+vector_as_mut_slice = ( ["crucible","vector","{impl}", "as_mut_slice"], vector_as_slice_impl )
 
 vector_concat :: (ExplodedDefId, CustomRHS)
-vector_concat = ( ["crucible","vector","{{impl}}", "concat"], ) $ \substs -> case substs of
+vector_concat = ( ["crucible","vector","{impl}", "concat"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr1) e1, MirExp (C.VectorRepr tpr2) e2]
           | Just Refl <- testEquality tpr1 tpr2 -> do
@@ -321,7 +321,7 @@ vector_concat = ( ["crucible","vector","{{impl}}", "concat"], ) $ \substs -> cas
     _ -> Nothing
 
 vector_split_at :: (ExplodedDefId, CustomRHS)
-vector_split_at = ( ["crucible","vector","{{impl}}", "split_at"], ) $ \substs -> case substs of
+vector_split_at = ( ["crucible","vector","{impl}", "split_at"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp UsizeRepr eIdx] -> do
             let eIdxNat = R.App $ usizeToNat eIdx
@@ -332,7 +332,7 @@ vector_split_at = ( ["crucible","vector","{{impl}}", "split_at"], ) $ \substs ->
     _ -> Nothing
 
 vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
-vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], ) $ \substs -> case substs of
+vector_copy_from_slice = ( ["crucible","vector","{impl}", "copy_from_slice"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirSliceRepr tpr) e] -> do
             let ptr = getSlicePtr e
@@ -349,7 +349,7 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
 -- Methods for crucible::array::Array<T> (which has custom representation)
 
 array_zeroed :: (ExplodedDefId, CustomRHS)
-array_zeroed = ( ["crucible","array","{{impl}}", "zeroed"], ) $ \substs -> case substs of
+array_zeroed = ( ["crucible","array","{impl}", "zeroed"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ -> tyToReprM t >>= \(Some tpr) -> case tpr of
         C.BVRepr w -> do
             let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
@@ -359,7 +359,7 @@ array_zeroed = ( ["crucible","array","{{impl}}", "zeroed"], ) $ \substs -> case 
     _ -> Nothing
 
 array_lookup :: (ExplodedDefId, CustomRHS)
-array_lookup = ( ["crucible","array","{{impl}}", "lookup"], ) $ \substs -> case substs of
+array_lookup = ( ["crucible","array","{impl}", "lookup"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp (UsizeArrayRepr btr) eArr,
           MirExp UsizeRepr eIdx ] -> do
@@ -370,7 +370,7 @@ array_lookup = ( ["crucible","array","{{impl}}", "lookup"], ) $ \substs -> case 
     _ -> Nothing
 
 array_update :: (ExplodedDefId, CustomRHS)
-array_update = ( ["crucible","array","{{impl}}", "update"], ) $ \substs -> case substs of
+array_update = ( ["crucible","array","{impl}", "update"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp arrTpr@(UsizeArrayRepr btr) eArr,
           MirExp UsizeRepr eIdx,
@@ -396,10 +396,10 @@ array_as_slice_impl (Substs [t]) =
 array_as_slice_impl _ = Nothing
 
 array_as_slice :: (ExplodedDefId, CustomRHS)
-array_as_slice = ( ["crucible","array","{{impl}}", "as_slice"], array_as_slice_impl )
+array_as_slice = ( ["crucible","array","{impl}", "as_slice"], array_as_slice_impl )
 
 array_as_mut_slice :: (ExplodedDefId, CustomRHS)
-array_as_mut_slice = ( ["crucible","array","{{impl}}", "as_mut_slice"], array_as_slice_impl )
+array_as_mut_slice = ( ["crucible","array","{impl}", "as_mut_slice"], array_as_slice_impl )
 
 
 
@@ -409,7 +409,7 @@ array_as_mut_slice = ( ["crucible","array","{{impl}}", "as_mut_slice"], array_as
 -- Methods for crucible::any::Any (which has custom representation)
 
 any_new :: (ExplodedDefId, CustomRHS)
-any_new = ( ["core", "crucible", "any", "{{impl}}", "new"], \substs -> case substs of
+any_new = ( ["core", "crucible", "any", "{impl}", "new"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp tpr e] -> do
             return $ MirExp C.AnyRepr $ R.App $ E.PackAny tpr e
@@ -418,7 +418,7 @@ any_new = ( ["core", "crucible", "any", "{{impl}}", "new"], \substs -> case subs
     )
 
 any_downcast :: (ExplodedDefId, CustomRHS)
-any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs -> case substs of
+any_downcast = ( ["core", "crucible", "any", "{impl}", "downcast"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp C.AnyRepr e] -> do
             Some tpr <- tyToReprM t
@@ -444,9 +444,9 @@ ptr_offset_impl = \substs -> case substs of
     _ -> Nothing
 
 ptr_offset :: (ExplodedDefId, CustomRHS)
-ptr_offset = (["core", "ptr", "const_ptr", "{{impl}}", "offset"], ptr_offset_impl)
+ptr_offset = (["core", "ptr", "const_ptr", "{impl}", "offset"], ptr_offset_impl)
 ptr_offset_mut :: (ExplodedDefId, CustomRHS)
-ptr_offset_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "offset"], ptr_offset_impl)
+ptr_offset_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset"], ptr_offset_impl)
 
 ptr_wrapping_offset_impl :: CustomRHS
 ptr_wrapping_offset_impl = \substs -> case substs of
@@ -458,10 +458,10 @@ ptr_wrapping_offset_impl = \substs -> case substs of
 
 ptr_wrapping_offset :: (ExplodedDefId, CustomRHS)
 ptr_wrapping_offset =
-    (["core", "ptr", "const_ptr", "{{impl}}", "wrapping_offset"], ptr_wrapping_offset_impl)
+    (["core", "ptr", "const_ptr", "{impl}", "wrapping_offset"], ptr_wrapping_offset_impl)
 ptr_wrapping_offset_mut :: (ExplodedDefId, CustomRHS)
 ptr_wrapping_offset_mut =
-    (["core", "ptr", "mut_ptr", "{{impl}}", "wrapping_offset"], ptr_wrapping_offset_impl)
+    (["core", "ptr", "mut_ptr", "{impl}", "wrapping_offset"], ptr_wrapping_offset_impl)
 
 ptr_offset_from_impl :: CustomRHS
 ptr_offset_from_impl = \substs -> case substs of
@@ -477,9 +477,9 @@ ptr_offset_from_impl = \substs -> case substs of
     _ -> Nothing
 
 ptr_offset_from :: (ExplodedDefId, CustomRHS)
-ptr_offset_from = (["core", "ptr", "const_ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
+ptr_offset_from = (["core", "ptr", "const_ptr", "{impl}", "offset_from"], ptr_offset_from_impl)
 ptr_offset_from_mut :: (ExplodedDefId, CustomRHS)
-ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
+ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset_from"], ptr_offset_from_impl)
 
 ptr_compare_usize :: (ExplodedDefId, CustomRHS)
 ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
@@ -1002,7 +1002,7 @@ assert_inhabited = (["core", "intrinsics", "", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
-array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_from_slice_hook"],
+array_from_slice = (["core","array", "{impl}", "try_from", "crucible_array_from_slice_hook"],
     \substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
@@ -1042,7 +1042,7 @@ array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_fro
 
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
-  (["core","slice","{{impl}}","len", "crucible_slice_len_hook"]
+  (["core","slice","{impl}","len", "crucible_slice_len_hook"]
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops ->
      case ops of
        [MirExp (MirSliceRepr _) e] -> do
@@ -1068,12 +1068,12 @@ slice_index_usize_get_unchecked_impl _ = Nothing
 
 slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_index_usize_get_unchecked =
-    ( ["core","slice","{{impl}}","get_unchecked", "crucible_hook_usize"]
+    ( ["core","slice","{impl}","get_unchecked", "crucible_hook_usize"]
     , slice_index_usize_get_unchecked_impl )
 
 slice_index_usize_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_index_usize_get_unchecked_mut =
-    ( ["core","slice","{{impl}}","get_unchecked_mut", "crucible_hook_usize"]
+    ( ["core","slice","{impl}","get_unchecked_mut", "crucible_hook_usize"]
     , slice_index_usize_get_unchecked_impl )
 
 slice_index_range_get_unchecked_impl :: CustomRHS
@@ -1094,12 +1094,12 @@ slice_index_range_get_unchecked_impl _ = Nothing
 
 slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_index_range_get_unchecked =
-    ( ["core","slice","{{impl}}","get_unchecked", "crucible_hook_range"]
+    ( ["core","slice","{impl}","get_unchecked", "crucible_hook_range"]
     , slice_index_range_get_unchecked_impl )
 
 slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_index_range_get_unchecked_mut =
-    ( ["core","slice","{{impl}}","get_unchecked_mut", "crucible_hook_range"]
+    ( ["core","slice","{impl}","get_unchecked_mut", "crucible_hook_range"]
     , slice_index_range_get_unchecked_impl )
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -1286,7 +1286,7 @@ type BVUnOp = forall ext f w. (1 <= w)
         -> E.App ext f (C.BVType w)
 
 bv_unop :: Text -> BVUnOp -> (ExplodedDefId, CustomRHS)
-bv_unop name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [_sz]) ->
+bv_unop name op = (["crucible", "bitvector", "{impl}", name], \(Substs [_sz]) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) v1] ->
             return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1)
@@ -1300,7 +1300,7 @@ type BVBinOp = forall ext f w. (1 <= w)
         -> E.App ext f (C.BVType w)
 
 bv_binop :: Text -> BVBinOp -> (ExplodedDefId, CustomRHS)
-bv_binop name op = (["crucible", "bitvector", "{{impl}}", name], bv_binop_impl name op)
+bv_binop name op = (["crucible", "bitvector", "{impl}", name], bv_binop_impl name op)
 
 bv_binop_impl :: Text -> BVBinOp -> CustomRHS
 bv_binop_impl name op (Substs [_sz]) = Just $ CustomOp $ \_optys ops -> case ops of
@@ -1314,12 +1314,12 @@ bv_shift_op name op = (["crucible", "bitvector", name], bv_binop_impl name op)
 
 bv_overflowing_binop :: Text -> BinOp -> (ExplodedDefId, CustomRHS)
 bv_overflowing_binop name bop =
-    ( ["crucible", "bitvector", "{{impl}}", "overflowing_" <> name]
+    ( ["crucible", "bitvector", "{impl}", "overflowing_" <> name]
     , makeArithWithOverflow ("bv_overflowing_" ++ Text.unpack name) (Just False) bop
     )
 
 bv_eq :: (ExplodedDefId, CustomRHS)
-bv_eq = (["crucible", "bitvector", "{{impl}}", "eq"], \(Substs [_sz]) ->
+bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \(Substs [_sz]) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (MirReferenceRepr (C.BVRepr w1)) r1, MirExp (MirReferenceRepr (C.BVRepr w2)) r2]
           | Just Refl <- testEquality w1 w2 -> do
@@ -1329,7 +1329,7 @@ bv_eq = (["crucible", "bitvector", "{{impl}}", "eq"], \(Substs [_sz]) ->
         _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops)
 
 bv_lt :: (ExplodedDefId, CustomRHS)
-bv_lt = (["crucible", "bitvector", "{{impl}}", "lt"], \(Substs [_sz]) ->
+bv_lt = (["crucible", "bitvector", "{impl}", "lt"], \(Substs [_sz]) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (MirReferenceRepr (C.BVRepr w1)) r1, MirExp (MirReferenceRepr (C.BVRepr w2)) r2]
           | Just Refl <- testEquality w1 w2 -> do
@@ -1342,7 +1342,7 @@ type BVMakeLiteral = forall ext f w.
     (1 <= w) => NatRepr w -> E.App ext f (C.BVType w)
 
 bv_literal :: Text -> BVMakeLiteral -> (ExplodedDefId, CustomRHS)
-bv_literal name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [sz]) ->
+bv_literal name op = (["crucible", "bitvector", "{impl}", name], \(Substs [sz]) ->
     Just $ CustomOp $ \_optys _ops -> tyToReprM (CTyBv sz) >>= \(Some tpr) -> case tpr of
         C.BVRepr w ->
             return $ MirExp (C.BVRepr w) $ S.app $ op w
@@ -1351,7 +1351,7 @@ bv_literal name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [sz]
 
 bv_leading_zeros :: (ExplodedDefId, CustomRHS)
 bv_leading_zeros =
-    ( ["crucible", "bitvector", "{{impl}}", "leading_zeros"]
+    ( ["crucible", "bitvector", "{impl}", "leading_zeros"]
     , ctlz_impl "bv_leading_zeros" (Just $ Some $ knownNat @32) )
 
 
@@ -1542,7 +1542,7 @@ unlikely = (name, rhs)
 -- MaybeUninit
 
 maybe_uninit_uninit :: (ExplodedDefId, CustomRHS)
-maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{{impl}}", "uninit"],
+maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
     \substs -> case substs of
         Substs [t] -> Just $ CustomOp $ \_ _ -> do
             adt <- findAdtInst (M.textId "core::mem::maybe_uninit::MaybeUninit") (Substs [t])
