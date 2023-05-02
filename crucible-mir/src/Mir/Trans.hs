@@ -187,6 +187,11 @@ transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 transConstVal _ty (Some C.UnitRepr) (M.ConstTuple []) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
+transConstVal (M.TyTuple tys) (Some (C.StructRepr tprs)) (M.ConstTuple vals) = do
+    vals' <- zipWith3M
+               (\ty tpr val -> transConstVal ty tpr val)
+               tys (toListFC Some tprs) vals
+    return $ buildTuple vals'
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -240,6 +245,13 @@ transConstVal ty (Some (MirReferenceRepr tpr)) init = do
 transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 
+-- Taken from GHC's source code, which is BSD-3 licensed.
+zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]
+{-# INLINE zipWith3M #-}
+-- Inline so that fusion with 'zipWith3' and 'sequenceA' has a chance to fire.
+-- See Note [Inline @zipWithNM@ functions] in GHC.Utils.Monad in the
+-- GHC source code.
+zipWith3M f xs ys zs = sequenceA (zipWith3 f xs ys zs)
 
 typedVarInfo :: HasCallStack => Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
 typedVarInfo name tpr = do
