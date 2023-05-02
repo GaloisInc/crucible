@@ -69,7 +69,7 @@ trait GenericRadix: Sized {
         // characters for a base 2 number.
         let zero = T::zero();
         let is_nonnegative = x >= zero;
-        let mut buf = [MaybeUninit::<u8>::uninit(); 128];
+        let mut buf = [0; 128];
         let mut curr = buf.len();
         let base = T::from_u8(Self::BASE);
         if is_nonnegative {
@@ -78,7 +78,7 @@ trait GenericRadix: Sized {
             for byte in buf.iter_mut().rev() {
                 let n = x % base; // Get the current place value.
                 x = x / base; // Deaccumulate the number.
-                byte.write(Self::digit(n.to_u8())); // Store the digit in the buffer.
+                *byte = Self::digit(n.to_u8()); // Store the digit in the buffer.
                 curr -= 1;
                 if x == zero {
                     // No more digits left to accumulate.
@@ -90,7 +90,7 @@ trait GenericRadix: Sized {
             for byte in buf.iter_mut().rev() {
                 let n = zero - (x % base); // Get the current place value.
                 x = x / base; // Deaccumulate the number.
-                byte.write(Self::digit(n.to_u8())); // Store the digit in the buffer.
+                *byte = Self::digit(n.to_u8()); // Store the digit in the buffer.
                 curr -= 1;
                 if x == zero {
                     // No more digits left to accumulate.
@@ -102,10 +102,7 @@ trait GenericRadix: Sized {
         // SAFETY: The only chars in `buf` are created by `Self::digit` which are assumed to be
         // valid UTF-8
         let buf = unsafe {
-            str::from_utf8_unchecked(slice::from_raw_parts(
-                MaybeUninit::slice_as_ptr(buf),
-                buf.len(),
-            ))
+            str::from_utf8_unchecked(buf)
         };
         f.pad_integral(is_nonnegative, Self::PREFIX, buf)
     }
@@ -209,67 +206,29 @@ static DEC_DIGITS_LUT: &[u8; 200] = b"0001020304050607080910111213141516171819\
 macro_rules! impl_Display {
     ($($t:ident),* as $u:ident via $conv_fn:ident named $name:ident) => {
         fn $name(mut n: $u, is_nonnegative: bool, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            // 2^128 is about 3*10^38, so 39 gives an extra byte of space
-            let mut buf = [MaybeUninit::<u8>::uninit(); 39];
-            let mut curr = buf.len();
-            let buf_ptr = MaybeUninit::slice_as_mut_ptr(&mut buf);
-            let lut_ptr = DEC_DIGITS_LUT.as_ptr();
+            let mut buf = [0; 39];
+            let mut curr = buf.len() as usize;
+            let lut = DEC_DIGITS_LUT;
 
-            // SAFETY: Since `d1` and `d2` are always less than or equal to `198`, we
-            // can copy from `lut_ptr[d1..d1 + 1]` and `lut_ptr[d2..d2 + 1]`. To show
-            // that it's OK to copy into `buf_ptr`, notice that at the beginning
-            // `curr == buf.len() == 39 > log(n)` since `n < 2^128 < 10^39`, and at
-            // each step this is kept the same as `n` is divided. Since `n` is always
-            // non-negative, this means that `curr > 0` so `buf_ptr[curr..curr + 1]`
-            // is safe to access.
-            unsafe {
-                // need at least 16 bits for the 4-characters-at-a-time to work.
-                assert!(crate::mem::size_of::<$u>() >= 2);
-
-                // eagerly decode 4 characters at a time
-                while n >= 10000 {
-                    let rem = (n % 10000) as usize;
-                    n /= 10000;
-
-                    let d1 = (rem / 100) << 1;
-                    let d2 = (rem % 100) << 1;
-                    curr -= 4;
-
-                    // We are allowed to copy to `buf_ptr[curr..curr + 3]` here since
-                    // otherwise `curr < 0`. But then `n` was originally at least `10000^10`
-                    // which is `10^40 > 2^128 > n`.
-                    ptr::copy_nonoverlapping(lut_ptr.add(d1), buf_ptr.add(curr), 2);
-                    ptr::copy_nonoverlapping(lut_ptr.add(d2), buf_ptr.add(curr + 2), 2);
-                }
-
-                // if we reach here numbers are <= 9999, so at most 4 chars long
-                let mut n = n as usize; // possibly reduce 64bit math
-
-                // decode 2 more chars, if > 2 chars
-                if n >= 100 {
-                    let d1 = (n % 100) << 1;
-                    n /= 100;
-                    curr -= 2;
-                    ptr::copy_nonoverlapping(lut_ptr.add(d1), buf_ptr.add(curr), 2);
-                }
-
-                // decode last 1 or 2 chars
-                if n < 10 {
-                    curr -= 1;
-                    *buf_ptr.add(curr) = (n as u8) + b'0';
-                } else {
-                    let d1 = n << 1;
-                    curr -= 2;
-                    ptr::copy_nonoverlapping(lut_ptr.add(d1), buf_ptr.add(curr), 2);
-                }
+            // decode 2 more chars, if > 2 chars
+            while n >= 100 {
+                let d1 = ((n % 100) as usize) << 1;
+                n /= 100;
+                curr -= 2;
+                buf[curr .. curr + 2].copy_from_slice(&lut[d1 .. d1 + 2]);
             }
 
-            // SAFETY: `curr` > 0 (since we made `buf` large enough), and all the chars are valid
-            // UTF-8 since `DEC_DIGITS_LUT` is
-            let buf_slice = unsafe {
-                str::from_utf8_unchecked(
-                    slice::from_raw_parts(buf_ptr.add(curr), buf.len() - curr))
-            };
+            // decode last 1 or 2 chars
+            if n < 10 {
+                curr -= 1;
+                buf[curr] = (n as u8) + b'0';
+            } else {
+                let d1 = (n as usize) << 1;
+                curr -= 2;
+                buf[curr .. curr + 2].copy_from_slice(&lut[d1 .. d1 + 2]);
+            }
+
+            let buf_slice = unsafe { str::from_utf8_unchecked(&buf[curr..]) };
             f.pad_integral(is_nonnegative, "", buf_slice)
         }
 

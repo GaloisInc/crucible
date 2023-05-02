@@ -11,6 +11,7 @@ use crate::num::fmt as numfmt;
 use crate::ops::Deref;
 use crate::result;
 use crate::str;
+use crate::crucible::any::Any;
 
 mod builders;
 #[cfg(not(no_fp_fmt_parse))]
@@ -272,8 +273,18 @@ extern "C" {
 #[unstable(feature = "fmt_internals", reason = "internal to format_args!", issue = "none")]
 #[doc(hidden)]
 pub struct ArgumentV1<'a> {
-    value: &'a Opaque,
-    formatter: fn(&Opaque, &mut Formatter<'_>) -> Result,
+    value: Any,
+    formatter: Any,
+    dispatch: fn(Any, Any, &mut Formatter<'_>) -> Result,
+    _marker: PhantomData<&'a Opaque>,
+}
+
+fn dispatch<T>(value: Any, formatter: Any, fmt: &mut Formatter<'_>) -> Result {
+    unsafe {
+        let value = value.downcast::<&T>();
+        let formatter = formatter.downcast::<fn(&T, &mut Formatter<'_>) -> Result>();
+        formatter(value, fmt)
+    }
 }
 
 /// This struct represents the unsafety of constructing an `Arguments`.
@@ -336,15 +347,12 @@ impl<'a> ArgumentV1<'a> {
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!", issue = "none")]
     #[inline]
     pub fn new<'b, T>(x: &'b T, f: fn(&T, &mut Formatter<'_>) -> Result) -> ArgumentV1<'b> {
-        // SAFETY: `mem::transmute(x)` is safe because
-        //     1. `&'b T` keeps the lifetime it originated with `'b`
-        //              (so as to not have an unbounded lifetime)
-        //     2. `&'b T` and `&'b Opaque` have the same memory layout
-        //              (when `T` is `Sized`, as it is here)
-        // `mem::transmute(f)` is safe since `fn(&T, &mut Formatter<'_>) -> Result`
-        // and `fn(&Opaque, &mut Formatter<'_>) -> Result` have the same ABI
-        // (as long as `T` is `Sized`)
-        unsafe { ArgumentV1 { formatter: mem::transmute(f), value: mem::transmute(x) } }
+        ArgumentV1 {
+            value: Any::new(x),
+            formatter: Any::new(f),
+            dispatch: dispatch::<T>,
+            _marker: PhantomData,
+        }
     }
 
     arg_new!(new_display, Display);
@@ -360,21 +368,13 @@ impl<'a> ArgumentV1<'a> {
     #[doc(hidden)]
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!", issue = "none")]
     pub fn from_usize(x: &usize) -> ArgumentV1<'_> {
-        ArgumentV1::new(x, USIZE_MARKER)
+        Self::new(x, Display::fmt)
     }
 
     fn as_usize(&self) -> Option<usize> {
-        // We are type punning a bit here: USIZE_MARKER only takes an &usize but
-        // formatter takes an &Opaque. Rust understandably doesn't think we should compare
-        // the function pointers if they don't have the same signature, so we cast to
-        // usizes to tell it that we just want to compare addresses.
-        if self.formatter as usize == USIZE_MARKER as usize {
-            // SAFETY: The `formatter` field is only set to USIZE_MARKER if
-            // the value is a usize, so this is safe
-            Some(unsafe { *(self.value as *const _ as *const usize) })
-        } else {
-            None
-        }
+        // According to the comment on `USIZE_MARKER`, this method is only ever called on arguments
+        // that have been statically checked to be `usize`.
+        Some(unsafe { *self.value.downcast::<&usize>() })
     }
 }
 
@@ -1210,7 +1210,7 @@ pub fn write(output: &mut dyn Write, args: Arguments<'_>) -> Result {
                 if !piece.is_empty() {
                     formatter.buf.write_str(*piece)?;
                 }
-                (arg.formatter)(arg.value, &mut formatter)?;
+                (arg.dispatch)(arg.value, arg.formatter, &mut formatter)?;
                 idx += 1;
             }
         }
@@ -1258,7 +1258,7 @@ unsafe fn run(fmt: &mut Formatter<'_>, arg: &rt::v1::Argument, args: &[ArgumentV
     let value = unsafe { args.get_unchecked(arg.position) };
 
     // Then actually do some printing
-    (value.formatter)(value.value, fmt)
+    (value.dispatch)(value.value, value.formatter, fmt)
 }
 
 unsafe fn getcount(args: &[ArgumentV1<'_>], cnt: &rt::v1::Count) -> Option<usize> {
