@@ -1,0 +1,58 @@
+// Unit tests for `llvm.smin.*` and related intrinsics. Annoyingly, I don't know
+// of a way to make Clang compile `smin` and the related functions below into
+// the corresponding LLVM intrinsics, so some manual .ll edits are required.
+
+#include <crucible.h>
+#include <stdint.h>
+
+int32_t smin(int32_t x, int32_t y) {
+  return (x < y) ? x : y;
+}
+
+int32_t smax(int32_t x, int32_t y) {
+  return (x > y) ? x : y;
+}
+
+uint32_t umin(uint32_t x, uint32_t y) {
+  return (x < y) ? x : y;
+}
+
+uint32_t umax(uint32_t x, uint32_t y) {
+  return (x > y) ? x : y;
+}
+
+int main(void) {
+  // smin
+  check(smin(2, 3) == 2);
+  check(smin(3, 2) == 2);
+  int32_t smin1 = crucible_int32_t("smin1");
+  int32_t smin2 = crucible_int32_t("smin2");
+  assuming(smin1 <= smin2);
+  check(smin(smin1, smin2) == smin1);
+
+  // smax
+  check(smax(2, 3) == 3);
+  check(smax(3, 2) == 3);
+  int32_t smax1 = crucible_int32_t("smax1");
+  int32_t smax2 = crucible_int32_t("smax2");
+  assuming(smax1 >= smax2);
+  check(smax(smax1, smax2) == smax1);
+
+  // umin
+  check(umin(2, 3) == 2);
+  check(umin(3, 2) == 2);
+  uint32_t umin1 = crucible_uint32_t("umin1");
+  uint32_t umin2 = crucible_uint32_t("umin2");
+  assuming(umin1 <= umin2);
+  check(umin(umin1, umin2) == umin1);
+
+  // umax
+  check(umax(2, 3) == 3);
+  check(umax(3, 2) == 3);
+  uint32_t umax1 = crucible_uint32_t("umax1");
+  uint32_t umax2 = crucible_uint32_t("umax2");
+  assuming(umax1 >= umax2);
+  check(umax(umax1, umax2) == umax1);
+
+  return 0;
+}

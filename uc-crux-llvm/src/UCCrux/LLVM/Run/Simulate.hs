@@ -19,6 +19,7 @@ Stability    : provisional
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Run.Simulate
   ( UCCruxSimulationResult (..),

@@ -185,19 +185,14 @@ library
   build-depends:
     aeson,
     async,
-    base >= 4.8 && < 4.17,
+    base >= 4.8 && < 4.18,
     bv-sized,
     bytestring,
-    config-schema,
     containers,
     crucible,
     crucible-llvm,
     crux,
     crux-llvm,
-    -- crucible-llvm depends on 'extra', but this package uses just a few
-    -- functions from it; so if crucible-llvm ever drops that dependency, it
-    -- might be worth working around it here.
-    extra,
     directory,
     filepath,
     indexed-traversable,
@@ -210,7 +205,6 @@ library
     prettyprinter >= 1.7.0,
     scheduler,
     semigroupoids,
-    simple-get-opt < 0.5,
     template-haskell,
     text,
     vector,
@@ -223,7 +217,7 @@ executable uc-crux-llvm
   hs-source-dirs: exe
 
   build-depends:
-    base >= 4.8 && < 4.17,
+    base >= 4.8 && < 4.18,
     uc-crux-llvm
 
   ghc-options: -threaded
@@ -268,13 +262,11 @@ test-suite uc-crux-llvm-test
                 hedgehog,
                 lens,
                 llvm-pretty,
-                lumberjack,
                 parameterized-utils >= 2.1.4.0,
                 tasty >= 0.10,
                 tasty-hunit >= 0.10,
-                tasty-hedgehog >= 1.2 && < 1.3,
+                tasty-hedgehog >= 1.2 && < 1.5,
                 text,
-                time,
                 uc-crux-llvm,
                 vector,
                 what4

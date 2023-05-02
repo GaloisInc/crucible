@@ -17,6 +17,7 @@ See also user-facing docs in @doc/specs.md@.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Specs.Type
   ( SpecPreconds(..),

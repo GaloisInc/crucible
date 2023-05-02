@@ -153,6 +153,8 @@ tcType tp0 = do
       maybe badType (return . FunType) $
         FunDecl <$> mrt <*> sequence margs <*> pure va
     L.PtrTo tp ->  (MemType . PtrType) <$> tcType tp
+    L.PtrOpaque ->
+      error "crucible-llvm does not yet support opaque pointers in LLVM"
     L.Struct tpl       -> maybeApp StructType $ tcStruct False tpl
     L.PackedStruct tpl -> maybeApp StructType $ tcStruct True  tpl
     L.Vector n etp -> maybeApp (VecType (fromIntegral n)) $ tcMemType etp

@@ -6,6 +6,7 @@
 {-# Language PatternSynonyms #-}
 {-# Language ScopedTypeVariables #-}
 {-# Language TypeFamilies #-}
+{-# Language TypeOperators #-}
 {-# Language ViewPatterns #-}
 
 module Crux.Goal where
@@ -24,6 +25,8 @@ import qualified Data.Text as Text
 import           Data.Void
 import           Prettyprinter
 import           System.Exit (ExitCode(ExitSuccess))
+import           System.FilePath ((<.>), splitExtension)
+import           System.IO (Handle, IOMode(..), withFile)
 import qualified System.Timeout as ST
 
 import What4.Interface (notPred, getConfiguration, IsExprBuilder)
@@ -220,7 +223,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
           goal <- notPred sym (p ^. labeledPred)
 
           res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters
-                           (runOneSolver p assumptionsInScope assumptions goal)
+                           (runOneSolver p assumptionsInScope assumptions goal goalNumber)
           end goalNumber
           case res of
             Right Nothing -> do
@@ -246,12 +249,18 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
                  -> Assumptions sym
                  -> BoolExpr t
                  -> BoolExpr t
+                 -> Integer
                  -> WS.SolverAdapter st
                  -> IO ([ProgramLoc], ProofResult sym)
-    runOneSolver p assumptionsInScope assumptions goal adapter = do
-      -- NOTE: We don't currently provide a method for capturing the output
-      -- sent to offline solvers.  We would probably want a file per goal per adapter.
-      let logData = WS.defaultLogData
+    runOneSolver p assumptionsInScope assumptions goal goalNumber adapter =
+      -- Create a file to a single offline solver interaction, assuming the user
+      -- has selected this option. A single Crux session might invoke an offline
+      -- solver multiple times, so each file has unique suffixes to indicate the
+      -- goal number and which solver in particular was used to solve the goal.
+      -- (Recall that a Crux user can choose multiple offline solvers, so it is
+      -- important to indicate which solver was picked for each goal.)
+      withMaybeOfflineSolverOutputHandle (offlineSolverOutput opts) $ \mbLogHandle ->
+      let logData = WS.defaultLogData { WS.logHandle = mbLogHandle } in
       WS.solver_adapter_check_sat adapter (ctx ^. ctxSymInterface) logData [assumptions, goal] $ \satRes ->
         case satRes of
           Unsat _ -> do
@@ -271,6 +280,25 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             explain <- explainFailure Nothing p
             let locs = assumptionsTopLevelLocs assumptionsInScope
             return (locs, NotProved explain Nothing [])
+      where
+        -- Create a handle for a file based on the template. For instance, if
+        -- the template is @solver-output.smt2@, then create a file named
+        -- @solver-output-<goal number>-<solver name>.smt2@.
+        withOfflineSolverOutputHandle :: FilePath -> (Handle -> IO r) -> IO r
+        withOfflineSolverOutputHandle template k =
+          let (templateName, templateExt) = splitExtension template
+              fileName = templateName ++ "-" ++ show goalNumber
+                                      ++ "-" ++ WS.solver_adapter_name adapter
+                                     <.> templateExt in
+          withFile fileName WriteMode k
+
+        -- Lift @withOfflineSolverOutputHandle@ to a @Maybe FilePath@ argument.
+        withMaybeOfflineSolverOutputHandle ::
+          Maybe FilePath -> (Maybe Handle -> IO r) -> IO r
+        withMaybeOfflineSolverOutputHandle mbTemplate k =
+          case mbTemplate of
+            Just template -> withOfflineSolverOutputHandle template (k . Just)
+            Nothing       -> k Nothing
 
 evalModelFromEvents :: [CrucibleEvent GroundValueWrapper] -> ModelView
 evalModelFromEvents evs = ModelView (foldl f (modelVals emptyModelView) evs)

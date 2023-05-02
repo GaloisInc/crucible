@@ -127,13 +127,13 @@ llvmTestIngredients = includingOptions [ TO.Option (Proxy @(SomeSym LLVMAssemble
                       defaultIngredients
 
 cCube, lCube :: TS.CUBE
-cCube = TS.mkCUBE { TS.inputDir = "test/c"
+cCube = TS.mkCUBE { TS.inputDirs = ["test/c"]
                   , TS.rootName = "*.c"
                   , TS.separators = "."
                   , TS.expectedSuffix = "checks"
                   }
 
-lCube = cCube { TS.inputDir = "test/ll"
+lCube = cCube { TS.inputDirs = ["test/ll"]
               , TS.rootName = "*.ll"
               }
 

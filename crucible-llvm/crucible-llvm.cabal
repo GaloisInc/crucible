@@ -28,7 +28,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.17,
+    base >= 4.13 && < 4.18,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,
@@ -36,13 +36,7 @@ library
     crucible >= 0.5,
     crucible-symio,
     what4 >= 0.4.1,
-    deepseq,
-    directory,
-    ghc-prim,
     extra,
-    filepath,
-    hashable,
-    hashtables,
     lens,
     itanium-abi >= 0.1.1.1 && < 0.2,
     llvm-pretty >= 0.8 && < 0.12,
@@ -52,7 +46,6 @@ library
     text,
     template-haskell,
     transformers,
-    unordered-containers,
     utf8-string,
     vector
 
@@ -140,12 +133,11 @@ test-suite crucible-llvm-tests
     llvm-pretty,
     llvm-pretty-bc-parser,
     lens,
-    mtl,
     parameterized-utils,
     process,
     what4,
     tasty,
     tasty-quickcheck,
     tasty-hunit,
-    tasty-sugar >= 1.3 && < 1.4,
+    tasty-sugar >= 2.0 && < 2.2,
     vector

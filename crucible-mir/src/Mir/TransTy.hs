@@ -27,11 +27,8 @@ module Mir.TransTy where
 import Control.Monad
 import Control.Lens
 import Data.List (findIndices)
-import qualified Data.Maybe as Maybe
-import qualified Data.String as String
 import           Data.String (fromString)
 import qualified Data.Vector as V
-import qualified Data.Text as Text
 
 import GHC.Stack
 
@@ -39,7 +36,6 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Peano
 import Data.Parameterized.Some
 
 
@@ -55,7 +51,6 @@ import qualified Mir.DefId as M
 import qualified Mir.Mir as M
 import qualified Debug.Trace as Debug
 
-import           Mir.PP (fmt)
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef

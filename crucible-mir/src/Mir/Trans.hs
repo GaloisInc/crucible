@@ -54,6 +54,7 @@ import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import qualified Data.List as List
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
@@ -1787,8 +1788,8 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
      traceM $ "VarMap is: " ++ fmt (Map.keys vmm)
      traceM $ "Body is:\n" ++ fmt body
      traceM $ "-----------------------------------------------------------------------------"
-  blocks@(enter : _) <- case body of
-    M.MirBody _mvars blocks@(_enter : _) _ -> return blocks
+  blocks@(enter NE.:| _) <- case body of
+    M.MirBody _mvars (enter : blocksRest) _ -> return (enter NE.:| blocks)
     _ -> mirFail $ "expected body to be MirBody, but got " ++ show body
   -- actually translate all of the blocks of the function
   mapM_ (registerBlock rettype) blocks
@@ -1829,7 +1830,7 @@ transDefine :: forall h.
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transDefine colState fn@(M.Fn fname _ _ _) =
   case (Map.lookup fname (colState^.handleMap)) of
-    Nothing -> fail "bad handle!!"
+    Nothing -> error "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
       ftiRef <- newSTRef mempty
       let rettype  = FH.handleReturnType handle
@@ -1841,8 +1842,7 @@ transDefine colState fn@(M.Fn fname _ _ _) =
                 fti <- use transInfo
                 lift $ writeSTRef ftiRef fti
                 G.jump lbl
-      ng <- newSTNonceGenerator
-      (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng handle def
+      R.SomeCFG g <- defineFunctionNoAuxs handle def
       when ?printCrucible $ do
           traceM $ unwords [" =======", show fname, "======="]
           traceShowM $ pretty g
@@ -1950,8 +1950,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
 
     -- Construct the shim and return it
     withBuildShim implMirArg0 implArg0 implArgs' implRet implFH $ \shimDef -> do
-        ng <- newSTNonceGenerator
-        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng shimFH shimDef
+        R.SomeCFG g <- defineFunctionNoAuxs shimFH shimDef
         case SSA.toSSA g of
             Core.SomeCFG g_ssa -> return (vtableShimName vtableName fnName, Core.AnyCFG g_ssa)
 
@@ -2139,8 +2138,7 @@ transVirtCall colState intrName methName dynTraitName methIndex
         $ \eqVtsRetTy@Refl ->
 
     do
-        ng <- newSTNonceGenerator
-        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng methFH
+        R.SomeCFG g <- defineFunctionNoAuxs methFH
             (buildShim argTys retTy vtableTys vtableIdx)
         case SSA.toSSA g of
             Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
@@ -2311,7 +2309,7 @@ transStatics colState halloc = do
                      MirExp constty' constval' <- transConstVal constty (Some tpr) constval
                      case testEquality repr constty' of
                        Just Refl -> G.writeGlobal g constval'
-                       Nothing -> fail $ "BUG: invalid type for constant initializer " ++ fmt staticName
+                       Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
 
                |  Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
                     <- Map.lookup staticName hmap
@@ -2322,11 +2320,11 @@ transStatics colState halloc = do
                       val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
                       G.writeGlobal g val
 
-                    _ -> fail $ "BUG: invalid type for initializer function " ++ fmt staticName
+                    _ -> error $ "BUG: invalid type for initializer function " ++ fmt staticName
 
                |  otherwise
-               -> fail $ "BUG: cannot find initializer for static " ++ fmt staticName
-          Nothing -> fail $ "BUG: cannot find global for " ++ fmt staticName
+               -> error $ "BUG: cannot find initializer for static " ++ fmt staticName
+          Nothing -> error $ "BUG: cannot find global for " ++ fmt staticName
 
   -- TODO: make the name of the static initialization function configurable
   let initName = FN.functionNameFromText "static_initializer"
@@ -2337,8 +2335,7 @@ transStatics colState halloc = do
           f = do mapM_ initializeStatic (colState^.collection.statics)
                  return (R.App $ E.EmptyApp)
   init_cfg <- stToIO $ do
-    ng <- newSTNonceGenerator
-    (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng initHandle def
+    R.SomeCFG g <- defineFunctionNoAuxs initHandle def
     case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
 
@@ -2409,3 +2406,20 @@ ptrCopy tpr src dest len = do
 --  LocalWords:  tovec fromelem tmethsubst MirExp initializer callExp
 --  LocalWords:  mkTraitObject mkCustomTraitObject TyClosure
 --  LocalWords:  transTerminator transStatement
+
+------------------------------------------------------------------------------------------------
+
+-- | Define a CFG for a function, and check that there are no auxiliary
+-- functions generated alongside it. This is a common pattern used throughout
+-- this module.
+defineFunctionNoAuxs ::
+  FH.FnHandle init ret {- ^ Handle for the generated function -} ->
+  G.FunctionDef MIR t init ret (ST s) {- ^ Generator action and initial state -} ->
+  ST s (R.SomeCFG MIR init ret)
+defineFunctionNoAuxs handle def = do
+  ng <- newSTNonceGenerator
+  (mainCFG, auxCFGs) <- G.defineFunction PL.InternalPos ng handle def
+  unless (null auxCFGs) $
+    error $ "defineFunctionNoAuxs: Expected no auxiliary functions, received "
+         ++ show (length auxCFGs)
+  pure mainCFG

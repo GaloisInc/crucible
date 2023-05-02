@@ -1,0 +1,4 @@
+SKIP_TEST
+
+The LLVM bitcode for this test case requires the `freeze` instruction, which is
+only supported with LLVM 12 or later.

@@ -1,6 +1,3 @@
-[submodule "dependencies/aig"]
-	path = dependencies/aig
-	url = https://github.com/GaloisInc/aig.git
 [submodule "dependencies/golang"]
 	path = dependencies/golang
 	url = https://github.com/GaloisInc/golang.git

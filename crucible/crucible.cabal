@@ -39,24 +39,19 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.17,
+    base >= 4.13 && < 4.18,
     bimap,
     bv-sized >= 1.0.0 && < 1.1,
-    bytestring,
     containers >= 0.5.9.0,
     exceptions,
     fgl,
-    filepath,
-    ghc-prim,
     hashable,
-    hashtables,
     json >= 0.9 && < 1.0,
     lens,
     mtl,
     panic >= 0.3,
     parameterized-utils >= 1.0.8 && < 2.2,
     prettyprinter >= 1.7.0,
-    process,
     template-haskell,
     text,
     time >= 1.8 && < 2.0,
@@ -157,14 +152,8 @@ test-suite helper-tests
 --  other-modules:
   main-is: Main.hs
   build-depends: base,
-                 containers,
                  hspec >= 2.5,
-                 mtl,
                  crucible,
-                 what4,
-                 parameterized-utils,
                  panic >= 0.3,
                  tasty >= 0.10,
-                 tasty-hunit >= 0.9,
-                 tasty-quickcheck >= 0.8,
                  tasty-hspec >= 1.1

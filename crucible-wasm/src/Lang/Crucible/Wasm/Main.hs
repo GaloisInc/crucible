@@ -5,6 +5,7 @@
 module Lang.Crucible.Wasm.Main where
 
 import System.Exit
+import System.FilePath (takeExtension)
 import System.IO
 
 import qualified Data.ByteString.Lazy as LBS
@@ -68,18 +69,45 @@ simulateWasm cruxOpts _wasmOpts =
                          [fl] -> return fl
                          _ -> fail "crux-wasm requires one script file"
 
-                 script <-
-                   do escript <- Wasm.parseScript <$> LBS.readFile fl
-                      case escript of
-                        Left msg -> fail msg
-                        Right s -> return s
-
+                 script <- parseWasmFile fl
                  initSt <- setupWasmState bak defaultMemOptions script
 
                  return (Crux.RunnableState initSt)
         , Crux.onErrorHook = \_bak -> return (\_ _ -> return mempty)
         , Crux.resultHook = \_bak result -> return result
         }
+
+-- | Parse the contents of a WebAssembly file according to its file extension.
+parseWasmFile :: FilePath -> IO Wasm.Script
+parseWasmFile fl =
+  do escript <- parse <$> LBS.readFile fl
+     case escript of
+       Left msg -> fail msg
+       Right s -> return s
+  where
+    ext :: String
+    ext = takeExtension fl
+
+    -- Convert a module from a .wasm or .wat file into a script, which is the
+    -- format that crucible-wasm analyzes.
+    moduleToScript :: Wasm.Module -> Wasm.Script
+    moduleToScript m = [Wasm.ModuleDef (Wasm.RawModDef Nothing m)]
+
+    parse :: LBS.ByteString -> Either String Wasm.Script
+    parse flContents
+        -- .wasm is for binary files
+      | ext == ".wasm"
+      = moduleToScript <$> Wasm.decodeLazy flContents
+
+        -- .wat is for the textual syntax
+      | ext == ".wat"
+      = moduleToScript <$> Wasm.parse flContents
+
+        -- For everything else (e.g., .wast), we use the WebAssembly
+        -- script syntax, which is a strict superset of the textual syntax
+        -- in .wasm and .wat files.
+      | otherwise
+      = Wasm.parseScript flContents
 
 mainWithOptions ::
   Log.Logs msgs =>

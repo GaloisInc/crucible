@@ -19,6 +19,7 @@ See @doc/specs.md@.
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Overrides.Spec
   ( SpecUse(..),

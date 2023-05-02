@@ -15,19 +15,17 @@ import qualified Data.Aeson.Types  as Aeson
 import qualified Data.Map.Strict   as Map
 import qualified Data.Scientific   as Scientific
 
-import Data.Word (Word64, Word8)
-import Data.Bits
+import Data.Word (Word8)
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Text (Text,  unpack)
 import qualified Data.Text as T
 import qualified Data.Text.Read  as T
-import Data.List
 import qualified Data.Vector as V
-import Control.Lens((^.),(&),(.~))
+import Control.Lens((^.))
 
 #if MIN_VERSION_aeson(2,0,0)
-import Data.Aeson.Key (Key)
+import qualified Data.Aeson.Key as K (Key)
 import qualified Data.Aeson.KeyMap as KM
 #else
 import qualified Data.HashMap.Lazy as HML
@@ -35,8 +33,6 @@ import qualified Data.HashMap.Lazy as HML
 
 import Mir.DefId
 import Mir.Mir
-
-import Debug.Trace
 
 --------------------------------------------------------------------------------------
 -- | FromJSON instances
@@ -588,7 +584,7 @@ instance FromJSON Static where
 
 -- TODO: When the ecosystem widely uses aeson-2.0.0.0 or later, remove this CPP.
 #if MIN_VERSION_aeson(2,0,0)
-lookupKM :: Key -> KM.KeyMap Value -> Maybe Value
+lookupKM :: K.Key -> KM.KeyMap Value -> Maybe Value
 lookupKM = KM.lookup
 #else
 lookupKM :: Text -> HML.HashMap Text Value -> Maybe Value

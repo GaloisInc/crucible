@@ -18,22 +18,13 @@ library
   build-depends:
     base >= 4.9,
     bv-sized >= 1.0.0,
-    bytestring >= 0.10.2,
     containers,
     crucible >= 0.1,
-    executable-path,
-    directory,
-    filepath,
-    GraphSCC,
-    hashable,
-    hashtables,
     lens,
     mtl,
-    optparse-applicative,
     parameterized-utils >= 0.1.7,
     prettyprinter >= 1.7.0,
-    megaparsec >= 7.0 && < 9.1,
-    s-cargot,
+    megaparsec >= 7.0 && < 9.4,
     text,
     transformers,
     vector,
@@ -55,15 +46,9 @@ library
 
 executable crucibler
   build-depends:
-    base >= 4.9 && < 4.17,
-    crucible,
+    base >= 4.9 && < 4.18,
     crucible-syntax,
-    lens,
-    megaparsec,
-    mtl,
     optparse-applicative,
-    parameterized-utils >= 0.1.7,
-    s-cargot,
     text,
     what4
 

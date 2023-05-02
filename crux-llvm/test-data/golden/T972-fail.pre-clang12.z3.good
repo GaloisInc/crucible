@@ -1,0 +1,4 @@
+SKIP_TEST
+
+The generated LLVM bitcode for this test case requires the `callbr`
+instruction, which is only supported with LLVM 12 or later.

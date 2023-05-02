@@ -31,6 +31,7 @@ import           Control.Lens ((^.), _1, _2, _3)
 import qualified Codec.Binary.UTF8.Generic as UTF8
 import           Control.Monad.Reader
 import           Control.Monad.State
+import qualified Data.ByteString as BS
 import qualified Data.Vector as V
 import           System.IO
 import qualified GHC.Stack as GHC
@@ -568,7 +569,7 @@ callPrintf bak mvar
         ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps bak valist) ds) mem
         writeGlobal mvar mem'
         h <- printHandle <$> getContext
-        liftIO $ hPutStr h str
+        liftIO $ BS.hPutStr h str
         liftIO $ bvLit (backendGetSym bak) knownNat (BV.mkBV knownNat (toInteger n))
 
 printfOps :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr

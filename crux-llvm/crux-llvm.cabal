@@ -50,7 +50,7 @@ common bldflags
                -Wincomplete-uni-patterns
   ghc-prof-options: -O2
   default-language: Haskell2010
-  build-depends:    base >= 4.8 && < 4.17
+  build-depends:    base >= 4.8 && < 4.18
                   , bytestring
                   , containers
                   , crucible
@@ -67,8 +67,7 @@ common bldflags
 common testdefs
   build-depends: tasty            >= 0.10
                , tasty-hunit      >= 0.10
-               , tasty-sugar      >= 1.3 && < 1.4
-               , QuickCheck
+               , tasty-sugar      >= 2.0 && < 2.2
 
 
 library
@@ -94,11 +93,9 @@ library
     logict,
     llvm-pretty,
     llvm-pretty-bc-parser,
-    lumberjack >= 1.0 && < 1.1,
     mtl,
     parameterized-utils,
-    prettyprinter >= 1.7.0,
-    template-haskell
+    prettyprinter >= 1.7.0
 
 
 executable crux-llvm
@@ -107,7 +104,6 @@ executable crux-llvm
   hs-source-dirs: exe
 
   build-depends:
-    ansi-terminal,
     crux-llvm
 
   main-is: Main.hs
@@ -128,7 +124,6 @@ executable crux-llvm-for-ide
 
   build-depends:
     aeson,
-    ansi-terminal,
     crux-llvm,
     lumberjack,
     websockets >= 0.12
@@ -178,8 +173,5 @@ test-suite crux-llvm-test
 
   build-depends:
                 crux-llvm,
-                deepseq,
                 extra,
-                lumberjack,
-                parsec,
                 versions

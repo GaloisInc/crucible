@@ -42,11 +42,11 @@ software:
    * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
    * run `crux-llvm` in a new console to reload `.bash_profile`
 
-We have tested `crux-llvm` most heavily with GHC 8.8.4, GHC
-8.10.7, GHC 9.0.2, GHC 9.2.2, and `cabal` version 3.6.2.0. We recommend Yices 2.6.x, and Z3
+We have tested `crux-llvm` most heavily with GHC 8.10.7, GHC 9.2.7, GHC 9.4.4,
+and `cabal` version 3.8.1.0. We recommend Yices 2.6.x, and Z3
 4.8.x. Technically, only one of Yices or Z3 is required, and CVC4 is
 also supported. However, in practice, having both tends to be
-convenient. Finally, LLVM versions from 3.6 through 11 are likely to
+convenient. Finally, LLVM versions from 3.6 through 14 are likely to
 work well, and any failures with versions in that range should be
 [reported as bugs](https://github.com/GaloisInc/crucible/issues).
 
@@ -541,6 +541,36 @@ along with an expected output file. For most test cases, this expected output
 file will be named `<test-case>.z3.good`; this picks Z3 as a default solver to
 use when simulating the test case. There are also a handful of tests that
 require other solvers, e.g., `abd-test-file-32.cvc5.good`.
+
+Some of the test cases have slightly different output depending on which Clang
+version is used. These test cases will have accompanying
+`<test-case>.pre-clang<version>.<...>.good` files, where `pre-clang<version>`
+indicates that this test output is used for all Clang versions up to (but not
+including) `<version>`. Note that if a test case has multiple
+`pre-clang<version>` `.good` files, then the `<version>` that is closest to the
+current Clang version (without going over) is picked.
+
+To illustrate this with a concrete example, consider suppose we have a test
+case `foo` with the following `.good` files
+
+* `foo.pre-clang11.z3.good`
+* `foo.pre-clang13.z3.good`
+* `foo.z3.good`
+
+The following `.good` files would be used for the following Clang versions:
+
+* Clang 10: `foo.pre-clang11.z3.good`
+* Clang 11: `foo.pre-clang13.z3.good`
+* Clang 12: `foo.pre-clang13.z3.good`
+* Clang 13 or later: `foo.z3.good`
+
+There are some test cases that require a sufficiently recent Clang version to
+run. To indicate that a test should not be run on Clangs older than
+`<version>`, create a `pre-clang<version>` `.good` file with `SKIP_TEST` as the
+first line. The use of `SKIP_TEST` signals that this test should be skipped
+when using Clangs older than `<version>`. Note that the test suite will not
+read anything past `SKIP_TEST`, so the rest of the file can be used to document
+why the test is skipped on that particular configuration.
 
 # Acknowledgements
 

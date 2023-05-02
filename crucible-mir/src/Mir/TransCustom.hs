@@ -26,8 +26,6 @@ module Mir.TransCustom(customOps) where
 import Data.Bits (shift)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Maybe as Maybe
-import qualified Data.String as String
 import           Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -42,9 +40,7 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Peano
 import Data.Parameterized.Some
-import Data.Parameterized.WithRepr
 
 
 -- crucible
@@ -54,21 +50,15 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.CFG.Reg as R
 
-import qualified What4.ProgramLoc as PL
-
-
 
 import qualified Mir.DefId as M
 import           Mir.DefId (ExplodedDefId)
 import           Mir.Mir
 
-import           Mir.PP (fmt)
 import           Mir.Generator hiding (customOps)
 import           Mir.Intrinsics
 import           Mir.TransTy
 import           Mir.Trans
-
-import Debug.Trace
 
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -918,9 +908,13 @@ discriminant_value = (["core","intrinsics", "", "discriminant_value"],
         ([TyRef (TyAdt nm _ _) Immut], [eRef]) -> do
             adt <- findAdt nm
             e <- derefExp eRef >>= readPlace
-            MirExp IsizeRepr e' <- enumDiscriminant adt e
-            return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
-                isizeToBv knownRepr R.App e'
+            MirExp tp' e' <- enumDiscriminant adt e
+            case testEquality tp' IsizeRepr of
+              Just Refl ->
+                return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
+                    isizeToBv knownRepr R.App e'
+              Nothing ->
+                mirFail "unexpected non-isize discriminant"
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)

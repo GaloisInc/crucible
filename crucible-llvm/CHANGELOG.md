@@ -14,6 +14,9 @@
 * `Lang.Crucible.LLVM` : new functions `registerLazyModuleFn` and
   `registerLazyModule`, which delay the building of Crucible CFGs until
   the functions in question are actually called.
+* `executeDirectives` in `Lang.Crucible.LLVM.Printf` now returns a `ByteString`
+  instead of a `String` so that we can better preserve the exact bytes used in
+  string arguments, without applying a particular text encoding.
 
 
 

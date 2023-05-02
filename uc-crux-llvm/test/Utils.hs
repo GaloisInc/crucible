@@ -180,6 +180,7 @@ withOptions llvmModule file k =
         , Crux.forceOfflineGoalSolving = False
         , Crux.pathSatSolverOutput = Nothing
         , Crux.onlineSolverOutput = Nothing
+        , Crux.offlineSolverOutput = Nothing
         , Crux.yicesMCSat = False
         , Crux.floatMode = "default"
         , Crux.proofGoalsFailFast = False

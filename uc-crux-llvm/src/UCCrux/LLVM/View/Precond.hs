@@ -16,6 +16,7 @@ Stability        : provisional
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.View.Precond
   ( PrecondsView(..),

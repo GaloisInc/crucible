@@ -6,6 +6,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 {-
 Module       : UCCrux.LLVM.Postcondition.Apply
 Description  : Applying function postconditions to LLVM memory

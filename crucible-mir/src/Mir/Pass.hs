@@ -10,25 +10,18 @@ module Mir.Pass (
 ) where
 
 
-import Control.Monad.State.Lazy
-import Data.List
 import Control.Lens hiding (op,(|>))
-import qualified Data.Text as T
-import Data.Map(Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Maybe as Maybe
 
 import GHC.Stack
 
 import Mir.Mir
 import Mir.DefId
 import Mir.PP(fmt)
-import Mir.GenericOps
 
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
 
 import Debug.Trace
-import GHC.Stack
 
 type Pass = (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
 
@@ -41,7 +34,7 @@ x |> f = f x
 rewriteCollection :: Pass
 rewriteCollection col =
   col
-    |> passAllocateEnum 
+    |> passAllocateEnum
 
 --------------------------------------------------------------------------------------
 
@@ -52,7 +45,7 @@ passId = id
 
 passTrace :: String -> Pass
 passTrace str col =
-  if (?debug > 5) then 
+  if (?debug > 5) then
       ((trace $ "*********MIR collection " ++ str ++ "*******\n"
                 ++ fmt col ++ "\n****************************")
        col)
@@ -65,6 +58,6 @@ toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functi
     fromList :: [Fn] -> Map.Map DefId Fn
     fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
 
---------------------------------------------------------------------------------------  
+--------------------------------------------------------------------------------------
 
 
