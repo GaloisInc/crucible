@@ -13,6 +13,9 @@ impl<T: Copy> Clone for Array<T> {
     }
 }
 
+// NB: Most of these functions are unimplemented, as crucible-mir overrides
+// their behavior with custom operations.
+
 impl<T> Array<T> {
     /// Construct a new array, filled with zeros.
     ///
@@ -20,7 +23,10 @@ impl<T> Array<T> {
     /// Crucible representation.  All primitive integer types, as well as the wider bitvectors in
     /// `crucible::bitvector`, satisfy this requirement.
     pub const fn zeroed() -> Array<T> {
-        Self::zeroed()
+        // NB: Unlike the other custom operations below, we can't use
+        // unimplemented! here, as that is forbidden in constant contexts.
+        // panic! is perhaps overkill, but it gets the job done.
+        panic!("Array::zeroed")
     }
 }
 
