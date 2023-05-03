@@ -1433,7 +1433,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
 -- etc., all with the same `rhs`.
 makeAtomicIntrinsics :: Text -> [Text] -> CustomRHS -> [(ExplodedDefId, CustomRHS)]
 makeAtomicIntrinsics name variants rhs =
-    [(["core", "intrinsics", "", "atomic_" <> name <> suffix], rhs)
+    [(["core", "intrinsics", "{extern}", "atomic_" <> name <> suffix], rhs)
         | suffix <- "" : map ("_" <>) variants]
 
 atomic_store_impl :: CustomRHS
@@ -1499,12 +1499,12 @@ makeAtomicRMW ::
         MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
     [(ExplodedDefId, CustomRHS)]
 makeAtomicRMW name rmw =
-    makeAtomicIntrinsics (Text.pack name) ["acq", "rel", "acqrel", "relaxed"] $
+    makeAtomicIntrinsics (Text.pack name) ["acq", "rel", "acqrel", "relaxed", "seqcst"] $
         atomic_rmw_impl name rmw
 
 atomic_funcs =
-    makeAtomicIntrinsics "store" ["rel", "relaxed"] atomic_store_impl ++
-    makeAtomicIntrinsics "load" ["acq", "relaxed"] atomic_load_impl ++
+    makeAtomicIntrinsics "store" ["rel", "relaxed", "seqcst"] atomic_store_impl ++
+    makeAtomicIntrinsics "load" ["acq", "relaxed", "seqcst"] atomic_load_impl ++
     makeAtomicIntrinsics "cxchg" compareExchangeVariants atomic_cxchg_impl ++
     makeAtomicIntrinsics "cxchgweak" compareExchangeVariants atomic_cxchg_impl ++
     makeAtomicIntrinsics "fence" fenceVariants atomic_fence_impl ++
@@ -1526,7 +1526,7 @@ atomic_funcs =
   where
     compareExchangeVariants = ["acq", "rel", "acqrel", "relaxed",
         "acq_failrelaxed", "acqrel_failrelaxed", "failrelaxed", "failacq"]
-    fenceVariants = ["acq", "rel", "acqrel"]
+    fenceVariants = ["acq", "rel", "acqrel", "seqcst"]
 
 --------------------------------------------------------------------------------------------------------------------------
 
