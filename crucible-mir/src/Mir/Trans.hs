@@ -188,10 +188,16 @@ transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did) =
 transConstVal _ty (Some C.UnitRepr) (M.ConstTuple []) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 transConstVal (M.TyTuple tys) (Some (C.StructRepr tprs)) (M.ConstTuple vals) = do
+    col <- use $ cs . collection
     vals' <- zipWith3M
-               (\ty tpr val -> transConstVal ty tpr val)
+               (\ty (Some tpr) val ->
+                 case tpr of
+                     C.MaybeRepr valTpr -> do
+                       transConstVal ty (Some valTpr) val
+                     _ ->
+                       mirFail $ "transConstVal (ConstTuple): expected tuple field to have MaybeType, but got " ++ show tpr)
                tys (toListFC Some tprs) vals
-    return $ buildTuple vals'
+    return $ buildTupleMaybe col tys $ map Just vals'
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -2322,6 +2328,7 @@ transStatics colState halloc = do
                      case testEquality repr constty' of
                        Just Refl -> G.writeGlobal g constval'
                        Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
+                                       ++ ", expected " ++ show repr ++ ", got " ++ show constty'
 
                |  Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
                     <- Map.lookup staticName hmap
