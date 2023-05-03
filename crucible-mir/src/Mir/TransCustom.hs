@@ -756,13 +756,13 @@ makeSaturatingArith name bop =
 
 saturating_add ::  (ExplodedDefId, CustomRHS)
 saturating_add =
-    ( ["core","intrinsics", "", "saturating_add"]
+    ( ["core","intrinsics", "{extern}", "saturating_add"]
     , makeSaturatingArith "saturating_add" Add
     )
 
 saturating_sub ::  (ExplodedDefId, CustomRHS)
 saturating_sub =
-    ( ["core","intrinsics", "", "saturating_sub"]
+    ( ["core","intrinsics", "{extern}", "saturating_sub"]
     , makeSaturatingArith "saturating_sub" Sub
     )
 
@@ -787,43 +787,43 @@ makeUncheckedArith name bop =
 
 unchecked_add ::  (ExplodedDefId, CustomRHS)
 unchecked_add =
-    ( ["core","intrinsics", "", "unchecked_add"]
+    ( ["core","intrinsics", "{extern}", "unchecked_add"]
     , makeUncheckedArith "unchecked_add" Add
     )
 
 unchecked_sub ::  (ExplodedDefId, CustomRHS)
 unchecked_sub =
-    ( ["core","intrinsics", "", "unchecked_sub"]
+    ( ["core","intrinsics", "{extern}", "unchecked_sub"]
     , makeUncheckedArith "unchecked_sub" Sub
     )
 
 unchecked_mul ::  (ExplodedDefId, CustomRHS)
 unchecked_mul =
-    ( ["core","intrinsics", "", "unchecked_mul"]
+    ( ["core","intrinsics", "{extern}", "unchecked_mul"]
     , makeUncheckedArith "unchecked_mul" Mul
     )
 
 unchecked_div ::  (ExplodedDefId, CustomRHS)
 unchecked_div =
-    ( ["core","intrinsics", "", "unchecked_div"]
+    ( ["core","intrinsics", "{extern}", "unchecked_div"]
     , makeUncheckedArith "unchecked_div" Div
     )
 
 unchecked_rem ::  (ExplodedDefId, CustomRHS)
 unchecked_rem =
-    ( ["core","intrinsics", "", "unchecked_rem"]
+    ( ["core","intrinsics", "{extern}", "unchecked_rem"]
     , makeUncheckedArith "unchecked_rem" Rem
     )
 
 unchecked_shl ::  (ExplodedDefId, CustomRHS)
 unchecked_shl =
-    ( ["core","intrinsics", "", "unchecked_shl"]
+    ( ["core","intrinsics", "{extern}", "unchecked_shl"]
     , makeUncheckedArith "unchecked_shl" Shl
     )
 
 unchecked_shr ::  (ExplodedDefId, CustomRHS)
 unchecked_shr =
-    ( ["core","intrinsics", "", "unchecked_shr"]
+    ( ["core","intrinsics", "{extern}", "unchecked_shr"]
     , makeUncheckedArith "unchecked_shr" Shr
     )
 
