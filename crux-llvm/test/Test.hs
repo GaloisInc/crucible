@@ -5,23 +5,21 @@
 module Main where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
-import           Control.Lens ( (^.), (^?), _Right, to )
-import           Control.Monad ( guard, unless, when )
+import           Control.Lens ( (^?), _Right )
+import           Control.Monad ( unless, when )
 import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
 import           Data.Char ( isLetter, isSpace )
-import           Data.List.Extra ( isInfixOf, isPrefixOf, stripPrefix )
-import           Data.Maybe ( catMaybes, fromMaybe, mapMaybe )
-import qualified Data.Set as Set
-import           Data.Set ( Set )
+import           Data.List.Extra ( isInfixOf, isPrefixOf )
+import           Data.Maybe ( catMaybes, fromMaybe )
 import qualified Data.Text as T
 import           Data.Versions ( Versioning, versioning, prettyV, major )
 import qualified GHC.IO.Exception as GE
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
-import           System.FilePath ( (-<.>), takeFileName )
+import           System.FilePath ( (-<.>) )
 import           System.IO
 import           System.Process ( readProcess )
 import           Text.Read ( readMaybe )
@@ -88,27 +86,11 @@ data VersionCheck = VC String (Either T.Text Versioning)
 showVC :: VersionCheck -> String
 showVC (VC nm v) = nm <> " " <> (T.unpack $ either id prettyV v)
 
-vcTag :: VersionCheck -> String
-vcTag v@(VC nm _) = nm <> vcMajor v
-
-vcMajor :: VersionCheck -> String
-vcMajor (VC _ v) = either T.unpack (^. major . to show) v
-
 vcVersioning :: VersionCheck -> Either T.Text Versioning
 vcVersioning (VC _ v) = v
 
 mkVC :: String -> String -> VersionCheck
 mkVC nm raw = let r = T.pack raw in VC nm $ first (const r) $ versioning r
-
--- Check if a VersionCheck version is less than the numeric value of another
--- version (represented as a Word).
-vcLT :: VersionCheck -> Word -> Bool
-vcLT vc verNum = (vcVersioning vc ^? (_Right . major)) < Just verNum
-
--- Check if a VersionCheck version is greater than or equal to the numeric
--- value of another version (represented as a Word).
-vcGE :: VersionCheck -> Word -> Bool
-vcGE vc verNum = (vcVersioning vc ^? (_Right . major)) >= Just verNum
 
 getClangVersion :: IO VersionCheck
 getClangVersion = do
