@@ -5,12 +5,13 @@ use hashbrown::hash_set as base;
 
 use crate::borrow::Borrow;
 use crate::collections::TryReserveError;
+use crate::collections::TryReserveErrorKind;
 use crate::fmt;
 use crate::hash::{BuildHasher, Hash};
 use crate::iter::{Chain, FusedIterator};
 use crate::ops::{BitAnd, BitOr, BitXor, Sub};
 
-use super::map::{map_try_reserve_error, RandomState};
+use super::map::{RandomState};
 
 // Future Optimization (FIXME!)
 // ============================
@@ -705,95 +706,6 @@ where
         Q: Hash + Eq,
     {
         self.base.get(value)
-    }
-
-    /// Inserts the given `value` into the set if it is not present, then
-    /// returns a reference to the value in the set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(hash_set_entry)]
-    ///
-    /// use std::collections::HashSet;
-    ///
-    /// let mut set = HashSet::from([1, 2, 3]);
-    /// assert_eq!(set.len(), 3);
-    /// assert_eq!(set.get_or_insert(2), &2);
-    /// assert_eq!(set.get_or_insert(100), &100);
-    /// assert_eq!(set.len(), 4); // 100 was inserted
-    /// ```
-    #[inline]
-    #[unstable(feature = "hash_set_entry", issue = "60896")]
-    pub fn get_or_insert(&mut self, value: T) -> &T {
-        // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
-        // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
-        self.base.get_or_insert(value)
-    }
-
-    /// Inserts an owned copy of the given `value` into the set if it is not
-    /// present, then returns a reference to the value in the set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(hash_set_entry)]
-    ///
-    /// use std::collections::HashSet;
-    ///
-    /// let mut set: HashSet<String> = ["cat", "dog", "horse"]
-    ///     .iter().map(|&pet| pet.to_owned()).collect();
-    ///
-    /// assert_eq!(set.len(), 3);
-    /// for &pet in &["cat", "dog", "fish"] {
-    ///     let value = set.get_or_insert_owned(pet);
-    ///     assert_eq!(value, pet);
-    /// }
-    /// assert_eq!(set.len(), 4); // a new "fish" was inserted
-    /// ```
-    #[inline]
-    #[unstable(feature = "hash_set_entry", issue = "60896")]
-    pub fn get_or_insert_owned<Q: ?Sized>(&mut self, value: &Q) -> &T
-    where
-        T: Borrow<Q>,
-        Q: Hash + Eq + ToOwned<Owned = T>,
-    {
-        // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
-        // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
-        self.base.get_or_insert_owned(value)
-    }
-
-    /// Inserts a value computed from `f` into the set if the given `value` is
-    /// not present, then returns a reference to the value in the set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(hash_set_entry)]
-    ///
-    /// use std::collections::HashSet;
-    ///
-    /// let mut set: HashSet<String> = ["cat", "dog", "horse"]
-    ///     .iter().map(|&pet| pet.to_owned()).collect();
-    ///
-    /// assert_eq!(set.len(), 3);
-    /// for &pet in &["cat", "dog", "fish"] {
-    ///     let value = set.get_or_insert_with(pet, str::to_owned);
-    ///     assert_eq!(value, pet);
-    /// }
-    /// assert_eq!(set.len(), 4); // a new "fish" was inserted
-    /// ```
-    #[inline]
-    #[unstable(feature = "hash_set_entry", issue = "60896")]
-    pub fn get_or_insert_with<Q: ?Sized, F>(&mut self, value: &Q, f: F) -> &T
-    where
-        T: Borrow<Q>,
-        Q: Hash + Eq,
-        F: FnOnce(&Q) -> T,
-    {
-        // Although the raw entry gives us `&mut T`, we only return `&T` to be consistent with
-        // `get`. Key mutation is "raw" because you're not supposed to affect `Eq` or `Hash`.
-        self.base.get_or_insert_with(value, f)
     }
 
     /// Returns `true` if `self` has no elements in common with `other`.
@@ -1841,5 +1753,17 @@ fn assert_covariance() {
     }
     fn drain<'new>(d: Drain<'static, &'static str>) -> Drain<'new, &'new str> {
         d
+    }
+}
+
+#[inline]
+fn map_try_reserve_error(err: hashbrown::TryReserveError) -> TryReserveError {
+    match err {
+        hashbrown::TryReserveError::CapacityOverflow => {
+            TryReserveErrorKind::CapacityOverflow.into()
+        }
+        hashbrown::TryReserveError::AllocError { layout } => {
+            TryReserveErrorKind::AllocError { layout, non_exhaustive: () }.into()
+        }
     }
 }
