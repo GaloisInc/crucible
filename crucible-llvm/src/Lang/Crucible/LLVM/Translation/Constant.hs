@@ -147,8 +147,31 @@ instance Traversable GEPResult where
 
 
 -- | Given the data for an LLVM getelementpointer instruction,
---   preprocess the instruction into a @GEPResult@, checking
---   types, computing vectorization lanes, etc.
+-- preprocess the instruction into a @GEPResult@, checking
+-- types, computing vectorization lanes, etc.
+--
+-- As a concrete example, consider a call to
+-- @'translateGEP' inbounds baseTy basePtr elts@ with the following
+-- instruction:
+--
+-- @
+-- getelementptr [12 x i8], ptr %aptr, i64 0, i32 1
+-- @
+--
+-- Here:
+--
+-- * @inbounds@ is 'False', as the keyword of the same name is missing from
+--   the instruction. (Currently, @crucible-llvm@ ignores this information.)
+--
+-- * @baseTy@ is @[12 x i8]@. This is the type used as the basis for
+--   subsequent calculations.
+--
+-- * @basePtr@ is @ptr %aptr@. This pointer is used as the base address to
+--   start calculations from. Note that the type of @basePtr@ is /not/
+--   @baseTy@, but rather a pointer type.
+--
+-- * The @elts@ are @[i64 0, i32 1]@. These are the indices that indicate
+--   which of the elements of the aggregate object are indexed.
 translateGEP :: forall wptr m.
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   Bool              {- ^ inbounds flag -} ->
@@ -160,9 +183,9 @@ translateGEP :: forall wptr m.
 translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
-translateGEP inbounds baseTy base elts =
+translateGEP inbounds baseTy basePtr elts =
   do baseMemType <- liftMemType baseTy
-     mt <- liftMemType (L.typedType base)
+     mt <- liftMemType (L.typedType basePtr)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
      -- types), and the base type used for calculations must be representable
      -- as a memory type. The resulting memory type drives the interpretation of
@@ -174,18 +197,18 @@ translateGEP inbounds baseTy base elts =
          , Some lanes <- mkNatRepr n
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
-             go lanes mt' (GEP_vector_base lanes base) elts
+             go lanes mt' (GEP_vector_base lanes basePtr) elts
 
        -- Scalar base case with exactly 1 lane
        _ | isPointerMemType mt
          ->  let mt' = ArrayType 0 baseMemType in
-             go (knownNat @1) mt' (GEP_scalar_base base) elts
+             go (knownNat @1) mt' (GEP_scalar_base basePtr) elts
 
          | otherwise
          -> badGEP
  where
  badGEP :: m a
- badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy base elts) ]
+ badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy basePtr elts) ]
 
  -- This auxilary function builds up the intermediate GEP mini-instructions that compute
  -- the overall GEP, as well as the resulting memory type of the final pointers and the

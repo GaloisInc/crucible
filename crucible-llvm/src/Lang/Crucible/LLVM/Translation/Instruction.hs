@@ -168,8 +168,8 @@ instrResultType instr =
         _ -> return (IntType 1)
     L.Phi tp _   -> liftMemType tp
 
-    L.GEP inbounds baseTy base elts ->
-       do gepRes <- runExceptT (translateGEP inbounds baseTy base elts)
+    L.GEP inbounds baseTy basePtr elts ->
+       do gepRes <- runExceptT (translateGEP inbounds baseTy basePtr elts)
           case gepRes of
             Left err -> throwError err
             Right (GEPResult lanes tp _gep) ->
@@ -1561,8 +1561,8 @@ generateInstr retType lab defSet instr assign_f k =
     -- NB We treat every GEP as though it has the "inbounds" flag set;
     --    thus, the calculation of out-of-bounds pointers results in
     --    a runtime error.
-    L.GEP inbounds baseTy base elts -> do
-      runExceptT (translateGEP inbounds baseTy base elts) >>= \case
+    L.GEP inbounds baseTy basePtr elts -> do
+      runExceptT (translateGEP inbounds baseTy basePtr elts) >>= \case
         Left err -> reportError $ fromString $ unlines ["Error translating GEP", err]
         Right gep ->
           do gep' <- traverse (\v -> transTypedValue v) gep
