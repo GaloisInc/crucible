@@ -311,6 +311,7 @@ instance FromJSON Rvalue where
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
                                               Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
                                               Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
+                                              Just (String "ThreadLocalRef") -> ThreadLocalRef <$> v .: "def_id"
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON Terminator where

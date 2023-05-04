@@ -1000,6 +1000,7 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
 -- TODO: are these correct?
 evalRval rv@(M.ShallowInitBox op ty) = evalOperand op
 evalRval rv@(M.CopyForDeref lv) = evalLvalue lv
+evalRval (M.ThreadLocalRef _) = error "TODO RGS evalRval ThreadLocalRef"
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
