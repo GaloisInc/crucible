@@ -308,6 +308,7 @@
 #![feature(ptr_as_uninit)]
 #![feature(raw_os_nonzero)]
 #![feature(slice_internals)]
+#![feature(slice_iter_mut_as_slice)]
 #![feature(slice_ptr_get)]
 #![feature(std_internals)]
 #![feature(str_internals)]
@@ -324,6 +325,7 @@
 #![feature(new_uninit)]
 #![feature(thin_box)]
 #![feature(try_reserve_kind)]
+#![feature(vec_drain_as_slice)]
 #![feature(vec_into_raw_parts)]
 #![feature(slice_concat_trait)]
 //

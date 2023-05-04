@@ -23,3 +23,7 @@ identify all of the code that was changed in each patch.
 * Reimplement `core::fmt` using `crucible::any::Any` (last applied: May 2, 2023)
 
   TODO: Describe why this is necessary
+
+* Implement `HashMap` in terms of `Vec` (last applied: May 4, 2023)
+
+  TODO: Describe why this is necessary
