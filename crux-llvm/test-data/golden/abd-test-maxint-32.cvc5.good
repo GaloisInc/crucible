@@ -2,7 +2,7 @@
 [Crux]   test-data/golden/abd-test-maxint-32.c:6:0: error: in main
 [Crux]   crucible_assert
 [Crux] 
-[Crux]   One of the following 2 fact(s) would entail the goal
+[Crux]   One of the following 2 facts would entail the goal
 [Crux]   * <unstable SMT formula output removed>
 [Crux]   * <unstable SMT formula output removed>
 [Crux] Overall status: Invalid.

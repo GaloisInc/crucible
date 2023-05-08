@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -25,7 +26,7 @@ import           System.FilePath ( (-<.>), takeFileName )
 import           System.IO
 import           System.Process ( readProcess )
 import           Text.Read ( readMaybe )
-import           Text.Regex.Base ( makeRegex, matchM )
+import           Text.Regex.Base ( makeRegex, match, matchM )
 import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 
 import qualified Test.Tasty as TT
@@ -252,28 +253,36 @@ sanitize blines =
       cleanAbductOutput :: [BSC.ByteString] -> [BSC.ByteString]
       cleanAbductOutput [] = []
       cleanAbductOutput (l:ls) =
-        case matchM re l of
-          Just ( _before :: BSC.ByteString
-               , _matched :: BSC.ByteString
-               , _after :: BSC.ByteString
-               , [numBS]
-               )
-            |  Just num <- readMaybe (BSC.unpack numBS)
-            -> -- If a line matches the error message regex, then scrub the SMT
-               -- formulas from the next <num> lines of output.
-               let (before, after) = splitAt num ls in
-               l : map cleanSMTFormula before ++ cleanAbductOutput after
-          _ -> l : cleanAbductOutput ls
-        where
-          re :: Regex
-          re = makeRegex bs
+        if |  -- If a line matches the error message regex, then scrub the SMT
+              -- formulas from the next <num> lines of output.
+              match reSingle l
+           ,  l':ls' <- ls
+           -> l : cleanSMTFormula l' : cleanAbductOutput ls'
+           |  Just ( _before :: BSC.ByteString
+                   , _matched :: BSC.ByteString
+                   , _after :: BSC.ByteString
+                   , [numBS]
+                   ) <- matchM rePlural l
 
-          -- NB: This is the same error message that is printed out in crux's
+           ,  Just num <- readMaybe (BSC.unpack numBS)
+           -> let (before, after) = splitAt num ls in
+              l : map cleanSMTFormula before ++ cleanAbductOutput after
+
+              -- Otherwise, leave the line unchanged.
+           |  otherwise
+           -> l : cleanAbductOutput ls
+        where
+          reSingle, rePlural :: Regex
+          reSingle = makeRegex bsSingle
+          rePlural = makeRegex bsPlural
+
+          -- NB: These are the same error messages that is printed out in crux's
           -- Crux.FormatOut module, but with some regex-specific twists on top
-          -- of it. This code should stay in sync with any chages to that error
-          -- message.
-          bs :: BSC.ByteString
-          bs = "One of the following ([0-9]+) fact\\(s\\) would entail the goal"
+          -- of them. This code should stay in sync with any chages to those
+          -- error messages.
+          bsSingle, bsPlural :: BSC.ByteString
+          bsSingle = "The following fact would entail the goal"
+          bsPlural = "One of the following ([0-9]+) facts would entail the goal"
 
           cleanSMTFormula :: BSC.ByteString -> BSC.ByteString
           cleanSMTFormula line =
