@@ -81,7 +81,7 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                  -- variable events that led to this failure
                  ++ if showVars then
                       ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]
-                    else [] 
+                    else []
                  -- print abducts, if any
                  ++ if s /= [] then
                       -- NB: If you update the contents of this error message,
