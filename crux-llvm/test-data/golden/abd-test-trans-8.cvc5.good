@@ -3,7 +3,7 @@
 [Crux]   crucible_assert
 [Crux] 
 [Crux]   One of the following 3 fact(s) would entail the goal
-[Crux]   * (= z y)
-[Crux]   * (= (bvashr x z) #b00000001)
-[Crux]   * (bvult z (bvlshr x y))
+[Crux]   * <unstable SMT formula output removed>
+[Crux]   * <unstable SMT formula output removed>
+[Crux]   * <unstable SMT formula output removed>
 [Crux] Overall status: Invalid.

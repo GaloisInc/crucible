@@ -84,6 +84,9 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                     else [] 
                  -- print abducts, if any
                  ++ if s /= [] then
+                      -- NB: If you update the contents of this error message,
+                      -- make sure to update the corresponding regex that
+                      -- checks for this in crux-llvm/test/Test.hs.
                       PP.pretty ("One of the following " ++ show (length s) ++ " fact(s) would entail the goal")
                       : (map (\x -> PP.pretty ('*' : ' ' : x)) s)
                     else [])]

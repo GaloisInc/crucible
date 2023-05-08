@@ -174,4 +174,6 @@ test-suite crux-llvm-test
   build-depends:
                 crux-llvm,
                 extra,
+                regex-base,
+                regex-posix,
                 versions

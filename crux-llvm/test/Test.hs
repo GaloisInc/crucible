@@ -25,6 +25,8 @@ import           System.FilePath ( (-<.>), takeFileName )
 import           System.IO
 import           System.Process ( readProcess )
 import           Text.Read ( readMaybe )
+import           Text.Regex.Base ( makeRegex, matchM )
+import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 
 import qualified Test.Tasty as TT
 import           Test.Tasty.HUnit ( testCase, assertFailure )
@@ -240,7 +242,45 @@ sanitize blines =
                        ]
                 then cleanLinkerOutput rest
                 else l
-  in cleanLinkerOutput . removeHashedLoc <$> blines
+
+      -- The SMT formulas suggested by the --get-abducts flag are extremely
+      -- sensitive to which versions of CVC5 and LLVM you are using. To avoid
+      -- checking in a ridiculous number of expected output combinations for
+      -- --get-abducts test cases, we scrub out the SMT formulas post facto.
+      -- This ensures that all of the relevant code paths are being exercised
+      -- while maintaining a single expected output file for each test case.
+      cleanAbductOutput :: [BSC.ByteString] -> [BSC.ByteString]
+      cleanAbductOutput [] = []
+      cleanAbductOutput (l:ls) =
+        case matchM re l of
+          Just ( _before :: BSC.ByteString
+               , _matched :: BSC.ByteString
+               , _after :: BSC.ByteString
+               , [numBS]
+               )
+            |  Just num <- readMaybe (BSC.unpack numBS)
+            -> -- If a line matches the error message regex, then scrub the SMT
+               -- formulas from the next <num> lines of output.
+               let (before, after) = splitAt num ls in
+               l : map cleanSMTFormula before ++ cleanAbductOutput after
+          _ -> l : cleanAbductOutput ls
+        where
+          re :: Regex
+          re = makeRegex bs
+
+          -- NB: This is the same error message that is printed out in crux's
+          -- Crux.FormatOut module, but with some regex-specific twists on top
+          -- of it. This code should stay in sync with any chages to that error
+          -- message.
+          bs :: BSC.ByteString
+          bs = "One of the following ([0-9]+) fact\\(s\\) would entail the goal"
+
+          cleanSMTFormula :: BSC.ByteString -> BSC.ByteString
+          cleanSMTFormula line =
+            BSC.takeWhile (/= '*') line <> "* <unstable SMT formula output removed>"
+
+  in cleanAbductOutput $
+     cleanLinkerOutput . removeHashedLoc <$> blines
 
 assertBSEq :: FilePath -> FilePath -> IO ()
 assertBSEq expectedFile actualFile = do
