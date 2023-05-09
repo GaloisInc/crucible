@@ -1,5 +1,6 @@
 use super::*;
 use crate::cmp::Ordering::{self, Equal, Greater, Less};
+use crate::crucible;
 use crate::intrinsics::{self, const_eval_select};
 use crate::slice::{self, SliceIndex};
 
@@ -33,23 +34,7 @@ impl<T: ?Sized> *mut T {
     #[rustc_const_unstable(feature = "const_ptr_is_null", issue = "74939")]
     #[inline]
     pub const fn is_null(self) -> bool {
-        #[inline]
-        fn runtime_impl(ptr: *mut u8) -> bool {
-            ptr.addr() == 0
-        }
-
-        #[inline]
-        const fn const_impl(ptr: *mut u8) -> bool {
-            // Compare via a cast to a thin pointer, so fat pointers are only
-            // considering their "data" part for null-ness.
-            match (ptr).guaranteed_eq(null_mut()) {
-                None => false,
-                Some(res) => res,
-            }
-        }
-
-        // SAFETY: The two versions are equivalent at runtime.
-        unsafe { const_eval_select((self as *mut u8,), const_impl, runtime_impl) }
+        crucible::ptr::compare_usize(self, 0)
     }
 
     /// Casts to a pointer of another type.

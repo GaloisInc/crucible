@@ -62,6 +62,7 @@ pub struct Iter<'a, T: 'a> {
     end: *const T, // If T is a ZST, this is actually ptr+len. This encoding is picked so that
     // ptr == end is a quick test for the Iterator being empty, that works
     // for both ZST and non-ZST.
+    len: usize,
     _marker: PhantomData<&'a T>,
 }
 
@@ -88,7 +89,12 @@ impl<'a, T> Iter<'a, T> {
             let end =
                 if T::IS_ZST { ptr.wrapping_byte_add(slice.len()) } else { ptr.add(slice.len()) };
 
-            Self { ptr: NonNull::new_unchecked(ptr as *mut T), end, _marker: PhantomData }
+            Self {
+                ptr: NonNull::new_unchecked(ptr as *mut T),
+                end,
+                len: slice.len(),
+                _marker: PhantomData,
+            }
         }
     }
 
@@ -140,7 +146,7 @@ iterator! {struct Iter -> *const T, &'a T, const, {/* no mut */}, {
 impl<T> Clone for Iter<'_, T> {
     #[inline]
     fn clone(&self) -> Self {
-        Iter { ptr: self.ptr, end: self.end, _marker: self._marker }
+        Iter { ptr: self.ptr, end: self.end, len: self.len, _marker: self._marker }
     }
 }
 
@@ -183,6 +189,7 @@ pub struct IterMut<'a, T: 'a> {
     end: *mut T, // If T is a ZST, this is actually ptr+len. This encoding is picked so that
     // ptr == end is a quick test for the Iterator being empty, that works
     // for both ZST and non-ZST.
+    len: usize,
     _marker: PhantomData<&'a mut T>,
 }
 
@@ -224,7 +231,12 @@ impl<'a, T> IterMut<'a, T> {
             let end =
                 if T::IS_ZST { ptr.wrapping_byte_add(slice.len()) } else { ptr.add(slice.len()) };
 
-            Self { ptr: NonNull::new_unchecked(ptr), end, _marker: PhantomData }
+            Self {
+                ptr: NonNull::new_unchecked(ptr),
+                end,
+                len: slice.len(),
+                _marker: PhantomData,
+            }
         }
     }
 

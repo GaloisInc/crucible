@@ -115,6 +115,7 @@
 #![feature(const_eval_select)]
 #![feature(const_pin)]
 #![feature(const_waker)]
+#![feature(crucible_intrinsics)]
 #![feature(cstr_from_bytes_until_nul)]
 #![feature(dispatch_from_dyn)]
 #![feature(error_generic_member_access)]

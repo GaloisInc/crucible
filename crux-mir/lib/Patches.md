@@ -35,3 +35,19 @@ identify all of the code that was changed in each patch.
   choose a simpler implementation in terms of casts instead. These uses of
   `transmute` are meant to support strict provenance for Rust pointers, but we
   ignore this in `crucible-mir`.
+
+* Avoid pointer arithmetic in slice iterators (last applied: May 9, 2023)
+
+  Upstream slice::Iter has `ptr` and `end` fields, and computes the length
+  by subtracting the two.  This is difficult for us to support at the
+  moment.  We can compute the difference between two pointers into the
+  same array, but we don't have a good way to decide whether two
+  `Const_RefRoot`s are "the same object" or not.  (We could assign them a
+  `Nonce` for identity, but since the point of `Const_RefRoot` is to
+  support muxing, we'd have to mux the nonces, which makes things much
+  more complicated.  And we can't simply declare that all `Const_RefRoot`s
+  containing the same value are the same object, because we don't have a
+  generic equality test that covers all crucible types.)  This commit adds
+  a simple workaround: include an explicit `len` field, which is updated
+  in sync with `ptr` and `end`, and avoids the need for pointer
+  arithmetic.
