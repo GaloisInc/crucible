@@ -104,7 +104,8 @@ import           Mir.DefId
 import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
-                    pattern RustEnumRepr, pattern MirVectorRepr, MirVector(..))
+                    pattern RustEnumRepr, SomeRustEnumRepr(..),
+                    pattern MirVectorRepr, MirVector(..))
 import           Mir.Generator
 import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
@@ -617,9 +618,9 @@ showRegEntry col mty (C.RegEntry tp rv) =
                 let ctx = fieldCtxType fctx
                 let fields = unpackAnyValue rv (C.StructRepr ctx)
                 return $ Right (var, readFields fctx fields)
-            Enum -> do
-                C.Some vctx <- return $ enumVariants col adt
-                let enumVal = unpackAnyValue rv (RustEnumRepr vctx)
+            Enum _ -> do
+                SomeRustEnumRepr discrTp vctx <- return $ enumVariants col adt
+                let enumVal = unpackAnyValue rv (RustEnumRepr discrTp vctx)
                 -- Note we don't look at the discriminant here, because mapping
                 -- a discriminant value to a variant index is somewhat complex.
                 -- Instead we just find the first PartExpr that's initialized.

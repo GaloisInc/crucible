@@ -613,11 +613,12 @@ subfieldRef ::
 subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
 
 subvariantRef ::
-  C.CtxRepr ctx ->
-  R.Expr MIR s (MirReferenceType (RustEnumType ctx)) ->
-  Index ctx tp ->
+  C.TypeRepr discrTp ->
+  C.CtxRepr variantsCtx ->
+  R.Expr MIR s (MirReferenceType (RustEnumType discrTp variantsCtx)) ->
+  Index variantsCtx tp ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
-subvariantRef ctx ref idx = G.extensionStmt (MirSubvariantRef ctx ref idx)
+subvariantRef tp ctx ref idx = G.extensionStmt (MirSubvariantRef tp ctx ref idx)
 
 subindexRef ::
   C.TypeRepr tp ->

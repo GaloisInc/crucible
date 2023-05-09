@@ -150,11 +150,11 @@ instance FromJSON Adt where
         <*> v .: "orig_substs"
 
 instance FromJSON AdtKind where
-    parseJSON x = case x of
-        String "Struct" -> pure Struct
-        String "Enum" -> pure Enum
-        String "Union" -> pure Union
-        _ -> fail $ "unsupported adt kind " ++ show x
+    parseJSON = withObject "AdtKind" $ \v -> case lookupKM "kind" v of
+        Just (String "Struct") -> pure Struct
+        Just (String "Enum") -> Enum <$> v .: "discr_ty"
+        Just (String "Union") -> pure Union
+        mbKind -> fail $ "unsupported adt kind " ++ show mbKind
 
 instance FromJSON VariantDiscr where
     parseJSON = withObject "VariantDiscr" $ \v -> case lookupKM "kind" v of
@@ -307,7 +307,7 @@ instance FromJSON Rvalue where
                                               Just (String "CheckedBinaryOp") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
                                               Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
-                                              Just (String "Discriminant") -> Discriminant <$> v .: "val"
+                                              Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
                                               Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
                                               Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
