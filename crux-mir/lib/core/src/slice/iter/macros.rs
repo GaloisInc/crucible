@@ -5,7 +5,7 @@ macro_rules! is_empty {
     // The way we encode the length of a ZST iterator, this works both for ZST
     // and non-ZST.
     ($self: ident) => {
-        $self.ptr.as_ptr() as *const T == $self.end
+        $self.len == 0
     };
 }
 
@@ -13,17 +13,7 @@ macro_rules! len {
     ($self: ident) => {{
         #![allow(unused_unsafe)] // we're sometimes used within an unsafe block
 
-        let start = $self.ptr;
-        if T::IS_ZST {
-            // This _cannot_ use `ptr_sub` because we depend on wrapping
-            // to represent the length of long ZST slice iterators.
-            $self.end.addr().wrapping_sub(start.as_ptr().addr())
-        } else {
-            // To get rid of some bounds checks (see `position`), we use ptr_sub instead of
-            // offset_from (Tested by `codegen/slice-position-bounds-check`.)
-            // SAFETY: by the type invariant pointers are aligned and `start <= end`
-            unsafe { $self.end.sub_ptr(start.as_ptr()) }
-        }
+        $self.len
     }};
 }
 
@@ -73,6 +63,7 @@ macro_rules! iterator {
             // Unsafe because the offset must not exceed `self.len()`.
             #[inline(always)]
             unsafe fn post_inc_start(&mut self, offset: usize) -> * $raw_mut T {
+                self.len -= offset;
                 if mem::size_of::<T>() == 0 {
                     zst_shrink!(self, offset);
                     self.ptr.as_ptr()
@@ -90,6 +81,7 @@ macro_rules! iterator {
             // Unsafe because the offset must not exceed `self.len()`.
             #[inline(always)]
             unsafe fn pre_dec_end(&mut self, offset: usize) -> * $raw_mut T {
+                self.len -= offset;
                 if T::IS_ZST {
                     zst_shrink!(self, offset);
                     self.ptr.as_ptr()
@@ -156,6 +148,7 @@ macro_rules! iterator {
             fn nth(&mut self, n: usize) -> Option<$elem> {
                 if n >= len!(self) {
                     // This iterator is now empty.
+                    self.len = 0;
                     if T::IS_ZST {
                         // We have to do it this way as `ptr` may never be 0, but `end`
                         // could be (due to wrapping).
@@ -360,6 +353,7 @@ macro_rules! iterator {
             fn nth_back(&mut self, n: usize) -> Option<$elem> {
                 if n >= len!(self) {
                     // This iterator is now empty.
+                    self.len = 0;
                     self.end = self.ptr.as_ptr();
                     return None;
                 }

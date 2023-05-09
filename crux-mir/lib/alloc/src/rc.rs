@@ -2219,7 +2219,7 @@ impl<T> Weak<T> {
 }
 
 pub(crate) fn is_dangling<T: ?Sized>(ptr: *mut T) -> bool {
-    (ptr as *mut ()).addr() == usize::MAX
+    crucible::ptr::compare_usize(ptr, usize::MAX)
 }
 
 /// Helper type to allow accessing the reference counts without
