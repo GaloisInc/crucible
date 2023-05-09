@@ -559,13 +559,9 @@ pub const fn null_mut<T: ?Sized + Thin>() -> *mut T {
 #[must_use]
 #[rustc_const_stable(feature = "stable_things_using_strict_provenance", since = "1.61.0")]
 #[unstable(feature = "strict_provenance", issue = "95228")]
+#[allow(fuzzy_provenance_casts)]
 pub const fn invalid<T>(addr: usize) -> *const T {
-    // FIXME(strict_provenance_magic): I am magic and should be a compiler intrinsic.
-    // We use transmute rather than a cast so tools like Miri can tell that this
-    // is *not* the same as from_exposed_addr.
-    // SAFETY: every valid integer is also a valid pointer (as long as you don't dereference that
-    // pointer).
-    unsafe { mem::transmute(addr) }
+    addr as *const T
 }
 
 /// Creates an invalid mutable pointer with the given address.
@@ -590,13 +586,9 @@ pub const fn invalid<T>(addr: usize) -> *const T {
 #[must_use]
 #[rustc_const_stable(feature = "stable_things_using_strict_provenance", since = "1.61.0")]
 #[unstable(feature = "strict_provenance", issue = "95228")]
+#[allow(fuzzy_provenance_casts)]
 pub const fn invalid_mut<T>(addr: usize) -> *mut T {
-    // FIXME(strict_provenance_magic): I am magic and should be a compiler intrinsic.
-    // We use transmute rather than a cast so tools like Miri can tell that this
-    // is *not* the same as from_exposed_addr.
-    // SAFETY: every valid integer is also a valid pointer (as long as you don't dereference that
-    // pointer).
-    unsafe { mem::transmute(addr) }
+    addr as *mut T
 }
 
 /// Convert an address back to a pointer, picking up a previously 'exposed' provenance.

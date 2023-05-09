@@ -27,3 +27,11 @@ identify all of the code that was changed in each patch.
 * Implement `HashMap` in terms of `Vec` (last applied: May 4, 2023)
 
   TODO: Describe why this is necessary
+
+* Implement `ptr::invalid` and `ptr::invalid_mut` in terms of casts instead of
+  `transmute` (last applied: May 9, 2023)
+
+  The uses of `transmute` in these two functions are particularly nasty, so we
+  choose a simpler implementation in terms of casts instead. These uses of
+  `transmute` are meant to support strict provenance for Rust pointers, but we
+  ignore this in `crucible-mir`.
