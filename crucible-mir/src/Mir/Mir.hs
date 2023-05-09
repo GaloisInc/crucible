@@ -35,7 +35,7 @@ import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 
-import Control.Lens (makeLenses, makeWrapped)
+import Control.Lens (makeLenses, makePrisms, makeWrapped)
 
 import GHC.Generics
 
@@ -184,7 +184,10 @@ data Adt = Adt
     }
     deriving (Eq, Ord, Show, Generic)
 
-data AdtKind = Struct | Enum | Union
+data AdtKind
+    = Struct
+    | Enum { _enumDiscrTy :: Ty }
+    | Union
     deriving (Eq, Ord, Show, Generic)
 
 data VariantDiscr
@@ -553,6 +556,7 @@ makeLenses ''MirBody
 makeLenses ''BasicBlock
 makeLenses ''BasicBlockData
 makeLenses ''Adt
+makePrisms ''AdtKind
 makeLenses ''AdtAg
 makeLenses ''Trait
 makeLenses ''Static
@@ -697,7 +701,7 @@ instance TypeOf Rvalue where
     in case op of
         Not -> ty
         Neg -> ty
-  typeOf (Discriminant _lv) = TyInt USize
+  typeOf (Discriminant lv) = lvalueEnumAdt lv^.
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops

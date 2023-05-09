@@ -150,11 +150,11 @@ instance FromJSON Adt where
         <*> v .: "orig_substs"
 
 instance FromJSON AdtKind where
-    parseJSON x = case x of
-        String "Struct" -> pure Struct
-        String "Enum" -> pure Enum
-        String "Union" -> pure Union
-        _ -> fail $ "unsupported adt kind " ++ show x
+    parseJSON = withObject "AdtKind" $ \v -> case lookupKM "kind" v of
+        Just (String "Struct") -> pure Struct
+        Just (String "Enum") -> Enum <$> v .: "discr_ty"
+        Just (String "Union") -> pure Union
+        mbKind -> fail $ "unsupported adt kind " ++ show mbKind
 
 instance FromJSON VariantDiscr where
     parseJSON = withObject "VariantDiscr" $ \v -> case lookupKM "kind" v of

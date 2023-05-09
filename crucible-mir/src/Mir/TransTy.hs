@@ -373,7 +373,7 @@ variantFieldsM' v = do
 
 enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> Some C.CtxRepr
 enumVariants col (M.Adt name kind vs _ _ _ _)
-  | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
+  | isn't M._Enum kind = error $ "expected " ++ show name ++ " to have kind Enum"
   | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
   where
     variantReprs :: [Some C.TypeRepr]
@@ -767,7 +767,7 @@ checkStructType _ = Nothing
 
 enumInfo :: M.Adt -> Int -> Int -> MirGenerator h s ret EnumInfo
 enumInfo adt i j = do
-    when (adt ^. M.adtkind /= M.Enum) $ mirFail $
+    when (isn't M._Enum (adt ^. M.adtkind)) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
     var <- case adt ^? M.adtvariants . ix i of
@@ -885,7 +885,7 @@ buildStruct adt es =
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
 buildEnum' adt i es = do
-    when (adt ^. M.adtkind /= M.Enum) $ mirFail $
+    when (isn't M._Enum (adt ^. M.adtkind)) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
     var <- case adt ^? M.adtvariants . ix i of
@@ -971,6 +971,13 @@ enumDiscriminant adt e = do
     Some ctx <- enumVariantsM adt
     let v = unpackAnyC (RustEnumRepr ctx) e
     return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
+
+lvalueEnumDiscrType :: Lvalue -> MirGenerator h s ret M.Adt
+lvalueEnumDiscrType lv =
+    let ty = typeOf lv in
+    case ty of
+      TyAdt aname _ _ -> findAdt aname
+      _ -> mirFail $ "lvalueEnumDiscrType: non-enum type " ++ show ty
 
 tupleFieldRef ::
     [M.Ty] -> Int ->

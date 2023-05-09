@@ -47,6 +47,7 @@ import Control.Monad.ST
 import Control.Monad.Trans.Class
 
 import Control.Lens hiding (op,(|>))
+import qualified Control.Lens.Extras as Lens (is)
 import Data.Foldable
 
 import Data.Bits (shift, shiftL)
@@ -992,7 +993,7 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
         es <- mapM evalOperand ops
         case adt^.adtkind of
             M.Struct -> buildStruct adt es
-            M.Enum -> buildEnum adt (fromInteger agv) es
+            M.Enum _ -> buildEnum adt (fromInteger agv) es
             M.Union -> do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
@@ -1061,7 +1062,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
         adt <- findAdt nm
         case adt^.adtkind of
             Struct -> structFieldRef adt idx tpr ref
-            Enum -> mirFail $ "tried to access field of non-downcast " ++ show ty
+            Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> mirFail $ "evalPlace (PField, Union) NYI"
 
     M.TyDowncast (M.TyAdt nm _ _) i -> do
@@ -1657,7 +1658,7 @@ initialValue (M.TyAdt nm _ _) = do
             let var = M.onlyVariant adt
             fldExps <- mapM initField (var^.M.vfields)
             Just <$> buildStruct' adt fldExps
-        Enum -> do
+        Enum _ -> do
             case inhabited (adt ^. adtvariants) of
                 -- Uninhabited enums can't be initialized.
                 [] -> return Nothing
@@ -2245,7 +2246,7 @@ checkEq a b kNe kEq
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
 mkDiscrMap col = mconcat
     [ Map.singleton (adt^.M.adtname) (adtIndices adt col)
-    | adt <- Map.elems $ col^.M.adts, adt^.M.adtkind == Enum ]
+    | adt <- Map.elems $ col^.M.adts, Lens.is _Enum (adt^.M.adtkind) ]
 
 
 
