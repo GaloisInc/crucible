@@ -61,7 +61,8 @@ import           Mir.Intrinsics
     , pattern MirVectorRepr
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
-    , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
+    , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
+    , mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
     , DynRefType)
 
@@ -371,17 +372,21 @@ variantFieldsM' v = do
   col <- use $ cs . collection
   return $ variantFields' col v
 
-enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> Some C.CtxRepr
-enumVariants col (M.Adt name kind vs _ _ _ _)
-  | isn't M._Enum kind = error $ "expected " ++ show name ++ " to have kind Enum"
-  | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
+enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> SomeRustEnumRepr
+enumVariants col (M.Adt name kind vs _ _ _ _) =
+  case kind of
+    M.Enum discrTy
+      |  Some discrTpr <- tyToRepr col discrTy 
+      -> reprsToCtx variantReprs $ \variantsCxt ->
+         SomeRustEnumRepr discrTpr variantsCxt
+    _ -> error $ "expected " ++ show name ++ " to have kind Enum"
   where
     variantReprs :: [Some C.TypeRepr]
     variantReprs = map (\v ->
         viewSome (\ctx -> Some $ C.StructRepr ctx) $
         variantFields col v) vs
 
-enumVariantsM :: TransTyConstraint => M.Adt -> MirGenerator h s ret (Some C.CtxRepr)
+enumVariantsM :: TransTyConstraint => M.Adt -> MirGenerator h s ret SomeRustEnumRepr
 enumVariantsM adt = do
   col <- use $ cs . collection
   return $ enumVariants col adt
@@ -551,28 +556,28 @@ adjustAnyE tpr f me = do
     buildAnyE tpr y
 
 
-readEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
-    R.Expr MIR s (RustEnumType ctx) -> MirGenerator h s ret (R.Expr MIR s tp)
-readEnumVariant ctx idx e = do
+readEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
+    R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s tp)
+readEnumVariant tp ctx idx e = do
     let tpr = ctx Ctx.! idx
-    let optVal = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx e
+    let optVal = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant tp ctx e
     readJust' tpr optVal $
         "readEnumVariant: wrong variant; expected " ++ show idx
 
-buildEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
-    R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s (RustEnumType ctx))
-buildEnumVariant ctx idx e = do
+buildEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
+    R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s (RustEnumType discrTp variantsCtx))
+buildEnumVariant tp ctx idx e = do
     let discr = R.App $ isizeLit $ fromIntegral $ Ctx.indexVal idx
-    let var = R.App $ E.InjectVariant ctx idx e
-    return $ R.App $ mkRustEnum ctx discr var
+    let var = R.App $ E.InjectVariant tp ctx idx e
+    return $ R.App $ mkRustEnum tp ctx discr var
 
-adjustEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
+adjustEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
     (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
-    R.Expr MIR s (RustEnumType ctx) -> MirGenerator h s ret (R.Expr MIR s (RustEnumType ctx))
-adjustEnumVariant ctx idx f e = do
-    x <- readEnumVariant ctx idx e
+    R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s (RustEnumType discrTp variantsCtx))
+adjustEnumVariant tp ctx idx f e = do
+    x <- readEnumVariant tp ctx idx e
     y <- f x
-    buildEnumVariant ctx idx y
+    buildEnumVariant tp ctx idx y
 
 
 readStructField :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
@@ -779,7 +784,7 @@ enumInfo adt i j = do
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    Some ctx <- enumVariantsM adt
+    SomeRustEnumRepr _ ctx <- enumVariantsM adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -893,7 +898,7 @@ buildEnum' adt i es = do
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
 
-    Some ctx <- enumVariantsM adt
+    SomeRustEnumRepr _ ctx <- enumVariantsM adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -968,16 +973,9 @@ enumFieldRef adt i j tpr ref = do
 enumDiscriminant :: M.Adt -> MirExp s ->
     MirGenerator h s ret (MirExp s)
 enumDiscriminant adt e = do
-    Some ctx <- enumVariantsM adt
-    let v = unpackAnyC (RustEnumRepr ctx) e
-    return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
-
-lvalueEnumDiscrType :: Lvalue -> MirGenerator h s ret M.Adt
-lvalueEnumDiscrType lv =
-    let ty = typeOf lv in
-    case ty of
-      TyAdt aname _ _ -> findAdt aname
-      _ -> mirFail $ "lvalueEnumDiscrType: non-enum type " ++ show ty
+    SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
+    let v = unpackAnyC (RustEnumRepr discrTpr variantsCtx) e
+    return $ MirExp discrTpr $ R.App $ rustEnumDiscriminant discrTpr v
 
 tupleFieldRef ::
     [M.Ty] -> Int ->

@@ -202,7 +202,7 @@ instance Pretty Rvalue where
     pretty (CheckedBinaryOp a b c) = pretty b <+> pretty a <+> pretty c
     pretty (NullaryOp a _b) = pretty a
     pretty (UnaryOp a b) = pretty a <+> pretty b
-    pretty (Discriminant a) = pretty_fn1 "Discriminant" a
+    pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
     pretty (RAdtAg a) = pretty a
     pretty (ShallowInitBox ptr ty) = pretty_fn2 "ShallowInitBox" ptr ty

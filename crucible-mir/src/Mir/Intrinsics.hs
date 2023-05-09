@@ -121,22 +121,28 @@ import           Unsafe.Coerce
 -- Rust enum representation
 
 -- A Rust enum, whose variants have the types listed in `ctx`.
-type RustEnumType ctx = StructType (RustEnumFields ctx)
-type RustEnumFields ctx = EmptyCtx ::> IsizeType ::> VariantType ctx
+type RustEnumType discrTp variantsCtx = StructType (RustEnumFields discrTp variantsCtx)
+type RustEnumFields discrTp variantsCtx = EmptyCtx ::> discrTp ::> VariantType variantsCtx
 
-pattern RustEnumFieldsRepr :: () => ctx' ~ RustEnumFields ctx => CtxRepr ctx -> CtxRepr ctx'
-pattern RustEnumFieldsRepr ctx = Empty :> IsizeRepr :> VariantRepr ctx
-pattern RustEnumRepr :: () => tp ~ RustEnumType ctx => CtxRepr ctx -> TypeRepr tp
-pattern RustEnumRepr ctx = StructRepr (RustEnumFieldsRepr ctx)
+data SomeRustEnumRepr where
+  SomeRustEnumRepr ::
+    !(TypeRepr discrTp) ->
+    !(CtxRepr variantsCtx) ->
+    SomeRustEnumRepr
 
-mkRustEnum :: CtxRepr ctx -> f IsizeType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
-mkRustEnum ctx discr variant = MkStruct (RustEnumFieldsRepr ctx) (Empty :> discr :> variant)
+pattern RustEnumFieldsRepr :: () => ctx ~ RustEnumFields discrTp variantsCtx => TypeRepr discrTp -> CtxRepr variantsCtx -> CtxRepr ctx
+pattern RustEnumFieldsRepr discrTp variantsCtx = Empty :> discrTp :> VariantRepr variantsCtx
+pattern RustEnumRepr :: () => tp ~ RustEnumType discrTp variantsCtx => TypeRepr discrTp -> CtxRepr variantsCtx -> TypeRepr tp
+pattern RustEnumRepr discrTp variantsCtx = StructRepr (RustEnumFieldsRepr discrTp variantsCtx)
 
-rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IsizeType
-rustEnumDiscriminant e = GetStruct e i1of2 IsizeRepr
+mkRustEnum :: TypeRepr discrTp -> CtxRepr variantsCtx -> f discrTp -> f (VariantType variantsCtx) -> App ext f (RustEnumType discrTp variantsCtx)
+mkRustEnum discrTp variantsCtx discr variant = MkStruct (RustEnumFieldsRepr discrTp variantsCtx) (Empty :> discr :> variant)
 
-rustEnumVariant :: CtxRepr ctx -> f (RustEnumType ctx) -> App ext f (VariantType ctx)
-rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)
+rustEnumDiscriminant :: TypeRepr discrTp -> f (RustEnumType discrTp variantsCtx) -> App ext f discrTp
+rustEnumDiscriminant discrTp e = GetStruct e i1of2 discrTp
+
+rustEnumVariant :: CtxRepr variantsCtx -> f (RustEnumType discrTp variantsCtx) -> App ext f (VariantType variantsCtx)
+rustEnumVariant variantsCtx e = GetStruct e i2of2 (VariantRepr variantsCtx)
 
 
 -- Rust usize/isize representation
@@ -381,9 +387,10 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     !(Index ctx tp) ->
     MirReferencePath sym tp_base tp
   Variant_RefPath ::
-    !(CtxRepr ctx) ->
-    !(MirReferencePath sym tp_base (RustEnumType ctx)) ->
-    !(Index ctx tp) ->
+    !(TypeRepr discrTp) ->
+    !(CtxRepr variantsCtx) ->
+    !(MirReferencePath sym tp_base (RustEnumType discrTp variantsCtx)) ->
+    !(Index variantsCtx tp) ->
     MirReferencePath sym tp_base tp
   Index_RefPath ::
     !(TypeRepr tp) ->
@@ -429,7 +436,7 @@ instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
     show Empty_RefPath = "Empty_RefPath"
     show (Any_RefPath tpr p) = "(Any_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
     show (Field_RefPath ctx p idx) = "(Field_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
-    show (Variant_RefPath ctx p idx) = "(Variant_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
+    show (Variant_RefPath tp ctx p idx) = "(Variant_RefPath " ++ show tp ++ " " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
     show (Index_RefPath tpr p idx) = "(Index_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
     show (Just_RefPath tpr p) = "(Just_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
     show (VectorAsMirVector_RefPath tpr p) = "(VectorAsMirVector_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
@@ -471,10 +478,10 @@ instance OrdSkel (MirReference sym tp) where
             compareSkelF2 ctx1 idx1 ctx2 idx2 <> cmpPath p1 p2
         cmpPath (Field_RefPath _ _ _) _ = LT
         cmpPath _ (Field_RefPath _ _ _) = GT
-        cmpPath (Variant_RefPath ctx1 p1 idx1) (Variant_RefPath ctx2 p2 idx2) =
+        cmpPath (Variant_RefPath _ ctx1 p1 idx1) (Variant_RefPath _ ctx2 p2 idx2) =
             compareSkelF2 ctx1 idx1 ctx2 idx2 <> cmpPath p1 p2
-        cmpPath (Variant_RefPath _ _ _) _ = LT
-        cmpPath _ (Variant_RefPath _ _ _) = GT
+        cmpPath (Variant_RefPath _ _ _ _) _ = LT
+        cmpPath _ (Variant_RefPath _ _ _ _) = GT
         cmpPath (Index_RefPath tpr1 p1 _) (Index_RefPath tpr2 p2 _) =
             compareSkelF tpr1 tpr2 <> cmpPath p1 p2
         cmpPath (Index_RefPath _ _ _) _ = LT
@@ -531,11 +538,12 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
     , Just Refl <- testEquality f1 f2 ->
          do p' <- muxRefPath sym c p1 p2
             return (Field_RefPath ctx1 p' f1)
-  (Variant_RefPath ctx1 p1 f1, Variant_RefPath ctx2 p2 f2)
-    | Just Refl <- testEquality ctx1 ctx2
+  (Variant_RefPath tp1 ctx1 p1 f1, Variant_RefPath tp2 ctx2 p2 f2)
+    | {-Just Refl <- testEquality tp1 tp2
+    , -} Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality f1 f2 ->
          do p' <- muxRefPath sym c p1 p2
-            return (Variant_RefPath ctx1 p' f1)
+            return (Variant_RefPath tp1 ctx1 p' f1)
   (Index_RefPath tp p1 i1, Index_RefPath _ p2 i2) ->
          do p' <- muxRefPath sym c p1 p2
             i' <- lift $ bvIte sym c i1 i2
@@ -871,9 +879,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(Index ctx tp) ->
      MirStmt f (MirReferenceType tp)
   MirSubvariantRef ::
-     !(CtxRepr ctx) ->
-     !(f (MirReferenceType (RustEnumType ctx))) ->
-     !(Index ctx tp) ->
+     !(TypeRepr discrTp) ->
+     !(CtxRepr variantsCtx) ->
+     !(f (MirReferenceType (RustEnumType discrTp variantsCtx))) ->
+     !(Index variantsCtx tp) ->
      MirStmt f (MirReferenceType tp)
   MirSubindexRef ::
      !(TypeRepr tp) ->
@@ -1033,7 +1042,7 @@ instance TypeApp MirStmt where
     MirDropRef _    -> UnitRepr
     MirSubanyRef tp _ -> MirReferenceRepr tp
     MirSubfieldRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
-    MirSubvariantRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
+    MirSubvariantRef _ ctx _ idx -> MirReferenceRepr (ctx ! idx)
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
     MirSubjustRef tp _ -> MirReferenceRepr tp
     MirRef_VectorAsMirVector tp _ -> MirReferenceRepr (MirVectorRepr tp)
@@ -1068,7 +1077,7 @@ instance PrettyApp MirStmt where
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubanyRef tpr x -> "subanyRef" <+> pretty tpr <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
-    MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
+    MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
@@ -1247,13 +1256,14 @@ subfieldMirRefLeaf _ (MirReference_Integer _ _) _ =
       "attempted subfield on the result of an integer-to-pointer cast"
 
 subvariantMirRefLeaf ::
-    CtxRepr ctx ->
-    MirReference sym (RustEnumType ctx) ->
-    Index ctx tp ->
+    TypeRepr discrTp ->
+    CtxRepr variantsCtx ->
+    MirReference sym (RustEnumType discrTp variantsCtx) ->
+    Index variantsCtx tp ->
     MuxLeafT sym IO (MirReference sym tp)
-subvariantMirRefLeaf ctx (MirReference root path) idx =
-    return $ MirReference root (Variant_RefPath ctx path idx)
-subvariantMirRefLeaf _ (MirReference_Integer _ _) _ =
+subvariantMirRefLeaf tp ctx (MirReference root path) idx =
+    return $ MirReference root (Variant_RefPath tp ctx path idx)
+subvariantMirRefLeaf _ _ (MirReference_Integer _ _) _ =
     leafAbort $ GenericSimError $
       "attempted subvariant on the result of an integer-to-pointer cast"
 
@@ -1325,7 +1335,7 @@ refPathEq sym (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2)
 refPathEq sym (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2)
   | Just Refl <- testEquality ctx1 ctx2
   , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
-refPathEq sym (Variant_RefPath ctx1 p1 idx1) (Variant_RefPath ctx2 p2 idx2)
+refPathEq sym (Variant_RefPath _ ctx1 p1 idx1) (Variant_RefPath _ ctx2 p2 idx2)
   | Just Refl <- testEquality ctx1 ctx2
   , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
 refPathEq sym (Index_RefPath tpr1 p1 idx1) (Index_RefPath tpr2 p2 idx2)
@@ -1394,8 +1404,8 @@ reverseRefPath rp = go RrpNil rp
     go acc Empty_RefPath = acc
     go acc (Field_RefPath ctx rp idx) =
         go (Field_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
-    go acc (Variant_RefPath ctx rp idx) =
-        go (Variant_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Variant_RefPath tp ctx rp idx) =
+        go (Variant_RefPath tp ctx Empty_RefPath idx `RrpCons` acc) rp
     go acc (Index_RefPath tpr rp idx) =
         go (Index_RefPath tpr Empty_RefPath idx `RrpCons` acc) rp
     go acc (Just_RefPath tpr rp) =
@@ -1458,7 +1468,7 @@ refPathOverlaps sym path1 path2 = do
     go (Field_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Field_RefPath ctx2 _ idx2 `RrpCons` rrp2)
       | Just Refl <- testEquality ctx1 ctx2
       , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
-    go (Variant_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Variant_RefPath ctx2 _ idx2 `RrpCons` rrp2)
+    go (Variant_RefPath _ ctx1 _ idx1 `RrpCons` rrp1) (Variant_RefPath _ ctx2 _ idx2 `RrpCons` rrp2)
       | Just Refl <- testEquality ctx1 ctx2
       , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
     go (Index_RefPath tpr1 _ idx1 `RrpCons` rrp1) (Index_RefPath tpr2 _ idx2 `RrpCons` rrp2)
@@ -1685,8 +1695,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ modifyRefMux bak (subanyMirRefLeaf tp) ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
          readOnly s $ modifyRefMux bak (\ref' -> subfieldMirRefLeaf ctx0 ref' idx) ref
-       MirSubvariantRef ctx0 (regValue -> ref) idx ->
-         readOnly s $ modifyRefMux bak (\ref' -> subvariantMirRefLeaf ctx0 ref' idx) ref
+       MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
+         readOnly s $ modifyRefMux bak (\ref' -> subvariantMirRefLeaf tp0 ctx0 ref' idx) ref
        MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
          readOnly s $ modifyRefMux bak (\ref' -> subindexMirRefLeaf tpr ref' idx) ref
        MirSubjustRef tpr (regValue -> ref) ->
@@ -1937,7 +1947,7 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
   Field_RefPath _ctx path fld ->
       adjustRefPath bak iTypes v path
         (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
-  Variant_RefPath _ctx path fld ->
+  Variant_RefPath _ _ctx path fld ->
       -- TODO: report an error if variant `fld` is not selected
       adjustRefPath bak iTypes v path (field @1 (\(RV x) ->
         RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
@@ -1984,7 +1994,7 @@ readRefPath bak iTypes v = \case
   Field_RefPath _ctx path fld ->
     do flds <- readRefPath bak iTypes v path
        return $ unRV $ flds ! fld
-  Variant_RefPath ctx path fld ->
+  Variant_RefPath _ ctx path fld ->
     do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v path
        let msg = GenericSimError $
                "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"

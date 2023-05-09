@@ -956,14 +956,14 @@ evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.CheckedBinaryOp binop op1 op2) = transCheckedBinOp  binop op1 op2
 evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
-evalRval (M.Discriminant lv) = do
+evalRval (M.Discriminant lv discrTy) = do
     e <- evalLvalue lv
-    let ty = typeOf lv
-    case ty of
+    let enumTy = typeOf lv
+    case enumTy of
       TyAdt aname _ _ -> do
         adt <- findAdt aname
         enumDiscriminant adt e
-      _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show ty
+      _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show enumTy
 
 evalRval (M.Aggregate ak ops) = case ak of
                                    M.AKTuple ->  do

@@ -186,7 +186,10 @@ data Adt = Adt
 
 data AdtKind
     = Struct
-    | Enum { _enumDiscrTy :: Ty }
+    | Enum { -- | The type of the discriminant used to pick which variant of
+             -- the enum to use. This type can be of varying sizes depending
+             -- on how many variants the enum has.
+             _enumDiscrTy :: Ty }
     | Union
     deriving (Eq, Ord, Show, Generic)
 
@@ -333,7 +336,16 @@ data Rvalue =
       | CheckedBinaryOp { _cbop :: BinOp, _cbop1 :: Operand, _cbop2 :: Operand }
       | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
-      | Discriminant { _dvar :: Lvalue }
+      | Discriminant { _dvar :: Lvalue,
+                       -- | The type of the discriminant. That is, /not/ the
+                       -- type of the enum itself, but rather the type of the
+                       -- value used to choose which variant of the enum to use.
+                       --
+                       -- Although this type is also stored in the 'Lvalue', it
+                       -- can only be retrieved in a monadic context. We cache
+                       -- the type here for the benefit of `Rvalue`'s 'TypeOf'
+                       -- instance, which requires a pure context.
+                       _dty :: Ty }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
       | ShallowInitBox { _sibptr :: Operand, _sibty :: Ty }
@@ -701,7 +713,7 @@ instance TypeOf Rvalue where
     in case op of
         Not -> ty
         Neg -> ty
-  typeOf (Discriminant lv) = lvalueEnumAdt lv^.
+  typeOf (Discriminant _lv ty) = ty
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
