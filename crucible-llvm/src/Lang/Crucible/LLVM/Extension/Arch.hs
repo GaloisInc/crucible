@@ -8,12 +8,11 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Lang.Crucible.LLVM.Extension.Arch
   ( type LLVMArch
@@ -22,32 +21,35 @@ module Lang.Crucible.LLVM.Extension.Arch
   , ArchRepr(..)
   ) where
 
-import           GHC.Generics (Generic)
 import           Data.Parameterized (NatRepr)
 import           Data.Parameterized.Classes (OrdF(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Type.Equality (TestEquality(..))
-import           Data.Typeable (Typeable)
 import           GHC.TypeLits (Nat)
 
+import           Lang.Crucible.LLVM.Extension.PtrSize
+
 -- | Data kind for representing LLVM architectures.
---   Currently only X86 variants are supported.
-data LLVMArch = X86 Nat
-  deriving (Generic, Typeable)
+type LLVMArch = PtrSize
+{-# DEPRECATED LLVMArch "Use Lang.Crucible.LLVM.Extension.PtrSize" #-}
 
 -- | LLVM Architecture tag for X86 variants
 --
 --   @X86 :: Nat -> LLVMArch@
-type X86 = 'X86
+type X86 = 'PtrSize
+{-# DEPRECATED X86 "Use Lang.Crucible.LLVM.Extension.PtrSize" #-}
 
 -- | Type family defining the native machine word size
 --   for a given architecture.
 type family ArchWidth (arch :: LLVMArch) :: Nat where
-  ArchWidth (X86 wptr) = wptr
+  ArchWidth ptrsz = PtrSizeBits ptrsz
+{-# DEPRECATED ArchWidth "Use Lang.Crucible.LLVM.Extension.PtrSize" #-}
 
 -- | Runtime representation of architectures.
 data ArchRepr (arch :: LLVMArch) where
   X86Repr :: NatRepr w -> ArchRepr (X86 w)
+{-# DEPRECATED ArchRepr "Use Lang.Crucible.LLVM.Extension.PtrSize" #-}
+{-# DEPRECATED X86Repr "Use Lang.Crucible.LLVM.Extension.PtrSize" #-}
 
 $(return [])
 

@@ -10,11 +10,19 @@ subset of functions in a bitcode module are actually executed.
 
 * Added support for the `cvc5` SMT solver.
 
-* Added support for getting abducts during online goal solving. With 
-the `--get-abducts n` option, `crux-llvm` returns `n` abducts for 
+* Added support for getting abducts during online goal solving. With
+the `--get-abducts n` option, `crux-llvm` returns `n` abducts for
 each goal that the SMT solver found to be `sat`. An abduct is a formula
-that makes the goal `unsat` (would help the SMT solver prove the goal). 
+that makes the goal `unsat` (would help the SMT solver prove the goal).
 This feature only works with the `cvc5` SMT solver.
+
+## Library changes
+
+* Stop representing the "LLVM architecture" at the type level with the `LLVMArch`
+  and `ArchRepr` types. These were previously always set to x86 regardless of the
+  target triple. Instead, represent the pointer width directly with `PtrWidth`.
+  `LLVMArch` and related functionality will still work in this release, but
+  are deprecated and will be removed in the next release.
 
 # 0.6
 
