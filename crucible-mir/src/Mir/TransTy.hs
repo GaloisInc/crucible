@@ -38,6 +38,7 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
+import Data.Parameterized.TraversableFC
 
 
 -- crucible
@@ -56,7 +57,7 @@ import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , mirVector_fromVector
-    , cs, collection, discrMap )
+    , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , pattern MirVectorRepr
@@ -65,7 +66,7 @@ import           Mir.Intrinsics
     , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
     , mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
-    , DynRefType)
+    , DynRefType, usizeLit , pattern BaseUsizeRepr )
 
 
 -----------------------------------------------------------------------
@@ -916,7 +917,9 @@ buildEnum' adt i es = do
             show (adt ^. M.adtname) ++ " is not a struct?"
 
     Some fctx' <- variantFieldsM' var
-    asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es of
+    let ftys = map (^. M.fty) (var ^. M.vfields)
+    es' <- inferElidedVariantFields ftys es
+    asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es' of
         Left err ->
             mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err ++ " -- " ++ show es
         Right x -> return x
@@ -932,6 +935,33 @@ buildEnum' adt i es = do
         R.App $ mkRustEnum discrTp ctx (R.App discr) $
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
+
+-- | TODO RGS: Document the ever-living shit out of this
+inferElidedVariantFields :: [M.Ty] -> [Maybe (MirExp s)]
+                         -> MirGenerator h s ret [Maybe (MirExp s)]
+inferElidedVariantFields ftys fes
+  | length ftys == length fes -- TODO RGS: Explain why this is fishy
+  = pure fes
+  | otherwise
+  = go ftys fes
+  where
+    go [] [] = pure []
+    go [] (_:_) = mirFail $ unlines [ "inferElidedVariantFields: more expressions than types"
+                                    , "types:       " ++ show ftys
+                                    , "expressions: " ++ show fes
+                                    ] 
+    go (ty:tys) exps = do
+      col <- use $ cs . collection
+      if isZeroSized col ty
+         then do val <- initialValue ty
+                 exps' <- go tys exps
+                 pure $ val : exps'
+         else
+           case exps of
+             e:es -> do
+               es' <- go tys es
+               pure $ e : es'
+             [] -> mirFail "inferElidedVariantFields: not enough expressions"
 
 buildEnum :: HasCallStack => M.Adt -> Int -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
@@ -1040,3 +1070,162 @@ eraseSigReceiver :: M.FnSig -> M.FnSig
 eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
     [] -> error $ unwords ["dynamic trait method has no receiver", show sig]
     (_ : tys) -> M.TyErased : tys
+
+---- "Allocation"
+--
+--
+-- MIR initializes compound structures by initializing their
+-- components. It does not include a general allocation. Here we add
+-- general code to initialize the structures for local variables where
+-- we can. In general, we only need to produce a value of the correct
+-- type with a structure that is compatible for further
+-- initialization.
+--
+-- With this code, it is possible for crux-mir to miss
+-- uninitialized values.  So we should revisit this.
+--
+initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
+initialValue (CTyInt512) =
+    let w = knownNat :: NatRepr 512 in
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (CTyVector t) = do
+    Some tr <- tyToReprM t
+    return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
+initialValue (CTyArray t) = tyToReprM t >>= \(Some tpr) -> case tpr of
+    C.BVRepr w -> do
+        let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
+        v <- arrayZeroed idxs w
+        return $ Just $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
+    _ -> error $ "can't initialize array of " ++ show t ++ " (expected BVRepr)"
+initialValue ty@(CTyBv _sz) = tyToReprM ty >>= \(Some tpr) -> case tpr of
+    C.BVRepr w -> return $ Just $ MirExp (C.BVRepr w) $ S.app $ eBVLit w 0
+    _ -> mirFail $ "Bv type " ++ show ty ++ " does not have BVRepr"
+-- `Any` values have no reasonable default.  Any default we provide might get
+-- muxed with actual non-default values, which will fail (unless the concrete
+-- type happens to match exactly).
+initialValue CTyAny = return Nothing
+initialValue CTyMethodSpec = return Nothing
+initialValue CTyMethodSpecBuilder = return Nothing
+
+initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
+initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
+initialValue (M.TyTuple tys) = do
+    mexps <- mapM initialValue tys
+    col <- use $ cs . collection
+    return $ Just $ buildTupleMaybe col tys mexps
+initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
+initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
+initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (M.TyArray t size) = do
+    Some tpr <- tyToReprM t
+    mv <- mirVector_uninit tpr $ S.app $ eBVLit knownNat (fromIntegral size)
+    return $ Just $ MirExp (MirVectorRepr tpr) mv
+-- TODO: disabled to workaround for a bug with muxing null and non-null refs
+-- The problem is with
+--      if (*) {
+--          let x = &...;
+--      }
+-- `x` gets default-initialized at the start of the function, which (with these
+-- cases uncommented) sets it to null (`MirReference_Integer 0`).  Then, if the
+-- branch is taken, it's set to a valid `MirReference` value instead.  At the
+-- end of the `if`, we try to mux together `MirReference_Integer` with a normal
+-- `MirReference`, which currently fails.
+--
+--  * The short-term fix is to disable initialization of refs, so they never
+--    get set to `null` in the first place.
+--  * The medium-term fix is to support muxing the two MirReference variants,
+--    using something like VariantType.
+--  * The long-term fix is to remove default-initialization entirely, either by
+--    writing an AdtAg pass for structs and tuples like we have for enums, or
+--    by converting all locals to untyped allocations (allow writing each field
+--    value independently, then materialize a fully-initialized struct the
+--    first time it's read at struct type).
+--
+-- NB: When re-enabling this, also re-enable the TyRef case of `canInitialize`
+{-
+initialValue (M.TyRef (M.TySlice t) M.Immut) = do
+    tyToReprCont t $ \ tr -> do
+      let vec = R.App $ E.VectorLit tr V.empty
+      vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
+      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+      return $ Just $ buildTuple [vec', i, i]
+initialValue (M.TyRef (M.TySlice t) M.Mut) = do
+    tyToReprCont t $ \ tr -> do
+      ref <- newMirRef (MirVectorRepr tr)
+      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+      return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
+      -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef M.TyStr M.Immut) = do
+    let tr = C.BVRepr $ knownNat @8
+    let vec = R.App $ E.VectorLit tr V.empty
+    vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
+    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+    return $ Just $ buildTuple [vec', i, i]
+initialValue (M.TyRef M.TyStr M.Mut) = do
+    let tr = C.BVRepr $ knownNat @8
+    ref <- newMirRef (MirVectorRepr tr)
+    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
+initialValue (M.TyRef (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
+initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
+initialValue (M.TyRef t M.Immut) = initialValue t
+initialValue (M.TyRef t M.Mut)
+  | Some tpr <- tyToRepr t = do
+    r <- integerToMirRef tpr $ R.App $ usizeLit 0
+    return $ Just $ MirExp (MirReferenceRepr tpr) r
+-}
+initialValue M.TyChar = do
+    let w = (knownNat :: NatRepr 32)
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (M.TyClosure tys) = do
+    mexps <- mapM initialValue tys
+    col <- use $ cs . collection
+    return $ Just $ buildTupleMaybe col tys mexps
+initialValue (M.TyAdt nm _ _) = do
+    adt <- findAdt nm
+    col <- use $ cs . collection
+    case adt ^. M.adtkind of
+        _ | Just ty <- reprTransparentFieldTy col adt -> initialValue ty
+        M.Struct -> do
+            let var = M.onlyVariant adt
+            fldExps <- mapM initField (var^.M.vfields)
+            Just <$> buildStruct' adt fldExps
+        M.Enum _ -> do
+            case inhabited (adt ^. M.adtvariants) of
+                -- Uninhabited enums can't be initialized.
+                [] -> return Nothing
+                -- Inhabited enums get initialized to their first inhabited variant.
+                vs@(var : _) -> do
+                    fldExps <- mapM initField (var^.M.vfields)
+                    Just <$> buildEnum' adt 0 fldExps
+        M.Union -> return Nothing
+    where
+        inhabited vars = filter M._vinhabited vars
+
+
+
+initialValue (M.TyFnPtr _) = return $ Nothing
+initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
+initialValue (M.TyDynamic _) = return $ Nothing
+initialValue M.TyNever = return $ Just $ MirExp knownRepr $
+    R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+initialValue _ = return Nothing
+
+initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
+initField (M.Field _name ty) = initialValue ty
+
+eBVLit ::
+  (1 <= w) =>
+  NatRepr w ->
+  Integer ->
+  E.App ext f (C.BVType w)
+eBVLit w i = E.BVLit w (BV.mkBV w i)
