@@ -26,6 +26,7 @@ module Mir.TransTy where
 
 import Control.Monad
 import Control.Lens
+import qualified Data.BitVector.Sized as BV
 import Data.List (findIndices)
 import           Data.String (fromString)
 import qualified Data.Vector as V
@@ -560,16 +561,16 @@ readEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index vari
     R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s tp)
 readEnumVariant tp ctx idx e = do
     let tpr = ctx Ctx.! idx
-    let optVal = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant tp ctx e
+    let optVal = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx e
     readJust' tpr optVal $
         "readEnumVariant: wrong variant; expected " ++ show idx
 
 buildEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
     R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s (RustEnumType discrTp variantsCtx))
 buildEnumVariant tp ctx idx e = do
-    let discr = R.App $ isizeLit $ fromIntegral $ Ctx.indexVal idx
-    let var = R.App $ E.InjectVariant tp ctx idx e
-    return $ R.App $ mkRustEnum tp ctx discr var
+    discr <- enumDiscrLit tp $ fromIntegral $ Ctx.indexVal idx
+    let var = R.App $ E.InjectVariant ctx idx e
+    return $ R.App $ mkRustEnum tp ctx (R.App discr) var
 
 adjustEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
     (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
@@ -756,7 +757,8 @@ mapStructField adt i f me = do
     f' me
 
 
-data EnumInfo = forall ctx ctx' tp tp'. EnumInfo
+data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
+    (C.TypeRepr discrTp)
     (C.CtxRepr ctx)
     (Ctx.Index ctx (C.StructType ctx'))
     (C.CtxRepr ctx')
@@ -772,6 +774,10 @@ checkStructType _ = Nothing
 
 enumInfo :: M.Adt -> Int -> Int -> MirGenerator h s ret EnumInfo
 enumInfo adt i j = do
+    Some discrTp <- case adt ^. M.adtkind of
+        M.Enum discrTy -> tyToReprM discrTy
+        _ -> mirFail $ "expected enum, but got adt " ++ show (adt ^. M.adtname)
+
     when (isn't M._Enum (adt ^. M.adtkind)) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
@@ -804,13 +810,13 @@ enumInfo adt i j = do
     kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
         "field " ++ show j ++ " of enum " ++ show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    return $ EnumInfo ctx idx ctx' idx' kind
+    return $ EnumInfo discrTp ctx idx ctx' idx' kind
 
 getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
 getEnumField adt i j me = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
-    e <- readAnyE (RustEnumRepr ctx) me
-    e <- readEnumVariant ctx idx e
+    EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
+    e <- readAnyE (RustEnumRepr discrTp ctx) me
+    e <- readEnumVariant discrTp ctx idx e
     e <- readStructField ctx' idx' e
     e <- readFieldData' fld errFieldUninit e
     return $ MirExp (R.exprType e) e
@@ -822,11 +828,11 @@ getEnumField adt i j me = do
 setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 setEnumField adt i j me (MirExp tpr e') = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
+    EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
-    let f' = adjustAnyE (RustEnumRepr ctx) $
-            adjustEnumVariant ctx idx $
+    let f' = adjustAnyE (RustEnumRepr discrTp ctx) $
+            adjustEnumVariant discrTp ctx idx $
             \e -> writeStructField ctx' idx' e e'
     f' me
   where
@@ -890,8 +896,9 @@ buildStruct adt es =
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
 buildEnum' adt i es = do
-    when (isn't M._Enum (adt ^. M.adtkind)) $ mirFail $
-        "expected enum, but got adt " ++ show (adt ^. M.adtname)
+    Some discrTp <- case adt ^. M.adtkind of
+        M.Enum discrTy -> tyToReprM discrTy
+        _ -> mirFail $ "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
     var <- case adt ^? M.adtvariants . ix i of
         Just var -> return var
@@ -918,11 +925,11 @@ buildEnum' adt i es = do
 
     discrs <- use $ cs . discrMap . ix (adt ^. M.adtname)
     discr <- case discrs ^? ix i of
-        Just x -> return x
+        Just x -> enumDiscrLit discrTp x
         Nothing -> mirFail $ "can't find discr for variant " ++ show (adt ^. M.adtname, i)
 
-    buildAnyE (RustEnumRepr ctx) $
-        R.App $ mkRustEnum ctx (R.App $ isizeLit discr) $
+    buildAnyE (RustEnumRepr discrTp ctx) $
+        R.App $ mkRustEnum discrTp ctx (R.App discr) $
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
 
@@ -931,7 +938,12 @@ buildEnum :: HasCallStack => M.Adt -> Int -> [MirExp s] ->
 buildEnum adt i es =
     buildEnum' adt i (map Just es)
 
-
+enumDiscrLit :: C.TypeRepr tp -> Integer
+             -> MirGenerator h s ret (E.App ext f tp)
+enumDiscrLit tp discr =
+  case tp of
+    C.BVRepr w -> pure $ E.BVLit w $ BV.mkBV w discr
+    _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
 fieldDataRef ::
     FieldKind tp tp' ->
@@ -959,11 +971,11 @@ enumFieldRef ::
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
     MirGenerator h s ret (MirPlace s)
 enumFieldRef adt i j tpr ref = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
+    EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- testEqualityOrFail tpr C.AnyRepr $
         "enumFieldRef: bad referent type: expected Any, but got " ++ show tpr
-    ref <- subanyRef (RustEnumRepr ctx) ref
-    ref <- subvariantRef ctx ref idx
+    ref <- subanyRef (RustEnumRepr discrTp ctx) ref
+    ref <- subvariantRef discrTp ctx ref idx
     ref <- subfieldRef ctx' ref idx'
     ref <- fieldDataRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate enum metadata to fields

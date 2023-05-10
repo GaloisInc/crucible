@@ -539,8 +539,8 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
          do p' <- muxRefPath sym c p1 p2
             return (Field_RefPath ctx1 p' f1)
   (Variant_RefPath tp1 ctx1 p1 f1, Variant_RefPath tp2 ctx2 p2 f2)
-    | {-Just Refl <- testEquality tp1 tp2
-    , -} Just Refl <- testEquality ctx1 ctx2
+    | Just Refl <- testEquality tp1 tp2
+    , Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality f1 f2 ->
          do p' <- muxRefPath sym c p1 p2
             return (Variant_RefPath tp1 ctx1 p' f1)

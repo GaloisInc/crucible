@@ -349,8 +349,8 @@ regEval bak baseEval tpr v = go tpr v
         Any_RefPath tpr <$> goMirReferencePath p
     goMirReferencePath (Field_RefPath ctx p idx) =
         Field_RefPath ctx <$> goMirReferencePath p <*> pure idx
-    goMirReferencePath (Variant_RefPath ctx p idx) =
-        Variant_RefPath ctx <$> goMirReferencePath p <*> pure idx
+    goMirReferencePath (Variant_RefPath discrTp ctx p idx) =
+        Variant_RefPath discrTp ctx <$> goMirReferencePath p <*> pure idx
     goMirReferencePath (Index_RefPath tpr p idx) =
         Index_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
     goMirReferencePath (Just_RefPath tpr p) =
