@@ -378,7 +378,7 @@ enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> SomeRustEnumRepr
 enumVariants col (M.Adt name kind vs _ _ _ _) =
   case kind of
     M.Enum discrTy
-      |  Some discrTpr <- tyToRepr col discrTy 
+      |  Some discrTpr <- tyToRepr col discrTy
       -> reprsToCtx variantReprs $ \variantsCxt ->
          SomeRustEnumRepr discrTpr variantsCxt
     _ -> error $ "expected " ++ show name ++ " to have kind Enum"
@@ -949,7 +949,7 @@ inferElidedVariantFields ftys fes
     go [] (_:_) = mirFail $ unlines [ "inferElidedVariantFields: more expressions than types"
                                     , "types:       " ++ show ftys
                                     , "expressions: " ++ show fes
-                                    ] 
+                                    ]
     go (ty:tys) exps = do
       col <- use $ cs . collection
       if isZeroSized col ty

@@ -495,6 +495,7 @@ data FloatLit
 data ConstVal =
     ConstFloat FloatLit
   | ConstInt IntLit
+  | ConstSlice [ConstVal]
   | ConstStr B.ByteString
   | ConstByteStr B.ByteString
   | ConstBool Bool
