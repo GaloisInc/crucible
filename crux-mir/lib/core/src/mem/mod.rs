@@ -1273,3 +1273,17 @@ pub trait SizedTypeProperties: Sized {
 #[doc(hidden)]
 #[unstable(feature = "sized_type_properties", issue = "none")]
 impl<T> SizedTypeProperties for T {}
+
+/// Convert `T` to `U`.  Both types must have the same Crucible representation.
+#[unstable(feature = "crucible_intrinsics", issue = "none")]
+#[rustc_const_stable(feature = "stable_crucible_intrinsics", since = "1.0.0")]
+#[inline(never)]
+#[allow(unused_attributes)]
+#[allow_internal_unstable(const_fn_union)]
+pub const unsafe fn crucible_identity_transmute<T, U>(x: T) -> U {
+    union Transmute<T, U> {
+        x: ManuallyDrop<T>,
+        y: ManuallyDrop<U>,
+    }
+    unsafe { ManuallyDrop::into_inner(Transmute { x: ManuallyDrop::new(x) }.y) }
+}

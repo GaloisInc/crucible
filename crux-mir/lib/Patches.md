@@ -51,3 +51,7 @@ identify all of the code that was changed in each patch.
   a simple workaround: include an explicit `len` field, which is updated
   in sync with `ptr` and `end`, and avoids the need for pointer
   arithmetic.
+
+* Implement `str::as_bytes` via `crucible_identity_transmute` (last applied: May 16, 2023)
+
+  This is necessary to avoid a gnarly use of `transmute`.
