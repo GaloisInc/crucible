@@ -149,9 +149,24 @@ transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal _ty (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
+transConstVal (M.TyRef (M.TySlice ty) _) (Some (MirSliceRepr tpr)) (M.ConstSlice cs) = do
+    cs' <- Trav.for cs $ \c -> do
+        MirExp tpr' c' <- transConstVal ty (Some tpr) c
+        Refl <- testEqualityOrFail tpr tpr' $
+            "transConstVal (ConstSlice): returned wrong type: expected " ++
+            show tpr ++ ", got " ++ show tpr'
+        pure c'
+    vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList cs'
+    -- return $ MirExp (MirVectorRepr tpr) vec
+    vecRef <- constMirRef (MirVectorRepr tpr) vec
+    ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
+    let len = R.App $ usizeLit $ fromIntegral $ length cs
+    let struct = S.mkStruct
+            (mirSliceCtxRepr tpr)
+            (Ctx.Empty Ctx.:> ref Ctx.:> len)
+    return $ MirExp (MirSliceRepr tpr) struct
+transConstVal _ty (Some (MirSliceRepr u8Repr@(C.BVRepr w))) (M.ConstStr bs)
   | Just Refl <- testEquality w (knownNat @8) = do
-    let u8Repr = C.BVRepr $ knownNat @8
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     mirVec <- mirVector_fromVector u8Repr vec

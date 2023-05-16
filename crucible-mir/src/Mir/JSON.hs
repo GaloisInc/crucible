@@ -488,6 +488,9 @@ instance FromJSON ConstVal where
                 _ -> fail $ "bad size " ++ show size ++ " for float literal"
             pure $ ConstFloat $ FloatLit fk (T.unpack val)
 
+        Just (String "slice") -> do
+            ConstSlice <$> v .: "elements"
+
         Just (String "str") -> do
             val <- v .: "val"
             let f sci = case Scientific.toBoundedInteger sci of
