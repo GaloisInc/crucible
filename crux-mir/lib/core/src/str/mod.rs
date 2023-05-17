@@ -323,8 +323,7 @@ impl str {
     #[inline(always)]
     #[allow(unused_attributes)]
     pub const fn as_bytes(&self) -> &[u8] {
-        // SAFETY: const sound because we transmute two types with the same layout
-        unsafe { mem::transmute(self) }
+        unsafe { mem::crucible_identity_transmute(self) }
     }
 
     /// Converts a mutable string slice to a mutable byte slice.
@@ -367,11 +366,7 @@ impl str {
     #[must_use]
     #[inline(always)]
     pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
-        // SAFETY: the cast from `&str` to `&[u8]` is safe since `str`
-        // has the same layout as `&[u8]` (only std can make this guarantee).
-        // The pointer dereference is safe since it comes from a mutable reference which
-        // is guaranteed to be valid for writes.
-        unsafe { &mut *(self as *mut str as *mut [u8]) }
+        unsafe { mem::crucible_identity_transmute(self) }
     }
 
     /// Converts a string slice to a raw pointer.
