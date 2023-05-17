@@ -20,6 +20,10 @@ identify all of the code that was changed in each patch.
   We also make sure to avoid the `Layout::array` function, which has a
   particularly tricky use of `transmute` that we do not currently support.
 
+* `boxed.rs`: Use crucible's allocator (last applied: May 17, 2023)
+
+  Same reasoning as above.
+
 * Reimplement `core::fmt` using `crucible::any::Any` (last applied: May 2, 2023)
 
   TODO: Describe why this is necessary
