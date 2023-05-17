@@ -59,3 +59,7 @@ identify all of the code that was changed in each patch.
 * Implement `str::as_bytes` via `crucible_identity_transmute` (last applied: May 16, 2023)
 
   This is necessary to avoid a gnarly use of `transmute`.
+
+* Don't deallocate in `box_free` and `drop` (last applied: May 17, 2023)
+
+  Crucible doesn't support a `deallocate` operation.

@@ -341,12 +341,7 @@ pub(crate) const unsafe fn box_free<T: ?Sized, A: ~const Allocator + ~const Dest
     ptr: Unique<T>,
     alloc: A,
 ) {
-    unsafe {
-        let size = size_of_val(ptr.as_ref());
-        let align = min_align_of_val(ptr.as_ref());
-        let layout = Layout::from_size_align_unchecked(size, align);
-        alloc.deallocate(From::from(ptr.cast()), layout)
-    }
+    // Crucible: currently we don't implement `deallocate`, so this is a no-op.
 }
 
 // # Allocation error handler
