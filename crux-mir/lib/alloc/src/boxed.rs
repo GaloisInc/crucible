@@ -184,6 +184,8 @@ use crate::vec::Vec;
 #[unstable(feature = "thin_box", issue = "92791")]
 pub use thin::ThinBox;
 
+use crucible;
+
 mod thin;
 
 /// A pointer type that uniquely owns a heap allocation of type `T`.
@@ -215,8 +217,11 @@ impl<T> Box<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[must_use]
     pub fn new(x: T) -> Self {
-        #[rustc_box]
-        Box::new(x)
+        unsafe {
+            let ptr = crucible::alloc::allocate::<T>(1);
+            ptr.write(x);
+            Box::from_raw(ptr)
+        }
     }
 
     /// Constructs a new box with uninitialized contents.
