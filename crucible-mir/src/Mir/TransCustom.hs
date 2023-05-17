@@ -1499,12 +1499,17 @@ makeAtomicRMW ::
         MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
     [(ExplodedDefId, CustomRHS)]
 makeAtomicRMW name rmw =
-    makeAtomicIntrinsics (Text.pack name) ["acq", "rel", "acqrel", "relaxed", "seqcst"] $
+    makeAtomicIntrinsics (Text.pack name) allAtomicOrderings $
         atomic_rmw_impl name rmw
 
+-- These names are taken from
+-- https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3039-L3043
+allAtomicOrderings :: [Text]
+allAtomicOrderings = ["acquire", "release", "acqrel", "relaxed", "seqcst"]
+
 atomic_funcs =
-    makeAtomicIntrinsics "store" ["rel", "relaxed", "seqcst"] atomic_store_impl ++
-    makeAtomicIntrinsics "load" ["acq", "relaxed", "seqcst"] atomic_load_impl ++
+    makeAtomicIntrinsics "store" storeVariants atomic_store_impl ++
+    makeAtomicIntrinsics "load" loadVariants atomic_load_impl ++
     makeAtomicIntrinsics "cxchg" compareExchangeVariants atomic_cxchg_impl ++
     makeAtomicIntrinsics "cxchgweak" compareExchangeVariants atomic_cxchg_impl ++
     makeAtomicIntrinsics "fence" fenceVariants atomic_fence_impl ++
@@ -1524,9 +1529,18 @@ atomic_funcs =
         makeAtomicRMW "umin" $ \w old val -> return $ R.App $ E.BVUMin w old val
     ]
   where
-    compareExchangeVariants = ["acq", "rel", "acqrel", "relaxed",
-        "acq_failrelaxed", "acqrel_failrelaxed", "failrelaxed", "failacq"]
-    fenceVariants = ["acq", "rel", "acqrel", "seqcst"]
+    -- See https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3008-L3012
+    storeVariants = ["release", "relaxed", "seqcst"]
+    -- See https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3023-L3027
+    loadVariants = ["acquire", "relaxed", "seqcst"]
+    -- See https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3095-L3111
+    compareExchangeVariants = [ success <> "_" <> failure
+                              | success <- allAtomicOrderings
+                              , failure <- allAtomicOrderings
+                              , failure `notElem` ["acqrel", "release"]
+                              ]
+    -- See https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3366-L3370
+    fenceVariants = ["acquire", "release", "acqrel", "seqcst"]
 
 --------------------------------------------------------------------------------------------------------------------------
 
