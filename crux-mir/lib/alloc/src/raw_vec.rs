@@ -375,8 +375,8 @@ impl<T, A: Allocator> RawVec<T, A> {
             }
         } else {
             crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), cap);
-            self.cap = cap;
         }
+        self.cap = cap;
         Ok(())
     }
 
@@ -398,8 +398,8 @@ impl<T, A: Allocator> RawVec<T, A> {
             }
         } else {
             crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), cap);
-            self.cap = cap;
         }
+        self.cap = cap;
         Ok(())
     }
 
@@ -413,8 +413,8 @@ impl<T, A: Allocator> RawVec<T, A> {
             }
         } else {
             crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), cap);
-            self.cap = cap;
         }
+        self.cap = cap;
         Ok(())
     }
 }
