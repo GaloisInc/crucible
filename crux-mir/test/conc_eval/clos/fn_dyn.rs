@@ -1,6 +1,6 @@
 // FAIL: call_once shim (in `dyn Fn` vtable)
 #![cfg_attr(not(with_main), no_std)]
-fn call_with_one(some_closure: &Fn(i32) -> i32) -> i32 {
+fn call_with_one(some_closure: &dyn Fn(i32) -> i32) -> i32 {
     some_closure(1)
 }
 
