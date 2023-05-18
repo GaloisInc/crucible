@@ -13,7 +13,7 @@ impl<A> Foo<A> for Data {
 
 
 
-fn h(f: &Foo<u32>) -> u32 {
+fn h(f: &dyn Foo<u32>) -> u32 {
    f.foo(2)
 }
 

@@ -19,7 +19,7 @@ impl Foo for () {
 }
 
 
-fn fun(f: &Foo) -> u32 {
+fn fun(f: &dyn Foo) -> u32 {
    return f.foo();
 }
 

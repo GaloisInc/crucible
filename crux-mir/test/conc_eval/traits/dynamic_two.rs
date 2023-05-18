@@ -26,7 +26,7 @@ impl Bar for Data {
 
 
 
-fn fun(f: &Foo) -> u32 {
+fn fun(f: &dyn Foo) -> u32 {
    f.foo()
 }
 
