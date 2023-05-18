@@ -973,7 +973,7 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
     )
 
 mem_transmute ::  (ExplodedDefId, CustomRHS)
-mem_transmute = (["core", "intrinsics", "", "transmute"],
+mem_transmute = (["core", "intrinsics", "{extern}", "transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
         [e@(MirExp argTy _)] -> do
