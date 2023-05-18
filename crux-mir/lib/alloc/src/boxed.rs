@@ -288,8 +288,7 @@ impl<T> Box<T> {
     #[must_use]
     #[inline(always)]
     pub fn pin(x: T) -> Pin<Box<T>> {
-        (#[rustc_box]
-        Box::new(x))
+        Box::new(x)
         .into()
     }
 
@@ -1248,7 +1247,6 @@ unsafe impl<#[may_dangle] T: ?Sized, A: Allocator> Drop for Box<T, A> {
 impl<T: Default> Default for Box<T> {
     /// Creates a `Box<T>`, with the `Default` value for T.
     fn default() -> Self {
-        #[rustc_box]
         Box::new(T::default())
     }
 }
@@ -1621,7 +1619,6 @@ impl<T, const N: usize> From<[T; N]> for Box<[T]> {
     /// println!("{boxed:?}");
     /// ```
     fn from(array: [T; N]) -> Box<[T]> {
-        #[rustc_box]
         Box::new(array)
     }
 }

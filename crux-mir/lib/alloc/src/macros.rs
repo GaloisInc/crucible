@@ -48,7 +48,6 @@ macro_rules! vec {
     );
     ($($x:expr),+ $(,)?) => (
         $crate::__rust_force_expr!(<[_]>::into_vec(
-            #[rustc_box]
             $crate::boxed::Box::new([$($x),+])
         ))
     );
