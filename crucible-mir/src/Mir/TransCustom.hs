@@ -688,13 +688,13 @@ add_with_overflow =
 
 sub_with_overflow ::  (ExplodedDefId, CustomRHS)
 sub_with_overflow =
-    ( ["core","intrinsics", "", "sub_with_overflow"]
+    ( ["core","intrinsics", "{extern}", "sub_with_overflow"]
     , makeArithWithOverflow "sub_with_overflow" Nothing Sub
     )
 
 mul_with_overflow ::  (ExplodedDefId, CustomRHS)
 mul_with_overflow =
-    ( ["core","intrinsics", "", "mul_with_overflow"]
+    ( ["core","intrinsics", "{extern}", "mul_with_overflow"]
     , makeArithWithOverflow "mul_with_overflow" Nothing Mul
     )
 
