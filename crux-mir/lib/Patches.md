@@ -68,3 +68,7 @@ identify all of the code that was changed in each patch.
 
   The actual implementations of these functions involve gnarly uses of
   `transmute`.
+
+* Reimplement `to_{le,be}_bytes` (last applied: May 18, 2023)
+
+  Same reasoning as above.
