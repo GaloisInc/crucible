@@ -63,3 +63,8 @@ identify all of the code that was changed in each patch.
 * Don't deallocate in `box_free` and `drop` (last applied: May 17, 2023)
 
   Crucible doesn't support a `deallocate` operation.
+
+* Reimplement `from_{le,be}_bytes` (last applied: May 18, 2023)
+
+  The actual implementations of these functions involve gnarly uses of
+  `transmute`.
