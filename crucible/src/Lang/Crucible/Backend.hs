@@ -95,6 +95,10 @@ module Lang.Crucible.Backend
   , addFailedAssertion
   , assertIsInteger
   , readPartExpr
+  , runCHC
+  , proofObligationsAsImplications
+  , proofObligationsUninterpConstants
+  , pathConditionUninterpConstants
   , ppProofObligation
   , backendOptions
   , assertThenAssumeConfigOption
@@ -110,17 +114,25 @@ import           Data.Functor.Identity
 import           Data.Functor.Const
 import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
+import           Data.Set (Set)
 import qualified Prettyprinter as PP
 import           GHC.Stack
+import           System.IO
+
+import           Data.Parameterized.Map (MapF)
 
 import           What4.Concrete
 import           What4.Config
+import           What4.Expr.Builder
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.LabeledPred
 import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Expr (GroundValue, GroundValueWrapper(..))
+import           What4.Solver
+import qualified What4.Solver.CVC5 as CVC5
+import qualified What4.Solver.Z3 as Z3
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
@@ -612,6 +624,58 @@ readPartExpr bak (PE p v) msg = do
   loc <- getCurrentProgramLoc sym
   addAssertion bak (LabeledPred p (SimError loc msg))
   return v
+
+
+runCHC ::
+  (IsSymBackend sym bak, sym ~ ExprBuilder t st fs, MonadIO m) =>
+  bak ->
+  [SomeSymFn sym] ->
+  m (MapF (SymFnWrapper sym) (SymFnWrapper sym))
+runCHC bak uninterp_inv_fns  = liftIO $ do
+  let sym = backendGetSym bak
+
+  implications <- proofObligationsAsImplications bak
+  clearProofObligations bak
+
+  withFile "foo.smt2" WriteMode $ \handle ->
+    Z3.writeZ3HornSMT2File sym True handle uninterp_inv_fns implications
+  withFile "foo.sy" WriteMode $ \handle ->
+    CVC5.writeCVC5SyFile sym handle uninterp_inv_fns implications
+
+  -- log to stdout
+  let logData = defaultLogData
+        { logCallbackVerbose = \_ -> putStrLn
+        , logReason = "SAW inv"
+        }
+  Z3.runZ3Horn sym True logData uninterp_inv_fns implications >>= \case
+    Sat sub -> return sub
+    Unsat{} -> fail "Prover returned Infeasible"
+    Unknown -> fail "Prover returned Fail"
+  CVC5.runCVC5SyGuS sym logData uninterp_inv_fns implications >>= \case
+    Sat sub -> return sub
+    Unsat{} -> fail "Prover returned Infeasible"
+    Unknown -> fail "Prover returned Fail"
+
+
+-- | Get proof obligations as What4 implications.
+proofObligationsAsImplications :: IsSymBackend sym bak => bak -> IO [Pred sym]
+proofObligationsAsImplications bak = do
+  let sym = backendGetSym bak
+  obligations <- maybe [] PG.goalsToList <$> getProofObligations bak
+  forM obligations $ \(AS.ProofGoal hyps (LabeledPred concl _err)) -> do
+    hyp <- assumptionsPred sym hyps
+    impliesPred sym hyp concl
+
+pathConditionUninterpConstants :: IsSymBackend sym bak => bak -> IO (Set (Some (BoundVar sym)))
+pathConditionUninterpConstants bak = do
+  let sym = backendGetSym bak
+  exprUninterpConstants sym <$> getPathCondition bak
+
+proofObligationsUninterpConstants :: IsSymBackend sym bak => bak -> IO (Set (Some (BoundVar sym)))
+proofObligationsUninterpConstants bak = do
+  let sym = backendGetSym bak
+  foldMap (exprUninterpConstants sym) <$> proofObligationsAsImplications bak
+
 
 ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> IO (PP.Doc ann)
 ppProofObligation sym (AS.ProofGoal asmps gl) =

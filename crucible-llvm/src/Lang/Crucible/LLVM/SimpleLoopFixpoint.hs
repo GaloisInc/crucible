@@ -13,6 +13,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -21,10 +22,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TupleSections #-}
 
 
 module Lang.Crucible.LLVM.SimpleLoopFixpoint
   ( FixpointEntry(..)
+  , FixpointState(..)
   , simpleLoopFixpoint
   ) where
 
@@ -36,6 +39,7 @@ import           Data.Either
 import           Data.Foldable
 import qualified Data.IntMap as IntMap
 import           Data.IORef
+import           Data.Kind
 import qualified Data.List as List
 import           Data.Maybe
 import qualified Data.Map as Map
@@ -50,6 +54,7 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Map (MapF)
 import           Data.Parameterized.NatRepr
+import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
@@ -126,14 +131,16 @@ data FixpointState sym blocks
     --   verification conditions for executions that reamain in the loop.
   | CheckFixpoint
       (FixpointRecord sym blocks)
-      (LoopIndexBound sym) -- ^ data about the fixed sort of loop index values we are trying to find
+      (W4.SomeSymFn sym) -- ^ function that represents the loop invariant
+      (Some (Ctx.Assignment (W4.SymExpr sym))) -- ^ arguments to the loop invariant
+      (W4.Pred sym) -- ^ predicate that represents the loop condition
 
     -- | Finally, we stitch everything we have found together into the rest of the program.
     --   Starting from the loop header one final time, we now force execution to exit the loop
     --   and continue into the rest of the program.
   | AfterFixpoint
       (FixpointRecord sym blocks)
-      (LoopIndexBound sym) -- ^ data about the fixed sort of loop index values we are trying to find
+      (W4.SomeSymFn sym) -- ^ function that represents the loop invariant
 
 -- | Data about the loop that we incrementally compute as we approach fixpoint.
 data FixpointRecord sym blocks = forall args.
@@ -156,17 +163,17 @@ data FixpointRecord sym blocks = forall args.
     -- | Triples are (blockId, offset, size) to bitvector-typed entries ( bitvector only/not pointers )
   , fixpointMemSubstitution :: Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType)
 
-    -- | Condition which, when true, stays in the loop. This is captured when the (unique, by assumption)
-    --   symbolic branch that exits the loop is encountered. This condition is updated on each iteration
-    --   as we widen the invariant.
-  , fixpointLoopCondition :: Maybe (W4.Pred sym)
+  , fixpointEqualitySubstitution :: MapF (W4.SymExpr sym) (W4.SymExpr sym)
+
+    -- | The loop index variable
+  , fixpointIndex :: W4.SymBV sym 64
   }
 
 
 fixpointRecord :: FixpointState sym blocks -> Maybe (FixpointRecord sym blocks)
 fixpointRecord BeforeFixpoint = Nothing
 fixpointRecord (ComputeFixpoint r) = Just r
-fixpointRecord (CheckFixpoint r _) = Just r
+fixpointRecord (CheckFixpoint r _ _ _) = Just r
 fixpointRecord (AfterFixpoint r _) = Just r
 
 
@@ -290,94 +297,6 @@ applySubstitutionRegEntry sym substitution entry = case C.regType entry of
   _ -> C.panic "SimpleLoopFixpoint.applySubstitutionRegEntry" ["unsupported type: " ++ show (C.regType entry)]
 
 
-findLoopIndex ::
-  (?logMessage :: String -> IO (), C.IsSymInterface sym, C.HasPtrWidth wptr) =>
-  sym ->
-  MapF (W4.SymExpr sym) (FixpointEntry sym) ->
-  IO (W4.SymBV sym wptr, Natural, Natural)
-findLoopIndex sym substitution = do
-  candidates <- catMaybes <$> mapM
-    (\(MapF.Pair variable FixpointEntry{..}) -> case W4.testEquality (W4.BaseBVRepr ?ptrWidth) (W4.exprType variable) of
-      Just Refl -> do
-        diff <- liftIO $ W4.bvSub sym bodyValue variable
-        case (BV.asNatural <$> W4.asBV headerValue, BV.asNatural <$> W4.asBV diff) of
-          (Just start, Just step) -> do
-            liftIO $ ?logMessage $
-              "SimpleLoopFixpoint.findLoopIndex: " ++ show (W4.printSymExpr variable) ++ "=" ++ show (start, step)
-            return $ Just (variable, start, step)
-          _ -> return Nothing
-      Nothing -> return Nothing)
-    (MapF.toList substitution)
-  case candidates of
-    [candidate] -> return candidate
-    _ -> fail "SimpleLoopFixpoint.findLoopIndex: loop index identification failure."
-
-findLoopBound ::
-  (C.IsSymInterface sym, C.HasPtrWidth wptr) =>
-  sym ->
-  W4.Pred sym ->
-  Natural ->
-  Natural ->
-  IO (W4.SymBV sym wptr)
-findLoopBound sym condition _start step =
-  case Set.toList $ W4.exprUninterpConstants sym condition of
-
-    -- this is a grungy hack, we are expecting exactly three variables and take the first
-    [C.Some loop_stop, _, _]
-      | Just Refl <- W4.testEquality (W4.BaseBVRepr ?ptrWidth) (W4.exprType $ W4.varExpr sym loop_stop) ->
-        W4.bvMul sym (W4.varExpr sym loop_stop) =<< W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral step)
-    _ -> fail "SimpleLoopFixpoint.findLoopBound: loop bound identification failure."
-
-
--- index variable information for fixed stride, bounded loops
-data LoopIndexBound sym = forall w . 1 <= w => LoopIndexBound
-  { index :: W4.SymBV sym w
-  , start :: Natural
-  , stop :: W4.SymBV sym w
-  , step :: Natural
-  }
-
-findLoopIndexBound ::
-  (?logMessage :: String -> IO (), C.IsSymInterface sym, C.HasPtrWidth wptr) =>
-  sym ->
-  MapF (W4.SymExpr sym) (FixpointEntry sym) ->
-  Maybe (W4.Pred sym) ->
-  IO (LoopIndexBound sym)
-findLoopIndexBound _sym _substitition Nothing =
-  fail "findLoopIndexBound: no loop condition recorded!"
-
-findLoopIndexBound sym substitution (Just condition) = do
-  (loop_index, start, step) <- findLoopIndex sym substitution
-  stop <- findLoopBound sym condition start step
-  return $ LoopIndexBound
-    { index = loop_index
-    , start = start
-    , stop = stop
-    , step = step
-    }
-
--- hard-coded here that we are always looking for a loop condition delimited by an unsigned comparison
-loopIndexBoundCondition ::
-  (C.IsSymInterface sym, 1 <= w) =>
-  sym ->
-  W4.SymBV sym w ->
-  W4.SymBV sym w ->
-  IO (W4.Pred sym)
-loopIndexBoundCondition = W4.bvUlt
-
--- | Describes an assumed invariant on the loop index variable, which is that it is an offset
---   from the initial value that is a multiple of a discoveded stride value.
-loopIndexStartStepCondition ::
-  C.IsSymInterface sym =>
-  sym ->
-  LoopIndexBound sym ->
-  IO (W4.Pred sym)
-loopIndexStartStepCondition sym LoopIndexBound{ index = loop_index, start = start, step = step } = do
-  start_bv <- W4.bvLit sym (W4.bvWidth loop_index) (BV.mkBV (W4.bvWidth loop_index) $ fromIntegral start)
-  step_bv <- W4.bvLit sym (W4.bvWidth loop_index) (BV.mkBV (W4.bvWidth loop_index) $ fromIntegral step)
-  W4.bvEq sym start_bv =<< W4.bvUrem sym loop_index step_bv
-
-
 loadMemJoinVariables ::
   (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
@@ -417,6 +336,21 @@ dropMemStackFrame mem = case (C.memImplHeap mem) ^. C.memState of
   (C.StackFrame _ _ _ (a, w) s) -> ((mem { C.memImplHeap = (C.memImplHeap mem) & C.memState .~ s }), a, w)
   _ -> C.panic "SimpleLoopFixpoint.dropMemStackFrame" ["not a stack frame:", show (C.ppMem $ C.memImplHeap mem)]
 
+applySubstitutionMemFixpointEntries  ::
+  C.IsSymInterface sym =>
+  MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
+  Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
+  Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType)
+applySubstitutionMemFixpointEntries substitution =
+  Map.map
+    (\(MemFixpointEntry { memFixpointEntrySym = sym, memFixpointEntryJoinVariable = join_varaible }, storeage_type) ->
+      ( MemFixpointEntry
+        { memFixpointEntrySym = sym
+        , memFixpointEntryJoinVariable = findWithDefaultKey substitution join_varaible
+        }
+      , storeage_type
+      ))
+
 
 filterSubstitution ::
   C.IsSymInterface sym =>
@@ -430,6 +364,22 @@ filterSubstitution sym substitution =
         substitution
   in
   MapF.filterWithKey (\variable _entry -> Set.member (C.Some variable) uninterp_constants) substitution
+
+loopIndexLinearSubstitution ::
+  (C.IsSymInterface sym, C.HasPtrWidth wptr, MonadIO m) =>
+  sym ->
+  W4.SymBV sym wptr ->
+  MapF (W4.SymExpr sym) (FixpointEntry sym) ->
+  m (MapF (W4.SymExpr sym) (W4.SymExpr sym))
+loopIndexLinearSubstitution sym index_variable =
+  MapF.traverseMaybeWithKey
+    (\variable entry -> case W4.testEquality (W4.exprType variable) (W4.exprType index_variable) of
+      Just Refl -> do
+        diff <- liftIO $ W4.bvSub sym (bodyValue entry) variable
+        case W4.asBV diff of
+          Just{} -> liftIO $ Just <$> (W4.bvAdd sym (headerValue entry) =<< W4.bvMul sym index_variable diff)
+          Nothing -> return Nothing
+      Nothing -> return Nothing)
 
 -- find widening variables that are actually the same (up to syntactic equality)
 -- and can be substituted for each other
@@ -484,13 +434,19 @@ simpleLoopFixpoint ::
   sym ->
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
-  (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), W4.Pred sym)) ->
-  IO (C.ExecutionFeature p sym ext rtp)
-simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
+  Maybe (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), Maybe (W4.Pred sym))) ->
+  IO (C.ExecutionFeature p sym ext rtp, IORef (FixpointState sym blocks))
+simpleLoopFixpoint sym cfg@C.CFG{..} mem_var maybe_fixpoint_func = do
   let ?ptrWidth = knownNat @64
 
   verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
   verb <- fromInteger <$> W4.getOpt verbSetting
+
+  --  let loop_map = Map.fromList $ mapMaybe
+  --       (\case
+  --         scc@(C.SCC _) -> Just (wtoHead, wtoHead : concatMap flattenWTOComponent wtoComps)
+  --         C.Vertex{} -> Nothing)
+  --       (C.cfgWeakTopologicalOrdering cfg)
 
   -- Doesn't really work if there are nested loops: looop datastructures will
   -- overwrite each other.  Currently no error message.
@@ -508,14 +464,13 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
 
   fixpoint_state_ref <- newIORef @(FixpointState sym blocks) BeforeFixpoint
 
-  return $ C.ExecutionFeature $ \exec_state -> do
+  return $ (, fixpoint_state_ref) $ C.ExecutionFeature $ \exec_state -> do
     let ?logMessage = \msg -> when (verb >= (3 :: Natural)) $ do
           let h = C.printHandle $ C.execStateContext exec_state
           System.IO.hPutStrLn h msg
           System.IO.hFlush h
     fixpoint_state <- readIORef fixpoint_state_ref
-    C.withBackend (C.execStateContext exec_state) $ \bak ->
-     case exec_state of
+    C.withBackend (C.execStateContext exec_state) $ \bak -> case exec_state of
       C.RunningState (C.RunBlockStart block_id) sim_state
         | C.SomeHandle cfgHandle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
 
@@ -527,12 +482,11 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
           -- loop map is what we computed above, is this state at a loop header
         , Map.member (C.Some block_id) loop_map ->
 
-            advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state fixpoint_state_ref
+            advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint_state fixpoint_state_ref
 
         | otherwise -> do
             ?logMessage $ "SimpleLoopFixpoint: RunningState: RunBlockStart: " ++ show block_id
             return C.ExecutionFeatureNoChange
-
 
       -- TODO: maybe need to rework this, so that we are sure to capture even concrete exits from the loop.
       C.SymbolicBranchState branch_condition true_frame false_frame _target sim_state
@@ -557,19 +511,19 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var fixpoint_func = do
             (condition, frame) <- case fixpoint_state of
               BeforeFixpoint -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint:" ["BeforeFixpoint"]
 
-              ComputeFixpoint _fixpoint_record -> do
+              ComputeFixpoint{} -> do
                 -- continue in the loop
                 ?logMessage $ "SimpleLoopFixpoint: SymbolicBranchState: ComputeFixpoint"
-                writeIORef fixpoint_state_ref $
-                  ComputeFixpoint fixpoint_record { fixpointLoopCondition = Just loop_condition }
                 return (loop_condition, inside_loop_frame)
 
-              CheckFixpoint _fixpoint_record _loop_bound -> do
+              CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants _ -> do
                 -- continue in the loop
                 ?logMessage $ "SimpleLoopFixpoint: SymbolicBranchState: CheckFixpoint"
+                writeIORef fixpoint_state_ref $
+                  CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants loop_condition
                 return (loop_condition, inside_loop_frame)
 
-              AfterFixpoint _fixpoint_record _loop_bound -> do
+              AfterFixpoint{} -> do
                 -- break out of the loop
                 ?logMessage $ "SimpleLoopFixpoint: SymbolicBranchState: AfterFixpoint"
                 not_loop_condition <- W4.notPred sym loop_condition
@@ -590,20 +544,21 @@ advanceFixpointState ::
   (C.IsSymBackend sym bak, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
   bak ->
   C.GlobalVar C.Mem ->
-  (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), W4.Pred sym)) ->
+  Maybe (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), Maybe (W4.Pred sym))) ->
   C.BlockID blocks args ->
   C.SimState p sym ext rtp (C.CrucibleLang blocks r) ('Just args) ->
   FixpointState sym blocks ->
   IORef (FixpointState sym blocks) ->
   IO (C.ExecutionFeatureResult p sym ext rtp)
 
-advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state fixpoint_state_ref =
+advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint_state fixpoint_state_ref =
   let ?ptrWidth = knownNat @64 in
   let sym = C.backendGetSym bak in
   case fixpoint_state of
     BeforeFixpoint -> do
       ?logMessage $ "SimpleLoopFixpoint: RunningState: BeforeFixpoint -> ComputeFixpoint"
       assumption_frame_identifier <- C.pushAssumptionFrame bak
+      index_var <- W4.freshConstant sym (W4.safeSymbol "index_var") W4.knownRepr
       let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
       let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
       writeIORef fixpoint_state_ref $ ComputeFixpoint $
@@ -613,7 +568,8 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
         , fixpointSubstitution = MapF.empty
         , fixpointRegMap = sim_state ^. (C.stateCrucibleFrame . C.frameRegs)
         , fixpointMemSubstitution = Map.empty
-        , fixpointLoopCondition = Nothing -- we don't know the loop condition yet
+        , fixpointEqualitySubstitution = MapF.empty
+        , fixpointIndex = index_var
         }
       return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
         sim_state & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
@@ -626,7 +582,10 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
 
 
         ?logMessage $ "SimpleLoopFixpoint: RunningState: ComputeFixpoint: " ++ show block_id
-        _ <- C.popAssumptionFrameAndObligations bak $ fixpointAssumptionFrameIdentifier fixpoint_record
+        proof_goals_and_assumptions_vars <- Set.map (mapSome $ W4.varExpr sym) <$>
+          (Set.union <$> C.proofObligationsUninterpConstants bak <*> C.pathConditionUninterpConstants bak)
+        (frame_assumptions, _) <- C.popAssumptionFrameAndObligations bak $ fixpointAssumptionFrameIdentifier fixpoint_record
+        loop_condition <- C.assumptionsPred sym frame_assumptions
 
         -- widen the inductive condition
         (join_reg_map, join_substitution) <- runStateT
@@ -703,15 +662,12 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
         assumption_frame_identifier <- C.pushAssumptionFrame bak
 
         -- check if we are done; if we did not introduce any new variables, we don't have to widen any more
-        if MapF.keys join_substitution == MapF.keys (fixpointSubstitution fixpoint_record)
+        if MapF.keys join_substitution == MapF.keys (fixpointSubstitution fixpoint_record) && Map.keys mem_substitution == Map.keys (fixpointMemSubstitution fixpoint_record)
 
           -- we found the fixpoint, get ready to wrap up
           then do
             ?logMessage $
               "SimpleLoopFixpoint: RunningState: ComputeFixpoint -> CheckFixpoint"
-            ?logMessage $
-              "SimpleLoopFixpoint: cond: " ++
-                  show (maybe "Nothing" W4.printSymExpr $ fixpointLoopCondition fixpoint_record)
 
             -- we have delayed populating the main substituation map with
             --  memory variables, so we have to do that now
@@ -721,18 +677,37 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
             body_mem_substitution <- loadMemJoinVariables bak body_mem_impl $
               fixpointMemSubstitution fixpoint_record
 
-            -- try to unify widening variables that have the same values
-            let (normal_substitution, equality_substitution) = uninterpretedConstantEqualitySubstitution sym $
-                  -- drop variables that don't appear along some back edge (? understand this better)
-                  filterSubstitution sym $
+            -- drop variables that don't appear along some back edge
+            let union_substitution' = filterSubstitution sym $
                   MapF.union join_substitution $
                   -- this implements zip, because the two maps have the same keys
                   MapF.intersectWithKeyMaybe
                     (\_k x y -> Just $ FixpointEntry{ headerValue = x, bodyValue = y })
                     header_mem_substitution
                     body_mem_substitution
-            -- ?logMessage $ "normal_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList normal_substitution)
-            -- ?logMessage $ "equality_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList equality_substitution)
+            loop_index_linear_substitution <- loopIndexLinearSubstitution sym (fixpointIndex fixpoint_record) union_substitution'
+
+            let union_substitution = MapF.filterWithKey
+                  (\variable _entry -> MapF.notMember variable loop_index_linear_substitution)
+                  union_substitution'
+            -- try to unify widening variables that have the same values
+            let (normal_substitution', equality_substitution') = uninterpretedConstantEqualitySubstitution sym union_substitution
+
+            zero_bv <- W4.bvLit sym knownNat $ BV.zero knownNat
+            one_bv <- W4.bvLit sym knownNat $ BV.one knownNat
+            add_index_one <- W4.bvAdd sym (fixpointIndex fixpoint_record) one_bv
+            let normal_substitution = MapF.insert
+                  (fixpointIndex fixpoint_record)
+                  FixpointEntry
+                    { headerValue = zero_bv
+                    , bodyValue = add_index_one
+                    }
+                  normal_substitution'
+            let equality_substitution = MapF.union equality_substitution' loop_index_linear_substitution
+
+            ?logMessage $ "loop_index_linear_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList loop_index_linear_substitution)
+            ?logMessage $ "normal_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList normal_substitution)
+            ?logMessage $ "equality_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList equality_substitution)
 
             -- unify widening variables in the register subst
             let res_reg_map = applySubstitutionRegEntries sym equality_substitution join_reg_map
@@ -744,16 +719,59 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
               mem_substitution
               equality_substitution
 
-            -- finally we can determine the loop bounds
-            loop_index_bound <- findLoopIndexBound sym normal_substitution $ fixpointLoopCondition fixpoint_record
+            let body_values_vars = foldMap (viewSome $ Set.map (mapSome $ W4.varExpr sym) . W4.exprUninterpConstants sym . bodyValue) $
+                  MapF.elems normal_substitution
+            let header_values_vars = foldMap (viewSome $ Set.map (mapSome $ W4.varExpr sym) . W4.exprUninterpConstants sym . headerValue) $
+                  MapF.elems normal_substitution
+            -- let all_vars = Set.union proof_goals_and_assumptions_vars $ Set.union body_values_vars header_values_vars
+            let all_vars' = Set.insert (Some $ fixpointIndex fixpoint_record) proof_goals_and_assumptions_vars
+            let all_vars = Set.filter
+                  (\(Some variable) -> MapF.notMember variable equality_substitution)
+                  all_vars'
+            -- let some_uninterpreted_constants = Ctx.fromList $ Set.toList all_vars
+            let filtered_vars =  Set.filter
+                  (\(Some variable) ->
+                    not (List.isPrefixOf "cundefined_" $ show $ W4.printSymExpr variable)
+                    && not (List.isPrefixOf "calign_amount" $ show $ W4.printSymExpr variable)
+                    && not (List.isPrefixOf "cnoSatisfyingWrite" $ show $ W4.printSymExpr variable))
+                  all_vars
+            let some_uninterpreted_constants = Ctx.fromList $ Set.toList filtered_vars
+            -- let implicit_vars = Set.filter
+            --       (\(Some variable) ->
+            --         not (List.isPrefixOf "creg_join_var" $ show $ W4.printSymExpr variable)
+            --         && not (List.isPrefixOf "cmem_join_var" $ show $ W4.printSymExpr variable)
+            --         && not (List.isPrefixOf "cundefined_" $ show $ W4.printSymExpr variable)
+            --         && not (List.isPrefixOf "calign_amount" $ show $ W4.printSymExpr variable)
+            --         && not (List.isPrefixOf "cnoSatisfyingWrite" $ show $ W4.printSymExpr variable))
+            --       all_vars
+            some_inv_pred <- case some_uninterpreted_constants of
+              Some uninterpreted_constants -> do
+                inv_pred <- W4.freshTotalUninterpFn
+                  sym
+                  (W4.safeSymbol "inv")
+                  (fmapFC W4.exprType uninterpreted_constants)
+                  W4.BaseBoolRepr
 
-            (_ :: ()) <- case loop_index_bound of
-              LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
                 loc <- W4.getCurrentProgramLoc sym
-                index_bound_condition <- loopIndexBoundCondition sym loop_index loop_stop
-                C.addAssumption bak $ C.GenericAssumption loc "" index_bound_condition
-                index_start_step_condition <- loopIndexStartStepCondition sym loop_index_bound
-                C.addAssumption bak $ C.GenericAssumption loc "" index_start_step_condition
+
+                header_inv <- W4.applySymFn sym inv_pred $
+                  applySubstitutionFC (fmapF headerValue normal_substitution) uninterpreted_constants
+                C.addProofObligation bak $ C.LabeledPred header_inv $ C.SimError loc ""
+
+                inv <- W4.applySymFn sym inv_pred uninterpreted_constants
+                C.addAssumption bak $ C.GenericAssumption loc "inv" inv
+
+                return $ W4.SomeSymFn inv_pred
+
+            ?logMessage $
+              "proof_goals_and_assumptions_vars: "
+              ++ show (map (viewSome W4.printSymExpr) $ Set.toList proof_goals_and_assumptions_vars)
+            ?logMessage $
+              "body_values_vars: " ++ show (map (viewSome W4.printSymExpr) $ Set.toList body_values_vars)
+            ?logMessage $
+              "header_values_vars: " ++ show (map (viewSome W4.printSymExpr) $ Set.toList header_values_vars)
+            ?logMessage $
+              "uninterpreted_constants: " ++ show (map (viewSome W4.printSymExpr) $ Set.toList filtered_vars)
 
             writeIORef fixpoint_state_ref $
               CheckFixpoint
@@ -763,9 +781,13 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
                 , fixpointSubstitution = normal_substitution
                 , fixpointRegMap = C.RegMap res_reg_map
                 , fixpointMemSubstitution = mem_substitution
-                , fixpointLoopCondition = fixpointLoopCondition fixpoint_record
+                , fixpointEqualitySubstitution = equality_substitution
+                , fixpointIndex = fixpointIndex fixpoint_record
                 }
-                loop_index_bound
+                some_inv_pred
+                -- implicit_vars
+                some_uninterpreted_constants
+                loop_condition
 
             return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
               sim_state & (C.stateCrucibleFrame . C.frameRegs) .~ C.RegMap res_reg_map
@@ -788,7 +810,8 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
               , fixpointSubstitution = join_substitution
               , fixpointRegMap = C.RegMap join_reg_map
               , fixpointMemSubstitution = mem_substitution
-              , fixpointLoopCondition = Nothing
+              , fixpointEqualitySubstitution = MapF.empty
+              , fixpointIndex = fixpointIndex fixpoint_record
               }
             return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
               sim_state & (C.stateCrucibleFrame . C.frameRegs) .~ C.RegMap join_reg_map
@@ -796,7 +819,7 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
 
       | otherwise -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["type mismatch: ComputeFixpoint"]
 
-    CheckFixpoint fixpoint_record loop_bound
+    CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants loop_condition
       | FixpointRecord { fixpointRegMap = reg_map } <- fixpoint_record
       , Just Refl <- W4.testEquality
           (fmapFC C.regType $ C.regMap reg_map)
@@ -812,14 +835,15 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
         loc <- W4.getCurrentProgramLoc sym
 
         -- assert that the hypothesis we made about the loop termination condition is true
-        (_ :: ()) <- case loop_bound of
-          LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
-            -- check the loop index bound condition
-            index_bound_condition <- loopIndexBoundCondition
-              sym
-              (bodyValue $ fromJust $ MapF.lookup loop_index $ fixpointSubstitution fixpoint_record)
-              loop_stop
-            C.addProofObligation bak $ C.LabeledPred index_bound_condition $ C.SimError loc ""
+        (_ :: ()) <- case (some_inv_pred, some_uninterpreted_constants) of
+          (W4.SomeSymFn inv_pred, Some uninterpreted_constants)
+            | Just Refl <- testEquality (W4.fnArgTypes inv_pred) (fmapFC W4.exprType uninterpreted_constants)
+            , Just Refl <- testEquality (W4.fnReturnType inv_pred) W4.BaseBoolRepr -> do
+              inv <- W4.applySymFn sym inv_pred $ applySubstitutionFC
+                (fmapF bodyValue $ fixpointSubstitution fixpoint_record)
+                uninterpreted_constants
+              C.addProofObligation bak $ C.LabeledPred inv $ C.SimError loc ""
+            | otherwise -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["type mismatch: CheckFixpoint"]
 
         _ <- C.popAssumptionFrame bak $ fixpointAssumptionFrameIdentifier fixpoint_record
 
@@ -833,42 +857,43 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
                   { bodyValue = MapF.findWithDefault (bodyValue fixpoint_entry) variable body_mem_substitution
                   })
               (fixpointSubstitution fixpoint_record)
-        -- ?logMessage $ "res_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList res_substitution)
+        ?logMessage $ "res_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList res_substitution)
 
         -- match things up with the input function that describes the loop body behavior
-        (fixpoint_func_substitution, fixpoint_func_condition) <- liftIO $
-          case fixpointLoopCondition fixpoint_record of
-            Nothing -> fail "When checking the result of a fixpoint, no loop condition was found!"
-            Just c  -> fixpoint_func res_substitution c
+        fixpoint_substitution <- case maybe_fixpoint_func of
+          Just fixpoint_func -> do
+            (fixpoint_func_substitution, maybe_fixpoint_func_condition) <- fixpoint_func res_substitution loop_condition
 
-        C.addProofObligation bak $ C.LabeledPred fixpoint_func_condition $ C.SimError loc ""
-        -- ?logMessage $ "fixpoint_func_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList fixpoint_func_substitution)
+            _ <- case maybe_fixpoint_func_condition of
+              Just fixpoint_func_condition ->
+                C.addProofObligation bak $ C.LabeledPred fixpoint_func_condition $ C.SimError loc ""
+              Nothing -> return ()
 
-        let res_reg_map = C.RegMap $
-              applySubstitutionRegEntries sym fixpoint_func_substitution (C.regMap reg_map)
+            ?logMessage $ "fixpoint_func_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList fixpoint_func_substitution)
+
+            return fixpoint_func_substitution
+
+          Nothing -> return MapF.empty
+
+        let res_reg_map = C.RegMap $ applySubstitutionRegEntries sym fixpoint_substitution (C.regMap reg_map)
 
         res_mem_impl <- storeMemJoinVariables bak
           header_mem_impl
           (fixpointMemSubstitution fixpoint_record)
-          fixpoint_func_substitution
+          (applySubstitutionF fixpoint_substitution $ fixpointEqualitySubstitution fixpoint_record)
 
-        (_ :: ()) <- case loop_bound of
-          LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
-            let loop_index' = MapF.findWithDefault loop_index loop_index fixpoint_func_substitution
-            index_bound_condition <- loopIndexBoundCondition sym loop_index' loop_stop
-            C.addAssumption bak $ C.GenericAssumption loc "" index_bound_condition
-            index_start_step_condition <- loopIndexStartStepCondition sym $ LoopIndexBound
-              { index = loop_index'
-              , start = start loop_bound
-              , stop = loop_stop
-              , step = step loop_bound
-              }
-            C.addAssumption bak $ C.GenericAssumption loc "" index_start_step_condition
+        (_ :: ()) <- case (some_inv_pred, some_uninterpreted_constants) of
+          (W4.SomeSymFn inv_pred, Some uninterpreted_constants)
+            | Just Refl <- testEquality (W4.fnArgTypes inv_pred) (fmapFC W4.exprType uninterpreted_constants)
+            , Just Refl <- testEquality (W4.fnReturnType inv_pred) W4.BaseBoolRepr -> do
+              inv <- W4.applySymFn sym inv_pred $ applySubstitutionFC fixpoint_substitution uninterpreted_constants
+              C.addAssumption bak $ C.GenericAssumption loc "" inv
+            | otherwise -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["type mismatch: CheckFixpoint"]
 
         writeIORef fixpoint_state_ref $
           AfterFixpoint
             fixpoint_record{ fixpointSubstitution = res_substitution }
-            loop_bound
+            some_inv_pred
 
         return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
           sim_state & (C.stateCrucibleFrame . C.frameRegs) .~ res_reg_map
@@ -888,3 +913,13 @@ pausedFrameTgtId C.PausedFrame{ resume = resume } = case resume of
   C.ContinueResumption (C.ResolvedJump tgt_id _) -> JustPausedFrameTgtId $ C.Some tgt_id
   C.CheckMergeResumption (C.ResolvedJump tgt_id _) -> JustPausedFrameTgtId $ C.Some tgt_id
   _ -> NothingPausedFrameTgtId
+
+
+applySubstitutionF :: (OrdF k, FunctorF f) => MapF k k -> f k -> f k
+applySubstitutionF substitution = fmapF $ findWithDefaultKey substitution
+
+applySubstitutionFC :: (OrdF k, FunctorFC f) => MapF k k -> f k l -> f k l
+applySubstitutionFC substitution = fmapFC $ findWithDefaultKey substitution
+
+findWithDefaultKey :: forall a (k :: a -> Type) tp . OrdF k => MapF k k -> k tp -> k tp
+findWithDefaultKey substitution key = MapF.findWithDefault key key substitution
