@@ -20,7 +20,7 @@ License          : BSD3
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE TypeFamilies #-}
-
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 
@@ -664,7 +664,7 @@ typeOfProj elm baseTy = case elm of
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t
     peelRef (TyRawPtr t _) = t
-    peelRef (TyAdt _ $(normDefIdPat "alloc::boxed::Box") (Substs [t])) = t
+    peelRef (TyAdt _ $(explodedDefIdPat ["alloc", "boxed", "Box"]) (Substs [t])) = t
     peelRef t = t
 
     peelIdx :: Ty -> Ty

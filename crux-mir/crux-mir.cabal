@@ -24,6 +24,7 @@ library
                  ansi-terminal,
                  bv-sized,
                  bytestring,
+                 extra,
                  prettyprinter >= 1.7.0,
                  text,
                  time,

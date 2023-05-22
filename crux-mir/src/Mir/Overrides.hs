@@ -22,6 +22,7 @@ import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
+import Data.List.Extra (unsnoc)
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -402,25 +403,25 @@ bindFn ::
   CFG MIR blocks args ret ->
   OverrideSim (p sym) sym MIR rtp a r ()
 bindFn symOnline cs name cfg
-  | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
+  | hasInstPrefix ["crucible", "array", "symbolic"] explodedName
   , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
 
-  | (normDefId "crucible::concretize" <> "::_inst") `Text.isPrefixOf` name
+  | hasInstPrefix ["crucible", "concretize"] explodedName
   , Empty :> tpr <- cfgArgTypes cfg
   , Just Refl <- testEquality tpr (cfgReturnType cfg)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
 
-  | (normDefId "crucible::override_" <> "::_inst") `Text.isPrefixOf` name
+  | hasInstPrefix ["crucible", "override_"] explodedName
   , Empty :> UnitRepr :> UnitRepr <- cfgArgTypes cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
 
-  | (normDefId "crucible::dump_what4" <> "::_inst") `Text.isPrefixOf` name
+  | hasInstPrefix ["crucible", "dump_what4"] explodedName
   , Empty :> MirSliceRepr (BVRepr w) :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
   , Just Refl <- testEquality w (knownNat @8)
   , UnitRepr <- cfgReturnType cfg
@@ -431,12 +432,23 @@ bindFn symOnline cs name cfg
             Just x -> return x
             Nothing -> fail $ "dump_what4: desc string must be concrete"
         liftIO $ putStrLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+  where
+    explodedName = textIdKey name
 
+    -- | Check if @edid@ has the same path as @pfxInit@, plus a final path
+    -- component that begins with the name @_inst@.
+    hasInstPrefix :: [Text] -> ExplodedDefId -> Bool
+    hasInstPrefix pfxInit edid =
+      case unsnoc edid of
+        Nothing -> False
+        Just (edidInit, edidLast) ->
+          pfxInit == edidInit &&
+          "_inst" `Text.isPrefixOf` edidLast
 
 bindFn _symOnline _cs fn cfg =
   ovrWithBackend $ \bak ->
   let s = backendGetSym bak in
-  case Map.lookup fn (overrides bak) of
+  case Map.lookup (textIdKey fn) (overrides bak) of
     Nothing ->
       bindFnHandle (cfgHandle cfg) $ UseCFG cfg (postdomInfo cfg)
     Just (($ functionNameFromText fn) -> SomeOverride argTys retTy f) ->
@@ -450,13 +462,11 @@ bindFn _symOnline _cs fn cfg =
   where
     override ::
       forall args ret .
-      Text -> CtxRepr args -> TypeRepr ret ->
+      ExplodedDefId -> CtxRepr args -> TypeRepr ret ->
       (forall rtp . OverrideSim (p sym) sym MIR rtp args ret (RegValue sym ret)) ->
-      (Text, FunctionName -> SomeOverride (p sym) sym)
-    override n args ret act =
-        -- Round-trip through `DefId` to normalize the path.  In particular,
-        -- this adds the current `defaultDisambiguator` and any missing `[0]`s.
-        ( normDefId n
+      (ExplodedDefId, FunctionName -> SomeOverride (p sym) sym)
+    override edid args ret act =
+        ( edid
         , \funName -> SomeOverride args ret (mkOverride' funName ret act)
         )
 
@@ -469,32 +479,36 @@ bindFn _symOnline _cs fn cfg =
     strrepr :: TypeRepr (MirSlice (BVType 8))
     strrepr = knownRepr
 
-    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (p sym) sym)
-    symb_bv name n =
-      override name (Empty :> strrepr) (BVRepr n) $
+    symb_bv :: forall n . (1 <= n)
+            => ExplodedDefId -> NatRepr n
+            -> (ExplodedDefId, FunctionName -> SomeOverride (p sym) sym)
+    symb_bv edid n =
+      override edid (Empty :> strrepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
          makeSymbolicVar str $ BaseBVRepr n
 
-    overrides :: IsSymBackend sym bak' => bak' -> Map Text (FunctionName -> SomeOverride (p sym) sym)
+    overrides :: IsSymBackend sym bak'
+              => bak'
+              -> Map ExplodedDefId (FunctionName -> SomeOverride (p sym) sym)
     overrides bak =
       let sym = backendGetSym bak in
-      fromList [ override "crucible::one" Empty (BVRepr (knownNat @8)) $
+      fromList [ override ["crucible", "one"] Empty (BVRepr (knownNat @8)) $
                  do h <- printHandle <$> getContext
                     liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat 1)
                     return v
-               , symb_bv "crucible::symbolic::symbolic_u8"  (knownNat @8)
-               , symb_bv "crucible::symbolic::symbolic_u16" (knownNat @16)
-               , symb_bv "crucible::symbolic::symbolic_u32" (knownNat @32)
-               , symb_bv "crucible::symbolic::symbolic_u64" (knownNat @64)
-               , symb_bv "crucible::symbolic::symbolic_u128" (knownNat @128)
-               , symb_bv "int512::symbolic" (knownNat @512)
-               , symb_bv "crucible::bitvector::make_symbolic_128" (knownNat @128)
-               , symb_bv "crucible::bitvector::make_symbolic_256" (knownNat @256)
-               , symb_bv "crucible::bitvector::make_symbolic_512" (knownNat @512)
+               , symb_bv ["crucible", "symbolic", "symbolic_u8"]  (knownNat @8)
+               , symb_bv ["crucible", "symbolic", "symbolic_u16"] (knownNat @16)
+               , symb_bv ["crucible", "symbolic", "symbolic_u32"] (knownNat @32)
+               , symb_bv ["crucible", "symbolic", "symbolic_u64"] (knownNat @64)
+               , symb_bv ["crucible", "symbolic", "symbolic_u128"] (knownNat @128)
+               , symb_bv ["int512", "symbolic"] (knownNat @512)
+               , symb_bv ["crucible", "bitvector", "make_symbolic_128"] (knownNat @128)
+               , symb_bv ["crucible", "bitvector", "make_symbolic_256"] (knownNat @256)
+               , symb_bv ["crucible", "bitvector", "make_symbolic_512"] (knownNat @512)
 
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
-                 in override "crucible::crucible_assert_impl" argTys UnitRepr $
+                 in override ["crucible", "crucible_assert_impl"] argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
@@ -509,7 +523,7 @@ bindFn _symOnline _cs fn cfg =
                        liftIO $ assert bak (regValue c) reason
                        return ()
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
-                 in override "crucible::crucible_assume_impl" argTys UnitRepr $
+                 in override ["crucible", "crucible_assume_impl"] argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        loc <- liftIO $ getCurrentProgramLoc sym
                        src <- maybe (fail "not a constant src string")
