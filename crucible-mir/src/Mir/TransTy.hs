@@ -98,46 +98,46 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
 -- Custom type aliases
-pattern CTyInt512 <- M.TyAdt _ $(M.normDefIdPat "int512::Int512") (M.Substs [])
+pattern CTyInt512 <- M.TyAdt _ $(M.explodedDefIdPat ["int512", "Int512"]) (M.Substs [])
   where CTyInt512 = M.TyAdt (M.textId "type::adt") (M.textId "int512::Int512") (M.Substs [])
-pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
+pattern CTyBox t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "boxed", "Box"]) (M.Substs [t])
   where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
-pattern CTyMaybeUninit t <- M.TyAdt _ $(M.normDefIdPat "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
+pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "mem", "maybe_uninit", "MaybeUninit"]) (M.Substs [t])
   where CTyMaybeUninit t = M.TyAdt (M.textId "type::adt") (M.textId "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
--- `UnsafeCell` isn't handled specially inside baseline `crux-mir`, but
+-- `UnsafeCell` isn't handled specially inside baseline `crucible-mir`, but
 -- `crux-mir-comp` looks for it (using this pattern synonym).
-pattern CTyUnsafeCell t <- M.TyAdt _ $(M.normDefIdPat "core::cell::UnsafeCell") (M.Substs [t])
+pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "cell", "UnsafeCell"]) (M.Substs [t])
   where CTyUnsafeCell t = M.TyAdt (M.textId "type::adt") (M.textId "core::cell::UnsafeCell") (M.Substs [t])
-pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
+pattern CTyVector t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "vector", "Vector"]) (M.Substs [t])
   where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
-pattern CTyArray t <- M.TyAdt _ $(M.normDefIdPat "crucible::array::Array") (M.Substs [t])
+pattern CTyArray t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "array", "Array"]) (M.Substs [t])
   where CTyArray t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::array::Array") (M.Substs [t])
 
-pattern CTyBvSize128 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_128") (M.Substs [])
+pattern CTyBvSize128 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_128"]) (M.Substs [])
   where CTyBvSize128 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_128") (M.Substs [])
-pattern CTyBvSize256 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_256") (M.Substs [])
+pattern CTyBvSize256 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_256"]) (M.Substs [])
   where CTyBvSize256 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_256") (M.Substs [])
-pattern CTyBvSize512 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_512") (M.Substs [])
+pattern CTyBvSize512 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_512"]) (M.Substs [])
   where CTyBvSize512 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_512") (M.Substs [])
-pattern CTyBv t <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::Bv") (M.Substs [t])
+pattern CTyBv t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "Bv"]) (M.Substs [t])
   where CTyBv t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::Bv") (M.Substs [t])
 pattern CTyBv128 = CTyBv CTyBvSize128
 pattern CTyBv256 = CTyBv CTyBvSize256
 pattern CTyBv512 = CTyBv CTyBvSize512
 
-pattern CTyAny <- M.TyAdt _ $(M.normDefIdPat "core::crucible::any::Any") (M.Substs [])
+pattern CTyAny <- M.TyAdt _ $(M.explodedDefIdPat ["core", "crucible", "any", "Any"]) (M.Substs [])
   where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "core::crucible::any::Any") (M.Substs [])
 
-pattern CTyMethodSpec <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpec") (M.Substs [])
+pattern CTyMethodSpec <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpec"]) (M.Substs [])
   where CTyMethodSpec = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpec") (M.Substs [])
 
-pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
+pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpecBuilder"]) (M.Substs [])
   where CTyMethodSpecBuilder = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
 
 
 -- These don't have custom representation, but are referenced in various
 -- places.
-pattern CTyOption t <- M.TyAdt _ $(M.normDefIdPat "core::option::Option") (M.Substs [t])
+pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "option", "Option"]) (M.Substs [t])
   where CTyOption t = M.TyAdt (M.textId "type::adt") (M.textId "core::option::Option") (M.Substs [t])
 
 optionDefId :: M.DefId

@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
@@ -13,13 +15,12 @@ module Mir.DefId
 
 , ExplodedDefId
 , idKey
+, explodedDefIdPat
+, textIdKey
 
 , getTraitName
 , cleanVariantName
 , parseFieldName
-
-, normDefId
-, normDefIdPat
 ) where
 
 import Data.Aeson
@@ -58,8 +59,8 @@ data DefId = DefId
   deriving (Eq, Ord, Generic)
 
 -- | The crate disambiguator hash produced when the crate metadata string is
--- empty.  This is the disambiguator for all sysroot crates, which are the only
--- ones we override.
+-- empty. This is useful for creating 'DefId's for thing that do not have a
+-- disambiguator associated with it (e.g., Crucible names).
 defaultDisambiguator :: Text
 defaultDisambiguator = "3a1fbbbh"
 
@@ -69,8 +70,8 @@ defaultDisambiguator = "3a1fbbbh"
 -- of disambiguators are optional.  If the crate disambiguator is omitted, then
 -- it's assumed to be `defaultDisambiguator`, and if a segment disambiguator is
 -- omitted elsewhere in the path, it's assumed to be zero.  So you can write,
--- for example, `core::option::Option`, and parsing will expand it to the
--- canonical form `core/3a1fbbbh::option[0]::Option[0]`.
+-- for example, `foo::bar::Baz`, and parsing will expand it to the
+-- canonical form `foo/3a1fbbbh::bar[0]::Baz[0]`.
 textId :: Text -> DefId
 textId s = DefId crate disambig segs
   where
@@ -109,11 +110,21 @@ instance FromJSON DefId where
 instance Pretty DefId where
     pretty = viaShow
 
-
+-- | The individual 'DefId' components of a 'DefId'. The first element is the
+-- crate name, and the subsequent elements are the path segments. By convention,
+-- 'ExplodedDefId's never contain disambiguators, which make them a useful way
+-- to refer to identifiers in a slightly more stable format that does not depend
+-- on the particulars of how a package is hashed.
 type ExplodedDefId = [Text]
+
 idKey :: DefId -> ExplodedDefId
 idKey did = did_crate did : map fst (did_path did)
 
+explodedDefIdPat :: ExplodedDefId -> TH.Q TH.Pat
+explodedDefIdPat edid = [p| ((\did -> idKey did == edid) -> True) |]
+
+textIdKey :: Text -> ExplodedDefId
+textIdKey = idKey . textId
 
 idInit :: DefId -> DefId
 idInit (DefId crate disambig segs) = DefId crate disambig (init segs)
@@ -133,13 +144,3 @@ cleanVariantName = idLast
 parseFieldName :: DefId -> Maybe Text
 parseFieldName (DefId _ _ []) = Nothing
 parseFieldName did = Just $ idLast did
-
--- | Normalize a DefId string.  This allows writing down path strings in a more
--- readable form.
-normDefId :: Text -> Text
-normDefId s = idText $ textId s
-
--- | Like `normDefId`, but produces a Template Haskell pattern.  Useful for
--- defining pattern synonyms that match a specific `TyAdt` type constructor.
-normDefIdPat :: Text -> TH.Q TH.Pat
-normDefIdPat s = return $ TH.LitP $ TH.StringL $ T.unpack $ normDefId s
