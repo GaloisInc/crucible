@@ -873,12 +873,12 @@ ctlz_impl name optFixedWidth _substs = Just $ CustomOp $ \_optys ops -> case ops
 
 ctlz :: (ExplodedDefId, CustomRHS)
 ctlz =
-    ( ["core","intrinsics", "", "ctlz"]
+    ( ["core","intrinsics", "{extern}", "ctlz"]
     , ctlz_impl "ctlz" Nothing )
 
 ctlz_nonzero :: (ExplodedDefId, CustomRHS)
 ctlz_nonzero =
-    ( ["core","intrinsics", "", "ctlz_nonzero"]
+    ( ["core","intrinsics", "{extern}", "ctlz_nonzero"]
     , ctlz_impl "ctlz_nonzero" Nothing )
 
 rotate_left :: (ExplodedDefId, CustomRHS)
