@@ -1,10 +1,10 @@
-test deserialize/3a1fbbbh::crux_test[0]: returned Symbolic BV, FAILED
+test deserialize/21c6f4ae::crux_test[0]: returned Symbolic BV, FAILED
 
 failures:
 
----- deserialize/3a1fbbbh::crux_test[0] counterexamples ----
+---- deserialize/21c6f4ae::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: error: in deserialize/3a1fbbbh::deserialize[0]
-[Crux]   attempt to add with overflow
+[Crux]   test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: error: in deserialize/21c6f4ae::deserialize[0]
+[Crux]   attempt to compute `move _61 + move _62`, which would overflow
 
 [Crux] Overall status: Invalid.
