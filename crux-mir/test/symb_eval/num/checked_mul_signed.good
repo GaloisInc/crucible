@@ -1,10 +1,10 @@
-test checked_mul_signed/1cb83c82::crux_test[0]: returned 44, FAILED
+test checked_mul_signed/2f330b6c::crux_test[0]: returned 44, FAILED
 
 failures:
 
----- checked_mul_signed/1cb83c82::crux_test[0] counterexamples ----
+---- checked_mul_signed/2f330b6c::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/num/checked_mul_signed.rs:6:5: 6:13: error: in checked_mul_signed/1cb83c82::crux_test[0]
+[Crux]   test/symb_eval/num/checked_mul_signed.rs:6:5: 6:13: error: in checked_mul_signed/2f330b6c::crux_test[0]
 [Crux]   attempt to compute `const -100_i8 * move _2`, which would overflow
 
 [Crux] Overall status: Invalid.
