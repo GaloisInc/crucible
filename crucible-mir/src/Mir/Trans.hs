@@ -193,17 +193,10 @@ transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 transConstVal _ty (Some C.UnitRepr) (M.ConstTuple []) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
-transConstVal (M.TyTuple tys) (Some (C.StructRepr tprs)) (M.ConstTuple vals) = do
-    col <- use $ cs . collection
-    vals' <- zipWith3M
-               (\ty (Some tpr) val ->
-                 case tpr of
-                     C.MaybeRepr valTpr -> do
-                       transConstVal ty (Some valTpr) val
-                     _ ->
-                       mirFail $ "transConstVal (ConstTuple): expected tuple field to have MaybeType, but got " ++ show tpr)
-               tys (toListFC Some tprs) vals
-    return $ buildTupleMaybe col tys $ map Just vals'
+transConstVal (M.TyTuple tys) (Some (C.StructRepr tprs)) (M.ConstTuple vals) =
+    transConstTuple tys tprs vals
+transConstVal (M.TyClosure upvar_tys) (Some (C.StructRepr upvar_tprs)) (M.ConstClosure upvar_vals) =
+    transConstTuple upvar_tys upvar_tprs upvar_vals
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -256,6 +249,20 @@ transConstVal ty (Some (MirReferenceRepr tpr)) init = do
     return $ MirExp (MirReferenceRepr tpr) ref
 transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
+
+-- Translate a constant (non-empty) tuple or constant closure value.
+transConstTuple :: [M.Ty] -> C.CtxRepr ctx -> [ConstVal] -> MirGenerator h s ret (MirExp s)
+transConstTuple tys tprs vals = do
+    col <- use $ cs . collection
+    vals' <- zipWith3M
+               (\ty (Some tpr) val ->
+                 case tpr of
+                     C.MaybeRepr valTpr -> do
+                       transConstVal ty (Some valTpr) val
+                     _ ->
+                       mirFail $ "transConstTuple: expected tuple field to have MaybeType, but got " ++ show tpr)
+               tys (toListFC Some tprs) vals
+    return $ buildTupleMaybe col tys $ map Just vals'
 
 -- Taken from GHC's source code, which is BSD-3 licensed.
 zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]

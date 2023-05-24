@@ -318,6 +318,7 @@ instance Pretty ConstVal where
     pretty (ConstChar i)    = pretty i
     pretty (ConstVariant i) = pr_id i
     pretty (ConstTuple cs)  = tupled (map pretty cs)
+    pretty (ConstClosure us)   = pretty "closure" <> list (map pretty us)
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> pretty i)
     pretty (ConstFunction a)   = pr_id a

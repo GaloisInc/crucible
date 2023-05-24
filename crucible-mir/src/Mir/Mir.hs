@@ -503,6 +503,7 @@ data ConstVal =
   | ConstVariant DefId
   | ConstFunction DefId
   | ConstTuple [ConstVal]
+  | ConstClosure [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
   | ConstInitializer DefId
