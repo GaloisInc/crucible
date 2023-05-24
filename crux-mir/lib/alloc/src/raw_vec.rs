@@ -173,8 +173,13 @@ impl<T, A: Allocator> RawVec<T, A> {
             Self::new_in(alloc)
         } else {
             let ptr = {
-            // NB: This ignores both the choice of allocator and the `init` argument
-                let ptr = crucible::alloc::allocate::<T>(capacity);
+            // NB: This ignores the choice of allocator
+                let ptr = match init {
+                    AllocInit::Zeroed =>
+                        crucible::alloc::allocate_zeroed::<T>(capacity),
+                    AllocInit::Uninitialized =>
+                        crucible::alloc::allocate::<T>(capacity),
+                };
                 unsafe { NonNull::new_unchecked(ptr) }
             };
 

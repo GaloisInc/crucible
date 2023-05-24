@@ -72,3 +72,7 @@ identify all of the code that was changed in each patch.
 * Reimplement `to_{le,be}_bytes` (last applied: May 18, 2023)
 
   Same reasoning as above.
+
+* Use `allocate_zeroed` in `RawVec`'s `allocate_in` (last applied: May 24, 2023)
+
+  This is needed to make `vec![0; len]` work as expected.
