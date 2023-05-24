@@ -527,6 +527,9 @@ instance FromJSON ConstVal where
         Just (String "tuple") ->
             ConstTuple <$> v .: "elements"
 
+        Just (String "closure") ->
+            ConstClosure <$> v .: "upvars"
+
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
 
