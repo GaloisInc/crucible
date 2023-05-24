@@ -1,10 +1,10 @@
-test checked_mul/6db35fea::crux_test[0]: returned 44, FAILED
+test checked_mul/aca814e3::crux_test[0]: returned 44, FAILED
 
 failures:
 
----- checked_mul/6db35fea::crux_test[0] counterexamples ----
+---- checked_mul/aca814e3::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/num/checked_mul.rs:6:5: 6:12: error: in checked_mul/6db35fea::crux_test[0]
+[Crux]   test/symb_eval/num/checked_mul.rs:6:5: 6:12: error: in checked_mul/aca814e3::crux_test[0]
 [Crux]   attempt to compute `const 100_u8 * move _2`, which would overflow
 
 [Crux] Overall status: Invalid.

@@ -1,16 +1,16 @@
-test early_fail/3a1fbbbh::fail1[0]: FAILED
-test early_fail/3a1fbbbh::fail2[0]: FAILED
+test early_fail/233440b0::fail1[0]: FAILED
+test early_fail/233440b0::fail2[0]: FAILED
 
 failures:
 
----- early_fail/3a1fbbbh::fail1[0] counterexamples ----
+---- early_fail/233440b0::fail1[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   internal: error: in early_fail/3a1fbbbh::fail1[0]
-[Crux]   panicking::begin_panic, called from early_fail/3a1fbbbh::fail1[0]
+[Crux]   internal: error: in early_fail/233440b0::fail1[0]
+[Crux]   panicking::panic_fmt, called from early_fail/233440b0::fail1[0]
 
----- early_fail/3a1fbbbh::fail2[0] counterexamples ----
+---- early_fail/233440b0::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crux/early_fail.rs:17:5: 17:30: error: in early_fail/3a1fbbbh::fail2[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/early_fail.rs:17:5: 17:29: error: in early_fail/233440b0::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
 [Crux]   	x == 0
 
