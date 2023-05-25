@@ -137,6 +137,8 @@ customOpDefs = Map.fromList $ [
                          , ptr_wrapping_offset_mut
                          , ptr_offset_from
                          , ptr_offset_from_mut
+                         , sub_ptr
+                         , sub_ptr_mut
                          , ptr_compare_usize
                          , is_aligned_and_not_null
                          , ptr_slice_from_raw_parts
@@ -480,6 +482,11 @@ ptr_offset_from :: (ExplodedDefId, CustomRHS)
 ptr_offset_from = (["core", "ptr", "const_ptr", "{impl}", "offset_from"], ptr_offset_from_impl)
 ptr_offset_from_mut :: (ExplodedDefId, CustomRHS)
 ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset_from"], ptr_offset_from_impl)
+
+sub_ptr :: (ExplodedDefId, CustomRHS)
+sub_ptr = (["core", "ptr", "const_ptr", "{impl}", "sub_ptr"], ptr_offset_from_impl)
+sub_ptr_mut :: (ExplodedDefId, CustomRHS)
+sub_ptr_mut = (["core", "ptr", "mut_ptr", "{impl}", "sub_ptr"], ptr_offset_from_impl)
 
 ptr_compare_usize :: (ExplodedDefId, CustomRHS)
 ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
