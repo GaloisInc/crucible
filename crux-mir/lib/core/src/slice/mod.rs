@@ -134,7 +134,10 @@ impl<T> [T] {
     #[inline]
     #[must_use]
     pub const fn len(&self) -> usize {
-        ptr::metadata(self)
+        const fn crucible_slice_len_hook<T>(slice: &[T]) -> usize {
+            ptr::metadata(slice)
+        }
+        crucible_slice_len_hook(self)
     }
 
     /// Returns `true` if the slice has a length of 0.
