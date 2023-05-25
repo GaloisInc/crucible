@@ -1,8 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 enum E {
-    #[inline(never)]
     A(u8),
-    #[inline(never)]
     B(i32,i32),
 }
 
