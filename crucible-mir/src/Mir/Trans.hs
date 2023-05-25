@@ -247,6 +247,24 @@ transConstVal ty (Some (MirReferenceRepr tpr)) init = do
         "transConstVal returned wrong type: expected " ++ show tpr ++ ", got " ++ show tpr'
     ref <- constMirRef tpr val
     return $ MirExp (MirReferenceRepr tpr) ref
+transConstVal _ty (Some tpr@(C.FunctionHandleRepr argTys retTy)) (ConstFnPtr inst) = do
+    let did = inst^.inDefId
+    mbHndl <- resolveFn did
+    case mbHndl of
+        Just (MirHandle _ _ hndl) -> do
+            Refl <- testEqualityOrFail argTys (FH.handleArgTypes hndl) $ unlines
+                [ "transConstVal (ConstFnPtr): argument types mismatch"
+                , "expected: " ++ show argTys
+                , "actual:   " ++ show (FH.handleArgTypes hndl)
+                ]
+            Refl <- testEqualityOrFail retTy (FH.handleReturnType hndl) $ unlines
+                [ "transConstVal (ConstFnPtr): return type mismatch"
+                , "expected: " ++ show retTy
+                , "actual:   " ++ show (FH.handleReturnType hndl)
+                ]
+            return $ MirExp tpr $ R.App $ E.HandleLit hndl
+        Nothing -> mirFail $
+            "transConstVal (ConstFnPtr): Couldn't resolve function " ++ show did
 transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 

@@ -513,6 +513,7 @@ data ConstVal =
   | ConstRawPtr Integer
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
+  | ConstFnPtr Instance
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =

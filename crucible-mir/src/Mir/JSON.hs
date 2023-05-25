@@ -530,6 +530,9 @@ instance FromJSON ConstVal where
         Just (String "closure") ->
             ConstClosure <$> v .: "upvars"
 
+        Just (String "fn_ptr") ->
+            ConstFnPtr <$> v .: "instance"
+
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
 
