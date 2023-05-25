@@ -76,3 +76,10 @@ identify all of the code that was changed in each patch.
 * Use `allocate_zeroed` in `RawVec`'s `allocate_in` (last applied: May 24, 2023)
 
   This is needed to make `vec![0; len]` work as expected.
+
+* Use `crucible_slice_len_hook` when computing slice `len` (last applied: May 25, 2023)
+
+  The usual implementation of slice length requires using the `PtrRepr` union
+  type. Currently, `crucible-mir` does not support Rust unions, so we instead
+  implement slice `len` in terms of our own `crucible_slice_len_hook` function
+  that we override.
