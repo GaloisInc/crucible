@@ -1,10 +1,10 @@
-test construct/961e3d80::crux_test[0]: returned Symbolic BV, FAILED
+test construct/55406696::crux_test[0]: returned Symbolic BV, FAILED
 
 failures:
 
----- construct/961e3d80::crux_test[0] counterexamples ----
+---- construct/55406696::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/sym_bytes/construct.rs:13:5: 13:35: error: in construct/961e3d80::crux_test[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/sym_bytes/construct.rs:13:5: 13:35: error: in construct/55406696::crux_test[0]
 [Crux]   MIR assertion at test/symb_eval/sym_bytes/construct.rs:13:5:
 [Crux]   	sym2[0] == 0
 
