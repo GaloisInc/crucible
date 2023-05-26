@@ -93,3 +93,7 @@ identify all of the code that was changed in each patch.
   These require pointer casts that Crucible can't support. We instead fall back
   on the other `SpecArrayEq` instances that are slower (but easier to
   translate).
+
+* Disable bytewise equality comparisons for `[T]` (last applied: May 26, 2023)
+
+  These require the `size_of_val` intrinsic, which isn't current supported.
