@@ -87,3 +87,9 @@ identify all of the code that was changed in each patch.
 * Use `crucible_array_from_slice_hook` in `&[T] -> &[T; N]` `TryFrom` impl (last applied: May 26, 2023)
 
   The actual implementation uses a pointer cast that Crucible can't handle.
+
+* Disable `IsRawEqComparable`-based `SpecArrayEq` instances (last applied: May 26, 2023)
+
+  These require pointer casts that Crucible can't support. We instead fall back
+  on the other `SpecArrayEq` instances that are slower (but easier to
+  translate).

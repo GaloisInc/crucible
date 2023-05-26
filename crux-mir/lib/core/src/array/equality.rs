@@ -144,6 +144,7 @@ impl<T: PartialEq<Other>, Other, const N: usize> SpecArrayEq<Other, N> for T {
     }
 }
 
+/*
 impl<T: IsRawEqComparable<U>, U, const N: usize> SpecArrayEq<U, N> for T {
     fn spec_eq(a: &[T; N], b: &[U; N]) -> bool {
         // SAFETY: This is why `IsRawEqComparable` is an `unsafe trait`.
@@ -156,6 +157,7 @@ impl<T: IsRawEqComparable<U>, U, const N: usize> SpecArrayEq<U, N> for T {
         !Self::spec_eq(a, b)
     }
 }
+*/
 
 /// `U` exists on here mostly because `min_specialization` didn't let me
 /// repeat the `T` type parameter in the above specialization, so instead
