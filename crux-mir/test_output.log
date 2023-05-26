@@ -1,148 +1,652 @@
 crux-mir
   crux concrete
     
-      clos
-        fn_static_poly:          OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 3                     (0.85s)
-          Crux output: 3
-        fnptr_closure:           OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 7                     (0.87s)
-          Crux output: 7
-        fnptr_fn:                OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 4                     (0.87s)
-          Crux output: 4
-        conv_fnonce_fnmut:       OK (0.99s)
+      refs
+        promoted_imm:            OK (1.94s)
           Compiling and running oracle program (0.14s)
-          Oracle output: 2                     (0.86s)
+          Oracle output: 0                     (1.80s)
+          Crux output: 0
+        mut_raw:                 OK (2.01s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 123                   (1.86s)
+          Crux output: 123
+        mut_nested:              OK (2.00s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.84s)
+          Crux output: ()
+        fn_ptr_mut:              OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.85s)
+          Crux output: 1
+        never:                   OK (2.04s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.89s)
+          Crux output: 1
+        mut_ref:                 OK (2.11s)
+          Compiling and running oracle program (0.18s)
+          Oracle output: 1                     (1.93s)
+          Crux output: 1
+        temp:                    OK (2.05s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.90s)
+          Crux output: 1
+        mut_arg:                 OK (1.99s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.84s)
+          Crux output: 1
+        fn_ptr:                  OK (2.06s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.91s)
+          Crux output: 1
+        promoted_mut:            OK (2.09s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 0                     (1.92s)
+          Crux output: 0
+        never_mut:               OK (2.09s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.94s)
+          Crux output: 1
+        mut_tuple_field:         OK (1.98s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.84s)
+          Crux output: ()
+        imm_raw:                 OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 123                   (1.86s)
+          Crux output: 123
+        static_mut:              OK (2.05s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 2                     (1.89s)
           Crux output: 2
-        as_fn_ptr:               FAIL (expected: ClosureFnPointer cast) (1.04s)
-          Compiling and running oracle program                           (0.12s)
-          Oracle output: 1                                               (0.92s)
+        imm_ref:                 OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 123                   (1.76s)
+          Crux output: 123
+        imm_arg:                 OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.74s)
+          Crux output: 1
+      hash_map
+        insert_multi:            OK (2.37s)
+          Compiling and running oracle program (0.20s)
+          Oracle output: 100                   (2.17s)
+          Crux output: 100
+        insert_remove:           OK (2.82s)
+          Compiling and running oracle program (0.18s)
+          Oracle output: 12                    (2.64s)
+          Crux output: 12
+        insert_iter:             OK (2.46s)
+          Compiling and running oracle program (0.20s)
+          Oracle output: [11, 12]              (2.26s)
+          Crux output: [11, 12]
+        insert_get:              OK (2.38s)
+          Compiling and running oracle program (0.19s)
+          Oracle output: (11, 12)              (2.20s)
+          Crux output: (11, 12)
+      traits
+        params:                  OK (2.03s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 25                    (1.88s)
+          Crux output: 25
+        generic3:                OK (2.01s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.85s)
+          Crux output: ()
+        static_three:            OK (2.05s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.90s)
+          Crux output: 2
+        generic1:                OK (1.93s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.78s)
+          Crux output: ()
+        subtrait:                OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 73                    (1.77s)
+          Crux output: 73
+        gen_trait:               OK (1.86s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: -69                   (1.72s)
+          Crux output: -69
+        dynamic_branch:          OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 1                     (1.74s)
+          Crux output: 1
+        static_two:              OK (1.86s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 1                     (1.72s)
+          Crux output: 1
+        tyfam5:                  OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.73s)
+          Crux output: ()
+        generic2:                OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        assoc3:                  OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.77s)
+          Crux output: ()
+        tyfam4:                  OK (1.95s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 0                     (1.81s)
+          Crux output: 0
+        static_self:             OK (1.91s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 42                    (1.76s)
+          Crux output: 42
+        conv:                    OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.75s)
+          Crux output: 1
+        dynamic_poly:            OK (1.88s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 3                     (1.74s)
+          Crux output: 3
+        dynamic_simple:          OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 1                     (1.76s)
+          Crux output: 1
+        gen_trait_poly:          OK (1.93s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 12                    (1.78s)
+          Crux output: 12
+        default:                 OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 12                    (1.74s)
+          Crux output: 12
+        assoc1:                  OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.74s)
+          Crux output: ()
+        subtrait2:               OK (1.91s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 64                    (1.77s)
+          Crux output: 64
+        bounds1:                 OK (2.05s)
+          Compiling and running oracle program (0.18s)
+          Oracle output: ()                    (1.87s)
+          Crux output: ()
+        bounds3:                 OK (2.02s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.86s)
+          Crux output: ()
+        static_eq:               OK (1.98s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: true                  (1.82s)
+          Crux output: true
+        tyfam3:                  OK (2.03s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 23                    (1.88s)
+          Crux output: 23
+        dict_med:                OK (2.03s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 42                    (1.88s)
+          Crux output: 42
+        basics1:                 OK (2.04s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.89s)
+          Crux output: ()
+        assoc2:                  OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.82s)
+          Crux output: ()
+        dict_polymem:            OK (2.04s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 4                     (1.89s)
+          Crux output: 4
+        bounds2:                 OK (2.02s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.87s)
+          Crux output: ()
+        intoiter:                OK (2.03s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 0                     (1.88s)
+          Crux output: 0
+        static:                  OK (2.00s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 42                    (1.84s)
+          Crux output: 42
+        dynamic_two:             OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.86s)
+          Crux output: 1
+        bounds4:                 OK (1.95s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.81s)
+          Crux output: ()
+        dict_poly:               OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.86s)
+          Crux output: 1
+        dict_simple:             OK (2.10s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 32                    (1.94s)
+          Crux output: 32
+        tyfam:                   OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 23                    (1.86s)
+          Crux output: 23
+        bounds5:                 OK (2.04s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.88s)
+          Crux output: ()
+        tyfam2:                  OK (1.91s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 23                    (1.76s)
+          Crux output: 23
+        dynamic_med:             OK (1.93s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 1                     (1.78s)
+          Crux output: 1
+      intTest
+        test0039:                OK (1.94s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 7                     (1.79s)
+          Crux output: 7
+        test0038:                OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.82s)
+          Crux output: ()
+      tuple
+        clone_rec:               OK (1.90s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        clone:                   OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        clone_from:              FAIL (1.94s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: ()                                              (1.79s)
           Crux output: 
           failures:
           
-          ---- as_fn_ptr/c6e389f5::crux_test[0] counterexamples ----
+          ---- clone_from/8fca6705::f[0] counterexamples ----
           [Crux] Found counterexample for verification goal
-          [Crux]   test/conc_eval/clos/as_fn_ptr.rs:9:13: 9:19: error: in as_fn_ptr/c6e389f5::crux_test[0]
-          [Crux]   Translation error in as_fn_ptr/c6e389f5::crux_test[0]: unimplemented cast: ClosureFnPointer
-          [Crux]     ty: TyClosure []
-          [Crux]     as: TyFnPtr (FnSig {_fsarg_tys = [], _fsreturn_ty = TyInt B32, _fsabi = RustAbi, _fsspreadarg = Nothing})
+          [Crux]   ./lib/core/src/clone.rs:136:17: 136:31: error: in core/1cdf94ce::clone[0]::Clone[0]::clone_from[0]::_insta1f0a334420ce0e0[0]
+          [Crux]   Translation error in core/1cdf94ce::clone[0]::Clone[0]::clone_from[0]::_insta1f0a334420ce0e0[0]: don't know how to generate CloneShim for unknown method core/1cdf94ce::clone[0]::Clone[0]::clone[0]
           
           [Crux] Overall status: Invalid.
           
             test/Test.hs:124:
             crux doesn't match oracle
-           (expected failure)
-        fnonce1:                 OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.85s)
+          
+          Use -p '/clone_from/' to rerun this test only.
+        clone_struct:            FAIL (1.94s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: ()                                              (1.79s)
+          Crux output: 
+          failures:
+          
+          ---- clone_struct/8dcd765f::f[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   test/conc_eval/tuple/clone_struct.rs:8:13: 8:22: error: in clone_struct/8dcd765f::f[0]
+          [Crux]   Translation error in clone_struct/8dcd765f::f[0]: don't know how to generate CloneShim for unknown method core/1cdf94ce::clone[0]::Clone[0]::clone[0]
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/clone_struct/' to rerun this test only.
+      iter
+        for:                     OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 47                    (1.77s)
+          Crux output: 47
+        sum:                     OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.77s)
+          Crux output: ()
+        filter_chain:            OK (2.06s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 0                     (1.89s)
+          Crux output: 0
+        from_fn:                 OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.81s)
+          Crux output: ()
+        peek:                    OK (2.06s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 3                     (1.91s)
           Crux output: 3
-        direct_fn:               OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.86s)
+        zip:                     OK (2.01s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.85s)
+          Crux output: ()
+        loop:                    OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.73s)
           Crux output: 2
-        fn_static:               OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.88s)
-          Crux output: 3
-        poly:                    OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.84s)
-          Crux output: 3
-        direct_fnmut:            OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 7                     (0.87s)
-          Crux output: 7
-        direct_fnmut2:           OK (1.02s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 7                     (0.89s)
-          Crux output: 7
-        promoted:                OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 33                    (0.86s)
-          Crux output: 33
-        direct_fnonce:           OK (1.05s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.93s)
-          Crux output: 2
-        fo:                      OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 29                    (0.83s)
-          Crux output: 29
-        fnonce:                  OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: false                 (0.86s)
-          Crux output: false
-        fn_dyn:                  FAIL (expected: call_once shim (in `dyn Fn` vtable)) (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.86s)
-            vtable signature mismatch for vtable core/beffc212::ops[0]::function[0]::Fn[0]::_vtbl570ffd80324c2ca9[0] of trait core/beffc212::ops[0]::function[0]::Fn[0]::_trait42f8b6475ee85722[0] : StructRepr [FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32), FunctionHandleRepr [AnyRepr, BVRepr 32] (BVRepr 32), FunctionHandleRepr [AnyRepr, BVRepr 32] (BVRepr 32)] != StructRepr [FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32), FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32), FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32)]
+        cloned:                  OK (1.91s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 6                     (1.77s)
+          Crux output: 6
+      str
+        format_hex:              FAIL (2.65s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: true                                            (2.50s)
+          Crux output: 
+          failures:
+          
+          ---- format_hex/ff25ab16::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/1cdf94ce::fmt[0]::write[0]
+          [Crux]   Translation error in core/1cdf94ce::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/1cdf94ce::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/format_hex/' to rerun this test only.
+        format_int:              FAIL (2.62s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: true                                            (2.47s)
+          Crux output: 
+          failures:
+          
+          ---- format_int/8280e1f2::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/1cdf94ce::fmt[0]::write[0]
+          [Crux]   Translation error in core/1cdf94ce::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/1cdf94ce::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/format_int/' to rerun this test only.
+        format_struct:           FAIL (2.69s)
+          Compiling and running oracle program                           (0.16s)
+          Oracle output: true                                            (2.53s)
+          Crux output: 
+          failures:
+          
+          ---- format_struct/e77dd717::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/1cdf94ce::fmt[0]::write[0]
+          [Crux]   Translation error in core/1cdf94ce::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/1cdf94ce::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/format_struct/' to rerun this test only.
+        format:                  FAIL (2.66s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: true                                            (2.51s)
+          Crux output: 
+          failures:
+          
+          ---- format/6d842288::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/1cdf94ce::fmt[0]::write[0]
+          [Crux]   Translation error in core/1cdf94ce::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/1cdf94ce::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '$0=="crux-mir.crux concrete..str.format"' to rerun this test only.
+        to_owned:                FAIL (2.09s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: true                                            (1.94s)
+          Crux output: 
+          failures:
+          
+          ---- to_owned/81422a79::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/iter/traits/iterator.rs:2607:40: 2607:61: error: in core/1cdf94ce::iter[0]::traits[0]::iterator[0]::Iterator[0]::all[0]::_instf9a28a1fbcee32be[0]
+          [Crux]   Translation error in core/1cdf94ce::iter[0]::traits[0]::iterator[0]::Iterator[0]::all[0]::_instf9a28a1fbcee32be[0]: ill-typed assignment of IntrinsicRepr MirReference [BVRepr 8] to IntrinsicRepr MirReference [AnyRepr] (TyRef (TyAdt core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0]::_adtdfc2b6f78a281997[0] core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0] (Substs [TyTuple [],TyTuple []])) Immut) LBase (Var {_varname = "_10", _varmut = Mut, _varty = TyRef (TyAdt core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0]::_adtdfc2b6f78a281997[0] core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0] (Substs [TyTuple [],TyTuple []])) Immut, _varIsZST = False})
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/to_owned/' to rerun this test only.
+        string_push:             FAIL (2.58s)
+          Compiling and running oracle program                           (0.16s)
+          Oracle output: true                                            (2.42s)
+          Crux output: 
+          failures:
+          
+          ---- string_push/f3da471e::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/iter/traits/iterator.rs:2607:40: 2607:61: error: in core/1cdf94ce::iter[0]::traits[0]::iterator[0]::Iterator[0]::all[0]::_instf9a28a1fbcee32be[0]
+          [Crux]   Translation error in core/1cdf94ce::iter[0]::traits[0]::iterator[0]::Iterator[0]::all[0]::_instf9a28a1fbcee32be[0]: ill-typed assignment of IntrinsicRepr MirReference [BVRepr 8] to IntrinsicRepr MirReference [AnyRepr] (TyRef (TyAdt core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0]::_adtdfc2b6f78a281997[0] core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0] (Substs [TyTuple [],TyTuple []])) Immut) LBase (Var {_varname = "_10", _varmut = Mut, _varty = TyRef (TyAdt core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0]::_adtdfc2b6f78a281997[0] core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0] (Substs [TyTuple [],TyTuple []])) Immut, _varIsZST = False})
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/string_push/' to rerun this test only.
+        format_array:            FAIL (2.73s)
+          Compiling and running oracle program                           (0.16s)
+          Oracle output: true                                            (2.58s)
+          Crux output: 
+          failures:
+          
+          ---- format_array/5c87c800::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/1cdf94ce::fmt[0]::write[0]
+          [Crux]   Translation error in core/1cdf94ce::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/1cdf94ce::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/format_array/' to rerun this test only.
+      sync
+        mutex:                   FAIL (3.18s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (3.03s)
+            TODO RGS evalRval ThreadLocalRef
             CallStack (from HasCallStack):
-              error, called at src/Mir/Trans.hs:933:20 in crucible-mir-0.1-inplace:Mir.Trans
-              mkTraitObject, called at src/Mir/Trans.hs:776:11 in crucible-mir-0.1-inplace:Mir.Trans
-              evalCast', called at src/Mir/Trans.hs:907:5 in crucible-mir-0.1-inplace:Mir.Trans
-              evalCast, called at src/Mir/Trans.hs:959:30 in crucible-mir-0.1-inplace:Mir.Trans
-              evalRval, called at src/Mir/Trans.hs:1172:11 in crucible-mir-0.1-inplace:Mir.Trans
-              transStatement, called at src/Mir/Trans.hs:1617:68 in crucible-mir-0.1-inplace:Mir.Trans
-              translateBlockBody, called at src/Mir/Trans.hs:1626:28 in crucible-mir-0.1-inplace:Mir.Trans
-              registerBlock, called at src/Mir/Trans.hs:1666:10 in crucible-mir-0.1-inplace:Mir.Trans
-              genFn, called at src/Mir/Trans.hs:1712:24 in crucible-mir-0.1-inplace:Mir.Trans
-              transDefine, called at src/Mir/Trans.hs:2146:30 in crucible-mir-0.1-inplace:Mir.Trans
+              error, called at src/Mir/Trans.hs:1034:33 in crucible-mir-0.1-inplace:Mir.Trans
+              evalRval, called at src/Mir/Trans.hs:1197:11 in crucible-mir-0.1-inplace:Mir.Trans
+              transStatement, called at src/Mir/Trans.hs:1642:68 in crucible-mir-0.1-inplace:Mir.Trans
+              translateBlockBody, called at src/Mir/Trans.hs:1651:28 in crucible-mir-0.1-inplace:Mir.Trans
+              registerBlock, called at src/Mir/Trans.hs:1691:10 in crucible-mir-0.1-inplace:Mir.Trans
+              genFn, called at src/Mir/Trans.hs:1737:24 in crucible-mir-0.1-inplace:Mir.Trans
+              transDefine, called at src/Mir/Trans.hs:2171:30 in crucible-mir-0.1-inplace:Mir.Trans
               transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
               translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
-           (expected failure)
-        ref_fnmut:               OK (1.03s)
-          Compiling and running oracle program (0.17s)
-          Oracle output: 7                     (0.87s)
-          Crux output: 7
-        dispatch_fnmut:          OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 7                     (0.88s)
-          Crux output: 7
-        unique_borrow:           OK (1.00s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 3                     (0.87s)
-          Crux output: 3
-        conv_fnmut_fn:           OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.85s)
-          Crux output: 2
-        fnptr_fnmut:             OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 4                     (0.87s)
+          
+          Use -p '$0=="crux-mir.crux concrete..sync.mutex"' to rerun this test only.
+        arc_cell:                OK (2.10s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 4                     (1.94s)
           Crux output: 4
-        fnptr_fnonce:            OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 4                     (0.84s)
-          Crux output: 4
-        conv_fnonce_fn:          OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.85s)
+        arc:                     OK (2.08s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.94s)
+          Crux output: 1
+        atomic_add:              OK (1.97s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 6                     (1.82s)
+          Crux output: 6
+        rwlock:                  FAIL (3.25s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (3.10s)
+            TODO RGS evalRval ThreadLocalRef
+            CallStack (from HasCallStack):
+              error, called at src/Mir/Trans.hs:1034:33 in crucible-mir-0.1-inplace:Mir.Trans
+              evalRval, called at src/Mir/Trans.hs:1197:11 in crucible-mir-0.1-inplace:Mir.Trans
+              transStatement, called at src/Mir/Trans.hs:1642:68 in crucible-mir-0.1-inplace:Mir.Trans
+              translateBlockBody, called at src/Mir/Trans.hs:1651:28 in crucible-mir-0.1-inplace:Mir.Trans
+              registerBlock, called at src/Mir/Trans.hs:1691:10 in crucible-mir-0.1-inplace:Mir.Trans
+              genFn, called at src/Mir/Trans.hs:1737:24 in crucible-mir-0.1-inplace:Mir.Trans
+              transDefine, called at src/Mir/Trans.hs:2171:30 in crucible-mir-0.1-inplace:Mir.Trans
+              transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
+              translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
+          
+          Use -p '$0=="crux-mir.crux concrete..sync.rwlock"' to rerun this test only.
+        atomic_cxchg:            OK (2.05s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 6                     (1.89s)
+          Crux output: 6
+        arc_clone:               OK (2.11s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.96s)
           Crux output: 2
-      prim
-        bool:                    OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: false                 (0.83s)
+        atomic_swap:             OK (1.93s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: (2, 1)                (1.78s)
+          Crux output: (2, 1)
+        rwlock_multi:            FAIL (3.31s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 3                     (3.16s)
+            TODO RGS evalRval ThreadLocalRef
+            CallStack (from HasCallStack):
+              error, called at src/Mir/Trans.hs:1034:33 in crucible-mir-0.1-inplace:Mir.Trans
+              evalRval, called at src/Mir/Trans.hs:1197:11 in crucible-mir-0.1-inplace:Mir.Trans
+              transStatement, called at src/Mir/Trans.hs:1642:68 in crucible-mir-0.1-inplace:Mir.Trans
+              translateBlockBody, called at src/Mir/Trans.hs:1651:28 in crucible-mir-0.1-inplace:Mir.Trans
+              registerBlock, called at src/Mir/Trans.hs:1691:10 in crucible-mir-0.1-inplace:Mir.Trans
+              genFn, called at src/Mir/Trans.hs:1737:24 in crucible-mir-0.1-inplace:Mir.Trans
+              transDefine, called at src/Mir/Trans.hs:2171:30 in crucible-mir-0.1-inplace:Mir.Trans
+              transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
+              translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
+          
+          Use -p '/rwlock_multi/' to rerun this test only.
+        atomic_fence:            OK (2.00s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.85s)
+          Crux output: 2
+        mutex_multi:             FAIL (3.28s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 3                     (3.13s)
+            TODO RGS evalRval ThreadLocalRef
+            CallStack (from HasCallStack):
+              error, called at src/Mir/Trans.hs:1034:33 in crucible-mir-0.1-inplace:Mir.Trans
+              evalRval, called at src/Mir/Trans.hs:1197:11 in crucible-mir-0.1-inplace:Mir.Trans
+              transStatement, called at src/Mir/Trans.hs:1642:68 in crucible-mir-0.1-inplace:Mir.Trans
+              translateBlockBody, called at src/Mir/Trans.hs:1651:28 in crucible-mir-0.1-inplace:Mir.Trans
+              registerBlock, called at src/Mir/Trans.hs:1691:10 in crucible-mir-0.1-inplace:Mir.Trans
+              genFn, called at src/Mir/Trans.hs:1737:24 in crucible-mir-0.1-inplace:Mir.Trans
+              transDefine, called at src/Mir/Trans.hs:2171:30 in crucible-mir-0.1-inplace:Mir.Trans
+              transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
+              translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
+          
+          Use -p '/mutex_multi/' to rerun this test only.
+      consts
+        struct_val:              OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: Foo { x: true }       (1.81s)
+          Crux output: Foo { x: true }
+        struct_unit:             OK (1.95s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: Err(Foo { x: () })    (1.81s)
+          Crux output: Err(Foo { x: () })
+        local_key:               OK (1.98s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.83s)
+          Crux output: 1
+        fn_def:                  OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.78s)
+          Crux output: 1
+        enum_val:                OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: None                  (1.72s)
+          Crux output: None
+      crypto
+        add:                     OK (2.03s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: true                  (1.88s)
+          Crux output: true
+        add_noL:                 OK (2.02s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: false                 (1.86s)
           Crux output: false
-        litbstring:              OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: true                  (0.87s)
-          Crux output: true
-        shift3:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: -9223372036854775808  (0.84s)
+      cell
+        cell:                    OK (1.95s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.81s)
+          Crux output: 2
+        ref_cell:                OK (2.49s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (2.34s)
+          Crux output: 2
+        ref_cell2:               OK (2.61s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (2.46s)
+          Crux output: 2
+      fnptr
+        call:                    OK (1.95s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.80s)
+          Crux output: 2
+        field:                   OK (1.99s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 2                     (1.83s)
+          Crux output: 2
+        make:                    OK (1.98s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 0                     (1.84s)
+          Crux output: 0
+        custom:                  rustc compilation failed for custom
+error output:
+error[E0432]: unresolved import `core`
+ --> test/conc_eval/fnptr/custom.rs:2:5
+  |
+2 | use core::mem;
+  |     ^^^^ maybe a missing crate `core`?
+  |
+  = help: consider adding `extern crate core` to use the `core` crate
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0432`.
+
+FAIL (expected: taking address of an overridden function) (0.06s)
+          Compiling and running oracle program (0.06s)
+            test/Test.hs:107:
+            failed to compile and run
+           (expected failure)
+      num
+        overflow:                OK (2.00s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.85s)
+          Crux output: ()
+        from_bytes:              OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.82s)
+          Crux output: ()
+        saturate:                OK (2.54s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: ()                    (2.37s)
+          Crux output: ()
+      prim
+        bool:                    OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: false                 (1.78s)
+          Crux output: false
+        shift3:                  OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: -9223372036854775808  (1.76s)
           Crux output: -9223372036854775808
-        litstring:               OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: true                  (0.85s)
+        div:                     OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 4                     (1.78s)
+          Crux output: 4
+        ge:                      OK (1.91s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: true                  (1.77s)
           Crux output: true
-        ge:                      OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: true                  (0.84s)
-          Crux output: true
+        add1:                    OK (1.93s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.79s)
+          Crux output: 2
         shift_exceeding:         rustc compilation failed for shift_exceeding
 error output:
 error[E0425]: cannot find function `catch_unwind` in module `panic`
@@ -178,654 +682,97 @@ FAIL (expected: Should panic, but doesn't) (0.05s)
             test/Test.hs:107:
             failed to compile and run
            (expected failure)
-        shift4:                  OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: -9223372036854775808  (0.85s)
-          Crux output: -9223372036854775808
-        mut_arg:                 OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.85s)
-          Crux output: 1
-        wrapping_sub:            OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: true                  (0.84s)
-          Crux output: true
-        lit:                     OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: false                 (0.85s)
-          Crux output: false
-        mut:                     OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 14                    (0.85s)
-          Crux output: 14
-        shift1:                  OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.86s)
-          Crux output: 2
-        add1:                    OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.84s)
-          Crux output: 2
-        div:                     OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 4                     (0.84s)
-          Crux output: 4
-        shift2:                  OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.86s)
-          Crux output: 2
-        ffs:                     OK (1.06s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: true                  (0.93s)
-          Crux output: true
-        char_from_u32:           OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 'A'                   (0.87s)
+        char_from_u32:           OK (1.91s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 'A'                   (1.76s)
           Crux output: 'A'
-      traits
-        tyfam:                   OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 23                    (0.85s)
-          Crux output: 23
-        dynamic_branch:          OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.84s)
-          Crux output: 1
-        static:                  OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 42                    (0.85s)
-          Crux output: 42
-        bounds3:                 OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.86s)
-          Crux output: ()
-        tyfam3:                  OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 23                    (0.84s)
-          Crux output: 23
-        static_two:              OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.85s)
-          Crux output: 1
-        bounds2:                 OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        generic2:                OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        gen_trait_poly:          OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 12                    (0.86s)
-          Crux output: 12
-        dict_simple:             OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 32                    (0.84s)
-          Crux output: 32
-        static_self:             OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 42                    (0.83s)
-          Crux output: 42
-        tyfam4:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 0                     (0.85s)
-          Crux output: 0
-        gen_trait:               OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: -69                   (0.84s)
-          Crux output: -69
-        generic3:                OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        subtrait:                OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 73                    (0.84s)
-          Crux output: 73
-        default:                 OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 12                    (0.85s)
-          Crux output: 12
-        bounds1:                 OK (1.01s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.88s)
-          Crux output: ()
-        intoiter:                OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 0                     (0.86s)
-          Crux output: 0
-        static_eq:               OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: true                  (0.85s)
-          Crux output: true
-        assoc3:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.84s)
-          Crux output: ()
-        dynamic_poly:            OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.85s)
-          Crux output: 3
-        dynamic_med:             OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.86s)
-          Crux output: 1
-        static_three:            OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.84s)
-          Crux output: 2
-        dynamic_two:             OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.86s)
-          Crux output: 1
-        bounds4:                 OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        bounds5:                 OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        dict_med:                OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.86s)
-          Crux output: 42
-        dynamic_simple:          OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.84s)
-          Crux output: 1
-        assoc1:                  OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.88s)
-          Crux output: ()
-        params:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 25                    (0.85s)
-          Crux output: 25
-        conv:                    OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.85s)
-          Crux output: 1
-        basics1:                 OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        dict_poly:               OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.84s)
-          Crux output: 1
-        dict_polymem:            OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 4                     (0.84s)
-          Crux output: 4
-        subtrait2:               OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 64                    (0.85s)
-          Crux output: 64
-        tyfam2:                  OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 23                    (0.84s)
-          Crux output: 23
-        tyfam5:                  OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.85s)
-          Crux output: ()
-        assoc2:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.84s)
-          Crux output: ()
-        generic1:                OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.85s)
-          Crux output: ()
-      impl
-        self_mut:                OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.86s)
-          Crux output: 42
-        self:                    OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.84s)
-          Crux output: 42
-        simple:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.84s)
-          Crux output: 42
-      vec
-        drop:                    FAIL (1.19s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (1.05s)
-          Crux output: 
-          failures:
-          
-          ---- drop/883706d7::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_instb944086d0b551051[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_instb944086d0b551051[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/drop/' to rerun this test only.
-        from_elem_zero:          FAIL (0.18s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 0                     (0.04s)
-            user error (Error 101 while running mir-json on test/conc_eval/vec/from_elem_zero.rs)
-          
-          Use -p '/from_elem_zero/' to rerun this test only.
-        extend_trusted_len:      OK (1.84s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: (1, 10)               (1.70s)
-          Crux output: (1, 10)
-        extend:                  FAIL (1.26s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: (1, 10)                                         (1.12s)
-          Crux output: 
-          failures:
-          
-          ---- extend/e55977a0::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   internal: error: in core/beffc212::iter[0]::traits[0]::iterator[0]::Iterator[0]::try_fold[0]::_inst647f2421f6e4ebd6[0]
-          [Crux]   Translation error in core/beffc212::iter[0]::traits[0]::iterator[0]::Iterator[0]::try_fold[0]::_inst647f2421f6e4ebd6[0]: error building variant core/beffc212::ops[0]::control_flow[0]::ControlFlow[0]::Continue[0]: type mismatch: expected AnyRepr but got BVRepr 32 in field 0: ([FieldRepr (FkInit AnyRepr)],[Just bVLit(32, BV 0)]) -- [Just bVLit(32, BV 0): BVRepr 32]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '$0=="crux-mir.crux concrete..vec.extend"' to rerun this test only.
-        set_len:                 FAIL (1.20s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 2                                               (1.08s)
-          Crux output: 
-          failures:
-          
-          ---- set_len/225fd37f::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/set_len/' to rerun this test only.
-        collect:                 FAIL (1.85s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: 45                                              (1.72s)
-          Crux output: 
-          failures:
-          
-          ---- collect/1633cf1b::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/const_ptr.rs:786:58: 786:72: error: in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::sub_ptr[0]::runtime[0]::_inst1e2825177cd3b608[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::sub_ptr[0]::runtime[0]::_inst1e2825177cd3b608[0]: No translation for pointer binop: >=
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/collect/' to rerun this test only.
-        push:                    OK (1.20s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: (1, 2)                (1.07s)
-          Crux output: (1, 2)
-      slice
-        len:                     OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 5                     (0.84s)
-          Crux output: 5
-        mut_range:               FAIL (1.52s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 86                                              (1.39s)
-          Crux output: 
-          failures:
-          
-          ---- mut_range/b5c421ea::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/mut_range/' to rerun this test only.
-        range_len:               FAIL (1.50s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 1                                               (1.37s)
-          Crux output: 
-          failures:
-          
-          ---- range_len/5665dfa7::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '$0=="crux-mir.crux concrete..slice.range_len"' to rerun this test only.
-        eq:                      FAIL (1.01s)
-          Compiling and running oracle program                           (0.12s)
-          Oracle output: ()                                              (0.89s)
-          Crux output: 
-          failures:
-          
-          ---- eq/b2461ea6::f[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/mem/mod.rs:338:38: 338:41: error: in core/beffc212::mem[0]::size_of_val[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::mem[0]::size_of_val[0]::_inst55af81a2cef2701c[0]: callExp: Don't know how to call core/beffc212::intrinsics[0]::{extern#0}[0]::size_of_val[0]::_inst55af81a2cef2701c[0]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/slice.eq/' to rerun this test only.
-        iter_mut:                FAIL (1.06s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (0.93s)
-          Crux output: 
-          failures:
-          
-          ---- iter_mut/bf566c00::f[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/array/mod.rs:266:23: 266:54: error: in core/beffc212::array[0]::{impl#10}[0]::try_from[0]::_insta17aeaef2aec3782[0]
-          [Crux]   Translation error in core/beffc212::array[0]::{impl#10}[0]::try_from[0]::_insta17aeaef2aec3782[0]: unimplemented cast: Misc
-          [Crux]     ty: TyRawPtr (TyInt B32) Immut
-          [Crux]     as: TyRawPtr (TyArray (TyInt B32) 3) Immut
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/iter_mut/' to rerun this test only.
-        get:                     FAIL (1.03s)
-          Compiling and running oracle program                           (0.12s)
-          Oracle output: true                                            (0.91s)
-          Crux output: 
-          failures:
-          
-          ---- get/56903f09::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/slice.get/' to rerun this test only.
-        last:                    OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 3                     (0.86s)
-          Crux output: 3
-        range_len_mut:           FAIL (1.54s)
-          Compiling and running oracle program                           (0.12s)
-          Oracle output: 1                                               (1.42s)
-          Crux output: 
-          failures:
-          
-          ---- range_len_mut/dc7450de::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/range_len_mut/' to rerun this test only.
-        mut:                     OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.86s)
-          Crux output: 42
-        swap:                    OK (1.01s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2001                  (0.88s)
-          Crux output: 2001
-        mk_and_proj:             OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.83s)
-          Crux output: 42
-      num
-        overflow:                OK (1.03s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.90s)
-          Crux output: ()
-        saturate:                OK (1.53s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (1.40s)
-          Crux output: ()
-        from_bytes:              OK (1.03s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.91s)
-          Crux output: ()
-      dyn
-        inherit:                 OK (1.01s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 4                     (0.88s)
-          Crux output: 4
-        plain_trait:             OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 100                   (0.86s)
-          Crux output: 100
-        trait_param:             OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 100                   (0.84s)
-          Crux output: 100
-        assoc_ty:                OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 100                   (0.86s)
-          Crux output: 100
-      box
-        mut_ref:                 OK (1.13s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (1.00s)
-          Crux output: ()
-        new:                     OK (1.11s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.99s)
-          Crux output: ()
-        struct:                  OK (1.10s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.98s)
-          Crux output: 1
-        mut:                     OK (1.09s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.96s)
-          Crux output: ()
-        unsize:                  OK (1.12s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.99s)
-          Crux output: 2
-      vec_deque
-        rotate_right:            FAIL (1.75s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: [4, 5, 1, 2, 3]                                 (1.62s)
-          Crux output: 
-          failures:
-          
-          ---- rotate_right/b7a01f9c::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/rotate_right/' to rerun this test only.
-        retain:                  FAIL (1.70s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: [1, 4]                                          (1.57s)
-          Crux output: 
-          failures:
-          
-          ---- retain/16d9d612::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/retain/' to rerun this test only.
-        push:                    OK (1.72s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: [4, 1, 2, 3, 5]       (1.59s)
-          Crux output: [4, 1, 2, 3, 5]
-        rotate_left:             FAIL (1.71s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: [3, 4, 5, 1, 2]                                 (1.57s)
-          Crux output: 
-          failures:
-          
-          ---- rotate_left/791d5fca::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/rotate_left/' to rerun this test only.
-        pop:                     FAIL (1.62s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: [5, 4, 3, 1, 2]                                 (1.49s)
-          Crux output: 
-          failures:
-          
-          ---- pop/f75a69e4::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/vec_deque.pop/' to rerun this test only.
-        iter_clone:              FAIL (1.73s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: [1, 2, 3, 2, 3]                                 (1.60s)
-          Crux output: 
-          failures:
-          
-          ---- iter_clone/fecbd0b0::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/iter_clone/' to rerun this test only.
-      iter
-        loop:                    OK (1.00s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.87s)
-          Crux output: 2
-        from_fn:                 OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.88s)
-          Crux output: ()
-        filter_chain:            OK (1.13s)
+        ffs:                     OK (1.91s)
           Compiling and running oracle program (0.15s)
-          Oracle output: 0                     (0.98s)
-          Crux output: 0
-        for:                     OK (1.02s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 47                    (0.90s)
-          Crux output: 47
-        zip:                     OK (1.07s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.94s)
-          Crux output: ()
-        peek:                    OK (1.07s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.94s)
-          Crux output: 3
-        cloned:                  OK (1.02s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 6                     (0.89s)
-          Crux output: 6
-        sum:                     OK (1.05s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.92s)
-          Crux output: ()
-      crypto
-        add:                     OK (1.03s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: true                  (0.90s)
+          Oracle output: true                  (1.76s)
           Crux output: true
-        add_noL:                 OK (1.07s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: false                 (0.93s)
-          Crux output: false
-      statics
-        promoted_static:         OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.85s)
+        mut_arg:                 OK (1.87s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.72s)
           Crux output: 1
-        promoted_fn:             OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.84s)
+        litstring:               OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: true                  (1.73s)
+          Crux output: true
+        lit:                     OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: false                 (1.75s)
+          Crux output: false
+        litbstring:              OK (1.94s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: true                  (1.80s)
+          Crux output: true
+        shift1:                  OK (1.91s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.76s)
+          Crux output: 2
+        shift2:                  OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.77s)
+          Crux output: 2
+        shift4:                  OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: -9223372036854775808  (1.73s)
+          Crux output: -9223372036854775808
+        mut:                     OK (1.93s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 14                    (1.79s)
+          Crux output: 14
+        wrapping_sub:            OK (1.91s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: true                  (1.77s)
+          Crux output: true
+      impl
+        self:                    OK (1.97s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 42                    (1.82s)
+          Crux output: 42
+        simple:                  OK (1.97s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 42                    (1.81s)
+          Crux output: 42
+        self_mut:                OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 42                    (1.77s)
+          Crux output: 42
+      box
+        new:                     OK (2.05s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.90s)
+          Crux output: ()
+        mut_ref:                 OK (2.04s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: ()                    (1.86s)
+          Crux output: ()
+        mut:                     OK (2.02s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.87s)
+          Crux output: ()
+        unsize:                  OK (2.05s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.90s)
+          Crux output: 2
+        struct:                  OK (2.02s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.87s)
           Crux output: 1
       ptr
-        offset_mut:              OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 3                     (0.86s)
-          Crux output: 3
-        dangling_eq:             FAIL (1.01s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (0.89s)
+        is_null_slice:           FAIL (expected: can't unsize null pointers) (1.94s)
+          Compiling and running oracle program                           (0.14s)
+          Oracle output: (false, true)                                   (1.80s)
           Crux output: 
           failures:
           
-          ---- dangling_eq/d3f79519::crux_test[0] counterexamples ----
+          ---- is_null_slice/7fe66064::crux_test[0] counterexamples ----
           [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:135:14: 135:78: error: in core/beffc212::ptr[0]::metadata[0]::from_raw_parts_mut[0]::_inst1e2825177cd3b608[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::from_raw_parts_mut[0]::_inst1e2825177cd3b608[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/dangling_eq/' to rerun this test only.
-        is_null_slice:           FAIL (expected: can't unsize null pointers) (1.02s)
-          Compiling and running oracle program                           (0.12s)
-          Oracle output: (false, true)                                   (0.89s)
-          Crux output: 
-          failures:
-          
-          ---- is_null_slice/819ce3b2::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   test/conc_eval/ptr/is_null_slice.rs:7:13: 7:33: error: in is_null_slice/819ce3b2::crux_test[0]
+          [Crux]   test/conc_eval/ptr/is_null_slice.rs:7:13: 7:33: error: in is_null_slice/7fe66064::crux_test[0]
           [Crux]   attempted subindex on the result of an integer-to-pointer cast
           [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/const_ptr.rs:38:38: 38:42: error: in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::is_null[0]::_inst55af81a2cef2701c[0]
+          [Crux]   ./lib/core/src/ptr/const_ptr.rs:38:38: 38:42: error: in core/1cdf94ce::ptr[0]::const_ptr[0]::{impl#0}[0]::is_null[0]::_inst55af81a2cef2701c[0]
           [Crux]   attempted to read empty mux tree
           
           [Crux] Overall status: Invalid.
@@ -833,56 +780,61 @@ FAIL (expected: Should panic, but doesn't) (0.05s)
             test/Test.hs:124:
             crux doesn't match oracle
            (expected failure)
-        coerce_unsized:          OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: (1, 2)                (0.86s)
-          Crux output: (1, 2)
-        is_null:                 OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: (false, true)         (0.88s)
-          Crux output: (false, true)
-        offset:                  OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.85s)
-          Crux output: 3
-        offset_from:             OK (1.00s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: -2                    (0.87s)
-          Crux output: -2
-        struct_eq:               OK (1.00s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.88s)
+        struct_eq:               OK (1.93s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.79s)
           Crux output: ()
-        valid_eq:                OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        cast_eq:                 OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        copy:                    OK (1.03s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: [1, 2, 3, 1, 2, 3]    (0.91s)
-          Crux output: [1, 2, 3, 1, 2, 3]
-        unsize_slice:            OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: (1, 2)                (0.86s)
-          Crux output: (1, 2)
-        read_write:              OK (1.06s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: [1, 3, 1]             (0.93s)
+        read_write:              OK (1.98s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: [1, 3, 1]             (1.82s)
           Crux output: [1, 3, 1]
-        null_eq:                 FAIL (1.03s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 1                                               (0.90s)
+        offset_mut:              OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.78s)
+          Crux output: 3
+        copy:                    OK (1.97s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: [1, 2, 3, 1, 2, 3]    (1.81s)
+          Crux output: [1, 2, 3, 1, 2, 3]
+        unsize_slice:            OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: (1, 2)                (1.78s)
+          Crux output: (1, 2)
+        dangling_eq:             FAIL (1.94s)
+          Compiling and running oracle program                           (0.14s)
+          Oracle output: ()                                              (1.80s)
           Crux output: 
           failures:
           
-          ---- null_eq/1dae14de::crux_test[0] counterexamples ----
+          ---- dangling_eq/3f4bcd46::crux_test[0] counterexamples ----
           [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/metadata.rs:118:14: 118:78: error: in core/beffc212::ptr[0]::metadata[0]::from_raw_parts[0]::_inst1e2825177cd3b608[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::from_raw_parts[0]::_inst1e2825177cd3b608[0]: evalPlace (PField, Union) NYI
+          [Crux]   ./lib/core/src/ptr/metadata.rs:135:14: 135:78: error: in core/1cdf94ce::ptr[0]::metadata[0]::from_raw_parts_mut[0]::_inst1e2825177cd3b608[0]
+          [Crux]   Translation error in core/1cdf94ce::ptr[0]::metadata[0]::from_raw_parts_mut[0]::_inst1e2825177cd3b608[0]: evalPlace (PField, Union) NYI
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/dangling_eq/' to rerun this test only.
+        cast_eq:                 OK (1.89s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        offset_from:             OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: -2                    (1.74s)
+          Crux output: -2
+        null_eq:                 FAIL (1.94s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: 1                                               (1.79s)
+          Crux output: 
+          failures:
+          
+          ---- null_eq/7504a468::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   ./lib/core/src/ptr/metadata.rs:118:14: 118:78: error: in core/1cdf94ce::ptr[0]::metadata[0]::from_raw_parts[0]::_inst1e2825177cd3b608[0]
+          [Crux]   Translation error in core/1cdf94ce::ptr[0]::metadata[0]::from_raw_parts[0]::_inst1e2825177cd3b608[0]: evalPlace (PField, Union) NYI
           
           [Crux] Overall status: Invalid.
           
@@ -890,131 +842,65 @@ FAIL (expected: Should panic, but doesn't) (0.05s)
             crux doesn't match oracle
           
           Use -p '/null_eq/' to rerun this test only.
-      str
-        to_owned:                FAIL (1.17s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: true                                            (1.05s)
-          Crux output: 
-          failures:
-          
-          ---- to_owned/ac2d2c7c::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/to_owned/' to rerun this test only.
-        format_struct:           FAIL (1.86s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: true                                            (1.72s)
-          Crux output: 
-          failures:
-          
-          ---- format_struct/d1c28a08::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/beffc212::fmt[0]::write[0]
-          [Crux]   Translation error in core/beffc212::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/beffc212::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/format_struct/' to rerun this test only.
-        format_array:            FAIL (1.84s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: true                                            (1.71s)
-          Crux output: 
-          failures:
-          
-          ---- format_array/69f3b2e7::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/beffc212::fmt[0]::write[0]
-          [Crux]   Translation error in core/beffc212::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/beffc212::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/format_array/' to rerun this test only.
-        format_int:              FAIL (1.71s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: true                                            (1.58s)
-          Crux output: 
-          failures:
-          
-          ---- format_int/050dadd3::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/beffc212::fmt[0]::write[0]
-          [Crux]   Translation error in core/beffc212::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/beffc212::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/format_int/' to rerun this test only.
-        format:                  FAIL (1.75s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: true                                            (1.62s)
-          Crux output: 
-          failures:
-          
-          ---- format/1ac747dd::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/beffc212::fmt[0]::write[0]
-          [Crux]   Translation error in core/beffc212::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/beffc212::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '$0=="crux-mir.crux concrete..str.format"' to rerun this test only.
-        format_hex:              FAIL (1.78s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: true                                            (1.65s)
-          Crux output: 
-          failures:
-          
-          ---- format_hex/23d72fd8::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/beffc212::fmt[0]::write[0]
-          [Crux]   Translation error in core/beffc212::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/beffc212::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/format_hex/' to rerun this test only.
-        string_push:             FAIL (1.64s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: true                                            (1.51s)
-          Crux output: 
-          failures:
-          
-          ---- string_push/210232c5::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/string_push/' to rerun this test only.
-      time
-        instant:                 FAIL (2.09s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (1.97s)
-            standalone use of `dyn` is not supported: TyDynamic core/beffc212::any[0]::Erased[0]::_trait58656ccc69864acf[0]
+        coerce_unsized:          OK (1.88s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: (1, 2)                (1.73s)
+          Crux output: (1, 2)
+        offset:                  OK (1.89s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.75s)
+          Crux output: 3
+        is_null:                 OK (1.90s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: (false, true)         (1.75s)
+          Crux output: (false, true)
+        valid_eq:                OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.74s)
+          Crux output: ()
+      ops
+        deref2:                  OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        index2:                  OK (1.88s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.73s)
+          Crux output: ()
+        arith1:                  OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.74s)
+          Crux output: ()
+        index3:                  OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.74s)
+          Crux output: ()
+        deref1:                  OK (1.90s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        index1:                  OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        deref3:                  OK (2.02s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.86s)
+          Crux output: ()
+      statics
+        promoted_fn:             OK (1.94s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.80s)
+          Crux output: 1
+        promoted_static:         OK (1.89s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 1                     (1.75s)
+          Crux output: 1
+      io
+        cursor_write2:           FAIL (3.04s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 0                     (2.88s)
+            standalone use of `dyn` is not supported: TyDynamic core/1cdf94ce::any[0]::Erased[0]::_trait58656ccc69864acf[0]
             CallStack (from HasCallStack):
               error, called at src/Mir/TransTy.hs:228:25 in crucible-mir-0.1-inplace:Mir.TransTy
               tyToRepr, called at src/Mir/TransTy.hs:213:7 in crucible-mir-0.1-inplace:Mir.TransTy
@@ -1024,404 +910,31 @@ FAIL (expected: Should panic, but doesn't) (0.05s)
               tyListToCtx, called at src/Mir/TransTy.hs:221:6 in crucible-mir-0.1-inplace:Mir.TransTy
               tyToRepr, called at src/Mir/TransTy.hs:418:46 in crucible-mir-0.1-inplace:Mir.TransTy
               tyListToCtx, called at src/Mir/TransTy.hs:1066:16 in crucible-mir-0.1-inplace:Mir.TransTy
-              traitVtableType, called at src/Mir/Trans.hs:2030:18 in crucible-mir-0.1-inplace:Mir.Trans
-              transVirtCall, called at src/Mir/Trans.hs:2153:31 in crucible-mir-0.1-inplace:Mir.Trans
+              traitVtableType, called at src/Mir/Trans.hs:2055:18 in crucible-mir-0.1-inplace:Mir.Trans
+              transVirtCall, called at src/Mir/Trans.hs:2178:31 in crucible-mir-0.1-inplace:Mir.Trans
               transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
               translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
           
-          Use -p '/instant/' to rerun this test only.
-      enum
-        arg2:                    rustc compilation failed for arg2
-error output:
-error[E0518]: attribute should be applied to function or closure
- --> test/conc_eval/enum/arg2.rs:3:5
-  |
-3 |     #[inline(never)]
-  |     ^^^^^^^^^^^^^^^^
-4 |     A(u8),
-  |     ----- not a function or closure
-
-error[E0518]: attribute should be applied to function or closure
- --> test/conc_eval/enum/arg2.rs:5:5
-  |
-5 |     #[inline(never)]
-  |     ^^^^^^^^^^^^^^^^
-6 |     B(i32,i32),
-  |     ---------- not a function or closure
-
-error: aborting due to 2 previous errors
-
-For more information about this error, try `rustc --explain E0518`.
-
-FAIL (0.05s)
-          Compiling and running oracle program (0.05s)
-            test/Test.hs:107:
-            failed to compile and run
-          
-          Use -p '/arg2/' to rerun this test only.
-        field_order:             OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.86s)
-          Crux output: ()
-        ret:                     OK (0.99s)
-          Compiling and running oracle program   (0.12s)
-          Oracle output: (A(42), B { x: 42 }, C) (0.86s)
-          Crux output: (A(42), B { x: 42 }, C)
-        eq:                      OK (1.01s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.88s)
-          Crux output: ()
-        inner:                   OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 4                     (0.85s)
-          Crux output: 4
-        cow:                     FAIL (1.11s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 200                                             (0.98s)
-          Crux output: 
-          failures:
-          
-          ---- cow/f92ce4f1::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/cow/' to rerun this test only.
-        cmp:                     OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: -23                   (0.85s)
-          Crux output: -23
-        match:                   OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 42                    (0.84s)
-          Crux output: 42
-        arg:                     OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 0                     (0.85s)
+          Use -p '/cursor_write2/' to rerun this test only.
+        cursor_write:            OK (2.52s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 0                     (2.35s)
           Crux output: 0
-        mixed_discrs:            OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.84s)
-          Crux output: ()
-      sync
-        arc:                     OK (1.12s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.99s)
-          Crux output: 1
-        atomic_swap:             OK (1.03s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: (2, 1)                (0.90s)
-          Crux output: (2, 1)
-        rwlock_multi:            FAIL (1.55s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (1.42s)
-            user error (JSON Decoding of test/conc_eval/sync/rwlock_multi.all.mir failed: Error in $.statics[162].rendered.fields[0]: parseJSON - bad rendered constant kind: Just (String "fn_ptr"))
-          
-          Use -p '/rwlock_multi/' to rerun this test only.
-        rwlock:                  FAIL (1.60s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (1.47s)
-            user error (JSON Decoding of test/conc_eval/sync/rwlock.all.mir failed: Error in $.statics[162].rendered.fields[0]: parseJSON - bad rendered constant kind: Just (String "fn_ptr"))
-          
-          Use -p '$0=="crux-mir.crux concrete..sync.rwlock"' to rerun this test only.
-        atomic_fence:            OK (1.03s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.91s)
-          Crux output: 2
-        mutex_multi:             FAIL (1.45s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (1.32s)
-            user error (JSON Decoding of test/conc_eval/sync/mutex_multi.all.mir failed: Error in $.statics[161].rendered.fields[0]: parseJSON - bad rendered constant kind: Just (String "fn_ptr"))
-          
-          Use -p '/mutex_multi/' to rerun this test only.
-        atomic_add:              OK (1.09s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 6                     (0.96s)
-          Crux output: 6
-        arc_clone:               OK (1.18s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (1.05s)
-          Crux output: 2
-        arc_cell:                OK (1.18s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 4                     (1.05s)
-          Crux output: 4
-        mutex:                   FAIL (1.60s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: 1                     (1.46s)
-            user error (JSON Decoding of test/conc_eval/sync/mutex.all.mir failed: Error in $.statics[161].rendered.fields[0]: parseJSON - bad rendered constant kind: Just (String "fn_ptr"))
-          
-          Use -p '$0=="crux-mir.crux concrete..sync.mutex"' to rerun this test only.
-        atomic_cxchg:            OK (1.09s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: 6                     (0.95s)
-          Crux output: 6
-      intTest
-        test0038:                OK (1.06s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.93s)
-          Crux output: ()
-        test0039:                OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 7                     (0.84s)
-          Crux output: 7
-      stdlib
-        result_interior:         OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 3                     (0.85s)
-          Crux output: 3
-        option3:                 OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 27                    (0.87s)
-          Crux output: 27
-        result:                  OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 27                    (0.84s)
-          Crux output: 27
-        poly:                    OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.84s)
-          Crux output: 1
-        default_impl:            OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.84s)
-          Crux output: ()
-        cvt:                     OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 0                     (0.86s)
-          Crux output: 0
-        default:                 OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: true                  (0.85s)
-          Crux output: true
-        option:                  OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: true                  (0.84s)
-          Crux output: true
-        option2:                 OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 0                     (0.84s)
-          Crux output: 0
-        teq:                     OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: false                 (0.85s)
-          Crux output: false
-        range:                   OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 10                    (0.85s)
-          Crux output: 10
-      hash_map
-        insert_get:              OK (1.30s)
-          Compiling and running oracle program (0.15s)
-          Oracle output: (11, 12)              (1.14s)
-          Crux output: (11, 12)
-        insert_iter:             OK (1.31s)
+        cursor_read:             OK (2.54s)
           Compiling and running oracle program (0.16s)
-          Oracle output: [11, 12]              (1.15s)
-          Crux output: [11, 12]
-        insert_multi:            OK (1.35s)
-          Compiling and running oracle program (0.15s)
-          Oracle output: 100                   (1.20s)
-          Crux output: 100
-        insert_remove:           OK (1.80s)
-          Compiling and running oracle program (0.15s)
-          Oracle output: 12                    (1.65s)
-          Crux output: 12
-      tuple
-        clone:                   OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        clone_from:              FAIL (1.02s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (0.89s)
-          Crux output: 
-          failures:
-          
-          ---- clone_from/44ff9844::f[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/clone.rs:136:17: 136:31: error: in core/beffc212::clone[0]::Clone[0]::clone_from[0]::_insta1f0a334420ce0e0[0]
-          [Crux]   Translation error in core/beffc212::clone[0]::Clone[0]::clone_from[0]::_insta1f0a334420ce0e0[0]: don't know how to generate CloneShim for unknown method core/beffc212::clone[0]::Clone[0]::clone[0]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/clone_from/' to rerun this test only.
-        clone_rec:               OK (1.01s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.88s)
-          Crux output: ()
-        clone_struct:            FAIL (1.02s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (0.90s)
-          Crux output: 
-          failures:
-          
-          ---- clone_struct/473e1c76::f[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   test/conc_eval/tuple/clone_struct.rs:8:13: 8:22: error: in clone_struct/473e1c76::f[0]
-          [Crux]   Translation error in clone_struct/473e1c76::f[0]: don't know how to generate CloneShim for unknown method core/beffc212::clone[0]::Clone[0]::clone[0]
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/clone_struct/' to rerun this test only.
-      consts
-        struct_val:              OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: Foo { x: true }       (0.85s)
-          Crux output: Foo { x: true }
-        struct_unit:             OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: Err(Foo { x: () })    (0.87s)
-          Crux output: Err(Foo { x: () })
-        enum_val:                OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: None                  (0.87s)
-          Crux output: None
-        local_key:               FAIL (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.85s)
-            user error (JSON Decoding of test/conc_eval/consts/local_key.all.mir failed: Error in $.statics[0].rendered.fields[0]: parseJSON - bad rendered constant kind: Just (String "fn_ptr"))
-          
-          Use -p '/local_key/' to rerun this test only.
-        fn_def:                  FAIL (1.00s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.87s)
-            user error (JSON Decoding of test/conc_eval/consts/fn_def.all.mir failed: Error in $.fns[0].body.blocks[0].block.terminator.func.data.rendered: parseJSON - bad rendered constant kind: Just (String "fn_ptr"))
-          
-          Use -p '/fn_def/' to rerun this test only.
-      array
-        iter:                    OK (1.04s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 3                     (0.91s)
-          Crux output: 3
-        const_impl:              OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 5                     (0.85s)
-          Crux output: 5
-        clone:                   FAIL (1.01s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (0.89s)
-          Crux output: 
-          failures:
-          
-          ---- clone/43838f2d::f[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/const_ptr.rs:46:9: 46:18: error: in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::cast[0]::_inst6cd22c7344b2c333[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::cast[0]::_inst6cd22c7344b2c333[0]: unimplemented cast: Misc
-          [Crux]     ty: TyRawPtr (TyInt B32) Immut
-          [Crux]     as: TyRawPtr (TyArray (TyInt B32) 3) Immut
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/array.clone/' to rerun this test only.
-        mut_index:               FAIL (1.53s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 7                                               (1.40s)
-          Crux output: 
-          failures:
-          
-          ---- mut_index/209c678d::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/mut_index/' to rerun this test only.
-        mut_arg:                 OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 42                    (0.87s)
-          Crux output: 42
-        from_slice:              FAIL (1.63s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: ()                                              (1.50s)
-          Crux output: 
-          failures:
-          
-          ---- from_slice/09f81d88::f[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/array/mod.rs:266:23: 266:54: error: in core/beffc212::array[0]::{impl#10}[0]::try_from[0]::_inste494657dbbea865b[0]
-          [Crux]   Translation error in core/beffc212::array[0]::{impl#10}[0]::try_from[0]::_inste494657dbbea865b[0]: unimplemented cast: Misc
-          [Crux]     ty: TyRawPtr (TyUint B8) Immut
-          [Crux]     as: TyRawPtr (TyArray (TyUint B8) 4) Immut
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/array.from_slice/' to rerun this test only.
-        const:                   OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.84s)
-          Crux output: 1
-        wick2:                   OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: true                  (0.86s)
-          Crux output: true
-        wick1:                   FAIL (expected: needs Vec data structure from stdlib) (0.17s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: true                  (0.04s)
-            user error (Error 101 while running mir-json on test/conc_eval/array/wick1.rs)
-           (expected failure)
-        arg:                     OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.86s)
-          Crux output: 2
-        mk_and_proj:             OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.86s)
-          Crux output: 42
-        wick3:                   FAIL (expected: needs Vec data structure from stdlib) (0.18s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: true                  (0.04s)
-            user error (Error 101 while running mir-json on test/conc_eval/array/wick3.rs)
-           (expected failure)
+          Oracle output: 0                     (2.38s)
+          Crux output: 0
       mem
-        maybe_uninit_array_cast: FAIL (1.00s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: [1, 2]                                          (0.87s)
+        maybe_uninit:            FAIL (2.00s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: 1                                               (1.85s)
           Crux output: 
           failures:
           
-          ---- maybe_uninit_array_cast/5024e15a::crux_test[0] counterexamples ----
+          ---- maybe_uninit/9a4e7f6f::crux_test[0] counterexamples ----
           [Crux] Found counterexample for verification goal
-          [Crux]   internal: error: in maybe_uninit_array_cast/5024e15a::crux_test[0]
-          [Crux]   Translation error in maybe_uninit_array_cast/5024e15a::crux_test[0]: unknown ADT (core/3a1fbbbh::mem[0]::maybe_uninit[0]::MaybeUninit[0],Substs [TyArray (TyInt B32) 2])
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/maybe_uninit_array_cast/' to rerun this test only.
-        maybe_uninit:            FAIL (0.99s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 1                                               (0.87s)
-          Crux output: 
-          failures:
-          
-          ---- maybe_uninit/4270f58e::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   internal: error: in maybe_uninit/4270f58e::crux_test[0]
-          [Crux]   Translation error in maybe_uninit/4270f58e::crux_test[0]: unknown ADT (core/3a1fbbbh::mem[0]::maybe_uninit[0]::MaybeUninit[0],Substs [TyInt B32])
+          [Crux]   internal: error: in maybe_uninit/9a4e7f6f::crux_test[0]
+          [Crux]   Translation error in maybe_uninit/9a4e7f6f::crux_test[0]: unknown ADT (core/3a1fbbbh::mem[0]::maybe_uninit[0]::MaybeUninit[0],Substs [TyInt B32])
           
           [Crux] Overall status: Invalid.
           
@@ -1429,72 +942,28 @@ FAIL (0.05s)
             crux doesn't match oracle
           
           Use -p '$0=="crux-mir.crux concrete..mem.maybe_uninit"' to rerun this test only.
-      ops
-        index2:                  OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        deref1:                  OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.85s)
-          Crux output: ()
-        index1:                  OK (1.02s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.89s)
-          Crux output: ()
-        deref3:                  OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.85s)
-          Crux output: ()
-        arith1:                  OK (1.03s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.90s)
-          Crux output: ()
-        deref2:                  OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        index3:                  OK (1.01s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-      fnptr
-        field:                   OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.85s)
-          Crux output: 2
-        custom:                  rustc compilation failed for custom
-error output:
-error[E0432]: unresolved import `core`
- --> test/conc_eval/fnptr/custom.rs:2:5
-  |
-2 | use core::mem;
-  |     ^^^^ maybe a missing crate `core`?
-  |
-  = help: consider adding `extern crate core` to use the `core` crate
-
-error: aborting due to previous error
-
-For more information about this error, try `rustc --explain E0432`.
-
-FAIL (expected: taking address of an overridden function) (0.05s)
-          Compiling and running oracle program (0.05s)
-            test/Test.hs:107:
-            failed to compile and run
-           (expected failure)
-        make:                    OK (1.00s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 0                     (0.87s)
-          Crux output: 0
-        call:                    OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.85s)
-          Crux output: 2
-      io
-        cursor_write2:           FAIL (2.07s)
-          Compiling and running oracle program (0.14s)
-          Oracle output: 0                     (1.93s)
-            standalone use of `dyn` is not supported: TyDynamic core/beffc212::any[0]::Erased[0]::_trait58656ccc69864acf[0]
+        maybe_uninit_array_cast: FAIL (1.99s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: [1, 2]                                          (1.84s)
+          Crux output: 
+          failures:
+          
+          ---- maybe_uninit_array_cast/54dba2bc::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   internal: error: in maybe_uninit_array_cast/54dba2bc::crux_test[0]
+          [Crux]   Translation error in maybe_uninit_array_cast/54dba2bc::crux_test[0]: unknown ADT (core/3a1fbbbh::mem[0]::maybe_uninit[0]::MaybeUninit[0],Substs [TyArray (TyInt B32) 2])
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+          
+          Use -p '/maybe_uninit_array_cast/' to rerun this test only.
+      time
+        instant:                 FAIL (3.14s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (2.99s)
+            standalone use of `dyn` is not supported: TyDynamic core/1cdf94ce::any[0]::Erased[0]::_trait58656ccc69864acf[0]
             CallStack (from HasCallStack):
               error, called at src/Mir/TransTy.hs:228:25 in crucible-mir-0.1-inplace:Mir.TransTy
               tyToRepr, called at src/Mir/TransTy.hs:213:7 in crucible-mir-0.1-inplace:Mir.TransTy
@@ -1504,370 +973,506 @@ FAIL (expected: taking address of an overridden function) (0.05s)
               tyListToCtx, called at src/Mir/TransTy.hs:221:6 in crucible-mir-0.1-inplace:Mir.TransTy
               tyToRepr, called at src/Mir/TransTy.hs:418:46 in crucible-mir-0.1-inplace:Mir.TransTy
               tyListToCtx, called at src/Mir/TransTy.hs:1066:16 in crucible-mir-0.1-inplace:Mir.TransTy
-              traitVtableType, called at src/Mir/Trans.hs:2030:18 in crucible-mir-0.1-inplace:Mir.Trans
-              transVirtCall, called at src/Mir/Trans.hs:2153:31 in crucible-mir-0.1-inplace:Mir.Trans
+              traitVtableType, called at src/Mir/Trans.hs:2055:18 in crucible-mir-0.1-inplace:Mir.Trans
+              transVirtCall, called at src/Mir/Trans.hs:2178:31 in crucible-mir-0.1-inplace:Mir.Trans
               transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
               translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
           
-          Use -p '/cursor_write2/' to rerun this test only.
-        cursor_read:             FAIL (1.65s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: 0                                               (1.51s)
-          Crux output: 
-          failures:
-          
-          ---- cursor_read/a3a3296c::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '/io.cursor_read/' to rerun this test only.
-        cursor_write:            FAIL (1.69s)
-          Compiling and running oracle program                           (0.14s)
-          Oracle output: 0                                               (1.55s)
-          Crux output: 
-          failures:
-          
-          ---- cursor_write/0e9225ad::crux_test[0] counterexamples ----
-          [Crux] Found counterexample for verification goal
-          [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-          
-          [Crux] Overall status: Invalid.
-          
-            test/Test.hs:124:
-            crux doesn't match oracle
-          
-          Use -p '$0=="crux-mir.crux concrete..io.cursor_write"' to rerun this test only.
-      cell
-        ref_cell2:               OK (1.58s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (1.45s)
-          Crux output: 2
-        cell:                    OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (0.87s)
-          Crux output: 2
-        ref_cell:                OK (1.56s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 2                     (1.44s)
-          Crux output: 2
+          Use -p '/instant/' to rerun this test only.
       struct
-        repr_transparent:        FAIL (1.03s)
-          Compiling and running oracle program                           (0.13s)
-          Oracle output: 6                                               (0.90s)
+        field_order:             OK (2.01s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.86s)
+          Crux output: ()
+        arg:                     OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 42                    (1.78s)
+          Crux output: 42
+        tup:                     OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.81s)
+          Crux output: ()
+        proj:                    OK (2.00s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 42                    (1.85s)
+          Crux output: 42
+        ret:                     OK (1.97s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: S { x: 42, y: 120 }   (1.83s)
+          Crux output: S { x: 42, y: 120 }
+        repr_transparent:        OK (2.07s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 6                     (1.91s)
+          Crux output: 6
+        repr_transparent_const:  OK (1.89s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 124                   (1.75s)
+          Crux output: 124
+      dyn
+        assoc_ty:                OK (1.89s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 100                   (1.75s)
+          Crux output: 100
+        trait_param:             OK (1.95s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 100                   (1.80s)
+          Crux output: 100
+        plain_trait:             OK (2.00s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 100                   (1.84s)
+          Crux output: 100
+        inherit:                 OK (1.98s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 4                     (1.83s)
+          Crux output: 4
+      stdlib
+        option:                  OK (1.95s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: true                  (1.79s)
+          Crux output: true
+        option2:                 OK (1.97s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 0                     (1.81s)
+          Crux output: 0
+        result:                  OK (1.95s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 27                    (1.80s)
+          Crux output: 27
+        default:                 OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: true                  (1.74s)
+          Crux output: true
+        cvt:                     OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 0                     (1.73s)
+          Crux output: 0
+        range:                   OK (2.01s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 10                    (1.87s)
+          Crux output: 10
+        poly:                    OK (2.04s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 1                     (1.88s)
+          Crux output: 1
+        result_interior:         OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 3                     (1.86s)
+          Crux output: 3
+        default_impl:            OK (1.94s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.79s)
+          Crux output: ()
+        option3:                 OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 27                    (1.78s)
+          Crux output: 27
+        teq:                     OK (1.97s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: false                 (1.82s)
+          Crux output: false
+      array
+        wick2:                   OK (2.01s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: true                  (1.85s)
+          Crux output: true
+        arg:                     OK (2.04s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 2                     (1.88s)
+          Crux output: 2
+        iter:                    OK (2.14s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: 3                     (1.97s)
+          Crux output: 3
+        mk_and_proj:             OK (2.04s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 42                    (1.89s)
+          Crux output: 42
+        wick3:                   FAIL (expected: needs Vec data structure from stdlib) (0.21s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: true                  (0.04s)
+            user error (Error 101 while running mir-json on test/conc_eval/array/wick3.rs)
+           (expected failure)
+        clone:                   OK (2.10s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.94s)
+          Crux output: ()
+        wick1:                   FAIL (expected: needs Vec data structure from stdlib) (0.23s)
+          Compiling and running oracle program (0.18s)
+          Oracle output: true                  (0.05s)
+            user error (Error 101 while running mir-json on test/conc_eval/array/wick1.rs)
+           (expected failure)
+        mut_index:               OK (2.46s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 7                     (2.31s)
+          Crux output: 7
+        mut_arg:                 OK (1.91s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 42                    (1.76s)
+          Crux output: 42
+        const:                   OK (1.86s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (1.71s)
+          Crux output: 1
+        from_slice:              FAIL (2.58s)
+          Compiling and running oracle program                           (0.15s)
+          Oracle output: ()                                              (2.44s)
           Crux output: 
           failures:
           
-          ---- repr_transparent/ac707a40::crux_test[0] counterexamples ----
+          ---- from_slice/4075ba45::f[0] counterexamples ----
           [Crux] Found counterexample for verification goal
-          [Crux]   ./lib/core/src/ptr/const_ptr.rs:46:9: 46:18: error: in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::cast[0]::_inst1fe84093a10a77db[0]
-          [Crux]   Translation error in core/beffc212::ptr[0]::const_ptr[0]::{impl#0}[0]::cast[0]::_inst1fe84093a10a77db[0]: unimplemented cast: Misc
-          [Crux]     ty: TyRawPtr (TyInt B32) Immut
-          [Crux]     as: TyRawPtr (TyArray (TyInt B32) 2) Immut
+          [Crux]   lib/core/src/iter/traits/iterator.rs:2607:40: 2607:61: error: in core/1cdf94ce::iter[0]::traits[0]::iterator[0]::Iterator[0]::all[0]::_instf9a28a1fbcee32be[0]
+          [Crux]   Translation error in core/1cdf94ce::iter[0]::traits[0]::iterator[0]::Iterator[0]::all[0]::_instf9a28a1fbcee32be[0]: ill-typed assignment of IntrinsicRepr MirReference [BVRepr 8] to IntrinsicRepr MirReference [AnyRepr] (TyRef (TyAdt core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0]::_adtdfc2b6f78a281997[0] core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0] (Substs [TyTuple [],TyTuple []])) Immut) LBase (Var {_varname = "_10", _varmut = Mut, _varty = TyRef (TyAdt core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0]::_adtdfc2b6f78a281997[0] core/1cdf94ce::ops[0]::control_flow[0]::ControlFlow[0] (Substs [TyTuple [],TyTuple []])) Immut, _varIsZST = False})
           
           [Crux] Overall status: Invalid.
           
             test/Test.hs:124:
             crux doesn't match oracle
           
-          Use -p '$0=="crux-mir.crux concrete..struct.repr_transparent"' to rerun this test only.
-        tup:                     OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.84s)
-          Crux output: ()
-        repr_transparent_const:  OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 124                   (0.87s)
-          Crux output: 124
-        field_order:             OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.86s)
-          Crux output: ()
-        ret:                     OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: S { x: 42, y: 120 }   (0.84s)
-          Crux output: S { x: 42, y: 120 }
-        proj:                    OK (0.97s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.84s)
+          Use -p '/array.from_slice/' to rerun this test only.
+        const_impl:              OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 5                     (1.73s)
+          Crux output: 5
+      enum
+        match:                   OK (1.90s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 42                    (1.76s)
           Crux output: 42
-        arg:                     OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 42                    (0.86s)
-          Crux output: 42
-      refs
-        temp:                    OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.87s)
-          Crux output: 1
-        static_mut:              OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 2                     (0.86s)
+        field_order:             OK (1.91s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.77s)
+          Crux output: ()
+        mixed_discrs:            OK (1.92s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.78s)
+          Crux output: ()
+        arg:                     OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 0                     (1.73s)
+          Crux output: 0
+        arg2:                    OK (1.87s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 0                     (1.73s)
+          Crux output: 0
+        cow:                     OK (2.01s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 200                   (1.86s)
+          Crux output: 200
+        ret:                     OK (1.86s)
+          Compiling and running oracle program   (0.15s)
+          Oracle output: (A(42), B { x: 42 }, C) (1.72s)
+          Crux output: (A(42), B { x: 42 }, C)
+        eq:                      OK (1.90s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.75s)
+          Crux output: ()
+        cmp:                     OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: -23                   (1.74s)
+          Crux output: -23
+        inner:                   OK (1.91s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 4                     (1.77s)
+          Crux output: 4
+      vec
+        drop:                    OK (2.13s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: ()                    (1.97s)
+          Crux output: ()
+        set_len:                 OK (2.15s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 2                     (1.99s)
           Crux output: 2
-        imm_raw:                 OK (0.96s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 123                   (0.84s)
-          Crux output: 123
-        mut_tuple_field:         OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: ()                    (0.87s)
-          Crux output: ()
-        mut_ref:                 OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.87s)
-          Crux output: 1
-        mut_arg:                 OK (0.99s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.86s)
-          Crux output: 1
-        never:                   OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.86s)
-          Crux output: 1
-        mut_raw:                 OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 123                   (0.85s)
-          Crux output: 123
-        promoted_imm:            OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 0                     (0.87s)
+        push:                    OK (2.17s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: (1, 2)                (2.00s)
+          Crux output: (1, 2)
+        extend:                  OK (2.25s)
+          Compiling and running oracle program (0.17s)
+          Oracle output: (1, 10)               (2.08s)
+          Crux output: (1, 10)
+        collect:                 OK (2.85s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 45                    (2.69s)
+          Crux output: 45
+        extend_trusted_len:      OK (2.76s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: (1, 10)               (2.59s)
+          Crux output: (1, 10)
+        from_elem_zero:          OK (2.13s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 0                     (1.97s)
           Crux output: 0
-        mut_nested:              OK (1.00s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: ()                    (0.88s)
+      clos
+        promoted:                OK (1.95s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 33                    (1.80s)
+          Crux output: 33
+        as_fn_ptr:               FAIL (expected: ClosureFnPointer cast) (1.97s)
+          Compiling and running oracle program                           (0.14s)
+          Oracle output: 1                                               (1.82s)
+          Crux output: 
+          failures:
+          
+          ---- as_fn_ptr/dd580d0d::crux_test[0] counterexamples ----
+          [Crux] Found counterexample for verification goal
+          [Crux]   test/conc_eval/clos/as_fn_ptr.rs:9:13: 9:19: error: in as_fn_ptr/dd580d0d::crux_test[0]
+          [Crux]   Translation error in as_fn_ptr/dd580d0d::crux_test[0]: unimplemented cast: ClosureFnPointer
+          [Crux]     ty: TyClosure []
+          [Crux]     as: TyFnPtr (FnSig {_fsarg_tys = [], _fsreturn_ty = TyInt B32, _fsabi = RustAbi, _fsspreadarg = Nothing})
+          
+          [Crux] Overall status: Invalid.
+          
+            test/Test.hs:124:
+            crux doesn't match oracle
+           (expected failure)
+        fnptr_fnmut:             OK (1.96s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 4                     (1.81s)
+          Crux output: 4
+        direct_fnonce:           OK (1.93s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.78s)
+          Crux output: 2
+        conv_fnonce_fnmut:       OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.73s)
+          Crux output: 2
+        fn_static_poly:          OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.73s)
+          Crux output: 3
+        fnptr_fnonce:            OK (1.88s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 4                     (1.73s)
+          Crux output: 4
+        fn_static:               OK (1.86s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.72s)
+          Crux output: 3
+        fn_dyn:                  FAIL (expected: call_once shim (in `dyn Fn` vtable)) (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.73s)
+            vtable signature mismatch for vtable core/1cdf94ce::ops[0]::function[0]::Fn[0]::_vtbl570ffd80324c2ca9[0] of trait core/1cdf94ce::ops[0]::function[0]::Fn[0]::_trait42f8b6475ee85722[0] : StructRepr [FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32), FunctionHandleRepr [AnyRepr, BVRepr 32] (BVRepr 32), FunctionHandleRepr [AnyRepr, BVRepr 32] (BVRepr 32)] != StructRepr [FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32), FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32), FunctionHandleRepr [AnyRepr, StructRepr [MaybeRepr (BVRepr 32)]] (BVRepr 32)]
+            CallStack (from HasCallStack):
+              error, called at src/Mir/Trans.hs:958:20 in crucible-mir-0.1-inplace:Mir.Trans
+              mkTraitObject, called at src/Mir/Trans.hs:801:11 in crucible-mir-0.1-inplace:Mir.Trans
+              evalCast', called at src/Mir/Trans.hs:932:5 in crucible-mir-0.1-inplace:Mir.Trans
+              evalCast, called at src/Mir/Trans.hs:984:30 in crucible-mir-0.1-inplace:Mir.Trans
+              evalRval, called at src/Mir/Trans.hs:1197:11 in crucible-mir-0.1-inplace:Mir.Trans
+              transStatement, called at src/Mir/Trans.hs:1642:68 in crucible-mir-0.1-inplace:Mir.Trans
+              translateBlockBody, called at src/Mir/Trans.hs:1651:28 in crucible-mir-0.1-inplace:Mir.Trans
+              registerBlock, called at src/Mir/Trans.hs:1691:10 in crucible-mir-0.1-inplace:Mir.Trans
+              genFn, called at src/Mir/Trans.hs:1737:24 in crucible-mir-0.1-inplace:Mir.Trans
+              transDefine, called at src/Mir/Trans.hs:2171:30 in crucible-mir-0.1-inplace:Mir.Trans
+              transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
+              translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
+           (expected failure)
+        fnonce:                  OK (1.86s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: false                 (1.72s)
+          Crux output: false
+        conv_fnmut_fn:           OK (1.86s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.72s)
+          Crux output: 2
+        direct_fnmut2:           OK (1.87s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 7                     (1.73s)
+          Crux output: 7
+        fo:                      OK (1.93s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 29                    (1.78s)
+          Crux output: 29
+        unique_borrow:           OK (1.92s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.77s)
+          Crux output: 3
+        conv_fnonce_fn:          OK (1.94s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.80s)
+          Crux output: 2
+        fnptr_fn:                OK (2.02s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 4                     (1.88s)
+          Crux output: 4
+        direct_fnmut:            OK (1.97s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: 7                     (1.81s)
+          Crux output: 7
+        dispatch_fnmut:          OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 7                     (1.75s)
+          Crux output: 7
+        poly:                    OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.73s)
+          Crux output: 3
+        direct_fn:               OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2                     (1.74s)
+          Crux output: 2
+        fnptr_closure:           OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 7                     (1.74s)
+          Crux output: 7
+        fnonce1:                 OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.73s)
+          Crux output: 3
+        ref_fnmut:               OK (1.89s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 7                     (1.74s)
+          Crux output: 7
+      vec_deque
+        pop:                     OK (2.51s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: [5, 4, 3, 1, 2]       (2.35s)
+          Crux output: [5, 4, 3, 1, 2]
+        iter_clone:              OK (2.67s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: [1, 2, 3, 2, 3]       (2.51s)
+          Crux output: [1, 2, 3, 2, 3]
+        push:                    OK (2.56s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: [4, 1, 2, 3, 5]       (2.40s)
+          Crux output: [4, 1, 2, 3, 5]
+        retain:                  OK (2.57s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: [1, 4]                (2.41s)
+          Crux output: [1, 4]
+        rotate_left:             OK (2.59s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: [3, 4, 5, 1, 2]       (2.43s)
+          Crux output: [3, 4, 5, 1, 2]
+        rotate_right:            OK (2.63s)
+          Compiling and running oracle program (0.16s)
+          Oracle output: [4, 5, 1, 2, 3]       (2.47s)
+          Crux output: [4, 5, 1, 2, 3]
+      slice
+        len:                     OK (1.87s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 5                     (1.73s)
+          Crux output: 5
+        mut_range:               OK (2.34s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 86                    (2.19s)
+          Crux output: 86
+        range_len:               OK (2.35s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (2.21s)
+          Crux output: 1
+        range_len_mut:           OK (2.33s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: 1                     (2.19s)
+          Crux output: 1
+        mk_and_proj:             OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 42                    (1.72s)
+          Crux output: 42
+        swap:                    OK (1.94s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 2001                  (1.79s)
+          Crux output: 2001
+        eq:                      OK (1.97s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: ()                    (1.82s)
           Crux output: ()
-        imm_ref:                 OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 123                   (0.85s)
-          Crux output: 123
-        fn_ptr_mut:              OK (0.98s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.85s)
-          Crux output: 1
-        promoted_mut:            OK (0.97s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 0                     (0.85s)
-          Crux output: 0
-        imm_arg:                 OK (0.96s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.84s)
-          Crux output: 1
-        fn_ptr:                  OK (0.99s)
-          Compiling and running oracle program (0.13s)
-          Oracle output: 1                     (0.87s)
-          Crux output: 1
-        never_mut:               OK (0.98s)
-          Compiling and running oracle program (0.12s)
-          Oracle output: 1                     (0.86s)
-          Crux output: 1
+        iter_mut:                OK (1.97s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: ()                    (1.82s)
+          Crux output: ()
+        get:                     OK (1.90s)
+          Compiling and running oracle program (0.15s)
+          Oracle output: true                  (1.75s)
+          Crux output: true
+        mut:                     OK (1.87s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 42                    (1.72s)
+          Crux output: 42
+        last:                    OK (1.88s)
+          Compiling and running oracle program (0.14s)
+          Oracle output: 3                     (1.73s)
+          Crux output: 3
   crux symbolic
     Output testing
-      macro:                     [0KFAIL (1.03s)
-        files test/symb_eval/vec/macro.good and test/symb_eval/vec/macro.out differ; test/symb_eval/vec/macro.out contains:
-        test macro/9050e48f::f[0]: FAILED
+      mux_init_mut:              [0KOK (1.83s)
+      mux_init_imm:              [0KOK (1.78s)
+      early_fail:                [0K[0KOK (1.86s)
+      mixed_fail:                [0K[0K[0K[0KOK (1.89s)
+      multi:                     [0K[0K[0KOK (1.89s)
+      fail_return:               [0K[0KOK (1.80s)
+      no_conc:                   [0KOK (1.86s)
+      conc:                      [0KOK (1.91s)
+      array:                     [0KOK (1.88s)
+      assert_ok:                 [0KOK (2.40s)
+      assert:                    [0KFAIL (2.50s)
+        files test/symb_eval/concretize/assert.good and test/symb_eval/concretize/assert.out differ; test/symb_eval/concretize/assert.out contains:
+        test assert/b59efe3c::crux_test[0]: returned 1, FAILED
         
         failures:
         
-        ---- macro/9050e48f::f[0] counterexamples ----
+        ---- assert/b59efe3c::crux_test[0] counterexamples ----
         [Crux] Found counterexample for verification goal
-        [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
+        [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/1cdf94ce::fmt[0]::write[0]
+        [Crux]   Translation error in core/1cdf94ce::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/1cdf94ce::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
         
         [Crux] Overall status: Invalid.
         
-        Use -p '/Output testing.macro/' to rerun this test only.
-      clone:                     [0KFAIL (1.00s)
-        files test/symb_eval/vec/clone.good and test/symb_eval/vec/clone.out differ; test/symb_eval/vec/clone.out contains:
-        test clone/6db5b217::f[0]: FAILED
-        
-        failures:
-        
-        ---- clone/6db5b217::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/Output testing.clone/' to rerun this test only.
-      sort_by_key:               [0KFAIL (1.81s)
-        files test/symb_eval/vec/sort_by_key.good and test/symb_eval/vec/sort_by_key.out differ; test/symb_eval/vec/sort_by_key.out contains:
-        test sort_by_key/5a8cbf18::f[0]: FAILED
-        
-        failures:
-        
-        ---- sort_by_key/5a8cbf18::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/sort_by_key/' to rerun this test only.
-      into_iter:                 [0KFAIL (1.61s)
-        files test/symb_eval/vec/into_iter.good and test/symb_eval/vec/into_iter.out differ; test/symb_eval/vec/into_iter.out contains:
-        test into_iter/772ec3dc::f[0]: FAILED
-        
-        failures:
-        
-        ---- into_iter/772ec3dc::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   ./lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst55af81a2cef2701c[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/into_iter/' to rerun this test only.
-      as_slice:                  [0KOK (0.95s)
-      replicate:                 [0KOK (0.93s)
-      split_at:                  [0KOK (0.98s)
-      concat:                    [0KOK (1.00s)
-      copy_from_slice:           [0KOK (0.94s)
-      new:                       [0KOK (0.95s)
-      as_mut_slice:              [0KOK (0.98s)
-      mut:                       [0KOK (0.95s)
-      push:                      [0KOK (0.97s)
-      pop:                       [0KFAIL (0.97s)
+        Use -p '$0=="crux-mir.crux symbolic.Output testing.assert"' to rerun this test only.
+      bytes2:                    [0KOK (1.88s)
+      double:                    [0KOK (1.79s)
+      ffs:                       [0KOK (1.92s)
+      bytes:                     [0KOK (1.89s)
+      bad_symb1:                 [0KOK (1.78s)
+      bad_symb2:                 [0KOK (1.81s)
+      override3:                 [0KOK (1.82s)
+      override1:                 [0KOK (1.76s)
+      override4:                 [0KOK (1.83s)
+      override_rust:             [0KOK (1.82s)
+      override2:                 [0KOK (1.85s)
+      override5:                 [0KOK (1.79s)
+      mux:                       [0KOK (1.83s)
+      checked_mul_signed:        [0KOK (1.70s)
+      checked_mul:               [0KOK (1.69s)
+      checked_div:               [0KOK (1.75s)
+      checked_add:               [0KOK (1.70s)
+      test1:                     [0KOK (109.12s)
+      pop:                       [0KFAIL (1.79s)
         files test/symb_eval/vector/pop.good and test/symb_eval/vector/pop.out differ; test/symb_eval/vector/pop.out contains:
-        test pop/d48bfd10::f[0]: FAILED
+        test pop/9a0a9424::f[0]: FAILED
         
         failures:
         
-        ---- pop/d48bfd10::f[0] counterexamples ----
+        ---- pop/9a0a9424::f[0] counterexamples ----
         [Crux] Found counterexample for verification goal
-        [Crux]   test/symb_eval/vector/pop.rs:9:18: 9:19: error: in pop/d48bfd10::f[0]
-        [Crux]   Translation error in pop/d48bfd10::f[0]: unknown ADT (core/3a1fbbbh::option[0]::Option[0],Substs [TyUint B8])
+        [Crux]   test/symb_eval/vector/pop.rs:9:18: 9:19: error: in pop/9a0a9424::f[0]
+        [Crux]   Translation error in pop/9a0a9424::f[0]: unknown ADT (core/3a1fbbbh::option[0]::Option[0],Substs [TyUint B8])
         
         [Crux] Overall status: Invalid.
         
         Use -p '/Output testing.pop/' to rerun this test only.
-      checked_div:               [0KOK (0.86s)
-      checked_add:               [0KOK (0.83s)
-      checked_mul_signed:        [0KOK (0.87s)
-      checked_mul:               [0KOK (0.84s)
-      array_mut:                 [0KOK (1.01s)
-      array:                     [0KOK (0.96s)
-      bad_symb1:                 [0KOK (0.92s)
-      override5:                 [0KOK (1.00s)
-      override3:                 [0KOK (0.99s)
-      override_rust:             [0KOK (0.96s)
-      override1:                 [0KOK (0.82s)
-      override2:                 [0KOK (0.92s)
-      bad_symb2:                 [0KOK (0.95s)
-      override4:                 [0KOK (0.99s)
-      write:                     FAIL (0.05s)
-        test/symb_eval/byteorder/write.out: withFile: user error (Error 101 while running mir-json on test/symb_eval/byteorder/write.rs)
-        Use -p '/Output testing.write/' to rerun this test only.
-      read:                      FAIL
-        test/symb_eval/byteorder/read.out: withFile: user error (Error 101 while running mir-json on test/symb_eval/byteorder/read.rs)
-        Use -p '/Output testing.read/' to rerun this test only.
-      deserialize:               [0KOK (1.04s)
-      construct:                 [0KOK (1.00s)
-      double:                    [0KOK (0.93s)
-      bytes:                     [0KOK (1.08s)
-      ffs:                       [0KOK (1.03s)
-      bytes2:                    [0KOK (1.07s)
-      from_to:                   [0KOK (0.85s)
-      overflowing_sub:           [0KOK (0.98s)
-      literals:                  [0KOK (0.84s)
-      arith:                     [0KOK (1.03s)
-      leading_zeros:             [0KOK (1.04s)
-      cmp:                       [0KOK (0.96s)
-      symbolic:                  [0KOK (0.84s)
-      mux:                       [0KOK (0.98s)
-      test1:                     [0KOK (102.62s)
-      split_off:                 [0KFAIL (1.38s)
-        files test/symb_eval/bytes/split_off.good and test/symb_eval/bytes/split_off.out differ; test/symb_eval/bytes/split_off.out contains:
-        test split_off/72b60843::f[0]: FAILED
-        
-        failures:
-        
-        ---- split_off/72b60843::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/split_off/' to rerun this test only.
-      split_to:                  [0KFAIL (1.36s)
-        files test/symb_eval/bytes/split_to.good and test/symb_eval/bytes/split_to.out differ; test/symb_eval/bytes/split_to.out contains:
-        test split_to/c31c803f::f[0]: FAILED
-        
-        failures:
-        
-        ---- split_to/c31c803f::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/split_to/' to rerun this test only.
-      new:                       [0KOK (0.96s)
-      put:                       [0KFAIL (1.45s)
-        files test/symb_eval/bytes/put.good and test/symb_eval/bytes/put.out differ; test/symb_eval/bytes/put.out contains:
-        test put/d816ba96::f[0]: FAILED
-        
-        failures:
-        
-        ---- put/d816ba96::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '$0=="crux-mir.crux symbolic.Output testing.put"' to rerun this test only.
-      sym_len:                   [0KFAIL (1.51s)
-        files test/symb_eval/bytes/sym_len.good and test/symb_eval/bytes/sym_len.out differ; test/symb_eval/bytes/sym_len.out contains:
-        test sym_len/006a1393::f[0]: FAILED
-        
-        failures:
-        
-        ---- sym_len/006a1393::f[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   lib/core/src/ptr/metadata.rs:98:14: 98:40: error: in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]
-        [Crux]   Translation error in core/beffc212::ptr[0]::metadata[0]::metadata[0]::_inst1743054c4d18d3c5[0]: evalPlace (PField, Union) NYI
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/sym_len/' to rerun this test only.
-      extend_bytes:              [0KOK (1.00s)
-      put_overflow:              [0KOK (1.38s)
-      multi:                     [0K[0K[0KOK (0.97s)
-      fail_return:               [0K[0KOK (0.96s)
-      mixed_fail:                [0K[0K[0K[0KOK (1.03s)
-      early_fail:                [0K[0KOK (0.99s)
-      basic:                     [0KOK (0.99s)
-      slice:                     [0KOK (1.09s)
-      slice_mut:                 [0KOK (1.04s)
-      mux_slice:                 [0KOK (1.01s)
-      downcast_fail:             [0KFAIL (0.96s)
-        files test/symb_eval/any/downcast_fail.good and test/symb_eval/any/downcast_fail.out differ; test/symb_eval/any/downcast_fail.out contains:
-        test downcast_fail/a1506e51::crux_test[0]: FAILED
-        
-        failures:
-        
-        ---- downcast_fail/a1506e51::crux_test[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:15: error: in downcast_fail/a1506e51::crux_test[0]
-        [Crux]   failed to downcast Any as BVRepr 32
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '/downcast_fail/' to rerun this test only.
-      downcast:                  [0KOK (1.01s)
-      conditional:               [0KOK (0.98s)
-      mux:                       [0KOK (0.93s)
-      vec_cursor_read:           FAIL (1.94s)
-        standalone use of `dyn` is not supported: TyDynamic core/beffc212::any[0]::Erased[0]::_trait58656ccc69864acf[0]
+      as_mut_slice:              [0KOK (1.83s)
+      push:                      [0KOK (1.87s)
+      copy_from_slice:           [0KOK (1.79s)
+      new:                       [0KOK (1.84s)
+      mut:                       [0KOK (1.79s)
+      concat:                    [0KOK (1.85s)
+      split_at:                  [0KOK (1.83s)
+      replicate:                 [0KOK (1.85s)
+      as_slice:                  [0KOK (1.77s)
+      array_mut:                 [0KOK (1.79s)
+      array:                     [0KOK (1.80s)
+      extend_bytes:              [0KOK (1.81s)
+      put:                       [0KOK (2.25s)
+      split_to:                  [0KOK (2.22s)
+      new:                       [0KOK (1.84s)
+      split_off:                 [0KOK (2.18s)
+      sym_len:                   [0KOK (2.36s)
+      put_overflow:              [0KOK (2.25s)
+      vec_cursor_read:           FAIL (2.72s)
+        standalone use of `dyn` is not supported: TyDynamic core/1cdf94ce::any[0]::Erased[0]::_trait58656ccc69864acf[0]
         CallStack (from HasCallStack):
           error, called at src/Mir/TransTy.hs:228:25 in crucible-mir-0.1-inplace:Mir.TransTy
           tyToRepr, called at src/Mir/TransTy.hs:213:7 in crucible-mir-0.1-inplace:Mir.TransTy
@@ -1877,134 +1482,45 @@ FAIL (expected: taking address of an overridden function) (0.05s)
           tyListToCtx, called at src/Mir/TransTy.hs:221:6 in crucible-mir-0.1-inplace:Mir.TransTy
           tyToRepr, called at src/Mir/TransTy.hs:418:46 in crucible-mir-0.1-inplace:Mir.TransTy
           tyListToCtx, called at src/Mir/TransTy.hs:1066:16 in crucible-mir-0.1-inplace:Mir.TransTy
-          traitVtableType, called at src/Mir/Trans.hs:2030:18 in crucible-mir-0.1-inplace:Mir.Trans
-          transVirtCall, called at src/Mir/Trans.hs:2153:31 in crucible-mir-0.1-inplace:Mir.Trans
+          traitVtableType, called at src/Mir/Trans.hs:2055:18 in crucible-mir-0.1-inplace:Mir.Trans
+          transVirtCall, called at src/Mir/Trans.hs:2178:31 in crucible-mir-0.1-inplace:Mir.Trans
           transCollection, called at src/Mir/ParseTranslate.hs:77:26 in crucible-mir-0.1-inplace:Mir.ParseTranslate
           translateMIR, called at src/Mir/Language.hs:256:16 in crux-mir-0.6.0.99-inplace:Mir.Language
         Use -p '/vec_cursor_read/' to rerun this test only.
-      vec_write:                 [0KOK (1.47s)
-      mux_init_mut:              [0KOK (0.99s)
-      mux_init_imm:              [0KOK (0.96s)
-      uninit_read:               [0KOK (0.91s)
-      valid_read:                [0KOK (0.96s)
-      zero_length:               [0KOK (0.91s)
-      out_of_bounds:             [0KOK (1.02s)
-      no_conc:                   [0KOK (0.99s)
-      assert:                    [0KFAIL (1.64s)
-        files test/symb_eval/concretize/assert.good and test/symb_eval/concretize/assert.out differ; test/symb_eval/concretize/assert.out contains:
-        test assert/e68faa4a::crux_test[0]: returned 1, FAILED
-        
-        failures:
-        
-        ---- assert/e68faa4a::crux_test[0] counterexamples ----
-        [Crux] Found counterexample for verification goal
-        [Crux]   lib/core/src/fmt/mod.rs:1200:40: 1200:46: error: in core/beffc212::fmt[0]::write[0]
-        [Crux]   Translation error in core/beffc212::fmt[0]::write[0]: deref: bad repr for TyRef (TyDynamic core/beffc212::fmt[0]::Write[0]::_traite97b8e14d91a3b61[0]) Mut: StructRepr [AnyRepr, AnyRepr]
-        
-        [Crux] Overall status: Invalid.
-        
-        Use -p '$0=="crux-mir.crux symbolic.Output testing.assert"' to rerun this test only.
-      array:                     [0KOK (1.04s)
-      conc:                      [0KOK (0.98s)
-      assert_ok:                 [0KOK (1.55s)
+      vec_write:                 [0KOK (2.32s)
+      write:                     FAIL (0.06s)
+        test/symb_eval/byteorder/write.out: withFile: user error (Error 101 while running mir-json on test/symb_eval/byteorder/write.rs)
+        Use -p '/Output testing.write/' to rerun this test only.
+      read:                      FAIL
+        test/symb_eval/byteorder/read.out: withFile: user error (Error 101 while running mir-json on test/symb_eval/byteorder/read.rs)
+        Use -p '/Output testing.read/' to rerun this test only.
+      slice_mut:                 [0KOK (1.87s)
+      basic:                     [0KOK (1.78s)
+      slice:                     [0KOK (1.95s)
+      mux_slice:                 [0KOK (2.04s)
+      mux:                       [0KOK (1.85s)
+      uninit_read:               [0KOK (1.88s)
+      valid_read:                [0KOK (1.89s)
+      out_of_bounds:             [0KOK (1.81s)
+      zero_length:               [0KOK (1.84s)
+      downcast:                  [0KOK (1.86s)
+      downcast_fail:             [0KOK (1.78s)
+      conditional:               [0KOK (1.84s)
+      literals:                  [0KOK (1.72s)
+      arith:                     [0KOK (1.87s)
+      leading_zeros:             [0KOK (1.90s)
+      overflowing_sub:           [0KOK (1.84s)
+      cmp:                       [0KOK (1.79s)
+      symbolic:                  [0KOK (1.71s)
+      from_to:                   [0KOK (1.76s)
+      clone:                     [0KOK (2.00s)
+      sort_by_key:               [0KOK (2.69s)
+      into_iter:                 [0KOK (2.39s)
+      macro:                     [0KOK (1.83s)
+      construct:                 [0KOK (1.84s)
+      deserialize:               [0KOK (1.83s)
   crux coverage
     Output testing
-      coverage_try:              warning: trailing semicolon in macro used in expression position
-   --> src/main.rs:45:46
-    |
-45  |         return Err(format!($($args)*).into());
-    |                                              ^
-...
-309 |         _ => die!("unknown tag {:?} for branch", tag),
-    |              ---------------------------------------- in this macro invocation
-    |
-    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
-    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
-    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
-    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-[0KOK (1.01s)
-      coverage_cond:             warning: trailing semicolon in macro used in expression position
-   --> src/main.rs:45:46
-    |
-45  |         return Err(format!($($args)*).into());
-    |                                              ^
-...
-309 |         _ => die!("unknown tag {:?} for branch", tag),
-    |              ---------------------------------------- in this macro invocation
-    |
-    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
-    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
-    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
-    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-[0KOK (0.90s)
-      coverage:                  warning: trailing semicolon in macro used in expression position
-   --> src/main.rs:45:46
-    |
-45  |         return Err(format!($($args)*).into());
-    |                                              ^
-...
-309 |         _ => die!("unknown tag {:?} for branch", tag),
-    |              ---------------------------------------- in this macro invocation
-    |
-    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
-    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
-    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
-    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-[0KFAIL (0.97s)
-        files test/coverage/coverage.good and test/coverage/coverage.out differ; test/coverage/coverage.out contains:
-        warning: branch condition never has a value other than [1]
-           ┌─ test/coverage/coverage.rs:11:15
-           │
-        11 │     } else if x == 1 {
-           │               ^
-        
-        
-        Use -p '$0=="crux-mir.crux coverage.Output testing.coverage"' to rerun this test only.
-      coverage_mono:             warning: trailing semicolon in macro used in expression position
-   --> src/main.rs:45:46
-    |
-45  |         return Err(format!($($args)*).into());
-    |                                              ^
-...
-309 |         _ => die!("unknown tag {:?} for branch", tag),
-    |              ---------------------------------------- in this macro invocation
-    |
-    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
-    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
-    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
-    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-[0KOK (0.91s)
-      coverage_macro:            warning: trailing semicolon in macro used in expression position
-   --> src/main.rs:45:46
-    |
-45  |         return Err(format!($($args)*).into());
-    |                                              ^
-...
-309 |         _ => die!("unknown tag {:?} for branch", tag),
-    |              ---------------------------------------- in this macro invocation
-    |
-    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
-    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
-    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
-    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-[0KFAIL (1.06s)
-        files test/coverage/coverage_macro.good and test/coverage/coverage_macro.out differ; test/coverage/coverage_macro.out contains:
-        warning: branch condition never has value true
-           ┌─ test/coverage/coverage_macro.rs:7:12
-           │
-         7 │         if !$cond {
-           │            ^^^^^^
-           ·
-        18 │     check!(u8::try_from(y_32).is_ok());
-           │     ---------------------------------- in this macro invocation
-        
-        
-        Use -p '/coverage_macro/' to rerun this test only.
       coverage_dual:             warning: trailing semicolon in macro used in expression position
    --> src/main.rs:45:46
     |
@@ -2019,8 +1535,8 @@ FAIL (expected: taking address of an overridden function) (0.05s)
     = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
     = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-[0K[0KOK (0.88s)
-      coverage_match:            warning: trailing semicolon in macro used in expression position
+[0K[0KOK (1.83s)
+      coverage:                  warning: trailing semicolon in macro used in expression position
    --> src/main.rs:45:46
     |
 45  |         return Err(format!($($args)*).into());
@@ -2034,22 +1550,70 @@ FAIL (expected: taking address of an overridden function) (0.05s)
     = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
     = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-[0KFAIL (1.06s)
-        files test/coverage/coverage_match.good and test/coverage/coverage_match.out differ; test/coverage/coverage_match.out contains:
-        warning: branch condition never has value 1
-           ┌─ test/coverage/coverage_match.rs:12:9
+[0KFAIL (1.86s)
+        files test/coverage/coverage.good and test/coverage/coverage.out differ; test/coverage/coverage.out contains:
+        warning: branch condition never has a value other than [1]
+           ┌─ test/coverage/coverage.rs:11:15
            │
-        12 │     let x = u8::symbolic("x");
-           │         ^
+        11 │     } else if x == 1 {
+           │               ^
         
-        warning: branch condition never has value 20
-           ┌─ test/coverage/coverage_match.rs:22:9
+        
+        Use -p '$0=="crux-mir.crux coverage.Output testing.coverage"' to rerun this test only.
+      coverage_try:              warning: trailing semicolon in macro used in expression position
+   --> src/main.rs:45:46
+    |
+45  |         return Err(format!($($args)*).into());
+    |                                              ^
+...
+309 |         _ => die!("unknown tag {:?} for branch", tag),
+    |              ---------------------------------------- in this macro invocation
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
+    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+[0KOK (1.93s)
+      coverage_cond:             warning: trailing semicolon in macro used in expression position
+   --> src/main.rs:45:46
+    |
+45  |         return Err(format!($($args)*).into());
+    |                                              ^
+...
+309 |         _ => die!("unknown tag {:?} for branch", tag),
+    |              ---------------------------------------- in this macro invocation
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
+    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+[0KOK (1.78s)
+      coverage_loop:             warning: trailing semicolon in macro used in expression position
+   --> src/main.rs:45:46
+    |
+45  |         return Err(format!($($args)*).into());
+    |                                              ^
+...
+309 |         _ => die!("unknown tag {:?} for branch", tag),
+    |              ---------------------------------------- in this macro invocation
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
+    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+[0KFAIL (1.83s)
+        files test/coverage/coverage_loop.good and test/coverage/coverage_loop.out differ; test/coverage/coverage_loop.out contains:
+        warning: branch condition never has value true
+           ┌─ test/coverage/coverage_loop.rs:12:19
            │
-        22 │         E::A => 1,
-           │         ^^^^
+        12 │         } else if i > 99 {
+           │                   ^^^^^^
         
         
-        Use -p '/coverage_match/' to rerun this test only.
+        Use -p '/coverage_loop/' to rerun this test only.
       coverage_shortcircuit:     warning: trailing semicolon in macro used in expression position
    --> src/main.rs:45:46
     |
@@ -2064,7 +1628,7 @@ FAIL (expected: taking address of an overridden function) (0.05s)
     = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
     = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-[0KFAIL (0.99s)
+[0KFAIL (1.88s)
         files test/coverage/coverage_shortcircuit.good and test/coverage/coverage_shortcircuit.out differ; test/coverage/coverage_shortcircuit.out contains:
         warning: branch condition never has value false
           ┌─ test/coverage/coverage_shortcircuit.rs:9:8
@@ -2080,7 +1644,7 @@ FAIL (expected: taking address of an overridden function) (0.05s)
         
         
         Use -p '/coverage_shortcircuit/' to rerun this test only.
-      coverage_loop:             warning: trailing semicolon in macro used in expression position
+      coverage_mono:             warning: trailing semicolon in macro used in expression position
    --> src/main.rs:45:46
     |
 45  |         return Err(format!($($args)*).into());
@@ -2094,15 +1658,63 @@ FAIL (expected: taking address of an overridden function) (0.05s)
     = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
     = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-[0KFAIL (0.91s)
-        files test/coverage/coverage_loop.good and test/coverage/coverage_loop.out differ; test/coverage/coverage_loop.out contains:
-        warning: branch condition never has value true
-           ┌─ test/coverage/coverage_loop.rs:12:19
-           │
-        12 │         } else if i > 99 {
-           │                   ^^^^^^
-        
-        
-        Use -p '/coverage_loop/' to rerun this test only.
+[0KOK (1.78s)
+      coverage_match:            warning: trailing semicolon in macro used in expression position
+   --> src/main.rs:45:46
+    |
+45  |         return Err(format!($($args)*).into());
+    |                                              ^
+...
+309 |         _ => die!("unknown tag {:?} for branch", tag),
+    |              ---------------------------------------- in this macro invocation
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
+    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-64 out of 339 tests failed (461.96s)
+[0KFAIL (1.90s)
+        files test/coverage/coverage_match.good and test/coverage/coverage_match.out differ; test/coverage/coverage_match.out contains:
+        warning: branch condition never has value 1
+           ┌─ test/coverage/coverage_match.rs:12:9
+           │
+        12 │     let x = u8::symbolic("x");
+           │         ^
+        
+        warning: branch condition never has value 20
+           ┌─ test/coverage/coverage_match.rs:22:9
+           │
+        22 │         E::A => 1,
+           │         ^^^^
+        
+        
+        Use -p '/coverage_match/' to rerun this test only.
+      coverage_macro:            warning: trailing semicolon in macro used in expression position
+   --> src/main.rs:45:46
+    |
+45  |         return Err(format!($($args)*).into());
+    |                                              ^
+...
+309 |         _ => die!("unknown tag {:?} for branch", tag),
+    |              ---------------------------------------- in this macro invocation
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+    = note: `#[warn(semicolon_in_expressions_from_macros)]` on by default
+    = note: this warning originates in the macro `die` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+[0KFAIL (1.89s)
+        files test/coverage/coverage_macro.good and test/coverage/coverage_macro.out differ; test/coverage/coverage_macro.out contains:
+        warning: branch condition never has value true
+           ┌─ test/coverage/coverage_macro.rs:7:12
+           │
+         7 │         if !$cond {
+           │            ^^^^^^
+           ·
+        18 │     check!(u8::try_from(y_32).is_ok());
+           │     ---------------------------------- in this macro invocation
+        
+        
+        Use -p '/coverage_macro/' to rerun this test only.
+
+30 out of 339 tests failed (781.97s)
