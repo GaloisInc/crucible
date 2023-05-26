@@ -1,25 +1,25 @@
-test mixed_fail/0b094ced::fail1[0]: FAILED
-test mixed_fail/0b094ced::fail2[0]: FAILED
-test mixed_fail/0b094ced::pass1[0]: ok
-test mixed_fail/0b094ced::pass2[0]: ok
+test mixed_fail/b1edd9fb::fail1[0]: FAILED
+test mixed_fail/b1edd9fb::fail2[0]: FAILED
+test mixed_fail/b1edd9fb::pass1[0]: ok
+test mixed_fail/b1edd9fb::pass2[0]: ok
 
 failures:
 
----- mixed_fail/0b094ced::fail1[0] counterexamples ----
+---- mixed_fail/b1edd9fb::fail1[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/crux/mixed_fail.rs:8:22: 8:27: error: in mixed_fail/0b094ced::fail1[0]
+[Crux]   test/symb_eval/crux/mixed_fail.rs:8:22: 8:27: error: in mixed_fail/b1edd9fb::fail1[0]
 [Crux]   attempt to compute `move _5 + const 1_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:32: error: in mixed_fail/0b094ced::fail1[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:32: error: in mixed_fail/b1edd9fb::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:8:5:
 [Crux]   	x + 1 > x
 
----- mixed_fail/0b094ced::fail2[0] counterexamples ----
+---- mixed_fail/b1edd9fb::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/crux/mixed_fail.rs:14:22: 14:27: error: in mixed_fail/0b094ced::fail2[0]
+[Crux]   test/symb_eval/crux/mixed_fail.rs:14:22: 14:27: error: in mixed_fail/b1edd9fb::fail2[0]
 [Crux]   attempt to compute `move _5 + const 2_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:32: error: in mixed_fail/0b094ced::fail2[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:32: error: in mixed_fail/b1edd9fb::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:14:5:
 [Crux]   	x + 2 > x
 
