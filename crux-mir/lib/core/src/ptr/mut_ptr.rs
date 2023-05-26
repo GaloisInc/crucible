@@ -1883,7 +1883,10 @@ impl<T> *mut [T] {
     #[unstable(feature = "slice_ptr_len", issue = "71146")]
     #[rustc_const_unstable(feature = "const_slice_ptr_len", issue = "71146")]
     pub const fn len(self) -> usize {
-        metadata(self)
+        const fn crucible_slice_len_hook<T>(slice: *mut [T]) -> usize {
+            metadata(slice)
+        }
+        crucible_slice_len_hook(self)
     }
 
     /// Returns `true` if the raw slice has a length of 0.

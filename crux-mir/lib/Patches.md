@@ -77,7 +77,7 @@ identify all of the code that was changed in each patch.
 
   This is needed to make `vec![0; len]` work as expected.
 
-* Use `crucible_slice_len_hook` when computing slice `len` (last applied: May 25, 2023)
+* Use `crucible_slice_len_hook` when computing slice `len` (last applied: May 26, 2023)
 
   The usual implementation of slice length requires using the `PtrRepr` union
   type. Currently, `crucible-mir` does not support Rust unions, so we instead
