@@ -921,7 +921,7 @@ buildEnum' adt i es = do
     es' <- inferElidedVariantFields ftys es
     asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es' of
         Left err ->
-            mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err ++ " -- " ++ show es
+            mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err ++ " -- " ++ show es'
         Right x -> return x
     Refl <- testEqualityOrFail (fieldCtxType fctx') ctx' $
         "got wrong fields for " ++ show (adt ^. M.adtname, i) ++ "?"
@@ -1200,16 +1200,14 @@ initialValue (M.TyAdt nm _ _) = do
             fldExps <- mapM initField (var^.M.vfields)
             Just <$> buildStruct' adt fldExps
         M.Enum _ -> do
-            case inhabited (adt ^. M.adtvariants) of
+            case ifind (\_ vars -> vars ^. M.vinhabited) (adt ^. M.adtvariants) of
                 -- Uninhabited enums can't be initialized.
-                [] -> return Nothing
+                Nothing -> return Nothing
                 -- Inhabited enums get initialized to their first inhabited variant.
-                vs@(var : _) -> do
+                Just (discr, var) -> do
                     fldExps <- mapM initField (var^.M.vfields)
-                    Just <$> buildEnum' adt 0 fldExps
+                    Just <$> buildEnum' adt discr fldExps
         M.Union -> return Nothing
-    where
-        inhabited vars = filter M._vinhabited vars
 
 
 
