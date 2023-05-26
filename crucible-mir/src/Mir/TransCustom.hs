@@ -75,6 +75,8 @@ customOpDefs = Map.fromList $ [
                          , slice_index_usize_get_unchecked_mut
                          , slice_index_range_get_unchecked_mut
                          , slice_len
+                         , const_slice_len
+                         , mut_slice_len
 
                          -- core::intrinsics
                          , discriminant_value
@@ -1049,12 +1051,26 @@ array_from_slice = (["core","array", "{impl}", "try_from", "crucible_array_from_
 
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
-  (["core","slice","{impl}","len", "crucible_slice_len_hook"]
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops ->
-     case ops of
-       [MirExp (MirSliceRepr _) e] -> do
-            return $ MirExp UsizeRepr $ getSliceLen e
-       _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
+  ( ["core","slice","{impl}","len", "crucible_slice_len_hook"]
+  , slice_len_impl )
+
+const_slice_len :: (ExplodedDefId, CustomRHS)
+const_slice_len =
+  ( ["core","ptr","const_ptr","{impl}","len", "crucible_slice_len_hook"]
+  , slice_len_impl )
+
+mut_slice_len :: (ExplodedDefId, CustomRHS)
+mut_slice_len =
+  ( ["core","ptr","mut_ptr","{impl}","len", "crucible_slice_len_hook"]
+  , slice_len_impl )
+
+slice_len_impl :: CustomRHS
+slice_len_impl (Substs [_]) =
+    Just $ CustomOp $ \ _optys ops ->
+        case ops of
+            [MirExp (MirSliceRepr _) e] -> do
+                return $ MirExp UsizeRepr $ getSliceLen e
+            _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len"
 
 -- These four custom ops implement mutable and immutable unchecked indexing by
 -- usize and by Range.  All other indexing dispatches to one of these.  Note
