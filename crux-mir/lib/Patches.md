@@ -83,3 +83,7 @@ identify all of the code that was changed in each patch.
   type. Currently, `crucible-mir` does not support Rust unions, so we instead
   implement slice `len` in terms of our own `crucible_slice_len_hook` function
   that we override.
+
+* Use `crucible_array_from_slice_hook` in `&[T] -> &[T; N]` `TryFrom` impl (last applied: May 26, 2023)
+
+  The actual implementation uses a pointer cast that Crucible can't handle.
