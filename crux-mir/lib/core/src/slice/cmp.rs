@@ -74,6 +74,7 @@ where
     }
 }
 
+/*
 // Use memcmp for bytewise equality when the types allow
 impl<A, B> SlicePartialEq<B> for [A]
 where
@@ -92,6 +93,7 @@ where
         }
     }
 }
+*/
 
 #[doc(hidden)]
 // intermediate trait for specialization of slice's PartialOrd
