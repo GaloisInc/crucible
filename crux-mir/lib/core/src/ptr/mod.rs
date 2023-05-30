@@ -513,7 +513,10 @@ pub unsafe fn drop_in_place<T: ?Sized>(to_drop: *mut T) {
 #[rustc_allow_const_fn_unstable(ptr_metadata)]
 #[rustc_diagnostic_item = "ptr_null"]
 pub const fn null<T: ?Sized + Thin>() -> *const T {
-    from_raw_parts(invalid(0), ())
+    const fn crucible_null_hook<T: ?Sized + Thin>() -> *const T {
+        from_raw_parts(invalid(0), ())
+    }
+    crucible_null_hook()
 }
 
 /// Creates a null mutable raw pointer.
@@ -534,7 +537,10 @@ pub const fn null<T: ?Sized + Thin>() -> *const T {
 #[rustc_allow_const_fn_unstable(ptr_metadata)]
 #[rustc_diagnostic_item = "ptr_null_mut"]
 pub const fn null_mut<T: ?Sized + Thin>() -> *mut T {
-    from_raw_parts_mut(invalid_mut(0), ())
+    const fn crucible_null_hook<T: ?Sized + Thin>() -> *mut T {
+        from_raw_parts_mut(invalid_mut(0), ())
+    }
+    crucible_null_hook()
 }
 
 /// Creates an invalid pointer with the given address.

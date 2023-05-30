@@ -97,3 +97,11 @@ identify all of the code that was changed in each patch.
 * Disable bytewise equality comparisons for `[T]` (last applied: May 26, 2023)
 
   These require the `size_of_val` intrinsic, which isn't current supported.
+
+* Use `crucible_null_hook` to implement `null`/`null_mut` (last applied: May 30, 2023)
+
+  Morally, the `null`/`null_mut` functions behave like `0 as *const`/`0 as
+  *mut`, but due to Strict Pointer Provenance, their actual implementations are
+  much trickier than that. Unfortunately, we can't just inline `0 as *const`/`0
+  as *mut`, as recent versions of `rustc` won't typecheck that.  We resort to
+  overriding custom `crucible_null_hook` functions instead.
