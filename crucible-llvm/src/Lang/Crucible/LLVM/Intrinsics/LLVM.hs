@@ -101,6 +101,19 @@ llvmLifetimeOverrideOverload startOrEnd w =
     [llvmOvr| void $nm ( i64, #w * ) |]
     (\_ops _sym _args -> return ())
 
+-- | Like 'llvmLifetimeOverrideOverload', but with an opaque pointer type.
+llvmLifetimeOverrideOverload_opaque
+  :: forall sym wptr p
+   . (IsSymInterface sym, HasPtrWidth wptr)
+  => String -- ^ "start" or "end"
+  -> LLVMOverride p sym
+        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
+        UnitType -- It appears in practice that this is always void
+llvmLifetimeOverrideOverload_opaque startOrEnd =
+  let nm = L.Symbol ("llvm.lifetime." ++ startOrEnd ++ ".p0") in
+    [llvmOvr| void $nm ( i64, ptr ) |]
+    (\_ops _sym _args -> return ())
+
 -- | This intrinsic is currently a no-op.
 --
 -- We might want to support this in the future to catch undefined memory
@@ -118,6 +131,17 @@ llvmInvariantStartOverride w =
     [llvmOvr| {}* $nm ( i64, #w * ) |]
     (\_ops bak _args -> liftIO (mkNullPointer (backendGetSym bak) PtrWidth))
 
+-- | Like 'llvmInvariantStartOverride', but with an opaque pointer type.
+llvmInvariantStartOverride_opaque
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
+       (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
+       (LLVMPointerType wptr)
+llvmInvariantStartOverride_opaque =
+  let nm = L.Symbol "llvm.invariant.start.p0" in
+    [llvmOvr| {}* $nm ( i64, ptr ) |]
+    (\_ops bak _args -> liftIO (mkNullPointer (backendGetSym bak) PtrWidth))
+
 -- | See comment on 'llvmInvariantStartOverride'.
 llvmInvariantEndOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -128,6 +152,17 @@ llvmInvariantEndOverride
 llvmInvariantEndOverride w =
   let nm = L.Symbol ("llvm.invariant.end.p0i" ++ show (widthVal w)) in
     [llvmOvr| void $nm ( {}*, i64, #w * ) |]
+    (\_ops _bak _args -> return ())
+
+-- | See comment on 'llvmInvariantStartOverride_opaque'.
+llvmInvariantEndOverride_opaque
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
+       (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
+       UnitType
+llvmInvariantEndOverride_opaque =
+  let nm = L.Symbol "llvm.invariant.end.p0" in
+    [llvmOvr| void $nm ( {}*, i64, ptr ) |]
     (\_ops _bak _args -> return ())
 
 -- | This instruction is a hint to optimizers, it isn't really useful for us.
@@ -214,6 +249,17 @@ llvmMemmoveOverride_8_8_32_noalign =
   [llvmOvr| void @llvm.memmove.p0i8.p0i8.i32( i8*, i8*, i32, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemmove bak memOps) args)
 
+llvmMemmoveOverride_8_8_32_noalign_opaque
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym
+         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                   ::> BVType 32 ::> BVType 1)
+         UnitType
+llvmMemmoveOverride_8_8_32_noalign_opaque =
+  [llvmOvr| void @llvm.memmove.p0.p0.i32( ptr, ptr, i32, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemmove bak memOps) args)
+
 
 llvmMemmoveOverride_8_8_64
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -237,6 +283,19 @@ llvmMemmoveOverride_8_8_64_noalign
 llvmMemmoveOverride_8_8_64_noalign =
   [llvmOvr| void @llvm.memmove.p0i8.p0i8.i64( i8*, i8*, i64, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemmove bak memOps) args)
+
+llvmMemmoveOverride_8_8_64_noalign_opaque
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym
+         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                   ::> BVType 64 ::> BVType 1)
+         UnitType
+llvmMemmoveOverride_8_8_64_noalign_opaque =
+  [llvmOvr| void @llvm.memmove.p0.p0.i64( ptr, ptr, i64, i1 ) |]
+  (\memOps bak args ->
+      Ctx.uncurryAssignment (Libc.callMemmove bak memOps) args)
+
 
 llvmMemsetOverride_8_64
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
@@ -262,6 +321,18 @@ llvmMemsetOverride_8_64_noalign
          UnitType
 llvmMemsetOverride_8_64_noalign =
   [llvmOvr| void @llvm.memset.p0i8.i64( i8*, i8, i64, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemset bak memOps) args)
+
+llvmMemsetOverride_8_64_noalign_opaque
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType  8
+                   ::> BVType 64
+                   ::> BVType 1)
+         UnitType
+llvmMemsetOverride_8_64_noalign_opaque =
+  [llvmOvr| void @llvm.memset.p0.i64( ptr, i8, i64, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemset bak memOps) args)
 
 
@@ -291,6 +362,18 @@ llvmMemsetOverride_8_32_noalign =
   [llvmOvr| void @llvm.memset.p0i8.i32( i8*, i8, i32, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemset bak memOps) args)
 
+llvmMemsetOverride_8_32_noalign_opaque
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType  8
+                   ::> BVType 32
+                   ::> BVType 1)
+         UnitType
+llvmMemsetOverride_8_32_noalign_opaque =
+  [llvmOvr| void @llvm.memset.p0.i32( ptr, i8, i32, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemset bak memOps) args)
+
 
 llvmMemcpyOverride_8_8_32
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -315,6 +398,17 @@ llvmMemcpyOverride_8_8_32_noalign =
   [llvmOvr| void @llvm.memcpy.p0i8.p0i8.i32( i8*, i8*, i32, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemcpy bak memOps) args)
 
+llvmMemcpyOverride_8_8_32_noalign_opaque
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym
+          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                    ::> BVType 32 ::> BVType 1)
+          UnitType
+llvmMemcpyOverride_8_8_32_noalign_opaque =
+  [llvmOvr| void @llvm.memcpy.p0.p0.i32( ptr, ptr, i32, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemcpy bak memOps) args)
+
 
 llvmMemcpyOverride_8_8_64
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -328,7 +422,6 @@ llvmMemcpyOverride_8_8_64 =
   (\memOps bak args ->
     Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemcpy bak memOps dst src len v) args)
 
-
 llvmMemcpyOverride_8_8_64_noalign
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
@@ -338,6 +431,17 @@ llvmMemcpyOverride_8_8_64_noalign
          UnitType
 llvmMemcpyOverride_8_8_64_noalign =
   [llvmOvr| void @llvm.memcpy.p0i8.p0i8.i64( i8*, i8*, i64, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemcpy bak memOps) args)
+
+llvmMemcpyOverride_8_8_64_noalign_opaque
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym
+         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                   ::> BVType 64 ::> BVType 1)
+         UnitType
+llvmMemcpyOverride_8_8_64_noalign_opaque =
+  [llvmOvr| void @llvm.memcpy.p0.p0.i64( ptr, ptr, i64, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (Libc.callMemcpy bak memOps) args)
 
 
@@ -362,6 +466,13 @@ llvmObjectsizeOverride_32_null_dynamic =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
 
+llvmObjectsizeOverride_32_null_dynamic_opaque
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
+llvmObjectsizeOverride_32_null_dynamic_opaque =
+  [llvmOvr| i32 @llvm.objectsize.i32.p0( ptr, i1, i1, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
+
 llvmObjectsizeOverride_64
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 64)
@@ -383,6 +494,13 @@ llvmObjectsizeOverride_64_null_dynamic =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
 
+llvmObjectsizeOverride_64_null_dynamic_opaque
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
+llvmObjectsizeOverride_64_null_dynamic_opaque =
+  [llvmOvr| i64 @llvm.objectsize.i64.p0( ptr, i1, i1, i1 ) |]
+  (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
+
 -- | This instruction is a hint to code generators, which means that it is a
 -- no-op for us.
 --
@@ -394,6 +512,16 @@ llvmPrefetchOverride ::
     UnitType
 llvmPrefetchOverride =
   [llvmOvr| void @llvm.prefetch.p0i8( i8*, i32, i32, i32 ) |]
+  (\_memOps _bak _args -> pure ())
+
+-- | Like 'llvmPrefetchOverride', but with an opaque pointer type.
+llvmPrefetchOverride_opaque ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  LLVMOverride p sym
+    (EmptyCtx ::> LLVMPointerType wptr ::> BVType 32 ::> BVType 32 ::> BVType 32)
+    UnitType
+llvmPrefetchOverride_opaque =
+  [llvmOvr| void @llvm.prefetch.p0( ptr, i32, i32, i32 ) |]
   (\_memOps _bak _args -> pure ())
 
 -- | This instruction is a hint to code generators, which means that it is a

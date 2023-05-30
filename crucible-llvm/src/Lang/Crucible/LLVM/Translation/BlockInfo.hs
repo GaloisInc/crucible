@@ -232,14 +232,14 @@ instrUse from i bim = Set.unions $ case i of
       map useTypedVal args
   L.Alloca _tp Nothing  _align -> []
   L.Alloca _tp (Just x) _align -> [useTypedVal x]
-  L.Load p _ord _align -> [useTypedVal p]
+  L.Load _tp p _ord _align -> [useTypedVal p]
   L.Store p v _ord _align -> [useTypedVal p, useTypedVal v]
   L.Fence{} -> []
   L.CmpXchg _weak _vol p v1 v2 _s _o1 _o2 -> map useTypedVal [p,v1,v2]
   L.AtomicRW _vol _op p v _s _o -> [useTypedVal p, useTypedVal v]
   L.ICmp _op x y -> [useTypedVal x, useVal y]
   L.FCmp _op x y -> [useTypedVal x, useVal y]
-  L.GEP _ib base args -> useTypedVal base : map useTypedVal args
+  L.GEP _ib _tp base args -> useTypedVal base : map useTypedVal args
   L.Select c x y -> [ useTypedVal c, useTypedVal x, useVal y ]
   L.ExtractValue x _ixs -> [useTypedVal x]
   L.InsertValue x y _ixs -> [useTypedVal x, useTypedVal y]

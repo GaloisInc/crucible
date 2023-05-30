@@ -1,3 +1,4 @@
+#include <stdio.h>
 // This function demonstrates a pretty fundamental limitation of UC-Crux-LLVM:
 // Since y is dereferenced along *one* path through f, UC-Crux-LLVM will add a
 // precondition that it's non-null, instead of a precondition that it's non-null

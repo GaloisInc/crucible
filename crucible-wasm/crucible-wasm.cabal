@@ -82,6 +82,6 @@ test-suite crucible-wasm-test
     lens,
     tasty >= 0.10,
     tasty-hunit >= 0.10,
-    tasty-sugar >= 2.0 && < 2.2,
+    tasty-sugar >= 2.0 && < 2.3,
     text,
     versions

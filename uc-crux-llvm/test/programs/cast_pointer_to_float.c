@@ -5,5 +5,5 @@ float cast_uintptr_t_to_float(uintptr_t ptr) __attribute__((noinline)) {
 }
 float cast_pointer_to_float(int x) {
   int *ptr = malloc(x*sizeof(int));
-  return (uintptr_t)cast_uintptr_t_to_float(ptr);
+  return (uintptr_t)cast_uintptr_t_to_float((uintptr_t)ptr);
 }

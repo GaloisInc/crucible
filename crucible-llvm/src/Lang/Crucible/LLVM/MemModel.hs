@@ -1257,6 +1257,7 @@ toStorableType mt =
   case mt of
     IntType n -> return $ bitvectorType (bitsToBytes n)
     PtrType _ -> return $ bitvectorType (bitsToBytes (natValue PtrWidth))
+    PtrOpaqueType -> return $ bitvectorType (bitsToBytes (natValue PtrWidth))
     FloatType -> return $ floatType
     DoubleType -> return $ doubleType
     X86_FP80Type -> return $ x86_fp80Type

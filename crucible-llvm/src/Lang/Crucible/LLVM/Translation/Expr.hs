@@ -272,6 +272,7 @@ zeroExpand proxyArch (ArrayType n tp) k =
 zeroExpand proxyArch (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec proxyArch tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k proxyArch (VectorRepr tpr)
 zeroExpand proxyArch (PtrType _tp) k = k proxyArch PtrRepr nullPointerExpr
+zeroExpand proxyArch PtrOpaqueType k = k proxyArch PtrRepr nullPointerExpr
 zeroExpand proxyArch FloatType   k  = k proxyArch (FloatRepr SingleFloatRepr) (App (FloatLit 0))
 zeroExpand proxyArch DoubleType  k  = k proxyArch (FloatRepr DoubleFloatRepr) (App (DoubleLit 0))
 zeroExpand _prxyArch X86_FP80Type _ = ?err "Cannot zero expand x86_fp80 values"
@@ -293,6 +294,8 @@ undefExpand _archProxy (IntType w) k =
 
     _ -> ?err $ unwords ["illegal integer size", show w]
 undefExpand _archProxy (PtrType _tp) k =
+   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
+undefExpand _archProxy PtrOpaqueType k =
    k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
 undefExpand _archProxy (StructType si) k =
    unpackArgs (map UndefExpr tps) $ \archProxy ctx asgn -> k archProxy (StructRepr ctx) (mkStruct ctx asgn)
@@ -399,11 +402,17 @@ transValue ty L.ValZeroInit =
 
 transValue ty@(PtrType _) L.ValNull =
   return $ ZeroExpr ty
+transValue ty@PtrOpaqueType L.ValNull =
+  return $ ZeroExpr ty
 
 transValue ty@(PtrType _) (L.ValInteger 0) =
   return $ ZeroExpr ty
+transValue ty@PtrOpaqueType (L.ValInteger 0) =
+  return $ ZeroExpr ty
 
 transValue ty@(PtrType _) v@(L.ValInteger _) =
+  reportError $ fromString $ unwords ["Attempted to use integer ", show v, " as pointer: ", show ty]
+transValue ty@PtrOpaqueType v@(L.ValInteger _) =
   reportError $ fromString $ unwords ["Attempted to use integer ", show v, " as pointer: ", show ty]
 
 transValue ty@(IntType _) L.ValNull =

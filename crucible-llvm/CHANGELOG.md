@@ -17,7 +17,15 @@
 * `executeDirectives` in `Lang.Crucible.LLVM.Printf` now returns a `ByteString`
   instead of a `String` so that we can better preserve the exact bytes used in
   string arguments, without applying a particular text encoding.
+* `crucible-llvm` now handles LLVM's opaque pointer types, an alternative
+  representation of pointer types that does not store a pointee type. As a
+  result, `MemType` now has an additional `PtrOpaqueType` constructor in
+  addition to the existing (non-opaque) `PtrType` constructor.
 
+  LLVM 15 and later use opaque pointers by default, so it is recommended that
+  you add support for `PtrOpaqueType` (and opaque pointers in general) going
+  forward. `crucible-llvm` still supports both kinds of pointers, so you can
+  fall back to non-opaque pointers if need be.
 
 
 # 0.4

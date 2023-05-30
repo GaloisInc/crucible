@@ -5,7 +5,7 @@
 [Crux]     No implementation or override found for pointer
 [Crux]     The given pointer could not be resolved to a callable function
 [Crux]     No implementation or override found for pointer
-[Crux]     Attempting to load callable function with type: i64(ptr, ptr, i64, ptr)
+[Crux]     Attempting to load callable function with type: i64({ }*, [3 x i64]*, i64, i8**)
 [Crux]       Via pointer: Global symbol "_ZN3std2rt19lang_start_internal17h3dc68cf5532522d7E" (1, 0x0:[64])
 [Crux]     In memory state:
 [Crux]       Stack frame _ZN3std2rt10lang_start17h4f32aa1279b9079fE
@@ -58,10 +58,10 @@
 [Crux]           GlobalAlloc 10 0x0:[64] Immutable 1-byte-aligned [defined function ] _ZN3std3sys4unix7process14process_common8ExitCode6as_i3217h131bd83b3a6fff4bE
 [Crux]           GlobalAlloc 9 0x0:[64] Immutable 1-byte-aligned [defined function ] _ZN3std2rt10lang_start28_$u7b$$u7b$closure$u7d$$u7d$17h6e1c450892b1f754E
 [Crux]           GlobalAlloc 8 0x0:[64] Immutable 1-byte-aligned [defined function ] _ZN3std2rt10lang_start17h4f32aa1279b9079fE
-[Crux]           GlobalAlloc 7 0x0:[64] Immutable 1-byte-aligned [external function] llvm.memset.p0.i64
-[Crux]           GlobalAlloc 6 0x0:[64] Immutable 1-byte-aligned [external function] llvm.memcpy.p0.p0.i64
-[Crux]           GlobalAlloc 5 0x0:[64] Immutable 1-byte-aligned [external function] _ZN3std2io5stdio6_print17hdec9324a4622df1eE
-[Crux]           GlobalAlloc 4 0x0:[64] Immutable 1-byte-aligned [external function] _ZN4core3fmt3num52_$LT$impl$u20$core..fmt..Display$u20$for$u20$i32$GT$3fmt17h7a9374c1576dce31E
+[Crux]           GlobalAlloc 7 0x0:[64] Immutable 1-byte-aligned [external function] llvm.memset.p0i8.i64
+[Crux]           GlobalAlloc 6 0x0:[64] Immutable 1-byte-aligned [external function] _ZN3std2io5stdio6_print17hdec9324a4622df1eE
+[Crux]           GlobalAlloc 5 0x0:[64] Immutable 1-byte-aligned [external function] _ZN4core3fmt3num52_$LT$impl$u20$core..fmt..Display$u20$for$u20$i32$GT$3fmt17h7a9374c1576dce31E
+[Crux]           GlobalAlloc 4 0x0:[64] Immutable 1-byte-aligned [external function] llvm.memcpy.p0i8.p0i8.i64
 [Crux]           GlobalAlloc 3 0x0:[64] Immutable 1-byte-aligned [external function] llvm.assume
 [Crux]           GlobalAlloc 2 0x0:[64] Immutable 1-byte-aligned [external function] rust_eh_personality
 [Crux]           GlobalAlloc 1 0x0:[64] Immutable 1-byte-aligned [external function] _ZN3std2rt19lang_start_internal17h3dc68cf5532522d7E
