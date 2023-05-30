@@ -149,6 +149,8 @@ customOpDefs = Map.fromList $ [
                          , ptr_read
                          , ptr_write
                          , ptr_swap
+                         , ptr_null
+                         , ptr_null_mut
                          , intrinsics_copy
                          , intrinsics_copy_nonoverlapping
 
@@ -564,6 +566,23 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
     _ -> Nothing)
 
+ptr_null :: (ExplodedDefId, CustomRHS)
+ptr_null = ( ["core", "ptr", "null", "crucible_null_hook"]
+           , null_ptr_impl "ptr::null" )
+
+ptr_null_mut :: (ExplodedDefId, CustomRHS)
+ptr_null_mut = ( ["core", "ptr", "null_mut", "crucible_null_hook"]
+               , null_ptr_impl "ptr::null_mut" )
+
+null_ptr_impl :: String -> CustomRHS
+null_ptr_impl what substs = case substs of
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+        [] -> do
+            Some tpr <- tyToReprM ty
+            ref <- integerToMirRef tpr $ R.App $ eBVLit knownNat 0
+            return $ MirExp (MirReferenceRepr tpr) ref
+        _  -> mirFail $ "expected no arguments for " ++ what ++ ", received: " ++ show ops
+    _ -> Nothing
 
 intrinsics_copy :: (ExplodedDefId, CustomRHS)
 intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
