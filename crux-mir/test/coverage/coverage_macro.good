@@ -5,5 +5,5 @@ warning: branch condition never has value true
    │            ^^^^^^
    ·
 18 │     check!(u8::try_from(y_32).is_ok());
-   │     ----------------------------------- in this macro invocation
+   │     ---------------------------------- in this macro invocation
 

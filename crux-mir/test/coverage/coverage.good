@@ -1,6 +1,6 @@
-warning: branch condition never has value false
+warning: branch condition never has a value other than [1]
    ┌─ test/coverage/coverage.rs:11:15
    │
 11 │     } else if x == 1 {
-   │               ^^^^^^
+   │               ^
 
