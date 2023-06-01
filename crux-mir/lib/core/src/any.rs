@@ -154,6 +154,7 @@
 
 use crate::fmt;
 use crate::intrinsics;
+use crate::marker::PhantomData;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Any trait
@@ -868,7 +869,12 @@ where
 /// A data provider provides values by calling this type's provide methods.
 #[unstable(feature = "provide_any", issue = "96024")]
 #[repr(transparent)]
-pub struct Demand<'a>(dyn Erased<'a> + 'a);
+// NB: We have replaced a use of `dyn Erased` with `PhantomData` here. The
+// former is a dynamically sized type, which we do not yet support in
+// crucible-mir. We have to make some questionable changes to the `impl` block
+// below to accommodate this change of type, but we do not aim to support this
+// sort of code yet anyway.
+pub struct Demand<'a>(PhantomData<dyn Erased<'a> + 'a>);
 
 impl<'a> Demand<'a> {
     /// Create a new `&mut Demand` from a `&mut dyn Erased` trait object.
@@ -993,9 +999,6 @@ impl<'a> Demand<'a> {
     where
         I: tags::Type<'a>,
     {
-        if let Some(res @ TaggedOption(None)) = self.0.downcast_mut::<I>() {
-            res.0 = Some(value);
-        }
         self
     }
 
@@ -1004,9 +1007,6 @@ impl<'a> Demand<'a> {
     where
         I: tags::Type<'a>,
     {
-        if let Some(res @ TaggedOption(None)) = self.0.downcast_mut::<I>() {
-            res.0 = Some(fulfil());
-        }
         self
     }
 
@@ -1157,7 +1157,7 @@ impl<'a> Demand<'a> {
     where
         I: tags::Type<'a>,
     {
-        matches!(self.0.downcast::<I>(), Some(TaggedOption(None)))
+        true
     }
 }
 
