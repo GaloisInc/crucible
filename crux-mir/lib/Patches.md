@@ -109,3 +109,9 @@ identify all of the code that was changed in each patch.
 * Implement `Demand` using `PhantomData` instead of a dynamically sized `dyn` (last applied: June 1, 2023)
 
   We do not current support dynamically sized types in crucible-mir.
+
+* Replace `sys::time` with Crux-specific implementation (last applied: June 1, 2023)
+
+  Crux's version is not suitable for doing actual timing (it hard-codes the
+  time to a fixed date), but it does simulate much more easily than the actual
+  implementation.
