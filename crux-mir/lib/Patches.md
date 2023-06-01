@@ -105,3 +105,7 @@ identify all of the code that was changed in each patch.
   much trickier than that. Unfortunately, we can't just inline `0 as *const`/`0
   as *mut`, as recent versions of `rustc` won't typecheck that.  We resort to
   overriding custom `crucible_null_hook` functions instead.
+
+* Implement `Demand` using `PhantomData` instead of a dynamically sized `dyn` (last applied: June 1, 2023)
+
+  We do not current support dynamically sized types in crucible-mir.
