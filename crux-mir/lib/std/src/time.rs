@@ -37,7 +37,8 @@ mod tests;
 use crate::error::Error;
 use crate::fmt;
 use crate::ops::{Add, AddAssign, Sub, SubAssign};
-use crate::sys::time;
+use crate::sys;
+use crate::sys::crux::time;
 use crate::sys_common::{FromInner, IntoInner};
 
 #[stable(feature = "time", since = "1.3.0")]
@@ -690,5 +691,11 @@ impl FromInner<time::SystemTime> for SystemTime {
 impl IntoInner<time::SystemTime> for SystemTime {
     fn into_inner(self) -> time::SystemTime {
         self.0
+    }
+}
+
+impl FromInner<sys::time::SystemTime> for SystemTime {
+    fn from_inner(time: sys::time::SystemTime) -> SystemTime {
+        SystemTime(time::SystemTime::from_inner(time))
     }
 }

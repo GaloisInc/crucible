@@ -17,7 +17,8 @@ use crate::io::{self, BorrowedCursor, IoSlice, IoSliceMut, Read, Seek, SeekFrom,
 use crate::path::{Path, PathBuf};
 use crate::sys::fs as fs_imp;
 use crate::sys_common::{AsInner, AsInnerMut, FromInner, IntoInner};
-use crate::time::SystemTime;
+use crate::time;
+use crate::sys::crux::time::SystemTime;
 
 /// An object providing access to an open file on the filesystem.
 ///

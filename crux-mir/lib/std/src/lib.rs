@@ -365,6 +365,7 @@
 #![feature(thread_local_internals)]
 //
 #![default_lib_allocator]
+#![feature(crucible_intrinsics)]
 
 // Explicitly import the prelude. The compiler uses this same unstable attribute
 // to import the prelude implicitly when building crates that depend on std.
