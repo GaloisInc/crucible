@@ -115,3 +115,8 @@ identify all of the code that was changed in each patch.
   Crux's version is not suitable for doing actual timing (it hard-codes the
   time to a fixed date), but it does simulate much more easily than the actual
   implementation.
+
+* Replace `sys::{condvar,mutex,rwlock}` with Crux-specific implementation (last applied: June 1, 2023)
+
+  Because Crucible is effectively single-threaded, we can safely replace these
+  with much simpler implementations that aren't nearly as tricky to simulate.

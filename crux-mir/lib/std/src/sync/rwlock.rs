@@ -6,7 +6,7 @@ use crate::fmt;
 use crate::ops::{Deref, DerefMut};
 use crate::ptr::NonNull;
 use crate::sync::{poison, LockResult, TryLockError, TryLockResult};
-use crate::sys::locks as sys;
+use crate::sys::crux::rwlock as sys;
 
 /// A reader-writer lock
 ///

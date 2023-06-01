@@ -1,16 +1,16 @@
 use crate::cell::Cell;
 
-pub struct RWLock {
+pub struct RwLock {
     num_readers: Cell<usize>,
     write_locked: Cell<bool>,
 }
 
-unsafe impl Send for RWLock {}
-unsafe impl Sync for RWLock {}
+unsafe impl Send for RwLock {}
+unsafe impl Sync for RwLock {}
 
-impl RWLock {
-    pub const fn new() -> RWLock {
-        RWLock {
+impl RwLock {
+    pub const fn new() -> RwLock {
+        RwLock {
             num_readers: Cell::new(0),
             write_locked: Cell::new(false),
         }
