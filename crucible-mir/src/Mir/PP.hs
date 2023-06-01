@@ -207,7 +207,7 @@ instance Pretty Rvalue where
     pretty (RAdtAg a) = pretty a
     pretty (ShallowInitBox ptr ty) = pretty_fn2 "ShallowInitBox" ptr ty
     pretty (CopyForDeref lv) = pretty_fn1 "CopyForDeref" lv
-    pretty (ThreadLocalRef a) = pretty_fn1 "ThreadLocalRef" a
+    pretty (ThreadLocalRef a b) = pretty_fn2 "ThreadLocalRef" a b
 
 instance Pretty AdtAg where
   pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _) = pretty_fn3 "AdtAg" nm i ops

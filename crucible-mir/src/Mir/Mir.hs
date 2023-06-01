@@ -350,8 +350,7 @@ data Rvalue =
       | RAdtAg AdtAg
       | ShallowInitBox { _sibptr :: Operand, _sibty :: Ty }
       | CopyForDeref Lvalue
-      | ThreadLocalRef DefId
-        -- ^ TODO RGS: Is this right?
+      | ThreadLocalRef DefId Ty
     deriving (Show,Eq, Ord, Generic)
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
@@ -723,7 +722,7 @@ instance TypeOf Rvalue where
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
   typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv
-  typeOf (ThreadLocalRef _) = error "TODO RGS typeOf ThreadLocalRef"
+  typeOf (ThreadLocalRef _ ty) = ty
 
 instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv
