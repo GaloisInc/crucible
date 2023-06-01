@@ -1,23 +1,23 @@
-test fail_return/b8a81eca::fail1[0]: returned Symbolic BV, FAILED
-test fail_return/b8a81eca::fail2[0]: returned 123, FAILED
+test fail_return/29cbbbb6::fail1[0]: returned Symbolic BV, FAILED
+test fail_return/29cbbbb6::fail2[0]: returned 123, FAILED
 
 failures:
 
----- fail_return/b8a81eca::fail1[0] counterexamples ----
+---- fail_return/29cbbbb6::fail1[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/crux/fail_return.rs:8:22: 8:27: error: in fail_return/b8a81eca::fail1[0]
+[Crux]   test/symb_eval/crux/fail_return.rs:8:22: 8:27: error: in fail_return/29cbbbb6::fail1[0]
 [Crux]   attempt to compute `move _4 + const 1_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/fail_return.rs:8:5: 8:32: error: in fail_return/b8a81eca::fail1[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/fail_return.rs:8:5: 8:32: error: in fail_return/29cbbbb6::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/fail_return.rs:8:5:
 [Crux]   	x + 1 > x
 
----- fail_return/b8a81eca::fail2[0] counterexamples ----
+---- fail_return/29cbbbb6::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/crux/fail_return.rs:15:22: 15:27: error: in fail_return/b8a81eca::fail2[0]
+[Crux]   test/symb_eval/crux/fail_return.rs:15:22: 15:27: error: in fail_return/29cbbbb6::fail2[0]
 [Crux]   attempt to compute `move _5 + const 1_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/fail_return.rs:15:5: 15:32: error: in fail_return/b8a81eca::fail2[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crux/fail_return.rs:15:5: 15:32: error: in fail_return/29cbbbb6::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/fail_return.rs:15:5:
 [Crux]   	x + 1 > x
 

@@ -1,10 +1,10 @@
-test downcast_fail/a71ba9d2::crux_test[0]: FAILED
+test downcast_fail/0c70442e::crux_test[0]: FAILED
 
 failures:
 
----- downcast_fail/a71ba9d2::crux_test[0] counterexamples ----
+---- downcast_fail/0c70442e::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:15: error: in downcast_fail/a71ba9d2::crux_test[0]
+[Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:15: error: in downcast_fail/0c70442e::crux_test[0]
 [Crux]   failed to downcast Any as BVRepr 32
 
 [Crux] Overall status: Invalid.
