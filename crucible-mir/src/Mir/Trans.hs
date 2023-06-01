@@ -1027,11 +1027,11 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
             M.Union -> do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
+evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
 -- TODO: are these correct?
 evalRval rv@(M.ShallowInitBox op ty) = evalOperand op
 evalRval rv@(M.CopyForDeref lv) = evalLvalue lv
-evalRval (M.ThreadLocalRef _) = error "TODO RGS evalRval ThreadLocalRef"
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
