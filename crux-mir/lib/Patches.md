@@ -120,3 +120,8 @@ identify all of the code that was changed in each patch.
 
   Because Crucible is effectively single-threaded, we can safely replace these
   with much simpler implementations that aren't nearly as tricky to simulate.
+
+* Use Crucible-friendly implementations of `byteorder` functions (last applied: June 2, 2023)
+
+  Much of `byteorder` is implemented on top of unsafe code that is tricky to
+  simulate.
