@@ -1,3 +1,3 @@
-test conc/8f6163ae::crux_test[0]: returned (1, 0), ok
+test conc/<DISAMB>::crux_test[0]: returned (1, 0), ok
 
 [Crux] Overall status: Valid.
