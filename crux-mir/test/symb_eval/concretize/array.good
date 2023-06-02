@@ -1,3 +1,3 @@
-test array/a41ef166::crux_test[0]: returned (1, 2, 3), ok
+test array/<DISAMB>::crux_test[0]: returned (1, 2, 3), ok
 
 [Crux] Overall status: Valid.

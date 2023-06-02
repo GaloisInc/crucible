@@ -1,13 +1,13 @@
-test uninit_read/2bff4d2d::crux_test[0]: FAILED
+test uninit_read/<DISAMB>::crux_test[0]: FAILED
 
 failures:
 
----- uninit_read/2bff4d2d::crux_test[0] counterexamples ----
+---- uninit_read/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: error: in uninit_read/2bff4d2d::crux_test[0]
+[Crux]   test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: error: in uninit_read/<DISAMB>::crux_test[0]
 [Crux]   Attempted to read uninitialized vector index
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: error: in uninit_read/2bff4d2d::crux_test[0]
+[Crux]   test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: error: in uninit_read/<DISAMB>::crux_test[0]
 [Crux]   attempted to read empty mux tree
 
 [Crux] Overall status: Invalid.
