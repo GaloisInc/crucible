@@ -81,5 +81,5 @@ echo 'Building bytes...'
 translate lib/bytes.rs --edition=2021 --crate-name bytes --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib --extern crucible=rlibs/libcrucible.rlib
 
 echo 'Building byteorder...'
-translate lib/byteorder/lib.rs --edition=2021 --crate-name byteorder --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib
+translate lib/byteorder/src/lib.rs --edition=2021 --crate-name byteorder --cfg 'feature="std"' --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib
 
