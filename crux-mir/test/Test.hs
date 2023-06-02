@@ -1,7 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# Language OverloadedStrings #-}
-{-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
+{-# Language ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wall #-}
+module Main (main) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as BS8
@@ -22,6 +24,8 @@ import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertF
 import           Test.Tasty.Golden (findByExtension)
 import           Test.Tasty.Golden.Advanced (goldenTest)
 import           Test.Tasty.ExpectedFailure (expectFailBecause)
+import           Text.Regex.Base ( makeRegex, matchM )
+import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 
 import qualified Mir.Language as Mir
 
@@ -32,11 +36,6 @@ import qualified Config
 import qualified Config.Schema as Config
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
-
-
--- Don't show any debug output when testing (SAWInterface)
-debugLevel :: Int
-debugLevel = 0
 
 
 -- | Check whether an input file is expected to fail based on a comment in the first line.
@@ -130,8 +129,9 @@ symbTest dir =
      return $
        testGroup "Output testing"
          [ doGoldenTest (takeBaseName rustFile) goodFile outFile $
-           withFile outFile WriteMode $ \h ->
-           runCrux rustFile h RcmSymbolic
+           do withFile outFile WriteMode $ \h ->
+                runCrux rustFile h RcmSymbolic
+              sanitizeGoldenOutputFile outFile
          | rustFile <- rustFiles
          -- Skip hidden files, such as editor swap files
          , not $ "." `isPrefixOf` takeFileName rustFile
@@ -172,6 +172,40 @@ doGoldenTest rustFile goodFile outFile act = goldenTest (takeBaseName rustFile)
       Just $ "files " ++ goodFile ++ " and " ++ outFile ++ " differ; " ++
         outFile ++ " contains:\n" ++ BS8.toString out)
     (\out -> BS.writeFile goodFile out)
+
+-- | Sanitize the golden output in a file.
+sanitizeGoldenOutputFile :: FilePath -> IO ()
+sanitizeGoldenOutputFile file = do
+  out <- BS.readFile file
+  BS.writeFile file $ sanitizeGoldenTestOutput out
+
+-- | Replace occurrences of crate disambiguators (which are highly sensitive to
+-- the contents of crates' source code) with more stable output to reduce churn
+-- in the golden tests.
+sanitizeGoldenTestOutput :: BS.ByteString -> BS.ByteString
+sanitizeGoldenTestOutput = go
+  where
+    go :: BS.ByteString -> BS.ByteString
+    go out
+      | Just (before, _matched :: BS.ByteString, after, [preDisamb])
+          <- matchM disambRE out
+      = before <> preDisamb <> "<DISAMB>::" <> go after
+      | otherwise
+      = out
+
+    disambRE :: Regex
+    disambRE = makeRegex disambBS
+
+    -- A disambiguator looks something like foo/a1b4j89a, i.e., an alphanumeric
+    -- string that starts with an alphabetic character, followed by a forward
+    -- slash, followed by eight alphanumeric characters. To reduce the rate of
+    -- false positives, we also match two trailing colons, which would be
+    -- present when printing out a full DefId (e.g., foo/a1b4j89a::Bar::Baz).
+    disambBS :: BS.ByteString
+    disambBS = "([A-Za-z_]" <> alphaNum <> "*/)" <> mconcat (replicate 8 alphaNum) <> "::"
+
+    alphaNum :: BS.ByteString
+    alphaNum = "[A-Za-z0-9_]"
 
 main :: IO ()
 main = defaultMain =<< suite
