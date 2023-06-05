@@ -1026,7 +1026,7 @@ intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
 
 -- TODO: needs layout info from mir-json
 assert_inhabited :: (ExplodedDefId, CustomRHS)
-assert_inhabited = (["core", "intrinsics", "", "assert_inhabited"], \_substs ->
+assert_inhabited = (["core", "intrinsics", "{extern}", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
@@ -1601,7 +1601,8 @@ maybe_uninit_uninit :: (ExplodedDefId, CustomRHS)
 maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
     \substs -> case substs of
         Substs [t] -> Just $ CustomOp $ \_ _ -> do
-            adt <- findAdtInst (M.textId "core::mem::maybe_uninit::MaybeUninit") (Substs [t])
+            maybeUninitDefId <- findDefId "core::mem::maybe_uninit::MaybeUninit"
+            adt <- findAdtInst maybeUninitDefId (Substs [t])
             let t = TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
             initialValue t >>= \mv -> case mv of
                 Just v -> return v
@@ -1705,6 +1706,7 @@ unwrapMirExp tpr (MirExp tpr' e)
 maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
     MirGenerator h s ret (MirExp s)
 maybeToOption ty tpr e = do
+    optionDefId <- findDefId optionDefIdText
     adt <- findAdtInst optionDefId (Substs [ty])
     e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
         (\val -> buildEnum adt optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)

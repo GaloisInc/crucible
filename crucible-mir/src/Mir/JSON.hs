@@ -206,6 +206,7 @@ instance FromJSON Collection where
       (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
       (tys    :: [NamedTy])   <- v .: "tys"
       (roots :: [MethName])   <- v .: "roots"
+      (crateHashes :: Map.Map Text Text) <- v .: "crate_hashes"
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
@@ -216,6 +217,7 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
         (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy) m) Map.empty tys)
         roots
+        crateHashes
 
 
 instance FromJSON Fn where

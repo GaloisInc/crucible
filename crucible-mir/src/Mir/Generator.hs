@@ -445,6 +445,18 @@ findAdtInst origName substs = do
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show (origName, substs)
 
+-- | Find the 'DefId' corresponding to the supplied text. This consults the
+-- 'crateHashes' to ensure that the crate's disambiguator is correct.
+findDefId :: Text -> MirGenerator h s ret DefId
+findDefId str = do
+    crateDisambigs <- use $ cs . collection . crateHashes
+    case Map.lookup crate crateDisambigs of
+        Just disambig -> pure $ partialDefId & didCrateDisambig .~ disambig
+        Nothing -> mirFail $ "unknown crate " ++ Text.unpack crate
+  where
+    partialDefId = textId str
+    crate = partialDefId^.didCrate
+
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
