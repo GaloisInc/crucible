@@ -65,7 +65,9 @@ where
 import           Data.Kind(Type)
 
 import qualified Data.Aeson as Aeson
+import qualified Data.Foldable as F
 import qualified Data.List as List
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
@@ -205,6 +207,16 @@ data CollectionState
       _staticMap      :: !(Map DefId StaticVar),
       -- | For Enums, gives the discriminant value for each variant.
       _discrMap       :: !(Map AdtName [Integer]),
+      -- | Map crate names to their respective crate hashes, the latter of
+      -- which are used to disambiguate identifier names. We consult this 'Map'
+      -- when looking up wired-in names (e.g., 'Option' or 'MaybeUninit' in
+      -- @core@) to determine what disambiguator to use.
+      --
+      -- Note that the range of the 'Map' is a 'NonEmpty' list because it is
+      -- possible to depend on two different crates with the same crate name,
+      -- but with different hashes. Most of the time, however, this list will
+      -- contain exactly one disambiguator per crate name.
+      _crateHashesMap :: !(Map Text (NonEmpty Text)),
       _collection     :: !Collection
       }
 
@@ -393,10 +405,10 @@ instance Monoid RustModule where
   mempty  = RustModule mempty mempty mempty
 
 instance Semigroup CollectionState  where
-  (CollectionState hm1 vm1 sm1 dm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 col2) =
-      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (col1 <> col2))
+  (CollectionState hm1 vm1 sm1 dm1 chm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 chm2 col2) =
+      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (Map.unionWith (<>) chm1 chm2) (col1 <> col2))
 instance Monoid CollectionState where
-  mempty  = CollectionState mempty mempty mempty mempty mempty
+  mempty  = CollectionState mempty mempty mempty mempty mempty mempty
 
 
 instance Show (MirExp s) where
@@ -460,6 +472,28 @@ findAdtInst origName substs = do
     case List.find (\adt -> adt ^. adtOrigSubsts == substs) insts of
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show (origName, substs)
+
+-- | Find the 'DefId' corresponding to the supplied text. This consults the
+-- 'crateHashesMap' to ensure that the crate's disambiguator is correct. If a
+-- crate name is ambiguous (i.e., if there are multiple disambiguators
+-- associated with the crate name), this will throw an error.
+findDefId :: Text -> MirGenerator h s ret DefId
+findDefId str = do
+    crateDisambigs <- use $ cs . crateHashesMap
+    case Map.lookup crate crateDisambigs of
+        Just allDisambigs@(disambig :| otherDisambigs)
+          |  F.null otherDisambigs
+          -> pure $ partialDefId & didCrateDisambig .~ disambig
+          |  otherwise
+          -> mirFail $ unlines $
+               [ "ambiguous crate " ++ crateStr
+               , "crate disambiguators:"
+               ] ++ F.toList (Text.unpack <$> allDisambigs)
+        Nothing -> mirFail $ "unknown crate " ++ crateStr
+  where
+    partialDefId = textId str
+    crate = partialDefId^.didCrate
+    crateStr = Text.unpack crate
 
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a

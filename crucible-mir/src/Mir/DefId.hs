@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskellQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 
@@ -10,6 +10,9 @@
 
 module Mir.DefId
 ( DefId
+, didCrate
+, didCrateDisambig
+, didPath
 , textId
 , idText
 
@@ -23,6 +26,7 @@ module Mir.DefId
 , parseFieldName
 ) where
 
+import Control.Lens (makeLenses)
 import Data.Aeson
 
 import qualified Language.Haskell.TH.Syntax as TH
@@ -48,15 +52,17 @@ type Segment = (Text, Int)
 data DefId = DefId
     {
     -- | The name of the enclosing crate.
-      did_crate :: Text
+      _didCrate :: Text
     -- | The disambiguator of the enclosing crate.  These are strings, in a
     -- different format than the integer disambiguators used for normal path
     -- segments.
-    , did_crate_disambig :: Text
+    , _didCrateDisambig :: Text
     -- | The segments of the path.
-    , did_path :: [Segment]
+    , _didPath :: [Segment]
     }
   deriving (Eq, Ord, Generic)
+
+makeLenses ''DefId
 
 -- | The crate disambiguator hash produced when the crate metadata string is
 -- empty. This is useful for creating 'DefId's for thing that do not have a
@@ -118,7 +124,7 @@ instance Pretty DefId where
 type ExplodedDefId = [Text]
 
 idKey :: DefId -> ExplodedDefId
-idKey did = did_crate did : map fst (did_path did)
+idKey did = _didCrate did : map fst (_didPath did)
 
 explodedDefIdPat :: ExplodedDefId -> TH.Q TH.Pat
 explodedDefIdPat edid = [p| ((\did -> idKey did == edid) -> True) |]

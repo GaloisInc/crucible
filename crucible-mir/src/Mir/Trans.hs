@@ -52,6 +52,7 @@ import Data.Bits (shift, shiftL)
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import qualified Data.List as List
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -2135,7 +2136,30 @@ mkDiscrMap col = mconcat
     [ Map.singleton (adt^.M.adtname) (adtIndices adt col)
     | adt <- Map.elems $ col^.M.adts, Lens.is _Enum (adt^.M.adtkind) ]
 
-
+-- | Gather all of the 'M.DefId's in a 'M.Collection' and construct a
+-- 'crateHashesMap' from it. To accomplish this, it suffices to look at the
+-- domain of each map in a 'M.Collection' (with a handful of exceptions—see
+-- the comments below), which ranges over 'M.DefId's.
+mkCrateHashesMap :: M.Collection -> Map Text (NonEmpty Text)
+mkCrateHashesMap
+    (Collection functionsM adtsM adtsOrigM traitsM
+                staticsM vtablesM intrinsicsM
+                -- namedTys ranges over type names, which aren't full DefIds.
+                _namedTysM
+                -- The roots are duplicates of other Maps' DefIds.
+                _rootsM) =
+  Map.fromList $
+       f functionsM
+    ++ f adtsM
+    ++ f adtsOrigM
+    ++ f traitsM
+    ++ f staticsM
+    ++ f vtablesM
+    ++ f intrinsicsM
+  where
+    f :: Map M.DefId a -> [(Text, NonEmpty Text)]
+    f m = map (\did -> (did ^. M.didCrate, did ^. M.didCrateDisambig :| []))
+              (Map.keys m)
 
 ---------------------------------------------------------------------------
 
@@ -2173,10 +2197,10 @@ transCollection col halloc = do
     sm <- foldrM allocateStatic Map.empty (col^.statics)
 
     let dm = mkDiscrMap col
-
+    let chm = mkCrateHashesMap col
 
     let colState :: CollectionState
-        colState = CollectionState hmap vm sm dm col
+        colState = CollectionState hmap vm sm dm chm col
 
     -- translate all of the functions
     fnInfo <- mapM (stToIO . transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
