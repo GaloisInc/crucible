@@ -29,6 +29,7 @@ import Control.Lens
 import qualified Data.BitVector.Sized as BV
 import Data.List (findIndices)
 import           Data.String (fromString)
+import           Data.Text (Text)
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -140,8 +141,8 @@ pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "met
 pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "option", "Option"]) (M.Substs [t])
   where CTyOption t = M.TyAdt (M.textId "type::adt") (M.textId "core::option::Option") (M.Substs [t])
 
-optionDefId :: M.DefId
-optionDefId = M.textId "core::option::Option"
+optionDefIdText :: Text
+optionDefIdText = "core::option::Option"
 optionDiscrNone :: Int
 optionDiscrNone = 0
 optionDiscrSome :: Int
