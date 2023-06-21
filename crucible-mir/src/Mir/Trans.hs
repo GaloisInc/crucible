@@ -374,11 +374,16 @@ readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
 readPlace (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
         ++ " (type " ++ show tpr ++ ")"
+readPlace MirPlaceDynRef{} =
+    -- See https://github.com/GaloisInc/crucible/issues/1092
+    mirFail "readPlace not supported for dyn references"
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp (MirReferenceRepr tpr) r
 addrOfPlace (MirPlace tpr r (SliceMeta len)) =
     return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr r len
+addrOfPlace (MirPlaceDynRef dynRef) =
+    return $ MirExp DynRefRepr dynRef
 
 
 
@@ -1053,6 +1058,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
   where
     doRef (M.TySlice _) | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
     doRef M.TyStr | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
+    doRef (M.TyDynamic _) | DynRefRepr <- tpr = do
+        dynRef <- readMirRef tpr ref
+        return $ MirPlaceDynRef dynRef
     doRef _ | MirReferenceRepr tpr' <- tpr = do
         MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
     doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
@@ -1145,6 +1153,9 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
 evalPlaceProj ty (MirPlace _ _ meta) proj =
     mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
+evalPlaceProj _ MirPlaceDynRef{} _ =
+    -- See https://github.com/GaloisInc/crucible/issues/1092
+    mirFail "evalPlaceProj not supported for dyn references"
 
 --------------------------------------------------------------------------------------
 -- ** Statements
@@ -2002,7 +2013,7 @@ transVirtCall colState intrName methName dynTraitName methIndex
         $ \eqMethArgs@Refl recvTy argTys ->
     let retTy = FH.handleReturnType methFH in
 
-    checkEq recvTy dynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
+    checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
         $ \eqRecvTy@Refl ->
 
     -- Unpack vtable type

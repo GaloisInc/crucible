@@ -136,6 +136,21 @@ data MirExp s where
 -- result of lvalue evaluation.
 data MirPlace s where
     MirPlace :: C.TypeRepr ty -> R.Expr MIR s (MirReferenceType ty) -> PtrMetadata s -> MirPlace s
+    -- | This is a hack used to support @&dyn Trait@ references. Unlike other
+    -- reference types, trait objects do not use 'MirReferenceType', instead
+    -- using a custom 'AnyType' representation that wraps a
+    -- @'MirReferenceType' t@ (for some unknown @t@). The only 'MirPlaceDynRef'
+    -- operation that is currently supported is @addrOfPlace@, which supports
+    -- code that looks like @&*x@ (where @x: &dyn Trait@). This sort of
+    -- operation does arise in @rustc@-compiled MIR, even in the standard
+    -- libraries, so we must have /some/ level of support for it.
+    --
+    -- All other 'MirPlaceDynRef' operations (e.g., @readPlace@ and
+    -- @evalPlaceProj@) are unsupported and will throw an exception if
+    -- encountered. To implement these operations, we will need to change the
+    -- encoding of trait objects to use 'MirReferenceType' in a more standard
+    -- way. See <https://github.com/GaloisInc/crucible/issues/1092>.
+    MirPlaceDynRef :: R.Expr MIR s DynRefType -> MirPlace s
 
 -- | MIR supports a notion of "unsized places" - for example, it generates code
 -- like `(*s)[i]` where `s` is a slice.  To handle this, we attach the metadata
@@ -389,6 +404,7 @@ instance Show (MirExp s) where
 
 instance Show (MirPlace s) where
     show (MirPlace tr e m) = show e ++ ", " ++ show m ++ ": & " ++ show tr
+    show (MirPlaceDynRef e) = "dyn reference " ++ show e
 
 instance Show MirHandle where
     show (MirHandle _nm sig c) =

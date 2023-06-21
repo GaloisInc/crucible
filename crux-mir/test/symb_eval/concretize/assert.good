@@ -1,10 +1,10 @@
-test assert/3a1fbbbh::crux_test[0]: returned 1, FAILED
+test assert/<DISAMB>::crux_test[0]: returned 1, FAILED
 
 failures:
 
----- assert/3a1fbbbh::crux_test[0] counterexamples ----
+---- assert/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:47:17: 47:82 !test/symb_eval/concretize/assert.rs:10:5: 10:82: error: in assert/3a1fbbbh::crux_test[0]
+[Crux]   ./lib/crucible/lib.rs:48:17: 48:82 !test/symb_eval/concretize/assert.rs:10:5: 10:81: error: in assert/<DISAMB>::crux_test[0]
 [Crux]   MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
 [Crux]   	100 + 157 == 1
 
