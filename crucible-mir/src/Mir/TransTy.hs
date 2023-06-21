@@ -235,11 +235,11 @@ tyToRepr col t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
-dynRefCtx :: Ctx.Assignment C.TypeRepr (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)
-dynRefCtx = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+pattern DynRefCtx :: () => ctx ~ Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType => Ctx.Assignment C.TypeRepr ctx
+pattern DynRefCtx = Ctx.Empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-dynRefRepr :: C.TypeRepr DynRefType
-dynRefRepr = C.StructRepr dynRefCtx
+pattern DynRefRepr :: () => tp ~ DynRefType => C.TypeRepr tp
+pattern DynRefRepr = C.StructRepr DynRefCtx
 
 
 tyToReprM :: M.Ty -> MirGenerator h s ret (Some C.TypeRepr)
