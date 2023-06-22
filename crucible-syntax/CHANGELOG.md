@@ -46,6 +46,9 @@
   the `.cbl` file is parsed. See the `crucible-syntax` `README` for more
   information.
 
+  There is also now an `extern` keyword, that acts like a forward declaration
+  for global variables.
+
 # 0.2
 
 * Various functions now take a `?parserHooks :: ParserHooks ext` implicit
