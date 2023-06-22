@@ -26,7 +26,10 @@
   you add support for `PtrOpaqueType` (and opaque pointers in general) going
   forward. `crucible-llvm` still supports both kinds of pointers, so you can
   fall back to non-opaque pointers if need be.
-
+* A new `Lang.Crucible.LLVM.SimpleLoopInvariant` module has been added, which
+  provides an execution feature that facilitates reasoning about certain kinds
+  of loops (which may not terminate) using loop invariants. Note that this
+  functionality is very experimental and subject to change in the future.
 
 # 0.4
 * A new `indeterminateLoadBehavior` flag in `MemOptions` now controls now
