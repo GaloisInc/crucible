@@ -1,4 +1,4 @@
-# next
+# 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:
   * `Lang.Crucible.LLVM.MemModel`: `doStore`, `storeRaw`, `condStoreRaw`, and
     `storeConstRaw`
