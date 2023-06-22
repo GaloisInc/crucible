@@ -40,6 +40,12 @@
   Where the `setupOverridesHook` field of `SimulateProgramHooks` now serves the
   role previously filled by the function argument.
 
+* `crucible-syntax` now supports _forward declarations_. A forward declaration
+  is like a function, but lacking a body, and is useful for situations where
+  one does not know what the implementation of a function will be until after
+  the `.cbl` file is parsed. See the `crucible-syntax` `README` for more
+  information.
+
 # 0.2
 
 * Various functions now take a `?parserHooks :: ParserHooks ext` implicit
