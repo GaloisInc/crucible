@@ -1,6 +1,7 @@
 packages:
   crucible/
   crucible-concurrency/
+  crucible-mir/
   crucible-syntax/
   crux/
   crux-mir/
