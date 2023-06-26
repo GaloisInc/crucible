@@ -1,4 +1,4 @@
-# next
+# 0.7 -- 2023-06-26
 
 ## New features
 
