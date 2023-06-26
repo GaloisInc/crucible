@@ -17,7 +17,7 @@ ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
 WORKDIR /usr/local/bin
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20220812/ubuntu-22.04-bin.zip"
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20220902/ubuntu-22.04-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 ENV PATH=/root/ghcup-download/bin:/root/.ghcup/bin:$PATH
