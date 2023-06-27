@@ -1452,7 +1452,7 @@ writeArrayMemWithAllocationCheck is_allocated sym w ptr alignment arr sz m =
 
        _ -> return default_m
 
-     return (m', p1, p2)
+     return (memInsertArrayBlock (llvmPointerBlock ptr) m', p1, p2)
 
 -- | Write an array to memory.
 --
@@ -1667,6 +1667,7 @@ asMemAllocationArrayStore ::
   IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8), (SymBV sym w)))
 asMemAllocationArrayStore sym w ptr mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
+  , memMemberArrayBlock (llvmPointerBlock ptr) mem
   , [SomeAlloc _ _ (Just sz) _ _ _] <- List.nub (possibleAllocs blk_no mem)
   , Just Refl <- testEquality w (bvWidth sz) =
      do memo_nothing <- putMemoIO $ return Nothing
@@ -1688,6 +1689,7 @@ asMemMatchingArrayStore ::
   IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
 asMemMatchingArrayStore sym w ptr sz mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
+  , memMemberArrayBlock (llvmPointerBlock ptr) mem
   , Just off <- asBV (llvmPointerOffset ptr) = do
     memo_nothing <- putMemoIO $ return Nothing
     findArrayStore sym w blk_no off sz memo_nothing $ memWritesAtConstant blk_no $ memWrites mem

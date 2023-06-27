@@ -57,6 +57,8 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , emptyChanges
   , emptyMem
   , memEndian
+  , memInsertArrayBlock
+  , memMemberArrayBlock
 
     -- * Pretty printing
   , ppType
@@ -87,6 +89,8 @@ import qualified Data.List.Extra as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (mapMaybe)
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import           Numeric.Natural
 import           Prettyprinter
@@ -326,7 +330,7 @@ data MemWrite sym
 -- implementation is able to efficiently merge memories, but requires
 -- that one only merge memories that were identical prior to the last
 -- branch.
-data Mem sym = Mem { memEndianForm :: EndianForm, _memState :: MemState sym }
+data Mem sym = Mem { memEndianForm :: EndianForm, _memState :: MemState sym, memArrayBlocks :: Set Natural }
 
 memState :: Lens' (Mem sym) (MemState sym)
 memState = lens _memState (\s v -> s { _memState = v })
@@ -417,10 +421,20 @@ emptyChanges :: MemChanges sym
 emptyChanges = (mempty, mempty)
 
 emptyMem :: EndianForm -> Mem sym
-emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem 0 0 emptyChanges }
+emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem 0 0 emptyChanges, memArrayBlocks = Set.empty }
 
 memEndian :: Mem sym -> EndianForm
 memEndian = memEndianForm
+
+memInsertArrayBlock :: IsExprBuilder sym => SymNat sym -> Mem sym -> Mem sym
+memInsertArrayBlock blk mem = case asNat blk of
+  Just blk_no -> mem { memArrayBlocks = Set.insert blk_no (memArrayBlocks mem) }
+  Nothing -> mem { memArrayBlocks = Set.empty }
+
+memMemberArrayBlock :: IsExprBuilder sym => SymNat sym -> Mem sym -> Bool
+memMemberArrayBlock blk mem = case asNat blk of
+  Just blk_no -> Set.member blk_no (memArrayBlocks mem)
+  Nothing -> False
 
 
 --------------------------------------------------------------------------------
@@ -744,5 +758,6 @@ concMem ::
   sym ->
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
   Mem sym -> IO (Mem sym)
-concMem sym conc (Mem endian st) =
-  Mem endian <$> concMemState sym conc st
+concMem sym conc mem = do
+  conc_st <- concMemState sym conc $ mem ^. memState
+  return $ mem & memState .~ conc_st
