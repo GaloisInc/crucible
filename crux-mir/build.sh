@@ -73,6 +73,15 @@ translate lib/std/src/lib.rs --edition=2021 --crate-name std --cfg 'feature="add
 echo 'Building proc_macro...'
 translate lib/proc_macro/src/lib.rs --edition=2021 --crate-name proc_macro --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib
 
+echo 'Building unicode_width...'
+translate lib/unicode_width/src/lib.rs  --crate-name unicode_width --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="default"' --cfg 'feature="rustc-dep-of-std"' --cfg 'feature="std"' --extern compiler_builtins=rlibs/libcompiler_builtins.rlib --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib
+
+echo 'Building getopts...'
+translate lib/getopts/src/lib.rs  --crate-name getopts --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --cfg 'feature="std"' --extern core=rlibs/libcore.rlib --extern std=rlibs/libstd.rlib --extern unicode_width=rlibs/libunicode_width.rlib
+
+echo 'Building test...'
+translate lib/test/src/lib.rs --edition=2021 --crate-name test --cfg 'feature="backtrace"' --cfg 'feature="default"' --cfg 'feature="panic-unwind"' --cfg 'feature="std_detect_dlsym_getauxval"' --cfg 'feature="std_detect_file_io"' --extern cfg_if=rlibs/libcfg_if.rlib --extern core=rlibs/libcore.rlib --extern getopts=rlibs/libgetopts.rlib --extern libc=rlibs/liblibc.rlib --extern panic_abort=rlibs/libpanic_abort.rlib --extern panic_unwind=rlibs/libpanic_unwind.rlib --extern proc_macro=rlibs/libproc_macro.rlib --extern std=rlibs/libstd.rlib
+
 # extra libs (added manually)
 echo 'Building int512...'
 translate lib/int512.rs --crate-name int512 --extern core=rlibs/libcore.rlib --extern compiler_builtins=rlibs/libcompiler_builtins.rlib
