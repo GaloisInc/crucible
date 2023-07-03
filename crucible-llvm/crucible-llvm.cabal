@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible-llvm
-Version:       0.4
+Version:       0.5
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc 2014-2022
 Maintainer:    rdockins@galois.com
@@ -139,5 +139,5 @@ test-suite crucible-llvm-tests
     tasty,
     tasty-quickcheck,
     tasty-hunit,
-    tasty-sugar >= 2.0 && < 2.2,
+    tasty-sugar >= 2.0 && < 2.3,
     vector

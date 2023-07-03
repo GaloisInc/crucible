@@ -50,6 +50,7 @@ import           Lang.Crucible.FunctionHandle (SomeHandle(..), handleMapToHandle
 import           Lang.Crucible.Simulator.ExecutionTree (functionBindings, stateContext, fnBindings)
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Simulator.OverrideSim as Override
+import qualified Lang.Crucible.Types as CTy
 
 -- crucible-llvm
 import           Lang.Crucible.LLVM.Extension (LLVM)
@@ -71,6 +72,7 @@ import           UCCrux.LLVM.ExprTracker (ExprTracker)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(FuncSigRepr))
 import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
+import qualified UCCrux.LLVM.FullType.VarArgs as VA
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug, funcSymbolToString)
 import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Postcondition.Apply (applyPostcond)
@@ -137,6 +139,7 @@ unsoundSkipOverrides modCtx bak mtrans usedRef annotationRef postconds decls =
                           (Post.minimalUPostcond ret)
                           (Map.lookup funcSym postconds)
               in createSkipOverride modCtx bak usedRef annotationRef post funcSym
+
     pure $
       map
         create
@@ -164,8 +167,24 @@ mkOverride ::
     IO (Crucible.RegValue sym (FS.ReturnTypeToCrucibleType arch mft), MemImpl sym)) ->
   PolymorphicLLVMOverride arch (personality sym) sym
 mkOverride modCtx _proxy funcSymb impl =
+  -- There's a lot of duplication here because the case over whether or not the
+  -- function is varargs can't be pushed further down; doing so causes "type is
+  -- untouchable inside..." errors
   case modCtx ^. funcTypes . funcSymbol funcSymb of
-    Some fs@(FuncSigRepr _ argFTys retTy) ->
+    Some fs@(FuncSigRepr VA.IsVarArgsRepr argFTys retTy) ->
+      case assignmentToCrucibleType modCtx argFTys of
+        SomeAssign' argTys Refl _ ->
+          makePolymorphicLLVMOverride $
+            basic_llvm_override $
+              LLVMOverride
+                { llvmOverride_declare = decl,
+                  llvmOverride_args = argTys Ctx.:> CTy.VectorRepr CTy.AnyRepr,
+                  llvmOverride_ret = toCrucibleReturnType modCtx retTy,
+                  llvmOverride_def =
+                    \mvar _sym (args Ctx.:> _) ->
+                      Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
+                }
+    Some fs@(FuncSigRepr VA.NotVarArgsRepr argFTys retTy) ->
       case assignmentToCrucibleType modCtx argFTys of
         SomeAssign' argTys Refl _ ->
           makePolymorphicLLVMOverride $

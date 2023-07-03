@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crux-llvm
-Version:       0.6.0.99
+Version:       0.7.0.99
 Author:        Galois Inc.
 Maintainer:    iavor.diatchki@gmail.com
 Copyright:     (c) Galois, Inc 2014-2022
@@ -67,7 +67,7 @@ common bldflags
 common testdefs
   build-depends: tasty            >= 0.10
                , tasty-hunit      >= 0.10
-               , tasty-sugar      >= 2.0 && < 2.2
+               , tasty-sugar      >= 2.2 && < 2.3
 
 
 library
@@ -174,4 +174,6 @@ test-suite crux-llvm-test
   build-depends:
                 crux-llvm,
                 extra,
+                regex-base,
+                regex-posix,
                 versions

@@ -532,6 +532,8 @@ toFullTypeM ::
   f (Some (FullTypeRepr m))
 toFullTypeM memType =
   case memType of
+    PtrOpaqueType ->
+      unimplemented "toFullType" Unimplemented.PointerOpaqueType
     PtrType (MemType memType') ->
       do
         Some pointedTo <- toFullTypeM memType'

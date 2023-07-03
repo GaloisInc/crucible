@@ -147,42 +147,68 @@ instance Traversable GEPResult where
 
 
 -- | Given the data for an LLVM getelementpointer instruction,
---   preprocess the instruction into a @GEPResult@, checking
---   types, computing vectorization lanes, etc.
+-- preprocess the instruction into a @GEPResult@, checking
+-- types, computing vectorization lanes, etc.
+--
+-- As a concrete example, consider a call to
+-- @'translateGEP' inbounds baseTy basePtr elts@ with the following
+-- instruction:
+--
+-- @
+-- getelementptr [12 x i8], ptr %aptr, i64 0, i32 1
+-- @
+--
+-- Here:
+--
+-- * @inbounds@ is 'False', as the keyword of the same name is missing from
+--   the instruction. (Currently, @crucible-llvm@ ignores this information.)
+--
+-- * @baseTy@ is @[12 x i8]@. This is the type used as the basis for
+--   subsequent calculations.
+--
+-- * @basePtr@ is @ptr %aptr@. This pointer is used as the base address to
+--   start calculations from. Note that the type of @basePtr@ is /not/
+--   @baseTy@, but rather a pointer type.
+--
+-- * The @elts@ are @[i64 0, i32 1]@. These are the indices that indicate
+--   which of the elements of the aggregate object are indexed.
 translateGEP :: forall wptr m.
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   Bool              {- ^ inbounds flag -} ->
+  L.Type            {- ^ base type for calculations -} ->
   L.Typed L.Value   {- ^ base pointer expression -} ->
   [L.Typed L.Value] {- ^ index arguments -} ->
   m (GEPResult (L.Typed L.Value))
 
-translateGEP _ _ [] =
+translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
-translateGEP inbounds base elts =
-  do mt <- liftMemType (L.typedType base)
+translateGEP inbounds baseTy basePtr elts =
+  do baseMemType <- liftMemType baseTy
+     mt <- liftMemType (L.typedType basePtr)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
-     -- types), and the pointed-to type must be representable as a memory type.
-     -- The resulting memory type drives the interpretation of the GEP arguments.
+     -- types), and the base type used for calculations must be representable
+     -- as a memory type. The resulting memory type drives the interpretation of
+     -- the GEP arguments.
      case mt of
        -- Vector base case, with as many lanes as there are input pointers
-       VecType n (PtrType baseSymType)
-         | Right baseMemType <- asMemType baseSymType
+       VecType n vmt
+         | isPointerMemType vmt
          , Some lanes <- mkNatRepr n
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
-             go lanes mt' (GEP_vector_base lanes base) elts
+             go lanes mt' (GEP_vector_base lanes basePtr) elts
 
        -- Scalar base case with exactly 1 lane
-       PtrType baseSymType
-         | Right baseMemType <- asMemType baseSymType
+       _ | isPointerMemType mt
          ->  let mt' = ArrayType 0 baseMemType in
-             go (knownNat @1) mt' (GEP_scalar_base base) elts
+             go (knownNat @1) mt' (GEP_scalar_base basePtr) elts
 
-       _ -> badGEP
+         | otherwise
+         -> badGEP
  where
  badGEP :: m a
- badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds base elts) ]
+ badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy basePtr elts) ]
 
  -- This auxilary function builds up the intermediate GEP mini-instructions that compute
  -- the overall GEP, as well as the resulting memory type of the final pointers and the
@@ -410,10 +436,14 @@ transConstant' X86_FP80Type (L.ValFP80 ld) =
   return (LongDoubleConst ld)
 transConstant' (PtrType _) (L.ValSymbol s) =
   return (SymbolConst s 0)
+transConstant' PtrOpaqueType (L.ValSymbol s) =
+  return (SymbolConst s 0)
 transConstant' tp L.ValZeroInit =
   return (ZeroConst tp)
 transConstant' (PtrType stp) L.ValNull =
   return (ZeroConst (PtrType stp))
+transConstant' PtrOpaqueType L.ValNull =
+  return (ZeroConst PtrOpaqueType)
 transConstant' (VecType n tp) (L.ValVector _tp xs)
   | n == fromIntegral (length xs)
   = VectorConst tp <$> traverse (transConstant' tp) xs
@@ -924,6 +954,9 @@ evalBitCast _ _ (ZeroConst _) tgtT = return (ZeroConst tgtT)
 
 -- pointer casts always succeed
 evalBitCast _ (PtrType _) expr (PtrType _) = return expr
+evalBitCast _ (PtrType _) expr PtrOpaqueType = return expr
+evalBitCast _ PtrOpaqueType expr (PtrType _) = return expr
+evalBitCast _ PtrOpaqueType expr PtrOpaqueType = return expr
 
 -- casts between vectors of the same length can just be done pointwise
 evalBitCast expr (VecType n srcT) (VectorConst _ xs) (VecType n' tgtT)
@@ -1051,9 +1084,8 @@ transConstantExpr :: forall m wptr.
   L.ConstExpr ->
   m LLVMConst
 transConstantExpr expr = case expr of
-  L.ConstGEP _ _ _ [] -> badExp "Constant GEP must have at least two arguments"
-  L.ConstGEP inbounds _inrange _ (base:exps) -> -- TODO? pay attention to the inrange flag
-    do gep <- translateGEP inbounds base exps
+  L.ConstGEP inbounds _inrange baseTy base exps -> -- TODO? pay attention to the inrange flag
+    do gep <- translateGEP inbounds baseTy base exps
        gep' <- traverse transConstant gep
        snd <$> evalConstGEP gep'
 

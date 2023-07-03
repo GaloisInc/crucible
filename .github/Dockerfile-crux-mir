@@ -2,6 +2,8 @@ FROM rust:1.46.0 AS mir_json
 
 ADD dependencies/mir-json /mir-json
 WORKDIR /mir-json
+# Work around https://github.com/rust-lang/cargo/issues/10303
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN rustup toolchain install nightly-2020-03-22 --force
 RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
 RUN rustup default nightly-2020-03-22
@@ -21,7 +23,7 @@ RUN apt-get update && \
 COPY --from=mir_json /usr/local/cargo /usr/local/cargo
 COPY --from=mir_json /usr/local/rustup /usr/local/rustup
 WORKDIR /usr/local/bin
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20220812/ubuntu-22.04-bin.zip"
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20220902/ubuntu-22.04-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 ENV CARGO_HOME=/usr/local/cargo
@@ -45,6 +47,7 @@ ARG DIR=/crux-mir
 RUN mkdir -p ${DIR}/build
 ADD crucible ${DIR}/build/crucible
 ADD crucible-concurrency ${DIR}/build/crucible-concurrency
+ADD crucible-mir ${DIR}/build/crucible-mir
 ADD crucible-syntax ${DIR}/build/crucible-syntax
 ADD crux ${DIR}/build/crux
 ADD crux-mir ${DIR}/build/crux-mir

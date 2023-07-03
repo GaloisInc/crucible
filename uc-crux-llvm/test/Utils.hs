@@ -60,6 +60,7 @@ import qualified UCCrux.LLVM.Run.Simulate as Sim
 import qualified UCCrux.LLVM.Soundness as Sound
 
 import qualified Logging as Log
+import qualified VersionCheck as VC
 {- ORMOLU_ENABLE -}
 
 testDir :: FilePath
@@ -129,6 +130,7 @@ withOptions llvmModule file k =
     mkLLOpts libDir =
       do clang <- fromMaybe "clang" <$> lookupEnv "CLANG"
          llvmLink <- fromMaybe "llvm-link" <$> lookupEnv "LLVM_LINK"
+         clangVer <- VC.getClangVersion clang
          return $
            CruxLLVM.LLVMOptions
              { CruxLLVM.clangBin = clang
@@ -136,7 +138,7 @@ withOptions llvmModule file k =
              -- NB(lb): The -fno-wrapv here ensures that Clang will emit 'nsw' flags
              -- even on platforms using nixpkgs, which injects -fno-strict-overflow
              -- by default.
-             , CruxLLVM.clangOpts = ["-fno-wrapv"]
+             , CruxLLVM.clangOpts = "-fno-wrapv" : opaquePtrClangOpts clangVer
              , CruxLLVM.libDir = libDir
              , CruxLLVM.incDirs = []
              , CruxLLVM.targetArch = Nothing
@@ -151,6 +153,16 @@ withOptions llvmModule file k =
              , CruxLLVM.symFSRoot = Nothing
              , CruxLLVM.supplyMainArguments = CruxLLVM.NoArguments
              }
+
+    -- uc-crux-llvm does not currently support LLVM's opaque pointer type (see
+    -- issue #1075). Opaque pointers are the default on Clang 15+, so we must
+    -- explicitly disable them on those Clang versions.
+    opaquePtrClangOpts :: VC.VersionCheck -> [String]
+    opaquePtrClangOpts clangVer
+      | VC.vcGE clangVer 15
+      = ["-Xclang", "-no-opaque-pointers"]
+      | otherwise
+      = []
 
     mkCruxOpts :: [FilePath] -> Crux.CruxOptions
     mkCruxOpts files =

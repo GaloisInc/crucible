@@ -1,4 +1,4 @@
-# next
+# 0.7 -- 2023-06-26
 
 ## New features
 
@@ -10,11 +10,13 @@ subset of functions in a bitcode module are actually executed.
 
 * Added support for the `cvc5` SMT solver.
 
-* Added support for getting abducts during online goal solving. With 
-the `--get-abducts n` option, `crux-llvm` returns `n` abducts for 
+* Added support for getting abducts during online goal solving. With
+the `--get-abducts n` option, `crux-llvm` returns `n` abducts for
 each goal that the SMT solver found to be `sat`. An abduct is a formula
-that makes the goal `unsat` (would help the SMT solver prove the goal). 
+that makes the goal `unsat` (would help the SMT solver prove the goal).
 This feature only works with the `cvc5` SMT solver.
+
+* Support LLVM versions up to 16.
 
 # 0.6
 

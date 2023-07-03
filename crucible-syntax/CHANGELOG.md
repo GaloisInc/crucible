@@ -1,4 +1,4 @@
-# next
+# 0.3
 
 * The return type of `prog`:
 
@@ -39,6 +39,15 @@
 
   Where the `setupOverridesHook` field of `SimulateProgramHooks` now serves the
   role previously filled by the function argument.
+
+* `crucible-syntax` now supports _forward declarations_. A forward declaration
+  is like a function, but lacking a body, and is useful for situations where
+  one does not know what the implementation of a function will be until after
+  the `.cbl` file is parsed. See the `crucible-syntax` `README` for more
+  information.
+
+  There is also now an `extern` keyword, that acts like a forward declaration
+  for global variables.
 
 # 0.2
 

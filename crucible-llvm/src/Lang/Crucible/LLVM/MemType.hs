@@ -21,6 +21,7 @@ module Lang.Crucible.LLVM.MemType
   , ppSymType
   , ppMemType
   , memTypeBitwidth
+  , isPointerMemType
     -- ** Function type information.
   , FunDecl(..)
   , RetType
@@ -116,6 +117,10 @@ ppSymType (UnsupportedType tp) = viaShow (L.ppType tp)
 data MemType
   = IntType Natural
   | PtrType SymType
+    -- ^ A pointer with an explicit pointee type, corresponding to LLVM's
+    -- 'L.PtrTo'.
+  | PtrOpaqueType
+    -- ^ An opaque pointer type, corresponding to LLVM's 'L.PtrOpaque'.
   | FloatType
   | DoubleType
   | X86_FP80Type
@@ -140,6 +145,7 @@ ppMemType mtp =
     DoubleType -> pretty "double"
     X86_FP80Type -> pretty "long double"
     PtrType tp -> ppPtrType (ppSymType tp)
+    PtrOpaqueType -> pretty "ptr"
     ArrayType n tp -> ppArrayType n (ppMemType tp)
     VecType n tp  -> ppVectorType n (ppMemType tp)
     StructType si -> ppStructInfo si
@@ -199,6 +205,12 @@ memTypeBitwidth X86_FP80Type = Just 80
 memTypeBitwidth (VecType n tp) = (fromIntegral n *) <$> memTypeBitwidth tp
 memTypeBitwidth _ = Nothing
 
+-- | Returns 'True' if this is a pointer type.
+isPointerMemType :: MemType -> Bool
+isPointerMemType (PtrType _)   = True
+isPointerMemType PtrOpaqueType = True
+isPointerMemType _             = False
+
 -- | Return type if any.
 type RetType = Maybe MemType
 
@@ -242,6 +254,7 @@ memTypeSize dl mtp =
     DoubleType -> 8
     X86_FP80Type -> 10
     PtrType{} -> dl ^. ptrSize
+    PtrOpaqueType{} -> dl ^. ptrSize
     ArrayType n tp -> natBytesMul n (memTypeSize dl tp)
     VecType n tp -> natBytesMul n (memTypeSize dl tp)
     StructType si -> structSize si
@@ -268,6 +281,7 @@ memTypeAlign dl mtp =
                       Nothing -> panic "crucible-llvm:memTypeAlign.float80"
                                  [ "Invalid 80-bit float alignment from datalayout" ]
     PtrType{} -> dl ^. ptrAlign
+    PtrOpaqueType{} -> dl ^. ptrAlign
     ArrayType _ tp -> memTypeAlign dl tp
     VecType _n _tp -> vectorAlignment dl (memTypeSizeInBits dl mtp)
     StructType si  -> structAlign si

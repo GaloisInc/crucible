@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 struct s {
   unsigned int a;
   unsigned int b;

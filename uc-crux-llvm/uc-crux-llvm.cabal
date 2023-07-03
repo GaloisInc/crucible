@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          uc-crux-llvm
-Version:       0.2
+Version:       0.3
 Author:        Galois Inc.
 Maintainer:    Langston Barrett, Scott Moore, Tristan Ravitch
 Copyright:     (c) Galois, Inc 2021-2022
@@ -247,6 +247,7 @@ test-suite uc-crux-llvm-test
     Paths_uc_crux_llvm
     Postcond
     Utils
+    VersionCheck
     View
   autogen-modules: Paths_uc_crux_llvm
 
@@ -263,10 +264,12 @@ test-suite uc-crux-llvm-test
                 lens,
                 llvm-pretty,
                 parameterized-utils >= 2.1.4.0,
+                process,
                 tasty >= 0.10,
                 tasty-hunit >= 0.10,
                 tasty-hedgehog >= 1.2 && < 1.5,
                 text,
                 uc-crux-llvm,
                 vector,
+                versions,
                 what4
