@@ -20,8 +20,6 @@ env:
   # (symptom: "No suitable image found ... unknown file type, first
   # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
   CACHE_VERSION: 4
-  # Work around https://github.com/rust-lang/cargo/issues/10303
-  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   config:
@@ -65,13 +63,10 @@ jobs:
         os: [ubuntu-22.04]
         cabal: ["3.8.1.0"]
         ghc: ["8.10.7", "9.2.7", "9.4.4"]
-        # include:
-          # Disable the macOS build for now due to
-          # https://github.com/GaloisInc/crucible/issues/1050
-          #
-          # - os: macos-12
-          #   cabal: 3.8.1.0
-          #   ghc: 9.2.4
+        include:
+          - os: macos-12
+            cabal: 3.8.1.0
+            ghc: 9.2.7
 
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}

@@ -2,8 +2,6 @@ FROM rust:1.46.0 AS mir_json
 
 ADD dependencies/mir-json /mir-json
 WORKDIR /mir-json
-# Work around https://github.com/rust-lang/cargo/issues/10303
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN rustup toolchain install nightly-2020-03-22 --force
 RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
 RUN rustup default nightly-2020-03-22
