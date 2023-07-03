@@ -3,7 +3,8 @@
 set -e
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-RLIBS_PARENT="${SCRIPT_DIR}/rlibs"
+RLIBS_PARENT="${SCRIPT_DIR}/rlibs_real"
+RLIBS_SYMLINK="${SCRIPT_DIR}/rlibs"
 RLIBS=$(rustc --print target-libdir --sysroot "${RLIBS_PARENT}")
 STD_ENV_ARCH=$(uname -m)
 export STD_ENV_ARCH
@@ -17,6 +18,10 @@ mkdir -p "${RLIBS_PARENT}/etc"
 mkdir -p "${RLIBS_PARENT}/lib"
 mkdir -p "${RLIBS_PARENT}/libexec"
 mkdir -p "${RLIBS_PARENT}/share"
+mkdir -p "${RLIBS}"
+if [ ! -d "${RLIBS_SYMLINK}" ]; then
+  ln -s "${RLIBS}" "${RLIBS_SYMLINK}"
+fi
 
 echo 'Building core...'
 translate lib/core/src/lib.rs --edition=2021 --crate-name core
