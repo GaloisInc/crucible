@@ -2,8 +2,11 @@ name: crux-llvm
 
 on:
   push:
+    tags: ["crux-v?[0-9]+.[0-9]+(.[0-9]+)?"]
     branches: [master, "release-**"]
   pull_request:
+  schedule:
+    - cron: "0 10 * * *" # 10am UTC -> 2/3am PST
   workflow_dispatch:
 
 # The CACHE_VERSION can be updated to force the use of a new cache if
@@ -20,24 +23,41 @@ env:
   CACHE_VERSION: 1
 
 jobs:
-  outputs:
+  config:
     runs-on: ubuntu-22.04
     outputs:
-      changed: ${{ steps.outputs.outputs.changed-files }}
-      name: ${{ steps.outputs.outputs.name }}
-      crux-llvm-version: ${{ steps.outputs.outputs.crux-llvm-version }}
+      name: ${{ steps.config.outputs.name }}
+      crux-llvm-version: ${{ steps.config.outputs.crux-llvm-version }}
+      event-tag: ${{ steps.config.outputs.tag }}
+      event-schedule: ${{ steps.config.outputs.schedule }}
+      publish: ${{ steps.config.outputs.publish }}
       release: ${{ steps.env.outputs.release }}
+      retention-days: ${{ steps.config.outputs.retention-days }}
     steps:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - id: outputs
+
+      - name: config
+        id: config
+        env:
+          EVENT_TAG: ${{ startsWith(github.event.ref, 'refs/tags/') }}
+          EVENT_SCHEDULE: ${{ github.event_name == 'schedule' }}
+          EVENT_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+          RELEASE: ${{ startsWith(github.event.ref, 'refs/heads/release-crux-') }}
         run: |
-          .github/ci.sh set_crux_llvm_version
+          set -x
+          .github/ci.sh output name crux-llvm-$(.github/ci.sh crux_llvm_ver)
+          .github/ci.sh output crux-llvm-version $(.github/ci.sh crux_llvm_ver)
+          .github/ci.sh output tag $EVENT_TAG
+          .github/ci.sh output schedule $EVENT_SCHEDULE
+          .github/ci.sh output publish $({ $EVENT_TAG || $EVENT_SCHEDULE; } && echo true || echo false)
+          .github/ci.sh output release $([[ "refs/heads/release-$(.github/ci.sh crux_llvm_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
+          .github/ci.sh output retention-days $($RELEASE && echo 90 || echo 5)
 
   build:
     runs-on: ${{ matrix.os }}
-    needs: [outputs]
+    needs: [config]
     env:
       CI_TEST_LEVEL: "1"
     strategy:
@@ -226,13 +246,13 @@ jobs:
       - name: Create binary artifact
         shell: bash
         run: |
-          NAME="crux-llvm-${{ needs.outputs.outputs.crux-llvm-version }}-${{ matrix.os }}-x86_64"
+          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-x86_64"
           echo "NAME=$NAME" >> $GITHUB_ENV
           .github/ci.sh bundle_crux_llvm_files
         if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
-          VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
+          VERSION: ${{ needs.config.outputs.crux-llvm-version }}
 
       - name: Sign binary artifact
         # The SIGNING_PASSPHRASE and SIGNING_KEY secrets are only available on
@@ -261,3 +281,76 @@ jobs:
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
           key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
+
+  build-push-image:
+    runs-on: ubuntu-22.04
+    needs: [config]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - file: .github/Dockerfile-crux-llvm
+            image: ghcr.io/galoisinc/crux-llvm
+            cache: ghcr.io/galoisinc/cache-crux-llvm
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      - uses: rlespinasse/github-slug-action@v3.x
+
+      - id: common-tag
+        run: |
+          echo "::set-output name=common-tag::$GITHUB_REF_SLUG"
+          echo "COMMON_TAG=$GITHUB_REF_SLUG" >> $GITHUB_ENV
+
+      - uses: docker/setup-buildx-action@v1
+
+      - uses: crazy-max/ghaction-docker-meta@v1
+        name: Labels
+        id: labels
+        with:
+          images: ${{ matrix.image }}
+
+      - uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v2
+        with:
+          context: .
+          tags: ${{ matrix.image }}:${{ steps.common-tag.outputs.common-tag }}
+          labels: ${{ steps.labels.outputs.labels }}
+          load: true
+          push: false
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.build-args }}
+          cache-from: |
+            type=registry,ref=${{ matrix.cache }}:${{ steps.prefix.outputs.prefix }}master
+            type=registry,ref=${{ matrix.cache }}:${{ steps.common-tag.outputs.common-tag }}
+
+      - name: Cache image build
+        uses: docker/build-push-action@v2
+        continue-on-error: true  # Tolerate cache upload failures - this should be handled better
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.build-args }}
+          cache-to: type=registry,ref=${{ matrix.cache }}:${{ steps.common-tag.outputs.common-tag }},mode=max
+
+      - if: needs.config.outputs.event-schedule == 'true'
+        name: ${{ matrix.image }}:nightly
+        run: |
+          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:nightly
+          docker push ${{ matrix.image }}:nightly
+
+      - if: needs.config.outputs.release == 'true'
+        name: ${{ matrix.image }}:${{ needs.config.outputs.version }}
+        run: |
+          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.version }}
+          docker push ${{ matrix.image }}:${{ needs.config.outputs.version }}
+          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:latest
+          docker push ${{ matrix.image }}:latest
