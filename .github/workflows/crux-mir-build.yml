@@ -101,7 +101,7 @@ jobs:
       - name: Install latest Rust nightly
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2020-03-22
+          toolchain: nightly-2023-01-23
           override: true
           components: rustc-dev
 
