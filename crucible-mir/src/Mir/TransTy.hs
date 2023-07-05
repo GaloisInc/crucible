@@ -236,10 +236,10 @@ tyToRepr col t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
-pattern DynRefCtx :: () => ctx ~ Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType => Ctx.Assignment C.TypeRepr ctx
+pattern DynRefCtx :: () => (ctx ~ Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType) => Ctx.Assignment C.TypeRepr ctx
 pattern DynRefCtx = Ctx.Empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-pattern DynRefRepr :: () => tp ~ DynRefType => C.TypeRepr tp
+pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
 pattern DynRefRepr = C.StructRepr DynRefCtx
 
 
