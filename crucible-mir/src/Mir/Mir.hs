@@ -353,6 +353,8 @@ data Rvalue =
       | ThreadLocalRef DefId Ty
     deriving (Show,Eq, Ord, Generic)
 
+-- | An aggregate ADT expression. Currently, this is only used for enums (see
+-- "Mir.Pass.AllocateEnum").
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
     deriving (Show, Eq, Ord, Generic)
 

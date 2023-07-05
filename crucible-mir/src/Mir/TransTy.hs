@@ -937,17 +937,43 @@ buildEnum' adt i es = do
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
 
--- | TODO RGS: Add lots of documentation
+-- It is possible for an enum to be initialized in MIR without providing
+-- explicit assignments for all of its fields. As an example, imagine the value
+-- @Ok(())@ of type @Result<(), i32>@. MIR is liable to construct this like so:
+--
+-- @
+-- let mut _0 : Result<(), i32>;
+-- discr(_0) = 0
+-- @
+--
+-- Note that there is no statement for explicitly initializing the first field
+-- of @Ok@ to @()@. This is by design, as @()@ is a zero-sized type (ZST). While
+-- ZSTs need not appear explicitly in MIR, we would like to have explicit
+-- representations for them in Crucible. This function is responsible for
+-- constructing these explicit representations.
+--
+-- The approach that this function takes is pretty simple: if we encounter a
+-- variant with the same number of types as field values, then return the values
+-- unchanged. If there are fewer values than types, then we assume that any ZSTs
+-- have elided the fields of the corresponding types, so we insert these values
+-- into the list ourselves. We use 'initialValue' to construct a reasonable
+-- value of each ZST.
+--
+-- Note that we are doing this step somewhat late in the pipeline. An
+-- alternative approach would be to infer these missing values in
+-- "Mir.Pass.AllocateEnum", when the enum variant initialization is first
+-- handled. This would require some additional refactoring, so we have not yet
+-- pursued this option.
 inferElidedVariantFields :: [M.Ty] -> [Maybe (MirExp s)]
                          -> MirGenerator h s ret [Maybe (MirExp s)]
 inferElidedVariantFields ftys fes
-  | length ftys == length fes -- TODO RGS: This is fishy. Consider an alternative approach.
+  | length ftys == length fes
   = pure fes
   | otherwise
   = go ftys fes
   where
     go [] [] = pure []
-    go [] (_:_) = mirFail $ unlines [ "inferElidedVariantFields: more expressions than types"
+    go [] (_:_) = mirFail $ unlines [ "inferElidedVariantFields: too many expressions"
                                     , "types:       " ++ show ftys
                                     , "expressions: " ++ show fes
                                     ]
