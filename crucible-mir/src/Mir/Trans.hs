@@ -982,7 +982,12 @@ evalRval (M.Len lv) =
         M.TyArray _ len ->
             return $ MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral len
         ty@(M.TySlice _) -> do
-            MirPlace _tpr _ref meta <- evalPlace lv
+            place <- evalPlace lv
+            meta <- case place of
+                MirPlace _tpr _ref meta -> pure meta
+                MirPlaceDynRef{} ->
+                    -- See https://github.com/GaloisInc/crucible/issues/1092
+                    mirFail "evalRval (length of slice) not supported for dyn references"
             case meta of
                 SliceMeta len -> return $ MirExp UsizeRepr len
                 _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
@@ -1193,11 +1198,16 @@ doAssignCoerce lv ty exp =
 
 doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 doAssign lv (MirExp tpr val) = do
-    MirPlace tpr' ref _ <- evalPlace lv
-    Refl <- testEqualityOrFail tpr tpr' $
-        "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
-            ++ " (" ++ show (M.typeOf lv) ++ ") " ++ show lv
-    writeMirRef ref val
+    place <- evalPlace lv
+    case place of
+        MirPlaceDynRef{} ->
+            -- See https://github.com/GaloisInc/crucible/issues/1092
+            mirFail "doAssign not supported for dyn references"
+        MirPlace tpr' ref _ -> do
+            Refl <- testEqualityOrFail tpr tpr' $
+                "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
+                    ++ " (" ++ show (M.typeOf lv) ++ ") " ++ show lv
+            writeMirRef ref val
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
