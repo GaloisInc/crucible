@@ -35,8 +35,7 @@ fn test_ffs_correct_concrete() {
 }
 
 /// Check that ffs_fast and ffs_ref produce the same output on *every* input.
-#[cfg(crux)]
-#[crux_test]
+#[cfg_attr(crux, crux::test)]
 fn test_ffs_correct() {
     let x = u32::symbolic("x");
     let a = ffs_ref(x);
