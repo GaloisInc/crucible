@@ -87,17 +87,8 @@ initialize and recursively update submodules.  You will find it most
 convenient to setup public-key login for GitHub before you perform
 this step.
 
-Now, you may use either `stack` or `cabal new-build` to compile the
-libraries, as you prefer.
-
-```
-ls stack-ghc-*.yaml
-# Choose the GHC version you prefer
-ln -s stack-ghc-<version>.yaml stack.yaml
-./scripts/build-sandbox.sh
-stack setup
-stack build
-```
+Crucible can be built with the `cabal` tool (although it is not compatible with
+the old/v1 cabal version).
 
 ```
 ./scripts/build-sandbox.sh
@@ -111,10 +102,7 @@ Alternately, you can target a more specific sub-package instead of `all`.
 Testing and Coverage
 --------------------
 
-Testing with coverage tracking is currently only available via
-`stack`, as `cabal new-*` [does not yet support coverage](https://github.com/haskell/cabal/issues/5213).
-Use `scripts/stack-test-coverage.sh` to generate a coverage
-report for all test suites.
+Testing with coverage tracking is done via `cabal test --enable-coverage ...`
 
 Notes on Freeze Files
 ---------------------
