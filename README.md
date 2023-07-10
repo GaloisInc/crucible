@@ -96,7 +96,10 @@ Alternately, you can target a more specific sub-package instead of `all`.
 Testing and Coverage
 --------------------
 
-Testing with coverage tracking is done via `cabal test --enable-coverage ...`
+Testing with coverage tracking is done via `cabal test --enable-coverage ...`  or
+`cabal configure --enable-coverage`, although additional workarounds will be
+needed as noted in https://github.com/galoisinc/crucible/issues/884 and
+https://github.com/haskell/cabal/issues/6440.
 
 Notes on Freeze Files
 ---------------------
