@@ -80,27 +80,12 @@ directory for details).
 
 Quick start
 -------------
-To fetch all the latest git versions of immediate dependencies of
-libraries in this repository, use the `scripts/build-sandbox.sh` shell
-script; alternately, you can manually invoke the git commands to
-initialize and recursively update submodules.  You will find it most
-convenient to setup public-key login for GitHub before you perform
-this step.
+Clone this repository and checkout the immediate submodules to supply the needed
+dependencies (`git submodule update --init`).
 
-Now, you may use either `stack` or `cabal new-build` to compile the
-libraries, as you prefer.
+Crucible can be built with the `cabal` tool:
 
 ```
-ls stack-ghc-*.yaml
-# Choose the GHC version you prefer
-ln -s stack-ghc-<version>.yaml stack.yaml
-./scripts/build-sandbox.sh
-stack setup
-stack build
-```
-
-```
-./scripts/build-sandbox.sh
 cabal update
 cabal new-configure
 cabal new-build all
@@ -111,10 +96,10 @@ Alternately, you can target a more specific sub-package instead of `all`.
 Testing and Coverage
 --------------------
 
-Testing with coverage tracking is currently only available via
-`stack`, as `cabal new-*` [does not yet support coverage](https://github.com/haskell/cabal/issues/5213).
-Use `scripts/stack-test-coverage.sh` to generate a coverage
-report for all test suites.
+Testing with coverage tracking is done via `cabal test --enable-coverage ...`  or
+`cabal configure --enable-coverage`, although additional workarounds will be
+needed as noted in https://github.com/galoisinc/crucible/issues/884 and
+https://github.com/haskell/cabal/issues/6440.
 
 Notes on Freeze Files
 ---------------------
