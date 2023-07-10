@@ -80,18 +80,12 @@ directory for details).
 
 Quick start
 -------------
-To fetch all the latest git versions of immediate dependencies of
-libraries in this repository, use the `scripts/build-sandbox.sh` shell
-script; alternately, you can manually invoke the git commands to
-initialize and recursively update submodules.  You will find it most
-convenient to setup public-key login for GitHub before you perform
-this step.
+Clone this repository and checkout the immediate submodules to supply the needed
+dependencies (`git submodule update --init`).
 
-Crucible can be built with the `cabal` tool (although it is not compatible with
-the old/v1 cabal version).
+Crucible can be built with the `cabal` tool:
 
 ```
-./scripts/build-sandbox.sh
 cabal update
 cabal new-configure
 cabal new-build all
