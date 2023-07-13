@@ -31,7 +31,7 @@ fn t2(i:Arc<AtomicI32>, j:Arc<AtomicI32>, m:Arc<Mutex<()>>)
     }
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn triangular_1()
 {
     let i = Arc::new(AtomicI32::new(3));
@@ -58,7 +58,7 @@ fn triangular_1()
     crucible_assert!(! (condI || condJ) );
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn triangular_2()
 {
     let i = Arc::new(AtomicI32::new(3));

@@ -10,7 +10,7 @@ fn g(cond: bool) -> u8 {
     if !cond { 10 } else { 20 }
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> u8 {
     f(true) + g(true)
 }

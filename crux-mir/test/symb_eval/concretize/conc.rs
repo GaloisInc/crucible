@@ -1,7 +1,7 @@
 extern crate crucible;
 use crucible::*;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> (u8, u8) {
     let mut x = u8::symbolic("x");
     let mut y = u8::symbolic("y");

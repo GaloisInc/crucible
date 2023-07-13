@@ -2,7 +2,7 @@
 #[macro_use] extern crate crucible;
 use crucible::*;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 pub fn f() {
     // This call should be replaced by the test override
     let foo = crucible_i8("foo");

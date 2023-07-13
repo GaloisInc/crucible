@@ -1,7 +1,7 @@
 extern crate crucible;
 use crucible::*;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> u8 {
     let s = if bool::symbolic("cond") { "a" } else { "b" };
     let x = u8::symbolic(s);

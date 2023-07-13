@@ -24,7 +24,7 @@ fn cas(tab:&Arc<Vec<Mutex<i32>>>, h:usize, val:i32, new_val:i32) -> i32
 }
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn indexer() {
     let mut tab = vec![];
     let mut ts  = vec![];

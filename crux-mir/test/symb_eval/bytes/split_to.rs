@@ -3,7 +3,7 @@
 extern crate bytes;
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 pub fn f() {
     let mut b = BytesMut::with_capacity(10);
     b.put_u32_be(0x01020304);

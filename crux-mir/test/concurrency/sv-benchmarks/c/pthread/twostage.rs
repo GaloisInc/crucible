@@ -59,7 +59,7 @@ fn twostage_test(t_threads: usize, r_threads: usize) {
     }
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn twostage_3() {
     twostage_test(2,1);
 }

@@ -1,6 +1,6 @@
 #![allow(arithmetic_overflow)]
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> u8 {
     let x = 200;
     100 + x

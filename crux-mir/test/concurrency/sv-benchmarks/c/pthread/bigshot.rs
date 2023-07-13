@@ -5,7 +5,7 @@ use std::thread;
 use std::sync::{Arc,Mutex};
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn bigshot_p() {
     let v = Arc::new(Mutex::new(None));
 
@@ -35,7 +35,7 @@ fn bigshot_p() {
 }
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn bigshot_s() {
     let v = Arc::new(Mutex::new(None));
 
@@ -65,7 +65,7 @@ fn bigshot_s() {
 }
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn bigshot_s2() {
     let v = Arc::new(Mutex::new(None));
 

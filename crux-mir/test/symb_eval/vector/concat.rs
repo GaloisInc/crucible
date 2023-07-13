@@ -2,7 +2,7 @@
 #[macro_use] extern crate crucible;
 use crucible::vector::Vector;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 pub fn f() {
     let v1 = Vector::<u8>::new().push(1).push(2);
     let v2 = Vector::<u8>::new().push(3).push(4);

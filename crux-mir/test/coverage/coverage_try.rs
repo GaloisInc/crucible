@@ -11,7 +11,7 @@ fn f() -> Option<u8> {
     x.checked_add(y)
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> u8 {
     f().unwrap_or(0)
 }

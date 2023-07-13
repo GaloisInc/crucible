@@ -7,7 +7,7 @@ enum E {
     C = 30,
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> i32 {
     let x = u8::symbolic("x");
     crucible_assume!(x != 1);

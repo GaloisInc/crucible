@@ -2,7 +2,7 @@ extern crate crucible;
 use crucible::*;
 use crucible::sym_bytes::SymBytes;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> u8 {
     let sym1 = SymBytes::zeroed(5);
     // Should succeed - sym1[0] is zero.  In fact, this should get simplified away and not produce

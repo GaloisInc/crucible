@@ -3,7 +3,7 @@ use crucible::bitvector::Bv256;
 use crucible::crucible_assert;
 use crucible::Symbolic;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() {
     {
         let (a, b) = <(u64, u64)>::symbolic("ab");

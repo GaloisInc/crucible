@@ -125,7 +125,7 @@ fn t2_bad(m : Arc<Mutex<Queue>>) {
     }
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test_fails() {
     let mut q = Queue::new();
     q.enqueue_flag = true;
@@ -149,7 +149,7 @@ fn crux_test_fails() {
     h2.join();
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test_succeeds() {
     let mut q = Queue::new();
     q.enqueue_flag = true;

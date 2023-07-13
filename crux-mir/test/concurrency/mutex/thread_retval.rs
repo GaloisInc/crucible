@@ -4,7 +4,7 @@ use std::thread;
 use std::sync::{Arc,Mutex};
 
 #[cfg(not(with_main))]
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() {
     let N       = 2;
     let V       = 3;

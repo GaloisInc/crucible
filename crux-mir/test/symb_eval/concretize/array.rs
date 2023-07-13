@@ -2,7 +2,7 @@ extern crate crucible;
 use crucible::*;
 use crucible::array::Array;
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 fn crux_test() -> (i32, i32, i32) {
     let arr = Array::symbolic("arr");
     let s = arr.as_slice(0, 3);

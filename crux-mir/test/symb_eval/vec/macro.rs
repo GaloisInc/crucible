@@ -1,5 +1,5 @@
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 pub fn f() {
     let v = vec![1, 2, 3];
     assert!(v.len() == 3);

@@ -70,7 +70,7 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s
 }
 
-#[cfg_attr(crux, crux::test)]
+#[crux::test]
 pub fn f() {
     let a0 = crucible_u64("a0");
     let a1 = crucible_u64("a1");
