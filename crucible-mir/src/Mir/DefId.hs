@@ -64,20 +64,14 @@ data DefId = DefId
 
 makeLenses ''DefId
 
--- | The crate disambiguator hash produced when the crate metadata string is
--- empty. This is useful for creating 'DefId's for thing that do not have a
--- disambiguator associated with it (e.g., Crucible names).
-defaultDisambiguator :: Text
-defaultDisambiguator = "3a1fbbbh"
-
 -- | Parse a string into a `DefId`.
 --
 -- For convenience when writing literal paths in the Haskell source, both types
 -- of disambiguators are optional.  If the crate disambiguator is omitted, then
--- it's assumed to be `defaultDisambiguator`, and if a segment disambiguator is
--- omitted elsewhere in the path, it's assumed to be zero.  So you can write,
--- for example, `foo::bar::Baz`, and parsing will expand it to the
--- canonical form `foo/3a1fbbbh::bar[0]::Baz[0]`.
+-- an exception is thrown. If a segment disambiguator is omitted elsewhere in
+-- the path, it's assumed to be zero.  So you can write, for example,
+-- `foo/3a1fbbbh::bar::Baz`, and parsing will expand it to the canonical form
+-- `foo/3a1fbbbh::bar[0]::Baz[0]`.
 textId :: Text -> DefId
 textId s = DefId crate disambig segs
   where
@@ -86,7 +80,7 @@ textId s = DefId crate disambig segs
         x:xs -> (x, xs)
 
     (crate, disambig) = case T.splitOn "/" crateStr of
-        [x] -> (x, defaultDisambiguator)
+        [x] -> error $ "textId: No crate disambiguator for: " ++ T.unpack x
         [x, y] -> (x, y)
         _ -> error $ "textId: malformed crate name " ++ show crateStr
 

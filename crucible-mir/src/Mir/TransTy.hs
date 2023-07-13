@@ -100,49 +100,48 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 -- Custom type aliases
 pattern CTyInt512 <- M.TyAdt _ $(M.explodedDefIdPat ["int512", "Int512"]) (M.Substs [])
-  where CTyInt512 = M.TyAdt (M.textId "type::adt") (M.textId "int512::Int512") (M.Substs [])
 pattern CTyBox t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "boxed", "Box"]) (M.Substs [t])
-  where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
+
 pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "mem", "maybe_uninit", "MaybeUninit"]) (M.Substs [t])
-  where CTyMaybeUninit t = M.TyAdt (M.textId "type::adt") (M.textId "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
+
+maybeUninitExplodedDefId :: M.ExplodedDefId
+maybeUninitExplodedDefId = ["core", "mem", "maybe_uninit", "MaybeUninit"]
+
 -- `UnsafeCell` isn't handled specially inside baseline `crucible-mir`, but
 -- `crux-mir-comp` looks for it (using this pattern synonym).
 pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "cell", "UnsafeCell"]) (M.Substs [t])
-  where CTyUnsafeCell t = M.TyAdt (M.textId "type::adt") (M.textId "core::cell::UnsafeCell") (M.Substs [t])
+
 pattern CTyVector t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "vector", "Vector"]) (M.Substs [t])
-  where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
+
+vectorExplodedDefId :: M.ExplodedDefId
+vectorExplodedDefId = ["crucible", "vector", "Vector"]
+
 pattern CTyArray t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "array", "Array"]) (M.Substs [t])
-  where CTyArray t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::array::Array") (M.Substs [t])
 
 pattern CTyBvSize128 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_128"]) (M.Substs [])
-  where CTyBvSize128 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_128") (M.Substs [])
 pattern CTyBvSize256 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_256"]) (M.Substs [])
-  where CTyBvSize256 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_256") (M.Substs [])
 pattern CTyBvSize512 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_512"]) (M.Substs [])
-  where CTyBvSize512 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_512") (M.Substs [])
 pattern CTyBv t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "Bv"]) (M.Substs [t])
-  where CTyBv t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::Bv") (M.Substs [t])
-pattern CTyBv128 = CTyBv CTyBvSize128
-pattern CTyBv256 = CTyBv CTyBvSize256
-pattern CTyBv512 = CTyBv CTyBvSize512
+pattern CTyBv128 <- CTyBv CTyBvSize128
+pattern CTyBv256 <- CTyBv CTyBvSize256
+pattern CTyBv512 <- CTyBv CTyBvSize512
+
+bvExplodedDefId :: M.ExplodedDefId
+bvExplodedDefId = ["crucible", "bitvector", "Bv"]
 
 pattern CTyAny <- M.TyAdt _ $(M.explodedDefIdPat ["core", "crucible", "any", "Any"]) (M.Substs [])
-  where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "core::crucible::any::Any") (M.Substs [])
 
 pattern CTyMethodSpec <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpec"]) (M.Substs [])
-  where CTyMethodSpec = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpec") (M.Substs [])
 
 pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpecBuilder"]) (M.Substs [])
-  where CTyMethodSpecBuilder = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
 
 
 -- These don't have custom representation, but are referenced in various
 -- places.
 pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "option", "Option"]) (M.Substs [t])
-  where CTyOption t = M.TyAdt (M.textId "type::adt") (M.textId "core::option::Option") (M.Substs [t])
 
-optionDefIdText :: Text
-optionDefIdText = "core::option::Option"
+optionExplodedDefId :: M.ExplodedDefId
+optionExplodedDefId = ["core", "option", "Option"]
 optionDiscrNone :: Int
 optionDiscrNone = 0
 optionDiscrSome :: Int
@@ -305,13 +304,6 @@ tyAdtDef _ _ = Nothing
 -- | If the `Adt` is a `repr(transparent)` struct with at most one
 -- non-zero-sized field, return the index of that field.
 findReprTransparentField :: M.Collection -> M.Adt -> Maybe Int
-findReprTransparentField _ adt
-  -- Special case: Box<T> isn't repr(transparent), but we pretend that it is.
-  -- Since its inner `Unique<T>` pointer is repr(transparent), this results in
-  -- Box<T> being represented as a plain `MirReference`.  This simplifies some
-  -- parts of the translation, namely the `Box` operator and the `Deref`
-  -- projection (which can be applied to boxes just like ordinary refs).
-  | adt ^. M.adtOrigDefId == M.textId "alloc::boxed::Box" = Just 0
 findReprTransparentField col adt = do
   guard $ adt ^. M.adtReprTransparent
   [v] <- return $ adt ^. M.adtvariants

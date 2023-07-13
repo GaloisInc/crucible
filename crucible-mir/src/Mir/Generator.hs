@@ -473,17 +473,36 @@ findAdtInst origName substs = do
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show (origName, substs)
 
--- | Find the 'DefId' corresponding to the supplied text. This consults the
--- 'crateHashesMap' to ensure that the crate's disambiguator is correct. If a
--- crate name is ambiguous (i.e., if there are multiple disambiguators
--- associated with the crate name), this will throw an error.
-findDefId :: Text -> MirGenerator h s ret DefId
-findDefId str = do
+-- Like findAdtInst, but with an `ExplodedDefId` instead of a `DefId`. This uses
+-- `findDefId` to compute the `DefId`.
+findExplodedAdtInst :: ExplodedDefId -> Substs -> MirGenerator h s ret Adt
+findExplodedAdtInst edid substs = do
+    did <- findDefId edid
+    findAdtInst did substs
+
+-- Like findExplodedAdtInst, but returning a `TyAdt`.
+findExplodedAdtTy :: ExplodedDefId -> Substs -> MirGenerator h s ret Ty
+findExplodedAdtTy edid substs = do
+    adt <- findExplodedAdtInst edid substs
+    pure $ TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
+
+-- | Find the 'DefId' corresponding to the supplied 'ExplodedDefId'. This
+-- consults the 'crateHashesMap' to ensure that the crate's disambiguator is
+-- correct. If a crate name is ambiguous (i.e., if there are multiple
+-- disambiguators associated with the crate name), this will throw an error.
+findDefId :: ExplodedDefId -> MirGenerator h s ret DefId
+findDefId edid = do
     crateDisambigs <- use $ cs . crateHashesMap
+    (crate, path) <-
+      case edid of
+        crate:path -> pure (crate, path)
+        [] -> mirFail "findDefId: DefId with no crate"
+    let crateStr = Text.unpack crate
     case Map.lookup crate crateDisambigs of
         Just allDisambigs@(disambig :| otherDisambigs)
           |  F.null otherDisambigs
-          -> pure $ partialDefId & didCrateDisambig .~ disambig
+          -> pure $ textId $ Text.intercalate "::"
+                  $ (crate <> "/" <> disambig) : path
           |  otherwise
           -> mirFail $ unlines $
                [ "ambiguous crate " ++ crateStr
@@ -491,9 +510,7 @@ findDefId str = do
                ] ++ F.toList (Text.unpack <$> allDisambigs)
         Nothing -> mirFail $ "unknown crate " ++ crateStr
   where
-    partialDefId = textId str
-    crate = partialDefId^.didCrate
-    crateStr = Text.unpack crate
+    -- partialDefId = textId str
 
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a

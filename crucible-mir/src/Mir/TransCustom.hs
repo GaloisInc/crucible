@@ -278,7 +278,9 @@ vector_pop = ( ["crucible","vector","{impl}", "pop"], ) $ \substs -> case substs
             meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
             -- `Option<T>` must exist because it appears in the return type.
             meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
-            buildTupleMaybeM [CTyVector t, CTyOption t] [Just meInit, Just meLast]
+            vectorTy <- findExplodedAdtTy vectorExplodedDefId (Substs [t])
+            optionTy <- findExplodedAdtTy optionExplodedDefId (Substs [t])
+            buildTupleMaybeM [vectorTy, optionTy] [Just meInit, Just meLast]
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
     _ -> Nothing
 
@@ -289,7 +291,9 @@ vector_pop_front = ( ["crucible","vector","{impl}", "pop_front"], ) $ \substs ->
             -- `Option<T>` must exist because it appears in the return type.
             meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
             meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
-            buildTupleMaybeM [CTyOption t, CTyVector t] [Just meHead, Just meTail]
+            optionTy <- findExplodedAdtTy optionExplodedDefId (Substs [t])
+            vectorTy <- findExplodedAdtTy vectorExplodedDefId (Substs [t])
+            buildTupleMaybeM [optionTy, vectorTy] [Just meHead, Just meTail]
         _ -> mirFail $ "bad arguments for Vector::pop_front: " ++ show ops
     _ -> Nothing
 
@@ -333,7 +337,8 @@ vector_split_at = ( ["crucible","vector","{impl}", "split_at"], ) $ \substs -> c
             let eIdxNat = R.App $ usizeToNat eIdx
             mePre <- MirExp (C.VectorRepr tpr) <$> vectorTake tpr eVec eIdxNat
             meSuf <- MirExp (C.VectorRepr tpr) <$> vectorDrop tpr eVec eIdxNat
-            buildTupleMaybeM [CTyVector t, CTyVector t] [Just mePre, Just meSuf]
+            vectorTy <- findExplodedAdtTy vectorExplodedDefId (Substs [t])
+            buildTupleMaybeM [vectorTy, vectorTy] [Just mePre, Just meSuf]
         _ -> mirFail $ "bad arguments for Vector::split_at: " ++ show ops
     _ -> Nothing
 
@@ -1362,11 +1367,13 @@ type BVMakeLiteral = forall ext f w.
 
 bv_literal :: Text -> BVMakeLiteral -> (ExplodedDefId, CustomRHS)
 bv_literal name op = (["crucible", "bitvector", "{impl}", name], \(Substs [sz]) ->
-    Just $ CustomOp $ \_optys _ops -> tyToReprM (CTyBv sz) >>= \(Some tpr) -> case tpr of
-        C.BVRepr w ->
-            return $ MirExp (C.BVRepr w) $ S.app $ op w
-        _ -> mirFail $
-            "BUG: invalid type param for bv_" ++ Text.unpack name ++ ": " ++ show sz)
+    Just $ CustomOp $ \_optys _ops -> do
+        bvTy <- findExplodedAdtTy bvExplodedDefId (Substs [sz])
+        tyToReprM bvTy >>= \(Some tpr) -> case tpr of
+            C.BVRepr w ->
+                return $ MirExp (C.BVRepr w) $ S.app $ op w
+            _ -> mirFail $
+                "BUG: invalid type param for bv_" ++ Text.unpack name ++ ": " ++ show sz)
 
 bv_leading_zeros :: (ExplodedDefId, CustomRHS)
 bv_leading_zeros =
@@ -1578,9 +1585,7 @@ maybe_uninit_uninit :: (ExplodedDefId, CustomRHS)
 maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
     \substs -> case substs of
         Substs [t] -> Just $ CustomOp $ \_ _ -> do
-            maybeUninitDefId <- findDefId "core::mem::maybe_uninit::MaybeUninit"
-            adt <- findAdtInst maybeUninitDefId (Substs [t])
-            let t = TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
+            t <- findExplodedAdtTy maybeUninitExplodedDefId (Substs [t])
             initialValue t >>= \mv -> case mv of
                 Just v -> return v
                 Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
@@ -1683,8 +1688,7 @@ unwrapMirExp tpr (MirExp tpr' e)
 maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
     MirGenerator h s ret (MirExp s)
 maybeToOption ty tpr e = do
-    optionDefId <- findDefId optionDefIdText
-    adt <- findAdtInst optionDefId (Substs [ty])
+    adt <- findExplodedAdtInst optionExplodedDefId (Substs [ty])
     e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
         (\val -> buildEnum adt optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)
         (buildEnum adt optionDiscrNone [] >>= unwrapMirExp C.AnyRepr)
