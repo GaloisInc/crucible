@@ -1039,13 +1039,11 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
--- ShallowInitBox(T, op) is equivalent to mem::transmute::<*mut T, Box<T>>(op)
--- (modulo some rustc-internal analyses). We represent Box<T> the same as
--- *mut T, so we implement this transmute as the identity function.
-evalRval rv@(M.ShallowInitBox op ty) = evalOperand op
-
 -- We treat CopyForDeref(lv) the same as Rvalue::Use(Operand::Copy(lv)).
 evalRval rv@(M.CopyForDeref lv) = evalLvalue lv
+
+evalRval rv@(M.ShallowInitBox op ty) = mirFail
+    "evalRval: ShallowInitBox not supported"
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
