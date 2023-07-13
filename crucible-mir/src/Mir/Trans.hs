@@ -158,7 +158,6 @@ transConstVal (M.TyRef (M.TySlice ty) _) (Some (MirSliceRepr tpr)) (M.ConstSlice
             show tpr ++ ", got " ++ show tpr'
         pure c'
     vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList cs'
-    -- return $ MirExp (MirVectorRepr tpr) vec
     vecRef <- constMirRef (MirVectorRepr tpr) vec
     ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
     let len = R.App $ usizeLit $ fromIntegral $ length cs
@@ -1538,10 +1537,6 @@ transTerminator (M.DropAndReplace dlv dop dtarg _ dropFn) _ = do
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
-
--- transTerminator (M.Call (M.OpConstant (M.Constant _ (M.ConstFunction funid))) cargs cretdest _) tr = do
---     isCustom <- resolveCustom funid
---     doCall funid cargs cretdest tr -- cleanup ignored
 
 transTerminator (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid
