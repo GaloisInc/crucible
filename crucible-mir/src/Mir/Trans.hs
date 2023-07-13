@@ -34,7 +34,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , writeMirRef
                 , subindexRef
                 , evalBinOp
-                , vectorCopy, ptrCopy
+                , vectorCopy, ptrCopy, copyNonOverlapping
                 , evalRval
                 , callExp
                 , derefExp, readPlace, addrOfPlace
@@ -1237,7 +1237,32 @@ transStatement (M.SetDiscriminant lv i) = do
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatement M.Nop = return ()
 transStatement M.Deinit = return ()
-transStatement (M.StmtIntrinsic _) = return () --TODO: is this true?
+transStatement (M.StmtIntrinsic ndi) =
+    case ndi of
+        -- rustc uses assumptions from `assume` to optimize code. If we
+        -- encounter an occurrence of `assume` in MIR code, we should check
+        -- that its argument is equal to `true`, as `assume(false)` is UB.
+        NDIAssume cond -> do
+            MirExp tpr e <- evalOperand cond
+            Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assume cond to be BoolType"
+            G.assertExpr (S.app $ E.BoolEq e (S.app $ E.BoolLit True)) $
+                S.app $ E.StringLit $ W4.UnicodeLiteral $ "assume(false) is undefined behavior"
+        NDICopyNonOverlapping srcOp destOp countOp -> do
+            srcExp <- evalOperand srcOp
+            destExp <- evalOperand destOp
+            countExp <- evalOperand countOp
+            case (srcExp, destExp, countExp) of
+                ( MirExp (MirReferenceRepr tpr) src,
+                  MirExp (MirReferenceRepr tpr') dest,
+                  MirExp UsizeRepr count )
+                    |  Just Refl <- testEquality tpr tpr'
+                    -> void $ copyNonOverlapping tpr src dest count
+                _   -> mirFail $ unlines
+                         [ "bad arguments for intrinsics::copy_nonoverlapping: "
+                         , show srcExp
+                         , show destExp
+                         , show countExp
+                         ]
 
 -- | Add a new `BranchTransInfo` entry for the current function.  Returns the
 -- index of the new entry.
@@ -2342,6 +2367,37 @@ ptrCopy tpr src dest len = do
                      G.writeRef iRef i')
     G.dropRef iRef
 
+copyNonOverlapping ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (MirReferenceType tp) ->
+    R.Expr MIR s (MirReferenceType tp) ->
+    R.Expr MIR s UsizeType ->
+    MirGenerator h s ret (MirExp s)
+copyNonOverlapping tpr src dest count = do
+    -- Assert that the two regions really are nonoverlapping.
+    maybeOffset <- mirRef_tryOffsetFrom dest src
+
+    -- `count` must not exceed isize::MAX, else the overlap check
+    -- will misbehave.
+    let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
+    let maxCount = R.App $ usizeLit (1 `shift` (sizeBits - 1))
+    let countOk = R.App $ usizeLt count maxCount
+    G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
+
+    -- If `maybeOffset` is Nothing, then src and dest definitely
+    -- don't overlap, since they come from different allocations.
+    -- If it's Just, the value must be >= count or <= -count to put
+    -- the two regions far enough apart.
+    let count' = usizeToIsize R.App count
+    let destAbove = \offset -> R.App $ isizeLe count' offset
+    let destBelow = \offset -> R.App $ isizeLe offset (R.App $ isizeNeg count')
+    offsetOk <- G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
+        (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
+        (return $ R.App $ E.BoolLit True)
+    G.assertExpr offsetOk $ S.litExpr "src and dest overlap in copy_nonoverlapping"
+
+    ptrCopy tpr src dest count
+    return $ MirExp C.UnitRepr $ R.App E.EmptyApp
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
 --  LocalWords:  tovec fromelem tmethsubst MirExp initializer callExp

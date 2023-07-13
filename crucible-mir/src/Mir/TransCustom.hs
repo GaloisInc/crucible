@@ -613,31 +613,8 @@ intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"]
             [MirExp (MirReferenceRepr tpr) src,
              MirExp (MirReferenceRepr tpr') dest,
              MirExp UsizeRepr count]
-              | Just Refl <- testEquality tpr tpr' -> do
-                -- Assert that the two regions really are nonoverlapping.
-                maybeOffset <- mirRef_tryOffsetFrom dest src
-
-                -- `count` must not exceed isize::MAX, else the overlap check
-                -- will misbehave.
-                let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
-                let maxCount = R.App $ usizeLit (1 `shift` (sizeBits - 1))
-                let countOk = R.App $ usizeLt count maxCount
-                G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
-
-                -- If `maybeOffset` is Nothing, then src and dest definitely
-                -- don't overlap, since they come from different allocations.
-                -- If it's Just, the value must be >= count or <= -count to put
-                -- the two regions far enough apart.
-                let count' = usizeToIsize R.App count
-                let destAbove = \offset -> R.App $ isizeLe count' offset
-                let destBelow = \offset -> R.App $ isizeLe offset (R.App $ isizeNeg count')
-                offsetOk <- G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
-                    (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
-                    (return $ R.App $ E.BoolLit True)
-                G.assertExpr offsetOk $ S.litExpr "src and dest overlap in copy_nonoverlapping"
-
-                ptrCopy tpr src dest count
-                return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+              | Just Refl <- testEquality tpr tpr' ->
+                copyNonOverlapping tpr src dest count
 
             _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
         _ -> Nothing)
