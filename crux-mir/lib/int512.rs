@@ -1,6 +1,6 @@
 #![no_std]
 
-extern crate core;
+// extern crate core;
 use core::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
 use core::cmp::{Ord, PartialOrd, Ordering};
 

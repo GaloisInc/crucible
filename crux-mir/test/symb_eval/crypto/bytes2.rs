@@ -15,7 +15,7 @@ pub fn from_bytes(bytes: &[u8; 32]) -> [u64; 5] {
             words[i] |= (bytes[(i * 8) + j] as u64) << (j * 8);
         }
     }
-    
+
     let mask = (1u64 << 52) - 1;
     let top_mask = (1u64 << 48) - 1;
     let mut s = zero();
@@ -25,14 +25,14 @@ pub fn from_bytes(bytes: &[u8; 32]) -> [u64; 5] {
     s[ 2] = ((words[1] >> 40) | (words[2] << 24)) & mask;
     s[ 3] = ((words[2] >> 28) | (words[3] << 36)) & mask;
     s[ 4] =  (words[3] >> 16)                     & top_mask;
-    
+
     s
 }
 
     /// Pack the limbs of this `Scalar64` into 32 bytes
 pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     let mut s = [0u8; 32];
-    
+
     s[0]  =  (x[ 0] >>  0)                      as u8;
     s[1]  =  (x[ 0] >>  8)                      as u8;
     s[2]  =  (x[ 0] >> 16)                      as u8;
@@ -65,11 +65,11 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s[29] =  (x[ 4] >> 24)                      as u8;
     s[30] =  (x[ 4] >> 32)                      as u8;
     s[31] =  (x[ 4] >> 40)                      as u8;
-    
+
     s
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 pub fn f() {
     let mut s = [0u8; 32];
 
@@ -83,7 +83,7 @@ pub fn f() {
     let a7 = crucible_u8("a7");
     let a8 = crucible_u8("a8");
     let a9 = crucible_u8("a9");
-    let a10 = crucible_u8("a10");                        
+    let a10 = crucible_u8("a10");
 
     s[0] = a0;
     s[1] = a1;
@@ -95,11 +95,11 @@ pub fn f() {
     s[7] = a7;
     s[8] = a8;
     s[9] = a9;
-    s[10] = a10;        
-    
+    s[10] = a10;
+
     let b = to_bytes(&from_bytes(&s));
 
     for i in 0..11 {
       crucible_assert!(s[i] == b[i]);
-    } 
+    }
 }

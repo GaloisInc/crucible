@@ -23,14 +23,14 @@ pub fn map<T,E,U, F: FnOnce(T) -> U>(x:Res<T,E>, op: F) -> Res<U,E> {
         O(t) => O(op(t)),
         E(e) => E(e)
     }
-} 
+}
 
 
 pub fn g<T,U>(y : Res<T,U>) -> Opt<T> {
     match y {
         O(x)  => S(x),
         E(_) => N,
-    } 
+    }
 }
 
 fn f (x : u32) -> u32 {
@@ -48,4 +48,4 @@ const ARG : u32 = 27;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u32 { f(ARG) }

@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
@@ -8,20 +10,23 @@
 
 module Mir.DefId
 ( DefId
+, didCrate
+, didCrateDisambig
+, didPath
 , textId
 , idText
 
 , ExplodedDefId
 , idKey
+, explodedDefIdPat
+, textIdKey
 
 , getTraitName
 , cleanVariantName
 , parseFieldName
-
-, normDefId
-, normDefIdPat
 ) where
 
+import Control.Lens (makeLenses)
 import Data.Aeson
 
 import qualified Language.Haskell.TH.Syntax as TH
@@ -47,30 +52,26 @@ type Segment = (Text, Int)
 data DefId = DefId
     {
     -- | The name of the enclosing crate.
-      did_crate :: Text
+      _didCrate :: Text
     -- | The disambiguator of the enclosing crate.  These are strings, in a
     -- different format than the integer disambiguators used for normal path
     -- segments.
-    , did_crate_disambig :: Text
+    , _didCrateDisambig :: Text
     -- | The segments of the path.
-    , did_path :: [Segment]
+    , _didPath :: [Segment]
     }
   deriving (Eq, Ord, Generic)
 
--- | The crate disambiguator hash produced when the crate metadata string is
--- empty.  This is the disambiguator for all sysroot crates, which are the only
--- ones we override.
-defaultDisambiguator :: Text
-defaultDisambiguator = "3a1fbbbh"
+makeLenses ''DefId
 
 -- | Parse a string into a `DefId`.
 --
 -- For convenience when writing literal paths in the Haskell source, both types
 -- of disambiguators are optional.  If the crate disambiguator is omitted, then
--- it's assumed to be `defaultDisambiguator`, and if a segment disambiguator is
--- omitted elsewhere in the path, it's assumed to be zero.  So you can write,
--- for example, `core::option::Option`, and parsing will expand it to the
--- canonical form `core/3a1fbbbh::option[0]::Option[0]`.
+-- an exception is thrown. If a segment disambiguator is omitted elsewhere in
+-- the path, it's assumed to be zero.  So you can write, for example,
+-- `foo/3a1fbbbh::bar::Baz`, and parsing will expand it to the canonical form
+-- `foo/3a1fbbbh::bar[0]::Baz[0]`.
 textId :: Text -> DefId
 textId s = DefId crate disambig segs
   where
@@ -79,7 +80,7 @@ textId s = DefId crate disambig segs
         x:xs -> (x, xs)
 
     (crate, disambig) = case T.splitOn "/" crateStr of
-        [x] -> (x, defaultDisambiguator)
+        [x] -> error $ "textId: No crate disambiguator for: " ++ T.unpack x
         [x, y] -> (x, y)
         _ -> error $ "textId: malformed crate name " ++ show crateStr
 
@@ -109,11 +110,21 @@ instance FromJSON DefId where
 instance Pretty DefId where
     pretty = viaShow
 
-
+-- | The individual 'DefId' components of a 'DefId'. The first element is the
+-- crate name, and the subsequent elements are the path segments. By convention,
+-- 'ExplodedDefId's never contain disambiguators, which make them a useful way
+-- to refer to identifiers in a slightly more stable format that does not depend
+-- on the particulars of how a package is hashed.
 type ExplodedDefId = [Text]
-idKey :: DefId -> ExplodedDefId
-idKey did = did_crate did : map fst (did_path did)
 
+idKey :: DefId -> ExplodedDefId
+idKey did = _didCrate did : map fst (_didPath did)
+
+explodedDefIdPat :: ExplodedDefId -> TH.Q TH.Pat
+explodedDefIdPat edid = [p| ((\did -> idKey did == edid) -> True) |]
+
+textIdKey :: Text -> ExplodedDefId
+textIdKey = idKey . textId
 
 idInit :: DefId -> DefId
 idInit (DefId crate disambig segs) = DefId crate disambig (init segs)
@@ -133,13 +144,3 @@ cleanVariantName = idLast
 parseFieldName :: DefId -> Maybe Text
 parseFieldName (DefId _ _ []) = Nothing
 parseFieldName did = Just $ idLast did
-
--- | Normalize a DefId string.  This allows writing down path strings in a more
--- readable form.
-normDefId :: Text -> Text
-normDefId s = idText $ textId s
-
--- | Like `normDefId`, but produces a Template Haskell pattern.  Useful for
--- defining pattern synonyms that match a specific `TyAdt` type constructor.
-normDefIdPat :: Text -> TH.Q TH.Pat
-normDefIdPat s = return $ TH.LitP $ TH.StringL $ T.unpack $ normDefId s

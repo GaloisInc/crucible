@@ -1,5 +1,3 @@
-extern crate backtrace;
-
 use backtrace::Backtrace;
 
 // 50-character module name
@@ -18,7 +16,7 @@ mod _234567890_234567890_234567890_234567890_234567890 {
 // Long function names must be truncated to (MAX_SYM_NAME - 1) characters.
 // Only run this test for msvc, since gnu prints "<no info>" for all frames.
 #[test]
-#[cfg(all(windows, feature = "dbghelp", target_env = "msvc"))]
+#[cfg(all(windows, target_env = "msvc"))]
 fn test_long_fn_name() {
     use _234567890_234567890_234567890_234567890_234567890::_234567890_234567890_234567890_234567890_234567890 as S;
 

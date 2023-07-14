@@ -12,13 +12,20 @@ pub use self::v8::*;
 mod neon;
 pub use self::neon::*;
 
-mod crypto;
-pub use self::crypto::*;
+mod tme;
+pub use self::tme::*;
 
 mod crc;
 pub use self::crc::*;
 
-pub use super::acle::*;
+mod prefetch;
+pub use self::prefetch::*;
+
+pub use super::arm_shared::*;
+
+mod armclang;
+
+pub use self::armclang::*;
 
 #[cfg(test)]
 use stdarch_test::assert_instr;
@@ -29,3 +36,6 @@ use stdarch_test::assert_instr;
 pub unsafe fn brk() -> ! {
     crate::intrinsics::abort()
 }
+
+#[cfg(test)]
+pub(crate) mod test_support;

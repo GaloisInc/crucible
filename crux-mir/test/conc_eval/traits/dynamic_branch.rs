@@ -19,7 +19,7 @@ impl Foo for () {
 }
 
 
-fn fun(f: &Foo) -> u32 {
+fn fun(f: &dyn Foo) -> u32 {
    return f.foo();
 }
 
@@ -37,4 +37,4 @@ const ARG: () = ();
 
 #[cfg(with_main)]
 pub fn main() { println!("{:?}", f(ARG)); }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u32 { f(ARG) }

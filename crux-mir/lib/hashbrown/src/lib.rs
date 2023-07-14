@@ -13,19 +13,27 @@
 #![cfg_attr(
     feature = "nightly",
     feature(
-        alloc_layout_extra,
-        allocator_api,
-        ptr_offset_from,
         test,
         core_intrinsics,
         dropck_eyepatch,
-        specialization,
+        min_specialization,
+        extend_one,
+        allocator_api,
+        slice_ptr_get,
+        nonnull_slice_from_raw_parts,
+        maybe_uninit_array_assume_init,
+        build_hasher_simple_hash_one
     )
 )]
 #![allow(
     clippy::doc_markdown,
     clippy::module_name_repetitions,
-    clippy::must_use_candidate
+    clippy::must_use_candidate,
+    clippy::option_if_let_else,
+    clippy::redundant_else,
+    clippy::manual_map,
+    clippy::missing_safety_doc,
+    clippy::missing_errors_doc
 )]
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
@@ -34,11 +42,8 @@
 #[macro_use]
 extern crate std;
 
-#[cfg(has_extern_crate_alloc)]
 #[cfg_attr(test, macro_use)]
 extern crate alloc;
-#[cfg(not(has_extern_crate_alloc))]
-extern crate std as alloc;
 
 #[cfg(feature = "nightly")]
 #[cfg(doctest)]
@@ -58,6 +63,11 @@ pub mod raw {
     pub use inner::*;
 
     #[cfg(feature = "rayon")]
+    /// [rayon]-based parallel iterator types for hash maps.
+    /// You will rarely need to interact with it directly unless you have need
+    /// to name one of the iterator types.
+    ///
+    /// [rayon]: https://docs.rs/rayon/1.0/rayon
     pub mod rayon {
         pub use crate::external_trait_impls::rayon::raw::*;
     }
@@ -107,15 +117,34 @@ pub mod hash_set {
 pub use crate::map::HashMap;
 pub use crate::set::HashSet;
 
-/// Augments `AllocErr` with a `CapacityOverflow` variant.
+/// The error type for `try_reserve` methods.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum CollectionAllocErr {
+pub enum TryReserveError {
     /// Error due to the computed capacity exceeding the collection's maximum
     /// (usually `isize::MAX` bytes).
     CapacityOverflow,
-    /// Error due to the allocator.
-    AllocErr {
+
+    /// The memory allocator returned an error
+    AllocError {
         /// The layout of the allocation request that failed.
         layout: alloc::alloc::Layout,
     },
+}
+
+/// Wrapper around `Bump` which allows it to be used as an allocator for
+/// `HashMap`, `HashSet` and `RawTable`.
+///
+/// `Bump` can be used directly without this wrapper on nightly if you enable
+/// the `allocator-api` feature of the `bumpalo` crate.
+#[cfg(feature = "bumpalo")]
+#[derive(Clone, Copy, Debug)]
+pub struct BumpWrapper<'a>(pub &'a bumpalo::Bump);
+
+#[cfg(feature = "bumpalo")]
+#[test]
+fn test_bumpalo() {
+    use bumpalo::Bump;
+    let bump = Bump::new();
+    let mut map = HashMap::new_in(BumpWrapper(&bump));
+    map.insert(0, 1);
 }

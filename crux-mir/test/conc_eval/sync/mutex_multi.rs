@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let m = Mutex::new(1);
     {

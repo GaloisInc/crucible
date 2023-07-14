@@ -7,7 +7,7 @@ extern crate crucible;
 use crucible::*;
 use crucible::any::Any;
 
-#[crux_test]
+#[crux::test]
 fn crux_test() {
     let mut x = bool::symbolic("x");
     if x {

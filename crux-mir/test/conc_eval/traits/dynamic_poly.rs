@@ -13,7 +13,7 @@ impl<A> Foo<A> for Data {
 
 
 
-fn h(f: &Foo<u32>) -> u32 {
+fn h(f: &dyn Foo<u32>) -> u32 {
    f.foo(2)
 }
 
@@ -39,4 +39,4 @@ const ARG: () = ();
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u32 { f(ARG) }

@@ -150,11 +150,11 @@ instance FromJSON Adt where
         <*> v .: "orig_substs"
 
 instance FromJSON AdtKind where
-    parseJSON x = case x of
-        String "Struct" -> pure Struct
-        String "Enum" -> pure Enum
-        String "Union" -> pure Union
-        _ -> fail $ "unsupported adt kind " ++ show x
+    parseJSON = withObject "AdtKind" $ \v -> case lookupKM "kind" v of
+        Just (String "Struct") -> pure Struct
+        Just (String "Enum") -> Enum <$> v .: "discr_ty"
+        Just (String "Union") -> pure Union
+        mbKind -> fail $ "unsupported adt kind " ++ show mbKind
 
 instance FromJSON VariantDiscr where
     parseJSON = withObject "VariantDiscr" $ \v -> case lookupKM "kind" v of
@@ -166,10 +166,16 @@ instance FromJSON CtorKind where
     parseJSON = withObject "CtorKind" $ \v -> case lookupKM "kind" v of
                                                 Just (String "Fn") -> pure FnKind
                                                 Just (String "Const") -> pure ConstKind
-                                                Just (String "Fictive") -> pure FictiveKind
                                                 _ -> fail "unspported constructor kind"
 instance FromJSON Variant where
-    parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
+    parseJSON = withObject "Variant" $ \v ->
+        Variant <$> v .: "name"
+                <*> v .: "discr"
+                <*> v .: "fields"
+                <*> v .: "ctor_kind"
+                <*> do  val <- v .:? "discr_value"
+                        convertIntegerText `traverse` val
+                <*> v .: "inhabited"
 
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty"
@@ -251,6 +257,19 @@ instance FromJSON Statement where
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
                              Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
                              Just (String "Nop") -> pure Nop
+                             Just (String "Deinit") -> pure Deinit
+                             Just (String "Intrinsic") -> do
+                                kind <- v .: "intrinsic_kind"
+                                ndi <- case kind of
+                                    "Assume" -> NDIAssume <$> v .: "operand"
+                                    "CopyNonOverlapping" ->
+                                        NDICopyNonOverlapping <$> v .: "src"
+                                                              <*> v .: "dst"
+                                                              <*> v .: "count"
+                                    _ -> fail $ "unknown Intrinsic kind" ++ kind
+
+                                return $ StmtIntrinsic ndi
+
                              k -> fail $ "kind not found for statement: " ++ show k
 
 
@@ -288,8 +307,11 @@ instance FromJSON Rvalue where
                                               Just (String "CheckedBinaryOp") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
                                               Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
-                                              Just (String "Discriminant") -> Discriminant <$> v .: "val"
+                                              Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
+                                              Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
+                                              Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
+                                              Just (String "ThreadLocalRef") -> ThreadLocalRef <$> v .: "def_id" <*> v .: "ty"
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON Terminator where
@@ -322,7 +344,7 @@ instance FromJSON Operand where
 instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
-                                             Just (String "Box") -> pure Box
+                                             Just (String "AlignOf") -> pure AlignOf
                                              x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where
@@ -374,13 +396,23 @@ instance FromJSON Vtable where
 
 instance FromJSON CastKind where
     parseJSON = withObject "CastKind" $ \v -> case lookupKM "kind" v of
-                                               Just (String "Misc") -> pure Misc
                                                Just (String "Pointer(ReifyFnPointer)") -> pure ReifyFnPointer
                                                Just (String "Pointer(ClosureFnPointer(Normal))") -> pure ClosureFnPointer
                                                Just (String "Pointer(UnsafeFnPointer)") -> pure UnsafeFnPointer
                                                Just (String "Pointer(Unsize)") -> pure Unsize
                                                Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
                                                Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
+                                               -- TODO: actually plumb this information through if it is relevant
+                                                --      instead of using Misc
+                                               Just (String "PointerExposeAddress") -> pure Misc
+                                               Just (String "PointerFromExposedAddress") -> pure Misc
+                                               Just (String "DynStar") -> pure Misc
+                                               Just (String "IntToInt") -> pure Misc
+                                               Just (String "FloatToInt") -> pure Misc
+                                               Just (String "FloatToFloat") -> pure Misc
+                                               Just (String "IntToFloat") -> pure Misc
+                                               Just (String "PtrToPtr") -> pure Misc
+                                               Just (String "FnPtrToPtr") -> pure Misc
                                                x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where
@@ -389,7 +421,7 @@ instance FromJSON Constant where
       rend <- v .:? "rendered"
       init <- v .:? "initializer"
       case (rend, init) of
-        (Just (RustcRenderedConst rend), _) ->
+        (Just rend, _) ->
             pure $ Constant ty rend
         (Nothing, Just (RustcConstInitializer defid)) ->
             pure $ Constant ty $ ConstInitializer defid
@@ -403,11 +435,9 @@ instance FromJSON RustcConstInitializer where
     parseJSON = withObject "Initializer" $ \v ->
         RustcConstInitializer <$> v .: "def_id"
 
-newtype RustcRenderedConst = RustcRenderedConst ConstVal
-
-instance FromJSON RustcRenderedConst where
-    parseJSON = withObject "RenderedConst" $ \v ->
-      RustcRenderedConst <$> case lookupKM "kind" v of
+instance FromJSON ConstVal where
+    parseJSON = withObject "ConstVal" $ \v ->
+      case lookupKM "kind" v of
         Just (String "isize") -> do
             val <- convertIntegerText =<< v .: "val"
             pure $ ConstInt $ Isize val
@@ -458,6 +488,9 @@ instance FromJSON RustcRenderedConst where
                 _ -> fail $ "bad size " ++ show size ++ " for float literal"
             pure $ ConstFloat $ FloatLit fk (T.unpack val)
 
+        Just (String "slice") -> do
+            ConstSlice <$> v .: "elements"
+
         Just (String "str") -> do
             val <- v .: "val"
             let f sci = case Scientific.toBoundedInteger sci of
@@ -474,12 +507,11 @@ instance FromJSON RustcRenderedConst where
             bytes <- mapM (withScientific "byte" f) val
             return $ ConstArray $ V.toList bytes
 
-        Just (String "struct") -> do
-            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
-            return $ ConstStruct fields
+        Just (String "struct") ->
+            ConstStruct <$> v .: "fields"
         Just (String "enum") -> do
             variant <- v .: "variant"
-            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
+            fields <- v .: "fields"
             return $ ConstEnum variant fields
 
         Just (String "fndef") -> ConstFunction <$> v .: "def_id"
@@ -488,6 +520,21 @@ instance FromJSON RustcRenderedConst where
         Just (String "raw_ptr") -> do
             val <- convertIntegerText =<< v .: "val"
             return $ ConstRawPtr val
+
+        Just (String "array") ->
+            ConstArray <$> v .: "elements"
+
+        Just (String "tuple") ->
+            ConstTuple <$> v .: "elements"
+
+        Just (String "closure") ->
+            ConstClosure <$> v .: "upvars"
+
+        Just (String "fn_ptr") ->
+            ConstFnPtr <$> v .: "instance"
+
+        o -> do
+            fail $ "parseJSON - bad rendered constant kind: " ++ show o
 
 -- mir-json integers are expressed as strings of 128-bit unsigned values
 -- for example, -1 is displayed as "18446744073709551615"
@@ -540,6 +587,7 @@ instance FromJSON Static where
     Static <$> v .: "name"
            <*> v .: "ty"
            <*> v .: "mutable"
+           <*> v .:? "rendered"
 
 
 --  LocalWords:  initializer supertraits deserialization impls

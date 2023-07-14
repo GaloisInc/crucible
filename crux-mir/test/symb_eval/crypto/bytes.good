@@ -1,26 +1,26 @@
-test bytes/3a1fbbbh::f[0]: FAILED
+test bytes/<DISAMB>::f[0]: FAILED
 
 failures:
 
----- bytes/3a1fbbbh::f[0] counterexamples ----
+---- bytes/<DISAMB>::f[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   ./lib/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 

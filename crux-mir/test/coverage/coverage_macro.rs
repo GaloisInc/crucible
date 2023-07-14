@@ -19,7 +19,7 @@ fn f() -> Option<u8> {
     Some(1)
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test() -> u8 {
     f().unwrap_or(0)
 }

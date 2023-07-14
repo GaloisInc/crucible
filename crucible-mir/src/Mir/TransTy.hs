@@ -26,8 +26,10 @@ module Mir.TransTy where
 
 import Control.Monad
 import Control.Lens
+import qualified Data.BitVector.Sized as BV
 import Data.List (findIndices)
 import           Data.String (fromString)
+import           Data.Text (Text)
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -37,6 +39,7 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
+import Data.Parameterized.TraversableFC
 
 
 -- crucible
@@ -49,20 +52,22 @@ import qualified Lang.Crucible.Syntax as S
 
 import qualified Mir.DefId as M
 import qualified Mir.Mir as M
+import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , mirVector_fromVector
-    , cs, collection, discrMap )
+    , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , pattern MirVectorRepr
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
-    , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
+    , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
+    , mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
-    , DynRefType)
+    , DynRefType, usizeLit , pattern BaseUsizeRepr )
 
 
 -----------------------------------------------------------------------
@@ -94,50 +99,49 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
 -- Custom type aliases
-pattern CTyInt512 <- M.TyAdt _ $(M.normDefIdPat "int512::Int512") (M.Substs [])
-  where CTyInt512 = M.TyAdt (M.textId "type::adt") (M.textId "int512::Int512") (M.Substs [])
-pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
-  where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
-pattern CTyMaybeUninit t <- M.TyAdt _ $(M.normDefIdPat "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
-  where CTyMaybeUninit t = M.TyAdt (M.textId "type::adt") (M.textId "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
--- `UnsafeCell` isn't handled specially inside baseline `crux-mir`, but
+pattern CTyInt512 <- M.TyAdt _ $(M.explodedDefIdPat ["int512", "Int512"]) (M.Substs [])
+pattern CTyBox t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "boxed", "Box"]) (M.Substs [t])
+
+pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "mem", "maybe_uninit", "MaybeUninit"]) (M.Substs [t])
+
+maybeUninitExplodedDefId :: M.ExplodedDefId
+maybeUninitExplodedDefId = ["core", "mem", "maybe_uninit", "MaybeUninit"]
+
+-- `UnsafeCell` isn't handled specially inside baseline `crucible-mir`, but
 -- `crux-mir-comp` looks for it (using this pattern synonym).
-pattern CTyUnsafeCell t <- M.TyAdt _ $(M.normDefIdPat "core::cell::UnsafeCell") (M.Substs [t])
-  where CTyUnsafeCell t = M.TyAdt (M.textId "type::adt") (M.textId "core::cell::UnsafeCell") (M.Substs [t])
-pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
-  where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
-pattern CTyArray t <- M.TyAdt _ $(M.normDefIdPat "crucible::array::Array") (M.Substs [t])
-  where CTyArray t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::array::Array") (M.Substs [t])
+pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "cell", "UnsafeCell"]) (M.Substs [t])
 
-pattern CTyBvSize128 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_128") (M.Substs [])
-  where CTyBvSize128 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_128") (M.Substs [])
-pattern CTyBvSize256 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_256") (M.Substs [])
-  where CTyBvSize256 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_256") (M.Substs [])
-pattern CTyBvSize512 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_512") (M.Substs [])
-  where CTyBvSize512 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_512") (M.Substs [])
-pattern CTyBv t <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::Bv") (M.Substs [t])
-  where CTyBv t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::Bv") (M.Substs [t])
-pattern CTyBv128 = CTyBv CTyBvSize128
-pattern CTyBv256 = CTyBv CTyBvSize256
-pattern CTyBv512 = CTyBv CTyBvSize512
+pattern CTyVector t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "vector", "Vector"]) (M.Substs [t])
 
-pattern CTyAny <- M.TyAdt _ $(M.normDefIdPat "core::crucible::any::Any") (M.Substs [])
-  where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "core::crucible::any::Any") (M.Substs [])
+vectorExplodedDefId :: M.ExplodedDefId
+vectorExplodedDefId = ["crucible", "vector", "Vector"]
 
-pattern CTyMethodSpec <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpec") (M.Substs [])
-  where CTyMethodSpec = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpec") (M.Substs [])
+pattern CTyArray t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "array", "Array"]) (M.Substs [t])
 
-pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
-  where CTyMethodSpecBuilder = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
+pattern CTyBvSize128 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_128"]) (M.Substs [])
+pattern CTyBvSize256 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_256"]) (M.Substs [])
+pattern CTyBvSize512 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_512"]) (M.Substs [])
+pattern CTyBv t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "Bv"]) (M.Substs [t])
+pattern CTyBv128 <- CTyBv CTyBvSize128
+pattern CTyBv256 <- CTyBv CTyBvSize256
+pattern CTyBv512 <- CTyBv CTyBvSize512
+
+bvExplodedDefId :: M.ExplodedDefId
+bvExplodedDefId = ["crucible", "bitvector", "Bv"]
+
+pattern CTyAny <- M.TyAdt _ $(M.explodedDefIdPat ["core", "crucible", "any", "Any"]) (M.Substs [])
+
+pattern CTyMethodSpec <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpec"]) (M.Substs [])
+
+pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpecBuilder"]) (M.Substs [])
 
 
 -- These don't have custom representation, but are referenced in various
 -- places.
-pattern CTyOption t <- M.TyAdt _ $(M.normDefIdPat "core::option::Option") (M.Substs [t])
-  where CTyOption t = M.TyAdt (M.textId "type::adt") (M.textId "core::option::Option") (M.Substs [t])
+pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "option", "Option"]) (M.Substs [t])
 
-optionDefId :: M.DefId
-optionDefId = M.textId "core::option::Option"
+optionExplodedDefId :: M.ExplodedDefId
+optionExplodedDefId = ["core", "option", "Option"]
 optionDiscrNone :: Int
 optionDiscrNone = 0
 optionDiscrSome :: Int
@@ -231,11 +235,11 @@ tyToRepr col t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
-dynRefCtx :: Ctx.Assignment C.TypeRepr (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)
-dynRefCtx = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
+pattern DynRefCtx = Ctx.Empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-dynRefRepr :: C.TypeRepr DynRefType
-dynRefRepr = C.StructRepr dynRefCtx
+pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
+pattern DynRefRepr = C.StructRepr DynRefCtx
 
 
 tyToReprM :: M.Ty -> MirGenerator h s ret (Some C.TypeRepr)
@@ -300,13 +304,6 @@ tyAdtDef _ _ = Nothing
 -- | If the `Adt` is a `repr(transparent)` struct with at most one
 -- non-zero-sized field, return the index of that field.
 findReprTransparentField :: M.Collection -> M.Adt -> Maybe Int
-findReprTransparentField _ adt
-  -- Special case: Box<T> isn't repr(transparent), but we pretend that it is.
-  -- Since its inner `Unique<T>` pointer is repr(transparent), this results in
-  -- Box<T> being represented as a plain `MirReference`.  This simplifies some
-  -- parts of the translation, namely the `Box` operator and the `Deref`
-  -- projection (which can be applied to boxes just like ordinary refs).
-  | adt ^. M.adtOrigDefId == M.textId "alloc::boxed::Box" = Just 0
 findReprTransparentField col adt = do
   guard $ adt ^. M.adtReprTransparent
   [v] <- return $ adt ^. M.adtvariants
@@ -325,7 +322,7 @@ reprTransparentFieldTy col adt = do
 
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Some C.CtxRepr
-variantFields col (M.Variant _vn _vd vfs _vct) =
+variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) =
     tyReprListToCtx
         (map (mapSome fieldType . tyToFieldRepr col . (^. M.fty)) vfs)
         (\repr -> Some repr)
@@ -360,7 +357,7 @@ tyToFieldRepr col ty
   | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr col ty)
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Some FieldCtxRepr
-variantFields' col (M.Variant _vn _vd vfs _vct) =
+variantFields' col (M.Variant _vn _vd vfs _vct _mbVal _inh) =
     fieldReprListToCtx
         (map (tyToFieldRepr col . (^. M.fty)) vfs)
         (\x -> Some x)
@@ -370,17 +367,21 @@ variantFieldsM' v = do
   col <- use $ cs . collection
   return $ variantFields' col v
 
-enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> Some C.CtxRepr
-enumVariants col (M.Adt name kind vs _ _ _ _)
-  | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
-  | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
+enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> SomeRustEnumRepr
+enumVariants col (M.Adt name kind vs _ _ _ _) =
+  case kind of
+    M.Enum discrTy
+      |  Some discrTpr <- tyToRepr col discrTy
+      -> reprsToCtx variantReprs $ \variantsCxt ->
+         SomeRustEnumRepr discrTpr variantsCxt
+    _ -> error $ "expected " ++ show name ++ " to have kind Enum"
   where
     variantReprs :: [Some C.TypeRepr]
     variantReprs = map (\v ->
         viewSome (\ctx -> Some $ C.StructRepr ctx) $
         variantFields col v) vs
 
-enumVariantsM :: TransTyConstraint => M.Adt -> MirGenerator h s ret (Some C.CtxRepr)
+enumVariantsM :: TransTyConstraint => M.Adt -> MirGenerator h s ret SomeRustEnumRepr
 enumVariantsM adt = do
   col <- use $ cs . collection
   return $ enumVariants col adt
@@ -550,28 +551,28 @@ adjustAnyE tpr f me = do
     buildAnyE tpr y
 
 
-readEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
-    R.Expr MIR s (RustEnumType ctx) -> MirGenerator h s ret (R.Expr MIR s tp)
-readEnumVariant ctx idx e = do
+readEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
+    R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s tp)
+readEnumVariant tp ctx idx e = do
     let tpr = ctx Ctx.! idx
     let optVal = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx e
     readJust' tpr optVal $
         "readEnumVariant: wrong variant; expected " ++ show idx
 
-buildEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
-    R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s (RustEnumType ctx))
-buildEnumVariant ctx idx e = do
-    let discr = R.App $ isizeLit $ fromIntegral $ Ctx.indexVal idx
+buildEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
+    R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s (RustEnumType discrTp variantsCtx))
+buildEnumVariant tp ctx idx e = do
+    discr <- enumDiscrLit tp $ fromIntegral $ Ctx.indexVal idx
     let var = R.App $ E.InjectVariant ctx idx e
-    return $ R.App $ mkRustEnum ctx discr var
+    return $ R.App $ mkRustEnum tp ctx (R.App discr) var
 
-adjustEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
+adjustEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
     (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
-    R.Expr MIR s (RustEnumType ctx) -> MirGenerator h s ret (R.Expr MIR s (RustEnumType ctx))
-adjustEnumVariant ctx idx f e = do
-    x <- readEnumVariant ctx idx e
+    R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s (RustEnumType discrTp variantsCtx))
+adjustEnumVariant tp ctx idx f e = do
+    x <- readEnumVariant tp ctx idx e
     y <- f x
-    buildEnumVariant ctx idx y
+    buildEnumVariant tp ctx idx y
 
 
 readStructField :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
@@ -750,7 +751,8 @@ mapStructField adt i f me = do
     f' me
 
 
-data EnumInfo = forall ctx ctx' tp tp'. EnumInfo
+data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
+    (C.TypeRepr discrTp)
     (C.CtxRepr ctx)
     (Ctx.Index ctx (C.StructType ctx'))
     (C.CtxRepr ctx')
@@ -766,7 +768,11 @@ checkStructType _ = Nothing
 
 enumInfo :: M.Adt -> Int -> Int -> MirGenerator h s ret EnumInfo
 enumInfo adt i j = do
-    when (adt ^. M.adtkind /= M.Enum) $ mirFail $
+    Some discrTp <- case adt ^. M.adtkind of
+        M.Enum discrTy -> tyToReprM discrTy
+        _ -> mirFail $ "expected enum, but got adt " ++ show (adt ^. M.adtname)
+
+    when (isn't M._Enum (adt ^. M.adtkind)) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
     var <- case adt ^? M.adtvariants . ix i of
@@ -778,7 +784,7 @@ enumInfo adt i j = do
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    Some ctx <- enumVariantsM adt
+    SomeRustEnumRepr _ ctx <- enumVariantsM adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -798,13 +804,13 @@ enumInfo adt i j = do
     kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
         "field " ++ show j ++ " of enum " ++ show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    return $ EnumInfo ctx idx ctx' idx' kind
+    return $ EnumInfo discrTp ctx idx ctx' idx' kind
 
 getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
 getEnumField adt i j me = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
-    e <- readAnyE (RustEnumRepr ctx) me
-    e <- readEnumVariant ctx idx e
+    EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
+    e <- readAnyE (RustEnumRepr discrTp ctx) me
+    e <- readEnumVariant discrTp ctx idx e
     e <- readStructField ctx' idx' e
     e <- readFieldData' fld errFieldUninit e
     return $ MirExp (R.exprType e) e
@@ -816,11 +822,11 @@ getEnumField adt i j me = do
 setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 setEnumField adt i j me (MirExp tpr e') = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
+    EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
-    let f' = adjustAnyE (RustEnumRepr ctx) $
-            adjustEnumVariant ctx idx $
+    let f' = adjustAnyE (RustEnumRepr discrTp ctx) $
+            adjustEnumVariant discrTp ctx idx $
             \e -> writeStructField ctx' idx' e e'
     f' me
   where
@@ -842,7 +848,9 @@ buildStructAssign' ctx es = go ctx $ reverse es
     go ctx (optExp : rest) = case Ctx.viewAssign ctx of
         Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
             (FieldRepr (FkInit tpr), Nothing) ->
-                Left $ "got Nothing for mandatory field " ++ show (length rest)
+                case tpr of
+                    C.UnitRepr -> continue ctx' rest tpr (R.App $ E.NothingValue tpr)
+                    _ -> Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
             (FieldRepr (FkInit tpr), Just (Some e)) ->
                 continue ctx' rest tpr e
             (FieldRepr (FkMaybe tpr), Nothing) ->
@@ -882,15 +890,16 @@ buildStruct adt es =
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
 buildEnum' adt i es = do
-    when (adt ^. M.adtkind /= M.Enum) $ mirFail $
-        "expected enum, but got adt " ++ show (adt ^. M.adtname)
+    Some discrTp <- case adt ^. M.adtkind of
+        M.Enum discrTy -> tyToReprM discrTy
+        _ -> mirFail $ "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
     var <- case adt ^? M.adtvariants . ix i of
         Just var -> return var
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
 
-    Some ctx <- enumVariantsM adt
+    SomeRustEnumRepr _ ctx <- enumVariantsM adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -901,28 +910,89 @@ buildEnum' adt i es = do
             show (adt ^. M.adtname) ++ " is not a struct?"
 
     Some fctx' <- variantFieldsM' var
-    asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es of
-        Left err -> mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err
+    let ftys = map (^. M.fty) (var ^. M.vfields)
+    es' <- inferElidedVariantFields ftys es
+    asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es' of
+        Left err ->
+            mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err ++ " -- " ++ show es'
         Right x -> return x
     Refl <- testEqualityOrFail (fieldCtxType fctx') ctx' $
         "got wrong fields for " ++ show (adt ^. M.adtname, i) ++ "?"
 
     discrs <- use $ cs . discrMap . ix (adt ^. M.adtname)
     discr <- case discrs ^? ix i of
-        Just x -> return x
+        Just x -> enumDiscrLit discrTp x
         Nothing -> mirFail $ "can't find discr for variant " ++ show (adt ^. M.adtname, i)
 
-    buildAnyE (RustEnumRepr ctx) $
-        R.App $ mkRustEnum ctx (R.App $ isizeLit discr) $
+    buildAnyE (RustEnumRepr discrTp ctx) $
+        R.App $ mkRustEnum discrTp ctx (R.App discr) $
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
+
+-- It is possible for an enum to be initialized in MIR without providing
+-- explicit assignments for all of its fields. As an example, imagine the value
+-- @Ok(())@ of type @Result<(), i32>@. MIR is liable to construct this like so:
+--
+-- @
+-- let mut _0 : Result<(), i32>;
+-- discr(_0) = 0
+-- @
+--
+-- Note that there is no statement for explicitly initializing the first field
+-- of @Ok@ to @()@. This is by design, as @()@ is a zero-sized type (ZST). While
+-- ZSTs need not appear explicitly in MIR, we would like to have explicit
+-- representations for them in Crucible. This function is responsible for
+-- constructing these explicit representations.
+--
+-- The approach that this function takes is pretty simple: if we encounter a
+-- variant with the same number of types as field values, then return the values
+-- unchanged. If there are fewer values than types, then we assume that any ZSTs
+-- have elided the fields of the corresponding types, so we insert these values
+-- into the list ourselves. We use 'initialValue' to construct a reasonable
+-- value of each ZST.
+--
+-- Note that we are doing this step somewhat late in the pipeline. An
+-- alternative approach would be to infer these missing values in
+-- "Mir.Pass.AllocateEnum", when the enum variant initialization is first
+-- handled. This would require some additional refactoring, so we have not yet
+-- pursued this option.
+inferElidedVariantFields :: [M.Ty] -> [Maybe (MirExp s)]
+                         -> MirGenerator h s ret [Maybe (MirExp s)]
+inferElidedVariantFields ftys fes
+  | length ftys == length fes
+  = pure fes
+  | otherwise
+  = go ftys fes
+  where
+    go [] [] = pure []
+    go [] (_:_) = mirFail $ unlines [ "inferElidedVariantFields: too many expressions"
+                                    , "types:       " ++ show ftys
+                                    , "expressions: " ++ show fes
+                                    ]
+    go (ty:tys) exps = do
+      col <- use $ cs . collection
+      if isZeroSized col ty
+         then do val <- initialValue ty
+                 exps' <- go tys exps
+                 pure $ val : exps'
+         else
+           case exps of
+             e:es -> do
+               es' <- go tys es
+               pure $ e : es'
+             [] -> mirFail "inferElidedVariantFields: not enough expressions"
 
 buildEnum :: HasCallStack => M.Adt -> Int -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
 buildEnum adt i es =
     buildEnum' adt i (map Just es)
 
-
+enumDiscrLit :: C.TypeRepr tp -> Integer
+             -> MirGenerator h s ret (E.App ext f tp)
+enumDiscrLit tp discr =
+  case tp of
+    C.BVRepr w -> pure $ E.BVLit w $ BV.mkBV w discr
+    _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
 fieldDataRef ::
     FieldKind tp tp' ->
@@ -950,11 +1020,11 @@ enumFieldRef ::
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
     MirGenerator h s ret (MirPlace s)
 enumFieldRef adt i j tpr ref = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
+    EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- testEqualityOrFail tpr C.AnyRepr $
         "enumFieldRef: bad referent type: expected Any, but got " ++ show tpr
-    ref <- subanyRef (RustEnumRepr ctx) ref
-    ref <- subvariantRef ctx ref idx
+    ref <- subanyRef (RustEnumRepr discrTp ctx) ref
+    ref <- subvariantRef discrTp ctx ref idx
     ref <- subfieldRef ctx' ref idx'
     ref <- fieldDataRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate enum metadata to fields
@@ -964,9 +1034,9 @@ enumFieldRef adt i j tpr ref = do
 enumDiscriminant :: M.Adt -> MirExp s ->
     MirGenerator h s ret (MirExp s)
 enumDiscriminant adt e = do
-    Some ctx <- enumVariantsM adt
-    let v = unpackAnyC (RustEnumRepr ctx) e
-    return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
+    SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
+    let v = unpackAnyC (RustEnumRepr discrTpr variantsCtx) e
+    return $ MirExp discrTpr $ R.App $ rustEnumDiscriminant discrTpr v
 
 tupleFieldRef ::
     [M.Ty] -> Int ->
@@ -1019,3 +1089,160 @@ eraseSigReceiver :: M.FnSig -> M.FnSig
 eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
     [] -> error $ unwords ["dynamic trait method has no receiver", show sig]
     (_ : tys) -> M.TyErased : tys
+
+---- "Allocation"
+--
+--
+-- MIR initializes compound structures by initializing their
+-- components. It does not include a general allocation. Here we add
+-- general code to initialize the structures for local variables where
+-- we can. In general, we only need to produce a value of the correct
+-- type with a structure that is compatible for further
+-- initialization.
+--
+-- With this code, it is possible for crux-mir to miss
+-- uninitialized values.  So we should revisit this.
+--
+initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
+initialValue (CTyInt512) =
+    let w = knownNat :: NatRepr 512 in
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (CTyVector t) = do
+    Some tr <- tyToReprM t
+    return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
+initialValue (CTyArray t) = tyToReprM t >>= \(Some tpr) -> case tpr of
+    C.BVRepr w -> do
+        let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
+        v <- arrayZeroed idxs w
+        return $ Just $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
+    _ -> error $ "can't initialize array of " ++ show t ++ " (expected BVRepr)"
+initialValue ty@(CTyBv _sz) = tyToReprM ty >>= \(Some tpr) -> case tpr of
+    C.BVRepr w -> return $ Just $ MirExp (C.BVRepr w) $ S.app $ eBVLit w 0
+    _ -> mirFail $ "Bv type " ++ show ty ++ " does not have BVRepr"
+-- `Any` values have no reasonable default.  Any default we provide might get
+-- muxed with actual non-default values, which will fail (unless the concrete
+-- type happens to match exactly).
+initialValue CTyAny = return Nothing
+initialValue CTyMethodSpec = return Nothing
+initialValue CTyMethodSpecBuilder = return Nothing
+
+initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
+initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
+initialValue (M.TyTuple tys) = do
+    mexps <- mapM initialValue tys
+    col <- use $ cs . collection
+    return $ Just $ buildTupleMaybe col tys mexps
+initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
+initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
+initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (M.TyArray t size) = do
+    Some tpr <- tyToReprM t
+    mv <- mirVector_uninit tpr $ S.app $ eBVLit knownNat (fromIntegral size)
+    return $ Just $ MirExp (MirVectorRepr tpr) mv
+-- TODO: disabled to workaround for a bug with muxing null and non-null refs
+-- The problem is with
+--      if (*) {
+--          let x = &...;
+--      }
+-- `x` gets default-initialized at the start of the function, which (with these
+-- cases uncommented) sets it to null (`MirReference_Integer 0`).  Then, if the
+-- branch is taken, it's set to a valid `MirReference` value instead.  At the
+-- end of the `if`, we try to mux together `MirReference_Integer` with a normal
+-- `MirReference`, which currently fails.
+--
+--  * The short-term fix is to disable initialization of refs, so they never
+--    get set to `null` in the first place.
+--  * The medium-term fix is to support muxing the two MirReference variants,
+--    using something like VariantType.
+--  * The long-term fix is to remove default-initialization entirely, either by
+--    writing an AdtAg pass for structs and tuples like we have for enums, or
+--    by converting all locals to untyped allocations (allow writing each field
+--    value independently, then materialize a fully-initialized struct the
+--    first time it's read at struct type).
+--
+-- NB: When re-enabling this, also re-enable the TyRef case of `canInitialize`
+{-
+initialValue (M.TyRef (M.TySlice t) M.Immut) = do
+    tyToReprCont t $ \ tr -> do
+      let vec = R.App $ E.VectorLit tr V.empty
+      vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
+      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+      return $ Just $ buildTuple [vec', i, i]
+initialValue (M.TyRef (M.TySlice t) M.Mut) = do
+    tyToReprCont t $ \ tr -> do
+      ref <- newMirRef (MirVectorRepr tr)
+      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+      return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
+      -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef M.TyStr M.Immut) = do
+    let tr = C.BVRepr $ knownNat @8
+    let vec = R.App $ E.VectorLit tr V.empty
+    vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
+    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+    return $ Just $ buildTuple [vec', i, i]
+initialValue (M.TyRef M.TyStr M.Mut) = do
+    let tr = C.BVRepr $ knownNat @8
+    ref <- newMirRef (MirVectorRepr tr)
+    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
+initialValue (M.TyRef (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
+initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
+initialValue (M.TyRef t M.Immut) = initialValue t
+initialValue (M.TyRef t M.Mut)
+  | Some tpr <- tyToRepr t = do
+    r <- integerToMirRef tpr $ R.App $ usizeLit 0
+    return $ Just $ MirExp (MirReferenceRepr tpr) r
+-}
+initialValue M.TyChar = do
+    let w = (knownNat :: NatRepr 32)
+    return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
+initialValue (M.TyClosure tys) = do
+    mexps <- mapM initialValue tys
+    col <- use $ cs . collection
+    return $ Just $ buildTupleMaybe col tys mexps
+initialValue (M.TyAdt nm _ _) = do
+    adt <- findAdt nm
+    col <- use $ cs . collection
+    case adt ^. M.adtkind of
+        _ | Just ty <- reprTransparentFieldTy col adt -> initialValue ty
+        M.Struct -> do
+            let var = M.onlyVariant adt
+            fldExps <- mapM initField (var^.M.vfields)
+            Just <$> buildStruct' adt fldExps
+        M.Enum _ -> do
+            case ifind (\_ vars -> vars ^. M.vinhabited) (adt ^. M.adtvariants) of
+                -- Uninhabited enums can't be initialized.
+                Nothing -> return Nothing
+                -- Inhabited enums get initialized to their first inhabited variant.
+                Just (discr, var) -> do
+                    fldExps <- mapM initField (var^.M.vfields)
+                    Just <$> buildEnum' adt discr fldExps
+        M.Union -> return Nothing
+
+
+
+initialValue (M.TyFnPtr _) = return $ Nothing
+initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
+initialValue (M.TyDynamic _) = return $ Nothing
+initialValue M.TyNever = return $ Just $ MirExp knownRepr $
+    R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+initialValue _ = return Nothing
+
+initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
+initField (M.Field _name ty) = initialValue ty
+
+eBVLit ::
+  (1 <= w) =>
+  NatRepr w ->
+  Integer ->
+  E.App ext f (C.BVType w)
+eBVLit w i = E.BVLit w (BV.mkBV w i)

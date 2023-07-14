@@ -86,71 +86,55 @@ pub unsafe fn _mm_shuffle_epi8(a: __m128i, b: __m128i) -> __m128i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_alignr_epi8)
 #[inline]
 #[target_feature(enable = "ssse3")]
-#[cfg_attr(test, assert_instr(palignr, n = 15))]
-#[rustc_args_required_const(2)]
+#[cfg_attr(test, assert_instr(palignr, IMM8 = 15))]
+#[rustc_legacy_const_generics(2)]
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub unsafe fn _mm_alignr_epi8(a: __m128i, b: __m128i, n: i32) -> __m128i {
-    let n = n as u32;
+pub unsafe fn _mm_alignr_epi8<const IMM8: i32>(a: __m128i, b: __m128i) -> __m128i {
+    static_assert_imm8!(IMM8);
     // If palignr is shifting the pair of vectors more than the size of two
     // lanes, emit zero.
-    if n > 32 {
+    if IMM8 > 32 {
         return _mm_set1_epi8(0);
     }
     // If palignr is shifting the pair of input vectors more than one lane,
     // but less than two lanes, convert to shifting in zeroes.
-    let (a, b, n) = if n > 16 {
-        (_mm_set1_epi8(0), a, n - 16)
+    let (a, b) = if IMM8 > 16 {
+        (_mm_set1_epi8(0), a)
     } else {
-        (a, b, n)
+        (a, b)
     };
-    let a = a.as_i8x16();
-    let b = b.as_i8x16();
-
-    macro_rules! shuffle {
-        ($shift:expr) => {
-            simd_shuffle16(
-                b,
-                a,
-                [
-                    0 + $shift,
-                    1 + $shift,
-                    2 + $shift,
-                    3 + $shift,
-                    4 + $shift,
-                    5 + $shift,
-                    6 + $shift,
-                    7 + $shift,
-                    8 + $shift,
-                    9 + $shift,
-                    10 + $shift,
-                    11 + $shift,
-                    12 + $shift,
-                    13 + $shift,
-                    14 + $shift,
-                    15 + $shift,
-                ],
-            )
-        };
+    const fn mask(shift: u32, i: u32) -> u32 {
+        if shift > 32 {
+            // Unused, but needs to be a valid index.
+            i
+        } else if shift > 16 {
+            shift - 16 + i
+        } else {
+            shift + i
+        }
     }
-    let r: i8x16 = match n {
-        0 => shuffle!(0),
-        1 => shuffle!(1),
-        2 => shuffle!(2),
-        3 => shuffle!(3),
-        4 => shuffle!(4),
-        5 => shuffle!(5),
-        6 => shuffle!(6),
-        7 => shuffle!(7),
-        8 => shuffle!(8),
-        9 => shuffle!(9),
-        10 => shuffle!(10),
-        11 => shuffle!(11),
-        12 => shuffle!(12),
-        13 => shuffle!(13),
-        14 => shuffle!(14),
-        15 => shuffle!(15),
-        _ => shuffle!(16),
-    };
+    let r: i8x16 = simd_shuffle16!(
+        b.as_i8x16(),
+        a.as_i8x16(),
+        <const IMM8: i32> [
+            mask(IMM8 as u32, 0),
+            mask(IMM8 as u32, 1),
+            mask(IMM8 as u32, 2),
+            mask(IMM8 as u32, 3),
+            mask(IMM8 as u32, 4),
+            mask(IMM8 as u32, 5),
+            mask(IMM8 as u32, 6),
+            mask(IMM8 as u32, 7),
+            mask(IMM8 as u32, 8),
+            mask(IMM8 as u32, 9),
+            mask(IMM8 as u32, 10),
+            mask(IMM8 as u32, 11),
+            mask(IMM8 as u32, 12),
+            mask(IMM8 as u32, 13),
+            mask(IMM8 as u32, 14),
+            mask(IMM8 as u32, 15),
+        ],
+    );
     transmute(r)
 }
 
@@ -299,169 +283,6 @@ pub unsafe fn _mm_sign_epi32(a: __m128i, b: __m128i) -> __m128i {
     transmute(psignd128(a.as_i32x4(), b.as_i32x4()))
 }
 
-/// Computes the absolute value of packed 8-bit integers in `a` and
-/// return the unsigned results.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(pabsb))]
-pub unsafe fn _mm_abs_pi8(a: __m64) -> __m64 {
-    pabsb(a)
-}
-
-/// Computes the absolute value of packed 8-bit integers in `a`, and returns the
-/// unsigned results.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(pabsw))]
-pub unsafe fn _mm_abs_pi16(a: __m64) -> __m64 {
-    pabsw(a)
-}
-
-/// Computes the absolute value of packed 32-bit integers in `a`, and returns the
-/// unsigned results.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(pabsd))]
-pub unsafe fn _mm_abs_pi32(a: __m64) -> __m64 {
-    pabsd(a)
-}
-
-/// Shuffles packed 8-bit integers in `a` according to shuffle control mask in
-/// the corresponding 8-bit element of `b`, and returns the results
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(pshufb))]
-pub unsafe fn _mm_shuffle_pi8(a: __m64, b: __m64) -> __m64 {
-    pshufb(a, b)
-}
-
-/// Concatenates the two 64-bit integer vector operands, and right-shifts
-/// the result by the number of bytes specified in the immediate operand.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(palignr, n = 15))]
-#[rustc_args_required_const(2)]
-pub unsafe fn _mm_alignr_pi8(a: __m64, b: __m64, n: i32) -> __m64 {
-    macro_rules! call {
-        ($imm8:expr) => {
-            palignrb(a, b, $imm8)
-        };
-    }
-    constify_imm8!(n, call)
-}
-
-/// Horizontally adds the adjacent pairs of values contained in 2 packed
-/// 64-bit vectors of `[4 x i16]`.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(phaddw))]
-pub unsafe fn _mm_hadd_pi16(a: __m64, b: __m64) -> __m64 {
-    phaddw(a, b)
-}
-
-/// Horizontally adds the adjacent pairs of values contained in 2 packed
-/// 64-bit vectors of `[2 x i32]`.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(phaddd))]
-pub unsafe fn _mm_hadd_pi32(a: __m64, b: __m64) -> __m64 {
-    phaddd(a, b)
-}
-
-/// Horizontally adds the adjacent pairs of values contained in 2 packed
-/// 64-bit vectors of `[4 x i16]`. Positive sums greater than 7FFFh are
-/// saturated to 7FFFh. Negative sums less than 8000h are saturated to 8000h.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(phaddsw))]
-pub unsafe fn _mm_hadds_pi16(a: __m64, b: __m64) -> __m64 {
-    phaddsw(a, b)
-}
-
-/// Horizontally subtracts the adjacent pairs of values contained in 2
-/// packed 64-bit vectors of `[4 x i16]`.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(phsubw))]
-pub unsafe fn _mm_hsub_pi16(a: __m64, b: __m64) -> __m64 {
-    phsubw(a, b)
-}
-
-/// Horizontally subtracts the adjacent pairs of values contained in 2
-/// packed 64-bit vectors of `[2 x i32]`.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(phsubd))]
-pub unsafe fn _mm_hsub_pi32(a: __m64, b: __m64) -> __m64 {
-    phsubd(a, b)
-}
-
-/// Horizontally subtracts the adjacent pairs of values contained in 2
-/// packed 64-bit vectors of `[4 x i16]`. Positive differences greater than
-/// 7FFFh are saturated to 7FFFh. Negative differences less than 8000h are
-/// saturated to 8000h.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(phsubsw))]
-pub unsafe fn _mm_hsubs_pi16(a: __m64, b: __m64) -> __m64 {
-    phsubsw(a, b)
-}
-
-/// Multiplies corresponding pairs of packed 8-bit unsigned integer
-/// values contained in the first source operand and packed 8-bit signed
-/// integer values contained in the second source operand, adds pairs of
-/// contiguous products with signed saturation, and writes the 16-bit sums to
-/// the corresponding bits in the destination.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(pmaddubsw))]
-pub unsafe fn _mm_maddubs_pi16(a: __m64, b: __m64) -> __m64 {
-    pmaddubsw(a, b)
-}
-
-/// Multiplies packed 16-bit signed integer values, truncates the 32-bit
-/// products to the 18 most significant bits by right-shifting, rounds the
-/// truncated value by adding 1, and writes bits `[16:1]` to the destination.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(pmulhrsw))]
-pub unsafe fn _mm_mulhrs_pi16(a: __m64, b: __m64) -> __m64 {
-    pmulhrsw(a, b)
-}
-
-/// Negates packed 8-bit integers in `a` when the corresponding signed 8-bit
-/// integer in `b` is negative, and returns the results.
-/// Element in result are zeroed out when the corresponding element in `b` is
-/// zero.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(psignb))]
-pub unsafe fn _mm_sign_pi8(a: __m64, b: __m64) -> __m64 {
-    psignb(a, b)
-}
-
-/// Negates packed 16-bit integers in `a` when the corresponding signed 16-bit
-/// integer in `b` is negative, and returns the results.
-/// Element in result are zeroed out when the corresponding element in `b` is
-/// zero.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(psignw))]
-pub unsafe fn _mm_sign_pi16(a: __m64, b: __m64) -> __m64 {
-    psignw(a, b)
-}
-
-/// Negates packed 32-bit integers in `a` when the corresponding signed 32-bit
-/// integer in `b` is negative, and returns the results.
-/// Element in result are zeroed out when the corresponding element in `b` is
-/// zero.
-#[inline]
-#[target_feature(enable = "ssse3,mmx")]
-#[cfg_attr(test, assert_instr(psignd))]
-pub unsafe fn _mm_sign_pi32(a: __m64, b: __m64) -> __m64 {
-    psignd(a, b)
-}
-
 #[allow(improper_ctypes)]
 extern "C" {
     #[link_name = "llvm.x86.ssse3.pabs.b.128"]
@@ -508,54 +329,6 @@ extern "C" {
 
     #[link_name = "llvm.x86.ssse3.psign.d.128"]
     fn psignd128(a: i32x4, b: i32x4) -> i32x4;
-
-    #[link_name = "llvm.x86.ssse3.pabs.b"]
-    fn pabsb(a: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.pabs.w"]
-    fn pabsw(a: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.pabs.d"]
-    fn pabsd(a: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.pshuf.b"]
-    fn pshufb(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.mmx.palignr.b"]
-    fn palignrb(a: __m64, b: __m64, n: u8) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.phadd.w"]
-    fn phaddw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.phadd.d"]
-    fn phaddd(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.phadd.sw"]
-    fn phaddsw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.phsub.w"]
-    fn phsubw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.phsub.d"]
-    fn phsubd(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.phsub.sw"]
-    fn phsubsw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.pmadd.ub.sw"]
-    fn pmaddubsw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.pmul.hr.sw"]
-    fn pmulhrsw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.psign.b"]
-    fn psignb(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.psign.w"]
-    fn psignw(a: __m64, b: __m64) -> __m64;
-
-    #[link_name = "llvm.x86.ssse3.psign.d"]
-    fn psignd(a: __m64, b: __m64) -> __m64;
 }
 
 #[cfg(test)]
@@ -615,10 +388,10 @@ mod tests {
             12, 5, 5, 10,
             4, 1, 8, 0,
         );
-        let r = _mm_alignr_epi8(a, b, 33);
+        let r = _mm_alignr_epi8::<33>(a, b);
         assert_eq_m128i(r, _mm_set1_epi8(0));
 
-        let r = _mm_alignr_epi8(a, b, 17);
+        let r = _mm_alignr_epi8::<17>(a, b);
         #[rustfmt::skip]
         let expected = _mm_setr_epi8(
             2, 3, 4, 5, 6, 7, 8, 9,
@@ -626,10 +399,10 @@ mod tests {
         );
         assert_eq_m128i(r, expected);
 
-        let r = _mm_alignr_epi8(a, b, 16);
+        let r = _mm_alignr_epi8::<16>(a, b);
         assert_eq_m128i(r, a);
 
-        let r = _mm_alignr_epi8(a, b, 15);
+        let r = _mm_alignr_epi8::<15>(a, b);
         #[rustfmt::skip]
         let expected = _mm_setr_epi8(
             0, 1, 2, 3, 4, 5, 6, 7,
@@ -637,7 +410,7 @@ mod tests {
         );
         assert_eq_m128i(r, expected);
 
-        let r = _mm_alignr_epi8(a, b, 0);
+        let r = _mm_alignr_epi8::<0>(a, b);
         assert_eq_m128i(r, b);
     }
 
@@ -760,139 +533,5 @@ mod tests {
         let expected = _mm_setr_epi32(-1, -2, 3, 0);
         let r = _mm_sign_epi32(a, b);
         assert_eq_m128i(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_abs_pi8() {
-        let r = _mm_abs_pi8(_mm_set1_pi8(-5));
-        assert_eq_m64(r, _mm_set1_pi8(5));
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_abs_pi16() {
-        let r = _mm_abs_pi16(_mm_set1_pi16(-5));
-        assert_eq_m64(r, _mm_set1_pi16(5));
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_abs_pi32() {
-        let r = _mm_abs_pi32(_mm_set1_pi32(-5));
-        assert_eq_m64(r, _mm_set1_pi32(5));
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_shuffle_pi8() {
-        let a = _mm_setr_pi8(1, 2, 3, 4, 5, 6, 7, 8);
-        let b = _mm_setr_pi8(4, 128u8 as i8, 4, 3, 24, 12, 6, 19);
-        let expected = _mm_setr_pi8(5, 0, 5, 4, 1, 5, 7, 4);
-        let r = _mm_shuffle_pi8(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_alignr_pi8() {
-        let a = _mm_setr_pi32(0x89ABCDEF_u32 as i32, 0x01234567_u32 as i32);
-        let b = _mm_setr_pi32(0xBBAA9988_u32 as i32, 0xFFDDEECC_u32 as i32);
-        let r = _mm_alignr_pi8(a, b, 4);
-        assert_eq_m64(r, transmute(0x89abcdefffddeecc_u64));
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_hadd_pi16() {
-        let a = _mm_setr_pi16(1, 2, 3, 4);
-        let b = _mm_setr_pi16(4, 128, 4, 3);
-        let expected = _mm_setr_pi16(3, 7, 132, 7);
-        let r = _mm_hadd_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_hadd_pi32() {
-        let a = _mm_setr_pi32(1, 2);
-        let b = _mm_setr_pi32(4, 128);
-        let expected = _mm_setr_pi32(3, 132);
-        let r = _mm_hadd_pi32(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_hadds_pi16() {
-        let a = _mm_setr_pi16(1, 2, 3, 4);
-        let b = _mm_setr_pi16(32767, 1, -32768, -1);
-        let expected = _mm_setr_pi16(3, 7, 32767, -32768);
-        let r = _mm_hadds_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_hsub_pi16() {
-        let a = _mm_setr_pi16(1, 2, 3, 4);
-        let b = _mm_setr_pi16(4, 128, 4, 3);
-        let expected = _mm_setr_pi16(-1, -1, -124, 1);
-        let r = _mm_hsub_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_hsub_pi32() {
-        let a = _mm_setr_pi32(1, 2);
-        let b = _mm_setr_pi32(4, 128);
-        let expected = _mm_setr_pi32(-1, -124);
-        let r = _mm_hsub_pi32(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_hsubs_pi16() {
-        let a = _mm_setr_pi16(1, 2, 3, 4);
-        let b = _mm_setr_pi16(4, 128, 4, 3);
-        let expected = _mm_setr_pi16(-1, -1, -124, 1);
-        let r = _mm_hsubs_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_maddubs_pi16() {
-        let a = _mm_setr_pi8(1, 2, 3, 4, 5, 6, 7, 8);
-        let b = _mm_setr_pi8(4, 63, 4, 3, 24, 12, 6, 19);
-        let expected = _mm_setr_pi16(130, 24, 192, 194);
-        let r = _mm_maddubs_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_mulhrs_pi16() {
-        let a = _mm_setr_pi16(1, 2, 3, 4);
-        let b = _mm_setr_pi16(4, 32767, -1, -32768);
-        let expected = _mm_setr_pi16(0, 2, 0, -4);
-        let r = _mm_mulhrs_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_sign_pi8() {
-        let a = _mm_setr_pi8(1, 2, 3, 4, -5, -6, 7, 8);
-        let b = _mm_setr_pi8(4, 64, 0, 3, 1, -1, -2, 1);
-        let expected = _mm_setr_pi8(1, 2, 0, 4, -5, 6, -7, 8);
-        let r = _mm_sign_pi8(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_sign_pi16() {
-        let a = _mm_setr_pi16(-1, 2, 3, 4);
-        let b = _mm_setr_pi16(1, -1, 1, 0);
-        let expected = _mm_setr_pi16(-1, -2, 3, 0);
-        let r = _mm_sign_pi16(a, b);
-        assert_eq_m64(r, expected);
-    }
-
-    #[simd_test(enable = "ssse3,mmx")]
-    unsafe fn test_mm_sign_pi32() {
-        let a = _mm_setr_pi32(-1, 2);
-        let b = _mm_setr_pi32(1, 0);
-        let expected = _mm_setr_pi32(-1, 0);
-        let r = _mm_sign_pi32(a, b);
-        assert_eq_m64(r, expected);
     }
 }

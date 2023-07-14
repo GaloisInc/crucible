@@ -1,10 +1,10 @@
 #![cfg_attr(not(with_main), no_std)]
 trait FIndex {
-    
+
     type Output : ?Sized;
-    
-    fn findex(&self, i:usize) -> &Self::Output; 
-    
+
+    fn findex(&self, i:usize) -> &Self::Output;
+
 }
 
 impl FIndex for [u8] {
@@ -27,4 +27,4 @@ const ARG: u8 = 23;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u8 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u8 { f(ARG) }

@@ -372,7 +372,7 @@ impl Options {
                 free.extend(args);
                 break;
             } else {
-                let mut name = None;
+                let mut names;
                 let mut i_arg = None;
                 let mut was_long = true;
                 if cur.as_bytes()[1] == b'-' || self.long_only {
@@ -383,53 +383,57 @@ impl Options {
                         &cur[1..]
                     };
                     let mut parts = tail.splitn(2, '=');
-                    name = Some(Name::from_str(parts.next().unwrap()));
+                    names = vec![Name::from_str(parts.next().unwrap())];
                     if let Some(rest) = parts.next() {
                         i_arg = Some(rest.to_string());
                     }
                 } else {
                     was_long = false;
+                    names = Vec::new();
                     for (j, ch) in cur.char_indices().skip(1) {
                         let opt = Short(ch);
+
+                        /* In a series of potential options (eg. -aheJ), if we
+                           see one which takes an argument, we assume all
+                           subsequent characters make up the argument. This
+                           allows options such as -L/usr/local/lib/foo to be
+                           interpreted correctly
+                        */
 
                         let opt_id = match find_opt(&opts, &opt) {
                             Some(id) => id,
                             None => return Err(UnrecognizedOption(opt.to_string())),
                         };
 
-                        // In a series of potential options (eg. -aheJ), if we
-                        // see one which takes an argument, we assume all
-                        // subsequent characters make up the argument. This
-                        // allows options such as -L/usr/local/lib/foo to be
-                        // interpreted correctly
+                        names.push(opt);
+
                         let arg_follows = match opts[opt_id].hasarg {
                             Yes | Maybe => true,
                             No => false,
                         };
 
                         if arg_follows {
-                            name = Some(opt);
                             let next = j + ch.len_utf8();
                             if next < cur.len() {
                                 i_arg = Some(cur[next..].to_string());
                                 break;
                             }
-                        } else {
-                            vals[opt_id].push((arg_pos, Given));
                         }
                     }
                 }
-                if let Some(nm) = name {
-                    let opt_id = match find_opt(&opts, &nm) {
+                let mut name_pos = 0;
+                for nm in names.iter() {
+                    name_pos += 1;
+                    let optid = match find_opt(&opts, &nm) {
                         Some(id) => id,
                         None => return Err(UnrecognizedOption(nm.to_string())),
                     };
-                    match opts[opt_id].hasarg {
+                    match opts[optid].hasarg {
                         No => {
-                            if i_arg.is_some() {
+                            if name_pos == names.len() && i_arg.is_some() {
                                 return Err(UnexpectedArgument(nm.to_string()));
                             }
-                            vals[opt_id].push((arg_pos, Given));
+                            vals[optid].push((arg_pos, Given));
                         }
                         Maybe => {
                             // Note that here we do not handle `--arg value`.
@@ -439,20 +443,21 @@ impl Options {
                             // option at the end of the arguments when
                             // FloatingFrees is in use.
                             if let Some(i_arg) = i_arg.take() {
-                                vals[opt_id].push((arg_pos, Val(i_arg)));
+                                vals[optid].push((arg_pos, Val(i_arg)));
                             } else if was_long
+                                || name_pos < names.len()
                                 || args.peek().map_or(true, |n| is_arg(&n))
                             {
-                                vals[opt_id].push((arg_pos, Given));
+                                vals[optid].push((arg_pos, Given));
                             } else {
-                                vals[opt_id].push((arg_pos, Val(args.next().unwrap())));
+                                vals[optid].push((arg_pos, Val(args.next().unwrap())));
                             }
                         }
                         Yes => {
                             if let Some(i_arg) = i_arg.take() {
-                                vals[opt_id].push((arg_pos, Val(i_arg)));
+                                vals[optid].push((arg_pos, Val(i_arg)));
                             } else if let Some(n) = args.next() {
-                                vals[opt_id].push((arg_pos, Val(n)));
+                                vals[optid].push((arg_pos, Val(n)));
                             } else {
                                 return Err(ArgumentMissing(nm.to_string()));
                             }
@@ -713,7 +718,17 @@ pub enum Fail {
     UnexpectedArgument(String),
 }
 
-impl Error for Fail {}
+impl Error for Fail {
+    fn description(&self) -> &str {
+        match *self {
+            ArgumentMissing(_) => "missing argument",
+            UnrecognizedOption(_) => "unrecognized option",
+            OptionMissing(_) => "missing option",
+            OptionDuplicated(_) => "duplicated option",
+            UnexpectedArgument(_) => "unexpected argument",
+        }
+    }
+}
 
 /// The result of parsing a command line with a set of options.
 pub type Result = result::Result<Matches, Fail>;
@@ -789,35 +804,23 @@ impl Matches {
         self.opt_vals(nm).into_iter().map(|(_, o)| o).next()
     }
     /// Returns true if an option was defined
-    pub fn opt_defined(&self, name: &str) -> bool {
-        find_opt(&self.opts, &Name::from_str(name)).is_some()
+    pub fn opt_defined(&self, nm: &str) -> bool {
+        find_opt(&self.opts, &Name::from_str(nm)).is_some()
     }
 
     /// Returns true if an option was matched.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_present(&self, name: &str) -> bool {
-        !self.opt_vals(name).is_empty()
+    pub fn opt_present(&self, nm: &str) -> bool {
+        !self.opt_vals(nm).is_empty()
     }
 
     /// Returns the number of times an option was matched.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_count(&self, name: &str) -> usize {
-        self.opt_vals(name).len()
+    pub fn opt_count(&self, nm: &str) -> usize {
+        self.opt_vals(nm).len()
     }
 
     /// Returns a vector of all the positions in which an option was matched.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_positions(&self, name: &str) -> Vec<usize> {
-        self.opt_vals(name).into_iter().map(|(pos, _)| pos).collect()
+    pub fn opt_positions(&self, nm: &str) -> Vec<usize> {
+        self.opt_vals(nm).into_iter().map(|(pos, _)| pos).collect()
     }
 
     /// Returns true if any of several options were matched.
@@ -828,41 +831,6 @@ impl Matches {
                 Some(id) if !self.vals[id].is_empty() => true,
                 _ => false,
             })
-    }
-
-    /// Returns true if any of several options were matched.
-    ///
-    /// Similar to `opts_present` but accepts any argument that can be converted
-    /// into an iterator over string references.
-    ///
-    /// # Panics
-    ///
-    /// This function might panic if some option name is not defined.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use getopts::Options;
-    /// let mut opts = Options::new();
-    /// opts.optopt("a", "alpha", "first option", "STR");
-    /// opts.optopt("b", "beta", "second option", "STR");
-    ///
-    /// let args = vec!["-a", "foo"];
-    /// let matches = &match opts.parse(&args) {
-    ///     Ok(m) => m,
-    ///     _ => panic!(),
-    /// };
-    ///
-    /// assert!(matches.opts_present_any(&["alpha"]));
-    /// assert!(!matches.opts_present_any(&["beta"]));
-    /// ```
-    pub fn opts_present_any<C: IntoIterator>(&self, names: C) -> bool
-    where
-        C::Item: AsRef<str>,
-    {
-        names
-            .into_iter()
-            .any(|nm| !self.opt_vals(nm.as_ref()).is_empty())
     }
 
     /// Returns the string argument supplied to one of several matching options or `None`.
@@ -876,56 +844,12 @@ impl Matches {
             .next()
     }
 
-    /// Returns the string argument supplied to the first matching option of
-    /// several options or `None`.
-    ///
-    /// Similar to `opts_str` but accepts any argument that can be converted
-    /// into an iterator over string references.
-    ///
-    /// # Panics
-    ///
-    /// This function might panic if some option name is not defined.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use getopts::Options;
-    /// let mut opts = Options::new();
-    /// opts.optopt("a", "alpha", "first option", "STR");
-    /// opts.optopt("b", "beta", "second option", "STR");
-    ///
-    /// let args = vec!["-a", "foo", "--beta", "bar"];
-    /// let matches = &match opts.parse(&args) {
-    ///     Ok(m) => m,
-    ///     _ => panic!(),
-    /// };
-    ///
-    /// assert_eq!(Some("foo".to_string()), matches.opts_str_first(&["alpha", "beta"]));
-    /// assert_eq!(Some("bar".to_string()), matches.opts_str_first(&["beta", "alpha"]));
-    /// ```
-    pub fn opts_str_first<C: IntoIterator>(&self, names: C) -> Option<String>
-    where
-        C::Item: AsRef<str>,
-    {
-        names
-            .into_iter()
-            .filter_map(|nm| match self.opt_val(nm.as_ref()) {
-                Some(Val(s)) => Some(s),
-                _ => None,
-            })
-            .next()
-    }
-
     /// Returns a vector of the arguments provided to all matches of the given
     /// option.
     ///
     /// Used when an option accepts multiple values.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_strs(&self, name: &str) -> Vec<String> {
-        self.opt_vals(name)
+    pub fn opt_strs(&self, nm: &str) -> Vec<String> {
+        self.opt_vals(nm)
             .into_iter()
             .filter_map(|(_, v)| match v {
                 Val(s) => Some(s),
@@ -938,12 +862,8 @@ impl Matches {
     /// option, together with their positions.
     ///
     /// Used when an option accepts multiple values.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_strs_pos(&self, name: &str) -> Vec<(usize, String)> {
-        self.opt_vals(name)
+    pub fn opt_strs_pos(&self, nm: &str) -> Vec<(usize, String)> {
+        self.opt_vals(nm)
             .into_iter()
             .filter_map(|(p, v)| match v {
                 Val(s) => Some((p, s)),
@@ -953,12 +873,8 @@ impl Matches {
     }
 
     /// Returns the string argument supplied to a matching option or `None`.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_str(&self, name: &str) -> Option<String> {
-        match self.opt_val(name) {
+    pub fn opt_str(&self, nm: &str) -> Option<String> {
+        match self.opt_val(nm) {
             Some(Val(s)) => Some(s),
             _ => None,
         }
@@ -969,12 +885,8 @@ impl Matches {
     /// Returns `None` if the option was not present, `def` if the option was
     /// present but no argument was provided, and the argument if the option was
     /// present and an argument was provided.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_default(&self, name: &str, def: &str) -> Option<String> {
-        match self.opt_val(name) {
+    pub fn opt_default(&self, nm: &str, def: &str) -> Option<String> {
+        match self.opt_val(nm) {
             Some(Val(s)) => Some(s),
             Some(_) => Some(def.to_string()),
             None => None,
@@ -984,15 +896,11 @@ impl Matches {
     /// Returns some matching value or `None`.
     ///
     /// Similar to opt_str, also converts matching argument using FromStr.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_get<T>(&self, name: &str) -> result::Result<Option<T>, T::Err>
+    pub fn opt_get<T>(&self, nm: &str) -> result::Result<Option<T>, T::Err>
     where
         T: FromStr,
     {
-        match self.opt_val(name) {
+        match self.opt_val(nm) {
             Some(Val(s)) => Ok(Some(s.parse()?)),
             Some(Given) => Ok(None),
             None => Ok(None),
@@ -1004,15 +912,11 @@ impl Matches {
     /// Similar to opt_default, except the two differences.
     /// Instead of returning None when argument was not present, return `def`.
     /// Instead of returning &str return type T, parsed using str::parse().
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the option name is not defined.
-    pub fn opt_get_default<T>(&self, name: &str, def: T) -> result::Result<T, T::Err>
+    pub fn opt_get_default<T>(&self, nm: &str, def: T) -> result::Result<T, T::Err>
     where
         T: FromStr,
     {
-        match self.opt_val(name) {
+        match self.opt_val(nm) {
             Some(Val(s)) => s.parse(),
             Some(Given) => Ok(def),
             None => Ok(def),

@@ -7,7 +7,7 @@ pub enum Opt<T> {
 }
 
 use Opt::*;
-    
+
 pub trait Ir {
     type Item;
     fn dummy(x:Self::Item) -> Self::Item;
@@ -34,4 +34,4 @@ fn f(arg: i32) {
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> () { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> () { f(ARG) }

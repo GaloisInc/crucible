@@ -1,12 +1,12 @@
 warning: branch condition never has value 1
-   ┌─ test/coverage/coverage_match.rs:14:19
+   ┌─ test/coverage/coverage_match.rs:12:9
    │
-14 │     let e = match x {
-   │                   ^
+12 │     let x = u8::symbolic("x");
+   │         ^
 
 warning: branch condition never has value 20
-   ┌─ test/coverage/coverage_match.rs:21:19
+   ┌─ test/coverage/coverage_match.rs:22:9
    │
-21 │     let y = match e {
-   │                   ^
+22 │         E::A => 1,
+   │         ^^^^
 

@@ -46,7 +46,7 @@ fn thread0(v: Arc<Mutex<Option<i32>>>) {
     }
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn singleton() {
     let v = Arc::new(Mutex::new(None));
     let vv = v.clone();

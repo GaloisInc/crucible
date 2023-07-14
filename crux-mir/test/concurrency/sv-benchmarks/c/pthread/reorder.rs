@@ -39,12 +39,12 @@ fn run_test(numSet: usize, numCheck: usize) {
     }
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn reorder2() {
     run_test(2,2);
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn reorder5() {
     run_test(4,1);
 }

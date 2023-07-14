@@ -3,7 +3,7 @@
 extern crate core;
 use core::convert::TryFrom;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() {
     let xs = [1, 2, 3, 4];
     let xs: &[u8] = &xs;

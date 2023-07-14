@@ -40,10 +40,11 @@ version, then rerun both commands.
 
 ### Writing test cases
 
-`crux-mir` looks for functions with the `#[crux_test]` attribute and runs them
+`crux-mir` looks for functions with the `#[crux::test]` attribute and runs them
 as tests.  You may need to add `#![feature(custom_attribute)]` to the crate
-root to use the `#[crux_test]` attribute.  These can both be conditionally
-compiled by checking for `#[cfg(crux)]`.
+root to use the `#[crux::test]` attribute.  These can both be conditionally
+compiled by checking for the `crux` configuration predicate using
+`#[cfg_attr(crux, crux::test)]`.
 
 Test cases can create and manipulate symbolic values using the functions in the
 [`crucible`](lib/crucible) Rust crate.  See

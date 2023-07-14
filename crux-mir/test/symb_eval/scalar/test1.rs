@@ -76,7 +76,7 @@ macro_rules! crucible_debug_integer {
 
 
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 pub fn f() {
     // Int512 -> Scalar64 -> Int512 conversion is the identity function.
     {
@@ -167,7 +167,7 @@ pub fn f() {
 
 mod constants {
     use super::Scalar64;
-    
+
     /// `L` is the order of base point, i.e. 2^252 + 27742317777372353535851937790883648493
     pub(crate) const L: Scalar64 = Scalar64([ 0x0002631a5cf5d3ed, 0x000dea2f79cd6581, 0x000000000014def9, 0x0000000000000000, 0x0000100000000000 ]);
 

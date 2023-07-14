@@ -72,19 +72,21 @@ adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
             lastExplicit' = if isExplicit v then discr else lastExplicit
         in discr : go lastExplicit' vs
 
-    getDiscr _ (Variant name (Explicit did) _fields _knd) = case Map.lookup did (_functions col) of
+    getDiscr _ (Variant _ _ _ _ (Just i) _) = i
+
+    getDiscr _ (Variant name (Explicit did) _fields _knd _ _) = case Map.lookup did (_functions col) of
         Just fn -> case fn^.fbody.mblocks of
-            [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i)))) _loc] _term) ] ->
+            ( BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i)))) _loc] _term) ):_ ->
                 fromIntegerLit i
             
-            _ -> error "enum discriminant constant should only have one basic block"
+            _ -> error ("enum discriminant constant should only have one basic block [variant id:" ++ show _aname ++ " discr index:" ++ show name ++ "]")
           
         Nothing -> error $ "cannot find discriminant constant " ++ show did ++
             " for variant " ++ show name
-    getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind) =
+    getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind _ _) =
         lastExplicit + toInteger i
 
-    isExplicit (Variant _ (Explicit _) _ _) = True
+    isExplicit (Variant _ (Explicit _) _ _ _ _) = True
     isExplicit _ = False
 
 --------------------------------------------------------------------------------------
@@ -155,6 +157,7 @@ instance GenericOps Intrinsic
 instance GenericOps Instance
 instance GenericOps InstanceKind
 instance GenericOps NamedTy
+instance GenericOps NonDivergingIntrinsic
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate 

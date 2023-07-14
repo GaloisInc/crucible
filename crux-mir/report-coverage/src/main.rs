@@ -306,7 +306,9 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
             Ok(BranchTrans::DropFlag)
         },
 
-        _ => die!("unknown tag {:?} for branch", tag),
+        _ => {
+            die!("unknown tag {:?} for branch", tag);
+        },
     }
 }
 

@@ -5,7 +5,7 @@ struct Foo {
     y: i32,
 }
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() {
     let a = Foo { x: 1, y: 1 };
     let b = Foo { x: 1, y: 1 };

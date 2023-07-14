@@ -20,7 +20,7 @@ License          : BSD3
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE TypeFamilies #-}
-
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 
@@ -35,7 +35,7 @@ import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 
-import Control.Lens (makeLenses, makeWrapped)
+import Control.Lens (makeLenses, makePrisms, makeWrapped)
 
 import GHC.Generics
 
@@ -184,7 +184,13 @@ data Adt = Adt
     }
     deriving (Eq, Ord, Show, Generic)
 
-data AdtKind = Struct | Enum | Union
+data AdtKind
+    = Struct
+    | Enum { -- | The type of the discriminant used to pick which variant of
+             -- the enum to use. This type can be of varying sizes depending
+             -- on how many variants the enum has.
+             _enumDiscrTy :: Ty }
+    | Union
     deriving (Eq, Ord, Show, Generic)
 
 data VariantDiscr
@@ -196,11 +202,16 @@ data VariantDiscr
 data CtorKind
   = FnKind
   | ConstKind
-  | FictiveKind
   deriving (Eq, Ord, Show, Generic)
 
 
-data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
+data Variant = Variant {
+  _vname :: DefId,
+  _vdiscr :: VariantDiscr,
+  _vfields :: [Field],
+  _vctorkind :: Maybe CtorKind,
+  _discrval :: Maybe Integer,
+  _vinhabited :: Bool }
     deriving (Eq, Ord,Show, Generic)
 
 
@@ -284,6 +295,13 @@ data Statement =
       | StorageLive { _slv :: Var }
       | StorageDead { _sdv :: Var }
       | Nop
+      | Deinit
+      | StmtIntrinsic NonDivergingIntrinsic
+    deriving (Show,Eq, Ord, Generic)
+
+data NonDivergingIntrinsic =
+        NDIAssume Operand
+      | NDICopyNonOverlapping Operand Operand Operand
     deriving (Show,Eq, Ord, Generic)
 
 data PlaceElem =
@@ -318,11 +336,25 @@ data Rvalue =
       | CheckedBinaryOp { _cbop :: BinOp, _cbop1 :: Operand, _cbop2 :: Operand }
       | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
-      | Discriminant { _dvar :: Lvalue }
+      | Discriminant { _dvar :: Lvalue,
+                       -- | The type of the discriminant. That is, /not/ the
+                       -- type of the enum itself, but rather the type of the
+                       -- value used to choose which variant of the enum to use.
+                       --
+                       -- Although this type is also stored in the 'Lvalue', it
+                       -- can only be retrieved in a monadic context. We cache
+                       -- the type here for the benefit of `Rvalue`'s 'TypeOf'
+                       -- instance, which requires a pure context.
+                       _dty :: Ty }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
+      | ShallowInitBox { _sibptr :: Operand, _sibty :: Ty }
+      | CopyForDeref Lvalue
+      | ThreadLocalRef DefId Ty
     deriving (Show,Eq, Ord, Generic)
 
+-- | An aggregate ADT expression. Currently, this is only used for enums (see
+-- "Mir.Pass.AllocateEnum").
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
     deriving (Show, Eq, Ord, Generic)
 
@@ -377,7 +409,7 @@ data Operand =
 
 data NullOp =
         SizeOf
-      | Box
+      | AlignOf
       deriving (Show,Eq, Ord, Generic)
 
 
@@ -427,15 +459,16 @@ data Vtable = Vtable
     }
     deriving (Show, Eq, Ord, Generic)
 
+-- TODO: add other castkinds (see json)
 data CastKind =
-        Misc
-      | ReifyFnPointer
-      | ClosureFnPointer
-      | UnsafeFnPointer
-      | Unsize
-      | UnsizeVtable VtableName
-      | MutToConstPointer
-      deriving (Show,Eq, Ord, Generic)
+    Misc
+  | ReifyFnPointer
+  | ClosureFnPointer
+  | UnsafeFnPointer
+  | Unsize
+  | UnsizeVtable VtableName
+  | MutToConstPointer
+  deriving (Show,Eq, Ord, Generic)
 
 data Constant = Constant Ty ConstVal
   deriving (Eq, Ord, Show, Generic)
@@ -463,6 +496,7 @@ data FloatLit
 data ConstVal =
     ConstFloat FloatLit
   | ConstInt IntLit
+  | ConstSlice [ConstVal]
   | ConstStr B.ByteString
   | ConstByteStr B.ByteString
   | ConstBool Bool
@@ -470,6 +504,7 @@ data ConstVal =
   | ConstVariant DefId
   | ConstFunction DefId
   | ConstTuple [ConstVal]
+  | ConstClosure [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
   | ConstInitializer DefId
@@ -479,6 +514,7 @@ data ConstVal =
   | ConstRawPtr Integer
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
+  | ConstFnPtr Instance
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =
@@ -501,6 +537,8 @@ data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static
   , _sTy            :: Ty
   , _sMutable       :: Bool             -- ^ true for "static mut"
+  , _sConstVal      :: Maybe ConstVal   -- ^ 'Just' if this static is initialized
+                                        -- with a constant value. 'Nothing' otherwise.
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -534,6 +572,7 @@ makeLenses ''MirBody
 makeLenses ''BasicBlock
 makeLenses ''BasicBlockData
 makeLenses ''Adt
+makePrisms ''AdtKind
 makeLenses ''AdtAg
 makeLenses ''Trait
 makeLenses ''Static
@@ -628,7 +667,7 @@ typeOfProj elm baseTy = case elm of
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t
     peelRef (TyRawPtr t _) = t
-    peelRef (TyAdt _ $(normDefIdPat "alloc::boxed::Box") (Substs [t])) = t
+    peelRef (TyAdt _ $(explodedDefIdPat ["alloc", "boxed", "Box"]) (Substs [t])) = t
     peelRef t = t
 
     peelIdx :: Ty -> Ty
@@ -672,17 +711,20 @@ instance TypeOf Rvalue where
     in TyTuple [resTy, TyBool]
   typeOf (NullaryOp op ty) = case op of
     SizeOf -> TyUint USize
-    Box -> TyAdt (textId "type::adt") (textId "alloc::boxed::Box") (Substs [ty])
+    AlignOf -> TyUint USize
   typeOf (UnaryOp op x) =
     let ty = typeOf x
     in case op of
         Not -> ty
         Neg -> ty
-  typeOf (Discriminant _lv) = TyInt USize
+  typeOf (Discriminant _lv ty) = ty
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
+  typeOf (ShallowInitBox _ ty) = ty
+  typeOf (CopyForDeref lv) = typeOf lv
+  typeOf (ThreadLocalRef _ ty) = ty
 
 instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv

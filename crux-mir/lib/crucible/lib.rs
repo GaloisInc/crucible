@@ -2,6 +2,7 @@
 #![feature(core_intrinsics)]
 #![feature(crucible_intrinsics)]
 #![feature(unboxed_closures)]
+#![feature(tuple_trait)]
 
 pub mod bitvector;
 pub mod cryptol;

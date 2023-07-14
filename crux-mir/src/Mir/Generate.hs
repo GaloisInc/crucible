@@ -38,6 +38,7 @@ import Mir.PP()
 import Debug.Trace
 
 
+
 getModificationTimeIfExists :: FilePath -> IO (Maybe UTCTime)
 getModificationTimeIfExists path = doesFileExist path >>= \case
     False -> return Nothing
@@ -66,7 +67,10 @@ compileMirJson keepRlib quiet rustFile = do
     rlibsDir <- getRlibsDir
     -- TODO: don't hardcode -L library path
     let cp = Proc.proc "mir-json"
-            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2018"
+            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2021"
+            , "--extern", "core=" ++ rlibsDir ++ "/libcore.rlib"
+            , "--extern", "std=" ++ rlibsDir ++ "/libstd.rlib"
+            , "--extern", "compiler_builtins=" ++ rlibsDir ++ "/libcompiler_builtins.rlib"
             , "--cfg", "crux", "--cfg", "crux_top_level"
             , "-o", outFile]
     let cp' = if not quiet then cp else
@@ -118,18 +122,30 @@ maybeLinkJson jsonFiles cacheFile = do
 
 libJsonFiles :: [FilePath]
 libJsonFiles =
+    -- std and its dependencies
     [ "libcore.mir"
-    , "libcompiler_builtins.mir"
-    , "libint512.mir"
-    , "libcrucible.mir"
-
-    , "liballoc.mir"
-    , "libstd.mir"
-    , "libunwind.mir"
-    , "libcfg_if.mir"
-    , "libhashbrown.mir"
+    , "librustc_std_workspace_core.mir"
     , "liblibc.mir"
-
+    , "libcompiler_builtins.mir"
+    , "liballoc.mir"
+    , "libcfg_if.mir"
+    , "libmemchr.mir"
+    , "libadler.mir"
+    , "librustc_demangle.mir"
+    , "libunwind.mir"
+    , "libpanic_unwind.mir"
+    , "librustc_std_workspace_alloc.mir"
+    , "libpanic_abort.mir"
+    , "libgimli.mir"
+    , "libstd_detect.mir"
+    , "libobject.mir"
+    , "libminiz_oxide.mir"
+    , "libhashbrown.mir"
+    , "libaddr2line.mir"
+    , "libstd.mir"
+    -- additional libs
+    , "libcrucible.mir"
+    , "libint512.mir"
     , "libbyteorder.mir"
     , "libbytes.mir"
     ]

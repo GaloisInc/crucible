@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:22.04
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -6,7 +6,7 @@ RUN apt-get update && \
   curl \
   gcc \
   libc-dev \
-  python \
+  python-is-python3 \
   unzip \
   file \
   make
@@ -17,7 +17,7 @@ COPY android-install-ndk.sh /android/
 RUN sh /android/android-install-ndk.sh $ANDROID_ARCH
 
 # We do not run x86_64-linux-android tests on an android emulator.
-# See ci/android-sysimage.sh for informations about how tests are run.
+# See ci/android-sysimage.sh for information about how tests are run.
 COPY android-sysimage.sh /android/
 RUN bash /android/android-sysimage.sh x86_64 x86_64-24_r07.zip
 

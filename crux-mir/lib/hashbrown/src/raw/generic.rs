@@ -9,12 +9,14 @@ use core::{mem, ptr};
     target_pointer_width = "64",
     target_arch = "aarch64",
     target_arch = "x86_64",
+    target_arch = "wasm32",
 ))]
 type GroupWord = u64;
 #[cfg(all(
     target_pointer_width = "32",
     not(target_arch = "aarch64"),
     not(target_arch = "x86_64"),
+    not(target_arch = "wasm32"),
 ))]
 type GroupWord = u32;
 
@@ -27,11 +29,7 @@ pub const BITMASK_MASK: BitMaskWord = 0x8080_8080_8080_8080_u64 as GroupWord;
 /// Helper function to replicate a byte across a `GroupWord`.
 #[inline]
 fn repeat(byte: u8) -> GroupWord {
-    let repeat = GroupWord::from(byte);
-    let repeat = repeat | repeat.wrapping_shl(8);
-    let repeat = repeat | repeat.wrapping_shl(16);
-    // This last line is a no-op with a 32-bit GroupWord
-    repeat | repeat.wrapping_shl(32)
+    GroupWord::from_ne_bytes([byte; Group::WIDTH])
 }
 
 /// Abstraction over a group of control bytes which can be scanned in
@@ -41,7 +39,7 @@ fn repeat(byte: u8) -> GroupWord {
 #[derive(Copy, Clone)]
 pub struct Group(GroupWord);
 
-// We perform all operations in the native endianess, and convert to
+// We perform all operations in the native endianness, and convert to
 // little-endian just before creating a BitMask. The can potentially
 // enable the compiler to eliminate unnecessary byte swaps if we are
 // only checking whether a BitMask is empty.
@@ -51,27 +49,28 @@ impl Group {
     pub const WIDTH: usize = mem::size_of::<Self>();
 
     /// Returns a full group of empty bytes, suitable for use as the initial
-    /// value for an empty hash table. This value is explicitly declared as
-    /// a static variable to ensure the address is consistent across dylibs.
+    /// value for an empty hash table.
     ///
     /// This is guaranteed to be aligned to the group size.
     #[inline]
-    pub fn static_empty() -> &'static [u8] {
-        union AlignedBytes {
-            _align: Group,
+    pub const fn static_empty() -> &'static [u8; Group::WIDTH] {
+        #[repr(C)]
+        struct AlignedBytes {
+            _align: [Group; 0],
             bytes: [u8; Group::WIDTH],
-        };
-        static ALIGNED_BYTES: AlignedBytes = AlignedBytes {
+        }
+        const ALIGNED_BYTES: AlignedBytes = AlignedBytes {
+            _align: [],
             bytes: [EMPTY; Group::WIDTH],
         };
-        unsafe { &ALIGNED_BYTES.bytes }
+        &ALIGNED_BYTES.bytes
     }
 
     /// Loads a group of bytes starting at the given address.
     #[inline]
     #[allow(clippy::cast_ptr_alignment)] // unaligned load
     pub unsafe fn load(ptr: *const u8) -> Self {
-        Group(ptr::read_unaligned(ptr as *const _))
+        Group(ptr::read_unaligned(ptr.cast()))
     }
 
     /// Loads a group of bytes starting at the given address, which must be
@@ -81,7 +80,7 @@ impl Group {
     pub unsafe fn load_aligned(ptr: *const u8) -> Self {
         // FIXME: use align_offset once it stabilizes
         debug_assert_eq!(ptr as usize & (mem::align_of::<Self>() - 1), 0);
-        Group(ptr::read(ptr as *const _))
+        Group(ptr::read(ptr.cast()))
     }
 
     /// Stores the group of bytes to the given address, which must be
@@ -91,7 +90,7 @@ impl Group {
     pub unsafe fn store_aligned(self, ptr: *mut u8) {
         // FIXME: use align_offset once it stabilizes
         debug_assert_eq!(ptr as usize & (mem::align_of::<Self>() - 1), 0);
-        ptr::write(ptr as *mut _, self.0);
+        ptr::write(ptr.cast(), self.0);
     }
 
     /// Returns a `BitMask` indicating all bytes in the group which *may*
@@ -107,7 +106,7 @@ impl Group {
     #[inline]
     pub fn match_byte(self, byte: u8) -> BitMask {
         // This algorithm is derived from
-        // http://graphics.stanford.edu/~seander/bithacks.html##ValueInWord
+        // https://graphics.stanford.edu/~seander/bithacks.html##ValueInWord
         let cmp = self.0 ^ repeat(byte);
         BitMask((cmp.wrapping_sub(repeat(0x01)) & !cmp & repeat(0x80)).to_le())
     }

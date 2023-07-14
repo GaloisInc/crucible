@@ -1,6 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 pub fn f() {
     let mut a = 123_i32;
     let mut b = &mut a;

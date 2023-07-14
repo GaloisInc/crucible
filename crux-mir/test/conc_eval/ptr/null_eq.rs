@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     let x = 1;
     let px = &x as *const i32;

@@ -23,7 +23,7 @@ fn deserialize(b: &[u8]) -> (i16, i16) {
     }
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test() -> i32 {
     let sym = SymBytes::symbolic("sym", 5);
     crucible_assume!(sym[0] <= 2);

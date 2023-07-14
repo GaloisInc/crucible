@@ -85,7 +85,7 @@ fn t2(stack: Arc<Mutex<Stack>>, with_flag: bool)
     }
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn stack_1()
 {
     let stk = Arc::new(Mutex::new(Stack::new()));
@@ -100,7 +100,7 @@ fn stack_1()
     h2.join();
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn stack_2()
 {
     let stk = Arc::new(Mutex::new(Stack::new()));

@@ -1,5 +1,8 @@
 //! `x86_64` intrinsics
 
+#[macro_use]
+mod macros;
+
 mod fxsr;
 pub use self::fxsr::*;
 
@@ -32,6 +35,9 @@ pub use self::bmi2::*;
 
 mod avx2;
 pub use self::avx2::*;
+
+mod avx512f;
+pub use self::avx512f::*;
 
 mod bswap;
 pub use self::bswap::*;

@@ -35,7 +35,7 @@ fn calc_fib() -> i32 {
     j
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test_fail() {
     let data    = Arc::new(Mutex::new((1 as i32, 1 as i32)));
 
@@ -59,7 +59,7 @@ fn crux_test_fail() {
     data.crucible_TEMP_unlock();
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test() {
     let data = Arc::new(Mutex::new((1 as i32, 1 as i32)));
 

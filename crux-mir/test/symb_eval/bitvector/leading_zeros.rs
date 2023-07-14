@@ -5,7 +5,7 @@ use crucible::Symbolic;
 
 use std::ops::{Not, Neg, Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test() {
     {
         let a_64 = u64::symbolic("a");

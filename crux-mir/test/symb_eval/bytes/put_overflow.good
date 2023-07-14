@@ -1,10 +1,10 @@
-test put_overflow/3a1fbbbh::f[0]: FAILED
+test put_overflow/<DISAMB>::f[0]: FAILED
 
 failures:
 
----- put_overflow/3a1fbbbh::f[0] counterexamples ----
+---- put_overflow/<DISAMB>::f[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   internal: error: in bytes/3a1fbbbh::{{impl}}[4]::put_slice[0]
-[Crux]   panicking::begin_panic, called from bytes/3a1fbbbh::{{impl}}[4]::put_slice[0]
+[Crux]   internal: error: in bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
+[Crux]   panicking::panic_fmt, called from bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
 
 [Crux] Overall status: Invalid.

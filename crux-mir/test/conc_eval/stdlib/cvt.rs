@@ -13,7 +13,7 @@ pub trait TI<T>: Sized {
 
 
 fn f(_: ()) -> u32 {
-    0 
+    0
 }
 
 const ARG: () = ();
@@ -22,4 +22,4 @@ const ARG: () = ();
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> u32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> u32 { f(ARG) }

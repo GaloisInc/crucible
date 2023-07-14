@@ -65,7 +65,9 @@ where
 import           Data.Kind(Type)
 
 import qualified Data.Aeson as Aeson
+import qualified Data.Foldable as F
 import qualified Data.List as List
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
@@ -75,6 +77,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import           Data.Char(isDigit)
 import           Data.Functor.Identity
 import           GHC.Generics (Generic)
 
@@ -110,6 +113,7 @@ import           Mir.PP
 import           Unsafe.Coerce(unsafeCoerce)
 import           Debug.Trace
 import           GHC.Stack
+import Control.Applicative ((<|>))
 
 
 --------------------------------------------------------------------------------------
@@ -134,6 +138,21 @@ data MirExp s where
 -- result of lvalue evaluation.
 data MirPlace s where
     MirPlace :: C.TypeRepr ty -> R.Expr MIR s (MirReferenceType ty) -> PtrMetadata s -> MirPlace s
+    -- | This is a hack used to support @&dyn Trait@ references. Unlike other
+    -- reference types, trait objects do not use 'MirReferenceType', instead
+    -- using a custom 'AnyType' representation that wraps a
+    -- @'MirReferenceType' t@ (for some unknown @t@). The only 'MirPlaceDynRef'
+    -- operation that is currently supported is @addrOfPlace@, which supports
+    -- code that looks like @&*x@ (where @x: &dyn Trait@). This sort of
+    -- operation does arise in @rustc@-compiled MIR, even in the standard
+    -- libraries, so we must have /some/ level of support for it.
+    --
+    -- All other 'MirPlaceDynRef' operations (e.g., @readPlace@ and
+    -- @evalPlaceProj@) are unsupported and will throw an exception if
+    -- encountered. To implement these operations, we will need to change the
+    -- encoding of trait objects to use 'MirReferenceType' in a more standard
+    -- way. See <https://github.com/GaloisInc/crucible/issues/1092>.
+    MirPlaceDynRef :: R.Expr MIR s DynRefType -> MirPlace s
 
 -- | MIR supports a notion of "unsized places" - for example, it generates code
 -- like `(*s)[i]` where `s` is a slice.  To handle this, we attach the metadata
@@ -166,12 +185,19 @@ data FnState (s :: Type)
   = FnState { _varMap     :: !(VarMap s),
               _labelMap   :: !(LabelMap s),
               _debugLevel :: !Int,
-              _currentFn  :: !Fn,
+              _transContext :: !FnTransContext,
               _cs         :: !CollectionState,
               _customOps  :: !CustomOpMap,
               _assertFalseOnError :: !Bool,
               _transInfo  :: !FnTransInfo
             }
+
+-- | The current translation context
+data FnTransContext
+  = FnContext Fn
+    -- ^ We are translating a function definition.
+  | StaticContext
+    -- ^ We are translating the initializer for static values.
 
 -- | State about the entire collection used for the translation
 data CollectionState
@@ -181,6 +207,16 @@ data CollectionState
       _staticMap      :: !(Map DefId StaticVar),
       -- | For Enums, gives the discriminant value for each variant.
       _discrMap       :: !(Map AdtName [Integer]),
+      -- | Map crate names to their respective crate hashes, the latter of
+      -- which are used to disambiguate identifier names. We consult this 'Map'
+      -- when looking up wired-in names (e.g., 'Option' or 'MaybeUninit' in
+      -- @core@) to determine what disambiguator to use.
+      --
+      -- Note that the range of the 'Map' is a 'NonEmpty' list because it is
+      -- possible to depend on two different crates with the same crate name,
+      -- but with different hashes. Most of the time, however, this list will
+      -- contain exactly one disambiguator per crate name.
+      _crateHashesMap :: !(Map Text (NonEmpty Text)),
       _collection     :: !Collection
       }
 
@@ -369,10 +405,10 @@ instance Monoid RustModule where
   mempty  = RustModule mempty mempty mempty
 
 instance Semigroup CollectionState  where
-  (CollectionState hm1 vm1 sm1 dm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 col2) =
-      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (col1 <> col2))
+  (CollectionState hm1 vm1 sm1 dm1 chm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 chm2 col2) =
+      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (Map.unionWith (<>) chm1 chm2) (col1 <> col2))
 instance Monoid CollectionState where
-  mempty  = CollectionState mempty mempty mempty mempty mempty
+  mempty  = CollectionState mempty mempty mempty mempty mempty mempty
 
 
 instance Show (MirExp s) where
@@ -380,6 +416,7 @@ instance Show (MirExp s) where
 
 instance Show (MirPlace s) where
     show (MirPlace tr e m) = show e ++ ", " ++ show m ++ ": & " ++ show tr
+    show (MirPlaceDynRef e) = "dyn reference " ++ show e
 
 instance Show MirHandle where
     show (MirHandle _nm sig c) =
@@ -388,6 +425,19 @@ instance Show MirHandle where
 instance Pretty MirHandle where
     pretty (MirHandle nm sig _c) =
       viaShow nm <> colon <> pretty sig
+
+
+instance Pretty FnTransContext where
+    pretty (FnContext f) = pretty f
+    pretty StaticContext = "the static initializer"
+
+expectFnContext :: MirGenerator h s ret Fn
+expectFnContext = do
+  transCtxt <- use transContext
+  case transCtxt of
+    FnContext f -> pure f
+    StaticContext ->
+      mirFail "expected function when translating static initializer"
 
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
@@ -423,18 +473,60 @@ findAdtInst origName substs = do
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show (origName, substs)
 
+-- Like findAdtInst, but with an `ExplodedDefId` instead of a `DefId`. This uses
+-- `findDefId` to compute the `DefId`.
+findExplodedAdtInst :: ExplodedDefId -> Substs -> MirGenerator h s ret Adt
+findExplodedAdtInst edid substs = do
+    did <- findDefId edid
+    findAdtInst did substs
+
+-- Like findExplodedAdtInst, but returning a `TyAdt`.
+findExplodedAdtTy :: ExplodedDefId -> Substs -> MirGenerator h s ret Ty
+findExplodedAdtTy edid substs = do
+    adt <- findExplodedAdtInst edid substs
+    pure $ TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
+
+-- | Find the 'DefId' corresponding to the supplied 'ExplodedDefId'. This
+-- consults the 'crateHashesMap' to ensure that the crate's disambiguator is
+-- correct. If a crate name is ambiguous (i.e., if there are multiple
+-- disambiguators associated with the crate name), this will throw an error.
+findDefId :: ExplodedDefId -> MirGenerator h s ret DefId
+findDefId edid = do
+    crateDisambigs <- use $ cs . crateHashesMap
+    (crate, path) <-
+      case edid of
+        crate:path -> pure (crate, path)
+        [] -> mirFail "findDefId: DefId with no crate"
+    let crateStr = Text.unpack crate
+    case Map.lookup crate crateDisambigs of
+        Just allDisambigs@(disambig :| otherDisambigs)
+          |  F.null otherDisambigs
+          -> pure $ textId $ Text.intercalate "::"
+                  $ (crate <> "/" <> disambig) : path
+          |  otherwise
+          -> mirFail $ unlines $
+               [ "ambiguous crate " ++ crateStr
+               , "crate disambiguators:"
+               ] ++ F.toList (Text.unpack <$> allDisambigs)
+        Nothing -> mirFail $ "unknown crate " ++ crateStr
+  where
+    -- partialDefId = textId str
+
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
-  f  <- use currentFn
-  let msg = "Translation error in " ++ show (f^.fname) ++ ": " ++ str
+  transCtxt <- use transContext
+  let loc = case transCtxt of
+              FnContext f   -> show (f^.fname)
+              StaticContext -> "the static initializer"
+      msg = "Translation error in " ++ loc ++ ": " ++ str
   if b then do
          when (db > 1) $ do
            traceM ("Translation failure: " ++ str)
          when (db > 2) $ do
-           traceM (fmt f)
+           traceM (fmt transCtxt)
          G.reportError (S.litExpr (Text.pack msg))
        else error msg
 
@@ -464,10 +556,10 @@ resolveCustom instDefId = do
                 f <- use $ customOps . fnPtrShimOp
                 return $ Just $ f ty
             IkCloneShim ty parts
-              | intr ^. intrInst . inDefId == textId "core::clone::Clone::clone" -> do
+              | idKey (intr ^. intrInst . inDefId) == ["core", "clone", "Clone", "clone"] -> do
                 f <- use $ customOps . cloneShimOp
                 return $ Just $ f ty parts
-              | intr ^. intrInst . inDefId == textId "core::clone::Clone::clone_from" -> do
+              | idKey (intr ^. intrInst . inDefId) == ["core", "clone", "Clone", "clone_from"] -> do
                 f <- use $ customOps . cloneFromShimOp
                 return $ Just $ f ty parts
               | otherwise -> mirFail $
@@ -475,13 +567,23 @@ resolveCustom instDefId = do
                     show (intr ^. intrInst . inDefId)
             _ -> do
                 let origDefId = intr ^. intrInst . inDefId
-                let origSubsts = intr ^. intrInst . inSubsts
-                let edid = idKey origDefId
+                    origSubsts = intr ^. intrInst . inSubsts
+                    edid = idKey origDefId
+                    -- remove section numbers (if any)
+                    removeSectionNumber w =
+                      Maybe.fromMaybe w (Text.dropWhile isDigit <$> Text.stripPrefix "#" w)
+                    stripSectionNumbers w =
+                      let (part1, part2) = Text.breakOn "#" w
+                      in  part1 <> removeSectionNumber part2
+
+                    edidSimpl = stripSectionNumbers <$> edid
                 optOp <- use $ customOps . opDefs .  at edid
-                case optOp of
+                optOpSimpl <- use $ customOps . opDefs .  at edidSimpl
+                case optOp <|> optOpSimpl of
                     Nothing -> return Nothing
                     Just f -> do
                         return $ f origSubsts
+
 
 ---------------------------------------------------------------------------------------------------
 -- ** Adding new temporaries to the VarMap
@@ -578,11 +680,12 @@ subfieldRef ::
 subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
 
 subvariantRef ::
-  C.CtxRepr ctx ->
-  R.Expr MIR s (MirReferenceType (RustEnumType ctx)) ->
-  Index ctx tp ->
+  C.TypeRepr discrTp ->
+  C.CtxRepr variantsCtx ->
+  R.Expr MIR s (MirReferenceType (RustEnumType discrTp variantsCtx)) ->
+  Index variantsCtx tp ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
-subvariantRef ctx ref idx = G.extensionStmt (MirSubvariantRef ctx ref idx)
+subvariantRef tp ctx ref idx = G.extensionStmt (MirSubvariantRef tp ctx ref idx)
 
 subindexRef ::
   C.TypeRepr tp ->

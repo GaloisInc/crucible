@@ -2,9 +2,9 @@
 
 struct Test(i32);
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
-    let x = box Test(1);
+    let x = Box::new(Test(1));
     x.0
 }
 

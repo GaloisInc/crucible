@@ -2,7 +2,7 @@ extern crate crucible;
 use crucible::array::Array;
 use crucible::*;
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test() -> i32 {
     let mut arr = Array::<i32>::zeroed();
     for i in 0..10 {

@@ -30,7 +30,7 @@ fn test_shift_op(f: impl FnOnce(u64, usize) -> u64, f_bv: impl FnOnce(Bv256, usi
     crucible_assert!(u64::from(x) == f(a, b));
 }
 
-#[cfg_attr(crux, crux_test)]
+#[crux::test]
 fn crux_test() {
     test_binop(u64::wrapping_add, Add::add);
     test_binop(u64::wrapping_sub, Sub::sub);

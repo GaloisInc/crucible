@@ -24,6 +24,7 @@ library
                  ansi-terminal,
                  bv-sized,
                  bytestring,
+                 extra,
                  prettyprinter >= 1.7.0,
                  text,
                  time,
@@ -91,6 +92,8 @@ test-suite test
                 config-schema,
                 config-value,
                 bytestring,
+                regex-base,
+                regex-posix,
                 utf8-string
 
   default-language: Haskell2010
