@@ -20,6 +20,9 @@ env:
   # (symptom: "No suitable image found ... unknown file type, first
   # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
   CACHE_VERSION: 4
+  # If you update this, make sure to also update RUST_TOOLCHAIN in
+  # .github/Dockerfile-crux-mir
+  RUST_TOOLCHAIN: "nightly-2023-01-23"
 
 jobs:
   config:
@@ -101,7 +104,7 @@ jobs:
       - name: Install latest Rust nightly
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2023-01-23
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           override: true
           components: rustc-dev
 
