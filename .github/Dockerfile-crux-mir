@@ -1,13 +1,19 @@
+# If you update this, make sure to also update RUST_TOOLCHAIN in
+# .github/workflows/crux-mir-build.yml
+ARG RUST_TOOLCHAIN="nightly-2023-01-23"
+
 FROM rust:1.46.0 AS mir_json
+ARG RUST_TOOLCHAIN
 
 ADD dependencies/mir-json /mir-json
 WORKDIR /mir-json
-RUN rustup toolchain install nightly-2020-03-22 --force
-RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
-RUN rustup default nightly-2020-03-22
+RUN rustup toolchain install ${RUST_TOOLCHAIN} --force
+RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev
+RUN rustup default ${RUST_TOOLCHAIN}
 RUN cargo install --locked
 
 FROM ubuntu:22.04 AS build
+ARG RUST_TOOLCHAIN
 
 RUN apt-get update && \
     apt-get install -y \
@@ -58,7 +64,7 @@ RUN cabal v2-build --only-dependencies crux-mir
 RUN cabal v2-build crux-mir
 RUN cp `cabal v2-exec which crux-mir` /usr/local/bin
 RUN cp /usr/local/cargo/bin/* /usr/local/bin/
-RUN rustup default nightly-2020-03-22
+RUN rustup default ${RUST_TOOLCHAIN}
 WORKDIR ${DIR}/build/crux-mir
 RUN ./translate_libs.sh
 WORKDIR ${DIR}/build
