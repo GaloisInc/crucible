@@ -19,7 +19,7 @@ homepage = "https://github.com/rust-lang/getopts"
 documentation = "https://doc.rust-lang.org/getopts"
 readme = "README.md"
 categories = ["command-line-interface"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/getopts"
 [dependencies.core]
 version = "1.0"
