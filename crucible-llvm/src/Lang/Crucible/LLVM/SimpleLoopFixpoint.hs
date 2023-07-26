@@ -11,13 +11,16 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -177,7 +180,28 @@ fixpointRecord (CheckFixpoint r _ _ _) = Just r
 fixpointRecord (AfterFixpoint r _) = Just r
 
 
-type FixpointMonad sym = StateT (MapF (W4.SymExpr sym) (FixpointEntry sym)) IO
+-- type FixpointMonad sym = StateT (MapF (W4.SymExpr sym) (FixpointEntry sym)) IO
+newtype FixpointMonad sym a =
+  FixpointMonad (StateT (MapF (W4.SymExpr sym) (FixpointEntry sym)) IO a)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadFail)
+-- newtype FixpointMonad sym a =
+--   FixpointMonad (ReaderT (W4.SymNat sym) (StateT (VariableSubst sym) IO) a)
+--   deriving (Functor, Applicative, Monad, MonadIO, MonadFail)
+
+deriving instance s ~ MapF (W4.SymExpr sym) (FixpointEntry sym) => MonadState s (FixpointMonad sym)
+
+
+runFixpointMonad ::
+  -- W4.SymNat sym ->
+  -- VariableSubst sym ->
+  -- FixpointMonad sym a ->
+  -- IO (a, VariableSubst sym)
+-- runFixpointMonad havoc_blk subst (FixpointMonad m) =
+--   runStateT (runReaderT m havoc_blk) subst
+  FixpointMonad sym a ->
+  MapF (W4.SymExpr sym) (FixpointEntry sym) ->
+  IO (a, MapF (W4.SymExpr sym) (FixpointEntry sym))
+runFixpointMonad (FixpointMonad m) = runStateT m
 
 
 joinRegEntries ::
@@ -295,6 +319,67 @@ applySubstitutionRegEntry sym substitution entry = case C.regType entry of
           \i -> C.RegEntry (field_types Ctx.! i) $ C.unRV $ (C.regValue entry) Ctx.! i
       }
   _ -> C.panic "SimpleLoopFixpoint.applySubstitutionRegEntry" ["unsupported type: " ++ show (C.regType entry)]
+
+
+joinMem ::
+  forall sym wptr .
+  -- (?logMessage :: String -> IO (), C.IsSymInterface sym) =>
+  (C.IsSymInterface sym, C.HasPtrWidth wptr) =>
+  sym ->
+  C.MemImpl sym ->
+  C.MemWrites sym ->
+  IO (Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType))
+joinMem sym header_mem_impl mem_writes = Map.fromList <$> catMaybes <$> case mem_writes of
+  C.MemWrites [C.MemWritesChunkIndexed mmm] -> mapM
+    (\case
+      (C.MemWrite ptr (C.MemStore _ storeage_type _))
+        | Just blk <- W4.asNat (C.llvmPointerBlock ptr)
+        , Just off <- BV.asNatural <$> W4.asBV (C.llvmPointerOffset ptr) -> do
+          let sz = C.typeEnd 0 storeage_type
+          some_join_varaible <- liftIO $ case W4.mkNatRepr $ C.bytesToBits sz of
+            C.Some bv_width
+              | Just C.LeqProof <- W4.testLeq (W4.knownNat @1) bv_width -> do
+                join_varaible <- W4.freshConstant sym
+                  (userSymbol' "mem_join_var")
+                  (W4.BaseBVRepr bv_width)
+                return $ MemFixpointEntry
+                  { memFixpointEntrySym = sym
+                  , memFixpointEntryJoinVariable = join_varaible
+                  }
+              | otherwise ->
+                C.panic
+                  "SimpleLoopFixpoint.simpleLoopFixpoint"
+                  ["unexpected storage type " ++ show storeage_type ++ " of size " ++ show sz]
+          return $ Just ((blk, off, fromIntegral sz), (some_join_varaible, storeage_type))
+        | Just blk <- W4.asNat (C.llvmPointerBlock ptr)
+        , Just Refl <- W4.testEquality ?ptrWidth (C.ptrWidth ptr) -> do
+          maybe_ranges <- runMaybeT $
+            C.writeRangesMem @_ @wptr sym $ C.memImplHeap header_mem_impl
+          case maybe_ranges of
+            Just ranges -> do
+              sz <- W4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth $ toInteger $ C.typeEnd 0 storeage_type
+              forM_ (Map.findWithDefault [] blk ranges) $ \(prev_off, prev_sz) -> do
+                disjoint_pred <- C.buildDisjointRegionsAssertionWithSub
+                  sym
+                  ptr
+                  sz
+                  (C.LLVMPointer (C.llvmPointerBlock ptr) prev_off)
+                  prev_sz
+                when (W4.asConstantPred disjoint_pred /= Just True) $
+                  fail $
+                    "SimpleLoopFixpoint: non-disjoint ranges: off1="
+                    ++ show (W4.printSymExpr (C.llvmPointerOffset ptr))
+                    ++ ", sz1="
+                    ++ show (W4.printSymExpr sz)
+                    ++ ", off2="
+                    ++ show (W4.printSymExpr prev_off)
+                    ++ ", sz2="
+                    ++ show (W4.printSymExpr prev_sz)
+              return Nothing
+            Nothing -> fail $ "SimpleLoopFixpoint: unsupported symbolic pointers"
+      _ -> fail $ "SimpleLoopFixpoint: not MemWrite: " ++ show (C.ppMemWrites mem_writes))
+    (List.concat $ IntMap.elems mmm)
+  _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++ show (C.ppMemWrites mem_writes)
 
 
 loadMemJoinVariables ::
@@ -588,7 +673,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
         loop_condition <- C.assumptionsPred sym frame_assumptions
 
         -- widen the inductive condition
-        (join_reg_map, join_substitution) <- runStateT
+        (join_reg_map, join_substitution) <- runFixpointMonad
           (joinRegEntries sym
             (C.regMap reg_map)
             (C.regMap $ sim_state ^. (C.stateCrucibleFrame . C.frameRegs))) $
@@ -600,57 +685,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
           fail "SimpleLoopFixpoint: unsupported memory allocation in loop body."
 
         -- widen the memory
-        mem_substitution_candidate <- Map.fromList <$> catMaybes <$> case mem_writes of
-          C.MemWrites [C.MemWritesChunkIndexed mmm] -> mapM
-            (\case
-              (C.MemWrite ptr (C.MemStore _ storeage_type _))
-                | Just blk <- W4.asNat (C.llvmPointerBlock ptr)
-                , Just off <- BV.asNatural <$> W4.asBV (C.llvmPointerOffset ptr) -> do
-                  let sz = C.typeEnd 0 storeage_type
-                  some_join_varaible <- liftIO $ case W4.mkNatRepr $ C.bytesToBits sz of
-                    C.Some bv_width
-                      | Just C.LeqProof <- W4.testLeq (W4.knownNat @1) bv_width -> do
-                        join_varaible <- W4.freshConstant sym
-                          (userSymbol' "mem_join_var")
-                          (W4.BaseBVRepr bv_width)
-                        return $ MemFixpointEntry
-                          { memFixpointEntrySym = sym
-                          , memFixpointEntryJoinVariable = join_varaible
-                          }
-                      | otherwise ->
-                        C.panic
-                          "SimpleLoopFixpoint.simpleLoopFixpoint"
-                          ["unexpected storage type " ++ show storeage_type ++ " of size " ++ show sz]
-                  return $ Just ((blk, off, fromIntegral sz), (some_join_varaible, storeage_type))
-                | Just blk <- W4.asNat (C.llvmPointerBlock ptr)
-                , Just Refl <- W4.testEquality ?ptrWidth (C.ptrWidth ptr) -> do
-                  maybe_ranges <- runMaybeT $
-                    C.writeRangesMem @_ @64 sym $ C.memImplHeap header_mem_impl
-                  case maybe_ranges of
-                    Just ranges -> do
-                      sz <- W4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth $ toInteger $ C.typeEnd 0 storeage_type
-                      forM_ (Map.findWithDefault [] blk ranges) $ \(prev_off, prev_sz) -> do
-                        disjoint_pred <- C.buildDisjointRegionsAssertionWithSub
-                          sym
-                          ptr
-                          sz
-                          (C.LLVMPointer (C.llvmPointerBlock ptr) prev_off)
-                          prev_sz
-                        when (W4.asConstantPred disjoint_pred /= Just True) $
-                          fail $
-                            "SimpleLoopFixpoint: non-disjoint ranges: off1="
-                            ++ show (W4.printSymExpr (C.llvmPointerOffset ptr))
-                            ++ ", sz1="
-                            ++ show (W4.printSymExpr sz)
-                            ++ ", off2="
-                            ++ show (W4.printSymExpr prev_off)
-                            ++ ", sz2="
-                            ++ show (W4.printSymExpr prev_sz)
-                      return Nothing
-                    Nothing -> fail $ "SimpleLoopFixpoint: unsupported symbolic pointers"
-              _ -> fail $ "SimpleLoopFixpoint: not MemWrite: " ++ show (C.ppMemWrites mem_writes))
-            (List.concat $ IntMap.elems mmm)
-          _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++ show (C.ppMemWrites mem_writes)
+        mem_substitution_candidate <- joinMem sym header_mem_impl mem_writes
 
         -- check that the mem substitution always computes the same footprint on every iteration (!?!)
         mem_substitution <- if Map.null (fixpointMemSubstitution fixpoint_record)
