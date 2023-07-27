@@ -35,6 +35,7 @@ module Lang.Crucible.LLVM.SimpleLoopFixpoint
   ) where
 
 import           Control.Lens
+import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
@@ -83,6 +84,8 @@ import qualified Lang.Crucible.LLVM.MemModel.MemLog as C hiding (Mem)
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as C
 import qualified Lang.Crucible.LLVM.MemModel.Type as C
 
+import qualified Lang.Crucible.LLVM.SimpleLoopInvariant as SimpleLoopInvariant
+
 
 -- | When live loop-carried dependencies are discovered as we traverse
 --   a loop body, new "widening" variables are introduced to stand in
@@ -112,9 +115,21 @@ instance OrdF (FixpointEntry sym) => W4.TestEquality (FixpointEntry sym) where
     EQF -> Just Refl
     _ -> Nothing
 
+data MemLocation sym w = MemLocation
+  { memLocationBlock :: Natural
+  -- , memLocationOffset :: W4.SymBV sym w
+  , memLocationOffset :: Natural
+  -- , memLocationSize :: W4.SymBV sym w
+  , memLocationSize :: Natural
+  }
+  deriving (Eq, Ord)
+
+-- instance TestEquality (MemLocation sym) where
+-- instance OrdF (MemLocation sym) where
+
 data MemFixpointEntry sym = forall w . (1 <= w) => MemFixpointEntry
-  { memFixpointEntrySym :: sym
-  , memFixpointEntryJoinVariable :: W4.SymBV sym w
+  { memFixpointEntryJoinVariable :: W4.SymBV sym w
+  , memFixpointEntryStorageType :: C.StorageType
   }
 
 -- | This datatype captures the state machine that progresses as we
@@ -164,7 +179,8 @@ data FixpointRecord sym blocks = forall args.
   , fixpointRegMap :: C.RegMap sym args
 
     -- | Triples are (blockId, offset, size) to bitvector-typed entries ( bitvector only/not pointers )
-  , fixpointMemSubstitution :: Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType)
+  , fixpointMemSubstitution :: Map (MemLocation sym 64) (MemFixpointEntry sym)
+  -- , fixpointMemSubstitution :: SimpleLoopInvariant.MemorySubstitution sym
 
   , fixpointEqualitySubstitution :: MapF (W4.SymExpr sym) (W4.SymExpr sym)
 
@@ -328,29 +344,35 @@ joinMem ::
   sym ->
   C.MemImpl sym ->
   C.MemWrites sym ->
-  IO (Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType))
-joinMem sym header_mem_impl mem_writes = Map.fromList <$> catMaybes <$> case mem_writes of
+  IO (Map (MemLocation sym wptr) (MemFixpointEntry sym))
+joinMem sym header_mem_impl mem_writes = Map.fromList . catMaybes <$> (case mem_writes of
   C.MemWrites [C.MemWritesChunkIndexed mmm] -> mapM
     (\case
       (C.MemWrite ptr (C.MemStore _ storeage_type _))
         | Just blk <- W4.asNat (C.llvmPointerBlock ptr)
         , Just off <- BV.asNatural <$> W4.asBV (C.llvmPointerOffset ptr) -> do
           let sz = C.typeEnd 0 storeage_type
-          some_join_varaible <- liftIO $ case W4.mkNatRepr $ C.bytesToBits sz of
+          liftIO $ case W4.mkNatRepr $ C.bytesToBits sz of
             C.Some bv_width
               | Just C.LeqProof <- W4.testLeq (W4.knownNat @1) bv_width -> do
                 join_varaible <- W4.freshConstant sym
                   (userSymbol' "mem_join_var")
                   (W4.BaseBVRepr bv_width)
-                return $ MemFixpointEntry
-                  { memFixpointEntrySym = sym
-                  , memFixpointEntryJoinVariable = join_varaible
-                  }
+                return $ Just
+                  ( MemLocation
+                    { memLocationBlock = blk
+                    , memLocationOffset = off
+                    , memLocationSize = fromIntegral sz
+                    }
+                  , MemFixpointEntry
+                    { memFixpointEntryJoinVariable = join_varaible
+                    , memFixpointEntryStorageType = storeage_type
+                    }
+                  )
               | otherwise ->
                 C.panic
                   "SimpleLoopFixpoint.simpleLoopFixpoint"
                   ["unexpected storage type " ++ show storeage_type ++ " of size " ++ show sz]
-          return $ Just ((blk, off, fromIntegral sz), (some_join_varaible, storeage_type))
         | Just blk <- W4.asNat (C.llvmPointerBlock ptr)
         , Just Refl <- W4.testEquality ?ptrWidth (C.ptrWidth ptr) -> do
           maybe_ranges <- runMaybeT $
@@ -379,20 +401,20 @@ joinMem sym header_mem_impl mem_writes = Map.fromList <$> catMaybes <$> case mem
             Nothing -> fail $ "SimpleLoopFixpoint: unsupported symbolic pointers"
       _ -> fail $ "SimpleLoopFixpoint: not MemWrite: " ++ show (C.ppMemWrites mem_writes))
     (List.concat $ IntMap.elems mmm)
-  _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++ show (C.ppMemWrites mem_writes)
+  _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++ show (C.ppMemWrites mem_writes))
 
 
 loadMemJoinVariables ::
   (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
-  Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
+  Map (MemLocation sym wptr) (MemFixpointEntry sym) ->
   IO (MapF (W4.SymExpr sym) (W4.SymExpr sym))
 loadMemJoinVariables bak mem subst =
   let sym = C.backendGetSym bak in
   MapF.fromList <$> mapM
-    (\((blk, off, _sz), (MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible }, storeage_type)) -> do
-      ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
+    (\(mem_loc, MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible, memFixpointEntryStorageType = storeage_type }) -> do
+      ptr <- memLocationPtr sym mem_loc
       val <- C.doLoad bak mem ptr storeage_type (C.LLVMPointerRepr $ W4.bvWidth join_varaible) C.noAlignment
       case W4.asNat (C.llvmPointerBlock val) of
         Just 0 -> return $ MapF.Pair join_varaible $ C.llvmPointerOffset val
@@ -403,37 +425,46 @@ storeMemJoinVariables ::
   (C.IsSymBackend sym bak, C.HasPtrWidth wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   bak ->
   C.MemImpl sym ->
-  Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
+  Map (MemLocation sym wptr) (MemFixpointEntry sym) ->
   MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
   IO (C.MemImpl sym)
 storeMemJoinVariables bak mem mem_subst eq_subst =
   let sym = C.backendGetSym bak in
   foldlM
-  (\mem_acc ((blk, off, _sz), (MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible }, storeage_type)) -> do
-    ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
+  (\mem_acc (mem_loc, MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible, memFixpointEntryStorageType = storeage_type }) -> do
+    ptr <- memLocationPtr sym mem_loc
     C.doStore bak mem_acc ptr (C.LLVMPointerRepr $ W4.bvWidth join_varaible) storeage_type C.noAlignment =<<
       C.llvmPointer_bv sym (MapF.findWithDefault join_varaible join_varaible eq_subst))
   mem
   (Map.toAscList mem_subst)
+
+memLocationPtr ::
+  (C.IsSymInterface sym, C.HasPtrWidth wptr) =>
+  sym ->
+  MemLocation sym wptr ->
+  IO (C.LLVMPtr sym wptr)
+memLocationPtr sym (MemLocation { memLocationBlock = blk, memLocationOffset = off }) =
+  C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
+
 
 dropMemStackFrame :: C.IsSymInterface sym => C.MemImpl sym -> (C.MemImpl sym, C.MemAllocs sym, C.MemWrites sym)
 dropMemStackFrame mem = case (C.memImplHeap mem) ^. C.memState of
   (C.StackFrame _ _ _ (a, w) s) -> ((mem { C.memImplHeap = (C.memImplHeap mem) & C.memState .~ s }), a, w)
   _ -> C.panic "SimpleLoopFixpoint.dropMemStackFrame" ["not a stack frame:", show (C.ppMem $ C.memImplHeap mem)]
 
+
 applySubstitutionMemFixpointEntries  ::
   C.IsSymInterface sym =>
   MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
-  Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
-  Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType)
+  Map (Natural, Natural, Natural) (MemFixpointEntry sym) ->
+  Map (Natural, Natural, Natural) (MemFixpointEntry sym)
 applySubstitutionMemFixpointEntries substitution =
   Map.map
-    (\(MemFixpointEntry { memFixpointEntrySym = sym, memFixpointEntryJoinVariable = join_varaible }, storeage_type) ->
+    (\(MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible, memFixpointEntryStorageType = storeage_type }) ->
       ( MemFixpointEntry
-        { memFixpointEntrySym = sym
-        , memFixpointEntryJoinVariable = findWithDefaultKey substitution join_varaible
+        { memFixpointEntryJoinVariable = findWithDefaultKey substitution join_varaible
+        , memFixpointEntryStorageType = storeage_type
         }
-      , storeage_type
       ))
 
 
@@ -653,6 +684,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
         , fixpointSubstitution = MapF.empty
         , fixpointRegMap = sim_state ^. (C.stateCrucibleFrame . C.frameRegs)
         , fixpointMemSubstitution = Map.empty
+        -- , fixpointMemSubstitution = SimpleLoopInvariant.MemSubst Map.empty
         , fixpointEqualitySubstitution = MapF.empty
         , fixpointIndex = index_var
         }
@@ -686,6 +718,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
 
         -- widen the memory
         mem_substitution_candidate <- joinMem sym header_mem_impl mem_writes
+        -- mem_substitution_candidate <- SimpleLoopInvariant.constructMemSubstitutionCandidate sym mem_writes
 
         -- check that the mem substitution always computes the same footprint on every iteration (!?!)
         mem_substitution <- if Map.null (fixpointMemSubstitution fixpoint_record)
@@ -693,11 +726,14 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
           else if Map.keys mem_substitution_candidate == Map.keys (fixpointMemSubstitution fixpoint_record)
             then return $ fixpointMemSubstitution fixpoint_record
             else fail "SimpleLoopFixpoint: unsupported memory writes change"
+        -- mem_substitution <- fromRight undefined <$> runExceptT
+        --   (SimpleLoopInvariant.checkMemSubst sym (fixpointMemSubstitution fixpoint_record) mem_substitution_candidate)
 
         assumption_frame_identifier <- C.pushAssumptionFrame bak
 
         -- check if we are done; if we did not introduce any new variables, we don't have to widen any more
         if MapF.keys join_substitution == MapF.keys (fixpointSubstitution fixpoint_record) && Map.keys mem_substitution == Map.keys (fixpointMemSubstitution fixpoint_record)
+        -- if MapF.keys join_substitution == MapF.keys (fixpointSubstitution fixpoint_record) && Map.null (SimpleLoopInvariant.memSubst mem_substitution) == Map.null (SimpleLoopInvariant.memSubst (fixpointMemSubstitution fixpoint_record))
 
           -- we found the fixpoint, get ready to wrap up
           then do
