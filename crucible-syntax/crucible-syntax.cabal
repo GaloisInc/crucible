@@ -46,7 +46,7 @@ library
 
 executable crucibler
   build-depends:
-    base >= 4.9 && < 4.18,
+    base >= 4.9 && < 4.19,
     crucible-syntax,
     optparse-applicative,
     text,

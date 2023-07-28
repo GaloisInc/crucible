@@ -16,7 +16,7 @@ module Lang.Crucible.JVM.Translation.Monad where
 -- base
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Control.Monad.State.Strict
+import           Control.Monad (when)
 import           Control.Lens hiding (op, (:>))
 import qualified Data.Text as Text
 

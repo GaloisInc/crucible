@@ -93,7 +93,7 @@ module Lang.Crucible.LLVM.Translation
   ) where
 
 import           Control.Lens hiding (op, (:>) )
-import           Control.Monad.Except
+import           Control.Monad (foldM)
 import           Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

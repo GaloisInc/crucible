@@ -14,7 +14,8 @@ arguments.
 {-# LANGUAGE OverloadedStrings #-}
 module Lang.Crucible.Go.Builtin (translateBuiltin) where
 
-import           Control.Monad.State
+import           Control.Monad (forM, forM_)
+import           Control.Monad.State (gets)
 
 import           Data.Functor.Product
 import qualified Data.Text as T hiding (foldl, length, zip)

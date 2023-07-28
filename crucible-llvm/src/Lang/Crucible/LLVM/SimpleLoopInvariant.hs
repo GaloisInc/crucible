@@ -98,9 +98,11 @@ module Lang.Crucible.LLVM.SimpleLoopInvariant
   ) where
 
 import           Control.Lens
-import           Control.Monad.Reader
-import           Control.Monad.State
-import           Control.Monad.Except
+import           Control.Monad (forM, unless, when)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
+import           Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
+import           Control.Monad.State (MonadState(..), StateT(..))
 import           Data.Foldable
 import qualified Data.IntMap as IntMap
 import           Data.IORef

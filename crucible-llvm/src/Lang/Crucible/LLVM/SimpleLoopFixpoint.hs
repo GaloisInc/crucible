@@ -29,8 +29,10 @@ module Lang.Crucible.LLVM.SimpleLoopFixpoint
   ) where
 
 import           Control.Lens
-import           Control.Monad.Reader
-import           Control.Monad.State
+import           Control.Monad (when)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Reader (ReaderT(..))
+import           Control.Monad.State (MonadState(..), StateT(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Either
 import           Data.Foldable

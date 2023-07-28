@@ -104,7 +104,8 @@ module Lang.Crucible.JVM.Translation.Class
    )
    where
 
-import           Control.Monad.State.Strict
+import           Control.Monad (unless, when)
+import           Control.Monad.State.Strict (gets)
 import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (maybeToList, mapMaybe)

@@ -30,7 +30,8 @@ module Lang.Crucible.LLVM.Intrinsics.LLVM where
 
 import           GHC.TypeNats (KnownNat)
 import           Control.Lens hiding (op, (:>), Empty)
-import           Control.Monad.Reader
+import           Control.Monad (unless)
+import           Control.Monad.IO.Class (MonadIO(..))
 import           Data.Bits ((.&.))
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L

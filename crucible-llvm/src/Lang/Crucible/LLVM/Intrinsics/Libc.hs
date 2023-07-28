@@ -29,8 +29,10 @@ module Lang.Crucible.LLVM.Intrinsics.Libc where
 
 import           Control.Lens ((^.), _1, _2, _3)
 import qualified Codec.Binary.UTF8.Generic as UTF8
-import           Control.Monad.Reader
-import           Control.Monad.State
+import           Control.Monad (when)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.State (MonadState(..), StateT(..))
+import           Control.Monad.Trans.Class (MonadTrans(..))
 import qualified Data.ByteString as BS
 import qualified Data.Vector as V
 import           System.IO

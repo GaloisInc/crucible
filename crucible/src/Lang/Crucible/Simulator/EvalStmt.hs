@@ -46,7 +46,9 @@ module Lang.Crucible.Simulator.EvalStmt
 
 import qualified Control.Exception as Ex
 import           Control.Lens
-import           Control.Monad.Reader
+import           Control.Monad (foldM, when)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Reader (ReaderT(..), withReaderT)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC

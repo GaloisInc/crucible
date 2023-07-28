@@ -42,7 +42,9 @@ module Lang.Crucible.LLVM.Globals
   ) where
 
 import           Control.Arrow ((&&&))
-import           Control.Monad.Except
+import           Control.Monad (foldM)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Except (MonadError(..))
 import           Control.Lens hiding (op, (:>) )
 import           Data.List (foldl')
 import           Data.Map.Strict (Map)

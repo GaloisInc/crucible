@@ -37,9 +37,10 @@ should be selected after the execution of a given hook.
 module Crucibles.Explore ( scheduleFeature, ppScheduler ) where
 
 import           Control.Lens
+import           Control.Monad (unless, when)
 import           Control.Monad.IO.Class
-import           Control.Monad.State
-import           Control.Monad.Reader
+import           Control.Monad.State (MonadState(..), StateT(..), evalStateT, gets)
+import           Control.Monad.Reader (ReaderT(..))
 import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map

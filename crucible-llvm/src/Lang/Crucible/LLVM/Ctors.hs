@@ -34,7 +34,8 @@ import qualified Data.Text as Text
 import           GHC.Generics (Generic)
 import           Data.Parameterized.Nonce
 
-import           Control.Monad.Except as Except
+import           Control.Monad (forM, forM_)
+import           Control.Monad.Except (MonadError(..))
 import           Data.List (find, sortBy)
 import           Data.Ord (comparing, Down(..))
 import           Data.Maybe (fromMaybe)

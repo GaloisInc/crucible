@@ -22,7 +22,9 @@ module Lang.Crucible.JVM.Translation
   ) where
 
 -- base
-import           Control.Monad.State.Strict
+import           Control.Monad (void)
+import           Control.Monad.State.Strict (MonadState(..), StateT, execStateT)
+import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Lens hiding (op, (:>))
 import           Data.Int (Int32)
 import           Data.Map.Strict (Map)

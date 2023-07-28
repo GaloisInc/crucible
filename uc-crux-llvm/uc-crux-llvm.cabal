@@ -185,7 +185,7 @@ library
   build-depends:
     aeson,
     async,
-    base >= 4.8 && < 4.18,
+    base >= 4.8 && < 4.19,
     bv-sized,
     bytestring,
     containers,
@@ -217,7 +217,7 @@ executable uc-crux-llvm
   hs-source-dirs: exe
 
   build-depends:
-    base >= 4.8 && < 4.18,
+    base >= 4.8 && < 4.19,
     uc-crux-llvm
 
   ghc-options: -threaded

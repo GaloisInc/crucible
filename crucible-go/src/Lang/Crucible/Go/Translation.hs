@@ -64,10 +64,10 @@ allow a lookup attempt before considering them as built-ins.
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Go.Translation (translate) where
 
-import           Control.Monad.Except
+import           Control.Monad ((>=>), foldM, forM, forM_, when)
+import           Control.Monad.Except (runExceptT)
 import           Control.Monad.Fail (MonadFail)
-import           Control.Monad.Identity
-import           Control.Monad.State
+import           Control.Monad.State (MonadState(..), evalStateT, gets, modify)
 
 import           Data.BitVector.Sized
 import           Data.Default.Class
