@@ -21,7 +21,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall

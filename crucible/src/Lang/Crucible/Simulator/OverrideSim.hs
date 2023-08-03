@@ -80,9 +80,10 @@ import           Control.Exception
 import           Control.Lens
 import           Control.Monad hiding (fail)
 import qualified Control.Monad.Catch as X
-import           Control.Monad.Reader hiding (fail)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Reader (ReaderT(..))
 import           Control.Monad.ST
-import           Control.Monad.State.Strict hiding (fail)
+import           Control.Monad.State.Strict (StateT(..))
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy

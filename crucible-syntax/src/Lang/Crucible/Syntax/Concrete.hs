@@ -52,15 +52,15 @@ import Prelude hiding (fail)
 
 import Control.Lens hiding (cons, backwards)
 import Control.Applicative
-import Control.Monad.Identity hiding (fail)
-import Control.Monad.Reader
-import Control.Monad.Trans.Except
-import Control.Monad.State.Class
-import Control.Monad.State.Strict
-import Control.Monad.Except hiding (fail)
-import Control.Monad.Error.Class ()
-import Control.Monad.Writer.Strict hiding ((<>))
-import Control.Monad.Writer.Class ()
+import Control.Monad (MonadPlus(..), forM, join)
+import Control.Monad.Error.Class (MonadError(..))
+import Control.Monad.Identity ()
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.Reader (MonadReader, ReaderT(..))
+import Control.Monad.State.Strict (MonadState(..), StateT(..))
+import Control.Monad.Trans.Class (MonadTrans(..))
+import Control.Monad.Trans.Except (ExceptT(..))
+import Control.Monad.Writer.Strict (MonadWriter(..), WriterT(..))
 
 import Lang.Crucible.Types
 

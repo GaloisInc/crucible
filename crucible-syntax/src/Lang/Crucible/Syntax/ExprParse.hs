@@ -66,10 +66,13 @@ module Lang.Crucible.Syntax.ExprParse
 
 import Control.Applicative
 import Control.Lens hiding (List, cons, backwards)
-import Control.Monad.Reader
+import Control.Monad (MonadPlus(..), ap)
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Reader (MonadReader(..), ReaderT(..))
 import qualified Control.Monad.State.Strict as Strict
 import qualified Control.Monad.State.Lazy as Lazy
 import Control.Monad.State.Class
+import Control.Monad.Trans.Class (MonadTrans(..))
 import qualified Control.Monad.Writer.Strict as Strict
 import qualified Control.Monad.Writer.Lazy as Lazy
 import Control.Monad.Writer.Class

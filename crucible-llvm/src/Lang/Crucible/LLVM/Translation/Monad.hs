@@ -49,7 +49,9 @@ module Lang.Crucible.LLVM.Translation.Monad
   ) where
 
 import Control.Lens hiding (op, (:>), to, from )
-import Control.Monad.State.Strict
+import Control.Monad (unless)
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.State.Strict (MonadState(..))
 import Data.IORef (IORef, modifyIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

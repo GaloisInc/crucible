@@ -1,6 +1,6 @@
 {-|
 Module      : Lang.Crucible.Go.TransUtil
-Description : Go translation 
+Description : Go translation
 Maintainer  : abagnall@galois.com
 Stability   : experimental
 
@@ -15,9 +15,9 @@ This file contains helper functions used by the translation module.
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Go.TransUtil where
 
+import           Control.Monad (foldM)
 import           Control.Monad.Fail (MonadFail)
-import           Control.Monad.Identity
-import           Control.Monad.State
+import           Control.Monad.Identity (runIdentity)
 
 import           Data.BitVector.Sized
 import           Data.Functor.Product

@@ -21,7 +21,7 @@ library
 
   build-depends:
     base >= 4 && < 5,
-    aeson < 2.2,
+    aeson < 2.3,
     async,
     attoparsec,
     bv-sized >= 1.0.0,

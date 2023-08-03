@@ -22,7 +22,7 @@ import Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Map as MapF
 import qualified Data.Traversable as T
 import Control.Lens ((&), (%~), (%=), (^.), use, view)
-import Control.Monad.State(liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Data.Text as Text (Text, pack)
 import GHC.Exts ( proxy# )
 
@@ -175,7 +175,8 @@ simulateLLVMFile llvm_file llvmOpts =
            , Crux.resultHook = \_sym result -> return result
            }
 
-setupFileSim :: Crux.Logs msgs
+setupFileSim :: forall sym bak t st fs msgs
+              . Crux.Logs msgs
              => Log.SupportsCruxLLVMLogMessage msgs
              => IsSymBackend sym bak
              => sym ~ WEB.ExprBuilder t st fs
@@ -202,7 +203,7 @@ setupFileSim halloc llvm_file llvmOpts bak _maybeOnline =
        mContents <- T.traverse (SymIO.Loader.loadInitialFiles sym) (symFSRoot llvmOpts)
        -- We modify the defaults, which are extremely conservative.  Unless the
        -- user directs otherwise, we default to connecting stdin, stdout, and stderr.
-       let defaultFileContents = SymIO.emptyInitialFileSystemContents
+       let defaultFileContents = (SymIO.emptyInitialFileSystemContents @sym)
                                  { SymIO.useStderr = True
                                  , SymIO.useStdout = True
                                  , SymIO.concreteFiles = Map.fromList [(SymIO.StdinTarget, mempty)]

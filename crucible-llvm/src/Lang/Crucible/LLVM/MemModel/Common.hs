@@ -50,7 +50,7 @@ module Lang.Crucible.LLVM.MemModel.Common
 
 import Control.Exception (assert)
 import Control.Lens
-import Control.Monad.State
+import Control.Monad (guard)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe

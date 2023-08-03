@@ -39,7 +39,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.18,
+    base >= 4.13 && < 4.19,
     bimap,
     bv-sized >= 1.0.0 && < 1.1,
     containers >= 0.5.9.0,
@@ -55,7 +55,7 @@ library
     template-haskell,
     text,
     time >= 1.8 && < 2.0,
-    th-abstraction >=0.1 && <0.5,
+    th-abstraction >=0.1 && <0.6,
     transformers,
     unordered-containers,
     vector,

@@ -37,9 +37,12 @@ module Lang.Crucible.JVM.Overrides where
 import Numeric(fromRat)
 import Data.Maybe (isJust, fromJust)
 import Data.Semigroup(Semigroup(..),(<>))
-import Control.Monad.State.Strict
+import Control.Monad (when)
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.State.Strict (MonadState(..), StateT)
+import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.ST
-import Control.Monad.Reader
+import Control.Monad.Reader ()
 import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
