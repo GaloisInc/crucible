@@ -1,6 +1,6 @@
 {-|
 Module      : Lang.Crucible.Go.TransUtil
-Description : Go translation 
+Description : Go translation
 Maintainer  : abagnall@galois.com
 Stability   : experimental
 

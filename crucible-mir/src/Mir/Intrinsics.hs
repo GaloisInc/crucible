@@ -799,7 +799,7 @@ adjustMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i adj = do
         return $ justPartExpr sym val'
     return $ MirVector_PartialVector pv'
 adjustMirVectorWithSymIndex bak _ (MirVector_Array a) i adj = do
-    let sym = backendGetSym bak 
+    let sym = backendGetSym bak
     x <- liftIO $ arrayLookup sym a (Empty :> i)
     x' <- adj x
     liftIO $ MirVector_Array <$> arrayUpdate sym a (Empty :> i) x'
