@@ -66,7 +66,7 @@ install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
     sudo apt-get update -q && sudo apt-get install -y clang-12 llvm-12-tools
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
-    brew install llvm@11
+    brew install llvm@12
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
     choco install llvm
   else
