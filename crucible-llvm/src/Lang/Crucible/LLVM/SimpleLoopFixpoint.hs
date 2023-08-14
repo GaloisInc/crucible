@@ -389,6 +389,8 @@ joinMem sym mem_impl mem_writes = do
         _ -> fail $ "SimpleLoopFixpoint: not MemWrite: " ++ show (C.ppMemWrites mem_writes))
       (List.concat $ IntMap.elems indexed_writes)
 
+    C.MemWrites [] -> return Map.empty
+
     _ -> fail $ "SimpleLoopFixpoint: not MemWritesChunkIndexed: " ++ show (C.ppMemWrites mem_writes)
 
   checkDisjointRegions sym $ Map.keys mem_subst
