@@ -21,6 +21,7 @@ module Lang.Crucible.Analysis.Fixpoint.Components (
   weakTopologicalOrdering,
   WTOComponent(..),
   SCC(..),
+  parentWTOComponent,
   -- * Special cases
   cfgWeakTopologicalOrdering,
   cfgSuccessors,
@@ -238,6 +239,19 @@ unlabeled = Label 0
 
 maxLabel :: Label
 maxLabel = Label maxBound
+
+parentWTOComponent :: (Ord n) => [WTOComponent n] -> M.Map n n
+parentWTOComponent = F.foldMap' $ \case
+  SCC scc' -> parentWTOComponent' scc'
+  Vertex{} -> M.empty
+
+parentWTOComponent' :: (Ord n) => SCC n -> M.Map n n
+parentWTOComponent' scc = F.foldMap'
+  (\case
+    SCC scc' -> parentWTOComponent' scc'
+    Vertex v -> M.singleton v $ wtoHead scc)
+  (wtoComps scc)
+
 
 {- Note [Bourdoncle Components]
 
