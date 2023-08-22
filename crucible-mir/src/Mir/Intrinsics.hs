@@ -1373,6 +1373,19 @@ mirRef_eqIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
     zipFancyMuxTrees' bak (mirRef_eqLeaf sym) (itePred sym) r1 r2
 
+mirVector_uninitIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym UsizeType ->
+    IO (MirVector sym tp)
+mirVector_uninitIO bak lenSym = do
+    len <- case asBV lenSym of
+        Just x -> return (BV.asUnsigned x)
+        Nothing -> addFailedAssertion bak $ Unsupported callStack $
+            "Attempted to allocate vector of symbolic length"
+    let pv = V.replicate (fromInteger len) Unassigned
+    return (MirVector_PartialVector pv)
+
 
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
 -- turn `tp` into `tp''`, we first use a subsidiary `MirReferencePath` to turn
@@ -1669,9 +1682,8 @@ execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s = withBackend ctx $ \bak ->
   case stmt of
        MirNewRef tp ->
-         do r <- freshRefCell halloc tp
-            let r' = MirReference (RefCell_RefRoot r) Empty_RefPath
-            return (mkRef r', s)
+         do r <- newMirRefIO sym halloc tp
+            return (r, s)
 
        MirIntegerToRef tp (regValue -> i) ->
          do let r' = MirReference_Integer tp i
@@ -1748,12 +1760,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
             return (val, s)
 
        MirVector_Uninit _tp (regValue -> lenSym) -> do
-            len <- case asBV lenSym of
-                Just x -> return (BV.asUnsigned x)
-                Nothing -> addFailedAssertion bak $ Unsupported callStack $
-                    "Attempted to allocate vector of symbolic length"
-            let pv = V.replicate (fromInteger len) Unassigned
-            return (MirVector_PartialVector pv, s)
+            pv <- mirVector_uninitIO bak lenSym
+            return (pv, s)
        MirVector_FromVector _tp (regValue -> v) ->
             return (MirVector_Vector v, s)
        MirVector_FromArray _tp (regValue -> a) ->
@@ -1801,11 +1809,10 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
         bak ->
         (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
         MirReferenceMux sym tp -> IO (MirReferenceMux sym tp')
-    modifyRefMux bak f (MirReferenceMux ref) =
-        MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
+    modifyRefMux bak = modifyRefMuxIO bak iTypes
 
 
--- MirReferenceType manipulation within the OverrideSim monad.  These are
+-- MirReferenceType manipulation within the OverrideSim and IO monads. These are
 -- useful for implementing overrides that work with MirReferences.
 
 newMirRefSim :: IsSymInterface sym =>
@@ -1815,7 +1822,16 @@ newMirRefSim tpr = do
     sym <- getSymInterface
     s <- get
     let halloc = simHandleAllocator $ s ^. stateContext
-    rc <- liftIO $ freshRefCell halloc tpr
+    liftIO $ newMirRefIO sym halloc tpr
+
+newMirRefIO ::
+    IsSymInterface sym =>
+    sym ->
+    HandleAllocator ->
+    TypeRepr tp ->
+    IO (MirReferenceMux sym tp)
+newMirRefIO sym halloc tpr = do
+    rc <- freshRefCell halloc tpr
     let ref = MirReference (RefCell_RefRoot rc) Empty_RefPath
     return $ MirReferenceMux $ toFancyMuxTree sym ref
 
@@ -1824,12 +1840,11 @@ readRefMuxSim :: IsSymInterface sym =>
     (MirReference sym tp -> MuxLeafT sym IO (RegValue sym tp')) ->
     MirReferenceMux sym tp ->
     OverrideSim m sym MIR rtp args ret (RegValue sym tp')
-readRefMuxSim tpr' f (MirReferenceMux ref) =
+readRefMuxSim tpr' f ref =
   ovrWithBackend $ \bak -> do
-    let sym = backendGetSym bak
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ readFancyMuxTree' bak f (muxRegForType sym iTypes tpr') ref
+    liftIO $ readRefMuxIO bak iTypes tpr' f ref
 
 readRefMuxIO ::
     IsSymBackend sym bak =>
@@ -1846,12 +1861,22 @@ modifyRefMuxSim :: IsSymInterface sym =>
     (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
     MirReferenceMux sym tp ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp')
-modifyRefMuxSim f (MirReferenceMux ref) =
+modifyRefMuxSim f ref =
   ovrWithBackend $ \bak -> do
-    let sym = backendGetSym bak
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
+    liftIO $ modifyRefMuxIO bak iTypes f ref
+
+modifyRefMuxIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
+    MirReferenceMux sym tp ->
+    IO (MirReferenceMux sym tp')
+modifyRefMuxIO bak iTypes f (MirReferenceMux ref) = do
+    let sym = backendGetSym bak
+    MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
 
 readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp ->
@@ -1880,19 +1905,45 @@ writeMirRefSim ::
     MirReferenceMux sym tp ->
     RegValue sym tp ->
     OverrideSim m sym MIR rtp args ret ()
-writeMirRefSim _tpr (MirReferenceMux ref) x = do
+writeMirRefSim _tpr ref x = do
     s <- get
     let gs0 = s^.stateTree.actFrame.gpGlobals
     let iTypes = ctxIntrinsicTypes $ s^.stateContext
     ovrWithBackend $ \bak -> do
-      gs1 <- liftIO $ foldFancyMuxTree bak (\gs' ref' -> writeMirRefLeaf bak gs' iTypes ref' x) gs0 ref
+      gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes ref x
       put $ s & stateTree.actFrame.gpGlobals .~ gs1
+
+writeMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    MirReferenceMux sym tp ->
+    RegValue sym tp ->
+    IO (SymGlobalState sym)
+writeMirRefIO bak gs iTypes (MirReferenceMux ref) x =
+    foldFancyMuxTree
+        bak
+        (\gs' ref' -> writeMirRefLeaf bak gs' iTypes ref' x)
+        gs
+        ref
 
 subindexMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym (MirVectorType tp) -> RegValue sym UsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
 subindexMirRefSim tpr ref idx = do
     modifyRefMuxSim (\ref' -> subindexMirRefLeaf tpr ref' idx) ref
+
+subindexMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym (MirVectorType tp) ->
+    RegValue sym UsizeType ->
+    IO (MirReferenceMux sym tp)
+subindexMirRefIO bak iTypes tpr ref x =
+    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf tpr ref' x) ref
 
 mirRef_offsetSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym IsizeType ->
