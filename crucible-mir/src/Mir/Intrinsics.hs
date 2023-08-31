@@ -1230,6 +1230,15 @@ dropMirRefLeaf _bak _gs (MirReference_Integer _ _) =
     leafAbort $ GenericSimError $
       "attempted to drop the result of an integer-to-pointer cast"
 
+dropMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    MirReferenceMux sym tp ->
+    IO (SymGlobalState sym)
+dropMirRefIO bak gs (MirReferenceMux ref) =
+    foldFancyMuxTree bak (dropMirRefLeaf bak) gs ref
+
 subanyMirRefLeaf ::
     TypeRepr tp ->
     MirReference sym AnyType ->
@@ -1239,6 +1248,16 @@ subanyMirRefLeaf tpr (MirReference root path) =
 subanyMirRefLeaf _ (MirReference_Integer _ _) =
     leafAbort $ GenericSimError $
       "attempted subany on the result of an integer-to-pointer cast"
+
+subanyMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym AnyType ->
+    IO (MirReferenceMux sym tp)
+subanyMirRefIO bak iTypes tpr ref =
+    modifyRefMuxIO bak iTypes (subanyMirRefLeaf tpr) ref
 
 subfieldMirRefLeaf ::
     CtxRepr ctx ->
@@ -1251,6 +1270,17 @@ subfieldMirRefLeaf _ (MirReference_Integer _ _) _ =
     leafAbort $ GenericSimError $
       "attempted subfield on the result of an integer-to-pointer cast"
 
+subfieldMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    CtxRepr ctx ->
+    MirReferenceMux sym (StructType ctx) ->
+    Index ctx tp ->
+    IO (MirReferenceMux sym tp)
+subfieldMirRefIO bak iTypes ctx ref idx =
+    modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
+
 subvariantMirRefLeaf ::
     TypeRepr discrTp ->
     CtxRepr variantsCtx ->
@@ -1262,6 +1292,18 @@ subvariantMirRefLeaf tp ctx (MirReference root path) idx =
 subvariantMirRefLeaf _ _ (MirReference_Integer _ _) _ =
     leafAbort $ GenericSimError $
       "attempted subvariant on the result of an integer-to-pointer cast"
+
+subvariantMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr discrTp ->
+    CtxRepr variantsCtx ->
+    MirReferenceMux sym (RustEnumType discrTp variantsCtx) ->
+    Index variantsCtx tp ->
+    IO (MirReferenceMux sym tp)
+subvariantMirRefIO bak iTypes tp ctx ref idx =
+    modifyRefMuxIO bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
 
 subindexMirRefLeaf ::
     TypeRepr tp ->
@@ -1284,6 +1326,16 @@ subjustMirRefLeaf _ (MirReference_Integer _ _) =
     leafAbort $ GenericSimError $
       "attempted subjust on the result of an integer-to-pointer cast"
 
+subjustMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym (MaybeType tp) ->
+    IO (MirReferenceMux sym tp)
+subjustMirRefIO bak iTypes tpr ref =
+    modifyRefMuxIO bak iTypes (subjustMirRefLeaf tpr) ref
+
 mirRef_vectorAsMirVectorLeaf ::
     TypeRepr tp ->
     MirReference sym (VectorType tp) ->
@@ -1294,6 +1346,16 @@ mirRef_vectorAsMirVectorLeaf _ (MirReference_Integer _ _) =
     leafAbort $ GenericSimError $
         "attempted Vector->MirVector conversion on the result of an integer-to-pointer cast"
 
+mirRef_vectorAsMirVectorIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym (VectorType tp) ->
+    IO (MirReferenceMux sym (MirVectorType tp))
+mirRef_vectorAsMirVectorIO bak iTypes tpr ref =
+    modifyRefMuxIO bak iTypes (mirRef_vectorAsMirVectorLeaf tpr) ref
+
 mirRef_arrayAsMirVectorLeaf ::
     BaseTypeRepr btp ->
     MirReference sym (UsizeArrayType btp) ->
@@ -1303,6 +1365,16 @@ mirRef_arrayAsMirVectorLeaf btpr (MirReference root path) =
 mirRef_arrayAsMirVectorLeaf _ (MirReference_Integer _ _) =
     leafAbort $ GenericSimError $
       "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
+
+mirRef_arrayAsMirVectorIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    BaseTypeRepr btp ->
+    MirReferenceMux sym (UsizeArrayType btp) ->
+    IO (MirReferenceMux sym (MirVectorType (BaseToType btp)))
+mirRef_arrayAsMirVectorIO bak iTypes btpr ref =
+    modifyRefMuxIO bak iTypes (mirRef_arrayAsMirVectorLeaf btpr) ref
 
 
 refRootEq ::
@@ -1373,6 +1445,40 @@ mirRef_eqIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
     zipFancyMuxTrees' bak (mirRef_eqLeaf sym) (itePred sym) r1 r2
 
+vectorTakeIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    TypeRepr tp ->
+    V.Vector (RegValue sym tp) ->
+    RegValue sym NatType ->
+    IO (V.Vector (RegValue sym tp))
+vectorTakeIO bak _tp v idx = case asNat idx of
+    Just idx' -> return $ V.take (fromIntegral idx') v
+    Nothing -> addFailedAssertion bak $
+        GenericSimError "VectorTake index must be concrete"
+
+vectorDropIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    TypeRepr tp ->
+    V.Vector (RegValue sym tp) ->
+    RegValue sym NatType ->
+    IO (V.Vector (RegValue sym tp))
+vectorDropIO bak _tpr v idx = case asNat idx of
+    Just idx' -> return $ V.drop (fromIntegral idx') v
+    Nothing -> addFailedAssertion bak $
+        GenericSimError "VectorDrop index must be concrete"
+
+arrayZeroedIO ::
+    (IsSymInterface sym, 1 <= w) =>
+    sym ->
+    Assignment BaseTypeRepr (idxs ::> idx) ->
+    NatRepr w ->
+    IO (RegValue sym (SymbolicArrayType (idxs ::> idx) (BaseBVType w)))
+arrayZeroedIO sym idxs w = do
+    zero <- bvLit sym w (BV.zero w)
+    constantArray sym idxs zero
+
 mirVector_uninitIO ::
     IsSymBackend sym bak =>
     bak ->
@@ -1385,6 +1491,26 @@ mirVector_uninitIO bak lenSym = do
             "Attempted to allocate vector of symbolic length"
     let pv = V.replicate (fromInteger len) Unassigned
     return (MirVector_PartialVector pv)
+
+mirVector_resizeIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    TypeRepr tp ->
+    RegValue sym (MirVectorType tp) ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym (MirVectorType tp))
+mirVector_resizeIO bak _tpr mirVec newLenSym = do
+    let sym = backendGetSym bak
+    newLen <- case asBV newLenSym of
+        Just x -> return (BV.asUnsigned x)
+        Nothing -> addFailedAssertion bak $ Unsupported callStack $
+            "Attempted to resize vector to symbolic length"
+    getter <- case mirVec of
+        MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
+        MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
+        MirVector_Array _ -> addFailedAssertion bak $ Unsupported callStack $
+            "Attempted to resize MirVector backed by symbolic array"
+    pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
 
 
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
@@ -1594,22 +1720,47 @@ mirRef_tryOffsetFromLeaf _ _ _ = do
     -- you can do with a MirReference_Integer anyway without causing a crash.
     return Unassigned
 
-mirRef_peelIndexIO ::
+mirRef_tryOffsetFromIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    MirReferenceMux sym tp ->
+    MirReferenceMux sym tp ->
+    IO (RegValue sym (MaybeType IsizeType))
+mirRef_tryOffsetFromIO bak iTypes (MirReferenceMux r1) (MirReferenceMux r2) =
+    let sym = backendGetSym bak in
+    zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf sym)
+            (muxRegForType sym iTypes (MaybeRepr IsizeRepr)) r1 r2
+
+mirRef_peelIndexLeaf ::
     IsSymInterface sym =>
     sym ->
     TypeRepr tp ->
     MirReference sym tp ->
     MuxLeafT sym IO
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType (MirVectorType tp) ::> UsizeType)))
-mirRef_peelIndexIO sym _tpr (MirReference root (Index_RefPath _tpr' path idx)) = do
+mirRef_peelIndexLeaf sym _tpr (MirReference root (Index_RefPath _tpr' path idx)) = do
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexIO _sym _ (MirReference _ _) =
+mirRef_peelIndexLeaf _sym _ (MirReference _ _) =
     leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
-mirRef_peelIndexIO _sym _ _ = do
+mirRef_peelIndexLeaf _sym _ _ = do
     leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
+
+mirRef_peelIndexIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym tp ->
+    IO (RegValue sym (StructType (EmptyCtx ::> MirReferenceType (MirVectorType tp) ::> UsizeType)))
+mirRef_peelIndexIO bak iTypes tpr (MirReferenceMux ref) =
+    let sym = backendGetSym bak
+        tpr' = StructRepr (Empty :> MirReferenceRepr (MirVectorRepr tpr) :> IsizeRepr) in
+    readFancyMuxTree' bak (mirRef_peelIndexLeaf sym tpr)
+        (muxRegForType sym iTypes tpr') ref
 
 -- | Compute the index of `ref` within its containing allocation, along with
 -- the length of that allocation.  This is useful for determining the amount of
@@ -1682,8 +1833,7 @@ execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s = withBackend ctx $ \bak ->
   case stmt of
        MirNewRef tp ->
-         do r <- newMirRefIO sym halloc tp
-            return (r, s)
+            readOnly s $ newMirRefIO sym halloc tp
 
        MirIntegerToRef tp (regValue -> i) ->
          do let r' = MirReference_Integer tp i
@@ -1697,38 +1847,36 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          do let r = MirReference (Const_RefRoot tpr v) Empty_RefPath
             return (mkRef r, s)
 
-       MirReadRef tpr (regValue -> MirReferenceMux ref) ->
-         readOnly s $ readFancyMuxTree' bak (readMirRefLeaf bak gs iTypes) (mux tpr) ref
-       MirWriteRef (regValue -> MirReferenceMux ref) (regValue -> x) ->
-         writeOnly s $ foldFancyMuxTree bak (\gs' ref' -> writeMirRefLeaf bak gs' iTypes ref' x) gs ref
-       MirDropRef (regValue -> MirReferenceMux ref) ->
-         writeOnly s $ foldFancyMuxTree bak (\gs' ref' -> dropMirRefLeaf bak gs' ref') gs ref
+       MirReadRef tpr (regValue -> ref) ->
+         readOnly s $ readMirRefIO bak gs iTypes tpr ref
+       MirWriteRef (regValue -> ref) (regValue -> x) ->
+         writeOnly s $ writeMirRefIO bak gs iTypes ref x
+       MirDropRef (regValue -> ref) ->
+         writeOnly s $ dropMirRefIO bak gs ref
        MirSubanyRef tp (regValue -> ref) ->
-         readOnly s $ modifyRefMux bak (subanyMirRefLeaf tp) ref
+         readOnly s $ subanyMirRefIO bak iTypes tp ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
-         readOnly s $ modifyRefMux bak (\ref' -> subfieldMirRefLeaf ctx0 ref' idx) ref
+         readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
-         readOnly s $ modifyRefMux bak (\ref' -> subvariantMirRefLeaf tp0 ctx0 ref' idx) ref
+         readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
        MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
-         readOnly s $ modifyRefMux bak (\ref' -> subindexMirRefLeaf tpr ref' idx) ref
+         readOnly s $ subindexMirRefIO bak iTypes tpr ref idx
        MirSubjustRef tpr (regValue -> ref) ->
-         readOnly s $ modifyRefMux bak (subjustMirRefLeaf tpr) ref
+         readOnly s $ subjustMirRefIO bak iTypes tpr ref
        MirRef_VectorAsMirVector tpr (regValue -> ref) ->
-         readOnly s $ modifyRefMux bak (mirRef_vectorAsMirVectorLeaf tpr) ref
+         readOnly s $ mirRef_vectorAsMirVectorIO bak iTypes tpr ref
        MirRef_ArrayAsMirVector tpr (regValue -> ref) ->
-         readOnly s $ modifyRefMux bak (mirRef_arrayAsMirVectorLeaf tpr) ref
-       MirRef_Eq (regValue -> MirReferenceMux r1) (regValue -> MirReferenceMux r2) ->
-         readOnly s $ zipFancyMuxTrees' bak (mirRef_eqLeaf sym) (itePred sym) r1 r2
+         readOnly s $ mirRef_arrayAsMirVectorIO bak iTypes tpr ref
+       MirRef_Eq (regValue -> r1) (regValue -> r2) ->
+         readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset tpr (regValue -> ref) (regValue -> off) ->
-         readOnly s $ modifyRefMux bak (\ref' -> mirRef_offsetLeaf bak tpr ref' off) ref
+         readOnly s $ mirRef_offsetIO bak iTypes tpr ref off
        MirRef_OffsetWrap tpr (regValue -> ref) (regValue -> off) ->
-         readOnly s $ modifyRefMux bak (\ref' -> mirRef_offsetWrapLeaf bak tpr ref' off) ref
-       MirRef_TryOffsetFrom (regValue -> MirReferenceMux r1) (regValue -> MirReferenceMux r2) ->
-         readOnly s $ zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf sym)
-            (mux $ MaybeRepr IsizeRepr) r1 r2
-       MirRef_PeelIndex tpr (regValue -> MirReferenceMux ref) -> do
-         let tpr' = StructRepr (Empty :> MirReferenceRepr (MirVectorRepr tpr) :> IsizeRepr)
-         readOnly s $ readFancyMuxTree' bak (mirRef_peelIndexIO sym tpr) (mux tpr') ref
+         readOnly s $ mirRef_offsetWrapIO bak iTypes tpr ref off
+       MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) ->
+         readOnly s $ mirRef_tryOffsetFromIO bak iTypes r1 r2
+       MirRef_PeelIndex tpr (regValue -> ref) -> do
+         readOnly s $ mirRef_peelIndexIO bak iTypes tpr ref
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
@@ -1746,38 +1894,21 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
             return (val, s)
        VectorConcat _tp (regValue -> v1) (regValue -> v2) ->
             return (v1 <> v2, s)
-       VectorTake _tp (regValue -> v) (regValue -> idx) -> case asNat idx of
-            Just idx' -> return (V.take (fromIntegral idx') v, s)
-            Nothing -> addFailedAssertion bak $
-                GenericSimError "VectorTake index must be concrete"
-       VectorDrop _tp (regValue -> v) (regValue -> idx) -> case asNat idx of
-            Just idx' -> return (V.drop (fromIntegral idx') v, s)
-            Nothing -> addFailedAssertion bak $
-                GenericSimError "VectorDrop index must be concrete"
-       ArrayZeroed idxs w -> do
-            zero <- bvLit sym w (BV.zero w)
-            val <- constantArray sym idxs zero
-            return (val, s)
+       VectorTake tp (regValue -> v) (regValue -> idx) ->
+            readOnly s $ vectorTakeIO bak tp v idx
+       VectorDrop tp (regValue -> v) (regValue -> idx) ->
+            readOnly s $ vectorDropIO bak tp v idx
+       ArrayZeroed idxs w ->
+            readOnly s $ arrayZeroedIO sym idxs w
 
        MirVector_Uninit _tp (regValue -> lenSym) -> do
-            pv <- mirVector_uninitIO bak lenSym
-            return (pv, s)
+            readOnly s $ mirVector_uninitIO bak lenSym
        MirVector_FromVector _tp (regValue -> v) ->
             return (MirVector_Vector v, s)
        MirVector_FromArray _tp (regValue -> a) ->
             return (MirVector_Array a, s)
-       MirVector_Resize _tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
-            newLen <- case asBV newLenSym of
-                Just x -> return (BV.asUnsigned x)
-                Nothing -> addFailedAssertion bak $ Unsupported callStack $
-                    "Attempted to resize vector to symbolic length"
-            getter <- case mirVec of
-                MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
-                MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
-                MirVector_Array _ -> addFailedAssertion bak $ Unsupported callStack $
-                    "Attempted to resize MirVector backed by symbolic array"
-            let pv' = V.generate (fromInteger newLen) getter
-            return (MirVector_PartialVector pv', s)
+       MirVector_Resize tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
+            readOnly s $ mirVector_resizeIO bak tpr mirVec newLenSym
   where
     gs = s^.stateTree.actFrame.gpGlobals
     ctx = s^.stateContext
@@ -1787,10 +1918,6 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
 
     mkRef :: MirReference sym tp -> MirReferenceMux sym tp
     mkRef ref = MirReferenceMux $ toFancyMuxTree sym ref
-
-    mux :: forall tp. TypeRepr tp -> Pred sym ->
-        RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)
-    mux tpr p a b = muxRegForType sym iTypes tpr p a b
 
     readOnly :: SimState p sym ext rtp f a -> IO b ->
         IO (b, SimState p sym ext rtp f a)
@@ -1804,12 +1931,6 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
       gs' <- act
       let s1 = s0 & stateTree.actFrame.gpGlobals .~ gs'
       return ((), s1)
-
-    modifyRefMux :: IsSymBackend sym bak =>
-        bak ->
-        (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
-        MirReferenceMux sym tp -> IO (MirReferenceMux sym tp')
-    modifyRefMux bak = modifyRefMuxIO bak iTypes
 
 
 -- MirReferenceType manipulation within the OverrideSim and IO monads. These are
@@ -1952,12 +2073,34 @@ mirRef_offsetSim tpr ref off =
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak tpr ref' off) ref
 
+mirRef_offsetIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym tp ->
+    RegValue sym IsizeType ->
+    IO (MirReferenceMux sym tp)
+mirRef_offsetIO bak iTypes tpr ref off =
+    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetLeaf bak tpr ref' off) ref
+
 mirRef_offsetWrapSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
 mirRef_offsetWrapSim tpr ref off = do
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak tpr ref' off) ref
+
+mirRef_offsetWrapIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym tp ->
+    RegValue sym IsizeType ->
+    IO (MirReferenceMux sym tp)
+mirRef_offsetWrapIO bak iTypes tpr ref off =
+    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak tpr ref' off) ref
 
 
 writeRefPath ::
