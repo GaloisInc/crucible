@@ -737,10 +737,9 @@ showRegEntry col mty (C.RegEntry tp rv) =
         readFields fctx vs ++ [readField fr (C.unRV v)]
 
     readField :: FieldRepr tp -> C.RegValue sym tp -> C.Some (C.RegEntry sym)
-    readField (FieldRepr (FkInit tpr)) rv' = C.Some (C.RegEntry tpr rv')
-    readField (FieldRepr (FkMaybe tpr)) (W4.NoErr (W4.Partial _ v)) =
+    readField (FieldRepr tpr) (W4.NoErr (W4.Partial _ v)) =
         C.Some (C.RegEntry tpr v)
-    readField (FieldRepr (FkMaybe tpr)) (W4.Err _) =
+    readField (FieldRepr tpr) (W4.Err _) =
         error $ "readField: W4.Err for type " ++ show tpr
 
 

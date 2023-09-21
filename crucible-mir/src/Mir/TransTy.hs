@@ -249,33 +249,6 @@ tyToReprM ty = do
 
 
 
--- Checks whether a type can be default-initialized.  Any time this returns
--- `True`, `Trans.initialValue` must also return `Just`.  Non-initializable ADT
--- fields are wrapped in `Maybe` to support field-by-field initialization.
-canInitialize :: M.Collection -> M.Ty -> Bool
-canInitialize col ty = case ty of
-    -- Custom types
-    CTyAny -> False
-    CTyMethodSpec -> False
-    CTyMethodSpecBuilder -> False
-
-    -- Primitives
-    M.TyBool -> True
-    M.TyChar -> True
-    M.TyInt _ -> True
-    M.TyUint _ -> True
-    -- ADTs and related data structures
-    M.TyTuple _ -> True
-    M.TyAdt _ _ _
-      | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
-      | otherwise -> True
-    M.TyClosure _ -> True
-    -- Others
-    M.TyArray _ _ -> True
-    -- TODO: workaround for a ref init bug - see initialValue for details
-    --M.TyRef ty' _ -> canInitialize col ty'
-    _ -> False
-
 isUnsized :: M.Ty -> Bool
 isUnsized ty = case ty of
     M.TyStr -> True
@@ -332,16 +305,16 @@ variantFieldsM v = do
   col <- use $ cs . collection
   return $ variantFields col v
 
-data FieldRepr tp' = forall tp. FieldRepr (FieldKind tp tp')
+data FieldRepr (tp :: C.CrucibleType) where
+  FieldRepr :: C.TypeRepr tp -> FieldRepr (C.MaybeType tp)
 
-instance Show (FieldRepr tp') where
+instance Show (FieldRepr tp) where
     showsPrec d (FieldRepr kind) = showParen (d > 10) $
         showString "FieldRepr " . showsPrec 11 kind
 instance ShowF FieldRepr
 
 fieldType :: FieldRepr tp -> C.TypeRepr tp
-fieldType (FieldRepr (FkInit tpr)) = tpr
-fieldType (FieldRepr (FkMaybe tpr)) = C.MaybeRepr tpr
+fieldType (FieldRepr tpr) = C.MaybeRepr tpr
 
 -- `FieldCtxRepr ctx` is like `C.CtxRepr ctx`, but also records whether each
 -- field is wrapped or not.
@@ -352,9 +325,8 @@ fieldCtxType Ctx.Empty = Ctx.Empty
 fieldCtxType (ctx Ctx.:> fr) = fieldCtxType ctx Ctx.:> fieldType fr
 
 tyToFieldRepr :: M.Collection -> M.Ty -> Some FieldRepr
-tyToFieldRepr col ty
-  | canInitialize col ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr col ty)
-  | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr col ty)
+tyToFieldRepr col ty =
+  viewSome (\tpr -> Some $ FieldRepr tpr) (tyToRepr col ty)
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Some FieldCtxRepr
 variantFields' col (M.Variant _vn _vd vfs _vct _mbVal _inh) =
@@ -619,61 +591,17 @@ adjustJust' tpr msg f e = do
     buildJust tpr y
 
 
--- `tp` is the type of the inner data.  `tp'` is the type of the struct field,
--- which may involve a wrapper.
-data FieldKind (tp :: C.CrucibleType) (tp' :: C.CrucibleType) where
-    FkInit :: forall tp. C.TypeRepr tp -> FieldKind tp tp
-    FkMaybe :: forall tp. C.TypeRepr tp -> FieldKind tp (C.MaybeType tp)
-
-instance Show (FieldKind tp tp') where
-    showsPrec d (FkInit tpr) = showParen (d > 10) $
-        showString "FkInit " . showsPrec 11 tpr
-    showsPrec d (FkMaybe tpr) = showParen (d > 10) $
-        showString "FkMaybe " . showsPrec 11 tpr
-
-fieldDataType :: FieldKind tp tp' -> C.TypeRepr tp
-fieldDataType (FkInit tpr) = tpr
-fieldDataType (FkMaybe tpr) = tpr
-
-readFieldData' :: FieldKind tp tp' -> String ->
-    R.Expr MIR s tp' -> MirGenerator h s ret (R.Expr MIR s tp)
-readFieldData' (FkInit tpr) msg e = return e
-readFieldData' (FkMaybe tpr) msg e = readJust' tpr e msg
-
-buildFieldData :: FieldKind tp tp' ->
-    R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp')
-buildFieldData (FkInit tpr) e = return e
-buildFieldData (FkMaybe tpr) e = buildJust tpr e
-
--- Adjust the data inside a field.  If `wrapped`, then `tp' ~ MaybeType tp`,
--- and we expect the value to be `Just`.  Otherwise, `tp' ~ tp`, and we modify
--- the value directly.
-adjustFieldData :: FieldKind tp tp' ->
-    (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
-    R.Expr MIR s tp' -> MirGenerator h s ret (R.Expr MIR s tp')
-adjustFieldData (FkInit tpr) f e = f e
-adjustFieldData (FkMaybe tpr) f e =
-    adjustJust' tpr "adjustFieldData: expected Just, but got Nothing" f e
-
-
-data StructInfo = forall ctx tp tp'. StructInfo
+data StructInfo = forall ctx tp. StructInfo
     (C.CtxRepr ctx)
-    (Ctx.Index ctx tp')
-    (FieldKind tp tp')
+    (Ctx.Index ctx (C.MaybeType tp))
+    (C.TypeRepr tp)
 
--- First argument is `True` if a wrapper is expected.
-checkFieldKind :: Bool -> C.TypeRepr tp -> C.TypeRepr tp' -> String ->
-    MirGenerator h s ret (FieldKind tp tp')
-checkFieldKind False tpr tpr' desc = do
-    Refl <- testEqualityOrFail tpr tpr' $
-        "checkFieldKind: type mismatch: " ++ show tpr ++ " /= " ++ show tpr' ++
+checkFieldRepr :: C.TypeRepr tp -> C.TypeRepr tp' -> String ->
+    MirGenerator h s ret (C.MaybeType tp :~: tp')
+checkFieldRepr tpr tpr' desc = do
+    testEqualityOrFail (C.MaybeRepr tpr) tpr' $
+        "checkFieldRepr: type mismatch: " ++ show (C.MaybeRepr tpr) ++ " /= " ++ show tpr' ++
         "(at " ++ desc ++ ")"
-    return $ FkInit tpr
-checkFieldKind True tpr tpr' desc = do
-    Refl <- testEqualityOrFail (C.MaybeRepr tpr) tpr' $
-        "checkFieldKind: type mismatch: " ++ show (C.MaybeRepr tpr) ++ " /= " ++ show tpr' ++
-        "(at " ++ desc ++ ")"
-    return $ FkMaybe tpr
 
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
@@ -693,10 +621,10 @@ structInfo adt i = do
     Some tpr <- tyToReprM fldTy
 
     col <- use $ cs . collection
-    kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
+    Refl <- checkFieldRepr tpr tpr' $
         "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
 
-    return $ StructInfo ctx idx kind
+    return $ StructInfo ctx idx tpr
   where
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
         show (adt ^. M.adtname)
@@ -706,8 +634,8 @@ getStructField adt i me = do
     StructInfo ctx idx fld <- structInfo adt i
     e <- readAnyE (C.StructRepr ctx) me
     e <- readStructField ctx idx e
-    e <- readFieldData' fld errFieldUninit e
-    return $ MirExp (fieldDataType fld) e
+    e <- readJust' fld e errFieldUninit
+    return $ MirExp fld e
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt^.M.adtname) ++
         " read while uninitialized"
@@ -716,15 +644,15 @@ setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 setStructField adt i me (MirExp tpr e') = do
     StructInfo ctx idx fld <- structInfo adt i
-    Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
-    e' <- buildFieldData fld e'
+    Refl <- testEqualityOrFail tpr fld (errFieldType fld)
+    e' <- buildJust fld e'
     let f' = adjustAnyE (C.StructRepr ctx) $
             \e -> writeStructField ctx idx e e'
     f' me
   where
-    errFieldType :: FieldKind tp tp' -> String
+    errFieldType :: C.TypeRepr tp -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i) ++
-        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show tpr
+        " to have type " ++ show fld ++ ", but got " ++ show tpr
 
 -- Run `f`, checking that its return type is the same as its argument.  Fails
 -- if `f` returns a different type.
@@ -745,19 +673,19 @@ mapStructField adt i f me = do
     StructInfo ctx idx fld <- structInfo adt i
     let f' = adjustAnyE (C.StructRepr ctx) $
             adjustStructField ctx idx $
-            adjustFieldData fld $
+            adjustJust' fld "mapStructField: expected Just, but got Nothing" $
             checkSameType ("mapStructField " ++ show i ++ " of " ++ show (adt ^. M.adtname)) $
             f
     f' me
 
 
-data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
+data EnumInfo = forall discrTp ctx ctx' tp. EnumInfo
     (C.TypeRepr discrTp)
     (C.CtxRepr ctx)
     (Ctx.Index ctx (C.StructType ctx'))
     (C.CtxRepr ctx')
-    (Ctx.Index ctx' tp')
-    (FieldKind tp tp')
+    (Ctx.Index ctx' (C.MaybeType tp))
+    (C.TypeRepr tp)
 
 data IsStructType (tp :: C.CrucibleType) where
     IsStructType :: forall ctx. C.CtxRepr ctx -> IsStructType (C.StructType ctx)
@@ -801,10 +729,10 @@ enumInfo adt i j = do
     Some tpr <- tyToReprM fldTy
 
     col <- use $ cs . collection
-    kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
+    Refl <- checkFieldRepr tpr tpr' $
         "field " ++ show j ++ " of enum " ++ show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    return $ EnumInfo discrTp ctx idx ctx' idx' kind
+    return $ EnumInfo discrTp ctx idx ctx' idx' tpr
 
 getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
 getEnumField adt i j me = do
@@ -812,7 +740,7 @@ getEnumField adt i j me = do
     e <- readAnyE (RustEnumRepr discrTp ctx) me
     e <- readEnumVariant discrTp ctx idx e
     e <- readStructField ctx' idx' e
-    e <- readFieldData' fld errFieldUninit e
+    e <- readJust' fld e errFieldUninit
     return $ MirExp (R.exprType e) e
   where
     errFieldUninit = "field " ++ show j ++ " of " ++ show (adt^.M.adtname) ++
@@ -823,16 +751,16 @@ setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 setEnumField adt i j me (MirExp tpr e') = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
-    Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
-    e' <- buildFieldData fld e'
+    Refl <- testEqualityOrFail tpr fld (errFieldType fld)
+    e' <- buildJust fld e'
     let f' = adjustAnyE (RustEnumRepr discrTp ctx) $
             adjustEnumVariant discrTp ctx idx $
             \e -> writeStructField ctx' idx' e e'
     f' me
   where
-    errFieldType :: FieldKind tp tp' -> String
+    errFieldType :: C.TypeRepr tp -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i, j) ++
-        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show tpr
+        " to have type " ++ show fld ++ ", but got " ++ show tpr
 
 
 
@@ -847,15 +775,9 @@ buildStructAssign' ctx es = go ctx $ reverse es
         _ -> Left "not enough expressions"
     go ctx (optExp : rest) = case Ctx.viewAssign ctx of
         Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
-            (FieldRepr (FkInit tpr), Nothing) ->
-                case tpr of
-                    C.UnitRepr -> continue ctx' rest tpr (R.App $ E.NothingValue tpr)
-                    _ -> Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
-            (FieldRepr (FkInit tpr), Just (Some e)) ->
-                continue ctx' rest tpr e
-            (FieldRepr (FkMaybe tpr), Nothing) ->
+            (FieldRepr tpr, Nothing) ->
                 continue ctx' rest (C.MaybeRepr tpr) (R.App $ E.NothingValue tpr)
-            (FieldRepr (FkMaybe tpr), Just (Some e)) ->
+            (FieldRepr tpr, Just (Some e)) ->
                 continue ctx' rest (C.MaybeRepr tpr)
                     (R.App $ E.JustValue (R.exprType e) e)
         _ -> Left "too many expressions"
@@ -994,13 +916,6 @@ enumDiscrLit tp discr =
     C.BVRepr w -> pure $ E.BVLit w $ BV.mkBV w discr
     _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
-fieldDataRef ::
-    FieldKind tp tp' ->
-    R.Expr MIR s (MirReferenceType tp') ->
-    MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
-fieldDataRef (FkInit tpr) ref = return ref
-fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
-
 structFieldRef ::
     M.Adt -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
@@ -1011,9 +926,9 @@ structFieldRef adt i tpr ref = do
         "structFieldRef: bad referent type: expected Any, but got " ++ show tpr
     ref <- subanyRef (C.StructRepr ctx) ref
     ref <- subfieldRef ctx ref idx
-    ref <- fieldDataRef fld ref
+    ref <- subjustRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
-    return $ MirPlace (fieldDataType fld) ref NoMeta
+    return $ MirPlace fld ref NoMeta
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
@@ -1026,9 +941,9 @@ enumFieldRef adt i j tpr ref = do
     ref <- subanyRef (RustEnumRepr discrTp ctx) ref
     ref <- subvariantRef discrTp ctx ref idx
     ref <- subfieldRef ctx' ref idx'
-    ref <- fieldDataRef fld ref
+    ref <- subjustRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate enum metadata to fields
-    return $ MirPlace (fieldDataType fld) ref NoMeta
+    return $ MirPlace fld ref NoMeta
 
 
 enumDiscriminant :: M.Adt -> MirExp s ->
@@ -1162,8 +1077,6 @@ initialValue (M.TyArray t size) = do
 --    by converting all locals to untyped allocations (allow writing each field
 --    value independently, then materialize a fully-initialized struct the
 --    first time it's read at struct type).
---
--- NB: When re-enabling this, also re-enable the TyRef case of `canInitialize`
 {-
 initialValue (M.TyRef (M.TySlice t) M.Immut) = do
     tyToReprCont t $ \ tr -> do
