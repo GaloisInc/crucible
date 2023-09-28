@@ -1,0 +1,4 @@
+SKIP_TEST
+
+The LLVM bitcode for this test case requires the `llvm.is.fpclass` intrinsic,
+which is only supported with LLVM 15 or later.

@@ -739,12 +739,49 @@ llvmFloorfOverride =
   (\_memOps sym args -> Ctx.uncurryAssignment (callFloor sym) args)
 
 
--- math.h defines isnan() as a macro, so you might think it unusual to provide
--- a function override for it. However, if you write (isnan)(x) instead of
--- isnan(x), Clang will compile the former as a direct function call rather
--- than as a macro application. Some experimentation reveals that the isnan
--- function's argument is always a double, so we give its argument the type
--- double here to match this unstated convention.
+-- math.h defines isinf() and isnan() as macros, so you might think it unusual
+-- to provide function overrides for them. However, if you write, say,
+-- (isnan)(x) instead of isnan(x), Clang will compile the former as a direct
+-- function call rather than as a macro application. Some experimentation
+-- reveals that the isnan function's argument is always a double, so we give its
+-- argument the type double here to match this unstated convention. We follow
+-- suit similarly with isinf.
+--
+-- Clang does not yet provide direct function call versions of isfinite() or
+-- isnormal(), so we do not provide overrides for them.
+
+llvmIsinfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (BVType 32)
+llvmIsinfOverride =
+  [llvmOvr| i32 @isinf( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsinf sym (knownNat @32)) args)
+
+-- __isinf and __isinff are like the isinf macro, except their arguments are
+-- known to be double or float, respectively. They are not mentioned in the
+-- POSIX source standard, only the binary standard. See
+-- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isinf.html and
+-- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isinff.html.
+llvm__isinfOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (BVType 32)
+llvm__isinfOverride =
+  [llvmOvr| i32 @__isinf( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsinf sym (knownNat @32)) args)
+
+llvm__isinffOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (BVType 32)
+llvm__isinffOverride =
+  [llvmOvr| i32 @__isinff( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsinf sym (knownNat @32)) args)
+
 llvmIsnanOverride ::
   IsSymInterface sym =>
   LLVMOverride p sym
@@ -752,12 +789,13 @@ llvmIsnanOverride ::
      (BVType 32)
 llvmIsnanOverride =
   [llvmOvr| i32 @isnan( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym (knownNat @32)) args)
 
 -- __isnan and __isnanf are like the isnan macro, except their arguments are
 -- known to be double or float, respectively. They are not mentioned in the
 -- POSIX source standard, only the binary standard. See
--- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isnan.html
+-- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isnan.html and
+-- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isnanf.html.
 llvm__isnanOverride ::
   IsSymInterface sym =>
   LLVMOverride p sym
@@ -765,7 +803,7 @@ llvm__isnanOverride ::
      (BVType 32)
 llvm__isnanOverride =
   [llvmOvr| i32 @__isnan( double ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym (knownNat @32)) args)
 
 llvm__isnanfOverride ::
   IsSymInterface sym =>
@@ -774,7 +812,7 @@ llvm__isnanfOverride ::
      (BVType 32)
 llvm__isnanfOverride =
   [llvmOvr| i32 @__isnanf( float ) |]
-  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym) args)
+  (\_memOps sym args -> Ctx.uncurryAssignment (callIsnan sym (knownNat @32)) args)
 
 
 llvmSqrtOverride ::
@@ -832,16 +870,39 @@ callFloor ::
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
 callFloor bak (regValue -> x) = liftIO $ iFloatRound @_ @fi (backendGetSym bak) RTN x
 
-callIsnan ::
-  forall fi p sym bak ext r args ret.
-  (IsSymBackend sym bak) =>
+-- | An implementation of @libc@'s @isinf@ macro. This returns @1@ when the
+-- argument is positive infinity, @-1@ when the argument is negative infinity,
+-- and zero otherwise.
+callIsinf ::
+  forall fi w p sym bak ext r args ret.
+  (IsSymBackend sym bak, 1 <= w) =>
   bak ->
+  NatRepr w ->
   RegEntry sym (FloatType fi) ->
-  OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callIsnan bak (regValue -> x) = liftIO $ do
+  OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callIsinf bak w (regValue -> x) = liftIO $ do
+  let sym = backendGetSym bak
+  isInf <- iFloatIsInf @_ @fi sym x
+  isNeg <- iFloatIsNeg @_ @fi sym x
+  isPos <- iFloatIsPos @_ @fi sym x
+  isInfN <- andPred sym isInf isNeg
+  isInfP <- andPred sym isInf isPos
+  bvOne    <- bvLit sym w (BV.one w)
+  bvNegOne <- bvNeg sym bvOne
+  bvZero   <- bvLit sym w (BV.zero w)
+  res0 <- bvIte sym isInfP bvOne bvZero
+  bvIte sym isInfN bvNegOne res0
+
+callIsnan ::
+  forall fi w p sym bak ext r args ret.
+  (IsSymBackend sym bak, 1 <= w) =>
+  bak ->
+  NatRepr w ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callIsnan bak w (regValue -> x) = liftIO $ do
   let sym = backendGetSym bak
   isnan  <- iFloatIsNaN @_ @fi sym x
-  let w = knownNat @32
   bvOne  <- bvLit sym w (BV.one w)
   bvZero <- bvLit sym w (BV.zero w)
   -- isnan() is allowed to return any nonzero value if the argument is NaN, and
