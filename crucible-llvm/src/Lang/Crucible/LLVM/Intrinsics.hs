@@ -283,6 +283,8 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmLog2Override_F64
   , basic_llvm_override LLVM.llvmLog10Override_F32
   , basic_llvm_override LLVM.llvmLog10Override_F64
+  , basic_llvm_override LLVM.llvmIsFpclassOverride_F32
+  , basic_llvm_override LLVM.llvmIsFpclassOverride_F64
 
   -- C standard library functions
   , basic_llvm_override Libc.llvmAbortOverride
@@ -317,6 +319,9 @@ declare_overrides =
   , basic_llvm_override Libc.llvmCeilfOverride
   , basic_llvm_override Libc.llvmFloorOverride
   , basic_llvm_override Libc.llvmFloorfOverride
+  , basic_llvm_override Libc.llvmIsinfOverride
+  , basic_llvm_override Libc.llvm__isinfOverride
+  , basic_llvm_override Libc.llvm__isinffOverride
   , basic_llvm_override Libc.llvmIsnanOverride
   , basic_llvm_override Libc.llvm__isnanOverride
   , basic_llvm_override Libc.llvm__isnanfOverride
