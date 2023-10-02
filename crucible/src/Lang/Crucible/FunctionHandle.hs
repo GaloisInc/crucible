@@ -34,6 +34,7 @@ module Lang.Crucible.FunctionHandle
   , emptyHandleMap
   , insertHandleMap
   , lookupHandleMap
+  , updateHandleMap
   , searchHandleMap
   , handleMapToHandles
     -- * Reference cells
@@ -44,6 +45,7 @@ module Lang.Crucible.FunctionHandle
 
 import           Data.Hashable
 import           Data.Kind
+import           Data.Functor.Identity
 import qualified Data.List as List
 import           Data.Ord (comparing)
 
@@ -216,6 +218,18 @@ lookupHandleMap hdl (FnHandleMap m) =
   case MapF.lookup (handleID hdl) m of
      Just (HandleElt _ x) -> Just x
      Nothing -> Nothing
+
+updateHandleMap :: (f args ret -> f args ret)
+                -> FnHandle args ret
+                -> FnHandleMap f
+                -> FnHandleMap f
+updateHandleMap f hdl (FnHandleMap m) =
+  FnHandleMap $ MapF.updatedValue $ runIdentity $
+    MapF.updateAtKey
+      (handleID hdl)
+      (Identity Nothing)
+      (\(HandleElt hdl' x) -> Identity $ MapF.Set $ HandleElt hdl' $ f x)
+      m
 
 -- | Lookup the function name in the map by a linear scan of all
 -- entries.  This will be much slower than using 'lookupHandleMap' to

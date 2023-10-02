@@ -15,6 +15,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -32,6 +33,8 @@ module Lang.Crucible.LLVM.SimpleLoopFixpoint
   ( FixpointEntry(..)
   , FixpointState(..)
   , CallFrameContext(..)
+  , SomeCallFrameContext(..)
+  , ExecutionFeatureContext(..)
   , simpleLoopFixpoint
   ) where
 
@@ -69,6 +72,7 @@ import qualified What4.Interface as W4
 import qualified Lang.Crucible.Analysis.Fixpoint.Components as C
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.Panic as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
 import qualified Lang.Crucible.Simulator.EvalStmt as C
@@ -194,47 +198,126 @@ data FixpointRecord sym wptr blocks args = FixpointRecord
 data CallFrameContext sym wptr ext init ret blocks = CallFrameContext
   { callFrameContextFixpointStates :: MapF (C.BlockID blocks) (FixpointState sym wptr blocks)
   , callFrameContextLoopHeaders :: [C.Some (C.BlockID blocks)]
-  , callFrameContextInvPreds :: [W4.SomeSymFn sym]
   , callFrameContextCFG :: C.CFG ext blocks init ret
   , callFrameContextParentLoop :: Map (C.Some (C.BlockID blocks)) (C.Some (C.BlockID blocks))
   , callFrameContextLoopHeaderBlockIds :: Set (C.Some (C.BlockID blocks))
   }
 
+data CallFrameHandle init ret blocks = CallFrameHandle (C.FnHandle init ret) (Ctx.Assignment (Ctx.Assignment C.TypeRepr) blocks)
+  deriving (Eq, Ord, Show)
+
+data SomeCallFrameContext sym wptr ext init ret =
+  forall blocks . SomeCallFrameContext (CallFrameContext sym wptr ext init ret blocks)
+
+unwrapSomeCallFrameContext ::
+  Ctx.Assignment (Ctx.Assignment C.TypeRepr) blocks ->
+  SomeCallFrameContext sym wptr ext init ret ->
+  CallFrameContext sym wptr ext init ret blocks
+unwrapSomeCallFrameContext blocks_repr (SomeCallFrameContext ctx) =
+  case W4.testEquality blocks_repr (fmapFC C.blockInputs $ C.cfgBlockMap $ callFrameContextCFG ctx) of
+    Just Refl -> ctx
+    Nothing -> C.panic "SimpleLoopFixpoint.unwrapSomeCallFrameContext" ["type mismatch"]
+
+data ExecutionFeatureContext sym wptr ext = ExecutionFeatureContext
+  { executionFeatureContextFixpointStates :: C.FnHandleMap (SomeCallFrameContext sym wptr ext)
+  , executionFeatureContextInvPreds :: [W4.SomeSymFn sym]
+  }
+
 callFrameContextLookup ::
+  CallFrameHandle init ret blocks ->
+  ExecutionFeatureContext sym wptr ext ->
+  CallFrameContext sym wptr ext init ret blocks
+callFrameContextLookup (CallFrameHandle hdl blocks_repr) ctx =
+  unwrapSomeCallFrameContext blocks_repr $
+    fromMaybe (C.panic "SimpleLoopFixpoint.callFrameContextLookup" ["missing call frame context", show hdl]) $
+      C.lookupHandleMap hdl (executionFeatureContextFixpointStates ctx)
+
+callFrameContextUpdate ::
+  CallFrameHandle init ret blocks ->
+  (CallFrameContext sym wptr ext init ret blocks -> CallFrameContext sym wptr ext init ret blocks) ->
+  ExecutionFeatureContext sym wptr ext ->
+  ExecutionFeatureContext sym wptr ext
+callFrameContextUpdate (CallFrameHandle hdl blocks_repr) f ctx =
+  ctx
+    { executionFeatureContextFixpointStates = C.updateHandleMap
+        (SomeCallFrameContext . f . unwrapSomeCallFrameContext blocks_repr)
+        hdl
+        (executionFeatureContextFixpointStates ctx)
+    }
+
+callFrameContextLookup' ::
+  CallFrameHandle init ret blocks ->
   C.BlockID blocks args ->
-  CallFrameContext sym wptr ext init ret blocks ->
+  ExecutionFeatureContext sym wptr ext ->
   Maybe (FixpointState sym wptr blocks args)
-callFrameContextLookup bid context = MapF.lookup bid $ callFrameContextFixpointStates context
+callFrameContextLookup' hdl bid ctx =
+  MapF.lookup bid $ callFrameContextFixpointStates $ callFrameContextLookup hdl ctx
 
 callFrameContextInsert ::
+  CallFrameHandle init ret blocks ->
   C.BlockID blocks args ->
   FixpointState sym wptr blocks args ->
-  CallFrameContext sym wptr ext init ret blocks ->
-  CallFrameContext sym wptr ext init ret blocks
-callFrameContextInsert bid fs context =
-  context { callFrameContextFixpointStates = MapF.insert bid fs (callFrameContextFixpointStates context) }
+  ExecutionFeatureContext sym wptr ext ->
+  ExecutionFeatureContext sym wptr ext
+callFrameContextInsert hdl bid fs =
+  callFrameContextUpdate hdl $
+    \ctx -> ctx { callFrameContextFixpointStates = MapF.insert bid fs (callFrameContextFixpointStates ctx) }
 
 callFrameContextPush ::
+  CallFrameHandle init ret blocks ->
   C.Some (C.BlockID blocks) ->
-  CallFrameContext sym wptr ext init ret blocks ->
-  CallFrameContext sym wptr ext init ret blocks
-callFrameContextPush bid context = context { callFrameContextLoopHeaders = bid : callFrameContextLoopHeaders context }
+  ExecutionFeatureContext sym wptr ext ->
+  ExecutionFeatureContext sym wptr ext
+callFrameContextPush hdl bid =
+  callFrameContextUpdate hdl $
+    \ctx -> ctx { callFrameContextLoopHeaders = bid : callFrameContextLoopHeaders ctx }
 
 callFrameContextPop ::
-  CallFrameContext sym wptr ext init ret blocks ->
-  CallFrameContext sym wptr ext init ret blocks
-callFrameContextPop context = context { callFrameContextLoopHeaders = tail $ callFrameContextLoopHeaders context }
+  CallFrameHandle init ret blocks ->
+  ExecutionFeatureContext sym wptr ext ->
+  ExecutionFeatureContext sym wptr ext
+callFrameContextPop  hdl =
+  callFrameContextUpdate hdl $
+    \ctx -> ctx { callFrameContextLoopHeaders = tail $ callFrameContextLoopHeaders ctx }
 
 callFrameContextPeek ::
-  CallFrameContext sym wptr ext init ret blocks ->
+  CallFrameHandle init ret blocks ->
+  ExecutionFeatureContext sym wptr ext ->
   Maybe (C.Some (C.BlockID blocks))
-callFrameContextPeek context = listToMaybe $ callFrameContextLoopHeaders context
+callFrameContextPeek hdl ctx =
+  listToMaybe $ callFrameContextLoopHeaders $ callFrameContextLookup hdl ctx
 
-callFrameContextAddInvPred ::
-  W4.SomeSymFn sym ->
+callFrameContextLoopHeaderBlockIds' ::
+  CallFrameHandle init ret blocks ->
+  ExecutionFeatureContext sym wptr ext ->
+  Set (C.Some (C.BlockID blocks))
+callFrameContextLoopHeaderBlockIds' hdl =
+  callFrameContextLoopHeaderBlockIds . callFrameContextLookup hdl
+
+callFrameContextParentLoop' ::
+  CallFrameHandle init ret blocks ->
+  ExecutionFeatureContext sym wptr ext ->
+  Map (C.Some (C.BlockID blocks)) (C.Some (C.BlockID blocks))
+callFrameContextParentLoop' hdl =
+  callFrameContextParentLoop . callFrameContextLookup hdl
+
+executionFeatureContextAddCallFrameContext ::
+  CallFrameHandle init ret blocks ->
   CallFrameContext sym wptr ext init ret blocks ->
-  CallFrameContext sym wptr ext init ret blocks
-callFrameContextAddInvPred inv_pred context = context { callFrameContextInvPreds = inv_pred : callFrameContextInvPreds context }
+  ExecutionFeatureContext sym wptr ext ->
+  ExecutionFeatureContext sym wptr ext
+executionFeatureContextAddCallFrameContext (CallFrameHandle hdl _blocks_repr) ctx context =
+  context
+    { executionFeatureContextFixpointStates =
+        C.insertHandleMap hdl (SomeCallFrameContext ctx) (executionFeatureContextFixpointStates context)
+    }
+
+executionFeatureContextAddInvPred ::
+  W4.SomeSymFn sym ->
+  ExecutionFeatureContext sym wptr ext ->
+  ExecutionFeatureContext sym wptr ext
+executionFeatureContextAddInvPred inv_pred context =
+  context { executionFeatureContextInvPreds = inv_pred : executionFeatureContextInvPreds context }
 
 
 newtype FixpointMonad sym a =
@@ -686,8 +769,8 @@ simpleLoopFixpoint ::
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
   Maybe (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), Maybe (W4.Pred sym))) ->
-  IO (C.ExecutionFeature p sym ext rtp, IORef (CallFrameContext sym wptr ext init ret blocks))
-simpleLoopFixpoint sym cfg mem_var maybe_fixpoint_func = do
+  IO (C.ExecutionFeature p sym ext rtp, IORef (ExecutionFeatureContext sym wptr ext))
+simpleLoopFixpoint sym _cfg mem_var maybe_fixpoint_func = do
   verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
   verb <- fromInteger <$> W4.getOpt verbSetting
 
@@ -711,19 +794,24 @@ simpleLoopFixpoint sym cfg mem_var maybe_fixpoint_func = do
   --         C.Vertex{} -> Nothing)
   --       (C.cfgWeakTopologicalOrdering cfg)
 
-  putStrLn $ "SimpleLoopFixpoint: cfgWeakTopologicalOrdering: " ++ show (C.cfgWeakTopologicalOrdering cfg)
 
-  let parent_wto_component = C.parentWTOComponent $ C.cfgWeakTopologicalOrdering cfg
+  -- let parent_wto_component = C.parentWTOComponent $ C.cfgWeakTopologicalOrdering cfg
+  -- fixpoint_state_ref <- newIORef $
+  --   FrameContext
+  --     { frameContextFixpointStates = MapF.empty
+  --     , frameContextLoopHeaders = []
+  --     , frameContextCFG = cfg
+  --     , frameContextParentLoop = parent_wto_component
+  --     , frameContextLoopHeaderBlockIds = Set.fromList $ Map.elems parent_wto_component
+  --     }
 
   fixpoint_state_ref <- newIORef $
-    CallFrameContext
-      { callFrameContextFixpointStates = MapF.empty
-      , callFrameContextLoopHeaders = []
-      , callFrameContextInvPreds = []
-      , callFrameContextCFG = cfg
-      , callFrameContextParentLoop = parent_wto_component
-      , callFrameContextLoopHeaderBlockIds = Set.fromList $ Map.elems parent_wto_component
+    ExecutionFeatureContext
+      { executionFeatureContextFixpointStates = C.emptyHandleMap
+      , executionFeatureContextInvPreds = []
       }
+
+  -- initializeCallFrameContext cfg fixpoint_state_ref
 
   return $ (, fixpoint_state_ref) $ C.ExecutionFeature $ \exec_state -> do
     let ?logMessage = \msg -> when (verb >= (3 :: Natural)) $ do
@@ -731,122 +819,148 @@ simpleLoopFixpoint sym cfg mem_var maybe_fixpoint_func = do
           System.IO.hPutStrLn h msg
           System.IO.hFlush h
 
-    cfg_handle <- C.cfgHandle . callFrameContextCFG <$> readIORef fixpoint_state_ref
-    cfg_block_map <- C.cfgBlockMap . callFrameContextCFG <$> readIORef fixpoint_state_ref
-    parent_loop_map <- callFrameContextParentLoop <$> readIORef fixpoint_state_ref
-    loop_header_block_ids <- callFrameContextLoopHeaderBlockIds <$> readIORef fixpoint_state_ref
-    maybe_some_loop_block_id <- callFrameContextPeek <$> readIORef fixpoint_state_ref
+    -- cfg_handle <- C.cfgHandle . callFrameContextCFG <$> readIORef fixpoint_state_ref
+    -- cfg_block_map <- C.cfgBlockMap . callFrameContextCFG <$> readIORef fixpoint_state_ref
+    -- parent_loop_map <- callFrameContextParentLoop <$> readIORef fixpoint_state_ref
+    -- loop_header_block_ids <- callFrameContextLoopHeaderBlockIds <$> readIORef fixpoint_state_ref
+    -- maybe_some_loop_block_id <- callFrameContextPeek <$> readIORef fixpoint_state_ref
     C.withBackend (C.execStateContext exec_state) $ \bak -> case exec_state of
       C.RunningState (C.RunBlockStart block_id) sim_state
-        | C.SomeHandle cfg_handle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
-        -- make sure the types match
-        , Just Refl <- W4.testEquality
-            (fmapFC C.blockInputs cfg_block_map)
-            (fmapFC C.blockInputs $ C.frameBlockMap $ sim_state ^. C.stateCrucibleFrame)
-          -- loop map is what we computed above, is this state at a loop header
-        , Set.member (C.Some block_id) loop_header_block_ids ->
-            advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint_state_ref
-
-        | otherwise -> do
+        | SomeCallFrameHandle call_frame_handle <- callFrameHandle (sim_state ^. C.stateCrucibleFrame) -> do
+          loop_header_block_ids <- callFrameContextLoopHeaderBlockIds' call_frame_handle <$> readIORef fixpoint_state_ref
+          if Set.member (C.Some block_id) loop_header_block_ids then
+            advanceFixpointState bak mem_var maybe_fixpoint_func call_frame_handle block_id sim_state fixpoint_state_ref
+          else do
             ?logMessage $ "SimpleLoopFixpoint: RunningState: RunBlockStart: " ++ show block_id
             return C.ExecutionFeatureNoChange
+
+        -- | C.SomeHandle cfg_handle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
+        -- -- make sure the types match
+        -- , Just Refl <- W4.testEquality
+        --     (fmapFC C.blockInputs cfg_block_map)
+        --     (fmapFC C.blockInputs $ C.frameBlockMap $ sim_state ^. C.stateCrucibleFrame)
+        --   -- loop map is what we computed above, is this state at a loop header
+        -- , Set.member (C.Some block_id) loop_header_block_ids ->
+        --     advanceFixpointState bak mem_var maybe_fixpoint_func cfg_handle block_id sim_state fixpoint_state_ref
+
+        -- | otherwise -> do
+        --     ?logMessage $ "SimpleLoopFixpoint: RunningState: RunBlockStart: " ++ show block_id
+        --     return C.ExecutionFeatureNoChange
 
       -- TODO: maybe need to rework this, so that we are sure to capture even concrete exits from the loop.
       C.SymbolicBranchState branch_condition true_frame false_frame _target sim_state
         | JustPausedFrameTgtId true_frame_some_block_id <- pausedFrameTgtId true_frame
         , JustPausedFrameTgtId false_frame_some_block_id <- pausedFrameTgtId false_frame
-        , C.SomeHandle cfg_handle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
-        , Just Refl <- W4.testEquality
-            (fmapFC C.blockInputs cfg_block_map)
-            (fmapFC C.blockInputs $ C.frameBlockMap $ sim_state ^. C.stateCrucibleFrame)
-        , Just (Some loop_block_id) <- maybe_some_loop_block_id
-        , true_frame_parent_loop_id <- Map.lookup true_frame_some_block_id parent_loop_map
-        , false_frame_parent_loop_id <- Map.lookup false_frame_some_block_id parent_loop_map
-        , true_frame_parent_loop_id /= maybe_some_loop_block_id || false_frame_parent_loop_id /= maybe_some_loop_block_id -> do
-          (loop_condition, inside_loop_frame, outside_loop_frame) <-
-            if true_frame_parent_loop_id == maybe_some_loop_block_id
-            then
-              return (branch_condition, true_frame, false_frame)
-            else if false_frame_parent_loop_id == maybe_some_loop_block_id
-            then do
-              not_branch_condition <- W4.notPred sym branch_condition
-              return (not_branch_condition, false_frame, true_frame)
-            else
-              fail "unsupported loop"
+        , SomeCallFrameHandle call_frame_handle <- callFrameHandle (sim_state ^. C.stateCrucibleFrame) -> do
+          maybe_some_loop_block_id <- callFrameContextPeek call_frame_handle <$> readIORef fixpoint_state_ref
+          parent_loop_map <- callFrameContextParentLoop' call_frame_handle <$> readIORef fixpoint_state_ref
+        -- , C.SomeHandle cfg_handle == C.frameHandle (sim_state ^. C.stateCrucibleFrame)
+        -- , Just Refl <- W4.testEquality
+        --     (fmapFC C.blockInputs cfg_block_map)
+        --     (fmapFC C.blockInputs $ C.frameBlockMap $ sim_state ^. C.stateCrucibleFrame)
+        -- , Just (Some loop_block_id) <- maybe_some_loop_block_id
+        -- , true_frame_parent_loop_id <- Map.lookup true_frame_some_block_id parent_loop_map
+        -- , false_frame_parent_loop_id <- Map.lookup false_frame_some_block_id parent_loop_map
+        -- , true_frame_parent_loop_id /= maybe_some_loop_block_id || false_frame_parent_loop_id /= maybe_some_loop_block_id -> do
+          if| Just (Some loop_block_id) <- maybe_some_loop_block_id
+            , true_frame_parent_loop_id <- Map.lookup true_frame_some_block_id parent_loop_map
+            , false_frame_parent_loop_id <- Map.lookup false_frame_some_block_id parent_loop_map
+            , true_frame_parent_loop_id /= maybe_some_loop_block_id || false_frame_parent_loop_id /= maybe_some_loop_block_id -> do
+              handleSymbolicBranch
+                bak
+                call_frame_handle
+                loop_block_id
+                branch_condition
+                true_frame
+                false_frame
+                true_frame_parent_loop_id
+                false_frame_parent_loop_id
+                sim_state
+                fixpoint_state_ref
+            | otherwise -> do
+              ?logMessage $ "SimpleLoopFixpoint: SymbolicBranchState: " ++ show (true_frame_some_block_id, false_frame_some_block_id)
+              return C.ExecutionFeatureNoChange
 
-          Just fixpoint_state <- callFrameContextLookup loop_block_id <$> readIORef fixpoint_state_ref
-          (condition, frame) <- case fixpoint_state of
-            BeforeFixpoint -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint:" ["BeforeFixpoint"]
-
-            ComputeFixpoint{} -> do
-              -- continue in the loop
-              ?logMessage "SimpleLoopFixpoint: SymbolicBranchState: ComputeFixpoint"
-              return (loop_condition, inside_loop_frame)
-
-            CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants _ -> do
-              -- continue in the loop
-              ?logMessage "SimpleLoopFixpoint: SymbolicBranchState: CheckFixpoint"
-              modifyIORef' fixpoint_state_ref $ callFrameContextInsert loop_block_id $
-                CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants loop_condition
-              return (loop_condition, inside_loop_frame)
-
-            AfterFixpoint{} -> do
-              -- break out of the loop
-              ?logMessage "SimpleLoopFixpoint: SymbolicBranchState: AfterFixpoint"
-              modifyIORef' fixpoint_state_ref callFrameContextPop
-              not_loop_condition <- W4.notPred sym loop_condition
-              return (not_loop_condition, outside_loop_frame)
-
-          loc <- W4.getCurrentProgramLoc sym
-          C.addAssumption bak $ C.BranchCondition loc (C.pausedLoc frame) condition
-          C.ExecutionFeatureNewState <$>
-            runReaderT
-              (C.resumeFrame (C.forgetPostdomFrame frame) $ sim_state ^. (C.stateTree . C.actContext))
-              sim_state
+      C.CallState _return_handler (C.CrucibleCall _block_id call_frame) _sim_state
+        | C.CallFrame { C._frameCFG = callee_cfg } <- call_frame -> do
+          initializeCallFrameContext callee_cfg fixpoint_state_ref
+          return C.ExecutionFeatureNoChange
+      C.TailCallState _value_from_value (C.CrucibleCall _block_id call_frame) _sim_state
+        | C.CallFrame { C._frameCFG = callee_cfg } <- call_frame -> do
+          initializeCallFrameContext callee_cfg fixpoint_state_ref
+          return C.ExecutionFeatureNoChange
 
       _ -> return C.ExecutionFeatureNoChange
 
+
+initializeCallFrameContext ::
+  C.CFG ext blocks init ret ->
+  IORef (ExecutionFeatureContext sym wptr ext) ->
+  IO ()
+initializeCallFrameContext cfg context_ref = do
+  putStrLn $ "SimpleLoopFixpoint: cfgHandle: " ++ show (C.cfgHandle cfg)
+  putStrLn $ "SimpleLoopFixpoint: cfgWeakTopologicalOrdering: " ++ show (C.cfgWeakTopologicalOrdering cfg)
+  let parent_wto_component = C.parentWTOComponent $ C.cfgWeakTopologicalOrdering cfg
+  let call_frame_handle = CallFrameHandle (C.cfgHandle cfg) $ fmapFC C.blockInputs $ C.cfgBlockMap cfg
+  modifyIORef' context_ref $ executionFeatureContextAddCallFrameContext call_frame_handle $
+    CallFrameContext
+      { callFrameContextFixpointStates = MapF.empty
+      , callFrameContextLoopHeaders = []
+      , callFrameContextCFG = cfg
+      , callFrameContextParentLoop = parent_wto_component
+      , callFrameContextLoopHeaderBlockIds = Set.fromList $ Map.elems parent_wto_component
+      }
+
+
+initializeFixpointState ::
+  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, KnownNat wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
+  bak ->
+  C.GlobalVar C.Mem ->
+  CallFrameHandle init ret blocks ->
+  C.BlockID blocks args ->
+  C.SimState p sym ext rtp (C.CrucibleLang blocks r) ('Just args) ->
+  IORef (ExecutionFeatureContext sym wptr ext) ->
+  IO (C.ExecutionFeatureResult p sym ext rtp)
+initializeFixpointState bak mem_var call_frame_handle block_id sim_state fixpoint_state_ref = do
+  let sym = C.backendGetSym bak
+  assumption_frame_identifier <- C.pushAssumptionFrame bak
+  index_var <- W4.freshConstant sym (W4.safeSymbol "index_var") W4.knownRepr
+  let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
+  let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
+  modifyIORef' fixpoint_state_ref $ callFrameContextInsert call_frame_handle block_id $ ComputeFixpoint $
+    FixpointRecord
+    { fixpointBlockId = block_id
+    , fixpointAssumptionFrameIdentifier = assumption_frame_identifier
+    , fixpointSubstitution = MapF.empty
+    , fixpointRegMap = sim_state ^. (C.stateCrucibleFrame . C.frameRegs)
+    , fixpointMemSubstitution = Map.empty
+    , fixpointEqualitySubstitution = MapF.empty
+    , fixpointIndex = index_var
+    }
+  modifyIORef' fixpoint_state_ref $ callFrameContextPush call_frame_handle $ Some block_id
+  return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
+    sim_state & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
 
 advanceFixpointState ::
   (C.IsSymBackend sym bak, C.HasPtrWidth wptr, KnownNat wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
   bak ->
   C.GlobalVar C.Mem ->
   Maybe (MapF (W4.SymExpr sym) (FixpointEntry sym) -> W4.Pred sym -> IO (MapF (W4.SymExpr sym) (W4.SymExpr sym), Maybe (W4.Pred sym))) ->
+  CallFrameHandle init ret blocks ->
   C.BlockID blocks args ->
   C.SimState p sym ext rtp (C.CrucibleLang blocks r) ('Just args) ->
-  IORef (CallFrameContext sym wptr ext init ret blocks) ->
+  IORef (ExecutionFeatureContext sym wptr ext) ->
   IO (C.ExecutionFeatureResult p sym ext rtp)
 
-advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint_state_ref = do
+advanceFixpointState bak mem_var maybe_fixpoint_func call_frame_handle block_id sim_state fixpoint_state_ref = do
   let sym = C.backendGetSym bak
-  fixpoint_state <- fromMaybe BeforeFixpoint <$> callFrameContextLookup block_id <$> readIORef fixpoint_state_ref
+  fixpoint_state <- fromMaybe BeforeFixpoint <$> callFrameContextLookup' call_frame_handle block_id <$> readIORef fixpoint_state_ref
   case fixpoint_state of
     BeforeFixpoint -> do
       ?logMessage $ "SimpleLoopFixpoint: RunningState: BeforeFixpoint -> ComputeFixpoint"
-      assumption_frame_identifier <- C.pushAssumptionFrame bak
-      index_var <- W4.freshConstant sym (W4.safeSymbol "index_var") W4.knownRepr
-      let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
-      let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
-      modifyIORef' fixpoint_state_ref $ callFrameContextInsert block_id $ ComputeFixpoint $
-        FixpointRecord
-        { fixpointBlockId = block_id
-        , fixpointAssumptionFrameIdentifier = assumption_frame_identifier
-        , fixpointSubstitution = MapF.empty
-        , fixpointRegMap = sim_state ^. (C.stateCrucibleFrame . C.frameRegs)
-        , fixpointMemSubstitution = Map.empty
-        , fixpointEqualitySubstitution = MapF.empty
-        , fixpointIndex = index_var
-        }
-      modifyIORef' fixpoint_state_ref $ callFrameContextPush $ Some block_id
-      return $ C.ExecutionFeatureModifiedState $ C.RunningState (C.RunBlockStart block_id) $
-        sim_state & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
+      initializeFixpointState bak mem_var call_frame_handle block_id sim_state fixpoint_state_ref
 
-    ComputeFixpoint fixpoint_record
-      | Just Refl <- W4.testEquality
-          (fmapFC C.regType $ C.regMap $ fixpointRegMap fixpoint_record)
-          (fmapFC C.regType $ C.regMap $ sim_state ^. (C.stateCrucibleFrame . C.frameRegs)) -> do
-
-
+    ComputeFixpoint fixpoint_record -> do
         ?logMessage $ "SimpleLoopFixpoint: RunningState: ComputeFixpoint: " ++ show block_id
         proof_goals_and_assumptions_vars <- Set.map (mapSome $ W4.varExpr sym) <$>
           (Set.union <$> C.proofObligationsUninterpConstants bak <*> C.pathConditionUninterpConstants bak)
@@ -978,7 +1092,8 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
                 C.addAssumption bak $ C.GenericAssumption loc "inv" inv
 
                 return $ W4.SomeSymFn inv_pred
-            modifyIORef' fixpoint_state_ref $ callFrameContextAddInvPred some_inv_pred
+
+            modifyIORef' fixpoint_state_ref $ executionFeatureContextAddInvPred some_inv_pred
 
             ?logMessage $
               "proof_goals_and_assumptions_vars: "
@@ -990,7 +1105,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
             ?logMessage $
               "uninterpreted_constants: " ++ show (map (viewSome W4.printSymExpr) $ Set.toList filtered_vars)
 
-            modifyIORef' fixpoint_state_ref $ callFrameContextInsert block_id $
+            modifyIORef' fixpoint_state_ref $ callFrameContextInsert call_frame_handle block_id $
               CheckFixpoint
                 FixpointRecord
                 { fixpointBlockId = block_id
@@ -1020,7 +1135,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
               mem_substitution
               MapF.empty
 
-            modifyIORef' fixpoint_state_ref $ callFrameContextInsert block_id $ ComputeFixpoint
+            modifyIORef' fixpoint_state_ref $ callFrameContextInsert call_frame_handle block_id $ ComputeFixpoint
               FixpointRecord
               { fixpointBlockId = block_id
               , fixpointAssumptionFrameIdentifier = assumption_frame_identifier
@@ -1034,13 +1149,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
               sim_state & (C.stateCrucibleFrame . C.frameRegs) .~ C.RegMap join_reg_map
                 & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
 
-      | otherwise -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["type mismatch: ComputeFixpoint"]
-
-    CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants loop_condition
-      | FixpointRecord { fixpointRegMap = reg_map } <- fixpoint_record
-      , Just Refl <- W4.testEquality
-          (fmapFC C.regType $ C.regMap reg_map)
-          (fmapFC C.regType $ C.regMap $ sim_state ^. (C.stateCrucibleFrame . C.frameRegs)) -> do
+    CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants loop_condition -> do
         ?logMessage $
           "SimpleLoopFixpoint: RunningState: "
           ++ "CheckFixpoint"
@@ -1092,7 +1201,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
 
           Nothing -> return MapF.empty
 
-        let res_reg_map = C.RegMap $ applySubstitutionRegEntries sym fixpoint_substitution (C.regMap reg_map)
+        let res_reg_map = C.RegMap $ applySubstitutionRegEntries sym fixpoint_substitution (C.regMap $ fixpointRegMap fixpoint_record)
 
         res_mem_impl <- storeMemJoinVariables bak
           header_mem_impl
@@ -1107,7 +1216,7 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
               C.addAssumption bak $ C.GenericAssumption loc "" inv
             | otherwise -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["type mismatch: CheckFixpoint"]
 
-        modifyIORef' fixpoint_state_ref $ callFrameContextInsert block_id $
+        modifyIORef' fixpoint_state_ref $ callFrameContextInsert call_frame_handle block_id $
           AfterFixpoint
             fixpoint_record{ fixpointSubstitution = res_substitution }
 
@@ -1115,10 +1224,74 @@ advanceFixpointState bak mem_var maybe_fixpoint_func block_id sim_state fixpoint
           sim_state & (C.stateCrucibleFrame . C.frameRegs) .~ res_reg_map
             & C.stateGlobals %~ C.insertGlobal mem_var res_mem_impl
 
-      | otherwise -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["type mismatch: CheckFixpoint"]
+    AfterFixpoint{} -> do
+      ?logMessage $ "SimpleLoopFixpoint: RunningState: AfterFixpoint -> ComputeFixpoint"
+      initializeFixpointState bak mem_var call_frame_handle block_id sim_state fixpoint_state_ref
 
-    AfterFixpoint{} -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint" ["AfterFixpoint"]
 
+handleSymbolicBranch ::
+  (C.IsSymBackend sym bak, C.HasPtrWidth wptr, KnownNat wptr, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions, ?logMessage :: String -> IO ()) =>
+  bak ->
+  CallFrameHandle init ret blocks ->
+  C.BlockID blocks tp ->
+  W4.Pred sym ->
+  C.PausedFrame p sym ext rtp (C.CrucibleLang blocks r) ->
+  C.PausedFrame p sym ext rtp (C.CrucibleLang blocks r) ->
+  Maybe (C.Some (C.BlockID blocks)) ->
+  Maybe (C.Some (C.BlockID blocks)) ->
+  C.SimState p sym ext rtp (C.CrucibleLang blocks r) ('Just args) ->
+  IORef (ExecutionFeatureContext sym wptr ext) ->
+  IO (C.ExecutionFeatureResult p sym ext rtp)
+handleSymbolicBranch bak call_frame_handle loop_block_id branch_condition true_frame false_frame true_frame_parent_loop_id false_frame_parent_loop_id sim_state fixpoint_state_ref = do
+  let sym = C.backendGetSym bak
+
+  (loop_condition, inside_loop_frame, outside_loop_frame) <-
+    if true_frame_parent_loop_id == Just (C.Some loop_block_id)
+    then
+      return (branch_condition, true_frame, false_frame)
+    else if false_frame_parent_loop_id == Just (C.Some loop_block_id)
+    then do
+      not_branch_condition <- W4.notPred sym branch_condition
+      return (not_branch_condition, false_frame, true_frame)
+    else
+      fail "unsupported loop"
+
+  Just fixpoint_state <- callFrameContextLookup' call_frame_handle loop_block_id <$> readIORef fixpoint_state_ref
+  (condition, frame) <- case fixpoint_state of
+    BeforeFixpoint -> C.panic "SimpleLoopFixpoint.simpleLoopFixpoint:" ["BeforeFixpoint"]
+
+    ComputeFixpoint{} -> do
+      -- continue in the loop
+      ?logMessage "SimpleLoopFixpoint: SymbolicBranchState: ComputeFixpoint"
+      return (loop_condition, inside_loop_frame)
+
+    CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants _ -> do
+      -- continue in the loop
+      ?logMessage "SimpleLoopFixpoint: SymbolicBranchState: CheckFixpoint"
+      modifyIORef' fixpoint_state_ref $ callFrameContextInsert call_frame_handle loop_block_id $
+        CheckFixpoint fixpoint_record some_inv_pred some_uninterpreted_constants loop_condition
+      return (loop_condition, inside_loop_frame)
+
+    AfterFixpoint{} -> do
+      -- break out of the loop
+      ?logMessage "SimpleLoopFixpoint: SymbolicBranchState: AfterFixpoint"
+      modifyIORef' fixpoint_state_ref $ callFrameContextPop call_frame_handle
+      not_loop_condition <- W4.notPred sym loop_condition
+      return (not_loop_condition, outside_loop_frame)
+
+  loc <- W4.getCurrentProgramLoc sym
+  C.addAssumption bak $ C.BranchCondition loc (C.pausedLoc frame) condition
+  C.ExecutionFeatureNewState <$>
+    runReaderT
+      (C.resumeFrame (C.forgetPostdomFrame frame) $ sim_state ^. (C.stateTree . C.actContext))
+      sim_state
+
+
+data SomeCallFrameHandle ret blocks = forall init . SomeCallFrameHandle (CallFrameHandle init ret blocks)
+
+callFrameHandle :: C.CallFrame sym ext blocks ret ctx -> SomeCallFrameHandle ret blocks
+callFrameHandle C.CallFrame { _frameCFG = g } =
+  SomeCallFrameHandle $ CallFrameHandle (C.cfgHandle g) $ fmapFC C.blockInputs $ C.cfgBlockMap g
 
 data MaybePausedFrameTgtId f where
   JustPausedFrameTgtId :: C.Some (C.BlockID b) -> MaybePausedFrameTgtId (C.CrucibleLang b r)
