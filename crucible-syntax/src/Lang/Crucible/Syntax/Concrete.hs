@@ -43,6 +43,9 @@ module Lang.Crucible.Syntax.Concrete
   , string
   , isType
   , operands
+  , BoundedNat(..)
+  , PosNat
+  , posNat
   -- * Rules for pretty-printing language syntax
   , printExpr
   )
