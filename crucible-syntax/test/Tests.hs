@@ -95,6 +95,7 @@ goldenFileTestCase input test_action =
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do contents <- T.readFile inFile
+     let ?parserHooks = defaultParserHooks
      withFile outFile WriteMode $ doParseCheck inFile contents True
 
 testOptions :: [ConfigDesc]

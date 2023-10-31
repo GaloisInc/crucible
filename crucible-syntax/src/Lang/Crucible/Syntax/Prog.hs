@@ -30,6 +30,7 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as C
+import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.CFG.Reg
 import Lang.Crucible.CFG.SSAConversion
 
@@ -56,7 +57,8 @@ import What4.Solver (defaultLogData, runZ3InOverride)
 
 -- | The main loop body, useful for both the program and for testing.
 doParseCheck
-   :: FilePath -- ^ The name of the input (appears in source locations)
+   :: (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
+   => FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Bool     -- ^ Whether to pretty-print the input data as well
    -> Handle   -- ^ A handle that will receive the output
@@ -72,7 +74,6 @@ doParseCheck fn theInput pprint outh =
          do when pprint $
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
-            let ?parserHooks = defaultParserHooks
             cs <- top ng ha [] $ prog v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
