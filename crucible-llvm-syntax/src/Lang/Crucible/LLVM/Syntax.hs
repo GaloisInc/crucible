@@ -17,12 +17,9 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.State.Strict (MonadState(..))
 import Control.Monad.Writer.Strict (MonadWriter(..))
 import Data.Functor ((<&>))
-import GHC.TypeLits (type (<=))
 
 import Data.BitVector.Sized qualified as BV
 
-import Data.Parameterized.NatRepr (NatRepr)
-import Data.Parameterized.NatRepr qualified as Nat
 import Data.Parameterized.Some (Some(..))
 
 import What4.ProgramLoc (Posd(..))
@@ -66,24 +63,10 @@ llvmTypeParser = Parse.describe "LLVM type" $ Parse.call ptrType
       let ptrName = do
             s <- Parse.atomName
             unless (s == Atom.AtomName "Ptr") Parse.cut
-      unary ptrName $ do
-        PtrWidth w <- ptrWidth
-        return (Some (LLVMPointerRepr w))
-
-data PtrWidth =
-  forall w. (1 <= w, 16 <= w) => PtrWidth (NatRepr w)
-
-ptrWidth :: MonadSyntax Atomic m => m PtrWidth
-ptrWidth =
-   do i <- Parse.sideCondition "nat literal >= 16" checkPosNat Parse.nat
-      maybe empty return $ do 
-        Some x <- return $ Nat.mkNatRepr i
-        let minPtrWidth = Nat.knownNat @16
-        Nat.LeqProof <- Nat.testLeq (Nat.knownNat @1) x
-        Nat.LeqProof <- Nat.testLeq minPtrWidth x
-        return (PtrWidth x)
-  where checkPosNat i | i > 16 = Just i
-        checkPosNat _ = Nothing
+      let ptrWidth = do
+            Parse.BoundedNat n <- Parse.posNat
+            pure (Some (LLVMPointerRepr n))
+      unary ptrName ptrWidth
 
 llvmAtomParser ::
   ( MonadSyntax Atomic m
