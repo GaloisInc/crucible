@@ -16,6 +16,8 @@ import Control.Monad.State.Strict (MonadState(..))
 import Control.Monad.Writer.Strict (MonadWriter(..))
 import Data.Functor ((<&>))
 
+import Prettyprinter (pretty)
+
 import Data.Parameterized.Context qualified as Ctx
 import Data.Parameterized.Some (Some(..))
 
@@ -27,6 +29,8 @@ import Lang.Crucible.CFG.Reg qualified as Reg
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.Types (TypeRepr(..))
 
+import Lang.Crucible.LLVM.DataLayout (Alignment)
+import Lang.Crucible.LLVM.DataLayout qualified as DataLayout
 import Lang.Crucible.LLVM.Extension (LLVM)
 import Lang.Crucible.LLVM.Extension qualified as Ext
 import Lang.Crucible.LLVM.MemModel (Mem, pattern LLVMPointerRepr)
@@ -76,7 +80,7 @@ llvmAtomParser ::
   ) =>
   GlobalVar Mem -> 
   m (Some (Atom s))
-llvmAtomParser _mvar =
+llvmAtomParser mvar =
   Parse.depCons Parse.atomName $
     \case
       Atom.AtomName "ptr" -> do
@@ -115,4 +119,20 @@ llvmAtomParser _mvar =
           let expr = Ext.LLVM_PointerIte w b p1 p2
           Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
 
+      Atom.AtomName "alloca" -> do
+        loc <- Parse.position
+        (align, assign) <- 
+          Parse.cons
+            parseAlign
+            (Parse.operands (Ctx.Empty Ctx.:> BVRepr ?ptrWidth))
+        let (Ctx.Empty, sz) = Ctx.decompose assign
+        let stmt = Ext.LLVM_Alloca ?ptrWidth mvar sz align (show (pretty loc))
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
       _ -> empty
+  where
+    parseAlign :: MonadSyntax Atomic m => m Alignment
+    parseAlign = do
+      s <- Parse.atomName
+      unless (s == Atom.AtomName "none") Parse.cut
+      pure DataLayout.noAlignment

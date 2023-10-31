@@ -8,4 +8,8 @@
     (let off (ptr-offset 64 p))
     (assert! (equal? blk0 blk) "block numbers equal")
     (assert! (equal? off0 off) "offsets equal")
+
+    (let sz (bv 64 1))
+    (let a (alloca none sz))
+
     (return p)))
