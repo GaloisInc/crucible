@@ -13,7 +13,6 @@ import Control.Monad.State.Strict (MonadState(..))
 import Control.Monad.Writer.Strict (MonadWriter(..))
 import Data.Functor ((<&>))
 
-import Data.Parameterized.NatRepr (knownNat)
 import Data.Parameterized.Some (Some(..))
 
 import What4.ProgramLoc (Posd(..))
@@ -47,14 +46,12 @@ llvmTypeParser = Parse.describe "LLVM type" $ Parse.call ptrType
     ptrType :: MonadSyntax Atomic m => m (Some TypeRepr)
     ptrType = do
       let ptrName = do
-            atom <- Parse.string
-            unless (atom == "Ptr") Parse.cut
+            s <- Parse.string
+            unless (s == "Ptr") Parse.cut
 
       let ptrWidth = do
-            atom <- Parse.string
-            if atom == "64"
-            then pure (Some (LLVMPointerRepr (knownNat @64)))
-            else Parse.cut
+            Parse.BoundedNat n <- Parse.posNat
+            pure (Some (LLVMPointerRepr n))
 
       unary ptrName ptrWidth
 
