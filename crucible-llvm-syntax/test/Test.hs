@@ -1,9 +1,10 @@
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module Main (main) where
 
 import Data.List (sort)
-import qualified Data.Text.IO as T
+import Data.Text.IO qualified as T
 import System.FilePath
 import System.IO
 

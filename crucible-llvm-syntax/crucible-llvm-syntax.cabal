@@ -82,6 +82,7 @@ common shared
       -Werror=redundant-strictness-flags
       -Werror=type-equality-out-of-scope
       -Werror=type-equality-requires-operators
+
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 

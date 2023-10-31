@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
@@ -25,10 +26,11 @@ import Lang.Crucible.LLVM.Extension (LLVM)
 import Lang.Crucible.LLVM.MemModel (pattern LLVMPointerRepr)
 
 import Lang.Crucible.Syntax.Atoms (Atomic)
+import Lang.Crucible.Syntax.Atoms qualified as Atom
 import Lang.Crucible.Syntax.Concrete (ParserHooks(..), SyntaxState)
+import Lang.Crucible.Syntax.Concrete qualified as Parse
 import Lang.Crucible.Syntax.ExprParse (MonadSyntax)
-import qualified Lang.Crucible.Syntax.Concrete as Parse
-import qualified Lang.Crucible.Syntax.ExprParse as Parse
+import Lang.Crucible.Syntax.ExprParse qualified as Parse
 
 unary :: MonadSyntax Atomic m => m b -> m a -> m a
 unary p0 p = Parse.followedBy p0 (Parse.commit *> Parse.cons p Parse.emptyList) <&> fst
@@ -46,8 +48,8 @@ llvmTypeParser = Parse.describe "LLVM type" $ Parse.call ptrType
     ptrType :: MonadSyntax Atomic m => m (Some TypeRepr)
     ptrType = do
       let ptrName = do
-            s <- Parse.string
-            unless (s == "Ptr") Parse.cut
+            s <- Parse.atomName
+            unless (s == Atom.AtomName "Ptr") Parse.cut
 
       let ptrWidth = do
             Parse.BoundedNat n <- Parse.posNat
