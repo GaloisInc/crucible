@@ -104,6 +104,7 @@ library
     Lang.Crucible.LLVM.Syntax
 
 test-suite crucible-llvm-syntax-tests
+  import: shared
   type: exitcode-stdio-1.0
   main-is: Test.hs
   hs-source-dirs: test
@@ -114,11 +115,8 @@ test-suite crucible-llvm-syntax-tests
     crucible-llvm,
     crucible-llvm-syntax,
     crucible-syntax,
-    directory,
     filepath,
     parameterized-utils >= 0.1.7,
     tasty,
     tasty-golden,
-    tasty-hunit,
     text,
-    what4,

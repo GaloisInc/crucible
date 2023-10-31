@@ -2,50 +2,15 @@
 
 module Main (main) where
 
-import Control.Applicative
-import Control.Monad.IO.Class (MonadIO(..))
-import Control.Monad.ST
-
-import Data.List
-import qualified Data.Map as Map
-import Data.Map (Map)
-import Data.Monoid
-import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.Some (Some(..))
-import Data.Text (Text)
-import Data.Type.Equality (TestEquality(..), (:~:)(..))
-import qualified Data.Text as T
+import Data.List (sort)
 import qualified Data.Text.IO as T
-
+import System.FilePath
 import System.IO
-
-import Lang.Crucible.Syntax.Concrete hiding (SyntaxError)
-
-import Lang.Crucible.Backend (IsSymInterface)
-import Lang.Crucible.FunctionHandle
-import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.GlobalState (SymGlobalState, insertGlobal)
-import Lang.Crucible.Simulator.OverrideSim
-import Lang.Crucible.Syntax.Atoms (GlobalName(..))
-import Lang.Crucible.Syntax.Prog
-import Lang.Crucible.Syntax.SExpr
-import Lang.Crucible.Syntax.ExprParse
-import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
-import Lang.Crucible.Types
-import Lang.Crucible.CFG.Common (GlobalVar(..))
-import Lang.Crucible.CFG.SSAConversion
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
-import Test.Tasty.HUnit
-import System.FilePath
-import System.Directory
 
-import What4.Config
-import What4.FunctionName
-import What4.Interface (intLit)
-import What4.ProgramLoc
-import What4.Solver.Z3 (z3Options)
+import Lang.Crucible.Syntax.Prog (doParseCheck)
 
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
 
