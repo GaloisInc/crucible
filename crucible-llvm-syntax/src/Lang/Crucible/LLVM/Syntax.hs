@@ -7,7 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Lang.Crucible.LLVM.Syntax where
+module Lang.Crucible.LLVM.Syntax (llvmParserHooks) where
 
 import Control.Applicative (empty)
 import Control.Monad (unless)
@@ -16,8 +16,7 @@ import Control.Monad.State.Strict (MonadState(..))
 import Control.Monad.Writer.Strict (MonadWriter(..))
 import Data.Functor ((<&>))
 
-import Data.BitVector.Sized qualified as BV
-
+import Data.Parameterized.Context qualified as Ctx
 import Data.Parameterized.Some (Some(..))
 
 import What4.ProgramLoc (Posd(..))
@@ -80,10 +79,40 @@ llvmAtomParser ::
 llvmAtomParser _mvar =
   Parse.depCons Parse.atomName $
     \case
-      Atom.AtomName "null" -> do
+      Atom.AtomName "ptr" -> do
         loc <- Parse.position
-        blkAtom <- Parse.freshAtom loc (Reg.EvalApp (Expr.NatLit 0))
-        offAtom <- Parse.freshAtom loc (Reg.EvalApp (Expr.BVLit ?ptrWidth (BV.zero ?ptrWidth)))
-        ptrAtom <- Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp (Ext.LLVM_PointerExpr ?ptrWidth blkAtom offAtom)))
-        return (Some ptrAtom)
+        Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
+          assign <- Parse.operands (Ctx.Empty Ctx.:> NatRepr Ctx.:> BVRepr w)
+          let (rest, off) = Ctx.decompose assign
+          let (Ctx.Empty, blk) = Ctx.decompose rest
+          let expr = Ext.LLVM_PointerExpr w blk off
+          ptrAtom <- Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
+          return (Some ptrAtom)
+
+      Atom.AtomName "ptr-block" -> do
+        loc <- Parse.position
+        Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
+          assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr w)
+          let (Ctx.Empty, ptr) = Ctx.decompose assign
+          let expr = Ext.LLVM_PointerBlock w ptr
+          Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
+
+      Atom.AtomName "ptr-offset" -> do
+        loc <- Parse.position
+        Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
+          assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr w)
+          let (Ctx.Empty, ptr) = Ctx.decompose assign
+          let expr = Ext.LLVM_PointerOffset w ptr
+          Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
+
+      Atom.AtomName "ptr-ite" -> do
+        loc <- Parse.position
+        Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
+          assign <- Parse.operands (Ctx.Empty Ctx.:> BoolRepr Ctx.:> LLVMPointerRepr w Ctx.:> LLVMPointerRepr w)
+          let (rest, p2) = Ctx.decompose assign
+          let (rest', p1) = Ctx.decompose rest
+          let (Ctx.Empty, b) = Ctx.decompose rest'
+          let expr = Ext.LLVM_PointerIte w b p1 p2
+          Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
+
       _ -> empty

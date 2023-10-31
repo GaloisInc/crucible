@@ -91,7 +91,6 @@ library
 
   build-depends:
     base >= 4.13,
-    bv-sized,
     crucible >= 0.1,
     crucible-llvm,
     crucible-syntax,

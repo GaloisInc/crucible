@@ -11,6 +11,9 @@ This `ParserHooks` supports the following types and statements:
 
 **Statements**:
 
-- `null : Ptr n` is the null pointer, i.e. the pointer with both block number and offset concretely set to zero. The width of the null pointer is determined by the `?ptrWidth` implicit parameter used when constructing the `ParserHooks`
+- `ptr : Nat -> Bitvector w -> Ptr w`: construct a pointer from a block and offset
+- `ptr-block : Ptr w -> Nat`: get the block number of a pointer
+- `ptr-offset : Ptr w -> Bitvector w`: get the offset of a pointer
+- `ptr-ite : Bool -> Ptr w -> Ptr w -> Ptr w`: if-then-else for pointers
 
 [syn]: ../crucible-syntax

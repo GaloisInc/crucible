@@ -1,14 +1,43 @@
 (defun @test-ptr () (Ptr 64)
-   (start start: (let n (null)) (return n)))
+   (start start:
+      (let blk0 (the Nat 0))
+      (let off0 (bv 64 0))
+      (let p0 (ptr 64 blk0 off0))
+      (let p (ptr-ite 64 #t p0 p0))
+      (let blk (ptr-block 64 p))
+      (let off (ptr-offset 64 p))
+      (assert! (equal? blk0 blk) "block numbers equal")
+      (assert! (equal? off0 off) "offsets equal")
+      (return p)))
 
 test-ptr
 %0
-  % 3:12
+  % 3:15
   $0 = natLit(0)
-  % 3:12
+  % 4:15
   $1 = bVLit(64, BV 0)
-  % 3:12
+  % 5:13
   $2 = extensionApp(pointerExpr $0 $1)
-  % 4:5
-  return $2
+  % 6:12
+  $3 = boolLit(True)
+  % 6:12
+  $4 = extensionApp(pointerIte $3 $2 $2)
+  % 7:14
+  $5 = extensionApp(pointerBlock $4)
+  % 8:14
+  $6 = extensionApp(pointerOffset $4)
+  % 9:14
+  $7 = natEq($0, $5)
+  % 9:32
+  $8 = stringLit("block numbers equal")
+  % 9:5
+  assert($7, $8)
+  % 10:14
+  $9 = baseIsEq(BaseBVRepr 64, $1, $6)
+  % 10:32
+  $10 = stringLit("offsets equal")
+  % 10:5
+  assert($9, $10)
+  % 11:5
+  return $4
   % no postdom
