@@ -80,6 +80,3 @@ testParser inFile outFile =
      let ?parserHooks = llvmParserHooks
      withFile outFile WriteMode $ doParseCheck inFile contents True
 
-testOptions :: [ConfigDesc]
-testOptions = z3Options
-
