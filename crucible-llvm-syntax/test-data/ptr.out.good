@@ -1,0 +1,9 @@
+(defun @test-ptr ((_ "Ptr64")) Bool (start start: (return #t)))
+
+test-ptr
+%0
+  % 3:13
+  $1 = boolLit(True)
+  % 3:5
+  return $1
+  % no postdom
