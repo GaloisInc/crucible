@@ -1,5 +1,8 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main (main) where
 
@@ -11,6 +14,14 @@ import System.IO
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
 
+import Data.Parameterized.NatRepr (knownNat)
+
+import Lang.Crucible.FunctionHandle (newHandleAllocator)
+
+import Lang.Crucible.LLVM.Extension (LLVM)
+import Lang.Crucible.LLVM.MemModel (mkMemVar)
+
+import Lang.Crucible.Syntax.Concrete (ParserHooks)
 import Lang.Crucible.Syntax.Prog (doParseCheck)
 
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
@@ -40,9 +51,17 @@ goldenFileTestCase input testAction =
     outFile = replaceExtension input ".out"
     goodFile = replaceExtension input ".out.good"
 
+parserHooks :: IO (ParserHooks LLVM)
+parserHooks = do
+  halloc <- newHandleAllocator
+  memVar <- mkMemVar "crucible-llvm-syntax-test-memory" halloc
+  let ?ptrWidth = knownNat @64
+  return (llvmParserHooks memVar)
+
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do contents <- T.readFile inFile
-     let ?parserHooks = llvmParserHooks
+     hooks <- parserHooks
+     let ?parserHooks = hooks
      withFile outFile WriteMode $ doParseCheck inFile contents True
 

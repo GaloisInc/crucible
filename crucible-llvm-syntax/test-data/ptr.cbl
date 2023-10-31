@@ -1,3 +1,4 @@
-(defun @test-ptr ((_ (Ptr 64))) Bool
+(defun @test-ptr () (Ptr 64)
   (start start:
-    (return #t)))
+    (let n (null))
+    (return n)))

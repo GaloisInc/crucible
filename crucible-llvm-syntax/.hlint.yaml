@@ -3,6 +3,6 @@
 
 - ignore: {}  # ignore all
 - error: { name: "Redundant do" }
+- error: { name: "Unused LANGUAGE pragma" }
 - error: { name: "Use unless" }
 - error: { name: "Use when" }
-

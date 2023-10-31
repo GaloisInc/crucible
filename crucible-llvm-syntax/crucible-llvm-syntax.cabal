@@ -90,7 +90,8 @@ library
   import: shared
 
   build-depends:
-    base >= 4.16,
+    base >= 4.13,
+    bv-sized,
     crucible >= 0.1,
     crucible-llvm,
     crucible-syntax,
