@@ -35,6 +35,9 @@ import Lang.Crucible.LLVM.Extension (LLVM)
 import Lang.Crucible.LLVM.Extension qualified as Ext
 import Lang.Crucible.LLVM.MemModel (Mem, pattern LLVMPointerRepr)
 import Lang.Crucible.LLVM.MemModel qualified as Mem
+import Lang.Crucible.LLVM.MemType (MemType)
+import Lang.Crucible.LLVM.MemType qualified as MemType
+import Lang.Crucible.LLVM.Translation (llvmTypeAsRepr)
 
 import Lang.Crucible.Syntax.Atoms (Atomic)
 import Lang.Crucible.Syntax.Atoms qualified as Atom
@@ -129,10 +132,51 @@ llvmAtomParser mvar =
         let stmt = Ext.LLVM_Alloca ?ptrWidth mvar sz align (show (pretty loc))
         Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
+      Atom.AtomName "load" -> Parse.describe "LLVM load arguments" $ do
+        loc <- Parse.position
+        (align, (memTy, assign)) <- 
+          Parse.cons
+            parseAlign
+            (Parse.cons
+              parseMemType
+              (Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth)))
+        llvmTypeAsRepr memTy $ \tyRep -> do
+          case Mem.toStorableType memTy of
+            Nothing -> empty
+            Just storTy -> do
+              let (Ctx.Empty, ptr) = Ctx.decompose assign
+              let stmt = Ext.LLVM_Load mvar ptr tyRep storTy align
+              Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "store" -> Parse.describe "LLVM store arguments" $ do
+        loc <- Parse.position
+        Parse.depCons parseAlign $ \align ->
+          Parse.depCons parseMemType $ \memTy -> do
+            llvmTypeAsRepr memTy $ \tyRep -> do
+              assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> tyRep)
+              case Mem.toStorableType memTy of
+                Nothing -> empty
+                Just storTy -> do
+                  let (rest, val) = Ctx.decompose assign
+                  let (Ctx.Empty, ptr) = Ctx.decompose rest
+                  let stmt = Ext.LLVM_Store mvar ptr tyRep storTy align val
+                  Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
       _ -> empty
   where
     parseAlign :: MonadSyntax Atomic m => m Alignment
-    parseAlign = do
+    parseAlign = Parse.describe "alignment" $ do
       s <- Parse.atomName
       unless (s == Atom.AtomName "none") Parse.cut
       pure DataLayout.noAlignment
+
+    parseMemType :: MonadSyntax Atomic m => m MemType
+    parseMemType = Parse.describe "LLVM type" $ do
+      nm <- Parse.atomName
+      case nm of
+        Atom.AtomName "i8" -> pure (MemType.IntType 8)
+        Atom.AtomName "i16" -> pure (MemType.IntType 16)
+        Atom.AtomName "i32" -> pure (MemType.IntType 32)
+        Atom.AtomName "i64" -> pure (MemType.IntType 64)
+        Atom.AtomName "ptr" -> pure MemType.PtrOpaqueType
+        _ -> empty
