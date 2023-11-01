@@ -69,7 +69,9 @@ llvmTypeParser = Parse.describe "LLVM type" $ Parse.call ptrType
       let ptrName = do
             s <- Parse.atomName
             unless (s == Atom.AtomName "Ptr") Parse.cut
-      let ptrWidth = do
+      let -- This type signature is needed for GHC 8.10
+          ptrWidth :: MonadSyntax Atomic m => m (Some TypeRepr)
+          ptrWidth = do
             Parse.BoundedNat n <- Parse.posNat
             pure (Some (LLVMPointerRepr n))
       unary ptrName ptrWidth
