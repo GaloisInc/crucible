@@ -8,22 +8,25 @@ statements:
 
 **Types**:
 
-- `(Ptr n)` for a positive numeral `n` represents the type of LLVM pointers that are `n` bits wide. For example `(Ptr 8)` is the type of bytes.
+- `(Ptr n)` for a positive numeral `n` represents the type of LLVM pointers that are `n` bits wide; for example `(Ptr 8)` is the type of bytes
 
 **Primitive atoms**:
 
 - `none : Alignment`: no alignment
-- `i8 : LLVMType`
-- `i16 : LLVMType`
-- `i32 : LLVMType`
-- `i64 : LLVMType`
-- `ptr : LLVMType`
+- `i8 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 8 :: MemType`
+- `i16 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 16 :: MemType`
+- `i32 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 32 :: MemType`
+- `i64 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 64 :: MemType`
+- `ptr : LLVMType`: [LLVM docs][ptr-type], corresponds to Crucible-LLVM's `IntType 64 :: PtrOpaqueType`
+
+[int-type]: https://llvm.org/docs/LangRef.html#integer-type
+[ptr-type]: https://llvm.org/docs/LangRef.html#pointer-type
 
 **Statements**:
 
 If the numeral representing `w` the pointer width and `n` is an arbitrary numeral,
 
-- `ptr : Nat -> Bitvector w -> Ptr w`: construct a pointer from a block and offset
+- `ptr : Nat -> Bitvector n -> Ptr n`: construct a pointer from a block and offset
 - `ptr-block : Ptr n -> Nat`: get the block number of a pointer
 - `ptr-offset : Ptr n -> Bitvector n`: get the offset of a pointer
 - `ptr-ite : Bool -> Ptr n -> Ptr n -> Ptr n`: if-then-else for pointers
