@@ -12,6 +12,8 @@ Synopsis:      A syntax for reading and writing Crucible-LLVM control-flow graph
 
 extra-doc-files: README.md
 extra-source-files:
+  test-data/*.cbl
+  test-data/*.out.good
 
 common shared
   -- Specifying -Wall and -Werror can cause the project to fail to build on
