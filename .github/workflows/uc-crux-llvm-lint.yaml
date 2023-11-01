@@ -20,9 +20,7 @@ jobs:
             https://github.com/ndmitchell/hlint/releases/download/v3.3/hlint-3.3-x86_64-linux.tar.gz
           tar xvf hlint.tar.gz
 
-          pushd crucible-llvm-syntax/
-          ../hlint-3.3/hlint src test
-          popd
+          (cd crucible-llvm-syntax/; ../hlint-3.3/hlint src test)
 
           cd uc-crux-llvm/
           ../hlint-3.3/hlint exe src test
