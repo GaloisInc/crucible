@@ -24,7 +24,7 @@ library
     mtl,
     parameterized-utils >= 0.1.7,
     prettyprinter >= 1.7.0,
-    megaparsec >= 7.0 && < 9.4,
+    megaparsec >= 7.0 && < 9.7,
     text,
     transformers,
     vector,
