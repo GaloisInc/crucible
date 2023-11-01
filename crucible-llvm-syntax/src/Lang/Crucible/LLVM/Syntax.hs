@@ -151,7 +151,7 @@ llvmAtomParser mvar =
       Atom.AtomName "store" -> Parse.describe "LLVM store arguments" $ do
         loc <- Parse.position
         Parse.depCons parseAlign $ \align ->
-          Parse.depCons parseMemType $ \memTy -> do
+          Parse.depCons parseMemType $ \memTy ->
             llvmTypeAsRepr memTy $ \tyRep -> do
               assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> tyRep)
               case Mem.toStorableType memTy of
