@@ -88,7 +88,7 @@ llvmAtomParser ::
 llvmAtomParser mvar =
   Parse.depCons Parse.atomName $
     \case
-      Atom.AtomName "ptr" -> do
+      Atom.AtomName "ptr" -> Parse.describe "LLVM ptr arguments" $ do
         loc <- Parse.position
         Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
           assign <- Parse.operands (Ctx.Empty Ctx.:> NatRepr Ctx.:> BVRepr w)
@@ -98,7 +98,7 @@ llvmAtomParser mvar =
           ptrAtom <- Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
           return (Some ptrAtom)
 
-      Atom.AtomName "ptr-block" -> do
+      Atom.AtomName "ptr-block" -> Parse.describe "LLVM ptr-block arguments" $ do
         loc <- Parse.position
         Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
           assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr w)
@@ -106,7 +106,7 @@ llvmAtomParser mvar =
           let expr = Ext.LLVM_PointerBlock w ptr
           Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
 
-      Atom.AtomName "ptr-offset" -> do
+      Atom.AtomName "ptr-offset" -> Parse.describe "LLVM ptr-offset arguments" $ do
         loc <- Parse.position
         Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
           assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr w)
@@ -114,7 +114,7 @@ llvmAtomParser mvar =
           let expr = Ext.LLVM_PointerOffset w ptr
           Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
 
-      Atom.AtomName "ptr-ite" -> do
+      Atom.AtomName "ptr-ite" -> Parse.describe "LLVM ptr-ite arguments" $ do
         loc <- Parse.position
         Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
           assign <- Parse.operands (Ctx.Empty Ctx.:> BoolRepr Ctx.:> LLVMPointerRepr w Ctx.:> LLVMPointerRepr w)
@@ -124,7 +124,7 @@ llvmAtomParser mvar =
           let expr = Ext.LLVM_PointerIte w b p1 p2
           Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
 
-      Atom.AtomName "alloca" -> do
+      Atom.AtomName "alloca" -> Parse.describe "LLVM alloca arguments" $ do
         loc <- Parse.position
         (align, assign) <- 
           Parse.cons
