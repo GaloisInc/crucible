@@ -30,7 +30,7 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 - `ptr-block : Ptr n -> Nat`: get the block number of a pointer
 - `ptr-offset : Ptr n -> Bitvector n`: get the offset of a pointer
 - `ptr-ite : Bool -> Ptr n -> Ptr n -> Ptr n`: if-then-else for pointers
-- `alloca : Alignment -> BV w -> Ptr w`: allocate space on the stack
+- `alloca : Alignment -> Bitvector w -> Ptr w`: allocate space on the stack
 - `load : Alignment -> LLVMType -> Ptr w -> T`: load a value from memory, where the type `T` is determined by the `LLVMType`
 - `store : Alignment -> LLVMType -> Ptr w -> T -> Unit`: store a value to memory, where the type `T` is determined by the `LLVMType`
 
