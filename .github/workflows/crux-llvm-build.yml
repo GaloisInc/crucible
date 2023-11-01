@@ -150,11 +150,12 @@ jobs:
           setup_src() { if [ ! -f Setup.hs ] ; then defsetup > DefSetup.hs; fi; ls *Setup.hs; }
           setup_bin() { echo setup.${{ matrix.ghc }}; }
           with_ghc()  { $NS -c ${@}; }
-          (cd crucible;      with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-llvm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crux;          with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crux-llvm;     with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd uc-crux-llvm;  with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible;             with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-llvm;        with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-llvm-syntax; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crux;                 with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crux-llvm;            with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd uc-crux-llvm;         with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
 
 
       - shell: bash
@@ -162,6 +163,7 @@ jobs:
 
       - shell: bash
         run: |
+          .github/ci.sh build lib:crucible-llvm-syntax
           .github/ci.sh build exe:crux-llvm
           .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:crux-llvm-svcomp
@@ -169,7 +171,7 @@ jobs:
 
       - shell: bash
         name: Haddock
-        run: cabal v2-haddock crucible-symio crucible-llvm crux-llvm uc-crux-llvm
+        run: cabal v2-haddock crucible-symio crucible-llvm{,-syntax} crux-llvm uc-crux-llvm
 
       - shell: bash
         name: Test crucible
@@ -188,6 +190,11 @@ jobs:
           LLVM_LINK: "llvm-link-12"
           LLVM_AS: "llvm-as-12"
           CLANG: "clang-12"
+
+      - shell: bash
+        name: Test crucible-llvm-syntax (Linux)
+        run: .github/ci.sh test crucible-llvm-syntax
+        if: runner.os == 'Linux'
 
       - shell: bash
         name: Test crux-llvm (Linux)

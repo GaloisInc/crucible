@@ -16,11 +16,14 @@ jobs:
 
       - shell: bash
         run: |
-          cd uc-crux-llvm/
           curl --location -o hlint.tar.gz \
             https://github.com/ndmitchell/hlint/releases/download/v3.3/hlint-3.3-x86_64-linux.tar.gz
           tar xvf hlint.tar.gz
-          ./hlint-3.3/hlint exe src test
+
+          (cd crucible-llvm-syntax/; ../hlint-3.3/hlint src test)
+
+          cd uc-crux-llvm/
+          ../hlint-3.3/hlint exe src test
 
       - uses: mrkkrp/ormolu-action@v2
         # This is currently disabled, since it complains about
