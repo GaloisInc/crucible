@@ -24,7 +24,7 @@ statements:
 
 **Statements**:
 
-If the numeral representing `w` the pointer width and `n` is an arbitrary numeral,
+If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 
 - `ptr : Nat -> Bitvector n -> Ptr n`: construct a pointer from a block and offset
 - `ptr-block : Ptr n -> Nat`: get the block number of a pointer
