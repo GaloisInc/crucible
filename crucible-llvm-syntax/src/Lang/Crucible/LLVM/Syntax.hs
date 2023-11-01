@@ -46,6 +46,8 @@ import Lang.Crucible.Syntax.Concrete qualified as Parse
 import Lang.Crucible.Syntax.ExprParse (MonadSyntax)
 import Lang.Crucible.Syntax.ExprParse qualified as Parse
 
+-- | Like 'Lang.Crucible.Syntax.Concrete.Unary', but takes an arbitrary parser
+-- for its first argument.
 unary :: MonadSyntax Atomic m => m b -> m a -> m a
 unary p0 p = Parse.followedBy p0 (Parse.commit *> Parse.cons p Parse.emptyList) <&> fst
 
