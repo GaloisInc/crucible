@@ -17,7 +17,7 @@ statements:
 - `i16 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 16 :: MemType`
 - `i32 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 32 :: MemType`
 - `i64 : LLVMType`: [LLVM docs][int-type], corresponds to Crucible-LLVM's `IntType 64 :: MemType`
-- `ptr : LLVMType`: [LLVM docs][ptr-type], corresponds to Crucible-LLVM's `IntType 64 :: PtrOpaqueType`
+- `ptr : LLVMType`: [LLVM docs][ptr-type], corresponds to Crucible-LLVM's `PtrOpaqueType :: MemType`
 
 [int-type]: https://llvm.org/docs/LangRef.html#integer-type
 [ptr-type]: https://llvm.org/docs/LangRef.html#pointer-type
