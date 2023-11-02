@@ -25,6 +25,7 @@ import Lang.Crucible.Syntax.Concrete (ParserHooks)
 import Lang.Crucible.Syntax.Prog (doParseCheck)
 
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
+import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
 
 main :: IO ()
 main = do
@@ -56,7 +57,8 @@ parserHooks = do
   halloc <- newHandleAllocator
   memVar <- mkMemVar "crucible-llvm-syntax-test-memory" halloc
   let ?ptrWidth = knownNat @64
-  return (llvmParserHooks memVar)
+  let hooks = typeAliasParserHooks x86_64LinuxTypes
+  return (llvmParserHooks hooks memVar)
 
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
