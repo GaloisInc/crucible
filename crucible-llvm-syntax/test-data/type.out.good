@@ -1,0 +1,33 @@
+(defun @test-type () Unit
+   (start start:
+      (let byte (the Byte (bv 8 0)))
+      (let int (the Int (bv 32 0)))
+      (let long (the Long (bv 64 0)))
+      (let pid (the PidT (bv 32 0)))
+      (let blk (the Nat 0))
+      (let off (bv 64 0))
+      (let p (ptr 64 blk off))
+      (let ptr (the Pointer p))
+      (let short (the Short (bv 16 0)))
+      (let size (the SizeT (bv 64 0)))
+      (return ())))
+
+test-type
+%0
+  % 3:15
+  $0 = bVLit(8, BV 0)
+  % 4:14
+  $1 = bVLit(32, BV 0)
+  % 5:15
+  $2 = bVLit(64, BV 0)
+  % 7:14
+  $3 = natLit(0)
+  % 9:16
+  $4 = extensionApp(pointerExpr $3 $2)
+  % 11:16
+  $5 = bVLit(16, BV 0)
+  % 13:13
+  $6 = emptyApp()
+  % 13:5
+  return $6
+  % no postdom

@@ -34,4 +34,10 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 - `load : Alignment -> LLVMType -> Ptr w -> T`: load a value from memory, where the type `T` is determined by the `LLVMType`
 - `store : Alignment -> LLVMType -> Ptr w -> T -> Unit`: store a value to memory, where the type `T` is determined by the `LLVMType`
 
+## Further extensions
+
+The parser hooks can be further customized by passing yet another `ParserHooks`
+to them. The `TypeAlias` module implements one such example, for translating
+types like `Long` into `(Ptr n)` or `(Bitvector n)` for appropriate `n`.
+
 [syn]: ../crucible-syntax

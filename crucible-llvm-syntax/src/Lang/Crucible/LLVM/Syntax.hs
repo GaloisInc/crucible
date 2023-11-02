@@ -8,7 +8,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Lang.Crucible.LLVM.Syntax
-  ( llvmParserHooks
+  ( emptyParserHooks
+  , llvmParserHooks
   , pointerTypeParser
   ) where
 
@@ -49,7 +50,11 @@ import Lang.Crucible.Syntax.Concrete qualified as Parse
 import Lang.Crucible.Syntax.ExprParse (MonadSyntax)
 import Lang.Crucible.Syntax.ExprParse qualified as Parse
 
-llvmParserHooks :: 
+-- | A 'ParserHooks' instance that adds no further extensions to the language.
+emptyParserHooks :: ParserHooks ext
+emptyParserHooks = ParserHooks empty empty
+
+llvmParserHooks ::
   Mem.HasPtrWidth w =>
   -- | Hooks with which to further extend this parser
   ParserHooks LLVM ->
@@ -57,10 +62,10 @@ llvmParserHooks ::
   ParserHooks LLVM
 llvmParserHooks hooks mvar =
   ParserHooks
-  { extensionTypeParser = 
+  { extensionTypeParser =
       Parse.describe "LLVM type" $
         Parse.call (llvmTypeParser <|> extensionTypeParser hooks)
-  , extensionParser = 
+  , extensionParser =
       Parse.describe "LLVM operation" $
         Parse.call (llvmAtomParser mvar <|> extensionParser hooks)
   }
@@ -97,7 +102,7 @@ llvmAtomParser ::
   , ?parserHooks :: ParserHooks LLVM
   , Mem.HasPtrWidth w
   ) =>
-  GlobalVar Mem -> 
+  GlobalVar Mem ->
   m (Some (Atom s))
 llvmAtomParser mvar =
   Parse.depCons Parse.atomName $
@@ -140,7 +145,7 @@ llvmAtomParser mvar =
 
       Atom.AtomName "alloca" -> Parse.describe "LLVM alloca arguments" $ do
         loc <- Parse.position
-        (align, assign) <- 
+        (align, assign) <-
           Parse.cons
             parseAlign
             (Parse.operands (Ctx.Empty Ctx.:> BVRepr ?ptrWidth))
@@ -150,7 +155,7 @@ llvmAtomParser mvar =
 
       Atom.AtomName "load" -> Parse.describe "LLVM load arguments" $ do
         loc <- Parse.position
-        (align, (memTy, assign)) <- 
+        (align, (memTy, assign)) <-
           Parse.cons
             parseAlign
             (Parse.cons
