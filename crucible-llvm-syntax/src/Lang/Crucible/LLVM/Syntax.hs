@@ -12,7 +12,7 @@ module Lang.Crucible.LLVM.Syntax
   , pointerTypeParser
   ) where
 
-import Control.Applicative (empty)
+import Control.Applicative ((<|>), empty)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.State.Strict (MonadState(..))
@@ -51,12 +51,18 @@ import Lang.Crucible.Syntax.ExprParse qualified as Parse
 
 llvmParserHooks :: 
   Mem.HasPtrWidth w =>
+  -- | Hooks with which to further extend this parser
+  ParserHooks LLVM ->
   GlobalVar Mem ->
   ParserHooks LLVM
-llvmParserHooks mvar =
+llvmParserHooks hooks mvar =
   ParserHooks
-  { extensionTypeParser = llvmTypeParser
-  , extensionParser = llvmAtomParser mvar
+  { extensionTypeParser = 
+      Parse.describe "LLVM type" $
+        Parse.call (llvmTypeParser <|> extensionTypeParser hooks)
+  , extensionParser = 
+      Parse.describe "LLVM operation" $
+        Parse.call (llvmAtomParser mvar <|> extensionParser hooks)
   }
 
 ---------------------------------------------------------------------
