@@ -7,7 +7,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Lang.Crucible.LLVM.Syntax (llvmParserHooks) where
+module Lang.Crucible.LLVM.Syntax
+  ( llvmParserHooks
+  , pointerTypeParser
+  ) where
 
 import Control.Applicative (empty)
 import Control.Monad (unless)
@@ -46,11 +49,6 @@ import Lang.Crucible.Syntax.Concrete qualified as Parse
 import Lang.Crucible.Syntax.ExprParse (MonadSyntax)
 import Lang.Crucible.Syntax.ExprParse qualified as Parse
 
--- | Like 'Lang.Crucible.Syntax.Concrete.Unary', but takes an arbitrary parser
--- for its first argument.
-unary :: MonadSyntax Atomic m => m b -> m a -> m a
-unary p0 p = Parse.followedBy p0 (Parse.commit *> Parse.cons p Parse.emptyList) <&> fst
-
 llvmParserHooks :: 
   Mem.HasPtrWidth w =>
   GlobalVar Mem ->
@@ -61,20 +59,28 @@ llvmParserHooks mvar =
   , extensionParser = llvmAtomParser mvar
   }
 
+---------------------------------------------------------------------
+-- Types
+
 llvmTypeParser :: MonadSyntax Atomic m => m (Some TypeRepr)
-llvmTypeParser = Parse.describe "LLVM type" $ Parse.call ptrType
-  where
-    ptrType :: MonadSyntax Atomic m => m (Some TypeRepr)
-    ptrType = do
-      let ptrName = do
-            s <- Parse.atomName
-            unless (s == Atom.AtomName "Ptr") Parse.cut
-      let -- This type signature is needed for GHC 8.10
-          ptrWidth :: MonadSyntax Atomic m => m (Some TypeRepr)
-          ptrWidth = do
-            Parse.BoundedNat n <- Parse.posNat
-            pure (Some (LLVMPointerRepr n))
-      unary ptrName ptrWidth
+llvmTypeParser = Parse.describe "LLVM type" $ do
+  Parse.BoundedNat n <- pointerTypeParser
+  pure (Some (LLVMPointerRepr n))
+
+-- | Like 'Lang.Crucible.Syntax.Concrete.Unary', but takes an arbitrary parser
+-- for its first argument.
+unary :: MonadSyntax Atomic m => m b -> m a -> m a
+unary p0 p = Parse.followedBy p0 (Parse.commit *> Parse.cons p Parse.emptyList) <&> fst
+
+pointerTypeParser :: MonadSyntax Atomic m => m Parse.PosNat
+pointerTypeParser = Parse.describe "LLVM pointer type" $ do
+  let ptrName = do
+        s <- Parse.atomName
+        unless (s == Atom.AtomName "Ptr") Parse.cut
+  unary ptrName Parse.posNat
+
+---------------------------------------------------------------------
+-- Operations
 
 llvmAtomParser ::
   ( MonadSyntax Atomic m
