@@ -1,3 +1,19 @@
+{-
+Module           : Lang.Crucible.LLVM.Syntax.TypeAlias
+Copyright        : (c) Galois, Inc 2023
+Maintainer       : Langston Barrett <langston@galois.com>
+License          : BSD3
+
+This module provides facilities for parsing C-like types and translating them
+to appropriate Crucible-LLVM types, given a target triple. For example, the
+syntax @Long@ is parsed as the Crucible-LLVM 64-bit bitvector type for the
+x86_64 Linux target ('x86_64LinuxTypes'), but the 32-bit bitvector type for 
+32-bit ARM Linux targets ('aarch32LinuxTypes'). This can be useful if you want
+to write Crucible CFGs that can be simulated in the context of LLVM modules
+for several different architectures, for example if you want to override system
+calls.
+-}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
