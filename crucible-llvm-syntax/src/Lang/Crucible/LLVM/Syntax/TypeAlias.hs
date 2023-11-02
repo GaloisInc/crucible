@@ -33,7 +33,7 @@ data TypeAlias = Byte | Int | Long | PidT | Pointer | Short | SizeT | UidT
 -- represents.
 newtype TypeLookup = TypeLookup (TypeAlias -> (Some LCT.TypeRepr))
 
--- | A lookup function from 'AFE.TypeAlias' to types with the appropriate width
+-- | A lookup function from 'TypeAlias' to types with the appropriate width
 -- on Arm32 Linux.
 aarch32LinuxTypes :: TypeLookup
 aarch32LinuxTypes = 
