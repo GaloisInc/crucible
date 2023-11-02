@@ -36,7 +36,7 @@ newtype TypeLookup = TypeLookup (TypeAlias -> (Some LCT.TypeRepr))
 -- | A lookup function from 'AFE.TypeAlias' to types with the appropriate width
 -- on Arm32 Linux.
 aarch32LinuxTypes :: TypeLookup
-aarch32LinuxTypes =
+aarch32LinuxTypes = 
   TypeLookup $
     \case
       Byte -> Some (LCT.BVRepr (PN.knownNat @8))
@@ -62,9 +62,9 @@ x86_64LinuxTypes =
       Short -> Some (LCT.BVRepr (PN.knownNat @16))
       SizeT -> Some (LCT.BVRepr (PN.knownNat @64))
       UidT -> Some (LCT.BVRepr (PN.knownNat @32))
-
+      
 -- | Parser for type extensions to Crucible syntax
-typeMapParser ::
+typeMapParser :: 
   LCSE.MonadSyntax LCSA.Atomic m =>
   -- | A mapping from type names to the crucible types they represent
   Map.Map LCSA.AtomName (Some LCT.TypeRepr) ->
@@ -75,8 +75,8 @@ typeMapParser types = do
     Just someTypeRepr -> return someTypeRepr
     Nothing -> empty
 
--- | Parser for type extensions to Crucible syntax
-typeAliasParser ::
+-- | Parser for type aliases for the Crucible-LLVM syntax
+typeAliasParser :: 
   LCSE.MonadSyntax LCSA.Atomic m =>
   TypeLookup ->
   m (Some LCT.TypeRepr)
@@ -87,6 +87,7 @@ typeAliasParser (TypeLookup lookupFn) =
       | t <- [minBound..maxBound]
       ]
 
+-- | Parser hooks with 'LCSC.extensionTypeParser' set to 'typeAliasParser'
 typeAliasParserHooks :: TypeLookup -> LCSC.ParserHooks ext
 typeAliasParserHooks lookupFn =
   LCSC.ParserHooks
