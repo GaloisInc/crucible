@@ -10,6 +10,8 @@ module Lang.Crucible.LLVM.CLI
   ) where
 
 import Control.Monad.IO.Class (liftIO)
+import qualified Data.IntMap as IntMap
+import qualified Data.Map as Map
 
 import Data.Parameterized.NatRepr (knownNat)
 
@@ -24,9 +26,14 @@ import Lang.Crucible.Syntax.Concrete (ParserHooks)
 import Lang.Crucible.Syntax.Overrides (setupOverrides)
 
 import Lang.Crucible.LLVM (llvmExtensionImpl)
-import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian))
-import Lang.Crucible.LLVM.Extension (LLVM)
-import Lang.Crucible.LLVM.MemModel (HasPtrWidth, defaultMemOptions, emptyMem, mkMemVar)
+import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian), defaultDataLayout)
+import Lang.Crucible.LLVM.Extension (LLVM, ArchRepr(X86Repr))
+import Lang.Crucible.LLVM.MemModel (HasPtrWidth)
+import qualified Lang.Crucible.LLVM.MemModel as Mem
+import Lang.Crucible.LLVM.Intrinsics (alloc_and_register_override)
+import Lang.Crucible.LLVM.Intrinsics.Libc (llvmMallocOverride)
+import Lang.Crucible.LLVM.Translation (LLVMContext(..))
+import Lang.Crucible.LLVM.TypeContext (mkTypeContext)
 
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
 import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
@@ -42,16 +49,34 @@ withLlvmHooks ::
   IO a
 withLlvmHooks k = do
   ha <- newHandleAllocator
-  mvar <- mkMemVar "llvm_memory" ha
+  mvar <- Mem.mkMemVar "llvm_memory" ha
   let ?ptrWidth = knownNat @64
   let ?parserHooks = llvmParserHooks (typeAliasParserHooks x86_64LinuxTypes) mvar
   let simulationHooks =
         defaultSimulateProgramHooks
-          { setupHook = \_sym _ha -> do
-              mem <- liftIO (emptyMem LittleEndian)
+          { setupHook = \bak _ha -> do
+              mem <- liftIO (Mem.emptyMem LittleEndian)
               writeGlobal mvar mem
+              let ?recordLLVMAnnotation = \_ _ _ -> pure ()
+              let (_errs, tyCtx) =
+                    mkTypeContext
+                      defaultDataLayout
+                      IntMap.empty
+                      []
+              let llvmCtx =
+                    LLVMContext
+                    { llvmArch = X86Repr ?ptrWidth
+                    , llvmPtrWidth = \kont -> kont ?ptrWidth
+                    , llvmMemVar = mvar
+                    , _llvmTypeCtx = tyCtx
+                    , llvmGlobalAliases = Map.empty
+                    , llvmFunctionAliases = Map.empty
+                    }
+              let ?lc = tyCtx
+              let ?memOpts = Mem.defaultMemOptions
+              alloc_and_register_override bak llvmCtx llvmMallocOverride []
           , setupOverridesHook = setupOverrides
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
-              in llvmExtensionImpl defaultMemOptions
+              in llvmExtensionImpl Mem.defaultMemOptions
   k ext simulationHooks 
