@@ -6,6 +6,7 @@
 
 module Main (main) where
 
+import Control.Monad.IO.Class (liftIO)
 import Data.List (sort)
 import Data.Text.IO qualified as T
 import System.FilePath
@@ -16,21 +17,27 @@ import Test.Tasty.Golden
 
 import Data.Parameterized.NatRepr (knownNat)
 
+import What4.Solver.Z3 (z3Options)
+
+import Lang.Crucible.Simulator.OverrideSim (writeGlobal)
 import Lang.Crucible.FunctionHandle (newHandleAllocator)
 
+import Lang.Crucible.LLVM (llvmExtensionImpl)
+import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian))
 import Lang.Crucible.LLVM.Extension (LLVM)
-import Lang.Crucible.LLVM.MemModel (mkMemVar)
+import Lang.Crucible.LLVM.MemModel (defaultMemOptions, emptyMem, mkMemVar)
 
 import Lang.Crucible.Syntax.Concrete (ParserHooks)
-import Lang.Crucible.Syntax.Prog (doParseCheck)
+import Lang.Crucible.Syntax.Prog (SimulateProgramHooks(setupHook), defaultSimulateProgramHooks, doParseCheck, simulateProgramWithExtension)
 
-import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
+import Lang.Crucible.LLVM.Syntax (emptyParserHooks, llvmParserHooks)
 import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
 
 main :: IO ()
 main = do
-  parseTests <- findTests "Parse tests" "test-data" testParser
-  defaultMain $ testGroup "Tests" [parseTests]
+  parseTests <- findTests "Parse tests" "test-data/parse" testParser
+  simTests <- findTests "LLVM simulation" "test-data/simulate" testSimulator
+  defaultMain $ testGroup "Tests" [parseTests, simTests]
 
 findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
 findTests groupName testDir testAction =
@@ -66,4 +73,23 @@ testParser inFile outFile =
      hooks <- parserHooks
      let ?parserHooks = hooks
      withFile outFile WriteMode $ doParseCheck inFile contents True
+
+testSimulator :: FilePath -> FilePath -> IO ()
+testSimulator inFile outFile =
+  do contents <- T.readFile inFile
+     ha <- newHandleAllocator
+     mvar <- mkMemVar "llvm_memory" ha
+     let ?ptrWidth = knownNat @64
+     let ?parserHooks = llvmParserHooks emptyParserHooks mvar
+     withFile outFile WriteMode $ \outh -> do
+       let ext _ =
+             let ?recordLLVMAnnotation = \_ _ _ -> pure ()
+             in llvmExtensionImpl defaultMemOptions
+       simulateProgramWithExtension ext inFile contents outh Nothing z3Options $
+         defaultSimulateProgramHooks
+           { setupHook = \_sym _ha -> do
+               mem <- liftIO (emptyMem LittleEndian)
+               writeGlobal mvar mem
+           }
+
 

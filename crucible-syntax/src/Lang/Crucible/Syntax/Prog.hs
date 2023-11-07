@@ -7,6 +7,7 @@
 
 module Lang.Crucible.Syntax.Prog
   ( doParseCheck
+  , simulateProgramWithExtension
   , simulateProgram
   , SimulateProgramHooks(..)
   , defaultSimulateProgramHooks
@@ -91,9 +92,14 @@ doParseCheck fn theInput pprint outh =
                       hPutStrLn outh $ show $ C.ppCFG' True (postdomInfo ssa) ssa
 
 -- | Allows users to hook into the various stages of 'simulateProgram'.
-data SimulateProgramHooks = SimulateProgramHooks
-  { setupOverridesHook ::
-      forall p sym ext t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
+data SimulateProgramHooks ext = SimulateProgramHooks
+  { setupHook ::
+      forall p sym rtp a r t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
+        sym ->
+        HandleAllocator ->
+        OverrideSim p sym ext rtp a r ()
+  , setupOverridesHook ::
+      forall p sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
          sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
     -- ^ Action to set up overrides before parsing a program.
   , resolveExternsHook ::
@@ -103,7 +109,7 @@ data SimulateProgramHooks = SimulateProgramHooks
     --   intend to support externs, this is an appropriate place to error if a
     --   program contains one or more externs.
   , resolveForwardDeclarationsHook ::
-      forall p sym ext t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
+      forall p sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
         Map FunctionName SomeHandle -> IO (FunctionBindings p sym ext)
     -- ^ Action to resolve forward declarations before simulating a program.
     --   If you do not intend to support forward declarations, this is an
@@ -116,9 +122,10 @@ data SimulateProgramHooks = SimulateProgramHooks
 -- * Sets up no additional overrides.
 --
 -- * Errors out if a program contains one or more forward declarations.
-defaultSimulateProgramHooks :: SimulateProgramHooks
+defaultSimulateProgramHooks :: SimulateProgramHooks ext
 defaultSimulateProgramHooks = SimulateProgramHooks
-  { setupOverridesHook = \_sym _ha -> pure []
+  { setupHook = \_sym _ha -> pure ()
+  , setupOverridesHook = \_sym _ha -> pure []
   , resolveExternsHook = \_sym externs gst ->
     do assertNoExterns externs
        pure gst
@@ -139,15 +146,17 @@ assertNoForwardDecs fds =
   do putStrLn "Forward declarations not currently supported"
      exitFailure
 
-simulateProgram
-   :: FilePath -- ^ The name of the input (appears in source locations)
+simulateProgramWithExtension
+   :: (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
+   => (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym ext)
+   -> FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
-   -> SimulateProgramHooks -- ^ Hooks into various parts of the function
+   -> SimulateProgramHooks ext -- ^ Hooks into various parts of the function
    -> IO ()
-simulateProgram fn theInput outh profh opts hooks =
+simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
   do Some ng <- newIONonceGenerator
      ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
@@ -159,9 +168,8 @@ simulateProgram fn theInput outh profh opts hooks =
          do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
             bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
-            ovrs <- setupOverridesHook hooks @() @_ @() sym ha
+            ovrs <- setupOverridesHook hooks @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
-            let ?parserHooks = defaultParserHooks
             parseResult <- top ng ha hdls $ prog v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
@@ -184,10 +192,12 @@ simulateProgram fn theInput outh profh opts hooks =
                                                   (UseCFG ssa (postdomInfo ssa))
                                                   m)
                                         fwdDecFnBindings cs
-                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
+                       let ext = mkExt sym
+                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext ()
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
+                                           setupHook hooks sym ha
                                            regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
 
                        hPutStrLn outh "==== Begin Simulation ===="
@@ -223,3 +233,16 @@ simulateProgram fn theInput outh profh opts hooks =
 
   where
   isMain (ACFG _ _ g) = handleName (cfgHandle g) == fromString "main"
+
+simulateProgram
+   :: FilePath -- ^ The name of the input (appears in source locations)
+   -> Text     -- ^ The contents of the input
+   -> Handle   -- ^ A handle that will receive the output
+   -> Maybe Handle -- ^ A handle to receive profiling data output
+   -> [ConfigDesc] -- ^ Options to install
+   -> SimulateProgramHooks () -- ^ Hooks into various parts of the function
+   -> IO ()
+simulateProgram fn theInput outh profh opts hooks = do
+  let ?parserHooks = defaultParserHooks
+  let ext = const emptyExtensionImpl
+  simulateProgramWithExtension ext fn theInput outh profh opts hooks

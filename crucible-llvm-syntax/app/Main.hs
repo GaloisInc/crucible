@@ -1,13 +1,30 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ImplicitParams #-}
-module Main where
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
+module Main (main) where
+
+import Control.Monad.IO.Class (liftIO)
 import System.IO
 import qualified Data.Text.IO as T
 
-import Lang.Crucible.Syntax.Concrete (defaultParserHooks)
+import Data.Parameterized.NatRepr (knownNat)
+
+import Lang.Crucible.Simulator.OverrideSim (writeGlobal)
+import Lang.Crucible.FunctionHandle (newHandleAllocator)
+
+import Lang.Crucible.Syntax.Concrete (ParserHooks)
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.Syntax.Overrides (setupOverrides)
+
+import Lang.Crucible.LLVM (llvmExtensionImpl)
+import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian))
+import Lang.Crucible.LLVM.Extension (LLVM)
+import Lang.Crucible.LLVM.MemModel (defaultMemOptions, emptyMem, mkMemVar)
+
+import Lang.Crucible.LLVM.Syntax (emptyParserHooks, llvmParserHooks)
 
 import What4.Config
 import What4.Solver.Z3 ( z3Options )
@@ -15,18 +32,18 @@ import What4.Solver.Z3 ( z3Options )
 import qualified Options.Applicative as Opt
 import           Options.Applicative ( (<**>) )
 
-data Check = Check { chkInFile :: TheFile
-                   , chkOutFile :: Maybe TheFile
-                   , chkPrettyPrint :: Bool
+data Check = Check { _chkInFile :: TheFile
+                   , _chkOutFile :: Maybe TheFile
+                   , _chkPrettyPrint :: Bool
                    }
 
-data SimCmd = SimCmd { simInFile :: TheFile
-                     , simOutFile :: Maybe TheFile
+data SimCmd = SimCmd { _simInFile :: TheFile
+                     , _simOutFile :: Maybe TheFile
                      }
 
 data ProfCmd =
-  ProfCmd { profInFile :: TheFile
-          , profOutFile :: TheFile
+  ProfCmd { _profInFile :: TheFile
+          , _profOutFile :: TheFile
           }
 
 data Command = CheckCommand Check
@@ -47,11 +64,10 @@ input = file "input"
 output :: Opt.Parser TheFile
 output = file "output"
 
-repl :: TheFile -> IO ()
+repl :: (?parserHooks :: ParserHooks LLVM) => TheFile -> IO ()
 repl f@(TheFile fn) =
   do putStr "> "
      l <- T.getLine
-     let ?parserHooks = defaultParserHooks
      doParseCheck fn l True stdout
      repl f
 
@@ -89,7 +105,17 @@ configOptions = z3Options
 main :: IO ()
 main =
   do cmd <- Opt.customExecParser prefs info
-     let ?parserHooks = defaultParserHooks
+     ha <- newHandleAllocator
+     mvar <- mkMemVar "llvm_memory" ha
+     let ?ptrWidth = knownNat @64
+     let ?parserHooks = llvmParserHooks emptyParserHooks mvar
+     let simulationHooks =
+           defaultSimulateProgramHooks
+             { setupHook = \_sym _ha -> do
+                 mem <- liftIO (emptyMem LittleEndian)
+                 writeGlobal mvar mem
+             , setupOverridesHook = setupOverrides
+             }
      case cmd of
        ReplCommand -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
 
@@ -103,12 +129,18 @@ main =
 
        SimulateCommand (SimCmd (TheFile inputFile) out) ->
          do contents <- T.readFile inputFile
+            let sim =
+                  simulateProgramWithExtension
+                    (\_ -> let ?recordLLVMAnnotation = \_ _ _ -> pure ()
+                           in llvmExtensionImpl defaultMemOptions)
+                    inputFile
+                    contents
             case out of
               Nothing ->
-                simulateProgram inputFile contents stdout Nothing configOptions simulationHooks
+                 sim stdout Nothing configOptions simulationHooks
               Just (TheFile outputFile) ->
                 withFile outputFile WriteMode
-                  (\outh -> simulateProgram inputFile contents outh Nothing configOptions simulationHooks)
+                  (\outh -> sim outh Nothing configOptions simulationHooks)
 
        ProfileCommand (ProfCmd (TheFile inputFile) (TheFile outputFile)) ->
          do contents <- T.readFile inputFile
@@ -117,8 +149,3 @@ main =
 
   where info = Opt.info (command <**> Opt.helper) (Opt.fullDesc)
         prefs = Opt.prefs $ Opt.showHelpOnError <> Opt.showHelpOnEmpty
-
-        simulationHooks =
-          defaultSimulateProgramHooks
-            { setupOverridesHook = setupOverrides
-            }
