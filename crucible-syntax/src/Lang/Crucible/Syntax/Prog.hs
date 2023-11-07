@@ -93,17 +93,17 @@ doParseCheck fn theInput pprint outh =
 -- | Allows users to hook into the various stages of 'simulateProgram'.
 data SimulateProgramHooks = SimulateProgramHooks
   { setupOverridesHook ::
-      forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+      forall p sym ext t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
          sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
     -- ^ Action to set up overrides before parsing a program.
   , resolveExternsHook ::
-      forall sym t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+      forall sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
         sym -> Map GlobalName (Some GlobalVar) -> SymGlobalState sym -> IO (SymGlobalState sym)
     -- ^ Action to resolve externs before simulating a program. If you do not
     --   intend to support externs, this is an appropriate place to error if a
     --   program contains one or more externs.
   , resolveForwardDeclarationsHook ::
-      forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+      forall p sym ext t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
         Map FunctionName SomeHandle -> IO (FunctionBindings p sym ext)
     -- ^ Action to resolve forward declarations before simulating a program.
     --   If you do not intend to support forward declarations, this is an
