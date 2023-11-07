@@ -98,6 +98,8 @@ data SimulateProgramHooks ext = SimulateProgramHooks
         sym ->
         HandleAllocator ->
         OverrideSim p sym ext rtp a r ()
+    -- ^ Override action to execute before simulation. Used by the LLVM
+    -- frontend to set up the LLVM global memory variable.
   , setupOverridesHook ::
       forall p sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
          sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
@@ -118,6 +120,8 @@ data SimulateProgramHooks ext = SimulateProgramHooks
   }
 
 -- | A sensible default set of hooks for 'simulateProgram' that:
+--
+-- * Does nothing before simulation begins (has a no-op 'setupHook').
 --
 -- * Sets up no additional overrides.
 --
