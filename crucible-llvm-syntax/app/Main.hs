@@ -76,15 +76,16 @@ command =
   Opt.subparser $
        (Opt.command "check"
         (Opt.info (CheckCommand <$> parseCheck)
-         (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header "crucibler")))
+         (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header name)))
     <> (Opt.command "simulate"
         (Opt.info (SimulateCommand <$> simFile)
-         (Opt.fullDesc <> Opt.progDesc "Simulate a file" <> Opt.header "crucibler")))
+         (Opt.fullDesc <> Opt.progDesc "Simulate a file" <> Opt.header name)))
     <> (Opt.command "profile"
         (Opt.info (ProfileCommand <$> profFile)
-         (Opt.fullDesc <> Opt.progDesc "Simulate a file, with profiling" <> Opt.header "crucibler")))
+         (Opt.fullDesc <> Opt.progDesc "Simulate a file, with profiling" <> Opt.header name)))
     <> (Opt.command "repl"
         (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
+  where name = "exec-crucible-llvm"
 
 profFile :: Opt.Parser ProfCmd
 profFile =
