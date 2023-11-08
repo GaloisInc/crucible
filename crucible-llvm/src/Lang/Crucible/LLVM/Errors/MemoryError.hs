@@ -58,7 +58,7 @@ data MemoryOp sym w
        (Maybe String, LLVMPtr sym w) -- src
        (SymBV sym wlen) -- length
        (Mem sym)
-  | MemLoadHandleOp L.Type (Maybe String) (LLVMPtr sym w) (Mem sym)
+  | MemLoadHandleOp (Maybe L.Type) (Maybe String) (LLVMPtr sym w) (Mem sym)
   | forall wlen. (1 <= wlen) => MemInvalidateOp
        Text (Maybe String) (LLVMPtr sym w) (SymBV sym wlen) (Mem sym)
 
@@ -157,7 +157,11 @@ ppMemoryOp (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
        ]
 
 ppMemoryOp (MemLoadHandleOp sig gsym ptr mem) =
-  vsep [ "Attempting to load callable function with type:" <+> viaShow (L.ppType sig)
+  vsep [ case sig of
+           Just s ->
+             hsep ["Attempting to load callable function with type:", viaShow (L.ppType s)]
+           Nothing ->
+             hsep ["Attempting to load callable function:"]
        , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
        , "In memory state:"
        , indent 2 (ppMem mem)
