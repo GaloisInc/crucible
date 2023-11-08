@@ -126,3 +126,19 @@ test-suite crucible-llvm-syntax-tests
     tasty,
     tasty-golden,
     text,
+    what4
+
+executable exec-crucible-llvm
+  import: shared
+  hs-source-dirs: app
+  main-is: Main.hs
+  build-depends:
+    base >= 4.13,
+    crucible,
+    crucible-syntax,
+    crucible-llvm,
+    crucible-llvm-syntax,
+    optparse-applicative,
+    parameterized-utils,
+    text,
+    what4

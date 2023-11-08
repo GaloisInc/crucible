@@ -1,12 +1,26 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ImplicitParams #-}
-module Main where
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
-import Lang.Crucible.Simulator.ExecutionTree (emptyExtensionImpl)
+module Main (main) where
 
-import Lang.Crucible.Syntax.Concrete (defaultParserHooks)
+import Control.Monad.IO.Class (liftIO)
+
+import Data.Parameterized.NatRepr (knownNat)
+
+import Lang.Crucible.Simulator.OverrideSim (writeGlobal)
+import Lang.Crucible.FunctionHandle (newHandleAllocator)
+
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.Syntax.Overrides (setupOverrides)
+
+import Lang.Crucible.LLVM (llvmExtensionImpl)
+import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian))
+import Lang.Crucible.LLVM.MemModel (defaultMemOptions, emptyMem, mkMemVar)
+
+import Lang.Crucible.LLVM.Syntax (emptyParserHooks, llvmParserHooks)
 
 import qualified Options.Applicative as Opt
 import           Options.Applicative ( (<**>) )
@@ -50,11 +64,19 @@ parseCheck =
 main :: IO ()
 main =
   do cmd <- Opt.customExecParser prefs info
-     let ?parserHooks = defaultParserHooks
-     execCommand (\_ -> emptyExtensionImpl) simulationHooks cmd
+     ha <- newHandleAllocator
+     mvar <- mkMemVar "llvm_memory" ha
+     let ?ptrWidth = knownNat @64
+     let ?parserHooks = llvmParserHooks emptyParserHooks mvar
+     let simulationHooks =
+           defaultSimulateProgramHooks
+             { setupHook = \_sym _ha -> do
+                 mem <- liftIO (emptyMem LittleEndian)
+                 writeGlobal mvar mem
+             , setupOverridesHook = setupOverrides
+             }
+     let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
+                 in llvmExtensionImpl defaultMemOptions
+     execCommand ext simulationHooks cmd
   where info = Opt.info (command <**> Opt.helper) (Opt.fullDesc)
         prefs = Opt.prefs $ Opt.showHelpOnError <> Opt.showHelpOnEmpty
-        simulationHooks =
-          defaultSimulateProgramHooks
-            { setupOverridesHook = setupOverrides
-            }
