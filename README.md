@@ -69,6 +69,10 @@ developers:
  * **`crucible-cli`** provides a CLI for interacting with the Crucible
    simulator, via programs written in `crucible-syntax`.
 
+ * **`crucible-llvm-cli`** provides a CLI for interacting with the Crucible
+   simulator, via programs written in `crucible-syntax` with the extensions
+   provided by `crucible-llvm{,-syntax}`.
+
  * **`crucible-syntax`** provides a native S-Expression based concrete
    syntax for crucible programs.  It is useful for being able to
    directly interact with the core Crucible simulator without bringing

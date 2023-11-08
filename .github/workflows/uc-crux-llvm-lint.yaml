@@ -21,6 +21,7 @@ jobs:
           tar xvf hlint.tar.gz
 
           (cd crucible-cli/; ../hlint-3.3/hlint app src test)
+          (cd crucible-llvm-cli/; ../hlint-3.3/hlint app src test)
           (cd crucible-llvm-syntax/; ../hlint-3.3/hlint src test)
 
           cd uc-crux-llvm/

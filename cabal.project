@@ -10,6 +10,7 @@ packages:
   crucible-go/
   crucible-jvm/
   crucible-llvm/
+  crucible-llvm-cli/
   crucible-llvm-syntax/
   crucible-mir/
   crucible-wasm/

@@ -1,5 +1,5 @@
 Cabal-version: 2.2
-Name:          crucible-llvm-syntax
+Name:          crucible-llvm-cli
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    langston@galois.com
@@ -7,7 +7,7 @@ Build-type:    Simple
 License:       BSD-3-Clause
 License-file:  LICENSE
 Category:      Language
-Synopsis:      A syntax for reading and writing Crucible-LLVM control-flow graphs
+Synopsis:      A Crucible CLI frontend for the LLVM language extension
 -- Description:
 
 extra-doc-files: README.md
@@ -95,7 +95,9 @@ library
     base >= 4.13,
     containers,
     crucible >= 0.1,
+    crucible-cli,
     crucible-llvm,
+    crucible-llvm-syntax,
     crucible-syntax,
     mtl,
     parameterized-utils >= 0.1.7,
@@ -106,10 +108,9 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Lang.Crucible.LLVM.Syntax
-    Lang.Crucible.LLVM.Syntax.TypeAlias
+    Lang.Crucible.LLVM.CLI
 
-test-suite crucible-llvm-syntax-tests
+test-suite crucible-llvm-cli-tests
   import: shared
   type: exitcode-stdio-1.0
   main-is: Test.hs
@@ -118,7 +119,8 @@ test-suite crucible-llvm-syntax-tests
     base,
     containers,
     crucible >= 0.1,
-    crucible-llvm,
+    crucible-cli,
+    crucible-llvm-cli,
     crucible-llvm-syntax,
     crucible-syntax,
     filepath,
@@ -126,3 +128,13 @@ test-suite crucible-llvm-syntax-tests
     tasty,
     tasty-golden,
     text,
+    what4
+
+executable crucible-llvm
+  import: shared
+  hs-source-dirs: app
+  main-is: Main.hs
+  build-depends:
+    base >= 4.13,
+    crucible-cli,
+    crucible-llvm-cli,

@@ -52,7 +52,7 @@ test-ptr
   % 12:13
   $11 = bVLit(64, BV 1)
   % 13:12
-  $12 = alloca crucible-llvm-syntax-test-memory $11 Alignment 0 test-data/parse/ptr.cbl:13:12
+  $12 = alloca crucible-llvm-syntax-test-memory $11 Alignment 0 test-data/ptr.cbl:13:12
   % 15:16
   $13 = bVLit(8, BV 255)
   % 16:13

@@ -14,23 +14,16 @@ import System.IO
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
 
-import Data.Parameterized.NatRepr (knownNat)
+import What4.Solver.Z3 (z3Options)
 
-import Lang.Crucible.FunctionHandle (newHandleAllocator)
+import Lang.Crucible.CLI (simulateProgramWithExtension)
 
-import Lang.Crucible.LLVM.Extension (LLVM)
-import Lang.Crucible.LLVM.MemModel (mkMemVar)
-
-import Lang.Crucible.Syntax.Concrete (ParserHooks)
-import Lang.Crucible.Syntax.Prog (doParseCheck)
-
-import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
-import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
+import Lang.Crucible.LLVM.CLI (withLlvmHooks)
 
 main :: IO ()
 main = do
-  parseTests <- findTests "Parse tests" "test-data" testParser
-  defaultMain parseTests
+  simTests <- findTests "LLVM simulation" "test-data" testSimulator
+  defaultMain simTests
 
 findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
 findTests groupName testDir testAction =
@@ -52,17 +45,9 @@ goldenFileTestCase input testAction =
     outFile = replaceExtension input ".out"
     goodFile = replaceExtension input ".out.good"
 
-parserHooks :: IO (ParserHooks LLVM)
-parserHooks = do
-  halloc <- newHandleAllocator
-  memVar <- mkMemVar "crucible-llvm-syntax-test-memory" halloc
-  let ?ptrWidth = knownNat @64
-  let hooks = typeAliasParserHooks x86_64LinuxTypes
-  return (llvmParserHooks hooks memVar)
-
-testParser :: FilePath -> FilePath -> IO ()
-testParser inFile outFile =
+testSimulator :: FilePath -> FilePath -> IO ()
+testSimulator inFile outFile =
   do contents <- T.readFile inFile
-     hooks <- parserHooks
-     let ?parserHooks = hooks
-     withFile outFile WriteMode $ doParseCheck inFile contents True
+     withFile outFile WriteMode $ \outh -> do
+       withLlvmHooks $ \ext hooks ->
+         simulateProgramWithExtension ext inFile contents outh Nothing z3Options hooks
