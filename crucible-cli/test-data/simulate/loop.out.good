@@ -1,0 +1,12 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+* in main test-data/simulate/loop.cbl:10:5: nonzero start
+    not (eq 0 cx@0:i)
+Prove:
+  test-data/simulate/loop.cbl:19:5: error: in main
+  nonzero
+  not (intLe (intSum (intMul 8 cx@0:i)) 0)
+PROVED

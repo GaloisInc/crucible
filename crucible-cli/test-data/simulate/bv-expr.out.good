@@ -1,0 +1,29 @@
+==== Begin Simulation ====
+=== q1 ===
+let -- test-data/simulate/bv-expr.cbl:11:9
+    v13 = bvAnd cx@0:bv cy@1:bv cz@2:bv
+ in bvSum (bvMul 0x2:[16] cy@1:bv) (bvMul 0x5:[16] cx@0:bv) v13 0xf0:[16]
+=== q2 ===
+bvSum (bvMul 0x3:[16] cz@2:bv) cy@1:bv cx@0:bv
+=== (+ q1 q2) ===
+let -- test-data/simulate/bv-expr.cbl:11:9
+    v13 = bvAnd cx@0:bv cy@1:bv cz@2:bv
+ in bvSum (bvMul 0x3:[16] cz@2:bv) (bvMul 0x3:[16] cy@1:bv) (bvMul 0x6:[16] cx@0:bv) v13 0xf0:[16]
+=== r1 ===
+let -- test-data/simulate/bv-expr.cbl:27:8
+    v29 = bvProd cx@0:bv cy@1:bv cz@2:bv
+ in bvXor (bvAnd 0xfff7:[16] cx@0:bv) v29 (bvAnd 0x1:[16] (bvSum (bvMul 0xffff:[16] cx@0:bv))) 0xff0e:[16]
+=== r2 ===
+bvXor cz@2:bv cy@1:bv cx@0:bv
+=== (bv-xor r1 r2) ===
+let -- test-data/simulate/bv-expr.cbl:27:8
+    v29 = bvProd cx@0:bv cy@1:bv cz@2:bv
+ in bvXor cz@2:bv cy@1:bv (bvAnd 0x8:[16] cx@0:bv) v29 (bvAnd 0x1:[16] (bvSum (bvMul 0xffff:[16] cx@0:bv))) 0xff0e:[16]
+======
+cx@0:bv
+cx@0:bv
+0x33:[16]
+bvSum (bvMul 0x1b:[16] cy@1:bv) (bvMul 0x1b:[16] (bvProd cx@0:bv cy@1:bv))
+
+==== Finish Simulation ====
+==== No proof obligations ====

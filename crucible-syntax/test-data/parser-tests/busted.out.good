@@ -1,4 +1,0 @@
-(defun @f () Unit
-   (start foo: (let foo (the Integer #f)) (let x ()) (return x)))
-
-At test-data/parser-tests/busted.cbl:3:27, expected a IntegerRepr rather than a BoolRepr but got #f

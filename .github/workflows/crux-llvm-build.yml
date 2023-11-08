@@ -151,7 +151,9 @@ jobs:
           setup_bin() { echo setup.${{ matrix.ghc }}; }
           with_ghc()  { $NS -c ${@}; }
           (cd crucible;             with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-cli;         with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-llvm;        with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-llvm-cli;    with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-llvm-syntax; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux;                 with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux-llvm;            with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
@@ -163,7 +165,9 @@ jobs:
 
       - shell: bash
         run: |
+          .github/ci.sh build exe:crucible
           .github/ci.sh build lib:crucible-llvm-syntax
+          .github/ci.sh build exe:crucible-llvm
           .github/ci.sh build exe:crux-llvm
           .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:crux-llvm-svcomp
@@ -176,6 +180,10 @@ jobs:
       - shell: bash
         name: Test crucible
         run: .github/ci.sh test crucible
+
+      - shell: bash
+        name: Test crucible-cli
+        run: .github/ci.sh test crucible-cli
 
       - shell: bash
         name: Test crucible-symio (Linux)
@@ -194,6 +202,11 @@ jobs:
       - shell: bash
         name: Test crucible-llvm-syntax (Linux)
         run: .github/ci.sh test crucible-llvm-syntax
+        if: runner.os == 'Linux'
+
+      - shell: bash
+        name: Test crucible-llvm-cli (Linux)
+        run: .github/ci.sh test crucible-llvm-cli
         if: runner.os == 'Linux'
 
       - shell: bash

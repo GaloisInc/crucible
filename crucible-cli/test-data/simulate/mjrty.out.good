@@ -1,0 +1,11 @@
+==== Begin Simulation ====
+Hello!
+Attempting to prove all outstanding obligations!
+
+Proof Succeeded!
+test-data/simulate/mjrty.cbl:15:5: error: in main
+MJRTY postcondition
+
+
+==== Finish Simulation ====
+==== No proof obligations ====
