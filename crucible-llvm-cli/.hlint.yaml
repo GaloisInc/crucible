@@ -2,7 +2,12 @@
 # default and enable just a small subset we can agree on.
 
 - ignore: {}  # ignore all
+- error: { name: "Fix pragma markup" }
+- error: { name: "Redundant as-pattern" }
 - error: { name: "Redundant do" }
 - error: { name: "Unused LANGUAGE pragma" }
+- error: { name: "Used otherwise as a pattern" }
+- error: { name: "Use explicit module export list" }
+- error: { name: "Use pragma syntax" }
 - error: { name: "Use unless" }
 - error: { name: "Use when" }

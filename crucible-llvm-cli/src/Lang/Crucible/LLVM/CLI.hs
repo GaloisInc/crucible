@@ -51,4 +51,4 @@ withLlvmHooks k = do
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
               in llvmExtensionImpl defaultMemOptions
-  k ext simulationHooks 
+  k ext simulationHooks

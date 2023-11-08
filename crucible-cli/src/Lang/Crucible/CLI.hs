@@ -209,7 +209,7 @@ simulateProgram fn theInput outh profh opts hooks = do
   let ext = const emptyExtensionImpl
   simulateProgramWithExtension ext fn theInput outh profh opts hooks
 
-repl :: 
+repl ::
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
   FilePath ->
   IO ()
@@ -230,7 +230,7 @@ data SimCmd
            , _simOutFile :: Maybe FilePath
            }
 
-data ProfCmd 
+data ProfCmd
   = ProfCmd { _profInFile :: FilePath
             , _profOutFile :: FilePath
             }
@@ -241,7 +241,7 @@ data Command
   | ProfileCommand ProfCmd
   | ReplCommand
 
-execCommand :: 
+execCommand ::
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
   (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym ext) ->
   SimulateProgramHooks ext ->
@@ -250,7 +250,7 @@ execCommand ::
 execCommand ext simulationHooks =
   \case
     ReplCommand -> hSetBuffering stdout NoBuffering >> repl "stdin"
-   
+
     CheckCommand (CheckCmd inputFile out pp) ->
       do contents <- T.readFile inputFile
          case out of
@@ -258,7 +258,7 @@ execCommand ext simulationHooks =
              doParseCheck inputFile contents pp stdout
            Just outputFile ->
              withFile outputFile WriteMode (doParseCheck inputFile contents pp)
-   
+
     SimulateCommand (SimCmd inputFile out) ->
       do contents <- T.readFile inputFile
          case out of
@@ -266,7 +266,7 @@ execCommand ext simulationHooks =
            Just outputFile ->
              withFile outputFile WriteMode
                (\outh -> sim inputFile contents outh Nothing configOptions simulationHooks)
-   
+
     ProfileCommand (ProfCmd inputFile outputFile) ->
       do contents <- T.readFile inputFile
          withFile outputFile WriteMode

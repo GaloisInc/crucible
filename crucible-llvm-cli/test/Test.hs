@@ -1,8 +1,6 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Main (main) where
 
@@ -48,6 +46,6 @@ goldenFileTestCase input testAction =
 testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
-     withFile outFile WriteMode $ \outh -> do
+     withFile outFile WriteMode $ \outh ->
        withLlvmHooks $ \ext hooks ->
          simulateProgramWithExtension ext inFile contents outh Nothing z3Options hooks
