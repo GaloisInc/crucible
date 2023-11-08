@@ -167,7 +167,7 @@ jobs:
         run: |
           .github/ci.sh build exe:crucible
           .github/ci.sh build lib:crucible-llvm-syntax
-          .github/ci.sh build exe:crucible-llvm-cli
+          .github/ci.sh build exe:crucible-llvm
           .github/ci.sh build exe:crux-llvm
           .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:crux-llvm-svcomp
