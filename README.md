@@ -26,12 +26,6 @@ Currently, the repository consists of the following Haskell packages:
    executing JVM bytecode programs in the Crucible symbolic simulator.
  * **`crucible-saw`** provides functionality for generating
    SAW Core terms from Crucible Control-Flow-Graphs.
- * **`crucible-syntax`** provides a native S-Expression based concrete
-   syntax for crucible programs.  It is useful for being able to
-   directly interact with the core Crucible simulator without bringing
-   in issues related to the translation of other front-ends (e.g. the
-   LLVM translation).  It is primarily intended for the purpose of
-   writing test cases.
  * **`crux`** provides common support libraries for running the
    crucible simulator in a basic "all-at-once" use mode for simulation
    and verification.  This includes most of the setup steps required
@@ -68,6 +62,19 @@ In addition, there are the following library/executable packages:
    a given program with no user intervention and try to find bugs, but may raise
    false positives and is less useful for full verification than `crux-llvm`.
    See [the README](./uc-crux-llvm/README.md) for details.
+
+Finally, the following packages are intended primarily for use by Crucible
+developers:
+
+ * **`crucible-cli`** provides a CLI for interacting with the Crucible
+   simulator, via programs written in `crucible-syntax`.
+
+ * **`crucible-syntax`** provides a native S-Expression based concrete
+   syntax for crucible programs.  It is useful for being able to
+   directly interact with the core Crucible simulator without bringing
+   in issues related to the translation of other front-ends (e.g. the
+   LLVM translation).  It is primarily intended for the purpose of
+   writing test cases.
 
 The development of major features and additions to `crucible` is done
 in separate branches of the repository, all of which are based off

@@ -118,6 +118,7 @@ test-suite crucible-llvm-syntax-tests
     base,
     containers,
     crucible >= 0.1,
+    crucible-cli,
     crucible-llvm,
     crucible-llvm-syntax,
     crucible-syntax,

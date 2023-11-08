@@ -20,6 +20,7 @@ jobs:
             https://github.com/ndmitchell/hlint/releases/download/v3.3/hlint-3.3-x86_64-linux.tar.gz
           tar xvf hlint.tar.gz
 
+          (cd crucible-cli/; ../hlint-3.3/hlint app src test)
           (cd crucible-llvm-syntax/; ../hlint-3.3/hlint src test)
 
           cd uc-crux-llvm/

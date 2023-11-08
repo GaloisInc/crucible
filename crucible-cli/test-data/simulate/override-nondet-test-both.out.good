@@ -1,0 +1,72 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+* in main test-data/simulate/override-nondet-test-both.cbl:6:5: w is 0 or 1
+    not (and (not (eq 0 cw@0:i)) (not (eq 1 cw@0:i)))
+* The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to after branch 0
+    not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))
+* The branch in nondetBranchesTest from after branch 0 to after branch 1
+    not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i))
+* The branch in nondetBranchesTest from after branch 1 to default branch
+    let -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v16 = eq 2 cnondetBranchesZ@11:i
+     in and (not (eq 0 cw@0:i)) (not (eq 1 cw@0:i)) v16
+Prove:
+  default branch: error: in nondetBranchesTest
+  fall-through branch
+  false
+PROVED
+Assuming:
+* in main test-data/simulate/override-nondet-test-both.cbl:6:5: w is 0 or 1
+    not (and (not (eq 0 cw@0:i)) (not (eq 1 cw@0:i)))
+* The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to after branch 0
+    let -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v7 = eq 0 cw@0:i
+        -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v12 = eq 0 cnondetBranchesZ@11:i
+     in not (and v7 v12 (not (and v7 v12)))
+* The branch in nondetBranchesTest from after branch 0 to second branch
+    let -- test-data/simulate/override-nondet-test-both.cbl:10:5
+        v43 = and (not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))) (not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i)))
+     in not v43
+* The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to first branch
+    let -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v7 = eq 0 cw@0:i
+        -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v12 = eq 0 cnondetBranchesZ@11:i
+     in not (and v7 v12 (not (and v7 v12)))
+Prove:
+  test-data/simulate/override-nondet-test-both.cbl:8:5: error: in main
+  should be true!
+  let -- after branch 2
+      v28 = ite (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i)) cx@1:i cy@2:i
+   in not (and (not (eq v28 cx@1:i)) (not (eq v28 cy@2:i)))
+PROVED
+Assuming:
+* in main test-data/simulate/override-nondet-test-both.cbl:6:5: w is 0 or 1
+    not (and (not (eq 0 cw@0:i)) (not (eq 1 cw@0:i)))
+* The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to after branch 0
+    let -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v7 = eq 0 cw@0:i
+        -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v12 = eq 0 cnondetBranchesZ@11:i
+     in not (and v7 v12 (not (and v7 v12)))
+* The branch in nondetBranchesTest from after branch 0 to second branch
+    let -- test-data/simulate/override-nondet-test-both.cbl:10:5
+        v54 = and (not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))) (not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i)))
+     in not v54
+* The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to first branch
+    let -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v7 = eq 0 cw@0:i
+        -- test-data/simulate/override-nondet-test-both.cbl:7:12
+        v12 = eq 0 cnondetBranchesZ@11:i
+     in not (and v7 v12 (not (and v7 v12)))
+Prove:
+  test-data/simulate/override-nondet-test-both.cbl:9:5: error: in main
+  should be true!
+  let -- after branch 2
+      v28 = ite (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i)) cx@1:i cy@2:i
+   in not (and (eq v28 cx@1:i) (eq v28 cy@2:i) (not (eq cx@1:i cy@2:i)))
+PROVED

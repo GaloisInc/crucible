@@ -6,6 +6,7 @@
 
 packages:
   crucible/
+  crucible-cli/
   crucible-go/
   crucible-jvm/
   crucible-llvm/

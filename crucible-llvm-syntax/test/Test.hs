@@ -28,7 +28,9 @@ import Lang.Crucible.LLVM.Extension (LLVM)
 import Lang.Crucible.LLVM.MemModel (defaultMemOptions, emptyMem, mkMemVar)
 
 import Lang.Crucible.Syntax.Concrete (ParserHooks)
-import Lang.Crucible.Syntax.Prog (SimulateProgramHooks(setupHook), defaultSimulateProgramHooks, doParseCheck, simulateProgramWithExtension)
+import Lang.Crucible.Syntax.Prog (doParseCheck)
+
+import Lang.Crucible.CLI (SimulateProgramHooks(setupHook), defaultSimulateProgramHooks, simulateProgramWithExtension)
 
 import Lang.Crucible.LLVM.Syntax (emptyParserHooks, llvmParserHooks)
 import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
