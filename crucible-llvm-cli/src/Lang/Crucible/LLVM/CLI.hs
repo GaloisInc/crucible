@@ -30,6 +30,8 @@ import Lang.Crucible.LLVM.MemModel (HasPtrWidth, defaultMemOptions, emptyMem, mk
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
 import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
 
+-- | Small helper for providing LLVM language-specific hooks, e.g., for use with
+-- 'Lang.Crucible.CLI.execCommand'.
 withLlvmHooks ::
   (forall w.
     (HasPtrWidth w, ?parserHooks :: ParserHooks LLVM) =>
@@ -51,4 +53,4 @@ withLlvmHooks k = do
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
               in llvmExtensionImpl defaultMemOptions
-  k ext simulationHooks
+  k ext simulationHooks 
