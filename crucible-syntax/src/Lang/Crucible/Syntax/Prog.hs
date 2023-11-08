@@ -11,6 +11,13 @@ module Lang.Crucible.Syntax.Prog
   , simulateProgram
   , SimulateProgramHooks(..)
   , defaultSimulateProgramHooks
+  , repl
+    -- * CLI helpers
+  , CheckCmd(..)
+  , SimCmd(..)
+  , ProfCmd(..)
+  , Command(..)
+  , execCommand
   ) where
 
 import Control.Lens (view)
@@ -53,7 +60,7 @@ import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.FunctionName
 import What4.ProgramLoc
 import What4.SatResult
-import What4.Solver (defaultLogData, runZ3InOverride)
+import What4.Solver (defaultLogData, runZ3InOverride, z3Options)
 
 
 -- | The main loop body, useful for both the program and for testing.
@@ -250,3 +257,68 @@ simulateProgram fn theInput outh profh opts hooks = do
   let ?parserHooks = defaultParserHooks
   let ext = const emptyExtensionImpl
   simulateProgramWithExtension ext fn theInput outh profh opts hooks
+
+repl ::
+  (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
+  FilePath ->
+  IO ()
+repl f =
+  do putStr "> "
+     l <- T.getLine
+     doParseCheck f l True stdout
+     repl f
+
+data CheckCmd
+  = CheckCmd { chkInFile :: FilePath
+             , chkOutFile :: Maybe FilePath
+             , chkPrettyPrint :: Bool
+             }
+
+data SimCmd
+  = SimCmd { _simInFile :: FilePath
+           , _simOutFile :: Maybe FilePath
+           }
+
+data ProfCmd
+  = ProfCmd { _profInFile :: FilePath
+            , _profOutFile :: FilePath
+            }
+
+data Command
+  = CheckCommand CheckCmd
+  | SimulateCommand SimCmd
+  | ProfileCommand ProfCmd
+  | ReplCommand
+
+execCommand ::
+  (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
+   (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym ext) ->
+  SimulateProgramHooks ext ->
+  Command ->
+  IO ()
+execCommand ext simulationHooks =
+  \case
+    ReplCommand -> hSetBuffering stdout NoBuffering >> repl "stdin"
+
+    CheckCommand (CheckCmd inputFile out pp) ->
+      do contents <- T.readFile inputFile
+         case out of
+           Nothing ->
+             doParseCheck inputFile contents pp stdout
+           Just outputFile ->
+             withFile outputFile WriteMode (doParseCheck inputFile contents pp)
+
+    SimulateCommand (SimCmd inputFile out) ->
+      do contents <- T.readFile inputFile
+         case out of
+           Nothing -> sim inputFile contents  stdout Nothing configOptions simulationHooks
+           Just outputFile ->
+             withFile outputFile WriteMode
+               (\outh -> sim inputFile contents outh Nothing configOptions simulationHooks)
+
+    ProfileCommand (ProfCmd inputFile outputFile) ->
+      do contents <- T.readFile inputFile
+         withFile outputFile WriteMode
+            (\outh -> sim inputFile contents stdout (Just outh) configOptions simulationHooks)
+  where configOptions = z3Options
+        sim = simulateProgramWithExtension ext
