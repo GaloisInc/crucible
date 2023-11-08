@@ -21,4 +21,7 @@
     (assert! (equal? vblk0 vblk) "stored block numbers equal")
     (assert! (equal? voff0 voff) "stored offsets equal")
 
+    (let g (resolve-global "malloc"))
+    (let h (load-handle (Ptr 64) ((Ptr 64)) g))
+
     (return p)))
