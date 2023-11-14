@@ -32,7 +32,13 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 - `ptr-ite : Bool -> Ptr n -> Ptr n -> Ptr n`: if-then-else for pointers
 - `alloca : Alignment -> Bitvector w -> Ptr w`: allocate space on the stack
 - `load : Alignment -> LLVMType -> Ptr w -> T`: load a value from memory, where the type `T` is determined by the `LLVMType`
+- `load-handle : Type -> [Type] -> Ptr w -> T`: load a function handle from memory, where the type `T` is determined by the given return and argument types
 - `store : Alignment -> LLVMType -> Ptr w -> T -> Unit`: store a value to memory, where the type `T` is determined by the `LLVMType`
+- `resolve-global : String -> Ptr w`: get the address of a global variable
+
+`Type` signifies a Crucible type, rather than an LLVM type. This means there
+are no C- or LLVM-like `Type`s such as `i8*` or `size_t`, but rather the base
+Crucible types as defined by `crucible-syntax`, and `(Ptr n)`.
 
 ## Further extensions
 
