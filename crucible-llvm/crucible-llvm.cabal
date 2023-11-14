@@ -67,6 +67,8 @@ library
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
+    Lang.Crucible.LLVM.Intrinsics.Libc
+    Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MalformedLLVMModule
     Lang.Crucible.LLVM.MemModel
     Lang.Crucible.LLVM.MemModel.CallStack
@@ -90,9 +92,7 @@ library
     Lang.Crucible.LLVM.Extension.Arch
     Lang.Crucible.LLVM.Extension.Syntax
     Lang.Crucible.LLVM.Intrinsics.Common
-    Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.Libcxx
-    Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.Intrinsics.Options
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Options

@@ -97,6 +97,7 @@ library
     crucible >= 0.1,
     crucible-llvm,
     crucible-syntax,
+    llvm-pretty,
     mtl,
     parameterized-utils >= 0.1.7,
     prettyprinter,

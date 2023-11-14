@@ -19,8 +19,12 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.State.Strict (MonadState(..))
 import Control.Monad.Writer.Strict (MonadWriter(..))
 import Data.Functor ((<&>))
+import qualified Data.Text as Text
 
 import Prettyprinter (pretty)
+
+-- Optimally, this library wouldn't depend on llvm-pretty...
+import Text.LLVM.AST as L (Symbol(Symbol))
 
 import Data.Parameterized.Context qualified as Ctx
 import Data.Parameterized.Some (Some(..))
@@ -168,6 +172,25 @@ llvmAtomParser mvar =
               let (Ctx.Empty, ptr) = Ctx.decompose assign
               let stmt = Ext.LLVM_Load mvar ptr tyRep storTy align
               Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "load-handle" -> Parse.describe "LLVM load-handle arguments" $ do
+        loc <- Parse.position
+        (Some ret, (Some args, assign)) <-
+          Parse.cons
+            Parse.isType
+            (Parse.cons
+              (Parse.someAssign "list of argument types" Parse.isType)
+              (Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth)))
+        let (Ctx.Empty, ptr) = Ctx.decompose assign
+        let stmt = Ext.LLVM_LoadHandle mvar Nothing ptr args ret
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "resolve-global" -> Parse.describe "LLVM resolve-global arguments" $ do
+        loc <- Parse.position
+        let parseSymb = Mem.GlobalSymbol . L.Symbol . Text.unpack <$> Parse.string
+        (symb, ()) <- Parse.cons parseSymb Parse.emptyList
+        let stmt = Ext.LLVM_ResolveGlobal ?ptrWidth mvar symb
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
       Atom.AtomName "store" -> Parse.describe "LLVM store arguments" $ do
         loc <- Parse.position

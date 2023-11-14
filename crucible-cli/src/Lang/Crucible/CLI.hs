@@ -64,8 +64,8 @@ import What4.Solver (defaultLogData, runZ3InOverride, z3Options)
 -- | Allows users to hook into the various stages of 'simulateProgram'.
 data SimulateProgramHooks ext = SimulateProgramHooks
   { setupHook ::
-      forall p sym rtp a r t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
-        sym ->
+      forall p sym bak rtp a r t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
+        bak ->
         HandleAllocator ->
         OverrideSim p sym ext rtp a r ()
     -- ^ Override action to execute before simulation. Used by the LLVM
@@ -159,7 +159,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
-                                           setupHook hooks sym ha
+                                           setupHook hooks bak ha
                                            regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
 
                        hPutStrLn outh "==== Begin Simulation ===="

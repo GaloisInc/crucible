@@ -19,6 +19,8 @@
       (let voff (ptr-offset 8 v))
       (assert! (equal? vblk0 vblk) "stored block numbers equal")
       (assert! (equal? voff0 voff) "stored offsets equal")
+      (let g (resolve-global "malloc"))
+      (let h (load-handle (Ptr 64) ((Ptr 64)) g))
       (return p)))
 
 test-ptr
@@ -77,6 +79,10 @@ test-ptr
   $22 = stringLit("stored offsets equal")
   % 22:5
   assert($21, $22)
-  % 24:5
+  % 24:12
+  $23 = resolveGlobal crucible-llvm-syntax-test-memory "malloc"
+  % 25:12
+  $24 = loadFunctionHandle crucible-llvm-syntax-test-memory $23 as Nothing
+  % 27:5
   return $4
   % no postdom

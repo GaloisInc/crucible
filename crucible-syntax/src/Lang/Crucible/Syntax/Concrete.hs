@@ -46,6 +46,7 @@ module Lang.Crucible.Syntax.Concrete
   , BoundedNat(..)
   , PosNat
   , posNat
+  , someAssign
   -- * Rules for pretty-printing language syntax
   , printExpr
   )
@@ -1935,26 +1936,33 @@ deriving instance Show (ACFG ext)
 
 data Arg t = Arg AtomName Position (TypeRepr t)
 
-
+someAssign ::
+  forall m ext a.
+  ( MonadSyntax Atomic m
+  , ?parserHooks :: ParserHooks ext
+  ) =>
+  Text ->
+  m (Some a) ->
+  m (Some (Ctx.Assignment a))
+someAssign desc sub = call (go (Some Ctx.empty))
+  where
+    go :: Some (Ctx.Assignment a) -> m (Some (Ctx.Assignment a))
+    go args@(Some prev) =
+      describe desc $
+        (emptyList *> pure args) <|>
+        (depCons sub $
+           \(Some a) ->
+             go (Some $ Ctx.extend prev a))
 
 arguments' :: forall m ext
             . ( MonadSyntax Atomic m, ?parserHooks :: ParserHooks ext )
            => m (Some (Ctx.Assignment Arg))
-arguments' = call (go (Some Ctx.empty))
-  where
-    go ::  Some (Ctx.Assignment Arg) -> m (Some (Ctx.Assignment Arg))
-    go args@(Some prev) =
-      describe "argument list" $
-        (emptyList *> pure args) <|>
-        (depCons oneArg $
-           \(Some a) ->
-             go (Some $ Ctx.extend prev a))
-
-      where oneArg =
-              (describe "argument" $
-               located $
-               cons atomName (cons isType emptyList)) <&>
-              \(Posd loc (x, (Some t, ()))) -> Some (Arg x loc t)
+arguments' = someAssign "argument list" oneArg
+  where oneArg =
+          (describe "argument" $
+           located $
+           cons atomName (cons isType emptyList)) <&>
+          \(Posd loc (x, (Some t, ()))) -> Some (Arg x loc t)
 
 
 saveArgs :: (MonadState (SyntaxState s) m, MonadError (ExprErr s) m)

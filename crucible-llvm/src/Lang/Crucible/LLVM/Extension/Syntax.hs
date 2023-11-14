@@ -171,7 +171,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_LoadHandle ::
      HasPtrWidth wptr =>
      !(GlobalVar Mem)            {- Memory global variable -} ->
-     !L.Type                     {- expected LLVM type of the function -} ->
+     !(Maybe L.Type)             {- expected LLVM type of the function (used only for pretty-printing) -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(CtxRepr args)             {- Expected argument types of the function -} ->
      !(TypeRepr ret)             {- Expected return type of the function -} ->
