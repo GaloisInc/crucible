@@ -38,7 +38,7 @@ import           Data.Parameterized.Some ( Some(..) )
 import qualified Lang.Crucible.LLVM.MemModel as LCLM
 import qualified Lang.Crucible.Syntax.Atoms as LCSA
 import qualified Lang.Crucible.Syntax.Concrete as LCSC
-import qualified Lang.Crucible.Syntax.ExprParse as LCSE
+import qualified Lang.Crucible.Syntax.Monad as LCSM
 import qualified Lang.Crucible.Types as LCT
 
 -- | Additional types beyond those built into crucible-llvm-syntax.
@@ -81,7 +81,7 @@ x86_64LinuxTypes =
       
 -- | Parser for type extensions to Crucible syntax
 typeMapParser :: 
-  LCSE.MonadSyntax LCSA.Atomic m =>
+  LCSM.MonadSyntax LCSA.Atomic m =>
   -- | A mapping from type names to the crucible types they represent
   Map.Map LCSA.AtomName (Some LCT.TypeRepr) ->
   m (Some LCT.TypeRepr)
@@ -93,7 +93,7 @@ typeMapParser types = do
 
 -- | Parser for type aliases for the Crucible-LLVM syntax
 typeAliasParser :: 
-  LCSE.MonadSyntax LCSA.Atomic m =>
+  LCSM.MonadSyntax LCSA.Atomic m =>
   TypeLookup ->
   m (Some LCT.TypeRepr)
 typeAliasParser (TypeLookup lookupFn) =

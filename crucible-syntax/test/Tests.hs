@@ -15,6 +15,7 @@ import System.IO
 
 import Lang.Crucible.Syntax.Concrete (defaultParserHooks)
 import Lang.Crucible.Syntax.ExprParse
+import Lang.Crucible.Syntax.Monad
 import Lang.Crucible.Syntax.Prog (doParseCheck)
 import Lang.Crucible.Syntax.SExpr
 

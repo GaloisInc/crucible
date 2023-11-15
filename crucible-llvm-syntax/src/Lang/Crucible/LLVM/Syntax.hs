@@ -51,8 +51,8 @@ import Lang.Crucible.Syntax.Atoms (Atomic)
 import Lang.Crucible.Syntax.Atoms qualified as Atom
 import Lang.Crucible.Syntax.Concrete (ParserHooks(..), SyntaxState)
 import Lang.Crucible.Syntax.Concrete qualified as Parse
-import Lang.Crucible.Syntax.ExprParse (MonadSyntax)
-import Lang.Crucible.Syntax.ExprParse qualified as Parse
+import Lang.Crucible.Syntax.Monad (MonadSyntax)
+import Lang.Crucible.Syntax.Monad qualified as Parse
 
 -- | A 'ParserHooks' instance that adds no further extensions to the language.
 emptyParserHooks :: ParserHooks ext
