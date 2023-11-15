@@ -2,15 +2,21 @@
 
 set -e
 
+TARGET=$1
+
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 RLIBS_PARENT="${SCRIPT_DIR}/rlibs_real"
 RLIBS_SYMLINK="${SCRIPT_DIR}/rlibs"
-RLIBS=$(rustc --print target-libdir --sysroot "${RLIBS_PARENT}")
-STD_ENV_ARCH=$(uname -m)
+RLIBS=$(rustc ${TARGET:+ --target "$TARGET"} --print target-libdir --sysroot "${RLIBS_PARENT}")
+if [ "$TARGET" ]; then
+  read -r -d - STD_ENV_ARCH <<< "$TARGET"
+else
+  STD_ENV_ARCH=$(uname -m)
+fi
 export STD_ENV_ARCH
 
 translate() {
-    mir-json -L "${RLIBS}" --out-dir "${RLIBS}" --crate-type rlib --remap-path-prefix "$(pwd -P)=." "$@"
+    mir-json ${TARGET:+ --target "$TARGET"} -L "${RLIBS}" --out-dir "${RLIBS}" --crate-type rlib --remap-path-prefix "$(pwd -P)=." "$@"
 }
 
 mkdir -p "${RLIBS_PARENT}/bin"
