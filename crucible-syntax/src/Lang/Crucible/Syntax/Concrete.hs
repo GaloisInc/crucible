@@ -92,6 +92,7 @@ import Numeric.Natural
 import qualified Lang.Crucible.CFG.Extension as LCCE
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import qualified Lang.Crucible.Syntax.ExprParse as SP
+import Lang.Crucible.Syntax.Monad
 
 import What4.ProgramLoc
 import What4.FunctionName
@@ -108,7 +109,6 @@ import Lang.Crucible.FunctionHandle
 
 import Numeric.Natural ()
 import qualified Data.Set as Set
-
 
 liftSyntaxParse :: (MonadError (ExprErr s) m, MonadIO m)
                   => SyntaxParse Atomic a -> AST s -> m a
@@ -790,7 +790,7 @@ synthExpr typeHint =
                  describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
                Just (Some idx) ->
                  do let ty = view (ixF' idx) ts
-                    out <- withProgressStep Rest $ withProgressStep Rest $ withProgressStep SP.First $
+                    out <- withProgressStep Rest $ withProgressStep Rest $ withProgressStep First $
                              parse e (check ty)
                     return $ SomeE (VariantRepr ts) $ EApp $ InjectVariant ts idx out
            Just (Some t) ->
