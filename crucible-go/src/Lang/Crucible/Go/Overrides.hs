@@ -42,9 +42,8 @@ import qualified Crux.Types   as Crux
 
 data SomeOverride p sym ext where
   SomeOverride :: Text -- ^ package name
-               -> CtxRepr args
-               -> TypeRepr ret
-               -> Override p sym ext args ret
+               -> FunctionName
+               -> C.TypedOverride p sym ext args ret
                -> SomeOverride p sym ext
 
 nameOfOverride :: Override p sym ext args ret -> Text
@@ -52,13 +51,18 @@ nameOfOverride (Override { overrideName = nm }) =
   pack $ show nm
 
 mkSomeOverride :: Text -> Text -> CtxRepr args -> TypeRepr ret ->
-                  (forall r. C.OverrideSim p sym ext r args ret
+                  (forall r args' ret'.
+                    Assignment (C.RegValue' sym) args ->
+                    C.OverrideSim p sym ext r args' ret'
                     (RegValue sym ret)) ->
                   SomeOverride p sym ext
 mkSomeOverride pkg nm argsRepr retRepr overrideSim =
-  SomeOverride pkg argsRepr retRepr $
-  Override { overrideName = functionNameFromText nm
-           , overrideHandler = C.runOverrideSim retRepr overrideSim }
+  SomeOverride pkg (functionNameFromText nm) $
+  C.TypedOverride
+  { C.typedOverrideHandler = overrideSim
+  , C.typedOverrideArgs = argsRepr
+  , C.typedOverrideRet = retRepr
+  }
 
 mkFresh :: IsSymInterface sym
         => String
@@ -92,25 +96,23 @@ fresh_string :: IsSymInterface sym
 fresh_string si = mkFresh "X" $ BaseStringRepr si
 
 do_assume :: IsSymInterface sym
-          => C.OverrideSim p sym ext gret
-          (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
-          (StructType EmptyCtx) (RegValue sym (StructType EmptyCtx))
-do_assume = C.ovrWithBackend $ \bak -> do
+          => Assignment (C.RegValue' sym) (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
+          -> C.OverrideSim p sym ext gret args ret (RegValue sym (StructType EmptyCtx))
+do_assume args = C.ovrWithBackend $ \bak -> do
   let sym = backendGetSym bak
-  RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
+  (Empty :> _mgs :> _file :> C.RV b) <- pure args
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addAssumption bak (GenericAssumption loc "assume" (regValue b))
+  liftIO $ addAssumption bak (GenericAssumption loc "assume" b)
   return Ctx.empty
 
 do_assert :: IsSymInterface sym
-          => C.OverrideSim p sym ext gret
-          (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
-          (StructType EmptyCtx) (RegValue sym (StructType EmptyCtx))
-do_assert = C.ovrWithBackend $ \bak -> do
+          => Assignment (C.RegValue' sym) (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
+          -> C.OverrideSim p sym ext gret args ret (RegValue sym (StructType EmptyCtx))
+do_assert args = C.ovrWithBackend $ \bak -> do
   let sym = backendGetSym bak
-  RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
+  (Empty :> _mgs :> _file :> C.RV b) <- pure args
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addDurableAssertion bak (LabeledPred (regValue b)
+  liftIO $ addDurableAssertion bak (LabeledPred b
                                     (C.SimError loc $ C.AssertFailureSimError
                                      "assertion_failure" ""))
   return Ctx.empty
@@ -119,26 +121,26 @@ go_overrides :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
              -> [SomeOverride (p sym) sym ext]
 go_overrides w =
-  [ mkSomeOverride "crucible" "FreshInt" Ctx.empty (BVRepr w) (fresh_int w)
+  [ mkSomeOverride "crucible" "FreshInt" Ctx.empty (BVRepr w) (\_args -> fresh_int w)
   , mkSomeOverride "crucible" "FreshInt8" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 8)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 8)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshInt16" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 16)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 16)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshInt32" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 32)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 32)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshInt64" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 64)) fresh_int'
-  , mkSomeOverride "crucible" "FreshUint" Ctx.empty (BVRepr w) (fresh_int w)
+    (BVRepr (knownNat :: NatRepr 64)) (\_args -> fresh_int')
+  , mkSomeOverride "crucible" "FreshUint" Ctx.empty (BVRepr w) (\_args -> fresh_int w)
   , mkSomeOverride "crucible" "FreshUint8" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 8)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 8)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshUint16" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 16)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 16)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshUint32" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 32)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 32)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshUint64" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 64)) fresh_int'
+    (BVRepr (knownNat :: NatRepr 64)) (\_args -> fresh_int')
   , mkSomeOverride "crucible" "FreshString" Ctx.empty
-    (StringRepr UnicodeRepr) $ fresh_string UnicodeRepr
+    (StringRepr UnicodeRepr) $ (\_args -> fresh_string UnicodeRepr)
   , mkSomeOverride "crucible" "Assume"
     (Ctx.Empty :> StringRepr UnicodeRepr :> StringRepr UnicodeRepr :> BoolRepr)
     (StructRepr Ctx.empty) do_assume
@@ -152,8 +154,8 @@ lookupOverride :: Text
                -> Maybe (SomeOverride p sym ext)
 lookupOverride _pkgName _fName [] = Nothing
 lookupOverride pkgName fName
-  (o@(SomeOverride pkg _argsRepr _retRepr override) : overrides) =
-  if pkgName == pkg && fName == overrideName override then
+  (o@(SomeOverride pkg ovrName typedOvr) : overrides) =
+  if pkgName == pkg && fName == ovrName then
     Just o
   else
     lookupOverride pkgName fName overrides
