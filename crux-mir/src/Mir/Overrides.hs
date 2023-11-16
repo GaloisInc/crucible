@@ -91,9 +91,6 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
   where
     readBV e = MaybeT (return (BV.asUnsigned <$> asBV e))
 
-data SomeOverride p sym where
-  SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
-
 makeSymbolicVar ::
     IsSymInterface sym =>
     RegEntry sym (MirSlice (BVType 8)) ->
@@ -451,23 +448,25 @@ bindFn _symOnline _cs fn cfg =
   case Map.lookup (textIdKey fn) (overrides bak) of
     Nothing ->
       bindFnHandle (cfgHandle cfg) $ UseCFG cfg (postdomInfo cfg)
-    Just (($ functionNameFromText fn) -> SomeOverride argTys retTy f) ->
+    Just (SomeTypedOverride o@(TypedOverride f argTys retTy)) ->
       case (,) <$> testEquality (cfgReturnType cfg) retTy <*> testEquality (cfgArgTypes cfg) argTys of
         Nothing -> error $ "Mismatching override type for " ++ Text.unpack fn ++
                            ".\n\tExpected (" ++ show (cfgArgTypes cfg) ++ ") → " ++ show (cfgReturnType cfg) ++
                            "\n\tbut got (" ++ show argTys ++ ") → (" ++ show retTy ++ ")."
         Just (Refl, Refl) ->
-          bindFnHandle (cfgHandle cfg) $ UseOverride f
+          bindFnHandle (cfgHandle cfg) $ UseOverride (mkTypedOverride (functionNameFromText fn) o)
 
   where
     override ::
       forall args ret .
       ExplodedDefId -> CtxRepr args -> TypeRepr ret ->
-      (forall rtp . OverrideSim (p sym) sym MIR rtp args ret (RegValue sym ret)) ->
-      (ExplodedDefId, FunctionName -> SomeOverride (p sym) sym)
+      (forall rtp args' ret'.
+        Ctx.Assignment (RegValue' sym) args ->
+        OverrideSim (p sym) sym MIR rtp args' ret' (RegValue sym ret)) ->
+      (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
     override edid args ret act =
         ( edid
-        , \funName -> SomeOverride args ret (mkOverride' funName ret act)
+        , SomeTypedOverride (TypedOverride act args ret)
         )
 
     u8repr :: TypeRepr (BaseToType (BaseBVType 8))
@@ -481,18 +480,17 @@ bindFn _symOnline _cs fn cfg =
 
     symb_bv :: forall n . (1 <= n)
             => ExplodedDefId -> NatRepr n
-            -> (ExplodedDefId, FunctionName -> SomeOverride (p sym) sym)
+            -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
     symb_bv edid n =
-      override edid (Empty :> strrepr) (BVRepr n) $
-      do RegMap (Empty :> str) <- getOverrideArgs
-         makeSymbolicVar str $ BaseBVRepr n
+      override edid (Empty :> strrepr) (BVRepr n) $ \(Empty :> RV str) ->
+        makeSymbolicVar (RegEntry strrepr str) $ BaseBVRepr n
 
     overrides :: IsSymBackend sym bak'
               => bak'
-              -> Map ExplodedDefId (FunctionName -> SomeOverride (p sym) sym)
+              -> Map ExplodedDefId (SomeTypedOverride (p sym) sym MIR)
     overrides bak =
       let sym = backendGetSym bak in
-      fromList [ override ["crucible", "one"] Empty (BVRepr (knownNat @8)) $
+      fromList [ override ["crucible", "one"] Empty (BVRepr (knownNat @8)) $ \_args ->
                  do h <- printHandle <$> getContext
                     liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat 1)
@@ -509,33 +507,33 @@ bindFn _symOnline _cs fn cfg =
 
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override ["crucible", "crucible_assert_impl"] argTys UnitRepr $
-                    do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
+                    \(Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) -> do
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                =<< getString (regValue srcArg)
-                       file <- maybe (fail "not a constant filename string") pure =<< getString (regValue fileArg)
+                                =<< getString (unRV srcArg)
+                       file <- maybe (fail "not a constant filename string") pure =<< getString (unRV fileArg)
                        line <- maybe (fail "not a constant line number") pure
-                               (BV.asUnsigned <$> asBV (regValue lineArg))
+                               (BV.asUnsigned <$> asBV (unRV lineArg))
                        col <- maybe (fail "not a constant column number") pure $
-                              (BV.asUnsigned <$> asBV (regValue colArg))
+                              (BV.asUnsigned <$> asBV (unRV colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src) ""
-                       liftIO $ assert bak (regValue c) reason
+                       liftIO $ assert bak (unRV c) reason
                        return ()
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override ["crucible", "crucible_assume_impl"] argTys UnitRepr $
-                    do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
+                    \(Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) -> do
                        loc <- liftIO $ getCurrentProgramLoc sym
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                =<< getString (regValue srcArg)
-                       file <- maybe (fail "not a constant filename string") pure =<< getString (regValue fileArg)
+                                =<< getString (unRV srcArg)
+                       file <- maybe (fail "not a constant filename string") pure =<< getString (unRV fileArg)
                        line <- maybe (fail "not a constant line number") pure
-                               (BV.asUnsigned <$> asBV (regValue lineArg))
+                               (BV.asUnsigned <$> asBV (unRV lineArg))
                        col <- maybe (fail "not a constant column number") pure
-                              (BV.asUnsigned <$> asBV (regValue colArg))
+                              (BV.asUnsigned <$> asBV (unRV colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
-                       let reason = GenericAssumption loc ("Assumption \n\t" <> src <> "\nfrom " <> locStr) (regValue c)
+                       let reason = GenericAssumption loc ("Assumption \n\t" <> src <> "\nfrom " <> locStr) (unRV c)
                        liftIO $ addAssumption bak reason
                        return ()
                ]
