@@ -7,6 +7,7 @@ module Crux.Overrides
   ( mkFresh
   , mkFreshFloat
   , baseFreshOverride
+  , baseFreshOverride'
   ) where
 
 import qualified Data.Parameterized.Context as Ctx
@@ -72,3 +73,18 @@ baseFreshOverride bty sty getStr =
   , C.typedOverrideRet = C.baseToType bty
   }
 
+-- | Build an override that takes no arguments and returns a fresh constant a
+-- given name. Generally, frontends should prefer 'baseFreshOverride', to allow
+-- users to specify variable names.
+baseFreshOverride' :: 
+  C.IsSymInterface sym =>
+  -- | Variable name
+  String ->
+  W4.BaseTypeRepr bty ->
+  C.TypedOverride (p sym) sym ext C.EmptyCtx (C.BaseToType bty)
+baseFreshOverride' nm bty =
+  C.TypedOverride
+  { C.typedOverrideHandler = \Ctx.Empty -> mkFresh nm bty
+  , C.typedOverrideArgs = Ctx.Empty
+  , C.typedOverrideRet = C.baseToType bty
+  }

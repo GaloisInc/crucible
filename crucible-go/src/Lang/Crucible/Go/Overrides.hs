@@ -11,6 +11,7 @@ as well as assuming and asserting boolean predicates.
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.Go.Overrides where
@@ -67,11 +68,11 @@ mkSomeOverride pkg nm argsRepr retRepr overrideSim =
 
 fresh_int :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
-             -> Crux.OverM p sym ext (RegValue sym (BVType w))
-fresh_int w = Crux.mkFresh "X" $ BaseBVRepr w
+             -> C.TypedOverride (p sym) sym ext Ctx.EmptyCtx (BVType w)
+fresh_int w = Crux.baseFreshOverride' "X" (BaseBVRepr w)
 
-fresh_int' :: (IsSymInterface sym, KnownNat w, 1 <= w)
-           => Crux.OverM p sym ext (RegValue sym (BVType w))
+fresh_int' :: (KnownNat w, 1 <= w, IsSymInterface sym)
+           => C.TypedOverride (p sym) sym ext Ctx.EmptyCtx (BVType w)
 fresh_int' = fresh_int knownNat
 
 fresh_float :: IsSymInterface sym
@@ -114,24 +115,16 @@ go_overrides :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
              -> [SomeOverride (p sym) sym ext]
 go_overrides w =
-  [ mkSomeOverride "crucible" "FreshInt" Ctx.empty (BVRepr w) (\_args -> fresh_int w)
-  , mkSomeOverride "crucible" "FreshInt8" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 8)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshInt16" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 16)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshInt32" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 32)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshInt64" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 64)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshUint" Ctx.empty (BVRepr w) (\_args -> fresh_int w)
-  , mkSomeOverride "crucible" "FreshUint8" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 8)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshUint16" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 16)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshUint32" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 32)) (\_args -> fresh_int')
-  , mkSomeOverride "crucible" "FreshUint64" Ctx.empty
-    (BVRepr (knownNat :: NatRepr 64)) (\_args -> fresh_int')
+  [ SomeOverride "crucible" "FreshInt" (fresh_int w)
+  , SomeOverride "crucible" "FreshInt8" (fresh_int' @8)
+  , SomeOverride "crucible" "FreshInt16" (fresh_int' @16) 
+  , SomeOverride "crucible" "FreshInt32" (fresh_int' @32)
+  , SomeOverride "crucible" "FreshInt64" (fresh_int' @64)
+  , SomeOverride "crucible" "FreshUint" (fresh_int w)
+  , SomeOverride "crucible" "FreshUint8" (fresh_int' @8)
+  , SomeOverride "crucible" "FreshUint16" (fresh_int' @16)
+  , SomeOverride "crucible" "FreshUint32" (fresh_int' @32)
+  , SomeOverride "crucible" "FreshUint64" (fresh_int' @64)
   , mkSomeOverride "crucible" "FreshString" Ctx.empty
     (StringRepr UnicodeRepr) $ (\_args -> fresh_string UnicodeRepr)
   , mkSomeOverride "crucible" "Assume"
