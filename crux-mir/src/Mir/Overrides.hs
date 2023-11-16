@@ -65,6 +65,7 @@ import Lang.Crucible.Utils.MuxTree
 
 
 import Crux (SomeOnlineSolver(..))
+import qualified Crux.Overrides as Crux
 
 import Mir.DefId
 import Mir.FancyMuxTree
@@ -93,34 +94,24 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
 
 makeSymbolicVar ::
     IsSymInterface sym =>
-    RegEntry sym (MirSlice (BVType 8)) ->
     BaseTypeRepr btp ->
-    OverrideSim (p sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
-makeSymbolicVar nameReg btpr = ovrWithBackend $ \bak -> do
-    sym <- getSymInterface
-    nameOpt <- getString $ regValue nameReg
-    name <- case nameOpt of
-        Just x -> return $ Text.unpack x
-        Nothing -> fail "symbolic variable name must be a concrete string"
-    nameSymbol <- case userSymbol name of
-        Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
-        Right x -> return x
-    v <- liftIO $ freshConstant sym nameSymbol btpr
-    loc <- liftIO $ getCurrentProgramLoc sym
-    let ev = CreateVariableEvent loc name btpr v
-    liftIO $ addAssumptions bak (singleEvent ev)
-    return v
+    TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice (BVType 8)) (BaseToType btp)
+makeSymbolicVar btpr =
+  Crux.baseFreshOverride btpr strrepr $ \(RV strSlice) -> do
+    mstr <- getString strSlice
+    case mstr of
+      Nothing -> fail "symbolic variable name must be a concrete string"            
+      Just s -> pure (Text.unpack s)
+  where
+    strrepr :: TypeRepr (MirSlice (BVType 8))
+    strrepr = knownRepr
 
 array_symbolic ::
   forall sym rtp btp p .
   (IsSymInterface sym) =>
   BaseTypeRepr btp ->
-  OverrideSim (p sym) sym MIR rtp
-    (EmptyCtx ::> MirSlice (BVType 8)) (UsizeArrayType btp)
-    (RegValue sym (UsizeArrayType btp))
-array_symbolic btpr = do
-    RegMap (Empty :> nameReg) <- getOverrideArgs
-    makeSymbolicVar nameReg $ BaseArrayRepr (Empty :> BaseUsizeRepr) btpr
+  TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice (BVType 8)) (UsizeArrayType btp)
+array_symbolic btpr = makeSymbolicVar (BaseArrayRepr (Empty :> BaseUsizeRepr) btpr)
 
 concretize ::
   forall sym bak rtp tp p .
@@ -405,7 +396,7 @@ bindFn symOnline cs name cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
+    mkTypedOverride "array::symbolic" (array_symbolic btpr)
 
   | hasInstPrefix ["crucible", "concretize"] explodedName
   , Empty :> tpr <- cfgArgTypes cfg
@@ -481,9 +472,7 @@ bindFn _symOnline _cs fn cfg =
     symb_bv :: forall n . (1 <= n)
             => ExplodedDefId -> NatRepr n
             -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
-    symb_bv edid n =
-      override edid (Empty :> strrepr) (BVRepr n) $ \(Empty :> RV str) ->
-        makeSymbolicVar (RegEntry strrepr str) $ BaseBVRepr n
+    symb_bv edid n = (edid, SomeTypedOverride $ makeSymbolicVar (BaseBVRepr n))
 
     overrides :: IsSymBackend sym bak'
               => bak'

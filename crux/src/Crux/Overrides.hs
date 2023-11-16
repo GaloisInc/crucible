@@ -1,0 +1,74 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeOperators #-}
+
+module Crux.Overrides
+  ( mkFresh
+  , mkFreshFloat
+  , baseFreshOverride
+  ) where
+
+import qualified Data.Parameterized.Context as Ctx
+
+import What4.BaseTypes (BaseTypeRepr)
+import qualified What4.Interface as W4
+import qualified What4.InterpretedFloatingPoint as W4
+
+import qualified Lang.Crucible.Backend as C
+import qualified Lang.Crucible.Simulator.RegValue as C
+import qualified Lang.Crucible.Types as C
+import qualified Lang.Crucible.Simulator.OverrideSim as C
+
+import Crux.Types (OverM)
+import Control.Monad.IO.Class (liftIO)
+
+mkFresh ::
+  C.IsSymInterface sym =>
+  String ->
+  BaseTypeRepr ty ->
+  OverM personality sym ext (C.RegValue sym (C.BaseToType ty))
+mkFresh nm ty =
+  C.ovrWithBackend $ \bak ->
+    do let sym = C.backendGetSym bak
+       let name = W4.safeSymbol nm
+       elt <- liftIO (W4.freshConstant sym name ty)
+       loc <- liftIO $ W4.getCurrentProgramLoc sym
+       let ev = C.CreateVariableEvent loc nm ty elt
+       liftIO $ C.addAssumptions bak (C.singleEvent ev)
+       return elt
+
+mkFreshFloat ::
+  C.IsSymInterface sym =>
+  String ->
+  C.FloatInfoRepr fi ->
+  OverM personality sym ext (C.RegValue sym (C.FloatType fi))
+mkFreshFloat nm fi =
+  C.ovrWithBackend $ \bak ->
+    do let sym = C.backendGetSym bak
+       let name = W4.safeSymbol nm
+       elt <- liftIO $ W4.freshFloatConstant sym name fi
+       loc <- liftIO $ W4.getCurrentProgramLoc sym
+       let ev = C.CreateVariableEvent loc nm (W4.iFloatBaseTypeRepr sym fi) elt
+       liftIO $ C.addAssumptions bak (C.singleEvent ev)
+       return elt
+
+-- | Build an override that takes a string and returns a fresh constant with
+-- that string as its name.
+baseFreshOverride :: 
+  C.IsSymInterface sym =>
+  W4.BaseTypeRepr bty ->
+  -- | The language's string type (e.g., @LLVMPointerType@ for LLVM)
+  C.TypeRepr stringTy ->
+  -- | Get the variable name as a concrete string from the override arguments
+  (C.RegValue' sym stringTy -> OverM p sym ext String) ->
+  C.TypedOverride (p sym) sym ext (C.EmptyCtx C.::> stringTy) (C.BaseToType bty)
+baseFreshOverride bty sty getStr =
+  C.TypedOverride
+  { C.typedOverrideHandler = \(Ctx.Empty Ctx.:> strVal) -> do
+      str <- getStr strVal
+      mkFresh str bty
+  , C.typedOverrideArgs = Ctx.Empty Ctx.:> sty
+  , C.typedOverrideRet = C.baseToType bty
+  }
+

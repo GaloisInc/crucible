@@ -38,6 +38,7 @@ import           Lang.Crucible.Types
 
 import           Lang.Crucible.Go.Types
 
+import qualified Crux.Overrides as Crux
 import qualified Crux.Types   as Crux
 
 data SomeOverride p sym ext where
@@ -64,18 +65,10 @@ mkSomeOverride pkg nm argsRepr retRepr overrideSim =
   , C.typedOverrideRet = retRepr
   }
 
-mkFresh :: IsSymInterface sym
-        => String
-        -> BaseTypeRepr ty
-        -> Crux.OverM p sym ext (RegValue sym (BaseToType ty))
-mkFresh nm ty =
-  do sym  <- C.getSymInterface
-     liftIO $ W4.freshConstant sym (W4.safeSymbol nm) ty
-
 fresh_int :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
              -> Crux.OverM p sym ext (RegValue sym (BVType w))
-fresh_int w = mkFresh "X" $ BaseBVRepr w
+fresh_int w = Crux.mkFresh "X" $ BaseBVRepr w
 
 fresh_int' :: (IsSymInterface sym, KnownNat w, 1 <= w)
            => Crux.OverM p sym ext (RegValue sym (BVType w))
@@ -85,7 +78,7 @@ fresh_float :: IsSymInterface sym
             => FloatPrecisionRepr fp
             -> Crux.OverM p sym ext
             (RegValue sym (BaseToType (BaseFloatType fp)))
-fresh_float fp = mkFresh "X" $ BaseFloatRepr fp
+fresh_float fp = Crux.mkFresh "X" $ BaseFloatRepr fp
 
 -- TODO: float, float32, float64
 
@@ -93,7 +86,7 @@ fresh_string :: IsSymInterface sym
              => StringInfoRepr si
              -> Crux.OverM p sym ext
              (RegValue sym (BaseToType (BaseStringType si)))
-fresh_string si = mkFresh "X" $ BaseStringRepr si
+fresh_string si = Crux.mkFresh "X" $ BaseStringRepr si
 
 do_assume :: IsSymInterface sym
           => Assignment (C.RegValue' sym) (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)

@@ -36,7 +36,6 @@ import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
           (freshConstant, bvLit, bvAdd, asBV, predToBV,
           getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
-import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(GlobalVar)
@@ -52,7 +51,6 @@ import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
           ( IsSymInterface, IsSymBackend, addDurableAssertion
           , addAssumption, LabeledPred(..), CrucibleAssumption(..)
-          , addAssumptions, singleEvent, CrucibleEvent(..)
           , backendGetSym
           )
 import Lang.Crucible.LLVM.QQ( llvmOvr )
@@ -71,6 +69,7 @@ import           Lang.Crucible.LLVM.Intrinsics
 
 import Lang.Crucible.LLVM.Extension ( ArchWidth )
 
+import qualified Crux.Overrides as Crux
 import Crux.Types
 
 -- | This happens quite a lot, so just a shorter name
@@ -352,40 +351,6 @@ svCompOverrides =
 
 --------------------------------------------------------------------------------
 
-mkFresh ::
-  (IsSymInterface sym) =>
-  String ->
-  BaseTypeRepr ty ->
-  OverM personality sym ext (RegValue sym (BaseToType ty))
-mkFresh nm ty =
-  ovrWithBackend $ \bak ->
-    do let sym = backendGetSym bak
-       name <- case userSymbol nm of
-                 Left err -> fail (show err) -- XXX
-                 Right a  -> return a
-       elt <- liftIO (freshConstant sym name ty)
-       loc   <- liftIO $ getCurrentProgramLoc sym
-       let ev = CreateVariableEvent loc nm ty elt
-       liftIO $ addAssumptions bak (singleEvent ev)
-       return elt
-
-mkFreshFloat
-  ::(IsSymInterface sym)
-  => String
-  -> FloatInfoRepr fi
-  -> OverM personality sym ext (RegValue sym (FloatType fi))
-mkFreshFloat nm fi = do
-  ovrWithBackend $ \bak ->
-    do let sym = backendGetSym bak
-       name <- case userSymbol nm of
-                 Left err -> fail (show err) -- XXX
-                 Right a  -> return a
-       elt  <- liftIO $ freshFloatConstant sym name fi
-       loc  <- liftIO $ getCurrentProgramLoc sym
-       let ev = CreateVariableEvent loc nm (iFloatBaseTypeRepr sym fi) elt
-       liftIO $ addAssumptions bak (singleEvent ev)
-       return elt
-
 lookupString ::
   ( IsSymInterface sym, HasLLVMAnn sym, ArchOk arch
   , ?memOpts :: MemOptions ) =>
@@ -404,7 +369,7 @@ sv_comp_fresh_bits ::
   bak ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym (BVType w))
-sv_comp_fresh_bits w _mvar _bak Empty = mkFresh "X" (BaseBVRepr w)
+sv_comp_fresh_bits w _mvar _bak Empty = Crux.mkFresh "X" (BaseBVRepr w)
 
 sv_comp_fresh_float ::
   (IsSymBackend sym bak) =>
@@ -413,7 +378,7 @@ sv_comp_fresh_float ::
   bak ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym (FloatType fi))
-sv_comp_fresh_float fi _mvar _bak Empty = mkFreshFloat "X" fi
+sv_comp_fresh_float fi _mvar _bak Empty = Crux.mkFreshFloat "X" fi
 
 fresh_bits ::
   ( ArchOk arch, HasLLVMAnn sym, IsSymBackend sym bak, 1 <= w
@@ -426,7 +391,7 @@ fresh_bits ::
   OverM personality sym ext (RegValue sym (BVType w))
 fresh_bits arch w mvar _ (Empty :> pName) =
   do name <- lookupString arch mvar pName
-     mkFresh name (BaseBVRepr w)
+     Crux.mkFresh name (BaseBVRepr w)
 
 fresh_float ::
   ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
@@ -439,7 +404,7 @@ fresh_float ::
   OverM personality sym ext (RegValue sym (FloatType fi))
 fresh_float arch fi mvar _ (Empty :> pName) =
   do name <- lookupString arch mvar pName
-     mkFreshFloat name fi
+     Crux.mkFreshFloat name fi
 
 fresh_str ::
   ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
