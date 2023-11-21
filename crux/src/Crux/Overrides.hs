@@ -26,31 +26,29 @@ import Control.Monad.IO.Class (liftIO)
 
 mkFresh ::
   C.IsSymInterface sym =>
-  String ->
+  W4.SolverSymbol ->
   BaseTypeRepr ty ->
   OverM personality sym ext (C.RegValue sym (C.BaseToType ty))
-mkFresh nm ty =
+mkFresh name ty =
   C.ovrWithBackend $ \bak ->
     do let sym = C.backendGetSym bak
-       let name = W4.safeSymbol nm
        elt <- liftIO (W4.freshConstant sym name ty)
        loc <- liftIO $ W4.getCurrentProgramLoc sym
-       let ev = C.CreateVariableEvent loc nm ty elt
+       let ev = C.CreateVariableEvent loc (show name) ty elt
        liftIO $ C.addAssumptions bak (C.singleEvent ev)
        return elt
 
 mkFreshFloat ::
   C.IsSymInterface sym =>
-  String ->
+  W4.SolverSymbol ->
   C.FloatInfoRepr fi ->
   OverM personality sym ext (C.RegValue sym (C.FloatType fi))
-mkFreshFloat nm fi =
+mkFreshFloat name fi =
   C.ovrWithBackend $ \bak ->
     do let sym = C.backendGetSym bak
-       let name = W4.safeSymbol nm
        elt <- liftIO $ W4.freshFloatConstant sym name fi
        loc <- liftIO $ W4.getCurrentProgramLoc sym
-       let ev = C.CreateVariableEvent loc nm (W4.iFloatBaseTypeRepr sym fi) elt
+       let ev = C.CreateVariableEvent loc (show name) (W4.iFloatBaseTypeRepr sym fi) elt
        liftIO $ C.addAssumptions bak (C.singleEvent ev)
        return elt
 
@@ -62,7 +60,7 @@ baseFreshOverride ::
   -- | The language's string type (e.g., @LLVMPointerType@ for LLVM)
   C.TypeRepr stringTy ->
   -- | Get the variable name as a concrete string from the override arguments
-  (C.RegValue' sym stringTy -> OverM p sym ext String) ->
+  (C.RegValue' sym stringTy -> OverM p sym ext W4.SolverSymbol) ->
   C.TypedOverride (p sym) sym ext (C.EmptyCtx C.::> stringTy) (C.BaseToType bty)
 baseFreshOverride bty sty getStr =
   C.TypedOverride
@@ -79,7 +77,7 @@ baseFreshOverride bty sty getStr =
 baseFreshOverride' :: 
   C.IsSymInterface sym =>
   -- | Variable name
-  String ->
+  W4.SolverSymbol ->
   W4.BaseTypeRepr bty ->
   C.TypedOverride (p sym) sym ext C.EmptyCtx (C.BaseToType bty)
 baseFreshOverride' nm bty =

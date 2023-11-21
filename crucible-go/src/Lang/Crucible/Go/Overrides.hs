@@ -69,7 +69,7 @@ mkSomeOverride pkg nm argsRepr retRepr overrideSim =
 fresh_int :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
              -> C.TypedOverride (p sym) sym ext Ctx.EmptyCtx (BVType w)
-fresh_int w = Crux.baseFreshOverride' "X" (BaseBVRepr w)
+fresh_int w = Crux.baseFreshOverride' (W4.safeSymbol "X") (BaseBVRepr w)
 
 fresh_int' :: (KnownNat w, 1 <= w, IsSymInterface sym)
            => C.TypedOverride (p sym) sym ext Ctx.EmptyCtx (BVType w)
@@ -79,7 +79,7 @@ fresh_float :: IsSymInterface sym
             => FloatPrecisionRepr fp
             -> Crux.OverM p sym ext
             (RegValue sym (BaseToType (BaseFloatType fp)))
-fresh_float fp = Crux.mkFresh "X" $ BaseFloatRepr fp
+fresh_float fp = Crux.mkFresh (W4.safeSymbol "X") $ BaseFloatRepr fp
 
 -- TODO: float, float32, float64
 
@@ -87,7 +87,7 @@ fresh_string :: IsSymInterface sym
              => StringInfoRepr si
              -> Crux.OverM p sym ext
              (RegValue sym (BaseToType (BaseStringType si)))
-fresh_string si = Crux.mkFresh "X" $ BaseStringRepr si
+fresh_string si = Crux.mkFresh (W4.safeSymbol "X") $ BaseStringRepr si
 
 do_assume :: IsSymInterface sym
           => Assignment (C.RegValue' sym) (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)

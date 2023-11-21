@@ -32,7 +32,7 @@ import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 
 import What4.ProgramLoc( Position(..), ProgramLoc(..) )
-import What4.Symbol(userSymbol, emptySymbol)
+import What4.Symbol(userSymbol, emptySymbol, safeSymbol)
 import What4.Interface
           (freshConstant, bvLit, bvAdd, asBV, predToBV,
           getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
@@ -369,7 +369,7 @@ sv_comp_fresh_bits ::
   bak ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym (BVType w))
-sv_comp_fresh_bits w _mvar _bak Empty = Crux.mkFresh "X" (BaseBVRepr w)
+sv_comp_fresh_bits w _mvar _bak Empty = Crux.mkFresh (safeSymbol "X") (BaseBVRepr w)
 
 sv_comp_fresh_float ::
   (IsSymBackend sym bak) =>
@@ -378,7 +378,7 @@ sv_comp_fresh_float ::
   bak ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym (FloatType fi))
-sv_comp_fresh_float fi _mvar _bak Empty = Crux.mkFreshFloat "X" fi
+sv_comp_fresh_float fi _mvar _bak Empty = Crux.mkFreshFloat (safeSymbol "X") fi
 
 fresh_bits ::
   ( ArchOk arch, HasLLVMAnn sym, IsSymBackend sym bak, 1 <= w
@@ -391,7 +391,7 @@ fresh_bits ::
   OverM personality sym ext (RegValue sym (BVType w))
 fresh_bits arch w mvar _ (Empty :> pName) =
   do name <- lookupString arch mvar pName
-     Crux.mkFresh name (BaseBVRepr w)
+     Crux.mkFresh (safeSymbol name) (BaseBVRepr w)
 
 fresh_float ::
   ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym
@@ -404,7 +404,7 @@ fresh_float ::
   OverM personality sym ext (RegValue sym (FloatType fi))
 fresh_float arch fi mvar _ (Empty :> pName) =
   do name <- lookupString arch mvar pName
-     Crux.mkFreshFloat name fi
+     Crux.mkFreshFloat (safeSymbol name) fi
 
 fresh_str ::
   ( ArchOk arch, IsSymBackend sym bak, HasLLVMAnn sym

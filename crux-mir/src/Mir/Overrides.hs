@@ -101,7 +101,10 @@ makeSymbolicVar btpr =
     mstr <- getString strSlice
     case mstr of
       Nothing -> fail "symbolic variable name must be a concrete string"            
-      Just s -> pure (Text.unpack s)
+      Just name ->
+        case userSymbol (Text.unpack name) of
+          Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
+          Right x -> return x
   where
     strrepr :: TypeRepr (MirSlice (BVType 8))
     strrepr = knownRepr
