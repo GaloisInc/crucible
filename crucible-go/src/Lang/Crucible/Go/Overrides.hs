@@ -106,9 +106,7 @@ do_assert args = C.ovrWithBackend $ \bak -> do
   let sym = backendGetSym bak
   (Empty :> _mgs :> _file :> C.RV b) <- pure args
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addDurableAssertion bak (LabeledPred b
-                                    (C.SimError loc $ C.AssertFailureSimError
-                                     "assertion_failure" ""))
+  Crux.doCrucibleAssert "assertion_failure" b (plSourceLoc loc)
   return Ctx.empty
 
 go_overrides :: (IsSymInterface sym, 1 <= w)

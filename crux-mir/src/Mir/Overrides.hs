@@ -42,6 +42,7 @@ import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
 import What4.Partial (PartExpr, pattern PE, pattern Unassigned)
+import qualified What4.ProgramLoc as W4
 import What4.Protocol.Online ( checkWithAssumptionsAndModel )
 import What4.SatResult (SatResult(..))
 
@@ -508,9 +509,10 @@ bindFn _symOnline _cs fn cfg =
                                (BV.asUnsigned <$> asBV (unRV lineArg))
                        col <- maybe (fail "not a constant column number") pure $
                               (BV.asUnsigned <$> asBV (unRV colArg))
+                       let loc = W4.SourcePos file (fromIntegral line) (fromIntegral col)
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
-                       let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src) ""
-                       liftIO $ assert bak (unRV c) reason
+                       let msg = "MIR assertion at " <> locStr <> ":\n\t" <> src
+                       Crux.doCrucibleAssert msg (unRV c) loc
                        return ()
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override ["crucible", "crucible_assume_impl"] argTys UnitRepr $

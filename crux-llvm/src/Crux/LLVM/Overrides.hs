@@ -21,6 +21,7 @@ module Crux.LLVM.Overrides
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import qualified Data.Text as Text
 import Control.Monad (when)
 import Control.Monad.IO.Class(liftIO)
 import GHC.Exts ( Proxy# )
@@ -481,11 +482,8 @@ do_assert arch mvar bak (Empty :> p :> pFile :> line) =
      l <- case asBV (regValue line) of
             Just (BV.BV l)  -> return (fromInteger l)
             Nothing -> return 0
-     let pos = SourcePos (T.pack file) l 0
-     loc <- liftIO $ getCurrentProgramLoc sym
-     let loc' = loc{ plSourceLoc = pos }
-     let msg = GenericSimError "crucible_assert"
-     liftIO $ addDurableAssertion bak (LabeledPred cond (SimError loc' msg))
+     let loc = SourcePos (Text.pack file) l 0
+     Crux.doCrucibleAssert "crucible_assert" cond loc
 
 do_print_uint32 ::
   (IsSymBackend sym bak) =>

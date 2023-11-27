@@ -8,6 +8,7 @@ module Crux.Overrides
   , mkFreshFloat
   , baseFreshOverride
   , baseFreshOverride'
+  , doCrucibleAssert
   ) where
 
 import qualified Data.Parameterized.Context as Ctx
@@ -15,8 +16,10 @@ import qualified Data.Parameterized.Context as Ctx
 import What4.BaseTypes (BaseTypeRepr)
 import qualified What4.Interface as W4
 import qualified What4.InterpretedFloatingPoint as W4
+import qualified What4.ProgramLoc as W4
 
 import qualified Lang.Crucible.Backend as C
+import qualified Lang.Crucible.Simulator.SimError as C
 import qualified Lang.Crucible.Simulator.RegValue as C
 import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.Simulator.OverrideSim as C
@@ -88,3 +91,22 @@ baseFreshOverride' nm bty =
   , C.typedOverrideArgs = Ctx.Empty
   , C.typedOverrideRet = C.baseToType bty
   }
+
+-- | Shared implementation of @crucible_assert@ override
+--
+-- Used in Go, LLVM, and MIR frontends.
+doCrucibleAssert ::
+  -- | Assertion failure message
+  String ->
+  -- | Condition to assert
+  W4.Pred sym ->
+  -- | Source position
+  W4.Position ->
+  C.OverrideSim p sym ext r args ret ()
+doCrucibleAssert msg cond pos =
+  C.ovrWithBackend $ \bak ->
+    do let sym = C.backendGetSym bak
+       loc <- liftIO $ W4.getCurrentProgramLoc sym
+       let loc' = loc { W4.plSourceLoc = pos }
+       let reason = C.AssertFailureSimError msg ""
+       liftIO $ C.addDurableAssertion bak (C.LabeledPred cond (C.SimError loc' reason))
