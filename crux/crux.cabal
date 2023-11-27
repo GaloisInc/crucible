@@ -70,6 +70,7 @@ library
     Crux.Config.Doc,
     Crux.Config.Common,
     Crux.Config.Solver,
+    Crux.Overrides,
     Crux.SVCOMP,
     Crux.SVCOMP.Witness,
     Crux.UI.JS,
