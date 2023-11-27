@@ -107,7 +107,7 @@ mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
         Just (SomeOverride _pkg fnm o@(C.TypedOverride override argsRepr retRepr)) ->
           case (testEquality (cfgArgTypes cfg) argsRepr,
                 testEquality (cfgReturnType cfg) retRepr) of
-            (Just Refl, Just Refl) -> UseOverride (C.mkTypedOverride fnm o)
+            (Just Refl, Just Refl) -> UseOverride (C.runTypedOverride fnm o)
             _ -> panic "[Go simulator] mkFunctionBindings"
                  [ "Type mismatch for override of " ++ show ident
                  , "  Expected: " ++ show (cfgArgTypes cfg) ++ " -> " ++ show (cfgReturnType cfg)

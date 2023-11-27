@@ -75,7 +75,7 @@ module Lang.Crucible.Simulator.OverrideSim
     -- * Typed overrides
   , TypedOverride(..)
   , SomeTypedOverride(..)
-  , mkTypedOverride
+  , runTypedOverride
     -- * Re-exports
   , Lang.Crucible.Simulator.ExecutionTree.Override
   ) where
@@ -683,14 +683,16 @@ data TypedOverride p sym ext args ret
     , typedOverrideRet :: TypeRepr ret
     }
 
+-- | A 'TypedOverride' with the type parameters @args@, @ret@ existentially
+-- quantified
 data SomeTypedOverride p sym ext =
   forall args ret. SomeTypedOverride (TypedOverride p sym ext args ret)
 
 -- | Create an override from a 'TypedOverride'.
-mkTypedOverride ::
+runTypedOverride ::
   FunctionName ->
   TypedOverride p sym ext args ret ->
   Override p sym ext args ret
-mkTypedOverride nm typedOvr = mkOverride' nm (typedOverrideRet typedOvr) $ do
+runTypedOverride nm typedOvr = mkOverride' nm (typedOverrideRet typedOvr) $ do
   RegMap args <- getOverrideArgs
   typedOverrideHandler typedOvr (fmapFC (RV . regValue) args)

@@ -24,6 +24,7 @@ import qualified Lang.Crucible.Simulator.OverrideSim as C
 import Crux.Types (OverM)
 import Control.Monad.IO.Class (liftIO)
 
+-- | Create a fresh constant ('W4.freshConstant') with the given base type
 mkFresh ::
   C.IsSymInterface sym =>
   W4.SolverSymbol ->
@@ -38,6 +39,7 @@ mkFresh name ty =
        liftIO $ C.addAssumptions bak (C.singleEvent ev)
        return elt
 
+-- | Create a fresh float constant ('W4.freshFloatConstant')
 mkFreshFloat ::
   C.IsSymInterface sym =>
   W4.SolverSymbol ->
@@ -71,9 +73,9 @@ baseFreshOverride bty sty getStr =
   , C.typedOverrideRet = C.baseToType bty
   }
 
--- | Build an override that takes no arguments and returns a fresh constant a
--- given name. Generally, frontends should prefer 'baseFreshOverride', to allow
--- users to specify variable names.
+-- | Build an override that takes no arguments and returns a fresh
+-- constant that uses the given name. Generally, frontends should prefer
+-- 'baseFreshOverride', to allow users to specify variable names.
 baseFreshOverride' :: 
   C.IsSymInterface sym =>
   -- | Variable name

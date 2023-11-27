@@ -399,7 +399,7 @@ bindFn symOnline cs name cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkTypedOverride "array::symbolic" (array_symbolic btpr)
+    runTypedOverride "array::symbolic" (array_symbolic btpr)
 
   | hasInstPrefix ["crucible", "concretize"] explodedName
   , Empty :> tpr <- cfgArgTypes cfg
@@ -448,7 +448,7 @@ bindFn _symOnline _cs fn cfg =
                            ".\n\tExpected (" ++ show (cfgArgTypes cfg) ++ ") → " ++ show (cfgReturnType cfg) ++
                            "\n\tbut got (" ++ show argTys ++ ") → (" ++ show retTy ++ ")."
         Just (Refl, Refl) ->
-          bindFnHandle (cfgHandle cfg) $ UseOverride (mkTypedOverride (functionNameFromText fn) o)
+          bindFnHandle (cfgHandle cfg) $ UseOverride (runTypedOverride (functionNameFromText fn) o)
 
   where
     override ::
