@@ -41,7 +41,7 @@ other targets.
     $ ./translate_libs.sh wasm32-unknown-unknown
 
 When upgrading from a previous version, first install the new `mir-json`
-version, then rerun both commands.
+version, then rerun the `cabal v2-install` and `./translate_libs.sh` commands.
 
 
 ## Usage
