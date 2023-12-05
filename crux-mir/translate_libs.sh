@@ -2,21 +2,24 @@
 
 set -e
 
-TARGET=$1
+TARGET=${1:-$(rustc -Z unstable-options --print target-spec-json | jq -r '."llvm-target"')}
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 RLIBS_PARENT="${SCRIPT_DIR}/rlibs_real"
 RLIBS_SYMLINK="${SCRIPT_DIR}/rlibs"
-RLIBS=$(rustc ${TARGET:+ --target "$TARGET"} --print target-libdir --sysroot "${RLIBS_PARENT}")
-if [ "$TARGET" ]; then
-  read -r -d - STD_ENV_ARCH <<< "$TARGET"
-else
-  STD_ENV_ARCH=$(uname -m)
-fi
+RLIBS=$(rustc --target "$TARGET" --print target-libdir --sysroot "${RLIBS_PARENT}")
+
+IFS=- read -r TARGET_ARCH _TARGET_VENDOR TARGET_OS <<< "$TARGET"
+
+STD_ENV_ARCH=$TARGET_ARCH
 export STD_ENV_ARCH
 
+if [ "$TARGET_ARCH" = "x86_64" ]; then
+  IS_X86_64=yes
+fi
+
 translate() {
-    mir-json ${TARGET:+ --target "$TARGET"} -L "${RLIBS}" --out-dir "${RLIBS}" --crate-type rlib --remap-path-prefix "$(pwd -P)=." "$@"
+    mir-json --target "$TARGET" -L "${RLIBS}" --out-dir "${RLIBS}" --crate-type rlib --remap-path-prefix "$(pwd -P)=." "$@"
 }
 
 mkdir -p "${RLIBS_PARENT}/bin"
@@ -52,7 +55,7 @@ echo 'Building cfg_if...'
 translate lib/cfg_if/src/lib.rs --edition=2018 --crate-name cfg_if --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib"
 
 echo 'Building memchr...'
-translate lib/memchr/src/lib.rs --edition=2018 --crate-name memchr --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --cfg memchr_runtime_simd --cfg memchr_runtime_sse2 --cfg memchr_runtime_sse42 --cfg 'memchr_runtime_avx`' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib"
+translate lib/memchr/src/lib.rs --edition=2018 --crate-name memchr --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' ${IS_X86_64:+ --cfg memchr_runtime_simd --cfg memchr_runtime_sse2 --cfg memchr_runtime_sse42 --cfg 'memchr_runtime_avx`'} --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib"
 
 echo 'Building adler...'
 translate lib/adler/src/lib.rs  --crate-name adler --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib"
@@ -90,8 +93,14 @@ translate lib/hashbrown/src/lib.rs --edition=2021 --crate-name hashbrown --cfg '
 echo 'Building addr2line...'
 translate lib/addr2line/src/lib.rs  --crate-name addr2line --cfg 'feature="alloc"' --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "gimli=${RLIBS}/libgimli.rlib" --extern "alloc=${RLIBS}/liballoc.rlib" --extern "core=${RLIBS}/libcore.rlib"
 
+if [ "$TARGET_ARCH" = "wasm32" ] && [ "$TARGET_OS" != "emscripten" ]; then
+  USE_DLMALLOC=yes
+  echo 'Building dlmalloc...'
+  translate lib/dlmalloc/src/lib.rs --crate-name dlmalloc --cfg 'feature="rustc-dep-of-std"' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib"
+fi
+
 echo 'Building std...'
-translate lib/std/src/lib.rs --edition=2021 --crate-name std --cfg 'feature="addr2line"' --cfg 'feature="backtrace"' --cfg 'feature="gimli-symbolize"' --cfg 'feature="miniz_oxide"' --cfg 'feature="object"' --cfg 'feature="panic_unwind"' --cfg 'feature="std_detect_dlsym_getauxval"' --cfg 'feature="std_detect_file_io"' --cfg 'backtrace_in_libstd`' --extern "addr2line=${RLIBS}/libaddr2line.rlib" --extern "alloc=${RLIBS}/liballoc.rlib" --extern "cfg_if=${RLIBS}/libcfg_if.rlib" --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib" --extern "hashbrown=${RLIBS}/libhashbrown.rlib" --extern "libc=${RLIBS}/liblibc.rlib" --extern "miniz_oxide=${RLIBS}/libminiz_oxide.rlib" --extern "object=${RLIBS}/libobject.rlib" --extern "panic_abort=${RLIBS}/libpanic_abort.rlib" --extern "panic_unwind=${RLIBS}/libpanic_unwind.rlib" --extern "rustc_demangle=${RLIBS}/librustc_demangle.rlib" --extern "std_detect=${RLIBS}/libstd_detect.rlib" --extern "unwind=${RLIBS}/libunwind.rlib"
+translate lib/std/src/lib.rs --edition=2021 --crate-name std --cfg 'feature="addr2line"' --cfg 'feature="backtrace"' --cfg 'feature="gimli-symbolize"' --cfg 'feature="miniz_oxide"' --cfg 'feature="object"' --cfg 'feature="panic_unwind"' --cfg 'feature="std_detect_dlsym_getauxval"' --cfg 'feature="std_detect_file_io"' --cfg 'backtrace_in_libstd`' --extern "addr2line=${RLIBS}/libaddr2line.rlib" --extern "alloc=${RLIBS}/liballoc.rlib" --extern "cfg_if=${RLIBS}/libcfg_if.rlib" --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "core=${RLIBS}/libcore.rlib" --extern "hashbrown=${RLIBS}/libhashbrown.rlib" --extern "libc=${RLIBS}/liblibc.rlib" --extern "miniz_oxide=${RLIBS}/libminiz_oxide.rlib" --extern "object=${RLIBS}/libobject.rlib" --extern "panic_abort=${RLIBS}/libpanic_abort.rlib" --extern "panic_unwind=${RLIBS}/libpanic_unwind.rlib" --extern "rustc_demangle=${RLIBS}/librustc_demangle.rlib" --extern "std_detect=${RLIBS}/libstd_detect.rlib" --extern "unwind=${RLIBS}/libunwind.rlib" ${USE_DLMALLOC:+ --extern "dlmalloc=${RLIBS}/libdlmalloc.rlib"}
 
 echo 'Building proc_macro...'
 translate lib/proc_macro/src/lib.rs --edition=2021 --crate-name proc_macro --extern "core=${RLIBS}/libcore.rlib" --extern "std=${RLIBS}/libstd.rlib"
