@@ -1,3 +1,8 @@
+# next
+
+* `bindLLVMFunPtr` now accepts an `Text.LLVM.AST.Symbol` rather than a whole `Declare`.
+  Use `decName` to get a `Symbol` from a `Declare`.
+
 # 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:
   * `Lang.Crucible.LLVM.MemModel`: `doStore`, `storeRaw`, `condStoreRaw`, and
