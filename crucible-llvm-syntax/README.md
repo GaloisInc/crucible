@@ -27,9 +27,11 @@ statements:
 If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 
 - `ptr : Nat -> Bitvector n -> Ptr n`: construct a pointer from a block and offset
+- `ptr-add-offset : Ptr w -> Bitvector w -> Ptr w`: add an offset to a pointer
 - `ptr-block : Ptr n -> Nat`: get the block number of a pointer
 - `ptr-offset : Ptr n -> Bitvector n`: get the offset of a pointer
 - `ptr-ite : Bool -> Ptr n -> Ptr n -> Ptr n`: if-then-else for pointers
+- `ptr-sub : Ptr w -> Ptr w -> Ptr w`: subtract two pointers
 - `alloca : Alignment -> Bitvector w -> Ptr w`: allocate space on the stack
 - `load : Alignment -> LLVMType -> Ptr w -> T`: load a value from memory, where the type `T` is determined by the `LLVMType`
 - `load-handle : Type -> [Type] -> Ptr w -> T`: load a function handle from memory, where the type `T` is determined by the given return and argument types
