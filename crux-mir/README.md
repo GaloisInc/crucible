@@ -32,6 +32,14 @@ Then translate the Rust libraries in `lib/`:
 
     $ ./translate_libs.sh
 
+If you want to cross-compile for a different target, you can pass a [target
+triple](https://doc.rust-lang.org/nightly/rustc/platform-support.html) as an
+optional argument to `./translate_libs.sh`. This is experimental and we have
+only tested `wasm32-unknown-unknown` to work; you might get build errors for
+other targets.
+
+    $ ./translate_libs.sh wasm32-unknown-unknown
+
 When upgrading from a previous version, first install the new `mir-json`
 version, then rerun both commands.
 
