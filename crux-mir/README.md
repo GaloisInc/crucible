@@ -28,7 +28,8 @@ Use 8.10.7, 9.2.7, or 9.4.4.  From the `crux-mir` directory, run:
 
     $ cabal v2-install exe:crux-mir --overwrite-policy=always
 
-Then translate the Rust libraries in `lib/`:
+Then translate the Rust libraries in `lib/` (requires
+[`jq`](https://jqlang.github.io/jq/)):
 
     $ ./translate_libs.sh
 
