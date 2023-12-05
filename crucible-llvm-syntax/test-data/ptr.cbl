@@ -11,6 +11,9 @@
 
     (let sz (bv 64 1))
     (let a (alloca none sz))
+    (let b (ptr-add-offset a sz))
+    (let c (ptr-sub b a))
+
     (let vblk0 (the Nat 0))
     (let voff0 (bv 8 255))
     (let v0 (ptr 8 vblk0 voff0))

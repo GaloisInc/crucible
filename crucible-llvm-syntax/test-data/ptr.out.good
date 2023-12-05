@@ -10,6 +10,8 @@
       (assert! (equal? off0 off) "offsets equal")
       (let sz (bv 64 1))
       (let a (alloca none sz))
+      (let b (ptr-add-offset a sz))
+      (let c (ptr-sub b a))
       (let vblk0 (the Nat 0))
       (let voff0 (bv 8 255))
       (let v0 (ptr 8 vblk0 voff0))
@@ -55,34 +57,38 @@ test-ptr
   $11 = bVLit(64, BV 1)
   % 13:12
   $12 = alloca crucible-llvm-syntax-test-memory $11 Alignment 0 test-data/ptr.cbl:13:12
-  % 15:16
-  $13 = bVLit(8, BV 255)
-  % 16:13
-  $14 = extensionApp(pointerExpr $0 $13)
-  % 17:5
-  $15 = store crucible-llvm-syntax-test-memory $12 bitvectorType 1 Alignment 0 $14
-  % 18:12
-  $16 = load crucible-llvm-syntax-test-memory $12 bitvectorType 1 Alignment 0
-  % 19:15
-  $17 = extensionApp(pointerBlock $16)
-  % 20:15
-  $18 = extensionApp(pointerOffset $16)
-  % 21:14
-  $19 = natEq($0, $17)
-  % 21:34
-  $20 = stringLit("stored block numbers equal")
-  % 21:5
-  assert($19, $20)
-  % 22:14
-  $21 = baseIsEq(BaseBVRepr 8, $13, $18)
-  % 22:34
-  $22 = stringLit("stored offsets equal")
-  % 22:5
+  % 14:12
+  $13 = ptrAddOffset crucible-llvm-syntax-test-memory $12 $11
+  % 15:12
+  $14 = ptrSubtract crucible-llvm-syntax-test-memory $13 $12
+  % 18:16
+  $15 = bVLit(8, BV 255)
+  % 19:13
+  $16 = extensionApp(pointerExpr $0 $15)
+  % 20:5
+  $17 = store crucible-llvm-syntax-test-memory $12 bitvectorType 1 Alignment 0 $16
+  % 21:12
+  $18 = load crucible-llvm-syntax-test-memory $12 bitvectorType 1 Alignment 0
+  % 22:15
+  $19 = extensionApp(pointerBlock $18)
+  % 23:15
+  $20 = extensionApp(pointerOffset $18)
+  % 24:14
+  $21 = natEq($0, $19)
+  % 24:34
+  $22 = stringLit("stored block numbers equal")
+  % 24:5
   assert($21, $22)
-  % 24:12
-  $23 = resolveGlobal crucible-llvm-syntax-test-memory "malloc"
-  % 25:12
-  $24 = loadFunctionHandle crucible-llvm-syntax-test-memory $23 as Nothing
-  % 27:5
+  % 25:14
+  $23 = baseIsEq(BaseBVRepr 8, $15, $20)
+  % 25:34
+  $24 = stringLit("stored offsets equal")
+  % 25:5
+  assert($23, $24)
+  % 27:12
+  $25 = resolveGlobal crucible-llvm-syntax-test-memory "malloc"
+  % 28:12
+  $26 = loadFunctionHandle crucible-llvm-syntax-test-memory $25 as Nothing
+  % 30:5
   return $4
   % no postdom
