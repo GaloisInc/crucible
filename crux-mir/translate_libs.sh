@@ -2,7 +2,7 @@
 
 set -e
 
-TARGET=${1:-$(rustc -Z unstable-options --print target-spec-json | jq -r '."llvm-target"')}
+TARGET=${1:-$(rustc -vV | sed -n 's/host: //p')}
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 RLIBS_PARENT="${SCRIPT_DIR}/rlibs_real"
