@@ -203,16 +203,6 @@ impl<T, A: Allocator> Iterator for IntoIter<T, A> {
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let exact = if T::IS_ZST {
-            self.end.addr().wrapping_sub(self.ptr.addr())
-        } else {
-            unsafe { self.end.sub_ptr(self.ptr) }
-        };
-        (exact, Some(exact))
-    }
-
-    #[inline]
     fn advance_by(&mut self, n: usize) -> Result<(), usize> {
         let step_size = self.len().min(n);
         let to_drop = ptr::slice_from_raw_parts_mut(self.ptr as *mut T, step_size);
