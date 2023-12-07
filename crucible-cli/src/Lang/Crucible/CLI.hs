@@ -4,6 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.CLI
   ( simulateProgramWithExtension
@@ -36,6 +37,7 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Reg as C.Reg
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.CFG.Reg
 import Lang.Crucible.CFG.SSAConversion
@@ -141,11 +143,12 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                                   , parsedProgForwardDecs = fds
                                   }) -> do
                 case find isMain cs of
-                  Just (ACFG Ctx.Empty retType mn) ->
-                    do gst <- resolveExternsHook hooks sym externs emptyGlobals
+                  Just (AnyCFG mn@(C.Reg.cfgArgTypes -> Ctx.Empty)) ->
+                    do let retType = C.Reg.cfgReturnType mn
+                       gst <- resolveExternsHook hooks sym externs emptyGlobals
                        fwdDecFnBindings <- resolveForwardDeclarationsHook hooks fds
                        let mainHdl = cfgHandle mn
-                       let fns = foldl' (\(FnBindings m) (ACFG _ _ g) ->
+                       let fns = foldl' (\(FnBindings m) (AnyCFG g) ->
                                           case toSSA g of
                                             C.SomeCFG ssa ->
                                               FnBindings $
@@ -194,7 +197,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                   _ -> hPutStrLn outh "No suitable main function found"
 
   where
-  isMain (ACFG _ _ g) = handleName (cfgHandle g) == fromString "main"
+  isMain (AnyCFG g) = handleName (cfgHandle g) == fromString "main"
 
 simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)

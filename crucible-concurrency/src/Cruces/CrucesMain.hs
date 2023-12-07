@@ -94,15 +94,17 @@ cruciblesConfig = Crux.Config
       ]
   }
 
-findMain :: FunctionName -> [ACFG ()] -> FnVal sym Ctx.EmptyCtx C.UnitType
+findMain :: FunctionName -> [AnyCFG ()] -> FnVal sym Ctx.EmptyCtx C.UnitType
 findMain mainName cs =
   case find (isFn mainName) cs of
-    Just (ACFG Ctx.Empty C.UnitRepr m) ->
-      HandleFnVal (cfgHandle m)
+    Just (AnyCFG m) ->
+      case (cfgArgTypes m, cfgReturnType m) of
+        (Ctx.Empty, C.UnitRepr) -> HandleFnVal (cfgHandle m)
+        _ -> undefined
     _ ->
       undefined
   where
-    isFn x (ACFG _ _ g) = handleName (cfgHandle g) == x
+    isFn x (AnyCFG g) = handleName (cfgHandle g) == x
 
 run :: Crux.Logs Crux.CruxLogMessage
     => (Crux.CruxOptions, CrucesOptions)
@@ -155,7 +157,7 @@ run (cruxOpts, opts) =
                                           [ case toSSA g of
                                               C.SomeCFG ssa ->
                                                 FnBinding (cfgHandle g) (UseCFG ssa (postdomInfo ssa))
-                                          | ACFG _ _ g <- cs
+                                          | AnyCFG g <- cs
                                           ] ++ exploreBuiltins
                                 )
             res <- Crux.runSimulator cruxOpts { Crux.solver = "yices"

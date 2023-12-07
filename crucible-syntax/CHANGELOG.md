@@ -1,3 +1,10 @@
+# next
+
+* The type `ACFG` has been removed in favor of `Lang.Crucible.CFG.Reg.AnyCFG`,
+  which serves a similar purpose (hiding the argument and return types). The
+  CFG argument and return types can be recovered via
+  `Lang.Crucible.CFG.Reg.{cfgArgTypes,cfgReturnType}`.
+
 # 0.3
 
 * The return type of `prog`:

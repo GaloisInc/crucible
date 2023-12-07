@@ -966,7 +966,7 @@ toSSA :: C.IsSyntaxExtension ext
       -> C.SomeCFG ext init ret
 toSSA g = do
   let h = cfgHandle g
-  let initTypes = cfgInputTypes g
+  let initTypes = cfgArgTypes g
   let entry = cfgEntryLabel g
   let blocks = cfgBlocks g
   case resolveBlockMap (handleName h) entry blocks of
