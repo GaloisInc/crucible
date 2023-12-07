@@ -121,6 +121,14 @@ llvmAtomParser mvar =
           ptrAtom <- Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
           return (Some ptrAtom)
 
+      Atom.AtomName "ptr-add-offset" -> Parse.describe "LLVM ptr-add-offset arguments" $ do
+        loc <- Parse.position
+        assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> BVRepr ?ptrWidth)
+        let (rest, bv) = Ctx.decompose assign
+        let (Ctx.Empty, ptr) = Ctx.decompose rest
+        let stmt = Ext.LLVM_PtrAddOffset ?ptrWidth mvar ptr bv
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
       Atom.AtomName "ptr-block" -> Parse.describe "LLVM ptr-block arguments" $ do
         loc <- Parse.position
         Parse.depCons Parse.posNat $ \(Parse.BoundedNat w) -> do
@@ -146,6 +154,14 @@ llvmAtomParser mvar =
           let (Ctx.Empty, b) = Ctx.decompose rest'
           let expr = Ext.LLVM_PointerIte w b p1 p2
           Some <$> Parse.freshAtom loc (Reg.EvalApp (Expr.ExtensionApp expr))
+
+      Atom.AtomName "ptr-sub" -> Parse.describe "LLVM ptr-sub arguments" $ do
+        loc <- Parse.position
+        assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> LLVMPointerRepr ?ptrWidth)
+        let (rest, subtrahend) = Ctx.decompose assign
+        let (Ctx.Empty, minuend) = Ctx.decompose rest
+        let stmt = Ext.LLVM_PtrSubtract ?ptrWidth mvar minuend subtrahend
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
       Atom.AtomName "alloca" -> Parse.describe "LLVM alloca arguments" $ do
         loc <- Parse.position
