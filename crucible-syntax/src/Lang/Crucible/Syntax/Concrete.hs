@@ -28,7 +28,6 @@ module Lang.Crucible.Syntax.Concrete
   ( -- * Errors
     ExprErr(..)
   -- * Parsing and Results
-  , ACFG(..)
   , ParserHooks(..)
   , ParsedProgram(..)
   , defaultParserHooks
@@ -89,7 +88,6 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Numeric.Natural
 
-import qualified Lang.Crucible.CFG.Extension as LCCE
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import qualified Lang.Crucible.Syntax.ExprParse as SP
 import Lang.Crucible.Syntax.Monad
@@ -199,7 +197,7 @@ data ParsedProgram ext = ParsedProgram
     -- ^ For each parsed @extern@, map its name to its global variable. It is
     --   the responsibility of the caller to insert each global variable into
     --   the 'SymGlobalState' alongside an appropriate 'RegValue'.
-  , parsedProgCFGs :: [ACFG ext]
+  , parsedProgCFGs :: [AnyCFG ext]
     -- ^ The CFGs for each parsed @defun@.
   , parsedProgForwardDecs :: Map FunctionName SomeHandle
     -- ^ For each parsed @declare@, map its name to its function handle. It is
@@ -1924,16 +1922,6 @@ data Rand ext s t = Rand (AST s) (E ext s t)
 
 --------------------------------------------------------------------------
 
--- | Any CFG, regardless of its arguments and return type, with its helpers
-data ACFG ext :: Type where
-  ACFG :: forall (s :: Type) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
-          ( LCCE.IsSyntaxExtension ext ) =>
-          CtxRepr init -> TypeRepr ret ->
-          CFG ext s init ret ->
-          ACFG ext
-
-deriving instance Show (ACFG ext)
-
 data Arg t = Arg AtomName Position (TypeRepr t)
 
 someAssign ::
@@ -2228,7 +2216,7 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
 cfgs :: ( IsSyntaxExtension ext
         , ?parserHooks :: ParserHooks ext )
      => [AST s]
-     -> TopParser s [ACFG ext]
+     -> TopParser s [AnyCFG ext]
 cfgs = fmap parsedProgCFGs <$> prog
 
 prog :: ( TraverseExt ext
@@ -2240,8 +2228,7 @@ prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
        \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
-         do let types = argTypes funArgs
-            initParser hdr src
+         do initParser hdr src
             args <- toList <$> use stxAtoms
             let ?returnType = ret
             st <- get
@@ -2255,7 +2242,7 @@ prog defuns =
                                  LabelID lbl -> lbl
                                  LambdaID {} -> error "initial block is lambda"
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
-                   return $ ACFG types ret $ CFG handle entry (e' : rest)
+                   return $ AnyCFG (CFG handle entry (e' : rest))
      gs <- use stxGlobals
      externs <- use stxExterns
      fds <- uses stxForwardDecs $ fmap $

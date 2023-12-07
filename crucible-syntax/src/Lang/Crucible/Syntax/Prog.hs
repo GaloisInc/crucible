@@ -95,7 +95,7 @@ doParseCheck fn theInput pprint outh =
                 assertNoExterns externs
                 assertNoForwardDecs fds
                 forM_ ok $
-                 \(ACFG _ _ theCfg) ->
+                 \(AnyCFG theCfg) ->
                    do C.SomeCFG ssa <- return $ toSSA theCfg
                       hPutStrLn outh $ show $ cfgHandle theCfg
                       hPutStrLn outh $ show $ C.ppCFG' True (postdomInfo ssa) ssa
