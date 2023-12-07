@@ -440,8 +440,7 @@ bindFn _symOnline _cs fn cfg =
   ovrWithBackend $ \bak ->
   let s = backendGetSym bak in
   case Map.lookup (textIdKey fn) (overrides bak) of
-    Nothing ->
-      bindFnHandle (cfgHandle cfg) $ UseCFG cfg (postdomInfo cfg)
+    Nothing -> bindCFG cfg
     Just (SomeTypedOverride o@(TypedOverride f argTys retTy)) ->
       case (,) <$> testEquality (cfgReturnType cfg) retTy <*> testEquality (cfgArgTypes cfg) argTys of
         Nothing -> error $ "Mismatching override type for " ++ Text.unpack fn ++
