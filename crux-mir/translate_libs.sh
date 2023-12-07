@@ -97,7 +97,8 @@ echo 'Building addr2line...'
 translate lib/addr2line/src/lib.rs  --crate-name addr2line --cfg 'feature="alloc"' --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "gimli=${RLIBS}/libgimli.rlib" --extern "alloc=${RLIBS}/liballoc.rlib" --extern "core=${RLIBS}/libcore.rlib"
 
 # For wasm32 targets which are not emscripten, std depends on dlmalloc because
-# the runtime does not provide an allocator. See lib/std/Cargo.toml.
+# the runtime does not provide an allocator. See lib/std/Cargo.toml and
+# lib/std/src/sys/wasm/alloc.rs
 if [ "$TARGET_ARCH" = "wasm32" ] && [ "$TARGET_OS" != "emscripten" ]; then
   USE_DLMALLOC=yes
   echo 'Building dlmalloc...'
