@@ -31,6 +31,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , getSymInterface
   , ovrWithBackend
   , bindFnHandle
+  , bindCFG
   , exitExecution
   , getOverrideArgs
   , overrideError
@@ -245,6 +246,12 @@ bindFnHandle ::
   OverrideSim p sym ext rtp a r ()
 bindFnHandle h s =
   stateContext . functionBindings %= FnBindings . insertHandleMap h s . fnBindings
+
+-- | Bind a CFG to its handle.
+--
+-- Computes postdominator information.
+bindCFG :: CFG ext blocks args ret -> OverrideSim p sym ext rtp a r ()
+bindCFG c = bindFnHandle (cfgHandle c) (UseCFG c (postdomInfo c))
 
 ------------------------------------------------------------------------
 -- Mutable variables
