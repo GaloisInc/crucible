@@ -1019,7 +1019,7 @@ instance PrettyExt ext => Pretty (CFG ext s init ret) where
 data SomeCFG ext init ret = forall s . SomeCFG !(CFG ext s init ret)
 
 -- | Control flow graph.  This data type closes existentially
---   over all the type parameters.
+--   over all the type parameters except @ext@.
 data AnyCFG ext where
   AnyCFG :: CFG ext blocks init ret
          -> AnyCFG ext

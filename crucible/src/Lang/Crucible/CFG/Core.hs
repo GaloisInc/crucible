@@ -823,7 +823,7 @@ instance PrettyExt ext => Show (SomeCFG ext i r)
   where show cfg = case cfg of SomeCFG c -> show c
 
 -- | Control flow graph.  This data type closes existentially
---   over all the type parameters.
+--   over all the type parameters except @ext@.
 data AnyCFG ext where
   AnyCFG :: CFG ext blocks init ret
          -> AnyCFG ext
