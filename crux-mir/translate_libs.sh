@@ -2,13 +2,16 @@
 
 set -e
 
-: "${TARGET:=$(rustc -vV | sed -n 's/host: //p')}"
+# If TARGET is not specified, scrape it from the 'host: <target_triple>' line in
+# rustc's output
+: "${TARGET:=$(rustc --version --verbose | sed -n 's/host: //p')}"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 RLIBS_PARENT="${SCRIPT_DIR}/rlibs_real"
 RLIBS_SYMLINK="${SCRIPT_DIR}/rlibs"
 RLIBS=$(rustc --target "$TARGET" --print target-libdir --sysroot "${RLIBS_PARENT}")
 
+# Split target triple on '-' into arch, vendor, and os components
 IFS=- read -r TARGET_ARCH _TARGET_VENDOR TARGET_OS <<< "$TARGET"
 
 STD_ENV_ARCH=$TARGET_ARCH
@@ -93,6 +96,8 @@ translate lib/hashbrown/src/lib.rs --edition=2021 --crate-name hashbrown --cfg '
 echo 'Building addr2line...'
 translate lib/addr2line/src/lib.rs  --crate-name addr2line --cfg 'feature="alloc"' --cfg 'feature="compiler_builtins"' --cfg 'feature="core"' --cfg 'feature="rustc-dep-of-std"' --extern "compiler_builtins=${RLIBS}/libcompiler_builtins.rlib" --extern "gimli=${RLIBS}/libgimli.rlib" --extern "alloc=${RLIBS}/liballoc.rlib" --extern "core=${RLIBS}/libcore.rlib"
 
+# For wasm32 targets which are not emscripten, std depends on dlmalloc because
+# the runtime does not provide an allocator. See libs/std/Cargo.toml.
 if [ "$TARGET_ARCH" = "wasm32" ] && [ "$TARGET_OS" != "emscripten" ]; then
   USE_DLMALLOC=yes
   echo 'Building dlmalloc...'
