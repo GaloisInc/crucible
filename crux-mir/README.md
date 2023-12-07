@@ -32,8 +32,16 @@ Then translate the Rust libraries in `lib/`:
 
     $ ./translate_libs.sh
 
+If you want to cross-compile for a different target, you can optionally set the
+environment variable `TARGET` to a [target
+triple](https://doc.rust-lang.org/nightly/rustc/platform-support.html) when
+running `./translate_libs.sh`. This is experimental and we have only tested
+`wasm32-unknown-unknown` to work; you might get build errors for other targets.
+
+    $ TARGET=wasm32-unknown-unknown ./translate_libs.sh
+
 When upgrading from a previous version, first install the new `mir-json`
-version, then rerun both commands.
+version, then rerun the `cabal v2-install` and `./translate_libs.sh` commands.
 
 
 ## Usage
