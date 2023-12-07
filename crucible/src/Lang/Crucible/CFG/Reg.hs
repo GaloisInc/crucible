@@ -34,9 +34,11 @@ module Lang.Crucible.CFG.Reg
     CFG(..)
   , cfgEntryBlock
   , cfgInputTypes
+  , cfgArgTypes
   , cfgReturnType
   , substCFG
   , SomeCFG(..)
+  , AnyCFG(..)
   , Label(..)
   , substLabel
   , LambdaLabel(..)
@@ -924,7 +926,11 @@ cfgEntryBlock g =
     (Fold.find (\b -> blockID b == LabelID (cfgEntryLabel g)) (cfgBlocks g))
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init
-cfgInputTypes g = handleArgTypes (cfgHandle g)
+cfgInputTypes = cfgArgTypes
+{-# DEPRECATED cfgInputTypes "Use cfgArgTypes instead" #-}
+
+cfgArgTypes :: CFG ext s init ret -> CtxRepr init
+cfgArgTypes g = handleArgTypes (cfgHandle g)
 
 cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType g = handleReturnType (cfgHandle g)
@@ -1007,7 +1013,16 @@ instance PrettyExt ext => Pretty (CFG ext s init ret) where
          , vcat (pretty <$> cfgBlocks g) ]
 
 ------------------------------------------------------------------------
--- SomeCFG
+-- SomeCFG, AnyCFG
 
 -- | 'SomeCFG' is a CFG with an arbitrary parameter 's'.
 data SomeCFG ext init ret = forall s . SomeCFG !(CFG ext s init ret)
+
+-- | Control flow graph.  This data type closes existentially
+--   over all the type parameters.
+data AnyCFG ext where
+  AnyCFG :: CFG ext blocks init ret
+         -> AnyCFG ext
+
+instance PrettyExt ext => Show (AnyCFG ext) where
+  show cfg = case cfg of AnyCFG c -> show c

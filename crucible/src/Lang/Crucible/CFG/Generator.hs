@@ -134,7 +134,7 @@ import           What4.Symbol
 import           Lang.Crucible.CFG.Core (AnyCFG(..))
 import           Lang.Crucible.CFG.Expr(App(..))
 import           Lang.Crucible.CFG.Extension
-import           Lang.Crucible.CFG.Reg
+import           Lang.Crucible.CFG.Reg hiding (AnyCFG)
 import           Lang.Crucible.CFG.EarlyMergeLoops (earlyMergeLoops)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
