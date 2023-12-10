@@ -738,6 +738,30 @@ llvmFloorfOverride =
   [llvmOvr| float @floorf( float ) |]
   (\_memOps sym args -> Ctx.uncurryAssignment (callFloor sym) args)
 
+llvmFmafOverride ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat)
+        (FloatType SingleFloat)
+llvmFmafOverride =
+  [llvmOvr| float @fmaf( float, float, float ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (callFMA bak) args)
+
+llvmFmaOverride ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat)
+        (FloatType DoubleFloat)
+llvmFmaOverride =
+  [llvmOvr| double @fma( double, double, double ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (callFMA bak) args)
+
 
 -- math.h defines isinf() and isnan() as macros, so you might think it unusual
 -- to provide function overrides for them. However, if you write, say,
@@ -869,6 +893,18 @@ callFloor ::
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
 callFloor bak (regValue -> x) = liftIO $ iFloatRound @_ @fi (backendGetSym bak) RTN x
+
+-- | An implementation of @libc@'s @fma@ function.
+callFMA ::
+     forall fi p sym bak ext r args ret
+   . IsSymBackend sym bak
+  => bak
+  -> RegEntry sym (FloatType fi)
+  -> RegEntry sym (FloatType fi)
+  -> RegEntry sym (FloatType fi)
+  -> OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callFMA bak (regValue -> x) (regValue -> y) (regValue -> z) = liftIO $
+  iFloatFMA @_ @fi (backendGetSym bak) RNE x y z
 
 -- | An implementation of @libc@'s @isinf@ macro. This returns @1@ when the
 -- argument is positive infinity, @-1@ when the argument is negative infinity,
