@@ -904,7 +904,7 @@ callFMA ::
   -> RegEntry sym (FloatType fi)
   -> OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
 callFMA bak (regValue -> x) (regValue -> y) (regValue -> z) = liftIO $
-  iFloatFMA @_ @fi (backendGetSym bak) RNE x y z
+  iFloatFMA @_ @fi (backendGetSym bak) defaultRM x y z
 
 -- | An implementation of @libc@'s @isinf@ macro. This returns @1@ when the
 -- argument is positive infinity, @-1@ when the argument is negative infinity,
@@ -951,7 +951,7 @@ callSqrt ::
   bak ->
   RegEntry sym (FloatType fi) ->
   OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
-callSqrt bak (regValue -> x) = liftIO $ iFloatSqrt @_ @fi (backendGetSym bak) RNE x
+callSqrt bak (regValue -> x) = liftIO $ iFloatSqrt @_ @fi (backendGetSym bak) defaultRM x
 
 ------------------------------------------------------------------------
 -- **** Circular trigonometry functions
@@ -1696,3 +1696,12 @@ cxa_atexitOverride
 cxa_atexitOverride =
   [llvmOvr| i32 @__cxa_atexit( void (i8*)*, i8*, i8* ) |]
   (\_ bak _args -> liftIO $ bvLit (backendGetSym bak) knownNat (BV.zero knownNat))
+
+----------------------------------------------------------------------------
+
+-- | IEEE 754 declares 'RNE' to be the default rounding mode, and most @libc@
+-- implementations agree with this in practice. The only places where we do not
+-- use this as the default are operations that specifically require the behavior
+-- of a particular rounding mode, such as @ceil@ or @floor@.
+defaultRM :: RoundingMode
+defaultRM = RNE
