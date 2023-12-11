@@ -1013,6 +1013,54 @@ llvmIsFpclassOverride_F64 =
   [llvmOvr| i1 @llvm.is.fpclass.f64( double, i32 ) |]
   (\_memOps bak args -> Ctx.uncurryAssignment (callIsFpclass bak) args)
 
+llvmFmaOverride_F32 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat)
+        (FloatType SingleFloat)
+llvmFmaOverride_F32 =
+  [llvmOvr| float @llvm.fma.f32( float, float, float ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
+llvmFmaOverride_F64 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat)
+        (FloatType DoubleFloat)
+llvmFmaOverride_F64 =
+  [llvmOvr| double @llvm.fma.f64( double, double, double ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
+llvmFmuladdOverride_F32 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat)
+        (FloatType SingleFloat)
+llvmFmuladdOverride_F32 =
+  [llvmOvr| float @llvm.fmuladd.f32( float, float, float ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
+llvmFmuladdOverride_F64 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat)
+        (FloatType DoubleFloat)
+llvmFmuladdOverride_F64 =
+  [llvmOvr| double @llvm.fmuladd.f64( double, double, double ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
 
 llvmX86_pclmulqdq
 --declare <2 x i64> @llvm.x86.pclmulqdq(<2 x i64>, <2 x i64>, i8) #1

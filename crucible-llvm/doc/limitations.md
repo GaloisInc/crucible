@@ -56,6 +56,14 @@ that arise from invoking certain floating-point operations. For instance,
 invoking the `sqrt` function on a negative value will never result in an
 invalid floating-point exception being raised.
 
+## Floating-point rounding modes
+
+`crucible-llvm` currently makes no effort to track different floating-point
+rounding modes, and the `fegetround`/`fesetround` functions are not yet
+modeled. Whenever the result of a floating-point operation cannot be exactly
+represented in the significand, `crucible-llvm` will default to rounding the
+result toward the nearest even number.
+
 ## Evaluation of floating-point functions
 
 `crucible-llvm` treats the following floating-point operations over `double`s
