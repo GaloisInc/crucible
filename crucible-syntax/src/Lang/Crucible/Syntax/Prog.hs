@@ -11,21 +11,17 @@ module Lang.Crucible.Syntax.Prog
   , doParseCheck
   ) where
 
-import Control.Lens (view)
 import Control.Monad
 
-import Data.Foldable
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Text (Text)
-import Data.String (IsString(..))
 import qualified Data.Text.IO as T
 import System.IO
 import System.Exit
 import Text.Megaparsec as MP
 
 import Data.Parameterized.Nonce
-import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as C
@@ -39,19 +35,9 @@ import Lang.Crucible.Syntax.ExprParse (printSyntaxError)
 import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.Analysis.Postdom
-import Lang.Crucible.Backend
-import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
-import Lang.Crucible.Simulator
-import Lang.Crucible.Simulator.Profiling
 
-import What4.Config
-import What4.Interface (getConfiguration,notPred)
-import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.FunctionName
-import What4.ProgramLoc
-import What4.SatResult
-import What4.Solver (defaultLogData, runZ3InOverride, z3Options)
 
 assertNoExterns :: Map GlobalName (Some GlobalVar) -> IO ()
 assertNoExterns externs =

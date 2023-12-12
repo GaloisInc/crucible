@@ -2227,7 +2227,7 @@ prog :: ( TraverseExt ext
 prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
-       \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
+       \(hdr@(FunctionHeader _ _ ret handle _), src@(FunctionSource _ body)) ->
          do initParser hdr src
             args <- toList <$> use stxAtoms
             let ?returnType = ret
