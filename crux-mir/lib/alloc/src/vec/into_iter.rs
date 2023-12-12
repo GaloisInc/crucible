@@ -43,6 +43,7 @@ pub struct IntoIter<
     pub(super) end: *const T, // If T is a ZST, this is actually ptr+len. This encoding is picked so that
                               // ptr == end is a quick test for the Iterator being empty, that works
                               // for both ZST and non-ZST.
+    pub(super) len: usize,
 }
 
 #[stable(feature = "vec_intoiter_debug", since = "1.13.0")]
@@ -124,6 +125,7 @@ impl<T, A: Allocator> IntoIter<T, A> {
         self.buf = unsafe { NonNull::new_unchecked(RawVec::NEW.ptr()) };
         self.ptr = self.buf.as_ptr();
         self.end = self.buf.as_ptr();
+        self.len = 0;
 
         // Dropping the remaining elements can panic, so this needs to be
         // done only after updating the other fields.
@@ -137,6 +139,7 @@ impl<T, A: Allocator> IntoIter<T, A> {
         // For th ZST case, it is crucial that we mutate `end` here, not `ptr`.
         // `ptr` must stay aligned, while `end` may be unaligned.
         self.end = self.ptr;
+        self.len = 0;
     }
 
     #[cfg(not(no_global_oom_handling))]
@@ -191,12 +194,14 @@ impl<T, A: Allocator> Iterator for IntoIter<T, A> {
             // `ptr` has to stay where it is to remain aligned, so we reduce the length by 1 by
             // reducing the `end`.
             self.end = self.end.wrapping_byte_sub(1);
+            self.len -= 1;
 
             // Make up a value of this ZST.
             Some(unsafe { mem::zeroed() })
         } else {
             let old = self.ptr;
             self.ptr = unsafe { self.ptr.add(1) };
+            self.len -= 1;
 
             Some(unsafe { ptr::read(old) })
         }
@@ -204,11 +209,7 @@ impl<T, A: Allocator> Iterator for IntoIter<T, A> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let exact = if T::IS_ZST {
-            self.end.addr().wrapping_sub(self.ptr.addr())
-        } else {
-            unsafe { self.end.sub_ptr(self.ptr) }
-        };
+        let exact = self.len;
         (exact, Some(exact))
     }
 
@@ -223,6 +224,7 @@ impl<T, A: Allocator> Iterator for IntoIter<T, A> {
             // SAFETY: the min() above ensures that step_size is in bounds
             self.ptr = unsafe { self.ptr.add(step_size) };
         }
+        self.len -= step_size;
         // SAFETY: the min() above ensures that step_size is in bounds
         unsafe {
             ptr::drop_in_place(to_drop);
@@ -252,6 +254,7 @@ impl<T, A: Allocator> Iterator for IntoIter<T, A> {
             }
 
             self.end = self.end.wrapping_byte_sub(N);
+            self.len -= N;
             // Safety: ditto
             return Ok(unsafe { raw_ary.transpose().assume_init() });
         }
@@ -271,6 +274,7 @@ impl<T, A: Allocator> Iterator for IntoIter<T, A> {
         return unsafe {
             ptr::copy_nonoverlapping(self.ptr, raw_ary.as_mut_ptr() as *mut T, N);
             self.ptr = self.ptr.add(N);
+            self.len -= N;
             Ok(raw_ary.transpose().assume_init())
         };
     }
@@ -302,11 +306,13 @@ impl<T, A: Allocator> DoubleEndedIterator for IntoIter<T, A> {
         } else if T::IS_ZST {
             // See above for why 'ptr.offset' isn't used
             self.end = self.end.wrapping_byte_sub(1);
+            self.len -= 1;
 
             // Make up a value of this ZST.
             Some(unsafe { mem::zeroed() })
         } else {
             self.end = unsafe { self.end.sub(1) };
+            self.len -= 1;
 
             Some(unsafe { ptr::read(self.end) })
         }
@@ -322,6 +328,7 @@ impl<T, A: Allocator> DoubleEndedIterator for IntoIter<T, A> {
             // SAFETY: same as for advance_by()
             self.end = unsafe { self.end.sub(step_size) };
         }
+        self.len -= step_size;
         let to_drop = ptr::slice_from_raw_parts_mut(self.end as *mut T, step_size);
         // SAFETY: same as for advance_by()
         unsafe {
