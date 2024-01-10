@@ -166,7 +166,7 @@ traverseGoalsWithAssumptions f gls =
 --   primarily a debugging aid, to ensure that stack management
 --   remains well-bracketed.
 newtype FrameIdentifier = FrameIdentifier Word64
- deriving(Eq,Ord)
+ deriving(Eq,Ord,Show)
 
 
 -- | A data-strucutre that can incrementally collect goals in context.

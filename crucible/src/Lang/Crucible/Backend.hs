@@ -97,6 +97,7 @@ module Lang.Crucible.Backend
   , readPartExpr
   , runCHC
   , proofObligationsAsImplications
+  , convertProofObligationsAsImplications
   , proofObligationsUninterpConstants
   , pathConditionUninterpConstants
   , ppProofObligation
@@ -651,17 +652,21 @@ runCHC bak uninterp_inv_fns  = liftIO $ do
     Sat sub -> return sub
     Unsat{} -> fail "Prover returned Infeasible"
     Unknown -> fail "Prover returned Fail"
-  CVC5.runCVC5SyGuS sym logData uninterp_inv_fns implications >>= \case
-    Sat sub -> return sub
-    Unsat{} -> fail "Prover returned Infeasible"
-    Unknown -> fail "Prover returned Fail"
+  -- CVC5.runCVC5SyGuS sym logData uninterp_inv_fns implications >>= \case
+  --   Sat sub -> return sub
+  --   Unsat{} -> fail "Prover returned Infeasible"
+  --   Unknown -> fail "Prover returned Fail"
 
 
 -- | Get proof obligations as What4 implications.
 proofObligationsAsImplications :: IsSymBackend sym bak => bak -> IO [Pred sym]
 proofObligationsAsImplications bak = do
   let sym = backendGetSym bak
-  obligations <- maybe [] PG.goalsToList <$> getProofObligations bak
+  convertProofObligationsAsImplications sym =<< getProofObligations bak
+
+convertProofObligationsAsImplications :: IsSymInterface sym => sym -> ProofObligations sym -> IO [Pred sym]
+convertProofObligationsAsImplications sym goals = do
+  let obligations = maybe [] PG.goalsToList goals
   forM obligations $ \(AS.ProofGoal hyps (LabeledPred concl _err)) -> do
     hyp <- assumptionsPred sym hyps
     impliesPred sym hyp concl
