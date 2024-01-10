@@ -57,12 +57,12 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Numeric.Natural
 import qualified Text.LLVM as L
-import qualified Text.LLVM.PP as L
 import Prettyprinter
 
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
-import Lang.Crucible.LLVM.PrettyPrint
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
+import Lang.Crucible.LLVM.PrettyPrint hiding (ppIdent, ppType)
 import Lang.Crucible.Panic ( panic )
 
 -- | Performs a binary search on a range of ints.
@@ -81,7 +81,7 @@ binarySearch f = go
           where i = l + (h - l) `div` 2
 
 ppIdent :: L.Ident -> Doc ann
-ppIdent = viaShow . L.ppIdent
+ppIdent = viaShow . LPP.ppIdent
 -- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | LLVM types supported by symbolic simulator.
@@ -110,7 +110,7 @@ ppSymType (Alias i) = ppIdent i
 ppSymType (FunType d) = ppFunDecl d
 ppSymType VoidType = pretty "void"
 ppSymType OpaqueType = pretty "opaque"
-ppSymType (UnsupportedType tp) = viaShow (L.ppType tp)
+ppSymType (UnsupportedType tp) = viaShow (LPP.ppType tp)
 -- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | LLVM types supported by simulator with a defined size and alignment.

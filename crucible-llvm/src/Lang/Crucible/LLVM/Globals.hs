@@ -57,7 +57,6 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 
 import qualified Text.LLVM.AST as L
-import qualified Text.LLVM.PP as LPP
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.NatRepr as NatRepr
@@ -67,6 +66,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
@@ -129,12 +129,9 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases
        (globalToConst' g)
        (\err -> Left $
          "Encountered error while processing global "
-           ++ showSymbol (L.globalSym g)
+           ++ show (LPP.ppSymbol (L.globalSym g))
            ++ ": "
            ++ err)
-     where showSymbol sym =
-             show $ let ?config = LPP.Config False False False
-                    in LPP.ppSymbol $ sym
 
    globalToConst' :: forall m. (MonadError String m)
                   => L.Global -> m (MemType, Maybe LLVMConst)

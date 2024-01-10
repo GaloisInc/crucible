@@ -79,6 +79,7 @@ import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout( intLayout, EndianForm(..) )
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
@@ -346,7 +347,7 @@ instance Show LLVMConst where
       (IntConst w x)      -> ["IntConst", show w, show x]
       (FloatConst f)      -> ["FloatConst", show f]
       (DoubleConst d)     -> ["DoubleConst", show d]
-      ld@(LongDoubleConst _)-> ["LongDoubleConst", show $ L.ppLLVM ld]
+      ld@(LongDoubleConst _)-> ["LongDoubleConst", show ld]
       (ArrayConst mem a)  -> ["ArrayConst", show mem, show a]
       (VectorConst mem v) -> ["VectorConst", show mem, show v]
       (StructConst si a)  -> ["StructConst", show si, show a]
@@ -468,7 +469,7 @@ transConstant' _ (L.ValConstExpr cexpr) = transConstantExpr cexpr
 transConstant' tp val =
   throwError $ unlines [ "Cannot compute constant value for expression: "
                        , "Type: "  ++ (show $ ppMemType tp)
-                       , "Value: " ++ (show $ L.ppLLVM val)
+                       , "Value: " ++ (show $ LPP.ppValue val)
                        ]
 
 

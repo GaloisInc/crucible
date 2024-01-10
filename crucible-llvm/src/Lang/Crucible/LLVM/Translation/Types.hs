@@ -54,7 +54,6 @@ import           Data.Foldable
 import           Data.String
 
 import qualified Text.LLVM.AST as L
-import qualified Text.LLVM.PP as L
 import           Prettyprinter
 
 import qualified Data.Parameterized.Context as Ctx
@@ -67,6 +66,7 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MalformedLLVMModule
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.TypeContext as TyCtx
 
 
@@ -178,7 +178,7 @@ llvmDeclToFunHandleRepr' decl k =
     Left msg ->
       malformedLLVMModule
         ( "Invalid declaration for:" <+> fromString (show (L.decName decl)) )
-        [ fromString (show (L.ppDeclare decl))
+        [ fromString (show (LPP.ppDeclare decl))
         , fromString msg
         ]
 

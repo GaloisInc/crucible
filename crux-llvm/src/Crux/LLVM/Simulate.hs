@@ -33,7 +33,6 @@ import Data.Parameterized.Context (pattern Empty, pattern (:>))
 
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
-import qualified Text.LLVM.PP as LLVM
 import Prettyprinter
 
 -- what4
@@ -72,6 +71,7 @@ import Lang.Crucible.LLVM.MemModel
         )
 import Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
 import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
+import Lang.Crucible.LLVM.PrettyPrint (ppSymbol)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
         , transContext, getTranslatedCFG, llvmPtrWidth, llvmTypeCtx
@@ -264,7 +264,7 @@ sayTranslationWarning ::
 sayTranslationWarning = Log.sayCruxLLVM . f
   where
     f (LLVMTranslationWarning s p msg) =
-        Log.TranslationWarning (Text.pack (show (LLVM.ppSymbol s))) (Text.pack (show p)) msg
+        Log.TranslationWarning (Text.pack (show (ppSymbol s))) (Text.pack (show p)) msg
 
 checkFun ::
   forall arch msgs personality sym.
