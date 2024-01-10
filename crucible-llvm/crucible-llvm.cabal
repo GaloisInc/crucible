@@ -42,6 +42,7 @@ library
     llvm-pretty >= 0.8 && < 0.12,
     mtl,
     parameterized-utils >= 2.1.5 && < 2.2,
+    pretty,
     prettyprinter >= 1.7.0,
     text,
     template-haskell,

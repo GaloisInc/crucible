@@ -36,7 +36,6 @@ module Lang.Crucible.LLVM.Errors.MemoryError
 import           Prelude hiding (pred)
 
 import           Data.Text (Text)
-import qualified Text.LLVM.PP as L
 import qualified Text.LLVM.AST as L
 import           Type.Reflection (SomeTypeRep(SomeTypeRep))
 import           Prettyprinter
@@ -48,6 +47,7 @@ import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr, concBV)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.MemLog
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 
 data MemoryOp sym w
   = MemLoadOp  StorageType (Maybe String) (LLVMPtr sym w) (Mem sym)
@@ -159,7 +159,7 @@ ppMemoryOp (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
 ppMemoryOp (MemLoadHandleOp sig gsym ptr mem) =
   vsep [ case sig of
            Just s ->
-             hsep ["Attempting to load callable function with type:", viaShow (L.ppType s)]
+             hsep ["Attempting to load callable function with type:", viaShow (LPP.ppType s)]
            Nothing ->
              hsep ["Attempting to load callable function:"]
        , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
