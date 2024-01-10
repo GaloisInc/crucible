@@ -10,8 +10,10 @@
 
 module Lang.Crucible.LLVM.MemModel.CallStack
   ( CallStack
+  , null
   , getCallStack
   , ppCallStack
   ) where
 
+import Prelude hiding (null)
 import Lang.Crucible.LLVM.MemModel.CallStack.Internal

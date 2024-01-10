@@ -33,6 +33,9 @@ newtype CallStack =
 cons :: FunctionName -> CallStack -> CallStack
 cons top (CallStack rest) = CallStack (top Seq.<| rest)
 
+null :: CallStack -> Bool
+null = Seq.null . runCallStack
+
 getCallStack :: MemState sym -> CallStack
 getCallStack =
   \case
