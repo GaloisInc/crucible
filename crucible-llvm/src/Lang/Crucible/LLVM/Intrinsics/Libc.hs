@@ -43,7 +43,6 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Interface
-import           What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder(..))
 import           What4.ProgramLoc (plSourceLoc)
 import qualified What4.SpecialFunctions as W4
 

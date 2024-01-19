@@ -95,16 +95,7 @@ module Lang.Crucible.Types
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
   , module What4.BaseTypes
-  , FloatInfo
-  , HalfFloat
-  , SingleFloat
-  , DoubleFloat
-  , QuadFloat
-  , X86_80Float
-  , DoubleDoubleFloat
-  , FloatInfoRepr(..)
-  , FloatInfoToBitWidth
-  , floatInfoToBVTypeRepr
+  , module What4.InterpretedFloatingPoint
   ) where
 
 import           Data.Hashable

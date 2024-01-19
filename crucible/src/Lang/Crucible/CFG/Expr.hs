@@ -75,7 +75,6 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableFC
 
 import           What4.Interface (RoundingMode(..),StringLiteral(..), stringLiteralInfo)
-import           What4.InterpretedFloatingPoint (X86_80Val(..))
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle

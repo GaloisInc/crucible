@@ -60,7 +60,6 @@ import           Prettyprinter
 
 import           What4.Config
 import           What4.Interface
-import           What4.InterpretedFloatingPoint (freshFloatConstant)
 import           What4.Partial
 import           What4.ProgramLoc
 
