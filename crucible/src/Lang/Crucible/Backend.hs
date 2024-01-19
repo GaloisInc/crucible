@@ -95,6 +95,11 @@ module Lang.Crucible.Backend
   , addFailedAssertion
   , assertIsInteger
   , readPartExpr
+  , runCHC
+  , proofObligationsAsImplications
+  , convertProofObligationsAsImplications
+  , proofObligationsUninterpConstants
+  , pathConditionUninterpConstants
   , ppProofObligation
   , backendOptions
   , assertThenAssumeConfigOption
@@ -110,17 +115,25 @@ import           Data.Functor.Identity
 import           Data.Functor.Const
 import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
+import           Data.Set (Set)
 import qualified Prettyprinter as PP
 import           GHC.Stack
+import           System.IO
+
+import           Data.Parameterized.Map (MapF)
 
 import           What4.Concrete
 import           What4.Config
+import           What4.Expr.Builder
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.LabeledPred
 import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Expr (GroundValue, GroundValueWrapper(..))
+import           What4.Solver
+import qualified What4.Solver.CVC5 as CVC5
+import qualified What4.Solver.Z3 as Z3
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
@@ -612,6 +625,59 @@ readPartExpr bak (PE p v) msg = do
   loc <- getCurrentProgramLoc sym
   addAssertion bak (LabeledPred p (SimError loc msg))
   return v
+
+
+-- | Run the CHC solver on the current proof obligations, and return the
+-- solution as a substitution from the uninterpreted functions to their
+-- definitions.
+runCHC ::
+  (IsSymBackend sym bak, sym ~ ExprBuilder t st fs, MonadIO m) =>
+  bak ->
+  [SomeSymFn sym] ->
+  m (MapF (SymFnWrapper sym) (SymFnWrapper sym))
+runCHC bak uninterp_inv_fns  = liftIO $ do
+  let sym = backendGetSym bak
+
+  implications <- proofObligationsAsImplications bak
+  clearProofObligations bak
+
+  -- log to stdout
+  let logData = defaultLogData
+        { logCallbackVerbose = \_ -> putStrLn
+        , logReason = "SAW inv"
+        }
+  Z3.runZ3Horn sym True logData uninterp_inv_fns implications >>= \case
+    Sat sub -> return sub
+    Unsat{} -> fail "Prover returned Infeasible"
+    Unknown -> fail "Prover returned Fail"
+
+
+-- | Get proof obligations as What4 implications.
+proofObligationsAsImplications :: IsSymBackend sym bak => bak -> IO [Pred sym]
+proofObligationsAsImplications bak = do
+  let sym = backendGetSym bak
+  convertProofObligationsAsImplications sym =<< getProofObligations bak
+
+-- | Convert proof obligations to What4 implications.
+convertProofObligationsAsImplications :: IsSymInterface sym => sym -> ProofObligations sym -> IO [Pred sym]
+convertProofObligationsAsImplications sym goals = do
+  let obligations = maybe [] PG.goalsToList goals
+  forM obligations $ \(AS.ProofGoal hyps (LabeledPred concl _err)) -> do
+    hyp <- assumptionsPred sym hyps
+    impliesPred sym hyp concl
+
+-- | Get the set of uninterpreted constants that appear in the path condition.
+pathConditionUninterpConstants :: IsSymBackend sym bak => bak -> IO (Set (Some (BoundVar sym)))
+pathConditionUninterpConstants bak = do
+  let sym = backendGetSym bak
+  exprUninterpConstants sym <$> getPathCondition bak
+
+-- | Get the set of uninterpreted constants that appear in the proof obligations.
+proofObligationsUninterpConstants :: IsSymBackend sym bak => bak -> IO (Set (Some (BoundVar sym)))
+proofObligationsUninterpConstants bak = do
+  let sym = backendGetSym bak
+  foldMap (exprUninterpConstants sym) <$> proofObligationsAsImplications bak
+
 
 ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> IO (PP.Doc ann)
 ppProofObligation sym (AS.ProofGoal asmps gl) =
