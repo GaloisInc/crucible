@@ -641,6 +641,11 @@ runCHC bak uninterp_inv_fns  = liftIO $ do
   implications <- proofObligationsAsImplications bak
   clearProofObligations bak
 
+  withFile "foo.smt2" WriteMode $ \handle ->
+    Z3.writeZ3HornSMT2File sym True handle uninterp_inv_fns implications
+  withFile "foo.sy" WriteMode $ \handle ->
+    CVC5.writeCVC5SyFile sym handle uninterp_inv_fns implications
+
   -- log to stdout
   let logData = defaultLogData
         { logCallbackVerbose = \_ -> putStrLn
@@ -650,6 +655,10 @@ runCHC bak uninterp_inv_fns  = liftIO $ do
     Sat sub -> return sub
     Unsat{} -> fail "Prover returned Infeasible"
     Unknown -> fail "Prover returned Fail"
+  -- CVC5.runCVC5SyGuS sym logData uninterp_inv_fns implications >>= \case
+  --   Sat sub -> return sub
+  --   Unsat{} -> fail "Prover returned Infeasible"
+  --   Unknown -> fail "Prover returned Fail"
 
 
 -- | Get proof obligations as What4 implications.

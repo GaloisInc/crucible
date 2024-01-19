@@ -249,7 +249,7 @@ parentWTOComponent = F.foldMap' $ \case
   Vertex{} -> M.empty
 
 parentWTOComponent' :: (Ord n) => SCC n -> M.Map n n
-parentWTOComponent' scc = M.singleton (wtoHead scc) (wtoHead scc) <>
+parentWTOComponent' scc = -- M.singleton (wtoHead scc) (wtoHead scc) <>
   F.foldMap'
     (\case
       SCC scc' -> parentWTOComponent' scc'
