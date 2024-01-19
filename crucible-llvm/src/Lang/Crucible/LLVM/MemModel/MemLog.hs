@@ -68,6 +68,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
 
     -- * Write ranges
   , writeRangesMem
+  , writeSourceSize
 
     -- * Concretization
   , concPtr
