@@ -18,6 +18,7 @@ solvers.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -32,13 +33,15 @@ module Lang.Crucible.Backend.AssumptionStack
   , FrameIdentifier
   , AssumptionFrame(..)
   , AssumptionFrames(..)
-  , AssumptionStack(..)
+  , AssumptionStack
     -- ** Manipulating assumption stacks
   , initAssumptionStack
   , saveAssumptionStack
   , restoreAssumptionStack
   , pushFrame
+  , PopFrameError(..)
   , popFrame
+  , popFrameOrPanic
   , popFrameAndGoals
   , popFramesUntil
   , resetStack
@@ -54,9 +57,12 @@ module Lang.Crucible.Backend.AssumptionStack
   ) where
 
 import           Control.Exception (bracketOnError)
+import           Data.Functor ((<&>))
 import qualified Data.Foldable as F
 import           Data.IORef
 import           Data.Parameterized.Nonce
+
+import qualified Prettyprinter as PP
 
 import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
@@ -173,12 +179,10 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
  where
  go n gc =
     case gcPop gc of
-      Left (ident', _assumes, mg, gc1)
-        | ident == ident' -> (gc',n)
+      Left frm
+        | ident == poppedFrameId frm -> (gc',n)
         | otherwise -> go (n+1) gc'
-       where gc' = case mg of
-                     Nothing -> gc1
-                     Just g  -> gcAddGoals g gc1
+       where gc' = collectPoppedGoals frm
       Right _ ->
         panic "AssumptionStack.popFrameUntil"
           [ "Frame not found in stack."
@@ -187,60 +191,84 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
 
  showFrameId (FrameIdentifier x) = show x
 
+-- | Call 'gcPop' on the 'proofObligations' of this 'AssumptionStack'
+popFrameUnchecked ::
+  Monoid asmp =>
+  AssumptionStack asmp ast ->
+  IO (Either (PoppedFrame asmp ast) (Maybe (Goals asmp ast)))
+popFrameUnchecked stk =
+  atomicModifyIORef' (proofObligations stk) $ \gc ->
+    case gcPop gc of
+      Left frm -> (collectPoppedGoals frm, Left frm)
+      Right mgs -> (gc, Right mgs)
+
+data PopFrameError
+  = NoFrames
+    -- | Expected, actual
+  | WrongFrame FrameIdentifier FrameIdentifier
+
+instance PP.Pretty PopFrameError where
+  pretty =
+    \case
+      NoFrames -> PP.pretty "Pop with no push in goal collector."
+      WrongFrame expected actual ->
+        PP.hsep
+          [ PP.pretty "Mismatch in assumption stack frames."
+          , PP.pretty "Expected ident:"
+          , PP.viaShow expected
+          , PP.pretty "Current frame:"
+          , PP.viaShow actual
+          ]
+
+instance Show PopFrameError where
+  show = show . PP.pretty
+
 -- | Pop a previously-pushed assumption frame from the stack.
 --   All assumptions in that frame will be forgotten.  The
 --   assumptions contained in the popped frame are returned.
-popFrame :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
+--
+--   Returns 'Left' if there are no frames on the stack, or if the top frame
+--   doesn\'t have the provided 'FrameIdentifier'.
+popFrame ::
+  Monoid asmp =>
+  FrameIdentifier ->
+  AssumptionStack asmp ast ->
+  IO (Either PopFrameError (PoppedFrame asmp ast))
 popFrame ident stk =
-  atomicModifyIORef' (proofObligations stk) $ \gc ->
-       case gcPop gc of
-         Left (ident', assumes, mg, gc1)
-           | ident == ident' ->
-                let gc' = case mg of
-                            Nothing -> gc1
-                            Just g  -> gcAddGoals g gc1
-                 in (gc', assumes)
-           | otherwise ->
-               panic "AssumptionStack.popFrame"
-                [ "Push/pop mismatch in assumption stack!"
-                , "*** Current frame:  " ++ showFrameId ident
-                , "*** Expected ident: " ++ showFrameId ident'
-                ]
-         Right _  ->
-           panic "AssumptionStack.popFrame"
-             [ "Pop with no push in goal collector."
-             , "*** Current frame: " ++ showFrameId ident
-             ]
+  popFrameUnchecked stk <&>
+    \case
+      Left frm
+        | ident == poppedFrameId frm -> Right frm
+        | otherwise -> Left (WrongFrame ident (poppedFrameId frm))
+      Right _ -> Left NoFrames
 
-  where
-  showFrameId (FrameIdentifier x) = show x
+-- | Pop a previously-pushed assumption frame from the stack.
+--   All assumptions in that frame will be forgotten.  The
+--   assumptions contained in the popped frame are returned.
+--
+--   Panics if there are no frames on the stack, or if the top frame doesn\'t
+--   have the provided 'FrameIdentifier'.
+popFrameOrPanic :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
+popFrameOrPanic ident stk =
+  popFrame ident stk <&>
+    \case
+      Left err -> panic "AssumptionStack.popFrame" [show err]
+      Right frm -> poppedAssumptions frm
 
-
+-- | Pop the assumptions and goals from the top frame.
+--
+--   Panics if there are no frames on the stack, or if the top frame doesn\'t
+--   have the provided 'FrameIdentifier'.
 popFrameAndGoals ::
   Monoid asmp =>
   FrameIdentifier ->
   AssumptionStack asmp ast ->
   IO (asmp, Maybe (Goals asmp ast))
 popFrameAndGoals ident stk =
-  atomicModifyIORef' (proofObligations stk) $ \gc ->
-       case gcPop gc of
-         Left (ident', assumes, mg, gc1)
-           | ident == ident' -> (gc1, (assumes, mg))
-           | otherwise ->
-               panic "AssumptionStack.popFrameAndGoals"
-                [ "Push/pop mismatch in assumption stack!"
-                , "*** Current frame:  " ++ showFrameId ident
-                , "*** Expected ident: " ++ showFrameId ident'
-                ]
-         Right _  ->
-           panic "AssumptionStack.popFrameAndGoals"
-             [ "Pop with no push in goal collector."
-             , "*** Current frame: " ++ showFrameId ident
-             ]
-
-  where
-  showFrameId (FrameIdentifier x) = show x
-
+  popFrame ident stk <&>
+    \case
+      Left err -> panic "AssumptionStack.popFrameAndGoals" [show err]
+      Right frm -> (poppedAssumptions frm, poppedGoals frm)
 
 -- | Run an action in the scope of a fresh assumption frame.
 --   The frame will be popped and returned on successful
@@ -252,5 +280,5 @@ inFreshFrame stk action =
      (pushFrame stk)
      (\ident -> popFrame ident stk)
      (\ident -> do x <- action
-                   frm <- popFrame ident stk
+                   frm <- popFrameOrPanic ident stk
                    return (frm, x))
