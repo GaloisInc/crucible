@@ -267,15 +267,10 @@ gcAddAssumes :: Monoid asmp => asmp -> GoalCollector asmp goal -> GoalCollector 
 gcAddAssumes as' (CollectingAssumptions as gls) = CollectingAssumptions (as <> as') gls
 gcAddAssumes as' gls = CollectingAssumptions as' gls
 
-{- | Pop to the last push, or all the way to the top, if there were no more pushes.
-If the result is 'Left', then we popped until an explicitly marked push.
-If the result is 'Right', then we popped all the way to the top, and the
-result is the goal tree, or 'Nothing' if there were no goals. -}
-
 -- | A frame, popped by 'gcPop'
 data PoppedFrame asmp goal
   = PoppedFrame
-    { -- | The frame identifier of the popped frame,
+    { -- | The frame identifier of the popped frame
       poppedFrameId :: !FrameIdentifier
       -- | The assumptions that were forgotten by the pop
     , poppedAssumptions :: asmp
@@ -293,6 +288,10 @@ collectPoppedGoals frm =
     Nothing -> poppedCollector frm
     Just goals -> gcAddGoals goals (poppedCollector frm)
 
+{- | Pop to the last push, or all the way to the top, if there were no more pushes.
+If the result is 'Left', then we popped until an explicitly marked push.
+If the result is 'Right', then we popped all the way to the top, and the
+result is the goal tree, or 'Nothing' if there were no goals. -}
 gcPop ::
   Monoid asmp =>
   GoalCollector asmp goal ->
