@@ -173,10 +173,11 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
  where
  go n gc =
     case gcPop gc of
-      Left (ident', _assumes, mg, gc1)
-        | ident == ident' -> (gc',n)
+      Left frm
+        | ident == poppedFrameId frm -> (gc',n)
         | otherwise -> go (n+1) gc'
-       where gc' = case mg of
+       where gc1 = poppedCollector frm
+             gc' = case poppedGoals frm of
                      Nothing -> gc1
                      Just g  -> gcAddGoals g gc1
       Right _ ->
@@ -194,17 +195,17 @@ popFrame :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asm
 popFrame ident stk =
   atomicModifyIORef' (proofObligations stk) $ \gc ->
        case gcPop gc of
-         Left (ident', assumes, mg, gc1)
-           | ident == ident' ->
-                let gc' = case mg of
-                            Nothing -> gc1
-                            Just g  -> gcAddGoals g gc1
-                 in (gc', assumes)
+         Left frm
+           | ident == poppedFrameId frm ->
+               let gc' = case poppedGoals frm of
+                     Nothing -> poppedCollector frm
+                     Just g  -> gcAddGoals g (poppedCollector frm)
+               in (gc', poppedAssumptions frm)
            | otherwise ->
                panic "AssumptionStack.popFrame"
                 [ "Push/pop mismatch in assumption stack!"
                 , "*** Current frame:  " ++ showFrameId ident
-                , "*** Expected ident: " ++ showFrameId ident'
+                , "*** Expected ident: " ++ showFrameId (poppedFrameId frm)
                 ]
          Right _  ->
            panic "AssumptionStack.popFrame"
@@ -224,13 +225,14 @@ popFrameAndGoals ::
 popFrameAndGoals ident stk =
   atomicModifyIORef' (proofObligations stk) $ \gc ->
        case gcPop gc of
-         Left (ident', assumes, mg, gc1)
-           | ident == ident' -> (gc1, (assumes, mg))
+         Left frm
+           | ident == poppedFrameId frm ->
+               (poppedCollector frm, (poppedAssumptions frm, poppedGoals frm))
            | otherwise ->
                panic "AssumptionStack.popFrameAndGoals"
                 [ "Push/pop mismatch in assumption stack!"
                 , "*** Current frame:  " ++ showFrameId ident
-                , "*** Expected ident: " ++ showFrameId ident'
+                , "*** Expected ident: " ++ showFrameId (poppedFrameId frm)
                 ]
          Right _  ->
            panic "AssumptionStack.popFrameAndGoals"
