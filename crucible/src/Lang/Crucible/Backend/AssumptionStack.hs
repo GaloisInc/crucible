@@ -176,10 +176,7 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
       Left frm
         | ident == poppedFrameId frm -> (gc',n)
         | otherwise -> go (n+1) gc'
-       where gc1 = poppedCollector frm
-             gc' = case poppedGoals frm of
-                     Nothing -> gc1
-                     Just g  -> gcAddGoals g gc1
+       where gc' = collectPoppedGoals frm
       Right _ ->
         panic "AssumptionStack.popFrameUntil"
           [ "Frame not found in stack."
@@ -197,10 +194,7 @@ popFrame ident stk =
        case gcPop gc of
          Left frm
            | ident == poppedFrameId frm ->
-               let gc' = case poppedGoals frm of
-                     Nothing -> poppedCollector frm
-                     Just g  -> gcAddGoals g (poppedCollector frm)
-               in (gc', poppedAssumptions frm)
+               (collectPoppedGoals frm, poppedAssumptions frm)
            | otherwise ->
                panic "AssumptionStack.popFrame"
                 [ "Push/pop mismatch in assumption stack!"

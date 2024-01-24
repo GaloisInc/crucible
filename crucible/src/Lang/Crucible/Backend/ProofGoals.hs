@@ -29,6 +29,7 @@ module Lang.Crucible.Backend.ProofGoals
 
     -- ** Context management
   , PoppedFrame(..)
+  , collectPoppedGoals
   , gcAddAssumes, gcProve
   , gcPush, gcPop, gcAddGoals,
 
@@ -284,6 +285,14 @@ data PoppedFrame asmp goal
     , poppedCollector :: GoalCollector asmp goal
     }
 
+-- | Retrieve the 'GoalCollector' from a 'PoppedFrame', adding the
+-- 'poppedGoals' (if there are any) via 'gcAddGoals'.
+collectPoppedGoals :: PoppedFrame asmp goal -> GoalCollector asmp goal
+collectPoppedGoals frm =
+  case poppedGoals frm of
+    Nothing -> poppedCollector frm
+    Just goals -> gcAddGoals goals (poppedCollector frm)
+
 gcPop ::
   Monoid asmp =>
   GoalCollector asmp goal ->
@@ -311,11 +320,7 @@ gcPop = go Nothing mempty
 gcFinish :: Monoid asmp => GoalCollector asmp goal -> Maybe (Goals asmp goal)
 gcFinish gc =
   case gcPop gc of
-    Left poppedFrame ->
-      let gc' = poppedCollector poppedFrame
-      in case poppedGoals poppedFrame of
-           Just g -> gcFinish (gcAddGoals g gc')
-           Nothing -> gcFinish gc'
+    Left poppedFrame -> gcFinish (collectPoppedGoals poppedFrame)
     Right a -> a
 
 -- | Reset the goal collector to the empty assumption state; but first
