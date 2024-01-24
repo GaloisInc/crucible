@@ -103,7 +103,7 @@ instance IsSymInterface (B.ExprBuilder t st fs) =>
     AS.pushFrame (sbAssumptionStack bak)
 
   popAssumptionFrame bak ident = do
-    AS.popFrame ident (sbAssumptionStack bak)
+    AS.popFrameOrPanic ident (sbAssumptionStack bak)
 
   popAssumptionFrameAndObligations bak ident = do
     AS.popFrameAndGoals ident (sbAssumptionStack bak)

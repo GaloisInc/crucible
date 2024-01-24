@@ -39,7 +39,9 @@ module Lang.Crucible.Backend.AssumptionStack
   , saveAssumptionStack
   , restoreAssumptionStack
   , pushFrame
+  , PopFrameError(..)
   , popFrame
+  , popFrameOrPanic
   , popFrameAndGoals
   , popFramesUntil
   , resetStack
@@ -227,12 +229,12 @@ instance Show PopFrameError where
 --
 --   Returns 'Left' if there are no frames on the stack, or if the top frame
 --   doesn\'t have the provided 'FrameIdentifier'.
-popFrameChecked ::
+popFrame ::
   Monoid asmp =>
   FrameIdentifier ->
   AssumptionStack asmp ast ->
   IO (Either PopFrameError (PoppedFrame asmp ast))
-popFrameChecked ident stk =
+popFrame ident stk =
   popFrameUnchecked stk <&>
     \case
       Left frm
@@ -246,9 +248,9 @@ popFrameChecked ident stk =
 --
 --   Panics if there are no frames on the stack, or if the top frame doesn\'t
 --   have the provided 'FrameIdentifier'.
-popFrame :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
-popFrame ident stk =
-  popFrameChecked ident stk <&>
+popFrameOrPanic :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
+popFrameOrPanic ident stk =
+  popFrame ident stk <&>
     \case
       Left err -> panic "AssumptionStack.popFrame" [show err]
       Right frm -> poppedAssumptions frm
@@ -263,7 +265,7 @@ popFrameAndGoals ::
   AssumptionStack asmp ast ->
   IO (asmp, Maybe (Goals asmp ast))
 popFrameAndGoals ident stk =
-  popFrameChecked ident stk <&>
+  popFrame ident stk <&>
     \case
       Left err -> panic "AssumptionStack.popFrameAndGoals" [show err]
       Right frm -> (poppedAssumptions frm, poppedGoals frm)
@@ -278,5 +280,5 @@ inFreshFrame stk action =
      (pushFrame stk)
      (\ident -> popFrame ident stk)
      (\ident -> do x <- action
-                   frm <- popFrame ident stk
+                   frm <- popFrameOrPanic ident stk
                    return (frm, x))
