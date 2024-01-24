@@ -1,3 +1,8 @@
+# next
+
+* Rename `Lang.Crucible.Backend.popFrame` to `popFrameOrPanic`,
+  provide helpers such as `popFrame` to manage assumptions without `panic`ing.
+
 # 0.6
 
 * Separate backend data structures.  The "symbolic backend" is a
