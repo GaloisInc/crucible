@@ -18,6 +18,7 @@ solvers.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -54,6 +55,7 @@ module Lang.Crucible.Backend.AssumptionStack
   ) where
 
 import           Control.Exception (bracketOnError)
+import           Data.Functor ((<&>))
 import qualified Data.Foldable as F
 import           Data.IORef
 import           Data.Parameterized.Nonce
@@ -185,28 +187,37 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
 
  showFrameId (FrameIdentifier x) = show x
 
+-- | Call 'gcPop' on the 'proofObligations' of this 'AssumptionStack'
+popFrameUnchecked ::
+  Monoid asmp =>
+  AssumptionStack asmp ast ->
+  IO (Either (PoppedFrame asmp ast) (Maybe (Goals asmp ast)))
+popFrameUnchecked stk =
+  atomicModifyIORef' (proofObligations stk) $ \gc ->
+    case gcPop gc of
+      Left frm -> (collectPoppedGoals frm, Left frm)
+      Right mgs -> (gc, Right mgs)
+
 -- | Pop a previously-pushed assumption frame from the stack.
 --   All assumptions in that frame will be forgotten.  The
 --   assumptions contained in the popped frame are returned.
 popFrame :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
 popFrame ident stk =
-  atomicModifyIORef' (proofObligations stk) $ \gc ->
-       case gcPop gc of
-         Left frm
-           | ident == poppedFrameId frm ->
-               (collectPoppedGoals frm, poppedAssumptions frm)
-           | otherwise ->
-               panic "AssumptionStack.popFrame"
-                [ "Push/pop mismatch in assumption stack!"
-                , "*** Current frame:  " ++ showFrameId ident
-                , "*** Expected ident: " ++ showFrameId (poppedFrameId frm)
-                ]
-         Right _  ->
-           panic "AssumptionStack.popFrame"
-             [ "Pop with no push in goal collector."
-             , "*** Current frame: " ++ showFrameId ident
-             ]
-
+  popFrameUnchecked stk <&>
+    \case
+      Left frm
+        | ident == poppedFrameId frm -> poppedAssumptions frm
+        | otherwise ->
+            panic "AssumptionStack.popFrame"
+              [ "Push/pop mismatch in assumption stack!"
+              , "*** Current frame:  " ++ showFrameId ident
+              , "*** Expected ident: " ++ showFrameId (poppedFrameId frm)
+              ]
+      Right _ ->
+        panic "AssumptionStack.popFrame"
+          [ "Pop with no push in goal collector."
+          , "*** Current frame: " ++ showFrameId ident
+          ]
   where
   showFrameId (FrameIdentifier x) = show x
 
@@ -217,22 +228,22 @@ popFrameAndGoals ::
   AssumptionStack asmp ast ->
   IO (asmp, Maybe (Goals asmp ast))
 popFrameAndGoals ident stk =
-  atomicModifyIORef' (proofObligations stk) $ \gc ->
-       case gcPop gc of
-         Left frm
-           | ident == poppedFrameId frm ->
-               (poppedCollector frm, (poppedAssumptions frm, poppedGoals frm))
-           | otherwise ->
-               panic "AssumptionStack.popFrameAndGoals"
-                [ "Push/pop mismatch in assumption stack!"
-                , "*** Current frame:  " ++ showFrameId ident
-                , "*** Expected ident: " ++ showFrameId (poppedFrameId frm)
-                ]
-         Right _  ->
-           panic "AssumptionStack.popFrameAndGoals"
-             [ "Pop with no push in goal collector."
-             , "*** Current frame: " ++ showFrameId ident
+  popFrameUnchecked stk <&>
+    \case
+      Left frm
+        | ident == poppedFrameId frm ->
+            (poppedAssumptions frm, poppedGoals frm)
+        | otherwise ->
+            panic "AssumptionStack.popFrameAndGoals"
+             [ "Push/pop mismatch in assumption stack!"
+             , "*** Current frame:  " ++ showFrameId ident
+             , "*** Expected ident: " ++ showFrameId (poppedFrameId frm)
              ]
+      Right _  ->
+        panic "AssumptionStack.popFrameAndGoals"
+          [ "Pop with no push in goal collector."
+          , "*** Current frame: " ++ showFrameId ident
+          ]
 
   where
   showFrameId (FrameIdentifier x) = show x
