@@ -224,6 +224,9 @@ instance Show PopFrameError where
 -- | Pop a previously-pushed assumption frame from the stack.
 --   All assumptions in that frame will be forgotten.  The
 --   assumptions contained in the popped frame are returned.
+--
+--   Returns 'Left' if there are no frames on the stack, or if the top frame
+--   doesn\'t have the provided 'FrameIdentifier'.
 popFrameChecked ::
   Monoid asmp =>
   FrameIdentifier ->
@@ -240,6 +243,9 @@ popFrameChecked ident stk =
 -- | Pop a previously-pushed assumption frame from the stack.
 --   All assumptions in that frame will be forgotten.  The
 --   assumptions contained in the popped frame are returned.
+--
+--   Panics if there are no frames on the stack, or if the top frame doesn\'t
+--   have the provided 'FrameIdentifier'.
 popFrame :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
 popFrame ident stk =
   popFrameChecked ident stk <&>
@@ -247,6 +253,10 @@ popFrame ident stk =
       Left err -> panic "AssumptionStack.popFrame" [show err]
       Right frm -> poppedAssumptions frm
 
+-- | Pop the assumptions and goals from the top frame.
+--
+--   Panics if there are no frames on the stack, or if the top frame doesn\'t
+--   have the provided 'FrameIdentifier'.
 popFrameAndGoals ::
   Monoid asmp =>
   FrameIdentifier ->
