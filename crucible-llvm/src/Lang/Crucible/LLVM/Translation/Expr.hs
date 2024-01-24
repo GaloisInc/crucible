@@ -101,7 +101,6 @@ import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
-import           What4.InterpretedFloatingPoint (X86_80Val(..))
 
 -------------------------------------------------------------------------
 -- LLVMExpr
