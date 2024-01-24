@@ -241,15 +241,15 @@ maxLabel :: Label
 maxLabel = Label maxBound
 
 -- | Construct a map from each vertex to the head of its parent WTO component.
--- In particular, the head of a component is mapped to itself. The top vertices
--- are not in the map.
+-- In particular, the head of a component is not in the map. The vertices that
+-- are not in any component are not in the map.
 parentWTOComponent :: (Ord n) => [WTOComponent n] -> M.Map n n
 parentWTOComponent = F.foldMap' $ \case
   SCC scc' -> parentWTOComponent' scc'
   Vertex{} -> M.empty
 
 parentWTOComponent' :: (Ord n) => SCC n -> M.Map n n
-parentWTOComponent' scc = -- M.singleton (wtoHead scc) (wtoHead scc) <>
+parentWTOComponent' scc =
   F.foldMap'
     (\case
       SCC scc' -> parentWTOComponent' scc'
