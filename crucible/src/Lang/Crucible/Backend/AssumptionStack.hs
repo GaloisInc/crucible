@@ -33,7 +33,7 @@ module Lang.Crucible.Backend.AssumptionStack
   , FrameIdentifier
   , AssumptionFrame(..)
   , AssumptionFrames(..)
-  , AssumptionStack(..)
+  , AssumptionStack
     -- ** Manipulating assumption stacks
   , initAssumptionStack
   , saveAssumptionStack
