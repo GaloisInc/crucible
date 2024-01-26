@@ -93,7 +93,7 @@ module Lang.Crucible.LLVM.Translation
   ) where
 
 import           Control.Lens hiding (op, (:>) )
-import           Control.Monad.Except
+import           Control.Monad (foldM)
 import           Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -105,7 +105,6 @@ import qualified Data.Text   as Text
 import           Prettyprinter (pretty)
 
 import qualified Text.LLVM.AST as L
-import qualified Text.LLVM.PP as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
@@ -123,6 +122,7 @@ import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Globals
 import           Lang.Crucible.LLVM.MemModel
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
@@ -406,7 +406,7 @@ checkEntryPointUseSet nm bi args
       malformedLLVMModule ("Invalid SSA form for function: " <> pretty nm)
         ([ "The following LLVM virtual registers have at least one use site that"
          , "is not dominated by the corresponding definition:" ] ++
-         [ "   " <> pretty (show (L.ppIdent i)) | i <- Set.toList unsatisfiedUses ])
+         [ "   " <> pretty (show (LPP.ppIdent i)) | i <- Set.toList unsatisfiedUses ])
   where
     argSet = Set.fromList (map L.typedValue args)
     useSet = block_use_set bi

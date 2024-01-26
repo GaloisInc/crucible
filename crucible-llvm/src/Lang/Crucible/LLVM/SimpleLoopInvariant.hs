@@ -7,7 +7,7 @@
 -- License          : BSD3
 -- Stability        : provisional
 --
--- 
+--
 -- This module provides an execution feature that can be installed
 -- into the Crucible simulator which facilitates reasoning about
 -- certain kinds of loops by using loop invariants instead of
@@ -40,7 +40,7 @@
 -- unknown value of a loop-carried dependency. We continue this process
 -- until we reach a fixpoint; then we will have captured all the locations
 -- that are potentially of interest for the loop invariant.
--- 
+--
 -- Once we have found all the loop-carried dependencies, we assert
 -- that the loop invariant holds on the initial values upon entry to the
 -- loop. Then, we set up another execution starting from the loop head
@@ -98,9 +98,11 @@ module Lang.Crucible.LLVM.SimpleLoopInvariant
   ) where
 
 import           Control.Lens
-import           Control.Monad.Reader
-import           Control.Monad.State
-import           Control.Monad.Except
+import           Control.Monad (forM, unless, when)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
+import           Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
+import           Control.Monad.State (MonadState(..), StateT(..))
 import           Data.Foldable
 import qualified Data.IntMap as IntMap
 import           Data.IORef
@@ -668,7 +670,7 @@ simpleLoopInvariant ::
   forall sym ext p rtp blocks init ret .
   (C.IsSymInterface sym, C.IsSyntaxExtension ext, C.HasLLVMAnn sym, ?memOpts :: C.MemOptions) =>
   sym ->
-  Integer {- ^ which of the discovered loop heads to install a loop invariant onto -}  -> 
+  Integer {- ^ which of the discovered loop heads to install a loop invariant onto -}  ->
   C.CFG ext blocks init ret {- ^ The function we want to verify -} ->
   C.GlobalVar C.Mem {- ^ global variable representing memory -} ->
   (InvariantPhase -> [Some (W4.SymExpr sym)] -> MapF (W4.SymExpr sym) (InvariantEntry sym) -> IO (W4.Pred sym)) ->
@@ -851,7 +853,7 @@ advanceFixpointState bak mem_var loop_invariant block_id sim_state fixpoint_stat
                   -- drop variables that don't appear along some back edge (? understand this better)
                   filterSubstitution sym $
                   join_substitution
-                  { varSubst = 
+                  { varSubst =
                     MapF.union (varSubst join_substitution) $
                     -- this implements zip, because the two maps have the same keys
                     MapF.intersectWithKeyMaybe

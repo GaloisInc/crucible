@@ -21,6 +21,8 @@ E. That's it! We use clockvectors to quickly compute the happens-before relation
 module Crucibles.DPOR (DPOR, ppSchedExecutionsDPOR) where
 
 import           Control.Lens
+import           Control.Monad (foldM_, forM_, when)
+import           Control.Monad.State (gets)
 import           Data.List (intercalate)
 import           Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -28,7 +30,6 @@ import           Data.Text (Text)
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Maybe (fromMaybe)
 import           GHC.Stack
-import           Control.Monad.State
 import           Data.Foldable (traverse_)
 
 import           Crucibles.Common

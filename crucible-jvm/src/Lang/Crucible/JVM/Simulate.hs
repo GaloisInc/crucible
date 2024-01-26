@@ -23,7 +23,10 @@ module Lang.Crucible.JVM.Simulate where
 
 -- base
 import           Data.Maybe (maybeToList)
-import           Control.Monad.State.Strict
+import           Control.Monad (foldM, when)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.State.Strict (StateT(..), execStateT, modify)
+import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)

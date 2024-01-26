@@ -1,0 +1,94 @@
+(defun @test-ptr () (Ptr 64)
+   (start start:
+      (let blk0 (the Nat 0))
+      (let off0 (bv 64 0))
+      (let p0 (ptr 64 blk0 off0))
+      (let p (ptr-ite 64 #t p0 p0))
+      (let blk (ptr-block 64 p))
+      (let off (ptr-offset 64 p))
+      (assert! (equal? blk0 blk) "block numbers equal")
+      (assert! (equal? off0 off) "offsets equal")
+      (let sz (bv 64 1))
+      (let a (alloca none sz))
+      (let b (ptr-add-offset a sz))
+      (let c (ptr-sub b a))
+      (let vblk0 (the Nat 0))
+      (let voff0 (bv 8 255))
+      (let v0 (ptr 8 vblk0 voff0))
+      (store none i8 a v0)
+      (let v (load none i8 a))
+      (let vblk (ptr-block 8 v))
+      (let voff (ptr-offset 8 v))
+      (assert! (equal? vblk0 vblk) "stored block numbers equal")
+      (assert! (equal? voff0 voff) "stored offsets equal")
+      (let g (resolve-global "malloc"))
+      (let h (load-handle (Ptr 64) ((Ptr 64)) g))
+      (return p)))
+
+test-ptr
+%0
+  % 3:15
+  $0 = natLit(0)
+  % 4:15
+  $1 = bVLit(64, BV 0)
+  % 5:13
+  $2 = extensionApp(pointerExpr $0 $1)
+  % 6:12
+  $3 = boolLit(True)
+  % 6:12
+  $4 = extensionApp(pointerIte $3 $2 $2)
+  % 7:14
+  $5 = extensionApp(pointerBlock $4)
+  % 8:14
+  $6 = extensionApp(pointerOffset $4)
+  % 9:14
+  $7 = natEq($0, $5)
+  % 9:32
+  $8 = stringLit("block numbers equal")
+  % 9:5
+  assert($7, $8)
+  % 10:14
+  $9 = baseIsEq(BaseBVRepr 64, $1, $6)
+  % 10:32
+  $10 = stringLit("offsets equal")
+  % 10:5
+  assert($9, $10)
+  % 12:13
+  $11 = bVLit(64, BV 1)
+  % 13:12
+  $12 = alloca crucible-llvm-syntax-test-memory $11 Alignment 0 test-data/ptr.cbl:13:12
+  % 14:12
+  $13 = ptrAddOffset crucible-llvm-syntax-test-memory $12 $11
+  % 15:12
+  $14 = ptrSubtract crucible-llvm-syntax-test-memory $13 $12
+  % 18:16
+  $15 = bVLit(8, BV 255)
+  % 19:13
+  $16 = extensionApp(pointerExpr $0 $15)
+  % 20:5
+  $17 = store crucible-llvm-syntax-test-memory $12 bitvectorType 1 Alignment 0 $16
+  % 21:12
+  $18 = load crucible-llvm-syntax-test-memory $12 bitvectorType 1 Alignment 0
+  % 22:15
+  $19 = extensionApp(pointerBlock $18)
+  % 23:15
+  $20 = extensionApp(pointerOffset $18)
+  % 24:14
+  $21 = natEq($0, $19)
+  % 24:34
+  $22 = stringLit("stored block numbers equal")
+  % 24:5
+  assert($21, $22)
+  % 25:14
+  $23 = baseIsEq(BaseBVRepr 8, $15, $20)
+  % 25:34
+  $24 = stringLit("stored offsets equal")
+  % 25:5
+  assert($23, $24)
+  % 27:12
+  $25 = resolveGlobal crucible-llvm-syntax-test-memory "malloc"
+  % 28:12
+  $26 = loadFunctionHandle crucible-llvm-syntax-test-memory $25 as Nothing
+  % 30:5
+  return $4
+  % no postdom

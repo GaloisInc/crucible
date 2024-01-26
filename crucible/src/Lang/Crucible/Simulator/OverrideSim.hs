@@ -31,6 +31,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , getSymInterface
   , ovrWithBackend
   , bindFnHandle
+  , bindCFG
   , exitExecution
   , getOverrideArgs
   , overrideError
@@ -72,6 +73,10 @@ module Lang.Crucible.Simulator.OverrideSim
   , IntrinsicImpl
   , mkIntrinsic
   , useIntrinsic
+    -- * Typed overrides
+  , TypedOverride(..)
+  , SomeTypedOverride(..)
+  , runTypedOverride
     -- * Re-exports
   , Lang.Crucible.Simulator.ExecutionTree.Override
   ) where
@@ -80,9 +85,10 @@ import           Control.Exception
 import           Control.Lens
 import           Control.Monad hiding (fail)
 import qualified Control.Monad.Catch as X
-import           Control.Monad.Reader hiding (fail)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Reader (ReaderT(..))
 import           Control.Monad.ST
-import           Control.Monad.State.Strict hiding (fail)
+import           Control.Monad.State.Strict (StateT(..))
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
@@ -92,6 +98,8 @@ import           Numeric.Natural (Natural)
 import           System.Exit
 import           System.IO
 import           System.IO.Error
+
+import           Data.Parameterized.TraversableFC (fmapFC)
 
 import           What4.Config
 import           What4.Interface
@@ -238,6 +246,12 @@ bindFnHandle ::
   OverrideSim p sym ext rtp a r ()
 bindFnHandle h s =
   stateContext . functionBindings %= FnBindings . insertHandleMap h s . fnBindings
+
+-- | Bind a CFG to its handle.
+--
+-- Computes postdominator information.
+bindCFG :: CFG ext blocks args ret -> OverrideSim p sym ext rtp a r ()
+bindCFG c = bindFnHandle (cfgHandle c) (UseCFG c (postdomInfo c))
 
 ------------------------------------------------------------------------
 -- Mutable variables
@@ -656,3 +670,36 @@ mkIntrinsic m hdl = mkOverride' (handleName hdl) (handleReturnType hdl) ovr
        sym <- getSymInterface
        (RegMap args) <- getOverrideArgs
        Ctx.uncurryAssignment (m (Proxy :: Proxy r) sym) args
+
+--------------------------------------------------------------------------------
+-- Typed overrides
+
+-- | An action in 'OverrideSim', together with 'TypeRepr's for its arguments
+-- and return values. This type is used across several frontends to define
+-- overrides for built-in functions, e.g., @malloc@ in the LLVM frontend.
+--
+-- For maximal reusability, frontends may define 'TypedOverride's that are
+-- polymorphic in (any of) @p@, @sym@, and @ext@.
+data TypedOverride p sym ext args ret
+  = TypedOverride
+    { typedOverrideHandler ::
+        forall rtp args' ret'.
+        Ctx.Assignment (RegValue' sym) args ->
+        OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
+    , typedOverrideArgs :: CtxRepr args
+    , typedOverrideRet :: TypeRepr ret
+    }
+
+-- | A 'TypedOverride' with the type parameters @args@, @ret@ existentially
+-- quantified
+data SomeTypedOverride p sym ext =
+  forall args ret. SomeTypedOverride (TypedOverride p sym ext args ret)
+
+-- | Create an override from a 'TypedOverride'.
+runTypedOverride ::
+  FunctionName ->
+  TypedOverride p sym ext args ret ->
+  Override p sym ext args ret
+runTypedOverride nm typedOvr = mkOverride' nm (typedOverrideRet typedOvr) $ do
+  RegMap args <- getOverrideArgs
+  typedOverrideHandler typedOvr (fmapFC (RV . regValue) args)

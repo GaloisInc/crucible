@@ -21,7 +21,7 @@ library
 
   build-depends:
     base >= 4 && < 5,
-    aeson < 2.2,
+    aeson < 2.3,
     async,
     attoparsec,
     bv-sized >= 1.0.0,
@@ -70,6 +70,7 @@ library
     Crux.Config.Doc,
     Crux.Config.Common,
     Crux.Config.Solver,
+    Crux.Overrides,
     Crux.SVCOMP,
     Crux.SVCOMP.Witness,
     Crux.UI.JS,

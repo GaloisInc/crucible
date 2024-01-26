@@ -43,7 +43,7 @@ import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
-                   , bindLLVMFunPtr, Mem
+                   , Mem
                    )
 import           Lang.Crucible.LLVM.Translation
 import           Lang.Crucible.Simulator (regValue, FnVal(..))
@@ -87,13 +87,8 @@ registerModuleFn handleWarning mtrans sym =
       let h = cfgHandle cfg
           s = UseCFG cfg (postdomInfo cfg)
       binds <- use (stateContext . functionBindings)
-      bindFnHandle h s
-      let llvm_ctx = mtrans ^. transContext
-      let mvar = llvmMemVar llvm_ctx
-      mem <- readGlobal mvar
-      mem' <- ovrWithBackend $ \bak ->
-                liftIO $ bindLLVMFunPtr bak decl h mem
-      writeGlobal mvar mem'
+      let llvmCtx = mtrans ^. transContext
+      bind_llvm_handle llvmCtx (L.decName decl) h s
 
       when (isJust $ lookupHandleMap h $ fnBindings binds) $
         do loc <- liftIO . getCurrentProgramLoc =<< getSymInterface
@@ -135,38 +130,34 @@ registerLazyModuleFn handleWarning mtrans sym =
      do -- Bind the function handle we just created to the following bootstrapping code,
         -- which actually translates the function on its first execution and patches up
         -- behind itself.
-        bindFnHandle h
-          $ UseOverride
-          $ mkOverride' (handleName h) (handleReturnType h)
-          $ -- This inner action defines what to do when this function is called for the
-            -- first time.  We actually translate the function and install it as the
-            -- implementation for the function handle, instead of this bootstrapping code.
-            liftIO (getTranslatedCFG mtrans sym) >>= \case
-              Nothing ->
-                panic "registerLazyModuleFn"
-                  [ "Could not find definition for function in bootstrapping code"
-                  , show sym
-                  ]
-              Just (_decl, AnyCFG cfg, warns) ->
-                case testEquality (handleType (cfgHandle cfg)) (handleType h) of
-                  Nothing -> panic "registerLazyModuleFn"
-                                  ["Translated CFG type does not match function handle type",
-                                   show (handleType h), show (handleType (cfgHandle cfg)) ]
-                  Just Refl ->
-                    do liftIO $ mapM_ handleWarning warns
-                       -- Here we rebind the function handle to use the translated CFG
-                       bindFnHandle h (UseCFG cfg (postdomInfo cfg))
-                       -- Now, make recursive call to ourself, which should invoke the
-                       -- newly-installed CFG
-                       regValue <$> (callFnVal (HandleFnVal h) =<< getOverrideArgs)
+        let s =
+              UseOverride
+              $ mkOverride' (handleName h) (handleReturnType h)
+              $ -- This inner action defines what to do when this function is called for the
+                -- first time.  We actually translate the function and install it as the
+                -- implementation for the function handle, instead of this bootstrapping code.
+                liftIO (getTranslatedCFG mtrans sym) >>= \case
+                  Nothing ->
+                    panic "registerLazyModuleFn"
+                      [ "Could not find definition for function in bootstrapping code"
+                      , show sym
+                      ]
+                  Just (_decl, AnyCFG cfg, warns) ->
+                    case testEquality (handleType (cfgHandle cfg)) (handleType h) of
+                      Nothing -> panic "registerLazyModuleFn"
+                                      ["Translated CFG type does not match function handle type",
+                                       show (handleType h), show (handleType (cfgHandle cfg)) ]
+                      Just Refl ->
+                        do liftIO $ mapM_ handleWarning warns
+                           -- Here we rebind the function handle to use the translated CFG
+                           bindFnHandle h (UseCFG cfg (postdomInfo cfg))
+                           -- Now, make recursive call to ourself, which should invoke the
+                           -- newly-installed CFG
+                           regValue <$> (callFnVal (HandleFnVal h) =<< getOverrideArgs)
    
         -- Bind the function handle to the appropriate global symbol.
-        let llvm_ctx = mtrans ^. transContext
-        let mvar = llvmMemVar llvm_ctx
-        mem <- readGlobal mvar
-        mem' <- ovrWithBackend $ \bak ->
-                  liftIO $ bindLLVMFunPtr bak decl h mem
-        writeGlobal mvar mem'
+        let llvmCtx = mtrans ^. transContext
+        bind_llvm_handle llvmCtx (L.decName decl) h s
 
 
 llvmGlobalsToCtx

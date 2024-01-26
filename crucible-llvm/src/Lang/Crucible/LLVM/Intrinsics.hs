@@ -32,7 +32,8 @@ module Lang.Crucible.LLVM.Intrinsics
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
-import           Control.Monad.Reader
+import           Control.Monad (forM_)
+import           Control.Monad.Reader (ReaderT(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (asum)
 import           Data.List (stripPrefix, tails, isPrefixOf)
@@ -282,6 +283,12 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmLog2Override_F64
   , basic_llvm_override LLVM.llvmLog10Override_F32
   , basic_llvm_override LLVM.llvmLog10Override_F64
+  , basic_llvm_override LLVM.llvmFmaOverride_F32
+  , basic_llvm_override LLVM.llvmFmaOverride_F64
+  , basic_llvm_override LLVM.llvmFmuladdOverride_F32
+  , basic_llvm_override LLVM.llvmFmuladdOverride_F64
+  , basic_llvm_override LLVM.llvmIsFpclassOverride_F32
+  , basic_llvm_override LLVM.llvmIsFpclassOverride_F64
 
   -- C standard library functions
   , basic_llvm_override Libc.llvmAbortOverride
@@ -316,6 +323,11 @@ declare_overrides =
   , basic_llvm_override Libc.llvmCeilfOverride
   , basic_llvm_override Libc.llvmFloorOverride
   , basic_llvm_override Libc.llvmFloorfOverride
+  , basic_llvm_override Libc.llvmFmaOverride
+  , basic_llvm_override Libc.llvmFmafOverride
+  , basic_llvm_override Libc.llvmIsinfOverride
+  , basic_llvm_override Libc.llvm__isinfOverride
+  , basic_llvm_override Libc.llvm__isinffOverride
   , basic_llvm_override Libc.llvmIsnanOverride
   , basic_llvm_override Libc.llvm__isnanOverride
   , basic_llvm_override Libc.llvm__isnanfOverride

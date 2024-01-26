@@ -37,9 +37,12 @@ module Lang.Crucible.JVM.Overrides where
 import Numeric(fromRat)
 import Data.Maybe (isJust, fromJust)
 import Data.Semigroup(Semigroup(..),(<>))
-import Control.Monad.State.Strict
+import Control.Monad (when)
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.State.Strict (MonadState(..), StateT)
+import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.ST
-import Control.Monad.Reader
+import Control.Monad.Reader ()
 import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
@@ -67,6 +70,7 @@ import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr as NR
+import           Data.Parameterized.TraversableFC (fmapFC)
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as C
@@ -146,12 +150,7 @@ data JVMOverride p sym = forall args ret.
   { jvmOverride_className      :: J.ClassName
   , jvmOverride_methodKey      :: J.MethodKey
   , jvmOverride_methodIsStatic :: Bool
-  , jvmOverride_args           :: CtxRepr args
-  , jvmOverride_ret            :: TypeRepr ret
-  , jvmOverride_def            :: forall rtp args' ret'.
-         sym ->
-         Ctx.Assignment (C.RegEntry sym) args ->
-         C.OverrideSim p sym JVM rtp args' ret' (C.RegValue sym ret)
+  , jvmOverride_def            :: C.TypedOverride p sym JVM args ret
   }
 
 newtype ArgTransformer p sym args args' =
@@ -214,15 +213,16 @@ build_jvm_override ::
   TypeRepr ret ->
   CtxRepr args' ->
   TypeRepr ret' ->
-  (forall rtp' l' a'. Ctx.Assignment (C.RegEntry sym) args ->
+  (forall rtp' l' a'. Ctx.Assignment (C.RegValue' sym) args ->
    C.OverrideSim p sym JVM rtp' l' a' (C.RegValue sym ret)) ->
   C.OverrideSim p sym JVM rtp l a (C.Override p sym JVM args' ret')
-build_jvm_override sym fnm args ret args' ret' llvmOverride =
+build_jvm_override sym fnm args ret args' ret' jvmOverride =
   do fargs <- transformJVMArgs sym args args' fnm
      fret  <- transformJVMRet  sym ret  ret'
      return $ C.mkOverride' fnm ret' $
             do C.RegMap xs <- C.getOverrideArgs
-               applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
+               fargs' <- applyArgTransformer fargs xs
+               applyValTransformer fret =<< jvmOverride (fmapFC (C.RV . C.regValue) fargs')
 
 register_jvm_override :: forall p sym l a rtp
                        . (IsSymInterface sym)
@@ -231,9 +231,13 @@ register_jvm_override :: forall p sym l a rtp
 register_jvm_override (JVMOverride { jvmOverride_className=cn
                                      , jvmOverride_methodKey=mk
                                      , jvmOverride_methodIsStatic=isStatic
-                                     , jvmOverride_args=overrideArgs
-                                     , jvmOverride_ret=overrideRet
-                                     , jvmOverride_def=def }) = do
+                                     , jvmOverride_def=
+                                         C.TypedOverride
+                                         { C.typedOverrideHandler=def
+                                         , C.typedOverrideArgs=overrideArgs
+                                         , C.typedOverrideRet=overrideRet
+                                         }
+                                     }) = do
   jvmctx <- get
 
   let fnm = methodHandleName cn mk
@@ -242,7 +246,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
 
 
   jvmToFunHandleRepr isStatic mk  $ \derivedArgs derivedRet -> do
-    o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
+    o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet  def
     -- traceM $ "installing override for " ++ show fnm
     case Map.lookup (cn,mk) (methodHandles jvmctx) of
       Just (JVMHandleInfo _mkey h) -> do
@@ -281,10 +285,12 @@ gc_override =
     JVMOverride { jvmOverride_className="java/lang/System"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
-                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
-                , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
-                  \_sym _args -> return ()
+                  C.TypedOverride
+                  { C.typedOverrideHandler= \_args -> return ()
+                  , C.typedOverrideArgs=Ctx.Empty `Ctx.extend` refRepr
+                  , C.typedOverrideRet=UnitRepr
+                  }
                 }
 
 
@@ -590,13 +596,16 @@ printStreamUnit name showNewline =
   JVMOverride { jvmOverride_className="java/io/PrintStream"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=True
-                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
-                , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
-                  \_sym args -> do
-                    h   <- C.printHandle <$> C.getContext
-                    when showNewline (liftIO $ hPutStrLn h "")
-                    liftIO $ hFlush h
+                  C.TypedOverride
+                  { C.typedOverrideHandler=
+                    \args -> do
+                      h   <- C.printHandle <$> C.getContext
+                      when showNewline (liftIO $ hPutStrLn h "")
+                      liftIO $ hFlush h
+                  , C.typedOverrideArgs=Ctx.Empty `Ctx.extend` refRepr
+                  , C.typedOverrideRet=UnitRepr
+                  }
                 }
 
 -- Should we print to the print handle in the simulation context?
@@ -622,15 +631,18 @@ printStream name showNewline descr t =
     else JVMOverride { jvmOverride_className="java/io/PrintStream"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
-                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr `Ctx.extend` t
-                , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
-                  \_sym args -> do
-                    let reg = C.regValue (Ctx.last args)
-                    str <- showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
-                    h   <- C.printHandle <$> C.getContext
-                    liftIO $ (if showNewline then hPutStrLn else hPutStr) h str
-                    liftIO $ hFlush h
+                  C.TypedOverride
+                  { C.typedOverrideHandler=
+                    \args -> do
+                      let reg = C.unRV (Ctx.last args)
+                      str <- showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
+                      h   <- C.printHandle <$> C.getContext
+                      liftIO $ (if showNewline then hPutStrLn else hPutStr) h str
+                      liftIO $ hFlush h
+                  , C.typedOverrideArgs=Ctx.Empty `Ctx.extend` refRepr `Ctx.extend` t
+                  , C.typedOverrideRet=UnitRepr
+                  }
                 }
 
 flush_override :: (IsSymInterface sym) => JVMOverride p sym
@@ -640,12 +652,15 @@ flush_override =
   JVMOverride   { jvmOverride_className="java/io/BufferedOutputStream"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
-                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
-                , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
-                  \_sym _args -> do
-                    h <- C.printHandle <$> C.getContext
-                    liftIO $ hFlush h
+                  C.TypedOverride
+                  { C.typedOverrideHandler=
+                    \_args -> do
+                      h <- C.printHandle <$> C.getContext
+                      liftIO $ hFlush h
+                  , C.typedOverrideArgs=Ctx.Empty `Ctx.extend` refRepr
+                  , C.typedOverrideRet=UnitRepr
+                  }
                 }
 
 -- java.lang.Throwable.fillInStackTrace  (i.e. just returns this)
@@ -658,12 +673,15 @@ fillInStackTrace_override =
   JVMOverride   { jvmOverride_className="java/io/BufferedOutputStream"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
-                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
-                , jvmOverride_ret=refRepr
                 , jvmOverride_def=
-                  \_sym args -> do
-                    let reg = C.regValue (Ctx.last args)
-                    return reg
+                  C.TypedOverride
+                  { C.typedOverrideHandler=
+                    \args -> do
+                      let reg = C.unRV (Ctx.last args)
+                      return reg
+                  , C.typedOverrideArgs=Ctx.Empty `Ctx.extend` refRepr
+                  , C.typedOverrideRet=refRepr
+                  }
                 }
 
 -- OMG This is difficult to define
@@ -674,23 +692,27 @@ isArray_override =
   JVMOverride   { jvmOverride_className="java/lang/Class"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
-                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
-                , jvmOverride_ret=intRepr
                 , jvmOverride_def=
-                  \sym args -> do
-                    let reg :: W4.PartExpr (W4.Pred sym) (C.MuxTree sym (RefCell JVMObjectType))
-                        reg = C.regValue (Ctx.last args)
-                    bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr (BV.zero knownRepr)
+                  C.TypedOverride
+                  { C.typedOverrideHandler=
+                    \args -> C.ovrWithBackend $ \bak -> do
+                      let sym = backendGetSym bak
+                      let reg :: W4.PartExpr (W4.Pred sym) (C.MuxTree sym (RefCell JVMObjectType))
+                          reg = C.unRV (Ctx.last args)
+                      bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr (BV.zero knownRepr)
 {-
-                    let k :: RefCell JVMObjectType -> IO (W4.SymBV sym 32)
-                        k = undefined
-                    let h :: W4.Pred sym -> (W4.SymBV sym 32) -> (W4.SymBV sym 32) -> IO (W4.SymBV sym 32)
-                        h = undefined
-                    let g :: (C.MuxTree sym (RefCell JVMObjectType)) -> IO (W4.SymBV sym 32)
-                                                                     -> IO (W4.SymBV sym 32)
-                        g mux curr = undefined
+                      let k :: RefCell JVMObjectType -> IO (W4.SymBV sym 32)
+                          k = undefined
+                      let h :: W4.Pred sym -> (W4.SymBV sym 32) -> (W4.SymBV sym 32) -> IO (W4.SymBV sym 32)
+                          h = undefined
+                      let g :: (C.MuxTree sym (RefCell JVMObjectType)) -> IO (W4.SymBV sym 32)
+                                                                       -> IO (W4.SymBV sym 32)
+                          g mux curr = undefined
 -}
-                    liftIO $ foldr undefined bvFalse reg
+                      liftIO $ foldr undefined bvFalse reg
+                  , C.typedOverrideArgs=Ctx.Empty `Ctx.extend` refRepr
+                  , C.typedOverrideRet=intRepr
+                  }
                 }
 
 

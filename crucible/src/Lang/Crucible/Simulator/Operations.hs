@@ -77,7 +77,10 @@ import Prelude hiding (pred)
 
 import qualified Control.Exception as Ex
 import           Control.Lens
-import           Control.Monad.Reader
+import           Control.Monad (when, void)
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Reader (ReaderT(..), withReaderT)
+import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Data.Maybe (fromMaybe)
 import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx

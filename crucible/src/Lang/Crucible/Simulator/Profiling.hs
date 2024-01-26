@@ -48,7 +48,7 @@ module Lang.Crucible.Simulator.Profiling
 
 import qualified Control.Exception as Ex
 import           Control.Lens
-import           Control.Monad.Reader
+import           Control.Monad ((<=<), when)
 import           Data.Foldable (toList)
 import           Data.Hashable
 import           Data.HashSet (HashSet)

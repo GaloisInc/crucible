@@ -30,7 +30,8 @@ module Lang.Crucible.LLVM.Intrinsics.LLVM where
 
 import           GHC.TypeNats (KnownNat)
 import           Control.Lens hiding (op, (:>), Empty)
-import           Control.Monad.Reader
+import           Control.Monad (foldM, unless)
+import           Control.Monad.IO.Class (MonadIO(..))
 import           Data.Bits ((.&.))
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
@@ -992,6 +993,74 @@ llvmLog10Override_F64 =
   [llvmOvr| double @llvm.log10.f64( double ) |]
   (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 bak W4.Log10) args)
 
+llvmIsFpclassOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat
+               ::> BVType 32)
+     (BVType 1)
+llvmIsFpclassOverride_F32 =
+  [llvmOvr| i1 @llvm.is.fpclass.f32( float, i32 ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (callIsFpclass bak) args)
+
+llvmIsFpclassOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat
+               ::> BVType 32)
+     (BVType 1)
+llvmIsFpclassOverride_F64 =
+  [llvmOvr| i1 @llvm.is.fpclass.f64( double, i32 ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (callIsFpclass bak) args)
+
+llvmFmaOverride_F32 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat)
+        (FloatType SingleFloat)
+llvmFmaOverride_F32 =
+  [llvmOvr| float @llvm.fma.f32( float, float, float ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
+llvmFmaOverride_F64 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat)
+        (FloatType DoubleFloat)
+llvmFmaOverride_F64 =
+  [llvmOvr| double @llvm.fma.f64( double, double, double ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
+llvmFmuladdOverride_F32 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat
+                  ::> FloatType SingleFloat)
+        (FloatType SingleFloat)
+llvmFmuladdOverride_F32 =
+  [llvmOvr| float @llvm.fmuladd.f32( float, float, float ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
+llvmFmuladdOverride_F64 ::
+     forall sym p
+   . IsSymInterface sym
+  => LLVMOverride p sym
+        (EmptyCtx ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat
+                  ::> FloatType DoubleFloat)
+        (FloatType DoubleFloat)
+llvmFmuladdOverride_F64 =
+  [llvmOvr| double @llvm.fmuladd.f64( double, double, double ) |]
+  (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
+
 
 llvmX86_pclmulqdq
 --declare <2 x i64> @llvm.x86.pclmulqdq(<2 x i64>, <2 x i64>, i8) #1
@@ -1422,3 +1491,83 @@ callCopysign bak
     signsSame <- eqPred sym xIsNeg yIsNeg
     xNegated  <- iFloatNeg @_ @fi sym x
     iFloatIte @_ @fi sym signsSame x xNegated
+
+-- | An implementation of the @llvm.is.fpclass@ intrinsic. This essentially
+-- combines several different floating-point checks (checking for @NaN@,
+-- infinity, zero, etc.) into a single function. The second argument is a
+-- bitmask that controls which properties to check of the first argument.
+-- The different checks in the bitmask are described by the table here:
+-- <https://llvm.org/docs/LangRef.html#id1566>
+--
+-- The specification requires being able to distinguish between signaling
+-- @NaN@s (bit 0 of the bitmask) and quit @NaN@s (bit 1 of the bitmask), but
+-- @crucible-llvm@ does not have the ability to do this. As a result, both
+-- @NaN@ checks will always return true in this implementation, regardless of
+-- whether they are signaling or quiet @NaN@s.
+callIsFpclass ::
+  forall fi p sym bak ext r args ret.
+  IsSymBackend sym bak =>
+  bak ->
+  RegEntry sym (FloatType fi) ->
+  RegEntry sym (BVType 32) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType 1))
+callIsFpclass bak regOp@(regValue -> op) (regValue -> test) = do
+  bvOne  <- liftIO $ bvLit sym w1 (BV.one w1)
+  bvZero <- liftIO $ bvLit sym w1 (BV.zero w1)
+
+  let negative bit = liftIO $ do
+        isNeg <- iFloatIsNeg @_ @fi sym op
+        liftIO $ bvIte sym isNeg bit bvZero
+
+  let positive bit = liftIO $ do
+        isPos <- iFloatIsPos @_ @fi sym op
+        liftIO $ bvIte sym isPos bit bvZero
+
+  let negAndPos doCheck = liftIO $ do
+        check <- doCheck
+        checkN <- negative check
+        checkP <- positive check
+        pure (checkN, checkP)
+
+  let callIsInf x = do
+        isInf <- iFloatIsInf @_ @fi sym x
+        bvIte sym isInf bvOne bvZero
+
+  let callIsNormal x = do
+        isNorm <- iFloatIsNorm @_ @fi sym x
+        bvIte sym isNorm bvOne bvZero
+
+  let callIsSubnormal x = do
+        isSubnorm <- iFloatIsSubnorm @_ @fi sym x
+        bvIte sym isSubnorm bvOne bvZero
+
+  let callIsZero x = do
+        is0 <- iFloatIsZero @_ @fi sym x
+        bvIte sym is0 bvOne bvZero
+
+  isNan <- Libc.callIsnan bak w1 regOp
+  (isInfN, isInfP) <- negAndPos $ callIsInf op
+  (isNormN, isNormP) <- negAndPos $ callIsNormal op
+  (isSubnormN, isSubnormP) <- negAndPos $ callIsSubnormal op
+  (isZeroN, isZeroP) <- negAndPos $ callIsZero op
+
+  foldM
+    (\bits (bitNum, check) -> liftIO $ do
+        isBitSet <- liftIO $ testBitBV sym bitNum test
+        newBit <- liftIO $ bvIte sym isBitSet check bvZero
+        liftIO $ bvOrBits sym newBit bits)
+    bvZero
+    [ (0, isNan)      -- Signaling NaN
+    , (1, isNan)      -- Quiet NaN
+    , (2, isInfN)     -- Negative infinity
+    , (3, isNormN)    -- Negative normal
+    , (4, isSubnormN) -- Negative subnormal
+    , (5, isZeroN)    -- Negative zero
+    , (6, isZeroP)    -- Positive zero
+    , (7, isSubnormP) -- Positive subnormal
+    , (8, isNormP)    -- Positive normal
+    , (9, isInfP)     -- Positive infinity
+    ]
+  where
+    sym = backendGetSym bak
+    w1 = knownNat @1

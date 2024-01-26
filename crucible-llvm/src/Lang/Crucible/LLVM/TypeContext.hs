@@ -49,12 +49,12 @@ import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Text.LLVM as L
 import qualified Text.LLVM.DebugUtils as L
-import qualified Text.LLVM.PP as L
 import           Prettyprinter
 import           Data.IntMap (IntMap)
 
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.DataLayout
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 
 data IdentStatus
   = Resolved SymType
@@ -83,8 +83,8 @@ runTC pdl initMap m = over _1 tcsErrors . view swapped $ runState m tcs0
 tcsErrors :: TCState -> [Doc ann]
 tcsErrors tcs = (ppUnsupported <$> Set.toList (tcsUnsupported tcs))
              ++ (ppUnresolvable <$> Set.toList (tcsUnresolvable tcs))
-  where ppUnsupported tp = pretty "Unsupported type:" <+> viaShow (L.ppType tp)
-        ppUnresolvable i = pretty "Could not resolve identifier:" <+> viaShow (L.ppIdent i)
+  where ppUnsupported tp = pretty "Unsupported type:" <+> viaShow (LPP.ppType tp)
+        ppUnresolvable i = pretty "Could not resolve identifier:" <+> viaShow (LPP.ppIdent i)
         -- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | Type lifter contains types that could not be parsed.

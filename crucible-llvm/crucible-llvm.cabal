@@ -28,7 +28,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.18,
+    base >= 4.13 && < 4.19,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,
@@ -42,6 +42,7 @@ library
     llvm-pretty >= 0.8 && < 0.12,
     mtl,
     parameterized-utils >= 2.1.5 && < 2.2,
+    pretty,
     prettyprinter >= 1.7.0,
     text,
     template-haskell,
@@ -67,9 +68,12 @@ library
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
+    Lang.Crucible.LLVM.Intrinsics.Libc
+    Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MalformedLLVMModule
     Lang.Crucible.LLVM.MemModel
     Lang.Crucible.LLVM.MemModel.CallStack
+    Lang.Crucible.LLVM.MemModel.CallStack.Internal
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.MemLog
     Lang.Crucible.LLVM.MemModel.Partial
@@ -90,9 +94,7 @@ library
     Lang.Crucible.LLVM.Extension.Arch
     Lang.Crucible.LLVM.Extension.Syntax
     Lang.Crucible.LLVM.Intrinsics.Common
-    Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.Libcxx
-    Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.Intrinsics.Options
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Options

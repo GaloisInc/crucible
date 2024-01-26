@@ -1,0 +1,12 @@
+==== Begin Simulation ====
+cx@0:i
+intSum cx@0:i 42
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/simulate/calls.cbl:7:5: error: in main
+  bogus
+  false
+COUNTEREXAMPLE

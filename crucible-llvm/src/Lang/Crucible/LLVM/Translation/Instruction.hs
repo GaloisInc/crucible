@@ -39,10 +39,13 @@ module Lang.Crucible.LLVM.Translation.Instruction
 import           Prelude hiding (exp, pred)
 
 import           Control.Lens hiding (op, (:>) )
-import           Control.Monad.Except
-import           Control.Monad.State.Strict
+import           Control.Monad (MonadPlus(..), forM, unless)
+import           Control.Monad.Except (MonadError(..), runExceptT)
+import           Control.Monad.State.Strict (MonadState(..))
+import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (for_, toList)
+import           Data.Functor (void)
 import           Data.Int
 import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
@@ -60,7 +63,6 @@ import           Prettyprinter (pretty)
 import GHC.Exts ( Proxy#, proxy# )
 
 import qualified Text.LLVM.AST as L
-import qualified Text.LLVM.PP as L
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
@@ -79,6 +81,7 @@ import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
+import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -1874,7 +1877,7 @@ callOrdinaryFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn 
       case asScalar fn' of
         Scalar _ PtrRepr ptr -> do
           memVar <- getMemVar
-          v   <- extensionStmt (LLVM_LoadHandle memVar fnTy ptr argTypes retTy)
+          v   <- extensionStmt (LLVM_LoadHandle memVar (Just fnTy) ptr argTypes retTy)
           ret <- call v args''
           assign_f (BaseExpr retTy ret)
         _ -> fail $ unwords ["unsupported function value", show fn]
@@ -1982,7 +1985,7 @@ dbgArgs defSet args =
                             pure (Right (v, lv, di))
                        else
                          do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
-                                       map (show . L.ppIdent) (Set.toList unusableIdents))
+                                       map (show . LPP.ppIdent) (Set.toList unusableIdents))
                             pure (Left msg)
                   _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
               _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))

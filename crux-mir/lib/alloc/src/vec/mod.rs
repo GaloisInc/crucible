@@ -2794,6 +2794,7 @@ impl<T, A: Allocator> IntoIterator for Vec<T, A> {
                 alloc,
                 ptr: begin,
                 end,
+                len: me.len(),
             }
         }
     }

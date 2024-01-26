@@ -110,8 +110,11 @@ module Lang.Crucible.CFG.Generator
   ) where
 
 import           Control.Lens hiding (Index)
+import           Control.Monad ((>=>))
 import qualified Control.Monad.Fail as F
-import           Control.Monad.State.Strict
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.State.Strict ()
+import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Monad.Catch
 import qualified Data.Foldable as Fold
 import           Data.Kind
@@ -131,7 +134,7 @@ import           What4.Symbol
 import           Lang.Crucible.CFG.Core (AnyCFG(..))
 import           Lang.Crucible.CFG.Expr(App(..))
 import           Lang.Crucible.CFG.Extension
-import           Lang.Crucible.CFG.Reg
+import           Lang.Crucible.CFG.Reg hiding (AnyCFG)
 import           Lang.Crucible.CFG.EarlyMergeLoops (earlyMergeLoops)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types

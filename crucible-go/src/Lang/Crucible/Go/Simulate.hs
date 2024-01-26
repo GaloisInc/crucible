@@ -104,10 +104,10 @@ mkFunctionBindings :: forall sym p ext.
 mkFunctionBindings _overrides [] = FnBindings emptyHandleMap
 mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
   let f = case lookupOverride' ident overrides of
-        Just (SomeOverride _pkg argsRepr retRepr override) ->
+        Just (SomeOverride _pkg fnm o@(C.TypedOverride override argsRepr retRepr)) ->
           case (testEquality (cfgArgTypes cfg) argsRepr,
                 testEquality (cfgReturnType cfg) retRepr) of
-            (Just Refl, Just Refl) -> UseOverride override
+            (Just Refl, Just Refl) -> UseOverride (C.runTypedOverride fnm o)
             _ -> panic "[Go simulator] mkFunctionBindings"
                  [ "Type mismatch for override of " ++ show ident
                  , "  Expected: " ++ show (cfgArgTypes cfg) ++ " -> " ++ show (cfgReturnType cfg)

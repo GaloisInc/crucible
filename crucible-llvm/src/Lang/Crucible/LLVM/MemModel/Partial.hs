@@ -67,7 +67,8 @@ module Lang.Crucible.LLVM.MemModel.Partial
 import           Prelude hiding (pred)
 
 import           Control.Lens ((^.), view)
-import           Control.Monad.Except
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
 import           Control.Monad.State.Strict (StateT, get, put, runStateT)
 import qualified Data.ByteString as BS
 import qualified Data.Foldable as Fold

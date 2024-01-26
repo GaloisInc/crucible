@@ -1,0 +1,10 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/simulate/override-test.cbl:7:5: error: in main
+  should be true!
+  eq (ite cp@0:b cx@1:i cy@2:i) (ite cp@0:b cx@1:i cy@2:i)
+PROVED

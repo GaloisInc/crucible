@@ -57,6 +57,11 @@ identify all of the code that was changed in each patch.
   in sync with `ptr` and `end`, and avoids the need for pointer
   arithmetic.
 
+* Avoid pointer arithmetic in `vec` `IntoIter` (last applied: December 11, 2023)
+
+  The same problem as above exists for `vec::into_iter::IntoIter::size_hint`,
+  and we fix it in the same way by adding a `len` field to `IntoIter`.
+
 * Implement `str::as_bytes` via `crucible_identity_transmute` (last applied: May 16, 2023)
 
   This is necessary to avoid a gnarly use of `transmute`.

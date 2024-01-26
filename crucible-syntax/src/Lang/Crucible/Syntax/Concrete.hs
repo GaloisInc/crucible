@@ -28,7 +28,6 @@ module Lang.Crucible.Syntax.Concrete
   ( -- * Errors
     ExprErr(..)
   -- * Parsing and Results
-  , ACFG(..)
   , ParserHooks(..)
   , ParsedProgram(..)
   , defaultParserHooks
@@ -43,6 +42,10 @@ module Lang.Crucible.Syntax.Concrete
   , string
   , isType
   , operands
+  , BoundedNat(..)
+  , PosNat
+  , posNat
+  , someAssign
   -- * Rules for pretty-printing language syntax
   , printExpr
   )
@@ -52,15 +55,15 @@ import Prelude hiding (fail)
 
 import Control.Lens hiding (cons, backwards)
 import Control.Applicative
-import Control.Monad.Identity hiding (fail)
-import Control.Monad.Reader
-import Control.Monad.Trans.Except
-import Control.Monad.State.Class
-import Control.Monad.State.Strict
-import Control.Monad.Except hiding (fail)
-import Control.Monad.Error.Class ()
-import Control.Monad.Writer.Strict hiding ((<>))
-import Control.Monad.Writer.Class ()
+import Control.Monad (MonadPlus(..), forM, join)
+import Control.Monad.Error.Class (MonadError(..))
+import Control.Monad.Identity ()
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.Reader (MonadReader, ReaderT(..))
+import Control.Monad.State.Strict (MonadState(..), StateT(..))
+import Control.Monad.Trans.Class (MonadTrans(..))
+import Control.Monad.Trans.Except (ExceptT(..))
+import Control.Monad.Writer.Strict (MonadWriter(..), WriterT(..))
 
 import Lang.Crucible.Types
 
@@ -85,9 +88,9 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Numeric.Natural
 
-import qualified Lang.Crucible.CFG.Extension as LCCE
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import qualified Lang.Crucible.Syntax.ExprParse as SP
+import Lang.Crucible.Syntax.Monad
 
 import What4.ProgramLoc
 import What4.FunctionName
@@ -104,7 +107,6 @@ import Lang.Crucible.FunctionHandle
 
 import Numeric.Natural ()
 import qualified Data.Set as Set
-
 
 liftSyntaxParse :: (MonadError (ExprErr s) m, MonadIO m)
                   => SyntaxParse Atomic a -> AST s -> m a
@@ -195,7 +197,7 @@ data ParsedProgram ext = ParsedProgram
     -- ^ For each parsed @extern@, map its name to its global variable. It is
     --   the responsibility of the caller to insert each global variable into
     --   the 'SymGlobalState' alongside an appropriate 'RegValue'.
-  , parsedProgCFGs :: [ACFG ext]
+  , parsedProgCFGs :: [AnyCFG ext]
     -- ^ The CFGs for each parsed @defun@.
   , parsedProgForwardDecs :: Map FunctionName SomeHandle
     -- ^ For each parsed @declare@, map its name to its function handle. It is
@@ -786,7 +788,7 @@ synthExpr typeHint =
                  describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
                Just (Some idx) ->
                  do let ty = view (ixF' idx) ts
-                    out <- withProgressStep Rest $ withProgressStep Rest $ withProgressStep SP.First $
+                    out <- withProgressStep Rest $ withProgressStep Rest $ withProgressStep First $
                              parse e (check ty)
                     return $ SomeE (VariantRepr ts) $ EApp $ InjectVariant ts idx out
            Just (Some t) ->
@@ -1920,38 +1922,35 @@ data Rand ext s t = Rand (AST s) (E ext s t)
 
 --------------------------------------------------------------------------
 
--- | Any CFG, regardless of its arguments and return type, with its helpers
-data ACFG ext :: Type where
-  ACFG :: forall (s :: Type) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
-          ( LCCE.IsSyntaxExtension ext ) =>
-          CtxRepr init -> TypeRepr ret ->
-          CFG ext s init ret ->
-          ACFG ext
-
-deriving instance Show (ACFG ext)
-
 data Arg t = Arg AtomName Position (TypeRepr t)
 
-
+someAssign ::
+  forall m ext a.
+  ( MonadSyntax Atomic m
+  , ?parserHooks :: ParserHooks ext
+  ) =>
+  Text ->
+  m (Some a) ->
+  m (Some (Ctx.Assignment a))
+someAssign desc sub = call (go (Some Ctx.empty))
+  where
+    go :: Some (Ctx.Assignment a) -> m (Some (Ctx.Assignment a))
+    go args@(Some prev) =
+      describe desc $
+        (emptyList *> pure args) <|>
+        (depCons sub $
+           \(Some a) ->
+             go (Some $ Ctx.extend prev a))
 
 arguments' :: forall m ext
             . ( MonadSyntax Atomic m, ?parserHooks :: ParserHooks ext )
            => m (Some (Ctx.Assignment Arg))
-arguments' = call (go (Some Ctx.empty))
-  where
-    go ::  Some (Ctx.Assignment Arg) -> m (Some (Ctx.Assignment Arg))
-    go args@(Some prev) =
-      describe "argument list" $
-        (emptyList *> pure args) <|>
-        (depCons oneArg $
-           \(Some a) ->
-             go (Some $ Ctx.extend prev a))
-
-      where oneArg =
-              (describe "argument" $
-               located $
-               cons atomName (cons isType emptyList)) <&>
-              \(Posd loc (x, (Some t, ()))) -> Some (Arg x loc t)
+arguments' = someAssign "argument list" oneArg
+  where oneArg =
+          (describe "argument" $
+           located $
+           cons atomName (cons isType emptyList)) <&>
+          \(Posd loc (x, (Some t, ()))) -> Some (Arg x loc t)
 
 
 saveArgs :: (MonadState (SyntaxState s) m, MonadError (ExprErr s) m)
@@ -2217,7 +2216,7 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
 cfgs :: ( IsSyntaxExtension ext
         , ?parserHooks :: ParserHooks ext )
      => [AST s]
-     -> TopParser s [ACFG ext]
+     -> TopParser s [AnyCFG ext]
 cfgs = fmap parsedProgCFGs <$> prog
 
 prog :: ( TraverseExt ext
@@ -2228,9 +2227,8 @@ prog :: ( TraverseExt ext
 prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
-       \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
-         do let types = argTypes funArgs
-            initParser hdr src
+       \(hdr@(FunctionHeader _ _ ret handle _), src@(FunctionSource _ body)) ->
+         do initParser hdr src
             args <- toList <$> use stxAtoms
             let ?returnType = ret
             st <- get
@@ -2244,7 +2242,7 @@ prog defuns =
                                  LabelID lbl -> lbl
                                  LambdaID {} -> error "initial block is lambda"
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
-                   return $ ACFG types ret $ CFG handle entry (e' : rest)
+                   return $ AnyCFG (CFG handle entry (e' : rest))
      gs <- use stxGlobals
      externs <- use stxExterns
      fds <- uses stxForwardDecs $ fmap $

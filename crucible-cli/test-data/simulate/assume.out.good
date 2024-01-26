@@ -1,0 +1,12 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+* in main test-data/simulate/assume.cbl:4:5: x is true
+    cx@0:b
+Prove:
+  test-data/simulate/assume.cbl:5:5: error: in main
+  error statement
+  false
+COUNTEREXAMPLE

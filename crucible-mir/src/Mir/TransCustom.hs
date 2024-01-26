@@ -195,7 +195,7 @@ exit = (["std", "process", "exit"], \s ->
            Just (CustomOpExit $ \ops -> return "process::exit"))
 
 abort :: (ExplodedDefId, CustomRHS)
-abort = (["core", "intrinsics", "", "abort"], \s ->
+abort = (["core", "intrinsics", "{extern}", "abort"], \s ->
             Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
@@ -514,7 +514,7 @@ ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
 
 is_aligned_and_not_null :: (ExplodedDefId, CustomRHS)
 -- Not an actual intrinsic, so it's not in an `extern` block, so it doesn't
--- have the "" element in its path.
+-- have the "{extern}" element in its path.
 is_aligned_and_not_null = (["core", "intrinsics", "is_aligned_and_not_null"],
     -- TODO (layout): correct behavior is to return `True` for all valid
     -- references, and check `i != 0 && i % align_of::<T>() == 0` for
@@ -643,19 +643,19 @@ makeOverflowingArith name bop =
 
 wrapping_add ::  (ExplodedDefId, CustomRHS)
 wrapping_add =
-    ( ["core","intrinsics", "", "wrapping_add"]
+    ( ["core","intrinsics", "{extern}", "wrapping_add"]
     , makeOverflowingArith "wrapping_add" Add
     )
 
 wrapping_sub ::  (ExplodedDefId, CustomRHS)
 wrapping_sub =
-    ( ["core","intrinsics", "", "wrapping_sub"]
+    ( ["core","intrinsics", "{extern}", "wrapping_sub"]
     , makeOverflowingArith "wrapping_sub" Sub
     )
 
 wrapping_mul ::  (ExplodedDefId, CustomRHS)
 wrapping_mul =
-    ( ["core","intrinsics", "", "wrapping_mul"]
+    ( ["core","intrinsics", "{extern}", "wrapping_mul"]
     , makeOverflowingArith "wrapping_mul" Mul
     )
 
@@ -892,7 +892,7 @@ ctlz_nonzero =
     , ctlz_impl "ctlz_nonzero" Nothing )
 
 rotate_left :: (ExplodedDefId, CustomRHS)
-rotate_left = ( ["core","intrinsics", "", "rotate_left"],
+rotate_left = ( ["core","intrinsics", "{extern}", "rotate_left"],
   \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
       | Just Refl <- testEquality w w' -> do
@@ -900,7 +900,7 @@ rotate_left = ( ["core","intrinsics", "", "rotate_left"],
     _ -> mirFail $ "invalid arguments for rotate_left")
 
 rotate_right :: (ExplodedDefId, CustomRHS)
-rotate_right = ( ["core","intrinsics", "", "rotate_right"],
+rotate_right = ( ["core","intrinsics", "{extern}", "rotate_right"],
   \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
       | Just Refl <- testEquality w w' -> do
@@ -912,7 +912,7 @@ rotate_right = ( ["core","intrinsics", "", "rotate_right"],
 -- ** Custom ::intrinsics::discriminant_value
 
 discriminant_value ::  (ExplodedDefId, CustomRHS)
-discriminant_value = (["core","intrinsics", "", "discriminant_value"],
+discriminant_value = (["core","intrinsics", "{extern}", "discriminant_value"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
         ([TyRef (TyAdt nm _ _) Immut], [eRef]) -> do
@@ -928,20 +928,20 @@ discriminant_value = (["core","intrinsics", "", "discriminant_value"],
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)
-type_id = (["core","intrinsics", "", "type_id"],
+type_id = (["core","intrinsics", "{extern}", "type_id"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (eBVLit (knownRepr :: NatRepr 64) 0))
 
 size_of :: (ExplodedDefId, CustomRHS)
-size_of = (["core", "intrinsics", "", "size_of"], \substs -> case substs of
+size_of = (["core", "intrinsics", "{extern}", "size_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         -- TODO: return the actual size, once mir-json exports size/layout info
         return $ MirExp UsizeRepr $ R.App $ usizeLit 1
     )
 
 min_align_of :: (ExplodedDefId, CustomRHS)
-min_align_of = (["core", "intrinsics", "", "min_align_of"], \substs -> case substs of
+min_align_of = (["core", "intrinsics", "{extern}", "min_align_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         -- TODO: return the actual alignment, once mir-json exports size/layout info
         return $ MirExp UsizeRepr $ R.App $ usizeLit 1
@@ -998,7 +998,7 @@ mem_transmute = (["core", "intrinsics", "{extern}", "transmute"],
 
 
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
-intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
+intrinsics_assume = (["core", "intrinsics", "{extern}", "assume"], \_substs ->
     Just $ CustomOp $ \_ ops -> case ops of
         [MirExp C.BoolRepr cond] -> do
             G.assertExpr cond $

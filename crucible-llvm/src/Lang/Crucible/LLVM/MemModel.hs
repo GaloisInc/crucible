@@ -728,19 +728,18 @@ doMallocSize sz bak allocType mut loc mem alignment = do
 bindLLVMFunPtr ::
   (IsSymBackend sym bak, HasPtrWidth wptr) =>
   bak ->
-  L.Declare ->
+  L.Symbol ->
   FnHandle args ret ->
   MemImpl sym ->
   IO (MemImpl sym)
-bindLLVMFunPtr bak dec h mem
-  | L.decVarArgs dec
-  , (_ Ctx.:> VectorRepr AnyRepr) <- handleArgTypes h
+bindLLVMFunPtr bak nm h mem
+  | (_ Ctx.:> VectorRepr AnyRepr) <- handleArgTypes h
 
-  = do ptr <- doResolveGlobal bak mem (L.decName dec)
+  = do ptr <- doResolveGlobal bak mem nm
        doInstallHandle bak ptr (VarargsFnHandle h) mem
 
   | otherwise
-  = do ptr <- doResolveGlobal bak mem (L.decName dec)
+  = do ptr <- doResolveGlobal bak mem nm
        doInstallHandle bak ptr (SomeFnHandle h) mem
 
 doInstallHandle

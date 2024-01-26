@@ -1,43 +1,23 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
-module Main where
+module Main (main) where
 
-import Control.Applicative
-import Control.Lens (use)
-import Control.Monad.IO.Class (MonadIO(..))
-import Control.Monad.ST
-
-import Data.List
-import qualified Data.Map as Map
-import Data.Map (Map)
-import Data.Monoid
-import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.Some (Some(..))
+import qualified Data.List as List
 import Data.Text (Text)
-import Data.Type.Equality (TestEquality(..), (:~:)(..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
 import System.IO
 
-import Lang.Crucible.Syntax.Concrete hiding (SyntaxError)
-
-import Lang.Crucible.Backend (IsSymInterface)
-import Lang.Crucible.FunctionHandle
-import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.GlobalState (SymGlobalState, insertGlobal)
-import Lang.Crucible.Simulator.OverrideSim
-import Lang.Crucible.Syntax.Atoms (GlobalName(..))
-import Lang.Crucible.Syntax.Prog
-import Lang.Crucible.Syntax.SExpr
+import Lang.Crucible.Syntax.Concrete (defaultParserHooks)
 import Lang.Crucible.Syntax.ExprParse
-import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
-import Lang.Crucible.Types
-import Lang.Crucible.CFG.Common (GlobalVar(..))
-import Lang.Crucible.CFG.SSAConversion
+import Lang.Crucible.Syntax.Monad
+import Lang.Crucible.Syntax.Prog (doParseCheck)
+import Lang.Crucible.Syntax.SExpr
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
@@ -46,30 +26,13 @@ import qualified Text.Megaparsec as MP
 import System.FilePath
 import System.Directory
 
-import What4.Config
-import What4.FunctionName
-import What4.Interface (intLit)
-import What4.ProgramLoc
-import What4.Solver.Z3 (z3Options)
-
-
-
-import Overrides as TestOvrs
-
-for = flip map
+import What4.ProgramLoc (Position(SourcePos), Posd(..))
 
 main :: IO ()
 main = do wd <- getCurrentDirectory
           putStrLn $ "Looking for tests in " ++ wd
-          parseTests <- findTests
-            "Crucible parsing round-trips"
-            "test-data/parser-tests"
-            testParser
-          simTests <- findTests
-            "Crucible simulation"
-            "test-data/simulator-tests"
-            testSimulator
-          let allTests = testGroup "Tests" [syntaxParsing, resolvedForwardDecTest, parseTests, simTests]
+          parseTests <- findTests "Parsing round-trips" "test-data" testParser
+          let allTests = testGroup "Tests" [syntaxParsing, parseTests]
           defaultMain allTests
 
 findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
@@ -77,7 +40,7 @@ findTests group_name test_dir test_action =
   do inputs <- findByExtension [".cbl"] test_dir
      return $ testGroup group_name
        [ goldenFileTestCase input test_action
-       | input <- sort inputs
+       | input <- List.sort inputs
        ]
 
 goldenFileTestCase :: FilePath -> (FilePath -> FilePath -> IO ()) -> TestTree
@@ -95,23 +58,8 @@ goldenFileTestCase input test_action =
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do contents <- T.readFile inFile
+     let ?parserHooks = defaultParserHooks
      withFile outFile WriteMode $ doParseCheck inFile contents True
-
-testOptions :: [ConfigDesc]
-testOptions = z3Options
-
-testSimulator :: FilePath -> FilePath -> IO ()
-testSimulator inFile outFile =
-  do contents <- T.readFile inFile
-     withFile outFile WriteMode $ \outh ->
-       simulateProgram inFile contents outh Nothing testOptions $
-         defaultSimulateProgramHooks
-           { setupOverridesHook =  \sym ha ->
-               do os1 <- SyntaxOvrs.setupOverrides sym ha
-                  os2 <- TestOvrs.setupOverrides sym ha
-                  return $ concat [os1,os2]
-           }
-
 
 data Lam = Lam [Text] (Datum TrivialAtom) deriving (Eq, Show)
 
@@ -123,7 +71,7 @@ syntaxParsing =
     vars :: SyntaxParse TrivialAtom [TrivialAtom]
     vars = describe "sequence of variable bindings" $ rep atomic
     distinctVars :: SyntaxParse TrivialAtom [TrivialAtom]
-    distinctVars = sideCondition' "sequence of distinct variable bindings" (\xs -> nub xs == xs) vars
+    distinctVars = sideCondition' "sequence of distinct variable bindings" (\xs -> List.nub xs == xs) vars
     lambda =
       fmap (\(_, (xs, (body, ()))) -> Lam [x | TrivialAtom x <- xs] (syntaxToDatum body))
       (cons (atom "lambda") $
@@ -249,65 +197,3 @@ syntaxTest txt p =
      Left err -> error $ "Reader error: " ++ MP.errorBundlePretty err
      Right sexpr -> syntaxParseIO p sexpr
 
--- | A basic test that ensures a forward declaration behaves as expected when
--- invoked with an override that is assigned to it after parsing.
-resolvedForwardDecTest :: TestTree
-resolvedForwardDecTest =
-  testGroup "Forward declarations"
-  [ goldenFileTestCase ("test-data" </> "declare-tests" </> "main.cbl") $ \mainCbl mainOut ->
-    withFile mainOut WriteMode $ \outh ->
-    do mainContents <- T.readFile mainCbl
-       simulateProgram mainCbl mainContents outh Nothing testOptions $
-         defaultSimulateProgramHooks
-           { resolveForwardDeclarationsHook = resolveForwardDecs
-           }
-  ]
-  where
-    resolveForwardDecs ::
-      IsSymInterface sym =>
-      Map FunctionName SomeHandle ->
-      IO (FunctionBindings p sym ext)
-    resolveForwardDecs fds
-      | Just (SomeHandle hdl) <- Map.lookup "foo" fds
-      , Just Refl <- testEquality (handleArgTypes hdl) Ctx.empty
-      , Just Refl <- testEquality (handleReturnType hdl) IntegerRepr
-      = pure $ fnBindingsFromList [FnBinding hdl (UseOverride fooOv)]
-
-      | otherwise
-      = assertFailure "Could not find @foo function of the appropriate type"
-
-    fooOv ::
-      IsSymInterface sym =>
-      Override p sym ext EmptyCtx IntegerType
-    fooOv = mkOverride "foo" $ do
-      sym <- use (stateContext.ctxSymInterface)
-      liftIO $ intLit sym 42
-
--- | A basic test that ensures an extern behaves as expected after assigning a
--- value to it after parsing.
-resolvedExternTest :: TestTree
-resolvedExternTest =
-  testGroup "Externs"
-  [ goldenFileTestCase ("test-data" </> "extern-tests" </> "main.cbl") $ \mainCbl mainOut ->
-    withFile mainOut WriteMode $ \outh ->
-    do mainContents <- T.readFile mainCbl
-       simulateProgram mainCbl mainContents outh Nothing testOptions $
-         defaultSimulateProgramHooks
-           { resolveExternsHook = resolveExterns
-           }
-  ]
-  where
-    resolveExterns ::
-      IsSymInterface sym =>
-      sym ->
-      Map GlobalName (Some GlobalVar) ->
-      SymGlobalState sym ->
-      IO (SymGlobalState sym)
-    resolveExterns sym externs gst
-      | Just (Some gv) <- Map.lookup (GlobalName "foo") externs
-      , Just Refl <- testEquality (globalType gv) IntegerRepr
-      = do fooVal <- intLit sym 42
-           pure $ insertGlobal gv fooVal gst
-
-      | otherwise
-      = assertFailure "Could not find $$foo extern of the appropriate type"
