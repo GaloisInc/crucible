@@ -4,6 +4,14 @@
   which serves a similar purpose (hiding the argument and return types). The
   CFG argument and return types can be recovered via
   `Lang.Crucible.CFG.Reg.{cfgArgTypes,cfgReturnType}`.
+* `crucible-syntax` now supports simulating CFGs with language-specific syntax
+  extensions:
+
+  * `SimulateProgramHooks` now has a `setupHook` field that can run an arbitrary
+    override action before simulation. (For example, this is used in
+    `crucible-llvm-syntax` to initialize the LLVM memory global variable.)
+  * `SimulateProgramHooks` now has an extra `ext` type variable so that hooks
+    can be extension-specific.
 * `execCommand` and related data types in `Lang.Crucible.Syntax.Prog` have been
   split off into a separate `crucible-cli` library.
 
