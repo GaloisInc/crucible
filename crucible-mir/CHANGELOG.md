@@ -15,6 +15,10 @@
   makes it possible to call into the `crucible-mir` memory model from SAW
   without needing a full-blown `SimState`, which isn't readily at hand in the
   parts of SAW that need the memory model.
+* There are now variants of the memory model–related functions in
+  `Mir.Intrinsics` whose names are suffixed with `*IO`. These functions live in
+  `IO` instead of `MuxLeafT sym IO`, which make them easier to call from `IO`
+  contexts.
 
 # 0.1
 
