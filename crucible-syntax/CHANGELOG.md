@@ -4,6 +4,8 @@
   which serves a similar purpose (hiding the argument and return types). The
   CFG argument and return types can be recovered via
   `Lang.Crucible.CFG.Reg.{cfgArgTypes,cfgReturnType}`.
+* `execCommand` and related data types in `Lang.Crucible.Syntax.Prog` have been
+  split off into a separate `crucible-cli` library.
 
 # 0.3
 
