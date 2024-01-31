@@ -4,6 +4,9 @@
   Use `decName` to get a `Symbol` from a `Declare`.
 * Implement overrides for the LLVM `llvm.is.fpclass.f*` intrinsics.
 * Implement overrides for the `isinf`, `__isinf`, and `__isinff` C functions.
+* Implement overrides for the LLVM `llvm.fma.f*` and `llvm.fmuladd.f*`
+  intrinsics.
+* Implement overrides for the `fma` and `fmaf` C functions.
 
 # 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:
