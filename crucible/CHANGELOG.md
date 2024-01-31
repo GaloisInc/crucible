@@ -1,3 +1,10 @@
+# next
+
+* Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to
+  `Lang.Crucible.Simulator.OverrideSim`. These allow one to define an
+  `OverrideSim` action and bundle `TypeRepr`s for its argument and result
+  types, which is a common pattern in several Crucible backends.
+
 # 0.6
 
 * Separate backend data structures.  The "symbolic backend" is a
