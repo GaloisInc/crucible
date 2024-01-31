@@ -10,7 +10,7 @@ Category:      Language
 Synopsis:      A syntax for reading and writing Crucible-LLVM control-flow graphs
 -- Description:
 
-extra-doc-files: README.md
+extra-doc-files: CHANGELOG.md, README.md
 extra-source-files:
   test-data/*.cbl
   test-data/*.out.good
