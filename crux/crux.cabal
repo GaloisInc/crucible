@@ -17,6 +17,11 @@ Description:
   verification, usually by embedding verification specifications in
   the source language.
 
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crux
+
 library
 
   build-depends:

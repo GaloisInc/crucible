@@ -41,6 +41,11 @@ data-files:
    c-src/libcxx-7.1.0.bc
 extra-source-files: CHANGELOG.md, README.md
 
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crux-llvm
+
 common bldflags
   ghc-options: -Wall
                -Werror=incomplete-patterns

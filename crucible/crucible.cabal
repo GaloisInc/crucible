@@ -16,6 +16,11 @@ Description:
   a variety of SAT and SMT solvers, including Z3, CVC4, Yices, STP, and dReal.
 extra-source-files: CHANGELOG.md
 
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crucible
+
 -- Many (but not all, sadly) uses of unsafe operations are
 -- controlled by this compile flag.  When this flag is set
 -- to False, alternate implementations are used to avoid
