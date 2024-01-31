@@ -7,10 +7,12 @@ description:
   programs that e.g., use configuration files or accept input from files.
 name:                crucible-symio
 version:             0.1.0.0
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Daniel Matichuk
 maintainer:          dmatichuk@galois.com
 build-type:          Simple
+category:            Language
 extra-source-files:  CHANGELOG.md
 
 source-repository head
