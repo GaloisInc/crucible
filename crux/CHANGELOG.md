@@ -1,4 +1,4 @@
-# next
+# 0.7
 
 * Add a `Crux.Overrides` module, which defines common functionality for defining
   overrides, which are shared among several Crux backends.

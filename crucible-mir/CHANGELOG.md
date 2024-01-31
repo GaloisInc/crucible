@@ -1,4 +1,4 @@
-# next
+# 0.2
 
 * `crucible-mir` now supports the `nightly-2023-01-23` Rust toolchain. Some of
   the highlights of this include:
