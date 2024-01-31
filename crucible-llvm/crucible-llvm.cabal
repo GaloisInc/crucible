@@ -3,7 +3,7 @@ Name:          crucible-llvm
 Version:       0.5
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc 2014-2022
-Maintainer:    rdockins@galois.com
+Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
 License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
