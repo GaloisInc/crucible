@@ -14,6 +14,11 @@ Description:
    for Crucible-based simulation and verification of LLVM-compiled applications.
 extra-source-files: CHANGELOG.md, README.md
 
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crucible-llvm
+
 common bldflags
   ghc-options: -Wall
                -Werror=incomplete-patterns
