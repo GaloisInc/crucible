@@ -10,6 +10,11 @@
     discriminant)
   * A more intelligent way of computing crate disambiguators for looking up
     known types such as `MaybeUninit` and `Option`
+* Functions in `Mir.Intrinsics` now avoid taking or returning `SimState` values
+  as arguments, instead preferring `SymGlobalState` and `IntrinsicTypes`. This
+  makes it possible to call into the `crucible-mir` memory model from SAW
+  without needing a full-blown `SimState`, which isn't readily at hand in the
+  parts of SAW that need the memory model.
 
 # 0.1
 
