@@ -1,4 +1,4 @@
-# 0.8
+# 0.8 -- 2024-??-??
 
 * `crux-mir` now supports the `nightly-2023-01-23` Rust toolchain. Some of the
    highlights of this include:

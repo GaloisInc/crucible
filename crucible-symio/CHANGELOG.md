@@ -1,5 +1,5 @@
 # Revision history for crucible-symio
 
-## 0.1 -- YYYY-mm-dd
+## 0.1 -- 2024-??-??
 
 * First version. Released on an unsuspecting world.
