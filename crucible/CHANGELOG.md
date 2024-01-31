@@ -4,6 +4,8 @@
   `Lang.Crucible.Simulator.OverrideSim`. These allow one to define an
   `OverrideSim` action and bundle `TypeRepr`s for its argument and result
   types, which is a common pattern in several Crucible backends.
+* Add `Lang.Crucible.Simulator.OverrideSim.bindCFG`, a utility function for
+  binding a CFG to its handle in an `OverrideSim`.
 
 # 0.6
 
