@@ -8,6 +8,11 @@
   intrinsics.
 * Implement overrides for the `fma` and `fmaf` C functions.
 * Add a `Lang.Crucible.LLVM.MemModel.CallStack.null` function.
+* Add a `ppLLVMLatest` function to `Lang.Crucible.LLVM.PrettyPrint`, which
+  pretty-prints an LLVM AST using the latest LLVM version that `llvm-pretty`
+  currently supports. Also add derived combinators (`ppDeclare`, `ppIdent`,
+  etc.) for calling the `llvm-pretty` functions of the same names in tandem
+  with `ppLLVMLatest`.
 
 # 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:
