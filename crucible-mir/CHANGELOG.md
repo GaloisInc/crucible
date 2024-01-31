@@ -20,6 +20,8 @@
   `IO` instead of `MuxLeafT sym IO`, which make them easier to call from `IO`
   contexts.
 * Support enums marked with `repr(transparent)`.
+* Fix a bug in which the custom overrides for `rotate_left` and related
+  intrinsics were not applied.
 
 # 0.1
 
