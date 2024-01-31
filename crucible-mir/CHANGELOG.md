@@ -19,6 +19,7 @@
   `Mir.Intrinsics` whose names are suffixed with `*IO`. These functions live in
   `IO` instead of `MuxLeafT sym IO`, which make them easier to call from `IO`
   contexts.
+* Support enums marked with `repr(transparent)`.
 
 # 0.1
 
