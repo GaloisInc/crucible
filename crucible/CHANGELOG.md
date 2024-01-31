@@ -2,6 +2,10 @@
 
 * Rename `Lang.Crucible.Backend.popFrame` to `popFrameOrPanic`,
   provide helpers such as `popFrame` to manage assumptions without `panic`ing.
+* Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to
+  `Lang.Crucible.Simulator.OverrideSim`. These allow one to define an
+  `OverrideSim` action and bundle `TypeRepr`s for its argument and result
+  types, which is a common pattern in several Crucible backends.
 
 # 0.6
 

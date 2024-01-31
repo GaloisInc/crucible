@@ -1,3 +1,4 @@
 # next
 
-* TODO: Describe API changes here
+* Change `jvmOverride_def` in `Lang.Crucible.JVM.Overrides` to use a
+  `TypedOverride`.
