@@ -7,6 +7,7 @@
 * Implement overrides for the LLVM `llvm.fma.f*` and `llvm.fmuladd.f*`
   intrinsics.
 * Implement overrides for the `fma` and `fmaf` C functions.
+* Add a `Lang.Crucible.LLVM.MemModel.CallStack.null` function.
 
 # 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:
