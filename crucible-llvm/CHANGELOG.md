@@ -2,6 +2,8 @@
 
 * `bindLLVMFunPtr` now accepts an `Text.LLVM.AST.Symbol` rather than a whole `Declare`.
   Use `decName` to get a `Symbol` from a `Declare`.
+* Implement overrides for the LLVM `llvm.is.fpclass.f*` intrinsics.
+* Implement overrides for the `isinf`, `__isinf`, and `__isinff` C functions.
 
 # 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:
