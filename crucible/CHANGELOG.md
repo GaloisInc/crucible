@@ -1,4 +1,4 @@
-# 0.7
+# 0.7 -- 2024-??-??
 
 * Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to
   `Lang.Crucible.Simulator.OverrideSim`. These allow one to define an
