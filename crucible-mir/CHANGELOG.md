@@ -1,3 +1,16 @@
+# next
+
+* `crucible-mir` now supports the `nightly-2023-01-23` Rust toolchain. Some of
+  the highlights of this include:
+
+  * Properly support for Rust's new constant forms
+  * Better support for zero-sized constants
+  * Encoding enum discriminant types so that `crucible-mir` can know about
+    non-`isize` discriminant types (e.g., `Ordering`, which uses an `i8`
+    discriminant)
+  * A more intelligent way of computing crate disambiguators for looking up
+    known types such as `MaybeUninit` and `Option`
+
 # 0.1
 
 * Much of the `crux-mir` library has been split off into a `crucible-mir`
