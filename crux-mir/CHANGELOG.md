@@ -10,6 +10,7 @@
     discriminant)
   * A more intelligent way of computing crate disambiguators for looking up
     known types such as `MaybeUninit` and `Option`
+* Support code that uses `vec::IntoIter` on length-0 `Vec` values.
 
 # 0.7 -- 2023-06-26
 
