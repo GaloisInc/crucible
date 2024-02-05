@@ -1,4 +1,4 @@
-# 0.4 -- 2024-??-??
+# 0.4 -- 2024-02-05
 
 * The type `ACFG` has been removed in favor of `Lang.Crucible.CFG.Reg.AnyCFG`,
   which serves a similar purpose (hiding the argument and return types). The

@@ -1,4 +1,4 @@
-# 0.6 -- 2024-??-??
+# 0.6 -- 2024-02-05
 
 * `bindLLVMFunPtr` now accepts an `Text.LLVM.AST.Symbol` rather than a whole `Declare`.
   Use `decName` to get a `Symbol` from a `Declare`.

@@ -3,7 +3,7 @@
 * Rename `Lang.Crucible.Backend.popFrame` to `popFrameOrPanic`,
   provide helpers such as `popFrame` to manage assumptions without `panic`ing.
 
-# 0.7 -- 2024-??-??
+# 0.7 -- 2024-02-05
 
 * Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to
   `Lang.Crucible.Simulator.OverrideSim`. These allow one to define an
