@@ -369,9 +369,9 @@ jobs:
           docker push ${{ matrix.image }}:nightly
 
       - if: needs.config.outputs.release == 'true'
-        name: ${{ matrix.image }}:${{ needs.config.outputs.version }}
+        name: ${{ matrix.image }}:${{ needs.config.outputs.crux-llvm-version }}
         run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.version }}
-          docker push ${{ matrix.image }}:${{ needs.config.outputs.version }}
+          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.crux-llvm-version }}
+          docker push ${{ matrix.image }}:${{ needs.config.outputs.crux-llvm-version }}
           docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:latest
           docker push ${{ matrix.image }}:latest
