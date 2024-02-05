@@ -33,7 +33,7 @@ jobs:
       event-tag: ${{ steps.config.outputs.tag }}
       event-schedule: ${{ steps.config.outputs.schedule }}
       publish: ${{ steps.config.outputs.publish }}
-      release: ${{ steps.env.outputs.release }}
+      release: ${{ steps.config.outputs.release }}
       retention-days: ${{ steps.config.outputs.retention-days }}
     steps:
       - uses: actions/checkout@v2
@@ -54,7 +54,7 @@ jobs:
           .github/ci.sh output tag $EVENT_TAG
           .github/ci.sh output schedule $EVENT_SCHEDULE
           .github/ci.sh output publish $({ $EVENT_TAG || $EVENT_SCHEDULE; } && echo true || echo false)
-          .github/ci.sh output release $([[ "refs/heads/release-$(.github/ci.sh crux_mir_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
+          .github/ci.sh output release $([[ "refs/heads/release-crux-$(.github/ci.sh crux_mir_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
           .github/ci.sh output retention-days $($RELEASE && echo 90 || echo 5)
 
   build:
