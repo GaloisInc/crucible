@@ -44,7 +44,7 @@ library
     extra,
     lens,
     itanium-abi >= 0.1.1.1 && < 0.2,
-    llvm-pretty >= 0.8 && < 0.12,
+    llvm-pretty >= 0.12 && < 0.13,
     mtl,
     parameterized-utils >= 2.1.5 && < 2.2,
     pretty,
