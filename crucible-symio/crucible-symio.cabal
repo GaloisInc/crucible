@@ -6,12 +6,19 @@ description:
   reading and writing symbolic data. An example use case would be to support verifying
   programs that e.g., use configuration files or accept input from files.
 name:                crucible-symio
-version:             0.1.0.0
+version:             0.1.0.99
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Daniel Matichuk
-maintainer:          dmatichuk@galois.com
+maintainer:          rscott@galois.com, kquick@galois.com, langston@galois.com
 build-type:          Simple
+category:            Language
 extra-source-files:  CHANGELOG.md
+
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crucible-symio
 
 common shared
   build-depends:       base >=4.12 && <4.19,

@@ -1,3 +1,4 @@
-# next
+# 0.2 -- 2024-02-05
 
-* TODO: Describe API changes here
+* Change `jvmOverride_def` in `Lang.Crucible.JVM.Overrides` to use a
+  `TypedOverride`.

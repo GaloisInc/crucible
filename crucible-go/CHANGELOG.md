@@ -1,3 +1,4 @@
-# next
+# 0.1 -- 2024-02-05
 
-* TODO: Describe API changes here
+* Change `SomeOverride`, as well as related functions in
+  `Lang.Crucible.Go.Overrides`, to use a `TypedOverride`.

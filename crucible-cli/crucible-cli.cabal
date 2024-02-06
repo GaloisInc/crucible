@@ -10,7 +10,7 @@ Category:      Language
 Synopsis:      A library for sharing code between Crucible CLI frontends
 -- Description:
 
-extra-doc-files: README.md
+extra-doc-files: CHANGELOG.md, README.md
 extra-source-files:
   test-data/**/*.cbl
   test-data/**/*.out.good

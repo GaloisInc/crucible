@@ -3,7 +3,7 @@ cabal-version:       2.4
 --   For further documentation, see http://haskell.org/cabal/users-guide/
 
 name:                crucible-concurrency
-version:             0.1.0.0
+version:             0.1
 -- synopsis:
 -- description:
 -- bug-reports:
