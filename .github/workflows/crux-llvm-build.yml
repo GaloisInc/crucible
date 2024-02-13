@@ -191,9 +191,9 @@ jobs:
         if: runner.os == 'Linux'
 
       - shell: bash
-        name: Test crucible-llvm (Linux)
+        name: Test crucible-llvm
         run: .github/ci.sh test crucible-llvm
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' || runner.os == 'macOS'
 
       - shell: bash
         name: Test crucible-llvm-syntax
@@ -206,53 +206,14 @@ jobs:
         if: runner.os == 'Linux'
 
       - shell: bash
-        name: Test crux-llvm (Linux)
+        name: Test crux-llvm
         run: .github/ci.sh test crux-llvm
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' || runner.os == 'macOS'
 
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
         if: matrix.os == 'ubuntu-22.04'
-
-      - shell: bash
-        name: Install LLVM-11 for MacOS
-        if: runner.os == 'macOS'
-        run: |
-          LLVM_TAR=https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/clang+llvm-11.0.0-x86_64-apple-darwin.tar.xz
-          curl -sSL $LLVM_TAR -o llvm.tar.xz && tar xzf llvm.tar.xz && mv clang+llvm-* llvm
-          echo "#!/usr/bin/env bash" > llvm/bin/clang-withIncl
-          echo "clang -I${{ github.workspace }}/llvm/include -I${{ github.workspace }}/llvm/include/c++/v1" >> llvm/bin/clang-withIncl
-          chmod +x llvm/bin/clang-withIncl
-          echo "$PWD/llvm/bin" >> $GITHUB_PATH
-
-      - uses: actions/cache@v2
-        name: Cache LLVM-11
-        if: runner.os == 'macOS'
-        with:
-          path: ${{ github.workspace }}/llvm
-          key: llvm-11.0.0
-          restore-keys: llvm-11.0.0
-
-      - shell: bash
-        name: Test crucible-llvm (macOS)
-        run: .github/ci.sh test crucible-llvm
-        if: runner.os == 'macOS'
-        env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          LLVM_AS: "${{ github.workspace }}/llvm/bin/llvm-as"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang"
-
-        # We disable the crux-llvm test suite on macOS due to
-        # https://github.com/GaloisInc/crucible/issues/885 and
-        # https://github.com/GaloisInc/crucible/issues/999
-      - shell: bash
-        name: Test crux-llvm (macOS)
-        run: .github/ci.sh test crux-llvm
-        if: runner.os == 'macOS' && false
-        env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
 
       - name: Create binary artifact
         shell: bash

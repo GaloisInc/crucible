@@ -70,6 +70,7 @@ install_llvm() {
     echo "CLANG=clang-12" >> "$GITHUB_ENV"
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
     brew install llvm@12
+    echo "$(brew --prefix)/opt/llvm@12/bin" >> "$GITHUB_PATH"
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
     choco install llvm
   else
