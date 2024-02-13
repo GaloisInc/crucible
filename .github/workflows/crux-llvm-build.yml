@@ -70,7 +70,7 @@ jobs:
           - os: ubuntu-20.04
             cabal: 3.10.1.0
             ghc: 9.2.8
-          - os: macos-12
+          - os: macos-14
             cabal: 3.10.1.0
             ghc: 9.2.8
           - os: windows-2019
@@ -216,12 +216,13 @@ jobs:
       - name: Create binary artifact
         shell: bash
         run: |
-          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-x86_64"
+          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-${{ runner.arch }}"
           echo "NAME=$NAME" >> $GITHUB_ENV
           .github/ci.sh bundle_crux_llvm_files
         if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
+          ARCH_TAG: ${{ runner.arch }}
           VERSION: ${{ needs.config.outputs.crux-llvm-version }}
 
       - name: Sign binary artifact

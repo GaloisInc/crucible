@@ -115,7 +115,7 @@ setup_dist() {
 
 zip_dist() {
   : "${VERSION?VERSION is required as an environment variable}"
-  pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-x86_64"}"
+  pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-$ARCH_TAG"}"
   mv dist "$pkgname"
   tar -czf "$pkgname".tar.gz "$pkgname"
   rm -rf dist
