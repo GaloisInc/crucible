@@ -121,8 +121,9 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20220902"
+          SOLVER_PKG_VERSION: "snapshot-20240212"
           BUILD_TARGET_OS: ${{ matrix.os }}
+          BUILD_TARGET_ARCH: ${{ runner.arch }}
 
       - name: Setup Environment Vars
         if: runner.os == 'Linux'
