@@ -67,12 +67,9 @@ jobs:
         cabal: ["3.10.1.0"]
         ghc: ["9.2.8", "9.4.5", "9.6.2"]
         include:
-          - os: ubuntu-22.04
-            cabal: 3.10.1.0
-            ghc: 8.10.7
           - os: ubuntu-20.04
             cabal: 3.10.1.0
-            ghc: 9.6.2
+            ghc: 9.2.8
           - os: macos-12
             cabal: 3.10.1.0
             ghc: 9.2.8

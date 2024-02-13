@@ -67,6 +67,9 @@ jobs:
         cabal: ["3.10.1.0"]
         ghc: ["9.2.8", "9.4.5", "9.6.2"]
         include:
+          - os: ubuntu-20.04
+            cabal: 3.10.1.0
+            ghc: 9.2.8
           - os: macos-12
             cabal: 3.10.1.0
             ghc: 9.2.8
@@ -197,10 +200,10 @@ jobs:
           .github/ci.sh sign "${NAME}.tar.gz"
 
       - uses: actions/upload-artifact@v2
-        if: startsWith(github.ref, 'refs/heads/release-')
+        if: github.repository == 'GaloisInc/crucible'
         with:
           path: crux-mir-*.tar.gz*
-          name: crux-mir-${{ runner.os }}-${{ matrix.ghc }}
+          name: crux-mir-${{ matrix.os }}-${{ matrix.ghc }}
 
       - uses: actions/cache/save@v3
         name: Save cabal store cache
