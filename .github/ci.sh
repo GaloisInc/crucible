@@ -65,6 +65,9 @@ test() {
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
     sudo apt-get update -q && sudo apt-get install -y clang-12 llvm-12-tools
+    echo "LLVM_LINK=llvm-link-12" >> "$GITHUB_ENV"
+    echo "LLVM_AS=llvm-as-12" >> "$GITHUB_ENV"
+    echo "CLANG=clang-12" >> "$GITHUB_ENV"
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
     brew install llvm@12
   elif [[ "$RUNNER_OS" = "Windows" ]]; then

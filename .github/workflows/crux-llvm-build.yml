@@ -194,10 +194,6 @@ jobs:
         name: Test crucible-llvm (Linux)
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'Linux'
-        env:
-          LLVM_LINK: "llvm-link-12"
-          LLVM_AS: "llvm-as-12"
-          CLANG: "clang-12"
 
       - shell: bash
         name: Test crucible-llvm-syntax
@@ -213,17 +209,11 @@ jobs:
         name: Test crux-llvm (Linux)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux'
-        env:
-          LLVM_LINK: "llvm-link-12"
-          CLANG: "clang-12"
 
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
         if: matrix.os == 'ubuntu-22.04'
-        env:
-          LLVM_LINK: "llvm-link-12"
-          CLANG: "clang-12"
 
       - shell: bash
         name: Install LLVM-11 for MacOS
