@@ -186,7 +186,7 @@ jobs:
         run: .github/ci.sh test crucible-cli
 
       - shell: bash
-        name: Test crucible-symio (Linux)
+        name: Test crucible-symio
         run: cabal test pkg:crucible-symio
         if: runner.os == 'Linux'
 
@@ -200,12 +200,12 @@ jobs:
           CLANG: "clang-12"
 
       - shell: bash
-        name: Test crucible-llvm-syntax (Linux)
+        name: Test crucible-llvm-syntax
         run: .github/ci.sh test crucible-llvm-syntax
         if: runner.os == 'Linux'
 
       - shell: bash
-        name: Test crucible-llvm-cli (Linux)
+        name: Test crucible-llvm-cli
         run: .github/ci.sh test crucible-llvm-cli
         if: runner.os == 'Linux'
 
