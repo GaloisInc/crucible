@@ -98,6 +98,8 @@ filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
  f (ExactMatch x)       = x == nm
  f (PrefixMatch pfx)    = pfx `isPrefixOf` nm
  f (SubstringsMatch as) = filterSubstrings as nm
+ -- See Note [Darwin aliases] in Lang.Crucible.LLVM.Intrinsics.Common
+ f (DarwinAliasMatch x) = x == stripDarwinAliases nm
 
  filterSubstrings [] _ = True
  filterSubstrings (a:as) xs =
@@ -331,6 +333,7 @@ declare_overrides =
   , basic_llvm_override Libc.llvmIsnanOverride
   , basic_llvm_override Libc.llvm__isnanOverride
   , basic_llvm_override Libc.llvm__isnanfOverride
+  , basic_llvm_override Libc.llvm__isnandOverride
   , basic_llvm_override Libc.llvmSqrtOverride
   , basic_llvm_override Libc.llvmSqrtfOverride
   , basic_llvm_override Libc.llvmSinOverride
@@ -377,6 +380,8 @@ declare_overrides =
   , basic_llvm_override Libc.llvmLog2fOverride
   , basic_llvm_override Libc.llvmExp10Override
   , basic_llvm_override Libc.llvmExp10fOverride
+  , basic_llvm_override Libc.llvm__exp10Override
+  , basic_llvm_override Libc.llvm__exp10fOverride
   , basic_llvm_override Libc.llvmLog10Override
   , basic_llvm_override Libc.llvmLog10fOverride
 
