@@ -21,6 +21,7 @@ import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
 import           System.FilePath ( (-<.>) )
+import qualified System.Info as Info
 import           System.IO
 import           System.Process ( readProcess )
 import           Text.Read ( readMaybe )
@@ -375,13 +376,19 @@ mkTest sweet _ expct =
                        , TS.rootBaseName sweet == "nested_unsafe"
                        ]
 
+    -- T972-fail requires an x86-64 compiler, so skip it on non-x86-64
+    -- architectures.
+    let skipX86_64Tests =
+          Info.arch /= "x86_64" &&
+          TS.rootBaseName sweet == "T972-fail"
+
     -- If a .good file begins with SKIP_TEST, skip that test entirely. For test
     -- cases that require a minimum Clang version, this technique is used to
     -- prevent running the test on older Clang versions.
 
     skipTest <- ("SKIP_TEST" `BSIO.isPrefixOf`) <$> BSIO.readFile (TS.expectedFile expct)
 
-    if or [ skipTest, testLevel == "0" && longTests ]
+    if or [ skipTest, skipX86_64Tests, testLevel == "0" && longTests ]
       then do
         when (testLevel == "0" && longTests) $
           putStrLn "*** Longer running test skipped; set CI_TEST_LEVEL=1 env var to enable"
