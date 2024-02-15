@@ -67,13 +67,10 @@ jobs:
         cabal: ["3.10.1.0"]
         ghc: ["9.2.8", "9.4.5", "9.6.2"]
         include:
-          - os: ubuntu-22.04
-            cabal: 3.10.1.0
-            ghc: 8.10.7
           - os: ubuntu-20.04
             cabal: 3.10.1.0
-            ghc: 9.6.2
-          - os: macos-12
+            ghc: 9.2.8
+          - os: macos-14
             cabal: 3.10.1.0
             ghc: 9.2.8
           - os: windows-2019
@@ -85,7 +82,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: haskell/actions/setup@v2
+      - uses: haskell-actions/setup@v2
         id: setup-haskell
         with:
           ghc-version: ${{ matrix.ghc }}
@@ -121,8 +118,9 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20220902"
+          SOLVER_PKG_VERSION: "snapshot-20240212"
           BUILD_TARGET_OS: ${{ matrix.os }}
+          BUILD_TARGET_ARCH: ${{ runner.arch }}
 
       - name: Setup Environment Vars
         if: runner.os == 'Linux'
@@ -218,12 +216,13 @@ jobs:
       - name: Create binary artifact
         shell: bash
         run: |
-          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-x86_64"
+          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-${{ runner.arch }}"
           echo "NAME=$NAME" >> $GITHUB_ENV
           .github/ci.sh bundle_crux_llvm_files
         if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
+          ARCH_TAG: ${{ runner.arch }}
           VERSION: ${{ needs.config.outputs.crux-llvm-version }}
 
       - name: Sign binary artifact

@@ -5,6 +5,7 @@ DATE=$(date "+%Y-%m-%d")
 EXT=""
 IS_WIN=false
 OS_TAG=Linux
+ARCH_TAG=X64
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 extract_exe() {
@@ -23,7 +24,7 @@ setup_dist() {
 
 zip_dist() {
   : "${VERSION?VERSION is required as an environment variable}"
-  pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-x86_64"}"
+  pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-$ARCH_TAG"}"
   mv dist "$pkgname"
   zip -r "$pkgname".zip "$pkgname"
   rm -rf dist
