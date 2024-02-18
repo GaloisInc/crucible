@@ -56,7 +56,8 @@ import           Data.Map (Map)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import           Data.Set (Set)
-import           GHC.TypeLits
+import           GHC.TypeLits (KnownNat)
+import           Numeric.Natural (Natural)
 import qualified System.IO
 
 import qualified Data.BitVector.Sized as BV
