@@ -1,8 +1,8 @@
 Cabal-version: 2.2
 Name:          crux-llvm
-Version:       0.7.0.99
+Version:       0.8.0.99
 Author:        Galois Inc.
-Maintainer:    iavor.diatchki@gmail.com
+Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
 Copyright:     (c) Galois, Inc 2014-2022
 License:       BSD-3-Clause
 License-file:  LICENSE
@@ -40,6 +40,11 @@ data-files:
    c-src/libcxx-3.6.2.bc
    c-src/libcxx-7.1.0.bc
 extra-source-files: CHANGELOG.md, README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crux-llvm
 
 common bldflags
   ghc-options: -Wall

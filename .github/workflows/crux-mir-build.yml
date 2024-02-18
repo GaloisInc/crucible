@@ -33,7 +33,7 @@ jobs:
       event-tag: ${{ steps.config.outputs.tag }}
       event-schedule: ${{ steps.config.outputs.schedule }}
       publish: ${{ steps.config.outputs.publish }}
-      release: ${{ steps.env.outputs.release }}
+      release: ${{ steps.config.outputs.release }}
       retention-days: ${{ steps.config.outputs.retention-days }}
     steps:
       - uses: actions/checkout@v2
@@ -54,7 +54,7 @@ jobs:
           .github/ci.sh output tag $EVENT_TAG
           .github/ci.sh output schedule $EVENT_SCHEDULE
           .github/ci.sh output publish $({ $EVENT_TAG || $EVENT_SCHEDULE; } && echo true || echo false)
-          .github/ci.sh output release $([[ "refs/heads/release-$(.github/ci.sh crux_mir_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
+          .github/ci.sh output release $([[ "refs/heads/release-crux-$(.github/ci.sh crux_mir_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
           .github/ci.sh output retention-days $($RELEASE && echo 90 || echo 5)
 
   build:
@@ -67,7 +67,10 @@ jobs:
         cabal: ["3.10.1.0"]
         ghc: ["9.2.8", "9.4.5", "9.6.2"]
         include:
-          - os: macos-12
+          - os: ubuntu-20.04
+            cabal: 3.10.1.0
+            ghc: 9.2.8
+          - os: macos-14
             cabal: 3.10.1.0
             ghc: 9.2.8
 
@@ -78,7 +81,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: haskell/actions/setup@v2
+      - uses: haskell-actions/setup@v2
         id: setup-haskell
         with:
           ghc-version: ${{ matrix.ghc }}
@@ -121,8 +124,9 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20220902"
+          SOLVER_PKG_VERSION: "snapshot-20240212"
           BUILD_TARGET_OS: ${{ matrix.os }}
+          BUILD_TARGET_ARCH: ${{ runner.arch }}
 
       - name: Setup Environment Vars
         if: runner.os == 'Linux'
@@ -174,12 +178,13 @@ jobs:
       - name: Create binary artifact
         shell: bash
         run: |
-          NAME="crux-mir-${{ needs.config.outputs.crux-mir-version }}-${{ matrix.os }}-x86_64"
+          NAME="crux-mir-${{ needs.config.outputs.crux-mir-version }}-${{ matrix.os }}-${{ runner.arch }}"
           echo "NAME=$NAME" >> $GITHUB_ENV
           .github/ci.sh bundle_crux_mir_files
         if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
+          ARCH_TAG: ${{ runner.arch }}
           VERSION: ${{ needs.config.outputs.crux-mir-version }}
 
       - name: Sign binary artifact
@@ -196,10 +201,10 @@ jobs:
           .github/ci.sh sign "${NAME}.tar.gz"
 
       - uses: actions/upload-artifact@v2
-        if: startsWith(github.ref, 'refs/heads/release-')
+        if: github.repository == 'GaloisInc/crucible'
         with:
           path: crux-mir-*.tar.gz*
-          name: crux-mir-${{ runner.os }}-${{ matrix.ghc }}
+          name: crux-mir-${{ matrix.os }}-${{ matrix.ghc }}
 
       - uses: actions/cache/save@v3
         name: Save cabal store cache
@@ -276,9 +281,9 @@ jobs:
           docker push ${{ matrix.image }}:nightly
 
       - if: needs.config.outputs.release == 'true'
-        name: ${{ matrix.image }}:${{ needs.config.outputs.version }}
+        name: ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
         run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.version }}
-          docker push ${{ matrix.image }}:${{ needs.config.outputs.version }}
+          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
+          docker push ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
           docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:latest
           docker push ${{ matrix.image }}:latest

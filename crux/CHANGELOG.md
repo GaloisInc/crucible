@@ -1,3 +1,8 @@
+# 0.7 -- 2024-02-05
+
+* Add a `Crux.Overrides` module, which defines common functionality for defining
+  overrides, which are shared among several Crux backends.
+
 # 0.6
 
 * Corresponds to the 0.6 release of `crux-llvm` and `crux-mir`.

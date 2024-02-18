@@ -1,7 +1,18 @@
-# next
+# 0.6 -- 2024-02-05
 
 * `bindLLVMFunPtr` now accepts an `Text.LLVM.AST.Symbol` rather than a whole `Declare`.
   Use `decName` to get a `Symbol` from a `Declare`.
+* Implement overrides for the LLVM `llvm.is.fpclass.f*` intrinsics.
+* Implement overrides for the `isinf`, `__isinf`, and `__isinff` C functions.
+* Implement overrides for the LLVM `llvm.fma.f*` and `llvm.fmuladd.f*`
+  intrinsics.
+* Implement overrides for the `fma` and `fmaf` C functions.
+* Add a `Lang.Crucible.LLVM.MemModel.CallStack.null` function.
+* Add a `ppLLVMLatest` function to `Lang.Crucible.LLVM.PrettyPrint`, which
+  pretty-prints an LLVM AST using the latest LLVM version that `llvm-pretty`
+  currently supports. Also add derived combinators (`ppDeclare`, `ppIdent`,
+  etc.) for calling the `llvm-pretty` functions of the same names in tandem
+  with `ppLLVMLatest`.
 
 # 0.5
 * Add `?memOpts :: MemOptions` constraints to the following functions:

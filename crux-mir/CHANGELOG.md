@@ -1,3 +1,17 @@
+# 0.8 -- 2024-02-05
+
+* `crux-mir` now supports the `nightly-2023-01-23` Rust toolchain. Some of the
+   highlights of this include:
+
+  * Properly support for Rust's new constant forms
+  * Better support for zero-sized constants
+  * Encoding enum discriminant types so that `crux-mir` can know about
+    non-`isize` discriminant types (e.g., `Ordering`, which uses an `i8`
+    discriminant)
+  * A more intelligent way of computing crate disambiguators for looking up
+    known types such as `MaybeUninit` and `Option`
+* Support code that uses `vec::IntoIter` on length-0 `Vec` values.
+
 # 0.7 -- 2023-06-26
 
 ## API changes

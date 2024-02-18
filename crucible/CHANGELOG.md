@@ -1,3 +1,17 @@
+# next -- TBA
+
+* Rename `Lang.Crucible.Backend.popFrame` to `popFrameOrPanic`,
+  provide helpers such as `popFrame` to manage assumptions without `panic`ing.
+
+# 0.7 -- 2024-02-05
+
+* Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to
+  `Lang.Crucible.Simulator.OverrideSim`. These allow one to define an
+  `OverrideSim` action and bundle `TypeRepr`s for its argument and result
+  types, which is a common pattern in several Crucible backends.
+* Add `Lang.Crucible.Simulator.OverrideSim.bindCFG`, a utility function for
+  binding a CFG to its handle in an `OverrideSim`.
+
 # 0.6
 
 * Separate backend data structures.  The "symbolic backend" is a

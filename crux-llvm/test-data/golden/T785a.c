@@ -10,10 +10,13 @@ int main() {
     abort();
   } else if (crucible_int8_t("test_exit")) {
     exit(1);
-  } else if (crucible_int8_t("test_assert_fail")) {
-    __assert_fail("0", "T785a.c", 16, "__assert_fail");
+#if defined(__APPLE__)
+    __assert_rtn("0", "T785b.c", 15, "__assert_rtn");
+#else
+    __assert_fail("0", "T785b.c", 17, "__assert_fail");
+#endif
   } else if (crucible_int8_t("test_crucible_assert")) {
-    crucible_assert(0, "T785a.c", 18);
+    crucible_assert(0, "T785b.c", 20);
   } else if (crucible_int8_t("test_CPROVER_assert")) {
     __CPROVER_assert(0, "__CPROVER_assert");
   }

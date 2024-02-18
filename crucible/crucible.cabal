@@ -1,8 +1,8 @@
 Cabal-version: 2.2
 Name:          crucible
-Version:       0.6
+Version:       0.7.0.99
 Author:        Galois Inc.
-Maintainer:    jhendrix@galois.com, rdockins@galois.com
+Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
 Copyright:     (c) Galois, Inc 2014-2022
 License:       BSD-3-Clause
 License-file:  LICENSE
@@ -15,6 +15,11 @@ Description:
   programs expressed in this format.  It also provides support for communicating with
   a variety of SAT and SMT solvers, including Z3, CVC4, Yices, STP, and dReal.
 extra-source-files: CHANGELOG.md
+
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crucible
 
 -- Many (but not all, sadly) uses of unsafe operations are
 -- controlled by this compile flag.  When this flag is set
@@ -32,7 +37,7 @@ common bldflags
                -Werror=overlapping-patterns
                -Wpartial-fields
                -Wincomplete-uni-patterns
-  ghc-prof-options: -O2 -fprof-auto-top
+  ghc-prof-options: -O2 -fprof-auto-exported
   default-language: Haskell2010
 
 

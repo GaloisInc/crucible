@@ -31,7 +31,7 @@ jobs:
       event-tag: ${{ steps.config.outputs.tag }}
       event-schedule: ${{ steps.config.outputs.schedule }}
       publish: ${{ steps.config.outputs.publish }}
-      release: ${{ steps.env.outputs.release }}
+      release: ${{ steps.config.outputs.release }}
       retention-days: ${{ steps.config.outputs.retention-days }}
     steps:
       - uses: actions/checkout@v2
@@ -52,7 +52,7 @@ jobs:
           .github/ci.sh output tag $EVENT_TAG
           .github/ci.sh output schedule $EVENT_SCHEDULE
           .github/ci.sh output publish $({ $EVENT_TAG || $EVENT_SCHEDULE; } && echo true || echo false)
-          .github/ci.sh output release $([[ "refs/heads/release-$(.github/ci.sh crux_llvm_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
+          .github/ci.sh output release $([[ "refs/heads/release-crux-$(.github/ci.sh crux_llvm_ver)" == "${{ github.event.ref }}" ]] && echo true || echo false)
           .github/ci.sh output retention-days $($RELEASE && echo 90 || echo 5)
 
   build:
@@ -67,13 +67,10 @@ jobs:
         cabal: ["3.10.1.0"]
         ghc: ["9.2.8", "9.4.5", "9.6.2"]
         include:
-          - os: ubuntu-22.04
-            cabal: 3.10.1.0
-            ghc: 8.10.7
           - os: ubuntu-20.04
             cabal: 3.10.1.0
-            ghc: 9.6.2
-          - os: macos-12
+            ghc: 9.2.8
+          - os: macos-14
             cabal: 3.10.1.0
             ghc: 9.2.8
           - os: windows-2019
@@ -85,7 +82,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: haskell/actions/setup@v2
+      - uses: haskell-actions/setup@v2
         id: setup-haskell
         with:
           ghc-version: ${{ matrix.ghc }}
@@ -121,8 +118,9 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20220902"
+          SOLVER_PKG_VERSION: "snapshot-20240212"
           BUILD_TARGET_OS: ${{ matrix.os }}
+          BUILD_TARGET_ARCH: ${{ runner.arch }}
 
       - name: Setup Environment Vars
         if: runner.os == 'Linux'
@@ -186,93 +184,45 @@ jobs:
         run: .github/ci.sh test crucible-cli
 
       - shell: bash
-        name: Test crucible-symio (Linux)
+        name: Test crucible-symio
         run: cabal test pkg:crucible-symio
         if: runner.os == 'Linux'
 
       - shell: bash
-        name: Test crucible-llvm (Linux)
+        name: Test crucible-llvm
         run: .github/ci.sh test crucible-llvm
-        if: runner.os == 'Linux'
-        env:
-          LLVM_LINK: "llvm-link-12"
-          LLVM_AS: "llvm-as-12"
-          CLANG: "clang-12"
+        if: runner.os == 'Linux' || runner.os == 'macOS'
 
       - shell: bash
-        name: Test crucible-llvm-syntax (Linux)
+        name: Test crucible-llvm-syntax
         run: .github/ci.sh test crucible-llvm-syntax
         if: runner.os == 'Linux'
 
       - shell: bash
-        name: Test crucible-llvm-cli (Linux)
+        name: Test crucible-llvm-cli
         run: .github/ci.sh test crucible-llvm-cli
         if: runner.os == 'Linux'
 
       - shell: bash
-        name: Test crux-llvm (Linux)
+        name: Test crux-llvm
         run: .github/ci.sh test crux-llvm
-        if: runner.os == 'Linux'
-        env:
-          LLVM_LINK: "llvm-link-12"
-          CLANG: "clang-12"
+        if: runner.os == 'Linux' || runner.os == 'macOS'
 
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
         if: matrix.os == 'ubuntu-22.04'
-        env:
-          LLVM_LINK: "llvm-link-12"
-          CLANG: "clang-12"
-
-      - shell: bash
-        name: Install LLVM-11 for MacOS
-        if: runner.os == 'macOS'
-        run: |
-          LLVM_TAR=https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/clang+llvm-11.0.0-x86_64-apple-darwin.tar.xz
-          curl -sSL $LLVM_TAR -o llvm.tar.xz && tar xzf llvm.tar.xz && mv clang+llvm-* llvm
-          echo "#!/usr/bin/env bash" > llvm/bin/clang-withIncl
-          echo "clang -I${{ github.workspace }}/llvm/include -I${{ github.workspace }}/llvm/include/c++/v1" >> llvm/bin/clang-withIncl
-          chmod +x llvm/bin/clang-withIncl
-          echo "$PWD/llvm/bin" >> $GITHUB_PATH
-
-      - uses: actions/cache@v2
-        name: Cache LLVM-11
-        if: runner.os == 'macOS'
-        with:
-          path: ${{ github.workspace }}/llvm
-          key: llvm-11.0.0
-          restore-keys: llvm-11.0.0
-
-      - shell: bash
-        name: Test crucible-llvm (macOS)
-        run: .github/ci.sh test crucible-llvm
-        if: runner.os == 'macOS'
-        env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          LLVM_AS: "${{ github.workspace }}/llvm/bin/llvm-as"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang"
-
-        # We disable the crux-llvm test suite on macOS due to
-        # https://github.com/GaloisInc/crucible/issues/885 and
-        # https://github.com/GaloisInc/crucible/issues/999
-      - shell: bash
-        name: Test crux-llvm (macOS)
-        run: .github/ci.sh test crux-llvm
-        if: runner.os == 'macOS' && false
-        env:
-          LLVM_LINK: "${{ github.workspace }}/llvm/bin/llvm-link"
-          CLANG: "${{ github.workspace }}/llvm/bin/clang-withIncl"
 
       - name: Create binary artifact
         shell: bash
         run: |
-          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-x86_64"
+          NAME="crux-llvm-${{ needs.config.outputs.crux-llvm-version }}-${{ matrix.os }}-${{ runner.arch }}"
           echo "NAME=$NAME" >> $GITHUB_ENV
           .github/ci.sh bundle_crux_llvm_files
         if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
+          ARCH_TAG: ${{ runner.arch }}
           VERSION: ${{ needs.config.outputs.crux-llvm-version }}
 
       - name: Sign binary artifact
@@ -369,9 +319,9 @@ jobs:
           docker push ${{ matrix.image }}:nightly
 
       - if: needs.config.outputs.release == 'true'
-        name: ${{ matrix.image }}:${{ needs.config.outputs.version }}
+        name: ${{ matrix.image }}:${{ needs.config.outputs.crux-llvm-version }}
         run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.version }}
-          docker push ${{ matrix.image }}:${{ needs.config.outputs.version }}
+          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.crux-llvm-version }}
+          docker push ${{ matrix.image }}:${{ needs.config.outputs.crux-llvm-version }}
           docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:latest
           docker push ${{ matrix.image }}:latest

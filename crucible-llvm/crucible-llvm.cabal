@@ -1,9 +1,9 @@
 Cabal-version: 2.2
 Name:          crucible-llvm
-Version:       0.5
+Version:       0.6.0.99
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc 2014-2022
-Maintainer:    rdockins@galois.com
+Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
 License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
@@ -14,6 +14,11 @@ Description:
    for Crucible-based simulation and verification of LLVM-compiled applications.
 extra-source-files: CHANGELOG.md, README.md
 
+source-repository head
+  type:     git
+  location: https://github.com/GaloisInc/crucible
+  subdir:   crucible-llvm
+
 common bldflags
   ghc-options: -Wall
                -Werror=incomplete-patterns
@@ -21,7 +26,7 @@ common bldflags
                -Werror=overlapping-patterns
                -Wpartial-fields
                -Wincomplete-uni-patterns
-  ghc-prof-options: -O2 -fprof-auto-top
+  ghc-prof-options: -O2 -fprof-auto-exported
   default-language: Haskell2010
 
 
@@ -39,7 +44,7 @@ library
     extra,
     lens,
     itanium-abi >= 0.1.1.1 && < 0.2,
-    llvm-pretty >= 0.8 && < 0.12,
+    llvm-pretty >= 0.12 && < 0.13,
     mtl,
     parameterized-utils >= 2.1.5 && < 2.2,
     pretty,
