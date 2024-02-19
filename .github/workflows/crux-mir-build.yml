@@ -231,6 +231,18 @@ jobs:
         with:
           submodules: true
 
+      - name: Clear up some disk space
+        run: |
+          # The crux-mir Docker image is rather large (~1GB compressed), and
+          # the mere act of building the image requires just over 14 GB of disk
+          # space, which the maximum provided by a GitHub Action CI runner. To
+          # clear up some extra space, we delete ~10GB worth of pre-installed
+          # GitHub Actions tools, none of which we make use of.
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" # Python installations
+
       - uses: rlespinasse/github-slug-action@v3.x
 
       - id: common-tag
