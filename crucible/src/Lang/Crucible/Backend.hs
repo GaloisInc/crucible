@@ -647,8 +647,8 @@ runCHC bak uninterp_inv_fns  = liftIO $ do
         }
   Z3.runZ3Horn sym True logData uninterp_inv_fns implications >>= \case
     Sat sub -> return sub
-    Unsat{} -> fail "Prover returned Infeasible"
-    Unknown -> fail "Prover returned Fail"
+    Unsat{} -> fail "Prover returned Unsat"
+    Unknown -> fail "Prover returned Unknown"
 
 
 -- | Get proof obligations as What4 implications.
