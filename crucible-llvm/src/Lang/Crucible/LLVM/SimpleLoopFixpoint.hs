@@ -484,7 +484,7 @@ joinMem sym mem_impl mem_writes = do
           | Just Refl <- W4.testEquality ?ptrWidth (C.ptrWidth ptr)
           , Just blk <- W4.asNat (C.llvmPointerBlock ptr) -> do
             sz <- maybe (fail "SimpleLoopFixpoint: unsupported MemSource") return =<<
-              runMaybeT (C.writeSourceSize sym mem_source)
+              runMaybeT (C.writeSourceSize sym (C.ptrWidth ptr) mem_source)
             let mem_loc = MemLocation
                   { memLocationBlock = blk
                   , memLocationOffset = C.llvmPointerOffset ptr
