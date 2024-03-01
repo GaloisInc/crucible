@@ -1634,7 +1634,8 @@ possibleAllocs n mem =
     Just (AllocInfo atp sz mut alignment loc) ->
       [SomeAlloc atp n sz mut alignment loc]
 
-
+-- | 'IO' plus memoization. The 'IORef' stores suspended computations with
+-- 'Left' and evaluated results with 'Right'.
 newtype MemoIO m a = MemoIO (IORef (Either (m a) a))
 
 putMemoIO :: MonadIO m => m a -> m (MemoIO m a)

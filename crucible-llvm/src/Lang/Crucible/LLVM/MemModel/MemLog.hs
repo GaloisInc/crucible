@@ -541,6 +541,8 @@ ppMem m = ppMemState ppMemChanges (m^.memState)
 multiUnion :: (Ord k, Semigroup a) => Map k a -> Map k a -> Map k a
 multiUnion = Map.unionWith (<>)
 
+-- | This will return 'Just' if the size of the write is bounded and 'Nothing'
+-- is the size of the write is unbounded.
 writeSourceSize ::
   (IsExprBuilder sym, 1 <= w) =>
   sym ->
