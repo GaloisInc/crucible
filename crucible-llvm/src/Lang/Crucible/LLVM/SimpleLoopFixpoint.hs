@@ -699,7 +699,7 @@ loopIndexLinearSubstitution sym index_variable =
 -- find widening variables that are actually the same (up to syntactic equality)
 -- and can be substituted for each other
 uninterpretedConstantEqualitySubstitution ::
-  (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, MonadIO m, MonadFail m) =>
+  (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, MonadIO m, MonadFail m, ?logMessage :: String -> IO ()) =>
   sym ->
   MapF (W4.SymExpr sym) (FixpointEntry sym) ->
   m (MapF (W4.SymExpr sym) (FixpointEntry sym), MapF (W4.SymExpr sym) (W4.SymExpr sym))
@@ -716,11 +716,11 @@ uninterpretedConstantEqualitySubstitution sym substitution = do
         (\variable _entry -> isNothing $ MapF.lookup variable uninterpreted_constant_substitution)
         substitution
 
-  liftIO $ putStrLn $ "vars:"
+  liftIO $ ?logMessage "vars:"
   mapM_
     (\(MapF.Pair variable entry) -> do
       let body_vars = Set.map (C.mapSome $ W4.varExpr sym) $ W4.exprUninterpConstants sym $ bodyValue entry
-      liftIO $ putStrLn $ show (W4.printSymExpr variable) ++ " :: "++ show (W4.exprType variable) ++ " -> " ++ (show $ Set.map (C.viewSome $ show . W4.printSymExpr) $ body_vars))
+      liftIO $ ?logMessage $ show (W4.printSymExpr variable) ++ " :: "++ show (W4.exprType variable) ++ " -> " ++ (show $ Set.map (C.viewSome $ show . W4.printSymExpr) $ body_vars))
     (MapF.toList normal_substitution)
 
   foo <- MapF.fromList <$> filterM
@@ -730,18 +730,18 @@ uninterpretedConstantEqualitySubstitution sym substitution = do
         let lalala = runIdentity $ MapF.fromKeysM (return . W4.varExpr sym) $ W4.exprUninterpConstants sym $ bodyValue entry
         let foobar = fmapF headerValue $ MapF.mapMaybe (\v -> MapF.lookup v normal_substitution) lalala
         bar <- liftIO $ W4.isEq sym (headerValue entry) =<< W4.substituteBoundVars sym foobar (bodyValue entry)
-        liftIO $ putStrLn $ "la: " ++ (show $ W4.printSymExpr variable)
-        liftIO $ putStrLn $ "headerValue entry: " ++ (show $ W4.printSymExpr $ headerValue entry)
-        liftIO $ putStrLn $ "bodyValue entry:" ++ (show $ W4.printSymExpr $ bodyValue entry)
-        liftIO $ putStrLn $ "bar: " ++ (show $ W4.printSymExpr $ bar)
+        liftIO $ ?logMessage $ "la: " ++ (show $ W4.printSymExpr variable)
+        liftIO $ ?logMessage $ "headerValue entry: " ++ (show $ W4.printSymExpr $ headerValue entry)
+        liftIO $ ?logMessage $ "bodyValue entry:" ++ (show $ W4.printSymExpr $ bodyValue entry)
+        liftIO $ ?logMessage $ "bar: " ++ (show $ W4.printSymExpr $ bar)
         if Just True == W4.asConstantPred bar then do
-          liftIO $ putStrLn "lala"
+          liftIO $ ?logMessage "lala"
           return True
         else do
           notbar <- liftIO $ W4.notPred sym bar
           lala <- liftIO $ W4.runZ3InOverride sym (W4.defaultLogData { W4.logVerbosity = 2 }) [notbar] $ return . W4.isUnsat
           when lala $ do
-            liftIO $ putStrLn "lalala"
+            liftIO $ ?logMessage "lalala"
           return lala
       else
         return False)
@@ -892,7 +892,7 @@ simpleLoopFixpoint sym _cfg mem_var maybe_fixpoint_func = do
         | SomeCallFrameHandle call_frame_handle <- callFrameHandle (sim_state ^. C.stateCrucibleFrame) -> do
           loop_header_block_ids <- callFrameContextLoopHeaderBlockIds' call_frame_handle <$> readIORef fixpoint_state_ref
           if Set.member (C.Some block_id) loop_header_block_ids then do
-            putStrLn $ "!!!SimpleLoopFixpoint: RunningState: RunBlockStart: " ++ show block_id
+            ?logMessage $ "!!!SimpleLoopFixpoint: RunningState: RunBlockStart: " ++ show block_id
             advanceFixpointState bak mem_var maybe_fixpoint_func call_frame_handle block_id sim_state fixpoint_state_ref
           else do
             ?logMessage $ "SimpleLoopFixpoint: RunningState: RunBlockStart: " ++ show block_id
@@ -930,7 +930,7 @@ simpleLoopFixpoint sym _cfg mem_var maybe_fixpoint_func = do
             , true_frame_parent_loop_id <- if true_frame_some_block_id /= C.Some loop_block_id then Map.lookup true_frame_some_block_id parent_loop_map else maybe_some_loop_block_id
             , false_frame_parent_loop_id <- if false_frame_some_block_id /= C.Some loop_block_id then Map.lookup false_frame_some_block_id parent_loop_map else maybe_some_loop_block_id
             , true_frame_parent_loop_id /= maybe_some_loop_block_id || false_frame_parent_loop_id /= maybe_some_loop_block_id -> do
-              putStrLn $ "!!!SimpleLoopFixpoint: SymbolicBranchState: " ++ show (true_frame_some_block_id, false_frame_some_block_id)
+              ?logMessage $ "!!!SimpleLoopFixpoint: SymbolicBranchState: " ++ show (true_frame_some_block_id, false_frame_some_block_id)
               handleSymbolicBranch
                 bak
                 call_frame_handle
@@ -959,13 +959,14 @@ simpleLoopFixpoint sym _cfg mem_var maybe_fixpoint_func = do
 
 
 initializeCallFrameContext ::
+  (?logMessage :: String -> IO ()) =>
   C.CFG ext blocks init ret ->
   IORef (ExecutionFeatureContext sym wptr ext) ->
   IO ()
 initializeCallFrameContext cfg context_ref = do
-  putStrLn $ "SimpleLoopFixpoint: cfgHandle: " ++ show (C.cfgHandle cfg)
-  putStrLn $ "SimpleLoopFixpoint: cfg: " ++ show (toListFC (\b -> (C.Some (C.blockID b), C.nextBlocks b)) $ C.cfgBlockMap cfg)
-  putStrLn $ "SimpleLoopFixpoint: cfgWeakTopologicalOrdering: " ++ show (C.cfgWeakTopologicalOrdering cfg)
+  ?logMessage $ "SimpleLoopFixpoint: cfgHandle: " ++ show (C.cfgHandle cfg)
+  ?logMessage $ "SimpleLoopFixpoint: cfg: " ++ show (toListFC (\b -> (C.Some (C.blockID b), C.nextBlocks b)) $ C.cfgBlockMap cfg)
+  ?logMessage $ "SimpleLoopFixpoint: cfgWeakTopologicalOrdering: " ++ show (C.cfgWeakTopologicalOrdering cfg)
   let parent_wto_component = C.parentWTOComponent $ C.cfgWeakTopologicalOrdering cfg
   let call_frame_handle = CallFrameHandle (C.cfgHandle cfg) $ fmapFC C.blockInputs $ C.cfgBlockMap cfg
   modifyIORef' context_ref $ executionFeatureContextAddCallFrameContext call_frame_handle $
@@ -990,7 +991,7 @@ initializeFixpointState ::
 initializeFixpointState bak mem_var call_frame_handle block_id sim_state fixpoint_state_ref = do
   let sym = C.backendGetSym bak
   assumption_frame_identifier <- C.pushAssumptionFrame bak
-  putStrLn $ "!!!SimpleLoopFixpoint: initializeFixpointState: block_id=" ++ show block_id ++ ", assumption_frame_identifier=" ++ show assumption_frame_identifier
+  ?logMessage $ "!!!SimpleLoopFixpoint: initializeFixpointState: block_id=" ++ show block_id ++ ", assumption_frame_identifier=" ++ show assumption_frame_identifier
   index_var <- W4.freshConstant sym (W4.safeSymbol "index_var") W4.knownRepr
   let mem_impl = fromJust $ C.lookupGlobal mem_var (sim_state ^. C.stateGlobals)
   let res_mem_impl = mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" $ C.memImplHeap mem_impl }
@@ -1275,9 +1276,9 @@ advanceFixpointState bak mem_var maybe_fixpoint_func call_frame_handle block_id 
                 -- tmp_frame_id <- C.pushAssumptionFrame bak
                 -- C.addProofObligation bak $ C.LabeledPred fixpoint_func_condition $ C.SimError loc ""
                 -- (_, obligations) <- C.popAssumptionFrameAndObligations bak tmp_frame_id
-                -- putStrLn $ "before convertProofObligationsAsImplications"
+                -- ?logMessage "before convertProofObligationsAsImplications"
                 -- implications <- C.convertProofObligationsAsImplications sym obligations
-                -- putStrLn $ "after convertProofObligationsAsImplications"
+                -- ?logMessage "after convertProofObligationsAsImplications"
                 -- forM_ implications $ \implication ->
                 --   modifyIORef' fixpoint_state_ref $ executionFeatureContextAddLoopFunEquivCond implication
               Nothing -> return ()
