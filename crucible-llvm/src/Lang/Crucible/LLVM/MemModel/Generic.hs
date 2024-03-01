@@ -1674,7 +1674,7 @@ asMemAllocationArrayStore sym w ptr mem
   , [SomeAlloc _ _ (Just sz) _ _ _] <- List.nub (possibleAllocs blk_no mem)
   , Just Refl <- testEquality w (bvWidth sz) =
      do memo_nothing <- putMemoIO $ return Nothing
-        putStrLn $ "asMemAllocationArrayStore: base=" ++ show blk_no ++ " sz=" ++ show (printSymExpr sz)
+        --putStrLn $ "asMemAllocationArrayStore: base=" ++ show blk_no ++ " sz=" ++ show (printSymExpr sz)
         result <- findArrayStore sym w blk_no (BV.zero w) sz memo_nothing $
           memWritesAtConstant blk_no $ memWrites mem
         return $ case result of
@@ -1695,7 +1695,7 @@ asMemMatchingArrayStore sym w ptr sz mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
   , memMemberArrayBlock (llvmPointerBlock ptr) mem
   , Just off <- asBV (llvmPointerOffset ptr) = do
-    putStrLn $ "asMemMatchingArrayStore: ptr=" ++ show (blk_no, off) ++ " sz=" ++ show (printSymExpr sz)
+    --putStrLn $ "asMemMatchingArrayStore: ptr=" ++ show (blk_no, off) ++ " sz=" ++ show (printSymExpr sz)
     memo_nothing <- putMemoIO $ return Nothing
     findArrayStore sym w blk_no off sz memo_nothing $ memWritesAtConstant blk_no $ memWrites mem
   | otherwise = return Nothing
@@ -1713,8 +1713,8 @@ findArrayStore ::
 findArrayStore sym w blk_no off sz memo_cont = \case
   [] -> getMemoIO memo_cont
   head_mem_write : tail_mem_writes -> do
-   putStrLn $ "  findArrayStore: ptr=" ++ show (blk_no, off) ++ " sz=" ++ show (printSymExpr sz)
-   putStrLn $ "  findArrayStore: write=" ++ (case head_mem_write of MemWrite{} -> "write"; WriteMerge{} -> "merge")
+   --putStrLn $ "  findArrayStore: ptr=" ++ show (blk_no, off) ++ " sz=" ++ show (printSymExpr sz)
+   --putStrLn $ "  findArrayStore: write=" ++ (case head_mem_write of MemWrite{} -> "write"; WriteMerge{} -> "merge")
 
    case head_mem_write of
     MemWrite write_ptr write_source
