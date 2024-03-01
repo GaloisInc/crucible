@@ -208,6 +208,9 @@ llvmCruxConfig = do
                              , "'unstable-symbolic', which causes each read from uninitialized"
                              , "memory to return a fresh symbolic value."
                              ])
+                       noSatisfyingWriteFreshConstant <-
+                         Crux.section "no-satisfying-write-fresh-constant" Crux.yesOrNoSpec True
+                           "Make a fresh constant for the NoSatisfyingWrite annotation."
                        return MemOptions{..}
 
          transOpts <- do laxArith <-
