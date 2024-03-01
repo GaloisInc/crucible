@@ -44,7 +44,6 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , isAllocatedGeneric
     -- * Write logs
   , WriteSource(..)
-  , writeSourceSize
   , MemWrite(..)
   , MemWrites(..)
   , MemWritesChunk(..)
