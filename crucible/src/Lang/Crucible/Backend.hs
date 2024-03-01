@@ -643,7 +643,7 @@ runCHC bak uninterp_inv_fns  = liftIO $ do
   -- log to stdout
   let logData = defaultLogData
         { logCallbackVerbose = \_ -> putStrLn
-        , logReason = "SAW inv"
+        , logReason = "Crucible inv"
         }
   Z3.runZ3Horn sym True logData uninterp_inv_fns implications >>= \case
     Sat sub -> return sub
