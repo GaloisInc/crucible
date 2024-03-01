@@ -41,7 +41,6 @@ module Lang.Crucible.LLVM.SimpleLoopFixpoint
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
@@ -601,11 +600,11 @@ loadMemJoinVariables bak mem subst =
           --       _ -> fail $ "SimpleLoopFixpoint.loadMemJoinVariables: unexpected val:" ++ show (C.ppPtr val)
           --   C.Err{} -> -- return Nothing
           --     fail $ "SimpleLoopFixpoint.loadMemJoinVariables: loadRaw failed"
-        MemArrayFixpointEntry join_variable size -> do
+        MemArrayFixpointEntry join_variable _size -> do
           -- TODO: handle arrays
           maybe_allocation_array <- C.asMemAllocationArrayStore sym ?ptrWidth ptr (C.memImplHeap mem)
           case maybe_allocation_array of
-            Just (ok, arr, arr_sz) | Just True <- W4.asConstantPred ok -> do
+            Just (ok, arr, _arr_sz) | Just True <- W4.asConstantPred ok -> do
               return $ Just $ MapF.Pair join_variable arr
             _ -> fail $ "SimpleLoopFixpoint.loadMemJoinVariables")
     (Map.toAscList subst)
@@ -647,18 +646,6 @@ memLocationPtr ::
   IO (C.LLVMPtr sym wptr)
 memLocationPtr sym (MemLocation { memLocationBlock = blk, memLocationOffset = off }) =
   C.LLVMPointer <$> W4.natLit sym blk <*> return off
-
-
-applySubstitutionMemFixpointEntries  ::
-  (C.IsSymInterface sym, Functor f) =>
-  MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
-  f (MemFixpointEntry sym wptr) ->
-  f (MemFixpointEntry sym wptr)
-applySubstitutionMemFixpointEntries substitution = fmap $ \case
-  MemStoreFixpointEntry join_variable storage_type ->
-    MemStoreFixpointEntry (findWithDefaultKey substitution join_variable) storage_type
-  MemArrayFixpointEntry join_variable size ->
-    MemArrayFixpointEntry (findWithDefaultKey substitution join_variable) size
 
 
 dropMemStackFrame :: C.IsSymInterface sym => C.MemImpl sym -> (C.MemImpl sym, C.MemAllocs sym, C.MemWrites sym)
@@ -833,7 +820,7 @@ simpleLoopFixpoint ::
   IO (C.ExecutionFeature p sym ext rtp, IORef (ExecutionFeatureContext sym wptr ext))
 simpleLoopFixpoint sym _cfg mem_var maybe_fixpoint_func = do
   verbSetting <- W4.getOptionSetting W4.verbosity $ W4.getConfiguration sym
-  verb <- fromInteger <$> W4.getOpt verbSetting
+  _verb <- fromInteger @Natural <$> W4.getOpt verbSetting
 
   --  let loop_map = Map.fromList $ mapMaybe
   --       (\case
@@ -876,7 +863,7 @@ simpleLoopFixpoint sym _cfg mem_var maybe_fixpoint_func = do
   -- initializeCallFrameContext cfg fixpoint_state_ref
 
   return $ (, fixpoint_state_ref) $ C.ExecutionFeature $ \exec_state -> do
-    -- let ?logMessage = \msg -> when (verb >= (3 :: Natural)) $ do
+    -- let ?logMessage = \msg -> when (_verb >= 3) $ do
     let ?logMessage = \msg -> do
           let h = C.printHandle $ C.execStateContext exec_state
           System.IO.hPutStrLn h msg
@@ -1395,9 +1382,6 @@ pausedFrameTgtId C.PausedFrame{ resume = resume } = case resume of
   C.CheckMergeResumption (C.ResolvedJump tgt_id _) -> JustPausedFrameTgtId $ C.Some tgt_id
   _ -> NothingPausedFrameTgtId
 
-
-applySubstitutionF :: (OrdF k, FunctorF f) => MapF k k -> f k -> f k
-applySubstitutionF substitution = fmapF $ findWithDefaultKey substitution
 
 applySubstitutionFC :: (OrdF k, FunctorFC f) => MapF k k -> f k l -> f k l
 applySubstitutionFC substitution = fmapFC $ findWithDefaultKey substitution
