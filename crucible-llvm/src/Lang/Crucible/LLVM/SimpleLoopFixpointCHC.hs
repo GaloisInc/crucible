@@ -1,10 +1,18 @@
 ------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.LLVM.SimpleLoopFixpoint
--- Description      : Execution feature to compute loop fixpoint
+-- Module           : Lang.Crucible.LLVM.SimpleLoopFixpointCHC
+-- Description      : Execution feature to compute loop fixpoint in
+--                    conjunction with CHC
 -- Copyright        : (c) Galois, Inc 2021
 -- License          : BSD3
 -- Stability        : provisional
+--
+-- This offers a similar API to what is offered in
+-- "Lang.Crucible.LLVM.SimpleLoopFixpoint", but this generates proof obligations
+-- involving a predicate function (named @inv@). The intent is that a user will
+-- leverage Z3's constrained horn-clause (CHC) functionality to synthesize an
+-- implementation of @inv@ and then substitute it back into the proof
+-- obligations.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
@@ -29,7 +37,7 @@
 {-# LANGUAGE TupleSections #-}
 
 
-module Lang.Crucible.LLVM.SimpleLoopFixpoint
+module Lang.Crucible.LLVM.SimpleLoopFixpointCHC
   ( FixpointEntry(..)
   , FixpointState(..)
   , CallFrameContext(..)
