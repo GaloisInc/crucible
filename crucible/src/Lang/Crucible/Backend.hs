@@ -36,6 +36,7 @@ obligations with a solver backend.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
   ( IsSymBackend(..)
@@ -118,7 +119,6 @@ import           Data.Sequence (Seq)
 import           Data.Set (Set)
 import qualified Prettyprinter as PP
 import           GHC.Stack
-import           System.IO
 
 import           Data.Parameterized.Map (MapF)
 
@@ -132,7 +132,6 @@ import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Expr (GroundValue, GroundValueWrapper(..))
 import           What4.Solver
-import qualified What4.Solver.CVC5 as CVC5
 import qualified What4.Solver.Z3 as Z3
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
@@ -644,12 +643,12 @@ runCHC bak uninterp_inv_fns  = liftIO $ do
   -- log to stdout
   let logData = defaultLogData
         { logCallbackVerbose = \_ -> putStrLn
-        , logReason = "SAW inv"
+        , logReason = "Crucible inv"
         }
   Z3.runZ3Horn sym True logData uninterp_inv_fns implications >>= \case
     Sat sub -> return sub
-    Unsat{} -> fail "Prover returned Infeasible"
-    Unknown -> fail "Prover returned Fail"
+    Unsat{} -> fail "Prover returned Unsat"
+    Unknown -> fail "Prover returned Unknown"
 
 
 -- | Get proof obligations as What4 implications.
