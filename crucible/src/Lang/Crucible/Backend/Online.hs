@@ -579,7 +579,7 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
 
   popAssumptionFrame bak ident =
     -- NB, pop the frame whether or not the solver pop succeeds
-    do frm <- popFrameOrPanic ident (assumptionStack bak)
+    do frm <- popFrame ident (assumptionStack bak)
        withSolverProcess bak (pure ()) pop
        return frm
 
