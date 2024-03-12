@@ -1,8 +1,3 @@
-# next -- TBA
-
-* Rename `Lang.Crucible.Backend.popFrame` to `popFrameOrPanic`,
-  provide helpers such as `popFrame` to manage assumptions without `panic`ing.
-
 # 0.7 -- 2024-02-05
 
 * Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to

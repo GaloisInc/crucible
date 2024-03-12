@@ -28,8 +28,6 @@ module Lang.Crucible.Backend.ProofGoals
   , traverseGoalCollectorWithAssumptions
 
     -- ** Context management
-  , PoppedFrame(..)
-  , collectPoppedGoals
   , gcAddAssumes, gcProve
   , gcPush, gcPop, gcAddGoals,
 
@@ -267,35 +265,23 @@ gcAddAssumes :: Monoid asmp => asmp -> GoalCollector asmp goal -> GoalCollector 
 gcAddAssumes as' (CollectingAssumptions as gls) = CollectingAssumptions (as <> as') gls
 gcAddAssumes as' gls = CollectingAssumptions as' gls
 
--- | A frame, popped by 'gcPop'
-data PoppedFrame asmp goal
-  = PoppedFrame
-    { -- | The frame identifier of the popped frame
-      poppedFrameId :: !FrameIdentifier
-      -- | The assumptions that were forgotten by the pop
-    , poppedAssumptions :: asmp
-      -- | Any proof goals that were generated since the frame push
-    , poppedGoals :: Maybe (Goals asmp goal)
-      -- | The state of the collector before the push.
-    , poppedCollector :: GoalCollector asmp goal
-    }
-
--- | Retrieve the 'GoalCollector' from a 'PoppedFrame', adding the
--- 'poppedGoals' (if there are any) via 'gcAddGoals'.
-collectPoppedGoals :: PoppedFrame asmp goal -> GoalCollector asmp goal
-collectPoppedGoals frm =
-  case poppedGoals frm of
-    Nothing -> poppedCollector frm
-    Just goals -> gcAddGoals goals (poppedCollector frm)
-
 {- | Pop to the last push, or all the way to the top, if there were no more pushes.
-If the result is 'Left', then we popped until an explicitly marked push.
+If the result is 'Left', then we popped until an explicitly marked push;
+in that case we return:
+
+    1. the frame identifier of the popped frame,
+    2. the assumptions that were forgotten,
+    3. any proof goals that were generated since the frame push, and
+    4. the state of the collector before the push.
+
 If the result is 'Right', then we popped all the way to the top, and the
 result is the goal tree, or 'Nothing' if there were no goals. -}
+
 gcPop ::
   Monoid asmp =>
   GoalCollector asmp goal ->
-  Either (PoppedFrame asmp goal) (Maybe (Goals asmp goal))
+  Either (FrameIdentifier, asmp, Maybe (Goals asmp goal), GoalCollector asmp goal)
+         (Maybe (Goals asmp goal))
 gcPop = go Nothing mempty
   where
 
@@ -307,7 +293,7 @@ gcPop = go Nothing mempty
     Right (goalsConj (proveAll gs) hole)
 
   go hole as (CollectorFrame fid gc) =
-    Left (PoppedFrame fid as hole gc)
+    Left (fid, as, hole, gc)
 
   go hole as (CollectingAssumptions as' gc) =
     go (assuming as' <$> hole) (as' <> as) gc
@@ -317,10 +303,10 @@ gcPop = go Nothing mempty
 
 -- | Get all currently collected goals.
 gcFinish :: Monoid asmp => GoalCollector asmp goal -> Maybe (Goals asmp goal)
-gcFinish gc =
-  case gcPop gc of
-    Left poppedFrame -> gcFinish (collectPoppedGoals poppedFrame)
-    Right a -> a
+gcFinish gc = case gcPop gc of
+                Left (_,_,Just g,gc1)  -> gcFinish (gcAddGoals g gc1)
+                Left (_,_,Nothing,gc1) -> gcFinish gc1
+                Right a -> a
 
 -- | Reset the goal collector to the empty assumption state; but first
 --   collect all the pending proof goals and stash them.
