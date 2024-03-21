@@ -83,6 +83,10 @@ import           Lang.Crucible.LLVM.Translation.Types
 
 -- | This type represents an implementation of an LLVM intrinsic function in
 -- Crucible.
+--
+-- This is parameterized over @ext@ so that 'LLVMOverride's can more easily be
+-- reused in the context of other language extensions that are also based on the
+-- LLVM memory model, such as Macaw.
 data LLVMOverride p sym ext args ret =
   LLVMOverride
   { llvmOverride_declare :: L.Declare    -- ^ An LLVM name and signature for this intrinsic
