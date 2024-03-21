@@ -96,6 +96,7 @@ module Lang.Crucible.LLVM.MemModel
   , unpackMemValue
   , packMemValue
   , loadRaw
+  , loadArrayConcreteSizeRaw
   , storeRaw
   , condStoreRaw
   , storeConstRaw
@@ -163,6 +164,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.pushStackFrameMem
   , G.popStackFrameMem
   , G.asMemAllocationArrayStore
+  , G.asMemMatchingArrayStore
   , SomeFnHandle(..)
   , G.SomeAlloc(..)
   , G.possibleAllocs
@@ -214,6 +216,7 @@ import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.Expr( GroundValue )
+import qualified What4.Expr.ArrayUpdateMap as AUM
 import           What4.InterpretedFloatingPoint
 import           What4.ProgramLoc
 
@@ -1286,6 +1289,40 @@ loadRaw :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
 loadRaw sym mem ptr valType alignment = do
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   G.readMem sym PtrWidth gsym ptr valType alignment (memImplHeap mem)
+
+-- | Load an array with concrete size from memory.
+loadArrayConcreteSizeRaw ::
+  forall sym wptr .
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr ->
+  Natural ->
+  Alignment ->
+  IO (Either (Pred sym) (Pred sym, SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8)))
+loadArrayConcreteSizeRaw sym mem ptr sz alignment
+  | sz == 0 = do
+    zero_bv <- bvLit sym knownNat $ BV.zero knownNat
+    zero_arr <- constantArray sym (Ctx.singleton $ BaseBVRepr PtrWidth) zero_bv
+    return $ Right (truePred sym, zero_arr)
+  | otherwise = do
+    let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
+    res <- G.readMem sym PtrWidth gsym ptr (arrayType sz $ bitvectorType 1) alignment (memImplHeap mem)
+    case res of
+      Partial.NoErr ok llvm_val_arr -> do
+        case llvm_val_arr of
+          LLVMValArray _ llvm_vals -> do
+            let aum = AUM.fromAscList knownRepr $ V.toList $ V.imap
+                  (\i -> \case
+                    LLVMValInt _ byte | Just Refl <- testEquality (knownNat @8) (bvWidth byte) ->
+                      (Ctx.singleton $ BVIndexLit PtrWidth $ BV.mkBV PtrWidth $ fromIntegral i, byte)
+                    _ -> panic "MemModel.loadArrayRaw" ["expected LLVMValInt"])
+                  llvm_vals
+            zero_bv <- bvLit sym knownNat $ BV.zero knownNat
+            arr <- arrayFromMap sym (Ctx.singleton $ BaseBVRepr PtrWidth) aum zero_bv
+            return $ Right (ok, arr)
+          _ -> panic "MemModel.loadArrayRaw" ["expected LLVMValArray"]
+      Partial.Err err -> return $ Left err
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.
