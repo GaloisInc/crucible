@@ -100,8 +100,8 @@ data LLVMOverride p sym ext args ret =
     -- (@OverrideSim@).
   }
 
-data SomeLLVMOverride p sym =
-  forall args ret. SomeLLVMOverride (LLVMOverride p sym LLVM args ret)
+data SomeLLVMOverride p sym ext =
+  forall args ret. SomeLLVMOverride (LLVMOverride p sym ext args ret)
 
 -- | Convenient LLVM representation of the @size_t@ type.
 llvmSizeT :: HasPtrWidth wptr => L.Type
@@ -292,7 +292,7 @@ build_llvm_override fnm args ret args' ret' llvmOverride =
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym) ->
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym LLVM) ->
   OverrideTemplate p sym arch rtp l a
 polymorphic1_llvm_override prefix fn =
   OverrideTemplate (PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
@@ -300,7 +300,7 @@ polymorphic1_llvm_override prefix fn =
 register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym) ->
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym LLVM) ->
   RegOverrideM p sym arch rtp l a ()
 register_1arg_polymorphic_override prefix overrideFn =
   do (L.Declare{ L.decName = L.Symbol nm },_,_) <- ask
