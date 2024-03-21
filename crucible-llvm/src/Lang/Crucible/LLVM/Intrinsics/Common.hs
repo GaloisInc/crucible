@@ -83,7 +83,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 
 -- | This type represents an implementation of an LLVM intrinsic function in
 -- Crucible.
-data LLVMOverride p sym args ret =
+data LLVMOverride p sym ext args ret =
   LLVMOverride
   { llvmOverride_declare :: L.Declare    -- ^ An LLVM name and signature for this intrinsic
   , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
@@ -95,13 +95,13 @@ data LLVMOverride p sym args ret =
          bak ->
          Ctx.Assignment (RegEntry sym) args ->
          forall rtp args' ret'.
-         OverrideSim p sym LLVM rtp args' ret' (RegValue sym ret)
+         OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
     -- ^ The implementation of the intrinsic in the simulator monad
     -- (@OverrideSim@).
   }
 
 data SomeLLVMOverride p sym =
-  forall args ret. SomeLLVMOverride (LLVMOverride p sym args ret)
+  forall args ret. SomeLLVMOverride (LLVMOverride p sym LLVM args ret)
 
 -- | Convenient LLVM representation of the @size_t@ type.
 llvmSizeT :: HasPtrWidth wptr => L.Type
@@ -313,7 +313,7 @@ register_1arg_polymorphic_override prefix overrideFn =
 
 basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  LLVMOverride p sym args ret ->
+  LLVMOverride p sym LLVM args ret ->
   OverrideTemplate p sym arch rtp l a
 basic_llvm_override ovr = OverrideTemplate matcher regOvr
   where
@@ -367,7 +367,7 @@ isMatchingDeclaration requested provided = and
 
 register_llvm_override :: forall p args ret sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
-  LLVMOverride p sym args ret ->
+  LLVMOverride p sym LLVM args ret ->
   RegOverrideM p sym arch rtp l a ()
 register_llvm_override llvmOverride = do
   (requestedDecl,_,llvmctx) <- ask
@@ -433,7 +433,7 @@ bind_llvm_func llvmCtx nm args ret impl = do
 do_register_llvm_override :: forall p args ret sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
   LLVMContext arch ->
-  LLVMOverride p sym args ret ->
+  LLVMOverride p sym LLVM args ret ->
   OverrideSim p sym LLVM rtp l a ()
 do_register_llvm_override llvmctx llvmOverride = do
   let decl = llvmOverride_declare llvmOverride
@@ -463,7 +463,7 @@ alloc_and_register_override ::
   (IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   LLVMContext arch ->
-  LLVMOverride p sym args ret ->
+  LLVMOverride p sym LLVM args ret ->
   -- | Aliases
   [L.Symbol] ->
   OverrideSim p sym LLVM rtp l a ()

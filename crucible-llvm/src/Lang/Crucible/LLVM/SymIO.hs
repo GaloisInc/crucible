@@ -401,7 +401,7 @@ returnIOError = do
 openFile
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
            (EmptyCtx ::> LLVMPointerType wptr
                      ::> BVType 32)
            (BVType 32)
@@ -427,7 +427,7 @@ callOpenFile _bak memOps fsVars filename_ptr _flags =
 closeFile
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => LLVMFileSystem wptr
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
            (EmptyCtx ::> BVType 32)
            (BVType 32)
 closeFile fsVars =
@@ -453,7 +453,7 @@ callCloseFile bak _memOps fsVars filedesc =
 readFileHandle
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => LLVMFileSystem wptr
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
            (EmptyCtx ::> BVType 32
                      ::> LLVMPointerType wptr
                      ::> BVType wptr)
@@ -523,7 +523,7 @@ doConcreteWrite ptrw handles symFD chunk size =
 writeFileHandle
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
            (EmptyCtx ::> BVType 32
                      ::> LLVMPointerType wptr
                      ::> BVType wptr)
