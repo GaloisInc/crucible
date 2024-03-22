@@ -70,7 +70,7 @@ import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 -- <https://llvm.org/docs/LangRef.html#llvm-lifetime-start-intrinsic LLVM docs>
 llvmLifetimeStartOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
+  => LLVMOverride p sym ext (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
 llvmLifetimeStartOverride =
   [llvmOvr| void @llvm.lifetime.start( i64, i8* ) |]
   (\_ops _sym _args -> return ())
@@ -80,7 +80,7 @@ llvmLifetimeStartOverride =
 -- <https://llvm.org/docs/LangRef.html#llvm-lifetime-end-intrinsic LLVM docs>
 llvmLifetimeEndOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
+  => LLVMOverride p sym ext (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
 llvmLifetimeEndOverride =
   [llvmOvr| void @llvm.lifetime.end( i64, i8* ) |]
   (\_ops _sym _args -> return ())
@@ -89,12 +89,12 @@ llvmLifetimeEndOverride =
 --
 -- The language reference doesn't mention the use of this intrinsic.
 llvmLifetimeOverrideOverload
-  :: forall width sym wptr p
+  :: forall width sym wptr p ext
    . ( 1 <= width, KnownNat width
      , IsSymInterface sym, HasPtrWidth wptr)
   => String -- ^ "start" or "end"
   -> NatRepr width
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
         (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
         UnitType -- It appears in practice that this is always void
 llvmLifetimeOverrideOverload startOrEnd w =
@@ -104,10 +104,10 @@ llvmLifetimeOverrideOverload startOrEnd w =
 
 -- | Like 'llvmLifetimeOverrideOverload', but with an opaque pointer type.
 llvmLifetimeOverrideOverload_opaque
-  :: forall sym wptr p
+  :: forall sym wptr p ext
    . (IsSymInterface sym, HasPtrWidth wptr)
   => String -- ^ "start" or "end"
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
         (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
         UnitType -- It appears in practice that this is always void
 llvmLifetimeOverrideOverload_opaque startOrEnd =
@@ -124,7 +124,7 @@ llvmLifetimeOverrideOverload_opaque startOrEnd =
 llvmInvariantStartOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => NatRepr width
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
        (LLVMPointerType wptr)
 llvmInvariantStartOverride w =
@@ -135,7 +135,7 @@ llvmInvariantStartOverride w =
 -- | Like 'llvmInvariantStartOverride', but with an opaque pointer type.
 llvmInvariantStartOverride_opaque
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
        (LLVMPointerType wptr)
 llvmInvariantStartOverride_opaque =
@@ -147,7 +147,7 @@ llvmInvariantStartOverride_opaque =
 llvmInvariantEndOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => NatRepr width
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
        (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
        UnitType
 llvmInvariantEndOverride w =
@@ -158,7 +158,7 @@ llvmInvariantEndOverride w =
 -- | See comment on 'llvmInvariantStartOverride_opaque'.
 llvmInvariantEndOverride_opaque
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
        (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
        UnitType
 llvmInvariantEndOverride_opaque =
@@ -173,7 +173,7 @@ llvmInvariantEndOverride_opaque =
 llvmExpectOverride
   :: (IsSymInterface sym, 1 <= width)
   => NatRepr width
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
        (EmptyCtx ::> BVType width ::> BVType width)
        (BVType width)
 llvmExpectOverride w =
@@ -188,7 +188,7 @@ llvmExpectOverride w =
 -- clang compiler bugs (or Crucible bugs) more than user code bugs.
 llvmAssumeOverride
   :: (IsSymInterface sym)
-  => LLVMOverride p sym (EmptyCtx ::> BVType 1) UnitType
+  => LLVMOverride p sym ext (EmptyCtx ::> BVType 1) UnitType
 llvmAssumeOverride =
    [llvmOvr| void @llvm.assume ( i1 ) |]
    (\_ops _bak _args -> return ())
@@ -197,7 +197,7 @@ llvmAssumeOverride =
 --   as an assertion failure, similar to calling @abort()@.
 llvmTrapOverride
   :: (IsSymInterface sym)
-  => LLVMOverride p sym EmptyCtx UnitType
+  => LLVMOverride p sym ext EmptyCtx UnitType
 llvmTrapOverride =
   [llvmOvr| void @llvm.trap() |]
   (\_ops bak _args -> liftIO $ addFailedAssertion bak $ AssertFailureSimError "llvm.trap() called" "")
@@ -208,21 +208,21 @@ llvmTrapOverride =
 -- Ideally, we would do something intelligent with this argument—see #368.
 llvmUBSanTrapOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym (EmptyCtx ::> BVType 8) UnitType
+  LLVMOverride p sym ext (EmptyCtx ::> BVType 8) UnitType
 llvmUBSanTrapOverride =
   [llvmOvr| void @llvm.ubsantrap( i8 ) |]
   (\_ops bak _args -> liftIO $ addFailedAssertion bak $ AssertFailureSimError "llvm.ubsantrap() called" "")
 
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym EmptyCtx (LLVMPointerType wptr)
+  => LLVMOverride p sym ext EmptyCtx (LLVMPointerType wptr)
 llvmStacksave =
   [llvmOvr| i8* @llvm.stacksave() |]
   (\_memOps bak _args -> liftIO (mkNullPointer (backendGetSym bak) PtrWidth))
 
 llvmStackrestore
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) UnitType
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) UnitType
 llvmStackrestore =
   [llvmOvr| void @llvm.stackrestore( i8* ) |]
   (\_memOps _bak _args -> return ())
@@ -230,7 +230,7 @@ llvmStackrestore =
 llvmMemmoveOverride_8_8_32
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 32 ::> BVType 1)
          UnitType
@@ -242,7 +242,7 @@ llvmMemmoveOverride_8_8_32 =
 llvmMemmoveOverride_8_8_32_noalign
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 1)
          UnitType
@@ -253,7 +253,7 @@ llvmMemmoveOverride_8_8_32_noalign =
 llvmMemmoveOverride_8_8_32_noalign_opaque
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 1)
          UnitType
@@ -265,7 +265,7 @@ llvmMemmoveOverride_8_8_32_noalign_opaque =
 llvmMemmoveOverride_8_8_64
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
          UnitType
@@ -277,7 +277,7 @@ llvmMemmoveOverride_8_8_64 =
 llvmMemmoveOverride_8_8_64_noalign
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
          UnitType
@@ -288,7 +288,7 @@ llvmMemmoveOverride_8_8_64_noalign =
 llvmMemmoveOverride_8_8_64_noalign_opaque
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
          UnitType
@@ -300,7 +300,7 @@ llvmMemmoveOverride_8_8_64_noalign_opaque =
 
 llvmMemsetOverride_8_64
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
                    ::> BVType 64
@@ -314,7 +314,7 @@ llvmMemsetOverride_8_64 =
 
 llvmMemsetOverride_8_64_noalign
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
                    ::> BVType 64
@@ -326,7 +326,7 @@ llvmMemsetOverride_8_64_noalign =
 
 llvmMemsetOverride_8_64_noalign_opaque
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
                    ::> BVType 64
@@ -339,7 +339,7 @@ llvmMemsetOverride_8_64_noalign_opaque =
 
 llvmMemsetOverride_8_32
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
                    ::> BVType 32
@@ -353,7 +353,7 @@ llvmMemsetOverride_8_32 =
 
 llvmMemsetOverride_8_32_noalign
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
                    ::> BVType 32
@@ -365,7 +365,7 @@ llvmMemsetOverride_8_32_noalign =
 
 llvmMemsetOverride_8_32_noalign_opaque
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
                    ::> BVType 32
@@ -379,7 +379,7 @@ llvmMemsetOverride_8_32_noalign_opaque =
 llvmMemcpyOverride_8_8_32
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 32 ::> BVType 1)
           UnitType
@@ -391,7 +391,7 @@ llvmMemcpyOverride_8_8_32 =
 llvmMemcpyOverride_8_8_32_noalign
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 1)
           UnitType
@@ -402,7 +402,7 @@ llvmMemcpyOverride_8_8_32_noalign =
 llvmMemcpyOverride_8_8_32_noalign_opaque
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 1)
           UnitType
@@ -414,7 +414,7 @@ llvmMemcpyOverride_8_8_32_noalign_opaque =
 llvmMemcpyOverride_8_8_64
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
          UnitType
@@ -426,7 +426,7 @@ llvmMemcpyOverride_8_8_64 =
 llvmMemcpyOverride_8_8_64_noalign
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
          UnitType
@@ -437,7 +437,7 @@ llvmMemcpyOverride_8_8_64_noalign =
 llvmMemcpyOverride_8_8_64_noalign_opaque
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
          UnitType
@@ -448,56 +448,56 @@ llvmMemcpyOverride_8_8_64_noalign_opaque =
 
 llvmObjectsizeOverride_32
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 32)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32 =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize bak memOps knownNat) args)
 
 llvmObjectsizeOverride_32_null
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 32)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32_null =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null bak memOps knownNat) args)
 
 llvmObjectsizeOverride_32_null_dynamic
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32_null_dynamic =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
 
 llvmObjectsizeOverride_32_null_dynamic_opaque
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32_null_dynamic_opaque =
   [llvmOvr| i32 @llvm.objectsize.i32.p0( ptr, i1, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
 
 llvmObjectsizeOverride_64
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 64)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64 =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize bak memOps knownNat) args)
 
 llvmObjectsizeOverride_64_null
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 64)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64_null =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null bak memOps knownNat) args)
 
 llvmObjectsizeOverride_64_null_dynamic
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64_null_dynamic =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
 
 llvmObjectsizeOverride_64_null_dynamic_opaque
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64_null_dynamic_opaque =
   [llvmOvr| i64 @llvm.objectsize.i64.p0( ptr, i1, i1, i1 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic bak memOps knownNat) args)
@@ -508,7 +508,7 @@ llvmObjectsizeOverride_64_null_dynamic_opaque =
 -- <https://releases.llvm.org/12.0.0/docs/LangRef.html#llvm-prefetch-intrinsic LLVM docs>
 llvmPrefetchOverride ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
     (EmptyCtx ::> LLVMPointerType wptr ::> BVType 32 ::> BVType 32 ::> BVType 32)
     UnitType
 llvmPrefetchOverride =
@@ -518,7 +518,7 @@ llvmPrefetchOverride =
 -- | Like 'llvmPrefetchOverride', but with an opaque pointer type.
 llvmPrefetchOverride_opaque ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
     (EmptyCtx ::> LLVMPointerType wptr ::> BVType 32 ::> BVType 32 ::> BVType 32)
     UnitType
 llvmPrefetchOverride_opaque =
@@ -535,7 +535,7 @@ llvmPrefetchOverride_opaque =
 -- <https://releases.llvm.org/12.0.0/docs/LangRef.html#llvm-prefetch-intrinsic LLVM docs>
 llvmPrefetchOverride_preLLVM10 ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
     (EmptyCtx ::> LLVMPointerType wptr ::> BVType 32 ::> BVType 32 ::> BVType 32)
     UnitType
 llvmPrefetchOverride_preLLVM10 =
@@ -545,7 +545,7 @@ llvmPrefetchOverride_preLLVM10 =
 llvmFshl ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
     (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
     (BVType w)
 llvmFshl w =
@@ -556,7 +556,7 @@ llvmFshl w =
 llvmFshr ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
     (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
     (BVType w)
 llvmFshr w =
@@ -567,7 +567,7 @@ llvmFshr w =
 llvmSaddWithOverflow
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmSaddWithOverflow w =
@@ -578,7 +578,7 @@ llvmSaddWithOverflow w =
 llvmUaddWithOverflow
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmUaddWithOverflow w =
@@ -590,7 +590,7 @@ llvmUaddWithOverflow w =
 llvmSsubWithOverflow
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmSsubWithOverflow w =
@@ -602,7 +602,7 @@ llvmSsubWithOverflow w =
 llvmUsubWithOverflow
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmUsubWithOverflow w =
@@ -613,7 +613,7 @@ llvmUsubWithOverflow w =
 llvmSmulWithOverflow
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmSmulWithOverflow w =
@@ -624,7 +624,7 @@ llvmSmulWithOverflow w =
 llvmUmulWithOverflow
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmUmulWithOverflow w =
@@ -635,7 +635,7 @@ llvmUmulWithOverflow w =
 llvmUmax ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> BVType w ::> BVType w)
      (BVType w)
 llvmUmax w =
@@ -646,7 +646,7 @@ llvmUmax w =
 llvmUmin ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> BVType w ::> BVType w)
      (BVType w)
 llvmUmin w =
@@ -657,7 +657,7 @@ llvmUmin w =
 llvmSmax ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> BVType w ::> BVType w)
      (BVType w)
 llvmSmax w =
@@ -668,7 +668,7 @@ llvmSmax w =
 llvmSmin ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> BVType w ::> BVType w)
      (BVType w)
 llvmSmin w =
@@ -679,7 +679,7 @@ llvmSmin w =
 llvmCtlz
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
-     LLVMOverride p sym
+     LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType 1)
          (BVType w)
 llvmCtlz w =
@@ -690,7 +690,7 @@ llvmCtlz w =
 llvmCttz
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
          (EmptyCtx ::> BVType w ::> BVType 1)
          (BVType w)
 llvmCttz w =
@@ -701,7 +701,7 @@ llvmCttz w =
 llvmCtpop
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
          (EmptyCtx ::> BVType w)
          (BVType w)
 llvmCtpop w =
@@ -712,7 +712,7 @@ llvmCtpop w =
 llvmBitreverse
   :: (1 <= w, IsSymInterface sym)
   => NatRepr w
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
          (EmptyCtx ::> BVType w)
          (BVType w)
 llvmBitreverse w =
@@ -722,10 +722,10 @@ llvmBitreverse w =
 
 -- | <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics LLVM docs>
 llvmBSwapOverride
-  :: forall width sym p
+  :: forall width sym p ext
    . ( 1 <= width, IsSymInterface sym)
   => NatRepr width
-  -> LLVMOverride p sym
+  -> LLVMOverride p sym ext
          (EmptyCtx ::> BVType (width * 8))
          (BVType (width * 8))
 llvmBSwapOverride widthRepr =
@@ -745,7 +745,7 @@ llvmBSwapOverride widthRepr =
 llvmAbsOverride ::
   (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
   NatRepr w ->
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> BVType w ::> BVType 1)
      (BVType w)
 llvmAbsOverride w =
@@ -757,7 +757,7 @@ llvmAbsOverride w =
 
 llvmCopysignOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmCopysignOverride_F32 =
@@ -766,7 +766,7 @@ llvmCopysignOverride_F32 =
 
 llvmCopysignOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmCopysignOverride_F64 =
@@ -775,9 +775,9 @@ llvmCopysignOverride_F64 =
 
 
 llvmFabsF32
-  :: forall sym p
+  :: forall sym p ext
    . ( IsSymInterface sym)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType SingleFloat)
         (FloatType SingleFloat)
 llvmFabsF32 =
@@ -786,9 +786,9 @@ llvmFabsF32 =
 
 
 llvmFabsF64
-  :: forall sym p
+  :: forall sym p ext
    . ( IsSymInterface sym)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType DoubleFloat)
         (FloatType DoubleFloat)
 llvmFabsF64 =
@@ -797,7 +797,7 @@ llvmFabsF64 =
 
 llvmCeilOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmCeilOverride_F32 =
@@ -806,7 +806,7 @@ llvmCeilOverride_F32 =
 
 llvmCeilOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmCeilOverride_F64 =
@@ -815,7 +815,7 @@ llvmCeilOverride_F64 =
 
 llvmFloorOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmFloorOverride_F32 =
@@ -824,7 +824,7 @@ llvmFloorOverride_F32 =
 
 llvmFloorOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmFloorOverride_F64 =
@@ -833,7 +833,7 @@ llvmFloorOverride_F64 =
 
 llvmSqrtOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmSqrtOverride_F32 =
@@ -842,7 +842,7 @@ llvmSqrtOverride_F32 =
 
 llvmSqrtOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmSqrtOverride_F64 =
@@ -851,7 +851,7 @@ llvmSqrtOverride_F64 =
 
 llvmSinOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmSinOverride_F32 =
@@ -860,7 +860,7 @@ llvmSinOverride_F32 =
 
 llvmSinOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmSinOverride_F64 =
@@ -869,7 +869,7 @@ llvmSinOverride_F64 =
 
 llvmCosOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmCosOverride_F32 =
@@ -878,7 +878,7 @@ llvmCosOverride_F32 =
 
 llvmCosOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmCosOverride_F64 =
@@ -887,7 +887,7 @@ llvmCosOverride_F64 =
 
 llvmPowOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmPowOverride_F32 =
@@ -896,7 +896,7 @@ llvmPowOverride_F32 =
 
 llvmPowOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmPowOverride_F64 =
@@ -905,7 +905,7 @@ llvmPowOverride_F64 =
 
 llvmExpOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmExpOverride_F32 =
@@ -914,7 +914,7 @@ llvmExpOverride_F32 =
 
 llvmExpOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmExpOverride_F64 =
@@ -923,7 +923,7 @@ llvmExpOverride_F64 =
 
 llvmLogOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLogOverride_F32 =
@@ -932,7 +932,7 @@ llvmLogOverride_F32 =
 
 llvmLogOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLogOverride_F64 =
@@ -941,7 +941,7 @@ llvmLogOverride_F64 =
 
 llvmExp2Override_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmExp2Override_F32 =
@@ -950,7 +950,7 @@ llvmExp2Override_F32 =
 
 llvmExp2Override_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmExp2Override_F64 =
@@ -959,7 +959,7 @@ llvmExp2Override_F64 =
 
 llvmLog2Override_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLog2Override_F32 =
@@ -968,7 +968,7 @@ llvmLog2Override_F32 =
 
 llvmLog2Override_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLog2Override_F64 =
@@ -977,7 +977,7 @@ llvmLog2Override_F64 =
 
 llvmLog10Override_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLog10Override_F32 =
@@ -986,7 +986,7 @@ llvmLog10Override_F32 =
 
 llvmLog10Override_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLog10Override_F64 =
@@ -995,7 +995,7 @@ llvmLog10Override_F64 =
 
 llvmIsFpclassOverride_F32 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat
                ::> BVType 32)
      (BVType 1)
@@ -1005,7 +1005,7 @@ llvmIsFpclassOverride_F32 =
 
 llvmIsFpclassOverride_F64 ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat
                ::> BVType 32)
      (BVType 1)
@@ -1014,9 +1014,9 @@ llvmIsFpclassOverride_F64 =
   (\_memOps bak args -> Ctx.uncurryAssignment (callIsFpclass bak) args)
 
 llvmFmaOverride_F32 ::
-     forall sym p
+     forall sym p ext
    . IsSymInterface sym
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType SingleFloat
                   ::> FloatType SingleFloat
                   ::> FloatType SingleFloat)
@@ -1026,9 +1026,9 @@ llvmFmaOverride_F32 =
   (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
 
 llvmFmaOverride_F64 ::
-     forall sym p
+     forall sym p ext
    . IsSymInterface sym
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType DoubleFloat
                   ::> FloatType DoubleFloat
                   ::> FloatType DoubleFloat)
@@ -1038,9 +1038,9 @@ llvmFmaOverride_F64 =
   (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
 
 llvmFmuladdOverride_F32 ::
-     forall sym p
+     forall sym p ext
    . IsSymInterface sym
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType SingleFloat
                   ::> FloatType SingleFloat
                   ::> FloatType SingleFloat)
@@ -1050,9 +1050,9 @@ llvmFmuladdOverride_F32 =
   (\_memOps bak args -> Ctx.uncurryAssignment (Libc.callFMA bak) args)
 
 llvmFmuladdOverride_F64 ::
-     forall sym p
+     forall sym p ext
    . IsSymInterface sym
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType DoubleFloat
                   ::> FloatType DoubleFloat
                   ::> FloatType DoubleFloat)
@@ -1065,7 +1065,7 @@ llvmFmuladdOverride_F64 =
 llvmX86_pclmulqdq
 --declare <2 x i64> @llvm.x86.pclmulqdq(<2 x i64>, <2 x i64>, i8) #1
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> VectorType (BVType 64)
                    ::> VectorType (BVType 64)
                    ::> BVType 8)
@@ -1080,7 +1080,7 @@ llvmX86_SSE2_storeu_dq
      , HasLLVMAnn sym
      , HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> VectorType (BVType 8))
          UnitType

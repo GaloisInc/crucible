@@ -78,7 +78,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Options
 llvmMemcpyOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
            (EmptyCtx ::> LLVMPointerType wptr
                      ::> LLVMPointerType wptr
                      ::> BVType wptr)
@@ -96,7 +96,7 @@ llvmMemcpyOverride =
 llvmMemcpyChkOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> LLVMPointerType wptr
                    ::> BVType wptr
@@ -115,7 +115,7 @@ llvmMemcpyChkOverride =
 llvmMemmoveOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> (LLVMPointerType wptr)
                    ::> (LLVMPointerType wptr)
                    ::> BVType wptr)
@@ -129,9 +129,9 @@ llvmMemmoveOverride =
          return $ regValue $ args^._1 -- return first argument
     )
 
-llvmMemsetOverride :: forall p sym wptr.
+llvmMemsetOverride :: forall p sym ext wptr.
      (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType 32
                    ::> BVType wptr)
@@ -152,7 +152,7 @@ llvmMemsetOverride =
 
 llvmMemsetChkOverride
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                  ::> BVType 32
                  ::> BVType wptr
@@ -178,7 +178,7 @@ llvmMemsetChkOverride =
 llvmCallocOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?lc :: TypeContext, ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> BVType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmCallocOverride =
@@ -190,7 +190,7 @@ llvmCallocOverride =
 llvmReallocOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?lc :: TypeContext, ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmReallocOverride =
@@ -201,7 +201,7 @@ llvmReallocOverride =
 llvmMallocOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?lc :: TypeContext, ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmMallocOverride =
@@ -212,7 +212,7 @@ llvmMallocOverride =
 posixMemalignOverride ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
   , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> LLVMPointerType wptr
                 ::> BVType wptr
                 ::> BVType wptr)
@@ -224,7 +224,7 @@ posixMemalignOverride =
 
 llvmFreeOverride
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr)
          UnitType
 llvmFreeOverride =
@@ -237,7 +237,7 @@ llvmFreeOverride =
 llvmPrintfOverride
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> VectorType AnyType)
          (BVType 32)
@@ -248,7 +248,7 @@ llvmPrintfOverride =
 llvmPrintfChkOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> BVType 32
                    ::> LLVMPointerType wptr
                    ::> VectorType AnyType)
@@ -260,7 +260,7 @@ llvmPrintfChkOverride =
 
 llvmPutCharOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym (EmptyCtx ::> BVType 32) (BVType 32)
+  => LLVMOverride p sym ext (EmptyCtx ::> BVType 32) (BVType 32)
 llvmPutCharOverride =
   [llvmOvr| i32 @putchar( i32 ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callPutChar bak memOps) args)
@@ -269,7 +269,7 @@ llvmPutCharOverride =
 llvmPutsOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callPuts bak memOps) args)
@@ -277,7 +277,7 @@ llvmPutsOverride =
 llvmStrlenOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
      , ?memOpts :: MemOptions )
-  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   [llvmOvr| size_t @strlen( i8* ) |]
   (\memOps bak args -> Ctx.uncurryAssignment (callStrlen bak memOps) args)
@@ -698,7 +698,7 @@ printfOps bak valist =
 
 llvmCeilOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmCeilOverride =
@@ -707,7 +707,7 @@ llvmCeilOverride =
 
 llvmCeilfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmCeilfOverride =
@@ -717,7 +717,7 @@ llvmCeilfOverride =
 
 llvmFloorOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmFloorOverride =
@@ -726,7 +726,7 @@ llvmFloorOverride =
 
 llvmFloorfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmFloorfOverride =
@@ -734,9 +734,9 @@ llvmFloorfOverride =
   (\_memOps sym args -> Ctx.uncurryAssignment (callFloor sym) args)
 
 llvmFmafOverride ::
-     forall sym p
+     forall sym p ext
    . IsSymInterface sym
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType SingleFloat
                   ::> FloatType SingleFloat
                   ::> FloatType SingleFloat)
@@ -746,9 +746,9 @@ llvmFmafOverride =
   (\_memOps bak args -> Ctx.uncurryAssignment (callFMA bak) args)
 
 llvmFmaOverride ::
-     forall sym p
+     forall sym p ext
    . IsSymInterface sym
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> FloatType DoubleFloat
                   ::> FloatType DoubleFloat
                   ::> FloatType DoubleFloat)
@@ -771,7 +771,7 @@ llvmFmaOverride =
 
 llvmIsinfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (BVType 32)
 llvmIsinfOverride =
@@ -785,7 +785,7 @@ llvmIsinfOverride =
 -- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isinff.html.
 llvm__isinfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (BVType 32)
 llvm__isinfOverride =
@@ -794,7 +794,7 @@ llvm__isinfOverride =
 
 llvm__isinffOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (BVType 32)
 llvm__isinffOverride =
@@ -803,7 +803,7 @@ llvm__isinffOverride =
 
 llvmIsnanOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (BVType 32)
 llvmIsnanOverride =
@@ -817,7 +817,7 @@ llvmIsnanOverride =
 -- http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/baselib---isnanf.html.
 llvm__isnanOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (BVType 32)
 llvm__isnanOverride =
@@ -826,7 +826,7 @@ llvm__isnanOverride =
 
 llvm__isnanfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (BVType 32)
 llvm__isnanfOverride =
@@ -836,7 +836,7 @@ llvm__isnanfOverride =
 -- macOS compiles isnan() to __isnand() when the argument is a double.
 llvm__isnandOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (BVType 32)
 llvm__isnandOverride =
@@ -845,7 +845,7 @@ llvm__isnandOverride =
 
 llvmSqrtOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmSqrtOverride =
@@ -854,7 +854,7 @@ llvmSqrtOverride =
 
 llvmSqrtfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmSqrtfOverride =
@@ -964,7 +964,7 @@ callSqrt bak (regValue -> x) = liftIO $ iFloatSqrt @_ @fi (backendGetSym bak) de
 
 llvmSinOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmSinOverride =
@@ -973,7 +973,7 @@ llvmSinOverride =
 
 llvmSinfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmSinfOverride =
@@ -984,7 +984,7 @@ llvmSinfOverride =
 
 llvmCosOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmCosOverride =
@@ -993,7 +993,7 @@ llvmCosOverride =
 
 llvmCosfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmCosfOverride =
@@ -1004,7 +1004,7 @@ llvmCosfOverride =
 
 llvmTanOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmTanOverride =
@@ -1013,7 +1013,7 @@ llvmTanOverride =
 
 llvmTanfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmTanfOverride =
@@ -1024,7 +1024,7 @@ llvmTanfOverride =
 
 llvmAsinOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAsinOverride =
@@ -1033,7 +1033,7 @@ llvmAsinOverride =
 
 llvmAsinfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAsinfOverride =
@@ -1044,7 +1044,7 @@ llvmAsinfOverride =
 
 llvmAcosOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAcosOverride =
@@ -1053,7 +1053,7 @@ llvmAcosOverride =
 
 llvmAcosfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAcosfOverride =
@@ -1064,7 +1064,7 @@ llvmAcosfOverride =
 
 llvmAtanOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAtanOverride =
@@ -1073,7 +1073,7 @@ llvmAtanOverride =
 
 llvmAtanfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAtanfOverride =
@@ -1087,7 +1087,7 @@ llvmAtanfOverride =
 
 llvmSinhOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmSinhOverride =
@@ -1096,7 +1096,7 @@ llvmSinhOverride =
 
 llvmSinhfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmSinhfOverride =
@@ -1107,7 +1107,7 @@ llvmSinhfOverride =
 
 llvmCoshOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmCoshOverride =
@@ -1116,7 +1116,7 @@ llvmCoshOverride =
 
 llvmCoshfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmCoshfOverride =
@@ -1127,7 +1127,7 @@ llvmCoshfOverride =
 
 llvmTanhOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmTanhOverride =
@@ -1136,7 +1136,7 @@ llvmTanhOverride =
 
 llvmTanhfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmTanhfOverride =
@@ -1147,7 +1147,7 @@ llvmTanhfOverride =
 
 llvmAsinhOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAsinhOverride =
@@ -1156,7 +1156,7 @@ llvmAsinhOverride =
 
 llvmAsinhfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAsinhfOverride =
@@ -1167,7 +1167,7 @@ llvmAsinhfOverride =
 
 llvmAcoshOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAcoshOverride =
@@ -1176,7 +1176,7 @@ llvmAcoshOverride =
 
 llvmAcoshfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAcoshfOverride =
@@ -1187,7 +1187,7 @@ llvmAcoshfOverride =
 
 llvmAtanhOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAtanhOverride =
@@ -1196,7 +1196,7 @@ llvmAtanhOverride =
 
 llvmAtanhfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAtanhfOverride =
@@ -1210,7 +1210,7 @@ llvmAtanhfOverride =
 
 llvmHypotOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmHypotOverride =
@@ -1219,7 +1219,7 @@ llvmHypotOverride =
 
 llvmHypotfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmHypotfOverride =
@@ -1230,7 +1230,7 @@ llvmHypotfOverride =
 
 llvmAtan2Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmAtan2Override =
@@ -1239,7 +1239,7 @@ llvmAtan2Override =
 
 llvmAtan2fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmAtan2fOverride =
@@ -1253,7 +1253,7 @@ llvmAtan2fOverride =
 
 llvmPowfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmPowfOverride =
@@ -1262,7 +1262,7 @@ llvmPowfOverride =
 
 llvmPowOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmPowOverride =
@@ -1273,7 +1273,7 @@ llvmPowOverride =
 
 llvmExpOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmExpOverride =
@@ -1282,7 +1282,7 @@ llvmExpOverride =
 
 llvmExpfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmExpfOverride =
@@ -1293,7 +1293,7 @@ llvmExpfOverride =
 
 llvmLogOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLogOverride =
@@ -1302,7 +1302,7 @@ llvmLogOverride =
 
 llvmLogfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLogfOverride =
@@ -1313,7 +1313,7 @@ llvmLogfOverride =
 
 llvmExpm1Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmExpm1Override =
@@ -1322,7 +1322,7 @@ llvmExpm1Override =
 
 llvmExpm1fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmExpm1fOverride =
@@ -1333,7 +1333,7 @@ llvmExpm1fOverride =
 
 llvmLog1pOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLog1pOverride =
@@ -1342,7 +1342,7 @@ llvmLog1pOverride =
 
 llvmLog1pfOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLog1pfOverride =
@@ -1356,7 +1356,7 @@ llvmLog1pfOverride =
 
 llvmExp2Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmExp2Override =
@@ -1365,7 +1365,7 @@ llvmExp2Override =
 
 llvmExp2fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmExp2fOverride =
@@ -1376,7 +1376,7 @@ llvmExp2fOverride =
 
 llvmLog2Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLog2Override =
@@ -1385,7 +1385,7 @@ llvmLog2Override =
 
 llvmLog2fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLog2fOverride =
@@ -1399,7 +1399,7 @@ llvmLog2fOverride =
 
 llvmExp10Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmExp10Override =
@@ -1408,7 +1408,7 @@ llvmExp10Override =
 
 llvmExp10fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmExp10fOverride =
@@ -1419,7 +1419,7 @@ llvmExp10fOverride =
 
 llvm__exp10Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvm__exp10Override =
@@ -1428,7 +1428,7 @@ llvm__exp10Override =
 
 llvm__exp10fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvm__exp10fOverride =
@@ -1439,7 +1439,7 @@ llvm__exp10fOverride =
 
 llvmLog10Override ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType DoubleFloat)
      (FloatType DoubleFloat)
 llvmLog10Override =
@@ -1448,7 +1448,7 @@ llvmLog10Override =
 
 llvmLog10fOverride ::
   IsSymInterface sym =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
      (EmptyCtx ::> FloatType SingleFloat)
      (FloatType SingleFloat)
 llvmLog10fOverride =
@@ -1462,7 +1462,7 @@ llvmLog10fOverride =
 llvmAssertRtnOverride
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
                   ::> BVType 32
@@ -1476,7 +1476,7 @@ llvmAssertRtnOverride =
 llvmAssertFailOverride
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
                   ::> BVType 32
@@ -1490,7 +1490,7 @@ llvmAssertFailOverride =
 llvmAbortOverride
   :: ( IsSymInterface sym
      , ?intrinsicsOpts :: IntrinsicsOptions )
-  => LLVMOverride p sym EmptyCtx UnitType
+  => LLVMOverride p sym ext EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
   (\_ bak _args -> liftIO $
@@ -1503,10 +1503,10 @@ llvmAbortOverride =
   )
 
 llvmExitOverride
-  :: forall sym p
+  :: forall sym p ext
    . ( IsSymInterface sym
      , ?intrinsicsOpts :: IntrinsicsOptions )
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
          (EmptyCtx ::> BVType 32)
          UnitType
 llvmExitOverride =
@@ -1515,7 +1515,7 @@ llvmExitOverride =
 
 llvmGetenvOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> LLVMPointerType wptr)
         (LLVMPointerType wptr)
 llvmGetenvOverride =
@@ -1524,7 +1524,7 @@ llvmGetenvOverride =
 
 llvmHtonlOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 32)
       (BVType 32)
 llvmHtonlOverride =
@@ -1533,7 +1533,7 @@ llvmHtonlOverride =
 
 llvmHtonsOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 16)
       (BVType 16)
 llvmHtonsOverride =
@@ -1542,7 +1542,7 @@ llvmHtonsOverride =
 
 llvmNtohlOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 32)
       (BVType 32)
 llvmNtohlOverride =
@@ -1551,7 +1551,7 @@ llvmNtohlOverride =
 
 llvmNtohsOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 16)
       (BVType 16)
 llvmNtohsOverride =
@@ -1560,7 +1560,7 @@ llvmNtohsOverride =
 
 llvmAbsOverride ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 32)
       (BVType 32)
 llvmAbsOverride =
@@ -1574,7 +1574,7 @@ llvmAbsOverride =
 -- Lang.Crucible.LLVM.Intrinsics.
 llvmLAbsOverride_32 ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 32)
       (BVType 32)
 llvmLAbsOverride_32 =
@@ -1585,7 +1585,7 @@ llvmLAbsOverride_32 =
 
 llvmLAbsOverride_64 ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 64)
       (BVType 64)
 llvmLAbsOverride_64 =
@@ -1596,7 +1596,7 @@ llvmLAbsOverride_64 =
 
 llvmLLAbsOverride ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
-  LLVMOverride p sym
+  LLVMOverride p sym ext
       (EmptyCtx ::> BVType 64)
       (BVType 64)
 llvmLLAbsOverride =
@@ -1714,7 +1714,7 @@ callBSwapIfLittleEndian bak widthRepr vec =
 
 cxa_atexitOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
-  => LLVMOverride p sym
+  => LLVMOverride p sym ext
         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> LLVMPointerType wptr)
         (BVType 32)
 cxa_atexitOverride =

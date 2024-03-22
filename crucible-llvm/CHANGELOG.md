@@ -1,3 +1,8 @@
+# next
+
+* `LLVMOverride` now has an additional `ext` type parameter. See the Haddocks
+  for `LLVMOverride` for details and motivation.
+
 # 0.6 -- 2024-02-05
 
 * `bindLLVMFunPtr` now accepts an `Text.LLVM.AST.Symbol` rather than a whole `Declare`.
