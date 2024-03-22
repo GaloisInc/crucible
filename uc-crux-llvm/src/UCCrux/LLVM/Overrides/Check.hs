@@ -168,23 +168,24 @@ createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
              llvmOverride_args = Crucible.cfgArgTypes cfg,
              llvmOverride_ret = Crucible.cfgReturnType cfg,
              llvmOverride_def =
-               \mvar bak args ->
-                 Override.modifyGlobal mvar $ \mem ->
-                   do
-                     let sym = backendGetSym bak
-                     liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
-                     let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
-                     liftIO $ (appCtx ^. log) Hi "Preconditions:"
-                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
-                     stack <- collectStack
-                     argCs <- liftIO $ getArgPreconds sym mem args
-                     globCs <- liftIO $ getGlobalPreconds bak mem
-                     let cs = argCs <> globCs
-                     let args' = fmapFC (Crucible.RV . Crucible.regValue) args
-                     liftIO $
-                       modifyIORef usedRef (CheckedCall stack args' cs:)
-                     retEntry <- Crucible.callCFG cfg (Crucible.RegMap args)
-                     return (Crucible.regValue retEntry, mem)
+               \mvar args ->
+                 Override.ovrWithBackend $ \bak ->
+                   Override.modifyGlobal mvar $ \mem ->
+                     do
+                       let sym = backendGetSym bak
+                       liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
+                       let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
+                       liftIO $ (appCtx ^. log) Hi "Preconditions:"
+                       liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
+                       stack <- collectStack
+                       argCs <- liftIO $ getArgPreconds sym mem args
+                       globCs <- liftIO $ getGlobalPreconds bak mem
+                       let cs = argCs <> globCs
+                       let args' = fmapFC (Crucible.RV . Crucible.regValue) args
+                       liftIO $
+                         modifyIORef usedRef (CheckedCall stack args' cs:)
+                       retEntry <- Crucible.callCFG cfg (Crucible.RegMap args)
+                       return (Crucible.regValue retEntry, mem)
            }
   where
     getArgPreconds ::

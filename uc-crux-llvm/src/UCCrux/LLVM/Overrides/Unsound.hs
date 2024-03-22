@@ -37,9 +37,9 @@ import           Data.Parameterized.NatRepr (knownNat)
 import qualified What4.Interface as What4
 
 -- crucible
-import           Lang.Crucible.Backend (IsSymBackend, backendGetSym)
+import           Lang.Crucible.Backend (IsSymInterface, backendGetSym)
 import           Lang.Crucible.CFG.Common (GlobalVar)
-import           Lang.Crucible.Simulator.OverrideSim (OverrideSim)
+import           Lang.Crucible.Simulator.OverrideSim (OverrideSim, ovrWithBackend)
 import qualified Lang.Crucible.Simulator.OverrideSim as Override
 import           Lang.Crucible.Simulator.RegMap (RegEntry, emptyRegMap, regValue)
 import           Lang.Crucible.Simulator.RegValue (RegValue)
@@ -85,18 +85,18 @@ unsoundOverrides usedRef =
         makePolymorphicLLVMOverride $
           basic_llvm_override $
             [llvmOvr| i32 @gethostname( i8* , size_t ) |]
-              ( \memOps bak args ->
+              ( \memOps args ->
                   liftIO (used "gethostname")
-                    >> Ctx.uncurryAssignment (callGetHostName arch bak memOps) args
+                    >> Ctx.uncurryAssignment (callGetHostName arch memOps) args
               ),
     makeForAllSymArch $
       \arch ->
         makePolymorphicLLVMOverride $
           basic_llvm_override $
             [llvmOvr| i8* @getenv( i8* ) |]
-              ( \memOps bak args ->
+              ( \memOps args ->
                   liftIO (used "getenv")
-                    >> Ctx.uncurryAssignment (callGetEnv arch bak memOps) args
+                    >> Ctx.uncurryAssignment (callGetEnv arch memOps) args
               )
   ]
   where
@@ -108,7 +108,7 @@ unsoundOverrides usedRef =
 -- ** Implementations
 
 callGetHostName ::
-  ( IsSymBackend sym bak,
+  ( IsSymInterface sym,
     HasLLVMAnn sym,
     wptr ~ ArchWidth arch,
     ArchOk arch,
@@ -116,13 +116,12 @@ callGetHostName ::
     ?memOpts :: MemOptions
   ) =>
   proxy arch ->
-  bak ->
   GlobalVar Mem ->
   RegEntry sym (LLVMPointerType wptr) ->
   RegEntry sym (BVType wptr) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
-callGetHostName _proxy bak mvar (regValue -> ptr) (regValue -> len) =
-  do
+callGetHostName _proxy mvar (regValue -> ptr) (regValue -> len) =
+  ovrWithBackend $ \bak -> do
     let sym = backendGetSym bak
     let hostname = "hostname"
     let lenLt bv = liftIO (What4.bvSlt sym len =<< What4.bvLit sym ?ptrWidth bv)
@@ -165,7 +164,7 @@ callGetHostName _proxy bak mvar (regValue -> ptr) (regValue -> len) =
 -- that the variable name be concrete and then have a map from names to
 -- allocations holding values.
 callGetEnv ::
-  ( IsSymBackend sym bak,
+  ( IsSymInterface sym,
     HasLLVMAnn sym,
     wptr ~ ArchWidth arch,
     ArchOk arch,
@@ -173,12 +172,11 @@ callGetEnv ::
     ?memOpts :: LLVMMem.MemOptions
   ) =>
   proxy arch ->
-  bak ->
   GlobalVar Mem ->
   RegEntry sym (LLVMPointerType wptr) ->
   OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callGetEnv _proxy bak mvar _ptr =
-  do
+callGetEnv _proxy mvar _ptr =
+  ovrWithBackend $ \bak -> do
     let value = "<fake environment variable value>"
     Override.modifyGlobal mvar $ \mem ->
       liftIO $

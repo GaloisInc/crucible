@@ -85,7 +85,7 @@ llvmMemcpyOverride
            (LLVMPointerType wptr)
 llvmMemcpyOverride =
   [llvmOvr| i8* @memcpy( i8*, i8*, size_t ) |]
-  (\memOps _bak args ->
+  (\memOps args ->
        do sym <- getSymInterface
           volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
           Ctx.uncurryAssignment (callMemcpy memOps)
@@ -105,7 +105,7 @@ llvmMemcpyChkOverride
          (LLVMPointerType wptr)
 llvmMemcpyChkOverride =
   [llvmOvr| i8* @__memcpy_chk ( i8*, i8*, size_t, size_t ) |]
-  (\memOps _bak args ->
+  (\memOps args ->
       do let args' = Empty :> (args^._1) :> (args^._2) :> (args^._3)
          sym <- getSymInterface
          volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
@@ -124,7 +124,7 @@ llvmMemmoveOverride
          (LLVMPointerType wptr)
 llvmMemmoveOverride =
   [llvmOvr| i8* @memmove( i8*, i8*, size_t ) |]
-  (\memOps _bak args ->
+  (\memOps args ->
       do sym <- getSymInterface
          volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
          Ctx.uncurryAssignment (callMemmove memOps)
@@ -141,7 +141,7 @@ llvmMemsetOverride :: forall p sym ext wptr.
          (LLVMPointerType wptr)
 llvmMemsetOverride =
   [llvmOvr| i8* @memset( i8*, i32, size_t ) |]
-  (\memOps _bak args ->
+  (\memOps args ->
       do sym <- getSymInterface
          LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)
          let dest = args^._1
@@ -163,7 +163,7 @@ llvmMemsetChkOverride
          (LLVMPointerType wptr)
 llvmMemsetChkOverride =
   [llvmOvr| i8* @__memset_chk( i8*, i32, size_t, size_t ) |]
-  (\memOps _bak args ->
+  (\memOps args ->
       do sym <- getSymInterface
          let dest = args^._1
          val <- liftIO
@@ -187,7 +187,7 @@ llvmCallocOverride
 llvmCallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   [llvmOvr| i8* @calloc( size_t, size_t ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callCalloc memOps alignment) args)
+  (\memOps args -> Ctx.uncurryAssignment (callCalloc memOps alignment) args)
 
 
 llvmReallocOverride
@@ -199,7 +199,7 @@ llvmReallocOverride
 llvmReallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   [llvmOvr| i8* @realloc( i8*, size_t ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callRealloc memOps alignment) args)
+  (\memOps args -> Ctx.uncurryAssignment (callRealloc memOps alignment) args)
 
 llvmMallocOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -210,7 +210,7 @@ llvmMallocOverride
 llvmMallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   [llvmOvr| i8* @malloc( size_t ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callMalloc memOps alignment) args)
+  (\memOps args -> Ctx.uncurryAssignment (callMalloc memOps alignment) args)
 
 posixMemalignOverride ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -222,7 +222,7 @@ posixMemalignOverride ::
       (BVType 32)
 posixMemalignOverride =
   [llvmOvr| i32 @posix_memalign( i8**, size_t, size_t ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callPosixMemalign memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (callPosixMemalign memOps) args)
 
 
 llvmFreeOverride
@@ -232,7 +232,7 @@ llvmFreeOverride
          UnitType
 llvmFreeOverride =
   [llvmOvr| void @free( i8* ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callFree memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (callFree memOps) args)
 
 ------------------------------------------------------------------------
 -- *** Strings and I/O
@@ -246,7 +246,7 @@ llvmPrintfOverride
          (BVType 32)
 llvmPrintfOverride =
   [llvmOvr| i32 @printf( i8*, ... ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callPrintf memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (callPrintf memOps) args)
 
 llvmPrintfChkOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -258,7 +258,7 @@ llvmPrintfChkOverride
          (BVType 32)
 llvmPrintfChkOverride =
   [llvmOvr| i32 @__printf_chk( i32, i8*, ... ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (\_flg -> callPrintf memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (\_flg -> callPrintf memOps) args)
 
 
 llvmPutCharOverride
@@ -266,7 +266,7 @@ llvmPutCharOverride
   => LLVMOverride p sym ext (EmptyCtx ::> BVType 32) (BVType 32)
 llvmPutCharOverride =
   [llvmOvr| i32 @putchar( i32 ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callPutChar memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (callPutChar memOps) args)
 
 
 llvmPutsOverride
@@ -275,7 +275,7 @@ llvmPutsOverride
   => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callPuts memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (callPuts memOps) args)
 
 llvmStrlenOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -283,7 +283,7 @@ llvmStrlenOverride
   => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   [llvmOvr| size_t @strlen( i8* ) |]
-  (\memOps _bak args -> Ctx.uncurryAssignment (callStrlen memOps) args)
+  (\memOps args -> Ctx.uncurryAssignment (callStrlen memOps) args)
 
 ------------------------------------------------------------------------
 -- ** Implementations
@@ -508,10 +508,9 @@ callStrlen mvar (regValue -> strPtr) =
     liftIO $ strLen bak mem strPtr
 
 callAssert
-  :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
   => GlobalVar Mem
-  -> bak
   -> Ctx.Assignment (RegEntry sym)
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
@@ -519,35 +518,36 @@ callAssert
                   ::> LLVMPointerType wptr)
   -> forall r args reg.
      OverrideSim p sym ext r args reg (RegValue sym UnitType)
-callAssert mvar bak (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
-  do let sym = backendGetSym bak
-     when failUponExit $
-       do mem <- readGlobal mvar
-          txt <- liftIO $ loadString bak mem (regValue ptxt) Nothing
-          let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
-          liftIO $ addFailedAssertion bak err
-     liftIO $
-       do loc <- liftIO $ getCurrentProgramLoc sym
-          abortExecBecause $ EarlyExit loc
+callAssert mvar (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
+  ovrWithBackend $ \bak -> do
+    let sym = backendGetSym bak
+    when failUponExit $
+      do mem <- readGlobal mvar
+         txt <- liftIO $ loadString bak mem (regValue ptxt) Nothing
+         let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
+         liftIO $ addFailedAssertion bak err
+    liftIO $
+      do loc <- liftIO $ getCurrentProgramLoc sym
+         abortExecBecause $ EarlyExit loc
   where
     failUponExit :: Bool
     failUponExit
       = abnormalExitBehavior ?intrinsicsOpts `elem` [AlwaysFail, OnlyAssertFail]
 
-callExit :: ( IsSymBackend sym bak
+callExit :: ( IsSymInterface sym
             , ?intrinsicsOpts :: IntrinsicsOptions )
-         => bak
-         -> RegEntry sym (BVType 32)
+         => RegEntry sym (BVType 32)
          -> OverrideSim p sym ext r args ret (RegValue sym UnitType)
-callExit bak ec = liftIO $
-  do let sym = backendGetSym bak
-     when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
-       do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
-          -- If the argument is non-zero, throw an assertion failure. Otherwise,
-          -- simply stop the current thread of execution.
-          assert bak cond "Call to exit() with non-zero argument"
-     loc <- getCurrentProgramLoc sym
-     abortExecBecause $ EarlyExit loc
+callExit ec =
+  ovrWithBackend $ \bak -> liftIO $ do
+    let sym = backendGetSym bak
+    when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+      do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
+         -- If the argument is non-zero, throw an assertion failure. Otherwise,
+         -- simply stop the current thread of execution.
+         assert bak cond "Call to exit() with non-zero argument"
+    loc <- getCurrentProgramLoc sym
+    abortExecBecause $ EarlyExit loc
 
 callPrintf
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
@@ -705,7 +705,7 @@ llvmCeilOverride ::
      (FloatType DoubleFloat)
 llvmCeilOverride =
   [llvmOvr| double @ceil( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callCeil args)
+  (\_memOps args -> Ctx.uncurryAssignment callCeil args)
 
 llvmCeilfOverride ::
   IsSymInterface sym =>
@@ -714,7 +714,7 @@ llvmCeilfOverride ::
      (FloatType SingleFloat)
 llvmCeilfOverride =
   [llvmOvr| float @ceilf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callCeil args)
+  (\_memOps args -> Ctx.uncurryAssignment callCeil args)
 
 
 llvmFloorOverride ::
@@ -724,7 +724,7 @@ llvmFloorOverride ::
      (FloatType DoubleFloat)
 llvmFloorOverride =
   [llvmOvr| double @floor( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callFloor args)
+  (\_memOps args -> Ctx.uncurryAssignment callFloor args)
 
 llvmFloorfOverride ::
   IsSymInterface sym =>
@@ -733,7 +733,7 @@ llvmFloorfOverride ::
      (FloatType SingleFloat)
 llvmFloorfOverride =
   [llvmOvr| float @floorf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callFloor args)
+  (\_memOps args -> Ctx.uncurryAssignment callFloor args)
 
 llvmFmafOverride ::
      forall sym p ext
@@ -745,7 +745,7 @@ llvmFmafOverride ::
         (FloatType SingleFloat)
 llvmFmafOverride =
   [llvmOvr| float @fmaf( float, float, float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callFMA args)
+  (\_memOps args -> Ctx.uncurryAssignment callFMA args)
 
 llvmFmaOverride ::
      forall sym p ext
@@ -757,7 +757,7 @@ llvmFmaOverride ::
         (FloatType DoubleFloat)
 llvmFmaOverride =
   [llvmOvr| double @fma( double, double, double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callFMA args)
+  (\_memOps args -> Ctx.uncurryAssignment callFMA args)
 
 
 -- math.h defines isinf() and isnan() as macros, so you might think it unusual
@@ -778,7 +778,7 @@ llvmIsinfOverride ::
      (BVType 32)
 llvmIsinfOverride =
   [llvmOvr| i32 @isinf( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsinf (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsinf (knownNat @32)) args)
 
 -- __isinf and __isinff are like the isinf macro, except their arguments are
 -- known to be double or float, respectively. They are not mentioned in the
@@ -792,7 +792,7 @@ llvm__isinfOverride ::
      (BVType 32)
 llvm__isinfOverride =
   [llvmOvr| i32 @__isinf( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsinf (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsinf (knownNat @32)) args)
 
 llvm__isinffOverride ::
   IsSymInterface sym =>
@@ -801,7 +801,7 @@ llvm__isinffOverride ::
      (BVType 32)
 llvm__isinffOverride =
   [llvmOvr| i32 @__isinff( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsinf (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsinf (knownNat @32)) args)
 
 llvmIsnanOverride ::
   IsSymInterface sym =>
@@ -810,7 +810,7 @@ llvmIsnanOverride ::
      (BVType 32)
 llvmIsnanOverride =
   [llvmOvr| i32 @isnan( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
 
 -- __isnan and __isnanf are like the isnan macro, except their arguments are
 -- known to be double or float, respectively. They are not mentioned in the
@@ -824,7 +824,7 @@ llvm__isnanOverride ::
      (BVType 32)
 llvm__isnanOverride =
   [llvmOvr| i32 @__isnan( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
 
 llvm__isnanfOverride ::
   IsSymInterface sym =>
@@ -833,7 +833,7 @@ llvm__isnanfOverride ::
      (BVType 32)
 llvm__isnanfOverride =
   [llvmOvr| i32 @__isnanf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
 
 -- macOS compiles isnan() to __isnand() when the argument is a double.
 llvm__isnandOverride ::
@@ -843,7 +843,7 @@ llvm__isnandOverride ::
      (BVType 32)
 llvm__isnandOverride =
   [llvmOvr| i32 @__isnand( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callIsnan (knownNat @32)) args)
 
 llvmSqrtOverride ::
   IsSymInterface sym =>
@@ -852,7 +852,7 @@ llvmSqrtOverride ::
      (FloatType DoubleFloat)
 llvmSqrtOverride =
   [llvmOvr| double @sqrt( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callSqrt args)
+  (\_memOps args -> Ctx.uncurryAssignment callSqrt args)
 
 llvmSqrtfOverride ::
   IsSymInterface sym =>
@@ -861,7 +861,7 @@ llvmSqrtfOverride ::
      (FloatType SingleFloat)
 llvmSqrtfOverride =
   [llvmOvr| float @sqrtf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment callSqrt args)
+  (\_memOps args -> Ctx.uncurryAssignment callSqrt args)
 
 callSpecialFunction1 ::
   forall fi p sym ext r args ret.
@@ -974,7 +974,7 @@ llvmSinOverride ::
      (FloatType DoubleFloat)
 llvmSinOverride =
   [llvmOvr| double @sin( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sin) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sin) args)
 
 llvmSinfOverride ::
   IsSymInterface sym =>
@@ -983,7 +983,7 @@ llvmSinfOverride ::
      (FloatType SingleFloat)
 llvmSinfOverride =
   [llvmOvr| float @sinf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sin) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sin) args)
 
 -- cos(f)
 
@@ -994,7 +994,7 @@ llvmCosOverride ::
      (FloatType DoubleFloat)
 llvmCosOverride =
   [llvmOvr| double @cos( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cos) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cos) args)
 
 llvmCosfOverride ::
   IsSymInterface sym =>
@@ -1003,7 +1003,7 @@ llvmCosfOverride ::
      (FloatType SingleFloat)
 llvmCosfOverride =
   [llvmOvr| float @cosf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cos) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cos) args)
 
 -- tan(f)
 
@@ -1014,7 +1014,7 @@ llvmTanOverride ::
      (FloatType DoubleFloat)
 llvmTanOverride =
   [llvmOvr| double @tan( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tan) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tan) args)
 
 llvmTanfOverride ::
   IsSymInterface sym =>
@@ -1023,7 +1023,7 @@ llvmTanfOverride ::
      (FloatType SingleFloat)
 llvmTanfOverride =
   [llvmOvr| float @tanf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tan) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tan) args)
 
 -- asin(f)
 
@@ -1034,7 +1034,7 @@ llvmAsinOverride ::
      (FloatType DoubleFloat)
 llvmAsinOverride =
   [llvmOvr| double @asin( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsin) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsin) args)
 
 llvmAsinfOverride ::
   IsSymInterface sym =>
@@ -1043,7 +1043,7 @@ llvmAsinfOverride ::
      (FloatType SingleFloat)
 llvmAsinfOverride =
   [llvmOvr| float @asinf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsin) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsin) args)
 
 -- acos(f)
 
@@ -1054,7 +1054,7 @@ llvmAcosOverride ::
      (FloatType DoubleFloat)
 llvmAcosOverride =
   [llvmOvr| double @acos( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccos) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccos) args)
 
 llvmAcosfOverride ::
   IsSymInterface sym =>
@@ -1063,7 +1063,7 @@ llvmAcosfOverride ::
      (FloatType SingleFloat)
 llvmAcosfOverride =
   [llvmOvr| float @acosf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccos) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccos) args)
 
 -- atan(f)
 
@@ -1074,7 +1074,7 @@ llvmAtanOverride ::
      (FloatType DoubleFloat)
 llvmAtanOverride =
   [llvmOvr| double @atan( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctan) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctan) args)
 
 llvmAtanfOverride ::
   IsSymInterface sym =>
@@ -1083,7 +1083,7 @@ llvmAtanfOverride ::
      (FloatType SingleFloat)
 llvmAtanfOverride =
   [llvmOvr| float @atanf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctan) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctan) args)
 
 ------------------------------------------------------------------------
 -- **** Hyperbolic trigonometry functions
@@ -1097,7 +1097,7 @@ llvmSinhOverride ::
      (FloatType DoubleFloat)
 llvmSinhOverride =
   [llvmOvr| double @sinh( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sinh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sinh) args)
 
 llvmSinhfOverride ::
   IsSymInterface sym =>
@@ -1106,7 +1106,7 @@ llvmSinhfOverride ::
      (FloatType SingleFloat)
 llvmSinhfOverride =
   [llvmOvr| float @sinhf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sinh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Sinh) args)
 
 -- cosh(f)
 
@@ -1117,7 +1117,7 @@ llvmCoshOverride ::
      (FloatType DoubleFloat)
 llvmCoshOverride =
   [llvmOvr| double @cosh( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cosh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cosh) args)
 
 llvmCoshfOverride ::
   IsSymInterface sym =>
@@ -1126,7 +1126,7 @@ llvmCoshfOverride ::
      (FloatType SingleFloat)
 llvmCoshfOverride =
   [llvmOvr| float @coshf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cosh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Cosh) args)
 
 -- tanh(f)
 
@@ -1137,7 +1137,7 @@ llvmTanhOverride ::
      (FloatType DoubleFloat)
 llvmTanhOverride =
   [llvmOvr| double @tanh( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tanh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tanh) args)
 
 llvmTanhfOverride ::
   IsSymInterface sym =>
@@ -1146,7 +1146,7 @@ llvmTanhfOverride ::
      (FloatType SingleFloat)
 llvmTanhfOverride =
   [llvmOvr| float @tanhf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tanh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Tanh) args)
 
 -- asinh(f)
 
@@ -1157,7 +1157,7 @@ llvmAsinhOverride ::
      (FloatType DoubleFloat)
 llvmAsinhOverride =
   [llvmOvr| double @asinh( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsinh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsinh) args)
 
 llvmAsinhfOverride ::
   IsSymInterface sym =>
@@ -1166,7 +1166,7 @@ llvmAsinhfOverride ::
      (FloatType SingleFloat)
 llvmAsinhfOverride =
   [llvmOvr| float @asinhf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsinh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arcsinh) args)
 
 -- acosh(f)
 
@@ -1177,7 +1177,7 @@ llvmAcoshOverride ::
      (FloatType DoubleFloat)
 llvmAcoshOverride =
   [llvmOvr| double @acosh( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccosh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccosh) args)
 
 llvmAcoshfOverride ::
   IsSymInterface sym =>
@@ -1186,7 +1186,7 @@ llvmAcoshfOverride ::
      (FloatType SingleFloat)
 llvmAcoshfOverride =
   [llvmOvr| float @acoshf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccosh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arccosh) args)
 
 -- atanh(f)
 
@@ -1197,7 +1197,7 @@ llvmAtanhOverride ::
      (FloatType DoubleFloat)
 llvmAtanhOverride =
   [llvmOvr| double @atanh( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctanh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctanh) args)
 
 llvmAtanhfOverride ::
   IsSymInterface sym =>
@@ -1206,7 +1206,7 @@ llvmAtanhfOverride ::
      (FloatType SingleFloat)
 llvmAtanhfOverride =
   [llvmOvr| float @atanhf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctanh) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Arctanh) args)
 
 ------------------------------------------------------------------------
 -- **** Rectangular to polar coordinate conversion
@@ -1220,7 +1220,7 @@ llvmHypotOverride ::
      (FloatType DoubleFloat)
 llvmHypotOverride =
   [llvmOvr| double @hypot( double, double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Hypot) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Hypot) args)
 
 llvmHypotfOverride ::
   IsSymInterface sym =>
@@ -1229,7 +1229,7 @@ llvmHypotfOverride ::
      (FloatType SingleFloat)
 llvmHypotfOverride =
   [llvmOvr| float @hypotf( float, float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Hypot) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Hypot) args)
 
 -- atan2(f)
 
@@ -1240,7 +1240,7 @@ llvmAtan2Override ::
      (FloatType DoubleFloat)
 llvmAtan2Override =
   [llvmOvr| double @atan2( double, double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Arctan2) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Arctan2) args)
 
 llvmAtan2fOverride ::
   IsSymInterface sym =>
@@ -1249,7 +1249,7 @@ llvmAtan2fOverride ::
      (FloatType SingleFloat)
 llvmAtan2fOverride =
   [llvmOvr| float @atan2f( float, float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Arctan2) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Arctan2) args)
 
 ------------------------------------------------------------------------
 -- **** Exponential and logarithm functions
@@ -1263,7 +1263,7 @@ llvmPowfOverride ::
      (FloatType SingleFloat)
 llvmPowfOverride =
   [llvmOvr| float @powf( float, float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Pow) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Pow) args)
 
 llvmPowOverride ::
   IsSymInterface sym =>
@@ -1272,7 +1272,7 @@ llvmPowOverride ::
      (FloatType DoubleFloat)
 llvmPowOverride =
   [llvmOvr| double @pow( double, double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Pow) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction2 W4.Pow) args)
 
 -- exp(f)
 
@@ -1283,7 +1283,7 @@ llvmExpOverride ::
      (FloatType DoubleFloat)
 llvmExpOverride =
   [llvmOvr| double @exp( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp) args)
 
 llvmExpfOverride ::
   IsSymInterface sym =>
@@ -1292,7 +1292,7 @@ llvmExpfOverride ::
      (FloatType SingleFloat)
 llvmExpfOverride =
   [llvmOvr| float @expf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp) args)
 
 -- log(f)
 
@@ -1303,7 +1303,7 @@ llvmLogOverride ::
      (FloatType DoubleFloat)
 llvmLogOverride =
   [llvmOvr| double @log( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log) args)
 
 llvmLogfOverride ::
   IsSymInterface sym =>
@@ -1312,7 +1312,7 @@ llvmLogfOverride ::
      (FloatType SingleFloat)
 llvmLogfOverride =
   [llvmOvr| float @logf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log) args)
 
 -- expm1(f)
 
@@ -1323,7 +1323,7 @@ llvmExpm1Override ::
      (FloatType DoubleFloat)
 llvmExpm1Override =
   [llvmOvr| double @expm1( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Expm1) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Expm1) args)
 
 llvmExpm1fOverride ::
   IsSymInterface sym =>
@@ -1332,7 +1332,7 @@ llvmExpm1fOverride ::
      (FloatType SingleFloat)
 llvmExpm1fOverride =
   [llvmOvr| float @expm1f( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Expm1) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Expm1) args)
 
 -- log1p(f)
 
@@ -1343,7 +1343,7 @@ llvmLog1pOverride ::
      (FloatType DoubleFloat)
 llvmLog1pOverride =
   [llvmOvr| double @log1p( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log1p) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log1p) args)
 
 llvmLog1pfOverride ::
   IsSymInterface sym =>
@@ -1352,7 +1352,7 @@ llvmLog1pfOverride ::
      (FloatType SingleFloat)
 llvmLog1pfOverride =
   [llvmOvr| float @log1pf( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log1p) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log1p) args)
 
 ------------------------------------------------------------------------
 -- **** Base 2 exponential and logarithm
@@ -1366,7 +1366,7 @@ llvmExp2Override ::
      (FloatType DoubleFloat)
 llvmExp2Override =
   [llvmOvr| double @exp2( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp2) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp2) args)
 
 llvmExp2fOverride ::
   IsSymInterface sym =>
@@ -1375,7 +1375,7 @@ llvmExp2fOverride ::
      (FloatType SingleFloat)
 llvmExp2fOverride =
   [llvmOvr| float @exp2f( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp2) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp2) args)
 
 -- log2(f)
 
@@ -1386,7 +1386,7 @@ llvmLog2Override ::
      (FloatType DoubleFloat)
 llvmLog2Override =
   [llvmOvr| double @log2( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log2) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log2) args)
 
 llvmLog2fOverride ::
   IsSymInterface sym =>
@@ -1395,7 +1395,7 @@ llvmLog2fOverride ::
      (FloatType SingleFloat)
 llvmLog2fOverride =
   [llvmOvr| float @log2f( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log2) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log2) args)
 
 ------------------------------------------------------------------------
 -- **** Base 10 exponential and logarithm
@@ -1409,7 +1409,7 @@ llvmExp10Override ::
      (FloatType DoubleFloat)
 llvmExp10Override =
   [llvmOvr| double @exp10( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
 
 llvmExp10fOverride ::
   IsSymInterface sym =>
@@ -1418,7 +1418,7 @@ llvmExp10fOverride ::
      (FloatType SingleFloat)
 llvmExp10fOverride =
   [llvmOvr| float @exp10f( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
 
 -- macOS uses __exp10(f) instead of exp10(f).
 
@@ -1429,7 +1429,7 @@ llvm__exp10Override ::
      (FloatType DoubleFloat)
 llvm__exp10Override =
   [llvmOvr| double @__exp10( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
 
 llvm__exp10fOverride ::
   IsSymInterface sym =>
@@ -1438,7 +1438,7 @@ llvm__exp10fOverride ::
      (FloatType SingleFloat)
 llvm__exp10fOverride =
   [llvmOvr| float @__exp10f( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Exp10) args)
 
 -- log10(f)
 
@@ -1449,7 +1449,7 @@ llvmLog10Override ::
      (FloatType DoubleFloat)
 llvmLog10Override =
   [llvmOvr| double @log10( double ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log10) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log10) args)
 
 llvmLog10fOverride ::
   IsSymInterface sym =>
@@ -1458,7 +1458,7 @@ llvmLog10fOverride ::
      (FloatType SingleFloat)
 llvmLog10fOverride =
   [llvmOvr| float @log10f( float ) |]
-  (\_memOps _bak args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log10) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callSpecialFunction1 W4.Log10) args)
 
 ------------------------------------------------------------------------
 -- *** Other
@@ -1498,13 +1498,14 @@ llvmAbortOverride
   => LLVMOverride p sym ext EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
-  (\_ bak _args -> liftIO $
-     do let sym = backendGetSym bak
-        when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
-            let err = AssertFailureSimError "Call to abort" "" in
-            assert bak (falsePred sym) err
-        loc <- getCurrentProgramLoc sym
-        abortExecBecause $ EarlyExit loc
+  (\_ _args ->
+     ovrWithBackend $ \bak -> liftIO $ do 
+       let sym = backendGetSym bak
+       when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+           let err = AssertFailureSimError "Call to abort" "" in
+           assert bak (falsePred sym) err
+       loc <- getCurrentProgramLoc sym
+       abortExecBecause $ EarlyExit loc
   )
 
 llvmExitOverride
@@ -1516,7 +1517,7 @@ llvmExitOverride
          UnitType
 llvmExitOverride =
   [llvmOvr| void @exit( i32 ) |]
-  (\_ bak args -> Ctx.uncurryAssignment (callExit bak) args)
+  (\_ args -> Ctx.uncurryAssignment callExit args)
 
 llvmGetenvOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -1525,7 +1526,9 @@ llvmGetenvOverride
         (LLVMPointerType wptr)
 llvmGetenvOverride =
   [llvmOvr| i8* @getenv( i8* ) |]
-  (\_ bak _args -> liftIO $ mkNullPointer (backendGetSym bak) PtrWidth)
+  (\_ _args -> do
+    sym <- getSymInterface
+    liftIO $ mkNullPointer sym PtrWidth)
 
 llvmHtonlOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1534,7 +1537,7 @@ llvmHtonlOverride ::
       (BVType 32)
 llvmHtonlOverride =
   [llvmOvr| i32 @htonl( i32 ) |]
-  (\_ _bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @4)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @4)) args)
 
 llvmHtonsOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1543,7 +1546,7 @@ llvmHtonsOverride ::
       (BVType 16)
 llvmHtonsOverride =
   [llvmOvr| i16 @htons( i16 ) |]
-  (\_ _bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @2)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @2)) args)
 
 llvmNtohlOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1552,7 +1555,7 @@ llvmNtohlOverride ::
       (BVType 32)
 llvmNtohlOverride =
   [llvmOvr| i32 @ntohl( i32 ) |]
-  (\_ _bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @4)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @4)) args)
 
 llvmNtohsOverride ::
   (IsSymInterface sym, ?lc :: TypeContext) =>
@@ -1561,7 +1564,7 @@ llvmNtohsOverride ::
       (BVType 16)
 llvmNtohsOverride =
   [llvmOvr| i16 @ntohs( i16 ) |]
-  (\_ _bak args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @2)) args)
+  (\_memOps args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian (knownNat @2)) args)
 
 llvmAbsOverride ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
@@ -1570,7 +1573,7 @@ llvmAbsOverride ::
       (BVType 32)
 llvmAbsOverride =
   [llvmOvr| i32 @abs( i32 ) |]
-  (\mvar _bak args ->
+  (\mvar args ->
      do callStack <- callStackFromMemVar' mvar
         Ctx.uncurryAssignment (callLibcAbs callStack (knownNat @32)) args)
 
@@ -1584,7 +1587,7 @@ llvmLAbsOverride_32 ::
       (BVType 32)
 llvmLAbsOverride_32 =
   [llvmOvr| i32 @labs( i32 ) |]
-  (\mvar _bak args ->
+  (\mvar args ->
      do callStack <- callStackFromMemVar' mvar
         Ctx.uncurryAssignment (callLibcAbs callStack (knownNat @32)) args)
 
@@ -1595,7 +1598,7 @@ llvmLAbsOverride_64 ::
       (BVType 64)
 llvmLAbsOverride_64 =
   [llvmOvr| i64 @labs( i64 ) |]
-  (\mvar _bak args ->
+  (\mvar args ->
      do callStack <- callStackFromMemVar' mvar
         Ctx.uncurryAssignment (callLibcAbs callStack (knownNat @64)) args)
 
@@ -1606,7 +1609,7 @@ llvmLLAbsOverride ::
       (BVType 64)
 llvmLLAbsOverride =
   [llvmOvr| i64 @llabs( i64 ) |]
-  (\mvar _bak args ->
+  (\mvar args ->
      do callStack <- callStackFromMemVar' mvar
         Ctx.uncurryAssignment (callLibcAbs callStack (knownNat @64)) args)
 
@@ -1721,7 +1724,9 @@ cxa_atexitOverride
         (BVType 32)
 cxa_atexitOverride =
   [llvmOvr| i32 @__cxa_atexit( void (i8*)*, i8*, i8* ) |]
-  (\_ bak _args -> liftIO $ bvLit (backendGetSym bak) knownNat (BV.zero knownNat))
+  (\_ _args -> do
+    sym <- getSymInterface
+    liftIO $ bvLit sym knownNat (BV.zero knownNat))
 
 ----------------------------------------------------------------------------
 
