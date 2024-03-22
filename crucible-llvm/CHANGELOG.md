@@ -2,6 +2,9 @@
 
 * `LLVMOverride` now has an additional `ext` type parameter. See the Haddocks
   for `LLVMOverride` for details and motivation.
+* The `llvmOverride_def` field of `LLVMOverride` no longer takes a `bak`
+  argument. To retrieve the current symbolic backend, use
+  `Lang.Crucible.Simulator.OverrideSim.ovrWithBackend`.
 
 # 0.6 -- 2024-02-05
 
