@@ -1,5 +1,7 @@
 # next
 
+* `build_llvm_override` is now generic over the `ext` type parameter. This
+  should be a backwards-compatible change.
 * `LLVMOverride` now has an additional `ext` type parameter. See the Haddocks
   for `LLVMOverride` for details and motivation.
 * The `llvmOverride_def` field of `LLVMOverride` no longer takes a `bak`

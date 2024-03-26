@@ -199,24 +199,24 @@ apply this special case to other override functions (e.g.,
 ------------------------------------------------------------------------
 -- ** register_llvm_override
 
-newtype ArgTransformer p sym args args' =
+newtype ArgTransformer p sym ext args args' =
   ArgTransformer { applyArgTransformer :: (forall rtp l a.
     Ctx.Assignment (RegEntry sym) args ->
-    OverrideSim p sym LLVM rtp l a (Ctx.Assignment (RegEntry sym) args')) }
+    OverrideSim p sym ext rtp l a (Ctx.Assignment (RegEntry sym) args')) }
 
-newtype ValTransformer p sym tp tp' =
+newtype ValTransformer p sym ext tp tp' =
   ValTransformer { applyValTransformer :: (forall rtp l a.
     RegValue sym tp ->
-    OverrideSim p sym LLVM rtp l a (RegValue sym tp')) }
+    OverrideSim p sym ext rtp l a (RegValue sym tp')) }
 
-transformLLVMArgs :: forall m p sym bak args args'.
+transformLLVMArgs :: forall m p sym ext bak args args'.
   (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
   -- | This function name is only used in panic messages.
   FunctionName ->
   bak ->
   CtxRepr args' ->
   CtxRepr args ->
-  m (ArgTransformer p sym args args')
+  m (ArgTransformer p sym ext args args')
 transformLLVMArgs _fnName _ Ctx.Empty Ctx.Empty =
   return (ArgTransformer (\_ -> return Ctx.Empty))
 transformLLVMArgs fnName bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
@@ -240,7 +240,7 @@ transformLLVMRet ::
   bak ->
   TypeRepr ret  ->
   TypeRepr ret' ->
-  m (ValTransformer p sym ret ret')
+  m (ValTransformer p sym ext ret ret')
 transformLLVMRet _fnName bak (BVRepr w) (LLVMPointerRepr w')
   | Just Refl <- testEquality w w'
   = return (ValTransformer (liftIO . llvmPointer_bv (backendGetSym bak)))
@@ -279,8 +279,8 @@ build_llvm_override ::
   TypeRepr ret' ->
   (forall rtp' l' a'. IsSymInterface sym =>
    Ctx.Assignment (RegEntry sym) args ->
-   OverrideSim p sym LLVM rtp' l' a' (RegValue sym ret)) ->
-  OverrideSim p sym LLVM rtp l a (Override p sym LLVM args' ret')
+   OverrideSim p sym ext rtp' l' a' (RegValue sym ret)) ->
+  OverrideSim p sym ext rtp l a (Override p sym ext args' ret')
 build_llvm_override fnm args ret args' ret' llvmOverride =
   ovrWithBackend $ \bak ->
   do fargs <- transformLLVMArgs fnm bak args args'
