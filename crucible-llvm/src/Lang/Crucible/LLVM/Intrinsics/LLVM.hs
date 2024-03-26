@@ -58,6 +58,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 -- | Local helper to make a null pointer in 'OverrideSim'
 mkNull
@@ -66,6 +67,189 @@ mkNull
 mkNull = do
   sym <- getSymInterface
   liftIO (mkNullPointer sym PtrWidth)
+
+------------------------------------------------------------------------
+-- ** Lists
+
+-- | All \"basic\"/\"monomorphic\" LLVM overrides.
+--
+-- Can be turned into 'Lang.Crucible.LLVM.Intrinsics.Common.OverrideTemplate's
+-- via 'Lang.Crucible.LLVM.Intrinsics.Common.basic_llvm_override'.
+basic_llvm_overrides ::
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  [SomeLLVMOverride p sym ext]
+basic_llvm_overrides =
+  [ SomeLLVMOverride llvmLifetimeStartOverride
+  , SomeLLVMOverride llvmLifetimeEndOverride
+  , SomeLLVMOverride (llvmLifetimeOverrideOverload "start" (knownNat @8))
+  , SomeLLVMOverride (llvmLifetimeOverrideOverload "end" (knownNat @8))
+  , SomeLLVMOverride (llvmLifetimeOverrideOverload_opaque "start")
+  , SomeLLVMOverride (llvmLifetimeOverrideOverload_opaque "end")
+  , SomeLLVMOverride (llvmInvariantStartOverride (knownNat @8))
+  , SomeLLVMOverride llvmInvariantStartOverride_opaque
+  , SomeLLVMOverride (llvmInvariantEndOverride (knownNat @8))
+  , SomeLLVMOverride llvmInvariantEndOverride_opaque
+
+  , SomeLLVMOverride llvmAssumeOverride
+  , SomeLLVMOverride llvmTrapOverride
+  , SomeLLVMOverride llvmUBSanTrapOverride
+
+  , SomeLLVMOverride llvmMemcpyOverride_8_8_32
+  , SomeLLVMOverride llvmMemcpyOverride_8_8_32_noalign
+  , SomeLLVMOverride llvmMemcpyOverride_8_8_32_noalign_opaque
+  , SomeLLVMOverride llvmMemcpyOverride_8_8_64
+  , SomeLLVMOverride llvmMemcpyOverride_8_8_64_noalign
+  , SomeLLVMOverride llvmMemcpyOverride_8_8_64_noalign_opaque
+
+  , SomeLLVMOverride llvmMemmoveOverride_8_8_32
+  , SomeLLVMOverride llvmMemmoveOverride_8_8_32_noalign
+  , SomeLLVMOverride llvmMemmoveOverride_8_8_32_noalign_opaque
+  , SomeLLVMOverride llvmMemmoveOverride_8_8_64
+  , SomeLLVMOverride llvmMemmoveOverride_8_8_64_noalign
+  , SomeLLVMOverride llvmMemmoveOverride_8_8_64_noalign_opaque
+
+  , SomeLLVMOverride llvmMemsetOverride_8_32
+  , SomeLLVMOverride llvmMemsetOverride_8_32_noalign
+  , SomeLLVMOverride llvmMemsetOverride_8_32_noalign_opaque
+  , SomeLLVMOverride llvmMemsetOverride_8_64
+  , SomeLLVMOverride llvmMemsetOverride_8_64_noalign
+  , SomeLLVMOverride llvmMemsetOverride_8_64_noalign_opaque
+
+  , SomeLLVMOverride llvmObjectsizeOverride_32
+  , SomeLLVMOverride llvmObjectsizeOverride_64
+
+  , SomeLLVMOverride llvmObjectsizeOverride_32_null
+  , SomeLLVMOverride llvmObjectsizeOverride_64_null
+
+  , SomeLLVMOverride llvmObjectsizeOverride_32_null_dynamic
+  , SomeLLVMOverride llvmObjectsizeOverride_64_null_dynamic
+
+  , SomeLLVMOverride llvmObjectsizeOverride_32_null_dynamic_opaque
+  , SomeLLVMOverride llvmObjectsizeOverride_64_null_dynamic_opaque
+
+  , SomeLLVMOverride llvmPrefetchOverride
+  , SomeLLVMOverride llvmPrefetchOverride_opaque
+  , SomeLLVMOverride llvmPrefetchOverride_preLLVM10
+
+  , SomeLLVMOverride llvmStacksave
+  , SomeLLVMOverride llvmStackrestore
+
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
+  , SomeLLVMOverride (llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
+
+  , SomeLLVMOverride llvmCopysignOverride_F32
+  , SomeLLVMOverride llvmCopysignOverride_F64
+  , SomeLLVMOverride llvmFabsF32
+  , SomeLLVMOverride llvmFabsF64
+
+  , SomeLLVMOverride llvmCeilOverride_F32
+  , SomeLLVMOverride llvmCeilOverride_F64
+  , SomeLLVMOverride llvmFloorOverride_F32
+  , SomeLLVMOverride llvmFloorOverride_F64
+  , SomeLLVMOverride llvmSqrtOverride_F32
+  , SomeLLVMOverride llvmSqrtOverride_F64
+  , SomeLLVMOverride llvmSinOverride_F32
+  , SomeLLVMOverride llvmSinOverride_F64
+  , SomeLLVMOverride llvmCosOverride_F32
+  , SomeLLVMOverride llvmCosOverride_F64
+  , SomeLLVMOverride llvmPowOverride_F32
+  , SomeLLVMOverride llvmPowOverride_F64
+  , SomeLLVMOverride llvmExpOverride_F32
+  , SomeLLVMOverride llvmExpOverride_F64
+  , SomeLLVMOverride llvmLogOverride_F32
+  , SomeLLVMOverride llvmLogOverride_F64
+  , SomeLLVMOverride llvmExp2Override_F32
+  , SomeLLVMOverride llvmExp2Override_F64
+  , SomeLLVMOverride llvmLog2Override_F32
+  , SomeLLVMOverride llvmLog2Override_F64
+  , SomeLLVMOverride llvmLog10Override_F32
+  , SomeLLVMOverride llvmLog10Override_F64
+  , SomeLLVMOverride llvmFmaOverride_F32
+  , SomeLLVMOverride llvmFmaOverride_F64
+  , SomeLLVMOverride llvmFmuladdOverride_F32
+  , SomeLLVMOverride llvmFmuladdOverride_F64
+  , SomeLLVMOverride llvmIsFpclassOverride_F32
+  , SomeLLVMOverride llvmIsFpclassOverride_F64
+
+  -- Some architecture-dependent intrinsics
+  , SomeLLVMOverride llvmX86_SSE2_storeu_dq
+  , SomeLLVMOverride llvmX86_pclmulqdq
+  ]
+
+-- | An LLVM override that is polymorphic in a single argument
+newtype Poly1LLVMOverride p sym ext
+  = Poly1LLVMOverride (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym ext)
+
+poly1_llvm_overrides ::
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  [(String, Poly1LLVMOverride p sym ext)]
+poly1_llvm_overrides =
+  [ ("llvm.ctlz"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmCtlz w)
+    )
+  , ("llvm.cttz"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmCttz w)
+    )
+  , ("llvm.ctpop"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmCtpop w)
+    )
+  , ("llvm.bitreverse"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmBitreverse w)
+    )
+  , ("llvm.abs"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmAbsOverride w)
+    )
+
+  , ("llvm.fshl"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmFshl w)
+    )
+  , ("llvm.fshr"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmFshr w)
+    )
+
+  , ("llvm.expect"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmExpectOverride w)
+    )
+  , ("llvm.sadd.with.overflow"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmSaddWithOverflow w)
+    )
+  , ("llvm.uadd.with.overflow"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmUaddWithOverflow w)
+    )
+  , ("llvm.ssub.with.overflow"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmSsubWithOverflow w)
+    )
+  , ("llvm.usub.with.overflow"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmUsubWithOverflow w)
+    )
+  , ("llvm.smul.with.overflow"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmSmulWithOverflow w)
+    )
+  , ("llvm.umul.with.overflow"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmUmulWithOverflow w)
+    )
+
+  , ("llvm.smax"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmSmax w)
+    )
+  , ("llvm.smin"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmSmin w)
+    )
+  , ("llvm.umax"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmUmax w)
+    )
+  , ("llvm.umin"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmUmin w)
+    )
+  ]
 
 ------------------------------------------------------------------------
 -- ** Declarations
