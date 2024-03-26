@@ -42,8 +42,6 @@ import qualified Text.LLVM.AST as L
 import qualified ABI.Itanium as ABI
 import qualified Data.Parameterized.Map as MapF
 
-import           What4.Interface
-
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
@@ -153,151 +151,13 @@ declare_overrides ::
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   [OverrideTemplate p sym arch rtp l a]
 declare_overrides =
-  map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) Libc.libc_overrides ++
-  [ basic_llvm_override LLVM.llvmLifetimeStartOverride
-  , basic_llvm_override LLVM.llvmLifetimeEndOverride
-  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "start" (knownNat @8))
-  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "end" (knownNat @8))
-  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload_opaque "start")
-  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload_opaque "end")
-  , basic_llvm_override (LLVM.llvmInvariantStartOverride (knownNat @8))
-  , basic_llvm_override LLVM.llvmInvariantStartOverride_opaque
-  , basic_llvm_override (LLVM.llvmInvariantEndOverride (knownNat @8))
-  , basic_llvm_override LLVM.llvmInvariantEndOverride_opaque
-
-  , basic_llvm_override LLVM.llvmAssumeOverride
-  , basic_llvm_override LLVM.llvmTrapOverride
-  , basic_llvm_override LLVM.llvmUBSanTrapOverride
-
-  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
-  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
-  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign_opaque
-  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64
-  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64_noalign
-  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64_noalign_opaque
-
-  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32
-  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32_noalign
-  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32_noalign_opaque
-  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64
-  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64_noalign
-  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64_noalign_opaque
-
-  , basic_llvm_override LLVM.llvmMemsetOverride_8_32
-  , basic_llvm_override LLVM.llvmMemsetOverride_8_32_noalign
-  , basic_llvm_override LLVM.llvmMemsetOverride_8_32_noalign_opaque
-  , basic_llvm_override LLVM.llvmMemsetOverride_8_64
-  , basic_llvm_override LLVM.llvmMemsetOverride_8_64_noalign
-  , basic_llvm_override LLVM.llvmMemsetOverride_8_64_noalign_opaque
-
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_32
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_64
-
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null
-
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null_dynamic
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null_dynamic
-
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null_dynamic_opaque
-  , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null_dynamic_opaque
-
-  , basic_llvm_override LLVM.llvmPrefetchOverride
-  , basic_llvm_override LLVM.llvmPrefetchOverride_opaque
-  , basic_llvm_override LLVM.llvmPrefetchOverride_preLLVM10
-
-  , basic_llvm_override LLVM.llvmStacksave
-  , basic_llvm_override LLVM.llvmStackrestore
-
-  , polymorphic1_llvm_override "llvm.ctlz"
-      (\w -> SomeLLVMOverride (LLVM.llvmCtlz w))
-  , polymorphic1_llvm_override "llvm.cttz"
-      (\w -> SomeLLVMOverride (LLVM.llvmCttz w))
-  , polymorphic1_llvm_override "llvm.ctpop"
-      (\w -> SomeLLVMOverride (LLVM.llvmCtpop w))
-  , polymorphic1_llvm_override "llvm.bitreverse"
-      (\w -> SomeLLVMOverride (LLVM.llvmBitreverse w))
-  , polymorphic1_llvm_override "llvm.abs"
-      (\w -> SomeLLVMOverride (LLVM.llvmAbsOverride w))
-
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
-  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
-
-  , polymorphic1_llvm_override "llvm.fshl"
-      (\w -> SomeLLVMOverride (LLVM.llvmFshl w))
-  , polymorphic1_llvm_override "llvm.fshr"
-      (\w -> SomeLLVMOverride (LLVM.llvmFshr w))
-
-  , polymorphic1_llvm_override "llvm.expect"
-      (\w -> SomeLLVMOverride (LLVM.llvmExpectOverride w))
-  , polymorphic1_llvm_override "llvm.sadd.with.overflow"
-      (\w -> SomeLLVMOverride (LLVM.llvmSaddWithOverflow w))
-  , polymorphic1_llvm_override "llvm.uadd.with.overflow"
-      (\w -> SomeLLVMOverride (LLVM.llvmUaddWithOverflow w))
-  , polymorphic1_llvm_override "llvm.ssub.with.overflow"
-      (\w -> SomeLLVMOverride (LLVM.llvmSsubWithOverflow w))
-  , polymorphic1_llvm_override "llvm.usub.with.overflow"
-      (\w -> SomeLLVMOverride (LLVM.llvmUsubWithOverflow w))
-  , polymorphic1_llvm_override "llvm.smul.with.overflow"
-      (\w -> SomeLLVMOverride (LLVM.llvmSmulWithOverflow w))
-  , polymorphic1_llvm_override "llvm.umul.with.overflow"
-      (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
-
-  , polymorphic1_llvm_override "llvm.smax"
-      (\w -> SomeLLVMOverride (LLVM.llvmSmax w))
-  , polymorphic1_llvm_override "llvm.smin"
-      (\w -> SomeLLVMOverride (LLVM.llvmSmin w))
-  , polymorphic1_llvm_override "llvm.umax"
-      (\w -> SomeLLVMOverride (LLVM.llvmUmax w))
-  , polymorphic1_llvm_override "llvm.umin"
-      (\w -> SomeLLVMOverride (LLVM.llvmUmin w))
-
-  , basic_llvm_override LLVM.llvmCopysignOverride_F32
-  , basic_llvm_override LLVM.llvmCopysignOverride_F64
-  , basic_llvm_override LLVM.llvmFabsF32
-  , basic_llvm_override LLVM.llvmFabsF64
-
-  , basic_llvm_override LLVM.llvmCeilOverride_F32
-  , basic_llvm_override LLVM.llvmCeilOverride_F64
-  , basic_llvm_override LLVM.llvmFloorOverride_F32
-  , basic_llvm_override LLVM.llvmFloorOverride_F64
-  , basic_llvm_override LLVM.llvmSqrtOverride_F32
-  , basic_llvm_override LLVM.llvmSqrtOverride_F64
-  , basic_llvm_override LLVM.llvmSinOverride_F32
-  , basic_llvm_override LLVM.llvmSinOverride_F64
-  , basic_llvm_override LLVM.llvmCosOverride_F32
-  , basic_llvm_override LLVM.llvmCosOverride_F64
-  , basic_llvm_override LLVM.llvmPowOverride_F32
-  , basic_llvm_override LLVM.llvmPowOverride_F64
-  , basic_llvm_override LLVM.llvmExpOverride_F32
-  , basic_llvm_override LLVM.llvmExpOverride_F64
-  , basic_llvm_override LLVM.llvmLogOverride_F32
-  , basic_llvm_override LLVM.llvmLogOverride_F64
-  , basic_llvm_override LLVM.llvmExp2Override_F32
-  , basic_llvm_override LLVM.llvmExp2Override_F64
-  , basic_llvm_override LLVM.llvmLog2Override_F32
-  , basic_llvm_override LLVM.llvmLog2Override_F64
-  , basic_llvm_override LLVM.llvmLog10Override_F32
-  , basic_llvm_override LLVM.llvmLog10Override_F64
-  , basic_llvm_override LLVM.llvmFmaOverride_F32
-  , basic_llvm_override LLVM.llvmFmaOverride_F64
-  , basic_llvm_override LLVM.llvmFmuladdOverride_F32
-  , basic_llvm_override LLVM.llvmFmuladdOverride_F64
-  , basic_llvm_override LLVM.llvmIsFpclassOverride_F32
-  , basic_llvm_override LLVM.llvmIsFpclassOverride_F64
+  concat
+  [ map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) Libc.libc_overrides
+  , map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) LLVM.basic_llvm_overrides
+  , map (\(pfx, LLVM.Poly1LLVMOverride ov) -> polymorphic1_llvm_override pfx ov) LLVM.poly1_llvm_overrides
 
   -- C++ standard library functions
-  , Libcxx.register_cpp_override Libcxx.endlOverride
-
-  -- Some architecture-dependent intrinsics
-  , basic_llvm_override LLVM.llvmX86_SSE2_storeu_dq
-  , basic_llvm_override LLVM.llvmX86_pclmulqdq
+  , [ Libcxx.register_cpp_override Libcxx.endlOverride ]
   ]
 
 
