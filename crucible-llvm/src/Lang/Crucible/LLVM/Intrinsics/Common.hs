@@ -388,13 +388,12 @@ register_llvm_override llvmOverride = do
 -- allocation in the LLVM memory.
 bind_llvm_handle ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
-  LLVMContext arch ->
+  GlobalVar Mem ->
   L.Symbol ->
   FnHandle args ret ->
-  FnState p sym LLVM args ret ->
-  OverrideSim p sym LLVM rtp l a ()
-bind_llvm_handle llvmCtx nm hdl impl = do
-  let mvar = llvmMemVar llvmCtx
+  FnState p sym ext args ret ->
+  OverrideSim p sym ext rtp l a ()
+bind_llvm_handle mvar nm hdl impl = do
   bindFnHandle hdl impl
   mem <- readGlobal mvar
   mem' <- ovrWithBackend $ \bak -> liftIO $ bindLLVMFunPtr bak nm hdl mem
@@ -406,19 +405,19 @@ bind_llvm_handle llvmCtx nm hdl impl = do
 -- global function allocation in the LLVM memory.
 bind_llvm_func ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
-  LLVMContext arch ->
+  GlobalVar Mem ->
   L.Symbol ->
   Ctx.Assignment TypeRepr args ->
   TypeRepr ret ->
-  FnState p sym LLVM args ret ->
-  OverrideSim p sym LLVM rtp l a ()
-bind_llvm_func llvmCtx nm args ret impl = do
+  FnState p sym ext args ret ->
+  OverrideSim p sym ext rtp l a ()
+bind_llvm_func mvar nm args ret impl = do
   let L.Symbol strNm = nm
   let fnm  = functionNameFromText (Text.pack strNm)
   ctx <- use stateContext
   let ha = simHandleAllocator ctx
   h <- liftIO $ mkHandle' ha fnm args ret
-  bind_llvm_handle llvmCtx nm h impl
+  bind_llvm_handle mvar nm h impl
 
 -- | Low-level function to register LLVM overrides.
 --
@@ -430,11 +429,11 @@ bind_llvm_func llvmCtx nm args ret impl = do
 -- Useful when you don\'t have access to a full LLVM AST, e.g., when parsing
 -- Crucible CFGs written in crucible-syntax. For more usual cases, use
 -- 'Lang.Crucible.LLVM.Intrinsics.register_llvm_overrides'.
-do_register_llvm_override :: forall p args ret sym arch wptr l a rtp.
+do_register_llvm_override :: forall p args ret sym ext arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
   LLVMContext arch ->
-  LLVMOverride p sym LLVM args ret ->
-  OverrideSim p sym LLVM rtp l a ()
+  LLVMOverride p sym ext args ret ->
+  OverrideSim p sym ext rtp l a ()
 do_register_llvm_override llvmctx llvmOverride = do
   let decl = llvmOverride_declare llvmOverride
   let (L.Symbol str_nm) = L.decName decl
@@ -449,7 +448,7 @@ do_register_llvm_override llvmctx llvmOverride = do
   llvmDeclToFunHandleRepr' decl $ \args ret -> do
     o <- build_llvm_override fnm overrideArgs overrideRet args ret
            (\asgn -> llvmOverride_def llvmOverride mvar asgn)
-    bind_llvm_func llvmctx (L.decName decl) args ret (UseOverride o)
+    bind_llvm_func mvar (L.decName decl) args ret (UseOverride o)
 
 -- | Create an allocation for an override and register it.
 --
