@@ -147,13 +147,13 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
   in register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) $
        L.modDeclares llvmModule
 
-
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   [OverrideTemplate p sym arch rtp l a]
 declare_overrides =
+  map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) Libc.libc_overrides ++
   [ basic_llvm_override LLVM.llvmLifetimeStartOverride
   , basic_llvm_override LLVM.llvmLifetimeEndOverride
   , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "start" (knownNat @8))
@@ -291,102 +291,6 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmFmuladdOverride_F64
   , basic_llvm_override LLVM.llvmIsFpclassOverride_F32
   , basic_llvm_override LLVM.llvmIsFpclassOverride_F64
-
-  -- C standard library functions
-  , basic_llvm_override Libc.llvmAbortOverride
-  , basic_llvm_override Libc.llvmAssertRtnOverride
-  , basic_llvm_override Libc.llvmAssertFailOverride
-  , basic_llvm_override Libc.llvmMemcpyOverride
-  , basic_llvm_override Libc.llvmMemcpyChkOverride
-  , basic_llvm_override Libc.llvmMemmoveOverride
-  , basic_llvm_override Libc.llvmMemsetOverride
-  , basic_llvm_override Libc.llvmMemsetChkOverride
-  , basic_llvm_override Libc.llvmMallocOverride
-  , basic_llvm_override Libc.llvmCallocOverride
-  , basic_llvm_override Libc.llvmFreeOverride
-  , basic_llvm_override Libc.llvmReallocOverride
-  , basic_llvm_override Libc.llvmStrlenOverride
-  , basic_llvm_override Libc.llvmPrintfOverride
-  , basic_llvm_override Libc.llvmPrintfChkOverride
-  , basic_llvm_override Libc.llvmPutsOverride
-  , basic_llvm_override Libc.llvmPutCharOverride
-  , basic_llvm_override Libc.llvmExitOverride
-  , basic_llvm_override Libc.llvmGetenvOverride
-  , basic_llvm_override Libc.llvmHtonlOverride
-  , basic_llvm_override Libc.llvmHtonsOverride
-  , basic_llvm_override Libc.llvmNtohlOverride
-  , basic_llvm_override Libc.llvmNtohsOverride
-  , basic_llvm_override Libc.llvmAbsOverride
-  , basic_llvm_override Libc.llvmLAbsOverride_32
-  , basic_llvm_override Libc.llvmLAbsOverride_64
-  , basic_llvm_override Libc.llvmLLAbsOverride
-
-  , basic_llvm_override Libc.llvmCeilOverride
-  , basic_llvm_override Libc.llvmCeilfOverride
-  , basic_llvm_override Libc.llvmFloorOverride
-  , basic_llvm_override Libc.llvmFloorfOverride
-  , basic_llvm_override Libc.llvmFmaOverride
-  , basic_llvm_override Libc.llvmFmafOverride
-  , basic_llvm_override Libc.llvmIsinfOverride
-  , basic_llvm_override Libc.llvm__isinfOverride
-  , basic_llvm_override Libc.llvm__isinffOverride
-  , basic_llvm_override Libc.llvmIsnanOverride
-  , basic_llvm_override Libc.llvm__isnanOverride
-  , basic_llvm_override Libc.llvm__isnanfOverride
-  , basic_llvm_override Libc.llvm__isnandOverride
-  , basic_llvm_override Libc.llvmSqrtOverride
-  , basic_llvm_override Libc.llvmSqrtfOverride
-  , basic_llvm_override Libc.llvmSinOverride
-  , basic_llvm_override Libc.llvmSinfOverride
-  , basic_llvm_override Libc.llvmCosOverride
-  , basic_llvm_override Libc.llvmCosfOverride
-  , basic_llvm_override Libc.llvmTanOverride
-  , basic_llvm_override Libc.llvmTanfOverride
-  , basic_llvm_override Libc.llvmAsinOverride
-  , basic_llvm_override Libc.llvmAsinfOverride
-  , basic_llvm_override Libc.llvmAcosOverride
-  , basic_llvm_override Libc.llvmAcosfOverride
-  , basic_llvm_override Libc.llvmAtanOverride
-  , basic_llvm_override Libc.llvmAtanfOverride
-  , basic_llvm_override Libc.llvmSinhOverride
-  , basic_llvm_override Libc.llvmSinhfOverride
-  , basic_llvm_override Libc.llvmCoshOverride
-  , basic_llvm_override Libc.llvmCoshfOverride
-  , basic_llvm_override Libc.llvmTanhOverride
-  , basic_llvm_override Libc.llvmTanhfOverride
-  , basic_llvm_override Libc.llvmAsinhOverride
-  , basic_llvm_override Libc.llvmAsinhfOverride
-  , basic_llvm_override Libc.llvmAcoshOverride
-  , basic_llvm_override Libc.llvmAcoshfOverride
-  , basic_llvm_override Libc.llvmAtanhOverride
-  , basic_llvm_override Libc.llvmAtanhfOverride
-  , basic_llvm_override Libc.llvmHypotOverride
-  , basic_llvm_override Libc.llvmHypotfOverride
-  , basic_llvm_override Libc.llvmAtan2Override
-  , basic_llvm_override Libc.llvmAtan2fOverride
-  , basic_llvm_override Libc.llvmPowfOverride
-  , basic_llvm_override Libc.llvmPowOverride
-  , basic_llvm_override Libc.llvmExpOverride
-  , basic_llvm_override Libc.llvmExpfOverride
-  , basic_llvm_override Libc.llvmLogOverride
-  , basic_llvm_override Libc.llvmLogfOverride
-  , basic_llvm_override Libc.llvmExpm1Override
-  , basic_llvm_override Libc.llvmExpm1fOverride
-  , basic_llvm_override Libc.llvmLog1pOverride
-  , basic_llvm_override Libc.llvmLog1pfOverride
-  , basic_llvm_override Libc.llvmExp2Override
-  , basic_llvm_override Libc.llvmExp2fOverride
-  , basic_llvm_override Libc.llvmLog2Override
-  , basic_llvm_override Libc.llvmLog2fOverride
-  , basic_llvm_override Libc.llvmExp10Override
-  , basic_llvm_override Libc.llvmExp10fOverride
-  , basic_llvm_override Libc.llvm__exp10Override
-  , basic_llvm_override Libc.llvm__exp10fOverride
-  , basic_llvm_override Libc.llvmLog10Override
-  , basic_llvm_override Libc.llvmLog10fOverride
-
-  , basic_llvm_override Libc.cxa_atexitOverride
-  , basic_llvm_override Libc.posixMemalignOverride
 
   -- C++ standard library functions
   , Libcxx.register_cpp_override Libcxx.endlOverride
