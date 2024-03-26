@@ -71,6 +71,111 @@ import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import           Lang.Crucible.LLVM.Intrinsics.Options
 
+-- | All libc overrides.
+--
+-- This list is useful to other Crucible frontends based on the LLVM memory
+-- model (e.g., Macaw).
+libc_overrides ::
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
+  [SomeLLVMOverride p sym ext]
+libc_overrides =
+  [ SomeLLVMOverride llvmAbortOverride
+  , SomeLLVMOverride llvmAssertRtnOverride
+  , SomeLLVMOverride llvmAssertFailOverride
+  , SomeLLVMOverride llvmMemcpyOverride
+  , SomeLLVMOverride llvmMemcpyChkOverride
+  , SomeLLVMOverride llvmMemmoveOverride
+  , SomeLLVMOverride llvmMemsetOverride
+  , SomeLLVMOverride llvmMemsetChkOverride
+  , SomeLLVMOverride llvmMallocOverride
+  , SomeLLVMOverride llvmCallocOverride
+  , SomeLLVMOverride llvmFreeOverride
+  , SomeLLVMOverride llvmReallocOverride
+  , SomeLLVMOverride llvmStrlenOverride
+  , SomeLLVMOverride llvmPrintfOverride
+  , SomeLLVMOverride llvmPrintfChkOverride
+  , SomeLLVMOverride llvmPutsOverride
+  , SomeLLVMOverride llvmPutCharOverride
+  , SomeLLVMOverride llvmExitOverride
+  , SomeLLVMOverride llvmGetenvOverride
+  , SomeLLVMOverride llvmHtonlOverride
+  , SomeLLVMOverride llvmHtonsOverride
+  , SomeLLVMOverride llvmNtohlOverride
+  , SomeLLVMOverride llvmNtohsOverride
+  , SomeLLVMOverride llvmAbsOverride
+  , SomeLLVMOverride llvmLAbsOverride_32
+  , SomeLLVMOverride llvmLAbsOverride_64
+  , SomeLLVMOverride llvmLLAbsOverride
+
+  , SomeLLVMOverride llvmCeilOverride
+  , SomeLLVMOverride llvmCeilfOverride
+  , SomeLLVMOverride llvmFloorOverride
+  , SomeLLVMOverride llvmFloorfOverride
+  , SomeLLVMOverride llvmFmaOverride
+  , SomeLLVMOverride llvmFmafOverride
+  , SomeLLVMOverride llvmIsinfOverride
+  , SomeLLVMOverride llvm__isinfOverride
+  , SomeLLVMOverride llvm__isinffOverride
+  , SomeLLVMOverride llvmIsnanOverride
+  , SomeLLVMOverride llvm__isnanOverride
+  , SomeLLVMOverride llvm__isnanfOverride
+  , SomeLLVMOverride llvm__isnandOverride
+  , SomeLLVMOverride llvmSqrtOverride
+  , SomeLLVMOverride llvmSqrtfOverride
+  , SomeLLVMOverride llvmSinOverride
+  , SomeLLVMOverride llvmSinfOverride
+  , SomeLLVMOverride llvmCosOverride
+  , SomeLLVMOverride llvmCosfOverride
+  , SomeLLVMOverride llvmTanOverride
+  , SomeLLVMOverride llvmTanfOverride
+  , SomeLLVMOverride llvmAsinOverride
+  , SomeLLVMOverride llvmAsinfOverride
+  , SomeLLVMOverride llvmAcosOverride
+  , SomeLLVMOverride llvmAcosfOverride
+  , SomeLLVMOverride llvmAtanOverride
+  , SomeLLVMOverride llvmAtanfOverride
+  , SomeLLVMOverride llvmSinhOverride
+  , SomeLLVMOverride llvmSinhfOverride
+  , SomeLLVMOverride llvmCoshOverride
+  , SomeLLVMOverride llvmCoshfOverride
+  , SomeLLVMOverride llvmTanhOverride
+  , SomeLLVMOverride llvmTanhfOverride
+  , SomeLLVMOverride llvmAsinhOverride
+  , SomeLLVMOverride llvmAsinhfOverride
+  , SomeLLVMOverride llvmAcoshOverride
+  , SomeLLVMOverride llvmAcoshfOverride
+  , SomeLLVMOverride llvmAtanhOverride
+  , SomeLLVMOverride llvmAtanhfOverride
+  , SomeLLVMOverride llvmHypotOverride
+  , SomeLLVMOverride llvmHypotfOverride
+  , SomeLLVMOverride llvmAtan2Override
+  , SomeLLVMOverride llvmAtan2fOverride
+  , SomeLLVMOverride llvmPowfOverride
+  , SomeLLVMOverride llvmPowOverride
+  , SomeLLVMOverride llvmExpOverride
+  , SomeLLVMOverride llvmExpfOverride
+  , SomeLLVMOverride llvmLogOverride
+  , SomeLLVMOverride llvmLogfOverride
+  , SomeLLVMOverride llvmExpm1Override
+  , SomeLLVMOverride llvmExpm1fOverride
+  , SomeLLVMOverride llvmLog1pOverride
+  , SomeLLVMOverride llvmLog1pfOverride
+  , SomeLLVMOverride llvmExp2Override
+  , SomeLLVMOverride llvmExp2fOverride
+  , SomeLLVMOverride llvmLog2Override
+  , SomeLLVMOverride llvmLog2fOverride
+  , SomeLLVMOverride llvmExp10Override
+  , SomeLLVMOverride llvmExp10fOverride
+  , SomeLLVMOverride llvm__exp10Override
+  , SomeLLVMOverride llvm__exp10fOverride
+  , SomeLLVMOverride llvmLog10Override
+  , SomeLLVMOverride llvmLog10fOverride
+
+  , SomeLLVMOverride cxa_atexitOverride
+  , SomeLLVMOverride posixMemalignOverride
+  ]
+
 ------------------------------------------------------------------------
 -- ** Declarations
 
