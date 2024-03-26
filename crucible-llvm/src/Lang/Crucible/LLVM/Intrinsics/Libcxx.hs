@@ -50,6 +50,7 @@ import           What4.Interface (bvLit, natLit)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
+import           Lang.Crucible.Simulator.OverrideSim (getSymInterface)
 import           Lang.Crucible.Simulator.RegMap (RegValue, regValue)
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Types (TypeRepr(UnitRepr), CtxRepr)
@@ -147,7 +148,7 @@ voidOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
 voidOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
       case retTy of
-        UnitRepr -> SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym _args -> pure ()
+        UnitRepr -> SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _args -> pure ()
         _ -> panic_ "voidOverride" decl argTys retTy
 
 -- | Make an override for a function of (LLVM) type @a -> a@, for any @a@.
@@ -162,7 +163,7 @@ identityOverride substrings =
     case argTys of
       (Ctx.Empty Ctx.:> argTy)
         | Just Refl <- testEquality argTy retTy ->
-            SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym args ->
+            SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem args ->
               -- Just return the input
               pure (Ctx.uncurryAssignment regValue args)
 
@@ -180,7 +181,7 @@ constOverride substrings =
     case argTys of
       (Ctx.Empty Ctx.:> fstTy Ctx.:> _)
         | Just Refl <- testEquality fstTy retTy ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym args ->
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem args ->
           pure (Ctx.uncurryAssignment (const . regValue) args)
 
       _ -> panic_ "constOverride" decl argTys retTy
@@ -196,8 +197,9 @@ fixedOverride ty regval substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
     case testEquality retTy ty of
       Just Refl ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem bak _args ->
-          liftIO (regval mem (backendGetSym bak))
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem _args -> do
+          sym <- getSymInterface
+          liftIO (regval mem sym)
 
       _ -> panic_ "fixedOverride" decl argTys retTy
 

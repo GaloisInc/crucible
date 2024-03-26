@@ -93,13 +93,11 @@ data LLVMOverride p sym ext args ret =
   , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
   , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
-       forall bak.
-         IsSymBackend sym bak =>
-         GlobalVar Mem ->
-         bak ->
-         Ctx.Assignment (RegEntry sym) args ->
-         forall rtp args' ret'.
-         OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
+      IsSymInterface sym =>
+      GlobalVar Mem ->
+      Ctx.Assignment (RegEntry sym) args ->
+      forall rtp args' ret'.
+      OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
     -- ^ The implementation of the intrinsic in the simulator monad
     -- (@OverrideSim@).
   }
@@ -279,8 +277,7 @@ build_llvm_override ::
   TypeRepr ret ->
   CtxRepr args' ->
   TypeRepr ret' ->
-  (forall bak rtp' l' a'. IsSymBackend sym bak =>
-   bak ->
+  (forall rtp' l' a'. IsSymInterface sym =>
    Ctx.Assignment (RegEntry sym) args ->
    OverrideSim p sym LLVM rtp' l' a' (RegValue sym ret)) ->
   OverrideSim p sym LLVM rtp l a (Override p sym LLVM args' ret')
@@ -290,8 +287,7 @@ build_llvm_override fnm args ret args' ret' llvmOverride =
      fret  <- transformLLVMRet fnm bak ret  ret'
      return $ mkOverride' fnm ret' $
             do RegMap xs <- getOverrideArgs
-               ovrWithBackend $ \bak' ->
-                 applyValTransformer fret =<< llvmOverride bak' =<< applyArgTransformer fargs xs
+               applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
 
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
@@ -452,7 +448,7 @@ do_register_llvm_override llvmctx llvmOverride = do
 
   llvmDeclToFunHandleRepr' decl $ \args ret -> do
     o <- build_llvm_override fnm overrideArgs overrideRet args ret
-           (\bak asgn -> llvmOverride_def llvmOverride mvar bak asgn)
+           (\asgn -> llvmOverride_def llvmOverride mvar asgn)
     bind_llvm_func llvmctx (L.decName decl) args ret (UseOverride o)
 
 -- | Create an allocation for an override and register it.

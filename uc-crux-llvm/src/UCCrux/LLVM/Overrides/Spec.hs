@@ -142,7 +142,7 @@ mkOverride modCtx _proxy funcSymb (FuncSigRepr _ argFTys retTy) impl =
               llvmOverride_args = argTys,
               llvmOverride_ret = toCrucibleReturnType modCtx retTy,
               llvmOverride_def =
-                \mvar _sym args -> impl mvar args
+                \mvar args -> impl mvar args
             }
   where decl = modCtx ^. moduleDecls . funcSymbol funcSymb
 

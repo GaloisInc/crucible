@@ -181,7 +181,7 @@ mkOverride modCtx _proxy funcSymb impl =
                   llvmOverride_args = argTys Ctx.:> CTy.VectorRepr CTy.AnyRepr,
                   llvmOverride_ret = toCrucibleReturnType modCtx retTy,
                   llvmOverride_def =
-                    \mvar _sym (args Ctx.:> _) ->
+                    \mvar (args Ctx.:> _) ->
                       Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
                 }
     Some fs@(FuncSigRepr VA.NotVarArgsRepr argFTys retTy) ->
@@ -194,7 +194,7 @@ mkOverride modCtx _proxy funcSymb impl =
                   llvmOverride_args = argTys,
                   llvmOverride_ret = toCrucibleReturnType modCtx retTy,
                   llvmOverride_def =
-                    \mvar _sym args ->
+                    \mvar args ->
                       Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
                 }
   where decl = modCtx ^. moduleDecls . funcSymbol funcSymb
