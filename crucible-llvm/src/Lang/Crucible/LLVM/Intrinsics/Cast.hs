@@ -5,6 +5,12 @@
 -- License          : BSD3
 -- Maintainer       : Langston Barrett <langston@galois.com>
 -- Stability        : provisional
+--
+-- The built-in overrides in "Lang.Crucible.LLVM.Intrinsics.Libc" and
+-- "Lang.Crucible.LLVM.Intrinsics.LLVM" frequently take arguments of type
+-- 'Lang.Crucible.Types.BVType', but at runtime everything is represented as an
+-- 'Lang.Crucible.LLVM.MemModel.Pointer.LLVMPtr'. This module contains helpers
+-- for \"casting\" between pointers and bitvectors.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE GADTs #-}
@@ -36,9 +42,13 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.MemModel
 
 data ValCastError
-  = MismatchedShape
+  = -- | Mismatched number of arguments ('castLLVMArgs') or struct fields
+    -- ('castLLVMRet').
+    MismatchedShape
+    -- | Can\'t cast between these types
   | ValCastError (Some TypeRepr) (Some TypeRepr)
 
+-- | Turn a 'ValCastError' into a human-readable message (lines).
 printValCastError :: ValCastError -> [String]
 printValCastError =
   \case
@@ -49,16 +59,20 @@ printValCastError =
       , "*** Target type: " ++ show ret'
       ]
 
+-- | A function to (infallibly) cast between 'Ctx.Assignment's of 'RegEntry's.
 newtype ArgCast p sym ext args args' =
   ArgCast { applyArgCast :: (forall rtp l a.
     Ctx.Assignment (RegEntry sym) args ->
     OverrideSim p sym ext rtp l a (Ctx.Assignment (RegEntry sym) args')) }
 
+-- | A function to (infallibly) cast a value of types @tp@ to @tp'@.
 newtype ValCast p sym ext tp tp' =
   ValCast { applyValCast :: (forall rtp l a.
     RegValue sym tp ->
     OverrideSim p sym ext rtp l a (RegValue sym tp')) }
 
+-- | Attempt to construct a function to cast between 'Ctx.Assignment's of
+-- 'RegEntry's.
 castLLVMArgs :: forall p sym ext bak args args'.
   (IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
@@ -77,6 +91,8 @@ castLLVMArgs bak (rest' Ctx.:> tp') (rest Ctx.:> tp) =
                     pure (xs' Ctx.:> RegEntry tp' x')))
 castLLVMArgs _ _ _ = Left MismatchedShape
 
+-- | Attempt to construct a function to cast values of type @ret@ to type
+-- @ret'@.
 castLLVMRet ::
   (IsSymBackend sym bak, HasLLVMAnn sym) =>
   bak ->
