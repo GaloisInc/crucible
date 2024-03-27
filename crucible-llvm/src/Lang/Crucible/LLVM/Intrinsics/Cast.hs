@@ -82,8 +82,8 @@ castLLVMArgs :: forall p sym ext bak args args'.
 castLLVMArgs _ Ctx.Empty Ctx.Empty =
   Right (ArgCast (\_ -> return Ctx.Empty))
 castLLVMArgs bak (rest' Ctx.:> tp') (rest Ctx.:> tp) =
-  do (ValCast f)  <- castLLVMRet bak tp tp'
-     (ArgCast fs) <- castLLVMArgs bak rest' rest
+  do ValCast f  <- castLLVMRet bak tp tp'
+     ArgCast fs <- castLLVMArgs bak rest' rest
      Right (ArgCast
               (\(xs Ctx.:> x) -> do
                     xs' <- fs xs
