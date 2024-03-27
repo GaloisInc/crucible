@@ -1,5 +1,8 @@
 # next
 
+* Override registration code was generalized. `bind_llvm_{handle,func}`
+  now don't require a whole `LLVMContext`, just a `GlobalVar Mem`, and are
+  polymorphic over `ext`.
 * `build_llvm_override` is now generic over the `ext` type parameter. This
   should be a backwards-compatible change.
 * `LLVMOverride` now has an additional `ext` type parameter. See the Haddocks

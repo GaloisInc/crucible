@@ -88,7 +88,8 @@ registerModuleFn handleWarning mtrans sym =
           s = UseCFG cfg (postdomInfo cfg)
       binds <- use (stateContext . functionBindings)
       let llvmCtx = mtrans ^. transContext
-      bind_llvm_handle llvmCtx (L.decName decl) h s
+      let mvar = llvmMemVar llvmCtx
+      bind_llvm_handle mvar (L.decName decl) h s
 
       when (isJust $ lookupHandleMap h $ fnBindings binds) $
         do loc <- liftIO . getCurrentProgramLoc =<< getSymInterface
@@ -157,7 +158,8 @@ registerLazyModuleFn handleWarning mtrans sym =
    
         -- Bind the function handle to the appropriate global symbol.
         let llvmCtx = mtrans ^. transContext
-        bind_llvm_handle llvmCtx (L.decName decl) h s
+        let mvar = llvmMemVar llvmCtx
+        bind_llvm_handle mvar (L.decName decl) h s
 
 
 llvmGlobalsToCtx
