@@ -1,6 +1,6 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.Intrinsics.Cast
--- Description      : Cast between bitvectors and pointers in signatuers
+-- Description      : Cast between bitvectors and pointers in signatures
 -- Copyright        : (c) Galois, Inc 2024
 -- License          : BSD3
 -- Maintainer       : Langston Barrett <langston@galois.com>
