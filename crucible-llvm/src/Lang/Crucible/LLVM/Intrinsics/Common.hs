@@ -58,7 +58,6 @@ import qualified System.Info as Info
 import qualified ABI.Itanium as ABI
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
-import           Data.Parameterized.TraversableFC (fmapFC)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
@@ -78,6 +77,7 @@ import           Lang.Crucible.LLVM.Eval (callStackFromMemVar)
 import           Lang.Crucible.LLVM.Globals (registerFunPtr)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
+import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 
@@ -199,74 +199,6 @@ apply this special case to other override functions (e.g.,
 ------------------------------------------------------------------------
 -- ** register_llvm_override
 
-newtype ArgTransformer p sym ext args args' =
-  ArgTransformer { applyArgTransformer :: (forall rtp l a.
-    Ctx.Assignment (RegEntry sym) args ->
-    OverrideSim p sym ext rtp l a (Ctx.Assignment (RegEntry sym) args')) }
-
-newtype ValTransformer p sym ext tp tp' =
-  ValTransformer { applyValTransformer :: (forall rtp l a.
-    RegValue sym tp ->
-    OverrideSim p sym ext rtp l a (RegValue sym tp')) }
-
-transformLLVMArgs :: forall m p sym ext bak args args'.
-  (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
-  -- | This function name is only used in panic messages.
-  FunctionName ->
-  bak ->
-  CtxRepr args' ->
-  CtxRepr args ->
-  m (ArgTransformer p sym ext args args')
-transformLLVMArgs _fnName _ Ctx.Empty Ctx.Empty =
-  return (ArgTransformer (\_ -> return Ctx.Empty))
-transformLLVMArgs fnName bak (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
-  return (ArgTransformer
-           (\(xs Ctx.:> x) ->
-              do (ValTransformer f)  <- transformLLVMRet fnName bak tp tp'
-                 (ArgTransformer fs) <- transformLLVMArgs fnName bak rest' rest
-                 xs' <- fs xs
-                 x'  <- RegEntry tp' <$> f (regValue x)
-                 pure (xs' Ctx.:> x')))
-transformLLVMArgs fnName _ _ _ =
-  panic "Intrinsics.transformLLVMArgs"
-    [ "transformLLVMArgs: argument shape mismatch!"
-    , "in function: " ++ Text.unpack (functionName fnName)
-    ]
-
-transformLLVMRet ::
-  (IsSymBackend sym bak, Monad m, HasLLVMAnn sym) =>
-  -- | This function name is only used in panic messages.
-  FunctionName ->
-  bak ->
-  TypeRepr ret  ->
-  TypeRepr ret' ->
-  m (ValTransformer p sym ext ret ret')
-transformLLVMRet _fnName bak (BVRepr w) (LLVMPointerRepr w')
-  | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . llvmPointer_bv (backendGetSym bak)))
-transformLLVMRet _fnName bak (LLVMPointerRepr w) (BVRepr w')
-  | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . projectLLVM_bv bak))
-transformLLVMRet fnName bak (VectorRepr tp) (VectorRepr tp')
-  = do ValTransformer f <- transformLLVMRet fnName bak tp tp'
-       return (ValTransformer (traverse f))
-transformLLVMRet fnName bak (StructRepr ctx) (StructRepr ctx')
-  = do ArgTransformer tf <- transformLLVMArgs fnName bak ctx' ctx
-       return (ValTransformer (\vals ->
-          let vals' = Ctx.zipWith (\tp (RV v) -> RegEntry tp v) ctx vals in
-          fmapFC (\x -> RV (regValue x)) <$> tf vals'))
-
-transformLLVMRet _fnName _bak ret ret'
-  | Just Refl <- testEquality ret ret'
-  = return (ValTransformer return)
-transformLLVMRet fnName _bak ret ret'
-  = panic "Intrinsics.transformLLVMRet"
-      [ "Cannot transform types"
-      , "*** Source type: " ++ show ret
-      , "*** Target type: " ++ show ret'
-      , "in function: " ++ Text.unpack (functionName fnName)
-      ]
-
 -- | Do some pipe-fitting to match a Crucible override function into the shape
 --   expected by the LLVM calling convention.  This basically just coerces
 --   between values of @BVType w@ and values of @LLVMPointerType w@.
@@ -283,11 +215,23 @@ build_llvm_override ::
   OverrideSim p sym ext rtp l a (Override p sym ext args' ret')
 build_llvm_override fnm args ret args' ret' llvmOverride =
   ovrWithBackend $ \bak ->
-  do fargs <- transformLLVMArgs fnm bak args args'
-     fret  <- transformLLVMRet fnm bak ret  ret'
+  do fargs <-
+       case Cast.castLLVMArgs bak args args' of
+         Left err ->
+           panic "Intrinsics.build_llvm_override"
+             (Cast.printValCastError err ++
+               [ "in function: " ++ Text.unpack (functionName fnm) ])
+         Right f -> pure f
+     fret <-
+       case Cast.castLLVMRet bak ret ret' of
+         Left err ->
+           panic "Intrinsics.build_llvm_override"
+             (Cast.printValCastError err ++
+               [ "in function: " ++ Text.unpack (functionName fnm) ])
+         Right f -> pure f
      return $ mkOverride' fnm ret' $
             do RegMap xs <- getOverrideArgs
-               applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
+               Cast.applyValCast fret =<< llvmOverride =<< Cast.applyArgCast fargs xs
 
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
