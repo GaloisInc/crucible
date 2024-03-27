@@ -63,6 +63,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
 import           Lang.Crucible.FunctionHandle (FnHandle, mkHandle')
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator (stateContext, simHandleAllocator)
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Utils.MonadVerbosity (getLogFunction)
@@ -214,8 +215,20 @@ build_llvm_override ::
   OverrideSim p sym ext rtp l a (Override p sym ext args' ret')
 build_llvm_override fnm args ret args' ret' llvmOverride =
   ovrWithBackend $ \bak ->
-  do fargs <- Cast.transformLLVMArgs fnm bak args args'
-     fret  <- Cast.transformLLVMRet fnm bak ret  ret'
+  do fargs <-
+       case Cast.transformLLVMArgs bak args args' of
+         Left err ->
+           panic "Intrinsics.build_llvm_override"
+             (Cast.printValCastError err ++
+               [ "in function: " ++ Text.unpack (functionName fnm) ])
+         Right f -> pure f
+     fret <-
+       case Cast.transformLLVMRet bak ret ret' of
+         Left err ->
+           panic "Intrinsics.build_llvm_override"
+             (Cast.printValCastError err ++
+               [ "in function: " ++ Text.unpack (functionName fnm) ])
+         Right f -> pure f
      return $ mkOverride' fnm ret' $
             do RegMap xs <- getOverrideArgs
                Cast.applyValTransformer fret =<< llvmOverride =<< Cast.applyArgTransformer fargs xs
