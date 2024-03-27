@@ -43,7 +43,7 @@ module Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Text.LLVM.AST as L
 
 import           Control.Applicative (empty)
-import           Control.Monad (when)
+import           Control.Monad (when, void)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
 import           Control.Monad.Reader (ReaderT, ask, lift)
@@ -410,7 +410,7 @@ bind_llvm_func ::
   Ctx.Assignment TypeRepr args ->
   TypeRepr ret ->
   FnState p sym ext args ret ->
-  OverrideSim p sym ext rtp l a ()
+  OverrideSim p sym ext rtp l a (FnHandle args ret)
 bind_llvm_func mvar nm args ret impl = do
   let L.Symbol strNm = nm
   let fnm  = functionNameFromText (Text.pack strNm)
@@ -418,6 +418,7 @@ bind_llvm_func mvar nm args ret impl = do
   let ha = simHandleAllocator ctx
   h <- liftIO $ mkHandle' ha fnm args ret
   bind_llvm_handle mvar nm h impl
+  return h
 
 -- | Low-level function to register LLVM overrides.
 --
@@ -448,7 +449,7 @@ do_register_llvm_override llvmctx llvmOverride = do
   llvmDeclToFunHandleRepr' decl $ \args ret -> do
     o <- build_llvm_override fnm overrideArgs overrideRet args ret
            (\asgn -> llvmOverride_def llvmOverride mvar asgn)
-    bind_llvm_func mvar (L.decName decl) args ret (UseOverride o)
+    void $ bind_llvm_func mvar (L.decName decl) args ret (UseOverride o)
 
 -- | Create an allocation for an override and register it.
 --
