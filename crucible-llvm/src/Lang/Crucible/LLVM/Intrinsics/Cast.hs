@@ -74,7 +74,7 @@ newtype ValCast p sym ext tp tp' =
 -- | Attempt to construct a function to cast between 'Ctx.Assignment's of
 -- 'RegEntry's.
 castLLVMArgs :: forall p sym ext bak args args'.
-  (IsSymBackend sym bak, HasLLVMAnn sym) =>
+  IsSymBackend sym bak =>
   bak ->
   CtxRepr args' ->
   CtxRepr args ->
@@ -94,7 +94,7 @@ castLLVMArgs _ _ _ = Left MismatchedShape
 -- | Attempt to construct a function to cast values of type @ret@ to type
 -- @ret'@.
 castLLVMRet ::
-  (IsSymBackend sym bak, HasLLVMAnn sym) =>
+  IsSymBackend sym bak =>
   bak ->
   TypeRepr ret  ->
   TypeRepr ret' ->
