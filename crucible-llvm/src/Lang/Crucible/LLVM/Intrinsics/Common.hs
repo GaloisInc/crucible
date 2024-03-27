@@ -216,14 +216,14 @@ build_llvm_override ::
 build_llvm_override fnm args ret args' ret' llvmOverride =
   ovrWithBackend $ \bak ->
   do fargs <-
-       case Cast.transformLLVMArgs bak args args' of
+       case Cast.castLLVMArgs bak args args' of
          Left err ->
            panic "Intrinsics.build_llvm_override"
              (Cast.printValCastError err ++
                [ "in function: " ++ Text.unpack (functionName fnm) ])
          Right f -> pure f
      fret <-
-       case Cast.transformLLVMRet bak ret ret' of
+       case Cast.castLLVMRet bak ret ret' of
          Left err ->
            panic "Intrinsics.build_llvm_override"
              (Cast.printValCastError err ++
@@ -231,7 +231,7 @@ build_llvm_override fnm args ret args' ret' llvmOverride =
          Right f -> pure f
      return $ mkOverride' fnm ret' $
             do RegMap xs <- getOverrideArgs
-               Cast.applyValTransformer fret =<< llvmOverride =<< Cast.applyArgTransformer fargs xs
+               Cast.applyValCast fret =<< llvmOverride =<< Cast.applyArgCast fargs xs
 
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
