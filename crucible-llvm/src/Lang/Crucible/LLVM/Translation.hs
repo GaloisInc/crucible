@@ -138,16 +138,16 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- Translation results
 
-type ModuleCFGMap = Map L.Symbol CFGMapEntry
+type ModuleCFGMap mem = Map L.Symbol (CFGMapEntry mem)
 
-data CFGMapEntry
-  = TranslatedCFG L.Declare (C.AnyCFG LLVM)
+data CFGMapEntry mem
+  = TranslatedCFG L.Declare (C.AnyCFG (LLVM mem))
   | UntranslatedCFG L.Define SomeHandle
 
 -- | The result of translating an LLVM module into Crucible CFGs.
-data ModuleTranslation arch
+data ModuleTranslation mem arch
    = ModuleTranslation
-      { _cfgMap        :: IORef ModuleCFGMap
+      { _cfgMap        :: IORef (ModuleCFGMap mem)
       , _transContext :: LLVMContext arch
       , _globalInitMap :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
@@ -163,26 +163,26 @@ data ModuleTranslation arch
       , _modTransOpts   :: TranslationOptions
       }
 
-instance TestEquality ModuleTranslation where
+instance TestEquality (ModuleTranslation mem) where
   testEquality mt1 mt2 =
     testEquality (_modTransNonce mt1) (_modTransNonce mt2)
 
-transContext :: Getter (ModuleTranslation arch) (LLVMContext arch)
+transContext :: Getter (ModuleTranslation mem arch) (LLVMContext arch)
 transContext = to _transContext
 
-globalInitMap :: Getter (ModuleTranslation arch) GlobalInitializerMap
+globalInitMap :: Getter (ModuleTranslation mem arch) GlobalInitializerMap
 globalInitMap = to _globalInitMap
 
-modTransDefs :: Getter (ModuleTranslation arch) [(L.Declare,SomeHandle)]
+modTransDefs :: Getter (ModuleTranslation mem arch) [(L.Declare,SomeHandle)]
 modTransDefs = to _modTransDefs
 
-modTransModule :: Getter (ModuleTranslation arch) L.Module
+modTransModule :: Getter (ModuleTranslation mem arch) L.Module
 modTransModule = to _modTransModule
 
-modTransHalloc :: Getter (ModuleTranslation arch) HandleAllocator
+modTransHalloc :: Getter (ModuleTranslation mem arch) HandleAllocator
 modTransHalloc = to _modTransHalloc
 
-typeToRegExpr :: MemType -> LLVMGenerator s arch ret (Some (Reg s))
+typeToRegExpr :: MemType -> LLVMGenerator s mem arch ret (Some (Reg s))
 typeToRegExpr tp = do
   llvmTypeAsRepr tp $ \tpr ->
     Some <$> newUnassignedReg tpr
@@ -192,12 +192,12 @@ typeToRegExpr tp = do
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
 --   The type of the register is inferred from the instruction that assigns to it
 --   and is recorded in the ident map.
-buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator s arch reg (IdentMap s)
+buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator s mem arch reg (IdentMap s)
 buildRegMap m d = foldM (\m0 bb -> buildRegTypeMap m0 bb) m $ L.defBody d
 
 buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
-                -> LLVMGenerator s arch ret (IdentMap s)
+                -> LLVMGenerator s mem arch ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where
     err instr msg =
@@ -225,7 +225,7 @@ generateStmts :: (?transOpts :: TranslationOptions)
         -> L.BlockLabel
         -> Set L.Ident {- ^ Set of usable identifiers -}
         -> [L.Stmt]
-        -> LLVMGenerator s arch ret a
+        -> LLVMGenerator s mem arch ret a
 generateStmts retType lab defSet0 stmts = go defSet0 (processDbgDeclare stmts)
  where go _ [] = fail "LLVM basic block ended without a terminating instruction"
        go defSet (x:xs) =
@@ -277,7 +277,7 @@ processDbgDeclare = snd . go
 
 setLocation
   :: [(String,L.ValMd)]
-  -> LLVMGenerator s arch ret ()
+  -> LLVMGenerator s mem arch ret ()
 setLocation [] = return ()
 setLocation (x:xs) =
   case x of
@@ -350,7 +350,7 @@ defineLLVMBlock
         => TypeRepr ret
         -> LLVMBlockInfoMap s
         -> L.BasicBlock
-        -> LLVMGenerator s arch ret ()
+        -> LLVMGenerator s mem arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab (block_use_set bi) stmts)
@@ -367,7 +367,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 genDefn :: (?transOpts :: TranslationOptions)
         => L.Define
         -> TypeRepr ret
-        -> LLVMGenerator s arch ret (Expr ext s ret)
+        -> LLVMGenerator s mem arch ret (Expr ext s ret)
 genDefn defn retType =
   case L.defBody defn of
     [] -> fail "LLVM define with no blocks!"
@@ -399,7 +399,7 @@ checkEntryPointUseSet ::
   String ->
   LLVMBlockInfo s ->
   [L.Typed L.Ident] ->
-  LLVMGenerator s arg ret ()
+  LLVMGenerator s mem arch ret ()
 checkEntryPointUseSet nm bi args
   | Set.null unsatisfiedUses = return ()
   | otherwise =
@@ -417,13 +417,13 @@ checkEntryPointUseSet nm bi args
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 --
-transDefine :: forall arch wptr args ret.
+transDefine :: forall mem arch wptr args ret.
   (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions) =>
   FnHandle args ret ->
   LLVMContext arch ->
   IORef [LLVMTranslationWarning] ->
   L.Define ->
-  IO (L.Declare, C.AnyCFG LLVM)
+  IO (L.Declare, C.AnyCFG (LLVM mem))
 transDefine h ctx warnRef d = do
   let ?lc = ctx^.llvmTypeCtx
   let decl = declareFromDefine d
@@ -441,7 +441,7 @@ transDefine h ctx warnRef d = do
                          , show retTy, show h
                          ]
        (Just Refl, Just Refl) ->
-         do let def :: FunctionDef LLVM (LLVMState arch) args ret IO
+         do let def :: FunctionDef (LLVM mem) (LLVMState arch) args ret IO
                 def inputs = (s, f)
                     where s = initialState d ctx argTys inputs warnRef
                           f = genDefn d retTy
@@ -464,7 +464,7 @@ translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
-                -> IO (Some ModuleTranslation)
+                -> IO (Some (ModuleTranslation mem))
 translateModule halloc mvar m = do
   Some ctx <- mkLLVMContext mvar m
   let nonceGen = haCounter halloc
@@ -500,7 +500,7 @@ prepareCFGMapEntry halloc def =
        return (def, decl, SomeHandle h)
 
 
--- | Given a 'ModuleTranslation' and a function symbol corresponding to a function
+-- | Given a 'ModuleTranslationmem ' and a function symbol corresponding to a function
 --   defined in the module, attempt to look up the symbol name and retrieve the corresponding
 --   Crucible CFG. This will load and translate the CFG if this is the first time
 --   the given symbol is requested.
@@ -508,9 +508,9 @@ prepareCFGMapEntry halloc def =
 --   Will return 'Nothing' if the symbol does not refer to a function defined in this
 --   module.
 getTranslatedCFG ::
-  ModuleTranslation arch ->
+  ModuleTranslation mem arch ->
   L.Symbol ->
-  IO (Maybe (L.Declare, C.AnyCFG LLVM, [LLVMTranslationWarning]))
+  IO (Maybe (L.Declare, C.AnyCFG (LLVM mem), [LLVMTranslationWarning]))
 getTranslatedCFG mt s =
   do m <- readIORef (_cfgMap mt)
      case Map.lookup s m of
@@ -533,7 +533,7 @@ getTranslatedCFG mt s =
 --   Will return 'Nothing' if the symbol does not refer to a function defined in this
 --   module.
 getTranslatedFnHandle ::
-  ModuleTranslation arch ->
+  ModuleTranslation mem arch ->
   L.Symbol ->
   IO (Maybe (L.Declare, SomeHandle))
 getTranslatedFnHandle mt s =

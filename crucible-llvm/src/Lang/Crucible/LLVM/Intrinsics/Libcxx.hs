@@ -68,8 +68,8 @@ import           Lang.Crucible.LLVM.Translation.Types
 -- complex, their names are mangled in the LLVM module, it's a big mess.
 register_cpp_override ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  SomeCPPOverride p sym arch ->
-  OverrideTemplate p sym arch rtp l a
+  SomeCPPOverride p sym mem arch ->
+  OverrideTemplate p sym mem arch rtp l a
 register_cpp_override someCPPOverride =
   OverrideTemplate (SubstringsMatch ("_Z" : cppOverrideSubstrings someCPPOverride)) $
   do (requestedDecl, decName, llvmctx) <- ask
@@ -87,10 +87,10 @@ register_cpp_override someCPPOverride =
 -- | We can only tell whether we should install a C++ override after demangling
 --  the function name, which is expensive. As a first approximation, we ask whether
 --  the function's name contains a few substrings, in order.
-data SomeCPPOverride p sym arch =
+data SomeCPPOverride p sym mem arch =
   SomeCPPOverride
   { cppOverrideSubstrings :: [String]
-  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym LLVM)
+  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym (LLVM mem))
   }
 
 ------------------------------------------------------------------------
@@ -127,9 +127,9 @@ panic_ from decl args ret =
 -- function handle in the symbol table and use that to construct an override
 mkOverride :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch))
            => [String] -- ^ Substrings for name filtering
-           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym LLVM))
+           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym (LLVM mem)))
            -> (L.Symbol -> ABI.DecodedName -> Bool)
-           -> SomeCPPOverride p sym arch
+           -> SomeCPPOverride p sym mem arch
 mkOverride substrings ov filt =
   SomeCPPOverride substrings $ \requestedDecl decodedName llvmctx ->
     let ?lc = llvmctx^.llvmTypeCtx in
@@ -144,7 +144,7 @@ mkOverride substrings ov filt =
 voidOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              => [String]
              -> (L.Symbol -> ABI.DecodedName -> Bool)
-             -> SomeCPPOverride p sym arch
+             -> SomeCPPOverride p sym mem arch
 voidOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
       case retTy of
@@ -157,7 +157,7 @@ voidOverride substrings =
 identityOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
                  => [String]
                  -> (L.Symbol -> ABI.DecodedName -> Bool)
-                 -> SomeCPPOverride p sym arch
+                 -> SomeCPPOverride p sym mem arch
 identityOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
     case argTys of
@@ -175,7 +175,7 @@ identityOverride substrings =
 constOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
               => [String]
               -> (L.Symbol -> ABI.DecodedName -> Bool)
-              -> SomeCPPOverride p sym arch
+              -> SomeCPPOverride p sym mem arch
 constOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
     case argTys of
@@ -192,7 +192,7 @@ fixedOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
               -> (GlobalVar Mem -> sym -> IO (RegValue sym ty))
               -> [String]
               -> (L.Symbol -> ABI.DecodedName -> Bool)
-              -> SomeCPPOverride p sym arch
+              -> SomeCPPOverride p sym mem arch
 fixedOverride ty regval substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
     case testEquality retTy ty of
@@ -207,7 +207,7 @@ fixedOverride ty regval substrings =
 trueOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              => [String]
              -> (L.Symbol -> ABI.DecodedName -> Bool)
-             -> SomeCPPOverride p sym arch
+             -> SomeCPPOverride p sym mem arch
 trueOverride =
   fixedOverride (LLVMPointerRepr knownNat) $ \_mem sym ->
     LLVMPointer <$> natLit sym 0 <*> bvLit sym (knownNat @1) (BV.one knownNat)
@@ -226,7 +226,7 @@ trueOverride =
 -- This is the override for the 12th function signature listed here:
 -- https://en.cppreference.com/w/cpp/io/basic_ostream/operator_ltlt
 putToOverride12 :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-                => SomeCPPOverride p sym arch
+                => SomeCPPOverride p sym mem arch
 putToOverride12 =
   constOverride ["St","ls","basic_ostream"] $ \_ decodedName ->
     case decodedName of
@@ -247,7 +247,7 @@ putToOverride12 =
 -- This is the override for the 9th function signature listed here (I think):
 -- https://en.cppreference.com/w/cpp/io/basic_ostream/operator_ltlt
 putToOverride9 :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-               => SomeCPPOverride p sym arch
+               => SomeCPPOverride p sym mem arch
 putToOverride9 =
   constOverride ["NSt3__1lsINS_11char_traitsIcEEEERNS_13basic_ostreamIcT_EES6_PKc"] $ \(L.Symbol nm) _ ->
     nm == "_ZNSt3__1lsINS_11char_traitsIcEEEERNS_13basic_ostreamIcT_EES6_PKc"
@@ -255,7 +255,7 @@ putToOverride9 =
 -- | TODO: When @itanium-abi@ get support for parsing templates, make this a
 -- more structured match
 endlOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-             => SomeCPPOverride p sym arch
+             => SomeCPPOverride p sym mem arch
 endlOverride =
   identityOverride ["endl","char_traits","basic_ostream"] $ \(L.Symbol nm) _decodedName ->
     and [ "endl"          `isInfixOf` nm
@@ -264,7 +264,7 @@ endlOverride =
         ]
 
 sentryOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-               => SomeCPPOverride p sym arch
+               => SomeCPPOverride p sym mem arch
 sentryOverride =
   voidOverride ["basic_ostream", "sentry"] $ \_nm decodedName ->
     case decodedName of
@@ -285,7 +285,7 @@ sentryOverride =
 --
 -- @sentry::operator bool()@
 sentryBoolOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-                   => SomeCPPOverride p sym arch
+                   => SomeCPPOverride p sym mem arch
 sentryBoolOverride =
   trueOverride ["basic_ostream", "sentry"] $ \_nm decodedName ->
     case decodedName of

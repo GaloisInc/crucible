@@ -70,10 +70,10 @@ register_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
-  [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
-  [OverrideTemplate p sym arch rtp l a] {- ^ Additional "declare" overrides -} ->
+  [OverrideTemplate p sym mem arch rtp l a] {- ^ Additional "define" overrides -} ->
+  [OverrideTemplate p sym mem arch rtp l a] {- ^ Additional "declare" overrides -} ->
   LLVMContext arch ->
-  OverrideSim p sym LLVM rtp l a ()
+  OverrideSim p sym (LLVM mem) rtp l a ()
 register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
   do register_llvm_define_overrides llvmModule defineOvrs llvmctx
      register_llvm_declare_overrides llvmModule declareOvrs llvmctx
@@ -86,9 +86,9 @@ register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
 -- more detail, including examining function arguments
 -- and the structure of C++ demangled names to extract more information.
 filterTemplates ::
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym mem arch rtp l a] ->
   L.Declare ->
-  [OverrideTemplate p sym arch rtp l a]
+  [OverrideTemplate p sym mem arch rtp l a]
 filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
  where
  L.Symbol nm = L.decName decl
@@ -112,9 +112,9 @@ filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
 -- | Helper function for registering overrides
 register_llvm_overrides_ ::
   LLVMContext arch ->
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym mem arch rtp l a] ->
   [L.Declare] ->
-  OverrideSim p sym LLVM rtp l a ()
+  OverrideSim p sym (LLVM mem) rtp l a ()
 register_llvm_overrides_ llvmctx acts decls =
     forM_ decls $ \decl ->
       do let acts' = filterTemplates acts decl
@@ -125,9 +125,9 @@ register_llvm_overrides_ llvmctx acts decls =
 register_llvm_define_overrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym mem arch rtp l a] ->
   LLVMContext arch ->
-  OverrideSim p sym LLVM rtp l a ()
+  OverrideSim p sym (LLVM mem) rtp l a ()
 register_llvm_define_overrides llvmModule addlOvrs llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx in
   register_llvm_overrides_ llvmctx (addlOvrs ++ define_overrides) $
@@ -137,9 +137,9 @@ register_llvm_declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym mem arch rtp l a] ->
   LLVMContext arch ->
-  OverrideSim p sym LLVM rtp l a ()
+  OverrideSim p sym (LLVM mem) rtp l a ()
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx
   in register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) $
@@ -149,7 +149,7 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
 declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
-  [OverrideTemplate p sym arch rtp l a]
+  [OverrideTemplate p sym mem arch rtp l a]
 declare_overrides =
   concat
   [ map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) Libc.libc_overrides
@@ -165,7 +165,7 @@ declare_overrides =
 -- function has a definition
 define_overrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
-  [OverrideTemplate p sym arch rtp l a]
+  [OverrideTemplate p sym mem arch rtp l a]
 define_overrides =
   [ Libcxx.register_cpp_override Libcxx.putToOverride12
   , Libcxx.register_cpp_override Libcxx.putToOverride9

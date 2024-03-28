@@ -355,7 +355,7 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec ::
   (Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  EvalStmtFunc p sym LLVM
+  EvalStmtFunc p sym (LLVM mem)
 llvmStatementExec stmt cst =
   let simCtx = cst^.stateContext
    in withBackend simCtx $ \bak ->
@@ -368,10 +368,10 @@ type EvalM p sym ext rtp blocks ret args a =
 --   The semantics are explicitly organized as a state transformer monad
 --   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
-evalStmt :: forall p sym bak ext rtp blocks ret args tp.
+evalStmt :: forall p sym bak ext mem rtp blocks ret args tp.
   (IsSymBackend sym bak, Partial.HasLLVMAnn sym, GHC.HasCallStack, ?memOpts :: MemOptions) =>
   bak ->
-  LLVMStmt (RegEntry sym) tp ->
+  LLVMStmt mem (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
 evalStmt bak = eval
  where
@@ -398,7 +398,7 @@ evalStmt bak = eval
   failedAssert msg details =
     lift $ addFailedAssertion bak $ AssertFailureSimError msg details
 
-  eval :: LLVMStmt (RegEntry sym) tp ->
+  eval :: LLVMStmt mem (RegEntry sym) tp ->
           EvalM p sym ext rtp blocks ret args (RegValue sym tp)
   eval (LLVM_PushFrame nm mvar) =
      do mem <- getMem mvar

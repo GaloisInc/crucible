@@ -62,13 +62,13 @@ assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
      assert bak p' err
 
 llvmExtensionEval ::
-  forall sym bak p ext rtp blocks r ctx.
+  forall sym bak p ext mem rtp blocks r ctx.
   (HasLLVMAnn sym, IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
   CrucibleState p sym ext rtp blocks r ctx ->
-  EvalAppFunc sym LLVMExtensionExpr
+  EvalAppFunc sym (LLVMExtensionExpr mem)
 
 llvmExtensionEval bak _iTypes _logFn state eval e =
   let sym = backendGetSym bak in

@@ -131,18 +131,18 @@ mkLLVMContext mvar m = do
 
 -- | A monad providing state and continuations for translating LLVM expressions
 -- to CFGs.
-type LLVMGenerator s arch ret a =
+type LLVMGenerator s mem arch ret a =
   (?lc :: TypeContext, HasPtrWidth (ArchWidth arch)) =>
-    Generator LLVM s (LLVMState arch) ret IO a
+    Generator (LLVM mem) s (LLVMState arch) ret IO a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
-type LLVMGenerator' s arch ret =
-  Generator LLVM s (LLVMState arch) ret IO
+type LLVMGenerator' s mem arch ret =
+  Generator (LLVM mem) s (LLVMState arch) ret IO
 
 
 -- LLVMState
 
-getMemVar :: LLVMGenerator s arch reg (GlobalVar Mem)
+getMemVar :: LLVMGenerator s mem arch reg (GlobalVar Mem)
 getMemVar = llvmMemVar . llvmContext <$> get
 
 -- | Maps identifiers to an associated register or defined expression.
@@ -177,7 +177,7 @@ translationWarnings = lens _translationWarnings (\s v -> s { _translationWarning
 functionSymbol :: Lens' (LLVMState arch s) L.Symbol
 functionSymbol = lens _functionSymbol (\s v -> s{ _functionSymbol = v })
 
-addWarning :: Text -> LLVMGenerator s arch ret ()
+addWarning :: Text -> LLVMGenerator s mem arch ret ()
 addWarning warn =
   do r <- use translationWarnings
      s <- use functionSymbol

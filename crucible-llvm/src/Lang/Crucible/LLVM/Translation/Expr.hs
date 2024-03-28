@@ -117,14 +117,14 @@ import           Lang.Crucible.Types
 -- | An intermediate form of LLVM expressions that retains some structure
 --   that would otherwise be more difficult to retain if we translated directly
 --   into crucible expressions.
-data LLVMExpr s (arch :: LLVMArch) where
-   BaseExpr   :: TypeRepr tp -> Expr LLVM s tp -> LLVMExpr s arch
-   ZeroExpr   :: MemType -> LLVMExpr s arch
-   UndefExpr  :: MemType -> LLVMExpr s arch
-   VecExpr    :: MemType -> Seq (LLVMExpr s arch) -> LLVMExpr s arch
-   StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
+data LLVMExpr s mem (arch :: LLVMArch) where
+   BaseExpr   :: TypeRepr tp -> Expr (LLVM mem) s tp -> LLVMExpr s mem arch
+   ZeroExpr   :: MemType -> LLVMExpr s mem arch
+   UndefExpr  :: MemType -> LLVMExpr s mem arch
+   VecExpr    :: MemType -> Seq (LLVMExpr s mem arch) -> LLVMExpr s mem arch
+   StructExpr :: Seq (MemType, LLVMExpr s mem arch) -> LLVMExpr s mem arch
 
-instance Show (LLVMExpr s arch) where
+instance Show (LLVMExpr s mem arch) where
   show (BaseExpr ty x)  = C.showF x ++ " : " ++ show ty
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
@@ -133,15 +133,15 @@ instance Show (LLVMExpr s arch) where
     where f (_mt,x) = show x
 
 
-data ScalarView s (arch :: LLVMArch) where
-  Scalar    :: Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> ScalarView s arch
-  NotScalar :: ScalarView s arch
+data ScalarView s mem (arch :: LLVMArch) where
+  Scalar    :: Proxy# arch -> TypeRepr tp -> Expr (LLVM mem) s tp -> ScalarView s mem arch
+  NotScalar :: ScalarView s mem arch
 
 -- | Examine an LLVM expression and return the corresponding
 --   crucible expression, if it is a scalar.
 asScalar :: (?lc :: TypeContext, HasPtrWidth (ArchWidth arch))
-         => LLVMExpr s arch
-         -> ScalarView s arch
+         => LLVMExpr s mem arch
+         -> ScalarView s mem arch
 asScalar (BaseExpr tp xs)
   = Scalar proxy# tp xs
 asScalar (ZeroExpr llvmtp)
@@ -153,7 +153,7 @@ asScalar (UndefExpr llvmtp)
 asScalar _ = NotScalar
 
 -- | Turn the expression into an explicit vector.
-asVectorWithType :: LLVMExpr s arch -> Maybe (MemType, Seq (LLVMExpr s arch))
+asVectorWithType :: LLVMExpr s mem arch -> Maybe (MemType, Seq (LLVMExpr s mem arch))
 asVectorWithType v =
   case v of
     ZeroExpr (VecType n t)  -> Just (t, Seq.replicate (fromIntegral n) (ZeroExpr t))
@@ -161,33 +161,33 @@ asVectorWithType v =
     VecExpr t s             -> Just (t, s)
     _                       -> Nothing
 
-asVector :: LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
+asVector :: LLVMExpr s mem arch -> Maybe (Seq (LLVMExpr s mem arch))
 asVector = fmap snd . asVectorWithType
 
 
-nullPointerExpr :: (HasPtrWidth w) => Expr LLVM s (LLVMPointerType w)
+nullPointerExpr :: (HasPtrWidth w) => Expr (LLVM mem) s (LLVMPointerType w)
 nullPointerExpr = PointerExpr PtrWidth (App (NatLit 0)) (App (BVLit PtrWidth (BV.zero PtrWidth)))
 
 pattern PointerExpr
     :: (1 <= w)
     => NatRepr w
-    -> Expr LLVM s NatType
-    -> Expr LLVM s (BVType w)
-    -> Expr LLVM s (LLVMPointerType w)
+    -> Expr (LLVM mem) s NatType
+    -> Expr (LLVM mem) s (BVType w)
+    -> Expr (LLVM mem) s (LLVMPointerType w)
 pattern PointerExpr w blk off = App (ExtensionApp (LLVM_PointerExpr w blk off))
 
 pattern BitvectorAsPointerExpr
     :: (1 <= w)
     => NatRepr w
-    -> Expr LLVM s (BVType w)
-    -> Expr LLVM s (LLVMPointerType w)
+    -> Expr (LLVM mem) s (BVType w)
+    -> Expr (LLVM mem) s (LLVMPointerType w)
 pattern BitvectorAsPointerExpr w ex = PointerExpr w (App (NatLit 0)) ex
 
 pointerAsBitvectorExpr
     :: (1 <= w)
     => NatRepr w
-    -> Expr LLVM s (LLVMPointerType w)
-    -> LLVMGenerator s arch ret (Expr LLVM s (BVType w))
+    -> Expr (LLVM mem) s (LLVMPointerType w)
+    -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (BVType w))
 pointerAsBitvectorExpr _ (BitvectorAsPointerExpr _ ex) =
      return ex
 pointerAsBitvectorExpr w ex =
@@ -202,26 +202,26 @@ pointerAsBitvectorExpr w ex =
 
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
-unpackArgs :: forall s a arch
+unpackArgs :: forall s a mem arch
     . (?err :: String -> a
       ,HasPtrWidth (ArchWidth arch)
       )
-   => [LLVMExpr s arch]
-   -> (forall ctx. Proxy# arch -> CtxRepr ctx -> Ctx.Assignment (Expr LLVM s) ctx -> a)
+   => [LLVMExpr s mem arch]
+   -> (forall ctx. Proxy# arch -> CtxRepr ctx -> Ctx.Assignment (Expr (LLVM mem) s) ctx -> a)
    -> a
 unpackArgs = go Ctx.Empty Ctx.Empty
  where go :: CtxRepr ctx
-          -> Ctx.Assignment (Expr LLVM s) ctx
-          -> [LLVMExpr s arch]
-          -> (forall ctx'. Proxy# arch -> CtxRepr ctx' -> Ctx.Assignment (Expr LLVM s) ctx' -> a)
+          -> Ctx.Assignment (Expr (LLVM mem) s) ctx
+          -> [LLVMExpr s mem arch]
+          -> (forall ctx'. Proxy# arch -> CtxRepr ctx' -> Ctx.Assignment (Expr (LLVM mem) s) ctx' -> a)
           -> a
        go ctx asgn [] k = k proxy# ctx asgn
        go ctx asgn (v:vs) k = unpackOne v (\_ tyr ex -> go (ctx :> tyr) (asgn :> ex) vs k)
 
 unpackOne
    :: (?err :: String -> a, HasPtrWidth (ArchWidth arch))
-   => LLVMExpr s arch
-   -> (forall tpr. Proxy# arch -> TypeRepr tpr -> Expr LLVM s tpr -> a)
+   => LLVMExpr s mem arch
+   -> (forall tpr. Proxy# arch -> TypeRepr tpr -> Expr (LLVM mem) s tpr -> a)
    -> a
 unpackOne (BaseExpr tyr ex) k = k proxy# tyr ex
 unpackOne (UndefExpr tp) k = undefExpand proxy# tp k
@@ -232,17 +232,17 @@ unpackOne (StructExpr vs) k =
 unpackOne (VecExpr tp vs) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec proxy# tpr (toList vs) $ k proxy# (VectorRepr tpr)
 
-unpackVec :: forall tpr s arch a
+unpackVec :: forall tpr s mem arch a
     . ( ?err :: String -> a
       , HasPtrWidth (ArchWidth arch)
       )
    => Proxy# arch
    -> TypeRepr tpr
-   -> [LLVMExpr s arch]
-   -> (Expr LLVM s (VectorType tpr) -> a)
+   -> [LLVMExpr s mem arch]
+   -> (Expr (LLVM mem) s (VectorType tpr) -> a)
    -> a
 unpackVec _archProxy tpr = go [] . reverse
-  where go :: [Expr LLVM s tpr] -> [LLVMExpr s arch] -> (Expr LLVM s (VectorType tpr) -> a) -> a
+  where go :: [Expr (LLVM mem) s tpr] -> [LLVMExpr s mem arch] -> (Expr (LLVM mem) s (VectorType tpr) -> a) -> a
         go vs [] k = k (vectorLit tpr $ V.fromList vs)
         go vs (x:xs) k = unpackOne x $ \_archProxy' tpr' v ->
                            case testEquality tpr tpr' of
@@ -252,7 +252,7 @@ unpackVec _archProxy tpr = go [] . reverse
 zeroExpand :: (?err :: String -> a, HasPtrWidth (ArchWidth arch))
            => Proxy# arch
            -> MemType
-           -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> a)
+           -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr (LLVM mem) s tp -> a)
            -> a
 zeroExpand _proxyArch (IntType w) k =
   case mkNatRepr w of
@@ -282,7 +282,7 @@ undefExpand :: ( ?err :: String -> a
                )
             => Proxy# arch
             -> MemType
-            -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> a)
+            -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr (LLVM mem) s tp -> a)
             -> a
 undefExpand _archProxy (IntType w) k =
   case mkNatRepr w of
@@ -312,7 +312,7 @@ undefExpand _archProxy X86_FP80Type k =
 undefExpand _archPrxy tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 
 
-explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
+explodeVector :: Natural -> LLVMExpr s mem arch -> Maybe (Seq (LLVMExpr s mem arch))
 explodeVector n (UndefExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (UndefExpr tp))
 explodeVector n (ZeroExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (ZeroExpr tp))
 explodeVector n (VecExpr _tp xs)
@@ -329,7 +329,7 @@ explodeVector _ _ = Nothing
 liftConstant ::
   HasPtrWidth (ArchWidth arch) =>
   LLVMConst ->
-  LLVMGenerator s arch ret (LLVMExpr s arch)
+  LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 liftConstant c = case c of
   ZeroConst mt ->
     return $ ZeroExpr mt
@@ -373,7 +373,7 @@ liftConstant c = case c of
 
 transTypeAndValue ::
   L.Typed L.Value ->
-  LLVMGenerator s arch ret (MemType, LLVMExpr s arch)
+  LLVMGenerator s mem arch ret (MemType, LLVMExpr s mem arch)
 transTypeAndValue v =
  do let err msg =
          malformedLLVMModule
@@ -384,14 +384,14 @@ transTypeAndValue v =
 
 transTypedValue ::
   L.Typed L.Value ->
-  LLVMGenerator s arch ret (LLVMExpr s arch)
+  LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 transTypedValue v = snd <$> transTypeAndValue v
 
 -- | Translate an LLVM Value into an expression.
-transValue :: forall s arch ret.
+transValue :: forall s mem arch ret.
               MemType
            -> L.Value
-           -> LLVMGenerator s arch ret (LLVMExpr s arch)
+           -> LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 
 transValue ty L.ValUndef =
   return $ UndefExpr ty
@@ -480,15 +480,15 @@ transValue ty v =
 callIsNull
    :: (1 <= w)
    => NatRepr w
-   -> Expr LLVM s (LLVMPointerType w)
-   -> LLVMGenerator s arch ret (Expr LLVM s BoolType)
+   -> Expr (LLVM mem) s (LLVMPointerType w)
+   -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s BoolType)
 callIsNull w ex = App . Not <$> callIntToBool w ex
 
 callIntToBool
   :: (1 <= w)
   => NatRepr w
-  -> Expr LLVM s (LLVMPointerType w)
-  -> LLVMGenerator s arch ret (Expr LLVM s BoolType)
+  -> Expr (LLVM mem) s (LLVMPointerType w)
+  -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s BoolType)
 callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
     App (BVLit _ i) -> if i == BV.zero w then return false else return true
@@ -501,47 +501,47 @@ callIntToBool w ex =
 
 callAlloca
    :: wptr ~ ArchWidth arch
-   => Expr LLVM s (BVType wptr)
+   => Expr (LLVM mem) s (BVType wptr)
    -> Alignment
-   -> LLVMGenerator s arch ret (Expr LLVM s (LLVMPointerType wptr))
+   -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (LLVMPointerType wptr))
 callAlloca sz alignment = do
    memVar <- getMemVar
    loc <- show <$> getPosition
    extensionStmt (LLVM_Alloca ?ptrWidth memVar sz alignment loc)
 
-callPushFrame :: Text -> LLVMGenerator s arch ret ()
+callPushFrame :: Text -> LLVMGenerator s mem arch ret ()
 callPushFrame nm = do
    memVar <- getMemVar
    void $ extensionStmt (LLVM_PushFrame nm memVar)
 
-callPopFrame :: LLVMGenerator s arch ret ()
+callPopFrame :: LLVMGenerator s mem arch ret ()
 callPopFrame = do
    memVar <- getMemVar
    void $ extensionStmt (LLVM_PopFrame memVar)
 
 callPtrAddOffset ::
        wptr ~ ArchWidth arch
-    => Expr LLVM s (LLVMPointerType wptr)
-    -> Expr LLVM s (BVType wptr)
-    -> LLVMGenerator s arch ret (Expr LLVM s (LLVMPointerType wptr))
+    => Expr (LLVM mem) s (LLVMPointerType wptr)
+    -> Expr (LLVM mem) s (BVType wptr)
+    -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (LLVMPointerType wptr))
 callPtrAddOffset base off = do
     memVar <- getMemVar
     extensionStmt (LLVM_PtrAddOffset ?ptrWidth memVar base off)
 
 callPtrSubtract ::
        wptr ~ ArchWidth arch
-    => Expr LLVM s (LLVMPointerType wptr)
-    -> Expr LLVM s (LLVMPointerType wptr)
-    -> LLVMGenerator s arch ret (Expr LLVM s (BVType wptr))
+    => Expr (LLVM mem) s (LLVMPointerType wptr)
+    -> Expr (LLVM mem) s (LLVMPointerType wptr)
+    -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (BVType wptr))
 callPtrSubtract x y = do
     memVar <- getMemVar
     extensionStmt (LLVM_PtrSubtract ?ptrWidth memVar x y)
 
 callLoad :: MemType
          -> TypeRepr tp
-         -> LLVMExpr s arch
+         -> LLVMExpr s mem arch
          -> Alignment
-         -> LLVMGenerator s arch ret (LLVMExpr s arch)
+         -> LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 callLoad typ expectTy (asScalar -> Scalar _ PtrRepr ptr) align =
    do memVar <- getMemVar
       typ' <- toStorableType typ
@@ -551,10 +551,10 @@ callLoad _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callLoad"]
 
 callStore :: MemType
-          -> LLVMExpr s arch
-          -> LLVMExpr s arch
+          -> LLVMExpr s mem arch
+          -> LLVMExpr s mem arch
           -> Alignment
-          -> LLVMGenerator s arch ret ()
+          -> LLVMGenerator s mem arch ret ()
 callStore typ (asScalar -> Scalar _ PtrRepr ptr) (ZeroExpr _mt) _align =
  do memVar <- getMemVar
     typ'   <- toStorableType typ

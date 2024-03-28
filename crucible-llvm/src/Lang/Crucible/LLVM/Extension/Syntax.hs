@@ -22,8 +22,8 @@ module Lang.Crucible.LLVM.Extension.Syntax where
 
 import           Data.Kind
 import           Data.List.NonEmpty (NonEmpty)
-import           GHC.TypeLits
 import           Data.Text (Text)
+import           GHC.TypeLits
 import qualified Text.LLVM.AST as L
 import           Prettyprinter
 
@@ -68,51 +68,51 @@ instance TraversableF LLVMSideCondition where
   traverseF f (LLVMSideCondition p desc) =
       LLVMSideCondition <$> f p <*> traverseF f desc
 
-data LLVMExtensionExpr :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
+data LLVMExtensionExpr mem :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
 
   X86Expr ::
     !(X86.ExtX86 f t) ->
-    LLVMExtensionExpr f t
+    LLVMExtensionExpr mem f t
 
   LLVM_SideConditions ::
     !(GlobalVar Mem) {- Memory global variable -} ->
     !(TypeRepr tp) ->
     !(NonEmpty (LLVMSideCondition f)) ->
     !(f tp) ->
-    LLVMExtensionExpr f tp
+    LLVMExtensionExpr mem f tp
 
   LLVM_PointerExpr ::
     (1 <= w) => !(NatRepr w) -> !(f NatType) -> !(f (BVType w)) ->
-    LLVMExtensionExpr f (LLVMPointerType w)
+    LLVMExtensionExpr mem f (LLVMPointerType w)
 
   LLVM_PointerBlock ::
     (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
-    LLVMExtensionExpr f NatType
+    LLVMExtensionExpr mem f NatType
 
   LLVM_PointerOffset ::
     (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
-    LLVMExtensionExpr f (BVType w)
+    LLVMExtensionExpr mem f (BVType w)
 
   LLVM_PointerIte ::
     (1 <= w) => !(NatRepr w) ->
     !(f BoolType) -> !(f (LLVMPointerType w)) -> !(f (LLVMPointerType w)) ->
-    LLVMExtensionExpr f (LLVMPointerType w)
+    LLVMExtensionExpr mem f (LLVMPointerType w)
 
 
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
-data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
+data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
 
   -- | Indicate the beginning of a new stack frame upon entry to a function.
   LLVM_PushFrame ::
      !Text ->
      !(GlobalVar Mem) {- Memory global variable -} ->
-     LLVMStmt f UnitType
+     LLVMStmt mem f UnitType
 
   -- | Indicate the end of the current stack frame upon exit from a function.
   LLVM_PopFrame ::
      !(GlobalVar Mem) {- Memory global variable -} ->
-     LLVMStmt f UnitType
+     LLVMStmt mem f UnitType
 
   -- | Allocate a new memory object in the current stack frame.  This memory
   --   will be automatically deallocated when the corresponding PopFrame
@@ -124,7 +124,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(f (BVType wptr))    {- Number of bytes to allocate -} ->
      !Alignment            {- Minimum alignment of this allocation -} ->
      !String               {- Location string to identify this allocation for debugging purposes -} ->
-     LLVMStmt f (LLVMPointerType wptr)
+     LLVMStmt mem f (LLVMPointerType wptr)
 
   -- | Load a value from the memory.  The load is defined only if
   --   the given pointer is a live pointer; if the bytes in the memory
@@ -138,7 +138,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(TypeRepr tp)              {- Expected crucible type of the result -} ->
      !StorageType                {- Storage type -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
-     LLVMStmt f tp
+     LLVMStmt mem f tp
 
   -- | Store a value in to the memory.  The store is defined only if the given
   --   pointer is a live pointer; if the given value fits into the memory object
@@ -152,7 +152,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !StorageType                {- Storage type of the value -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
      !(f tp)                     {- Value to store -} ->
-     LLVMStmt f UnitType
+     LLVMStmt mem f UnitType
 
   -- | Clear a region of memory by setting all the bytes in it to the zero byte.
   --   This is primarily used for initializing the value of global variables,
@@ -162,7 +162,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(GlobalVar Mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
      !Bytes                      {- Number of bytes to clear -} ->
-     LLVMStmt f UnitType
+     LLVMStmt mem f UnitType
 
   -- | Load the Crucible function handle that corresponds to a function pointer value.
   --   This load is defined only if the given pointer was previously allocated as
@@ -175,7 +175,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(CtxRepr args)             {- Expected argument types of the function -} ->
      !(TypeRepr ret)             {- Expected return type of the function -} ->
-     LLVMStmt f (FunctionHandleType args ret)
+     LLVMStmt mem f (FunctionHandleType args ret)
 
   -- | Resolve the given global symbol name to a pointer value.
   LLVM_ResolveGlobal ::
@@ -183,7 +183,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(NatRepr wptr)      {- Pointer width -} ->
      !(GlobalVar Mem)     {- Memory global variable -} ->
      GlobalSymbol         {- The symbol to resolve -} ->
-     LLVMStmt f (LLVMPointerType wptr)
+     LLVMStmt mem f (LLVMPointerType wptr)
 
   -- | Test two pointer values for equality.
   --   Note! This operation is defined only
@@ -193,7 +193,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(GlobalVar Mem)            {- Pointer width -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
-     LLVMStmt f BoolType
+     LLVMStmt mem f BoolType
 
   -- | Test two pointer values for ordering.
   --   Note! This operation is only defined if
@@ -204,7 +204,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(GlobalVar Mem)            {- Pointer width -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
-     LLVMStmt f BoolType
+     LLVMStmt mem f BoolType
 
   -- | Add an offset value to a pointer.
   --   Note! This operation is only defined if both
@@ -217,7 +217,7 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(GlobalVar Mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer value -} ->
      !(f (BVType wptr))          {- Offset value -} ->
-     LLVMStmt f (LLVMPointerType wptr)
+     LLVMStmt mem f (LLVMPointerType wptr)
 
   -- | Compute the offset between two pointer values.
   --   Note! This operation is only defined if both pointers
@@ -228,12 +228,12 @@ data LLVMStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(GlobalVar Mem)            {- Memory global value -} ->
      !(f (LLVMPointerType wptr)) {- First pointer -} ->
      !(f (LLVMPointerType wptr)) {- Second pointer -} ->
-     LLVMStmt f (BVType wptr)
+     LLVMStmt mem f (BVType wptr)
 
   -- | Debug information
   LLVM_Debug ::
     !(LLVM_Dbg f c)              {- Debug variant -} ->
-    LLVMStmt f UnitType
+    LLVMStmt mem f UnitType
 
 -- | Debug statement variants - these have no semantic meaning
 data LLVM_Dbg f c where
@@ -269,7 +269,7 @@ data LLVM_Dbg f c where
 
 $(return [])
 
-instance TypeApp LLVMExtensionExpr where
+instance TypeApp (LLVMExtensionExpr mem) where
   appType e =
     case e of
       X86Expr ex             -> appType ex
@@ -279,7 +279,7 @@ instance TypeApp LLVMExtensionExpr where
       LLVM_PointerOffset w _ -> BVRepr w
       LLVM_PointerIte w _ _ _ -> LLVMPointerRepr w
 
-instance PrettyApp LLVMExtensionExpr where
+instance PrettyApp (LLVMExtensionExpr mem) where
   ppApp pp e =
     case e of
       X86Expr ex -> ppApp pp ex
@@ -294,10 +294,10 @@ instance PrettyApp LLVMExtensionExpr where
       LLVM_PointerIte _ cond x y ->
         pretty "pointerIte" <+> pp cond <+> pp x <+> pp y
 
-instance TestEqualityFC LLVMExtensionExpr where
+instance TestEqualityFC (LLVMExtensionExpr mem) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
-       [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
+       [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
@@ -307,10 +307,10 @@ instance TestEqualityFC LLVMExtensionExpr where
          )
        ])
 
-instance OrdFC LLVMExtensionExpr where
+instance OrdFC (LLVMExtensionExpr mem) where
   compareFC testSubterm =
     $(U.structuralTypeOrd [t|LLVMExtensionExpr|]
-       [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
+       [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
@@ -320,10 +320,10 @@ instance OrdFC LLVMExtensionExpr where
          )
        ])
 
-instance FunctorFC LLVMExtensionExpr where
+instance FunctorFC (LLVMExtensionExpr mem) where
   fmapFC = fmapFCDefault
 
-instance FoldableFC LLVMExtensionExpr where
+instance FoldableFC (LLVMExtensionExpr mem) where
   foldMapFC = foldMapFCDefault
 
 
@@ -335,7 +335,7 @@ traverseConds ::
 traverseConds f = traverse (traverseF f)
 
 
-instance TraversableFC LLVMExtensionExpr where
+instance TraversableFC (LLVMExtensionExpr mem) where
   traverseFC = $(U.structuralTraversal [t|LLVMExtensionExpr|]
      [(U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|traverseFC|])
      ,(U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType)
@@ -343,7 +343,7 @@ instance TraversableFC LLVMExtensionExpr where
       )
      ])
 
-instance TypeApp LLVMStmt where
+instance TypeApp (LLVMStmt mem) where
   appType = \case
     LLVM_PushFrame{} -> knownRepr
     LLVM_PopFrame{} -> knownRepr
@@ -359,7 +359,7 @@ instance TypeApp LLVMStmt where
     LLVM_PtrSubtract w _ _ _ -> BVRepr w
     LLVM_Debug{} -> knownRepr
 
-instance PrettyApp LLVMStmt where
+instance PrettyApp (LLVMStmt mem) where
   ppApp pp = \case
     LLVM_PushFrame nm mvar ->
        pretty "pushFrame" <+> pretty nm <+> ppGlobalVar mvar
@@ -421,36 +421,36 @@ instance FunctorFC LLVM_Dbg where
 instance TraversableFC LLVM_Dbg where
   traverseFC = $(U.structuralTraversal [t|LLVM_Dbg|] [])
 
-instance TestEqualityFC LLVMStmt where
+instance TestEqualityFC (LLVMStmt mem) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|LLVMStmt|]
-       [(U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
+       [(U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
        ,(U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        ,(U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
        ,(U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        ,(U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
-       ,(U.ConType [t|LLVM_Dbg|] `U.TypeApp` U.DataArg 0 `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
+       ,(U.ConType [t|LLVM_Dbg|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
        ])
 
-instance OrdFC LLVMStmt where
+instance OrdFC (LLVMStmt mem) where
   compareFC compareSubterm =
     $(U.structuralTypeOrd [t|LLVMStmt|]
-       [(U.DataArg 0 `U.TypeApp` U.AnyType, [|compareSubterm|])
+       [(U.DataArg 1 `U.TypeApp` U.AnyType, [|compareSubterm|])
        ,(U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        ,(U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
        ,(U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        ,(U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
-       ,(U.ConType [t|LLVM_Dbg|] `U.TypeApp` U.DataArg 0 `U.TypeApp` U.AnyType, [|compareFC compareSubterm|])
+       ,(U.ConType [t|LLVM_Dbg|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType, [|compareFC compareSubterm|])
        ])
 
-instance FunctorFC LLVMStmt where
+instance FunctorFC (LLVMStmt mem) where
   fmapFC = fmapFCDefault
 
-instance FoldableFC LLVMStmt where
+instance FoldableFC (LLVMStmt mem) where
   foldMapFC = foldMapFCDefault
 
-instance TraversableFC LLVMStmt where
+instance TraversableFC (LLVMStmt mem) where
   traverseFC =
     $(U.structuralTraversal [t|LLVMStmt|]
-      [(U.ConType [t|LLVM_Dbg|] `U.TypeApp` U.DataArg 0 `U.TypeApp` U.AnyType, [|traverseFC|])
+      [(U.ConType [t|LLVM_Dbg|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType, [|traverseFC|])
       ])

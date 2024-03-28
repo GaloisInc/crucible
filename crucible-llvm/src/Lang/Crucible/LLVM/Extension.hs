@@ -31,13 +31,13 @@ import Lang.Crucible.LLVM.Extension.Arch
 import Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
-data LLVM
+data LLVM mem
   deriving (Data, Eq, Generic , Ord, Typeable)
 
 -- -----------------------------------------------------------------------
 -- ** Syntax
 
-type instance ExprExtension LLVM = LLVMExtensionExpr
-type instance StmtExtension LLVM = LLVMStmt
+type instance ExprExtension (LLVM mem) = LLVMExtensionExpr mem
+type instance StmtExtension (LLVM mem) = LLVMStmt mem
 
-instance IsSyntaxExtension LLVM
+instance IsSyntaxExtension (LLVM mem)

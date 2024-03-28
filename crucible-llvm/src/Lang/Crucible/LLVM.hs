@@ -62,8 +62,8 @@ import           What4.ProgramLoc (plSourceLoc)
 registerModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
-   ModuleTranslation arch ->
-   OverrideSim p sym LLVM rtp l a ()
+   ModuleTranslation mem arch ->
+   OverrideSim p sym (LLVM mem) rtp l a ()
 registerModule handleWarning mtrans =
    mapM_ (registerModuleFn handleWarning mtrans) (map (L.decName.fst) (mtrans ^. modTransDefs))
 
@@ -73,9 +73,9 @@ registerModule handleWarning mtrans =
 registerModuleFn ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
-   ModuleTranslation arch ->
+   ModuleTranslation mem arch ->
    L.Symbol ->
-   OverrideSim p sym LLVM rtp l a ()
+   OverrideSim p sym (LLVM mem) rtp l a ()
 registerModuleFn handleWarning mtrans sym =
   liftIO (getTranslatedCFG mtrans sym) >>= \case
     Nothing ->
@@ -101,8 +101,8 @@ registerModuleFn handleWarning mtrans sym =
 registerLazyModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
-   ModuleTranslation arch ->
-   OverrideSim p sym LLVM rtp l a ()
+   ModuleTranslation mem arch ->
+   OverrideSim p sym (LLVM mem) rtp l a ()
 registerLazyModule handleWarning mtrans =
    mapM_ (registerLazyModuleFn handleWarning mtrans) (map (L.decName.fst) (mtrans ^. modTransDefs))
 
@@ -117,9 +117,9 @@ registerLazyModule handleWarning mtrans =
 registerLazyModuleFn ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling translation warnings -} ->
-   ModuleTranslation arch ->
+   ModuleTranslation mem arch ->
    L.Symbol ->
-   OverrideSim p sym LLVM rtp l a ()
+   OverrideSim p sym (LLVM mem) rtp l a ()
 registerLazyModuleFn handleWarning mtrans sym =
   liftIO (getTranslatedFnHandle mtrans sym) >>= \case
     Nothing -> 
@@ -177,7 +177,7 @@ llvmGlobals memVar mem = emptyGlobals & insertGlobal memVar mem
 llvmExtensionImpl ::
   (HasLLVMAnn sym) =>
   MemOptions ->
-  ExtensionImpl p sym LLVM
+  ExtensionImpl p sym (LLVM mem)
 llvmExtensionImpl mo =
   let ?memOpts = mo in
   ExtensionImpl
