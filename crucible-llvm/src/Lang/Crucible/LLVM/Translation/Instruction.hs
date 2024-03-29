@@ -98,7 +98,7 @@ import           Lang.Crucible.Types
 --
 -- Allows for effectful computation of the predicates and expressions.
 sideConditionsA :: forall f ty s mem. Applicative f
-                => GlobalVar Mem
+                => GlobalVar mem
                 -> TypeRepr ty
                 -> Expr (LLVM mem) s ty
                     -- ^ Expression with side-condition
@@ -125,7 +125,7 @@ sideConditionsA mvar tyRepr expr conds =
         (x:xs) -> App $ ExtensionApp $ LLVM_SideConditions mvar tyRepr (x :| xs) expr
 
 -- | Assert that evaluation doesn't result in a poison value
-poisonSideCondition :: GlobalVar Mem
+poisonSideCondition :: GlobalVar mem
                     -> TypeRepr ty
                     -> Poison.Poison (Expr (LLVM mem) s)
                     -> Expr (LLVM mem) s ty

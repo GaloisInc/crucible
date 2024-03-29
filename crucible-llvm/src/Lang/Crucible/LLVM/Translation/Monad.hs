@@ -82,12 +82,12 @@ import           Lang.Crucible.Types
 -- ** LLVMContext
 
 -- | Information about the LLVM module.
-data LLVMContext arch
+data LLVMContext mem arch
    = LLVMContext
    { -- | Map LLVM symbols to their associated state.
      llvmArch       :: ArchRepr arch
    , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
-   , llvmMemVar     :: GlobalVar Mem
+   , llvmMemVar     :: GlobalVar mem
    , _llvmTypeCtx   :: TypeContext
      -- | For each global variable symbol, compute the set of
      --   aliases to that symbol
@@ -97,12 +97,12 @@ data LLVMContext arch
    , llvmFunctionAliases :: Map L.Symbol (Set L.GlobalAlias)
    }
 
-llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
+llvmTypeCtx :: Simple Lens (LLVMContext mem arch) TypeContext
 llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
 
-mkLLVMContext :: GlobalVar Mem
+mkLLVMContext :: GlobalVar mem
               -> L.Module
-              -> IO (Some LLVMContext)
+              -> IO (Some (LLVMContext mem))
 mkLLVMContext mvar m = do
   let (errs, typeCtx) = typeContextFromModule m
   unless (null errs) $
@@ -115,8 +115,7 @@ mkLLVMContext mvar m = do
         do let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
                                        -- the target triple, but llvm-pretty doesn't capture this
                                        -- currently.
-           let ctx :: LLVMContext (X86 wptr)
-               ctx = LLVMContext
+           let ctx = LLVMContext
                      { llvmArch     = archRepr
                      , llvmMemVar   = mvar
                      , llvmPtrWidth = \x -> x wptr
@@ -133,16 +132,16 @@ mkLLVMContext mvar m = do
 -- to CFGs.
 type LLVMGenerator s mem arch ret a =
   (?lc :: TypeContext, HasPtrWidth (ArchWidth arch)) =>
-    Generator (LLVM mem) s (LLVMState arch) ret IO a
+    Generator (LLVM mem) s (LLVMState mem arch) ret IO a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
 type LLVMGenerator' s mem arch ret =
-  Generator (LLVM mem) s (LLVMState arch) ret IO
+  Generator (LLVM mem) s (LLVMState mem arch) ret IO
 
 
 -- LLVMState
 
-getMemVar :: LLVMGenerator s mem arch reg (GlobalVar Mem)
+getMemVar :: LLVMGenerator s mem arch reg (GlobalVar mem)
 getMemVar = llvmMemVar . llvmContext <$> get
 
 -- | Maps identifiers to an associated register or defined expression.
@@ -155,26 +154,26 @@ data LLVMTranslationWarning =
     Position  -- ^ Source position where the warning was generated
     Text      -- ^ Description of the warning
 
-data LLVMState arch s
+data LLVMState mem arch s
    = LLVMState
    { -- | Map from identifiers to associated register shape
      _identMap :: !(IdentMap s)
    , _blockInfoMap :: !(LLVMBlockInfoMap s)
-   , llvmContext :: LLVMContext arch
+   , llvmContext :: LLVMContext mem arch
    , _translationWarnings :: IORef [LLVMTranslationWarning]
    , _functionSymbol :: L.Symbol
    }
 
-identMap :: Lens' (LLVMState arch s) (IdentMap s)
+identMap :: Lens' (LLVMState mem arch s) (IdentMap s)
 identMap = lens _identMap (\s v -> s { _identMap = v })
 
-blockInfoMap :: Lens' (LLVMState arch s) (LLVMBlockInfoMap s)
+blockInfoMap :: Lens' (LLVMState mem arch s) (LLVMBlockInfoMap s)
 blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
 
-translationWarnings :: Lens' (LLVMState arch s) (IORef [LLVMTranslationWarning])
+translationWarnings :: Lens' (LLVMState mem arch s) (IORef [LLVMTranslationWarning])
 translationWarnings = lens _translationWarnings (\s v -> s { _translationWarnings = v })
 
-functionSymbol :: Lens' (LLVMState arch s) L.Symbol
+functionSymbol :: Lens' (LLVMState mem arch s) L.Symbol
 functionSymbol = lens _functionSymbol (\s v -> s{ _functionSymbol = v })
 
 addWarning :: Text -> LLVMGenerator s mem arch ret ()
@@ -217,11 +216,11 @@ buildIdentMap (ti:ts) _ ctx asgn m = do
 -- | Build the initial LLVM generator state upon entry to to the entry point of a function.
 initialState :: (?lc :: TypeContext, HasPtrWidth wptr)
              => L.Define
-             -> LLVMContext arch
+             -> LLVMContext mem arch
              -> CtxRepr args
              -> Ctx.Assignment (Atom s) args
              -> IORef [LLVMTranslationWarning]
-             -> LLVMState arch s
+             -> LLVMState mem arch s
 initialState d llvmctx args asgn warnRef =
    let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
      LLVMState { _identMap = m

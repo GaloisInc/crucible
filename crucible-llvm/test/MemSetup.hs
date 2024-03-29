@@ -45,20 +45,20 @@ withInitializedMemory :: forall a. L.Module
                           -> IO a)
                       -> IO a
 withInitializedMemory mod' action =
-  withLLVMCtx mod' $ \(ctx :: LLVMTr.LLVMContext arch) sym ->
+  withLLVMCtx mod' $ \(ctx :: LLVMTr.LLVMContext mem arch) sym ->
     action @(LLVME.ArchWidth arch) =<< LLVMG.initializeAllMemory sym ctx mod'
 
 
 -- | Create an LLVM context from a module and make some assertions about it.
 withLLVMCtx :: forall a. L.Module
-            -> (forall arch sym bak.
+            -> (forall mem arch sym bak.
                    ( ?lc :: TypeContext
                    , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
                    , CB.IsSymBackend sym bak
                    , LLVMMem.HasLLVMAnn sym
                    , ?memOpts :: LLVMMem.MemOptions
                    )
-                => LLVMTr.LLVMContext arch
+                => LLVMTr.LLVMContext mem arch
                 -> bak
                 -> IO a)
             -> IO a

@@ -26,12 +26,13 @@ import Data.Typeable (Typeable)
 import GHC.Generics ( Generic )
 
 import Lang.Crucible.CFG.Extension
+import Lang.Crucible.Types (CrucibleType)
 
 import Lang.Crucible.LLVM.Extension.Arch
 import Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
-data LLVM mem
+data LLVM (mem :: CrucibleType)
   deriving (Data, Eq, Generic , Ord, Typeable)
 
 -- -----------------------------------------------------------------------

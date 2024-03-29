@@ -16,6 +16,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.Extension.Syntax where
@@ -44,8 +45,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Errors.UndefinedBehavior( UndefinedBehavior )
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
-import           Lang.Crucible.LLVM.Types
-
+import           Lang.Crucible.LLVM.Types hiding (Mem)
 
 data LLVMSideCondition (f :: CrucibleType -> Type) =
   LLVMSideCondition (f BoolType) (UndefinedBehavior f)
@@ -75,7 +75,7 @@ data LLVMExtensionExpr mem :: (CrucibleType -> Type) -> (CrucibleType -> Type) w
     LLVMExtensionExpr mem f t
 
   LLVM_SideConditions ::
-    !(GlobalVar Mem) {- Memory global variable -} ->
+    !(GlobalVar mem) {- Memory global variable -} ->
     !(TypeRepr tp) ->
     !(NonEmpty (LLVMSideCondition f)) ->
     !(f tp) ->
@@ -106,12 +106,12 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   -- | Indicate the beginning of a new stack frame upon entry to a function.
   LLVM_PushFrame ::
      !Text ->
-     !(GlobalVar Mem) {- Memory global variable -} ->
+     !(GlobalVar mem) {- Memory global variable -} ->
      LLVMStmt mem f UnitType
 
   -- | Indicate the end of the current stack frame upon exit from a function.
   LLVM_PopFrame ::
-     !(GlobalVar Mem) {- Memory global variable -} ->
+     !(GlobalVar mem) {- Memory global variable -} ->
      LLVMStmt mem f UnitType
 
   -- | Allocate a new memory object in the current stack frame.  This memory
@@ -120,7 +120,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_Alloca ::
      HasPtrWidth wptr =>
      !(NatRepr wptr)       {- Pointer width -} ->
-     !(GlobalVar Mem)      {- Memory global variable -} ->
+     !(GlobalVar mem)      {- Memory global variable -} ->
      !(f (BVType wptr))    {- Number of bytes to allocate -} ->
      !Alignment            {- Minimum alignment of this allocation -} ->
      !String               {- Location string to identify this allocation for debugging purposes -} ->
@@ -133,7 +133,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   --   to the given alignment value.
   LLVM_Load ::
      HasPtrWidth wptr =>
-     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(GlobalVar mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(TypeRepr tp)              {- Expected crucible type of the result -} ->
      !StorageType                {- Storage type -} ->
@@ -146,7 +146,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   --   to the given alignment value.
   LLVM_Store ::
      HasPtrWidth wptr =>
-     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(GlobalVar mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
      !(TypeRepr tp)              {- Crucible type of the value being stored -} ->
      !StorageType                {- Storage type of the value -} ->
@@ -159,7 +159,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   --   but can also result from zero initializers.
   LLVM_MemClear ::
      HasPtrWidth wptr =>
-     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(GlobalVar mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
      !Bytes                      {- Number of bytes to clear -} ->
      LLVMStmt mem f UnitType
@@ -170,7 +170,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   --   the expected type.
   LLVM_LoadHandle ::
      HasPtrWidth wptr =>
-     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(GlobalVar mem)            {- Memory global variable -} ->
      !(Maybe L.Type)             {- expected LLVM type of the function (used only for pretty-printing) -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(CtxRepr args)             {- Expected argument types of the function -} ->
@@ -181,7 +181,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_ResolveGlobal ::
      HasPtrWidth wptr =>
      !(NatRepr wptr)      {- Pointer width -} ->
-     !(GlobalVar Mem)     {- Memory global variable -} ->
+     !(GlobalVar mem)     {- Memory global variable -} ->
      GlobalSymbol         {- The symbol to resolve -} ->
      LLVMStmt mem f (LLVMPointerType wptr)
 
@@ -190,7 +190,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   --   in case both pointers are live or null.
   LLVM_PtrEq ::
      HasPtrWidth wptr =>
-     !(GlobalVar Mem)            {- Pointer width -} ->
+     !(GlobalVar mem)            {- Pointer width -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      LLVMStmt mem f BoolType
@@ -201,7 +201,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   --   same memory object.
   LLVM_PtrLe ::
      HasPtrWidth wptr =>
-     !(GlobalVar Mem)            {- Pointer width -} ->
+     !(GlobalVar mem)            {- Pointer width -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      LLVMStmt mem f BoolType
@@ -214,7 +214,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_PtrAddOffset ::
      HasPtrWidth wptr =>
      !(NatRepr wptr)             {- Pointer width -} ->
-     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(GlobalVar mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer value -} ->
      !(f (BVType wptr))          {- Offset value -} ->
      LLVMStmt mem f (LLVMPointerType wptr)
@@ -225,7 +225,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_PtrSubtract ::
      HasPtrWidth wptr =>
      !(NatRepr wptr)             {- Pointer width -} ->
-     !(GlobalVar Mem)            {- Memory global value -} ->
+     !(GlobalVar mem)            {- Memory global value -} ->
      !(f (LLVMPointerType wptr)) {- First pointer -} ->
      !(f (LLVMPointerType wptr)) {- Second pointer -} ->
      LLVMStmt mem f (BVType wptr)
@@ -394,7 +394,7 @@ instance PrettyApp LLVM_Dbg where
     LLVM_Dbg_Value _ x _ _ -> pretty "dbg.value"   <+> pp x
 
 -- TODO: move to a Pretty instance
-ppGlobalVar :: GlobalVar Mem -> Doc ann
+ppGlobalVar :: GlobalVar mem -> Doc ann
 ppGlobalVar = viaShow
 
 -- TODO: move to a Pretty instance

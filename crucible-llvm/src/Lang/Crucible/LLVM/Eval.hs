@@ -36,8 +36,9 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.Types (Mem)
 
 callStackFromMemVar ::
+  mem ~ Mem =>
   SimState p sym ext rtp lang args ->
-  GlobalVar Mem ->
+  GlobalVar mem ->
   CallStack
 callStackFromMemVar state mvar =
   getCallStack . view memState . memImplHeap $
@@ -63,6 +64,7 @@ assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
 
 llvmExtensionEval ::
   forall sym bak p ext mem rtp blocks r ctx.
+  mem ~ Mem =>
   (HasLLVMAnn sym, IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->

@@ -61,6 +61,7 @@ import           What4.ProgramLoc (plSourceLoc)
 --   defined in the module.
 registerModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   mem ~ Mem =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation mem arch ->
    OverrideSim p sym (LLVM mem) rtp l a ()
@@ -72,6 +73,7 @@ registerModule handleWarning mtrans =
 --   the named function.
 registerModuleFn ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   mem ~ Mem =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation mem arch ->
    L.Symbol ->
@@ -100,6 +102,7 @@ registerModuleFn handleWarning mtrans sym =
 --   'registerLazyModuleFn' for a description.
 registerLazyModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   mem ~ Mem =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation mem arch ->
    OverrideSim p sym (LLVM mem) rtp l a ()
@@ -116,6 +119,7 @@ registerLazyModule handleWarning mtrans =
 --   a much-later point, when the function in question is actually first invoked.
 registerLazyModuleFn ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
+   mem ~ Mem =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling translation warnings -} ->
    ModuleTranslation mem arch ->
    L.Symbol ->
@@ -163,19 +167,20 @@ registerLazyModuleFn handleWarning mtrans sym =
 
 
 llvmGlobalsToCtx
-   :: LLVMContext arch
+   :: mem ~ Mem => LLVMContext mem arch
    -> MemImpl sym
    -> SymGlobalState sym
 llvmGlobalsToCtx = llvmGlobals . llvmMemVar
 
 llvmGlobals
-   :: GlobalVar Mem
+   :: mem ~ Mem => GlobalVar Mem
    -> MemImpl sym
    -> SymGlobalState sym
 llvmGlobals memVar mem = emptyGlobals & insertGlobal memVar mem
 
 llvmExtensionImpl ::
   (HasLLVMAnn sym) =>
+  mem ~ Mem =>
   MemOptions ->
   ExtensionImpl p sym (LLVM mem)
 llvmExtensionImpl mo =

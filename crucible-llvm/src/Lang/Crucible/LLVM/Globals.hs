@@ -105,8 +105,8 @@ type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, Mayb
 
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
-makeGlobalMap :: forall arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
-              => LLVMContext arch
+makeGlobalMap :: forall mem arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
+              => LLVMContext mem arch
               -> L.Module
               -> GlobalInitializerMap
 makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases ctx))
@@ -153,7 +153,7 @@ initializeAllMemory
    :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => bak
-   -> LLVMContext arch
+   -> LLVMContext mem arch
    -> L.Module
    -> IO (MemImpl sym)
 initializeAllMemory = initializeMemory (const True)
@@ -162,7 +162,7 @@ initializeMemoryConstGlobals
    :: ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
       , ?memOpts :: MemOptions )
    => bak
-   -> LLVMContext arch
+   -> LLVMContext mem arch
    -> L.Module
    -> IO (MemImpl sym)
 initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
@@ -172,7 +172,7 @@ initializeMemory
       , ?memOpts :: MemOptions )
    => (L.Global -> Bool)
    -> bak
-   -> LLVMContext arch
+   -> LLVMContext mem arch
    -> L.Module
    -> IO (MemImpl sym)
 initializeMemory predicate bak llvm_ctx llvmModl = do
@@ -226,7 +226,7 @@ allocLLVMFunPtr ::
   ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
-  LLVMContext arch ->
+  LLVMContext mem arch ->
   MemImpl sym ->
   Either L.Declare L.Define ->
   IO (MemImpl sym)

@@ -46,7 +46,7 @@ import           System.FilePath ( (-<.>), splitExtension, splitFileName )
 import qualified System.Process as Proc
 
 -- Modules being tested
-import           Lang.Crucible.LLVM.MemModel ( mkMemVar )
+import           Lang.Crucible.LLVM.MemModel ( Mem, mkMemVar )
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
 
@@ -162,7 +162,7 @@ main = do
 
 
 
-testBuildTranslation :: FilePath -> (IO (Some ModuleTranslation) -> TestTree) -> [TestTree]
+testBuildTranslation :: FilePath -> (IO (Some (ModuleTranslation Mem)) -> TestTree) -> [TestTree]
 testBuildTranslation srcPath llvmTransTests =
   -- n.b. srcPath may be a relative path
   let (dName, srcName) = splitFileName srcPath
@@ -242,7 +242,7 @@ testBuildTranslation srcPath llvmTransTests =
     ]
 
 
-transCheck :: IO (Some ModuleTranslation) -> String -> TestTree
+transCheck :: IO (Some (ModuleTranslation Mem)) -> String -> TestTree
 transCheck getTrans = \case
 
   "extern_int" ->

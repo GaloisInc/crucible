@@ -158,14 +158,14 @@ callAllCtors = callCtors (const True)
 generatorToCFG :: forall mem arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr)
                => Text
                -> HandleAllocator
-               -> LLVMContext arch
+               -> LLVMContext mem arch
                -> (forall s. LLVMGenerator s mem arch ret (Expr (LLVM mem) s ret))
                -> TypeRepr ret
                -> IO (Core.SomeCFG (LLVM mem) Core.EmptyCtx ret)
 generatorToCFG name halloc llvmctx gen ret = do
   ref <- newIORef []
   let ?lc = _llvmTypeCtx llvmctx
-  let def :: forall args. FunctionDef (LLVM mem) (LLVMState arch) args ret IO
+  let def :: forall args. FunctionDef (LLVM mem) (LLVMState mem arch) args ret IO
       def _inputs = (state, gen)
         where state = LLVMState { _identMap     = empty
                                 , _blockInfoMap = empty
@@ -184,7 +184,7 @@ callCtorsCFG :: forall mem arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 
              => (Ctor -> Bool) -- ^ Filter function
              -> L.Module
              -> HandleAllocator
-             -> LLVMContext arch
+             -> LLVMContext mem arch
              -> IO (Core.SomeCFG (LLVM mem) Core.EmptyCtx UnitType)
 callCtorsCFG select mod_ halloc llvmctx = do
   generatorToCFG "llvm_global_ctors" halloc llvmctx (callCtors select mod_) UnitRepr

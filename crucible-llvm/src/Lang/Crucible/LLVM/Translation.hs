@@ -148,7 +148,7 @@ data CFGMapEntry mem
 data ModuleTranslation mem arch
    = ModuleTranslation
       { _cfgMap        :: IORef (ModuleCFGMap mem)
-      , _transContext :: LLVMContext arch
+      , _transContext :: LLVMContext mem arch
       , _globalInitMap :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
@@ -167,7 +167,7 @@ instance TestEquality (ModuleTranslation mem) where
   testEquality mt1 mt2 =
     testEquality (_modTransNonce mt1) (_modTransNonce mt2)
 
-transContext :: Getter (ModuleTranslation mem arch) (LLVMContext arch)
+transContext :: Getter (ModuleTranslation mem arch) (LLVMContext mem arch)
 transContext = to _transContext
 
 globalInitMap :: Getter (ModuleTranslation mem arch) GlobalInitializerMap
@@ -420,7 +420,7 @@ checkEntryPointUseSet nm bi args
 transDefine :: forall mem arch wptr args ret.
   (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions) =>
   FnHandle args ret ->
-  LLVMContext arch ->
+  LLVMContext mem arch ->
   IORef [LLVMTranslationWarning] ->
   L.Define ->
   IO (L.Declare, C.AnyCFG (LLVM mem))
@@ -441,7 +441,7 @@ transDefine h ctx warnRef d = do
                          , show retTy, show h
                          ]
        (Just Refl, Just Refl) ->
-         do let def :: FunctionDef (LLVM mem) (LLVMState arch) args ret IO
+         do let def :: FunctionDef (LLVM mem) (LLVMState mem arch) args ret IO
                 def inputs = (s, f)
                     where s = initialState d ctx argTys inputs warnRef
                           f = genDefn d retTy
@@ -462,7 +462,7 @@ transDefine h ctx warnRef d = do
 -- if we want to support dynamic loading.
 translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
-                -> GlobalVar Mem   -- ^ Memory model to associate with this context
+                -> GlobalVar mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some (ModuleTranslation mem))
 translateModule halloc mvar m = do

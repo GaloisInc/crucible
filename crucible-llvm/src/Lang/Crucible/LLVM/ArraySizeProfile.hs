@@ -175,7 +175,8 @@ argProfiles sym mem as =
 updateProfiles ::
   ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)
   , ?memOpts :: C.MemOptions ) =>
-  C.LLVMContext arch ->
+  mem ~ C.Mem =>
+  C.LLVMContext mem arch ->
   IORef (Map Text [FunctionProfile]) ->
   C.ExecState p sym ext rtp ->
   IO ()
@@ -196,10 +197,11 @@ updateProfiles llvm cell state
   | otherwise = pure ()
 
 arraySizeProfile ::
-  forall sym ext arch p rtp.
+  forall sym ext mem arch p rtp.
   ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)
   , ?memOpts :: C.MemOptions ) =>
-  C.LLVMContext arch ->
+  mem ~ C.Mem =>
+  C.LLVMContext mem arch ->
   IORef (Map Text [FunctionProfile]) ->
   IO (C.ExecutionFeature p sym ext rtp)
 arraySizeProfile llvm profiles = do
