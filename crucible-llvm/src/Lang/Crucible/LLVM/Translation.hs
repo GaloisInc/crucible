@@ -121,6 +121,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Globals
+import qualified Lang.Crucible.LLVM.Mem as Mem
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Aliases
@@ -221,6 +222,7 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 -- | Generate crucible code for each LLVM statement in turn.
 generateStmts :: (?transOpts :: TranslationOptions)
+  => Mem.Mem mem
         => TypeRepr ret
         -> L.BlockLabel
         -> Set L.Ident {- ^ Set of usable identifiers -}
@@ -347,6 +349,7 @@ findFile _ = Nothing
 --   by translating the given LLVM statements.
 defineLLVMBlock
         :: (?transOpts :: TranslationOptions)
+        => Mem.Mem mem
         => TypeRepr ret
         -> LLVMBlockInfoMap s
         -> L.BasicBlock
@@ -365,6 +368,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --   This step introduces a new dummy entry point that simply jumps to the LLVM entry
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
 genDefn :: (?transOpts :: TranslationOptions)
+        => Mem.Mem mem
         => L.Define
         -> TypeRepr ret
         -> LLVMGenerator s mem arch ret (Expr ext s ret)
@@ -419,6 +423,7 @@ checkEntryPointUseSet nm bi args
 --
 transDefine :: forall mem arch wptr args ret.
   (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions) =>
+  Mem.Mem mem =>
   FnHandle args ret ->
   LLVMContext mem arch ->
   IORef [LLVMTranslationWarning] ->
@@ -508,6 +513,7 @@ prepareCFGMapEntry halloc def =
 --   Will return 'Nothing' if the symbol does not refer to a function defined in this
 --   module.
 getTranslatedCFG ::
+  Mem.Mem mem =>
   ModuleTranslation mem arch ->
   L.Symbol ->
   IO (Maybe (L.Declare, C.AnyCFG (LLVM mem), [LLVMTranslationWarning]))

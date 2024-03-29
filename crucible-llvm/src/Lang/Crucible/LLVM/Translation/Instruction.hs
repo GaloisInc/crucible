@@ -26,6 +26,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns          #-}
 
 module Lang.Crucible.LLVM.Translation.Instruction
@@ -79,6 +80,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
+import qualified Lang.Crucible.LLVM.Mem as Mem
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
@@ -229,6 +231,7 @@ instrResultType instr =
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
     :: forall s mem arch ret.
+       Mem.Mem mem =>
        L.Instr
     -> MemType    -- ^ type contained in the vector
     -> Integer   -- ^ size of the vector
@@ -245,7 +248,7 @@ extractElt instr ty n v (ZeroExpr zty) =
    let ?err = fail in
    zeroExpand (proxy# :: Proxy# arch) zty $ \_archProxy tyr ex -> extractElt instr ty n v (BaseExpr tyr ex)
 extractElt instr _ n (VecExpr _ vs) i
-  | Scalar _archProxy (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
+  | Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) (PointerExpr _ (App (NatLit 0)) x) <- asScalar i
   , App (BVLit _ x') <- x
   = constantExtract (BV.asUnsigned x')
 
@@ -263,7 +266,7 @@ extractElt instr ty n (VecExpr _ vs) i = do
 extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
   do mvar <- getMemVar
      idx <- case asScalar i of
-                   Scalar _archProxy (LLVMPointerRepr w) x ->
+                   Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         -- The value is poisoned if the index is out of bounds.
                         let poison = Poison.ExtractElementIndex bv
@@ -283,7 +286,7 @@ extractElt instr _ _ _ _ = fail (unlines ["invalid extractelement instruction", 
 
 
 -- | Given an LLVM expression of vector type, insert a new element at location ith element.
-insertElt :: forall s mem arch ret.
+insertElt :: forall s mem arch ret. Mem.Mem mem =>
        L.Instr            -- ^ Actual instruction
     -> MemType            -- ^ type contained in the vector
     -> Integer            -- ^ size of the vector
@@ -303,7 +306,7 @@ insertElt instr ty n (ZeroExpr _) a i   = do
   insertElt instr ty n (VecExpr ty (Seq.replicate (fromInteger n) (ZeroExpr ty))) a i
 
 insertElt instr _ n (VecExpr ty vs) a i
-  | Scalar _archProxy (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
+  | Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) (PointerExpr _ (App (NatLit 0)) x) <- asScalar i
   , App (BVLit _ x') <- x
   = constantInsert (BV.asUnsigned x')
  where
@@ -322,7 +325,7 @@ insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
   do mvar <- getMemVar
      (idx :: Expr (LLVM mem) s NatType)
          <- case asScalar i of
-                   Scalar _archProxy (LLVMPointerRepr w) x ->
+                   Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         -- The value is poisoned if the index is out of bounds.
                         let poison = Poison.InsertElementIndex bv
@@ -348,7 +351,8 @@ insertElt instr _tp n v a i = fail (unlines ["invalid insertelement instruction"
 -- Given an LLVM expression of vector or structure type, select out the
 -- element indicated by the sequence of given concrete indices.
 extractValue
-    :: LLVMExpr s mem arch  -- ^ aggregate expression
+    :: Mem.Mem mem
+    => LLVMExpr s mem arch  -- ^ aggregate expression
     -> [Int32]     -- ^ sequence of indices
     -> LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 extractValue v [] = return v
@@ -380,7 +384,8 @@ extractValue _ _ = fail "invalid extractValue instruction"
 -- Given an LLVM expression of vector or structure type, insert a new element in the posistion
 -- given by the concrete indices.
 insertValue
-    :: LLVMExpr s mem arch  -- ^ aggregate expression
+    :: Mem.Mem mem
+    => LLVMExpr s mem arch  -- ^ aggregate expression
     -> LLVMExpr s mem arch  -- ^ element to insert
     -> [Int32]     -- ^ sequence of concrete indices
     -> LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
@@ -429,6 +434,7 @@ insertValue _ _ _ = fail "invalid insertValue instruction"
 
 evalGEP :: forall s mem arch ret wptr.
   wptr ~ ArchWidth arch =>
+  Mem.Mem mem =>
   L.Instr ->
   GEPResult (LLVMExpr s mem arch) ->
   LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
@@ -436,19 +442,19 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
  where
  finish xs =
    case Seq.viewl xs of
-     x Seq.:< (Seq.null -> True) -> return (BaseExpr PtrRepr x)
-     _ -> return (VecExpr (PtrType (MemType finalMemType)) (fmap (BaseExpr PtrRepr) xs))
+     x Seq.:< (Seq.null -> True) -> return (BaseExpr Mem.PtrRepr x)
+     _ -> return (VecExpr (PtrType (MemType finalMemType)) (fmap (BaseExpr Mem.PtrRepr) xs))
 
  badGEP :: LLVMGenerator s mem arch ret a
  badGEP = fail $ unlines ["Unexpected failure when evaluating GEP", showInstr instr]
 
- asPtr :: LLVMExpr s mem arch -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (LLVMPointerType wptr))
+ asPtr :: LLVMExpr s mem arch -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (Mem.PointerType mem wptr))
  asPtr x =
    case asScalar x of
-     Scalar _archProxy PtrRepr p -> return p
+     Scalar _archProxy (Mem.isPtrRepr' @mem @_ @wptr -> Just Mem.IsPtrRepr) p -> return p
      _ -> badGEP
 
- go :: GEP n (LLVMExpr s mem arch) -> LLVMGenerator s mem arch ret (Seq (Expr (LLVM mem) s (LLVMPointerType wptr)))
+ go :: GEP n (LLVMExpr s mem arch) -> LLVMGenerator s mem arch ret (Seq (Expr (LLVM mem) s (Mem.PointerType mem wptr)))
 
  go (GEP_scalar_base x) =
       do p <- asPtr x
@@ -480,11 +486,12 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
 
 
 calcGEP_array :: forall wptr s mem arch ret.
+  Mem.Mem mem =>
   wptr ~ ArchWidth arch =>
   MemType {- ^ Type of the array elements -} ->
-  Expr (LLVM mem) s (LLVMPointerType wptr) {- ^ Base pointer -} ->
+  Expr (LLVM mem) s (Mem.PointerType mem wptr) {- ^ Base pointer -} ->
   LLVMExpr s mem arch {- ^ index value -} ->
-  LLVMGenerator s mem arch ret (Expr (LLVM mem) s (LLVMPointerType wptr))
+  LLVMGenerator s mem arch ret (Expr (LLVM mem) s (Mem.PointerType mem wptr))
 calcGEP_array _typ base (ZeroExpr _) = return base
   -- If the array index is the concrete number 0, then return the base
   -- pointer unchanged.
@@ -493,7 +500,7 @@ calcGEP_array typ base idx =
      -- the same width as a pointer
      (idx' :: Expr (LLVM mem) s (BVType wptr))
        <- case asScalar idx of
-              Scalar _archProxy (LLVMPointerRepr w) x
+              Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x
                  | Just Refl <- testEquality w PtrWidth ->
                       pointerAsBitvectorExpr PtrWidth x
                  | Just LeqProof <- testLeq (incNat w) PtrWidth ->
@@ -526,8 +533,8 @@ calcGEP_array typ base idx =
                -- maximum and minimum indices to prevent multiplication overflow
                maxidx = maxSigned PtrWidth `quot` (max isz 1)
                minidx = minSigned PtrWidth `quot` (max isz 1)
-               poison = Poison.GEPOutOfBounds base idx'
-               cond   =
+               -- poison = Poison.GEPOutOfBounds base idx'
+               _cond   =
                 (app $ BVSle PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth minidx)) idx') .&&
                   (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth (BV.mkBV PtrWidth maxidx)))
              in
@@ -535,7 +542,9 @@ calcGEP_array typ base idx =
                -- bounds" for the given allocation. We translate all GEP
                -- instructions as if they had the `inbounds` flag set, so the
                -- result would be a poison value.
-               poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
+               -- poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
+               -- TODO(lb): !!!!
+               off0
 
      -- Perform the pointer offset arithmetic
      callPtrAddOffset base off
@@ -543,9 +552,10 @@ calcGEP_array typ base idx =
 
 calcGEP_struct ::
   wptr ~ ArchWidth arch =>
+  Mem.Mem mem =>
   FieldInfo ->
-  Expr (LLVM mem) s (LLVMPointerType wptr) ->
-  LLVMGenerator s mem arch ret (Expr (LLVM mem) s (LLVMPointerType wptr))
+  Expr (LLVM mem) s (Mem.PointerType mem wptr) ->
+  LLVMGenerator s mem arch ret (Expr (LLVM mem) s (Mem.PointerType mem wptr))
 calcGEP_struct fi base =
   do -- Get the field offset and check that it fits
      -- in the pointer width
@@ -559,7 +569,8 @@ calcGEP_struct fi base =
      if ioff == 0 then return base else callPtrAddOffset base off
 
 
-translateConversion :: (?transOpts :: TranslationOptions) =>
+translateConversion :: forall s mem arch ret. (?transOpts :: TranslationOptions) =>
+  Mem.Mem mem =>
   L.Instr ->
   L.ConvOp ->
   MemType {- Input type -} ->
@@ -581,7 +592,7 @@ translateConversion instr op _inty x outty =
     L.IntToPtr -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) _, LLVMPointerRepr w')
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) _, Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w'))
               | Just Refl <- testEquality w PtrWidth
               , Just Refl <- testEquality w' PtrWidth -> return x
            (Scalar _ t v, a)   ->
@@ -594,7 +605,7 @@ translateConversion instr op _inty x outty =
     L.PtrToInt -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) _, LLVMPointerRepr w')
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) _, Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w'))
               | Just Refl <- testEquality w PtrWidth
               , Just Refl <- testEquality w' PtrWidth -> return x
            _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
@@ -602,7 +613,7 @@ translateConversion instr op _inty x outty =
     L.Trunc -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x', Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w'))
              | Just LeqProof <- isPosNat w'
              , Just LeqProof <- testLeq (incNat w') w ->
                  do x_bv <- pointerAsBitvectorExpr w x'
@@ -613,7 +624,7 @@ translateConversion instr op _inty x outty =
     L.ZExt -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x', Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w'))
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' ->
                  do x_bv <- pointerAsBitvectorExpr w x'
@@ -624,7 +635,7 @@ translateConversion instr op _inty x outty =
     L.SExt -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x', Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w'))
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' -> do
                  do x_bv <- pointerAsBitvectorExpr w x'
@@ -641,7 +652,7 @@ translateConversion instr op _inty x outty =
     L.UiToFp -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) x', FloatRepr fi) -> do
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x'
              return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi RNE bv
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
@@ -649,25 +660,25 @@ translateConversion instr op _inty x outty =
     L.SiToFp -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (LLVMPointerRepr w) x', FloatRepr fi) -> do
+           (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x'
              return $ BaseExpr (FloatRepr fi) $ App $ FloatFromSBV fi RNE bv
            _ -> fail (unlines [unwords ["Invalid sitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
        let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM mem) s (FloatType fi) -> LLVMExpr s mem arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w RNE v)
+           demoteToInt w v = BaseExpr (Mem.PointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w RNE v)
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (FloatRepr _) x', LLVMPointerRepr w) -> return $ demoteToInt w x'
+           (Scalar _archProxy (FloatRepr _) x', Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) -> return $ demoteToInt w x'
            _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
 
     L.FpToSi -> do
        let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM mem) s (FloatType fi) -> LLVMExpr s mem arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToSBV w RNE v)
+           demoteToInt w v = BaseExpr (Mem.PointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToSBV w RNE v)
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (FloatRepr _) x', LLVMPointerRepr w) -> return $ demoteToInt w x'
+           (Scalar _archProxy (FloatRepr _) x', Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) -> return $ demoteToInt w x'
            _ -> fail (unlines [unwords ["Invalid fptosi:", show op, show x, show outty], showI])
 
     L.FpTrunc -> do
@@ -690,6 +701,7 @@ translateConversion instr op _inty x outty =
 
 
 bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  Mem.Mem mem =>
           MemType {- ^ starting type of the expression -} ->
           LLVMExpr s mem arch {- ^ expression to cast -} ->
           MemType {- ^ target type -} ->
@@ -726,11 +738,12 @@ bitCast srcT expr tgtT = mb =<< runMaybeT (
   err msg = reportError $ fromString $ unlines ("[bitCast] Failed to perform cast:" : msg)
   indent msg = "  " ++ msg
 
-castToInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+castToInt :: forall s mem arch w ret. (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  Mem.Mem mem =>
   MemType {- ^ type of input expression -} ->
   LLVMExpr s mem arch ->
   MaybeT (LLVMGenerator' s mem arch ret) (LLVMExpr s mem arch)
-castToInt (IntType w) (BaseExpr (LLVMPointerRepr wrepr) x)
+castToInt (IntType w) (BaseExpr (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr wrepr)) x)
   | w == natValue wrepr
   = lift (BaseExpr (BVRepr wrepr) <$> pointerAsBitvectorExpr wrepr x)
 
@@ -747,13 +760,14 @@ castToInt (VecType n tp) (explodeVector n -> Just xs) =
 castToInt _ _ = mzero
 
 castFromInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  Mem.Mem mem =>
   MemType {- ^ target type -} ->
   Natural {- ^ bitvector width in bits -} ->
   LLVMExpr s mem arch -> MaybeT (LLVMGenerator' s mem arch ret) (LLVMExpr s mem arch)
 
 castFromInt (IntType w1) w2 (BaseExpr (BVRepr w) x)
   | w1 == w2, w1 == natValue w
-  = return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w x))
+  = return (BaseExpr (Mem.PointerRepr w) (BitvectorAsPointerExpr w x))
 
 castFromInt FloatType 32 (BaseExpr (BVRepr w) x)
   | Just Refl <- testEquality w (knownNat @32)
@@ -780,6 +794,7 @@ castFromInt _ _ _ = mzero
 -- | Join the elements of a vector into a single bit-vector value.
 -- The resulting bit-vector would be of length at least one.
 vecJoin :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  Mem.Mem mem =>
   [LLVMExpr s mem arch] {- ^ Join these vector elements -} ->
   Maybe (LLVMExpr s mem arch)
 vecJoin exprs =
@@ -808,6 +823,7 @@ bitVal n e = BaseExpr (BVRepr n) (App e)
 
 -- | Split a single bit-vector value into a vector of value of the given width.
 vecSplit :: forall s n w mem arch. (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
+  Mem.Mem mem =>
   NatRepr n  {- ^ Length of a single element -} ->
   LLVMExpr s mem arch {- ^ Bit-vector value -} ->
   Maybe [ LLVMExpr s mem arch ]
@@ -834,7 +850,8 @@ vecSplit elLen expr =
   lay = llvmDataLayout ?lc
 
 
-bitop :: (?transOpts :: TranslationOptions) =>
+bitop :: forall s mem arch ret. (?transOpts :: TranslationOptions) =>
+  Mem.Mem mem =>
   L.BitOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -845,18 +862,19 @@ bitop op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys
 
 bitop op _ x y =
   case (asScalar x, asScalar y) of
-    (Scalar _archProxy (LLVMPointerRepr w) x',
-     Scalar _archPrxy' (LLVMPointerRepr w') y')
+    (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x',
+     Scalar _archPrxy' (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w')) y')
       | Just Refl <- testEquality w w'
       , Just LeqProof <- isPosNat w -> do
          xbv <- pointerAsBitvectorExpr w x'
          ybv <- pointerAsBitvectorExpr w y'
          ex  <- raw_bitop op w xbv ybv
-         return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w ex))
+         return (BaseExpr (Mem.PointerRepr w) (BitvectorAsPointerExpr w ex))
 
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
 raw_bitop :: (?transOpts :: TranslationOptions, 1 <= w) =>
+  Mem.Mem mem =>
   L.BitOp ->
   NatRepr w ->
   Expr (LLVM mem) s (BVType w) ->
@@ -929,6 +947,7 @@ raw_bitop op w a b =
 --
 -- Poison values can arise from such operations.
 intop :: forall w s mem arch ret. (?transOpts :: TranslationOptions, 1 <= w)
+  => Mem.Mem mem 
       => L.ArithOp
       -> NatRepr w
       -> Expr (LLVM mem) s (BVType w)
@@ -1043,13 +1062,14 @@ intop op w a b =
 
 caseptr
   :: (1 <= w)
+  => Mem.Mem mem 
   => NatRepr w
   -> TypeRepr a
   -> (Expr (LLVM mem) s (BVType w) ->
       LLVMGenerator s mem arch ret (Expr (LLVM mem) s a))
   -> (Expr (LLVM mem) s NatType -> Expr (LLVM mem) s (BVType w) ->
       LLVMGenerator s mem arch ret (Expr (LLVM mem) s a))
-  -> Expr (LLVM mem) s (LLVMPointerType w)
+  -> Expr (LLVM mem) s (Mem.PointerType mem w)
   -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s a)
 
 caseptr w tpr bvCase ptrCase x =
@@ -1073,13 +1093,15 @@ caseptr w tpr bvCase ptrCase x =
        continueLambda c_label (branch cond bv_label ptr_label)
 
 atomicRWOp ::
+  forall s mem arch ret.
+  Mem.Mem mem =>
   L.AtomicRWOp ->
   LLVMExpr s mem arch ->
   LLVMExpr s mem arch ->
   LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 atomicRWOp op x y =
   case (asScalar x, asScalar y) of
-    (Scalar _archProxy (LLVMPointerRepr (w :: NatRepr w)) x', Scalar _archProxy' (LLVMPointerRepr w') y')
+    (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr (w :: NatRepr w))) x', Scalar _archProxy' (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w')) y')
       | Just Refl <- testEquality w w'
       -> do xbv <- pointerAsBitvectorExpr w x'
             ybv <- pointerAsBitvectorExpr w y'
@@ -1095,7 +1117,7 @@ atomicRWOp op x y =
                    L.AtomicMin  -> app $ BVSMin w xbv ybv
                    L.AtomicUMax -> app $ BVUMax w xbv ybv
                    L.AtomicUMin -> app $ BVUMin w xbv ybv
-            return $ BaseExpr (LLVMPointerRepr w) $ BitvectorAsPointerExpr w newval
+            return $ BaseExpr (Mem.PointerRepr w) $ BitvectorAsPointerExpr w newval
 
     _ -> fail $ unlines [ "atomicRW operation on incompatible values"
                         , "Operation: " ++ show op
@@ -1104,6 +1126,7 @@ atomicRWOp op x y =
                         ]
 
 floatingCompare ::
+  Mem.Mem mem =>
   L.FCmpOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -1114,10 +1137,11 @@ floatingCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n 
 
 floatingCompare op _ x y =
   do b <- scalarFloatingCompare op x y
-     return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+     return (BaseExpr (Mem.PointerRepr (knownNat :: NatRepr 1))
                       (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
 
 scalarFloatingCompare ::
+  Mem.Mem mem =>
   L.FCmpOp ->
   LLVMExpr s mem arch ->
   LLVMExpr s mem arch ->
@@ -1161,6 +1185,7 @@ floatcmp op a b =
 
 
 integerCompare ::
+  Mem.Mem mem =>
   L.ICmpOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -1171,17 +1196,19 @@ integerCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -
 
 integerCompare op _ x y = do
   b <- scalarIntegerCompare op x y
-  return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+  return (BaseExpr (Mem.PointerRepr (knownNat :: NatRepr 1))
                    (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
 
 scalarIntegerCompare ::
+  forall s mem arch ret.
+  Mem.Mem mem =>
   L.ICmpOp ->
   LLVMExpr s mem arch ->
   LLVMExpr s mem arch ->
   LLVMGenerator s mem arch ret (Expr (LLVM mem) s BoolType)
 scalarIntegerCompare op x y =
   case (asScalar x, asScalar y) of
-    (Scalar _archProxy (LLVMPointerRepr w) x'', Scalar _archProxy' (LLVMPointerRepr w') y'')
+    (Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x'', Scalar _archProxy' (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w')) y'')
        | Just Refl <- testEquality w w'
        , Just Refl <- testEquality w PtrWidth
        -> pointerCmp op x'' y''
@@ -1216,9 +1243,10 @@ intcmp w op a b =
 
 pointerCmp
    :: (wptr ~ ArchWidth arch)
+   => Mem.Mem mem
    => L.ICmpOp
-   -> Expr (LLVM mem) s (LLVMPointerType wptr)
-   -> Expr (LLVM mem) s (LLVMPointerType wptr)
+   -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
+   -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
    -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s BoolType)
 pointerCmp op x y =
   caseptr PtrWidth knownRepr
@@ -1283,20 +1311,21 @@ pointerCmp op x y =
 
 pointerOp
    :: (wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
+   => Mem.Mem mem
    => L.ArithOp
-   -> Expr (LLVM mem) s (LLVMPointerType wptr)
-   -> Expr (LLVM mem) s (LLVMPointerType wptr)
-   -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (LLVMPointerType wptr))
+   -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
+   -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
+   -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (Mem.PointerType mem wptr))
 pointerOp op x y =
-  caseptr PtrWidth PtrRepr
+  caseptr PtrWidth Mem.PtrRepr
     (\x_bv  ->
-      caseptr PtrWidth PtrRepr
+      caseptr PtrWidth Mem.PtrRepr
         (\y_bv  -> BitvectorAsPointerExpr PtrWidth <$>
                      intop op PtrWidth x_bv y_bv)
         (\_ _   -> bv_ptr_op x_bv)
         y)
     (\_ _ ->
-      caseptr PtrWidth PtrRepr
+      caseptr PtrWidth Mem.PtrRepr
         (\y_bv  -> ptr_bv_op y_bv)
         (\_ _   -> ptr_ptr_op)
       y)
@@ -1330,19 +1359,20 @@ pointerOp op x y =
 
 
 baseSelect ::
+   forall s mem arch wptr ret.
    (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+   Mem.Mem mem =>
    LLVMExpr s mem arch {- ^ Selection expression -} ->
    LLVMExpr s mem arch {- ^ true expression -} ->
    LLVMExpr s mem arch {- ^ false expression -} ->
    LLVMGenerator s mem arch ret (Maybe (LLVMExpr s mem arch))
-baseSelect (asScalar -> Scalar _archProxy (LLVMPointerRepr wc) c) (asScalar -> Scalar _ xtp x) (asScalar -> Scalar _ ytp y)
+baseSelect (asScalar -> Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr wc)) c) (asScalar -> Scalar _ xtp@(Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x) (asScalar -> Scalar _ ytp y)
   | Just Refl <- testEquality xtp ytp
-  , LLVMPointerRepr w <- xtp
   = do c' <- callIntToBool wc c
        z <- forceEvaluation (App (ExtensionApp (LLVM_PointerIte w c' x y)))
-       return (Just (BaseExpr (LLVMPointerRepr w) z))
+       return (Just (BaseExpr (Mem.PointerRepr w) z))
 
-baseSelect (asScalar -> Scalar _archProxy (LLVMPointerRepr wc) c) (asScalar -> Scalar _ xtp x) (asScalar -> Scalar _ ytp y)
+baseSelect (asScalar -> Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr wc)) c) (asScalar -> Scalar _ xtp x) (asScalar -> Scalar _ ytp y)
   | Just Refl <- testEquality xtp ytp
   , AsBaseType btp <- asBaseType xtp
   = do c' <- callIntToBool wc c
@@ -1353,7 +1383,9 @@ baseSelect _ _ _ = return Nothing
 
 
 translateSelect ::
+  forall s mem arch ret wptr.
    (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+   Mem.Mem mem =>
    L.Instr        {- ^ The instruction to translate -} ->
    (LLVMExpr s mem arch -> LLVMGenerator s mem arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
@@ -1387,7 +1419,7 @@ translateSelect instr assign_f
 
        assign_f (VecExpr eltp (Seq.fromList zs))
 
-translateSelect _ assign_f _ctp c@(asScalar -> Scalar _archProxy (LLVMPointerRepr wc) c') _tp x y
+translateSelect _ assign_f _ctp c@(asScalar -> Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr wc)) c') _tp x y
   = do mz <- baseSelect c x y
        case mz of
          Just z -> assign_f z
@@ -1402,6 +1434,7 @@ translateSelect instr _ _ _ _ _ _ =
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall s mem arch ret a.
    (?transOpts :: TranslationOptions) =>
+   Mem.Mem mem =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
    Set L.Ident {- ^ Set of usable identifiers -} ->
@@ -1482,7 +1515,9 @@ generateInstr retType lab defSet instr assign_f k =
                           case x of
                             UndefExpr _ -> return $ UndefExpr elTy
                             ZeroExpr _  -> return $ Seq.index v1 0
-                            BaseExpr (LLVMPointerRepr _) (BitvectorAsPointerExpr _ (App (BVLit _ i)))
+                            BaseExpr
+                                (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w))
+                                (PointerExpr _ (App (NatLit 0)) (App (BVLit _ i)))
                               | BV.asUnsigned i < inL -> return $ Seq.index v1 (fromIntegral (BV.asUnsigned i))
                               | inL <= BV.asUnsigned i && BV.asUnsigned i < 2*inL ->
                                   return $ Seq.index v2 (fromIntegral (BV.asUnsigned i - inL))
@@ -1512,7 +1547,7 @@ generateInstr retType lab defSet instr assign_f k =
                   n <- transTypedValue num'
                   case n of
                      ZeroExpr _ -> return $ app $ BVLit PtrWidth (BV.zero PtrWidth)
-                     BaseExpr (LLVMPointerRepr w) x
+                     BaseExpr (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x
                         | Just Refl <- testEquality w PtrWidth ->
                             do x' <- pointerAsBitvectorExpr w x
                                return $ app $ BVMul PtrWidth x' tp_sz'
@@ -1535,7 +1570,7 @@ generateInstr retType lab defSet instr assign_f k =
          _ -> return (memTypeAlign dl tp')
 
       p <- callAlloca sz alignment
-      assign_f (BaseExpr (LLVMPointerRepr PtrWidth) p)
+      assign_f (BaseExpr Mem.PtrRepr p)
       k
 
     -- We don't care if it's atomic, since the symbolic simulator is
@@ -1648,7 +1683,7 @@ generateInstr retType lab defSet instr assign_f k =
     L.Br v l1 l2 -> do
         v' <- transTypedValue v
         e' <- case asScalar v' of
-                 Scalar _archProxy (LLVMPointerRepr w) e -> callIntToBool w e
+                 Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) e -> callIntToBool w e
                  _ -> fail "expected boolean condition on branch"
 
         phi1 <- defineBlockLabel (definePhiBlock lab l1)
@@ -1658,7 +1693,7 @@ generateInstr retType lab defSet instr assign_f k =
     L.Switch x def branches -> do
         x' <- transTypedValue x
         case asScalar x' of
-          Scalar _archProxy (LLVMPointerRepr w) x'' ->
+          Scalar _archProxy (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w)) x'' ->
             do bv <- pointerAsBitvectorExpr w x''
                buildSwitch w bv lab def branches
           _ -> fail $ unwords ["expected integer value in switch", showInstr instr]
@@ -1694,7 +1729,7 @@ generateInstr retType lab defSet instr assign_f k =
               let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
               oldVal <- callLoad resTy expectTy ptr' a0
               cmp <- scalarIntegerCompare L.Ieq oldVal cmpVal
-              let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
+              let flag = BaseExpr (Mem.PointerRepr (knownNat @1))
                                   (BitvectorAsPointerExpr knownNat
                                      (App (BoolToBV knownNat cmp)))
               ifte_ cmp
@@ -1763,7 +1798,8 @@ generateInstr retType lab defSet instr assign_f k =
  unsupported = reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $
                  unwords ["unsupported instruction", showInstr instr]
 
-arithOp :: (?transOpts :: TranslationOptions) =>
+arithOp :: forall s mem arch ret. (?transOpts :: TranslationOptions) =>
+  Mem.Mem mem =>
   L.ArithOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -1774,8 +1810,8 @@ arithOp op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just 
 
 arithOp op _ x y =
   case (asScalar x, asScalar y) of
-    (Scalar _ ty@(LLVMPointerRepr w)  x',
-     Scalar _    (LLVMPointerRepr w') y')
+    (Scalar _ ty@(Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w))  x',
+     Scalar _    (Mem.testPtrRepr @mem -> Just (Mem.SomePointerRepr w')) y')
       | Just Refl <- testEquality w PtrWidth
       , Just Refl <- testEquality w w' ->
         do z <- pointerOp op x' y'
@@ -1785,7 +1821,7 @@ arithOp op _ x y =
         do xbv <- pointerAsBitvectorExpr w x'
            ybv <- pointerAsBitvectorExpr w y'
            z   <- intop op w xbv ybv
-           return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w z))
+           return (BaseExpr (Mem.PointerRepr w) (BitvectorAsPointerExpr w z))
 
     (Scalar _archProxy (FloatRepr fi) x',
      Scalar _archPrxy' (FloatRepr fi') y')
@@ -1822,6 +1858,7 @@ arithOp op _ x y =
                         ]
 
 unaryArithOp :: (?transOpts :: TranslationOptions) =>
+  Mem.Mem mem =>
   L.UnaryArithOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -1852,6 +1889,8 @@ unaryArithOp op _ x =
 -- | Generate a call to an LLVM function, without any special
 --   handling for debug intrinsics or breakpoints.
 callOrdinaryFunction ::
+  forall s mem arch ret.
+  Mem.Mem mem =>
    Maybe L.Instr {- ^ The instruction causing this call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
@@ -1875,7 +1914,7 @@ callOrdinaryFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn 
   unpackArgs args' $ \_archProxy argTypes args'' ->
     llvmRetTypeAsRepr retTy' $ \retTy ->
       case asScalar fn' of
-        Scalar _ PtrRepr ptr -> do
+        Scalar _ (Mem.isPtrRepr' @mem -> Just Mem.IsPtrRepr) ptr -> do
           memVar <- getMemVar
           v   <- extensionStmt (LLVM_LoadHandle memVar (Just fnTy) ptr argTypes retTy)
           ret <- call v args''
@@ -1893,6 +1932,7 @@ callOrdinaryFunction instr _tailCall fnTy _fn _args _assign_f =
 -- for debugging intrinsics and breakpoint functions.
 callFunction :: forall s mem arch ret.
    (?transOpts :: TranslationOptions) =>
+  Mem.Mem mem =>
    Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr {- ^ Source instruction of the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
@@ -1908,7 +1948,7 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
      , debugIntrinsics ?transOpts =
        do mbArgs <- dbgArgs defSet args
           case mbArgs of
-            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
+            Right (asScalar -> Scalar _ (Mem.isPtrRepr' @mem -> Just Mem.IsPtrRepr) ptr, lv, di) ->
               do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di))
                  return ()
             Left msg -> addWarning (Text.pack msg)
@@ -1919,7 +1959,7 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
      , debugIntrinsics ?transOpts =
        do mbArgs <- dbgArgs defSet args
           case mbArgs of
-            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
+            Right (asScalar -> Scalar _ (Mem.isPtrRepr' @mem -> Just Mem.IsPtrRepr) ptr, lv, di) ->
               do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di))
                  return ()
             Left msg -> addWarning (Text.pack msg)
@@ -1967,6 +2007,7 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
 
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
 dbgArgs ::
+  Mem.Mem mem =>
   Set L.Ident {- ^ Set of usable identifiers -} ->
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s mem arch ret (Either String (LLVMExpr s mem arch, L.DILocalVariable, L.DIExpression))
@@ -1993,6 +2034,7 @@ dbgArgs defSet args =
       _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
 
 typedValueAsCrucibleValue ::
+  Mem.Mem mem =>
   L.Typed L.Value ->
   LLVMGenerator s mem arch ret (Some (Value s))
 typedValueAsCrucibleValue tv = case L.typedValue tv of
@@ -2011,6 +2053,7 @@ typedValueAsCrucibleValue tv = case L.typedValue tv of
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
 --   FIXME? this could be more efficient if we sort the list and do binary search instead...
 buildSwitch :: (1 <= w)
+  =>Mem.Mem mem 
             => NatRepr w
             -> Expr (LLVM mem) s (BVType w) -- ^ The expression to switch on
             -> L.BlockLabel        -- ^ The label of the current basic block
@@ -2028,7 +2071,7 @@ buildSwitch w ex curr_lab def ((i,l):bs) = do
    branch test t_id f_id
 
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
-definePhiBlock :: L.BlockLabel      -- ^ The LLVM source basic block
+definePhiBlock :: Mem.Mem mem => L.BlockLabel      -- ^ The LLVM source basic block
                -> L.BlockLabel      -- ^ The LLVM target basic block
                -> LLVMGenerator s mem arch ret a
 definePhiBlock l l' = do
@@ -2060,7 +2103,8 @@ definePhiBlock l l' = do
 
 -- | Assign a packed LLVM expression into the named LLVM register.
 assignLLVMReg
-        :: L.Ident
+  :: Mem.Mem mem =>
+        L.Ident
         -> LLVMExpr s mem arch
         -> LLVMGenerator s mem arch ret ()
 assignLLVMReg ident rhs = do
@@ -2075,6 +2119,7 @@ assignLLVMReg ident rhs = do
 -- | Given a register and an expression shape, assign the expressions in the right-hand-side
 --   into the register left-hand side.
 doAssign :: forall s mem arch ret.
+  Mem.Mem mem =>
       Some (Reg s)
    -> LLVMExpr s mem arch -- ^ the RHS values to assign
    -> LLVMGenerator s mem arch ret ()

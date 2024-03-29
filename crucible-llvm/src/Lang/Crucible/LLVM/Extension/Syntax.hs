@@ -43,6 +43,8 @@ import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Errors.UndefinedBehavior( UndefinedBehavior )
+import           Lang.Crucible.LLVM.Mem (Mem, PointerType)
+import qualified Lang.Crucible.LLVM.Mem as Mem
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types hiding (Mem)
@@ -83,20 +85,20 @@ data LLVMExtensionExpr mem :: (CrucibleType -> Type) -> (CrucibleType -> Type) w
 
   LLVM_PointerExpr ::
     (1 <= w) => !(NatRepr w) -> !(f NatType) -> !(f (BVType w)) ->
-    LLVMExtensionExpr mem f (LLVMPointerType w)
+    LLVMExtensionExpr mem f (PointerType mem w)
 
   LLVM_PointerBlock ::
-    (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    (1 <= w) => !(NatRepr w) -> !(f (PointerType mem w)) ->
     LLVMExtensionExpr mem f NatType
 
   LLVM_PointerOffset ::
-    (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    (1 <= w) => !(NatRepr w) -> !(f (PointerType mem w)) ->
     LLVMExtensionExpr mem f (BVType w)
 
   LLVM_PointerIte ::
     (1 <= w) => !(NatRepr w) ->
-    !(f BoolType) -> !(f (LLVMPointerType w)) -> !(f (LLVMPointerType w)) ->
-    LLVMExtensionExpr mem f (LLVMPointerType w)
+    !(f BoolType) -> !(f (PointerType mem w)) -> !(f (PointerType mem w)) ->
+    LLVMExtensionExpr mem f (PointerType mem w)
 
 
 -- | Extension statements for LLVM.  These statements represent the operations
@@ -124,7 +126,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(f (BVType wptr))    {- Number of bytes to allocate -} ->
      !Alignment            {- Minimum alignment of this allocation -} ->
      !String               {- Location string to identify this allocation for debugging purposes -} ->
-     LLVMStmt mem f (LLVMPointerType wptr)
+     LLVMStmt mem f (PointerType mem wptr)
 
   -- | Load a value from the memory.  The load is defined only if
   --   the given pointer is a live pointer; if the bytes in the memory
@@ -134,7 +136,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_Load ::
      HasPtrWidth wptr =>
      !(GlobalVar mem)            {- Memory global variable -} ->
-     !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
+     !(f (PointerType mem wptr)) {- Pointer to load from -} ->
      !(TypeRepr tp)              {- Expected crucible type of the result -} ->
      !StorageType                {- Storage type -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
@@ -147,7 +149,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_Store ::
      HasPtrWidth wptr =>
      !(GlobalVar mem)            {- Memory global variable -} ->
-     !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
+     !(f (PointerType mem wptr)) {- Pointer to store at -} ->
      !(TypeRepr tp)              {- Crucible type of the value being stored -} ->
      !StorageType                {- Storage type of the value -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
@@ -160,7 +162,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_MemClear ::
      HasPtrWidth wptr =>
      !(GlobalVar mem)            {- Memory global variable -} ->
-     !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
+     !(f (PointerType mem wptr)) {- Pointer to store at -} ->
      !Bytes                      {- Number of bytes to clear -} ->
      LLVMStmt mem f UnitType
 
@@ -172,7 +174,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      HasPtrWidth wptr =>
      !(GlobalVar mem)            {- Memory global variable -} ->
      !(Maybe L.Type)             {- expected LLVM type of the function (used only for pretty-printing) -} ->
-     !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
+     !(f (PointerType mem wptr)) {- Pointer to load from -} ->
      !(CtxRepr args)             {- Expected argument types of the function -} ->
      !(TypeRepr ret)             {- Expected return type of the function -} ->
      LLVMStmt mem f (FunctionHandleType args ret)
@@ -183,7 +185,7 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      !(NatRepr wptr)      {- Pointer width -} ->
      !(GlobalVar mem)     {- Memory global variable -} ->
      GlobalSymbol         {- The symbol to resolve -} ->
-     LLVMStmt mem f (LLVMPointerType wptr)
+     LLVMStmt mem f (PointerType mem wptr)
 
   -- | Test two pointer values for equality.
   --   Note! This operation is defined only
@@ -191,8 +193,8 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_PtrEq ::
      HasPtrWidth wptr =>
      !(GlobalVar mem)            {- Pointer width -} ->
-     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
-     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
+     !(f (PointerType mem wptr)) {- First pointer to compare -} ->
+     !(f (PointerType mem wptr)) {- First pointer to compare -} ->
      LLVMStmt mem f BoolType
 
   -- | Test two pointer values for ordering.
@@ -202,8 +204,8 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
   LLVM_PtrLe ::
      HasPtrWidth wptr =>
      !(GlobalVar mem)            {- Pointer width -} ->
-     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
-     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
+     !(f (PointerType mem wptr)) {- First pointer to compare -} ->
+     !(f (PointerType mem wptr)) {- First pointer to compare -} ->
      LLVMStmt mem f BoolType
 
   -- | Add an offset value to a pointer.
@@ -215,9 +217,9 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      HasPtrWidth wptr =>
      !(NatRepr wptr)             {- Pointer width -} ->
      !(GlobalVar mem)            {- Memory global variable -} ->
-     !(f (LLVMPointerType wptr)) {- Pointer value -} ->
+     !(f (PointerType mem wptr)) {- Pointer value -} ->
      !(f (BVType wptr))          {- Offset value -} ->
-     LLVMStmt mem f (LLVMPointerType wptr)
+     LLVMStmt mem f (PointerType mem wptr)
 
   -- | Compute the offset between two pointer values.
   --   Note! This operation is only defined if both pointers
@@ -226,8 +228,8 @@ data LLVMStmt mem (f :: CrucibleType -> Type) :: CrucibleType -> Type where
      HasPtrWidth wptr =>
      !(NatRepr wptr)             {- Pointer width -} ->
      !(GlobalVar mem)            {- Memory global value -} ->
-     !(f (LLVMPointerType wptr)) {- First pointer -} ->
-     !(f (LLVMPointerType wptr)) {- Second pointer -} ->
+     !(f (PointerType mem wptr)) {- First pointer -} ->
+     !(f (PointerType mem wptr)) {- Second pointer -} ->
      LLVMStmt mem f (BVType wptr)
 
   -- | Debug information
@@ -242,20 +244,20 @@ data LLVM_Dbg f c where
   -- <https://llvm.org/docs/SourceLevelDebugging.html#llvm-dbg-addr>
   LLVM_Dbg_Addr ::
     HasPtrWidth wptr =>
-    !(f (LLVMPointerType wptr))  {- Pointer to local variable -} ->
+    !(f (PointerType mem wptr))  {- Pointer to local variable -} ->
     L.DILocalVariable            {- Local variable information -} ->
     L.DIExpression               {- Complex expression -} ->
-    LLVM_Dbg f (LLVMPointerType wptr)
+    LLVM_Dbg f (PointerType mem wptr)
 
   -- | Annotates a value pointed to by a pointer with local-variable debug information
   --
   -- <https://llvm.org/docs/SourceLevelDebugging.html#llvm-dbg-declare>
   LLVM_Dbg_Declare ::
     HasPtrWidth wptr =>
-    !(f (LLVMPointerType wptr))  {- Pointer to local variable -} ->
+    !(f (PointerType mem wptr))  {- Pointer to local variable -} ->
     L.DILocalVariable            {- Local variable information -} ->
     L.DIExpression               {- Complex expression -} ->
-    LLVM_Dbg f (LLVMPointerType wptr)
+    LLVM_Dbg f (PointerType mem wptr)
 
   -- | Annotates a value with local-variable debug information
   --
@@ -269,15 +271,15 @@ data LLVM_Dbg f c where
 
 $(return [])
 
-instance TypeApp (LLVMExtensionExpr mem) where
+instance Mem mem => TypeApp (LLVMExtensionExpr mem) where
   appType e =
     case e of
       X86Expr ex             -> appType ex
       LLVM_SideConditions _ tpr _ _ -> tpr
-      LLVM_PointerExpr w _ _ -> LLVMPointerRepr w
+      LLVM_PointerExpr w _ _ -> Mem.ptrRepr w
       LLVM_PointerBlock _ _  -> NatRepr
       LLVM_PointerOffset w _ -> BVRepr w
-      LLVM_PointerIte w _ _ _ -> LLVMPointerRepr w
+      LLVM_PointerIte w _ _ _ -> Mem.ptrRepr w
 
 instance PrettyApp (LLVMExtensionExpr mem) where
   ppApp pp e =
@@ -343,19 +345,19 @@ instance TraversableFC (LLVMExtensionExpr mem) where
       )
      ])
 
-instance TypeApp (LLVMStmt mem) where
+instance Mem mem => TypeApp (LLVMStmt mem) where
   appType = \case
     LLVM_PushFrame{} -> knownRepr
     LLVM_PopFrame{} -> knownRepr
-    LLVM_Alloca w _ _ _ _ -> LLVMPointerRepr w
+    LLVM_Alloca w _ _ _ _ -> Mem.ptrRepr w
     LLVM_Load _ _ tp _ _  -> tp
     LLVM_Store{} -> knownRepr
     LLVM_MemClear{} -> knownRepr
     LLVM_LoadHandle _ _ _ args ret -> FunctionHandleRepr args ret
-    LLVM_ResolveGlobal w _ _ -> LLVMPointerRepr w
+    LLVM_ResolveGlobal w _ _ -> Mem.ptrRepr w
     LLVM_PtrEq{} -> knownRepr
     LLVM_PtrLe{} -> knownRepr
-    LLVM_PtrAddOffset w _ _ _ -> LLVMPointerRepr w
+    LLVM_PtrAddOffset w _ _ _ -> Mem.ptrRepr w
     LLVM_PtrSubtract w _ _ _ -> BVRepr w
     LLVM_Debug{} -> knownRepr
 

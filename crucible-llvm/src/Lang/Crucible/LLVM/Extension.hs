@@ -30,6 +30,7 @@ import Lang.Crucible.Types (CrucibleType)
 
 import Lang.Crucible.LLVM.Extension.Arch
 import Lang.Crucible.LLVM.Extension.Syntax
+import Lang.Crucible.LLVM.Mem (Mem)
 
 -- | The Crucible extension type marker for LLVM.
 data LLVM (mem :: CrucibleType)
@@ -41,4 +42,4 @@ data LLVM (mem :: CrucibleType)
 type instance ExprExtension (LLVM mem) = LLVMExtensionExpr mem
 type instance StmtExtension (LLVM mem) = LLVMStmt mem
 
-instance IsSyntaxExtension (LLVM mem)
+instance Mem mem => IsSyntaxExtension (LLVM mem)

@@ -65,6 +65,7 @@ import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle (HandleAllocator, mkHandle')
 import           Lang.Crucible.Types (UnitType, TypeRepr(UnitRepr))
 import           Lang.Crucible.LLVM.Extension (LLVM, ArchWidth)
+import qualified Lang.Crucible.LLVM.Mem as Mem
 import           Lang.Crucible.LLVM.Translation.Monad (LLVMContext, _llvmTypeCtx, malformedLLVMModule)
 import           Lang.Crucible.LLVM.Types (HasPtrWidth)
 
@@ -134,7 +135,9 @@ globalCtors mod_ =
 -- ** callCtors
 
 -- | Call some or all of the functions in @llvm.global_ctors@
-callCtors :: (Ctor -> Bool) -- ^ Filter function
+callCtors :: 
+  Mem.Mem mem =>
+ (Ctor -> Bool) -- ^ Filter function
           -> L.Module
           -> LLVMGenerator s mem arch UnitType (Expr (LLVM mem) s UnitType)
 callCtors select mod_ = do
@@ -147,7 +150,7 @@ callCtors select mod_ = do
   return (App EmptyApp)
 
 -- | Call each function in @llvm.global_ctors@ in order of decreasing priority
-callAllCtors :: L.Module -> LLVMGenerator s mem arch UnitType (Expr (LLVM mem) s UnitType)
+callAllCtors :: Mem.Mem mem => L.Module -> LLVMGenerator s mem arch UnitType (Expr (LLVM mem) s UnitType)
 callAllCtors = callCtors (const True)
 
 ----------------------------------------------------------------------
@@ -156,6 +159,7 @@ callAllCtors = callCtors (const True)
 -- | Make a 'LLVMGenerator' into a CFG by making it a function with no arguments
 -- that returns unit.
 generatorToCFG :: forall mem arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr)
+  => Mem.Mem mem
                => Text
                -> HandleAllocator
                -> LLVMContext mem arch
@@ -181,6 +185,7 @@ generatorToCFG name halloc llvmctx gen ret = do
 
 -- | Create a CFG that calls some of the functions in @llvm.global_ctors@.
 callCtorsCFG :: forall mem arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr)
+  => Mem.Mem mem
              => (Ctor -> Bool) -- ^ Filter function
              -> L.Module
              -> HandleAllocator
