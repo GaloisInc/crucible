@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.Mem
--- Description      : TODO
+-- Description      : Memory model
 -- Copyright        : (c) Galois, Inc 2024
 -- License          : BSD3
 -- Maintainer       : langston@galois.com
@@ -60,6 +60,18 @@ type SomePointerRepr :: CrucibleType -> CrucibleType -> Type
 data SomePointerRepr mem tp
   = forall w. (1 <= w, tp ~ PointerType mem w) => SomePointerRepr (NatRepr w)
 
+-- | Interface to memory models
+--
+-- Memory models consist of:
+--
+-- 1. A Crucible type @mem@ which represents memory
+-- 2. A Crucible type @'MemData' mem@ which is the Haskell version of @mem@
+-- 3. A Crucible type @'PointerType' mem@ which represents pointers
+--
+-- During translation, Crucible will insert a global variable of type @mem@
+-- into the syntax of LLVM expressions and statements that operate on memory.
+-- When these instructions load from that global, they will recieve a @'MemData'
+-- mem@.
 class Mem (mem :: CrucibleType) where
   type MemData (mem :: CrucibleType) sym = (r :: Type) | r -> mem
   type PointerType (mem :: CrucibleType) (w :: Nat) = (r :: CrucibleType) | r -> mem w
@@ -96,15 +108,8 @@ isPtrRepr' ::
   Maybe (IsPtrRepr mem tp wptr)
 isPtrRepr' = isPtrRepr ?ptrWidth
 
--- pattern PointerRepr' :: forall mem tp. Mem mem => forall w. (1 <= w, tp ~ PointerType mem w) => NatRepr w -> Proxy mem -> TypeRepr tp
--- pattern PointerRepr' w <- (testPtrRepr @mem -> Just (SomePointerRepr w))
---   where PointerRepr' w = ptrRepr w
-
 pattern IsPointerRepr :: forall mem tp. Mem mem => SomePointerRepr mem tp -> TypeRepr tp
 pattern IsPointerRepr t <- (testPtrRepr @mem -> Just t)
-
--- pattern SomePointer :: Mem mem => TypeRepr tp -> SomePointerRepr mem tp
--- pattern SomePointer r <- SomePointerRepr (ptrRepr -> PosNat r)
 
 pattern PointerRepr :: Mem mem => (1 <= w) => NatRepr w -> TypeRepr (PointerType mem w)
 pattern PointerRepr w <- (ptrReprWidth -> PosNat w)
@@ -119,6 +124,7 @@ pattern PtrRepr = PointerRepr T.PtrWidth
 
 -------------------------------------------
 
+-- | A memory model that always returns fresh, symbolic bytes from loads.
 type Fresh = IntrinsicType "fresh_llvm_memory" EmptyCtx
 
 instance Mem Fresh where
