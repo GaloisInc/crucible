@@ -1396,7 +1396,7 @@ callObjectsize _mvar w
       -- through compilation for us to see, that means the compiler could not
       -- determine the value.
       t <- bvIsNonzero sym flag
-      z <- bvLit sym w (BV.zero w)
+      z <- bvZero sym w
       n <- bvNotBits sym z -- NB: -1 is the boolean negation of zero
       bvIte sym t z n
 

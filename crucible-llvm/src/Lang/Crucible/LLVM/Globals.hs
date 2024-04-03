@@ -259,7 +259,7 @@ registerFunPtr ::
   IO (LLVMPtr sym wptr, MemImpl sym)
 registerFunPtr bak mem displayName nm aliases = do
   let sym = backendGetSym bak
-  z <- bvLit sym ?ptrWidth (BV.zero ?ptrWidth)
+  z <- bvZero sym ?ptrWidth
   (ptr, mem') <- doMalloc bak G.GlobalAlloc G.Immutable displayName mem z noAlignment
   return $ (ptr, registerGlobal mem' (nm:aliases) ptr)
 
