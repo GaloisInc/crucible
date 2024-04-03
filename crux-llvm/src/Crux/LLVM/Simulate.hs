@@ -13,7 +13,6 @@
 
 module Crux.LLVM.Simulate where
 
-import qualified Data.BitVector.Sized as BV
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
@@ -37,7 +36,7 @@ import Prettyprinter
 
 -- what4
 import qualified What4.Expr.Builder as WEB
-import What4.Interface (bvLit, natLit)
+import What4.Interface (bvLit, natLit, bvZero)
 
 -- crucible
 import Lang.Crucible.Backend
@@ -339,7 +338,7 @@ checkFun llvmOpts trans memVar =
       mem <- case lookupGlobal memVar gs of
                Just mem -> pure mem
                Nothing  -> fail "checkFun.checkMainWithArguments: Memory missing from global vars"
-      argc <- liftIO $ LLVMPointer <$> natLit sym 0 <*> bvLit sym w (BV.zero w)
+      argc <- liftIO $ LLVMPointer <$> natLit sym 0 <*> bvZero sym w
       sz   <- liftIO $ bvLit sym PtrWidth $ bytesToBV PtrWidth tp_sz
       (argv, mem') <- liftIO $ doAlloca bak mem sz alignment loc
       stateTree.actFrame.gpGlobals %= insertGlobal memVar mem'
