@@ -1476,7 +1476,7 @@ arrayZeroedIO ::
     NatRepr w ->
     IO (RegValue sym (SymbolicArrayType (idxs ::> idx) (BaseBVType w)))
 arrayZeroedIO sym idxs w = do
-    zero <- bvLit sym w (BV.zero w)
+    zero <- bvZero sym w
     constantArray sym idxs zero
 
 mirVector_uninitIO ::
@@ -1679,7 +1679,7 @@ mirRef_offsetWrapLeaf bak _tpr (MirReference root (Index_RefPath tpr path idx)) 
     return $ MirReference root $ Index_RefPath tpr path idx'
 mirRef_offsetWrapLeaf bak _ ref@(MirReference _ _) offset = do
     let sym = backendGetSym bak
-    isZero <- liftIO $ bvEq sym offset =<< bvLit sym knownNat (BV.zero knownNat)
+    isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
     leafAssert bak isZero $ Unsupported callStack $
         "pointer arithmetic outside arrays is not yet implemented"
     return ref
@@ -1687,7 +1687,7 @@ mirRef_offsetWrapLeaf bak _ ref@(MirReference_Integer _ _) offset = do
     let sym = backendGetSym bak
     -- Offsetting by zero is a no-op, and is always allowed, even on invalid
     -- pointers.  In particular, this permits `(&[])[0..]`.
-    isZero <- liftIO $ bvEq sym offset =<< bvLit sym knownNat (BV.zero knownNat)
+    isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
     leafAssert bak isZero $ Unsupported callStack $
         "cannot perform pointer arithmetic on invalid pointer"
     return ref
@@ -1710,7 +1710,7 @@ mirRef_tryOffsetFromLeaf sym (MirReference root1 path1) (MirReference root2 path
         _ -> do
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
-            liftIO $ mkPE similar <$> bvLit sym knownNat (BV.zero knownNat)
+            liftIO $ mkPE similar <$> bvZero sym knownNat
 mirRef_tryOffsetFromLeaf _ _ _ = do
     -- MirReference_Integer pointers are always disjoint from all MirReference
     -- pointers, so we report them as being in different objects.

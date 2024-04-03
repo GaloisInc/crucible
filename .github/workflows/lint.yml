@@ -1,0 +1,34 @@
+name: lint
+on:
+  push:
+    branches: [master, "release-**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    name: lint
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: false
+
+      - shell: bash
+        run: |
+          curl --location -o hlint.tar.gz \
+            https://github.com/ndmitchell/hlint/releases/download/v3.8/hlint-3.8-x86_64-linux.tar.gz
+          tar xvf hlint.tar.gz
+
+          (cd crucible/; ../hlint-3.8/hlint src test)
+          (cd crucible-cli/; ../hlint-3.8/hlint src test)
+          (cd crucible-concurrency/; ../hlint-3.8/hlint src test)
+          (cd crucible-go/; ../hlint-3.8/hlint src tests)
+          (cd crucible-jvm/; ../hlint-3.8/hlint src tests)
+          (cd crucible-llvm-cli/; ../hlint-3.8/hlint src test)
+          (cd crucible-llvm-syntax/; ../hlint-3.8/hlint src test)
+          (cd crucible-mir/; ../hlint-3.8/hlint src)
+          (cd crucible-saw/; ../hlint-3.8/hlint src)
+          (cd crucible-symio/; ../hlint-3.8/hlint src tests)
+          (cd crucible-syntax/; ../hlint-3.8/hlint src test)
+          (cd crucible-wasm/; ../hlint-3.8/hlint src test)

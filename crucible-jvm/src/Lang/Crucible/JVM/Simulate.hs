@@ -505,15 +505,15 @@ zeroValue :: IsSymInterface sym => sym -> J.Type -> IO (C.RegValue sym JVMValueT
 zeroValue sym ty =
   case ty of
     J.ArrayType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
-    J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
-    J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
-    J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
+    J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvZero sym w32
+    J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvZero sym w32
+    J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvZero sym w32
     J.ClassType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
     J.DoubleType  -> C.injectVariant sym knownRepr tagD <$> W4.iFloatPZero sym DoubleFloatRepr
     J.FloatType   -> C.injectVariant sym knownRepr tagF <$> W4.iFloatPZero sym SingleFloatRepr
-    J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
-    J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvLit sym w64 (BV.zero w64)
-    J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
+    J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvZero sym w32
+    J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvZero sym w64
+    J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvZero sym w32
 
 -- (currently unused)
 -- Way to run initialization code before simulation starts
