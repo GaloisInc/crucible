@@ -1036,11 +1036,11 @@ callIsinf w (regValue -> x) = do
     isPos <- iFloatIsPos @_ @fi sym x
     isInfN <- andPred sym isInf isNeg
     isInfP <- andPred sym isInf isPos
-    bvOne    <- bvOne sym w
-    bvNegOne <- bvNeg sym bvOne
-    bvZero   <- bvZero sym w
-    res0 <- bvIte sym isInfP bvOne bvZero
-    bvIte sym isInfN bvNegOne res0
+    bv1 <- bvOne sym w
+    bvNeg1 <- bvNeg sym bv1
+    bv0 <- bvZero sym w
+    res0 <- bvIte sym isInfP bv1 bv0
+    bvIte sym isInfN bvNeg1 res0
 
 callIsnan ::
   forall fi w p sym ext r args ret.
