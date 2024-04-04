@@ -49,24 +49,24 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types hiding (Mem)
 
-data LLVMSideCondition (f :: CrucibleType -> Type) =
-  LLVMSideCondition (f BoolType) (UndefinedBehavior f)
+data LLVMSideCondition mem (f :: CrucibleType -> Type) =
+  LLVMSideCondition (f BoolType) (UndefinedBehavior mem f)
 
-instance TestEqualityC LLVMSideCondition where
+instance TestEqualityC (LLVMSideCondition mem) where
   testEqualityC sub (LLVMSideCondition px dx) (LLVMSideCondition py dy) =
     isJust (sub px py) && testEqualityC sub dx dy
 
-instance OrdC LLVMSideCondition where
+instance OrdC (LLVMSideCondition mem) where
   compareC sub (LLVMSideCondition px dx) (LLVMSideCondition py dy) =
     toOrdering (sub px py) <> compareC sub dx dy
 
-instance FunctorF LLVMSideCondition where
+instance FunctorF (LLVMSideCondition mem) where
   fmapF = fmapFDefault
 
-instance FoldableF LLVMSideCondition where
+instance FoldableF (LLVMSideCondition mem) where
   foldMapF = foldMapFDefault
 
-instance TraversableF LLVMSideCondition where
+instance TraversableF (LLVMSideCondition mem) where
   traverseF f (LLVMSideCondition p desc) =
       LLVMSideCondition <$> f p <*> traverseF f desc
 
@@ -79,7 +79,7 @@ data LLVMExtensionExpr mem :: (CrucibleType -> Type) -> (CrucibleType -> Type) w
   LLVM_SideConditions ::
     !(GlobalVar mem) {- Memory global variable -} ->
     !(TypeRepr tp) ->
-    !(NonEmpty (LLVMSideCondition f)) ->
+    !(NonEmpty (LLVMSideCondition mem f)) ->
     !(f tp) ->
     LLVMExtensionExpr mem f tp
 
@@ -304,7 +304,7 @@ instance TestEqualityFC (LLVMExtensionExpr mem) where
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
-       , (U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType)
+       , (U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
          , [| \x y -> if liftEq (testEqualityC testSubterm) x y then Just Refl else Nothing |]
          )
        ])
@@ -317,7 +317,7 @@ instance OrdFC (LLVMExtensionExpr mem) where
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
-       , (U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType)
+       , (U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
          , [| \x y -> fromOrdering (liftCompare (compareC testSubterm) x y) |]
          )
        ])
@@ -332,15 +332,15 @@ instance FoldableFC (LLVMExtensionExpr mem) where
 traverseConds ::
   Applicative m =>
   (forall s. f s -> m (g s)) ->
-  NonEmpty (LLVMSideCondition f) ->
-  m (NonEmpty (LLVMSideCondition g))
+  NonEmpty (LLVMSideCondition mem f) ->
+  m (NonEmpty (LLVMSideCondition mem g))
 traverseConds f = traverse (traverseF f)
 
 
 instance TraversableFC (LLVMExtensionExpr mem) where
   traverseFC = $(U.structuralTraversal [t|LLVMExtensionExpr|]
      [(U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|traverseFC|])
-     ,(U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType)
+     ,(U.ConType [t|NonEmpty|] `U.TypeApp` (U.ConType [t|LLVMSideCondition|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
       , [| traverseConds |]
       )
      ])

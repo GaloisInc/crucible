@@ -306,7 +306,7 @@ assertUndefined ::
   bak ->
   CallStack ->
   Pred sym ->
-  (UB.UndefinedBehavior (RegValue' sym)) {- ^ The undesirable behavior -} ->
+  (UB.UndefinedBehavior mem (RegValue' sym)) {- ^ The undesirable behavior -} ->
   IO ()
 assertUndefined bak callStack p ub =
   do let sym = backendGetSym bak

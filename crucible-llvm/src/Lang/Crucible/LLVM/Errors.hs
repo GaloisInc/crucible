@@ -62,7 +62,7 @@ import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 -- | Combine the three types of bad behaviors
 --
 data BadBehavior sym where
-  BBUndefinedBehavior :: UB.UndefinedBehavior (RegValue' sym) -> BadBehavior sym
+  BBUndefinedBehavior :: UB.UndefinedBehavior mem (RegValue' sym) -> BadBehavior sym
   BBMemoryError       :: ME.MemoryError sym -> BadBehavior sym
  deriving Typeable
 
@@ -93,14 +93,14 @@ data LLVMSafetyAssertion sym =
 -- We expose these rather than the constructors to retain the freedom to
 -- change the internal representation.
 
-undefinedBehavior' :: UB.UndefinedBehavior (RegValue' sym)
+undefinedBehavior' :: UB.UndefinedBehavior mem (RegValue' sym)
                    -> Pred sym
                    -> Text
                    -> LLVMSafetyAssertion sym
 undefinedBehavior' ub pred expl =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred (Just expl)
 
-undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
+undefinedBehavior :: UB.UndefinedBehavior mem (RegValue' sym)
                   -> Pred sym
                   -> LLVMSafetyAssertion sym
 undefinedBehavior ub pred =
@@ -110,14 +110,14 @@ memoryError :: (1 <= w) => ME.MemoryOp sym w -> ME.MemoryErrorReason -> Pred sym
 memoryError mop rsn pred =
   LLVMSafetyAssertion (BBMemoryError (ME.MemoryError mop rsn)) pred Nothing
 
-poison' :: Poison.Poison (RegValue' sym)
+poison' :: Poison.Poison mem (RegValue' sym)
         -> Pred sym
         -> Text
         -> LLVMSafetyAssertion sym
 poison' poison_ pred expl =
   LLVMSafetyAssertion (BBUndefinedBehavior (UB.PoisonValueCreated poison_)) pred (Just expl)
 
-poison :: Poison.Poison (RegValue' sym)
+poison :: Poison.Poison mem (RegValue' sym)
        -> Pred sym
        -> LLVMSafetyAssertion sym
 poison poison_ pred =

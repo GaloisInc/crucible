@@ -1806,7 +1806,7 @@ callAbs callStack checkIntMin widthRepr (regValue -> src) = do
           LibcAbsIntMinUB                 -> True
           LLVMAbsIntMinPoison shouldCheck -> shouldCheck
 
-      ub :: UB.UndefinedBehavior (RegValue' sym)
+      ub :: UB.UndefinedBehavior mem (RegValue' sym)
       ub = case checkIntMin of
              LibcAbsIntMinUB ->
                UB.AbsIntMin $ RV src

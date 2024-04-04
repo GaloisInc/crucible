@@ -54,7 +54,7 @@ assertSideCondition ::
   (HasLLVMAnn sym, IsSymBackend sym bak) =>
   bak ->
   CallStack ->
-  LLVMSideCondition (RegValue' sym) ->
+  LLVMSideCondition mem (RegValue' sym) ->
   IO ()
 assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
   do let sym = backendGetSym bak

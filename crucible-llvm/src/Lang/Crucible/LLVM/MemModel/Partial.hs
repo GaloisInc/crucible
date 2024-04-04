@@ -237,7 +237,7 @@ explainCex sym bbMap evalFn =
 annotateUB :: (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   CallStack ->
-  UB.UndefinedBehavior (RegValue' sym) ->
+  UB.UndefinedBehavior mem (RegValue' sym) ->
   Pred sym ->
   IO (Pred sym)
 annotateUB sym callStack ub p =
@@ -296,7 +296,7 @@ attachSideCondition ::
   sym ->
   CallStack ->
   Pred sym ->
-  UB.UndefinedBehavior (RegValue' sym) ->
+  UB.UndefinedBehavior mem (RegValue' sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 attachSideCondition sym callStack pnew ub pv =

@@ -106,7 +106,7 @@ sideConditionsA :: forall f ty s mem. Applicative f
                     -- ^ Expression with side-condition
                 -> [( Bool
                     , f (Expr (LLVM mem) s BoolType)
-                    , UB.UndefinedBehavior (Expr (LLVM mem) s)
+                    , UB.UndefinedBehavior mem (Expr (LLVM mem) s)
                     )]
                     -- ^ Conditions to (conditionally) assert
                 -> f (Expr (LLVM mem) s ty)
@@ -117,7 +117,7 @@ sideConditionsA mvar tyRepr expr conds =
       fmapMaybe :: Functor g => g [a] -> (a -> Maybe b) -> g [b]
       fmapMaybe gs h = fmap (mapMaybe h) gs
 
-      conds' :: f [LLVMSideCondition (Expr (LLVM mem) s)]
+      conds' :: f [LLVMSideCondition mem (Expr (LLVM mem) s)]
       conds' = fmapMaybe (traverse middle conds) $ \(b, pred, classifier) ->
                 (if b then Just else const Nothing) $
                   LLVMSideCondition pred classifier
@@ -129,7 +129,7 @@ sideConditionsA mvar tyRepr expr conds =
 -- | Assert that evaluation doesn't result in a poison value
 poisonSideCondition :: GlobalVar mem
                     -> TypeRepr ty
-                    -> Poison.Poison (Expr (LLVM mem) s)
+                    -> Poison.Poison mem (Expr (LLVM mem) s)
                     -> Expr (LLVM mem) s ty
                        -- ^ Expression with side-condition
                     -> Expr (LLVM mem) s BoolType
@@ -533,8 +533,8 @@ calcGEP_array typ base idx =
                -- maximum and minimum indices to prevent multiplication overflow
                maxidx = maxSigned PtrWidth `quot` (max isz 1)
                minidx = minSigned PtrWidth `quot` (max isz 1)
-               -- poison = Poison.GEPOutOfBounds base idx'
-               _cond   =
+               poison = Poison.GEPOutOfBounds base idx'
+               cond   =
                 (app $ BVSle PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth minidx)) idx') .&&
                   (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth (BV.mkBV PtrWidth maxidx)))
              in
@@ -542,9 +542,7 @@ calcGEP_array typ base idx =
                -- bounds" for the given allocation. We translate all GEP
                -- instructions as if they had the `inbounds` flag set, so the
                -- result would be a poison value.
-               -- poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
-               -- TODO(lb): !!!!
-               off0
+               poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
 
      -- Perform the pointer offset arithmetic
      callPtrAddOffset base off

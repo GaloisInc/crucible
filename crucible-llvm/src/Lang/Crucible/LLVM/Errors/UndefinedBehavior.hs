@@ -101,24 +101,24 @@ ppPtrComparison Leq = "Ordering comparison (<=)"
 --
 -- The commented-out constructors correspond to behaviors that don't have
 -- explicit checks yet (but probably should!).
-data UndefinedBehavior (e :: CrucibleType -> Type) where
+data UndefinedBehavior mem (e :: CrucibleType -> Type) where
 
   -- -------------------------------- Memory management
 
   FreeBadOffset ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   FreeUnallocated ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   DoubleFree ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Arguments: Destination pointer, fill byte, length
   MemsetInvalidRegion ::
@@ -126,21 +126,21 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     e (LLVMPointerType w) ->
     e (BVType 8) ->
     e (BVType v) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Arguments: Read destination, alignment
   ReadBadAlignment ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
     Alignment ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Arguments: Write destination, alignment
   WriteBadAlignment ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
     Alignment ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- -------------------------------- Pointer arithmetic
 
@@ -148,7 +148,7 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     (1 <= w) =>
     e (LLVMPointerType w) ->
     e (BVType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Arguments: kind of comparison, the invalid pointer, the other pointer
   CompareInvalidPointer ::
@@ -156,7 +156,7 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     PtrComparisonOperator ->
     e (LLVMPointerType w) ->
     e (LLVMPointerType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | "In all other cases, the behavior is undefined"
   -- TODO: 'PtrComparisonOperator' argument?
@@ -164,7 +164,7 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     (1 <= w) =>
     e (LLVMPointerType w) ->
     e (LLVMPointerType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | "When two pointers are subtracted, both shall point to elements of the
   -- same array object"
@@ -172,7 +172,7 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     (1 <= w) =>
     e (LLVMPointerType w) ->
     e (LLVMPointerType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Pointer cast to an integer type other than
   --   pointer width integers
@@ -180,21 +180,21 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     (1 <= w) =>
     e (LLVMPointerType w) ->
     StorageType ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Pointer used in an unsupported arithmetic or bitvector operation
   PointerUnsupportedOp ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
     String ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | Pointer cast to a floating-point type
   PointerFloatCast ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
     StorageType ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -- | "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
@@ -202,35 +202,35 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     (1 <= w) =>
     e (LLVMPointerType w) ->
     e (BVType w) ->
-    UndefinedBehavior e
+    UndefinedBehavior mem e
 
   -------------------------------- Division operators
 
   -- | @SymBV@ or @Expr _ _ (BVType w)@
-  UDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  URemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SRemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SDivOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SRemOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  UDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior mem e
+  SDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior mem e
+  URemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior mem e
+  SRemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior mem e
+  SDivOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior mem e
+  SRemOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior mem e
 
   -------------------------------- Integer arithmetic
 
-  AbsIntMin    :: (1 <= w) => e (BVType w) -> UndefinedBehavior e
+  AbsIntMin    :: (1 <= w) => e (BVType w) -> UndefinedBehavior mem e
 
   PoisonValueCreated ::
-    Poison.Poison e ->
-    UndefinedBehavior e
+    Poison.Poison mem e ->
+    UndefinedBehavior mem e
 
   {-
-  MemcpyDisjoint          :: UndefinedBehavior e
-  DereferenceBadAlignment :: UndefinedBehavior e
-  ModifiedStringLiteral   :: UndefinedBehavior e
+  MemcpyDisjoint          :: UndefinedBehavior mem e
+  DereferenceBadAlignment :: UndefinedBehavior mem e
+  ModifiedStringLiteral   :: UndefinedBehavior mem e
   -}
   deriving (Typeable)
 
 -- | Which document prohibits this behavior?
-standard :: UndefinedBehavior e -> Standard
+standard :: UndefinedBehavior mem e -> Standard
 standard =
   \case
 
@@ -276,7 +276,7 @@ standard =
     -}
 
 -- | Which section(s) of the document prohibit this behavior?
-cite :: UndefinedBehavior e -> Doc ann
+cite :: UndefinedBehavior mem e -> Doc ann
 cite =
   \case
 
@@ -326,7 +326,7 @@ cite =
 -- | What happened, and why is it a problem?
 --
 -- This is a generic explanation that doesn't use the included data.
-explain :: UndefinedBehavior e -> Doc ann
+explain :: UndefinedBehavior mem e -> Doc ann
 explain =
   \case
 
@@ -393,7 +393,7 @@ explain =
 -- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
 details :: W4I.IsExpr (W4I.SymExpr sym)
-        => UndefinedBehavior (RegValue' sym)
+        => UndefinedBehavior mem (RegValue' sym)
         -> [Doc ann]
 details =
   \case
@@ -488,19 +488,19 @@ details =
         ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc ann
         ppOffset = ("Offset:" <+>) . W4I.printSymExpr
 
-pp :: (UndefinedBehavior e -> [Doc ann]) -- ^ Printer for constructor data
-   -> UndefinedBehavior e
+pp :: (UndefinedBehavior mem e -> [Doc ann]) -- ^ Printer for constructor data
+   -> UndefinedBehavior mem e
    -> Doc ann
 pp extra ub = vcat (explain ub : extra ub ++ ppCitation ub)
 
 -- | Pretty-printer for symbolic backends
 ppDetails ::
   W4I.IsExpr (W4I.SymExpr sym) =>
-  UndefinedBehavior (RegValue' sym) ->
+  UndefinedBehavior mem (RegValue' sym) ->
   Doc ann
 ppDetails ub = vcat (details ub ++ ppCitation ub)
 
-ppCitation :: UndefinedBehavior e -> [Doc ann]
+ppCitation :: UndefinedBehavior mem e -> [Doc ann]
 ppCitation ub =
    (cat [ "Reference: "
         , indent 2 (pretty (ppStd (standard ub)))
@@ -515,54 +515,54 @@ ppCitation ub =
 
 $(return [])
 
-instance TestEqualityC UndefinedBehavior where
+instance TestEqualityC (UndefinedBehavior mem) where
   testEqualityC subterms x y = isJust $
     $(U.structuralTypeEquality [t|UndefinedBehavior|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+       [ ( U.DataArg 1 `U.TypeApp` U.AnyType
          , [| subterms |]
          )
-       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
+       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
          , [| \a b -> if testEqualityC subterms a b then Just Refl else Nothing |]
          )
        ]
      ) x y
 
-instance OrdC UndefinedBehavior where
+instance OrdC (UndefinedBehavior mem) where
   compareC subterms ub1 ub2 = toOrdering $
     $(U.structuralTypeOrd [t|UndefinedBehavior|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+       [ ( U.DataArg 1 `U.TypeApp` U.AnyType
          , [| subterms |]
          )
-       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
+       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
          , [| \a b -> fromOrdering (compareC subterms a b) |]
          )
        ]
      ) ub1 ub2
 
-instance FunctorF UndefinedBehavior where
+instance FunctorF (UndefinedBehavior mem) where
   fmapF = TF.fmapFDefault
 
-instance FoldableF UndefinedBehavior where
+instance FoldableF (UndefinedBehavior mem) where
   foldMapF = TF.foldMapFDefault
 
-instance TraversableF UndefinedBehavior where
+instance TraversableF (UndefinedBehavior mem) where
   traverseF subterms =
     $(U.structuralTraversal [t|UndefinedBehavior|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+       [ ( U.DataArg 1 `U.TypeApp` U.AnyType
          , [| \_ x -> subterms x |]
          )
-       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
+       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
          , [| \_ x -> traverseF subterms x |]
          )
        ]
      ) subterms
 
 
-concUB :: forall sym.
+concUB :: forall sym mem.
   W4I.IsExprBuilder sym =>
   sym ->
   (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
-  UndefinedBehavior (RegValue' sym) -> IO (UndefinedBehavior (RegValue' sym))
+  UndefinedBehavior mem (RegValue' sym) -> IO (UndefinedBehavior mem (RegValue' sym))
 concUB sym conc ub =
   let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))
       bv (RV x) = RV <$> concBV sym conc x in
