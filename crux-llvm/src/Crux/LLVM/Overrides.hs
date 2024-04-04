@@ -34,7 +34,7 @@ import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 import What4.ProgramLoc( Position(..), ProgramLoc(..) )
 import What4.Symbol(userSymbol, emptySymbol, safeSymbol)
 import What4.Interface
-          (freshConstant, bvLit, bvAdd, asBV, predToBV,
+          (freshConstant, bvLit, bvOne, bvAdd, asBV, predToBV,
           getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
 
 import Lang.Crucible.Types
@@ -417,7 +417,7 @@ fresh_str arch mvar (Empty :> pName :> maxLen) =
 
     -- Compute the allocation length, which is the requested length plus one
     -- to hold the NUL terminator
-    one <- liftIO $ bvLit sym ?ptrWidth (BV.one ?ptrWidth)
+    one <- liftIO $ bvOne sym ?ptrWidth
     -- maxLenBV <- liftIO $ projectLLVM_bv sym (regValue maxLen)
     len <- liftIO $ bvAdd sym (regValue maxLen) one
     mem0 <- readGlobal mvar

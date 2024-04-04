@@ -792,8 +792,8 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       bvSlt sym x y
     BoolToBV w xe -> do
       x <- evalSub xe
-      one <- bvLit sym w (BV.one w)
-      zro <- bvLit sym w (BV.zero w)
+      one <- bvOne sym w
+      zro <- bvZero sym w
       bvIte sym x one zro
     BVNonzero _ xe -> do
       x <- evalSub xe

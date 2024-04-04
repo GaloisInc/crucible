@@ -229,7 +229,7 @@ regEval bak baseEval tpr v = go tpr v
 
         let vec = MirVector_Vector $ V.fromList vals
         let vecRef = newConstMirRef sym (MirVectorRepr tpr') vec
-        ptr <- subindexMirRefSim tpr' vecRef =<< liftIO (bvLit sym knownRepr (BV.zero knownRepr))
+        ptr <- subindexMirRefSim tpr' vecRef =<< liftIO (bvZero sym knownRepr)
         return $ Empty :> RV ptr :> RV len'
 
     go (FloatRepr fi) v = pure v

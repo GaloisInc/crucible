@@ -1,75 +1,14 @@
-# HLint configuration file
-# https://github.com/ndmitchell/hlint
-##########################
+# HLint's default suggestions are opinionated, so we disable all of them by
+# default and enable just a small subset we can agree on.
 
-- modules:
-  - {name: [Data.Set, Data.HashSet], as: Set} # if you import Data.Set qualified, it must be as 'Set'
-  - {name: [Data.List], as: List}
-  - {name: [Data.Sequence], as: Seq}
+- ignore: {}  # ignore all
 
-# Add custom hints for this project
-#
-# Will suggest replacing "wibbleMany [myvar]" with "wibbleOne myvar"
-# - error: {lhs: "wibbleMany [x]", rhs: wibbleOne x}
+- error:
+    name: Use bvZero
+    lhs: "What4.Interface.bvLit sym w (Data.BitVector.Sized.zero w)"
+    rhs: 'What4.Interface.bvZero sym w'
 
-# We should use "panic", not "error".
-# - error:
-#     lhs: "error x"
-#     rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
-
-# TODO: specialize these to the modules they are needed
-- ignore: {name: 'Use :'}
-- ignore: {name: Avoid lambda using `infix`}
-- ignore: {name: Avoid lambda}
-- ignore: {name: Avoid restricted qualification}
-- ignore: {name: Eta reduce}
-- ignore: {name: Functor law}
-- ignore: {name: Move brackets to avoid $}
-- ignore: {name: Parse error}
-- ignore: {name: Reduce duplication}
-- ignore: {name: Redundant $}
-- ignore: {name: Redundant ==}
-- ignore: {name: Redundant bracket}
-- ignore: {name: Redundant case}
-- ignore: {name: Redundant do}
-- ignore: {name: Redundant flip}
-- ignore: {name: Redundant guard}
-- ignore: {name: Redundant lambda}
-- ignore: {name: Redundant return}
-- ignore: {name: Unused LANGUAGE pragma}
-- ignore: {name: Use $>}
-- ignore: {name: Use &&}
-- ignore: {name: Use ++}
-- ignore: {name: Use .}
-- ignore: {name: Use <$>}
-- ignore: {name: Use <=<}
-- ignore: {name: Use =<<}
-- ignore: {name: Use ==}
-- ignore: {name: Use >=>}
-- ignore: {name: Use String}
-- ignore: {name: Use asks}
-- ignore: {name: Use camelCase}
-- ignore: {name: Use const}
-- ignore: {name: Use fewer imports}
-- ignore: {name: Use fmap}
-- ignore: {name: Use forM_}
-- ignore: {name: Use fromMaybe, within: [Lang.Crucible.Analysis.Shape, Lang.Crucible.JVM.Class, Lang.Crucible.JVM.Translation.Class]}
-- ignore: {name: Use record patterns, within: [Lang.Crucible.Simulator.EvalStmt, Lang.Crucible.Simulator.Profiling, Lang.Crucible.CFG.Core]}
-- ignore: {name: Use guards}
-- ignore: {name: Use hPrint}
-- ignore: {name: Use if}
-- ignore: {name: Use isNothing}
-- ignore: {name: Use lambda-case}
-- ignore: {name: Use list comprehension}
-- ignore: {name: Use maybe}
-- ignore: {name: Use newtype instead of data}
-- ignore: {name: Use record patterns}
-- ignore: {name: Use otherwise}
-- ignore: {name: Use section}
-- ignore: {name: Use sortOn}
-- ignore: {name: Use tuple-section}
-- ignore: {name: Use uncurry}
-- ignore: {name: Use unless}
-- ignore: {name: Use unwords}
-- ignore: {name: Use void}
-- ignore: {name: Use when}
+- error:
+    name: Use bvOne
+    lhs: "What4.Interface.bvLit sym w (Data.BitVector.Sized.one w)"
+    rhs: 'What4.Interface.bvOne sym w'

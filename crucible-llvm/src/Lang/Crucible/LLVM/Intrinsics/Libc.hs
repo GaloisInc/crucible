@@ -192,7 +192,7 @@ llvmMemcpyOverride =
   [llvmOvr| i8* @memcpy( i8*, i8*, size_t ) |]
   (\memOps args ->
        do sym <- getSymInterface
-          volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
+          volatile <- liftIO $ RegEntry knownRepr <$> bvZero sym knownNat
           Ctx.uncurryAssignment (callMemcpy memOps)
                                 (args :> volatile)
           return $ regValue $ args^._1 -- return first argument
@@ -213,7 +213,7 @@ llvmMemcpyChkOverride =
   (\memOps args ->
       do let args' = Empty :> (args^._1) :> (args^._2) :> (args^._3)
          sym <- getSymInterface
-         volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
+         volatile <- liftIO $ RegEntry knownRepr <$> bvZero sym knownNat
          Ctx.uncurryAssignment (callMemcpy memOps)
                                (args' :> volatile)
          return $ regValue $ args^._1 -- return first argument
@@ -231,7 +231,7 @@ llvmMemmoveOverride =
   [llvmOvr| i8* @memmove( i8*, i8*, size_t ) |]
   (\memOps args ->
       do sym <- getSymInterface
-         volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
+         volatile <- liftIO (RegEntry knownRepr <$> bvZero sym knownNat)
          Ctx.uncurryAssignment (callMemmove memOps)
                                (args :> volatile)
          return $ regValue $ args^._1 -- return first argument
@@ -253,7 +253,7 @@ llvmMemsetOverride =
          val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
          let len = args^._3
          volatile <- liftIO
-            (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
+            (RegEntry knownRepr <$> bvZero sym knownNat)
          callMemset memOps dest val len volatile
          return (regValue dest)
     )
@@ -275,7 +275,7 @@ llvmMemsetChkOverride =
               (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
          let len = args^._3
          volatile <- liftIO
-            (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
+            (RegEntry knownRepr <$> bvZero sym knownNat)
          callMemset memOps dest val len volatile
          return (regValue dest)
     )
@@ -462,7 +462,7 @@ callPosixMemalign mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz)
                   let displayString = "<posix_memaign> " ++ show loc
                   (p, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz a
                   mem'' <- storeRaw bak mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
-                  z <- bvLit sym knownNat (BV.zero knownNat)
+                  z <- bvZero sym knownNat
                   return (z, mem'')
 
 callMalloc
@@ -647,7 +647,7 @@ callExit ec =
   ovrWithBackend $ \bak -> liftIO $ do
     let sym = backendGetSym bak
     when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
-      do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
+      do cond <- bvEq sym (regValue ec) =<< bvZero sym knownNat
          -- If the argument is non-zero, throw an assertion failure. Otherwise,
          -- simply stop the current thread of execution.
          assert bak cond "Call to exit() with non-zero argument"
@@ -1036,11 +1036,11 @@ callIsinf w (regValue -> x) = do
     isPos <- iFloatIsPos @_ @fi sym x
     isInfN <- andPred sym isInf isNeg
     isInfP <- andPred sym isInf isPos
-    bvOne    <- bvLit sym w (BV.one w)
-    bvNegOne <- bvNeg sym bvOne
-    bvZero   <- bvLit sym w (BV.zero w)
-    res0 <- bvIte sym isInfP bvOne bvZero
-    bvIte sym isInfN bvNegOne res0
+    bv1 <- bvOne sym w
+    bvNeg1 <- bvNeg sym bv1
+    bv0 <- bvZero sym w
+    res0 <- bvIte sym isInfP bv1 bv0
+    bvIte sym isInfN bvNeg1 res0
 
 callIsnan ::
   forall fi w p sym ext r args ret.
@@ -1052,11 +1052,11 @@ callIsnan w (regValue -> x) = do
   sym <- getSymInterface
   liftIO $ do
     isnan  <- iFloatIsNaN @_ @fi sym x
-    bvOne  <- bvLit sym w (BV.one w)
-    bvZero <- bvLit sym w (BV.zero w)
+    bv1 <- bvOne sym w
+    bv0 <- bvZero sym w
     -- isnan() is allowed to return any nonzero value if the argument is NaN, and
     -- out of all the possible nonzero values, `1` is certainly one of them.
-    bvIte sym isnan bvOne bvZero
+    bvIte sym isnan bv1 bv0
 
 callSqrt ::
   forall fi p sym ext r args ret.
@@ -1831,7 +1831,7 @@ cxa_atexitOverride =
   [llvmOvr| i32 @__cxa_atexit( void (i8*)*, i8*, i8* ) |]
   (\_ _args -> do
     sym <- getSymInterface
-    liftIO $ bvLit sym knownNat (BV.zero knownNat))
+    liftIO $ bvZero sym knownNat)
 
 ----------------------------------------------------------------------------
 

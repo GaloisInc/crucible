@@ -1396,7 +1396,7 @@ callObjectsize _mvar w
       -- through compilation for us to see, that means the compiler could not
       -- determine the value.
       t <- bvIsNonzero sym flag
-      z <- bvLit sym w (BV.zero w)
+      z <- bvZero sym w
       n <- bvNotBits sym z -- NB: -1 is the boolean negation of zero
       bvIte sym t z n
 
@@ -1716,16 +1716,16 @@ callIsFpclass ::
 callIsFpclass regOp@(regValue -> op) (regValue -> test) = do
   sym <- getSymInterface
   let w1 = knownNat @1
-  bvOne  <- liftIO $ bvLit sym w1 (BV.one w1)
-  bvZero <- liftIO $ bvLit sym w1 (BV.zero w1)
+  bv1 <- liftIO $ bvZero sym w1
+  bv0 <- liftIO $ bvOne sym w1
 
   let negative bit = liftIO $ do
         isNeg <- iFloatIsNeg @_ @fi sym op
-        liftIO $ bvIte sym isNeg bit bvZero
+        liftIO $ bvIte sym isNeg bit bv0
 
   let positive bit = liftIO $ do
         isPos <- iFloatIsPos @_ @fi sym op
-        liftIO $ bvIte sym isPos bit bvZero
+        liftIO $ bvIte sym isPos bit bv0
 
   let negAndPos doCheck = liftIO $ do
         check <- doCheck
@@ -1735,19 +1735,19 @@ callIsFpclass regOp@(regValue -> op) (regValue -> test) = do
 
   let callIsInf x = do
         isInf <- iFloatIsInf @_ @fi sym x
-        bvIte sym isInf bvOne bvZero
+        bvIte sym isInf bv1 bv0
 
   let callIsNormal x = do
         isNorm <- iFloatIsNorm @_ @fi sym x
-        bvIte sym isNorm bvOne bvZero
+        bvIte sym isNorm bv1 bv0
 
   let callIsSubnormal x = do
         isSubnorm <- iFloatIsSubnorm @_ @fi sym x
-        bvIte sym isSubnorm bvOne bvZero
+        bvIte sym isSubnorm bv1 bv0
 
   let callIsZero x = do
         is0 <- iFloatIsZero @_ @fi sym x
-        bvIte sym is0 bvOne bvZero
+        bvIte sym is0 bv1 bv0
 
   isNan <- Libc.callIsnan w1 regOp
   (isInfN, isInfP) <- negAndPos $ callIsInf op
@@ -1758,9 +1758,9 @@ callIsFpclass regOp@(regValue -> op) (regValue -> test) = do
   foldM
     (\bits (bitNum, check) -> liftIO $ do
         isBitSet <- liftIO $ testBitBV sym bitNum test
-        newBit <- liftIO $ bvIte sym isBitSet check bvZero
+        newBit <- liftIO $ bvIte sym isBitSet check bv0
         liftIO $ bvOrBits sym newBit bits)
-    bvZero
+    bv0
     [ (0, isNan)      -- Signaling NaN
     , (1, isNan)      -- Quiet NaN
     , (2, isInfN)     -- Negative infinity

@@ -699,7 +699,7 @@ isArray_override =
                       let sym = backendGetSym bak
                       let reg :: W4.PartExpr (W4.Pred sym) (C.MuxTree sym (RefCell JVMObjectType))
                           reg = C.unRV (Ctx.last args)
-                      bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr (BV.zero knownRepr)
+                      bvFalse <- liftIO $ return $ W4.bvZero sym knownRepr
 {-
                       let k :: RefCell JVMObjectType -> IO (W4.SymBV sym 32)
                           k = undefined

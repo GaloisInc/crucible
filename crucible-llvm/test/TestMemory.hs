@@ -134,7 +134,7 @@ testArrayStride = testCase "array stride" $ withMem LLVMD.BigEndian $ \bak mem0 
 
   i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
   ptr_i <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride i
-  ptr_i' <- ptrAdd sym ?ptrWidth ptr_i =<< What4.bvLit sym ?ptrWidth (BV.one ?ptrWidth)
+  ptr_i' <- ptrAdd sym ?ptrWidth ptr_i =<< What4.bvOne sym ?ptrWidth
 
   zero_bv <- What4.bvLit sym (knownNat @8) (BV.zero knownNat)
   mem3 <-
@@ -149,7 +149,7 @@ testArrayStride = testCase "array stride" $ withMem LLVMD.BigEndian $ \bak mem0 
 
   j <- What4.freshConstant sym (userSymbol' "j") $ What4.BaseBVRepr ?ptrWidth
   ptr_j <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride j
-  ptr_j' <- ptrAdd sym ?ptrWidth ptr_j =<< What4.bvLit sym ?ptrWidth (BV.one ?ptrWidth)
+  ptr_j' <- ptrAdd sym ?ptrWidth ptr_j =<< What4.bvOne sym ?ptrWidth
 
   at_j_val <- projectLLVM_bv bak
     =<< doLoad bak mem4 ptr_j byte_storage_type ptr_byte_repr noAlignment

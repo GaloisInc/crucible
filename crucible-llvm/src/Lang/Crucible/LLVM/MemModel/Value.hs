@@ -170,7 +170,7 @@ zeroInt sym bytes k
    | Some w <- mkNatRepr (bytesToBits bytes)
    , Just LeqProof <- isPosNat w
    =   do blk <- natLit sym 0
-          bv  <- bvLit sym w (BV.zero w)
+          bv  <- bvZero sym w
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
 
@@ -313,7 +313,7 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
         Some (repr :: NatRepr w) ->
           case testNatCases (knownNat @0) repr of
             NatCaseLT (LeqProof :: LeqProof 1 w) ->
-              LLVMValInt <$> natLit sym 0 <*> bvLit sym repr (BV.zero repr)
+              LLVMValInt <$> natLit sym 0 <*> bvZero sym repr
             NatCaseEQ -> panic "zeroExpandLLVMVal" ["Zero value inside Bytes"]
             NatCaseGT (LeqProof :: LeqProof (w + 1) 0) ->
               panic "zeroExpandLLVMVal" ["Impossible: (w + 1) </= 0"]

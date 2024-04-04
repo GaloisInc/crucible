@@ -152,7 +152,7 @@ llvmPointer_bv sym bv =
 
 -- | Produce the distinguished null pointer value.
 mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (LLVMPtr sym w)
-mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w (BV.zero w)
+mkNullPointer sym w = llvmPointer_bv sym =<< bvZero sym w
 
 
 concBV ::
