@@ -158,9 +158,8 @@ callAllCtors = callCtors (const True)
 
 -- | Make a 'LLVMGenerator' into a CFG by making it a function with no arguments
 -- that returns unit.
-generatorToCFG :: forall mem arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr)
-  => Mem.Mem mem
-               => Text
+generatorToCFG :: forall mem arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr, Mem.Mem mem)
+  => Text
                -> HandleAllocator
                -> LLVMContext mem arch
                -> (forall s. LLVMGenerator s mem arch ret (Expr (LLVM mem) s ret))
@@ -184,9 +183,8 @@ generatorToCFG name halloc llvmctx gen ret = do
   return $! toSSA g
 
 -- | Create a CFG that calls some of the functions in @llvm.global_ctors@.
-callCtorsCFG :: forall mem arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr)
-  => Mem.Mem mem
-             => (Ctor -> Bool) -- ^ Filter function
+callCtorsCFG :: forall mem arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr, Mem.Mem mem)
+  => (Ctor -> Bool) -- ^ Filter function
              -> L.Module
              -> HandleAllocator
              -> LLVMContext mem arch

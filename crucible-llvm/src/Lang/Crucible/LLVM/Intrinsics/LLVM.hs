@@ -62,8 +62,7 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 -- | Local helper to make a null pointer in 'OverrideSim'
 mkNull
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => OverrideSim p sym ext rtp args ret (LLVMPtr sym wptr)
 mkNull = do
   sym <- getSymInterface
@@ -78,8 +77,7 @@ mkNull = do
 -- via 'Lang.Crucible.LLVM.Intrinsics.Common.basic_llvm_override'.
 basic_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
-  mem ~ Mem =>
+  , ?lc :: TypeContext, ?memOpts :: MemOptions , mem ~ Mem) =>
   [SomeLLVMOverride p sym ext mem]
 basic_llvm_overrides =
   [ SomeLLVMOverride llvmLifetimeStartOverride
@@ -264,8 +262,7 @@ poly1_llvm_overrides =
 --
 -- <https://llvm.org/docs/LangRef.html#llvm-lifetime-start-intrinsic LLVM docs>
 llvmLifetimeStartOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
 llvmLifetimeStartOverride =
   [llvmOvr| void @llvm.lifetime.start( i64, i8* ) |]
@@ -275,8 +272,7 @@ llvmLifetimeStartOverride =
 --
 -- <https://llvm.org/docs/LangRef.html#llvm-lifetime-end-intrinsic LLVM docs>
 llvmLifetimeEndOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
 llvmLifetimeEndOverride =
   [llvmOvr| void @llvm.lifetime.end( i64, i8* ) |]
@@ -319,8 +315,7 @@ llvmLifetimeOverrideOverload_opaque startOrEnd =
 --
 -- <https://llvm.org/docs/LangRef.html#llvm-invariant-start-intrinsic LLVM docs>
 llvmInvariantStartOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => NatRepr width
   -> LLVMOverride p sym ext mem
        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
@@ -332,8 +327,7 @@ llvmInvariantStartOverride w =
 
 -- | Like 'llvmInvariantStartOverride', but with an opaque pointer type.
 llvmInvariantStartOverride_opaque
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem
        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
        (LLVMPointerType wptr)
@@ -344,8 +338,7 @@ llvmInvariantStartOverride_opaque =
 
 -- | See comment on 'llvmInvariantStartOverride'.
 llvmInvariantEndOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => NatRepr width
   -> LLVMOverride p sym ext mem
        (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
@@ -357,8 +350,7 @@ llvmInvariantEndOverride w =
 
 -- | See comment on 'llvmInvariantStartOverride_opaque'.
 llvmInvariantEndOverride_opaque
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem
        (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
        UnitType
@@ -419,16 +411,14 @@ llvmUBSanTrapOverride =
       liftIO $ addFailedAssertion bak $ AssertFailureSimError "llvm.ubsantrap() called" "")
 
 llvmStacksave
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem EmptyCtx (LLVMPointerType wptr)
 llvmStacksave =
   [llvmOvr| i8* @llvm.stacksave() |]
   (\_memOps _args -> mkNull)
 
 llvmStackrestore
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem (EmptyCtx ::> LLVMPointerType wptr) UnitType
 llvmStackrestore =
   [llvmOvr| void @llvm.stackrestore( i8* ) |]
@@ -672,8 +662,7 @@ llvmMemcpyOverride_8_8_64_noalign_opaque =
 
 
 llvmObjectsizeOverride_32
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32 =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1 ) |]
@@ -704,8 +693,7 @@ llvmObjectsizeOverride_32_null_dynamic_opaque =
   (\memOps args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic memOps knownNat) args)
 
 llvmObjectsizeOverride_64
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMOverride p sym ext mem (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64 =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1 ) |]
@@ -776,8 +764,7 @@ llvmPrefetchOverride_preLLVM10 =
   (\_memOps _args -> pure ())
 
 llvmFshl ::
-  (1 <= w, IsSymInterface sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
     (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
@@ -788,8 +775,7 @@ llvmFshl w =
  (\_memOps args -> Ctx.uncurryAssignment (callFshl w) args)
 
 llvmFshr ::
-  (1 <= w, IsSymInterface sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
     (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
@@ -800,8 +786,7 @@ llvmFshr w =
  (\_memOps args -> Ctx.uncurryAssignment (callFshr w) args)
 
 llvmSaddWithOverflow
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -812,8 +797,7 @@ llvmSaddWithOverflow w =
   (\memOps args -> Ctx.uncurryAssignment (callSaddWithOverflow memOps) args)
 
 llvmUaddWithOverflow
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -825,8 +809,7 @@ llvmUaddWithOverflow w =
 
 
 llvmSsubWithOverflow
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -838,8 +821,7 @@ llvmSsubWithOverflow w =
 
 
 llvmUsubWithOverflow
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -850,8 +832,7 @@ llvmUsubWithOverflow w =
     (\memOps args -> Ctx.uncurryAssignment (callUsubWithOverflow memOps) args)
 
 llvmSmulWithOverflow
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -862,8 +843,7 @@ llvmSmulWithOverflow w =
     (\memOps args -> Ctx.uncurryAssignment (callSmulWithOverflow memOps) args)
 
 llvmUmulWithOverflow
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -874,8 +854,7 @@ llvmUmulWithOverflow w =
   (\memOps args -> Ctx.uncurryAssignment (callUmulWithOverflow memOps) args)
 
 llvmUmax ::
-  (1 <= w, IsSymInterface sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
      (EmptyCtx ::> BVType w ::> BVType w)
@@ -886,8 +865,7 @@ llvmUmax w =
     (\memOps args -> Ctx.uncurryAssignment (callUmax memOps) args)
 
 llvmUmin ::
-  (1 <= w, IsSymInterface sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
      (EmptyCtx ::> BVType w ::> BVType w)
@@ -898,8 +876,7 @@ llvmUmin w =
     (\memOps args -> Ctx.uncurryAssignment (callUmin memOps) args)
 
 llvmSmax ::
-  (1 <= w, IsSymInterface sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
      (EmptyCtx ::> BVType w ::> BVType w)
@@ -910,8 +887,7 @@ llvmSmax w =
     (\memOps args -> Ctx.uncurryAssignment (callSmax memOps) args)
 
 llvmSmin ::
-  (1 <= w, IsSymInterface sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
      (EmptyCtx ::> BVType w ::> BVType w)
@@ -922,8 +898,7 @@ llvmSmin w =
     (\memOps args -> Ctx.uncurryAssignment (callSmin memOps) args)
 
 llvmCtlz
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w ->
      LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType 1)
@@ -934,8 +909,7 @@ llvmCtlz w =
     (\memOps args -> Ctx.uncurryAssignment (callCtlz memOps) args)
 
 llvmCttz
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w
   -> LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w ::> BVType 1)
@@ -946,8 +920,7 @@ llvmCttz w =
     (\memOps args -> Ctx.uncurryAssignment (callCttz memOps) args)
 
 llvmCtpop
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w
   -> LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w)
@@ -958,8 +931,7 @@ llvmCtpop w =
     (\memOps args -> Ctx.uncurryAssignment (callCtpop memOps) args)
 
 llvmBitreverse
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w
   -> LLVMOverride p sym ext mem
          (EmptyCtx ::> BVType w)
@@ -992,8 +964,7 @@ llvmBSwapOverride widthRepr =
     }}}
 
 llvmAbsOverride ::
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
-  mem ~ Mem =>
+  (1 <= w, IsSymInterface sym, HasLLVMAnn sym, mem ~ Mem) =>
   NatRepr w ->
   LLVMOverride p sym ext mem
      (EmptyCtx ::> BVType w ::> BVType 1)
@@ -1459,8 +1430,7 @@ callObjectsize _mvar w
       bvIte sym t z n
 
 callObjectsize_null
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => GlobalVar mem
   -> NatRepr w
   -> RegEntry sym (LLVMPointerType wptr)
@@ -1470,8 +1440,7 @@ callObjectsize_null
 callObjectsize_null mvar w ptr flag _nullUnknown = callObjectsize mvar w ptr flag
 
 callObjectsize_null_dynamic
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => GlobalVar mem
   -> NatRepr w
   -> RegEntry sym (LLVMPointerType wptr)
@@ -1507,8 +1476,7 @@ callCtlz _mvar
         bvCountLeadingZeros sym val
 
 callFshl
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType w)
@@ -1533,8 +1501,7 @@ callFshl w x y amt =
      bvSelect sym w w z
 
 callFshr
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => NatRepr w
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType w)
@@ -1656,8 +1623,7 @@ callUmulWithOverflow _mvar
       return (Empty :> RV z :> RV ov')
 
 callUmax
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => GlobalVar mem
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType w)
@@ -1669,8 +1635,7 @@ callUmax _mvar (regValue -> x) (regValue -> y) = do
     bvIte sym xGtY x y
 
 callUmin
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => GlobalVar mem
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType w)
@@ -1682,8 +1647,7 @@ callUmin _mvar (regValue -> x) (regValue -> y) = do
     bvIte sym xLtY x y
 
 callSmax
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => GlobalVar mem
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType w)
@@ -1695,8 +1659,7 @@ callSmax _mvar (regValue -> x) (regValue -> y) = do
     bvIte sym xGtY x y
 
 callSmin
-  :: (1 <= w, IsSymInterface sym)
-  => mem ~ Mem
+  :: (1 <= w, IsSymInterface sym, mem ~ Mem)
   => GlobalVar mem
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType w)

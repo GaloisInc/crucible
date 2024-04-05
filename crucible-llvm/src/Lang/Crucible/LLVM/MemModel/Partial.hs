@@ -520,8 +520,7 @@ bvToX86_FP80 sym errCtx (NoErr _ v) =
 -- (low) bytes are given first. The allocation block number of each
 -- argument is asserted to equal 0, indicating non-pointers.
 bvConcat :: forall sym w.
-  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
-  sym ->
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w, sym ->
   MemoryOp sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->

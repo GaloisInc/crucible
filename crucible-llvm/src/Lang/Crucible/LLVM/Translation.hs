@@ -221,9 +221,8 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 
 -- | Generate crucible code for each LLVM statement in turn.
-generateStmts :: (?transOpts :: TranslationOptions)
-  => Mem.Mem mem
-        => TypeRepr ret
+generateStmts :: (?transOpts :: TranslationOptions, Mem.Mem mem)
+  => TypeRepr ret
         -> L.BlockLabel
         -> Set L.Ident {- ^ Set of usable identifiers -}
         -> [L.Stmt]
@@ -348,8 +347,7 @@ findFile _ = Nothing
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
 --   by translating the given LLVM statements.
 defineLLVMBlock
-        :: (?transOpts :: TranslationOptions)
-        => Mem.Mem mem
+        :: (?transOpts :: TranslationOptions, Mem.Mem mem)
         => TypeRepr ret
         -> LLVMBlockInfoMap s
         -> L.BasicBlock
@@ -367,8 +365,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --
 --   This step introduces a new dummy entry point that simply jumps to the LLVM entry
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
-genDefn :: (?transOpts :: TranslationOptions)
-        => Mem.Mem mem
+genDefn :: (?transOpts :: TranslationOptions, Mem.Mem mem)
         => L.Define
         -> TypeRepr ret
         -> LLVMGenerator s mem arch ret (Expr ext s ret)
@@ -422,8 +419,7 @@ checkEntryPointUseSet nm bi args
 -- | Translate a single LLVM function definition into a crucible CFG.
 --
 transDefine :: forall mem arch wptr args ret.
-  (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions) =>
-  Mem.Mem mem =>
+  (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions, Mem.Mem mem) =>
   FnHandle args ret ->
   LLVMContext mem arch ->
   IORef [LLVMTranslationWarning] ->

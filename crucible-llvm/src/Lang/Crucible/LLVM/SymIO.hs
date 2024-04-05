@@ -373,8 +373,7 @@ allocateFileDescriptor fsVars fh = do
     return (fdesc, FDescMap (next + 1) ptrMap')
 
 loadFileIdent
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions, mem ~ Mem)
   => GlobalVar mem
   -> LLVMPtr sym wptr
   -> OverrideSim p sym ext r args ret (SymIO.FileIdent sym)
@@ -400,8 +399,7 @@ returnIOError = do
   liftIO $ W4.bvLit sym PtrWidth (BVS.mkBV PtrWidth (-1))
 
 openFile
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions, mem ~ Mem)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym ext mem
            (EmptyCtx ::> LLVMPointerType wptr
@@ -413,8 +411,7 @@ openFile fsVars =
   (\memOps args -> uncurryAssignment (callOpenFile memOps fsVars) args)
 
 callOpenFile ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions, mem ~ Mem) =>
   GlobalVar mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (LLVMPointerType wptr) ->
@@ -427,8 +424,7 @@ callOpenFile memOps fsVars filename_ptr _flags =
        Right fileHandle -> allocateFileDescriptor fsVars fileHandle
 
 closeFile
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym ext mem
            (EmptyCtx ::> BVType 32)
@@ -438,8 +434,7 @@ closeFile fsVars =
   (\memOps args -> uncurryAssignment (callCloseFile memOps fsVars) args)
 
 callCloseFile ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, mem ~ Mem) =>
   GlobalVar mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->
@@ -454,8 +449,7 @@ callCloseFile _memOps fsVars filedesc =
        Nothing -> \_ -> returnIOError32
 
 readFileHandle
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, mem ~ Mem)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym ext mem
            (EmptyCtx ::> BVType 32
@@ -467,8 +461,7 @@ readFileHandle fsVars =
   (\memOps args -> uncurryAssignment (callReadFileHandle memOps fsVars) args)
 
 callReadFileHandle ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, mem ~ Mem) =>
   GlobalVar mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->
@@ -526,8 +519,7 @@ doConcreteWrite ptrw handles symFD chunk size =
     _ -> return ()
 
 writeFileHandle
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions, mem ~ Mem)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym ext mem
            (EmptyCtx ::> BVType 32
@@ -539,8 +531,7 @@ writeFileHandle fsVars =
   (\memOps args -> uncurryAssignment (callWriteFileHandle memOps fsVars) args)
 
 callWriteFileHandle ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions, mem ~ Mem) =>
   GlobalVar mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->
@@ -564,8 +555,7 @@ callWriteFileHandle memOps fsVars filedesc buf count =
 --
 -- See the 'initialLLVMFileSystem' function for creating the initial filesystem state
 symio_overrides
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?memOpts :: MemOptions)
-  => mem ~ Mem
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?memOpts :: MemOptions, mem ~ Mem)
   => LLVMFileSystem wptr
   -> [OverrideTemplate p sym mem arch rtp l a]
 symio_overrides fs =

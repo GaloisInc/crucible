@@ -199,8 +199,7 @@ updateProfiles llvm cell state
 arraySizeProfile ::
   forall sym ext mem arch p rtp.
   ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)
-  , ?memOpts :: C.MemOptions ) =>
-  mem ~ C.Mem =>
+  , ?memOpts :: C.MemOptions , mem ~ C.Mem) =>
   C.LLVMContext mem arch ->
   IORef (Map Text [FunctionProfile]) ->
   IO (C.ExecutionFeature p sym ext rtp)

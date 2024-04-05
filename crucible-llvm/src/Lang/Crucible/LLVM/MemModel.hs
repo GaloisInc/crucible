@@ -315,8 +315,7 @@ assertUndefined bak callStack p ub =
 
 
 assertStoreError ::
-  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, 1 <= wptr) =>
-  mem ~ Mem =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, 1 <= wptr, mem ~ Mem) =>
   bak ->
   MemErrContext sym wptr ->
   MemoryErrorReason ->
@@ -355,8 +354,7 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec ::
-  (Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  mem ~ Mem =>
+  (Partial.HasLLVMAnn sym, ?memOpts :: MemOptions, mem ~ Mem) =>
   EvalStmtFunc p sym (LLVM mem)
 llvmStatementExec stmt cst =
   let simCtx = cst^.stateContext
@@ -371,8 +369,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym bak ext mem rtp blocks ret args tp.
-  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, GHC.HasCallStack, ?memOpts :: MemOptions) =>
-  mem ~ Mem =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, GHC.HasCallStack, ?memOpts :: MemOptions, mem ~ Mem) =>
   bak ->
   LLVMStmt mem (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)

@@ -60,8 +60,7 @@ import           What4.ProgramLoc (plSourceLoc)
 --   This will immediately build Crucible CFGs for each function
 --   defined in the module.
 registerModule ::
-   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   mem ~ Mem =>
+   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym, mem ~ Mem) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation mem arch ->
    OverrideSim p sym (LLVM mem) rtp l a ()
@@ -72,8 +71,7 @@ registerModule handleWarning mtrans =
 --   module translation. This will immediately build a Crucible CFG for
 --   the named function.
 registerModuleFn ::
-   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   mem ~ Mem =>
+   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym, mem ~ Mem) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation mem arch ->
    L.Symbol ->
@@ -101,8 +99,7 @@ registerModuleFn handleWarning mtrans sym =
 -- | Lazily register all the functions defined in the LLVM module.  See
 --   'registerLazyModuleFn' for a description.
 registerLazyModule ::
-   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   mem ~ Mem =>
+   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym, mem ~ Mem) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
    ModuleTranslation mem arch ->
    OverrideSim p sym (LLVM mem) rtp l a ()
@@ -118,8 +115,7 @@ registerLazyModule handleWarning mtrans =
 --   Note that the callback for printing translation warnings may be called at
 --   a much-later point, when the function in question is actually first invoked.
 registerLazyModuleFn ::
-   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   mem ~ Mem =>
+   (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym, mem ~ Mem) =>
    (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling translation warnings -} ->
    ModuleTranslation mem arch ->
    L.Symbol ->
@@ -179,8 +175,7 @@ llvmGlobals
 llvmGlobals memVar mem = emptyGlobals & insertGlobal memVar mem
 
 llvmExtensionImpl ::
-  (HasLLVMAnn sym) =>
-  mem ~ Mem =>
+  (HasLLVMAnn sym, mem ~ Mem) =>
   MemOptions ->
   ExtensionImpl p sym (LLVM mem)
 llvmExtensionImpl mo =

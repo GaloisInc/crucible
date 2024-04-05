@@ -64,8 +64,7 @@ assertSideCondition bak callStack (LLVMSideCondition (RV p) ub) =
 
 llvmExtensionEval ::
   forall sym bak p ext mem rtp blocks r ctx.
-  mem ~ Mem =>
-  (HasLLVMAnn sym, IsSymBackend sym bak) =>
+  (mem ~ Mem, HasLLVMAnn sym, IsSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->

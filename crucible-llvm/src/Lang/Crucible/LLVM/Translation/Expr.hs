@@ -334,8 +334,7 @@ explodeVector _ _ = Nothing
 -- Translations
 
 liftConstant ::
-  Mem.Mem mem =>
-  HasPtrWidth (ArchWidth arch) =>
+  (Mem.Mem mem, HasPtrWidth (ArchWidth arch)) =>
   LLVMConst ->
   LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
 liftConstant c = case c of
@@ -488,16 +487,14 @@ transValue ty v =
 
 
 callIsNull
-   :: (1 <= w)
-  => Mem.Mem mem
-   => NatRepr w
+   :: (1 <= w, Mem.Mem mem)
+  => NatRepr w
    -> Expr (LLVM mem) s (PointerType mem w)
    -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s BoolType)
 callIsNull w ex = App . Not <$> callIntToBool w ex
 
 callIntToBool
-  :: (1 <= w)
-  => Mem.Mem mem
+  :: (1 <= w, Mem.Mem mem)
   => NatRepr w
   -> Expr (LLVM mem) s (PointerType mem w)
   -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s BoolType)
@@ -512,8 +509,7 @@ callIntToBool w ex =
      return (blk ./= litExpr 0 .|| (App (BVNonzero w off)))
 
 callAlloca
-   :: wptr ~ ArchWidth arch
-   => Mem.Mem mem
+   :: (wptr ~ ArchWidth arch, Mem.Mem mem)
    => Expr (LLVM mem) s (BVType wptr)
    -> Alignment
    -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (PointerType mem wptr))
@@ -533,8 +529,7 @@ callPopFrame = do
    void $ extensionStmt (LLVM_PopFrame memVar)
 
 callPtrAddOffset ::
-       wptr ~ ArchWidth arch
-    => Mem.Mem mem
+       (wptr ~ ArchWidth arch, Mem.Mem mem)
     => Expr (LLVM mem) s (PointerType mem wptr)
     -> Expr (LLVM mem) s (BVType wptr)
     -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (PointerType mem wptr))
@@ -543,8 +538,7 @@ callPtrAddOffset base off = do
     extensionStmt (LLVM_PtrAddOffset ?ptrWidth memVar base off)
 
 callPtrSubtract ::
-       wptr ~ ArchWidth arch
-    => Mem.Mem mem
+       (wptr ~ ArchWidth arch, Mem.Mem mem)
     => Expr (LLVM mem) s (PointerType mem wptr)
     -> Expr (LLVM mem) s (PointerType mem wptr)
     -> LLVMGenerator s mem arch ret (Expr (LLVM mem) s (BVType wptr))

@@ -67,8 +67,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 -- | C++ overrides generally have a bit more work to do: their types are more
 -- complex, their names are mangled in the LLVM module, it's a big mess.
 register_cpp_override ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, mem ~ Mem) =>
   SomeCPPOverride p sym mem arch ->
   OverrideTemplate p sym mem arch rtp l a
 register_cpp_override someCPPOverride =
@@ -188,9 +187,8 @@ constOverride substrings =
       _ -> panic_ "constOverride" decl argTys retTy
 
 -- | Make an override that always returns the same value.
-fixedOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => mem ~ Mem
-              => TypeRepr ty
+fixedOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, mem ~ Mem)
+  => TypeRepr ty
               -> (GlobalVar Mem -> sym -> IO (RegValue sym ty))
               -> [String]
               -> (L.Symbol -> ABI.DecodedName -> Bool)
@@ -206,9 +204,8 @@ fixedOverride ty regval substrings =
       _ -> panic_ "fixedOverride" decl argTys retTy
 
 -- | Return @true@.
-trueOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => mem ~ Mem
-             => [String]
+trueOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, mem ~ Mem)
+  => [String]
              -> (L.Symbol -> ABI.DecodedName -> Bool)
              -> SomeCPPOverride p sym mem arch
 trueOverride =
@@ -287,9 +284,8 @@ sentryOverride =
 -- | An override of the @bool@ operator (cast) on the @sentry@ class,
 --
 -- @sentry::operator bool()@
-sentryBoolOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => mem ~ Mem
-                   => SomeCPPOverride p sym mem arch
+sentryBoolOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, mem ~ Mem)
+  => SomeCPPOverride p sym mem arch
 sentryBoolOverride =
   trueOverride ["basic_ostream", "sentry"] $ \_nm decodedName ->
     case decodedName of

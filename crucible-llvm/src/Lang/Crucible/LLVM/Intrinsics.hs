@@ -68,8 +68,7 @@ llvmIntrinsicTypes =
 -- | Register all declare and define overrides
 register_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
-  mem ~ Mem =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions , mem ~ Mem) =>
   L.Module ->
   [OverrideTemplate p sym mem arch rtp l a] {- ^ Additional "define" overrides -} ->
   [OverrideTemplate p sym mem arch rtp l a] {- ^ Additional "declare" overrides -} ->
@@ -126,8 +125,7 @@ register_llvm_overrides_ llvmctx acts decls =
          runMaybeT (flip runReaderT (decl,declnm,llvmctx) $ asum (map overrideTemplateAction acts'))
 
 register_llvm_define_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, mem ~ Mem) =>
   L.Module ->
   [OverrideTemplate p sym mem arch rtp l a] ->
   LLVMContext mem arch ->
@@ -139,8 +137,7 @@ register_llvm_define_overrides llvmModule addlOvrs llvmctx =
 
 register_llvm_declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
-  mem ~ Mem =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions , mem ~ Mem) =>
   L.Module ->
   [OverrideTemplate p sym mem arch rtp l a] ->
   LLVMContext mem arch ->
@@ -153,8 +150,7 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
-  mem ~ Mem =>
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions , mem ~ Mem) =>
   [OverrideTemplate p sym mem arch rtp l a]
 declare_overrides =
   concat
@@ -170,8 +166,7 @@ declare_overrides =
 -- | Register those overrides that should apply even when the corresponding
 -- function has a definition
 define_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, mem ~ Mem) =>
   [OverrideTemplate p sym mem arch rtp l a]
 define_overrides =
   [ Libcxx.register_cpp_override Libcxx.putToOverride12

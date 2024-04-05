@@ -433,8 +433,7 @@ insertValue _ _ _ = fail "invalid insertValue instruction"
 
 
 evalGEP :: forall s mem arch ret wptr.
-  wptr ~ ArchWidth arch =>
-  Mem.Mem mem =>
+  (wptr ~ ArchWidth arch, Mem.Mem mem) =>
   L.Instr ->
   GEPResult (LLVMExpr s mem arch) ->
   LLVMGenerator s mem arch ret (LLVMExpr s mem arch)
@@ -486,8 +485,7 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
 
 
 calcGEP_array :: forall wptr s mem arch ret.
-  Mem.Mem mem =>
-  wptr ~ ArchWidth arch =>
+  (Mem.Mem mem, wptr ~ ArchWidth arch) =>
   MemType {- ^ Type of the array elements -} ->
   Expr (LLVM mem) s (Mem.PointerType mem wptr) {- ^ Base pointer -} ->
   LLVMExpr s mem arch {- ^ index value -} ->
@@ -549,8 +547,7 @@ calcGEP_array typ base idx =
 
 
 calcGEP_struct ::
-  wptr ~ ArchWidth arch =>
-  Mem.Mem mem =>
+  (wptr ~ ArchWidth arch, Mem.Mem mem) =>
   FieldInfo ->
   Expr (LLVM mem) s (Mem.PointerType mem wptr) ->
   LLVMGenerator s mem arch ret (Expr (LLVM mem) s (Mem.PointerType mem wptr))
@@ -567,8 +564,7 @@ calcGEP_struct fi base =
      if ioff == 0 then return base else callPtrAddOffset base off
 
 
-translateConversion :: forall s mem arch ret. (?transOpts :: TranslationOptions) =>
-  Mem.Mem mem =>
+translateConversion :: forall s mem arch ret. (?transOpts :: TranslationOptions, Mem.Mem mem) =>
   L.Instr ->
   L.ConvOp ->
   MemType {- Input type -} ->
@@ -698,8 +694,7 @@ translateConversion instr op _inty x outty =
 -- Bit Cast
 
 
-bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  Mem.Mem mem =>
+bitCast :: (?lc::TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch, Mem.Mem mem) =>
           MemType {- ^ starting type of the expression -} ->
           LLVMExpr s mem arch {- ^ expression to cast -} ->
           MemType {- ^ target type -} ->
@@ -736,8 +731,7 @@ bitCast srcT expr tgtT = mb =<< runMaybeT (
   err msg = reportError $ fromString $ unlines ("[bitCast] Failed to perform cast:" : msg)
   indent msg = "  " ++ msg
 
-castToInt :: forall s mem arch w ret. (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
-  Mem.Mem mem =>
+castToInt :: forall s mem arch w ret. (?lc::TypeContext, HasPtrWidth w, w ~ ArchWidth arch, Mem.Mem mem) =>
   MemType {- ^ type of input expression -} ->
   LLVMExpr s mem arch ->
   MaybeT (LLVMGenerator' s mem arch ret) (LLVMExpr s mem arch)
@@ -757,8 +751,7 @@ castToInt (VecType n tp) (explodeVector n -> Just xs) =
      MaybeT (return (vecJoin xs'))
 castToInt _ _ = mzero
 
-castFromInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
-  Mem.Mem mem =>
+castFromInt :: (?lc::TypeContext, HasPtrWidth w, w ~ ArchWidth arch, Mem.Mem mem) =>
   MemType {- ^ target type -} ->
   Natural {- ^ bitvector width in bits -} ->
   LLVMExpr s mem arch -> MaybeT (LLVMGenerator' s mem arch ret) (LLVMExpr s mem arch)
@@ -791,8 +784,7 @@ castFromInt _ _ _ = mzero
 
 -- | Join the elements of a vector into a single bit-vector value.
 -- The resulting bit-vector would be of length at least one.
-vecJoin :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
-  Mem.Mem mem =>
+vecJoin :: (?lc::TypeContext, HasPtrWidth w, w ~ ArchWidth arch, Mem.Mem mem) =>
   [LLVMExpr s mem arch] {- ^ Join these vector elements -} ->
   Maybe (LLVMExpr s mem arch)
 vecJoin exprs =
@@ -820,8 +812,7 @@ bitVal n e = BaseExpr (BVRepr n) (App e)
 
 
 -- | Split a single bit-vector value into a vector of value of the given width.
-vecSplit :: forall s n w mem arch. (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
-  Mem.Mem mem =>
+vecSplit :: forall s n w mem arch. (?lc::TypeContext, HasPtrWidth w, w ~ ArchWidth arch, 1 <= n, Mem.Mem mem) =>
   NatRepr n  {- ^ Length of a single element -} ->
   LLVMExpr s mem arch {- ^ Bit-vector value -} ->
   Maybe [ LLVMExpr s mem arch ]
@@ -848,8 +839,7 @@ vecSplit elLen expr =
   lay = llvmDataLayout ?lc
 
 
-bitop :: forall s mem arch ret. (?transOpts :: TranslationOptions) =>
-  Mem.Mem mem =>
+bitop :: forall s mem arch ret. (?transOpts :: TranslationOptions, Mem.Mem mem) =>
   L.BitOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -871,8 +861,7 @@ bitop op _ x y =
 
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
-raw_bitop :: (?transOpts :: TranslationOptions, 1 <= w) =>
-  Mem.Mem mem =>
+raw_bitop :: (?transOpts :: TranslationOptions, 1 <= w, Mem.Mem mem) =>
   L.BitOp ->
   NatRepr w ->
   Expr (LLVM mem) s (BVType w) ->
@@ -944,9 +933,8 @@ raw_bitop op w a b =
 -- | Translate an LLVM integer operation into a Crucible CFG expression.
 --
 -- Poison values can arise from such operations.
-intop :: forall w s mem arch ret. (?transOpts :: TranslationOptions, 1 <= w)
-  => Mem.Mem mem 
-      => L.ArithOp
+intop :: forall w s mem arch ret. (?transOpts :: TranslationOptions, 1 <= w, Mem.Mem mem)
+  => L.ArithOp
       -> NatRepr w
       -> Expr (LLVM mem) s (BVType w)
       -> Expr (LLVM mem) s (BVType w)
@@ -1059,8 +1047,7 @@ intop op w a b =
        _ -> fail $ unwords ["unsupported integer arith operation", show op]
 
 caseptr
-  :: (1 <= w)
-  => Mem.Mem mem 
+  :: (1 <= w, Mem.Mem mem)
   => NatRepr w
   -> TypeRepr a
   -> (Expr (LLVM mem) s (BVType w) ->
@@ -1240,8 +1227,7 @@ intcmp w op a b =
       L.Isge -> App (BVSle w b a)
 
 pointerCmp
-   :: (wptr ~ ArchWidth arch)
-   => Mem.Mem mem
+   :: (wptr ~ ArchWidth arch, Mem.Mem mem)
    => L.ICmpOp
    -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
    -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
@@ -1308,8 +1294,7 @@ pointerCmp op x y =
                 ]
 
 pointerOp
-   :: (wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
-   => Mem.Mem mem
+   :: (wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions, Mem.Mem mem)
    => L.ArithOp
    -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
    -> Expr (LLVM mem) s (Mem.PointerType mem wptr)
@@ -1358,8 +1343,7 @@ pointerOp op x y =
 
 baseSelect ::
    forall s mem arch wptr ret.
-   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-   Mem.Mem mem =>
+   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch, Mem.Mem mem) =>
    LLVMExpr s mem arch {- ^ Selection expression -} ->
    LLVMExpr s mem arch {- ^ true expression -} ->
    LLVMExpr s mem arch {- ^ false expression -} ->
@@ -1382,8 +1366,7 @@ baseSelect _ _ _ = return Nothing
 
 translateSelect ::
   forall s mem arch ret wptr.
-   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-   Mem.Mem mem =>
+   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch, Mem.Mem mem) =>
    L.Instr        {- ^ The instruction to translate -} ->
    (LLVMExpr s mem arch -> LLVMGenerator s mem arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
@@ -1431,8 +1414,7 @@ translateSelect instr _ _ _ _ _ _ =
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall s mem arch ret a.
-   (?transOpts :: TranslationOptions) =>
-   Mem.Mem mem =>
+   (?transOpts :: TranslationOptions, Mem.Mem mem) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
    Set L.Ident {- ^ Set of usable identifiers -} ->
@@ -1796,8 +1778,7 @@ generateInstr retType lab defSet instr assign_f k =
  unsupported = reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $
                  unwords ["unsupported instruction", showInstr instr]
 
-arithOp :: forall s mem arch ret. (?transOpts :: TranslationOptions) =>
-  Mem.Mem mem =>
+arithOp :: forall s mem arch ret. (?transOpts :: TranslationOptions, Mem.Mem mem) =>
   L.ArithOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -1855,8 +1836,7 @@ arithOp op _ x y =
                         , show op, show x, show y
                         ]
 
-unaryArithOp :: (?transOpts :: TranslationOptions) =>
-  Mem.Mem mem =>
+unaryArithOp :: (?transOpts :: TranslationOptions, Mem.Mem mem) =>
   L.UnaryArithOp ->
   MemType ->
   LLVMExpr s mem arch ->
@@ -2050,9 +2030,8 @@ typedValueAsCrucibleValue tv = case L.typedValue tv of
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
 --   FIXME? this could be more efficient if we sort the list and do binary search instead...
-buildSwitch :: (1 <= w)
-  =>Mem.Mem mem 
-            => NatRepr w
+buildSwitch :: (1 <= w, Mem.Mem mem)
+  => NatRepr w
             -> Expr (LLVM mem) s (BVType w) -- ^ The expression to switch on
             -> L.BlockLabel        -- ^ The label of the current basic block
             -> L.BlockLabel        -- ^ The label of the default basic block if no other branch applies

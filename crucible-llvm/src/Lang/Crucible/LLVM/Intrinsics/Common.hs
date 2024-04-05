@@ -258,8 +258,7 @@ register_1arg_polymorphic_override prefix overrideFn =
        _ -> empty
 
 basic_llvm_override :: forall p args ret sym mem arch wptr l a rtp.
-  mem ~ Mem =>
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  (mem ~ Mem, IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   LLVMOverride p sym (LLVM mem) mem args ret ->
   OverrideTemplate p sym mem arch rtp l a
 basic_llvm_override ovr = OverrideTemplate matcher regOvr
@@ -313,8 +312,7 @@ isMatchingDeclaration requested provided = and
  matchingArgList (x:xs) (y:ys) = x `L.eqTypeModuloOpaquePtrs` y && matchingArgList xs ys
 
 register_llvm_override :: forall p args ret sym mem arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, mem ~ Mem) =>
   LLVMOverride p sym (LLVM mem) mem args ret ->
   RegOverrideM p sym mem arch rtp l a ()
 register_llvm_override llvmOverride = do
@@ -335,8 +333,7 @@ register_llvm_override llvmOverride = do
 -- | Bind a function handle, and also bind the function to the global function
 -- allocation in the LLVM memory.
 bind_llvm_handle ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem) =>
   GlobalVar mem ->
   L.Symbol ->
   FnHandle args ret ->
@@ -353,8 +350,7 @@ bind_llvm_handle mvar nm hdl impl = do
 -- Creates and binds a function handle, and also binds the function to the
 -- global function allocation in the LLVM memory.
 bind_llvm_func ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasPtrWidth wptr, mem ~ Mem) =>
   GlobalVar mem ->
   L.Symbol ->
   Ctx.Assignment TypeRepr args ->
@@ -380,8 +376,7 @@ bind_llvm_func mvar nm args ret impl = do
 -- Crucible CFGs written in crucible-syntax. For more usual cases, use
 -- 'Lang.Crucible.LLVM.Intrinsics.register_llvm_overrides'.
 do_register_llvm_override :: forall p args ret sym ext mem arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
-  mem ~ Mem =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, mem ~ Mem) =>
   LLVMContext mem arch ->
   LLVMOverride p sym ext mem args ret ->
   OverrideSim p sym ext rtp l a ()
@@ -410,8 +405,7 @@ do_register_llvm_override llvmctx llvmOverride = do
 --
 -- c.f. 'Lang.Crucible.LLVM.Globals.allocLLVMFunPtr'
 alloc_and_register_override ::
-  (IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  mem ~ Mem =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym, ?memOpts :: MemOptions, mem ~ Mem) =>
   bak ->
   LLVMContext mem arch ->
   LLVMOverride p sym (LLVM mem) mem args ret ->
