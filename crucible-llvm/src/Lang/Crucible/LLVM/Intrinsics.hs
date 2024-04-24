@@ -36,7 +36,6 @@ import           Control.Monad (forM_)
 import           Control.Monad.Reader (ReaderT(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (asum)
-import           Data.List (stripPrefix, tails, isPrefixOf)
 import qualified Text.LLVM.AST as L
 
 import qualified ABI.Itanium as ABI
@@ -57,6 +56,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
+import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.Intrinsics.Options
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
@@ -89,25 +89,8 @@ filterTemplates ::
   [OverrideTemplate p sym arch rtp l a] ->
   L.Declare ->
   [OverrideTemplate p sym arch rtp l a]
-filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
- where
- L.Symbol nm = L.decName decl
-
- f (ExactMatch x)       = x == nm
- f (PrefixMatch pfx)    = pfx `isPrefixOf` nm
- f (SubstringsMatch as) = filterSubstrings as nm
- -- See Note [Darwin aliases] in Lang.Crucible.LLVM.Intrinsics.Common
- f (DarwinAliasMatch x) = x == stripDarwinAliases nm
-
- filterSubstrings [] _ = True
- filterSubstrings (a:as) xs =
-   case restAfterSubstring a xs of
-     Nothing   -> False
-     Just rest -> filterSubstrings as rest
-
- restAfterSubstring :: String -> String -> Maybe String
- restAfterSubstring sub xs = asum [ stripPrefix sub tl | tl <- tails xs ]
-
+filterTemplates ts decl = filter (Match.matches nm . overrideTemplateMatcher) ts
+ where L.Symbol nm = L.decName decl
 
 -- | Helper function for registering overrides
 register_llvm_overrides_ ::

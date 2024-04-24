@@ -101,6 +101,7 @@ library
     Lang.Crucible.LLVM.Extension.Syntax
     Lang.Crucible.LLVM.Intrinsics.Common
     Lang.Crucible.LLVM.Intrinsics.Libcxx
+    Lang.Crucible.LLVM.Intrinsics.Match
     Lang.Crucible.LLVM.Intrinsics.Options
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Options

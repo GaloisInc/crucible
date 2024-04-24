@@ -57,6 +57,7 @@ import           Lang.Crucible.Types (TypeRepr(UnitRepr), CtxRepr)
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
@@ -71,7 +72,7 @@ register_cpp_override ::
   SomeCPPOverride p sym arch ->
   OverrideTemplate p sym arch rtp l a
 register_cpp_override someCPPOverride =
-  OverrideTemplate (SubstringsMatch ("_Z" : cppOverrideSubstrings someCPPOverride)) $
+  OverrideTemplate (Match.SubstringsMatch ("_Z" : cppOverrideSubstrings someCPPOverride)) $
   do (requestedDecl, decName, llvmctx) <- ask
      case decName of
        Nothing -> empty

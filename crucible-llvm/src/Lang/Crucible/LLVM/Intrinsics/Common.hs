@@ -24,8 +24,6 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , llvmSizeT
   , llvmSSizeT
   , OverrideTemplate(..)
-  , TemplateMatcher(..)
-  , stripDarwinAliases
   , callStackFromMemVar'
     -- ** register_llvm_override
   , basic_llvm_override
@@ -49,8 +47,6 @@ import           Control.Lens
 import           Control.Monad.Reader (ReaderT, ask, lift)
 import           Control.Monad.Trans.Maybe (MaybeT)
 import qualified Data.List as List
-import qualified Data.List.Extra as List (stripInfix)
-import           Data.Maybe (fromMaybe)
 import qualified Data.Text as Text
 import           Numeric (readDec)
 import qualified System.Info as Info
@@ -78,6 +74,7 @@ import           Lang.Crucible.LLVM.Globals (registerFunPtr)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
+import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 
@@ -115,43 +112,9 @@ llvmSSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
 data OverrideTemplate p sym arch rtp l a =
   OverrideTemplate
-  { overrideTemplateMatcher :: TemplateMatcher
+  { overrideTemplateMatcher :: Match.TemplateMatcher
   , overrideTemplateAction :: RegOverrideM p sym arch rtp l a ()
   }
-
--- | This type controls whether an override is installed for a given name found in a module.
---  See 'filterTemplates'.
-data TemplateMatcher
-  = ExactMatch String
-  | PrefixMatch String
-  | SubstringsMatch [String]
-  | DarwinAliasMatch String
-    -- ^ Match a name up to some number of Darwin aliases.
-    -- See @Note [Darwin aliases]@.
-
--- | Remove all prefixes and suffixes that might occur in a Darwin alias for
--- a function name. See @Note [Darwin aliases]@.
-stripDarwinAliases :: String -> String
-stripDarwinAliases str =
-  -- Remove the \01_ prefix, if it exists...
-  let strNoPrefix = fromMaybe str (List.stripPrefix "\01_" str) in
-  -- ...and remove any suffixes as well. Because there can be multiple suffixes
-  -- in an alias, we use `stripInfix` in case one of the prefixes does not
-  -- appear at the very end of the name.
-  foldr (\suf s ->
-          case List.stripInfix suf s of
-            Just (before, after) -> before ++ after
-            Nothing              -> s)
-        strNoPrefix
-        suffixes
-  where
-    suffixes :: [String]
-    suffixes = [ "$UNIX2003"
-               , "$INODE64"
-               , "$1050"
-               , "$NOCANCEL"
-               , "$DARWIN_EXTSN"
-               ]
 
 type RegOverrideM p sym arch rtp l a =
   ReaderT (L.Declare, Maybe ABI.DecodedName, LLVMContext arch)
@@ -161,40 +124,6 @@ callStackFromMemVar' ::
   GlobalVar Mem ->
   OverrideSim p sym ext r args ret CallStack
 callStackFromMemVar' mvar = use (to (flip callStackFromMemVar mvar))
-
-{-
-Note [Darwin aliases]
-~~~~~~~~~~~~~~~~~~~~~
-Operating systems derived from Darwin, such as macOS, define several aliases
-for common libc functions for versioning purposes. These aliases are defined
-using __asm, so when Clang compiles these aliases, the name that appears in the
-resulting bitcode will look slightly different from what appears in the source
-C file. For example, compiling the write() function with Clang on macOS will
-produce LLVM bitcode with the name \01_write(), where \01 represents a leading
-ASCII character with code 0x01.
-
-Aside from the \01_ prefix, there also a number of suffixes that can be used
-in alias names (see `stripDarwinAliases` for the complete list). There are
-enough possible combinations that it is not wise to try and write them all out
-by hand. Instead, we take the approach that when using crucible-llvm on Darwin,
-we treat any C function as possibly containing Darwin aliases. That is:
-
-* In `basic_llvm_override`, we use a special DarwinAliasMatch template matcher
-  on Darwin. When matching against possible overrides, DarwinAliasMatch
-  indicates that function should be match the underlying name after removing
-  any possible Darwin-related prefixes or suffixes (see the
-  `stripDarwinAliases` function, which implements this).
-* If a function name in a program matches an override name after stripping
-  Darwin aliases, then we proceed to use the override, but with the override's
-  name switched out for the name of the function from the program. This way,
-  we write overrides for the "normalized" name (e.g., write) but have them work
-  seamlessly for aliases names (e.g., \01_write) as well.
-
-Currently, we only apply this special treatment in `basic_llvm_override`, as
-we have only observed the aliases being used on libc functions. We may need to
-apply this special case to other override functions (e.g.,
-`register_cpp_override`) if that proves insufficient.
--}
 
 ------------------------------------------------------------------------
 -- ** register_llvm_override
@@ -239,7 +168,7 @@ polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym LLVM) ->
   OverrideTemplate p sym arch rtp l a
 polymorphic1_llvm_override prefix fn =
-  OverrideTemplate (PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
+  OverrideTemplate (Match.PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
 
 register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
@@ -265,9 +194,9 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
     L.Symbol ovrNm = L.decName ovrDecl
     isDarwin = Info.os == "darwin"
 
-    matcher :: TemplateMatcher
-    matcher | isDarwin  = DarwinAliasMatch ovrNm
-            | otherwise = ExactMatch ovrNm
+    matcher :: Match.TemplateMatcher
+    matcher | isDarwin  = Match.DarwinAliasMatch ovrNm
+            | otherwise = Match.ExactMatch ovrNm
 
     regOvr :: RegOverrideM p sym arch rtp l a ()
     regOvr = do
@@ -278,7 +207,7 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
       -- containing prefixes/suffixes. See Note [Darwin aliases] for an
       -- explanation of why we do this.
       let ovr' | isDarwin
-               , ovrNm == stripDarwinAliases requestedNm
+               , ovrNm == Match.stripDarwinAliases requestedNm
                = ovr { llvmOverride_declare =
                          ovrDecl { L.decName = L.Symbol requestedNm }}
 
