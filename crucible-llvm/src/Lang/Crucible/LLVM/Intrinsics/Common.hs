@@ -107,15 +107,25 @@ llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 llvmSSizeT :: HasPtrWidth wptr => L.Type
 llvmSSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
+-- | A funcion that inspects an LLVM declaration (along with some other data),
+-- and constructs an override for the declaration if it can.
 newtype MakeOverride p sym ext arch =
   MakeOverride
     { _runMakeOverride ::
         L.Declare ->
+        -- Decoded version of the name in the declaration
         Maybe ABI.DecodedName ->
         LLVMContext arch ->
         Maybe (SomeLLVMOverride p sym ext)
     }
 
+-- | Checking if an override applies to a given declaration happens in two
+-- \"phases\".
+--
+-- * An initial, quick, string-based 'Match.TemplateMatcher' checks if an
+--   override might apply to a given declaration, based on its name
+-- * If the 'Match.TemplateMatcher' does indeed match, the slower 'MakeOverride'
+--   performs additional checks and potentially constructs a 'SomeLLVMOverride'.
 data OverrideTemplate p sym ext arch =
   OverrideTemplate
   { overrideTemplateMatcher :: Match.TemplateMatcher

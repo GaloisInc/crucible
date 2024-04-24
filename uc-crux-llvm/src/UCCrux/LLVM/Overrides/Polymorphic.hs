@@ -11,10 +11,7 @@ Stability    : provisional
 {-# LANGUAGE RankNTypes #-}
 
 module UCCrux.LLVM.Overrides.Polymorphic
-  ( PolymorphicLLVMOverride,
-    makePolymorphicLLVMOverride,
-    getPolymorphicLLVMOverride,
-    ForAllSym,
+  ( ForAllSym,
     makeForAllSym,
     getForAllSym,
     withForAllSym,
@@ -28,24 +25,11 @@ where
 {- ORMOLU_DISABLE -}
 import           Lang.Crucible.Backend (IsSymInterface)
 
-import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate)
+import           Lang.Crucible.LLVM (LLVM)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
 
 import           Crux.LLVM.Overrides (ArchOk)
 {- ORMOLU_ENABLE -}
-
--- | An LLVM override that can be registered in a Crucible override of any type.
-newtype PolymorphicLLVMOverride arch p sym =
-  PolymorphicLLVMOverride
-    { getPolymorphicLLVMOverride ::
-        forall rtp l a.
-        OverrideTemplate p sym arch rtp l a
-    }
-
-makePolymorphicLLVMOverride ::
-  (forall rtp l a. OverrideTemplate p sym arch rtp l a) ->
-  PolymorphicLLVMOverride arch p sym
-makePolymorphicLLVMOverride = PolymorphicLLVMOverride
 
 newtype ForAllSym f =
   ForAllSym
@@ -53,14 +37,14 @@ newtype ForAllSym f =
         forall p sym.
         IsSymInterface sym =>
         HasLLVMAnn sym =>
-        f p sym
+        f p sym LLVM
     }
 
 makeForAllSym ::
   (forall p sym.
    IsSymInterface sym =>
    HasLLVMAnn sym =>
-   f p sym) ->
+   f p sym LLVM) ->
   ForAllSym f
 makeForAllSym = ForAllSym
 
@@ -68,7 +52,7 @@ withForAllSym ::
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   ForAllSym f ->
-  (f p sym -> r) ->
+  (f p sym LLVM -> r) ->
   r
 withForAllSym (ForAllSym f) g = g f
 
@@ -80,7 +64,7 @@ newtype ForAllSymArch f =
         HasLLVMAnn sym =>
         ArchOk arch =>
         proxy arch ->
-        f arch p sym
+        f p sym LLVM arch
     }
 
 makeForAllSymArch ::
@@ -89,7 +73,7 @@ makeForAllSymArch ::
    HasLLVMAnn sym =>
    ArchOk arch =>
    proxy arch ->
-   f arch p sym) ->
+   f p sym LLVM arch) ->
   ForAllSymArch f
 makeForAllSymArch = ForAllSymArch
 
@@ -99,6 +83,6 @@ withForAllSymArch ::
   ArchOk arch =>
   ForAllSymArch f ->
   proxy arch ->
-  (f arch p sym -> r) ->
+  (f p sym LLVM arch -> r) ->
   r
 withForAllSymArch (ForAllSymArch f) proxy g = g (f proxy)

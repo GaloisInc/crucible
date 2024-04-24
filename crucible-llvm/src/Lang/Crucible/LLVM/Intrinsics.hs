@@ -29,6 +29,7 @@ module Lang.Crucible.LLVM.Intrinsics
 
 , module Lang.Crucible.LLVM.Intrinsics.Common
 , module Lang.Crucible.LLVM.Intrinsics.Options
+, module Lang.Crucible.LLVM.Intrinsics.Match
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
@@ -53,7 +54,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
-import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
+import           Lang.Crucible.LLVM.Intrinsics.Match
 import           Lang.Crucible.LLVM.Intrinsics.Options
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
@@ -86,7 +87,7 @@ filterTemplates ::
   [OverrideTemplate p sym ext arch] ->
   L.Declare ->
   [OverrideTemplate p sym ext arch]
-filterTemplates ts decl = filter (Match.matches nm . overrideTemplateMatcher) ts
+filterTemplates ts decl = filter (matches nm . overrideTemplateMatcher) ts
  where L.Symbol nm = L.decName decl
 
 -- | Helper function for registering overrides
