@@ -35,7 +35,6 @@ module Lang.Crucible.LLVM.Intrinsics.Libcxx
   ) where
 
 import qualified ABI.Itanium as ABI
-import           Control.Applicative (empty)
 import           Control.Lens ((^.))
 import           Control.Monad.Reader
 import           Data.List (isInfixOf)
@@ -70,16 +69,12 @@ import           Lang.Crucible.LLVM.Translation.Types
 register_cpp_override ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   SomeCPPOverride p sym arch ->
-  OverrideTemplate p sym arch rtp l a
+  OverrideTemplate p sym LLVM arch
 register_cpp_override someCPPOverride =
   OverrideTemplate (Match.SubstringsMatch ("_Z" : cppOverrideSubstrings someCPPOverride)) $
-  do (requestedDecl, decName, llvmctx) <- ask
-     case decName of
-       Nothing -> empty
-       Just nm ->
-         case cppOverrideAction someCPPOverride requestedDecl nm llvmctx of
-           Nothing -> empty
-           Just (SomeLLVMOverride override) -> register_llvm_override override
+    MakeOverride $ \requestedDecl decName llvmctx -> do
+      nm <- decName
+      cppOverrideAction someCPPOverride requestedDecl nm llvmctx
 
 
 -- type CPPOverride p sym arch args ret =

@@ -20,7 +20,7 @@
 module Lang.Crucible.LLVM.Intrinsics.Common
   ( LLVMOverride(..)
   , SomeLLVMOverride(..)
-  , RegOverrideM
+  , MakeOverride(..)
   , llvmSizeT
   , llvmSSizeT
   , OverrideTemplate(..)
@@ -40,12 +40,9 @@ module Lang.Crucible.LLVM.Intrinsics.Common
 
 import qualified Text.LLVM.AST as L
 
-import           Control.Applicative (empty)
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
-import           Control.Monad.Reader (ReaderT, ask, lift)
-import           Control.Monad.Trans.Maybe (MaybeT)
 import qualified Data.List as List
 import qualified Data.Text as Text
 import           Numeric (readDec)
@@ -110,15 +107,20 @@ llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 llvmSSizeT :: HasPtrWidth wptr => L.Type
 llvmSSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
-data OverrideTemplate p sym arch rtp l a =
+newtype MakeOverride p sym ext arch =
+  MakeOverride
+    { _runMakeOverride ::
+        L.Declare ->
+        Maybe ABI.DecodedName ->
+        LLVMContext arch ->
+        Maybe (SomeLLVMOverride p sym ext)
+    }
+
+data OverrideTemplate p sym ext arch =
   OverrideTemplate
   { overrideTemplateMatcher :: Match.TemplateMatcher
-  , overrideTemplateAction :: RegOverrideM p sym arch rtp l a ()
+  , overrideTemplateAction :: MakeOverride p sym ext arch
   }
-
-type RegOverrideM p sym arch rtp l a =
-  ReaderT (L.Declare, Maybe ABI.DecodedName, LLVMContext arch)
-    (MaybeT (OverrideSim p sym LLVM rtp l a))
 
 callStackFromMemVar' ::
   GlobalVar Mem ->
@@ -162,32 +164,32 @@ build_llvm_override fnm args ret args' ret' llvmOverride =
             do RegMap xs <- getOverrideArgs
                Cast.applyValCast fret =<< llvmOverride =<< Cast.applyArgCast fargs xs
 
-polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
+polymorphic1_llvm_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym LLVM) ->
-  OverrideTemplate p sym arch rtp l a
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym ext) ->
+  OverrideTemplate p sym ext arch
 polymorphic1_llvm_override prefix fn =
   OverrideTemplate (Match.PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
 
-register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
+register_1arg_polymorphic_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym LLVM) ->
-  RegOverrideM p sym arch rtp l a ()
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym ext) ->
+  MakeOverride p sym ext arch
 register_1arg_polymorphic_override prefix overrideFn =
-  do (L.Declare{ L.decName = L.Symbol nm },_,_) <- ask
-     case List.stripPrefix prefix nm of
-       Just ('.':'i': (readDec -> (sz,[]):_))
-         | Some w <- mkNatRepr sz
-         , Just LeqProof <- isPosNat w
-         -> case overrideFn w of SomeLLVMOverride ovr -> register_llvm_override ovr
-       _ -> empty
+  MakeOverride $ \(L.Declare{ L.decName = L.Symbol nm }) _ _ ->
+    case List.stripPrefix prefix nm of
+      Just ('.':'i': (readDec -> (sz,[]):_))
+        | Some w <- mkNatRepr sz
+        , Just LeqProof <- isPosNat w
+        -> Just (overrideFn w)
+      _ -> Nothing
 
-basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
+basic_llvm_override :: forall p args ret sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  LLVMOverride p sym LLVM args ret ->
-  OverrideTemplate p sym arch rtp l a
+  LLVMOverride p sym ext args ret ->
+  OverrideTemplate p sym ext arch
 basic_llvm_override ovr = OverrideTemplate matcher regOvr
   where
     ovrDecl = llvmOverride_declare ovr
@@ -198,22 +200,22 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
     matcher | isDarwin  = Match.DarwinAliasMatch ovrNm
             | otherwise = Match.ExactMatch ovrNm
 
-    regOvr :: RegOverrideM p sym arch rtp l a ()
+    regOvr :: MakeOverride p sym ext arch
     regOvr = do
-      (requestedDecl, _ ,_) <- ask
-      let L.Symbol requestedNm = L.decName requestedDecl
-      -- If we are on Darwin and the function name contains Darwin-specific
-      -- prefixes or suffixes, change the name of the override to the name
-      -- containing prefixes/suffixes. See Note [Darwin aliases] for an
-      -- explanation of why we do this.
-      let ovr' | isDarwin
-               , ovrNm == Match.stripDarwinAliases requestedNm
-               = ovr { llvmOverride_declare =
-                         ovrDecl { L.decName = L.Symbol requestedNm }}
+      MakeOverride $ \requestedDecl _ _ -> do
+        let L.Symbol requestedNm = L.decName requestedDecl
+        -- If we are on Darwin and the function name contains Darwin-specific
+        -- prefixes or suffixes, change the name of the override to the name
+        -- containing prefixes/suffixes. See Note [Darwin aliases] for an
+        -- explanation of why we do this.
+        let ovr' | isDarwin
+                 , ovrNm == Match.stripDarwinAliases requestedNm
+                 = ovr { llvmOverride_declare =
+                           ovrDecl { L.decName = L.Symbol requestedNm }}
 
-               | otherwise
-               = ovr
-      register_llvm_override ovr'
+                 | otherwise
+                 = ovr
+        Just (SomeLLVMOverride ovr')
 
 -- | Check that the requested declaration matches the provided declaration. In
 -- this context, \"matching\" means that both declarations have identical names,
@@ -238,24 +240,24 @@ isMatchingDeclaration requested provided = and
  matchingArgList _  [] = L.decVarArgs provided
  matchingArgList (x:xs) (y:ys) = x `L.eqTypeModuloOpaquePtrs` y && matchingArgList xs ys
 
-register_llvm_override :: forall p args ret sym arch wptr l a rtp.
+register_llvm_override :: forall p args ret sym ext arch wptr rtp l a.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
-  LLVMOverride p sym LLVM args ret ->
-  RegOverrideM p sym arch rtp l a ()
-register_llvm_override llvmOverride = do
-  (requestedDecl,_,llvmctx) <- ask
+  LLVMOverride p sym ext args ret ->
+  L.Declare ->
+  LLVMContext arch ->
+  OverrideSim p sym ext rtp l a ()
+register_llvm_override llvmOverride requestedDecl llvmctx = do
   let decl = llvmOverride_declare llvmOverride
   if not (isMatchingDeclaration requestedDecl decl) then
     do when (L.decName requestedDecl == L.decName decl) $
-         do logFn <- lift $ lift $ getLogFunction
+         do logFn <- getLogFunction
             liftIO $ logFn 3 $ unlines
               [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
               , " *** found: "     ++ show decl
               , ""
               ]
-       empty
-  else lift (lift (do_register_llvm_override llvmctx llvmOverride))
+  else do_register_llvm_override llvmctx llvmOverride
 
 -- | Bind a function handle, and also bind the function to the global function
 -- allocation in the LLVM memory.

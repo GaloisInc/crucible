@@ -37,7 +37,7 @@ matches ::
 matches nm (ExactMatch x)       = x == nm
 matches nm (PrefixMatch pfx)    = pfx `List.isPrefixOf` nm
 matches nm (DarwinAliasMatch x) = x == stripDarwinAliases nm
-matches nm (SubstringsMatch as) = filterSubstrings as nm
+matches nm (SubstringsMatch subs) = filterSubstrings subs nm
   where
     filterSubstrings [] _ = True
     filterSubstrings (a:as) xs =

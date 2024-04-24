@@ -83,7 +83,7 @@ cruxLLVMOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
-  [OverrideTemplate (personality sym) sym arch rtp l a]
+  [OverrideTemplate (personality sym) sym ext arch]
 cruxLLVMOverrides arch =
   [ basic_llvm_override $
         [llvmOvr| i8 @crucible_int8_t( i8* ) |]
@@ -158,7 +158,7 @@ cbmcOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
-  [OverrideTemplate (personality sym) sym arch rtp l a]
+  [OverrideTemplate (personality sym) sym ext arch]
 cbmcOverrides arch =
   [ basic_llvm_override $
       [llvmOvr| void @__CPROVER_assume( i32 ) |]
@@ -260,7 +260,7 @@ cbmcOverrides arch =
 
 svCompOverrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
-  [OverrideTemplate (personality sym) sym arch rtp l a]
+  [OverrideTemplate (personality sym) sym ext arch]
 svCompOverrides =
   [ basic_llvm_override $
         [llvmOvr| i64 @__VERIFIER_nondet_longlong() |]
