@@ -53,7 +53,7 @@ import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, MemOptions, LLVMP
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-import           Lang.Crucible.LLVM.Intrinsics (basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), basic_llvm_override)
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
@@ -61,7 +61,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 -- uc-crux-llvm
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
-import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride, ForAllSymArch, makeForAllSymArch)
+import           UCCrux.LLVM.Overrides.Polymorphic (ForAllSymArch, makeForAllSymArch)
 {- ORMOLU_ENABLE -}
 
 newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Text}
@@ -78,26 +78,24 @@ unsoundOverrides ::
   (?lc :: TypeContext, ?memOpts :: LLVMMem.MemOptions) =>
   -- | See Note [IORefs].
   IORef (Set UnsoundOverrideName) ->
-  [ForAllSymArch PolymorphicLLVMOverride]
+  [ForAllSymArch OverrideTemplate]
 unsoundOverrides usedRef =
   [ makeForAllSymArch $
       \arch ->
-        makePolymorphicLLVMOverride $
-          basic_llvm_override $
-            [llvmOvr| i32 @gethostname( i8* , size_t ) |]
-              ( \memOps args ->
-                  liftIO (used "gethostname")
-                    >> Ctx.uncurryAssignment (callGetHostName arch memOps) args
-              ),
+        basic_llvm_override $
+          [llvmOvr| i32 @gethostname( i8* , size_t ) |]
+            ( \memOps args ->
+                liftIO (used "gethostname")
+                  >> Ctx.uncurryAssignment (callGetHostName arch memOps) args
+            ),
     makeForAllSymArch $
       \arch ->
-        makePolymorphicLLVMOverride $
-          basic_llvm_override $
-            [llvmOvr| i8* @getenv( i8* ) |]
-              ( \memOps args ->
-                  liftIO (used "getenv")
-                    >> Ctx.uncurryAssignment (callGetEnv arch memOps) args
-              )
+        basic_llvm_override $
+          [llvmOvr| i8* @getenv( i8* ) |]
+            ( \memOps args ->
+                liftIO (used "getenv")
+                  >> Ctx.uncurryAssignment (callGetEnv arch memOps) args
+            )
   ]
   where
     used :: Text -> IO ()

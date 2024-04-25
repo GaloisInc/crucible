@@ -57,7 +57,7 @@ import           Lang.Crucible.LLVM.Extension (LLVM)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, MemOptions)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmTypeCtx)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), OverrideTemplate, basic_llvm_override)
 
 import           Crux.Types (OverM)
 
@@ -74,7 +74,6 @@ import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getFuncSymbol)
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
-import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Soundness (Soundness)
 import qualified UCCrux.LLVM.Specs.Apply as Spec
 import           UCCrux.LLVM.Specs.Type (SomeSpecs)
@@ -105,7 +104,7 @@ specOverrides ::
   IORef (ExprTracker m sym argTypes) ->
   -- | Specs of each override, see 'Specs'.
   Map (FuncSymbol m) (SomeSpecs m) ->
-  OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
+  OverM personality sym LLVM [OverrideTemplate (personality sym) sym LLVM arch]
 specOverrides modCtx bak specsUsedRef tracker specs =
   do let llvmCtx = modCtx ^. moduleTranslation . transContext
      let ?lc = llvmCtx ^. llvmTypeCtx
@@ -131,19 +130,18 @@ mkOverride ::
    Ctx.Assignment (Crucible.RegEntry sym) (MapToCrucibleType arch args) ->
    Crucible.OverrideSim (personality sym) sym LLVM rtp a r
      (Crucible.RegValue sym (FS.ReturnTypeToCrucibleType arch mft))) ->
-  PolymorphicLLVMOverride arch (personality sym) sym
+  OverrideTemplate (personality sym) sym LLVM arch
 mkOverride modCtx _proxy funcSymb (FuncSigRepr _ argFTys retTy) impl =
   case assignmentToCrucibleType modCtx argFTys of
     SomeAssign' argTys Refl _ ->
-      makePolymorphicLLVMOverride $
-        basic_llvm_override $
-          LLVMOverride
-            { llvmOverride_declare = decl,
-              llvmOverride_args = argTys,
-              llvmOverride_ret = toCrucibleReturnType modCtx retTy,
-              llvmOverride_def =
-                \mvar args -> impl mvar args
-            }
+      basic_llvm_override $
+        LLVMOverride
+          { llvmOverride_declare = decl,
+            llvmOverride_args = argTys,
+            llvmOverride_ret = toCrucibleReturnType modCtx retTy,
+            llvmOverride_def =
+              \mvar args -> impl mvar args
+          }
   where decl = modCtx ^. moduleDecls . funcSymbol funcSymb
 
 -- | Create an override that takes the place of a given defined or even
@@ -170,7 +168,7 @@ createSpecOverride ::
   -- | Constraints on the return value, clobbered pointer values such as
   -- arguments or global variables
   Spec.Specs m fs ->
-  PolymorphicLLVMOverride arch (personality sym) sym
+  OverrideTemplate (personality sym) sym LLVM arch
 createSpecOverride modCtx bak specsUsedRef tracker funcSymb fsRep specs =
   mkOverride modCtx (Just bak) funcSymb fsRep $
     \mvar args -> do

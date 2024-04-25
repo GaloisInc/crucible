@@ -70,7 +70,7 @@ import qualified Lang.Crucible.Simulator.OverrideSim as Override
 -- crucible-llvm
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
-import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (LLVM, LLVMOverride(..), OverrideTemplate, basic_llvm_override)
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
@@ -85,7 +85,6 @@ import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibl
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import qualified UCCrux.LLVM.Mem as Mem
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, getGlobalSymbol)
-import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Overrides.Stack (Stack, collectStack)
 import           UCCrux.LLVM.Precondition (Preconds, argPreconds, globalPreconds, ppPreconds)
 import           UCCrux.LLVM.Run.Result (BugfindingResult)
@@ -157,36 +156,35 @@ createCheckOverride ::
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   -- | Name of function to override
   FuncSymbol m ->
-  PolymorphicLLVMOverride arch p sym
+  OverrideTemplate p sym LLVM arch
 createCheckOverride appCtx modCtx usedRef argFTys constraints cfg funcSym =
   let decl = modCtx ^. moduleDecls . funcSymbol funcSym
       name = declName decl
-  in makePolymorphicLLVMOverride $
-       basic_llvm_override $
-         LLVMOverride
-           { llvmOverride_declare = decl,
-             llvmOverride_args = Crucible.cfgArgTypes cfg,
-             llvmOverride_ret = Crucible.cfgReturnType cfg,
-             llvmOverride_def =
-               \mvar args ->
-                 Override.ovrWithBackend $ \bak ->
-                   Override.modifyGlobal mvar $ \mem ->
-                     do
-                       let sym = backendGetSym bak
-                       liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
-                       let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
-                       liftIO $ (appCtx ^. log) Hi "Preconditions:"
-                       liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
-                       stack <- collectStack
-                       argCs <- liftIO $ getArgPreconds sym mem args
-                       globCs <- liftIO $ getGlobalPreconds bak mem
-                       let cs = argCs <> globCs
-                       let args' = fmapFC (Crucible.RV . Crucible.regValue) args
-                       liftIO $
-                         modifyIORef usedRef (CheckedCall stack args' cs:)
-                       retEntry <- Crucible.callCFG cfg (Crucible.RegMap args)
-                       return (Crucible.regValue retEntry, mem)
-           }
+  in basic_llvm_override $
+       LLVMOverride
+         { llvmOverride_declare = decl,
+           llvmOverride_args = Crucible.cfgArgTypes cfg,
+           llvmOverride_ret = Crucible.cfgReturnType cfg,
+           llvmOverride_def =
+             \mvar args ->
+               Override.ovrWithBackend $ \bak ->
+                 Override.modifyGlobal mvar $ \mem ->
+                   do
+                     let sym = backendGetSym bak
+                     liftIO $ (appCtx ^. log) Hi $ "Checking preconditions of " <> name
+                     let pp = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
+                     liftIO $ (appCtx ^. log) Hi "Preconditions:"
+                     liftIO $ (appCtx ^. log) Hi $ pp (ppPreconds constraints)
+                     stack <- collectStack
+                     argCs <- liftIO $ getArgPreconds sym mem args
+                     globCs <- liftIO $ getGlobalPreconds bak mem
+                     let cs = argCs <> globCs
+                     let args' = fmapFC (Crucible.RV . Crucible.regValue) args
+                     liftIO $
+                       modifyIORef usedRef (CheckedCall stack args' cs:)
+                     retEntry <- Crucible.callCFG cfg (Crucible.RegMap args)
+                     return (Crucible.regValue retEntry, mem)
+         }
   where
     getArgPreconds ::
       IsSymInterface sym =>
@@ -243,7 +241,7 @@ checkOverrideFromResult ::
   FuncSymbol m ->
   -- | Result from which to take constraints
   BugfindingResult m arch argTypes ->
-  Maybe (PolymorphicLLVMOverride arch p sym)
+  Maybe (OverrideTemplate p sym LLVM arch)
 checkOverrideFromResult appCtx modCtx ref argFTys cfg f result =
   case Result.summary result of
     Result.SafeWithPreconditions _bounds _unsound constraints ->

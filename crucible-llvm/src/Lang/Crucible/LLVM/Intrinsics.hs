@@ -29,14 +29,11 @@ module Lang.Crucible.LLVM.Intrinsics
 
 , module Lang.Crucible.LLVM.Intrinsics.Common
 , module Lang.Crucible.LLVM.Intrinsics.Options
+, module Lang.Crucible.LLVM.Intrinsics.Match
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad (forM_)
-import           Control.Monad.Reader (ReaderT(..))
-import           Control.Monad.Trans.Maybe
-import           Data.Foldable (asum)
-import           Data.List (stripPrefix, tails, isPrefixOf)
 import qualified Text.LLVM.AST as L
 
 import qualified ABI.Itanium as ABI
@@ -57,6 +54,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
+import           Lang.Crucible.LLVM.Intrinsics.Match
 import           Lang.Crucible.LLVM.Intrinsics.Options
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
@@ -70,8 +68,8 @@ register_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
-  [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
-  [OverrideTemplate p sym arch rtp l a] {- ^ Additional "declare" overrides -} ->
+  [OverrideTemplate p sym LLVM arch] {- ^ Additional \"define\" overrides -} ->
+  [OverrideTemplate p sym LLVM arch] {- ^ Additional \"declare\" overrides -} ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a ()
 register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
@@ -86,46 +84,35 @@ register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
 -- more detail, including examining function arguments
 -- and the structure of C++ demangled names to extract more information.
 filterTemplates ::
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym ext arch] ->
   L.Declare ->
-  [OverrideTemplate p sym arch rtp l a]
-filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
- where
- L.Symbol nm = L.decName decl
-
- f (ExactMatch x)       = x == nm
- f (PrefixMatch pfx)    = pfx `isPrefixOf` nm
- f (SubstringsMatch as) = filterSubstrings as nm
- -- See Note [Darwin aliases] in Lang.Crucible.LLVM.Intrinsics.Common
- f (DarwinAliasMatch x) = x == stripDarwinAliases nm
-
- filterSubstrings [] _ = True
- filterSubstrings (a:as) xs =
-   case restAfterSubstring a xs of
-     Nothing   -> False
-     Just rest -> filterSubstrings as rest
-
- restAfterSubstring :: String -> String -> Maybe String
- restAfterSubstring sub xs = asum [ stripPrefix sub tl | tl <- tails xs ]
-
+  [OverrideTemplate p sym ext arch]
+filterTemplates ts decl = filter (matches nm . overrideTemplateMatcher) ts
+ where L.Symbol nm = L.decName decl
 
 -- | Helper function for registering overrides
 register_llvm_overrides_ ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   LLVMContext arch ->
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym ext arch] ->
   [L.Declare] ->
-  OverrideSim p sym LLVM rtp l a ()
+  OverrideSim p sym ext rtp l a ()
 register_llvm_overrides_ llvmctx acts decls =
+  llvmPtrWidth llvmctx $ \wptr -> withPtrWidth wptr $
     forM_ decls $ \decl ->
       do let acts' = filterTemplates acts decl
          let L.Symbol nm = L.decName decl
          let declnm = either (const Nothing) Just $ ABI.demangleName nm
-         runMaybeT (flip runReaderT (decl,declnm,llvmctx) $ asum (map overrideTemplateAction acts'))
+         forM_ (map overrideTemplateAction acts') $ \(MakeOverride act) ->
+           case act decl declnm llvmctx of
+             Nothing -> pure ()
+             Just (SomeLLVMOverride ov) ->
+               register_llvm_override ov decl llvmctx
 
 register_llvm_define_overrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym LLVM arch] ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a ()
 register_llvm_define_overrides llvmModule addlOvrs llvmctx =
@@ -137,7 +124,7 @@ register_llvm_declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
-  [OverrideTemplate p sym arch rtp l a] ->
+  [OverrideTemplate p sym LLVM arch] ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a ()
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
@@ -149,7 +136,7 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
 declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
-  [OverrideTemplate p sym arch rtp l a]
+  [OverrideTemplate p sym LLVM arch]
 declare_overrides =
   concat
   [ map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) Libc.libc_overrides
@@ -165,7 +152,7 @@ declare_overrides =
 -- function has a definition
 define_overrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
-  [OverrideTemplate p sym arch rtp l a]
+  [OverrideTemplate p sym LLVM arch]
 define_overrides =
   [ Libcxx.register_cpp_override Libcxx.putToOverride12
   , Libcxx.register_cpp_override Libcxx.putToOverride9
