@@ -71,6 +71,7 @@ library
     Lang.Crucible.LLVM.Errors.UndefinedBehavior
     Lang.Crucible.LLVM.Eval
     Lang.Crucible.LLVM.Extension
+    Lang.Crucible.LLVM.Functions
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.Intrinsics.Cast

@@ -87,7 +87,6 @@ module Lang.Crucible.LLVM.MemModel
   , loadMaybeString
   , strLen
   , uncheckedMemcpy
-  , bindLLVMFunPtr
 
     -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
@@ -720,25 +719,12 @@ doMallocSize sz bak allocType mut loc mem alignment = do
            else pure mem'
   return (ptr, mem'')
 
-
-
-bindLLVMFunPtr ::
-  (IsSymBackend sym bak, HasPtrWidth wptr) =>
-  bak ->
-  L.Symbol ->
-  FnHandle args ret ->
-  MemImpl sym ->
-  IO (MemImpl sym)
-bindLLVMFunPtr bak nm h mem
-  | (_ Ctx.:> VectorRepr AnyRepr) <- handleArgTypes h
-
-  = do ptr <- doResolveGlobal bak mem nm
-       doInstallHandle bak ptr (VarargsFnHandle h) mem
-
-  | otherwise
-  = do ptr <- doResolveGlobal bak mem nm
-       doInstallHandle bak ptr (SomeFnHandle h) mem
-
+-- | Associate a function handle with an existing allocation.
+--
+-- This can overwrite existing allocation/handle associations, and is used to do
+-- so when registering lazily-translated CFGs.
+--
+-- See also "Lang.Crucible.LLVM.Functions".
 doInstallHandle
   :: (Typeable a, IsSymBackend sym bak)
   => bak
@@ -758,7 +744,9 @@ doInstallHandle _bak ptr x mem =
         ]
 
 -- | Allocate a memory region for the given handle.
-doMallocHandle
+--
+-- See also "Lang.Crucible.LLVM.Functions".
+doMallocHandle -- TODO(lb): unused, delete?
   :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> G.AllocType {- ^ stack, heap, or global -}
