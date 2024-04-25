@@ -1,5 +1,9 @@
 # next
 
+* The `RegOverrideM` monad was replaced by the `MakeOverride` function newtype.
+* Several type parameters were removed from `OverrideTemplate`, and the `ext`
+  parameter was added. This had downstream effects in `basic_llvm_override`,
+  `polymorphic1_llvm_override`, and other functions for registering overrides.
 * Override registration code was generalized. `bind_llvm_{handle,func}`
   now don't require a whole `LLVMContext`, just a `GlobalVar Mem`, and are
   polymorphic over `ext`.
