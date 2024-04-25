@@ -111,7 +111,7 @@ llvmSSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 -- and constructs an override for the declaration if it can.
 newtype MakeOverride p sym ext arch =
   MakeOverride
-    { _runMakeOverride ::
+    { runMakeOverride ::
         L.Declare ->
         -- Decoded version of the name in the declaration
         Maybe ABI.DecodedName ->
@@ -120,15 +120,15 @@ newtype MakeOverride p sym ext arch =
     }
 
 -- | Checking if an override applies to a given declaration happens in two
--- \"phases\".
---
--- * An initial, quick, string-based 'Match.TemplateMatcher' checks if an
---   override might apply to a given declaration, based on its name
--- * If the 'Match.TemplateMatcher' does indeed match, the slower 'MakeOverride'
---   performs additional checks and potentially constructs a 'SomeLLVMOverride'.
+-- \"phases\", corresponding to the fields of this struct.
 data OverrideTemplate p sym ext arch =
   OverrideTemplate
-  { overrideTemplateMatcher :: Match.TemplateMatcher
+  { -- | An initial, quick, string-based check if an override might apply to a
+    -- given declaration, based on its name
+    overrideTemplateMatcher :: Match.TemplateMatcher
+    -- | If the 'Match.TemplateMatcher' does indeed match, this slower
+    -- 'MakeOverride' performs additional checks and potentially constructs
+    -- a 'SomeLLVMOverride'.
   , overrideTemplateAction :: MakeOverride p sym ext arch
   }
 
@@ -215,9 +215,10 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
       MakeOverride $ \requestedDecl _ _ -> do
         let L.Symbol requestedNm = L.decName requestedDecl
         -- If we are on Darwin and the function name contains Darwin-specific
-        -- prefixes or suffixes, change the name of the override to the name
-        -- containing prefixes/suffixes. See Note [Darwin aliases] for an
-        -- explanation of why we do this.
+        -- prefixes or suffixes, change the name of the override to the
+        -- name containing prefixes/suffixes. See Note [Darwin aliases] in
+        -- Lang.Crucible.LLVM.Intrinsics.Match for an explanation of why we
+        -- do this.
         let ovr' | isDarwin
                  , ovrNm == Match.stripDarwinAliases requestedNm
                  = ovr { llvmOverride_declare =

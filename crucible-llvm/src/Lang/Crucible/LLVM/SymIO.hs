@@ -557,7 +557,7 @@ callWriteFileHandle memOps fsVars filedesc buf count =
 symio_overrides
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
-  -> [OverrideTemplate p sym LLVM arch]
+  -> [OverrideTemplate p sym ext arch]
 symio_overrides fs =
   [ basic_llvm_override $ openFile fs
   , basic_llvm_override $ closeFile fs

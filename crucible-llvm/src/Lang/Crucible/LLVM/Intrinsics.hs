@@ -68,8 +68,8 @@ register_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
-  [OverrideTemplate p sym LLVM arch] {- ^ Additional "define" overrides -} ->
-  [OverrideTemplate p sym LLVM arch] {- ^ Additional "declare" overrides -} ->
+  [OverrideTemplate p sym LLVM arch] {- ^ Additional \"define\" overrides -} ->
+  [OverrideTemplate p sym LLVM arch] {- ^ Additional \"declare\" overrides -} ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a ()
 register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
