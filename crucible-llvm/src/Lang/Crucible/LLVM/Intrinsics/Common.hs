@@ -32,8 +32,6 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , build_llvm_override
   , register_llvm_override
   , register_1arg_polymorphic_override
-  , bind_llvm_handle
-  , bind_llvm_func
   , do_register_llvm_override
   , alloc_and_register_override
   ) where
@@ -55,9 +53,7 @@ import           Data.Parameterized.Some (Some(..))
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
-import           Lang.Crucible.FunctionHandle (FnHandle, mkHandle')
 import           Lang.Crucible.Panic (panic)
-import           Lang.Crucible.Simulator (stateContext, simHandleAllocator)
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Utils.MonadVerbosity (getLogFunction)
 import           Lang.Crucible.Simulator.RegMap
@@ -67,7 +63,7 @@ import           What4.FunctionName
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Eval (callStackFromMemVar)
-import           Lang.Crucible.LLVM.Globals (registerFunPtr)
+import           Lang.Crucible.LLVM.Functions (registerFunPtr, bindLLVMFunc)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
@@ -270,41 +266,6 @@ register_llvm_override llvmOverride requestedDecl llvmctx = do
               ]
   else do_register_llvm_override llvmctx llvmOverride
 
--- | Bind a function handle, and also bind the function to the global function
--- allocation in the LLVM memory.
-bind_llvm_handle ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
-  GlobalVar Mem ->
-  L.Symbol ->
-  FnHandle args ret ->
-  FnState p sym ext args ret ->
-  OverrideSim p sym ext rtp l a ()
-bind_llvm_handle mvar nm hdl impl = do
-  bindFnHandle hdl impl
-  mem <- readGlobal mvar
-  mem' <- ovrWithBackend $ \bak -> liftIO $ bindLLVMFunPtr bak nm hdl mem
-  writeGlobal mvar mem'
-
--- | Low-level function to register LLVM functions.
---
--- Creates and binds a function handle, and also binds the function to the
--- global function allocation in the LLVM memory.
-bind_llvm_func ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
-  GlobalVar Mem ->
-  L.Symbol ->
-  Ctx.Assignment TypeRepr args ->
-  TypeRepr ret ->
-  FnState p sym ext args ret ->
-  OverrideSim p sym ext rtp l a ()
-bind_llvm_func mvar nm args ret impl = do
-  let L.Symbol strNm = nm
-  let fnm  = functionNameFromText (Text.pack strNm)
-  ctx <- use stateContext
-  let ha = simHandleAllocator ctx
-  h <- liftIO $ mkHandle' ha fnm args ret
-  bind_llvm_handle mvar nm h impl
-
 -- | Low-level function to register LLVM overrides.
 --
 -- Type-checks the LLVM override against the 'L.Declare' it contains, adapting
@@ -334,7 +295,7 @@ do_register_llvm_override llvmctx llvmOverride = do
   llvmDeclToFunHandleRepr' decl $ \args ret -> do
     o <- build_llvm_override fnm overrideArgs overrideRet args ret
            (\asgn -> llvmOverride_def llvmOverride mvar asgn)
-    bind_llvm_func mvar (L.decName decl) args ret (UseOverride o)
+    bindLLVMFunc mvar (L.decName decl) args ret (UseOverride o)
 
 -- | Create an allocation for an override and register it.
 --

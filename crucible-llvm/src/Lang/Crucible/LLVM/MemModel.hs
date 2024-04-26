@@ -66,7 +66,6 @@ module Lang.Crucible.LLVM.MemModel
   , doMallocUnbounded
   , G.AllocType(..)
   , G.Mutability(..)
-  , doMallocHandle
   , ME.FuncLookupError(..)
   , ME.ppFuncLookupError
   , doLookupHandle
@@ -87,7 +86,6 @@ module Lang.Crucible.LLVM.MemModel
   , loadMaybeString
   , strLen
   , uncheckedMemcpy
-  , bindLLVMFunPtr
 
     -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
@@ -720,25 +718,12 @@ doMallocSize sz bak allocType mut loc mem alignment = do
            else pure mem'
   return (ptr, mem'')
 
-
-
-bindLLVMFunPtr ::
-  (IsSymBackend sym bak, HasPtrWidth wptr) =>
-  bak ->
-  L.Symbol ->
-  FnHandle args ret ->
-  MemImpl sym ->
-  IO (MemImpl sym)
-bindLLVMFunPtr bak nm h mem
-  | (_ Ctx.:> VectorRepr AnyRepr) <- handleArgTypes h
-
-  = do ptr <- doResolveGlobal bak mem nm
-       doInstallHandle bak ptr (VarargsFnHandle h) mem
-
-  | otherwise
-  = do ptr <- doResolveGlobal bak mem nm
-       doInstallHandle bak ptr (SomeFnHandle h) mem
-
+-- | Associate a function handle with an existing allocation.
+--
+-- This can overwrite existing allocation/handle associations, and is used to do
+-- so when registering lazily-translated CFGs.
+--
+-- See also "Lang.Crucible.LLVM.Functions".
 doInstallHandle
   :: (Typeable a, IsSymBackend sym bak)
   => bak
@@ -756,25 +741,6 @@ doInstallHandle _bak ptr x mem =
         [ "Attempted to install handle for symbolic pointer"
         , "  " ++ show (ppPtr ptr)
         ]
-
--- | Allocate a memory region for the given handle.
-doMallocHandle
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> G.AllocType {- ^ stack, heap, or global -}
-  -> String {- ^ source location for use in error messages -}
-  -> MemImpl sym
-  -> a {- ^ handle -}
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
-doMallocHandle sym allocType loc mem x = do
-  blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym blkNum
-  z <- bvZero sym PtrWidth
-
-  let heap' = G.allocMem allocType blkNum (Just z) noAlignment G.Immutable loc (memImplHeap mem)
-  let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
-  let ptr = LLVMPointer blk z
-  return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
 
 -- | Look up the handle associated with the given pointer, if any.
 doLookupHandle

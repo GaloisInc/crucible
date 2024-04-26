@@ -1,5 +1,6 @@
 # next
 
+* The `doMallocHandle` function was removed.
 * The `RegOverrideM` monad was replaced by the `MakeOverride` function newtype.
 * Several type parameters were removed from `OverrideTemplate`, and the `ext`
   parameter was added. This had downstream effects in `basic_llvm_override`,
