@@ -66,7 +66,6 @@ module Lang.Crucible.LLVM.MemModel
   , doMallocUnbounded
   , G.AllocType(..)
   , G.Mutability(..)
-  , doMallocHandle
   , ME.FuncLookupError(..)
   , ME.ppFuncLookupError
   , doLookupHandle
@@ -742,27 +741,6 @@ doInstallHandle _bak ptr x mem =
         [ "Attempted to install handle for symbolic pointer"
         , "  " ++ show (ppPtr ptr)
         ]
-
--- | Allocate a memory region for the given handle.
---
--- See also "Lang.Crucible.LLVM.Functions".
-doMallocHandle -- TODO(lb): unused, delete?
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> G.AllocType {- ^ stack, heap, or global -}
-  -> String {- ^ source location for use in error messages -}
-  -> MemImpl sym
-  -> a {- ^ handle -}
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
-doMallocHandle sym allocType loc mem x = do
-  blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym blkNum
-  z <- bvZero sym PtrWidth
-
-  let heap' = G.allocMem allocType blkNum (Just z) noAlignment G.Immutable loc (memImplHeap mem)
-  let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
-  let ptr = LLVMPointer blk z
-  return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
 
 -- | Look up the handle associated with the given pointer, if any.
 doLookupHandle

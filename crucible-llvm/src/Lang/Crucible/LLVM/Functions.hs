@@ -13,7 +13,7 @@
 --
 -- * Create a 'FnHandle' and a 'FnState' (a translated CFG or an override)
 -- * Bind the 'FnHandle' to the 'FnState' ('OverrideSim.bindFnHandle')
--- * Create a (global, immutable, zero-sized) allocation coressponding to the
+-- * Create a (global, immutable, zero-sized) allocation corresponding to the
 --   function in the 'MemImpl' ('allocFunPtr')
 -- * Register the correspondence between the function\'s name (and any aliases)
 --   and its global allocation ('registerGlobal', or via 'registerFunPtr')
@@ -49,6 +49,7 @@ module Lang.Crucible.LLVM.Functions
   , allocLLVMFunPtr
   , allocLLVMFunPtrs
   , registerFunPtr
+  , someFnHandle
   , bindLLVMHandle
   , bindLLVMCFG
   , bindLLVMFunc
@@ -172,7 +173,7 @@ allocLLVMFunPtrs bak llvmCtx mem0 llvmMod = do
    let allocLLVMFunPtr' bak' lctx mem decl = snd <$> allocLLVMFunPtr bak' lctx mem decl
    foldM (allocLLVMFunPtr' bak llvmCtx) mem0 decls
 
--- Not exported
+-- | Turn a 'FnHandle' into a 'SomeFnHandle', for use with 'doInstallHandle'.
 someFnHandle :: FnHandle args ret -> SomeFnHandle
 someFnHandle h =
   case handleArgTypes h of
@@ -228,7 +229,7 @@ mkHandle ::
   Ctx.Assignment TypeRepr args ->
   -- | Return type
   TypeRepr ret ->
- OverrideSim p sym ext rtp l a (FnHandle args ret)
+  OverrideSim p sym ext rtp l a (FnHandle args ret)
 mkHandle nm args ret = do
   let L.Symbol strNm = nm
   let fnm  = functionNameFromText (Text.pack strNm)

@@ -1,5 +1,9 @@
 # next
 
+* The `doMallocHandle` function was removed.
+* The `bindLLVMFunPtr` function was removed, instead use `doResolveGlobal`
+  to resolve a global symbol to a pointer, `someFnHandle` to construct a
+  `SomeFnHandle`, and pass both to `doInstallHandle`.
 * The `RegOverrideM` monad was replaced by the `MakeOverride` function newtype.
 * Several type parameters were removed from `OverrideTemplate`, and the `ext`
   parameter was added. This had downstream effects in `basic_llvm_override`,
