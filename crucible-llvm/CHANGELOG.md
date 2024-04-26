@@ -1,5 +1,7 @@
 # next
 
+* `register_llvm_overrides{,_}` now returns the list of overrides that were
+  applied.
 * The `doMallocHandle` function was removed.
 * The `RegOverrideM` monad was replaced by the `MakeOverride` function newtype.
 * Several type parameters were removed from `OverrideTemplate`, and the `ext`
