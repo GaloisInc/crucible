@@ -49,7 +49,6 @@ module Lang.Crucible.LLVM.Functions
   , allocLLVMFunPtr
   , allocLLVMFunPtrs
   , registerFunPtr
-  , someFnHandle
   , bindLLVMHandle
   , bindLLVMCFG
   , bindLLVMFunc
@@ -173,7 +172,7 @@ allocLLVMFunPtrs bak llvmCtx mem0 llvmMod = do
    let allocLLVMFunPtr' bak' lctx mem decl = snd <$> allocLLVMFunPtr bak' lctx mem decl
    foldM (allocLLVMFunPtr' bak llvmCtx) mem0 decls
 
--- | Turn a 'FnHandle' into a 'SomeFnHandle', for use with 'doInstallHandle'.
+-- Not exported
 someFnHandle :: FnHandle args ret -> SomeFnHandle
 someFnHandle h =
   case handleArgTypes h of
@@ -185,6 +184,29 @@ someFnHandle h =
 --
 -- This can overwrite existing allocation/handle associations, and is used to do
 -- so when registering lazily-translated CFGs.
+--
+-- For a stateful version in 'OverrideSim', see 'bindLLVMHandle'.
+bindLLVMFunPtr ::
+  (IsSymBackend sym bak, HasPtrWidth wptr) =>
+  bak ->
+  -- | Function name
+  L.Symbol ->
+  -- | Function implementation (CFG or override)
+  FnHandle args ret ->
+  -- | LLVM memory
+  MemImpl sym ->
+  IO (MemImpl sym)
+bindLLVMFunPtr bak nm h mem = do
+  ptr <- doResolveGlobal bak mem nm
+  doInstallHandle bak ptr (someFnHandle h) mem
+
+-- | Look up an existing global function allocation by name and bind a handle
+-- to it.
+--
+-- This can overwrite existing allocation/handle associations, and is used to do
+-- so when registering lazily-translated CFGs.
+--
+-- For a less stateful version in 'IO', see 'bindLLVMHandle'.
 bindLLVMHandle ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   GlobalVar Mem ->
@@ -198,9 +220,8 @@ bindLLVMHandle ::
 bindLLVMHandle mvar nm hdl impl = do
   OverrideSim.bindFnHandle hdl impl
   mem <- OverrideSim.readGlobal mvar
-  mem' <- OverrideSim.ovrWithBackend $ \bak -> do
-    ptr <- liftIO (doResolveGlobal bak mem nm)
-    liftIO $ doInstallHandle bak ptr (someFnHandle hdl) mem
+  mem' <- OverrideSim.ovrWithBackend $ \bak ->
+    liftIO (bindLLVMFunPtr bak nm hdl mem)
   OverrideSim.writeGlobal mvar mem'
 
 -- | Look up an existing global function allocation by name and bind a CFG to
