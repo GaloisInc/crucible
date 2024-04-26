@@ -324,7 +324,7 @@ registerOverrides appCtx modCtx kind overrides =
              Text.unwords
                ["Registering", kind, "override for", describeOverride override]
 
-     LLVMIntrinsics.register_llvm_overrides_
+     void $ LLVMIntrinsics.register_llvm_overrides_
        (modCtx ^. moduleTranslation . transContext)
        overrides
        (allModuleDeclares (modCtx ^. llvmModule . to getModule))
@@ -488,7 +488,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
                     --
                     -- Stuff like LLVM intrinsics, `free`, `malloc`
                     let llMod = modCtx ^. llvmModule . to getModule
-                    LLVMIntrinsics.register_llvm_overrides llMod [] [] llvmCtxt
+                    void $ LLVMIntrinsics.register_llvm_overrides llMod [] [] llvmCtxt
 
                     -- These are aligned for easy reading in the logs
                     let sCruxLLVM = "crux-llvm"
