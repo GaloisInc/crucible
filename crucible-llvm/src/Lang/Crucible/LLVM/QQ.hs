@@ -118,6 +118,12 @@ parseSeqType start end cnstr =
      void $ AT.char end
      return $! cnstr n tp
 
+parseVectorType :: AT.Parser QQType
+parseVectorType = parseSeqType '<' '>' QQVector
+
+parseArrayType :: AT.Parser QQType
+parseArrayType = parseSeqType '[' ']' QQArray
+
 parseCommaSeparatedTypes :: AT.Parser [QQType]
 parseCommaSeparatedTypes = AT.choice
   [ do AT.skipSpace
@@ -173,8 +179,8 @@ parseIntVar = T.unpack <$> (AT.char '#' *> AT.takeWhile1 varChar)
 parseType :: AT.Parser QQType
 parseType =
   do base <- AT.choice
-             [ parseSeqType '<' '>' QQVector
-             , parseSeqType '[' ']' QQArray
+             [ parseVectorType
+             , parseArrayType
              , parseStructType
              , parsePackedStructType
              , QQVar <$> parseVar
