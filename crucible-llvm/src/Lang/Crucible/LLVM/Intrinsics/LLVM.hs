@@ -251,6 +251,59 @@ poly1_llvm_overrides =
     )
   ]
 
+-- | An LLVM override that is polymorphic in a single integer argument
+-- (@intSz@) that is used in combination with a vector type, which can be of
+-- varying sizes (@vecSz@).
+newtype Poly1VecLLVMOverride p sym ext
+  = Poly1VecLLVMOverride
+      (forall vecSz intSz
+         . (1 <= intSz)
+        => NatRepr vecSz
+        -> NatRepr intSz
+        -> SomeLLVMOverride p sym ext)
+
+poly1_vec_llvm_overrides ::
+  IsSymInterface sym =>
+  [(String, Poly1VecLLVMOverride p sym ext)]
+poly1_vec_llvm_overrides =
+  [ ("llvm.vector.reduce.add"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceAdd vecSz intSz)
+    )
+  , ("llvm.vector.reduce.mul"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceMul vecSz intSz)
+    )
+  , ("llvm.vector.reduce.and"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceAnd vecSz intSz)
+    )
+  , ("llvm.vector.reduce.or"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceOr vecSz intSz)
+    )
+  , ("llvm.vector.reduce.xor"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceXor vecSz intSz)
+    )
+  , ("llvm.vector.reduce.smax"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceSmax vecSz intSz)
+    )
+  , ("llvm.vector.reduce.smin"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceSmin vecSz intSz)
+    )
+  , ("llvm.vector.reduce.umax"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceUmax vecSz intSz)
+    )
+  , ("llvm.vector.reduce.umin"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmVectorReduceUmin vecSz intSz)
+    )
+  ]
+
 ------------------------------------------------------------------------
 -- ** Declarations
 
@@ -392,7 +445,7 @@ llvmTrapOverride
   => LLVMOverride p sym ext EmptyCtx UnitType
 llvmTrapOverride =
   [llvmOvr| void @llvm.trap() |]
-  (\_ops _args -> 
+  (\_ops _args ->
     ovrWithBackend $ \bak ->
       liftIO $ addFailedAssertion bak $ AssertFailureSimError "llvm.trap() called" "")
 
@@ -405,7 +458,7 @@ llvmUBSanTrapOverride ::
   LLVMOverride p sym ext (EmptyCtx ::> BVType 8) UnitType
 llvmUBSanTrapOverride =
   [llvmOvr| void @llvm.ubsantrap( i8 ) |]
-  (\_ops _args -> 
+  (\_ops _args ->
     ovrWithBackend $ \bak ->
       liftIO $ addFailedAssertion bak $ AssertFailureSimError "llvm.ubsantrap() called" "")
 
@@ -1288,6 +1341,113 @@ llvmX86_SSE2_storeu_dq =
   [llvmOvr| void @llvm.x86.sse2.storeu.dq( i8*, <16 x i8> ) |]
   (\memOps args -> Ctx.uncurryAssignment (callStoreudq memOps) args)
 
+
+-- | Build an 'LLVMOverride' for a vector reduce intrinsic.
+llvmVectorReduce ::
+     (1 <= intSz)
+  => String
+     -- ^ The name of the operation to reduce (@add@, @mul@, etc.).
+  -> (forall r args ret
+       . IsSymInterface sym
+      => NatRepr intSz
+      -> RegEntry sym (VectorType (BVType intSz))
+      -> OverrideSim p sym ext r args ret (SymBV sym intSz))
+     -- ^ The semantics of the override.
+  -> NatRepr vecSz
+     -- ^ The size of the vector type.
+  -> NatRepr intSz
+     -- ^ The size of the integer type.
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduce opName callReduce vecSz intSz =
+  let nm = L.Symbol ("llvm.vector.reduce." ++ opName ++
+                     ".v" ++ show (natValue vecSz) ++
+                     "i" ++ show (natValue intSz)) in
+    [llvmOvr| #intSz $nm( <#vecSz x #intSz> ) |]
+    (\_memOps args -> Ctx.uncurryAssignment (callReduce intSz) args)
+
+llvmVectorReduceAdd ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceAdd = llvmVectorReduce "add" callVectorReduceAdd
+
+llvmVectorReduceMul ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceMul = llvmVectorReduce "mul" callVectorReduceMul
+
+llvmVectorReduceAnd ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceAnd = llvmVectorReduce "and" callVectorReduceAnd
+
+llvmVectorReduceOr ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceOr = llvmVectorReduce "or" callVectorReduceOr
+
+llvmVectorReduceXor ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceXor = llvmVectorReduce "xor" callVectorReduceXor
+
+llvmVectorReduceSmax ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceSmax = llvmVectorReduce "smax" callVectorReduceSmax
+
+llvmVectorReduceSmin ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceSmin = llvmVectorReduce "smin" callVectorReduceSmin
+
+llvmVectorReduceUmax ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceUmax = llvmVectorReduce "umax" callVectorReduceUmax
+
+llvmVectorReduceUmin ::
+     (1 <= intSz)
+  => NatRepr vecSz
+  -> NatRepr intSz
+  -> LLVMOverride p sym ext
+        (EmptyCtx ::> VectorType (BVType intSz))
+        (BVType intSz)
+llvmVectorReduceUmin = llvmVectorReduce "umin" callVectorReduceUmin
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -1302,7 +1462,7 @@ callX86_pclmulqdq _mvar
   (regValue -> xs)
   (regValue -> ys)
   (regValue -> imm) =
-    ovrWithBackend $ \bak -> do 
+    ovrWithBackend $ \bak -> do
       unless (V.length xs == 2) $
          liftIO $ addFailedAssertion bak $ AssertFailureSimError
           ("Vector length mismatch in llvm.x86.pclmulqdq intrinsic")
@@ -1594,9 +1754,18 @@ callUmax
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
 callUmax _mvar (regValue -> x) (regValue -> y) = do
   sym <- getSymInterface
-  liftIO $ do
-    xGtY <- bvUgt sym x y
-    bvIte sym xGtY x y
+  liftIO $ bvUmax sym x y
+
+-- | Compute the unsigned maximum of two bitvectors.
+bvUmax ::
+     (IsExprBuilder sym, 1 <= w)
+  => sym
+  -> SymBV sym w
+  -> SymBV sym w
+  -> IO (SymBV sym w)
+bvUmax sym x y = do
+  xGtY <- bvUgt sym x y
+  bvIte sym xGtY x y
 
 callUmin
   :: (1 <= w, IsSymInterface sym)
@@ -1606,9 +1775,18 @@ callUmin
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
 callUmin _mvar (regValue -> x) (regValue -> y) = do
   sym <- getSymInterface
-  liftIO $ do
-    xLtY <- bvUlt sym x y
-    bvIte sym xLtY x y
+  liftIO $ bvUmin sym x y
+
+-- | Compute the unsigned minimum of two bitvectors.
+bvUmin ::
+     (IsExprBuilder sym, 1 <= w)
+  => sym
+  -> SymBV sym w
+  -> SymBV sym w
+  -> IO (SymBV sym w)
+bvUmin sym x y = do
+  xLtY <- bvUlt sym x y
+  bvIte sym xLtY x y
 
 callSmax
   :: (1 <= w, IsSymInterface sym)
@@ -1618,9 +1796,18 @@ callSmax
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
 callSmax _mvar (regValue -> x) (regValue -> y) = do
   sym <- getSymInterface
-  liftIO $ do
-    xGtY <- bvSgt sym x y
-    bvIte sym xGtY x y
+  liftIO $ bvSmax sym x y
+
+-- | Compute the signed maximum of two bitvectors.
+bvSmax ::
+     (IsExprBuilder sym, 1 <= w)
+  => sym
+  -> SymBV sym w
+  -> SymBV sym w
+  -> IO (SymBV sym w)
+bvSmax sym x y = do
+  xGtY <- bvSgt sym x y
+  bvIte sym xGtY x y
 
 callSmin
   :: (1 <= w, IsSymInterface sym)
@@ -1630,9 +1817,18 @@ callSmin
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
 callSmin _mvar (regValue -> x) (regValue -> y) = do
   sym <- getSymInterface
-  liftIO $ do
-    xLtY <- bvSlt sym x y
-    bvIte sym xLtY x y
+  liftIO $ bvSmin sym x y
+
+-- | Compute the signed minimum of two bitvectors.
+bvSmin ::
+     (IsExprBuilder sym, 1 <= w)
+  => sym
+  -> SymBV sym w
+  -> SymBV sym w
+  -> IO (SymBV sym w)
+bvSmin sym x y = do
+  xLtY <- bvSlt sym x y
+  bvIte sym xLtY x y
 
 
 callCttz
@@ -1772,3 +1968,108 @@ callIsFpclass regOp@(regValue -> op) (regValue -> test) = do
     , (8, isNormP)    -- Positive normal
     , (9, isInfP)     -- Positive infinity
     ]
+
+-- | The semantics of an LLVM vector reduce intrinsic.
+callVectorReduce ::
+  -- | The operation which performs the reduction (e.g., addition,
+  -- multiplication, etc.)
+  (RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  -- | The identity element for the reduction operation. (For addition,
+  -- this is @0@; for multiplication, this is @1@, and so on.)
+  RegValue sym tp ->
+  -- | The vector to reduce.
+  RegEntry sym (VectorType tp) ->
+  OverrideSim p sym ext r args ret (RegValue sym tp)
+callVectorReduce reduceOp identityVal (regValue -> vec) =
+  liftIO $ V.foldM reduceOp identityVal vec
+
+callVectorReduceAdd ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceAdd intSz vec = do
+  sym <- getSymInterface
+  zero <- liftIO $ bvZero sym intSz
+  callVectorReduce (bvAdd sym) zero vec
+
+callVectorReduceMul ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceMul intSz vec = do
+  sym <- getSymInterface
+  one <- liftIO $ bvOne sym intSz
+  callVectorReduce (bvMul sym) one vec
+
+callVectorReduceAnd ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceAnd intSz vec = do
+  sym <- getSymInterface
+  zero <- liftIO $ bvZero sym intSz
+  ones <- liftIO $ bvNotBits sym zero
+  callVectorReduce (bvAndBits sym) ones vec
+
+callVectorReduceOr ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceOr intSz vec = do
+  sym <- getSymInterface
+  zero <- liftIO $ bvZero sym intSz
+  callVectorReduce (bvOrBits sym) zero vec
+
+callVectorReduceXor ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceXor intSz vec = do
+  sym <- getSymInterface
+  zero <- liftIO $ bvZero sym intSz
+  callVectorReduce (bvXorBits sym) zero vec
+
+callVectorReduceSmax ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceSmax intSz vec = do
+  sym <- getSymInterface
+  smin <- liftIO $ minSignedBV sym intSz
+  callVectorReduce (bvSmax sym) smin vec
+
+callVectorReduceSmin ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceSmin intSz vec = do
+  sym <- getSymInterface
+  smax <- liftIO $ maxSignedBV sym intSz
+  callVectorReduce (bvSmin sym) smax vec
+
+callVectorReduceUmax ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceUmax intSz vec = do
+  sym <- getSymInterface
+  umin <- liftIO $ minUnsignedBV sym intSz
+  callVectorReduce (bvUmax sym) umin vec
+
+callVectorReduceUmin ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  NatRepr intSz ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (SymBV sym intSz)
+callVectorReduceUmin intSz vec = do
+  sym <- getSymInterface
+  umax <- liftIO $ maxUnsignedBV sym intSz
+  callVectorReduce (bvUmin sym) umax vec

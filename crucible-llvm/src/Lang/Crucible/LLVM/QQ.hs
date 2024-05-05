@@ -42,6 +42,7 @@ import           Lang.Crucible.LLVM.Types
 data QQType
   = QQVar String     -- ^ This constructor represents a type metavariable, e.g. @$var@
   | QQIntVar String  -- ^ This constructor represents a integer type metavariable, e.g. @#var@
+  | QQVectorVar String QQType -- ^ This constructor represents a vector type with a metavariable for its size, e.g. @<#var x ty>@
   | QQSizeT          -- ^ This constructor represents an integer type that is the same width as a pointer
   | QQSSizeT          -- ^ This constructor represents a signed integer type that is the same width as a pointer
   | QQPrim L.PrimType
@@ -104,12 +105,13 @@ parsePrimType = AT.choice
 parseSeqType ::
   Char ->
   Char ->
-  (Int32 -> QQType -> QQType) ->
+  AT.Parser seqSz ->
+  (seqSz -> QQType -> QQType) ->
   AT.Parser QQType
-parseSeqType start end cnstr =
+parseSeqType start end parseSz cnstr =
   do void $ AT.char start
      AT.skipSpace
-     n <- AT.decimal
+     n <- parseSz
      AT.skipSpace
      void $ AT.char 'x'
      AT.skipSpace
@@ -119,10 +121,13 @@ parseSeqType start end cnstr =
      return $! cnstr n tp
 
 parseVectorType :: AT.Parser QQType
-parseVectorType = parseSeqType '<' '>' QQVector
+parseVectorType = parseSeqType '<' '>' AT.decimal QQVector
+
+parseVectorVar :: AT.Parser QQType
+parseVectorVar = parseSeqType '<' '>' parseIntVar QQVectorVar
 
 parseArrayType :: AT.Parser QQType
-parseArrayType = parseSeqType '[' ']' QQArray
+parseArrayType = parseSeqType '[' ']' AT.decimal QQArray
 
 parseCommaSeparatedTypes :: AT.Parser [QQType]
 parseCommaSeparatedTypes = AT.choice
@@ -180,6 +185,7 @@ parseType :: AT.Parser QQType
 parseType =
   do base <- AT.choice
              [ parseVectorType
+             , parseVectorVar
              , parseArrayType
              , parseStructType
              , parsePackedStructType
@@ -232,6 +238,7 @@ liftQQType tp =
   case tp of
     QQVar nm     -> varE (mkName nm)
     QQIntVar nm  -> [| L.PrimType (L.Integer (fromInteger (intValue $(varE (mkName nm)) ))) |]
+    QQVectorVar nm t -> [| L.Vector (fromInteger (intValue $(varE (mkName nm)))) $(liftQQType t) |]
     QQSizeT      -> varE 'IC.llvmSizeT
     QQSSizeT      -> varE 'IC.llvmSSizeT
     QQAlias nm   -> [| L.Alias nm |]
@@ -269,6 +276,7 @@ liftTypeRepr :: QQType -> Q Exp
 liftTypeRepr t = case t of
     QQVar nm      -> varE (mkName (nm++"_repr"))
     QQIntVar nm   -> [| BVRepr $(varE (mkName nm)) |]
+    QQVectorVar _ t' -> [| VectorRepr $(liftTypeRepr t') |]
     QQSizeT       -> [| SizeT |]
     QQSSizeT      -> [| SSizeT |]
     QQPrim pt     -> liftPrim pt
