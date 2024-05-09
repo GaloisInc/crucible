@@ -28,10 +28,12 @@ module Lang.Crucible.LLVM.Intrinsics.Common
     -- ** register_llvm_override
   , basic_llvm_override
   , polymorphic1_llvm_override
+  , polymorphic1_vec_llvm_override
 
   , build_llvm_override
   , register_llvm_override
   , register_1arg_polymorphic_override
+  , register_1arg_vec_polymorphic_override
   , do_register_llvm_override
   , alloc_and_register_override
   ) where
@@ -178,6 +180,33 @@ polymorphic1_llvm_override :: forall p sym ext arch wptr.
 polymorphic1_llvm_override prefix fn =
   OverrideTemplate (Match.PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
 
+-- | Create an 'OverrideTemplate' for a polymorphic LLVM override involving
+-- a vector type. For example, the @llvm.vector.reduce.add.*@ intrinsic can be
+-- instantiated at multiple types, including:
+--
+-- * @i32 \@llvm.vector.reduce.add.v4i32(<4 x i32>)@
+--
+-- * @i64 \@llvm.vector.reduce.add.v2i64(<2 x i64>)@
+--
+-- * etc.
+--
+-- Note that the intrinsic can vary both by the size of the vector type (@4@,
+-- @2@, etc.) and the size of the integer type used as the vector element type
+-- (@i32@, @i64@, etc.) Therefore, the @fn@ argument that this function accepts
+-- is parameterized by both the vector size (@vecSz@) and the integer size
+-- (@intSz@).
+polymorphic1_vec_llvm_override :: forall p sym ext arch wptr.
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  String ->
+  (forall vecSz intSz.
+    (1 <= intSz) =>
+    NatRepr vecSz ->
+    NatRepr intSz ->
+    SomeLLVMOverride p sym ext) ->
+  OverrideTemplate p sym ext arch
+polymorphic1_vec_llvm_override prefix fn =
+  OverrideTemplate (Match.PrefixMatch prefix) (register_1arg_vec_polymorphic_override prefix fn)
+
 register_1arg_polymorphic_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
@@ -190,6 +219,37 @@ register_1arg_polymorphic_override prefix overrideFn =
         | Some w <- mkNatRepr sz
         , Just LeqProof <- isPosNat w
         -> Just (overrideFn w)
+      _ -> Nothing
+
+-- | Register a polymorphic LLVM override involving a vector type. (See the
+-- Haddocks for 'polymorphic1_vec_llvm_override' for details on what this
+-- means.) This function is responsible for parsing the suffix in the
+-- intrinsic's name, which encodes the sizes of the vector and integer types.
+-- As some examples:
+--
+-- * @.v4i32@ (vector size @4@, integer size @32@)
+--
+-- * @.v2i64@ (vector size @2@, integer size @64@)
+register_1arg_vec_polymorphic_override :: forall p sym ext arch wptr.
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  String ->
+  (forall vecSz intSz.
+    (1 <= intSz) =>
+    NatRepr vecSz ->
+    NatRepr intSz ->
+    SomeLLVMOverride p sym ext) ->
+  MakeOverride p sym ext arch
+register_1arg_vec_polymorphic_override prefix overrideFn =
+  MakeOverride $ \(L.Declare{ L.decName = L.Symbol nm }) _ _ ->
+    case List.stripPrefix prefix nm of
+      Just ('.':'v':suffix1)
+        | (vecSzStr, 'i':intSzStr) <- break (== 'i') suffix1
+        , (vecSzNat, []):_ <- readDec vecSzStr
+        , (intSzNat, []):_ <- readDec intSzStr
+        , Some vecSzRepr <- mkNatRepr vecSzNat
+        , Some intSzRepr <- mkNatRepr intSzNat
+        , Just LeqProof <- isPosNat intSzRepr
+        -> Just (overrideFn vecSzRepr intSzRepr)
       _ -> Nothing
 
 basic_llvm_override :: forall p args ret sym ext arch wptr.

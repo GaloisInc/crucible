@@ -17,6 +17,7 @@
 * The `llvmOverride_def` field of `LLVMOverride` no longer takes a `bak`
   argument. To retrieve the current symbolic backend, use
   `Lang.Crucible.Simulator.OverrideSim.ovrWithBackend`.
+* Add overrides for integer-related `llvm.vector.reduce.*` intrinsics.
 
 # 0.6 -- 2024-02-05
 

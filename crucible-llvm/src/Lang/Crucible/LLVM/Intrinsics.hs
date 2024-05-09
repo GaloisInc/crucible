@@ -179,6 +179,7 @@ declare_overrides =
   [ map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) Libc.libc_overrides
   , map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) LLVM.basic_llvm_overrides
   , map (\(pfx, LLVM.Poly1LLVMOverride ov) -> polymorphic1_llvm_override pfx ov) LLVM.poly1_llvm_overrides
+  , map (\(pfx, LLVM.Poly1VecLLVMOverride ov) -> polymorphic1_vec_llvm_override pfx ov) LLVM.poly1_vec_llvm_overrides
 
   -- C++ standard library functions
   , [ Libcxx.register_cpp_override Libcxx.endlOverride ]
