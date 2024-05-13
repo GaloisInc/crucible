@@ -139,13 +139,13 @@ registerFunctions llvmOpts llvm_module mtrans fs0 =
          ?memOpts = memOpts llvmOpts
 
      -- register the callable override functions
-     register_llvm_overrides llvm_module []
-       (concat [ cruxLLVMOverrides proxy#
-               , svCompOverrides
-               , cbmcOverrides proxy#
-               , maybe [] symio_overrides fs0
-               ])
-       llvm_ctx
+     _ <- register_llvm_overrides llvm_module []
+            (concat [ cruxLLVMOverrides proxy#
+                    , svCompOverrides
+                    , cbmcOverrides proxy#
+                    , maybe [] symio_overrides fs0
+                    ])
+            llvm_ctx
 
      -- register all the functions defined in the LLVM module
      registerLazyModule sayTranslationWarning mtrans
