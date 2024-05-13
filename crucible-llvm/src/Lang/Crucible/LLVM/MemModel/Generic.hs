@@ -1042,13 +1042,13 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
       case sz of
         Nothing ->
           -- Unbounded access of an unbounded allocation must start at offset 0.
-          bvEq sym off =<< bvLit sym w (BV.zero w)
+          bvEq sym off =<< bvZero sym w
         Just currSize ->
           -- Bounded access of an unbounded allocation requires that
           -- @offset + size <= 2^w@, or equivalently @offset <= 2^w -
           -- size@. Note that @bvNeg sym size@ computes @2^w - size@
           -- for any nonzero @size@.
-          do zeroSize <- bvEq sym currSize =<< bvLit sym w (BV.zero w)
+          do zeroSize <- bvEq sym currSize =<< bvZero sym w
              noWrap <- bvUle sym off =<< bvNeg sym currSize
              orPred sym zeroSize noWrap
 
@@ -1150,7 +1150,7 @@ isAligned sym w (LLVMPointer _blk offset) a
   , Just LeqProof <- isPosNat bits
   , Just LeqProof <- testLeq bits w =
     do lowbits <- bvSelect sym (knownNat :: NatRepr 0) bits offset
-       bvEq sym lowbits =<< bvLit sym bits (BV.zero bits)
+       bvEq sym lowbits =<< bvZero sym bits
 isAligned sym _ _ _ =
   return (falsePred sym)
 
@@ -1319,7 +1319,7 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
                       arrayUpdate sym acc_arr (Ctx.singleton idx) byte
 
                   Partial.NoErr _ (LLVMValZero _) -> do
-                      byte <- bvLit sym knownRepr (BV.zero knownRepr)
+                      byte <- bvZero sym knownRepr
                       idx <- bvAdd sym (llvmPointerOffset ptr)
                         =<< bvLit sym w (bytesToBV w off)
                       arrayUpdate sym acc_arr (Ctx.singleton idx) byte
@@ -1526,7 +1526,7 @@ allocAndWriteMem ::
 allocAndWriteMem sym w a b tp alignment mut loc v m =
   do sz <- bvLit sym w (bytesToBV w (typeEnd 0 tp))
      base <- natLit sym b
-     off <- bvLit sym w (BV.zero w)
+     off <- bvZero sym w
      let p = LLVMPointer base off
      return (m & allocMem a b (Just sz) alignment mut loc
                & memAddWrite p (MemStore v tp alignment))
@@ -1575,7 +1575,7 @@ freeMem :: forall sym w .
   String {- ^ Source location -} ->
   IO (Mem sym, Pred sym, Pred sym, Pred sym)
 freeMem sym w (LLVMPointer blk off) m loc =
-  do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
+  do p1 <- bvEq sym off =<< bvZero sym w
      (wasAllocated, notFreed) <- isAllocatedGeneric sym isHeapMutable blk (memAllocs m)
      return (memAddAlloc (freeMemAllocs blk loc) m, p1, wasAllocated, notFreed)
   where

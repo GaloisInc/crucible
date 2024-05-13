@@ -36,7 +36,6 @@ module Lang.Crucible.LLVM.Globals
   , populateGlobals
   , populateAllGlobals
   , populateConstGlobals
-  , registerFunPtr
 
   , GlobalInitializerMap
   , makeGlobalMap
@@ -58,14 +57,13 @@ import qualified Data.Parameterized.Context as Ctx
 
 import qualified Text.LLVM.AST as L
 
-import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.NatRepr as NatRepr
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Functions (allocLLVMFunPtrs)
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MemModel
-import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -182,10 +180,9 @@ initializeMemory predicate bak llvm_ctx llvmModl = do
    let endianness = dl^.intLayout
    mem0 <- emptyMem endianness
 
-   -- allocate pointers values for function symbols, but do not
-   -- yet bind them to function handles
-   let decls = map Left (L.modDeclares llvmModl) ++ map Right (L.modDefines llvmModl)
-   mem <- foldM (allocLLVMFunPtr bak llvm_ctx) mem0 decls
+   -- allocate pointers values for function symbols, but do not yet bind them to
+   -- function handles
+   mem <- allocLLVMFunPtrs bak llvm_ctx mem0 llvmModl
 
    -- Allocate global values
    let globAliases = llvmGlobalAliases llvm_ctx
@@ -221,47 +218,6 @@ initializeMemory predicate bak llvm_ctx llvmModl = do
                     globals
    allocGlobals bak (filter (\(g, _, _, _) -> predicate g) gs_alloc) mem
 
-
-allocLLVMFunPtr ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
-  bak ->
-  LLVMContext arch ->
-  MemImpl sym ->
-  Either L.Declare L.Define ->
-  IO (MemImpl sym)
-allocLLVMFunPtr bak llvm_ctx mem decl =
-  do let (symbol, displayString) =
-           case decl of
-             Left d ->
-               let s@(L.Symbol nm) = L.decName d
-                in ( s, "[external function] " ++ nm )
-             Right d ->
-               let s@(L.Symbol nm) = L.defName d
-                in ( s, "[defined function ] " ++ nm)
-     let funAliases = llvmFunctionAliases llvm_ctx
-     let aliases = map L.aliasName $ maybe [] Set.toList $ Map.lookup symbol funAliases
-     (_ptr, mem') <- registerFunPtr bak mem displayString symbol aliases
-     return mem'
-
--- | Create a global allocation assocated with a function
-registerFunPtr ::
-  ( IsSymBackend sym bak, HasPtrWidth wptr, HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
-  bak ->
-  MemImpl sym ->
-  -- | Display name
-  String ->
-  -- | Function name
-  L.Symbol ->
-  -- | Aliases
-  [L.Symbol] ->
-  IO (LLVMPtr sym wptr, MemImpl sym)
-registerFunPtr bak mem displayName nm aliases = do
-  let sym = backendGetSym bak
-  z <- bvLit sym ?ptrWidth (BV.zero ?ptrWidth)
-  (ptr, mem') <- doMalloc bak G.GlobalAlloc G.Immutable displayName mem z noAlignment
-  return $ (ptr, registerGlobal mem' (nm:aliases) ptr)
 
 ------------------------------------------------------------------------
 -- ** populateGlobals

@@ -35,7 +35,6 @@ module Lang.Crucible.LLVM.Intrinsics.Libcxx
   ) where
 
 import qualified ABI.Itanium as ABI
-import           Control.Applicative (empty)
 import           Control.Lens ((^.))
 import           Control.Monad.Reader
 import           Data.List (isInfixOf)
@@ -50,12 +49,14 @@ import           What4.Interface (bvLit, natLit)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
+import           Lang.Crucible.Simulator.OverrideSim (getSymInterface)
 import           Lang.Crucible.Simulator.RegMap (RegValue, regValue)
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Types (TypeRepr(UnitRepr), CtxRepr)
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
@@ -68,16 +69,12 @@ import           Lang.Crucible.LLVM.Translation.Types
 register_cpp_override ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   SomeCPPOverride p sym arch ->
-  OverrideTemplate p sym arch rtp l a
+  OverrideTemplate p sym LLVM arch
 register_cpp_override someCPPOverride =
-  OverrideTemplate (SubstringsMatch ("_Z" : cppOverrideSubstrings someCPPOverride)) $
-  do (requestedDecl, decName, llvmctx) <- ask
-     case decName of
-       Nothing -> empty
-       Just nm ->
-         case cppOverrideAction someCPPOverride requestedDecl nm llvmctx of
-           Nothing -> empty
-           Just (SomeLLVMOverride override) -> register_llvm_override override
+  OverrideTemplate (Match.SubstringsMatch ("_Z" : cppOverrideSubstrings someCPPOverride)) $
+    MakeOverride $ \requestedDecl decName llvmctx -> do
+      nm <- decName
+      cppOverrideAction someCPPOverride requestedDecl nm llvmctx
 
 
 -- type CPPOverride p sym arch args ret =
@@ -89,7 +86,7 @@ register_cpp_override someCPPOverride =
 data SomeCPPOverride p sym arch =
   SomeCPPOverride
   { cppOverrideSubstrings :: [String]
-  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym)
+  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym LLVM)
   }
 
 ------------------------------------------------------------------------
@@ -126,7 +123,7 @@ panic_ from decl args ret =
 -- function handle in the symbol table and use that to construct an override
 mkOverride :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch))
            => [String] -- ^ Substrings for name filtering
-           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym))
+           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym LLVM))
            -> (L.Symbol -> ABI.DecodedName -> Bool)
            -> SomeCPPOverride p sym arch
 mkOverride substrings ov filt =
@@ -147,7 +144,7 @@ voidOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
 voidOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
       case retTy of
-        UnitRepr -> SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym _args -> pure ()
+        UnitRepr -> SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _args -> pure ()
         _ -> panic_ "voidOverride" decl argTys retTy
 
 -- | Make an override for a function of (LLVM) type @a -> a@, for any @a@.
@@ -162,7 +159,7 @@ identityOverride substrings =
     case argTys of
       (Ctx.Empty Ctx.:> argTy)
         | Just Refl <- testEquality argTy retTy ->
-            SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym args ->
+            SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem args ->
               -- Just return the input
               pure (Ctx.uncurryAssignment regValue args)
 
@@ -180,7 +177,7 @@ constOverride substrings =
     case argTys of
       (Ctx.Empty Ctx.:> fstTy Ctx.:> _)
         | Just Refl <- testEquality fstTy retTy ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym args ->
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem args ->
           pure (Ctx.uncurryAssignment (const . regValue) args)
 
       _ -> panic_ "constOverride" decl argTys retTy
@@ -196,8 +193,9 @@ fixedOverride ty regval substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
     case testEquality retTy ty of
       Just Refl ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem bak _args ->
-          liftIO (regval mem (backendGetSym bak))
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem _args -> do
+          sym <- getSymInterface
+          liftIO (regval mem sym)
 
       _ -> panic_ "fixedOverride" decl argTys retTy
 

@@ -118,7 +118,7 @@ import           UCCrux.LLVM.Module (FuncSymbol, getModule)
 import           UCCrux.LLVM.Newtypes.PreSimulationMem (PreSimulationMem, makePreSimulationMem)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
 import           UCCrux.LLVM.Overrides.Spec (SpecUse, createSpecOverride)
-import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, getPolymorphicLLVMOverride, getForAllSymArch)
+import           UCCrux.LLVM.Overrides.Polymorphic (getForAllSymArch)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.FuncSig (FuncSigRepr(..))
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
@@ -143,7 +143,7 @@ newtype CreateOverrideFn m arch =
         bak ->
         -- Origins of created values, see Note [IORefs]
         IORef (ExprTracker m sym args) ->
-        IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
+        IO (LLVMIntrinsics.OverrideTemplate (Crux.Crux sym) sym LLVM arch)
     }
 
 -- | Used in 'SimulatorHooks' to register caller-specified overrides.
@@ -154,7 +154,7 @@ newtype SymCreateOverrideFn m sym bak arch =
         bak ->
         -- Origins of created values, see Note [IORefs]
         IORef (ExprTracker m sym args) ->
-        IO (PolymorphicLLVMOverride arch (Crux.Crux sym) sym)
+        IO (LLVMIntrinsics.OverrideTemplate (Crux.Crux sym) sym LLVM arch)
     }
 
 symCreateOverrideFn ::
@@ -314,7 +314,7 @@ registerOverrides ::
   ModuleContext m arch ->
   -- | One word description of what kind of override this is
   Text ->
-  [LLVMIntrinsics.OverrideTemplate (personality sym) sym arch rtp l a] ->
+  [LLVMIntrinsics.OverrideTemplate (personality sym) sym LLVM arch] ->
   Crucible.OverrideSim (personality sym) sym LLVM rtp l a ()
 registerOverrides appCtx modCtx kind overrides =
   do for_ overrides $
@@ -324,12 +324,12 @@ registerOverrides appCtx modCtx kind overrides =
              Text.unwords
                ["Registering", kind, "override for", describeOverride override]
 
-     LLVMIntrinsics.register_llvm_overrides_
+     void $ LLVMIntrinsics.register_llvm_overrides_
        (modCtx ^. moduleTranslation . transContext)
        overrides
        (allModuleDeclares (modCtx ^. llvmModule . to getModule))
   where
-    describeOverride :: LLVMIntrinsics.OverrideTemplate p sym arch rtp l a -> Text
+    describeOverride :: LLVMIntrinsics.OverrideTemplate p sym LLVM arch -> Text
     describeOverride override =
       case LLVMIntrinsics.overrideTemplateMatcher override of
         LLVMIntrinsics.ExactMatch nm -> Text.pack nm
@@ -488,7 +488,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
                     --
                     -- Stuff like LLVM intrinsics, `free`, `malloc`
                     let llMod = modCtx ^. llvmModule . to getModule
-                    LLVMIntrinsics.register_llvm_overrides llMod [] [] llvmCtxt
+                    void $ LLVMIntrinsics.register_llvm_overrides llMod [] [] llvmCtxt
 
                     -- These are aligned for easy reading in the logs
                     let sCruxLLVM = "crux-llvm"
@@ -501,14 +501,12 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
 
                     let apOv f = runSymCreateOverrideFn f bak skipReturnValueAnnotations
                     overrides <- liftIO $ for overrideFns apOv
-                    let overrides' = map (\ov -> getPolymorphicLLVMOverride ov) overrides
-                    registerOverrides appCtx modCtx sArg overrides'
+                    registerOverrides appCtx modCtx sArg overrides
 
                     -- Register unsound overrides, e.g., `getenv`
                     uOverrides <-
                       liftIO $ traverse (\ov -> runCreateOverrideFn ov bak skipReturnValueAnnotations) uOverrideFns
-                    let uOverrides' = map (\ov -> getPolymorphicLLVMOverride ov) uOverrides
-                    registerOverrides appCtx modCtx sUnsound uOverrides'
+                    registerOverrides appCtx modCtx sUnsound uOverrides
 
                     -- NB: This should be run after all other overrides have
                     -- been registered, since it creates and registers an
@@ -525,11 +523,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts specs
                              skipReturnValueAnnotations
                              (constraints ^. postconds)
                              (L.modDeclares (modCtx ^. llvmModule . to getModule))
-                         let sOverrides' =
-                               map
-                                 (\ov -> getPolymorphicLLVMOverride ov)
-                                 sOverrides
-                         registerOverrides appCtx modCtx sSkip sOverrides'
+                         registerOverrides appCtx modCtx sSkip sOverrides
 
                     liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                     printed <- ppRegMap modCtx funCtx (backendGetSym bak) mem args

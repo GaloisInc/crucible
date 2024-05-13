@@ -1,3 +1,24 @@
+# next
+
+* `register_llvm_overrides{,_}` now returns the list of overrides that were
+  applied.
+* The `doMallocHandle` function was removed.
+* The `RegOverrideM` monad was replaced by the `MakeOverride` function newtype.
+* Several type parameters were removed from `OverrideTemplate`, and the `ext`
+  parameter was added. This had downstream effects in `basic_llvm_override`,
+  `polymorphic1_llvm_override`, and other functions for registering overrides.
+* Override registration code was generalized. `bind_llvm_{handle,func}`
+  now don't require a whole `LLVMContext`, just a `GlobalVar Mem`, and are
+  polymorphic over `ext`.
+* `build_llvm_override` is now generic over the `ext` type parameter. This
+  should be a backwards-compatible change.
+* `LLVMOverride` now has an additional `ext` type parameter. See the Haddocks
+  for `LLVMOverride` for details and motivation.
+* The `llvmOverride_def` field of `LLVMOverride` no longer takes a `bak`
+  argument. To retrieve the current symbolic backend, use
+  `Lang.Crucible.Simulator.OverrideSim.ovrWithBackend`.
+* Add overrides for integer-related `llvm.vector.reduce.*` intrinsics.
+
 # 0.6 -- 2024-02-05
 
 * `bindLLVMFunPtr` now accepts an `Text.LLVM.AST.Symbol` rather than a whole `Declare`.

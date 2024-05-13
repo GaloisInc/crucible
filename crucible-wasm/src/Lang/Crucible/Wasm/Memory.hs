@@ -216,7 +216,7 @@ wasmLoadInt bak off w mem =
      p <- mkPtr sym off
      pval <- G.readMem sym knownNat Nothing p (bitvectorType bs) noAlignment (wasmMemHeap mem)
      Partial.assertSafe bak pval >>= \case
-       LLVMValZero _ -> bvLit sym w (BV.zero w)
+       LLVMValZero _ -> bvZero sym w
        LLVMValInt _ v | Just Refl <- testEquality (bvWidth v) w -> pure v
        _ -> panic "wasmLoadInt" ["type mismatch"]
 

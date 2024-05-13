@@ -40,6 +40,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
+import           Lang.Crucible.LLVM.Functions (bindLLVMHandle, bindLLVMCFG)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
@@ -84,12 +85,12 @@ registerModuleFn handleWarning mtrans sym =
         , show sym
         ]
     Just (decl, AnyCFG cfg, warns) -> do
-      let h = cfgHandle cfg
-          s = UseCFG cfg (postdomInfo cfg)
-      binds <- use (stateContext . functionBindings)
       let llvmCtx = mtrans ^. transContext
-      bind_llvm_handle llvmCtx (L.decName decl) h s
+      let mvar = llvmMemVar llvmCtx
+      bindLLVMCFG mvar (L.decName decl) cfg
 
+      binds <- use (stateContext . functionBindings)
+      let h = cfgHandle cfg
       when (isJust $ lookupHandleMap h $ fnBindings binds) $
         do loc <- liftIO . getCurrentProgramLoc =<< getSymInterface
            liftIO (handleWarning (LLVMTranslationWarning sym (plSourceLoc loc) "LLVM function handle registered twice"))
@@ -127,7 +128,9 @@ registerLazyModuleFn handleWarning mtrans sym =
         , show sym
         ]
     Just (decl, SomeHandle h) ->
-     do -- Bind the function handle we just created to the following bootstrapping code,
+     do let llvmCtx = mtrans ^. transContext
+        let mvar = llvmMemVar llvmCtx
+        -- Bind the function handle we just created to the following bootstrapping code,
         -- which actually translates the function on its first execution and patches up
         -- behind itself.
         let s =
@@ -150,14 +153,13 @@ registerLazyModuleFn handleWarning mtrans sym =
                       Just Refl ->
                         do liftIO $ mapM_ handleWarning warns
                            -- Here we rebind the function handle to use the translated CFG
-                           bindFnHandle h (UseCFG cfg (postdomInfo cfg))
+                           bindLLVMHandle mvar (L.decName decl) h (UseCFG cfg (postdomInfo cfg))
                            -- Now, make recursive call to ourself, which should invoke the
                            -- newly-installed CFG
                            regValue <$> (callFnVal (HandleFnVal h) =<< getOverrideArgs)
    
         -- Bind the function handle to the appropriate global symbol.
-        let llvmCtx = mtrans ^. transContext
-        bind_llvm_handle llvmCtx (L.decName decl) h s
+        bindLLVMHandle mvar (L.decName decl) h s
 
 
 llvmGlobalsToCtx

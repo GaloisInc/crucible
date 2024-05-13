@@ -71,8 +71,10 @@ library
     Lang.Crucible.LLVM.Errors.UndefinedBehavior
     Lang.Crucible.LLVM.Eval
     Lang.Crucible.LLVM.Extension
+    Lang.Crucible.LLVM.Functions
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
+    Lang.Crucible.LLVM.Intrinsics.Cast
     Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MalformedLLVMModule
@@ -101,6 +103,7 @@ library
     Lang.Crucible.LLVM.Extension.Syntax
     Lang.Crucible.LLVM.Intrinsics.Common
     Lang.Crucible.LLVM.Intrinsics.Libcxx
+    Lang.Crucible.LLVM.Intrinsics.Match
     Lang.Crucible.LLVM.Intrinsics.Options
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Options

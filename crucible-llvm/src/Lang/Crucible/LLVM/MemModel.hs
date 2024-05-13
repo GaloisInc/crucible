@@ -66,7 +66,6 @@ module Lang.Crucible.LLVM.MemModel
   , doMallocUnbounded
   , G.AllocType(..)
   , G.Mutability(..)
-  , doMallocHandle
   , ME.FuncLookupError(..)
   , ME.ppFuncLookupError
   , doLookupHandle
@@ -87,7 +86,6 @@ module Lang.Crucible.LLVM.MemModel
   , loadMaybeString
   , strLen
   , uncheckedMemcpy
-  , bindLLVMFunPtr
 
     -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
@@ -425,7 +423,7 @@ evalStmt bak = eval
 
   eval (LLVM_MemClear mvar (regValue -> ptr) bytes) =
     do mem <- getMem mvar
-       z   <- liftIO $ bvLit sym knownNat (BV.zero knownNat)
+       z   <- liftIO $ bvZero sym knownNat
        len <- liftIO $ bvLit sym PtrWidth (bytesToBV PtrWidth bytes)
        mem' <- liftIO $ doMemset bak PtrWidth mem ptr z len
        setMem mvar mem'
@@ -565,7 +563,7 @@ doAlloca bak mem sz alignment loc = do
   let sym = backendGetSym bak
   blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
   blk <- liftIO $ natLit sym blkNum
-  z <- liftIO $ bvLit sym PtrWidth (BV.zero PtrWidth)
+  z <- liftIO $ bvZero sym PtrWidth
 
   let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
@@ -665,7 +663,7 @@ doCalloc bak mem sz num alignment = do
 
   loc <- plSourceLoc <$> getCurrentProgramLoc sym
   let displayString = "<calloc> " ++ show loc
-  z <- bvLit sym knownNat (BV.zero knownNat)
+  z <- bvZero sym knownNat
   (ptr, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz' alignment
   mem'' <- doMemset bak PtrWidth mem' ptr z sz'
   return (ptr, mem'')
@@ -712,7 +710,7 @@ doMallocSize sz bak allocType mut loc mem alignment = do
   let sym = backendGetSym bak
   blkNum <- nextBlock (memImplBlockSource mem)
   blk    <- natLit sym blkNum
-  z      <- bvLit sym PtrWidth (BV.zero PtrWidth)
+  z      <- bvZero sym PtrWidth
   let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   let mem'  = mem{ memImplHeap = heap' }
@@ -723,25 +721,12 @@ doMallocSize sz bak allocType mut loc mem alignment = do
            else pure mem'
   return (ptr, mem'')
 
-
-
-bindLLVMFunPtr ::
-  (IsSymBackend sym bak, HasPtrWidth wptr) =>
-  bak ->
-  L.Symbol ->
-  FnHandle args ret ->
-  MemImpl sym ->
-  IO (MemImpl sym)
-bindLLVMFunPtr bak nm h mem
-  | (_ Ctx.:> VectorRepr AnyRepr) <- handleArgTypes h
-
-  = do ptr <- doResolveGlobal bak mem nm
-       doInstallHandle bak ptr (VarargsFnHandle h) mem
-
-  | otherwise
-  = do ptr <- doResolveGlobal bak mem nm
-       doInstallHandle bak ptr (SomeFnHandle h) mem
-
+-- | Associate a function handle with an existing allocation.
+--
+-- This can overwrite existing allocation/handle associations, and is used to do
+-- so when registering lazily-translated CFGs.
+--
+-- See also "Lang.Crucible.LLVM.Functions".
 doInstallHandle
   :: (Typeable a, IsSymBackend sym bak)
   => bak
@@ -759,25 +744,6 @@ doInstallHandle _bak ptr x mem =
         [ "Attempted to install handle for symbolic pointer"
         , "  " ++ show (ppPtr ptr)
         ]
-
--- | Allocate a memory region for the given handle.
-doMallocHandle
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> G.AllocType {- ^ stack, heap, or global -}
-  -> String {- ^ source location for use in error messages -}
-  -> MemImpl sym
-  -> a {- ^ handle -}
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
-doMallocHandle sym allocType loc mem x = do
-  blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym blkNum
-  z <- bvLit sym PtrWidth (BV.zero PtrWidth)
-
-  let heap' = G.allocMem allocType blkNum (Just z) noAlignment G.Immutable loc (memImplHeap mem)
-  let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
-  let ptr = LLVMPointer blk z
-  return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
 
 -- | Look up the handle associated with the given pointer, if any.
 doLookupHandle
@@ -1180,7 +1146,7 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
       Partial.Err pe ->
         do ast <- impliesPred sym cond pe
            assert bak ast $ AssertFailureSimError "Error during memory load: strlen" ""
-           bvLit sym PtrWidth (BV.zero PtrWidth) -- bogus value, but have to return something...
+           bvZero sym PtrWidth -- bogus value, but have to return something...
       Partial.NoErr loadok llvmval ->
         do ast <- impliesPred sym cond loadok
            assert bak ast $ AssertFailureSimError "Error during memory load: strlen" ""
@@ -1189,7 +1155,7 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
            iteM bvIte sym
              test
              (do cond' <- andPred sym cond test
-                 p'    <- doPtrAddOffset bak mem p =<< bvLit sym PtrWidth (BV.one PtrWidth)
+                 p'    <- doPtrAddOffset bak mem p =<< bvOne sym PtrWidth
                  case BV.succUnsigned PtrWidth n of
                    Just n_1 -> go n_1 cond' p'
                    Nothing -> panic "Lang.Crucible.LLVM.MemModel.strLen" ["string length exceeds pointer width"])
@@ -1225,7 +1191,7 @@ loadString bak mem = go id
        Just 0 -> return $ f []
        Just c -> do
            let c' :: Word8 = toEnum $ fromInteger c
-           p' <- doPtrAddOffset bak mem p =<< bvLit sym PtrWidth (BV.one PtrWidth)
+           p' <- doPtrAddOffset bak mem p =<< bvOne sym PtrWidth
            go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
        Nothing ->
          addFailedAssertion bak
@@ -1731,7 +1697,7 @@ buildDisjointRegionsAssertionWithSub sym dest dlen src slen = do
   dend <- bvAdd sym doff dlen
   send <- bvAdd sym soff slen
 
-  zero_bv <- bvLit sym PtrWidth $ BV.zero PtrWidth
+  zero_bv <- bvZero sym PtrWidth
 
   diffBlk <- notPred sym =<< natEq sym dblk sblk
 

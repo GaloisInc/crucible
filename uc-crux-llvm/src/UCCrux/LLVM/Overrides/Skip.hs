@@ -57,7 +57,7 @@ import           Lang.Crucible.LLVM.Extension (LLVM)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemImpl, MemOptions)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (LLVMOverride(..), OverrideTemplate, basic_llvm_override)
 
 import           Crux.Types (OverM)
 
@@ -74,7 +74,6 @@ import qualified UCCrux.LLVM.FullType.FuncSig as FS
 import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
 import qualified UCCrux.LLVM.FullType.VarArgs as VA
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug, funcSymbolToString)
-import           UCCrux.LLVM.Overrides.Polymorphic (PolymorphicLLVMOverride, makePolymorphicLLVMOverride)
 import           UCCrux.LLVM.Postcondition.Apply (applyPostcond)
 import qualified UCCrux.LLVM.Postcondition.Type as Post
 import           UCCrux.LLVM.Postcondition.Type (UPostcond)
@@ -114,7 +113,7 @@ unsoundSkipOverrides ::
   -- variables)
   Map (FuncSymbol m) (UPostcond m) ->
   [L.Declare] ->
-  OverM personality sym LLVM [PolymorphicLLVMOverride arch (personality sym) sym]
+  OverM personality sym LLVM [OverrideTemplate (personality sym) sym LLVM arch]
 unsoundSkipOverrides modCtx bak mtrans usedRef annotationRef postconds decls =
   do
     let llvmCtx = mtrans ^. transContext
@@ -165,7 +164,7 @@ mkOverride ::
     MemImpl sym ->
     Ctx.Assignment (Crucible.RegEntry sym) (MapToCrucibleType arch args) ->
     IO (Crucible.RegValue sym (FS.ReturnTypeToCrucibleType arch mft), MemImpl sym)) ->
-  PolymorphicLLVMOverride arch (personality sym) sym
+  OverrideTemplate (personality sym) sym LLVM arch
 mkOverride modCtx _proxy funcSymb impl =
   -- There's a lot of duplication here because the case over whether or not the
   -- function is varargs can't be pushed further down; doing so causes "type is
@@ -174,29 +173,27 @@ mkOverride modCtx _proxy funcSymb impl =
     Some fs@(FuncSigRepr VA.IsVarArgsRepr argFTys retTy) ->
       case assignmentToCrucibleType modCtx argFTys of
         SomeAssign' argTys Refl _ ->
-          makePolymorphicLLVMOverride $
-            basic_llvm_override $
-              LLVMOverride
-                { llvmOverride_declare = decl,
-                  llvmOverride_args = argTys Ctx.:> CTy.VectorRepr CTy.AnyRepr,
-                  llvmOverride_ret = toCrucibleReturnType modCtx retTy,
-                  llvmOverride_def =
-                    \mvar _sym (args Ctx.:> _) ->
-                      Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
-                }
+          basic_llvm_override $
+            LLVMOverride
+              { llvmOverride_declare = decl,
+                llvmOverride_args = argTys Ctx.:> CTy.VectorRepr CTy.AnyRepr,
+                llvmOverride_ret = toCrucibleReturnType modCtx retTy,
+                llvmOverride_def =
+                  \mvar (args Ctx.:> _) ->
+                    Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
+              }
     Some fs@(FuncSigRepr VA.NotVarArgsRepr argFTys retTy) ->
       case assignmentToCrucibleType modCtx argFTys of
         SomeAssign' argTys Refl _ ->
-          makePolymorphicLLVMOverride $
-            basic_llvm_override $
-              LLVMOverride
-                { llvmOverride_declare = decl,
-                  llvmOverride_args = argTys,
-                  llvmOverride_ret = toCrucibleReturnType modCtx retTy,
-                  llvmOverride_def =
-                    \mvar _sym args ->
-                      Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
-                }
+          basic_llvm_override $
+            LLVMOverride
+              { llvmOverride_declare = decl,
+                llvmOverride_args = argTys,
+                llvmOverride_ret = toCrucibleReturnType modCtx retTy,
+                llvmOverride_def =
+                  \mvar args ->
+                    Override.modifyGlobal mvar (\mem -> liftIO (impl fs mem args))
+              }
   where decl = modCtx ^. moduleDecls . funcSymbol funcSymb
 
 
@@ -226,7 +223,7 @@ createSkipOverride ::
   UPostcond m ->
   -- | Function to be overridden
   FuncSymbol m ->
-  PolymorphicLLVMOverride arch (personality sym) sym
+  OverrideTemplate (personality sym) sym LLVM arch
 createSkipOverride modCtx bak usedRef annotationRef postcond funcSymb =
   mkOverride modCtx (Just bak) funcSymb $
     \fs mem args ->
