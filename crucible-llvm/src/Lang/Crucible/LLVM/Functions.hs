@@ -49,6 +49,7 @@ module Lang.Crucible.LLVM.Functions
   , allocLLVMFunPtr
   , allocLLVMFunPtrs
   , registerFunPtr
+  , bindLLVMFunPtr
   , bindLLVMHandle
   , bindLLVMCFG
   , bindLLVMFunc
