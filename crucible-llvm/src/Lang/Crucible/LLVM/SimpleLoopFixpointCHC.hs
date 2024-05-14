@@ -106,7 +106,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as C
 
 -- | When live loop-carried dependencies are discovered as we traverse
 --   a loop body, new "widening" variables are introduced to stand in
---   for those locations.  When we introduce such a varible, we
+--   for those locations.  When we introduce such a variable, we
 --   capture what value the variable had when we entered the loop (the
 --   \"header\" value); this is essentially the initial value of the
 --   variable.  We also compute what value the variable should take on
@@ -286,13 +286,19 @@ callFrameContextPush hdl bid =
   callFrameContextUpdate hdl $
     \ctx -> ctx { callFrameContextLoopHeaders = bid : callFrameContextLoopHeaders ctx }
 
+-- | Precondition: the context's 'callFrameContextLoopHeaders' should be
+-- non-empty.
 callFrameContextPop ::
   CallFrameHandle init ret blocks ->
   ExecutionFeatureContext sym wptr ext ->
   ExecutionFeatureContext sym wptr ext
 callFrameContextPop  hdl =
   callFrameContextUpdate hdl $
-    \ctx -> ctx { callFrameContextLoopHeaders = tail $ callFrameContextLoopHeaders ctx }
+    \ctx -> ctx { callFrameContextLoopHeaders =
+                    case callFrameContextLoopHeaders ctx of
+                      _:hdrs -> hdrs
+                      [] -> C.panic "callFrameContextPop"
+                                    ["Empty callFrameContextLoopHeaders"] }
 
 callFrameContextPeek ::
   CallFrameHandle init ret blocks ->
