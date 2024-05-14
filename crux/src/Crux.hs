@@ -74,7 +74,6 @@ import           What4.Config (setOpt, getOptionSetting, verbosity, extendConfig
 import qualified What4.Expr as WE
 import           What4.FunctionName (FunctionName)
 import           What4.Interface (IsExprBuilder, getConfiguration)
-import           What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import           What4.Protocol.Online (OnlineSolver)
 import qualified What4.Solver as WS
 import           What4.Solver.CVC4 (cvc4Timeout)

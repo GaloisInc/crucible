@@ -67,6 +67,13 @@ data MemOptions
       --   semantics.
       --
       --   If 'laxLoadsAndStores' is disabled, this option has no effect.
+
+    , noSatisfyingWriteFreshConstant :: !Bool
+      -- ^ If 'True', for the 'NoSatisfyingWrite' annotation, make a fresh
+      --   constant as a proof obligation, which ensures it always fails. But,
+      --   because it's a variable, it won't be constant-folded away and it's
+      --   relatively sure the annotation will survive. If 'False', annotate
+      --   'false'.
     }
 
 
@@ -115,6 +122,7 @@ defaultMemOptions =
     -- The choice of StableSymbolic here doesn't matter too much, since it
     -- won't have any effect when laxLoadsAndStores is disabled.
   , indeterminateLoadBehavior = StableSymbolic
+  , noSatisfyingWriteFreshConstant = True
   }
 
 
