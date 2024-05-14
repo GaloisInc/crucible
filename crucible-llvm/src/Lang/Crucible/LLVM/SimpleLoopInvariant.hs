@@ -95,12 +95,6 @@ module Lang.Crucible.LLVM.SimpleLoopInvariant
   ( InvariantEntry(..)
   , InvariantPhase(..)
   , simpleLoopInvariant
-  -- , MemorySubstitution(..)
-  -- , computeMemSubstitution
-  -- , constructMemSubstitutionCandidate
-  -- , checkMemSubst
-  -- , loadMemJoinVariables
-  -- , storeMemJoinVariables
   ) where
 
 import           Control.Lens
