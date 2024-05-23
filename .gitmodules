@@ -6,7 +6,7 @@
 	url = https://github.com/GaloisInc/jvm-parser.git
 [submodule "dependencies/llvm-pretty"]
 	path = dependencies/llvm-pretty
-	url = https://github.com/elliottt/llvm-pretty.git
+	url = https://github.com/GaloisInc/llvm-pretty.git
 [submodule "dependencies/llvm-pretty-bc-parser"]
 	path = dependencies/llvm-pretty-bc-parser
 	url = https://github.com/GaloisInc/llvm-pretty-bc-parser.git
