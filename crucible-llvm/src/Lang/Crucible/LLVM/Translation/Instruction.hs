@@ -1942,6 +1942,8 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
                  , "llvm.dbg.declare"
                  , "llvm.dbg.addr"
                  , "llvm.dbg.value"
+                 , "llvm.dbg.assign" -- Added in LLVM 16
+                 , "llvm.experimental.noalias.scope.decl" -- Added in LLVM 12
                  , "llvm.lifetime.start"
                  , "llvm.lifetime.start.p0"
                  , "llvm.lifetime.start.p0i8"
