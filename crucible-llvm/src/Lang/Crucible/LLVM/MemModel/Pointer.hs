@@ -186,6 +186,7 @@ concLLVMPtr conc (LLVMPointer blk off) =
      concOff <- conc off
      pure (ConcLLVMPtr concBlk concOff (bvWidth off))
 
+-- | Create a symbolic pointer from a concrete one
 concLLVMPtrToSymbolic ::
   (IsExprBuilder sym, 1 <= w) =>
   sym ->
@@ -223,6 +224,7 @@ concPtr' sym conc (RV ptr) = RV <$> concPtr sym conc ptr
 
 type instance Conc.ConcIntrinsic "LLVM_pointer" (EmptyCtx ::> BVType w) = ConcLLVMPtr w
 
+-- | An 'Conc.IntrinsicConcFn' for LLVM pointers
 concPtrFn ::
   forall sym.
   ( IsExprBuilder sym
