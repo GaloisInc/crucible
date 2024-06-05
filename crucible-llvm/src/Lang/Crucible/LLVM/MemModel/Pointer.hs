@@ -98,17 +98,17 @@ import qualified What4.Expr.GroundEval as W4GE
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Expr (GroundValue)
+import           What4.Expr.App (Expr)
 
 import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Concretize as Conc
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.LLVM.MemModel.Options
-import What4.Expr.App (Expr)
-import Lang.Crucible.Panic (panic)
 
 
 
