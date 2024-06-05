@@ -25,6 +25,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Lang.Crucible.Concretize
   ( ConcRegValue
@@ -94,18 +95,23 @@ type family ConcRegValue sym tp where
 -- * ConcCtx
 
 -- | Context needed for 'concRegValue'
-data ConcCtx sym =
-  ConcCtx
+--
+-- The @t@ parameter matches that on 'W4GE.GroundEvalFn' and 'Expr', namely, it
+-- is a phantom type brand used to relate nonces to a specific nonce generator
+-- (similar to the @s@ parameter of the @ST@ monad). It also appears as the
+-- first argument to 'ExprBuilder'.
+data ConcCtx sym t
+  = ConcCtx
   { -- | Model returned from SMT solver
-    model :: W4GE.GroundEvalFn sym
+    model :: W4GE.GroundEvalFn t
     -- | How to ground intrinsics
-  , intrinsicConcFuns :: MapF SymbolRepr (IntrinsicConcFn sym)
+  , intrinsicConcFuns :: MapF SymbolRepr (IntrinsicConcFn t)
   }
 
 -- | Helper, not exported
 ground ::
-  ConcCtx sym ->
-  Expr sym tp ->
+  ConcCtx sym t ->
+  Expr t tp ->
   IO (ConcRegValue sym (BaseToType tp))
 ground (ConcCtx (W4GE.GroundEvalFn ge) _) = ge
 
@@ -114,8 +120,8 @@ ground (ConcCtx (W4GE.GroundEvalFn ge) _) = ge
 
 -- | Helper, not exported
 ite ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  ConcCtx sym t ->
   W4I.Pred sym ->
   a ->
   a ->
@@ -126,8 +132,8 @@ ite ctx p t f = do
 
 -- | Helper, not exported
 iteIO ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  ConcCtx sym t ->
   W4I.Pred sym ->
   IO a ->
   IO a ->
@@ -138,8 +144,9 @@ iteIO ctx p t f = do
 
 -- | Helper, not exported
 concPartial ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   TypeRepr tp ->
   W4P.Partial (W4I.Pred sym) (RegValue sym tp) ->
   IO (Maybe (ConcRegValue sym tp))
@@ -148,8 +155,9 @@ concPartial ctx tp (W4P.Partial p v) =
 
 -- | Helper, not exported
 concPartialWithErr ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   TypeRepr tp ->
   W4P.PartialWithErr e (W4I.Pred sym) (RegValue sym tp) ->
   IO (Maybe (ConcRegValue sym tp))
@@ -167,18 +175,22 @@ type family ConcIntrinsic nm ctx
 
 -- | Function for concretizing an intrinsic type
 type IntrinsicConcFn :: Type -> Symbol -> Type
-newtype IntrinsicConcFn sym nm
+newtype IntrinsicConcFn t nm
   = IntrinsicConcFn
-    (forall ctx.
-      ConcCtx sym ->
+    (forall sym ctx.
+      SymExpr sym ~ Expr t =>
+      W4I.IsExprBuilder sym =>
+      ConcCtx sym t ->
       Ctx.Assignment TypeRepr ctx ->
       Intrinsic sym nm ctx ->
       IO (ConcRegValue sym (IntrinsicType nm ctx)))
 
 -- | Helper, not exported
 tryConcIntrinsic ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  forall sym nm ctx t.
+  SymExpr sym ~ Expr t =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   SymbolRepr nm ->
   Ctx.Assignment TypeRepr ctx ->
   RegValue sym (IntrinsicType nm ctx) ->
@@ -186,7 +198,7 @@ tryConcIntrinsic ::
 tryConcIntrinsic ctx nm tyCtx v = do
     case MapF.lookup nm (intrinsicConcFuns ctx) of
       Nothing -> Nothing
-      Just (IntrinsicConcFn f) -> Just (f ctx tyCtx v)
+      Just (IntrinsicConcFn f) -> Just (f @sym @ctx ctx tyCtx v)
 
 ---------------------------------------------------------------------
 -- * Any
@@ -216,8 +228,9 @@ data ConcFnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) wh
 
 -- | Helper, not exported
 concFnVal ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   CtxRepr args ->
   TypeRepr ret ->
   FnVal sym args ret ->
@@ -238,8 +251,9 @@ concFnVal ctx args ret =
 
 -- | Helper, not exported
 concMux ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   MuxTree.MuxTree sym a ->
   IO [a]
 concMux ctx = go . MuxTree.viewMuxTree
@@ -254,8 +268,9 @@ concMux ctx = go . MuxTree.viewMuxTree
 
 -- | Helper, not exported
 concSymSequence ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   TypeRepr tp ->
   SymSeq.SymSequence sym (RegValue sym tp) ->
   IO [ConcRegValue' sym tp]
@@ -275,8 +290,9 @@ concSymSequence ctx tp =
 
 -- | Helper, not exported
 concStringMap ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   TypeRepr tp ->
   RegValue sym (StringMapType tp) ->
   IO (Map Text (ConcRegValue' sym tp))
@@ -300,9 +316,10 @@ newtype ConcVariantBranch sym tp
 
 -- | Helper, not exported
 concVariant ::
-  forall sym variants.
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  forall sym variants t.
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   Ctx.Assignment TypeRepr variants ->
   RegValue sym (VariantType variants) ->
   IO (ConcRegValue sym (VariantType variants))
@@ -324,8 +341,9 @@ concVariant ctx tps vs = Ctx.zipWithM concBranch tps vs
 -- way. If the model reports that multiple branches of a variant or mux tree are
 -- plausible, then multiple branches might be included in the result.
 concRegValue ::
-  (SymExpr sym ~ Expr sym) =>
-  ConcCtx sym ->
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
   TypeRepr tp ->
   RegValue sym tp ->
   IO (ConcRegValue sym tp)
