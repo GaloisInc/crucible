@@ -59,6 +59,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , concPtr
   , concPtr'
   , concPtrFn
+  , concPtrFnMap
 
     -- * Operations on valid pointers
   , constOffset
@@ -91,6 +92,7 @@ import           GHC.TypeNats
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.NatRepr
 import qualified Text.LLVM.AST as L
 
@@ -243,6 +245,16 @@ concPtrFn = Conc.IntrinsicConcFn $ \ctx tyCtx ptr ->
     Ctx.AssignExtend _ _ ->
        panic "LLVM.MemModel.Pointer.concPtrFn"
          [ "Impossible: LLVMPointerType ill-formed context" ]
+
+-- | A singleton map suitable for use in a 'Conc.ConcCtx' if LLVM pointers are
+-- the only intrinsic type in use
+concPtrFnMap ::
+  forall sym.
+  ( IsExprBuilder sym
+  , SymExpr sym ~ Expr sym
+  ) =>
+  MapF.MapF SymbolRepr (Conc.IntrinsicConcFn sym)
+concPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concPtrFn
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
