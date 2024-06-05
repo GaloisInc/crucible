@@ -394,5 +394,5 @@ concRegValue ctx tp v =
     (VariantRepr tps, _) ->
       concVariant ctx tps v
 
-    -- Incomplete clases
+    -- Incomplete cases
     (WordMapRepr _ _, _) -> pure ()
