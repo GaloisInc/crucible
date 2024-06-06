@@ -14,6 +14,7 @@ module Lang.Crucible.Simulator.SymSequence
 ( SymSequence(..)
 , nilSymSequence
 , consSymSequence
+, fromListSymSequence
 , appendSymSequence
 , muxSymSequence
 , isNilSymSequence
@@ -166,6 +167,12 @@ consSymSequence ::
 consSymSequence _sym x xs =
   do n <- freshNonce globalNonceGenerator
      pure (SymSequenceCons n x xs)
+
+fromListSymSequence :: sym -> [a] -> IO (SymSequence sym a)
+fromListSymSequence sym =
+  \case
+    [] -> nilSymSequence sym
+    (x:xs) -> consSymSequence sym x =<< fromListSymSequence sym xs
 
 -- | Append two sequences
 appendSymSequence ::
