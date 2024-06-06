@@ -227,12 +227,7 @@ concPtr' sym conc (RV ptr) = RV <$> concPtr sym conc ptr
 type instance Conc.ConcIntrinsic "LLVM_pointer" (EmptyCtx ::> BVType w) = ConcLLVMPtr w
 
 -- | An 'Conc.IntrinsicConcFn' for LLVM pointers
-concPtrFn ::
-  forall sym.
-  ( IsExprBuilder sym
-  , SymExpr sym ~ Expr sym
-  ) =>
-  Conc.IntrinsicConcFn sym "LLVM_pointer"
+concPtrFn :: Conc.IntrinsicConcFn t "LLVM_pointer"
 concPtrFn = Conc.IntrinsicConcFn $ \ctx tyCtx ptr ->
   case Ctx.viewAssign tyCtx of
     Ctx.AssignExtend (Ctx.viewAssign -> Ctx.AssignEmpty) (BVRepr _) ->
@@ -248,12 +243,7 @@ concPtrFn = Conc.IntrinsicConcFn $ \ctx tyCtx ptr ->
 
 -- | A singleton map suitable for use in a 'Conc.ConcCtx' if LLVM pointers are
 -- the only intrinsic type in use
-concPtrFnMap ::
-  forall sym.
-  ( IsExprBuilder sym
-  , SymExpr sym ~ Expr sym
-  ) =>
-  MapF.MapF SymbolRepr (Conc.IntrinsicConcFn sym)
+concPtrFnMap :: MapF.MapF SymbolRepr (Conc.IntrinsicConcFn t)
 concPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concPtrFn
 
 -- | Mux function specialized to LLVM pointer values.
