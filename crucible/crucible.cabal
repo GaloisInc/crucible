@@ -84,6 +84,7 @@ library
     Lang.Crucible.Backend.ProofGoals
     Lang.Crucible.Backend.Online
     Lang.Crucible.Backend.Simple
+    Lang.Crucible.Concretize
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
     Lang.Crucible.CFG.Expr

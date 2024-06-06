@@ -20,6 +20,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -51,9 +52,14 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , mkNullPointer
 
     -- * Concretization
+  , ConcLLVMPtr(..)
+  , concLLVMPtr
+  , concLLVMPtrToSymbolic
   , concBV
   , concPtr
   , concPtr'
+  , concPtrFn
+  , concPtrFnMap
 
     -- * Operations on valid pointers
   , constOffset
@@ -74,7 +80,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , annotatePointerOffset
   ) where
 
-import           Control.Monad (guard)
+import           Control.Monad ((<=<), guard)
 import           Data.Map (Map)
 import qualified Data.Map as Map (lookup)
 import           Numeric.Natural
@@ -86,14 +92,19 @@ import           GHC.TypeNats
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.NatRepr
 import qualified Text.LLVM.AST as L
 
+import qualified What4.Expr.GroundEval as W4GE
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Expr (GroundValue)
+import           What4.Expr.App (Expr)
 
 import           Lang.Crucible.Backend
+import qualified Lang.Crucible.Concretize as Conc
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Types
@@ -154,6 +165,39 @@ llvmPointer_bv sym bv =
 mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (LLVMPtr sym w)
 mkNullPointer sym w = llvmPointer_bv sym =<< bvZero sym w
 
+-- | A concrete LLVM pointer
+data ConcLLVMPtr w
+  = ConcLLVMPtr
+    { -- | Concrete block number
+      concBlock :: Integer
+      -- | Concrete offset
+    , concOffset :: BV.BV w
+    , concWidth :: NatRepr w
+    }
+
+-- | Concretize a symbolic pointer to a particular 'ConcLLVMPtr' that is
+-- feasible in a model.
+concLLVMPtr ::
+  IsExprBuilder sym =>
+  -- | Model from SMT solver
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  RegValue sym (LLVMPointerType w) ->
+  IO (ConcLLVMPtr w)
+concLLVMPtr conc (LLVMPointer blk off) =
+  do concBlk <- conc (natToIntegerPure blk)
+     concOff <- conc off
+     pure (ConcLLVMPtr concBlk concOff (bvWidth off))
+
+-- | Create a symbolic pointer from a concrete one
+concLLVMPtrToSymbolic ::
+  (IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  ConcLLVMPtr w ->
+  IO (RegValue sym (LLVMPointerType w))
+concLLVMPtrToSymbolic sym (ConcLLVMPtr concBlk concOff w) = do
+  symBlk <- integerToNat sym =<< intLit sym concBlk
+  symOff <- bvLit sym w concOff
+  pure (LLVMPointer symBlk symOff)
 
 concBV ::
   (IsExprBuilder sym, 1 <= w) =>
@@ -170,10 +214,7 @@ concPtr ::
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
   RegValue sym (LLVMPointerType w) ->
   IO (RegValue sym (LLVMPointerType w))
-concPtr sym conc (LLVMPointer blk off) =
-  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
-     off' <- concBV sym conc off
-     pure (LLVMPointer blk' off')
+concPtr sym conc = concLLVMPtrToSymbolic sym <=< concLLVMPtr conc
 
 concPtr' ::
   (IsExprBuilder sym, 1 <= w) =>
@@ -183,6 +224,27 @@ concPtr' ::
   IO (RegValue' sym (LLVMPointerType w))
 concPtr' sym conc (RV ptr) = RV <$> concPtr sym conc ptr
 
+type instance Conc.ConcIntrinsic "LLVM_pointer" (EmptyCtx ::> BVType w) = ConcLLVMPtr w
+
+-- | An 'Conc.IntrinsicConcFn' for LLVM pointers
+concPtrFn :: Conc.IntrinsicConcFn t "LLVM_pointer"
+concPtrFn = Conc.IntrinsicConcFn $ \ctx tyCtx ptr ->
+  case Ctx.viewAssign tyCtx of
+    Ctx.AssignExtend (Ctx.viewAssign -> Ctx.AssignEmpty) (BVRepr _) ->
+      let W4GE.GroundEvalFn ge = Conc.model ctx
+      in concLLVMPtr ge ptr
+    -- These are impossible by the definition of LLVMPointerImpl
+    Ctx.AssignEmpty ->
+       panic "LLVM.MemModel.Pointer.concPtrFn"
+         [ "Impossible: LLVMPointerType empty context" ]
+    Ctx.AssignExtend _ _ ->
+       panic "LLVM.MemModel.Pointer.concPtrFn"
+         [ "Impossible: LLVMPointerType ill-formed context" ]
+
+-- | A singleton map suitable for use in a 'Conc.ConcCtx' if LLVM pointers are
+-- the only intrinsic type in use
+concPtrFnMap :: MapF.MapF SymbolRepr (Conc.IntrinsicConcFn t)
+concPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concPtrFn
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
