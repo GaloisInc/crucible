@@ -35,6 +35,8 @@ module Lang.Crucible.Concretize
   , IntrinsicConcFn(..)
   , ConcCtx(..)
   , concRegValue
+  , concRegEntry
+  , concRegMap
   ) where
 
 import           Data.Kind (Type)
@@ -48,6 +50,7 @@ import           Data.Word (Word16)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
+import           Data.Parameterized.TraversableFC (traverseFC)
 
 import           What4.Expr (Expr)
 import qualified What4.Expr.GroundEval as W4GE
@@ -57,6 +60,8 @@ import qualified What4.Partial as W4P
 
 import           Lang.Crucible.FunctionHandle (FnHandle, RefCell)
 import           Lang.Crucible.Simulator.Intrinsics (Intrinsic)
+import           Lang.Crucible.Simulator.RegMap (RegEntry, RegMap)
+import qualified Lang.Crucible.Simulator.RegMap as RM
 import           Lang.Crucible.Simulator.RegValue (RegValue, FnVal)
 import qualified Lang.Crucible.Simulator.RegValue as RV
 import qualified Lang.Crucible.Simulator.SymSequence as SymSeq
@@ -406,3 +411,21 @@ concRegValue ctx tp v =
 
     -- Incomplete cases
     (WordMapRepr _ _, _) -> pure ()
+
+-- | Like 'concRegValue', but for 'RegEntry'
+concRegEntry ::
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
+  RegEntry sym tp ->
+  IO (ConcRegValue sym tp)
+concRegEntry ctx e = concRegValue ctx (RM.regType e) (RM.regValue e)
+
+-- | Like 'concRegEntry', but for a whole 'RegMap'
+concRegMap ::
+  (SymExpr sym ~ Expr t) =>
+  W4I.IsExprBuilder sym =>
+  ConcCtx sym t ->
+  RegMap sym tps ->
+  IO (Ctx.Assignment (ConcRV' sym) tps)
+concRegMap ctx (RM.RegMap m) = traverseFC (fmap ConcRV' . concRegEntry ctx) m
