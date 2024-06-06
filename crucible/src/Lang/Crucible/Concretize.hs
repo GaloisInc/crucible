@@ -29,7 +29,7 @@
 
 module Lang.Crucible.Concretize
   ( ConcRegValue
-  , ConcRegValue'(..)
+  , ConcRV'(..)
   , ConcAnyValue(..)
   , ConcIntrinsic
   , IntrinsicConcFn(..)
@@ -41,6 +41,7 @@ import           Data.Kind (Type)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word (Word16)
 
@@ -65,12 +66,19 @@ import           Lang.Crucible.Types
 -- | Newtype to allow partial application of 'ConcRegValue'.
 --
 -- Type families cannot appear partially applied.
-type ConcRegValue' :: Type -> CrucibleType -> Type
-newtype ConcRegValue' sym tp = ConcRegValue' { getConcRegValue' :: ConcRegValue sym tp }
+type ConcRV' :: Type -> CrucibleType -> Type
+newtype ConcRV' sym tp = ConcRV' { unConcRV' :: ConcRegValue sym tp }
 
 -- | Defines the \"concrete\" interpretations of 'CrucibleType' (as opposed
 -- to the \"symbolic\" interpretations, which are defined by 'RegValue'), as
 -- returned by 'concRegValue'.
+--
+-- Unlike What4\'s 'W4GE.GroundValue', this type family is parameterized
+-- by @sym@, the symbolic backend. This is because Crucible makes use of
+-- \"interpreted\" floating point numbers ('SymInterpretedFloatType'). What4\'s
+-- @SymFloat@ always uses an IEEE-754 interpretation of symbolic floats, whereas
+-- 'SymInterpretedFloatType' can use IEEE-754, real numbers, or uninterpreted
+-- functions depending on how the symbolic backend is configured.
 type ConcRegValue :: Type -> CrucibleType -> Type
 type family ConcRegValue sym tp where
   ConcRegValue sym (BaseToType bt) = W4GE.GroundValue bt
@@ -81,15 +89,15 @@ type family ConcRegValue sym tp where
   ConcRegValue sym CharType = Word16
   ConcRegValue sym (FunctionHandleType a r) = ConcFnVal sym a r
   ConcRegValue sym (MaybeType tp) = Maybe (ConcRegValue sym tp)
-  ConcRegValue sym (VectorType tp) = V.Vector (ConcRegValue' sym tp)
-  ConcRegValue sym (SequenceType tp) = [ConcRegValue' sym tp]
-  ConcRegValue sym (StructType ctx) = Ctx.Assignment (ConcRegValue' sym) ctx
+  ConcRegValue sym (VectorType tp) = V.Vector (ConcRV' sym tp)
+  ConcRegValue sym (SequenceType tp) = [ConcRV' sym tp]
+  ConcRegValue sym (StructType ctx) = Ctx.Assignment (ConcRV' sym) ctx
   ConcRegValue sym (VariantType ctx) = Ctx.Assignment (ConcVariantBranch sym) ctx
   ConcRegValue sym (ReferenceType tp) = [RefCell tp]
   ConcRegValue sym (WordMapType w tp) = ()  -- TODO: possible to do something meaningful?
   ConcRegValue sym (RecursiveType nm ctx) = ConcRegValue sym (UnrollType nm ctx)
   ConcRegValue sym (IntrinsicType nm ctx) = ConcIntrinsic nm ctx
-  ConcRegValue sym (StringMapType tp) = Map Text (ConcRegValue' sym tp)
+  ConcRegValue sym (StringMapType tp) = Map Text (ConcRV' sym tp)
 
 ---------------------------------------------------------------------
 -- * ConcCtx
@@ -204,7 +212,7 @@ tryConcIntrinsic ctx nm tyCtx v = do
 -- * Any
 
 -- | An 'AnyValue' concretized by 'concRegValue'
-data ConcAnyValue sym = forall tp. ConcAnyValue (TypeRepr tp) (ConcRegValue' sym tp)
+data ConcAnyValue sym = forall tp. ConcAnyValue (TypeRepr tp) (ConcRV' sym tp)
 
 ---------------------------------------------------------------------
 -- * FnVal
@@ -214,7 +222,7 @@ data ConcFnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) wh
   ConcClosureFnVal ::
     !(ConcFnVal sym (args ::> tp) ret) ->
     !(TypeRepr tp) ->
-    !(ConcRegValue' sym tp) ->
+    !(ConcRV' sym tp) ->
     ConcFnVal sym args ret
 
   ConcVarargsFnVal ::
@@ -240,7 +248,7 @@ concFnVal ctx args ret =
     RV.ClosureFnVal fv t v -> do
       concV <- concFnVal ctx (args Ctx.:> t) ret fv
       v' <- concRegValue ctx t v
-      pure (ConcClosureFnVal concV t (ConcRegValue' v'))
+      pure (ConcClosureFnVal concV t (ConcRV' v'))
     RV.VarargsFnVal hdl extra ->
       pure (ConcVarargsFnVal hdl extra)
     RV.HandleFnVal hdl ->
@@ -273,13 +281,13 @@ concSymSequence ::
   ConcCtx sym t ->
   TypeRepr tp ->
   SymSeq.SymSequence sym (RegValue sym tp) ->
-  IO [ConcRegValue' sym tp]
+  IO [ConcRV' sym tp]
 concSymSequence ctx tp =
   \case
     SymSeq.SymSequenceNil -> pure []
     SymSeq.SymSequenceCons _nonce v rest -> do
       v' <- concRegValue ctx tp v
-      (ConcRegValue' v' :) <$> concSymSequence ctx tp rest
+      (ConcRV' v' :) <$> concSymSequence ctx tp rest
     SymSeq.SymSequenceAppend _nonce xs ys ->
       (++) <$> concSymSequence ctx tp xs <*> concSymSequence ctx tp ys
     SymSeq.SymSequenceMerge _nonce p ts fs ->
@@ -295,7 +303,7 @@ concStringMap ::
   ConcCtx sym t ->
   TypeRepr tp ->
   RegValue sym (StringMapType tp) ->
-  IO (Map Text (ConcRegValue' sym tp))
+  IO (Map Text (ConcRV' sym tp))
 concStringMap ctx tp v = Map.fromList <$> go (Map.toList v)
   where
     go [] = pure []
@@ -303,7 +311,7 @@ concStringMap ctx tp v = Map.fromList <$> go (Map.toList v)
       concPartialWithErr ctx tp v' >>=
         \case
           Nothing -> go xs
-          Just v'' -> ((t, ConcRegValue' v''):) <$> go xs
+          Just v'' -> ((t, ConcRV' v''):) <$> go xs
 
 ---------------------------------------------------------------------
 -- * Variant
@@ -312,7 +320,7 @@ concStringMap ctx tp v = Map.fromList <$> go (Map.toList v)
 -- in any way. If the model reports that multiple branches of a variant are
 -- plausible, then multiple branches might be included as 'Just's.
 newtype ConcVariantBranch sym tp
-  = ConcVariantBranch (Maybe (ConcRegValue' sym tp))
+  = ConcVariantBranch (Maybe (ConcRV' sym tp))
 
 -- | Helper, not exported
 concVariant ::
@@ -329,7 +337,7 @@ concVariant ctx tps vs = Ctx.zipWithM concBranch tps vs
     concBranch tp (RV.VB v) = do
       v' <- concPartialWithErr ctx tp v
       case v' of
-        Just v'' -> pure (ConcVariantBranch (Just (ConcRegValue' v'')))
+        Just v'' -> pure (ConcVariantBranch (Just (ConcRV' v'')))
         Nothing -> pure (ConcVariantBranch Nothing)
 
 ---------------------------------------------------------------------
@@ -368,13 +376,13 @@ concRegValue ctx tp v =
 
     -- Simple recursive cases
     (AnyRepr, RV.AnyValue tp' v') ->
-      ConcAnyValue tp' . ConcRegValue' <$> concRegValue ctx tp' v'
+      ConcAnyValue tp' . ConcRV' <$> concRegValue ctx tp' v'
     (RecursiveRepr symb tyCtx, RV.RolledType v') -> 
       concRegValue ctx (unrollType symb tyCtx) v'
     (StructRepr tps, _) ->
-      Ctx.zipWithM (\tp' (RV.RV v') -> ConcRegValue' <$> concRegValue ctx tp' v') tps v
+      Ctx.zipWithM (\tp' (RV.RV v') -> ConcRV' <$> concRegValue ctx tp' v') tps v
     (VectorRepr tp', _) ->
-      traverse (fmap ConcRegValue' . concRegValue ctx tp') v
+      traverse (fmap ConcRV' . concRegValue ctx tp') v
 
     -- Cases with helper functions
     (MaybeRepr tp', _) ->
@@ -383,7 +391,9 @@ concRegValue ctx tp v =
       concFnVal ctx args ret v
     (IntrinsicRepr nm tyCtx, _) ->
       case tryConcIntrinsic ctx nm tyCtx v of
-        Nothing -> fail "Missing concretization function for intrinsic!"
+        Nothing -> 
+          let strNm = Text.unpack (symbolRepr nm) in
+          fail ("Missing concretization function for intrinsic: " ++ strNm)
         Just r -> r
     (ReferenceRepr _, _) ->
       concMux ctx v
