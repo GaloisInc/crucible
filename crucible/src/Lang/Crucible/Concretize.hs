@@ -42,11 +42,13 @@ module Lang.Crucible.Concretize
   , concToSym
   ) where
 
+import qualified Data.Foldable as F
 import           Data.Kind (Type)
 import           Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Sequence (Seq)
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as V
@@ -101,7 +103,7 @@ type family ConcRegValue sym tp where
   ConcRegValue sym (FunctionHandleType a r) = ConcFnVal sym a r
   ConcRegValue sym (MaybeType tp) = Maybe (ConcRegValue sym tp)
   ConcRegValue sym (VectorType tp) = V.Vector (ConcRV' sym tp)
-  ConcRegValue sym (SequenceType tp) = [ConcRV' sym tp]
+  ConcRegValue sym (SequenceType tp) = Seq (ConcRV' sym tp)
   ConcRegValue sym (StructType ctx) = Ctx.Assignment (ConcRV' sym) ctx
   ConcRegValue sym (VariantType ctx) = Ctx.Assignment (ConcVariantBranch sym) ctx
   ConcRegValue sym (ReferenceType tp) = NonEmpty (RefCell tp)
@@ -300,17 +302,11 @@ concSymSequence ::
   ConcCtx sym t ->
   TypeRepr tp ->
   SymSeq.SymSequence sym (RegValue sym tp) ->
-  IO [ConcRV' sym tp]
+  IO (Seq (ConcRV' sym tp))
 concSymSequence ctx tp =
-  \case
-    SymSeq.SymSequenceNil -> pure []
-    SymSeq.SymSequenceCons _nonce v rest -> do
-      v' <- concRegValue ctx tp v
-      (ConcRV' v' :) <$> concSymSequence ctx tp rest
-    SymSeq.SymSequenceAppend _nonce xs ys ->
-      (++) <$> concSymSequence ctx tp xs <*> concSymSequence ctx tp ys
-    SymSeq.SymSequenceMerge _nonce p ts fs ->
-      concSymSequence ctx tp =<< ite ctx p ts fs
+  SymSeq.concretizeSymSequence
+    (ground ctx)
+    (fmap ConcRV' . concRegValue ctx tp)
 
 ---------------------------------------------------------------------
 -- * StringMap
@@ -589,8 +585,9 @@ concToSym sym iFns fm tp v =
     -- Simple recursive cases
     RecursiveRepr symb tyCtx ->
       RV.RolledType <$> concToSym sym iFns fm (unrollType symb tyCtx) v
-    SequenceRepr tp' ->
-      SymSeq.fromListSymSequence sym =<< traverse (concToSym sym iFns fm tp' . unConcRV') v
+    SequenceRepr tp' -> do
+      l <- traverse (concToSym sym iFns fm tp' . unConcRV') (F.toList v)
+      SymSeq.fromListSymSequence sym l
     StringMapRepr tp' ->
       traverse (fmap (W4P.justPartExpr sym) . concToSym sym iFns fm tp' . unConcRV') v
     StructRepr tps ->

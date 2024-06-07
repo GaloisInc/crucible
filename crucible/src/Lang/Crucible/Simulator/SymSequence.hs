@@ -24,6 +24,7 @@ module Lang.Crucible.Simulator.SymSequence
 , unconsSymSequence
 , traverseSymSequence
 , concreteizeSymSequence
+, concretizeSymSequence
 , prettySymSequence
 
   -- * Low-level evaluation primitives
@@ -41,6 +42,8 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Parameterized.Nonce
 import qualified Data.Parameterized.Map as MapF
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 
@@ -407,6 +410,24 @@ concreteizeSymSequence conc eval = loop
     loop SymSequenceNil = pure []
     loop (SymSequenceCons _ v tl) = (:) <$> eval v <*> loop tl
     loop (SymSequenceAppend _ xs ys) = (++) <$> loop xs <*> loop ys
+    loop (SymSequenceMerge _ p xs ys) =
+      do b <- conc p
+         if b then loop xs else loop ys
+{-# DEPRECATED concreteizeSymSequence "Use concretizeSymSequence instead" #-} 
+
+-- | Using the given evaluation function for booleans, and an evaluation
+--   function for values, compute a concrete sequence corresponding
+--   to the given symbolic sequence.
+concretizeSymSequence ::
+  (Pred sym -> IO Bool) {- ^ evaluation for booleans -} ->
+  (a -> IO b) {- ^ evaluation for values -} ->
+  SymSequence sym a ->
+  IO (Seq b)
+concretizeSymSequence conc eval = loop
+  where
+    loop SymSequenceNil = pure Seq.empty
+    loop (SymSequenceCons _ v tl) = (Seq.<|) <$> eval v <*> loop tl
+    loop (SymSequenceAppend _ xs ys) = (Seq.><) <$> loop xs <*> loop ys
     loop (SymSequenceMerge _ p xs ys) =
       do b <- conc p
          if b then loop xs else loop ys
