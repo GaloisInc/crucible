@@ -112,6 +112,9 @@ jobs:
       - name: Configure
         shell: bash
         run: .github/ci.sh configure crux-go
+      - name: Generate source distribution
+        shell: bash
+        run: cabal sdist crucible-go
       - name: Build
         shell: bash
         run: .github/ci.sh build exe:crux-go
