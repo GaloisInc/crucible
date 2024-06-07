@@ -10,7 +10,7 @@ Category:      Language
 Synopsis:      A Crucible CLI frontend for the LLVM language extension
 -- Description:
 
-extra-doc-files: CHANGELOG.md, README.md
+extra-doc-files: CHANGELOG.md
 extra-source-files:
   test-data/*.cbl
   test-data/*.out.good

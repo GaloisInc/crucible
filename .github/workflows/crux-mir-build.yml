@@ -162,6 +162,10 @@ jobs:
       - shell: bash
         run: .github/ci.sh configure
 
+      - name: Generate source distributions
+        shell: bash
+        run: cabal sdist crucible-syntax crucible-concurrency crucible-mir crux-mir
+
       - shell: bash
         run: .github/ci.sh build exe:crux-mir
 
