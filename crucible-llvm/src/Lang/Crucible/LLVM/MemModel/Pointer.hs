@@ -60,6 +60,8 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , concPtr'
   , concPtrFn
   , concPtrFnMap
+  , concToSymPtrFn
+  , concToSymPtrFnMap
 
     -- * Operations on valid pointers
   , constOffset
@@ -100,7 +102,6 @@ import qualified What4.Expr.GroundEval as W4GE
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Expr (GroundValue)
-import           What4.Expr.App (Expr)
 
 import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Concretize as Conc
@@ -245,6 +246,25 @@ concPtrFn = Conc.IntrinsicConcFn $ \ctx tyCtx ptr ->
 -- the only intrinsic type in use
 concPtrFnMap :: MapF.MapF SymbolRepr (Conc.IntrinsicConcFn t)
 concPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concPtrFn
+
+-- | A 'Conc.IntrinsicConcToSymFn' for LLVM pointers
+concToSymPtrFn :: Conc.IntrinsicConcToSymFn "LLVM_pointer"
+concToSymPtrFn = Conc.IntrinsicConcToSymFn $ \sym tyCtx ptr ->
+  case Ctx.viewAssign tyCtx of
+    Ctx.AssignExtend (Ctx.viewAssign -> Ctx.AssignEmpty) (BVRepr _) ->
+      concLLVMPtrToSymbolic sym ptr
+    -- These are impossible by the definition of LLVMPointerImpl
+    Ctx.AssignEmpty ->
+       panic "LLVM.MemModel.Pointer.concToSymPtrFn"
+         [ "Impossible: LLVMPointerType empty context" ]
+    Ctx.AssignExtend _ _ ->
+       panic "LLVM.MemModel.Pointer.concToSymPtrFn"
+         [ "Impossible: LLVMPointerType ill-formed context" ]
+
+-- | A singleton map suitable for use in 'Crucible.Concretize.concToSym' if LLVM
+-- pointers are the only intrinsic type in use
+concToSymPtrFnMap :: MapF.MapF SymbolRepr Conc.IntrinsicConcToSymFn
+concToSymPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concToSymPtrFn
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
