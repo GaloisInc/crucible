@@ -1,4 +1,4 @@
-Cabal-version: 2.2
+Cabal-version: 2.4
 Name:          crucible-cli
 Version:       0.1
 Author:        Galois Inc.
@@ -10,7 +10,7 @@ Category:      Language
 Synopsis:      A library for sharing code between Crucible CLI frontends
 -- Description:
 
-extra-doc-files: CHANGELOG.md, README.md
+extra-doc-files: CHANGELOG.md
 extra-source-files:
   test-data/**/*.cbl
   test-data/**/*.out.good
