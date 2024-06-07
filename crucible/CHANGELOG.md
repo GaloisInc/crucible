@@ -1,3 +1,7 @@
+# next
+
+* Deprecate `concreteizeSymSequence` in favor of `concretizeSymSequence`
+
 # 0.7 -- 2024-02-05
 
 * Add `TypedOverride`, `SomeTypedOverride`, and `runTypedOverride` to
