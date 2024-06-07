@@ -57,7 +57,7 @@ import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC (traverseFC)
 
-import           What4.Expr (Expr)
+import           What4.Expr (Expr, ExprBuilder, Flags, FloatModeRepr(..))
 import qualified What4.Expr.GroundEval as W4GE
 import           What4.Interface (SymExpr)
 import qualified What4.Interface as W4I
@@ -388,7 +388,7 @@ concRegValue ctx tp v =
     (StringRepr _, _) -> ground ctx v
     (SymbolicArrayRepr _idxs _tp', _) -> ground ctx v
     (SymbolicStructRepr _tys, _) -> ground ctx v
-  
+
     -- Trivial cases
     (UnitRepr, ()) -> pure ()
     (CharRepr, _) -> pure v
@@ -396,7 +396,7 @@ concRegValue ctx tp v =
     -- Simple recursive cases
     (AnyRepr, RV.AnyValue tp' v') ->
       ConcAnyValue tp' . ConcRV' <$> concRegValue ctx tp' v'
-    (RecursiveRepr symb tyCtx, RV.RolledType v') -> 
+    (RecursiveRepr symb tyCtx, RV.RolledType v') ->
       concRegValue ctx (unrollType symb tyCtx) v'
     (StructRepr tps, _) ->
       Ctx.zipWithM (\tp' (RV.RV v') -> ConcRV' <$> concRegValue ctx tp' v') tps v
@@ -410,7 +410,7 @@ concRegValue ctx tp v =
       concFnVal ctx args ret v
     (IntrinsicRepr nm tyCtx, _) ->
       case tryConcIntrinsic ctx nm tyCtx v of
-        Nothing -> 
+        Nothing ->
           let strNm = Text.unpack (symbolRepr nm) in
           fail ("Missing concretization function for intrinsic: " ++ strNm)
         Just r -> r
@@ -460,28 +460,30 @@ newtype IntrinsicConcToSymFn nm
 
 -- | Helper, not exported
 concToSymAny ::
-  W4I.IsExprBuilder sym =>
+  (sym ~ ExprBuilder scope st (Flags fm)) =>
   sym ->
   MapF SymbolRepr IntrinsicConcToSymFn ->
+  FloatModeRepr fm ->
   ConcRegValue sym AnyType ->
   IO (RegValue sym AnyType)
-concToSymAny sym iFns (ConcAnyValue tp' (ConcRV' v')) =
-  RV.AnyValue tp' <$> concToSym sym iFns tp' v'
+concToSymAny sym iFns fm (ConcAnyValue tp' (ConcRV' v')) =
+  RV.AnyValue tp' <$> concToSym sym iFns fm tp' v'
 
 -- | Helper, not exported
 concToSymFn ::
-  W4I.IsExprBuilder sym =>
+  (sym ~ ExprBuilder scope st (Flags fm)) =>
   sym ->
   MapF SymbolRepr IntrinsicConcToSymFn ->
+  FloatModeRepr fm ->
   Ctx.Assignment (TypeRepr) as ->
   TypeRepr r ->
   ConcRegValue sym (FunctionHandleType as r) ->
   IO (RegValue sym (FunctionHandleType as r))
-concToSymFn sym iFns as r f =
+concToSymFn sym iFns fm as r f =
   case f of
     ConcClosureFnVal clos vtp (ConcRV' v) -> do
-      v' <- concToSym sym iFns vtp v
-      clos' <- concToSymFn sym iFns (as Ctx.:> vtp) r clos
+      v' <- concToSym sym iFns fm vtp v
+      clos' <- concToSymFn sym iFns fm (as Ctx.:> vtp) r clos
       pure (RV.ClosureFnVal clos' vtp v')
 
     ConcVarargsFnVal hdl extra ->
@@ -501,24 +503,25 @@ concToSymIntrinsic ::
   IO (RegValue sym (IntrinsicType nm ctx))
 concToSymIntrinsic sym iFns nm tyCtx v =
   case MapF.lookup nm iFns of
-    Nothing -> 
+    Nothing ->
       let strNm = Text.unpack (symbolRepr nm) in
       fail ("Missing concretization function for intrinsic: " ++ strNm)
     Just (IntrinsicConcToSymFn f) -> f sym tyCtx v
 
 -- | Helper, not exported
 concToSymMaybe ::
-  W4I.IsExprBuilder sym =>
+  (sym ~ ExprBuilder scope st (Flags fm)) =>
   sym ->
   MapF SymbolRepr IntrinsicConcToSymFn ->
+  FloatModeRepr fm ->
   TypeRepr tp ->
   ConcRegValue sym (MaybeType tp) ->
   IO (RegValue sym (MaybeType tp))
-concToSymMaybe sym iFns tp =
+concToSymMaybe sym iFns fm tp =
   \case
     Nothing -> pure (W4P.Err ())
     Just v ->
-      W4P.justPartExpr sym <$> concToSym sym iFns tp v
+      W4P.justPartExpr sym <$> concToSym sym iFns fm tp v
 
 -- | Helper, not exported
 concToSymRef ::
@@ -530,37 +533,47 @@ concToSymRef sym (v NE.:| _) = pure (MuxTree.toMuxTree sym v)
 
 -- | Helper, not exported
 concToSymVariant ::
-  forall sym tps.
-  W4I.IsExprBuilder sym =>
+  forall sym tps scope st fm.
+  (sym ~ ExprBuilder scope st (Flags fm)) =>
   sym ->
   MapF SymbolRepr IntrinsicConcToSymFn ->
+  FloatModeRepr fm ->
   CtxRepr tps ->
   ConcRegValue sym (VariantType tps) ->
   IO (RegValue sym (VariantType tps))
-concToSymVariant sym iFns tps v = Ctx.zipWithM go tps v
+concToSymVariant sym iFns fm tps v = Ctx.zipWithM go tps v
   where
     go :: forall tp. TypeRepr tp -> ConcVariantBranch sym tp -> IO (RV.VariantBranch sym tp)
     go tp (ConcVariantBranch b) =
       case b of
         Nothing -> pure (RV.VB (W4P.Err ()))
         Just (ConcRV' v') ->
-          RV.VB . W4P.justPartExpr sym <$> concToSym sym iFns tp v'
+          RV.VB . W4P.justPartExpr sym <$> concToSym sym iFns fm tp v'
 
 -- | Inject a 'ConcRegValue' back into a 'RegValue'.
-concToSym :: 
-  W4I.IsExprBuilder sym =>
+concToSym ::
+  (sym ~ ExprBuilder scope st (Flags fm)) =>
   sym ->
   MapF SymbolRepr IntrinsicConcToSymFn ->
+  FloatModeRepr fm ->
   TypeRepr tp ->
   ConcRegValue sym tp ->
   IO (RegValue sym tp)
-concToSym sym iFns tp v =
+concToSym sym iFns fm tp v =
   case tp of
     -- Base types
     BoolRepr -> W4GE.groundToSym sym BaseBoolRepr v
     BVRepr width -> W4GE.groundToSym sym (BaseBVRepr width) v
     ComplexRealRepr -> W4GE.groundToSym sym BaseComplexRepr v
-    FloatRepr _ -> fail "concToSym does not yet support floats"
+    FloatRepr fi ->
+      case fm of
+        FloatIEEERepr ->
+          W4I.floatLit sym (floatInfoToPrecisionRepr fi) v
+        FloatUninterpretedRepr -> do
+          sv <- W4GE.groundToSym sym (floatInfoToBVTypeRepr fi) v
+          iFloatFromBinary sym fi sv
+        FloatRealRepr ->
+          iFloatLitRational sym fi v
     IEEEFloatRepr fpp -> W4GE.groundToSym sym (BaseFloatRepr fpp) v
     IntegerRepr -> W4GE.groundToSym sym BaseIntegerRepr v
     NatRepr -> W4I.integerToNat sym =<< W4GE.groundToSym sym BaseIntegerRepr v
@@ -568,30 +581,30 @@ concToSym sym iFns tp v =
     StringRepr si -> W4GE.groundToSym sym (BaseStringRepr si) v
     SymbolicArrayRepr idxs tp' -> W4GE.groundToSym sym (BaseArrayRepr idxs tp') v
     SymbolicStructRepr tys -> W4GE.groundToSym sym (BaseStructRepr tys) v
-  
+
     -- Trivial cases
     UnitRepr -> pure ()
     CharRepr -> pure v
 
     -- Simple recursive cases
     RecursiveRepr symb tyCtx ->
-      RV.RolledType <$> concToSym sym iFns (unrollType symb tyCtx) v
+      RV.RolledType <$> concToSym sym iFns fm (unrollType symb tyCtx) v
     SequenceRepr tp' ->
-      SymSeq.fromListSymSequence sym =<< traverse (concToSym sym iFns tp' . unConcRV') v
+      SymSeq.fromListSymSequence sym =<< traverse (concToSym sym iFns fm tp' . unConcRV') v
     StringMapRepr tp' ->
-      traverse (fmap (W4P.justPartExpr sym) . concToSym sym iFns tp' . unConcRV') v
+      traverse (fmap (W4P.justPartExpr sym) . concToSym sym iFns fm tp' . unConcRV') v
     StructRepr tps ->
-      Ctx.zipWithM (\tp' (ConcRV' v') -> RV.RV <$> concToSym sym iFns tp' v') tps v
+      Ctx.zipWithM (\tp' (ConcRV' v') -> RV.RV <$> concToSym sym iFns fm tp' v') tps v
     VectorRepr tp' ->
-      traverse (concToSym sym iFns tp' . unConcRV') v
+      traverse (concToSym sym iFns fm tp' . unConcRV') v
 
     -- Cases with helper functions
-    AnyRepr -> concToSymAny sym iFns v
-    MaybeRepr tp' -> concToSymMaybe sym iFns tp' v
-    FunctionHandleRepr args ret -> concToSymFn sym iFns args ret v
+    AnyRepr -> concToSymAny sym iFns fm v
+    MaybeRepr tp' -> concToSymMaybe sym iFns fm tp' v
+    FunctionHandleRepr args ret -> concToSymFn sym iFns fm args ret v
     IntrinsicRepr nm tyCtx -> concToSymIntrinsic sym iFns nm tyCtx v
     ReferenceRepr _tp' -> concToSymRef sym v
-    VariantRepr tps -> concToSymVariant sym iFns tps v
+    VariantRepr tps -> concToSymVariant sym iFns fm tps v
 
     -- Incomplete cases
     WordMapRepr _ _ -> fail "concToSym does not yet support WordMap"
