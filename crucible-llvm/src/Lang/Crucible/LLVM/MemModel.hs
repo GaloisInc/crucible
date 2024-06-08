@@ -625,22 +625,6 @@ data SomeFnHandle where
   SomeFnHandle    :: FnHandle args ret -> SomeFnHandle
   VarargsFnHandle :: FnHandle (args ::> VectorType AnyType) ret -> SomeFnHandle
 
-sextendBVTo :: (1 <= w, 1 <= w', IsSymInterface sym)
-            => sym
-            -> NatRepr w
-            -> NatRepr w'
-            -> SymExpr sym (BaseBVType w)
-            -> IO (SymExpr sym (BaseBVType w'))
-sextendBVTo sym w w' x
-  | Just Refl <- testEquality w w' = return x
-  | Just LeqProof <- testLeq (incNat w) w' = bvSext sym w' x
-  | Just LeqProof <- testLeq (incNat w') w = bvTrunc sym w' x
-  | otherwise = panic "sextendBVTo"
-                  [ "Impossible widths!"
-                  , show w
-                  , show w'
-                  ]
-
 -- | Allocate and zero a memory region with /size * number/ bytes.
 --
 -- Precondition: the multiplication /size * number/ does not overflow.
