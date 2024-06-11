@@ -51,10 +51,11 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError (SimErrorReason(AssertFailureSimError))
 
-import           Lang.Crucible.LLVM.Bytes (Bytes(..))
+import           Lang.Crucible.LLVM.Bytes (Bytes(..), bitsToBytes)
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.QQ( llvmOvr )
+import           Lang.Crucible.LLVM.Utils
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
@@ -248,6 +249,10 @@ poly1_llvm_overrides =
     )
   , ("llvm.umin"
     , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmUmin w)
+    )
+
+  , ("llvm.load.relative"
+    , Poly1LLVMOverride $ \w -> SomeLLVMOverride (llvmLoadRelative w)
     )
   ]
 
@@ -990,6 +995,22 @@ llvmBSwapOverride widthRepr =
         [llvmOvr| #width8 $nm( #width8 ) |]
         (\_ args -> Ctx.uncurryAssignment (Libc.callBSwap widthRepr) args)
     }}}
+
+-- | <https://llvm.org/docs/LangRef.html#llvm-load-relative-intrinsic LLVM docs>
+llvmLoadRelative ::
+  ( 1 <= w
+  , HasPtrWidth wptr
+  , HasLLVMAnn sym
+  , ?memOpts :: MemOptions
+  ) =>
+  NatRepr w ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> LLVMPointerType wptr ::> BVType w)
+     (LLVMPointerType wptr)
+llvmLoadRelative w =
+  let nm = L.Symbol ("llvm.load.relative.i" ++ show (natValue w)) in
+    [llvmOvr| ptr $nm( ptr, #w ) |]
+    (\mvar args -> Ctx.uncurryAssignment (callLoadRelative mvar w) args)
 
 llvmAbsOverride ::
   (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
@@ -1968,6 +1989,52 @@ callIsFpclass regOp@(regValue -> op) (regValue -> test) = do
     , (8, isNormP)    -- Positive normal
     , (9, isInfP)     -- Positive infinity
     ]
+
+-- | An override for the @llvm.load.relative.i*@ family of intrinsics. Broadly
+-- speaking, this loads a pointer at from the first argument (a pointer to an
+-- array) at the value of the second argument (the offset). However, due to the
+-- reasons described in
+-- @Note [Undoing LLVM's relative table lookup conversion pass]@ in
+-- "Lang.Crucible.LLVM.Globals", this override adjusts the offset before
+-- performing the load.
+callLoadRelative ::
+  ( 1 <= w
+  , IsSymInterface sym
+  , HasPtrWidth wptr
+  , HasLLVMAnn sym
+  , ?memOpts :: MemOptions
+  ) =>
+  GlobalVar Mem ->
+  NatRepr w ->
+  RegEntry sym (LLVMPointerType wptr) ->
+  RegEntry sym (BVType w) ->
+  OverrideSim p sym ext r args ret (LLVMPtr sym wptr)
+callLoadRelative mvar w (regValue -> ptr) (regValue -> offsetInWords32) = do
+  mem <- readGlobal mvar
+  ovrWithBackend $ \bak -> liftIO $ do
+    let sym = backendGetSym bak
+    -- We cannot use the original offset value as-is because LLVM assumes that
+    -- it is loading an i32 value, but we have altered the first argument to
+    -- point to an array of i8*s instead, which may have different sizes. As
+    -- such, we adjust the offset value by (1) dividing it by 4 (the size of an
+    -- i32 value in bytes), and (2) multiplying it by the size of an i8*.
+    bvFour <- bvLit sym w $ BV.mkBV w 4
+    offsetInElems <- bvUdiv sym offsetInWords32 bvFour
+    ptrWidthBytes <-
+      bvLit sym w $
+      BV.uquot
+        (BV.mkBV w (intValue ?ptrWidth))
+        (BV.mkBV w 8)
+    offsetInWordsPtrWidth <-
+      bvMul sym offsetInElems ptrWidthBytes
+    -- There is no guarantee that `wptr` is the same size as `w`, so we
+    -- sign-extend or truncate the offset (of size `w`) as needed to make it be
+    -- of size `wptr`.
+    offsetInWordsPtrWidth' <-
+      sextendBVTo sym w ?ptrWidth offsetInWordsPtrWidth
+    ptr' <- ptrAdd sym ?ptrWidth ptr offsetInWordsPtrWidth'
+    let ty = bitvectorType (bitsToBytes (natValue ?ptrWidth))
+    doLoad bak mem ptr' ty PtrRepr noAlignment
 
 -- | The semantics of an LLVM vector reduce intrinsic.
 callVectorReduce ::
