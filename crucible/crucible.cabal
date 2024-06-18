@@ -72,6 +72,9 @@ library
 
   hs-source-dirs: src
 
+  other-modules:
+    Lang.Crucible.Backend.Assumptions
+
   exposed-modules:
     Lang.Crucible.Analysis.DFS
     Lang.Crucible.Analysis.ForwardDataflow
