@@ -32,11 +32,24 @@ import           Lang.Crucible.Backend.ProofGoals (traverseGoalsWithAssumptions)
 
 type Goal sym = CB.ProofGoal (CB.Assumptions sym) (CB.Assertion sym)
 
+-- | The result of attempting to prove a goal with an SMT solver.
+--
+-- The constructors of this type correspond to those of 'W4R.SatResult'.
 data ProofResult sym t
-   = Proved (Goal sym)
+   = -- | The goal was proved
+     --
+     -- Corresponds to 'W4R.Unsat'.
+     Proved (Goal sym)
+     -- | The goal was disproved, and a model that falsifies it is available.
+     --
+     -- Corresponds to 'W4R.Sat'.
    | Disproved (Goal sym) (WE.GroundEvalFn t) (Maybe (WE.ExprRangeBindings t))
+     -- | The SMT solver returned \"unknown\".
+     --
+     -- Corresponds to 'W4R.Unknown'.
    | Unknown (Goal sym)
 
+-- | Prove a single goal.
 proveGoal ::
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
@@ -45,6 +58,7 @@ proveGoal ::
   WSA.SolverAdapter st ->
   Assumptions sym ->
   CB.Assertion sym ->
+  -- | Continuation to process the 'ProofResult'.
   (ProofResult sym t -> IO r) ->
   IO r
 proveGoal sym ld adapter asms goal k = do
@@ -59,6 +73,7 @@ proveGoal sym ld adapter asms goal k = do
         W4R.Unsat () -> Proved goal'
         W4R.Unknown -> Unknown goal'
 
+-- | Prove a single 'CB.ProofGoal'.
 proveProofGoal ::
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
@@ -66,11 +81,13 @@ proveProofGoal ::
   WSA.LogData ->
   WSA.SolverAdapter st ->
   CB.ProofGoal (CB.Assumptions sym) (CB.Assertion sym) ->
+  -- | Continuation to process the 'ProofResult'.
   (ProofResult sym t -> IO r) ->
   IO r
 proveProofGoal sym ld adapter (CB.ProofGoal asms goal) =
   proveGoal sym ld adapter asms goal
 
+-- | Prove a collection of 'CB.Goals'.
 proveGoals ::
   (Monoid m, sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
@@ -78,6 +95,7 @@ proveGoals ::
   WSA.LogData ->
   WSA.SolverAdapter st ->
   CB.Goals (CB.Assumptions sym) (CB.Assertion sym) ->
+  -- | Continuation to process the 'ProofResult'.
   (ProofResult sym t -> IO m) ->
   IO m
 proveGoals sym ld adapter goals k =
@@ -86,12 +104,14 @@ proveGoals sym ld adapter goals k =
       (\as g -> Const (proveGoal sym ld adapter as g k))
       goals
 
+-- | Prove a collection of 'CB.ProofObligations'.
 proveObligations ::
   (Monoid m, sym ~ WE.ExprBuilder t st fs) =>
   sym ->
   WSA.LogData ->
   WSA.SolverAdapter st ->
   CB.ProofObligations sym ->
+  -- | Continuation to process the 'ProofResult'.
   (ProofResult sym t -> IO m) ->
   IO m
 proveObligations sym ld adapter obligations k =
@@ -99,11 +119,14 @@ proveObligations sym ld adapter obligations k =
     Nothing -> pure mempty
     Just goals -> proveGoals sym ld adapter goals k
 
+-- | Prove a the current collection of 'CB.ProofObligations' associated with the
+-- symbolic backend (retrieved via 'CB.getProofObligations').
 proveCurrentObligations ::
   (Monoid m, CB.IsSymBackend sym bak, sym ~ WE.ExprBuilder t st fs) =>
   bak ->
   WSA.LogData ->
   WSA.SolverAdapter st ->
+  -- | Continuation to process the 'ProofResult'.
   (ProofResult sym t -> IO m) ->
   IO m
 proveCurrentObligations bak ld adapter k = do
