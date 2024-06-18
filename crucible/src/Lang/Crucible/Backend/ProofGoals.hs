@@ -46,14 +46,6 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Word
 
-import qualified What4.Interface as W4
-import qualified What4.Expr as WE
-import qualified What4.Config as W4C
-import qualified What4.Solver.Yices as W4Y
-import qualified What4.Solver.Adapter as WSA
-import qualified What4.SatResult as W4R
-import qualified What4.Partial as W4
-
 -- | A proof goal consists of a collection of assumptions
 --   that were in scope when an assertion was made, together
 --   with the given assertion.

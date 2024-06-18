@@ -74,6 +74,7 @@ library
 
   other-modules:
     Lang.Crucible.Backend.Assumptions
+    Lang.Crucible.Backend.Prove
 
   exposed-modules:
     Lang.Crucible.Analysis.DFS

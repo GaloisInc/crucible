@@ -42,6 +42,7 @@ module Lang.Crucible.Backend
   ( IsSymBackend(..)
   , IsSymInterface
   , HasSymInterface(..)
+  , Assertion
   , SomeBackend(..)
   , ProofObligation
   , ProofObligations
@@ -112,7 +113,7 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
-type Assertion sym  = LabeledPred (Pred sym) SimError
+type Assertion sym = LabeledPred (Pred sym) SimError
 type ProofObligation sym = AS.ProofGoal (Assumptions sym) (Assertion sym)
 type ProofObligations sym = Maybe (AS.Goals (Assumptions sym) (Assertion sym))
 type AssumptionState sym = PG.GoalCollector (Assumptions sym) (Assertion sym)
