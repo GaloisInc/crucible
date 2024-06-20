@@ -20,7 +20,6 @@ module Lang.Crucible.CLI
   , execCommand
   ) where
 
-import Control.Lens (view)
 import Control.Monad
 
 import Data.Foldable
@@ -50,18 +49,19 @@ import Lang.Crucible.Syntax.SExpr
 
 import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
+import Lang.Crucible.Backend.Prove (ProofResult(..), proveCurrentObligations)
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
-import What4.Interface (getConfiguration,notPred)
+import What4.Interface (getConfiguration)
 import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.FunctionName
 import What4.ProgramLoc
-import What4.SatResult
-import What4.Solver (defaultLogData, runZ3InOverride, z3Options)
+import What4.Solver (defaultLogData)
+import What4.Solver.Z3 (z3Adapter, z3Options)
 
 -- | Allows users to hook into the various stages of 'simulateProgram'.
 data SimulateProgramHooks ext = SimulateProgramHooks
@@ -180,19 +180,13 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
 
                        getProofObligations bak >>= \case
                          Nothing -> hPutStrLn outh "==== No proof obligations ===="
-                         Just gs ->
-                           do hPutStrLn outh "==== Proof obligations ===="
-                              forM_ (goalsToList gs) (\g ->
-                                do hPrint outh =<< ppProofObligation sym g
-                                   neggoal <- notPred sym (view labeledPred (proofGoal g))
-                                   asms <- assumptionsPred sym (proofAssumptions g)
-                                   let bs = [neggoal, asms]
-                                   runZ3InOverride sym defaultLogData bs (\case
-                                     Sat _   -> hPutStrLn outh "COUNTEREXAMPLE"
-                                     Unsat _ -> hPutStrLn outh "PROVED"
-                                     Unknown -> hPutStrLn outh "UNKNOWN"
-                                     )
-                                )
+                         Just {} -> hPutStrLn outh "==== Proof obligations ===="
+                       proveCurrentObligations bak defaultLogData z3Adapter $ \goal res -> do
+                         hPrint outh =<< ppProofObligation sym goal
+                         case res of
+                           Proved {} -> hPutStrLn outh "PROVED"
+                           Disproved {} -> hPutStrLn outh "COUNTEREXAMPLE"
+                           Unknown {} -> hPutStrLn outh "UNKNOWN"
 
                   _ -> hPutStrLn outh "No suitable main function found"
 

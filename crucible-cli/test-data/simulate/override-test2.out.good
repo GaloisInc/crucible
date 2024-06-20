@@ -17,8 +17,8 @@ COUNTEREXAMPLE
 Assuming:
 * The branch in symbolicBranchesTest from after branch 1 to third branch
     let -- test-data/simulate/override-test2.cbl:7:5
-        v30 = and (not (eq 1 cx@0:i)) (not (eq 2 cx@0:i)) (not (eq 3 cx@0:i))
-     in not v30
+        v37 = and (not (eq 1 cx@0:i)) (not (eq 2 cx@0:i)) (not (eq 3 cx@0:i))
+     in not v37
 Prove:
   test-data/simulate/override-test2.cbl:6:5: error: in main
   bogus!

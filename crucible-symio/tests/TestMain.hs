@@ -42,6 +42,7 @@ import qualified Data.BitVector.Sized as BVS
 import qualified Test.Tasty as T
 import qualified Test.Tasty.HUnit as T
 
+import qualified Lang.Crucible.Backend.Prove as CB
 import qualified Lang.Crucible.Backend.Simple as CB
 import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.CFG.Core as CC
@@ -56,7 +57,6 @@ import qualified What4.Expr as WE
 import qualified What4.Config as W4C
 import qualified What4.Solver.Yices as W4Y
 import qualified What4.Solver.Adapter as WSA
-import qualified What4.SatResult as W4R
 import qualified What4.Partial as W4
 
 import qualified What4.CachedArray as CA
@@ -133,26 +133,15 @@ runFSTest' bak (FSTest fsTest) = do
         _ -> do
           putStrLn $ showF p
           T.assertFailure "Partial Result"
-  obligations <- CB.getProofObligations bak
-  mapM_ (proveGoal sym W4Y.yicesAdapter) (maybe [] CB.goalsToList obligations)
 
-
-proveGoal ::
-  (sym ~ WE.ExprBuilder t st fs) =>
-  CB.IsSymInterface sym =>
-  sym ->
-  WSA.SolverAdapter st ->
-  CB.ProofGoal (CB.Assumptions sym) (CB.Assertion sym) ->
-  IO ()
-proveGoal sym adapter (CB.ProofGoal asms goal) = do
-  let goalPred = goal ^. CB.labeledPred
-  asmsPred <- CB.assumptionsPred sym asms
-  notgoal <- W4.notPred sym goalPred
-  WSA.solver_adapter_check_sat adapter sym WSA.defaultLogData [notgoal, asmsPred] $ \sr ->
-    case sr of
-      W4R.Unsat _ -> return ()
-      W4R.Unknown -> T.assertFailure "Inconclusive"
-      W4R.Sat _ -> do
+  CB.proveCurrentObligations bak WSA.defaultLogData W4Y.yicesAdapter $ \obligation ->
+    \case
+      CB.Proved {} -> return ()
+      CB.Unknown {} -> T.assertFailure "Inconclusive"
+      CB.Disproved  _ _ -> do
+        CB.ProofGoal asms goal <- pure obligation
+        asmsPred <- CB.assumptionsPred sym asms
+        let goalPred = goal ^. CB.labeledPred
         putStrLn (showF asmsPred)
         putStrLn (showF goalPred)
         T.assertFailure "Assertion Failure"
