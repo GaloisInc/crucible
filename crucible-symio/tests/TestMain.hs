@@ -134,7 +134,9 @@ runFSTest' bak (FSTest fsTest) = do
           putStrLn $ showF p
           T.assertFailure "Partial Result"
 
-  CB.proveCurrentObligations bak WSA.defaultLogData W4Y.yicesAdapter $ \obligation ->
+  let prover = CB.offlineProver sym WSA.defaultLogData W4Y.yicesAdapter
+  let strat = CB.ProofStrategy prover CB.failFast
+  CB.proveCurrentObligations bak strat $ CB.ProofConsumer $ \obligation ->
     \case
       CB.Proved {} -> return ()
       CB.Unknown {} -> T.assertFailure "Inconclusive"

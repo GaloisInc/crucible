@@ -49,7 +49,7 @@ import Lang.Crucible.Syntax.SExpr
 
 import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.Prove (ProofResult(..), proveCurrentObligations)
+import qualified Lang.Crucible.Backend.Prove as Prove
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
@@ -181,12 +181,14 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                        getProofObligations bak >>= \case
                          Nothing -> hPutStrLn outh "==== No proof obligations ===="
                          Just {} -> hPutStrLn outh "==== Proof obligations ===="
-                       proveCurrentObligations bak defaultLogData z3Adapter $ \goal res -> do
+                       let prover = Prove.offlineProver sym defaultLogData z3Adapter
+                       let strat = Prove.ProofStrategy prover Prove.keepGoing
+                       Prove.proveCurrentObligations bak strat $ Prove.ProofConsumer $ \goal res -> do
                          hPrint outh =<< ppProofObligation sym goal
                          case res of
-                           Proved {} -> hPutStrLn outh "PROVED"
-                           Disproved {} -> hPutStrLn outh "COUNTEREXAMPLE"
-                           Unknown {} -> hPutStrLn outh "UNKNOWN"
+                           Prove.Proved {} -> hPutStrLn outh "PROVED"
+                           Prove.Disproved {} -> hPutStrLn outh "COUNTEREXAMPLE"
+                           Prove.Unknown {} -> hPutStrLn outh "UNKNOWN"
 
                   _ -> hPutStrLn outh "No suitable main function found"
 
