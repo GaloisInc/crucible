@@ -57,7 +57,6 @@ import qualified What4.Expr as WE
 import qualified What4.Config as W4C
 import qualified What4.Solver.Yices as W4Y
 import qualified What4.Solver.Adapter as WSA
-import qualified What4.SatResult as W4R
 import qualified What4.Partial as W4
 
 import qualified What4.CachedArray as CA
@@ -135,11 +134,12 @@ runFSTest' bak (FSTest fsTest) = do
           putStrLn $ showF p
           T.assertFailure "Partial Result"
 
-  CB.proveCurrentObligations bak WSA.defaultLogData W4Y.yicesAdapter $
+  CB.proveCurrentObligations bak WSA.defaultLogData W4Y.yicesAdapter $ \obligation ->
     \case
       CB.Proved {} -> return ()
       CB.Unknown {} -> T.assertFailure "Inconclusive"
-      CB.Disproved (CB.ProofGoal asms goal) _ _ -> do
+      CB.Disproved  _ _ -> do
+        CB.ProofGoal asms goal <- pure obligation
         asmsPred <- CB.assumptionsPred sym asms
         let goalPred = goal ^. CB.labeledPred
         putStrLn (showF asmsPred)
