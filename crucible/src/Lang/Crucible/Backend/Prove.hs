@@ -34,7 +34,7 @@ import           Lang.Crucible.Backend.ProofGoals (traverseGoalsWithAssumptions)
 --
 -- The constructors of this type correspond to those of 'W4R.SatResult'.
 data ProofResult sym t
-   = -- | The goal was proved
+   = -- | The goal was proved.
      --
      -- Corresponds to 'W4R.Unsat'.
      Proved
@@ -47,7 +47,24 @@ data ProofResult sym t
      -- Corresponds to 'W4R.Unknown'.
    | Unknown
 
--- | Prove a single goal.
+-- | Prove a single goal ('CB.Assertion') under the supplied 'Assumptions'.
+--
+-- The overall approach is:
+--
+-- * Gather all of the assumptions ('Assumptions') currently in scope (e.g.,
+--   from branch conditions).
+-- * Negate the goal ('CB.Assertion') that were are trying to prove.
+-- * Attempt to prove the conjunction of the assumptions and the negated goal.
+--
+-- If this goal is satisfiable ('W4R.Sat'), then there exists a counterexample
+-- that makes the original goal false, so we have disproven the goal. If the
+-- negated goal is unsatisfiable ('W4R.Unsat'), on the other hand, then the
+-- original goal is proven.
+--
+-- Another way to think of this is as the negated material conditional
+-- (implication) @not (assumptions -> assertion)@. This formula is equivalent
+-- to @not ((not assumptions) and assertion)@, i.e., @assumptions and (not
+-- assertion)@.
 proveGoal ::
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
@@ -92,7 +109,7 @@ proveGoals ::
   WSA.LogData ->
   WSA.SolverAdapter st ->
   CB.Goals (CB.Assumptions sym) (CB.Assertion sym) ->
-  -- | Continuation to process the 'ProofResult'.
+  -- | Continuation to process each 'ProofResult'.
   (CB.ProofObligation sym -> ProofResult sym t -> IO m) ->
   IO m
 proveGoals sym ld adapter goals k =
@@ -108,7 +125,7 @@ proveObligations ::
   WSA.LogData ->
   WSA.SolverAdapter st ->
   CB.ProofObligations sym ->
-  -- | Continuation to process the 'ProofResult'.
+  -- | Continuation to process each 'ProofResult'.
   (CB.ProofObligation sym -> ProofResult sym t -> IO m) ->
   IO m
 proveObligations sym ld adapter obligations k =
@@ -123,7 +140,7 @@ proveCurrentObligations ::
   bak ->
   WSA.LogData ->
   WSA.SolverAdapter st ->
-  -- | Continuation to process the 'ProofResult'.
+  -- | Continuation to process each 'ProofResult'.
   (CB.ProofObligation sym -> ProofResult sym t -> IO m) ->
   IO m
 proveCurrentObligations bak ld adapter k = do

@@ -18,7 +18,6 @@ module Lang.Crucible.Backend.ProofGoals
   , traverseGoals, traverseOnlyGoals
   , traverseGoalsWithAssumptions
   , traverseGoalsSeq
-    -- ** Proving goals
 
     -- * Goal collector
   , FrameIdentifier(..), GoalCollector
