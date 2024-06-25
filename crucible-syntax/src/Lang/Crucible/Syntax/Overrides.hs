@@ -10,6 +10,7 @@ module Lang.Crucible.Syntax.Overrides
   ) where
 
 import Control.Lens hiding ((:>), Empty)
+import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class
 import System.IO
 
@@ -25,6 +26,8 @@ import qualified Lang.Crucible.Backend.Prove as CB
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
+import qualified Lang.Crucible.Utils.Seconds as Sec
+import qualified Lang.Crucible.Utils.Timeout as CTO
 
 
 setupOverrides ::
@@ -48,12 +51,17 @@ proveObligations =
 
        let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                     , logReason = "assertion proof" }
-       let prover = CB.offlineProver sym logData z3Adapter
+       let timeout = CTO.Timeout (Sec.secondsFromInt 5)
+       let prover = CB.offlineProver timeout sym logData z3Adapter
        let strat = CB.ProofStrategy prover CB.keepGoing
-       CB.proveCurrentObligations bak strat $ CB.ProofConsumer $ \o ->
+       merr <- runExceptT $ CB.proveCurrentObligations bak strat $ CB.ProofConsumer $ \o ->
          \case
            CB.Proved {}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
            CB.Disproved {} -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
            CB.Unknown {} -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+       case merr of
+         Left CTO.TimedOut -> hPutStrLn h $ unlines ["Proof timed out!"]
+         Left (CTO.Exception exn) -> hPutStrLn h $ unlines ["Exception during proof!", show exn]
+         Right () -> pure ()
 
        clearProofObligations bak

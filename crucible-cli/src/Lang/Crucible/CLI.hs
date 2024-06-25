@@ -21,7 +21,7 @@ module Lang.Crucible.CLI
   ) where
 
 import Control.Monad
-
+import Control.Monad.Except (runExceptT)
 import Data.Foldable
 import Data.Map (Map)
 import Data.Text (Text)
@@ -54,6 +54,8 @@ import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.Profiling
+import qualified Lang.Crucible.Utils.Seconds as Sec
+import qualified Lang.Crucible.Utils.Timeout as CTO
 
 import What4.Config
 import What4.Interface (getConfiguration)
@@ -181,14 +183,21 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                        getProofObligations bak >>= \case
                          Nothing -> hPutStrLn outh "==== No proof obligations ===="
                          Just {} -> hPutStrLn outh "==== Proof obligations ===="
-                       let prover = Prove.offlineProver sym defaultLogData z3Adapter
+                       -- TODO: Make this timeout configurable via the CLI
+                       let timeout = CTO.Timeout (Sec.secondsFromInt 5)
+                       let prover = Prove.offlineProver timeout sym defaultLogData z3Adapter
                        let strat = Prove.ProofStrategy prover Prove.keepGoing
-                       Prove.proveCurrentObligations bak strat $ Prove.ProofConsumer $ \goal res -> do
+                       merr <- runExceptT $ Prove.proveCurrentObligations bak strat $ Prove.ProofConsumer $ \goal res -> do
                          hPrint outh =<< ppProofObligation sym goal
                          case res of
                            Prove.Proved {} -> hPutStrLn outh "PROVED"
                            Prove.Disproved {} -> hPutStrLn outh "COUNTEREXAMPLE"
                            Prove.Unknown {} -> hPutStrLn outh "UNKNOWN"
+                       case merr of
+                         Left CTO.TimedOut -> hPutStrLn outh $ unlines ["TIMEOUT"]
+                         Left (CTO.Exception exn) ->
+                          hPutStrLn outh $ unlines ["EXCEPTION", show exn]
+                         Right () -> pure ()
 
                   _ -> hPutStrLn outh "No suitable main function found"
 

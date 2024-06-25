@@ -58,6 +58,7 @@ module Lang.Crucible.Backend.Prove
   , Prover(..)
     -- *** Offline
   , offlineProve
+  , offlineProveWithTimeout
   , offlineProver
     -- *** Online
   , onlineProve
@@ -70,6 +71,7 @@ module Lang.Crucible.Backend.Prove
 
 import           Control.Lens ((^.))
 import           Control.Monad.Catch (MonadMask)
+import           Control.Monad.Error.Class (MonadError, liftEither)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Control.Monad.Reader as Reader
 
@@ -82,6 +84,8 @@ import qualified What4.Solver.Adapter as WSA
 
 import qualified Lang.Crucible.Backend as CB
 import           Lang.Crucible.Backend.Assumptions (Assumptions)
+import           Lang.Crucible.Utils.Timeout (Timeout, TimeoutError)
+import qualified Lang.Crucible.Utils.Timeout as CTO
 
 -- | Local helper
 consumeGoals ::
@@ -216,8 +220,8 @@ data Prover sym m t r
 ---------------------------------------------------------------------
 -- *** Offline
 
-offlineProve ::
-  MonadIO m =>
+-- Not exported
+offlineProveIO ::
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
   sym ->
@@ -226,8 +230,8 @@ offlineProve ::
   Assumptions sym ->
   CB.Assertion sym ->
   ProofConsumer sym t r ->
-  m (SubgoalResult r)
-offlineProve sym ld adapter asmps goal (ProofConsumer k) = liftIO $ do
+  IO (SubgoalResult r)
+offlineProveIO sym ld adapter asmps goal (ProofConsumer k) = do
   let goalPred = goal ^. CB.labeledPred
   asmsPred <- CB.assumptionsPred sym asmps
   notGoal <- W4.notPred sym goalPred
@@ -239,17 +243,50 @@ offlineProve sym ld adapter asmps goal (ProofConsumer k) = liftIO $ do
             W4R.Unknown -> Unknown
     in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
 
-offlineProver ::
+offlineProve ::
   MonadIO m =>
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
   sym ->
   WSA.LogData ->
   WSA.SolverAdapter st ->
+  Assumptions sym ->
+  CB.Assertion sym ->
+  ProofConsumer sym t r ->
+  m (SubgoalResult r)
+offlineProve sym ld adapter asmps goal k =
+  liftIO (offlineProveIO sym ld adapter asmps goal k)
+
+offlineProveWithTimeout ::
+  MonadError TimeoutError m =>
+  MonadIO m =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  W4.IsSymExprBuilder sym =>
+  Timeout ->
+  sym ->
+  WSA.LogData ->
+  WSA.SolverAdapter st ->
+  Assumptions sym ->
+  CB.Assertion sym ->
+  ProofConsumer sym t r ->
+  m (SubgoalResult r)
+offlineProveWithTimeout to sym ld adapter asmps goal k = do
+  r <- liftIO (CTO.withTimeout to (offlineProveIO sym ld adapter asmps goal k))
+  liftEither r
+
+offlineProver ::
+  MonadError TimeoutError m =>
+  MonadIO m =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  Timeout ->
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  WSA.LogData ->
+  WSA.SolverAdapter st ->
   Prover sym m t r
-offlineProver sym ld adapter =
+offlineProver to sym ld adapter =
   Prover
-  { proverProve = offlineProve sym ld adapter
+  { proverProve = offlineProveWithTimeout to sym ld adapter
   , proverAssume = \_asmps a -> a
   }
 

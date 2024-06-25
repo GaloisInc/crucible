@@ -44,6 +44,7 @@ common bldflags
 library
   import: bldflags
   build-depends:
+    async,
     base >= 4.13 && < 4.19,
     bimap,
     bv-sized >= 1.0.0 && < 1.1,
@@ -129,6 +130,8 @@ library
     Lang.Crucible.Utils.MuxTree
     Lang.Crucible.Utils.PrettyPrint
     Lang.Crucible.Utils.RegRewrite
+    Lang.Crucible.Utils.Seconds
+    Lang.Crucible.Utils.Timeout
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Structural
 
