@@ -13,8 +13,10 @@ configurability, encapsulated in a 'ProofStrategy':
   solvers ('onlineProver') can share state as assumptions are added. See the
   top-level README for What4 for further discussion of this choice.
 * Failing fast ('failFast') vs. keeping going ('keepGoing')
-* Parallelism and timeouts: Not yet available via helpers in this module, but
-  may be added to a 'ProofStrategy' by clients.
+* Timeouts: Proving with timeouts ('offlineProveWithTimeout') vs. without
+  ('offlineProve')
+* Parallelism: Not yet available via helpers in this module, but may be added to
+  a 'ProofStrategy' by clients.
 
 Once an appropriate strategy has been selected, it can be passed to entrypoints
 such as 'proveObligations' to dispatch proof obligations.
@@ -243,6 +245,12 @@ offlineProveIO sym ld adapter asmps goal (ProofConsumer k) = do
             W4R.Unknown -> Unknown
     in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
 
+-- | Prove a goal using an \"offline\" solver (i.e., one process per goal).
+--
+-- See 'offlineProveWithTimeout' for a version that integrates 'Timeout's.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
 offlineProve ::
   MonadIO m =>
   (sym ~ WE.ExprBuilder t st fs) =>
@@ -257,6 +265,12 @@ offlineProve ::
 offlineProve sym ld adapter asmps goal k =
   liftIO (offlineProveIO sym ld adapter asmps goal k)
 
+-- | Prove a goal using an \"offline\" solver, with a timeout.
+--
+-- See 'offlineProveWithTimeout' for a version without 'Timeout's.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
 offlineProveWithTimeout ::
   MonadError TimedOut m =>
   MonadIO m =>
@@ -274,6 +288,10 @@ offlineProveWithTimeout to sym ld adapter asmps goal k = do
   r <- liftIO (CTO.withTimeout to (offlineProveIO sym ld adapter asmps goal k))
   liftEither r
 
+-- | Prove goals using 'offlineProveWithTimeout'.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
 offlineProver ::
   MonadError TimedOut m =>
   MonadIO m =>
@@ -293,6 +311,10 @@ offlineProver to sym ld adapter =
 ---------------------------------------------------------------------
 -- *** Online
 
+-- | Prove a goal using an \"online\" solver (i.e., one process for all goals).
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
 onlineProve ::
   MonadIO m =>
   W4SMT.SMTReadWriter solver =>
@@ -312,6 +334,7 @@ onlineProve sProc asmps goal (ProofConsumer k) =
             W4R.Unknown -> Unknown
     in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
 
+-- | Add an assumption by @push@ing a new frame ('WPO.inNewFrame').
 onlineAssume :: 
   MonadIO m =>
   MonadMask m =>
@@ -333,6 +356,10 @@ onlineAssume sym sProc asmps a =
       pure ()
     a
 
+-- | Prove goals using 'onlineProve' and 'onlineAssume'.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
 onlineProver ::
   MonadIO m =>
   MonadMask m =>
@@ -351,6 +378,7 @@ onlineProver sym sProc =
 ---------------------------------------------------------------------
 -- * Proving goals
 
+-- | Prove a collection of 'CB.Goals' using the specified 'ProofStrategy'.
 proveGoals ::
   Functor m =>
   ProofStrategy sym m t r ->
@@ -364,6 +392,7 @@ proveGoals (ProofStrategy prover (Combiner comb)) goals k =
       comb
       goals
 
+-- | Prove a collection of 'CB.ProofObligations' using a 'ProofStrategy'.
 proveObligations ::
   Applicative m =>
   Monoid r =>
