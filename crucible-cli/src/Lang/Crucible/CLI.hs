@@ -187,15 +187,18 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                        let timeout = CTO.Timeout (Sec.secondsFromInt 5)
                        let prover = Prove.offlineProver timeout sym defaultLogData z3Adapter
                        let strat = Prove.ProofStrategy prover Prove.keepGoing
-                       merr <- runExceptT $ Prove.proveCurrentObligations bak strat $ Prove.ProofConsumer $ \goal res -> do
-                         hPrint outh =<< ppProofObligation sym goal
-                         case res of
-                           Prove.Proved {} -> hPutStrLn outh "PROVED"
-                           Prove.Disproved {} -> hPutStrLn outh "COUNTEREXAMPLE"
-                           Prove.Unknown {} -> hPutStrLn outh "UNKNOWN"
-                       case merr of
-                         Left CTO.TimedOut -> hPutStrLn outh $ unlines ["TIMEOUT"]
-                         Right () -> pure ()
+                       let ppResult =
+                             \case
+                               Prove.Proved {} ->  "PROVED"
+                               Prove.Disproved {} -> "COUNTEREXAMPLE"
+                               Prove.Unknown {} -> "UNKNOWN"
+                       let printer = Prove.ProofConsumer $ \goal res -> do
+                             hPrint outh =<< ppProofObligation sym goal
+                             hPutStrLn outh (ppResult res)
+                       runExceptT (Prove.proveCurrentObligations bak strat printer) >>=
+                         \case
+                           Left CTO.TimedOut -> hPutStrLn outh "TIMEOUT"
+                           Right () -> pure ()
 
                   _ -> hPutStrLn outh "No suitable main function found"
 

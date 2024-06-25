@@ -54,13 +54,15 @@ proveObligations =
        let timeout = CTO.Timeout (Sec.secondsFromInt 5)
        let prover = CB.offlineProver timeout sym logData z3Adapter
        let strat = CB.ProofStrategy prover CB.keepGoing
-       merr <- runExceptT $ CB.proveCurrentObligations bak strat $ CB.ProofConsumer $ \o ->
+       let ppResult o =
+             \case
+               CB.Proved {}  -> unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+               CB.Disproved {} -> unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+               CB.Unknown {} -> unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+       let printer = CB.ProofConsumer $ \o r -> hPutStrLn h (ppResult o r)
+       runExceptT (CB.proveCurrentObligations bak strat printer) >>=
          \case
-           CB.Proved {}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-           CB.Disproved {} -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-           CB.Unknown {} -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-       case merr of
-         Left CTO.TimedOut -> hPutStrLn h $ unlines ["Proof timed out!"]
-         Right () -> pure ()
+           Left CTO.TimedOut -> hPutStrLn h $ unlines ["Proof timed out!"]
+           Right () -> pure ()
 
        clearProofObligations bak
