@@ -153,7 +153,6 @@ runFSTest' bak (FSTest fsTest) = do
         T.assertFailure "Assertion Failure"
   case merr of
     Left CTO.TimedOut -> T.assertFailure "Timeout"
-    Left (CTO.Exception exn) -> T.assertFailure ("Exception: " ++ show exn)
     Right () -> pure ()
 
 showAbortedResult :: CS.AbortedResult c d -> String

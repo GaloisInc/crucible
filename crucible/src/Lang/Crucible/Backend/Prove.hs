@@ -84,7 +84,7 @@ import qualified What4.Solver.Adapter as WSA
 
 import qualified Lang.Crucible.Backend as CB
 import           Lang.Crucible.Backend.Assumptions (Assumptions)
-import           Lang.Crucible.Utils.Timeout (Timeout, TimeoutError)
+import           Lang.Crucible.Utils.Timeout (Timeout, TimedOut)
 import qualified Lang.Crucible.Utils.Timeout as CTO
 
 -- | Local helper
@@ -258,7 +258,7 @@ offlineProve sym ld adapter asmps goal k =
   liftIO (offlineProveIO sym ld adapter asmps goal k)
 
 offlineProveWithTimeout ::
-  MonadError TimeoutError m =>
+  MonadError TimedOut m =>
   MonadIO m =>
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
@@ -275,7 +275,7 @@ offlineProveWithTimeout to sym ld adapter asmps goal k = do
   liftEither r
 
 offlineProver ::
-  MonadError TimeoutError m =>
+  MonadError TimedOut m =>
   MonadIO m =>
   (sym ~ WE.ExprBuilder t st fs) =>
   Timeout ->

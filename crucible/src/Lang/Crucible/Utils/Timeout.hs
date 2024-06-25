@@ -1,12 +1,11 @@
 module Lang.Crucible.Utils.Timeout
   ( Timeout(..)
-  , TimeoutError(..)
+  , TimedOut(..)
   , withTimeout
   ) where
 
 import qualified Control.Concurrent as CC
 import qualified Control.Concurrent.Async as CCA
-import           Control.Exception.Base (SomeException)
 
 import qualified Lang.Crucible.Utils.Seconds as Secs
 
@@ -18,41 +17,22 @@ newtype Timeout = Timeout { getTimeout :: Secs.Seconds }
 timeoutToMicros :: Timeout -> Int
 timeoutToMicros = Secs.secondsToMicroseconds . getTimeout
 
--- Private, not exported
-data DidTimeOut = DidTimeOut
-
--- | An error resulting from 'withTimeout'.
-data TimeoutError
-  = -- | The task timed out
-    TimedOut
-    -- | Some other exception ocurred
-  | Exception SomeException
+-- | A task timed out.
+data TimedOut = TimedOut
   deriving Show
 
 -- | Execute a task with a timeout.
 --
--- Catches any exceptions that occur during the task, returning them as
--- @'Left' ('Exception' exn)@.
+-- Implemented via 'CCA.race', so re-throws exceptions that occur during the
+-- task (if it completes before the timeout).
 withTimeout ::
   -- | Timeout duration (seconds)
   Timeout ->
   -- | Task to attempt
   IO a ->
-  IO (Either TimeoutError a)
+  IO (Either TimedOut a)
 withTimeout to task = do
-  worker <- CCA.async task
-  timeout <- CCA.async $ do
-    CC.threadDelay (timeoutToMicros to)
-    CCA.cancel worker
-    return DidTimeOut
-  res <- CCA.waitEitherCatch timeout worker
-  case res of
-    Left (Right DidTimeOut) -> do
-      return (Left TimedOut)
-    Left (Left exn) -> do
-      return (Left (Exception exn))
-    Right (Left exn) -> do
-      return (Left (Exception exn))
-    Right (Right val) ->
-      return (Right val)
-
+  let timeout = do
+        CC.threadDelay (timeoutToMicros to)
+        pure TimedOut
+  CCA.race timeout task

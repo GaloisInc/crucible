@@ -61,7 +61,6 @@ proveObligations =
            CB.Unknown {} -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
        case merr of
          Left CTO.TimedOut -> hPutStrLn h $ unlines ["Proof timed out!"]
-         Left (CTO.Exception exn) -> hPutStrLn h $ unlines ["Exception during proof!", show exn]
          Right () -> pure ()
 
        clearProofObligations bak

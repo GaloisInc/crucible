@@ -195,8 +195,6 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                            Prove.Unknown {} -> hPutStrLn outh "UNKNOWN"
                        case merr of
                          Left CTO.TimedOut -> hPutStrLn outh $ unlines ["TIMEOUT"]
-                         Left (CTO.Exception exn) ->
-                          hPutStrLn outh $ unlines ["EXCEPTION", show exn]
                          Right () -> pure ()
 
                   _ -> hPutStrLn outh "No suitable main function found"
