@@ -6,6 +6,7 @@ module Lang.Crucible.Utils.Timeout
 
 import qualified Control.Concurrent as CC
 import qualified Control.Concurrent.Async as CCA
+import qualified Control.Exception as X
 
 import qualified Lang.Crucible.Utils.Seconds as Secs
 
@@ -20,6 +21,8 @@ timeoutToMicros = Secs.secondsToMicroseconds . getTimeout
 -- | A task timed out.
 data TimedOut = TimedOut
   deriving Show
+
+instance X.Exception TimedOut where
 
 -- | Execute a task with a timeout.
 --
