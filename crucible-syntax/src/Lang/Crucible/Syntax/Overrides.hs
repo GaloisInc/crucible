@@ -62,7 +62,7 @@ proveObligations =
        let printer = CB.ProofConsumer $ \o r -> hPutStrLn h (ppResult o r)
        runExceptT (CB.proveCurrentObligations bak strat printer) >>=
          \case
-           Left CTO.TimedOut -> hPutStrLn h $ unlines ["Proof timed out!"]
+           Left CTO.TimedOut -> hPutStrLn h "Proof timed out!"
            Right () -> pure ()
 
        clearProofObligations bak
