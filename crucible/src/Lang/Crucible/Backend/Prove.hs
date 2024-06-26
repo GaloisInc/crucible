@@ -45,6 +45,7 @@ assertion)@.
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Lang.Crucible.Backend.Prove
   ( -- * Strategy
@@ -71,11 +72,16 @@ module Lang.Crucible.Backend.Prove
   , proveCurrentObligations
   ) where
 
+import qualified Control.Concurrent as CC
+import qualified Control.Concurrent.Async as CCA
+import qualified Control.Concurrent.QSem as CCQ
+import qualified Control.Exception as X
 import           Control.Lens ((^.))
 import           Control.Monad.Catch (MonadMask)
 import           Control.Monad.Error.Class (MonadError, liftEither)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Control.Monad.Reader as Reader
+import qualified Data.IORef as IORef
 
 import qualified What4.Interface as W4
 import qualified What4.Expr as WE
@@ -122,6 +128,26 @@ consumeGoalsWithAssumptions onGoal onConj goals =
       (\asmp gl -> Reader.local (<> asmp) gl)
       (\gl -> Reader.asks (\asmps -> onGoal asmps gl))
       (\g1 g2 -> onConj <$> g1 <*> g2)
+
+consumeGoalsParallel ::
+  Monoid asmp =>
+  -- | Consume a 'Prove'
+  (asmp -> goal -> IO a) ->
+  -- | Consume a 'ProveConj'
+  (IO () -> IO () -> IO ()) ->
+  CB.Goals asmp goal ->
+  IO [a]
+consumeGoalsParallel onGoal onConj goals = do
+  caps <- CC.getNumCapabilities
+  sem <- liftIO $ CCQ.newQSem caps
+  workers <- liftIO $ IORef.newIORef []
+  let onGoal' asmps goal = do
+        let withQSem = X.bracket_ (CCQ.waitQSem sem) (CCQ.signalQSem sem) 
+        task' <- CCA.async (withQSem (onGoal asmps goal))
+        IORef.modifyIORef' workers (task':)
+        pure ()
+  consumeGoalsWithAssumptions onGoal' onConj goals
+  mapM CCA.wait =<< IORef.readIORef workers
 
 ---------------------------------------------------------------------
 -- * Strategy
@@ -420,3 +446,19 @@ proveCurrentObligations ::
 proveCurrentObligations bak strat k = do
   obligations <- liftIO (CB.getProofObligations bak)
   proveObligations strat obligations k
+
+---------------------------------------------------------------------
+-- * Parallelism
+
+proveGoalsInParallel ::
+  Semigroup r =>
+  ProofStrategy sym IO t r ->
+  ProofConsumer sym t r ->
+  CB.Goals (CB.Assumptions sym) (CB.Assertion sym) ->
+  IO [r]
+proveGoalsInParallel strat k goals =
+  map subgoalResult <$>
+    consumeGoalsParallel
+      (\asmps gl -> proverProve (stratProver strat) asmps gl k)
+      (>>)
+      goals
