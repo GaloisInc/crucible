@@ -48,13 +48,13 @@ to @not ((not assumptions) and assertion)@, i.e., @assumptions and (not
 assertion)@.
 -}
 
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.Backend.Prove
   ( -- * Strategy
@@ -248,18 +248,24 @@ newtype ProofConsumer sym t r
 ---------------------------------------------------------------------
 -- *** Combiner
 
+-- | Whether or not a subgoal was proved, together with the result from a
+-- 'ProofConsumer'.
 data SubgoalResult r
   = SubgoalResult
     { subgoalWasProved :: !Bool
     , subgoalResult :: !r
     }
+  deriving Functor
 
+-- | How to combine results of proofs, used as part of a 'ProofStrategy'.
 newtype Combiner m r
   = Combiner
     { getCombiner ::
         m (SubgoalResult r) -> m (SubgoalResult r) -> m (SubgoalResult r)
     }
 
+-- | Combine 'SubgoalResult's using the '<>' operator. Keep going when subgoals
+-- fail.
 keepGoing :: Monad m => Semigroup r => Combiner m r
 keepGoing = Combiner $ \a1 a2 -> subgoalAnd <$> a1 <*> a2
   where
@@ -271,6 +277,8 @@ keepGoing = Combiner $ \a1 a2 -> subgoalAnd <$> a1 <*> a2
   subgoalAnd (SubgoalResult ok1 r1) (SubgoalResult ok2 r2) =
     SubgoalResult (ok1 && ok2) (r1 <> r2)
 
+-- | Combine 'SubgoalResult's using the '<>' operator. After the first subgoal
+-- fails, stop trying to prove further goals.
 failFast :: Monad m => Semigroup r => Combiner m r
 failFast = Combiner $ \sr1 sr2 -> do
   SubgoalResult ok1 r1 <- sr1
@@ -290,13 +298,16 @@ isProved =
 ---------------------------------------------------------------------
 -- ** Prover
 
+-- | A collection of functions used to prove goals as part of a 'ProofStrategy'.
 data Prover sym m t r
   = Prover
-    { proverProve ::
+    { -- | Prove a single goal under some 'Assumptions'.
+      proverProve ::
         Assumptions sym ->
         CB.Assertion sym ->
         ProofConsumer sym t r ->
         m (SubgoalResult r)
+      -- | Assume some 'Assumptions' in the scope of a subgoal.
     , proverAssume ::
         Assumptions sym ->
         m (SubgoalResult r) ->
