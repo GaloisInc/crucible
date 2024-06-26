@@ -4,22 +4,31 @@ Description : Proving goals under assumptions
 Copyright   : (c) Galois, Inc 2024
 License     : BSD3
 
-This module contains helpers to dispatch the proof obligations arising from
-symbolic execution using SMT solvers. There are several dimensions of
-configurability, encapsulated in a 'ProofStrategy':
+== Overview
+
+The functions in this module dispatch proof obligations arising from symbolic
+execution using SMT solvers. There are several dimensions of configurability,
+encapsulated in a 'ProofStrategy':
 
 * Offline vs. online: Offline solvers ('offlineProver') are simpler to manage
-  and more easily parallelized, but starting processes adds overhead, and online
+  and more easily parallelized, but starting processes adds overhead; online
   solvers ('onlineProver') can share state as assumptions are added. See the
   top-level README for What4 for further discussion of this choice.
 * Failing fast ('failFast') vs. keeping going ('keepGoing')
 * Timeouts: Proving with timeouts ('offlineProveWithTimeout') vs. without
   ('offlineProve')
-* Parallelism: Not yet available via helpers in this module, but may be added to
-  a 'ProofStrategy' by clients.
 
 Once an appropriate strategy has been selected, it can be passed to entrypoints
 such as 'proveObligations' to dispatch proof obligations.
+
+== Parallelism
+
+Parallel proving is available via a separate set of entrypoints, e.g,
+'proveGoalsInParallel'. It only makes sense to use these with offline 'Prover's.
+Furthermore, these can only be used with 'ProofStrategy's that operate in the
+'IO' monad.
+
+== Proving goals
 
 When proving a single goal, the overall approach is:
 
@@ -70,6 +79,10 @@ module Lang.Crucible.Backend.Prove
   , proveGoals
   , proveObligations
   , proveCurrentObligations
+    -- * Proving goals in parallel
+  , proveGoalsInParallel
+  , proveObligationsInParallel
+  , proveCurrentObligationsInParallel
   ) where
 
 import qualified Control.Concurrent as CC
@@ -77,6 +90,7 @@ import qualified Control.Concurrent.Async as CCA
 import qualified Control.Concurrent.QSem as CCQ
 import qualified Control.Exception as X
 import           Control.Lens ((^.))
+import           Control.Monad (foldM)
 import           Control.Monad.Catch (MonadMask)
 import           Control.Monad.Error.Class (MonadError, liftEither)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
@@ -129,14 +143,15 @@ consumeGoalsWithAssumptions onGoal onConj goals =
       (\gl -> Reader.asks (\asmps -> onGoal asmps gl))
       (\g1 g2 -> onConj <$> g1 <*> g2)
 
+-- | Not exported, but see 'proveGoalsInParallel'
 consumeGoalsParallel ::
   Monoid asmp =>
   -- | Consume a 'Prove'
-  (asmp -> goal -> IO a) ->
+  (asmp -> goal -> IO r) ->
   -- | Consume a 'ProveConj'
-  (IO () -> IO () -> IO ()) ->
+  (r -> r -> IO r) ->
   CB.Goals asmp goal ->
-  IO [a]
+  IO r
 consumeGoalsParallel onGoal onConj goals = do
   caps <- CC.getNumCapabilities
   sem <- liftIO $ CCQ.newQSem caps
@@ -146,8 +161,48 @@ consumeGoalsParallel onGoal onConj goals = do
         task' <- CCA.async (withQSem (onGoal asmps goal))
         IORef.modifyIORef' workers (task':)
         pure ()
-  consumeGoalsWithAssumptions onGoal' onConj goals
-  mapM CCA.wait =<< IORef.readIORef workers
+  consumeGoalsWithAssumptions onGoal' (>>) goals
+  go onConj =<< IORef.readIORef workers
+  where
+    go :: (r -> r -> IO r) -> [CCA.Async r] -> IO r
+    go combine tasks =
+      partitionPoll tasks >>=
+        \case
+          ([], []) -> error "Impossible"
+          ([], rest) -> delay >> go combine rest
+          ((r:rs), rest) -> do
+            accum <- foldM combine r rs
+            foldMReady combine accum rest
+  
+    -- Pause for 0.1 s = 1 * 10^5 microsecs
+    delay = do
+      let pointOneSecond = 100000
+      CC.threadDelay pointOneSecond
+
+    -- Like foldl', but processes the inputs whenever they're ready, rather than
+    -- in the order in which they're supplied in the list. Polls repeatedly, but
+    -- with a delay.
+    foldMReady :: (b -> a -> IO b) -> b -> [CCA.Async a] -> IO b
+    foldMReady f accum as = do
+      (ready, rest) <- partitionPoll as
+      result <- foldM f accum ready
+      if null rest
+      then pure result
+      else do
+        delay
+        foldMReady f result rest
+
+    -- Partition a list of tasks into those that are ready (in which case,
+    -- extract their results), and those that are still in progress.
+    partitionPoll :: [CCA.Async r] -> IO ([r], [CCA.Async r])
+    partitionPoll [] = pure ([], [])
+    partitionPoll (x:xs) = do
+      (ready, waiting) <- partitionPoll xs
+      CCA.poll x >>=
+        \case
+          Just (Left exn) -> X.throwIO exn
+          Just (Right r) -> pure (r:ready, waiting)
+          Nothing -> pure (ready, x:waiting)
 
 ---------------------------------------------------------------------
 -- * Strategy
@@ -448,17 +503,56 @@ proveCurrentObligations bak strat k = do
   proveObligations strat obligations k
 
 ---------------------------------------------------------------------
--- * Parallelism
+-- * Proving goals in parallel
 
+-- | Prove a collection of 'CB.Goals' using the specified offline
+-- 'ProofStrategy'.
+--
+-- TODO: details!
 proveGoalsInParallel ::
   Semigroup r =>
+  -- | Strategy with offline prover (e.g., 'offlineProver')
   ProofStrategy sym IO t r ->
-  ProofConsumer sym t r ->
   CB.Goals (CB.Assumptions sym) (CB.Assertion sym) ->
-  IO [r]
-proveGoalsInParallel strat k goals =
-  map subgoalResult <$>
+  ProofConsumer sym t r ->
+  IO r
+proveGoalsInParallel strat goals k =
+  subgoalResult <$>
     consumeGoalsParallel
       (\asmps gl -> proverProve (stratProver strat) asmps gl k)
-      (>>)
+      (\r1 r2 -> getCombiner (stratCombine strat) (pure r1) (pure r2))
       goals
+
+-- | Prove a collection of 'CB.ProofObligations' in parallel using an offline
+-- 'ProofStrategy'.
+--
+-- For more details, see 'proveGoalsInParallel'.
+proveObligationsInParallel ::
+  Monoid r =>
+  -- | Strategy with offline prover (e.g., 'offlineProver')
+  ProofStrategy sym IO t r ->
+  CB.ProofObligations sym ->
+  ProofConsumer sym t r ->
+  IO r
+proveObligationsInParallel strat obligations k =
+  case obligations of
+    Nothing -> pure mempty
+    Just goals -> proveGoalsInParallel strat goals k
+
+-- | Prove a the current collection of 'CB.ProofObligations' associated with the
+-- symbolic backend (retrieved via 'CB.getProofObligations') in parallel using
+-- an offline 'ProofStrategy'.
+--
+-- For more details, see 'proveGoalsInParallel'.
+proveCurrentObligationsInParallel ::
+  Monoid r =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  CB.IsSymBackend sym bak =>
+  bak ->
+  -- | Strategy with offline prover (e.g., 'offlineProver')
+  ProofStrategy sym IO t r ->
+  ProofConsumer sym t r ->
+  IO r
+proveCurrentObligationsInParallel bak strat k = do
+  obligations <- liftIO (CB.getProofObligations bak)
+  proveObligationsInParallel strat obligations k
