@@ -133,6 +133,9 @@ consumeGoalsWithAssumptions onGoal onConj goals =
 -- | The result of attempting to prove a goal with an SMT solver.
 --
 -- The constructors of this type correspond to those of 'W4R.SatResult'.
+--
+-- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
+-- * @r@ is the return type of the eventual 'ProofConsumer'
 data ProofResult sym t
    = -- | The goal was proved.
      --
@@ -143,6 +146,9 @@ data ProofResult sym t
      -- The 'WE.GroundEvalFn' is only available for use during the execution of
      -- a 'ProofConsumer'. See 'WSA.SolverAdapter'.
      --
+     -- The @'Maybe' 'WE.ExprRangeBindings'@ are 'Just' when using
+     -- 'offlineProve' and 'Nothing' when using 'onlineProve'.
+     --
      -- Corresponds to 'W4R.Sat'.
    | Disproved (WE.GroundEvalFn t) (Maybe (WE.ExprRangeBindings t))
      -- | The SMT solver returned \"unknown\".
@@ -151,6 +157,11 @@ data ProofResult sym t
    | Unknown
 
 -- | A 'ProofStrategy' dictates how results are proved.
+--
+-- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
+-- * @m@ is the monad in which the 'Prover' and 'Combiner' run
+-- * @t@ is the parameter to 'WE.Expr'
+-- * @r@ is the return type of the eventual 'ProofConsumer'
 data ProofStrategy sym m t r
   = ProofStrategy
     { -- | Generally 'offlineProver' or 'onlineProver'
@@ -162,6 +173,9 @@ data ProofStrategy sym m t r
 --
 -- If the result is 'Disproved', then this function must consume the
 -- 'WE.GroundEvalFn' before returning. See 'WSA.SolverAdapter'.
+--
+-- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
+-- * @t@ is the parameter to 'WE.Expr'
 newtype ProofConsumer sym t r
   = ProofConsumer (CB.ProofObligation sym -> ProofResult sym t -> IO r)
 
@@ -178,6 +192,9 @@ data SubgoalResult r
   deriving Functor
 
 -- | How to combine results of proofs, used as part of a 'ProofStrategy'.
+--
+-- * @m@ is the monad in which the 'Prover' and 'Combiner' run
+-- * @r@ is the return type of the eventual 'ProofConsumer'
 newtype Combiner m r
   = Combiner
     { getCombiner ::
