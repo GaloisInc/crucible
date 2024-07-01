@@ -109,6 +109,7 @@ consumeGoals onAssumption onGoal onConj = go
 
 -- | Local helper
 consumeGoalsWithAssumptions ::
+  forall asmp goal a.
   Monoid asmp =>
   -- | Consume a 'Prove'
   (asmp -> goal -> a) ->
@@ -119,6 +120,7 @@ consumeGoalsWithAssumptions ::
 consumeGoalsWithAssumptions onGoal onConj goals =
   Reader.runReader (go goals) mempty
   where
+  go :: CB.Goals asmp goal -> Reader.Reader asmp a
   go =
     consumeGoals
       (\asmp gl -> Reader.local (<> asmp) gl)
