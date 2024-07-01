@@ -71,7 +71,6 @@ module Lang.Crucible.Backend.Prove
     -- *** Offline
   , offlineProve
   , offlineProveWithTimeout
-  , offlineProveWithTimeoutIO
   , offlineProver
     -- *** Online
   , onlineProve
@@ -169,9 +168,7 @@ consumeGoalsParallel onGoal onConj goals = do
     go combine tasks =
       partitionPoll tasks >>=
         \case
-          -- Note that `rest` can't be empty (and thus this cant loop
-          -- indefinitely), because `tasks` can't be empty, because `Goal`
-          -- is the only leaf of `Goals` (so there must be at least one).
+          ([], []) -> error "Impossible"
           ([], rest) -> delay >> go combine rest
           ((r:rs), rest) -> do
             accum <- foldM combine r rs
@@ -362,7 +359,7 @@ offlineProve sym ld adapter asmps goal k =
 
 -- | Prove a goal using an \"offline\" solver, with a timeout.
 --
--- See 'offlineProve' for a version without 'Timeout's.
+-- See 'offlineProveWithTimeout' for a version without 'Timeout's.
 --
 -- See the module-level documentation for further discussion of offline vs.
 -- online solving.
@@ -383,31 +380,12 @@ offlineProveWithTimeout to sym ld adapter asmps goal k = do
   r <- liftIO (CTO.withTimeout to (offlineProveIO sym ld adapter asmps goal k))
   liftEither r
 
--- | Like 'offlineProverWithTimeout', but throws timeouts as exceptions using
--- 'X.throwIO' instead of requiring 'MonadError'.
-offlineProveWithTimeoutIO ::
-  MonadIO m =>
-  (sym ~ WE.ExprBuilder t st fs) =>
-  W4.IsSymExprBuilder sym =>
-  Timeout ->
-  sym ->
-  WSA.LogData ->
-  WSA.SolverAdapter st ->
-  Assumptions sym ->
-  CB.Assertion sym ->
-  ProofConsumer sym t r ->
-  m (SubgoalResult r)
-offlineProveWithTimeoutIO to sym ld adapter asmps goal k = do
-  r <- liftIO (CTO.withTimeout to (offlineProveIO sym ld adapter asmps goal k))
-  case r of
-    Left CTO.TimedOut -> liftIO (X.throwIO CTO.TimedOut)
-    Right r' -> pure r'
-
--- | Prove goals using 'offlineProveWithTimeoutIO'.
+-- | Prove goals using 'offlineProveWithTimeout'.
 --
 -- See the module-level documentation for further discussion of offline vs.
 -- online solving.
 offlineProver ::
+  MonadError TimedOut m =>
   MonadIO m =>
   (sym ~ WE.ExprBuilder t st fs) =>
   Timeout ->
@@ -418,7 +396,7 @@ offlineProver ::
   Prover sym m t r
 offlineProver to sym ld adapter =
   Prover
-  { proverProve = offlineProveWithTimeoutIO to sym ld adapter
+  { proverProve = offlineProveWithTimeout to sym ld adapter
   , proverAssume = \_asmps a -> a
   }
 
@@ -541,12 +519,7 @@ proveCurrentObligations bak strat k = do
 -- | Prove a collection of 'CB.Goals' using the specified offline
 -- 'ProofStrategy'.
 --
--- This function ensures that at most 'CC.getNumCapabilities' solvers are
--- running at once. It first creates async tasks (with 'CCA.async') for proving
--- each goal, then repeatedly polls them (with a delay of 0.1s), combining
--- results (with the 'Combiner') as they become available. It does not support
--- \"failing fast\", it always waits for all solvers to complete before
--- returning.
+-- TODO: details!
 proveGoalsInParallel ::
   Semigroup r =>
   -- | Strategy with offline prover (e.g., 'offlineProver')
