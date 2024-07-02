@@ -3,42 +3,151 @@ Module      : Lang.Crucible.Backend.Prove
 Description : Proving goals under assumptions
 Copyright   : (c) Galois, Inc 2024
 License     : BSD3
+
+This module contains helpers to dispatch the proof obligations arising from
+symbolic execution using SMT solvers. There are several dimensions of
+configurability, encapsulated in a 'ProofStrategy':
+
+* Offline vs. online: Offline solvers ('offlineProver') are simpler to manage
+  and more easily parallelized, but starting processes adds overhead, and online
+  solvers ('onlineProver') can share state as assumptions are added. See the
+  top-level README for What4 for further discussion of this choice.
+* Failing fast ('failFast') vs. keeping going ('keepGoing')
+* Timeouts: Proving with timeouts ('offlineProveWithTimeout') vs. without
+  ('offlineProve')
+* Parallelism: Not yet available via helpers in this module, but may be added to
+  a 'ProofStrategy' by clients.
+
+Once an appropriate strategy has been selected, it can be passed to entrypoints
+such as 'proveObligations' to dispatch proof obligations.
+
+When proving a single goal, the overall approach is:
+
+* Gather all of the assumptions ('Assumptions') currently in scope (e.g.,
+  from branch conditions).
+* Negate the goal ('CB.Assertion') that we are trying to prove.
+* Attempt to prove the conjunction of the assumptions and the negated goal.
+
+If this goal is satisfiable ('W4R.Sat'), then there exists a counterexample
+that makes the original goal false, so we have disproven the goal. If the
+negated goal is unsatisfiable ('W4R.Unsat'), on the other hand, then the
+original goal is proven.
+
+Another way to think of this is as the negated material conditional
+(implication) @not (assumptions -> assertion)@. This formula is equivalent
+to @not ((not assumptions) and assertion)@, i.e., @assumptions and (not
+assertion)@.
 -}
 
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Lang.Crucible.Backend.Prove
-  ( ProofResult(..)
-  , proveGoal
-  , proveProofGoal
+  ( -- * Strategy
+    ProofResult(..)
+  , ProofConsumer(..)
+  , ProofStrategy(..)
+    -- ** Combiner
+  , SubgoalResult(..)
+  , Combiner(..)
+  , keepGoing
+  , failFast
+    -- ** Prover
+  , Prover(..)
+    -- *** Offline
+  , offlineProve
+  , offlineProveWithTimeout
+  , offlineProver
+    -- *** Online
+  , onlineProve
+  , onlineProver
+    -- * Proving goals
   , proveGoals
   , proveObligations
   , proveCurrentObligations
   ) where
 
 import           Control.Lens ((^.))
-import           Data.Functor.Const (Const(Const, getConst))
+import           Control.Monad.Catch (MonadMask)
+import           Control.Monad.Error.Class (MonadError, liftEither)
+import           Control.Monad.IO.Class (MonadIO(liftIO))
+import qualified Control.Monad.Reader as Reader
 
 import qualified What4.Interface as W4
 import qualified What4.Expr as WE
-import qualified What4.Solver.Adapter as WSA
+import qualified What4.Protocol.Online as WPO
+import qualified What4.Protocol.SMTWriter as W4SMT
 import qualified What4.SatResult as W4R
+import qualified What4.Solver.Adapter as WSA
 
 import qualified Lang.Crucible.Backend as CB
 import           Lang.Crucible.Backend.Assumptions (Assumptions)
-import           Lang.Crucible.Backend.ProofGoals (traverseGoalsWithAssumptions)
+import           Lang.Crucible.Utils.Timeout (Timeout, TimedOut)
+import qualified Lang.Crucible.Utils.Timeout as CTO
+
+-- | Local helper
+consumeGoals ::
+  -- | Consume an 'Assuming'
+  (asmp -> a -> a) ->
+  -- | Consume a 'Prove'
+  (goal -> a) ->
+  -- | Consume a 'ProveConj'
+  (a -> a -> a) ->
+  CB.Goals asmp goal ->
+  a
+consumeGoals onAssumption onGoal onConj = go
+  where
+  go (CB.Prove gl) = onGoal gl
+  go (CB.Assuming as gl) = onAssumption as (go gl)
+  go (CB.ProveConj g1 g2) = onConj (go g1) (go g2)
+
+-- | Local helper
+consumeGoalsWithAssumptions ::
+  forall asmp goal a.
+  Monoid asmp =>
+  -- | Consume a 'Prove'
+  (asmp -> goal -> a) ->
+  -- | Consume a 'ProveConj'
+  (a -> a -> a) ->
+  CB.Goals asmp goal ->
+  a
+consumeGoalsWithAssumptions onGoal onConj goals =
+  Reader.runReader (go goals) mempty
+  where
+  go :: CB.Goals asmp goal -> Reader.Reader asmp a
+  go =
+    consumeGoals
+      (\asmp gl -> Reader.local (<> asmp) gl)
+      (\gl -> Reader.asks (\asmps -> onGoal asmps gl))
+      (\g1 g2 -> onConj <$> g1 <*> g2)
+
+---------------------------------------------------------------------
+-- * Strategy
 
 -- | The result of attempting to prove a goal with an SMT solver.
 --
 -- The constructors of this type correspond to those of 'W4R.SatResult'.
+--
+-- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
+-- * @t@ is the \"brand\" parameter to 'WE.Expr' (/not/ a base type)
 data ProofResult sym t
    = -- | The goal was proved.
      --
      -- Corresponds to 'W4R.Unsat'.
      Proved
      -- | The goal was disproved, and a model that falsifies it is available.
+     --
+     -- The 'WE.GroundEvalFn' is only available for use during the execution of
+     -- a 'ProofConsumer'. See 'WSA.SolverAdapter'.
+     --
+     -- The @'Maybe' 'WE.ExprRangeBindings'@ are 'Just' when using
+     -- 'offlineProve' and 'Nothing' when using 'onlineProve'.
      --
      -- Corresponds to 'W4R.Sat'.
    | Disproved (WE.GroundEvalFn t) (Maybe (WE.ExprRangeBindings t))
@@ -47,25 +156,107 @@ data ProofResult sym t
      -- Corresponds to 'W4R.Unknown'.
    | Unknown
 
--- | Prove a single goal ('CB.Assertion') under the supplied 'Assumptions'.
+-- | A 'ProofStrategy' dictates how results are proved.
 --
--- The overall approach is:
+-- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
+-- * @m@ is the monad in which the 'Prover' and 'Combiner' run
+-- * @t@ is the \"brand\" parameter to 'WE.Expr' (/not/ a base type)
+-- * @r@ is the return type of the eventual 'ProofConsumer'
+data ProofStrategy sym m t r
+  = ProofStrategy
+    { -- | Generally 'offlineProver' or 'onlineProver'
+      stratProver :: {-# UNPACK #-} !(Prover sym m t r)
+    , stratCombine :: Combiner m r
+    }
+
+-- | A callback used to consume a 'ProofResult'.
 --
--- * Gather all of the assumptions ('Assumptions') currently in scope (e.g.,
---   from branch conditions).
--- * Negate the goal ('CB.Assertion') that were are trying to prove.
--- * Attempt to prove the conjunction of the assumptions and the negated goal.
+-- If the result is 'Disproved', then this function must consume the
+-- 'WE.GroundEvalFn' before returning. See 'WSA.SolverAdapter'.
 --
--- If this goal is satisfiable ('W4R.Sat'), then there exists a counterexample
--- that makes the original goal false, so we have disproven the goal. If the
--- negated goal is unsatisfiable ('W4R.Unsat'), on the other hand, then the
--- original goal is proven.
+-- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
+-- * @t@ is the \"brand\" parameter to 'WE.Expr' (/not/ a base type)
+-- * @r@ is the return type of the callback
+newtype ProofConsumer sym t r
+  = ProofConsumer (CB.ProofObligation sym -> ProofResult sym t -> IO r)
+
+---------------------------------------------------------------------
+-- *** Combiner
+
+-- | Whether or not a subgoal was proved, together with the result from a
+-- 'ProofConsumer'.
+data SubgoalResult r
+  = SubgoalResult
+    { subgoalWasProved :: !Bool
+    , subgoalResult :: !r
+    }
+  deriving Functor
+
+-- | How to combine results of proofs, used as part of a 'ProofStrategy'.
 --
--- Another way to think of this is as the negated material conditional
--- (implication) @not (assumptions -> assertion)@. This formula is equivalent
--- to @not ((not assumptions) and assertion)@, i.e., @assumptions and (not
--- assertion)@.
-proveGoal ::
+-- * @m@ is the monad in which the 'Prover' and 'Combiner' run
+-- * @r@ is the return type of the eventual 'ProofConsumer'
+newtype Combiner m r
+  = Combiner
+    { getCombiner ::
+        m (SubgoalResult r) -> m (SubgoalResult r) -> m (SubgoalResult r)
+    }
+
+-- | Combine 'SubgoalResult's using the '<>' operator. Keep going when subgoals
+-- fail.
+keepGoing :: Monad m => Semigroup r => Combiner m r
+keepGoing = Combiner $ \a1 a2 -> subgoalAnd <$> a1 <*> a2
+  where
+  subgoalAnd ::
+    Semigroup r =>
+    SubgoalResult r ->
+    SubgoalResult r ->
+    SubgoalResult r
+  subgoalAnd (SubgoalResult ok1 r1) (SubgoalResult ok2 r2) =
+    SubgoalResult (ok1 && ok2) (r1 <> r2)
+
+-- | Combine 'SubgoalResult's using the '<>' operator. After the first subgoal
+-- fails, stop trying to prove further goals.
+failFast :: Monad m => Semigroup r => Combiner m r
+failFast = Combiner $ \sr1 sr2 -> do
+  SubgoalResult ok1 r1 <- sr1
+  if ok1
+  then do
+    SubgoalResult ok2 r2 <- sr2
+    pure (SubgoalResult ok2 (r1 <> r2))
+  else pure (SubgoalResult False r1)
+
+isProved :: ProofResult sym t -> Bool
+isProved =
+  \case
+    Proved {} -> True
+    Disproved {} -> False
+    Unknown {} -> False
+
+---------------------------------------------------------------------
+-- ** Prover
+
+-- | A collection of functions used to prove goals as part of a 'ProofStrategy'.
+data Prover sym m t r
+  = Prover
+    { -- | Prove a single goal under some 'Assumptions'.
+      proverProve ::
+        Assumptions sym ->
+        CB.Assertion sym ->
+        ProofConsumer sym t r ->
+        m (SubgoalResult r)
+      -- | Assume some 'Assumptions' in the scope of a subgoal.
+    , proverAssume ::
+        Assumptions sym ->
+        m (SubgoalResult r) ->
+        m (SubgoalResult r)
+    }
+
+---------------------------------------------------------------------
+-- *** Offline
+
+-- Not exported
+offlineProveIO ::
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
   sym ->
@@ -73,77 +264,192 @@ proveGoal ::
   WSA.SolverAdapter st ->
   Assumptions sym ->
   CB.Assertion sym ->
-  -- | Continuation to process the 'ProofResult'.
-  (CB.ProofObligation sym -> ProofResult sym t -> IO r) ->
-  IO r
-proveGoal sym ld adapter asms goal k = do
+  ProofConsumer sym t r ->
+  IO (SubgoalResult r)
+offlineProveIO sym ld adapter asmps goal (ProofConsumer k) = do
   let goalPred = goal ^. CB.labeledPred
-  asmsPred <- CB.assumptionsPred sym asms
+  asmsPred <- CB.assumptionsPred sym asmps
   notGoal <- W4.notPred sym goalPred
-  WSA.solver_adapter_check_sat adapter sym ld [asmsPred, notGoal] $
-    k (CB.ProofGoal asms goal) .
-      \case
-        W4R.Sat (gfn, binds) -> Disproved gfn binds
-        W4R.Unsat () -> Proved
-        W4R.Unknown -> Unknown
+  WSA.solver_adapter_check_sat adapter sym ld [asmsPred, notGoal] $ \r ->
+    let r' =
+          case r of
+            W4R.Sat (gfn, binds) -> Disproved gfn binds
+            W4R.Unsat () -> Proved
+            W4R.Unknown -> Unknown
+    in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
 
--- | Prove a single 'CB.ProofGoal'.
-proveProofGoal ::
+-- | Prove a goal using an \"offline\" solver (i.e., one process per goal).
+--
+-- See 'offlineProveWithTimeout' for a version that integrates 'Timeout's.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
+offlineProve ::
+  MonadIO m =>
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
   sym ->
   WSA.LogData ->
   WSA.SolverAdapter st ->
-  CB.ProofGoal (CB.Assumptions sym) (CB.Assertion sym) ->
-  -- | Continuation to process the 'ProofResult'.
-  (CB.ProofObligation sym -> ProofResult sym t -> IO r) ->
-  IO r
-proveProofGoal sym ld adapter (CB.ProofGoal asms goal) =
-  proveGoal sym ld adapter asms goal
+  Assumptions sym ->
+  CB.Assertion sym ->
+  ProofConsumer sym t r ->
+  m (SubgoalResult r)
+offlineProve sym ld adapter asmps goal k =
+  liftIO (offlineProveIO sym ld adapter asmps goal k)
 
--- | Prove a collection of 'CB.Goals'.
-proveGoals ::
-  (Monoid m, sym ~ WE.ExprBuilder t st fs) =>
+-- | Prove a goal using an \"offline\" solver, with a timeout.
+--
+-- See 'offlineProveWithTimeout' for a version without 'Timeout's.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
+offlineProveWithTimeout ::
+  MonadError TimedOut m =>
+  MonadIO m =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  W4.IsSymExprBuilder sym =>
+  Timeout ->
+  sym ->
+  WSA.LogData ->
+  WSA.SolverAdapter st ->
+  Assumptions sym ->
+  CB.Assertion sym ->
+  ProofConsumer sym t r ->
+  m (SubgoalResult r)
+offlineProveWithTimeout to sym ld adapter asmps goal k = do
+  r <- liftIO (CTO.withTimeout to (offlineProveIO sym ld adapter asmps goal k))
+  liftEither r
+
+-- | Prove goals using 'offlineProveWithTimeout'.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
+offlineProver ::
+  MonadError TimedOut m =>
+  MonadIO m =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  Timeout ->
   W4.IsSymExprBuilder sym =>
   sym ->
   WSA.LogData ->
   WSA.SolverAdapter st ->
+  Prover sym m t r
+offlineProver to sym ld adapter =
+  Prover
+  { proverProve = offlineProveWithTimeout to sym ld adapter
+  , proverAssume = \_asmps a -> a
+  }
+
+---------------------------------------------------------------------
+-- *** Online
+
+-- | Prove a goal using an \"online\" solver (i.e., one process for all goals).
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
+onlineProve ::
+  MonadIO m =>
+  W4SMT.SMTReadWriter solver =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  W4.IsSymExprBuilder sym =>
+  WPO.SolverProcess t solver ->
+  Assumptions sym ->
+  CB.Assertion sym ->
+  ProofConsumer sym t r ->
+  m (SubgoalResult r)
+onlineProve sProc asmps goal (ProofConsumer k) =
+  liftIO $ WPO.checkSatisfiableWithModel sProc "prove" (goal ^. CB.labeledPred) $ \r ->
+    let r' =
+          case r of
+            W4R.Sat gfn -> Disproved gfn Nothing
+            W4R.Unsat () -> Proved
+            W4R.Unknown -> Unknown
+    in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
+
+-- | Add an assumption by @push@ing a new frame ('WPO.inNewFrame').
+onlineAssume :: 
+  MonadIO m =>
+  MonadMask m =>
+  W4SMT.SMTReadWriter solver =>
+  W4.IsSymExprBuilder sym =>
+  (W4.SymExpr sym ~ WE.Expr t) =>
+  sym ->
+  WPO.SolverProcess t solver ->
+  Assumptions sym ->
+  m r ->
+  m r
+onlineAssume sym sProc asmps a =
+  WPO.inNewFrame sProc $ do
+    liftIO $ do
+      let conn = WPO.solverConn sProc
+      asmpsPred <- CB.assumptionsPred sym asmps
+      term <- W4SMT.mkFormula conn asmpsPred
+      W4SMT.assumeFormula conn term
+      pure ()
+    a
+
+-- | Prove goals using 'onlineProve' and 'onlineAssume'.
+--
+-- See the module-level documentation for further discussion of offline vs.
+-- online solving.
+onlineProver ::
+  MonadIO m =>
+  MonadMask m =>
+  W4SMT.SMTReadWriter solver =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  WPO.SolverProcess t solver ->
+  Prover sym m t r
+onlineProver sym sProc =
+  Prover
+  { proverProve = onlineProve sProc
+  , proverAssume = onlineAssume sym sProc
+  }
+
+---------------------------------------------------------------------
+-- * Proving goals
+
+-- | Prove a collection of 'CB.Goals' using the specified 'ProofStrategy'.
+proveGoals ::
+  Functor m =>
+  ProofStrategy sym m t r ->
   CB.Goals (CB.Assumptions sym) (CB.Assertion sym) ->
-  -- | Continuation to process each 'ProofResult'.
-  (CB.ProofObligation sym -> ProofResult sym t -> IO m) ->
-  IO m
-proveGoals sym ld adapter goals k =
-  getConst $
-    traverseGoalsWithAssumptions
-      (\as g -> Const (proveGoal sym ld adapter as g k))
+  ProofConsumer sym t r ->
+  m r
+proveGoals (ProofStrategy prover (Combiner comb)) goals k =
+  fmap subgoalResult $
+    consumeGoalsWithAssumptions
+      (\asmps gl -> proverProve prover asmps gl k)
+      comb
       goals
 
--- | Prove a collection of 'CB.ProofObligations'.
+-- | Prove a collection of 'CB.ProofObligations' using a 'ProofStrategy'.
 proveObligations ::
-  (Monoid m, sym ~ WE.ExprBuilder t st fs) =>
-  sym ->
-  WSA.LogData ->
-  WSA.SolverAdapter st ->
+  Applicative m =>
+  Monoid r =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  ProofStrategy sym m t r ->
   CB.ProofObligations sym ->
-  -- | Continuation to process each 'ProofResult'.
-  (CB.ProofObligation sym -> ProofResult sym t -> IO m) ->
-  IO m
-proveObligations sym ld adapter obligations k =
+  ProofConsumer sym t r ->
+  m r
+proveObligations strat obligations k =
   case obligations of
     Nothing -> pure mempty
-    Just goals -> proveGoals sym ld adapter goals k
+    Just goals -> proveGoals strat goals k
 
 -- | Prove a the current collection of 'CB.ProofObligations' associated with the
 -- symbolic backend (retrieved via 'CB.getProofObligations').
 proveCurrentObligations ::
-  (Monoid m, CB.IsSymBackend sym bak, sym ~ WE.ExprBuilder t st fs) =>
+  MonadIO m =>
+  Monoid r =>
+  (sym ~ WE.ExprBuilder t st fs) =>
+  CB.IsSymBackend sym bak =>
   bak ->
-  WSA.LogData ->
-  WSA.SolverAdapter st ->
-  -- | Continuation to process each 'ProofResult'.
-  (CB.ProofObligation sym -> ProofResult sym t -> IO m) ->
-  IO m
-proveCurrentObligations bak ld adapter k = do
-  obligations <- CB.getProofObligations bak
-  let sym = CB.backendGetSym bak
-  proveObligations sym ld adapter obligations k
+  ProofStrategy sym m t r ->
+  ProofConsumer sym t r ->
+  m r
+proveCurrentObligations bak strat k = do
+  obligations <- liftIO (CB.getProofObligations bak)
+  proveObligations strat obligations k

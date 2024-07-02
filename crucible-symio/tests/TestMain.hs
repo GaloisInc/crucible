@@ -27,6 +27,7 @@ import           GHC.TypeNats
 import           Control.Lens ( (^.) )
 
 import           Control.Monad (foldM )
+import           Control.Monad.Except (runExceptT)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
@@ -51,6 +52,8 @@ import qualified Lang.Crucible.Simulator as CS
 import qualified Lang.Crucible.Simulator.OverrideSim as CSO
 import qualified Lang.Crucible.FunctionHandle as CFH
 import qualified Lang.Crucible.Simulator.GlobalState as CGS
+import qualified Lang.Crucible.Utils.Seconds as Sec
+import qualified Lang.Crucible.Utils.Timeout as CTO
 
 import qualified What4.Interface as W4
 import qualified What4.Expr as WE
@@ -134,7 +137,10 @@ runFSTest' bak (FSTest fsTest) = do
           putStrLn $ showF p
           T.assertFailure "Partial Result"
 
-  CB.proveCurrentObligations bak WSA.defaultLogData W4Y.yicesAdapter $ \obligation ->
+  let timeout = CTO.Timeout (Sec.secondsFromInt 5)
+  let prover = CB.offlineProver timeout sym WSA.defaultLogData W4Y.yicesAdapter
+  let strat = CB.ProofStrategy prover CB.failFast
+  merr <- runExceptT $ CB.proveCurrentObligations bak strat $ CB.ProofConsumer $ \obligation ->
     \case
       CB.Proved {} -> return ()
       CB.Unknown {} -> T.assertFailure "Inconclusive"
@@ -145,6 +151,9 @@ runFSTest' bak (FSTest fsTest) = do
         putStrLn (showF asmsPred)
         putStrLn (showF goalPred)
         T.assertFailure "Assertion Failure"
+  case merr of
+    Left CTO.TimedOut -> T.assertFailure "Timeout"
+    Right () -> pure ()
 
 showAbortedResult :: CS.AbortedResult c d -> String
 showAbortedResult ar = case ar of
