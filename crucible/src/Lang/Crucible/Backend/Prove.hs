@@ -135,7 +135,7 @@ consumeGoalsWithAssumptions onGoal onConj goals =
 -- The constructors of this type correspond to those of 'W4R.SatResult'.
 --
 -- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
--- * @r@ is the return type of the eventual 'ProofConsumer'
+-- * @t@ is the \"brand\" parameter to 'WE.Expr' (/not/ a base type)
 data ProofResult sym t
    = -- | The goal was proved.
      --
@@ -160,7 +160,7 @@ data ProofResult sym t
 --
 -- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
 -- * @m@ is the monad in which the 'Prover' and 'Combiner' run
--- * @t@ is the parameter to 'WE.Expr'
+-- * @t@ is the \"brand\" parameter to 'WE.Expr' (/not/ a base type)
 -- * @r@ is the return type of the eventual 'ProofConsumer'
 data ProofStrategy sym m t r
   = ProofStrategy
@@ -175,7 +175,8 @@ data ProofStrategy sym m t r
 -- 'WE.GroundEvalFn' before returning. See 'WSA.SolverAdapter'.
 --
 -- * @sym@ is the symbolic backend, usually 'WE.ExprBuilder'
--- * @t@ is the parameter to 'WE.Expr'
+-- * @t@ is the \"brand\" parameter to 'WE.Expr' (/not/ a base type)
+-- * @r@ is the return type of the callback
 newtype ProofConsumer sym t r
   = ProofConsumer (CB.ProofObligation sym -> ProofResult sym t -> IO r)
 
