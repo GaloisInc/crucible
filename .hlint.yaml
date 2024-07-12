@@ -4,6 +4,11 @@
 - ignore: {}  # ignore all
 
 - error:
+    name: Use llvmPointer_bv
+    lhs: "LLVMPointer <$> What4.Interface.natLit sym 0 <*> offset"
+    rhs: 'Lang.Crucible.LLVM.MemModel.Pointer.llvmPointer_bv sym =<< offset'
+
+- error:
     name: Use bvZero
     lhs: "What4.Interface.bvLit sym w (Data.BitVector.Sized.zero w)"
     rhs: 'What4.Interface.bvZero sym w'

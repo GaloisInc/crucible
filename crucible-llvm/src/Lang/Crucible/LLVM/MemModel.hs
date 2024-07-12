@@ -1255,7 +1255,7 @@ loadArrayConcreteSizeRaw ::
   IO (Either (Pred sym) (Pred sym, SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8)))
 loadArrayConcreteSizeRaw sym mem ptr sz alignment
   | sz == 0 = do
-    zero_bv <- bvLit sym knownNat $ BV.zero knownNat
+    zero_bv <- bvZero sym knownNat
     zero_arr <- constantArray sym (Ctx.singleton $ BaseBVRepr PtrWidth) zero_bv
     return $ Right (truePred sym, zero_arr)
   | otherwise = do
@@ -1271,7 +1271,7 @@ loadArrayConcreteSizeRaw sym mem ptr sz alignment
                       (Ctx.singleton $ BVIndexLit PtrWidth $ BV.mkBV PtrWidth $ fromIntegral i, byte)
                     _ -> panic "MemModel.loadArrayRaw" ["expected LLVMValInt"])
                   llvm_vals
-            zero_bv <- bvLit sym knownNat $ BV.zero knownNat
+            zero_bv <- bvZero sym knownNat
             arr <- arrayFromMap sym (Ctx.singleton $ BaseBVRepr PtrWidth) aum zero_bv
             return $ Right (ok, arr)
           _ -> panic "MemModel.loadArrayRaw" ["expected LLVMValArray"]

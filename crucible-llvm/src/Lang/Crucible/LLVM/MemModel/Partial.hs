@@ -383,7 +383,7 @@ floatToBV _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
 
 floatToBV sym _ (NoErr p (LLVMValZero (StorageType Float _))) =
   do nz <- W4I.natLit sym 0
-     iz <- W4I.bvLit sym (knownNat @32) (BV.zero knownNat)
+     iz <- W4I.bvZero sym (knownNat @32)
      return (NoErr p (LLVMValInt nz iz))
 
 floatToBV sym _ (NoErr p (LLVMValFloat Value.SingleSize v)) =
@@ -409,7 +409,7 @@ doubleToBV _ _ (NoErr p (LLVMValUndef (StorageType Double _))) =
 
 doubleToBV sym _ (NoErr p (LLVMValZero (StorageType Double _))) =
   do nz <- W4I.natLit sym 0
-     iz <- W4I.bvLit sym (knownNat @64) (BV.zero knownNat)
+     iz <- W4I.bvZero sym (knownNat @64)
      return (NoErr p (LLVMValInt nz iz))
 
 doubleToBV sym _ (NoErr p (LLVMValFloat Value.DoubleSize v)) =
@@ -941,7 +941,7 @@ muxLLVMVal sym = merge sym muxval
 
       LLVMValInt base off ->
         do zbase <- W4I.natLit sym 0
-           zoff  <- W4I.bvLit sym (W4I.bvWidth off) (BV.zero (W4I.bvWidth off))
+           zoff  <- W4I.bvZero sym (W4I.bvWidth off)
            base' <- W4I.natIte sym cond zbase base
            off'  <- W4I.bvIte sym cond zoff off
            return $ LLVMValInt base' off'
