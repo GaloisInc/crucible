@@ -689,8 +689,12 @@ printfOps bak valist =
 
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (LLVMPointerRepr w) x) ->
-         do bv <- liftIO (projectLLVM_bv bak x)
+       Just (AnyValue (LLVMPointerRepr w) (LLVMPointer blk bv)) ->
+         do isBv <- liftIO (natEq sym blk =<< natLit sym 0)
+            liftIO $ assert bak isBv $
+              AssertFailureSimError
+               "Passed a pointer to printf where a bitvector was expected"
+               ""
             if sgn then
               return $ BV.asSigned w <$> asBV bv
             else
