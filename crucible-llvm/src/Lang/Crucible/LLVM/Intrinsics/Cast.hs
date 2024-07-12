@@ -99,7 +99,9 @@ castLLVMArgs fnm bak (rest' Ctx.:> tp') (rest Ctx.:> tp) =
                     pure (xs' Ctx.:> RegEntry tp' x')))
 castLLVMArgs _ _ _ _ = Left MismatchedShape
 
--- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
+-- | Assert that a pointer is actually a raw bitvector and extract its value.
+--
+-- Like 'projectLLVM_bv', but with a more specific error message.
 ptrToBv ::
   IsSymBackend sym bak =>
   -- | Only used in error messages
