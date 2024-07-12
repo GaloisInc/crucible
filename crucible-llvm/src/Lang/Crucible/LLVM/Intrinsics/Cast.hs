@@ -29,12 +29,18 @@ module Lang.Crucible.LLVM.Intrinsics.Cast
 
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
+import qualified Data.Text as Text
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
+import           What4.FunctionName (FunctionName (functionName))
+import           What4.Interface (SymBV)
+import qualified What4.Interface as W4
+
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Simulator (SimErrorReason(AssertFailureSimError))
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Types
@@ -75,46 +81,67 @@ newtype ValCast p sym ext tp tp' =
 -- 'RegEntry's.
 castLLVMArgs :: forall p sym ext bak args args'.
   IsSymBackend sym bak =>
+  -- | Only used in error messages
+  FunctionName ->
   bak ->
   CtxRepr args' ->
   CtxRepr args ->
   Either ValCastError (ArgCast p sym ext args args')
-castLLVMArgs _ Ctx.Empty Ctx.Empty =
+castLLVMArgs _fnm _ Ctx.Empty Ctx.Empty =
   Right (ArgCast (\_ -> return Ctx.Empty))
-castLLVMArgs bak (rest' Ctx.:> tp') (rest Ctx.:> tp) =
-  do ValCast f  <- castLLVMRet bak tp tp'
-     ArgCast fs <- castLLVMArgs bak rest' rest
+castLLVMArgs fnm bak (rest' Ctx.:> tp') (rest Ctx.:> tp) =
+  do ValCast f  <- castLLVMRet fnm bak tp tp'
+     ArgCast fs <- castLLVMArgs fnm bak rest' rest
      Right (ArgCast
               (\(xs Ctx.:> x) -> do
                     xs' <- fs xs
                     x'  <- f (regValue x)
                     pure (xs' Ctx.:> RegEntry tp' x')))
-castLLVMArgs _ _ _ = Left MismatchedShape
+castLLVMArgs _ _ _ _ = Left MismatchedShape
+
+-- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
+ptrToBv ::
+  IsSymBackend sym bak =>
+  -- | Only used in error messages
+  FunctionName ->
+  bak ->
+  LLVMPtr sym w ->
+  IO (SymBV sym w)
+ptrToBv fnm bak (LLVMPointer blk bv) =
+  do let sym = backendGetSym bak
+     p <- W4.natEq sym blk =<< W4.natLit sym 0
+     assert bak p $
+       AssertFailureSimError
+        "Found a pointer where a bitvector was expected"
+        ("In the arguments or return value of" ++ Text.unpack (functionName fnm))
+     return bv
 
 -- | Attempt to construct a function to cast values of type @ret@ to type
 -- @ret'@.
 castLLVMRet ::
   IsSymBackend sym bak =>
+  -- | Only used in error messages
+  FunctionName ->
   bak ->
   TypeRepr ret  ->
   TypeRepr ret' ->
   Either ValCastError (ValCast p sym ext ret ret')
-castLLVMRet bak (BVRepr w) (LLVMPointerRepr w')
+castLLVMRet _fnm bak (BVRepr w) (LLVMPointerRepr w')
   | Just Refl <- testEquality w w'
   = Right (ValCast (liftIO . llvmPointer_bv (backendGetSym bak)))
-castLLVMRet bak (LLVMPointerRepr w) (BVRepr w')
+castLLVMRet fnm bak (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
-  = Right (ValCast (liftIO . projectLLVM_bv bak))
-castLLVMRet bak (VectorRepr tp) (VectorRepr tp')
-  = do ValCast f <- castLLVMRet bak tp tp'
+  = Right (ValCast (liftIO . ptrToBv fnm bak))
+castLLVMRet fnm bak (VectorRepr tp) (VectorRepr tp')
+  = do ValCast f <- castLLVMRet fnm bak tp tp'
        Right (ValCast (traverse f))
-castLLVMRet bak (StructRepr ctx) (StructRepr ctx')
-  = do ArgCast tf <- castLLVMArgs bak ctx' ctx
+castLLVMRet fnm bak (StructRepr ctx) (StructRepr ctx')
+  = do ArgCast tf <- castLLVMArgs fnm bak ctx' ctx
        Right (ValCast (\vals ->
           let vals' = Ctx.zipWith (\tp (RV v) -> RegEntry tp v) ctx vals in
           fmapFC (\x -> RV (regValue x)) <$> tf vals'))
 
-castLLVMRet _bak ret ret'
+castLLVMRet _fnm _bak ret ret'
   | Just Refl <- testEquality ret ret'
   = Right (ValCast return)
-castLLVMRet _bak ret ret' = Left (ValCastError (Some ret) (Some ret'))
+castLLVMRet _fnm _bak ret ret' = Left (ValCastError (Some ret) (Some ret'))
