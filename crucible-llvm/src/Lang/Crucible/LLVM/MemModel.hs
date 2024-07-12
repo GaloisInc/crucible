@@ -59,6 +59,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.ppPtr
   , G.ppTermExpr
   , llvmPointer_bv
+  , Partial.ptrToBv
   , Partial.projectLLVM_bv
 
     -- * Memory operations

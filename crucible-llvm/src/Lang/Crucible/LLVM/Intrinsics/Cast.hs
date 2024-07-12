@@ -36,8 +36,6 @@ import           Data.Parameterized.Some (Some(Some))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
 import           What4.FunctionName (FunctionName (functionName))
-import           What4.Interface (SymBV)
-import qualified What4.Interface as W4
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator (SimErrorReason(AssertFailureSimError))
@@ -45,7 +43,8 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Types
 
-import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.MemModel.Partial (ptrToBv)
+import           Lang.Crucible.LLVM.MemModel.Pointer
 
 data ValCastError
   = -- | Mismatched number of arguments ('castLLVMArgs') or struct fields
@@ -99,25 +98,6 @@ castLLVMArgs fnm bak (rest' Ctx.:> tp') (rest Ctx.:> tp) =
                     pure (xs' Ctx.:> RegEntry tp' x')))
 castLLVMArgs _ _ _ _ = Left MismatchedShape
 
--- | Assert that a pointer is actually a raw bitvector and extract its value.
---
--- Like 'projectLLVM_bv', but with a more specific error message.
-ptrToBv ::
-  IsSymBackend sym bak =>
-  -- | Only used in error messages
-  FunctionName ->
-  bak ->
-  LLVMPtr sym w ->
-  IO (SymBV sym w)
-ptrToBv fnm bak (LLVMPointer blk bv) =
-  do let sym = backendGetSym bak
-     p <- W4.natEq sym blk =<< W4.natLit sym 0
-     assert bak p $
-       AssertFailureSimError
-        "Found a pointer where a bitvector was expected"
-        ("In the arguments or return value of" ++ Text.unpack (functionName fnm))
-     return bv
-
 -- | Attempt to construct a function to cast values of type @ret@ to type
 -- @ret'@.
 castLLVMRet ::
@@ -133,7 +113,11 @@ castLLVMRet _fnm bak (BVRepr w) (LLVMPointerRepr w')
   = Right (ValCast (liftIO . llvmPointer_bv (backendGetSym bak)))
 castLLVMRet fnm bak (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
-  = Right (ValCast (liftIO . ptrToBv fnm bak))
+  = let err = 
+          AssertFailureSimError
+           "Found a pointer where a bitvector was expected"
+           ("In the arguments or return value of" ++ Text.unpack (functionName fnm)) in
+    Right (ValCast (liftIO . ptrToBv bak err))
 castLLVMRet fnm bak (VectorRepr tp) (VectorRepr tp')
   = do ValCast f <- castLLVMRet fnm bak tp tp'
        Right (ValCast (traverse f))

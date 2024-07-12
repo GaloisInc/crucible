@@ -46,6 +46,7 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , BoolAnn(..)
   , annotateME
   , annotateUB
+  , ptrToBv
   , projectLLVM_bv
 
   , floatToBV
@@ -262,15 +263,31 @@ annotateME sym mop rsn p =
        (BBMemoryError (MemoryError mop rsn))
      return p'
 
+-- | Assert that the given LLVM pointer value is actually a raw bitvector and
+-- extract its value.
+ptrToBv ::
+  IsSymBackend sym bak =>
+  bak ->
+  -- | Error to report if casting the pointer to a bitvector fails
+  SimErrorReason ->
+  LLVMPtr sym w ->
+  IO (SymBV sym w)
+ptrToBv bak err (LLVMPointer blk bv) =
+  do let sym = backendGetSym bak
+     p <- natEq sym blk =<< natLit sym 0
+     assert bak p err
+     return bv
+
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
+--
+-- Note that this assertion has a very generic message, which can be unhelpful
+-- to users when it fails. Consider using 'ptrToBv' instead.
 projectLLVM_bv ::
   IsSymBackend sym bak =>
   bak -> LLVMPtr sym w -> IO (SymBV sym w)
-projectLLVM_bv bak (LLVMPointer blk bv) =
-  do let sym = backendGetSym bak
-     p <- natEq sym blk =<< natLit sym 0
-     assert bak p $ AssertFailureSimError "Pointer value coerced to bitvector" ""
-     return bv
+projectLLVM_bv bak ptr =
+  let err = AssertFailureSimError "Pointer value coerced to bitvector" "" in
+  ptrToBv bak err ptr
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal
