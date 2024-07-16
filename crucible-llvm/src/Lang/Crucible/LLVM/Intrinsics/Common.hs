@@ -155,14 +155,14 @@ build_llvm_override ::
 build_llvm_override fnm args ret args' ret' llvmOverride =
   ovrWithBackend $ \bak ->
   do fargs <-
-       case Cast.castLLVMArgs bak args args' of
+       case Cast.castLLVMArgs fnm bak args args' of
          Left err ->
            panic "Intrinsics.build_llvm_override"
              (Cast.printValCastError err ++
                [ "in function: " ++ Text.unpack (functionName fnm) ])
          Right f -> pure f
      fret <-
-       case Cast.castLLVMRet bak ret ret' of
+       case Cast.castLLVMRet fnm bak ret ret' of
          Left err ->
            panic "Intrinsics.build_llvm_override"
              (Cast.printValCastError err ++
