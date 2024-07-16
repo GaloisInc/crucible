@@ -21,7 +21,7 @@ module Lang.Crucible.CLI
   ) where
 
 import Control.Monad
-
+import Control.Monad.Except (runExceptT)
 import Data.Foldable
 import Data.Map (Map)
 import Data.Text (Text)
@@ -49,11 +49,13 @@ import Lang.Crucible.Syntax.SExpr
 
 import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.Prove (ProofResult(..), proveCurrentObligations)
+import qualified Lang.Crucible.Backend.Prove as Prove
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.Profiling
+import qualified Lang.Crucible.Utils.Seconds as Sec
+import qualified Lang.Crucible.Utils.Timeout as CTO
 
 import What4.Config
 import What4.Interface (getConfiguration)
@@ -181,12 +183,22 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                        getProofObligations bak >>= \case
                          Nothing -> hPutStrLn outh "==== No proof obligations ===="
                          Just {} -> hPutStrLn outh "==== Proof obligations ===="
-                       proveCurrentObligations bak defaultLogData z3Adapter $ \goal res -> do
-                         hPrint outh =<< ppProofObligation sym goal
-                         case res of
-                           Proved {} -> hPutStrLn outh "PROVED"
-                           Disproved {} -> hPutStrLn outh "COUNTEREXAMPLE"
-                           Unknown {} -> hPutStrLn outh "UNKNOWN"
+                       -- TODO: Make this timeout configurable via the CLI
+                       let timeout = CTO.Timeout (Sec.secondsFromInt 5)
+                       let prover = Prove.offlineProver timeout sym defaultLogData z3Adapter
+                       let strat = Prove.ProofStrategy prover Prove.keepGoing
+                       let ppResult =
+                             \case
+                               Prove.Proved {} ->  "PROVED"
+                               Prove.Disproved {} -> "COUNTEREXAMPLE"
+                               Prove.Unknown {} -> "UNKNOWN"
+                       let printer = Prove.ProofConsumer $ \goal res -> do
+                             hPrint outh =<< ppProofObligation sym goal
+                             hPutStrLn outh (ppResult res)
+                       runExceptT (Prove.proveCurrentObligations bak strat printer) >>=
+                         \case
+                           Left CTO.TimedOut -> hPutStrLn outh "TIMEOUT"
+                           Right () -> pure ()
 
                   _ -> hPutStrLn outh "No suitable main function found"
 
