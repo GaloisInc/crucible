@@ -403,9 +403,11 @@ instance FromJSON CastKind where
                                                Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
                                                Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
                                                -- TODO: actually plumb this information through if it is relevant
-                                                --      instead of using Misc
+                                               -- instead of using Misc. See
+                                               -- https://github.com/GaloisInc/crucible/issues/1223
                                                Just (String "PointerExposeAddress") -> pure Misc
                                                Just (String "PointerFromExposedAddress") -> pure Misc
+                                               Just (String "Pointer(ArrayToPointer)") -> pure Misc
                                                Just (String "DynStar") -> pure Misc
                                                Just (String "IntToInt") -> pure Misc
                                                Just (String "FloatToInt") -> pure Misc

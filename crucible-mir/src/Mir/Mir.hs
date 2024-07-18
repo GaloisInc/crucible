@@ -459,7 +459,7 @@ data Vtable = Vtable
     }
     deriving (Show, Eq, Ord, Generic)
 
--- TODO: add other castkinds (see json)
+-- TODO: add other castkinds (see https://github.com/GaloisInc/crucible/issues/1223)
 data CastKind =
     Misc
   | ReifyFnPointer
