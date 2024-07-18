@@ -407,6 +407,7 @@ instance FromJSON CastKind where
                                                -- https://github.com/GaloisInc/crucible/issues/1223
                                                Just (String "PointerExposeAddress") -> pure Misc
                                                Just (String "PointerFromExposedAddress") -> pure Misc
+                                               Just (String "Pointer(ArrayToPointer)") -> pure Misc
                                                Just (String "DynStar") -> pure Misc
                                                Just (String "IntToInt") -> pure Misc
                                                Just (String "FloatToInt") -> pure Misc

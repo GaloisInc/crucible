@@ -1,3 +1,8 @@
+# next -- TBA
+
+* Fix a bug in which `crucible-mir` would fail to parse MIR JSON code involving
+  casts from array references to pointers.
+
 # 0.2 -- 2024-02-05
 
 * `crucible-mir` now supports the `nightly-2023-01-23` Rust toolchain. Some of
