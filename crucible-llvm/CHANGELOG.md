@@ -18,6 +18,8 @@
   argument. To retrieve the current symbolic backend, use
   `Lang.Crucible.Simulator.OverrideSim.ovrWithBackend`.
 * Add overrides for integer-related `llvm.vector.reduce.*` intrinsics.
+* Add support for atomic `fadd`, `fsub`, `fmax`, `fmin`, `uinc_wrap`, and
+  `udec_wrap` operations in `atomicrmw` instructions.
 
 # 0.6 -- 2024-02-05
 

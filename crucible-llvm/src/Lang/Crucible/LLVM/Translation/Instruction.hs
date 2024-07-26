@@ -1073,6 +1073,7 @@ caseptr w tpr bvCase ptrCase x =
        continueLambda c_label (branch cond bv_label ptr_label)
 
 atomicRWOp ::
+  forall s arch ret.
   L.AtomicRWOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
@@ -1083,25 +1084,132 @@ atomicRWOp op x y =
       | Just Refl <- testEquality w w'
       -> do xbv <- pointerAsBitvectorExpr w x'
             ybv <- pointerAsBitvectorExpr w y'
-            let newval = case op of
-                   L.AtomicXchg -> ybv
-                   L.AtomicAdd  -> app $ BVAdd w xbv ybv
-                   L.AtomicSub  -> app $ BVSub w xbv ybv
-                   L.AtomicAnd  -> app $ BVAnd w xbv ybv
-                   L.AtomicNand -> app $ BVNot w $ app $ BVAnd w xbv ybv
-                   L.AtomicOr   -> app $ BVOr w xbv ybv
-                   L.AtomicXor  -> app $ BVXor w xbv ybv
-                   L.AtomicMax  -> app $ BVSMax w xbv ybv
-                   L.AtomicMin  -> app $ BVSMin w xbv ybv
-                   L.AtomicUMax -> app $ BVUMax w xbv ybv
-                   L.AtomicUMin -> app $ BVUMin w xbv ybv
+            newval <- bvOp w xbv ybv
             return $ BaseExpr (LLVMPointerRepr w) $ BitvectorAsPointerExpr w newval
+
+    (Scalar _archProxy (FloatRepr fi) xf, Scalar _archPrxy' (FloatRepr fi') yf)
+      | Just Refl <- testEquality fi fi'
+      -> do newval <- floatingOp fi xf yf
+            return $ BaseExpr (FloatRepr fi) newval
 
     _ -> fail $ unlines [ "atomicRW operation on incompatible values"
                         , "Operation: " ++ show op
                         , "Value 1: " ++ show x
                         , "Value 2: " ++ show y
                         ]
+  where
+    -- Translate an atomic operation over bitvector values, respecting the
+    -- semantics described in this part of the LLVM Language Reference Manual:
+    -- https://releases.llvm.org/16.0.0/docs/LangRef.html#id229
+    --
+    -- Note that `xbv` corresponds to `*ptr` and `ybv` corresponds to `val` in
+    -- the Reference Manual.
+    bvOp ::
+      forall w.
+      (1 <= w) =>
+      NatRepr w ->
+      Expr LLVM s (BVType w) ->
+      Expr LLVM s (BVType w) ->
+      LLVMGenerator s arch ret (Expr LLVM s (BVType w))
+    bvOp w xbv ybv =
+      case op of
+        L.AtomicXchg -> pure ybv
+        L.AtomicAdd  -> pure $ app $ BVAdd w xbv ybv
+        L.AtomicSub  -> pure $ app $ BVSub w xbv ybv
+        L.AtomicAnd  -> pure $ app $ BVAnd w xbv ybv
+        L.AtomicNand -> pure $ app $ BVNot w $ app $ BVAnd w xbv ybv
+        L.AtomicOr   -> pure $ app $ BVOr w xbv ybv
+        L.AtomicXor  -> pure $ app $ BVXor w xbv ybv
+        L.AtomicMax  -> pure $ app $ BVSMax w xbv ybv
+        L.AtomicMin  -> pure $ app $ BVSMin w xbv ybv
+        L.AtomicUMax -> pure $ app $ BVUMax w xbv ybv
+        L.AtomicUMin -> pure $ app $ BVUMin w xbv ybv
+        L.AtomicUIncWrap ->
+          -- This is the same thing as
+          --
+          --   (*ptr u>= val) ? 0 : (*ptr + 1)
+          --
+          -- from the LLVM semantics, but with a double-negated condition to
+          -- account for the Crucible CFG language not having a BVUge operation
+          -- (only BVUlt).
+          let c = app $ Not $ app $ BVUlt w xbv ybv -- ~(*ptr u< val)
+              t = zero
+              f = app $ BVAdd w xbv one in
+          pure $ app $ BVIte c w t f
+        L.AtomicUDecWrap ->
+          -- This is the same thing as
+          --
+          --   ((*ptr == 0) || (*ptr u> val)) ? val : (*ptr - 1)
+          --
+          -- from the LLVM semantics, but with a double-negated condition to
+          -- account for the Crucible CFG language not having a BVUgt operation
+          -- (only BVUle).
+          let c1 = app $ BVEq w xbv zero
+              c2 = app $ Not $ app $ BVUle w xbv ybv -- ~(*ptr u<= val)
+              c  = app $ Or c1 c2
+              t  = xbv
+              f  = app $ BVSub w xbv one in
+          pure $ app $ BVIte c w t f
+
+        L.AtomicFAdd -> nonBvError
+        L.AtomicFSub -> nonBvError
+        L.AtomicFMax -> nonBvError
+        L.AtomicFMin -> nonBvError
+      where
+        zero, one :: Expr LLVM s (BVType w)
+        zero = app $ BVLit w $ BV.zero w
+        one  = app $ BVLit w $ BV.one w
+
+        nonBvError :: forall a. LLVMGenerator s arch ret a
+        nonBvError =
+          reportError $ fromString $ unwords
+            [ "Invalid atomic bitvector operation"
+            , "Operation: " ++ show op
+            , "Value 1: " ++ show xbv
+            , "Value 2: " ++ show ybv
+            ]
+
+    -- Translate an atomic operation over floating-point values, respecting the
+    -- semantics described in this part of the LLVM Language Reference Manual:
+    -- https://releases.llvm.org/16.0.0/docs/LangRef.html#id229
+    --
+    -- Note that `xf` corresponds to `*ptr` and `yf` corresponds to `val` in the
+    -- Reference Manual.
+    floatingOp ::
+      forall fi.
+      FloatInfoRepr fi ->
+      Expr LLVM s (FloatType fi) ->
+      Expr LLVM s (FloatType fi) ->
+      LLVMGenerator s arch ret (Expr LLVM s (FloatType fi))
+    floatingOp fi xf yf =
+      case op of
+        L.AtomicXchg -> pure yf
+        L.AtomicFAdd -> pure $ app $ FloatAdd fi RNE xf yf
+        L.AtomicFSub -> pure $ app $ FloatSub fi RNE xf yf
+        L.AtomicFMax -> pure $ app $ FloatMax fi xf yf
+        L.AtomicFMin -> pure $ app $ FloatMin fi xf yf
+
+        L.AtomicAdd      -> nonFloatingError
+        L.AtomicSub      -> nonFloatingError
+        L.AtomicAnd      -> nonFloatingError
+        L.AtomicNand     -> nonFloatingError
+        L.AtomicOr       -> nonFloatingError
+        L.AtomicXor      -> nonFloatingError
+        L.AtomicMax      -> nonFloatingError
+        L.AtomicMin      -> nonFloatingError
+        L.AtomicUMax     -> nonFloatingError
+        L.AtomicUMin     -> nonFloatingError
+        L.AtomicUIncWrap -> nonFloatingError
+        L.AtomicUDecWrap -> nonFloatingError
+      where
+        nonFloatingError :: forall a. LLVMGenerator s arch ret a
+        nonFloatingError =
+          reportError $ fromString $ unwords
+            [ "Invalid atomic floating-point operation"
+            , "Operation: " ++ show op
+            , "Value 1: " ++ show xf
+            , "Value 2: " ++ show yf
+            ]
 
 floatingCompare ::
   L.FCmpOp ->
@@ -1713,6 +1821,9 @@ generateInstr retType lab defSet instr assign_f k =
          ptr' <- transTypedValue ptr
          case valTy of
            IntType _ -> pure ()
+           FloatType -> pure ()
+           DoubleType -> pure ()
+           X86_FP80Type -> pure ()
            _ -> fail $ unwords
              ["Invalid argument type on atomicrw, expected integer type", show ptr]
          llvmTypeAsRepr valTy $ \expectTy ->
