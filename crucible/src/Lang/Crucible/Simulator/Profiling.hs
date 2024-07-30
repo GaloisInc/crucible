@@ -76,6 +76,7 @@ import           What4.SatResult
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.Panic
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -290,7 +291,11 @@ openEventFrames = go []
  go xs (e Seq.:<| es) =
    case cgEvent_type e of
      ENTER -> go (e:xs) es
-     EXIT  -> go (tail xs) es
+     EXIT  -> case xs of
+                (_:xss) -> go xss es
+                _ -> panic
+                       "openEventFrames"
+                       ["Encountered an EXIT without a preceding ENTER"]
      _     -> go xs es
 
 openToCloseEvent :: UTCTime -> Metrics Identity -> CGEvent -> CGEvent
