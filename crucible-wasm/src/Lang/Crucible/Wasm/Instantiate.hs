@@ -273,6 +273,9 @@ valueTypeToType Wasm.I32 = Some (BVRepr (knownNat @32))
 valueTypeToType Wasm.I64 = Some (BVRepr (knownNat @64))
 valueTypeToType Wasm.F32 = Some (FloatRepr SingleFloatRepr)
 valueTypeToType Wasm.F64 = Some (FloatRepr DoubleFloatRepr)
+-- See https://github.com/GaloisInc/crucible/issues/1228
+valueTypeToType Wasm.Func   = error "Func reference types are not currently supported"
+valueTypeToType Wasm.Extern = error "Extern reference types are not currently supported"
 
 valueTypesToContext :: [Wasm.ValueType] -> Some (Assignment TypeRepr)
 valueTypesToContext = fromList . map valueTypeToType

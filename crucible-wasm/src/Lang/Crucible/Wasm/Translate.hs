@@ -334,6 +334,11 @@ translateFunction fty fn@Wasm.Function{ .. } im st hdl =
   setupLocal Wasm.F64 =
     do r <- newReg (App (DoubleLit 0.0))
        modify (addLocal r)
+  -- See https://github.com/GaloisInc/crucible/issues/1228
+  setupLocal Wasm.Func =
+    unimplemented "Func reference values"
+  setupLocal Wasm.Extern =
+    unimplemented "Extern reference values"
 
   genReturn :: WasmGenerator s ret (Expr WasmExt s ret)
   genReturn = computeReturn (handleReturnType hdl) (Wasm.results fty)
@@ -800,6 +805,10 @@ genInstruction genReturn im st ctrlStack instr =
     -- F64PromoteF32
     -- IReinterpretF BitSize
     -- FReinterpretI BitSize
+
+    -- RefNull ElemType
+    -- RefIsNull
+    -- RefFunc FuncIndex
 
     _ -> unimplemented $ unwords ["Instruction not implemented", show instr]
 
