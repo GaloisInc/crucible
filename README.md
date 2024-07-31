@@ -107,6 +107,13 @@ Alternately, you can target a more specific sub-package instead of `all`.
 Testing and Coverage
 --------------------
 
+Testing is done via `cabal test`.
+
+To run the tests for crux-mir, you need to have built and installed
+the mir-json tool such that it can be found on your $PATH. You also
+need translated Rust libraries for the machine you're testing on.
+See [the crux-mir README](crux-mir/README.md) for further information.
+
 Testing with coverage tracking is done via `cabal test --enable-coverage ...`  or
 `cabal configure --enable-coverage`, although additional workarounds will be
 needed as noted in https://github.com/galoisinc/crucible/issues/884 and
