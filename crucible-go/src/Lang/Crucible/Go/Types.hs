@@ -24,6 +24,7 @@ import           Control.Monad.State
 
 import           Data.Default.Class
 import           Data.HashMap.Strict as HM
+import qualified Data.Kind as Kind
 import           Data.Maybe (fromJust)
 import           Data.Text (Text)
 
@@ -223,7 +224,7 @@ goExprType :: GoExpr a tp -> TypeRepr tp
 goExprType (GoExpr _loc e) = exprType e
 
 -- | Pair of things with the same type index.
-data PairIx (f :: * -> CrucibleType -> *) s tp where
+data PairIx (f :: Kind.Type -> CrucibleType -> Kind.Type) s tp where
   PairIx :: forall f s tp. f s tp -> f s tp -> PairIx f s tp
 
 -- | Pair of things with the same type index.

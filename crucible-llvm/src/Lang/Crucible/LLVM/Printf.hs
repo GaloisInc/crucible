@@ -47,6 +47,8 @@ import qualified Data.Set as Set
 import           Data.Word
 import qualified GHC.Stack as GHC
 
+import           Lang.Crucible.Panic (panic)
+
 data PrintfFlag
   = PrintfAlternateForm   -- #
   | PrintfZeroPadding     -- 0
@@ -234,7 +236,13 @@ formatOctal
 formatOctal i minwidth prec flags = do
   let digits = N.showOct (abs i) []
   let precdigits = addLeadingZeros prec digits
-  let altdigits = if Set.member PrintfAlternateForm flags && head precdigits /= '0' then
+  let leadingPrecDigit =
+        case precdigits of
+          d:_ -> d
+          [] -> panic
+                  "formatOctal"
+                  ["Octal-formatted number with no digits"]
+  let altdigits = if Set.member PrintfAlternateForm flags && leadingPrecDigit /= '0' then
                      '0':precdigits
                   else
                      precdigits

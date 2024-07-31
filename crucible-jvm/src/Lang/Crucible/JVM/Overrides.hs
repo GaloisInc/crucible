@@ -636,7 +636,13 @@ printStream name showNewline descr t =
                   { C.typedOverrideHandler=
                     \args -> do
                       let reg = C.unRV (Ctx.last args)
-                      str <- showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
+                      let paramTy =
+                            case J.methodKeyParameterTypes mk of
+                              ty:_ -> ty
+                              []   -> panic
+                                        "printStream"
+                                        ["Expected a parameter type, but none found"]
+                      str <- showReg @sym paramTy t reg
                       h   <- C.printHandle <$> C.getContext
                       liftIO $ (if showNewline then hPutStrLn else hPutStr) h str
                       liftIO $ hFlush h

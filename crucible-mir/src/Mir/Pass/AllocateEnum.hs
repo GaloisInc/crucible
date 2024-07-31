@@ -99,6 +99,6 @@ pcr :: HasCallStack => (?col :: Collection) => BasicBlock -> BasicBlock
 pcr (BasicBlock inf (BasicBlockData stmts term)) = BasicBlock inf (BasicBlockData (go stmts) term) where
    go :: [Statement] -> [Statement]
    go [] = []
-   go s  | Just (s', ss) <- findAllocEnum s = s' : go ss
-         | otherwise = head s : go (tail s)
-
+   go stmtss@(stmt:stmts)
+     | Just (stmt', stmts') <- findAllocEnum stmtss = stmt' : go stmts'
+     | otherwise = stmt : go stmts

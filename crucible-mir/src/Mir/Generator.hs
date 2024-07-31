@@ -100,6 +100,7 @@ import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
+import qualified Lang.Crucible.Panic as P
 import qualified Lang.Crucible.Syntax as S
 
 
@@ -589,8 +590,15 @@ resolveCustom instDefId = do
 
 freshVarName :: Text -> Map Text a -> Text
 freshVarName base vm =
-    head $ filter (\n -> not $ n `Map.member` vm) $
-        base : [base <> "_" <> Text.pack (show i) | i <- [0 :: Integer ..]]
+  case varNamesInfList of
+    varName:_ -> varName
+    [] -> P.panic
+            "freshVarName"
+            ["Expected infinite list, but list was empty"]
+  where
+    varNamesInfList =
+      filter (\n -> not $ n `Map.member` vm) $
+      base : [base <> "_" <> Text.pack (show i) | i <- [0 :: Integer ..]]
 
 -- Generate a fresh name of the form `_temp123`
 freshTempName :: Map Text a -> Text
