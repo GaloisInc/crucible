@@ -810,6 +810,14 @@ genInstruction genReturn im st ctrlStack instr =
     -- RefIsNull
     -- RefFunc FuncIndex
 
+    -- TableInit TableIndex ElemIndex
+    -- TableGrow TableIndex
+    -- TableSize TableIndex
+    -- TableFill TableIndex
+    -- TableGet TableIndex
+    -- TableSet TableIndex
+    -- TableCopy TableIndex TableIndex
+
     _ -> unimplemented $ unwords ["Instruction not implemented", show instr]
 
 invokeFn ::
