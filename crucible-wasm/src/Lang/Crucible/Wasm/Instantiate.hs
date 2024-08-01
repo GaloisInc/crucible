@@ -388,7 +388,11 @@ computeDataSegment ::
   Wasm.DataSegment ->
   InstM (GlobalVar WasmMem, Word32, LBS.ByteString)
 computeDataSegment i Wasm.DataSegment{ .. } =
-  do st <- lift get
+  do (memIndex, offset) <-
+       case dataMode of
+         Wasm.ActiveData memIndex offset -> pure (memIndex, offset)
+         Wasm.PassiveData -> unimplemented "Passive data segments"
+     st <- lift get
      case resolveMemIndex memIndex i of
        Nothing -> instErr ("Could not resolve memory index " <> fromString (show memIndex))
        Just (_,_,addr) ->
