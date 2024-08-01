@@ -552,13 +552,12 @@ genInstruction genReturn im st ctrlStack instr =
             Nothing -> panic "genInstruction: Call" ["Could not resolve function address " ++ show addr]
             Just (SomeHandle h) -> invokeFn fty (handleType h) (App (HandleLit h))
 
-    Wasm.CallIndirect tidx ->
-      case resolveTypeIndex tidx im of
-        Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve type index " ++ show tidx]
+    Wasm.CallIndirect tableIdx typeIdx ->
+      case resolveTypeIndex typeIdx im of
+        Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve type index " ++ show typeIdx]
         Just fty ->
-          -- NB, table index hard-coded to 0 in Wasm 1.0
-          case resolveTableIndex 0 im of
-            Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve table index 0"]
+          case resolveTableIndex tableIdx im of
+            Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve table index " ++ show tableIdx]
             Just (_tty, tbladdr) ->
               case Seq.lookup tbladdr (storeTables st) of
                 Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve table address " ++ show tbladdr]
@@ -817,6 +816,8 @@ genInstruction genReturn im st ctrlStack instr =
     -- TableGet TableIndex
     -- TableSet TableIndex
     -- TableCopy TableIndex TableIndex
+
+    -- ElemDrop ElemIndex
 
     _ -> unimplemented $ unwords ["Instruction not implemented", show instr]
 
