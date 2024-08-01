@@ -573,7 +573,12 @@ genInstruction genReturn im st ctrlStack instr =
     Wasm.Drop ->
       void $ popStack
 
-    Wasm.Select ->
+    -- The `select` instruction includes an optional value type, which indicates
+    -- the type of its first and second operands. We do not currently make use
+    -- of this type, however, as crucible-wasm's implementation is simple enough
+    -- where the types of all possible stack values can be inferred without any
+    -- additional type information.
+    Wasm.Select _mbValTypes ->
       do c <- popTest
          y <- popStack
          x <- popStack
