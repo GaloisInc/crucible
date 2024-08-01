@@ -29,9 +29,9 @@ RUN mkdir -p /root/ghcup-download/bin && \
     chmod +x /root/ghcup-download/bin/ghcup
 RUN mkdir -p /root/.ghcup && \
     ghcup --version && \
-    ghcup install cabal 3.10.1.0 && \
-    ghcup install ghc 9.2.8 && \
-    ghcup set ghc 9.2.8
+    ghcup install cabal 3.10.3.0 && \
+    ghcup install ghc 9.4.8 && \
+    ghcup set ghc 9.4.8
 RUN cabal v2-update
 
 ARG DIR=/crux-llvm
@@ -44,7 +44,7 @@ ADD crux ${DIR}/build/crux
 ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
 ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
-ADD cabal.GHC-9.2.8.config ${DIR}/build/cabal.project.freeze
+ADD cabal.GHC-9.4.8.config ${DIR}/build/cabal.project.freeze
 # Workaround until we have an LLVM 12 build available
 RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-12.0.1.bc
 

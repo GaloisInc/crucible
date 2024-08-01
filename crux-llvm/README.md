@@ -42,7 +42,7 @@ software:
    * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
    * run `crux-llvm` in a new console to reload `.bash_profile`
 
-We have tested `crux-llvm` most heavily with GHC 9.2, GHC 9.4, GHC 9.6,
+We have tested `crux-llvm` most heavily with GHC 9.4, GHC 9.6, GHC 9.8,
 and `cabal` version 3.10. We recommend Yices 2.6.x, and Z3
 4.8.x. Technically, only one of Yices or Z3 is required, and CVC4 is
 also supported. However, in practice, having both tends to be
