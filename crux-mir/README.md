@@ -104,6 +104,15 @@ To run `crux-mir`'s test suite:
 
     $ cabal v2-test
 
+You need to have built and installed the mir-json tool such that it
+can be found on your $PATH.
+You also need translated libraries for the Rust target architecture
+you're testing on.
+Make sure that the `rlibs` symlink exists and points to the right
+architecture's libraries.
+If not, run the `translate_libs.sh` script as described above under
+Installation.
+
 ### Expected Failures
 
 Some tests are not yet expected to succeed, as crux-mir is still under
