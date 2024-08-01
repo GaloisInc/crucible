@@ -334,6 +334,11 @@ translateFunction fty fn@Wasm.Function{ .. } im st hdl =
   setupLocal Wasm.F64 =
     do r <- newReg (App (DoubleLit 0.0))
        modify (addLocal r)
+  -- See https://github.com/GaloisInc/crucible/issues/1228
+  setupLocal Wasm.Func =
+    unimplemented "Func reference values"
+  setupLocal Wasm.Extern =
+    unimplemented "Extern reference values"
 
   genReturn :: WasmGenerator s ret (Expr WasmExt s ret)
   genReturn = computeReturn (handleReturnType hdl) (Wasm.results fty)
@@ -547,13 +552,12 @@ genInstruction genReturn im st ctrlStack instr =
             Nothing -> panic "genInstruction: Call" ["Could not resolve function address " ++ show addr]
             Just (SomeHandle h) -> invokeFn fty (handleType h) (App (HandleLit h))
 
-    Wasm.CallIndirect tidx ->
-      case resolveTypeIndex tidx im of
-        Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve type index " ++ show tidx]
+    Wasm.CallIndirect tableIdx typeIdx ->
+      case resolveTypeIndex typeIdx im of
+        Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve type index " ++ show typeIdx]
         Just fty ->
-          -- NB, table index hard-coded to 0 in Wasm 1.0
-          case resolveTableIndex 0 im of
-            Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve table index 0"]
+          case resolveTableIndex tableIdx im of
+            Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve table index " ++ show tableIdx]
             Just (_tty, tbladdr) ->
               case Seq.lookup tbladdr (storeTables st) of
                 Nothing -> panic "genInstruction: CallIndirect" ["Could not resolve table address " ++ show tbladdr]
@@ -569,7 +573,12 @@ genInstruction genReturn im st ctrlStack instr =
     Wasm.Drop ->
       void $ popStack
 
-    Wasm.Select ->
+    -- The `select` instruction includes an optional value type, which indicates
+    -- the type of its first and second operands. We do not currently make use
+    -- of this type, however, as crucible-wasm's implementation is simple enough
+    -- where the types of all possible stack values can be inferred without any
+    -- additional type information.
+    Wasm.Select _mbValTypes ->
       do c <- popTest
          y <- popStack
          x <- popStack
@@ -613,11 +622,11 @@ genInstruction genReturn im st ctrlStack instr =
             Just (ConstantGlobal _) -> panic "genInstruction: SetGlobal" ["setGlobal of constant global"]
             Just (MutableGlobal gv) -> writeGlobal gv =<< checkStackVal (globalType gv) =<< popStack
 
-    Wasm.CurrentMemory ->
+    Wasm.MemorySize ->
       do gv <- getMemVar im st
          pushStack =<< extensionStmt (Wasm_MemSize gv)
 
-    Wasm.GrowMemory ->
+    Wasm.MemoryGrow ->
       do gv <- getMemVar im st
          n <- popInteger32
          void $ extensionStmt (Wasm_MemGrow gv n)
@@ -800,6 +809,25 @@ genInstruction genReturn im st ctrlStack instr =
     -- F64PromoteF32
     -- IReinterpretF BitSize
     -- FReinterpretI BitSize
+
+    -- RefNull ElemType
+    -- RefIsNull
+    -- RefFunc FuncIndex
+
+    -- TableInit TableIndex ElemIndex
+    -- TableGrow TableIndex
+    -- TableSize TableIndex
+    -- TableFill TableIndex
+    -- TableGet TableIndex
+    -- TableSet TableIndex
+    -- TableCopy TableIndex TableIndex
+
+    -- MemoryFill
+    -- MemoryCopy
+    -- MemoryInit DataIndex
+
+    -- ElemDrop ElemIndex
+    -- DataDrop DataIndex
 
     _ -> unimplemented $ unwords ["Instruction not implemented", show instr]
 

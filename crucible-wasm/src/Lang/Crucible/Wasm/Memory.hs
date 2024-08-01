@@ -32,7 +32,6 @@ import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 
 import What4.Interface
-import What4.InterpretedFloatingPoint
 
 import Lang.Crucible.Wasm.Utils
 

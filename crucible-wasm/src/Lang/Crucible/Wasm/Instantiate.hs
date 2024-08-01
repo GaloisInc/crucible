@@ -273,6 +273,9 @@ valueTypeToType Wasm.I32 = Some (BVRepr (knownNat @32))
 valueTypeToType Wasm.I64 = Some (BVRepr (knownNat @64))
 valueTypeToType Wasm.F32 = Some (FloatRepr SingleFloatRepr)
 valueTypeToType Wasm.F64 = Some (FloatRepr DoubleFloatRepr)
+-- See https://github.com/GaloisInc/crucible/issues/1228
+valueTypeToType Wasm.Func   = error "Func reference types are not currently supported"
+valueTypeToType Wasm.Extern = error "Extern reference types are not currently supported"
 
 valueTypesToContext :: [Wasm.ValueType] -> Some (Assignment TypeRepr)
 valueTypesToContext = fromList . map valueTypeToType
@@ -385,7 +388,11 @@ computeDataSegment ::
   Wasm.DataSegment ->
   InstM (GlobalVar WasmMem, Word32, LBS.ByteString)
 computeDataSegment i Wasm.DataSegment{ .. } =
-  do st <- lift get
+  do (memIndex, offset) <-
+       case dataMode of
+         Wasm.ActiveData memIndex offset -> pure (memIndex, offset)
+         Wasm.PassiveData -> unimplemented "Passive data segments"
+     st <- lift get
      case resolveMemIndex memIndex i of
        Nothing -> instErr ("Could not resolve memory index " <> fromString (show memIndex))
        Just (_,_,addr) ->
@@ -401,12 +408,18 @@ installElemSegment ::
   Wasm.ElemSegment ->
   InstM ()
 installElemSegment im es@Wasm.ElemSegment{ .. } =
-  do I32Val tblOff <- evalConst im offset
+  do (tableIndex, offset) <-
+       case mode of
+         Wasm.Active idx off -> pure (idx, off)
+         Wasm.Passive -> unimplemented "Passive element segments"
+         Wasm.Declarative -> unimplemented "Declarative element segments"
+     I32Val tblOff <- evalConst im offset
+     funcIndexes <- traverse evalConstFuncIndex elements
      st <- lift get
      debug "installing element segment"
      debug (show es)
      debug (show (instTableAddrs im))
-     case updStore (fromIntegral tblOff) st of
+     case updStore tableIndex funcIndexes (fromIntegral tblOff) st of
        Nothing  -> instErr ("failed to evaluate element segment: " <> TL.pack (show es))
        Just st' -> lift (put st')
 
@@ -415,8 +428,8 @@ installElemSegment im es@Wasm.ElemSegment{ .. } =
     do hdl <- Seq.lookup faddr (storeFuncs st)
        pure (updateFuncTable loc fty hdl ft)
 
-  updStore :: Int -> Store -> Maybe Store
-  updStore off st =
+  updStore :: Wasm.TableIndex -> [Wasm.FuncIndex] -> Int -> Store -> Maybe Store
+  updStore tableIndex funcIndexes off st =
     do (Wasm.TableType (Wasm.Limit lmin _) Wasm.FuncRef, addr) <- resolveTableIndex tableIndex im
        functab <- Seq.lookup addr (storeTables st)
        guard (toInteger off + toInteger (length funcIndexes) <= toInteger lmin)
@@ -459,6 +472,19 @@ evalConst i [Wasm.GetGlobal idx] =
        _ -> instErr ("could not resolve global index " <> fromString (show idx))
 
 evalConst _ _ = instErr "expression not a constant!"
+
+-- | Evaluate a constant 'Wasm.Expression' that is expected to be a single
+-- 'Wasm.RefFunc' instruction, returning the underlying 'Wasm.FuncIndex'.
+-- Currently, this is only used when computing element segments.
+
+-- TODO: Ideally, we would merge this function with 'evalConst' above by adding
+-- references to functions as a first-class 'ConstantValue'. Doing so would
+-- require fixing https://github.com/GaloisInc/crucible/issues/1228 first,
+-- however.
+evalConstFuncIndex :: Wasm.Expression -> InstM Wasm.FuncIndex
+evalConstFuncIndex [Wasm.RefFunc fi] = pure fi
+evalConstFuncIndex e =
+  instErr $ "expression not a function index constant: " <> fromString (show e)
 
 bindImport :: Namespace -> ModuleInstance -> Wasm.Import -> InstM ExternalValue
 bindImport ns i Wasm.Import{ .. } =
