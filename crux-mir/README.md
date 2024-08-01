@@ -110,7 +110,8 @@ You also need translated libraries for the Rust target architecture
 you're testing on.
 Make sure that the `rlibs` symlink exists and points to the right
 architecture's libraries.
-If not, run the `translate_libs.sh` script as described above.
+If not, run the `translate_libs.sh` script as described above under
+Installation.
 
 ### Expected Failures
 
