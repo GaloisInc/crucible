@@ -622,11 +622,11 @@ genInstruction genReturn im st ctrlStack instr =
             Just (ConstantGlobal _) -> panic "genInstruction: SetGlobal" ["setGlobal of constant global"]
             Just (MutableGlobal gv) -> writeGlobal gv =<< checkStackVal (globalType gv) =<< popStack
 
-    Wasm.CurrentMemory ->
+    Wasm.MemorySize ->
       do gv <- getMemVar im st
          pushStack =<< extensionStmt (Wasm_MemSize gv)
 
-    Wasm.GrowMemory ->
+    Wasm.MemoryGrow ->
       do gv <- getMemVar im st
          n <- popInteger32
          void $ extensionStmt (Wasm_MemGrow gv n)
@@ -822,7 +822,12 @@ genInstruction genReturn im st ctrlStack instr =
     -- TableSet TableIndex
     -- TableCopy TableIndex TableIndex
 
+    -- MemoryFill
+    -- MemoryCopy
+    -- MemoryInit DataIndex
+
     -- ElemDrop ElemIndex
+    -- DataDrop DataIndex
 
     _ -> unimplemented $ unwords ["Instruction not implemented", show instr]
 
