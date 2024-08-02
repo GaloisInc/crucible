@@ -329,7 +329,7 @@ testMemArrayCopy = testCase "smt array copy memory model" $ withMem LLVMD.Little
   assume bak =<< What4.bvUlt sym len =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 1024)
   mem3 <- LLVMMem.doMemcpy bak ?ptrWidth mem2 False dst_ptr src_base_ptr len
 
-  zero_bv <- What4.bvLit sym ?ptrWidth $ BV.zero ?ptrWidth
+  zero_bv <- What4.bvZero sym ?ptrWidth
   expected_arr <- What4.arrayCopy sym dst_arr i src_arr zero_bv len
   expected_val <- What4.arrayLookup sym expected_arr $ Ctx.singleton i
 

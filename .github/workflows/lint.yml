@@ -25,6 +25,7 @@ jobs:
           (cd crucible-concurrency/; ../hlint-3.8/hlint src test)
           (cd crucible-go/; ../hlint-3.8/hlint src tests)
           (cd crucible-jvm/; ../hlint-3.8/hlint src tests)
+          (cd crucible-llvm/; ../hlint-3.8/hlint src test)
           (cd crucible-llvm-cli/; ../hlint-3.8/hlint src test)
           (cd crucible-llvm-syntax/; ../hlint-3.8/hlint src test)
           (cd crucible-mir/; ../hlint-3.8/hlint src)

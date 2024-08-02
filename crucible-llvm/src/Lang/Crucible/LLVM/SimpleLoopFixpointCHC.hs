@@ -1093,8 +1093,8 @@ advanceFixpointState bak mem_var maybe_fixpoint_func call_frame_handle block_id 
             -- try to unify widening variables that have the same values
             (normal_substitution', equality_substitution') <- uninterpretedConstantEqualitySubstitution sym union_substitution
 
-            zero_bv <- W4.bvLit sym knownNat $ BV.zero knownNat
-            one_bv <- W4.bvLit sym knownNat $ BV.one knownNat
+            zero_bv <- W4.bvZero sym knownNat
+            one_bv <- W4.bvOne sym knownNat
             add_index_one <- W4.bvAdd sym (fixpointIndex fixpoint_record) one_bv
             let normal_substitution = MapF.insert
                   (fixpointIndex fixpoint_record)

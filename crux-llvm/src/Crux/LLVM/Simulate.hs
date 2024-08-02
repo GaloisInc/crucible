@@ -36,7 +36,7 @@ import Prettyprinter
 
 -- what4
 import qualified What4.Expr.Builder as WEB
-import What4.Interface (bvLit, natLit, bvZero)
+import What4.Interface (bvLit, bvZero)
 
 -- crucible
 import Lang.Crucible.Backend
@@ -65,8 +65,8 @@ import Lang.Crucible.LLVM.MemModel
         ( Mem, MemImpl, mkMemVar, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
         , explainCex, CexExplanation(..), doAlloca
-        , pattern LLVMPointer, pattern LLVMPointerRepr, LLVMPointerType
-        , pattern PtrRepr, pattern PtrWidth
+        , pattern LLVMPointerRepr, LLVMPointerType
+        , pattern PtrRepr, pattern PtrWidth, llvmPointer_bv
         )
 import Lang.Crucible.LLVM.MemModel.CallStack (ppCallStack)
 import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
@@ -338,7 +338,7 @@ checkFun llvmOpts trans memVar =
       mem <- case lookupGlobal memVar gs of
                Just mem -> pure mem
                Nothing  -> fail "checkFun.checkMainWithArguments: Memory missing from global vars"
-      argc <- liftIO $ LLVMPointer <$> natLit sym 0 <*> bvZero sym w
+      argc <- liftIO $ llvmPointer_bv sym =<< bvZero sym w
       sz   <- liftIO $ bvLit sym PtrWidth $ bytesToBV PtrWidth tp_sz
       (argv, mem') <- liftIO $ doAlloca bak mem sz alignment loc
       stateTree.actFrame.gpGlobals %= insertGlobal memVar mem'
