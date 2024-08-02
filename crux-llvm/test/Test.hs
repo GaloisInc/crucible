@@ -142,11 +142,9 @@ getZ3Version :: IO VersionCheck
 getZ3Version =
   let getVer (Right inp) =
         -- example inp: "Z3 version 4.8.7 - 64 bit"
-        let w = words inp
-        in if |  ("Z3":_:verNum:_) <- w
-              -> verNum
-              |  otherwise
-              -> "?"
+        case words inp of
+          "Z3":_:verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "z3" . getVer <$> readProcessVersion "z3"
 
@@ -154,11 +152,9 @@ getYicesVersion :: IO VersionCheck
 getYicesVersion =
   let getVer (Right inp) =
         -- example inp: "Yices 2.6.1\nCopyright ..."
-        let w = words inp
-        in if |  ("Yices":verNum:_) <- w
-              -> verNum
-              |  otherwise
-              -> "?"
+        case words inp of
+          "Yices":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "yices" . getVer <$> readProcessVersion "yices"
 
@@ -166,11 +162,9 @@ getSTPVersion :: IO VersionCheck
 getSTPVersion =
   let getVer (Right inp) =
         -- example inp: "STP version 2.3.3\n..."
-        let w = words inp
-        in if |  ("STP":"version":verNum:_) <- w
-              -> verNum
-              |  otherwise
-              -> "?"
+        case words inp of
+          "STP":"version":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "stp" . getVer <$> readProcessVersion "stp"
 
@@ -178,11 +172,9 @@ getCVC4Version :: IO VersionCheck
 getCVC4Version =
   let getVer (Right inp) =
         -- example inp: "This is CVC4 version 1.8\ncompiled ..."
-        let w = words inp
-        in if |  ("This":"is":"CVC4":"version":verNum:_) <- w
-              -> verNum
-              |  otherwise
-              -> "?"
+        case words inp of
+          "This":"is":"CVC4":"version":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "cvc4" . getVer <$> readProcessVersion "cvc4"
 
@@ -190,11 +182,9 @@ getCVC5Version :: IO VersionCheck
 getCVC5Version =
   let getVer (Right inp) =
         -- example inp: "This is cvc5 version 1.0.2\ncompiled ..."
-        let w = words inp
-        in if |  ("This":"is":"cvc5":"version":verNum:_) <- w
-              -> verNum
-              |  otherwise
-              -> "?"
+        case words inp of
+          "This":"is":"cvc5":"version":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "cvc5" . getVer <$> readProcessVersion "cvc5"
 
@@ -202,10 +192,9 @@ getBoolectorVersion :: IO VersionCheck
 getBoolectorVersion =
   let getVer (Right inp) =
         -- example inp: "3.2.1"
-        let w = words inp
-        in case w of
-             verNum:_ -> verNum
-             [] -> "?"
+        case words inp of
+          verNum:_ -> verNum
+          [] -> "?"
       getVer (Left full) = full
   in mkVC "boolector" . getVer <$> readProcessVersion "boolector"
 
