@@ -76,7 +76,7 @@ import           What4.SatResult
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
-import           Lang.Crucible.Panic
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
