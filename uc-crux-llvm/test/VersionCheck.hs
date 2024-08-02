@@ -32,6 +32,8 @@ import           Data.Versions (Versioning, versioning, prettyV, major)
 import qualified GHC.IO.Exception as GE
 import           System.Process (readProcess)
 
+import           UCCrux.LLVM.Errors.Panic (panic)
+
 -- lack of decipherable version is not fatal to running the tests
 data VersionCheck = VC String (Either Text Versioning)
 
@@ -59,7 +61,7 @@ getClangVersion :: FilePath -> IO VersionCheck
 getClangVersion clangBin = do
   -- Determine which version of clang will be used for these tests.
   -- An exception (E.g. in the readProcess if clang is not found) will
-  -- result in termination (test failure).  Uses partial 'head' but
+  -- result in termination (test failure).  Uses partiality, but
   -- this is just tests, and failure is captured.
   let isVerLine = isInfixOf "clang version"
       dropLetter = dropWhile (all isLetter)
@@ -67,10 +69,27 @@ getClangVersion clangBin = do
       -- as tildes (cf. https://github.com/fosskers/versions/issues/62).
       -- These have been observed in the wild (e.g., 12.0.0-3ubuntu1~20.04.5).
       scrubProblemChars = filter (/= '~')
+
+      headVersionLine :: [String] -> String
+      headVersionLine ls =
+        case ls of
+          l:_ -> l
+          [] -> panic
+                  "getClangVersion"
+                  ["`clang --version` output does not contain line with version"]
+
+      headVersionWord :: [String] -> String
+      headVersionWord ws =
+        case ws of
+          w:_ -> w
+          [] -> panic
+                  "getClangVersion"
+                  ["`clang --version` output does not contain numeric version"]
+
       getVer (Right inp) =
         -- example inp: "clang version 10.0.1"
-        scrubProblemChars $ head $ dropLetter $ words $
-        head $ filter isVerLine $ lines inp
+        scrubProblemChars $ headVersionWord $ dropLetter $ words $
+        headVersionLine $ filter isVerLine $ lines inp
       getVer (Left full) = full
   mkVC "clang" . getVer <$> readProcessVersion clangBin
 

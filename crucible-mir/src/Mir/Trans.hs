@@ -1893,7 +1893,9 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         $ \implFn ->
     withMethodHandle fnName (die ["failed to look up implementation", show fnName])
         $ \implFH ->
-    let implMirArg0 = head $ implFn ^. M.fsig . M.fsarg_tys in
+    let implMirArg0 = case implFn ^. M.fsig . M.fsarg_tys of
+                        arg_ty:_ -> arg_ty
+                        [] -> die ["shim has no argument types"] in
     let implArgs = FH.handleArgTypes implFH in
     let implRet = FH.handleReturnType implFH in
 

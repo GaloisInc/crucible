@@ -12,7 +12,7 @@ import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
 import           Data.Char ( isLetter, isSpace )
-import           Data.List.Extra ( isInfixOf, isPrefixOf )
+import           Data.List.Extra ( isInfixOf )
 import           Data.Maybe ( catMaybes, fromMaybe )
 import qualified Data.Text as T
 import           Data.Versions ( Versioning, versioning, prettyV, major )
@@ -31,6 +31,8 @@ import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 import qualified Test.Tasty as TT
 import           Test.Tasty.HUnit ( testCase, assertFailure )
 import qualified Test.Tasty.Sugar as TS
+
+import qualified Lang.Crucible.Panic as P
 
 import qualified CruxLLVMMain as C
 
@@ -103,7 +105,7 @@ getClangVersion :: IO VersionCheck
 getClangVersion = do
   -- Determine which version of clang will be used for these tests.
   -- An exception (E.g. in the readProcess if clang is not found) will
-  -- result in termination (test failure).  Uses partial 'head' but
+  -- result in termination (test failure).  Uses partiality, but
   -- this is just tests, and failure is captured.
   clangBin <- fromMaybe "clang" <$> lookupEnv "CLANG"
   let isVerLine = isInfixOf "clang version"
@@ -112,10 +114,27 @@ getClangVersion = do
       -- as tildes (cf. https://github.com/fosskers/versions/issues/62).
       -- These have been observed in the wild (e.g., 12.0.0-3ubuntu1~20.04.5).
       scrubProblemChars = filter (/= '~')
+
+      headVersionLine :: [String] -> String
+      headVersionLine ls =
+        case ls of
+          l:_ -> l
+          [] -> P.panic
+                  "getClangVersion"
+                  ["`clang --version` output does not contain line with version"]
+
+      headVersionWord :: [String] -> String
+      headVersionWord ws =
+        case ws of
+          w:_ -> w
+          [] -> P.panic
+                  "getClangVersion"
+                  ["`clang --version` output does not contain numeric version"]
+
       getVer (Right inp) =
         -- example inp: "clang version 10.0.1"
-        scrubProblemChars $ head $ dropLetter $ words $
-        head $ filter isVerLine $ lines inp
+        scrubProblemChars $ headVersionWord $ dropLetter $ words $
+        headVersionLine $ filter isVerLine $ lines inp
       getVer (Left full) = full
   mkVC "clang" . getVer <$> readProcessVersion clangBin
 
@@ -123,9 +142,9 @@ getZ3Version :: IO VersionCheck
 getZ3Version =
   let getVer (Right inp) =
         -- example inp: "Z3 version 4.8.7 - 64 bit"
-        let w = words inp
-        in if and [ length w > 2, head w == "Z3" ]
-           then w !! 2 else "?"
+        case words inp of
+          "Z3":_:verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "z3" . getVer <$> readProcessVersion "z3"
 
@@ -133,9 +152,9 @@ getYicesVersion :: IO VersionCheck
 getYicesVersion =
   let getVer (Right inp) =
         -- example inp: "Yices 2.6.1\nCopyright ..."
-        let w = words inp
-        in if and [ length w > 1, head w == "Yices" ]
-           then w !! 1 else "?"
+        case words inp of
+          "Yices":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "yices" . getVer <$> readProcessVersion "yices"
 
@@ -143,11 +162,9 @@ getSTPVersion :: IO VersionCheck
 getSTPVersion =
   let getVer (Right inp) =
         -- example inp: "STP version 2.3.3\n..."
-        let w = words inp
-        in if and [ length w > 2
-                  , head w == "STP"
-                  , w !! 1 == "version" ]
-           then w !! 2 else "?"
+        case words inp of
+          "STP":"version":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "stp" . getVer <$> readProcessVersion "stp"
 
@@ -155,11 +172,9 @@ getCVC4Version :: IO VersionCheck
 getCVC4Version =
   let getVer (Right inp) =
         -- example inp: "This is CVC4 version 1.8\ncompiled ..."
-        let w = words inp
-        in if and [ length w > 4
-                  , "This is CVC4 version" `isPrefixOf` inp
-                  ]
-           then w !! 4 else "?"
+        case words inp of
+          "This":"is":"CVC4":"version":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "cvc4" . getVer <$> readProcessVersion "cvc4"
 
@@ -167,11 +182,9 @@ getCVC5Version :: IO VersionCheck
 getCVC5Version =
   let getVer (Right inp) =
         -- example inp: "This is cvc5 version 1.0.2\ncompiled ..."
-        let w = words inp
-        in if and [ length w > 4
-                  , "This is cvc5 version" `isPrefixOf` inp
-                  ]
-           then w !! 4 else "?"
+        case words inp of
+          "This":"is":"cvc5":"version":verNum:_ -> verNum
+          _ -> "?"
       getVer (Left full) = full
   in mkVC "cvc5" . getVer <$> readProcessVersion "cvc5"
 
@@ -179,8 +192,9 @@ getBoolectorVersion :: IO VersionCheck
 getBoolectorVersion =
   let getVer (Right inp) =
         -- example inp: "3.2.1"
-        let w = words inp
-        in if not (null w) then head w else "?"
+        case words inp of
+          verNum:_ -> verNum
+          [] -> "?"
       getVer (Left full) = full
   in mkVC "boolector" . getVer <$> readProcessVersion "boolector"
 

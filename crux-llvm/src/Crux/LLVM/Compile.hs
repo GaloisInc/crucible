@@ -30,6 +30,7 @@ import           System.Process ( readProcessWithExitCode )
 import           What4.Interface
 import           What4.ProgramLoc
 
+import           Lang.Crucible.Panic ( panic )
 import           Lang.Crucible.Simulator.SimError
 
 import           Crux
@@ -124,13 +125,20 @@ genBitCode ::
   Log.SupportsCruxLLVMLogMessage msgs =>
   CruxOptions -> LLVMOptions -> IO FilePath
 genBitCode cruxOpts llvmOpts =
-  -- n.b. use of head here is OK because inputFiles should not be
-  -- empty (and was previously verified as such in CruxLLVMMain).
   if noCompile llvmOpts
-  then return (head (Crux.inputFiles cruxOpts))
+  then return headInputFile
   else do
-    let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
+    let ofn = "crux~" <> takeFileName headInputFile -<.> ".bc"
     genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts llvmOpts False
+  where
+    -- n.b. the use of partiality here is OK because inputFiles should not be
+    -- empty (and was previously verified as such in CruxLLVMMain).
+    headInputFile =
+      case Crux.inputFiles cruxOpts of
+        inputFile:_ -> inputFile
+        [] -> panic
+                "genBitCode"
+                ["Unexpected empty list of files"]
 
 -- | Given the target filename and a list of input files, along with
 -- the crux and llvm options, bitcode-compile each input .c file and

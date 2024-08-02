@@ -64,15 +64,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        cabal: ["3.10.1.0"]
-        ghc: ["9.2.8", "9.4.5", "9.6.2"]
+        cabal: ["3.10.3.0"]
+        ghc: ["9.4.8", "9.6.5", "9.8.2"]
         include:
           - os: ubuntu-20.04
-            cabal: 3.10.1.0
-            ghc: 9.2.8
+            cabal: 3.10.3.0
+            ghc: 9.4.8
           - os: macos-14
-            cabal: 3.10.1.0
-            ghc: 9.2.8
+            cabal: 3.10.3.0
+            ghc: 9.4.8
 
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
@@ -133,9 +133,9 @@ jobs:
         run: |
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
           case ${{ matrix.ghc }} in
-            9.2.8) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-23.05 ;;
-            9.4.5) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-23.05 ;;
-            9.6.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-23.05 ;;
+            9.4.8) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
+            9.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
+            9.8.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac
           echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
