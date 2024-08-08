@@ -518,7 +518,7 @@ safeBVLoad sym mem ptr st def align =
        C.Err _ -> return def
        C.NoErr p v ->
          do v' <- C.unpackMemValue sym (C.LLVMPointerRepr w) v
-            p0 <- W4.natEq sym (C.llvmPointerBlock v') =<< W4.natLit sym 0
+            p0 <- C.ptrIsBv sym v'
             p' <- W4.andPred sym p p0
             W4.bvIte sym p' (C.llvmPointerOffset v') def
 

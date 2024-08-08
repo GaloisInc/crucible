@@ -65,11 +65,13 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 
     -- * Operations on valid pointers
   , constOffset
+  , ptrSameAlloc
   , ptrEq
   , ptrLe
   , ptrAdd
   , ptrDiff
   , ptrSub
+  , ptrIsBv
   , ptrIsNull
   , isGlobalPointer
   , isGlobalPointer'
@@ -121,9 +123,15 @@ data LLVMPointer sym w =
 
 deriving instance (Show (SymNat sym), Show (SymBV sym w)) => Show (LLVMPointer sym w)
 
+-- | Retrieve this pointer\'s block number.
+--
+-- Use of this function is discouraged, as it is abstraction-breaking.
 llvmPointerBlock :: LLVMPtr sym w -> SymNat sym
 llvmPointerBlock (LLVMPointer blk _) = blk
 
+-- | Retrieve this pointer\'s offset.
+--
+-- Use of this function is discouraged, as it is abstraction-breaking.
 llvmPointerOffset :: LLVMPtr sym w -> SymBV sym w
 llvmPointerOffset (LLVMPointer _ off) = off
 
@@ -299,6 +307,22 @@ instance TestEquality FloatSize where
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
 constOffset sym w x = bvLit sym w (G.bytesToBV w x)
 
+-- | Test whether two pointers point to the same allocation (i.e., have the same
+-- block number).
+--
+-- Using this function is preferred to pattern matching on 'LLVMPointer' or
+-- 'llvmPointerBlock', because it operates at a higher level of abstraction
+-- (i.e., if the representation of pointers were changed, it could continue to
+-- work as intended).
+ptrSameAlloc ::
+  (1 <= w, IsSymInterface sym) =>
+  sym ->
+  LLVMPtr sym w ->
+  LLVMPtr sym w ->
+  IO (Pred sym)
+ptrSameAlloc sym (LLVMPointer base1 _off1) (LLVMPointer base2 _off2) =
+  natEq sym base1 base2
+
 -- | Test whether two pointers are equal.
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
@@ -367,6 +391,20 @@ ptrSub :: (1 <= w, IsSymInterface sym)
 ptrSub sym _w (LLVMPointer base off1) off2 =
   do diff <- bvSub sym off1 off2
      return (LLVMPointer base diff)
+
+-- | Test if a pointer value is a bitvector (i.e., has a block number of 0)
+--
+-- Using this function is preferred to pattern matching on 'LLVMPointer' or
+-- 'llvmPointerBlock', because it operates at a higher level of abstraction
+-- (i.e., if the representation of pointers were changed, it could continue to
+-- work as intended).
+ptrIsBv ::
+  IsSymInterface sym =>
+  sym ->
+  LLVMPtr sym w ->
+  IO (Pred sym)
+ptrIsBv sym (LLVMPointer blk _off) =
+  natEq sym blk =<< natLit sym 0
 
 -- | Test if a pointer value is the null pointer.
 ptrIsNull :: (1 <= w, IsSymInterface sym)

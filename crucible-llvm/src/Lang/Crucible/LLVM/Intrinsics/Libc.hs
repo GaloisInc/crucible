@@ -64,6 +64,7 @@ import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Partial
+import qualified Lang.Crucible.LLVM.MemModel.Pointer as Ptr
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.TypeContext
@@ -689,8 +690,8 @@ printfOps bak valist =
 
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (LLVMPointerRepr w) (LLVMPointer blk bv)) ->
-         do isBv <- liftIO (natEq sym blk =<< natLit sym 0)
+       Just (AnyValue (LLVMPointerRepr w) p@(LLVMPointer _blk bv)) ->
+         do isBv <- liftIO (Ptr.ptrIsBv sym p)
             liftIO $ assert bak isBv $
               AssertFailureSimError
                "Passed a pointer to printf where a bitvector was expected"
