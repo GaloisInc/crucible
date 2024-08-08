@@ -30,12 +30,12 @@ import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian), defaultDataLayou
 import Lang.Crucible.LLVM.Extension (LLVM, ArchRepr(X86Repr))
 import Lang.Crucible.LLVM.MemModel (HasPtrWidth)
 import qualified Lang.Crucible.LLVM.MemModel as Mem
-import Lang.Crucible.LLVM.Intrinsics (alloc_and_register_override)
-import Lang.Crucible.LLVM.Intrinsics.Libc (llvmMallocOverride)
+import Lang.Crucible.LLVM.Intrinsics (defaultIntrinsicsOptions)
 import Lang.Crucible.LLVM.Translation (LLVMContext(..))
 import Lang.Crucible.LLVM.TypeContext (mkTypeContext)
 
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
+import Lang.Crucible.LLVM.Syntax.Overrides (registerLLVMOverrides)
 import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
 
 -- | Small helper for providing LLVM language-specific hooks, e.g., for use with
@@ -74,7 +74,9 @@ withLlvmHooks k = do
                     }
               let ?lc = tyCtx
               let ?memOpts = Mem.defaultMemOptions
-              alloc_and_register_override bak llvmCtx llvmMallocOverride []
+              let ?intrinsicsOpts = defaultIntrinsicsOptions
+              _ <- registerLLVMOverrides bak llvmCtx
+              return ()
           , setupOverridesHook = setupOverrides
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()

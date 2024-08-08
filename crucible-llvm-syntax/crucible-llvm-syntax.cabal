@@ -108,6 +108,7 @@ library
 
   exposed-modules:
     Lang.Crucible.LLVM.Syntax
+    Lang.Crucible.LLVM.Syntax.Overrides
     Lang.Crucible.LLVM.Syntax.TypeAlias
 
 test-suite crucible-llvm-syntax-tests
