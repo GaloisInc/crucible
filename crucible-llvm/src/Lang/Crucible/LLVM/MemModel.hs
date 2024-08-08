@@ -1023,9 +1023,9 @@ doPtrAddOffset ::
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
   IO (LLVMPtr sym wptr)
-doPtrAddOffset bak m x@(LLVMPointer blk _) off = do
+doPtrAddOffset bak m x off = do
   let sym = backendGetSym bak
-  isBV <- natEq sym blk =<< natLit sym 0
+  isBV <- ptrIsBv sym x
   x' <- ptrAdd sym PtrWidth x off
   v <- case asConstantPred isBV of
          Just True  -> return isBV
@@ -1652,13 +1652,13 @@ buildDisjointRegionsAssertion ::
   SymBV sym w      {- ^ length of region 2  -} ->
   IO (Pred sym)
 buildDisjointRegionsAssertion sym w dest dlen src slen = do
-  let LLVMPointer dblk doff = dest
-  let LLVMPointer sblk soff = src
+  let LLVMPointer _dblk doff = dest
+  let LLVMPointer _sblk soff = src
 
   dend <- bvAdd sym doff =<< sextendBVTo sym w PtrWidth dlen
   send <- bvAdd sym soff =<< sextendBVTo sym w PtrWidth slen
 
-  diffBlk   <- notPred sym =<< natEq sym dblk sblk
+  diffBlk   <- notPred sym =<< ptrSameAlloc sym dest src
   destfirst <- bvSle sym dend soff
   srcfirst  <- bvSle sym send doff
 
@@ -1678,15 +1678,15 @@ buildDisjointRegionsAssertionWithSub ::
   SymBV sym wptr   {- ^ length of region 2  -} ->
   IO (Pred sym)
 buildDisjointRegionsAssertionWithSub sym dest dlen src slen = do
-  let LLVMPointer dblk doff = dest
-  let LLVMPointer sblk soff = src
+  let LLVMPointer _dblk doff = dest
+  let LLVMPointer _sblk soff = src
 
   dend <- bvAdd sym doff dlen
   send <- bvAdd sym soff slen
 
   zero_bv <- bvZero sym PtrWidth
 
-  diffBlk <- notPred sym =<< natEq sym dblk sblk
+  diffBlk <- notPred sym =<< ptrSameAlloc sym dest src
 
   allPos <- andAllOf sym folded =<< mapM (bvSle sym zero_bv) [doff, dend, soff, send]
   destfirst <- bvSle sym zero_bv =<< bvSub sym soff dend

@@ -92,7 +92,7 @@ import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
 import           Lang.Crucible.LLVM.MemModel.MemLog (memState)
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack, getCallStack)
-import           Lang.Crucible.LLVM.MemModel.Pointer ( pattern LLVMPointer, LLVMPtr )
+import           Lang.Crucible.LLVM.MemModel.Pointer ( pattern LLVMPointer, LLVMPtr, ptrIsBv )
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
@@ -272,10 +272,10 @@ ptrToBv ::
   SimErrorReason ->
   LLVMPtr sym w ->
   IO (SymBV sym w)
-ptrToBv bak err (LLVMPointer blk bv) =
+ptrToBv bak err p@(LLVMPointer _blk bv) =
   do let sym = backendGetSym bak
-     p <- natEq sym blk =<< natLit sym 0
-     assert bak p err
+     isBv <- ptrIsBv sym p
+     assert bak isBv err
      return bv
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
