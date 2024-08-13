@@ -252,12 +252,7 @@ isAllocatedGeneric sym inAlloc blk = go (pure (falsePred sym)) (pure (truePred s
                        Just True ->
                          -- This is where where this block was allocated, and it
                          -- couldn't have been freed before it was allocated.
-                         --
-                         -- NOTE(lb): It's not clear to me that this branch is
-                         -- reachable: If the equality test can succeed
-                         -- concretely, wouldn't asNat have returned a Just
-                         -- above? In either case, this answer should be sound.
-                         return (truePred sym, truePred sym)
+                         (, truePred sym) <$> inAlloc ba
                        Just False -> k
                        Nothing ->
                          do (fallback', fallbackFreed') <- k

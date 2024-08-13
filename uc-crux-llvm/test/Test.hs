@@ -291,6 +291,19 @@ _isUnannotated fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ r
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
+isUnfixable :: String -> SomeBugfindingResult' -> IO ()
+isUnfixable fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
+  do
+    let (_missingAnn, _failedAssert, _unimpl, _unclass, _unfixed, unfixable, _timeouts) =
+          partitionUncertainty (Result.uncertainResults result)
+    0 < length unfixable
+      TH.@? unwords
+        [ "Expected",
+          fn,
+          "to be unfixable but the result was:\n",
+          Text.unpack (Result.printFunctionSummary (Result.summary result))
+        ]
+
 _hasFailedAssert :: String -> SomeBugfindingResult' -> IO ()
 _hasFailedAssert fn (Result.SomeBugfindingResult' (Result.SomeBugfindingResult _ result _)) =
   do
@@ -462,22 +475,16 @@ inFileTests =
         ("deref_arg_const_index.c", [("deref_arg_const_index", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("deref_struct_field.c", [("deref_struct_field", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("do_free.c", [("do_free", isSafeWithPreconditions mempty DidntHitBounds)]),
-        ("free_dict.c", [("free_dict", isSafeWithPreconditions mempty DidHitBounds)]),
-        ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions mempty DidHitBounds)]),
-        ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions mempty DidHitBounds)]),
         ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (unsoundOverride "gethostname") DidntHitBounds)]),
-        ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
         ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions mempty DidHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions mempty DidntHitBounds)]),
-        ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
         ("not_double_free.c", [("not_double_free", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("ptr_as_array.c", [("ptr_as_array", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("read_errno.c", [("read_errno", isSafeWithPreconditions (skipOverride "__errno_location") DidntHitBounds)]),
         ("read_pointer_from_global_struct.c", [("read_pointer_from_global_struct", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("read_null_global_pointer.c", [("read_null_global_pointer", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("sized_array_arg.c", [("sized_array_arg", isSafeWithPreconditions mempty DidntHitBounds)]),
-        ("struct_with_array.c", [("struct_with_array", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg.c", [("writes_to_arg", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg_conditional.c", [("writes_to_arg_conditional", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
@@ -490,10 +497,15 @@ inFileTests =
         ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("cast_float_to_pointer_free.c", [("cast_float_to_pointer_free", isUnclassified)]),
         ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", isUnclassified)]),
+        ("free_dict.c", [("free_dict", isUnclassified)]), -- goal: isSafeWP
+        ("free_dict_kv.c", [("free_dict_kv", isUnclassified)]), -- goal: isSafeWP
+        ("free_linked_list.c", [("free_linked_list", isUnclassified)]), -- goal: isSafeWP
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
+        ("linked_list_sum.c", [("linked_list_sum", isUnclassified)]), -- goal: isSafeWP
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("memset_func_ptr.c", [("memset_func_ptr", isUnclassified)]), -- goal: hasBugs
         ("memset_void_ptr.c", [("memset_void_ptr", isUnclassified)]), -- goal: isSafeWP
+        ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
@@ -502,6 +514,7 @@ inFileTests =
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
+        ("struct_with_array.c", [("struct_with_array", isUnclassified)]),  -- goal: isSafeWP
         ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
         ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
         --
@@ -514,7 +527,7 @@ inFileTests =
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
-        ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)]),
+        ("deref_arg_arg_index.c", [("deref_arg_arg_index", isUnfixable)]),
         -- This one could use an override. Currently fails because it's
         -- skipped, and so unreachable code gets reached.
         ("do_exit.c", [("do_exit", hasMissingAnn)]), -- goal: isSafe
