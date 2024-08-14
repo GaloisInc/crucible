@@ -52,6 +52,9 @@ module Lang.Crucible.Backend.Online
     -- ** Z3
   , Z3OnlineBackend
   , withZ3OnlineBackend
+    -- ** Bitwuzla
+  , BitwuzlaOnlineBackend
+  , withBitwuzlaOnlineBackend
     -- ** Boolector
   , BoolectorOnlineBackend
   , withBoolectorOnlineBackend
@@ -92,6 +95,7 @@ import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
 import           What4.SatResult
+import qualified What4.Solver.Bitwuzla as Bitwuzla
 import qualified What4.Solver.Boolector as Boolector
 import qualified What4.Solver.CVC4 as CVC4
 import qualified What4.Solver.CVC5 as CVC5
@@ -271,6 +275,28 @@ withZ3OnlineBackend sym unsatFeat extraFeatures action =
   withOnlineBackend sym feat $ \bak ->
     do liftIO $ tryExtendConfig Z3.z3Options (getConfiguration sym)
        action bak
+
+type BitwuzlaOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Bitwuzla.Bitwuzla) scope st fs
+
+-- | Do something with a Bitwuzla online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Bitwuzla configuration options will be automatically
+--   installed into the backend configuration object.
+--
+--   > withBitwuzlaOnineBackend FloatRealRepr ng f'
+withBitwuzlaOnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  ProblemFeatures ->
+  (BitwuzlaOnlineBackend scope st fs -> m a) ->
+  m a
+withBitwuzlaOnlineBackend sym unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures Bitwuzla.Bitwuzla .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
+  withOnlineBackend sym feat $ \bak -> do
+    liftIO $ tryExtendConfig Bitwuzla.bitwuzlaOptions (getConfiguration sym)
+    action bak
 
 type BoolectorOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Boolector.Boolector) scope st fs
 

@@ -23,7 +23,7 @@ import qualified What4.InterpretedFloatingPoint as WIF
 
 import qualified Crux.Config.Common as CCC
 
-data SolverOnline = Yices | Z3 | CVC4 | CVC5 | STP
+data SolverOnline = Yices | Z3 | CVC4 | CVC5 | STP | Bitwuzla
   deriving (Eq, Ord, Show)
 data SolverOffline = SolverOnline SolverOnline | Boolector | DReal
   deriving (Eq, Ord, Show)
@@ -43,6 +43,7 @@ instance HasDefaultFloatRepr SolverOnline where
       STP -> k WEB.FloatRealRepr
       Yices -> k WEB.FloatRealRepr
       Z3 -> k WEB.FloatIEEERepr
+      Bitwuzla -> k WEB.FloatIEEERepr
 
 instance HasDefaultFloatRepr SolverOffline where
   withDefaultFloatRepr st s k =
@@ -124,11 +125,12 @@ asAnyOfflineSolver s = case s of
       "cvc4" -> pure (SolverOnline CVC4)
       "cvc5" -> pure (SolverOnline CVC5)
       "stp" -> pure (SolverOnline STP)
+      "bitwuzla" -> pure (SolverOnline Bitwuzla)
       _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc4, cvc5, or stp)" s)
 
 asManyOfflineSolvers :: String -> Validated [SolverOffline]
 asManyOfflineSolvers s
-  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc4,cvc5,stp"
+  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc4,cvc5,stp,bitwuzla"
   | length solvers > 1 = traverse asAnyOfflineSolver solvers
   | otherwise          = invalid (printf "%s is not a valid solver list (expected 'all' or a comma separated list of solvers)" s)
   where

@@ -76,6 +76,7 @@ import           What4.FunctionName (FunctionName)
 import           What4.Interface (IsExprBuilder, getConfiguration)
 import           What4.Protocol.Online (OnlineSolver)
 import qualified What4.Solver as WS
+import           What4.Solver.Bitwuzla (bitwuzlaTimeout)
 import           What4.Solver.CVC4 (cvc4Timeout)
 import           What4.Solver.CVC5 (cvc5Timeout)
 import           What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
@@ -364,6 +365,7 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
         CCS.CVC5 -> withOnlineBackendFM WE.FloatRealRepr
         CCS.STP -> withOnlineBackendFM WE.FloatRealRepr
         CCS.Z3 -> withOnlineBackendFM WE.FloatIEEERepr
+        CCS.Bitwuzla -> withOnlineBackendFM WE.FloatIEEERepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
 
   where
@@ -413,6 +415,11 @@ withSelectedOnlineBackend' cruxOpts selectedSolver sym k =
      CCS.Z3 -> withZ3OnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
        case goalTimeout cruxOpts of
          Just s -> symCfg sym z3Timeout (floor (s * 1000))
+         Nothing -> return ()
+       k bak
+     CCS.Bitwuzla -> withBitwuzlaOnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
+       case goalTimeout cruxOpts of
+         Just s -> symCfg sym bitwuzlaTimeout (floor (s * 1000))
          Nothing -> return ()
        k bak
      CCS.STP -> do
@@ -556,6 +563,7 @@ withSolverAdapter solverOff k =
     CCS.SolverOnline CCS.STP -> k WS.stpAdapter
     CCS.SolverOnline CCS.Yices -> k WS.yicesAdapter
     CCS.SolverOnline CCS.Z3 -> k WS.z3Adapter
+    CCS.SolverOnline CCS.Bitwuzla -> k WS.bitwuzlaAdapter
 
 withSolverAdapters :: [CCS.SolverOffline] -> ([WS.SolverAdapter st] -> a) -> a
 withSolverAdapters solverOffs k =
