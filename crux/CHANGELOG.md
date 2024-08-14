@@ -1,3 +1,7 @@
+# next -- TBA
+
+* Add support for the Bitwuzla SMT solver.
+
 # 0.7.1 -- 2024-08-30
 
 * Add support for GHC 9.8

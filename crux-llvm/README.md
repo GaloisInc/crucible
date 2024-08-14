@@ -299,8 +299,8 @@ In addition, the following flags can optionally be provided:
   time-based bound.
 
 * `--solver=NAME`, `-s NAME`: Use the given SMT solver to discharge
-  proof obligations. Valid values for `NAME` are `cvc4`, `cvc5`, `yices`, and
-  `z3`.
+  proof obligations. Valid values for `NAME` are `bitwuzla`, `boolector`,
+  `cvc4`, `cvc5`, `yices`, and `z3`.
 
 * `--timeout=N`, `-t N`: Set the timeout for the first phase of analysis
   (symbolic execution) which happens before sending the main goals to an
