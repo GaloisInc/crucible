@@ -114,7 +114,8 @@ defaultSimulateProgramHooks = SimulateProgramHooks
 
 simulateProgramWithExtension
    :: (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
-   => (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym ext))
+   => (forall sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
+        bak -> IO (ExtensionImpl () sym ext))
    -> FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
@@ -257,7 +258,8 @@ data Command
 -- line), and this function takes care of the rest.
 execCommand :: 
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
-  (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym ext)) ->
+  (forall sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
+    bak -> IO (ExtensionImpl () sym ext)) ->
   SimulateProgramHooks ext ->
   Command ->
   IO ()
