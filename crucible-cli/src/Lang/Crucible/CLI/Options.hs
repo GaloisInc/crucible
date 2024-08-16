@@ -3,7 +3,7 @@
 
 module Lang.Crucible.CLI.Options (main) where
 
-import Lang.Crucible.Backend (IsSymInterface)
+import Lang.Crucible.Backend (IsSymBackend)
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.Simulator.ExecutionTree (ExtensionImpl)
 
@@ -53,7 +53,7 @@ parseCheck =
 main ::
   (?parserHooks :: ParserHooks ext, IsSyntaxExtension ext) =>
   String ->
-  (forall sym. IsSymInterface sym => sym -> IO (ExtensionImpl () sym ext)) ->
+  (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym ext)) ->
   SimulateProgramHooks ext ->
   IO ()
 main name ext simulationHooks =

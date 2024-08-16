@@ -114,7 +114,7 @@ defaultSimulateProgramHooks = SimulateProgramHooks
 
 simulateProgramWithExtension
    :: (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
-   => (forall sym. IsSymInterface sym => sym -> IO (ExtensionImpl () sym ext))
+   => (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym ext))
    -> FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
@@ -159,7 +159,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                                                   (UseCFG ssa (postdomInfo ssa))
                                                   m)
                                         fwdDecFnBindings cs
-                       ext <- mkExt sym
+                       ext <- mkExt bak
                        let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext ()
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
@@ -257,7 +257,7 @@ data Command
 -- line), and this function takes care of the rest.
 execCommand :: 
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
-  (forall sym. IsSymInterface sym => sym -> IO (ExtensionImpl () sym ext)) ->
+  (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym ext)) ->
   SimulateProgramHooks ext ->
   Command ->
   IO ()
