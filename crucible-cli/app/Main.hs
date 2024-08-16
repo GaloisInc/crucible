@@ -13,7 +13,7 @@ import qualified Lang.Crucible.CLI.Options as Opts
 main :: IO ()
 main =
   do let ?parserHooks = defaultParserHooks
-     Opts.main "crucible" (\_ -> emptyExtensionImpl) simulationHooks
+     Opts.main "crucible" (\_ -> pure emptyExtensionImpl) simulationHooks
   where
         simulationHooks =
           defaultSimulateProgramHooks

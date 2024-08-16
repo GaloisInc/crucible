@@ -53,7 +53,7 @@ parseCheck =
 main ::
   (?parserHooks :: ParserHooks ext, IsSyntaxExtension ext) =>
   String ->
-  (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym ext) ->
+  (forall sym. IsSymInterface sym => sym -> IO (ExtensionImpl () sym ext)) ->
   SimulateProgramHooks ext ->
   IO ()
 main name ext simulationHooks =

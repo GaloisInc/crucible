@@ -43,7 +43,7 @@ import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTyp
 withLlvmHooks ::
   (forall w.
     (HasPtrWidth w, ?parserHooks :: ParserHooks LLVM) =>
-    (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym LLVM) ->
+    (forall sym. IsSymInterface sym => sym -> IO (ExtensionImpl () sym LLVM)) ->
     SimulateProgramHooks LLVM ->
     IO a) ->
   IO a
@@ -80,5 +80,5 @@ withLlvmHooks k = do
           , setupOverridesHook = setupOverrides
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
-              in llvmExtensionImpl Mem.defaultMemOptions
+              in pure (llvmExtensionImpl Mem.defaultMemOptions)
   k ext simulationHooks 
