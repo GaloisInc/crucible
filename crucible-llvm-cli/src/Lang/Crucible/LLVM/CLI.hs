@@ -15,7 +15,7 @@ import qualified Data.Map as Map
 
 import Data.Parameterized.NatRepr (knownNat)
 
-import Lang.Crucible.Backend (IsSymInterface)
+import Lang.Crucible.Backend (IsSymBackend)
 import Lang.Crucible.FunctionHandle (newHandleAllocator)
 import Lang.Crucible.Simulator.ExecutionTree (ExtensionImpl)
 import Lang.Crucible.Simulator.OverrideSim (writeGlobal)
@@ -43,7 +43,7 @@ import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTyp
 withLlvmHooks ::
   (forall w.
     (HasPtrWidth w, ?parserHooks :: ParserHooks LLVM) =>
-    (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym LLVM) ->
+    (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym LLVM)) ->
     SimulateProgramHooks LLVM ->
     IO a) ->
   IO a
@@ -80,5 +80,5 @@ withLlvmHooks k = do
           , setupOverridesHook = setupOverrides
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
-              in llvmExtensionImpl Mem.defaultMemOptions
+              in pure (llvmExtensionImpl Mem.defaultMemOptions)
   k ext simulationHooks 

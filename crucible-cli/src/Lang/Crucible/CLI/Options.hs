@@ -1,9 +1,10 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.CLI.Options (main) where
 
-import Lang.Crucible.Backend (IsSymInterface)
+import Lang.Crucible.Backend (IsSymBackend)
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.Simulator.ExecutionTree (ExtensionImpl)
 
@@ -13,6 +14,8 @@ import qualified Options.Applicative as Opt
 import           Options.Applicative ( (<**>) )
 
 import           Lang.Crucible.CLI
+
+import What4.Expr (ExprBuilder)
 
 file :: String -> Opt.Parser FilePath
 file which = Opt.strArgument (Opt.metavar "FILE" <> Opt.help ("The " <> which <> " file"))
@@ -53,7 +56,7 @@ parseCheck =
 main ::
   (?parserHooks :: ParserHooks ext, IsSyntaxExtension ext) =>
   String ->
-  (forall sym. IsSymInterface sym => sym -> ExtensionImpl () sym ext) ->
+  (forall sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) => bak -> IO (ExtensionImpl () sym ext)) ->
   SimulateProgramHooks ext ->
   IO ()
 main name ext simulationHooks =
