@@ -167,7 +167,7 @@ data PtrMetadata s =
 
 instance Show (PtrMetadata s) where
     show NoMeta = "NoMeta"
-    show (SliceMeta _) = "SliceMeta"
+    show (SliceMeta len) = "SliceMeta " ++ show len
 
 ---------------------------------------------------------------------------------
 

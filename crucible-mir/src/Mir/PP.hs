@@ -312,8 +312,8 @@ instance Pretty Substs where
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
     pretty (ConstInt i)     = pretty i
-    pretty (ConstStr i)     = dquotes (viaShow i)
-    pretty (ConstByteStr i) = viaShow i
+    pretty (ConstStrBody i) = dquotes (viaShow i)
+    pretty (ConstStrRef a len) = pretty "&" <> pr_id a <> (viaShow len)
     pretty (ConstBool i)    = pretty i
     pretty (ConstChar i)    = pretty i
     pretty (ConstVariant i) = pr_id i
@@ -328,7 +328,8 @@ instance Pretty ConstVal where
     pretty (ConstRawPtr a) = pretty a
     pretty (ConstStruct fs) = pretty "struct" <> list (map pretty fs)
     pretty (ConstEnum v fs) = pretty "enum" <> list ((pretty "variant" <+> pretty v) : map pretty fs)
-    pretty (ConstSlice cs)  = list (map pretty cs)
+    pretty (ConstSliceBody cs)  = list (map pretty cs)
+    pretty (ConstSliceRef a len) = pretty "&" <> pr_id a <> (viaShow len)
     pretty (ConstFnPtr i)   = pretty "fn_ptr" <> brackets (pretty i)
 
 instance Pretty AggregateKind where

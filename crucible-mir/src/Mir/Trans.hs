@@ -149,7 +149,8 @@ transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (M.TyRef (M.TySlice ty) _) (Some (MirSliceRepr tpr)) (M.ConstSlice cs) = do
+
+transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstSliceBody cs) = do
     cs' <- Trav.for cs $ \c -> do
         MirExp tpr' c' <- transConstVal ty (Some tpr) c
         Refl <- testEqualityOrFail tpr tpr' $
@@ -157,25 +158,63 @@ transConstVal (M.TyRef (M.TySlice ty) _) (Some (MirSliceRepr tpr)) (M.ConstSlice
             show tpr ++ ", got " ++ show tpr'
         pure c'
     vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList cs'
-    vecRef <- constMirRef (MirVectorRepr tpr) vec
-    ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
-    let len = R.App $ usizeLit $ fromIntegral $ length cs
-    let struct = S.mkStruct
-            (mirSliceCtxRepr tpr)
-            (Ctx.Empty Ctx.:> ref Ctx.:> len)
-    return $ MirExp (MirSliceRepr tpr) struct
-transConstVal _ty (Some (MirSliceRepr u8Repr@(C.BVRepr w))) (M.ConstStr bs)
+    let vec_tpr = MirVectorRepr tpr
+    return $ MirExp vec_tpr vec
+--
+-- This is what we did (instead of returning) before this logic
+-- got split into separate body and reference steps.
+--
+--vecRef <- constMirRef vec_tpr vec
+--ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
+--let len = R.App $ usizeLit $ fromIntegral $ length cs
+--let struct = S.mkStruct (mirSliceCtxRepr tpr) (Ctx.Empty Ctx.:> ref Ctx.:> len)
+--return $ MirExp (MirSliceRepr tpr) struct
+--
+-- Therefore, after looking up the defid, the reference step needs to:
+--    * extract the type from the global variable it finds
+--      (note that it'll be a MirVectorRepr that it needs to unwrap)
+--    * construct a reference to the global variable
+--      (with globalMirRef rather than constMirRef, that's the point of
+--      all this)
+--    * apply subindexRef as above
+--    * cons up the length
+--    * call mkStruct
+--    * cons up the final MirExp
+--
+-- staticPlaces does the first four of these actions; addrOfPlace
+-- does the last two. Note that addrOfPlace uses mkSlice instead
+-- of mkStruct as above, but as far as I can tell it's equivalent.
+--
+transConstVal (M.TyRef (M.TySlice _ty) _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
+    place <- staticPlaces tpr len defid
+    addr <- addrOfPlace place
+    return addr
+
+transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
   | Just Refl <- testEquality w (knownNat @8) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     mirVec <- mirVector_fromVector u8Repr vec
-    vecRef <- constMirRef (MirVectorRepr u8Repr) mirVec
-    ref <- subindexRef u8Repr vecRef (R.App $ usizeLit 0)
-    let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
-    let struct = S.mkStruct
-            knownRepr
-            (Ctx.Empty Ctx.:> ref Ctx.:> len)
-    return $ MirExp (MirSliceRepr u8Repr) struct
+    let vec_tpr = MirVectorRepr u8Repr
+    return $ MirExp vec_tpr mirVec
+--
+-- This is the code from before splitting into separate body and
+-- reference steps:
+--
+--vecRef <- constMirRef vec_tpr mirVec
+--ref <- subindexRef u8Repr vecRef (R.App $ usizeLit 0)
+--let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
+--let struct = S.mkStruct knownRepr (Ctx.Empty Ctx.:> ref Ctx.:> len)
+--return $ MirExp (MirSliceRepr u8Repr) struct
+--
+-- which is exactly analogous to the non-string slice case.
+--
+transConstVal _ty (Some (MirSliceRepr u8Repr@(C.BVRepr w))) (M.ConstStrRef defid len)
+  | Just Refl <- testEquality w (knownNat @8) = do
+    place <- staticPlaces u8Repr len defid
+    addr <- addrOfPlace place
+    return addr
+
 transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) = do
     arr' <- Trav.for arr $ \e -> do
         MirExp tpr' e' <- transConstVal ty (Some tpr) e
@@ -185,6 +224,7 @@ transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) =
         pure e'
     vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList arr'
     return $ MirExp (MirVectorRepr tpr) vec
+
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ eBVLit w i)
@@ -359,6 +399,26 @@ staticPlace did = do
             MirPlace (G.globalType gv) <$> globalMirRef gv <*> pure NoMeta
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
 
+-- variant of staticPlace for slices
+-- tpr is the element type; len is the length
+staticPlaces :: HasCallStack => C.TypeRepr tp -> Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
+staticPlaces tpr len did = do
+    sm <- use $ cs.staticMap
+    case Map.lookup did sm of
+        Just (StaticVar gv) -> do
+            let tpr_found = G.globalType gv
+            Refl <- testEqualityOrFail (MirVectorRepr tpr) tpr_found $
+                "staticPlaces: wrong type: expected vector of " ++
+                show tpr ++ ", found " ++ show tpr_found
+            ref <- globalMirRef gv
+            ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
+            -- XXX we seem to need to cons up a Crucible Atom (see
+            -- crucible/src/Lang/Crucible/CFG/Reg.hs) from len to put in here.
+            --let len' = error "oops"
+            let len' = R.App $ usizeLit $ fromIntegral len
+            return $ MirPlace tpr ref' (SliceMeta len')
+        Nothing -> mirFail $ "cannot find static variable " ++ fmt did
+
 -- NOTE: The return var in the MIR output is always "_0"
 getReturnExp :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 getReturnExp tpr = do
@@ -401,7 +461,6 @@ addrOfPlace (MirPlace tpr r (SliceMeta len)) =
     return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr r len
 addrOfPlace (MirPlaceDynRef dynRef) =
     return $ MirExp DynRefRepr dynRef
-
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
