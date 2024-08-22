@@ -30,7 +30,7 @@ jobs:
         cabal: ["3.10.3.0"]
         ghc: ["9.4.8", "9.6.5", "9.8.2"]
         include:
-          - os: macos-12
+          - os: macos-14
             cabal: 3.10.3.0
             ghc: 9.8.2
           - os: windows-2019
