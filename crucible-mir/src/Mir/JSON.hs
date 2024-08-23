@@ -495,8 +495,9 @@ instance FromJSON ConstVal where
             len <- v.: "len"
             return $ ConstSliceRef def_id len
 
+        -- FUTURE: this is the same as "array" and can be removed
         Just (String "slicebody") ->
-            ConstSliceBody <$> v .: "elements"
+            ConstArray <$> v .: "elements"
 
         Just (String "str") -> do
             def_id <- v .: "def_id"

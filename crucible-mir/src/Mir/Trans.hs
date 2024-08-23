@@ -150,19 +150,10 @@ transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
 transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
 
-transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstSliceBody cs) = do
-    cs' <- Trav.for cs $ \c -> do
-        MirExp tpr' c' <- transConstVal ty (Some tpr) c
-        Refl <- testEqualityOrFail tpr tpr' $
-            "transConstVal (ConstSlice): returned wrong type: expected " ++
-            show tpr ++ ", got " ++ show tpr'
-        pure c'
-    vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList cs'
-    let vec_tpr = MirVectorRepr tpr
-    return $ MirExp vec_tpr vec
 --
--- This is what we did (instead of returning) before this logic
--- got split into separate body and reference steps.
+-- Before the slice code got split into separate body and reference steps,
+-- it did the following after the code that's equivalent to the ConstArray
+-- case (which is where constant slice bodies get handled now):
 --
 --vecRef <- constMirRef vec_tpr vec
 --ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
@@ -198,8 +189,8 @@ transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
     let vec_tpr = MirVectorRepr u8Repr
     return $ MirExp vec_tpr mirVec
 --
--- This is the code from before splitting into separate body and
--- reference steps:
+-- This is the rest of the code that was here before the reference and
+-- body steps got split:
 --
 --vecRef <- constMirRef vec_tpr mirVec
 --ref <- subindexRef u8Repr vecRef (R.App $ usizeLit 0)
@@ -207,7 +198,8 @@ transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
 --let struct = S.mkStruct knownRepr (Ctx.Empty Ctx.:> ref Ctx.:> len)
 --return $ MirExp (MirSliceRepr u8Repr) struct
 --
--- which is exactly analogous to the non-string slice case.
+-- which is exactly analogous to the non-string slice case above, so
+-- we can do the same thing.
 --
 transConstVal _ty (Some (MirSliceRepr u8Repr@(C.BVRepr w))) (M.ConstStrRef defid len)
   | Just Refl <- testEquality w (knownNat @8) = do
