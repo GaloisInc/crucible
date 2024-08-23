@@ -155,7 +155,10 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 -- it did the following after the code that's equivalent to the ConstArray
 -- case (which is where constant slice bodies get handled now):
 --
---vecRef <- constMirRef vec_tpr vec
+-- (vec is the vector produced in the ConstArray case and tpr is the type
+-- representation of its element type)
+--
+--vecRef <- constMirRef (MirVectorRepr tpr) vec
 --ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
 --let len = R.App $ usizeLit $ fromIntegral $ length cs
 --let struct = S.mkStruct (mirSliceCtxRepr tpr) (Ctx.Empty Ctx.:> ref Ctx.:> len)
@@ -172,12 +175,12 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 --    * call mkStruct
 --    * cons up the final MirExp
 --
--- staticPlaces does the first four of these actions; addrOfPlace
+-- staticSlicePlace does the first four of these actions; addrOfPlace
 -- does the last two. Note that addrOfPlace uses mkSlice instead
 -- of mkStruct as above, but as far as I can tell it's equivalent.
 --
 transConstVal (M.TyRef _ _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
-    place <- staticPlaces tpr len defid
+    place <- staticSlicePlace tpr len defid
     addr <- addrOfPlace place
     return addr
 
@@ -186,8 +189,7 @@ transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     mirVec <- mirVector_fromVector u8Repr vec
-    let vec_tpr = MirVectorRepr u8Repr
-    return $ MirExp vec_tpr mirVec
+    return $ MirExp (MirVectorRepr u8Repr) mirVec
 
 transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) = do
     arr' <- Trav.for arr $ \e -> do
@@ -375,20 +377,17 @@ staticPlace did = do
 
 -- variant of staticPlace for slices
 -- tpr is the element type; len is the length
-staticPlaces :: HasCallStack => C.TypeRepr tp -> Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
-staticPlaces tpr len did = do
+staticSlicePlace :: HasCallStack => C.TypeRepr tp -> Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
+staticSlicePlace tpr len did = do
     sm <- use $ cs.staticMap
     case Map.lookup did sm of
         Just (StaticVar gv) -> do
             let tpr_found = G.globalType gv
             Refl <- testEqualityOrFail (MirVectorRepr tpr) tpr_found $
-                "staticPlaces: wrong type: expected vector of " ++
+                "staticSlicePlace: wrong type: expected vector of " ++
                 show tpr ++ ", found " ++ show tpr_found
             ref <- globalMirRef gv
             ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
-            -- XXX we seem to need to cons up a Crucible Atom (see
-            -- crucible/src/Lang/Crucible/CFG/Reg.hs) from len to put in here.
-            --let len' = error "oops"
             let len' = R.App $ usizeLit $ fromIntegral len
             return $ MirPlace tpr ref' (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
