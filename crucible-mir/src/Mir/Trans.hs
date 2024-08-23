@@ -372,7 +372,7 @@ varPlace (M.Var vname _ vty _) = do
     vi <- typedVarInfo vname tpr
     r <- case vi of
         VarReference reg -> G.readReg reg
-        -- TODO: these cases won't be needed once immutabe ref support is done
+        -- TODO: these cases won't be needed once immutable ref support is done
         -- - make them report an error instead
         VarRegister reg -> do
             x <- G.readReg reg
