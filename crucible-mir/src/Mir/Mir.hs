@@ -498,7 +498,6 @@ data ConstVal =
   | ConstInt IntLit
   | ConstSliceRef DefId Int
   | ConstStrBody B.ByteString
-  | ConstStrRef DefId Int
   | ConstBool Bool
   | ConstChar Char
   | ConstVariant DefId

@@ -313,7 +313,6 @@ instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
     pretty (ConstInt i)     = pretty i
     pretty (ConstStrBody i) = dquotes (viaShow i)
-    pretty (ConstStrRef a len) = pretty "&" <> pr_id a <> (viaShow len)
     pretty (ConstBool i)    = pretty i
     pretty (ConstChar i)    = pretty i
     pretty (ConstVariant i) = pr_id i

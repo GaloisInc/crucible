@@ -495,11 +495,6 @@ instance FromJSON ConstVal where
             len <- v.: "len"
             return $ ConstSliceRef def_id len
 
-        Just (String "str") -> do
-            def_id <- v .: "def_id"
-            len <- v.: "len"
-            return $ ConstStrRef def_id len
-
         Just (String "strbody") -> do
             elements <- v .: "elements"
             let f sci = case Scientific.toBoundedInteger sci of

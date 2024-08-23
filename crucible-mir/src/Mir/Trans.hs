@@ -176,7 +176,7 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 -- does the last two. Note that addrOfPlace uses mkSlice instead
 -- of mkStruct as above, but as far as I can tell it's equivalent.
 --
-transConstVal (M.TyRef (M.TySlice _ty) _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
+transConstVal (M.TyRef _ _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
     place <- staticPlaces tpr len defid
     addr <- addrOfPlace place
     return addr
@@ -188,24 +188,6 @@ transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
     mirVec <- mirVector_fromVector u8Repr vec
     let vec_tpr = MirVectorRepr u8Repr
     return $ MirExp vec_tpr mirVec
---
--- This is the rest of the code that was here before the reference and
--- body steps got split:
---
---vecRef <- constMirRef vec_tpr mirVec
---ref <- subindexRef u8Repr vecRef (R.App $ usizeLit 0)
---let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
---let struct = S.mkStruct knownRepr (Ctx.Empty Ctx.:> ref Ctx.:> len)
---return $ MirExp (MirSliceRepr u8Repr) struct
---
--- which is exactly analogous to the non-string slice case above, so
--- we can do the same thing.
---
-transConstVal _ty (Some (MirSliceRepr u8Repr@(C.BVRepr w))) (M.ConstStrRef defid len)
-  | Just Refl <- testEquality w (knownNat @8) = do
-    place <- staticPlaces u8Repr len defid
-    addr <- addrOfPlace place
-    return addr
 
 transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) = do
     arr' <- Trav.for arr $ \e -> do
