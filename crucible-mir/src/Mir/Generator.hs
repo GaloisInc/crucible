@@ -164,10 +164,7 @@ data MirPlace s where
 data PtrMetadata s =
       NoMeta
     | SliceMeta (R.Expr MIR s UsizeType)
-
-instance Show (PtrMetadata s) where
-    show NoMeta = "NoMeta"
-    show (SliceMeta len) = "SliceMeta " ++ show len
+  deriving Show
 
 ---------------------------------------------------------------------------------
 
