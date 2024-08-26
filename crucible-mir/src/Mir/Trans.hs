@@ -151,20 +151,9 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
 
 --
--- Before the slice code got split into separate body and reference steps,
--- it did the following after the code that's equivalent to the ConstArray
--- case (which is where constant slice bodies get handled now):
---
--- (vec is the vector produced in the ConstArray case and tpr is the type
--- representation of its element type)
---
---vecRef <- constMirRef (MirVectorRepr tpr) vec
---ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
---let len = R.App $ usizeLit $ fromIntegral $ length cs
---let struct = S.mkStruct (mirSliceCtxRepr tpr) (Ctx.Empty Ctx.:> ref Ctx.:> len)
---return $ MirExp (MirSliceRepr tpr) struct
---
--- Therefore, after looking up the defid, the reference step needs to:
+-- This code handles slice references, both for ordinary array slices
+-- and string slices. (These differ from ordinary references in having
+-- a length.)  It needs to look up the definition ID, and then:
 --    * extract the type from the global variable it finds
 --      (note that it'll be a MirVectorRepr that it needs to unwrap)
 --    * construct a reference to the global variable
@@ -176,8 +165,7 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 --    * cons up the final MirExp
 --
 -- staticSlicePlace does the first four of these actions; addrOfPlace
--- does the last two. Note that addrOfPlace uses mkSlice instead
--- of mkStruct as above, but as far as I can tell it's equivalent.
+-- does the last two.
 --
 transConstVal (M.TyRef _ _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
     place <- staticSlicePlace tpr len defid
