@@ -491,23 +491,17 @@ instance FromJSON ConstVal where
             pure $ ConstFloat $ FloatLit fk (T.unpack val)
 
         Just (String "slice") -> do
-            ConstSlice <$> v .: "elements"
+            def_id <- v .: "def_id"
+            len <- v.: "len"
+            return $ ConstSliceRef def_id len
 
-        Just (String "str") -> do
-            val <- v .: "val"
+        Just (String "strbody") -> do
+            elements <- v .: "elements"
             let f sci = case Scientific.toBoundedInteger sci of
                     Just b -> pure (b :: Word8)
                     Nothing -> fail $ "cannot read " ++ show sci
-            bytes <- mapM (withScientific "byte" f) val
-            return $ ConstStr $ BS.pack bytes
-
-        Just (String "bstr") -> do
-            val <- v .: "val"
-            let f sci = case Scientific.toBoundedInteger sci of
-                    Just b -> pure (ConstInt $ U8 $ toInteger (b :: Int))
-                    Nothing -> fail $ "cannot read " ++ show sci
-            bytes <- mapM (withScientific "byte" f) val
-            return $ ConstArray $ V.toList bytes
+            bytes <- mapM (withScientific "byte" f) elements
+            return $ ConstStrBody $ BS.pack bytes
 
         Just (String "struct") ->
             ConstStruct <$> v .: "fields"

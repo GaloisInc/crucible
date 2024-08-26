@@ -149,33 +149,36 @@ transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (M.TyRef (M.TySlice ty) _) (Some (MirSliceRepr tpr)) (M.ConstSlice cs) = do
-    cs' <- Trav.for cs $ \c -> do
-        MirExp tpr' c' <- transConstVal ty (Some tpr) c
-        Refl <- testEqualityOrFail tpr tpr' $
-            "transConstVal (ConstSlice): returned wrong type: expected " ++
-            show tpr ++ ", got " ++ show tpr'
-        pure c'
-    vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList cs'
-    vecRef <- constMirRef (MirVectorRepr tpr) vec
-    ref <- subindexRef tpr vecRef (R.App $ usizeLit 0)
-    let len = R.App $ usizeLit $ fromIntegral $ length cs
-    let struct = S.mkStruct
-            (mirSliceCtxRepr tpr)
-            (Ctx.Empty Ctx.:> ref Ctx.:> len)
-    return $ MirExp (MirSliceRepr tpr) struct
-transConstVal _ty (Some (MirSliceRepr u8Repr@(C.BVRepr w))) (M.ConstStr bs)
+
+--
+-- This code handles slice references, both for ordinary array slices
+-- and string slices. (These differ from ordinary references in having
+-- a length.)  It needs to look up the definition ID, and then:
+--    * extract the type from the global variable it finds
+--      (note that it'll be a MirVectorRepr that it needs to unwrap)
+--    * construct a reference to the global variable
+--      (with globalMirRef rather than constMirRef, that's the point of
+--      all this)
+--    * apply subindexRef as above
+--    * cons up the length
+--    * call mkStruct
+--    * cons up the final MirExp
+--
+-- staticSlicePlace does the first four of these actions; addrOfPlace
+-- does the last two.
+--
+transConstVal (M.TyRef _ _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
+    place <- staticSlicePlace tpr len defid
+    addr <- addrOfPlace place
+    return addr
+
+transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
   | Just Refl <- testEquality w (knownNat @8) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     mirVec <- mirVector_fromVector u8Repr vec
-    vecRef <- constMirRef (MirVectorRepr u8Repr) mirVec
-    ref <- subindexRef u8Repr vecRef (R.App $ usizeLit 0)
-    let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
-    let struct = S.mkStruct
-            knownRepr
-            (Ctx.Empty Ctx.:> ref Ctx.:> len)
-    return $ MirExp (MirSliceRepr u8Repr) struct
+    return $ MirExp (MirVectorRepr u8Repr) mirVec
+
 transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) = do
     arr' <- Trav.for arr $ \e -> do
         MirExp tpr' e' <- transConstVal ty (Some tpr) e
@@ -185,6 +188,7 @@ transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) =
         pure e'
     vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList arr'
     return $ MirExp (MirVectorRepr tpr) vec
+
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ eBVLit w i)
@@ -340,7 +344,7 @@ varPlace (M.Var vname _ vty _) = do
     vi <- typedVarInfo vname tpr
     r <- case vi of
         VarReference reg -> G.readReg reg
-        -- TODO: these cases won't be needed once immutabe ref support is done
+        -- TODO: these cases won't be needed once immutable ref support is done
         -- - make them report an error instead
         VarRegister reg -> do
             x <- G.readReg reg
@@ -357,6 +361,23 @@ staticPlace did = do
     case Map.lookup did sm of
         Just (StaticVar gv) ->
             MirPlace (G.globalType gv) <$> globalMirRef gv <*> pure NoMeta
+        Nothing -> mirFail $ "cannot find static variable " ++ fmt did
+
+-- variant of staticPlace for slices
+-- tpr is the element type; len is the length
+staticSlicePlace :: HasCallStack => C.TypeRepr tp -> Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
+staticSlicePlace tpr len did = do
+    sm <- use $ cs.staticMap
+    case Map.lookup did sm of
+        Just (StaticVar gv) -> do
+            let tpr_found = G.globalType gv
+            Refl <- testEqualityOrFail (MirVectorRepr tpr) tpr_found $
+                "staticSlicePlace: wrong type: expected vector of " ++
+                show tpr ++ ", found " ++ show tpr_found
+            ref <- globalMirRef gv
+            ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
+            let len' = R.App $ usizeLit $ fromIntegral len
+            return $ MirPlace tpr ref' (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
 
 -- NOTE: The return var in the MIR output is always "_0"
@@ -401,7 +422,6 @@ addrOfPlace (MirPlace tpr r (SliceMeta len)) =
     return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr r len
 addrOfPlace (MirPlaceDynRef dynRef) =
     return $ MirExp DynRefRepr dynRef
-
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they

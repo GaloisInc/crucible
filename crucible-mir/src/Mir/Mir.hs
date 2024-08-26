@@ -496,9 +496,12 @@ data FloatLit
 data ConstVal =
     ConstFloat FloatLit
   | ConstInt IntLit
-  | ConstSlice [ConstVal]
-  | ConstStr B.ByteString
-  | ConstByteStr B.ByteString
+  -- | A reference to a static allocation for a slice (type is `&[T]` or `&str`)
+  -- The DefId can lead to either a ConstArray or a ConstStrBody.
+  | ConstSliceRef DefId Int
+  -- | A string body, of type [u8]. Currently only arises from string literals,
+  -- but might in the future be used for all [u8]s.
+  | ConstStrBody B.ByteString
   | ConstBool Bool
   | ConstChar Char
   | ConstVariant DefId
