@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible
-Version:       0.7.1
+Version:       0.7.1.0.99
 Author:        Galois Inc.
 Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
 Copyright:     (c) Galois, Inc 2014-2022

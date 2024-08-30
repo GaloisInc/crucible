@@ -6,7 +6,7 @@ description:
   reading and writing symbolic data. An example use case would be to support verifying
   programs that e.g., use configuration files or accept input from files.
 name:                crucible-symio
-version:             0.1.1
+version:             0.1.1.0.99
 license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Daniel Matichuk
