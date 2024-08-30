@@ -1,5 +1,8 @@
-# next
+# 0.9 -- 2024-08-30
 
+* Add support for GHC 9.8
+* Add integer-related `llvm.vector.reduce.*` intrinsics.
+* Add workaround to allow loading bitcode using LLVM's reltable lookup optimization.
 * `register_llvm_overrides{,_}` now returns the list of overrides that were
   applied.
 * The `doMallocHandle` function was removed.
@@ -20,6 +23,8 @@
 * Add overrides for integer-related `llvm.vector.reduce.*` intrinsics.
 * Add support for atomic `fadd`, `fsub`, `fmax`, `fmin`, `uinc_wrap`, and
   `udec_wrap` operations in `atomicrmw` instructions.
+
+# 0.7 - 0.8 -- Skipped to synchronize version numbers.
 
 # 0.6 -- 2024-02-05
 

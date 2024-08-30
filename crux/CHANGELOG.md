@@ -1,3 +1,9 @@
+# 0.9 -- 2024-08-30
+
+* Add support for GHC 9.8
+
+# 0.8 -- Skipped to synchronize version numbers.
+
 # 0.7 -- 2024-02-05
 
 * Add a `Crux.Overrides` module, which defines common functionality for defining

@@ -1,7 +1,12 @@
-# next -- TBA
+# 0.9 -- 2024-08-30
 
-* Fix a bug in which `crucible-mir` would fail to parse MIR JSON code involving
-  casts from array references to pointers.
+* Implement byte-to-char casts.
+* Fix a bug which failed to parse MIR JSON code involving casts from array references to pointers.
+* Rearranged handling of constant slices into a reference and a separate static allocation for the body the reference points to.
+* Add support for GHC 9.8
+* Properly parse ArrayToPointer casts
+
+# 0.3-0.8 -- Skipped to synchronize version numbers.
 
 # 0.2 -- 2024-02-05
 
