@@ -1,5 +1,8 @@
-# next
+# 0.7 -- 2024-08-30
 
+* Add support for GHC 9.8
+* Add integer-related `llvm.vector.reduce.*` intrinsics.
+* Add workaround to allow loading bitcode using LLVM's reltable lookup optimization.
 * `register_llvm_overrides{,_}` now returns the list of overrides that were
   applied.
 * The `doMallocHandle` function was removed.

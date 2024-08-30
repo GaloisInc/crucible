@@ -1,4 +1,6 @@
-# next
+# 0.7.1 -- 2024-08-30
+
+* Add support for GHC 9.8
 
 * Deprecate `concreteizeSymSequence` in favor of `concretizeSymSequence`
 

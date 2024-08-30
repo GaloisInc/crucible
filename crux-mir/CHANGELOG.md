@@ -1,3 +1,8 @@
+# 0.9 -- 2024-08-30
+
+* Add support for GHC 9.8
+* Constant slice updates in accordance with downstream changes from `crucible-mir`.
+
 # 0.8 -- 2024-02-05
 
 * `crux-mir` now supports the `nightly-2023-01-23` Rust toolchain. Some of the
