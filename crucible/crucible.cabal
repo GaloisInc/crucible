@@ -65,7 +65,7 @@ library
     transformers,
     unordered-containers,
     vector,
-    what4 >= 0.4
+    what4 >= 1.6.1
 
   default-extensions:
      NondecreasingIndentation
