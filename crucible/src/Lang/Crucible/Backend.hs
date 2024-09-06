@@ -16,13 +16,11 @@ offline solver connection, while the
 'Lang.Crucible.Backend.Online.OnlineBackend' is designed to be used with an
 online solver.
 
-The 'AS.AssumptionStack' tracks the assumptions that are in scope for each
-assertion, accounting for the branching and merging structure of programs.  The
-symbolic simulator manages the 'AS.AssumptionStack'. After symbolic simulation
-completes, the caller should traverse the 'AS.AssumptionStack' (or use
-combinators like 'AS.proofGoalsToList') to discharge the resulting proof
-obligations with a solver backend.
-
+The backend tracks the assumptions that are in scope for each assertion,
+accounting for the branching and merging structure of programs. After
+symbolic simulation completes, the caller should traverse the collected
+'ProofObligations'  (via 'getProofObligations') to discharge the resulting proof
+obligations with a solver backend. See also "Lang.Crucible.Backend.Prove".
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
