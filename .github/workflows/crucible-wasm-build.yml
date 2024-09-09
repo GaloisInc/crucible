@@ -38,7 +38,7 @@ jobs:
             ghc: 9.8.2
     name: crucible-wasm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
@@ -65,7 +65,7 @@ jobs:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/cache/restore@v3
+      - uses: actions/cache/restore@v4
         name: Restore cabal store cache
         with:
           path: |
@@ -125,7 +125,7 @@ jobs:
         shell: bash
         run: cabal v2-haddock crucible-wasm
 
-      - uses: actions/cache/save@v3
+      - uses: actions/cache/save@v4
         name: Save cabal store cache
         if: always()
         with:

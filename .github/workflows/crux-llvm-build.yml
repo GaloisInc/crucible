@@ -78,7 +78,7 @@ jobs:
             ghc: 9.4.8
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
@@ -105,7 +105,7 @@ jobs:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/cache/restore@v3
+      - uses: actions/cache/restore@v4
         name: Restore cabal store cache
         with:
           path: |
@@ -242,13 +242,13 @@ jobs:
         run: |
           .github/ci.sh sign "${NAME}.tar.gz"
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         if: github.repository == 'GaloisInc/crucible'
         with:
           path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
 
-      - uses: actions/cache/save@v3
+      - uses: actions/cache/save@v4
         name: Save cabal store cache
         if: always()
         with:
