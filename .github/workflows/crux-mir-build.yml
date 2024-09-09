@@ -204,7 +204,7 @@ jobs:
         run: |
           .github/ci.sh sign "${NAME}.tar.gz"
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         if: github.repository == 'GaloisInc/crucible'
         with:
           path: crux-mir-*.tar.gz*
