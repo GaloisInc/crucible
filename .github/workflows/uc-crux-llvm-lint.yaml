@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-20.04
     name: uc-crux-llvm lint
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: false
 
