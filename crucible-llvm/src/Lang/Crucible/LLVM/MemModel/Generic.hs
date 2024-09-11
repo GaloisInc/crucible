@@ -1329,10 +1329,11 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
                              [ "Expected byte value when updating SMT array, but got:"
                              , show v
                              ]
-                  Partial.Err _ ->
+                  Partial.Err p ->
                       panic "writeMemWithAllocationCheck"
                              [ "Expected succesful byte load when updating SMT array"
-                             , "but got an error instead"
+                             , "but got an error instead:"
+                             , show (printSymExpr p)
                              ]
 
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
