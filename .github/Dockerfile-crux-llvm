@@ -7,7 +7,11 @@ RUN apt-get update && \
       # Crux dependencies \
       pkg-config zlib1g-dev \
       # LLVM toolchain
-      clang-12 llvm-12-tools \
+      #
+      # If you update the version numbers below, make sure to update the
+      # value of LINUX_LLVM_VER in .github/ci.sh (in the install_llvm()
+      # function).
+      clang-14 llvm-14-tools \
       # Miscellaneous
       locales unzip wget
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
@@ -45,7 +49,7 @@ ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
 ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
 ADD cabal.GHC-9.4.8.config ${DIR}/build/cabal.project.freeze
-# Workaround until we have an LLVM 12 build available
+# Workaround until we have an LLVM 14 build available
 RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-12.0.1.bc
 
 WORKDIR ${DIR}/build
