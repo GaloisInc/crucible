@@ -7,6 +7,10 @@ RUN apt-get update && \
       # Crux dependencies \
       pkg-config zlib1g-dev \
       # LLVM toolchain
+      #
+      # If you update the version numbers below, make sure to update the
+      # value of LINUX_LLVM_VER in .github/ci.sh (in the install_llvm()
+      # function).
       clang-14 llvm-14-tools \
       # Miscellaneous
       locales unzip wget

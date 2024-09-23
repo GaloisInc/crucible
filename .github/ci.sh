@@ -64,13 +64,27 @@ test() {
 
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
-    sudo apt-get update -q && sudo apt-get install -y clang-14 llvm-14-tools
-    echo "LLVM_LINK=llvm-link-14" >> "$GITHUB_ENV"
-    echo "LLVM_AS=llvm-as-14" >> "$GITHUB_ENV"
-    echo "CLANG=clang-14" >> "$GITHUB_ENV"
+    # Different Ubuntu versions include different LLVM versions in the package
+    # manager, so we select the appropriate LLVM version below.
+    #
+    # If you update the value of LINUX_LLVM_VER below, make sure to also update
+    # the corresponding LLVM version in .github/Dockerfile-crux-llvm.
+    if [[ "$BUILD_TARGET_OS" = "ubuntu-22.04" ]]; then
+      LINUX_LLVM_VER=14
+    elif [[ "$BUILD_TARGET_OS" = "ubuntu-20.04" ]]; then
+      LINUX_LLVM_VER=12
+    else
+      echo "Don't know what LLVM version to use for $LINUX_LLVM_VER."
+      exit 1
+    fi
+    sudo apt-get update -q && sudo apt-get install -y "clang-$LINUX_LLVM_VER" "llvm-$LINUX_LLVM_VER-tools"
+    echo "LLVM_LINK=llvm-link-$LINUX_LLVM_VER" >> "$GITHUB_ENV"
+    echo "LLVM_AS=llvm-as-$LINUX_LLVM_VER" >> "$GITHUB_ENV"
+    echo "CLANG=clang-$LINUX_LLVM_VER" >> "$GITHUB_ENV"
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
-    brew install llvm@14
-    echo "$(brew --prefix)/opt/llvm@14/bin" >> "$GITHUB_PATH"
+    MACOS_LLVM_VER=14
+    brew install "llvm@$MACOS_LLVM_VER"
+    echo "$(brew --prefix)/opt/llvm@$MACOS_LLVM_VER/bin" >> "$GITHUB_PATH"
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
     choco install llvm
   else
