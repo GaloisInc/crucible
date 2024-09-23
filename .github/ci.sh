@@ -64,13 +64,13 @@ test() {
 
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
-    sudo apt-get update -q && sudo apt-get install -y clang-12 llvm-12-tools
-    echo "LLVM_LINK=llvm-link-12" >> "$GITHUB_ENV"
-    echo "LLVM_AS=llvm-as-12" >> "$GITHUB_ENV"
-    echo "CLANG=clang-12" >> "$GITHUB_ENV"
+    sudo apt-get update -q && sudo apt-get install -y clang-14 llvm-14-tools
+    echo "LLVM_LINK=llvm-link-14" >> "$GITHUB_ENV"
+    echo "LLVM_AS=llvm-as-14" >> "$GITHUB_ENV"
+    echo "CLANG=clang-14" >> "$GITHUB_ENV"
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
-    brew install llvm@12
-    echo "$(brew --prefix)/opt/llvm@12/bin" >> "$GITHUB_PATH"
+    brew install llvm@14
+    echo "$(brew --prefix)/opt/llvm@14/bin" >> "$GITHUB_PATH"
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
     choco install llvm
   else
