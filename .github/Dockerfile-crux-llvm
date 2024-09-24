@@ -1,4 +1,9 @@
+# If you update this version number, make sure to update the value of
+# LINUX_LLVM_VER in .github/ci.sh (in the install_llvm() function).
+ARG LLVM_VER=14
+
 FROM ubuntu:22.04 AS build
+ARG LLVM_VER
 
 RUN apt-get update && \
     apt-get install -y \
@@ -7,11 +12,7 @@ RUN apt-get update && \
       # Crux dependencies \
       pkg-config zlib1g-dev \
       # LLVM toolchain
-      #
-      # If you update the version numbers below, make sure to update the
-      # value of LINUX_LLVM_VER in .github/ci.sh (in the install_llvm()
-      # function).
-      clang-14 llvm-14-tools \
+      clang-${LLVM_VER} llvm-${LLVM_VER}-tools \
       # Miscellaneous
       locales unzip wget
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
@@ -49,32 +50,33 @@ ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
 ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
 ADD cabal.GHC-9.4.8.config ${DIR}/build/cabal.project.freeze
-# Workaround until we have an LLVM 14 build available
-RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-12.0.1.bc
+# Workaround until we have a more recent LLVM build available
+RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-${LLVM_VER}.0.0.bc
 
 WORKDIR ${DIR}/build
 RUN cabal v2-build --only-dependencies crux-llvm
 RUN cabal v2-build crux-llvm
-ENV CLANG=clang-12
-ENV LLVM_LINK=llvm-link-12
+ENV CLANG=clang-${LLVM_VER}
+ENV LLVM_LINK=llvm-link-${LLVM_VER}
 RUN cabal v2-test crux-llvm
 RUN cp `cabal v2-exec which crux-llvm` /usr/local/bin
 RUN cp `cabal v2-exec which crux-llvm-svcomp` /usr/local/bin
 
 FROM ubuntu:22.04
+ARG LLVM_VER
 
 USER root
 RUN apt-get update && \
     apt-get install -y \
-      libgmp10 zlib1g clang-12 llvm-12-tools unzip locales
+      libgmp10 zlib1g clang-${LLVM_VER} llvm-${LLVM_VER}-tools unzip locales
 
 COPY --from=build /usr/local/bin/* /usr/local/bin/
 
 ARG DIR=/crux-llvm
 WORKDIR ${DIR}
 ADD crux-llvm/c-src c-src
-# Use LLVM 7 bitcode file for libcxx until LLVM version is available
-RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-12.0.1.bc
+# Use LLVM 7 bitcode file for libcxx until a more recent LLVM version is available
+RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-${LLVM_VER}.0.0.bc
 
 # (Temporary) fix for
 # https://github.com/galoisinc/crucible/issues/887: the libDir default
@@ -85,8 +87,8 @@ RUN cp -r c-src /usr/local/
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen
 ENV LD_LIBRARY_PATH=/usr/local/lib
-ENV CLANG=clang-12
-ENV LLVM_LINK=llvm-link-12
+ENV CLANG=clang-${LLVM_VER}
+ENV LLVM_LINK=llvm-link-${LLVM_VER}
 ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
