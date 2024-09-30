@@ -29,3 +29,9 @@ optional-packages:
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/
   dependencies/what4/what4/
+
+-- TODO RGS: Remove these
+allow-newer:
+  boomerang:template-haskell,
+  itanium-abi:text,
+  kvitable:base
