@@ -28,7 +28,7 @@ module Lang.Crucible.Utils.BitSet
 , toList
 , foldr
 , foldl
-, foldl'
+, Lang.Crucible.Utils.BitSet.foldl'
 ) where
 
 import Data.Bits
