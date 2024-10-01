@@ -76,7 +76,6 @@ common bldflags
   -- TODO(lb): Test these with GHC 9.4
   -- if impl(ghc >= 9.4)
   --   ghc-options:
-  --     -Werror=forall-identifier
   --     -Werror=misplaced-pragmas
   --     -Werror=redundant-strictness-flags
   --     -Werror=type-equality-out-of-scope
