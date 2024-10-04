@@ -23,7 +23,7 @@ import Mir.Pass.AllocateEnum ( passAllocateEnum )
 
 import Debug.Trace
 
-type Pass = (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
+type Pass = (?debug::Int, HasCallStack) => Collection -> Collection
 
 --------------------------------------------------------------------------------------
 infixl 0 |>

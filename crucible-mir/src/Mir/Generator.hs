@@ -395,19 +395,6 @@ $(return [])
 
 -- ** Operations and instances
 
-instance Semigroup RustModule where
-  (RustModule cs1 cm1 ex1) <> (RustModule cs2 cm2 ex2) =
-    RustModule (cs1 <> cs2) (cm1 <> cm2) (ex1 <> ex2)
-instance Monoid RustModule where
-  mempty  = RustModule mempty mempty mempty
-
-instance Semigroup CollectionState  where
-  (CollectionState hm1 vm1 sm1 dm1 chm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 chm2 col2) =
-      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (Map.unionWith (<>) chm1 chm2) (col1 <> col2))
-instance Monoid CollectionState where
-  mempty  = CollectionState mempty mempty mempty mempty mempty mempty
-
-
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
