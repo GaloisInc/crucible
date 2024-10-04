@@ -69,8 +69,8 @@ uninternMir col = uninternTys unintern (col { _namedTys = mempty })
 
 -- | Translate a MIR collection to Crucible
 translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
-   => CollectionState -> Collection -> C.HandleAllocator -> IO RustModule
-translateMIR lib col halloc =
+   => Collection -> C.HandleAllocator -> IO RustModule
+translateMIR col halloc =
   let ?customOps = Mir.customOps in
-  let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
-  in let ?libCS = lib in transCollection col0 halloc
+  let col0 = rewriteCollection col
+  in transCollection col0 halloc

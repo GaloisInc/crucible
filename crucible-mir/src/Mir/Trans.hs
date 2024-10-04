@@ -2249,7 +2249,7 @@ mkCrateHashesMap
 -- | transCollection: translate a MIR collection
 transCollection ::
     (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool,
-     ?libCS::CollectionState, ?customOps::CustomOpMap,
+     ?customOps::CustomOpMap,
      ?printCrucible::Bool)
     => M.Collection
     -> FH.HandleAllocator
@@ -2286,14 +2286,14 @@ transCollection col halloc = do
         colState = CollectionState hmap vm sm dm chm col
 
     -- translate all of the functions
-    fnInfo <- mapM (stToIO . transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
+    fnInfo <- mapM (stToIO . transDefine colState) (Map.elems (col^.M.functions))
     let pairs1 = [(name, cfg) | (name, cfg, _) <- fnInfo]
     let transInfo = Map.fromList [(name, fti) | (name, _, fti) <- fnInfo]
-    pairs2 <- mapM (stToIO . transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
+    pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col^.M.vtables))
 
     pairs3 <- Maybe.catMaybes <$> mapM (\intr -> case intr^.M.intrInst of
         Instance (IkVirtual dynTraitName methodIndex) methodId _substs ->
-            stToIO $ Just <$> transVirtCall (?libCS <> colState)
+            stToIO $ Just <$> transVirtCall colState
                 (intr^.M.intrName) methodId dynTraitName methodIndex
         _ -> return Nothing) (Map.elems (col ^. M.intrinsics))
 
