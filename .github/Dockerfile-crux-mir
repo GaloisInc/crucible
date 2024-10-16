@@ -78,7 +78,9 @@ FROM ubuntu:22.04
 USER root
 RUN apt-get update && \
     apt-get install -y \
-      libgmp10 zlib1g libcurl4
+      libgmp10 zlib1g libcurl4 \
+      # A C toolchain (needed to build crates that require a C compiler)
+      clang
 
 ARG DIR=/crux-mir
 COPY --from=mir_json /usr/local/cargo /usr/local/cargo
