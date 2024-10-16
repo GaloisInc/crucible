@@ -86,6 +86,7 @@ RUN cp -r c-src /usr/local/
 
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen
+USER crux-llvm
 ENV LD_LIBRARY_PATH=/usr/local/lib
 ENV CLANG=clang-${LLVM_VER}
 ENV LLVM_LINK=llvm-link-${LLVM_VER}

@@ -78,7 +78,9 @@ FROM ubuntu:22.04
 USER root
 RUN apt-get update && \
     apt-get install -y \
-      libgmp10 zlib1g libcurl4
+      libgmp10 zlib1g libcurl4 \
+      # A C toolchain (needed to build crates that require a C compiler)
+      clang
 
 ARG DIR=/crux-mir
 COPY --from=mir_json /usr/local/cargo /usr/local/cargo
@@ -89,6 +91,7 @@ RUN mkdir -p ${DIR}/workspace
 
 WORKDIR ${DIR}/workspace
 
+USER crux-mir
 ENV CARGO_HOME=/usr/local/cargo \
     RUSTUP_HOME=/usr/local/rustup \
     CRUX_RUST_LIBRARY_PATH=/crux-mir/rlibs \
