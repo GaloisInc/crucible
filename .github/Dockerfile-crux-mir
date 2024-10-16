@@ -89,6 +89,7 @@ RUN mkdir -p ${DIR}/workspace
 
 WORKDIR ${DIR}/workspace
 
+USER crux-mir
 ENV CARGO_HOME=/usr/local/cargo \
     RUSTUP_HOME=/usr/local/rustup \
     CRUX_RUST_LIBRARY_PATH=/crux-mir/rlibs \
