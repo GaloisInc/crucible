@@ -14,83 +14,86 @@ RUN apt-get update && \
       # LLVM toolchain
       clang-${LLVM_VER} llvm-${LLVM_VER}-tools \
       # Miscellaneous
-      locales unzip wget
-RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
-    locale-gen
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US:en
-ENV LC_ALL en_US.UTF-8
+      unzip wget
 
-WORKDIR /usr/local/bin
+ARG CRUX_BUILD_DIR=/crux-llvm/build
+RUN mkdir -p ${CRUX_BUILD_DIR}
+ADD crucible ${CRUX_BUILD_DIR}/crucible
+ADD crucible-llvm ${CRUX_BUILD_DIR}/crucible-llvm
+ADD crucible-symio ${CRUX_BUILD_DIR}/crucible-symio
+ADD crux ${CRUX_BUILD_DIR}/crux
+ADD crux-llvm ${CRUX_BUILD_DIR}/crux-llvm
+ADD dependencies ${CRUX_BUILD_DIR}/dependencies
+ADD .github/cabal.project.crux-llvm ${CRUX_BUILD_DIR}/cabal.project
+ADD cabal.GHC-9.4.8.config ${CRUX_BUILD_DIR}/cabal.project.freeze
+# Workaround until we have a more recent LLVM build available
+RUN cp ${CRUX_BUILD_DIR}/crux-llvm/c-src/libcxx-7.1.0.bc ${CRUX_BUILD_DIR}/crux-llvm/c-src/libcxx-${LLVM_VER}.0.0.bc
+
+RUN useradd -m crux-llvm && chown -R crux-llvm:crux-llvm /crux-llvm
+USER crux-llvm
+WORKDIR /crux-llvm
+
+ENV CLANG=clang-${LLVM_VER} \
+    LLVM_LINK=llvm-link-${LLVM_VER} \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+RUN mkdir -p rootfs/usr/local/bin
+WORKDIR rootfs/usr/local/bin
 # The URL here is based on the same logic used to specify BUILD_TARGET_OS and
 # BUILD_TARGET_ARCH in `.github/workflow/crux-llvm-build.yml`, but specialized
 # to x86-64 Ubuntu.
 RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20240212/ubuntu-22.04-X64-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
-ENV PATH=/root/ghcup-download/bin:/root/.ghcup/bin:$PATH
-RUN mkdir -p /root/ghcup-download/bin && \
-    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /root/ghcup-download/bin/ghcup && \
-    chmod +x /root/ghcup-download/bin/ghcup
-RUN mkdir -p /root/.ghcup && \
+WORKDIR /crux-llvm
+ENV PATH=/crux-llvm/rootfs/usr/local/bin:/home/crux-llvm/.local/bin:/home/crux-llvm/.ghcup/bin:$PATH
+RUN mkdir -p /home/crux-llvm/.local/bin && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /home/crux-llvm/.local/bin/ghcup && \
+    chmod +x /home/crux-llvm/.local/bin/ghcup
+RUN mkdir -p /home/crux-llvm/.ghcup && \
     ghcup --version && \
     ghcup install cabal 3.10.3.0 && \
     ghcup install ghc 9.4.8 && \
     ghcup set ghc 9.4.8
-RUN cabal v2-update
 
-ARG DIR=/crux-llvm
-WORKDIR ${DIR}
-RUN mkdir -p ${DIR}/build
-ADD crucible ${DIR}/build/crucible
-ADD crucible-llvm ${DIR}/build/crucible-llvm
-ADD crucible-symio ${DIR}/build/crucible-symio
-ADD crux ${DIR}/build/crux
-ADD crux-llvm ${DIR}/build/crux-llvm
-ADD dependencies ${DIR}/build/dependencies
-ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
-ADD cabal.GHC-9.4.8.config ${DIR}/build/cabal.project.freeze
-# Workaround until we have a more recent LLVM build available
-RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-${LLVM_VER}.0.0.bc
-
-WORKDIR ${DIR}/build
-RUN cabal v2-build --only-dependencies crux-llvm
-RUN cabal v2-build crux-llvm
-ENV CLANG=clang-${LLVM_VER}
-ENV LLVM_LINK=llvm-link-${LLVM_VER}
-RUN cabal v2-test crux-llvm
-RUN cp `cabal v2-exec which crux-llvm` /usr/local/bin
-RUN cp `cabal v2-exec which crux-llvm-svcomp` /usr/local/bin
+WORKDIR ${CRUX_BUILD_DIR}
+RUN cabal v2-update && \
+    cabal v2-build --only-dependencies crux-llvm && \
+    cabal v2-build crux-llvm && \
+    cabal v2-test crux-llvm && \
+    cp `cabal v2-exec which crux-llvm` /crux-llvm/rootfs/usr/local/bin && \
+    cp `cabal v2-exec which crux-llvm-svcomp` /crux-llvm/rootfs/usr/local/bin
+USER root
+RUN chown -R root:root /crux-llvm/rootfs
 
 FROM ubuntu:22.04
 ARG LLVM_VER
 
-USER root
 RUN apt-get update && \
     apt-get install -y \
-      libgmp10 zlib1g clang-${LLVM_VER} llvm-${LLVM_VER}-tools unzip locales
+      libgmp10 zlib1g clang-${LLVM_VER} llvm-${LLVM_VER}-tools unzip
 
-COPY --from=build /usr/local/bin/* /usr/local/bin/
-
-ARG DIR=/crux-llvm
-WORKDIR ${DIR}
+COPY --from=build /crux-llvm/rootfs /
+WORKDIR /crux-llvm
 ADD crux-llvm/c-src c-src
-# Use LLVM 7 bitcode file for libcxx until a more recent LLVM version is available
-RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-${LLVM_VER}.0.0.bc
+RUN \
+    # Use LLVM 7 bitcode file for libcxx until a more recent LLVM version is available
+    cp c-src/libcxx-7.1.0.bc c-src/libcxx-${LLVM_VER}.0.0.bc && \
+    # (Temporary) fix for
+    # https://github.com/galoisinc/crucible/issues/887: the libDir default
+    # is relative to the executable or failing that, the data dir as
+    # reported by the build process, but neither matches WORKDIR/c-src.
+    cp -r c-src /usr/local/
 
-# (Temporary) fix for
-# https://github.com/galoisinc/crucible/issues/887: the libDir default
-# is relative to the executable or failing that, the data dir as
-# reported by the build process, but neither matches WORKDIR/c-src.
-RUN cp -r c-src /usr/local/
-
-RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
-    locale-gen
+RUN useradd -m crux-llvm && chown -R crux-llvm:crux-llvm /crux-llvm /home/crux-llvm
 USER crux-llvm
-ENV LD_LIBRARY_PATH=/usr/local/lib
-ENV CLANG=clang-${LLVM_VER}
-ENV LLVM_LINK=llvm-link-${LLVM_VER}
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US:en
-ENV LC_ALL en_US.UTF-8
+WORKDIR /
+
+ENV LD_LIBRARY_PATH=/usr/local/lib \
+    CLANG=clang-${LLVM_VER} \
+    LLVM_LINK=llvm-link-${LLVM_VER} \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
 ENTRYPOINT ["/usr/local/bin/crux-llvm"]
