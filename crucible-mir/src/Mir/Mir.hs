@@ -586,18 +586,6 @@ makeLenses ''NamedTy
 makeWrapped ''Substs
 
 --------------------------------------------------------------------------------------
--- Other instances for ADT types
---------------------------------------------------------------------------------------
-
-instance Semigroup Collection where
-  (Collection f1 a1 a1' t1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 s2 v2 n2 tys2 r2) =
-    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
-instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
-
-
-
---------------------------------------------------------------------------------------
 --- aux functions ---
 --------------------------------------------------------------------------------------
 

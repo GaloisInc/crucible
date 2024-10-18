@@ -253,7 +253,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
     -- Translate to crucible
     halloc  <- C.newHandleAllocator
-    mir     <- translateMIR mempty col halloc
+    mir     <- translateMIR col halloc
 
     C.AnyCFG staticInitCfg <- transStatics (mir^.rmCS) halloc
     let hi = C.cfgHandle staticInitCfg
