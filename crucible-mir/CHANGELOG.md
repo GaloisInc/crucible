@@ -1,3 +1,13 @@
+# next -- TBA
+
+* The calling sequence of ```translateMIR``` has changed: the first argument,
+  which should always have been passed as ```mempty```, has been removed.
+  This will require adjustments in any downstream callers.
+* The corresponding implicit argument in the ```Pass``` type has been removed.
+* The Semigroup and Monoid instances for Collection, CollectionState, and
+  RustModule have been removed. It is not expected that there are any
+  downstream users.
+
 # 0.3 -- 2024-08-30
 
 * Implement byte-to-char casts.
