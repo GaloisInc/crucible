@@ -1,19 +1,11 @@
 # If you update this, make sure to also update RUST_TOOLCHAIN in
 # .github/workflows/crux-mir-build.yml
 ARG RUST_TOOLCHAIN="nightly-2023-01-23"
-
-FROM rust:1.46.0 AS mir_json
-ARG RUST_TOOLCHAIN
-
-ADD dependencies/mir-json /mir-json
-WORKDIR /mir-json
-RUN rustup toolchain install ${RUST_TOOLCHAIN} --force
-RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev
-RUN rustup default ${RUST_TOOLCHAIN}
-RUN cargo install --locked
+ARG CRUX_BUILD_DIR=/crux-mir/build
 
 FROM ubuntu:22.04 AS build
 ARG RUST_TOOLCHAIN
+ARG CRUX_BUILD_DIR
 
 RUN apt-get update && \
     apt-get install -y \
@@ -24,78 +16,79 @@ RUN apt-get update && \
       # Miscellaneous
       unzip wget
 
-COPY --from=mir_json /usr/local/cargo /usr/local/cargo
-COPY --from=mir_json /usr/local/rustup /usr/local/rustup
-WORKDIR /usr/local/bin
+RUN mkdir -p ${CRUX_BUILD_DIR}
+ADD crucible ${CRUX_BUILD_DIR}/crucible
+ADD crucible-concurrency ${CRUX_BUILD_DIR}/crucible-concurrency
+ADD crucible-mir ${CRUX_BUILD_DIR}/crucible-mir
+ADD crucible-syntax ${CRUX_BUILD_DIR}/crucible-syntax
+ADD crux ${CRUX_BUILD_DIR}/crux
+ADD crux-mir ${CRUX_BUILD_DIR}/crux-mir
+ADD dependencies ${CRUX_BUILD_DIR}/dependencies
+ADD .github/cabal.project.crux-mir ${CRUX_BUILD_DIR}/cabal.project
+ADD cabal.GHC-9.4.8.config ${CRUX_BUILD_DIR}/cabal.project.freeze
+
+RUN useradd -m crux-mir && chown -R crux-mir:crux-mir /crux-mir
+USER crux-mir
+WORKDIR /crux-mir
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PATH=/crux-mir/rootfs/usr/local/bin:/home/crux-mir/.cargo/bin:/home/crux-mir/.local/bin:/home/crux-mir/.ghcup/bin:$PATH
+
+WORKDIR ${CRUX_BUILD_DIR}/dependencies/mir-json
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN}
+RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev
+RUN cargo install --locked
+
+RUN mkdir -p /crux-mir/rootfs/usr/local/bin
+WORKDIR /crux-mir/rootfs/usr/local/bin
 # The URL here is based on the same logic used to specify BUILD_TARGET_OS and
 # BUILD_TARGET_ARCH in `.github/workflow/crux-mir-build.yml`, but specialized
 # to x86-64 Ubuntu.
 RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20240212/ubuntu-22.04-X64-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
-ENV CARGO_HOME=/usr/local/cargo
-ENV RUSTUP_HOME=/usr/local/rustup
-ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib
-ENV LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
-
-ENV PATH=/root/ghcup-download/bin:/root/.ghcup/bin:$PATH
-RUN mkdir -p /root/ghcup-download/bin && \
-    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /root/ghcup-download/bin/ghcup && \
-    chmod +x /root/ghcup-download/bin/ghcup
-RUN mkdir -p /root/.ghcup && \
+WORKDIR /crux-mir
+RUN mkdir -p /home/crux-mir/.local/bin && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /home/crux-mir/.local/bin/ghcup && \
+    chmod +x /home/crux-mir/.local/bin/ghcup
+RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup --version && \
     ghcup install cabal 3.10.3.0 && \
     ghcup install ghc 9.4.8 && \
     ghcup set ghc 9.4.8
-RUN cabal v2-update
 
-ARG DIR=/crux-mir
-RUN mkdir -p ${DIR}/build
-ADD crucible ${DIR}/build/crucible
-ADD crucible-concurrency ${DIR}/build/crucible-concurrency
-ADD crucible-mir ${DIR}/build/crucible-mir
-ADD crucible-syntax ${DIR}/build/crucible-syntax
-ADD crux ${DIR}/build/crux
-ADD crux-mir ${DIR}/build/crux-mir
-ADD dependencies ${DIR}/build/dependencies
-ADD .github/cabal.project.crux-mir ${DIR}/build/cabal.project
-ADD cabal.GHC-9.4.8.config ${DIR}/build/cabal.project.freeze
-
-WORKDIR ${DIR}/build
-RUN cabal v2-build --only-dependencies crux-mir
-RUN cabal v2-build crux-mir
-RUN cp `cabal v2-exec which crux-mir` /usr/local/bin
-RUN cp /usr/local/cargo/bin/* /usr/local/bin/
-RUN rustup default ${RUST_TOOLCHAIN}
-WORKDIR ${DIR}/build/crux-mir
+WORKDIR ${CRUX_BUILD_DIR}/crux-mir
 RUN ./translate_libs.sh
-WORKDIR ${DIR}/build
-RUN cabal v2-test crux-mir
+WORKDIR ${CRUX_BUILD_DIR}
+RUN cabal v2-update && \
+    cabal v2-build --only-dependencies crux-mir && \
+    cabal v2-build crux-mir && \
+    cabal v2-test crux-mir && \
+    cp `cabal v2-exec which crux-mir` /crux-mir/rootfs/usr/local/bin
+USER root
+RUN chown -R root:root /crux-mir/rootfs
 
 FROM ubuntu:22.04
+ARG CRUX_BUILD_DIR
 
-USER root
 RUN apt-get update && \
     apt-get install -y \
       libgmp10 zlib1g libcurl4 \
       # A C toolchain (needed to build crates that require a C compiler)
       clang
 
-ARG DIR=/crux-mir
-COPY --from=mir_json /usr/local/cargo /usr/local/cargo
-COPY --from=mir_json /usr/local/rustup /usr/local/rustup
-COPY --from=build /usr/local/bin/* /usr/local/bin/
-COPY --from=build /crux-mir/build/crux-mir/rlibs /crux-mir/rlibs
-RUN mkdir -p ${DIR}/workspace
+COPY --from=build /home/crux-mir/.cargo/bin /home/crux-mir/.cargo/bin
+COPY --from=build /home/crux-mir/.rustup /home/crux-mir/.rustup
+COPY --from=build /crux-mir/rootfs /
+COPY --from=build ${CRUX_BUILD_DIR}/crux-mir/rlibs /crux-mir/rlibs
 
-WORKDIR ${DIR}/workspace
-
+RUN useradd -m crux-mir && chown -R crux-mir:crux-mir /crux-mir /home/crux-mir
 USER crux-mir
-ENV CARGO_HOME=/usr/local/cargo \
-    RUSTUP_HOME=/usr/local/rustup \
-    CRUX_RUST_LIBRARY_PATH=/crux-mir/rlibs \
-    LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+WORKDIR /
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PATH=/home/crux-mir/.cargo/bin:$PATH
+
 ENTRYPOINT ["/usr/local/bin/cargo", "crux-test"]
