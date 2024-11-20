@@ -22,6 +22,7 @@ import Data.Text (Text,  unpack)
 import qualified Data.Text as T
 import qualified Data.Text.Read  as T
 import qualified Data.Vector as V
+import Data.Word (Word64)
 import Control.Lens((^.))
 
 #if MIN_VERSION_aeson(2,0,0)
@@ -198,6 +199,7 @@ instance FromJSON Var where
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> do
+      (version :: Word64)     <- v .: "version"
       (fns    :: [Fn])        <- v .: "fns"
       (adts   :: [Adt])       <- v .: "adts"
       (traits :: [Trait])     <- v .: "traits"
@@ -207,6 +209,7 @@ instance FromJSON Collection where
       (tys    :: [NamedTy])   <- v .: "tys"
       (roots :: [MethName])   <- v .: "roots"
       return $ Collection
+        version
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
         (foldr (\ x m -> Map.insertWith (++) (x^.adtOrigDefId) [x] m) Map.empty adts)

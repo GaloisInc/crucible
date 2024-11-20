@@ -19,6 +19,22 @@ Next, navigate to the `crucible/dependencies/mir-json` directory and install
 `mir-json` according to the instructions in [the `mir-json`
 README][mir-json-readme].
 
+Currently, `crux-mir` supports [version
+1](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#1) of
+`mir-json`'s schema. Note that the schema versions produced by `mir-json` can
+change over time as dictated by internal requirements and upstream changes. To
+help smooth this over:
+
+* We intend that once `crux-mir` introduces support for any given schema
+  version, it will retain that support across at least two releases.
+* An exception to this rule is when `mir-json` updates to support a new Rust
+  toolchain version. In general, we cannot promise backwards compatibility
+  across Rust toolchains, as the changes are often significant enough to impeded
+  any ability to reasonably provide backwards-compatibility guarantees.
+
+As a general policy, `crux-mir` strives to support the `mir-json` schema
+versions corresponding to the last two `crux-mir` releases.
+
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
 

@@ -1,5 +1,15 @@
 # next -- TBA
 
+This release supports [version
+1](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#1) of
+`mir-json`'s schema.
+
+* Add a `_version` field to `Collection`, which represents the `mir-json` schema
+  version of the MIR JSON file.
+* Explicitly check that the `mir-json` schema version is supported when parsing
+  a MIR JSON file. If the version is not supported, it will be rejected. This
+  helps ensure that unsupported `mir-json` files do not cause unintended
+  results.
 * Add `--debug` option for starting the Crucible debugger.
 
 # 0.9 -- 2024-08-30

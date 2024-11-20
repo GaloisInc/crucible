@@ -1,5 +1,9 @@
 # next -- TBA
 
+This release supports [version
+1](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#1) of
+`mir-json`'s schema.
+
 * The calling sequence of ```translateMIR``` has changed: the first argument,
   which should always have been passed as ```mempty```, has been removed.
   This will require adjustments in any downstream callers.

@@ -34,6 +34,7 @@ module Mir.Mir where
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import Data.Word (Word64)
 
 import Control.Lens (makeLenses, makePrisms, makeWrapped)
 
@@ -235,6 +236,7 @@ instance Ord Var where
     compare (Var n _ _ _) (Var m _ _ _) = compare n m
 
 data Collection = Collection {
+    _version   :: !Word64,
     _functions :: !(Map MethName Fn),
     _adts      :: !(Map AdtName Adt),
     -- ADTs, indexed by original (pre-monomorphization) DefId

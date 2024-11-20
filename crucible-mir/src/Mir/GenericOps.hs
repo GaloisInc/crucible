@@ -29,6 +29,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 
 import Control.Lens((^.))
 
@@ -174,6 +175,8 @@ instance GenericOps Integer where
 instance GenericOps Char    where
    uninternTys = const id
 instance GenericOps Bool    where
+   uninternTys = const id
+instance GenericOps Word64  where
    uninternTys = const id
 
 instance GenericOps Text    where

@@ -2225,7 +2225,8 @@ mkDiscrMap col = mconcat
 -- the comments below), which ranges over 'M.DefId's.
 mkCrateHashesMap :: M.Collection -> Map Text (NonEmpty Text)
 mkCrateHashesMap
-    (Collection functionsM adtsM adtsOrigM traitsM
+    (Collection _version
+                functionsM adtsM adtsOrigM traitsM
                 staticsM vtablesM intrinsicsM
                 -- namedTys ranges over type names, which aren't full DefIds.
                 _namedTysM

@@ -15,7 +15,7 @@
 module Mir.ParseTranslate (parseMIR, translateMIR) where
 
 import Control.Lens hiding((<.>))
-import Control.Monad (when)
+import Control.Monad (unless, when)
 
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
@@ -28,7 +28,7 @@ import Prettyprinter (Pretty(..))
 import qualified Lang.Crucible.FunctionHandle as C
 
 
-import Mir.Mir (Collection(..), namedTys)
+import Mir.Mir (Collection(..), namedTys, version)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
@@ -48,6 +48,16 @@ parseMIR path f = do
   case c of
       Left msg -> fail $ "JSON Decoding of " ++ path ++ " failed: " ++ msg
       Right col -> do
+        -- If you update the supported mir-json schema version below, make sure
+        -- to also update the crux-mir README accordingly.
+        unless (col^.version == 1) $
+          fail $ unlines
+            [ path ++ " uses an unsupported mir-json schema version: "
+                   ++ show (col^. version)
+            , "This crux-mir release only supports schema version 1."
+            , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
+            , "for more details on what the schema version means.)"
+            ]
         when (?debug > 5) $ do
           traceM "--------------------------------------------------------------"
           traceM $ "Loaded module: " ++ path

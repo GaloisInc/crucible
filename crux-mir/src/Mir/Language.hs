@@ -114,7 +114,7 @@ import           Mir.Trans (transStatics)
 import qualified Mir.TransCustom as TransCustom
 import           Mir.TransTy
 import           Mir.Concurrency
-import           Paths_crux_mir (version)
+import qualified Paths_crux_mir (version)
 
 defaultOutputConfig :: IO (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
 defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
@@ -159,7 +159,7 @@ mainWithOutputConfig :: (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
                      -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputConfig mkOutCfg bindExtra =
     withMirLogging $
-    Crux.loadOptions mkOutCfg "crux-mir" version mirConfig
+    Crux.loadOptions mkOutCfg "crux-mir" Paths_crux_mir.version mirConfig
         $ runTestsWithExtraOverrides bindExtra
 
 type BindExtraOverridesFn = forall sym bak p t st fs args ret blocks rtp a r.
