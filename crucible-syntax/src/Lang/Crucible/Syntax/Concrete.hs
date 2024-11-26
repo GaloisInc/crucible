@@ -1564,21 +1564,24 @@ atomSetter (AtomName anText) =
 
     fresh =
       do t <- reading (unary Fresh isType)
-         describe "user symbol" $
-           case userSymbol (T.unpack anText) of
-             Left err -> describe (T.pack (show err)) empty
-             Right nm ->
-               do loc <- position
-                  case t of
-                    Some (FloatRepr fi) ->
-                      Some <$>
-                        freshAtom loc (FreshFloat fi (Just nm))
-                    Some NatRepr ->
-                      Some <$> freshAtom loc (FreshNat (Just nm))
-                    Some tp
-                      | AsBaseType bt <- asBaseType tp ->
-                          Some <$> freshAtom loc (FreshConstant bt (Just nm))
-                      | otherwise -> describe "atomic type" $ empty
+         -- Note that we are using safeSymbol below to create a What4 symbol
+         -- name, which will Z-encode names that aren't legal solver names. This
+         -- includes names that include hyphens, which are very common in
+         -- S-expression syntax. This is fine to do, since the Z-encoded name
+         -- name is only used for solver purposes; the original, unencoded name
+         -- is recorded separately.
+         let nm = safeSymbol (T.unpack anText)
+         loc <- position
+         case t of
+           Some (FloatRepr fi) ->
+             Some <$>
+               freshAtom loc (FreshFloat fi (Just nm))
+           Some NatRepr ->
+             Some <$> freshAtom loc (FreshNat (Just nm))
+           Some tp
+             | AsBaseType bt <- asBaseType tp ->
+                 Some <$> freshAtom loc (FreshConstant bt (Just nm))
+             | otherwise -> describe "atomic type" $ empty
 
     evaluated =
        do Pair _ e' <- reading synth
