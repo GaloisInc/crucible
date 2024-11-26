@@ -1,0 +1,17 @@
+(defun @exotic-fresh-names () Bool
+   (start start:
+      (let ω (fresh Bool))
+      (let hyphens-are-fine (fresh Bool))
+      (return (and ω hyphens-are-fine))))
+
+exotic-fresh-names
+%0
+  % 8:12
+  $0 = fresh BaseBoolRepr zenc!z3c9U
+  % 9:27
+  $1 = fresh BaseBoolRepr zenc!hyphenszmarezmfine
+  % 10:13
+  $2 = and($0, $1)
+  % 10:5
+  return $2
+  % no postdom
