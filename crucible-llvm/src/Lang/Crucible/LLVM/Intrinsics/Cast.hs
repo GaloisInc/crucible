@@ -116,7 +116,7 @@ castLLVMRet fnm bak (LLVMPointerRepr w) (BVRepr w')
   = let err = 
           AssertFailureSimError
            "Found a pointer where a bitvector was expected"
-           ("In the arguments or return value of" ++ Text.unpack (functionName fnm)) in
+           ("In the arguments or return value of " ++ Text.unpack (functionName fnm)) in
     Right (ValCast (liftIO . ptrToBv bak err))
 castLLVMRet fnm bak (VectorRepr tp) (VectorRepr tp')
   = do ValCast f <- castLLVMRet fnm bak tp tp'
