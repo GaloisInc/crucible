@@ -198,6 +198,16 @@ getBoolectorVersion =
       getVer (Left full) = full
   in mkVC "boolector" . getVer <$> readProcessVersion "boolector"
 
+getBitwuzlaVersion :: IO VersionCheck
+getBitwuzlaVersion =
+  let getVer (Right inp) =
+        -- example inp: "3.2.1"
+        case words inp of
+          verNum:_ -> verNum
+          [] -> "?"
+      getVer (Left full) = full
+  in mkVC "bitwuzla" . getVer <$> readProcessVersion "bitwuzla"
+
 readProcessVersion :: String -> IO (Either String String)
 readProcessVersion forTool =
   catches (Right <$> readProcess forTool [ "--version" ] "")
@@ -373,6 +383,7 @@ mkTest sweet _ expct =
       "cvc4" -> getCVC4Version
       "cvc5" -> getCVC5Version
       "boolector" -> getBoolectorVersion
+      "bitwuzla" -> getBitwuzlaVersion
       _ -> return $ VC solver $ Left "unknown-solver-for-version"
 
     -- Some tests take longer, so only run one of them in fast-test mode
