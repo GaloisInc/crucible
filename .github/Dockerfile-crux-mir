@@ -89,6 +89,7 @@ WORKDIR /
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    PATH=/home/crux-mir/.cargo/bin:$PATH
+    PATH=/home/crux-mir/.cargo/bin:$PATH \
+    CRUX_RUST_LIBRARY_PATH=/crux-mir/rlibs
 
 ENTRYPOINT ["/usr/local/bin/cargo", "crux-test"]
