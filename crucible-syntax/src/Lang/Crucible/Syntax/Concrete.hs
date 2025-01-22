@@ -87,6 +87,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Numeric.Natural
+import qualified Prettyprinter as PP
 
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import qualified Lang.Crucible.Syntax.ExprParse as SP
@@ -159,6 +160,27 @@ instance Semigroup (ExprErr s) where
 
 instance Monoid (ExprErr s) where
   mempty = TrivialErr (OtherPos "mempty")
+
+instance PP.Pretty (ExprErr s) where
+  pretty =
+    \case
+      TrivialErr p ->
+        "Trivial error at" PP.<+> PP.viaShow p
+      Errs e1 e2 ->
+        PP.vcat ["Multiple errors:" , PP.pretty e1 , PP.pretty e2]
+      DuplicateAtom p a ->
+        PP.hsep ["Duplicate atom", backticks (PP.pretty a), "at", PP.viaShow p]
+      DuplicateLabel p l ->
+        PP.hsep ["Duplicate label", backticks (PP.pretty l), "at", PP.viaShow p]
+      EmptyBlock p ->
+        "Empty block at" PP.<+> PP.viaShow p
+      NotGlobal p _ast ->
+        "Expected a global at" PP.<+> PP.viaShow p
+      InvalidRegister p _ast ->
+        "Expected a register at" PP.<+> PP.viaShow p
+      SyntaxParseError err ->
+        PP.pretty (printSyntaxError err)
+    where backticks = PP.enclose "`" "`"
 
 -- | ParserHooks enables support for arbitrary syntax extensions by allowing
 -- users to supply their own parsers for types and syntax extensions.

@@ -1,4 +1,7 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings#-}
+
 -- | Atoms used by the Crucible CFG concrete syntax.
 module Lang.Crucible.Syntax.Atoms
   (
@@ -24,20 +27,21 @@ import qualified Data.Text as T
 
 import Lang.Crucible.Syntax.SExpr
 import Numeric
+import qualified Prettyprinter as PP
 
 import Text.Megaparsec as MP hiding (many, some)
 import Text.Megaparsec.Char
 
 -- | The name of an atom (non-keyword identifier)
-newtype AtomName = AtomName Text deriving (Eq, Ord, Show)
+newtype AtomName = AtomName Text deriving (Eq, Ord, PP.Pretty, Show)
 -- | The name of a label (identifier followed by colon)
-newtype LabelName = LabelName Text deriving (Eq, Ord, Show)
+newtype LabelName = LabelName Text deriving (Eq, Ord, PP.Pretty, Show)
 -- | The name of a register (dollar sign followed by identifier)
-newtype RegName = RegName Text deriving (Eq, Ord, Show)
+newtype RegName = RegName Text deriving (Eq, Ord, PP.Pretty, Show)
 -- | The name of a function (at-sign followed by identifier)
-newtype FunName = FunName Text deriving (Eq, Ord, Show)
+newtype FunName = FunName Text deriving (Eq, Ord, PP.Pretty, Show)
 -- | The name of a global variable (two dollar signs followed by identifier)
-newtype GlobalName = GlobalName Text deriving (Eq, Ord, Show)
+newtype GlobalName = GlobalName Text deriving (Eq, Ord, PP.Pretty, Show)
 
 -- | Individual language keywords (reserved identifiers)
 data Keyword = Defun | DefBlock | DefGlobal | Declare | Extern
