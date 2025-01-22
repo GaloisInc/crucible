@@ -20,6 +20,7 @@ import Data.List (find)
 import qualified Data.Map as Map
 import Data.Text (pack)
 import Data.String (IsString(..))
+import qualified Prettyprinter as PP
 import System.Exit
 import Text.Megaparsec as MP
 
@@ -138,8 +139,7 @@ run (cruxOpts, opts) =
                      let ?parserHooks = defaultParserHooks
                      parseResult <- top nonceGen ha builtins $ prog v
                      case parseResult of
-                       Left (SyntaxParseError e) -> error $ show $ printSyntaxError e
-                       Left err -> error $ show err
+                       Left err -> error (show (PP.pretty err))
                        Right (ParsedProgram
                                { parsedProgGlobals = gs
                                , parsedProgExterns = externs
