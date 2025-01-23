@@ -17,6 +17,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text.IO as T
+import qualified Prettyprinter as PP
 import System.IO
 import System.Exit
 import Text.Megaparsec as MP
@@ -31,7 +32,6 @@ import Lang.Crucible.CFG.SSAConversion
 
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
-import Lang.Crucible.Syntax.ExprParse (printSyntaxError)
 import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.Analysis.Postdom
@@ -72,8 +72,7 @@ doParseCheck fn theInput pprint outh =
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
             cs <- top ng ha [] $ prog v
             case cs of
-              Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
-              Left err -> hPutStrLn outh $ show err
+              Left err -> hPutStrLn outh (show (PP.pretty err))
               Right (ParsedProgram{ parsedProgCFGs = ok
                                   , parsedProgExterns = externs
                                   , parsedProgForwardDecs = fds

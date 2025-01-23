@@ -27,6 +27,8 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Data.String (IsString(..))
 import qualified Data.Text.IO as T
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
 import System.IO
 import System.Exit
 import Text.Megaparsec as MP
@@ -43,7 +45,6 @@ import Lang.Crucible.CFG.SSAConversion
 
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Concrete
-import Lang.Crucible.Syntax.ExprParse (printSyntaxError)
 import Lang.Crucible.Syntax.Prog (doParseCheck, assertNoExterns, assertNoForwardDecs)
 import Lang.Crucible.Syntax.SExpr
 
@@ -139,8 +140,8 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
             parseResult <- top ng ha hdls $ prog v
             case parseResult of
-              Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
-              Left err -> hPutStrLn outh $ show err
+              Left e ->
+                T.hPutStrLn outh (PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (PP.pretty e)))
               Right (ParsedProgram{ parsedProgCFGs = cs
                                   , parsedProgExterns = externs
                                   , parsedProgForwardDecs = fds

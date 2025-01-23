@@ -39,6 +39,7 @@ library
                      , megaparsec
                      , mtl
                      , parameterized-utils
+                     , prettyprinter
                      , simple-get-opt < 0.5
                      , text
                      , vector
