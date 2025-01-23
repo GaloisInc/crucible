@@ -92,4 +92,4 @@ ENV LANG=C.UTF-8 \
     PATH=/home/crux-mir/.cargo/bin:$PATH \
     CRUX_RUST_LIBRARY_PATH=/crux-mir/rlibs
 
-ENTRYPOINT ["/usr/local/bin/cargo", "crux-test"]
+ENTRYPOINT ["/home/crux-mir/.cargo/bin/cargo", "crux-test"]
