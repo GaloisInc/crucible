@@ -234,7 +234,7 @@ jobs:
         # jobs run from the main repo, and as a result, they won't work when
         # run from a fork. Signing binaries isn't essential to the rest of the
         # workflow, so it is safe to skip this step on forks.
-        if: github.event.pull_request.head.repo.fork == false
+        if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
         shell: bash
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
@@ -260,7 +260,7 @@ jobs:
   build-push-image:
     runs-on: ubuntu-22.04
     needs: [config]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true') && github.repository_owner == 'GaloisInc'
     strategy:
       fail-fast: false
       matrix:
