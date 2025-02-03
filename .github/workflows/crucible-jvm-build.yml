@@ -62,6 +62,9 @@ jobs:
         with:
           nix_path: nixpkgs=channel:21.11
           install_url: https://releases.nixos.org/nix/nix-2.10.3/install
+          # This token usage is to avoid GH rate-limiting; see commit
+          # 1696558326a8c57e1a9f0848aaaa1b8440294954. Apparently it'll
+          # work for anyone.
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 

@@ -101,6 +101,9 @@ jobs:
         with:
           nix_path: nixpkgs=channel:21.11
           install_url: https://releases.nixos.org/nix/nix-2.10.3/install
+          # This token usage is to avoid GH rate-limiting; see commit
+          # 1696558326a8c57e1a9f0848aaaa1b8440294954. Apparently it'll
+          # work for anyone.
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
@@ -185,7 +188,7 @@ jobs:
           NAME="crux-mir-${{ needs.config.outputs.crux-mir-version }}-${{ matrix.os }}-${{ runner.arch }}"
           echo "NAME=$NAME" >> $GITHUB_ENV
           .github/ci.sh bundle_crux_mir_files
-        if: github.repository == 'GaloisInc/crucible'
+        if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
         env:
           OS_TAG: ${{ matrix.os }}
           ARCH_TAG: ${{ runner.arch }}
@@ -195,8 +198,10 @@ jobs:
         # The SIGNING_PASSPHRASE and SIGNING_KEY secrets are only available on
         # jobs run from the main repo, and as a result, they won't work when
         # run from a fork. Signing binaries isn't essential to the rest of the
-        # workflow, so it is safe to skip this step on forks.
-        if: github.event.pull_request.head.repo.fork == false
+        # workflow, so it is safe to skip this step on forks. Note that it
+        # isn't sufficient to test the pull request info because this job is
+        # also scheduled. See notes in README.md.
+        if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
         shell: bash
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
@@ -205,7 +210,7 @@ jobs:
           .github/ci.sh sign "${NAME}.tar.gz"
 
       - uses: actions/upload-artifact@v4
-        if: github.repository == 'GaloisInc/crucible'
+        if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
         with:
           path: crux-mir-*.tar.gz*
           name: crux-mir-${{ matrix.os }}-${{ matrix.ghc }}
@@ -222,7 +227,7 @@ jobs:
   build-push-image:
     runs-on: ubuntu-22.04
     needs: [config]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true') && github.repository_owner == 'GaloisInc'
     strategy:
       fail-fast: false
       matrix:
