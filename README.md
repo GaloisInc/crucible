@@ -24,8 +24,6 @@ Currently, the repository consists of the following Haskell packages:
    executing LLVM assembly programs in the Crucible symbolic simulator.
  * **`crucible-jvm`** provides translation and runtime support for
    executing JVM bytecode programs in the Crucible symbolic simulator.
- * **`crucible-saw`** provides functionality for generating
-   SAW Core terms from Crucible Control-Flow-Graphs.
  * **`crux`** provides common support libraries for running the
    crucible simulator in a basic "all-at-once" use mode for simulation
    and verification.  This includes most of the setup steps required
