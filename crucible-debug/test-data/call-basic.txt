@@ -1,0 +1,20 @@
+> load test-data/basic.cbl
+
+Loaded 1 CFGs from test-data/basic.cbl
+
+> step
+
+Ok
+
+> call main
+
+Ok
+
+> run
+
+Ok
+
+> done
+
+Ok
+

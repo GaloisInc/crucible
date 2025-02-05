@@ -1,0 +1,20 @@
+> usage #
+
+# TEXT*
+
+> . complete #
+
+No completions
+
+> . complete # foo
+
+No completions
+
+> . complete # foo bar baz quux
+
+No completions
+
+> quit
+
+Ok
+

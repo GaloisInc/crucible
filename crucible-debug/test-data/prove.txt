@@ -1,0 +1,8 @@
+> prove
+
+No obligations to prove
+
+> quit
+
+Ok
+

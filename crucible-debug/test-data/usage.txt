@@ -1,0 +1,25 @@
+> usage reg
+
+register INT*
+
+> usage help
+
+help COMMAND?
+
+> usage step
+
+step 
+
+> usage secret
+
+secret complete COMMAND TEXT*
+secret style COMMAND TEXT*
+
+> usage usage
+
+usage COMMAND
+
+> quit
+
+Ok
+

@@ -1,0 +1,16 @@
+> usage cfg
+
+cfg FUNCTION?
+
+> . style cfg
+
+
+
+> . style cfg foo
+
+function (unknown)
+
+> quit
+
+Ok
+

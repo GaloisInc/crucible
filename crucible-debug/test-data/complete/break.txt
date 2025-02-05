@@ -1,0 +1,28 @@
+> usage break
+
+break FUNCTION
+
+> . complete break
+
+function
+
+> . complete break fo_
+
+function
+
+> load test-data/assert-false.cbl
+
+Loaded 1 CFGs from test-data/assert-false.cbl
+
+> . complete break
+
+function: main
+
+> . complete break ma_
+
+function: main
+
+> quit
+
+Ok
+

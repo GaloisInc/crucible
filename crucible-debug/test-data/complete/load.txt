@@ -1,0 +1,28 @@
+> usage load
+
+load PATH
+
+> . complete load ap_
+
+path: ./app
+
+> . complete load app_
+
+path: app/
+
+> . complete load app/_
+
+path: app/Main.hs
+
+> . complete load app/M_
+
+path: app/Main.hs
+
+> . complete load app/DoesNotExist._
+
+path
+
+> quit
+
+Ok
+

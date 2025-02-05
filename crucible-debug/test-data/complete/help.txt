@@ -1,0 +1,16 @@
+> usage help
+
+help COMMAND?
+
+> . complete help
+
+command
+
+> . complete help secret
+
+No completions
+
+> quit
+
+Ok
+

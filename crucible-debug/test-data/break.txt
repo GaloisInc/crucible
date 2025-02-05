@@ -1,0 +1,28 @@
+> load test-data/three-calls.cbl
+
+Loaded 3 CFGs from test-data/three-calls.cbl
+
+> step
+
+Ok
+
+> break b
+
+Ok
+
+> call a
+
+Ok
+
+> run
+
+Ok
+
+> run
+
+Ok
+
+> done
+
+Ok
+

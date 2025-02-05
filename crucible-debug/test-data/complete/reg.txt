@@ -1,0 +1,24 @@
+> usage reg
+
+register INT*
+
+> . complete reg
+
+No completions
+
+> . complete reg 1
+
+No completions
+
+> . complete reg 1 0
+
+No completions
+
+> . complete reg foo
+
+No completions
+
+> quit
+
+Ok
+

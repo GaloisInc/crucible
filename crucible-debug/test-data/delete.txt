@@ -1,0 +1,16 @@
+> delete main
+
+No breakpoint at main
+
+> break main
+
+Ok
+
+> delete main
+
+Deleted breakpoint at main
+
+> quit
+
+Ok
+

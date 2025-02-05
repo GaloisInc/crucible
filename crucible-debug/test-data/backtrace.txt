@@ -1,0 +1,59 @@
+> load test-data/three-calls.cbl
+
+Loaded 3 CFGs from test-data/three-calls.cbl
+
+> step
+
+Ok
+
+> break a
+
+Ok
+
+> break b
+
+Ok
+
+> break c
+
+Ok
+
+> call a
+
+Ok
+
+> run
+
+Ok
+
+> backtrace
+
+In a at test-data/three-calls.cbl:3:13
+
+> run
+
+Ok
+
+> backtrace
+
+In b at test-data/three-calls.cbl:8:13
+In a at test-data/three-calls.cbl:3:13
+
+> run
+
+Ok
+
+> backtrace
+
+In c at test-data/three-calls.cbl:13:13
+In b at test-data/three-calls.cbl:8:13
+In a at test-data/three-calls.cbl:3:13
+
+> run
+
+Ok
+
+> done
+
+Ok
+

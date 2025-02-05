@@ -1,0 +1,33 @@
+> load test-data/add.cbl
+
+Loaded 2 CFGs from test-data/add.cbl
+
+> step
+
+Ok
+
+> break add
+
+Ok
+
+> call main
+
+Ok
+
+> run
+
+Ok
+
+> block
+
+$2 = intAdd($0, $1)
+return $2
+
+> run
+
+Ok
+
+> done
+
+Ok
+

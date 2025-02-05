@@ -1,0 +1,33 @@
+> load test-data/assert-false.cbl
+
+Loaded 1 CFGs from test-data/assert-false.cbl
+
+> step
+
+Ok
+
+> call main
+
+Ok
+
+> run
+
+Ok
+
+> prove
+
+
+Prove:
+  test-data/assert-false.cbl:3:5: error: in main
+  false is true
+  false
+disproved
+
+> clear
+
+Cleared 1 proof obligation
+
+> done
+
+Ok
+

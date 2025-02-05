@@ -1,0 +1,94 @@
+> load test-data/args.cbl
+
+Loaded 2 CFGs from test-data/args.cbl
+
+> register
+
+The simulator is not yet running
+
+> step
+
+Ok
+
+> break add
+
+Ok
+
+> call main
+
+Ok
+
+> step
+
+Ok
+
+> step
+
+Ok
+
+> reg
+
+
+
+> step
+
+Ok
+
+> step
+
+Ok
+
+> reg
+
+cp@0:b
+cx@1:i
+
+> reg 0
+
+cp@0:b
+
+> reg 1 0
+
+cx@1:i
+cp@0:b
+
+> step
+
+Ok
+
+> step
+
+Ok
+
+> step
+
+Ok
+
+> reg
+
+cx@1:i
+
+> run
+
+Ok
+
+> reg
+
+0
+ite cp@0:b cx@1:i 12
+
+> finish
+
+Ok
+
+> reg
+
+ite cp@0:b cx@1:i 12
+add : IntegerRepr -> IntegerRepr -> IntegerRepr
+0
+ite cp@0:b cx@1:i 12
+
+> quit
+
+Ok
+

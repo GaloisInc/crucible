@@ -1,0 +1,80 @@
+> load test-data/args.cbl
+
+Loaded 2 CFGs from test-data/args.cbl
+
+> register
+
+The simulator is not yet running
+
+> step
+
+Ok
+
+> break add
+
+Ok
+
+> call main
+
+Ok
+
+> run
+
+Ok
+
+> trace
+
+% 7:12
+$0 = fresh BaseBoolRepr p
+% 8:12
+$1 = fresh BaseIntegerRepr x
+% 9:5
+br $0 %1($1) %2()
+
+% 13:18
+$0 = intLit(12)
+% 13:5
+jump %3($0)
+
+> finish
+
+Ok
+
+> finish
+
+Ok
+
+> trace 5
+
+% 7:12
+$0 = fresh BaseBoolRepr p
+% 8:12
+$1 = fresh BaseIntegerRepr x
+% 9:5
+br $0 %1($1) %2()
+
+% 13:18
+$0 = intLit(12)
+% 13:5
+jump %3($0)
+
+% 3:13
+$2 = intAdd($0, $1)
+% 3:5
+return $2
+
+% 15:5
+$1 = handleLit(add)
+% 15:5
+$2 = intLit(0)
+% 15:5
+$3 = call $1($2, $0);
+% 16:13
+$4 = emptyApp()
+% 16:5
+return $4
+
+> quit
+
+Ok
+

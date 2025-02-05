@@ -1,0 +1,24 @@
+> usage reg
+
+register INT*
+
+> . style reg
+
+
+
+> . style reg 1
+
+number (valid)
+
+> . style reg 1 0
+
+number (valid) number (valid)
+
+> . style reg foo
+
+unknown (invalid)
+
+> quit
+
+Ok
+
