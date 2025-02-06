@@ -205,6 +205,9 @@ data CruxOptions = CruxOptions
   , outputOptions            :: OutputOptions
     -- ^ Output options grouped together for easy transfer to the logger
 
+  , debug                    :: Bool
+    -- ^ Enable the Crucible debugger
+
   }
   deriving (Generic)
 
@@ -363,6 +366,10 @@ cruxOptions = Config
             "If true, stop attempting to prove goals as soon as one of them is disproved"
 
           onlineProblemFeatures <- pure noFeatures
+
+          debug <-
+            section "debug" yesOrNoSpec False
+            "Enable the Crucible debugger"
 
           pure CruxOptions
             { outputOptions = OutputOptions
@@ -525,6 +532,10 @@ cruxOptions = Config
          ++ " i.e. one of [real|ieee|uninterpreted|default]. "
          ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
         $ ReqArg "FPREP" $ \v opts -> Right opts { floatMode = map toLower v }
+
+      , Option [] ["debug"]
+        "Enable the Crucible debugger"
+        $ NoArg $ \opts -> Right opts { debug = True }
       ]
   }
 
