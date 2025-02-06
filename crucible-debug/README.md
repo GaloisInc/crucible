@@ -18,6 +18,10 @@ The command language can be extended by downstream packages.
 Such extensions can be used to add commands that are specific to a particular Crucible syntax extension (i.e., source language).
 For example, the `crucible-llvm-debug` package provides the `memory` command to print the current LLVM memory.
 
+This tool shares some functionality with the [surveyor] project. The principal architectural distinction is that `crucible-debug` is designed to be embedded into larger tools like Crux and SAW, while `surveyor` is a standalone application.
+
+[surveyor]: https://github.com/GaloisInc/surveyor
+
 The test suite is described in its Haddocks.
 
 ## Acknowledgements
