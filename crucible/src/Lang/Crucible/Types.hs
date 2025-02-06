@@ -32,6 +32,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -107,6 +108,7 @@ import           Data.Parameterized.Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.SymbolRepr
 import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.TraversableFC
 import           Prettyprinter
 
 import           What4.BaseTypes
@@ -455,8 +457,46 @@ instance HashableF TypeRepr where
 instance Hashable (TypeRepr ty) where
   hashWithSalt = $(U.structuralHashWithSalt [t|TypeRepr|] [])
 
+-- | Pretty-print a type.
+--
+-- This instance attempts to be consistent with the syntax provided in the
+-- @crucible-syntax@ package.
 instance Pretty (TypeRepr tp) where
-  pretty = viaShow
+  pretty x =
+    let prettyCtx :: Ctx.Assignment TypeRepr ctx -> Doc ann
+        prettyCtx = hsep . toListFC pretty in
+    case x of
+      AnyRepr -> "Any"
+      UnitRepr -> "Unit"
+      BoolRepr -> "Bool"
+      NatRepr -> "Nat"
+      IntegerRepr -> "Integer"
+      RealValRepr -> "RealVal"
+      ComplexRealRepr -> "ComplexReal"
+      BVRepr n -> parens ("Bitvector" <+> viaShow n)
+      IntrinsicRepr name tys ->
+        parens (pretty (symbolRepr name) <+> prettyCtx tys)
+      RecursiveRepr name tys ->
+        parens (pretty (symbolRepr name) <+> prettyCtx tys)
+      FloatRepr f -> parens ("Float" <+> pretty f)
+      IEEEFloatRepr f -> parens ("IEEEFloat" <+> pretty f)
+      CharRepr -> "Char"
+      StringRepr s -> parens ("String" <+> pretty s)
+      FunctionHandleRepr args ret ->
+        parens ("->" <+> prettyCtx args <+> pretty ret)
+      MaybeRepr tp -> parens ("Maybe" <+> pretty tp)
+      SequenceRepr s -> parens ("Sequence" <+> pretty s)
+      VectorRepr v -> parens ("Vector" <+> pretty v)
+      StructRepr fields -> parens ("Struct" <+> prettyCtx fields)
+      ReferenceRepr t -> parens ("Reference" <+> pretty t)
+      WordMapRepr n t -> parens ("WorldMap" <+> viaShow n <+> pretty t)
+      StringMapRepr s -> parens ("StringMap" <+> pretty s)
+      SymbolicArrayRepr ctx a ->
+        parens ("SymbolicArray" <+> viaShow ctx <+> pretty a)
+      SymbolicStructRepr ctx ->
+        parens ("SymbolicStruct" <+> hsep (toListFC pretty ctx))
+      VariantRepr variants ->
+        parens ("Variant" <+> hsep (toListFC pretty variants))
 
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])
