@@ -465,6 +465,8 @@ instance Pretty (TypeRepr tp) where
   pretty x =
     let prettyCtx :: Ctx.Assignment TypeRepr ctx -> Doc ann
         prettyCtx = hsep . toListFC pretty in
+    let prettyBaseCtx :: Ctx.Assignment BaseTypeRepr ctx -> Doc ann
+        prettyBaseCtx = hsep . toListFC pretty in
     case x of
       AnyRepr -> "Any"
       UnitRepr -> "Unit"
@@ -486,17 +488,16 @@ instance Pretty (TypeRepr tp) where
         parens ("->" <+> prettyCtx args <+> pretty ret)
       MaybeRepr tp -> parens ("Maybe" <+> pretty tp)
       SequenceRepr s -> parens ("Sequence" <+> pretty s)
+      VariantRepr variants -> parens ("Variant" <+> prettyCtx variants)
       VectorRepr v -> parens ("Vector" <+> pretty v)
       StructRepr fields -> parens ("Struct" <+> prettyCtx fields)
       ReferenceRepr t -> parens ("Reference" <+> pretty t)
       WordMapRepr n t -> parens ("WorldMap" <+> viaShow n <+> pretty t)
       StringMapRepr s -> parens ("StringMap" <+> pretty s)
-      SymbolicArrayRepr ctx a ->
-        parens ("SymbolicArray" <+> viaShow ctx <+> pretty a)
-      SymbolicStructRepr ctx ->
-        parens ("SymbolicStruct" <+> hsep (toListFC pretty ctx))
-      VariantRepr variants ->
-        parens ("Variant" <+> hsep (toListFC pretty variants))
+      SymbolicArrayRepr idxs a ->
+        parens ("SymbolicArray" <+> prettyBaseCtx idxs <+> pretty a)
+      SymbolicStructRepr fields ->
+        parens ("SymbolicStruct" <+> prettyBaseCtx fields)
 
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])
