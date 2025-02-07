@@ -88,6 +88,7 @@ module Lang.Crucible.Types
   , CtxRepr
   , pattern KnownBV
   , ppTypeRepr
+  , ppIntrinsicDefault
 
     -- * Representation of Crucible types
   , TypeRepr(..)
@@ -462,7 +463,7 @@ instance Hashable (TypeRepr ty) where
 -- Helper, not exported
 prettyCtx ::
   Monad f =>
-  -- | How to print 'IntrinsicRepr'
+  -- | How to print 'IntrinsicRepr', see 'ppIntrinsicDefault'
   (forall s ctx'. SymbolRepr s -> CtxRepr ctx' -> f (Doc ann)) ->
   Ctx.Assignment TypeRepr ctx ->
   f (Doc ann)
@@ -478,7 +479,7 @@ prettyBaseCtx = hsep . toListFC pretty
 -- package.
 ppTypeRepr ::
   Monad f =>
-  -- | How to print 'IntrinsicRepr'
+  -- | How to print 'IntrinsicRepr', see 'ppIntrinsicDefault'
   (forall s ctx. SymbolRepr s -> CtxRepr ctx -> f (Doc ann)) ->
   TypeRepr tp ->
   f (Doc ann)
@@ -523,16 +524,20 @@ ppTypeRepr f x =
     SymbolicStructRepr fields ->
       pure (parens ("SymbolicStruct" <+> prettyBaseCtx fields))
 
--- | Pretty-print a type. Based on 'ppTypeRepr', with a default printer for
--- intrinsic types.
+-- | A default printer for 'IntrinsicRepr', suitable for use with 'ppTypeRepr'.
+ppIntrinsicDefault :: SymbolRepr s -> CtxRepr ctx -> Doc ann
+ppIntrinsicDefault name tys = runIdentity (go name tys)
+  where
+  go :: forall ann s ctx. SymbolRepr s -> CtxRepr ctx -> Identity (Doc ann)
+  go name' tys' =
+    Identity $
+      parens $
+        pretty (symbolRepr name') <+> runIdentity (prettyCtx go tys')
+
+-- | Pretty-print a type. Based on 'ppTypeRepr', using 'ppIntrinsicDefault'.
 instance Pretty (TypeRepr tp) where
-  pretty = runIdentity . ppTypeRepr ppIntrinsic
-    where
-      ppIntrinsic :: forall ann s ctx. SymbolRepr s -> CtxRepr ctx -> Identity (Doc ann)
-      ppIntrinsic name tys =
-        Identity $
-          parens $
-            pretty (symbolRepr name) <+> runIdentity (prettyCtx ppIntrinsic tys)
+  pretty =
+    runIdentity . ppTypeRepr (\name tys -> Identity (ppIntrinsicDefault name tys))
 
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])
