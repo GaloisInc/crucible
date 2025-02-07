@@ -57,7 +57,7 @@ data RunningState
     -- | User issued 'Cmd.Run'
   | Run
     -- | User issued 'Cmd.Step'
-  | Step
+  | Step {-# UNPACK #-} !Int
 
 data DebuggerState
   = Running RunningState

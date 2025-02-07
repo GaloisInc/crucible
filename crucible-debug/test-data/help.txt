@@ -22,7 +22,7 @@ register (reg): Print registers (including block/function arguments)
 run (r): Continue to the next breakpoint or the end of execution
 secret (.): Maintenance commands, used for testing
 source (src): Execute a file containing debugger commands
-step (s): Continue one step of execution
+step (s): Continue N steps of execution (default: 1)
 trace (trace): Print the N most recently executed basic blocks (default: 2)
 usage (u): Display command usage hint
 

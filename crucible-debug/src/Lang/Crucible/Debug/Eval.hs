@@ -262,8 +262,12 @@ baseImpl =
     BCmd.Step ->
       Ctxt.CommandImpl
       { Ctxt.implRegex = BCmd.rStep
-      , Ctxt.implBody = \ctx execState Rgx.MEmpty ->
-          runCmd ctx execState Ctxt.Step
+      , Ctxt.implBody = \ctx execState m -> do
+          let n =
+                case m of
+                  Rgx.MLeft Rgx.MEmpty -> 1
+                  Rgx.MRight (Rgx.MLit (Arg.AInt i)) -> i
+          runCmd ctx execState (Ctxt.Step n)
       }
 
     BCmd.Source ->
