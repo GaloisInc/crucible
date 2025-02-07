@@ -233,9 +233,14 @@ dispatch ctx0 execState =
     Ctxt.Running {} | C.ResultState {} <- execState -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Stopped }
       dispatch ctx execState
-    Ctxt.Running Ctxt.Step -> do
+    Ctxt.Running (Ctxt.Step i) | i <= 1 -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Stopped }
       dispatch ctx execState
+    Ctxt.Running (Ctxt.Step i) -> do
+      let ctx = ctx0 { Ctxt.dbgState = Ctxt.Running (Ctxt.Step (i - 1)) }
+      state <- stepState ctx execState
+      let ctx' = ctx0 { Ctxt.dbgState = state }
+      pure (ctx', C.ExecutionFeatureNoChange)
     Ctxt.Running {} -> do
       state <- stepState ctx0 execState
       let ctx = ctx0 { Ctxt.dbgState = state }

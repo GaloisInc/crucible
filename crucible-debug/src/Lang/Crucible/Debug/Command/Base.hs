@@ -216,7 +216,7 @@ help =
     Register -> "Print registers (including block/function arguments)"
     Run -> "Continue to the next breakpoint or the end of execution"
     Secret -> "Maintenance commands, used for testing"
-    Step -> "Continue one step of execution"
+    Step -> "Continue N steps of execution (default: 1)"
     Source -> "Execute a file containing debugger commands"
     Trace -> "Print the N most recently executed basic blocks (default: 2)"
     Usage -> "Display command usage hint"
@@ -325,7 +325,7 @@ rSecret = knownRepr
 rSource :: Rgx.RegexRepr ArgTypeRepr AType.Path
 rSource = knownRepr
 
-rStep :: Rgx.RegexRepr ArgTypeRepr Rgx.Empty
+rStep :: Rgx.RegexRepr ArgTypeRepr (Rgx.Empty Rgx.:| AType.Int)
 rStep = knownRepr
 
 rTrace :: Rgx.RegexRepr ArgTypeRepr (Rgx.Empty Rgx.:| AType.Int)

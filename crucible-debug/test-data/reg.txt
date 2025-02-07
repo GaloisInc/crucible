@@ -18,11 +18,7 @@ Ok
 
 Ok
 
-> step
-
-Ok
-
-> step
+> step 2
 
 Ok
 
@@ -30,11 +26,7 @@ Ok
 
 
 
-> step
-
-Ok
-
-> step
+> step 2
 
 Ok
 
@@ -52,15 +44,7 @@ cp@0:b
 cx@1:i
 cp@0:b
 
-> step
-
-Ok
-
-> step
-
-Ok
-
-> step
+> step 3
 
 Ok
 
