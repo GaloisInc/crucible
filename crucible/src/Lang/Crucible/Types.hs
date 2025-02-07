@@ -467,6 +467,13 @@ prettyCtx ::
   (forall s ctx'. SymbolRepr s -> CtxRepr ctx' -> f (Doc ann)) ->
   Ctx.Assignment TypeRepr ctx ->
   f (Doc ann)
+-- The following specialization is used in the 'Pretty' instance and doesn't
+-- need to generate code for (>>=), so it seems worth specializing for it.
+{-# SPECIALIZE
+  prettyCtx :: 
+    (forall s ctx. SymbolRepr s -> CtxRepr ctx -> Identity (Doc ann)) ->
+    Ctx.Assignment TypeRepr tp ->
+    Identity (Doc ann) #-}
 prettyCtx f = fmap hsep . foldlMFC (\l t -> (:l) <$> ppTypeRepr f t) []
 
 -- Helper, not exported
@@ -477,6 +484,9 @@ prettyBaseCtx = hsep . toListFC pretty
 --
 -- Attempts to be consistent with the syntax provided in the @crucible-syntax@
 -- package.
+--
+-- This is monadic mostly to allow failure, e.g., in case the caller finds an
+-- intrinsic type that it doesn\'t expect.
 ppTypeRepr ::
   Monad f =>
   -- | How to print 'IntrinsicRepr', see 'ppIntrinsicDefault'
