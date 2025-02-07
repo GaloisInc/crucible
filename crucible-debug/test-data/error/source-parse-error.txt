@@ -1,0 +1,16 @@
+> source LICENSE
+
+Parse error during source: Invalid command: Copyright
+
+> # TODO(lb): What's going on below here?
+
+Ok
+
+> quit
+
+Ok
+
+> done
+
+Ok
+

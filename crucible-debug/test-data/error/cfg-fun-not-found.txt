@@ -1,0 +1,9 @@
+> cfg no_such_function
+
+No such function: no_such_function
+
+
+> quit
+
+Ok
+

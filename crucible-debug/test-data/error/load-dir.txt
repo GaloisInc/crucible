@@ -1,0 +1,8 @@
+> load .
+
+.: openFile: inappropriate type (is a directory)
+
+> quit
+
+Ok
+

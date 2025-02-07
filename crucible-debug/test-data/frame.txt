@@ -1,0 +1,45 @@
+> load test-data/add.cbl
+
+Loaded 2 CFGs from test-data/add.cbl
+
+> frame
+
+The simulator is not yet running
+
+> step
+
+Ok
+
+> frame
+
+Return: _start
+
+> break add
+
+Ok
+
+> call main
+
+Ok
+
+> run
+
+Ok
+
+> frame
+
+CFG: add
+Block: %0
+
+Argument types:
+- IntegerRepr
+- IntegerRepr
+
+> run
+
+Ok
+
+> done
+
+Ok
+

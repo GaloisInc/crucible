@@ -1,0 +1,12 @@
+> load test-data/empty.cbl
+
+Loaded 0 CFGs from test-data/empty.cbl
+
+> run
+
+Ok
+
+> done
+
+Ok
+

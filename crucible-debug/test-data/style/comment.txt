@@ -1,0 +1,20 @@
+> usage #
+
+# TEXT*
+
+> . style #
+
+
+
+> . style # foo
+
+text (valid)
+
+> . style # foo bar baz quux
+
+text (valid) text (valid) text (valid) text (valid)
+
+> quit
+
+Ok
+

@@ -1,0 +1,9 @@
+> run run_takes_no_args
+
+Bad arguments for command run:
+Expected end of input, but found: run_takes_no_args
+
+> quit
+
+Ok
+

@@ -1,0 +1,11 @@
+> help asdf
+
+Bad arguments for command help:
+Both branches failed to match:
+- Expected end of input, but found: asdf
+- 'asdf' is not a command
+
+> quit
+
+Ok
+

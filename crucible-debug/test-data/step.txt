@@ -1,0 +1,20 @@
+> step
+
+Ok
+
+> step
+
+Ok
+
+> step
+
+Ok
+
+> step
+
+The simulator is no longer running
+
+> done
+
+Ok
+

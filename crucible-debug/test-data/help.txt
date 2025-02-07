@@ -1,0 +1,51 @@
+> help
+
+# (#): Ignore all arguments and do nothing
+backtrace (bt): Print the backtrace (AKA stack trace)
+block (blk): Print the statements in the current block
+break (b): Set a breakpoint at the entry to a function
+call (cl): Call a function (must take no arguments and return the unit type)
+cfg (cg): Print the CFG of a function (the current function if none is provided)
+clear (cr): Drop the current proof obligations
+delete (d): Remove a breakpoint
+done (done): Like `quit`, but only applies when symbolic execution has finished
+finish (fh): Execute to the end of the current function
+frame (fr): Print information about the active stack frame
+help (h): Display help text
+load (l): Load a Crucible S-expression program from a file
+location (loc): Print the current program location
+obligation (o): Print the current proof obligations
+path-condition (pcond): Print the current path condition
+prove (p): Prove the current goals
+quit (q): Exit the debugger
+register (reg): Print registers (including block/function arguments)
+run (r): Continue to the next breakpoint or the end of execution
+secret (.): Maintenance commands, used for testing
+source (src): Execute a file containing debugger commands
+step (s): Continue one step of execution
+trace (trace): Print the N most recently executed basic blocks (default: 2)
+usage (u): Display command usage hint
+
+
+> help run
+
+run 
+
+Continue to the next breakpoint or the end of execution.
+
+> help register
+
+register INT*
+
+Print registers (including block/function arguments).
+
+When given no arguments, prints all values in scope. Otherwise, prints the values with the given numbers, one per line.
+
+The value numbering scheme is based on the structure of Crucible CFGs. A Crucible CFG (function) is made up of *basic blocks*. Each basic block takes a list of arguments. The first block in the function is the *entry* block; the entry block takes the same arguments as the function. Each block contains a number of *statements*, which may define values. The value defined by a statement is in scope for the rest of the block.
+
+Values are then numbered as follows: The first argument to the current block is numbered 0. Increasing numbers refer to later arguments. After arguments, higher numbers refer to values defined by statements.
+
+> quit
+
+Ok
+

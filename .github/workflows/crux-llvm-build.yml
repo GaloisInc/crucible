@@ -153,8 +153,10 @@ jobs:
           with_ghc()  { $NS -c ${@}; }
           (cd crucible;             with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-cli;         with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-debug;       with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-llvm;        with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-llvm-cli;    with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-llvm-debug;  with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crucible-llvm-syntax; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux;                 with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux-llvm;            with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
@@ -166,13 +168,18 @@ jobs:
 
       - name: Generate source distributions
         shell: bash
-        run: cabal sdist crucible-symio crucible-llvm crucible-llvm-syntax crux-llvm uc-crux-llvm crucible-cli crucible-llvm-cli
+        run: cabal sdist crucible-symio crux-llvm uc-crux-llvm crucible-{cli,debug} crucible-llvm{,-cli,-debug,-syntax}
 
       - shell: bash
         run: |
-          .github/ci.sh build exe:crucible
+          .github/ci.sh build lib:crucible
+          .github/ci.sh build lib:crucible-syntax
+          .github/ci.sh build pkg:crucible-cli
+          .github/ci.sh build exe:crucible-debug
+          .github/ci.sh build lib:crucible-llvm
           .github/ci.sh build lib:crucible-llvm-syntax
-          .github/ci.sh build exe:crucible-llvm
+          .github/ci.sh build pkg:crucible-llvm-cli
+          .github/ci.sh build exe:crucible-llvm-debug
           .github/ci.sh build exe:crux-llvm
           .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:crux-llvm-svcomp
@@ -180,7 +187,7 @@ jobs:
 
       - shell: bash
         name: Haddock
-        run: cabal v2-haddock crucible-symio crucible-llvm{,-syntax} crux-llvm uc-crux-llvm
+        run: cabal v2-haddock crucible-debug crucible-symio crucible-llvm{,-debug,-syntax} crux-llvm uc-crux-llvm
 
       - shell: bash
         name: Test crucible
@@ -189,6 +196,13 @@ jobs:
       - shell: bash
         name: Test crucible-cli
         run: .github/ci.sh test crucible-cli
+
+      - shell: bash
+        name: Test crucible-debug
+        run: cd crucible-debug && ../.github/ci.sh test pkg:crucible-debug
+        # NOTE(lb): Not sure what's going on with these tests... and I don't
+        # have a Windows machine to debug.
+        if: runner.os != Windows
 
       - shell: bash
         name: Test crucible-symio
@@ -209,6 +223,10 @@ jobs:
         name: Test crucible-llvm-cli
         run: .github/ci.sh test crucible-llvm-cli
         if: runner.os == 'Linux'
+
+      - shell: bash
+        name: Test crucible-llvm-debug
+        run: .github/ci.sh test crucible-llvm-debug
 
       - shell: bash
         name: Test crux-llvm

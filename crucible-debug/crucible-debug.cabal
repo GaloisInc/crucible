@@ -1,0 +1,151 @@
+cabal-version: 2.4
+name: crucible-debug
+version: 0.1.0
+author: Galois Inc.
+maintainer: langston@galois.com
+build-type: Simple
+license: BSD-3-Clause
+license-file: LICENSE
+category: Language
+synopsis: An interactive debugger for Crucible programs
+
+extra-doc-files: README.md
+extra-source-files:
+  LICENSE
+  test-data/**/*.txt
+
+common shared
+  -- Specifying -Wall and -Werror can cause the project to fail to build on
+  -- newer versions of GHC simply due to new warnings being added to -Wall. To
+  -- prevent this from happening we manually list which warnings should be
+  -- considered errors. We also list some warnings that are not in -Wall, though
+  -- try to avoid "opinionated" warnings (though this judgement is clearly
+  -- subjective).
+  --
+  -- Warnings are grouped by the GHC version that introduced them, and then
+  -- alphabetically.
+  --
+  -- A list of warnings and the GHC version in which they were introduced is
+  -- available here:
+  -- https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-warnings.html
+
+  -- Since GHC 9.4 or earlier:
+  ghc-options:
+    -Wall
+    -Werror=ambiguous-fields
+    -Werror=compat-unqualified-imports
+    -Werror=deferred-type-errors
+    -Werror=deprecated-flags
+    -Werror=deprecations
+    -Werror=deriving-defaults
+    -Werror=dodgy-foreign-imports
+    -Werror=duplicate-exports
+    -Werror=empty-enumerations
+    -Werror=forall-identifier
+    -Werror=identities
+    -Werror=inaccessible-code
+    -Werror=incomplete-patterns
+    -Werror=incomplete-record-updates
+    -Werror=incomplete-uni-patterns
+    -Werror=inline-rule-shadowing
+    -Werror=misplaced-pragmas
+    -Werror=missed-extra-shared-lib
+    -Werror=missing-exported-signatures
+    -Werror=missing-fields
+    -Werror=missing-home-modules
+    -Werror=missing-methods
+    -Werror=operator-whitespace
+    -Werror=operator-whitespace-ext-conflict
+    -Werror=overflowed-literals
+    -Werror=overlapping-patterns
+    -Werror=partial-fields
+    -Werror=partial-type-signatures
+    -Werror=redundant-bang-patterns
+    -Werror=redundant-strictness-flags
+    -Werror=simplifiable-class-constraints
+    -Werror=star-binder
+    -Werror=star-is-type
+    -Werror=tabs
+    -Werror=typed-holes
+    -Werror=type-equality-out-of-scope
+    -Werror=type-equality-requires-operators
+    -Werror=unrecognised-pragmas
+    -Werror=unrecognised-warning-flags
+    -Werror=unsupported-calling-conventions
+    -Werror=unsupported-llvm-version
+    -Werror=unticked-promoted-constructors
+    -Werror=unused-imports
+    -Werror=warnings-deprecations
+    -Werror=wrong-do-bind
+
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+
+library
+  import: shared
+
+  build-depends:
+    base >= 4.13,
+    containers,
+    crucible,
+    crucible-syntax,
+    directory,
+    filepath,
+    isocline,
+    lens,
+    megaparsec,
+    mtl,
+    parameterized-utils,
+    prettyprinter,
+    ring-buffer,
+    text,
+    vector,
+    what4,
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.Crucible.Debug
+    Lang.Crucible.Debug.Inputs
+    Lang.Crucible.Debug.Outputs
+    Lang.Crucible.Pretty
+
+  other-modules:
+    Lang.Crucible.Debug.Arg
+    Lang.Crucible.Debug.Arg.Type
+    Lang.Crucible.Debug.Breakpoint
+    Lang.Crucible.Debug.Command
+    Lang.Crucible.Debug.Command.Base
+    Lang.Crucible.Debug.Commands
+    Lang.Crucible.Debug.Complete
+    Lang.Crucible.Debug.Context
+    Lang.Crucible.Debug.Eval
+    Lang.Crucible.Debug.Regex
+    Lang.Crucible.Debug.Response
+    Lang.Crucible.Debug.Statement
+    Lang.Crucible.Debug.Style
+    Lang.Crucible.Debug.Trace
+
+test-suite crucible-debug-tests
+  import: shared
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    bytestring,
+    crucible-debug,
+    directory,
+    prettyprinter,
+    tasty,
+    tasty-golden,
+    text,
+ 
+executable crucible-debug
+  import: shared
+  hs-source-dirs: app
+  main-is: Main.hs
+  build-depends:
+    base >= 4.13,
+    crucible-debug,
+    text,

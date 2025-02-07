@@ -1,0 +1,8 @@
+> source does-not-exist.txt
+
+does-not-exist.txt: openFile: does not exist (No such file or directory)
+
+> quit
+
+Ok
+

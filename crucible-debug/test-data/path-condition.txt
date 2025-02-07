@@ -1,0 +1,12 @@
+> path-condition
+
+true
+
+> run
+
+Ok
+
+> done
+
+Ok
+

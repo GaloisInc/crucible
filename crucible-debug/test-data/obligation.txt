@@ -1,0 +1,8 @@
+> obligation
+
+No proof obligations
+
+> quit
+
+Ok
+

@@ -1,0 +1,16 @@
+> usage break
+
+break FUNCTION
+
+> . style break
+
+
+
+> . style break foo
+
+function (unknown)
+
+> quit
+
+Ok
+

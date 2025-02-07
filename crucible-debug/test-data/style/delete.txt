@@ -1,0 +1,24 @@
+> usage delete
+
+delete BREAKPOINT
+
+> . style delete
+
+
+
+> . style delete foo
+
+breakpoint (invalid)
+
+> break foo
+
+Ok
+
+> . style delete foo
+
+breakpoint (valid)
+
+> quit
+
+Ok
+

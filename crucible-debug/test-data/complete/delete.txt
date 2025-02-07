@@ -1,0 +1,40 @@
+> usage delete
+
+delete BREAKPOINT
+
+> . complete delete
+
+breakpoint
+
+> break foo
+
+Ok
+
+> break bar
+
+Ok
+
+> . complete delete
+
+breakpoint: bar, foo
+
+> . complete delete foo
+
+No completions
+
+> . complete delete fo_
+
+breakpoint: foo
+
+> delete foo
+
+Deleted breakpoint at foo
+
+> . complete delete
+
+breakpoint: bar
+
+> quit
+
+Ok
+

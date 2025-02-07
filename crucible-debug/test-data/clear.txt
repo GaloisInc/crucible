@@ -1,0 +1,28 @@
+> load test-data/assert-false.cbl
+
+Loaded 1 CFGs from test-data/assert-false.cbl
+
+> step
+
+Ok
+
+> call main
+
+Ok
+
+> run
+
+Ok
+
+> clear
+
+Cleared 1 proof obligation
+
+> prove
+
+No obligations to prove
+
+> done
+
+Ok
+

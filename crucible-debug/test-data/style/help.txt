@@ -1,0 +1,16 @@
+> usage help
+
+help COMMAND?
+
+> . style help
+
+
+
+> . style help secret
+
+command (valid)
+
+> quit
+
+Ok
+

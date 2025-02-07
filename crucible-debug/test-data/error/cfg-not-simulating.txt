@@ -1,0 +1,8 @@
+> cfg
+
+The simulator is not yet running
+
+> quit
+
+Ok
+

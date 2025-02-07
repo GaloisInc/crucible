@@ -7,10 +7,12 @@
 packages:
   crucible/
   crucible-cli/
+  crucible-debug/
   crucible-go/
   crucible-jvm/
   crucible-llvm/
   crucible-llvm-cli/
+  crucible-llvm-debug/
   crucible-llvm-syntax/
   crucible-mir/
   crucible-wasm/

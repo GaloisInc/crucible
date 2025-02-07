@@ -1,0 +1,16 @@
+> usage cfg
+
+cfg FUNCTION?
+
+> . complete cfg
+
+function
+
+> . complete cfg foo
+
+No completions
+
+> quit
+
+Ok
+

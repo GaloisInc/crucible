@@ -1,0 +1,12 @@
+> step
+
+Ok
+
+> cfg
+
+Not executing a CFG
+
+> quit
+
+Ok
+
