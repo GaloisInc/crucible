@@ -479,7 +479,7 @@ instance Pretty (TypeRepr tp) where
       IntrinsicRepr name tys ->
         parens (pretty (symbolRepr name) <+> prettyCtx tys)
       RecursiveRepr name tys ->
-        parens (pretty (symbolRepr name) <+> prettyCtx tys)
+        parens ("Rec" <+> pretty (symbolRepr name) <+> prettyCtx tys)
       FloatRepr f -> parens ("Float" <+> pretty f)
       IEEEFloatRepr f -> parens ("IEEEFloat" <+> pretty f)
       CharRepr -> "Char"
