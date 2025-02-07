@@ -206,7 +206,7 @@ data CruxOptions = CruxOptions
     -- ^ Output options grouped together for easy transfer to the logger
 
   , debug                    :: Bool
-    -- ^ Enable the Crucible debugger
+    -- ^ Drop into the Crucible debugger before simulation begins
 
   }
   deriving (Generic)
@@ -369,7 +369,7 @@ cruxOptions = Config
 
           debug <-
             section "debug" yesOrNoSpec False
-            "Enable the Crucible debugger"
+            "Drop into the Crucible debugger before simulation begins"
 
           pure CruxOptions
             { outputOptions = OutputOptions
@@ -534,7 +534,7 @@ cruxOptions = Config
         $ ReqArg "FPREP" $ \v opts -> Right opts { floatMode = map toLower v }
 
       , Option [] ["debug"]
-        "Enable the Crucible debugger"
+        "Drop into the Crucible debugger before simulation begins"
         $ NoArg $ \opts -> Right opts { debug = True }
       ]
   }
