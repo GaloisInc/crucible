@@ -1,6 +1,7 @@
 # next -- TBA
 
 * Add support for the Bitwuzla SMT solver.
+* Add `--debug` option for starting the Crucible debugger.
 
 # 0.7.1 -- 2024-08-30
 
