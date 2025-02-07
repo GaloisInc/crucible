@@ -87,6 +87,7 @@ module Lang.Crucible.Types
     -- * Other stuff
   , CtxRepr
   , pattern KnownBV
+  , ppTypeRepr
 
     -- * Representation of Crucible types
   , TypeRepr(..)
@@ -99,6 +100,7 @@ module Lang.Crucible.Types
   , module What4.InterpretedFloatingPoint
   ) where
 
+import           Data.Functor.Identity (Identity(..))
 import           Data.Hashable
 import           Data.Type.Equality
 import           GHC.TypeNats (Nat, KnownNat)
@@ -457,47 +459,80 @@ instance HashableF TypeRepr where
 instance Hashable (TypeRepr ty) where
   hashWithSalt = $(U.structuralHashWithSalt [t|TypeRepr|] [])
 
+-- Helper, not exported
+prettyCtx ::
+  Monad f =>
+  -- | How to print 'IntrinsicRepr'
+  (forall s ctx'. SymbolRepr s -> CtxRepr ctx' -> f (Doc ann)) ->
+  Ctx.Assignment TypeRepr ctx ->
+  f (Doc ann)
+prettyCtx f = fmap hsep . foldlMFC (\l t -> (:l) <$> ppTypeRepr f t) []
+
+-- Helper, not exported
+prettyBaseCtx :: Ctx.Assignment BaseTypeRepr ctx -> Doc ann
+prettyBaseCtx = hsep . toListFC pretty
+
 -- | Pretty-print a type.
 --
--- This instance attempts to be consistent with the syntax provided in the
--- @crucible-syntax@ package.
+-- Attempts to be consistent with the syntax provided in the @crucible-syntax@
+-- package.
+ppTypeRepr ::
+  Monad f =>
+  -- | How to print 'IntrinsicRepr'
+  (forall s ctx. SymbolRepr s -> CtxRepr ctx -> f (Doc ann)) ->
+  TypeRepr tp ->
+  f (Doc ann)
+-- The following specialization is used in the 'Pretty' instance and doesn't
+-- need to generate code for (>>=), so it seems worth specializing for it.
+{-# SPECIALIZE
+  ppTypeRepr :: 
+    (forall s ctx. SymbolRepr s -> CtxRepr ctx -> Identity (Doc ann)) ->
+    TypeRepr tp ->
+    Identity (Doc ann) #-}
+ppTypeRepr f x =
+  case x of
+    AnyRepr -> pure "Any"
+    UnitRepr -> pure "Unit"
+    BoolRepr -> pure "Bool"
+    NatRepr -> pure "Nat"
+    IntegerRepr -> pure "Integer"
+    RealValRepr -> pure "RealVal"
+    ComplexRealRepr -> pure "ComplexReal"
+    BVRepr n -> pure (parens ("Bitvector" <+> viaShow n))
+    IntrinsicRepr name tys -> f name tys
+    RecursiveRepr name tys ->
+      parens . (("Rec" <+> pretty (symbolRepr name)) <+>) <$> prettyCtx f tys
+    FloatRepr fr -> pure (parens ("Float" <+> pretty fr))
+    IEEEFloatRepr fr -> pure (parens ("IEEEFloat" <+> pretty fr))
+    CharRepr -> pure "Char"
+    StringRepr s -> pure (parens ("String" <+> pretty s))
+    FunctionHandleRepr args ret ->
+      (\args' ret' -> parens ("->" <+> args' <+> ret'))
+      <$> prettyCtx f args
+      <*> ppTypeRepr f ret
+    MaybeRepr tp -> parens . ("Maybe" <+>) <$> ppTypeRepr f tp
+    SequenceRepr s -> parens . ("Sequence" <+>) <$> ppTypeRepr f s
+    VariantRepr variants -> parens . ("Variant" <+>) <$> prettyCtx f variants
+    VectorRepr elems -> parens . ("Vector" <+>) <$> ppTypeRepr f elems
+    StructRepr fields -> parens . ("Struct" <+>) <$> prettyCtx f fields
+    ReferenceRepr t -> parens . ("Reference" <+>) <$> ppTypeRepr f t
+    WordMapRepr n t -> pure (parens ("WorldMap" <+> viaShow n <+> pretty t))
+    StringMapRepr s -> parens . ("StringMap" <+>) <$> ppTypeRepr f s
+    SymbolicArrayRepr idxs a ->
+      pure (parens ("SymbolicArray" <+> prettyBaseCtx idxs <+> pretty a))
+    SymbolicStructRepr fields ->
+      pure (parens ("SymbolicStruct" <+> prettyBaseCtx fields))
+
+-- | Pretty-print a type. Based on 'ppTypeRepr', with a default printer for
+-- intrinsic types.
 instance Pretty (TypeRepr tp) where
-  pretty x =
-    let prettyCtx :: Ctx.Assignment TypeRepr ctx -> Doc ann
-        prettyCtx = hsep . toListFC pretty in
-    let prettyBaseCtx :: Ctx.Assignment BaseTypeRepr ctx -> Doc ann
-        prettyBaseCtx = hsep . toListFC pretty in
-    case x of
-      AnyRepr -> "Any"
-      UnitRepr -> "Unit"
-      BoolRepr -> "Bool"
-      NatRepr -> "Nat"
-      IntegerRepr -> "Integer"
-      RealValRepr -> "RealVal"
-      ComplexRealRepr -> "ComplexReal"
-      BVRepr n -> parens ("Bitvector" <+> viaShow n)
-      IntrinsicRepr name tys ->
-        parens (pretty (symbolRepr name) <+> prettyCtx tys)
-      RecursiveRepr name tys ->
-        parens ("Rec" <+> pretty (symbolRepr name) <+> prettyCtx tys)
-      FloatRepr f -> parens ("Float" <+> pretty f)
-      IEEEFloatRepr f -> parens ("IEEEFloat" <+> pretty f)
-      CharRepr -> "Char"
-      StringRepr s -> parens ("String" <+> pretty s)
-      FunctionHandleRepr args ret ->
-        parens ("->" <+> prettyCtx args <+> pretty ret)
-      MaybeRepr tp -> parens ("Maybe" <+> pretty tp)
-      SequenceRepr s -> parens ("Sequence" <+> pretty s)
-      VariantRepr variants -> parens ("Variant" <+> prettyCtx variants)
-      VectorRepr v -> parens ("Vector" <+> pretty v)
-      StructRepr fields -> parens ("Struct" <+> prettyCtx fields)
-      ReferenceRepr t -> parens ("Reference" <+> pretty t)
-      WordMapRepr n t -> parens ("WorldMap" <+> viaShow n <+> pretty t)
-      StringMapRepr s -> parens ("StringMap" <+> pretty s)
-      SymbolicArrayRepr idxs a ->
-        parens ("SymbolicArray" <+> prettyBaseCtx idxs <+> pretty a)
-      SymbolicStructRepr fields ->
-        parens ("SymbolicStruct" <+> prettyBaseCtx fields)
+  pretty = runIdentity . ppTypeRepr ppIntrinsic
+    where
+      ppIntrinsic :: forall ann s ctx. SymbolRepr s -> CtxRepr ctx -> Identity (Doc ann)
+      ppIntrinsic name tys =
+        Identity $
+          parens $
+            pretty (symbolRepr name) <+> runIdentity (prettyCtx ppIntrinsic tys)
 
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])
