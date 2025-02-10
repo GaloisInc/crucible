@@ -202,7 +202,7 @@ jobs:
         run: cd crucible-debug && ../.github/ci.sh test pkg:crucible-debug
         # NOTE(lb): Not sure what's going on with these tests... and I don't
         # have a Windows machine to debug.
-        if: runner.os != Windows
+        if: runner.os != 'Windows'
 
       - shell: bash
         name: Test crucible-symio
