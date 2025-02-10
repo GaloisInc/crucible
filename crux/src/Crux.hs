@@ -28,6 +28,7 @@ module Crux
   , module Crux.Log
   ) where
 
+import qualified Control.Applicative as Applicative
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad ( unless, void, when )
@@ -53,6 +54,7 @@ import           System.FilePath ((</>))
 import           System.IO ( Handle, hPutStr, stdout, stderr )
 
 import           Data.Parameterized.Classes
+import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce (newIONonceGenerator, NonceGenerator)
 import           Data.Parameterized.Some ( Some(..) )
 
@@ -60,6 +62,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.Simple as CBS
 import           Lang.Crucible.CFG.Extension
+import qualified Lang.Crucible.Debug as Debug
 import           Lang.Crucible.Simulator
 import           Lang.Crucible.Simulator.BoundedExec
 import           Lang.Crucible.Simulator.BoundedRecursion
@@ -67,6 +70,7 @@ import           Lang.Crucible.Simulator.PathSatisfiability
 import           Lang.Crucible.Simulator.PathSplitting
 import           Lang.Crucible.Simulator.PositionTracking
 import           Lang.Crucible.Simulator.Profiling
+import qualified Lang.Crucible.Syntax.Concrete as Syn
 import           Lang.Crucible.Types
 
 
@@ -675,14 +679,38 @@ doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProv
     RunnableStateWithExtensions initSt exts <- setup bak monline
     explainFailure <- onError bak
 
+    -- This can't be initialized with the rest of the execution features,
+    -- because it is not a 'GenericExecutionFeature'.
+    --
+    -- Ideally, we would use language-extension-specific command extensions
+    -- (e.g., LLVM commands for Crux-LLVM) and parser hooks, but that would
+    -- require some refactoring to pass those in...
+    let debugging = debug cruxOpts
+    debugger <-
+      if debugging
+      then do
+        let ?parserHooks = Syn.ParserHooks Applicative.empty Applicative.empty
+        let cExts = Debug.voidExts
+        inps <- Debug.defaultDebuggerInputs cExts
+        dbg <-
+          Debug.debugger
+            cExts
+            Debug.voidImpl
+            (Debug.IntrinsicPrinters MapF.empty)
+            inps
+            Debug.defaultDebuggerOutputs
+            UnitRepr
+        pure [dbg]
+      else pure []
+
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
+        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts ++ debugger) initSt
            void $ resultCont compRef glsRef frm explainFailure (Result res)
       SplitAndExploreDepthFirst ->
         do (i,ws) <- executeCrucibleDFSPaths
-                         (map genericToExecutionFeature execFeatures ++ exts)
+                         (map genericToExecutionFeature execFeatures ++ exts ++ debugger)
                          initSt
                          (resultCont compRef glsRef frm explainFailure . Result)
            sayCrux (Log.TotalPathsExplored i)

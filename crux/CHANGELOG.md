@@ -1,6 +1,9 @@
 # next -- TBA
 
 * Add support for the Bitwuzla SMT solver.
+* Add `--debug` option for starting the Crucible debugger.
+* For the sake of the `--debug` flag, Crux now depends on the
+  `crucible-{debug,syntax}` packages.
 
 # 0.7.1 -- 2024-08-30
 

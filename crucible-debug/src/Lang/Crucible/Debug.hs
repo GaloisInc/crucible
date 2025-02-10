@@ -51,6 +51,7 @@ module Lang.Crucible.Debug
   , Trace.Trace
   , Trace.TraceEntry(..)
   , Trace.latest
+  , IntrinsicPrinters(..)
   ) where
 
 import Control.Applicative qualified as Applicative
@@ -90,7 +91,7 @@ import Lang.Crucible.Debug.Style qualified as Style
 import Lang.Crucible.Debug.Style (StyleT)
 import Lang.Crucible.Debug.Trace qualified as Trace
 import Lang.Crucible.FunctionHandle qualified as C
-import Lang.Crucible.Pretty (IntrinsicPrinters (..))
+import Lang.Crucible.Pretty (IntrinsicPrinters(..))
 import Lang.Crucible.Simulator.CallFrame qualified as C
 import Lang.Crucible.Simulator.EvalStmt qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C

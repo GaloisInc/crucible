@@ -406,6 +406,8 @@ In addition, the following flags can optionally be provided:
   a symbolic filesystem to use during symbolic execution.  See the Symbolic I/O
   documentation for the format of this directory. [Experimental]
 
+* `--debug`: Start the Crucible debugger.
+
 # Environment Variables
 
 The following environment variables are supported:
