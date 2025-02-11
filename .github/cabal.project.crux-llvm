@@ -1,7 +1,9 @@
 packages:
   crucible/
+  crucible-debug/
   crucible-llvm/
   crucible-symio/
+  crucible-syntax/
   crux/
   crux-llvm/
 

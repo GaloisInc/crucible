@@ -19,6 +19,7 @@ RUN apt-get update && \
 RUN mkdir -p ${CRUX_BUILD_DIR}
 ADD crucible ${CRUX_BUILD_DIR}/crucible
 ADD crucible-concurrency ${CRUX_BUILD_DIR}/crucible-concurrency
+ADD crucible-debug ${CRUX_BUILD_DIR}/crucible-debug
 ADD crucible-mir ${CRUX_BUILD_DIR}/crucible-mir
 ADD crucible-syntax ${CRUX_BUILD_DIR}/crucible-syntax
 ADD crux ${CRUX_BUILD_DIR}/crux
