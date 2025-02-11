@@ -19,8 +19,10 @@ RUN apt-get update && \
 ARG CRUX_BUILD_DIR=/crux-llvm/build
 RUN mkdir -p ${CRUX_BUILD_DIR}
 ADD crucible ${CRUX_BUILD_DIR}/crucible
+ADD crucible-debug ${CRUX_BUILD_DIR}/crucible-debug
 ADD crucible-llvm ${CRUX_BUILD_DIR}/crucible-llvm
 ADD crucible-symio ${CRUX_BUILD_DIR}/crucible-symio
+ADD crucible-syntax ${CRUX_BUILD_DIR}/crucible-syntax
 ADD crux ${CRUX_BUILD_DIR}/crux
 ADD crux-llvm ${CRUX_BUILD_DIR}/crux-llvm
 ADD dependencies ${CRUX_BUILD_DIR}/dependencies

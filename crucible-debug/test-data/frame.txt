@@ -32,8 +32,8 @@ CFG: add
 Block: %0
 
 Argument types:
-- IntegerRepr
-- IntegerRepr
+- Integer
+- Integer
 
 > run
 
