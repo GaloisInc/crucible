@@ -68,7 +68,7 @@ Ok
 > reg
 
 ite cp@0:b cx@1:i 12
-add : IntegerRepr -> IntegerRepr -> IntegerRepr
+add : Integer -> Integer -> Integer
 0
 ite cp@0:b cx@1:i 12
 
