@@ -208,6 +208,7 @@ withOptions llvmModule file k =
           , Crux.quietMode = True
           , Crux.simVerbose = 0
           }
+        , Crux.debug = False
         }
 
 simulateFunc ::
