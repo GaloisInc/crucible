@@ -1538,6 +1538,12 @@ unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
 unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
   = traverse (unpackMemValue sym tpr) xs
 
+-- LLVM string literals are syntactic shorthand for [<N> x i8] arrays, so we
+-- defer to the LLVMValArray case above.
+unpackMemValue sym tpr@(VectorRepr _) (LLVMValString str)
+  = do explodedVal <- explodeStringValue sym str
+       unpackMemValue sym tpr explodedVal
+
 unpackMemValue _sym ctp@(BVRepr _) lval@(LLVMValInt _ _) =
     panic "MemModel.unpackMemValue"
       [ "Cannot unpack an integer LLVM value to a crucible bitvector type"

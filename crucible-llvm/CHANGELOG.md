@@ -1,3 +1,8 @@
+# next -- TBA
+
+* Fix a bug in which the memory model would panic when attempting to unpack
+  constant string literals.
+
 # 0.7 -- 2024-08-30
 
 * Add support for GHC 9.8
