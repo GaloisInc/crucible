@@ -172,7 +172,7 @@ explainCex sym bbMap evalFn =
 
       -- We expect at least one of the contained predicates to be false, so choose one
       -- and explain that failure
-      (asApp -> Just (ConjPred (viewBoolMap -> BoolMapTerms tms))) -> go (Fold.toList tms)
+      (asApp -> Just (ConjPred (viewConjMap -> Conjuncts tms))) -> go (Fold.toList tms)
         where
         go [] = pure NoExplanation
         go ((x,Positive):xs)
@@ -223,7 +223,7 @@ explainCex sym bbMap evalFn =
 
       -- under negative polarity, we expect all members of the disjunction to be false,
       -- and we must construct an explanation for all of them
-      (asApp -> Just (ConjPred (viewBoolMap -> BoolMapTerms tms))) -> go (Fold.toList tms) NoExplanation
+      (asApp -> Just (ConjPred (viewConjMap -> Conjuncts tms))) -> go (Fold.toList tms) NoExplanation
         where
         go [] es = pure es
         go ((x,Positive):xs) es =
