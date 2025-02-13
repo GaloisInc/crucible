@@ -65,17 +65,17 @@ jobs:
       matrix:
         os: [ubuntu-22.04]
         cabal: ["3.10.3.0"]
-        ghc: ["9.4.8", "9.6.5", "9.8.2"]
+        ghc: ["9.6.5", "9.8.2", "9.10.1"]
         include:
           - os: ubuntu-20.04
             cabal: 3.10.3.0
-            ghc: 9.4.8
+            ghc: 9.10.1
           - os: macos-14
             cabal: 3.10.3.0
-            ghc: 9.4.8
+            ghc: 9.10.1
           - os: windows-2019
             cabal: 3.10.3.0
-            ghc: 9.4.8
+            ghc: 9.10.1
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -133,6 +133,7 @@ jobs:
             9.4.8) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             9.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             9.8.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
+            9.10.1) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac
           echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV

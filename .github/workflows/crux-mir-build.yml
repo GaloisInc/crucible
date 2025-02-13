@@ -139,6 +139,7 @@ jobs:
             9.4.8) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             9.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             9.8.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
+            9.10.1) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
             *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
           esac
           echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV

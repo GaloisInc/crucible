@@ -2,10 +2,12 @@
 # .github/workflows/crux-mir-build.yml
 ARG RUST_TOOLCHAIN="nightly-2023-01-23"
 ARG CRUX_BUILD_DIR=/crux-mir/build
+ARG GHC_VER=9.6.5
 
 FROM ubuntu:22.04 AS build
 ARG RUST_TOOLCHAIN
 ARG CRUX_BUILD_DIR
+ARG GHC_VER
 
 RUN apt-get update && \
     apt-get install -y \
@@ -26,7 +28,7 @@ ADD crux ${CRUX_BUILD_DIR}/crux
 ADD crux-mir ${CRUX_BUILD_DIR}/crux-mir
 ADD dependencies ${CRUX_BUILD_DIR}/dependencies
 ADD .github/cabal.project.crux-mir ${CRUX_BUILD_DIR}/cabal.project
-ADD cabal.GHC-9.4.8.config ${CRUX_BUILD_DIR}/cabal.project.freeze
+ADD cabal.GHC-${GHC_VER}.config ${CRUX_BUILD_DIR}/cabal.project.freeze
 
 RUN useradd -m crux-mir && chown -R crux-mir:crux-mir /crux-mir
 USER crux-mir
@@ -56,8 +58,8 @@ RUN mkdir -p /home/crux-mir/.local/bin && \
 RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup --version && \
     ghcup install cabal 3.10.3.0 && \
-    ghcup install ghc 9.4.8 && \
-    ghcup set ghc 9.4.8
+    ghcup install ghc ${GHC_VER} && \
+    ghcup set ghc ${GHC_VER}
 
 WORKDIR ${CRUX_BUILD_DIR}/crux-mir
 RUN ./translate_libs.sh

@@ -1,5 +1,6 @@
 # next -- TBA
 
+* Add support for GHC 9.10.
 * Add support for the Bitwuzla SMT solver in the test suite.
 * Add `--debug` option for starting the Crucible debugger.
 

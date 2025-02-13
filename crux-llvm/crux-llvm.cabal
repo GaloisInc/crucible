@@ -55,7 +55,7 @@ common bldflags
                -Wincomplete-uni-patterns
   ghc-prof-options: -O2
   default-language: Haskell2010
-  build-depends:    base >= 4.8 && < 4.20
+  build-depends:    base >= 4.8 && < 4.21
                   , bytestring
                   , containers
                   , crucible

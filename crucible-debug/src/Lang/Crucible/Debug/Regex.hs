@@ -65,10 +65,19 @@ data Regex a
   | TThen (Regex a) (Regex a)
   | TStar (Regex a)
 
+type Empty :: forall a. Regex a
 type Empty = 'TEmpty
+
+type Lit :: forall a. a -> Regex a
 type Lit = 'TLit
+
+type (:|) :: forall a. Regex a -> Regex a -> Regex a
 type a :| b = 'TOr a b
+
+type Then :: forall a. Regex a -> Regex a -> Regex a
 type Then = 'TThen
+
+type Star :: forall a. Regex a -> Regex a
 type Star = 'TStar
 
 -- | Value-level representative of 'Regex'
@@ -214,6 +223,7 @@ nu =
     Then l r -> Then (nu l) (nu r)
 
 -- | The result of 'derivative'
+type DerivativeResult :: forall k k'. (k -> Type) -> (k' -> Type) -> Type
 data DerivativeResult f g
   = DerivativeResult
     { -- | The remaining regex after matching that token

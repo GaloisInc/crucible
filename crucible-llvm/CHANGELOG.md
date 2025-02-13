@@ -1,5 +1,6 @@
 # next -- TBA
 
+* Add support for GHC 9.10
 * Fix a bug in which the memory model would panic when attempting to unpack
   constant string literals.
 
