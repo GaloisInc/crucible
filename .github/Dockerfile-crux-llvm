@@ -1,9 +1,11 @@
 # If you update this version number, make sure to update the value of
 # LINUX_LLVM_VER in .github/ci.sh (in the install_llvm() function).
 ARG LLVM_VER=14
+ARG GHC_VER=9.6.5
 
 FROM ubuntu:22.04 AS build
 ARG LLVM_VER
+ARG GHC_VER
 
 RUN apt-get update && \
     apt-get install -y \
@@ -27,7 +29,7 @@ ADD crux ${CRUX_BUILD_DIR}/crux
 ADD crux-llvm ${CRUX_BUILD_DIR}/crux-llvm
 ADD dependencies ${CRUX_BUILD_DIR}/dependencies
 ADD .github/cabal.project.crux-llvm ${CRUX_BUILD_DIR}/cabal.project
-ADD cabal.GHC-9.4.8.config ${CRUX_BUILD_DIR}/cabal.project.freeze
+ADD cabal.GHC-${GHC_VER}.config ${CRUX_BUILD_DIR}/cabal.project.freeze
 # Workaround until we have a more recent LLVM build available
 RUN cp ${CRUX_BUILD_DIR}/crux-llvm/c-src/libcxx-7.1.0.bc ${CRUX_BUILD_DIR}/crux-llvm/c-src/libcxx-${LLVM_VER}.0.0.bc
 
@@ -56,8 +58,8 @@ RUN mkdir -p /home/crux-llvm/.local/bin && \
 RUN mkdir -p /home/crux-llvm/.ghcup && \
     ghcup --version && \
     ghcup install cabal 3.10.3.0 && \
-    ghcup install ghc 9.4.8 && \
-    ghcup set ghc 9.4.8
+    ghcup install ghc ${GHC_VER} && \
+    ghcup set ghc ${GHC_VER}
 
 WORKDIR ${CRUX_BUILD_DIR}
 RUN cabal v2-update && \

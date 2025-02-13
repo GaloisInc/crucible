@@ -1,5 +1,6 @@
 # next -- TBA
 
+* Add support for GHC 9.10
 * Add `--debug` option for starting the Crucible debugger.
 
 # 0.9 -- 2024-08-30

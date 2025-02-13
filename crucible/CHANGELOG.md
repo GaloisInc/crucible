@@ -1,5 +1,6 @@
 # next -- TBA
 
+* Add support for GHC 9.10
 * Add support for Bitwuzla as an online SMT solver backend.
 * Add a function `ppTypeRepr` to `Lang.Crucible.Types` for pretty-printing
   `TypeRepr`s. Modify the `Pretty` instance to use this function.

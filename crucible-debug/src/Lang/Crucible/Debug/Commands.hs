@@ -3,6 +3,7 @@ Copyright        : (c) Galois, Inc. 2025
 Maintainer       : Langston Barrett <langston@galois.com>
 -}
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -12,6 +13,7 @@ Maintainer       : Langston Barrett <langston@galois.com>
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.Debug.Commands
@@ -34,6 +36,7 @@ import Control.Exception qualified as X
 import Control.Lens qualified as Lens
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
+import Data.Kind (Type)
 import Data.List qualified as List
 import Data.Maybe qualified as Maybe
 import Data.Parameterized.Classes (ixF')
@@ -126,6 +129,7 @@ insertCfg regCFG hdlMap =
         (C.UseCFG ssaCFG (C.postdomInfo ssaCFG))
         hdlMap
 
+type SomeFn :: (Ctx.Ctx C.CrucibleType -> C.CrucibleType -> Type) -> Type
 data SomeFn f = forall args ret. SomeFn (f args ret)
 
 lookupHandleMapByName ::

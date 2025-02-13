@@ -28,7 +28,8 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 import Control.Monad.Reader qualified as Reader
 import Control.Monad.Trans (MonadTrans)
-import Data.Foldable (foldl', toList)
+import Data.Foldable (toList)
+import Data.Foldable qualified as Foldable
 import Data.Functor.Identity (Identity, runIdentity)
 import Data.List qualified as List
 import Data.Parameterized.Some (Some(Some), viewSome)
@@ -184,7 +185,7 @@ style r =
         Rgx.DerivativeResult (Some r') (Some m Seq.:<| ms) -> do
           s <- styled m
           ss <- mapM (viewSome styled) (toList ms)
-          let combined = foldl' combineStyled s ss
+          let combined = Foldable.foldl' combineStyled s ss
           rest <- style r' ws
           pure (combined : rest)
   where
