@@ -249,7 +249,27 @@ instance Pretty Operand where
     pretty (Temp c) = pretty c
 
 instance Pretty Constant where
-    pretty (Constant _a b) = pretty b
+    pretty (Constant a b) =
+      case (a, b) of
+        -- We include two special cases for ConstZST that leverage its type to
+        -- improve the pretty-printing:
+        --
+        -- - If the type is TyFnDef, then we pretty-print the function's DefId.
+        --   (This is crucial to ensure that pretty-printing function
+        --   applications reveals the name of the applied function.)
+        --
+        -- - Otherwise, we print <ZST: [ty]>, where [ty] is the pretty-printed
+        --   type.
+        --
+        -- There is also a case for ConstZST in the `Pretty ConstVal` instance,
+        -- but the output there (<ZST>) is much less informative, as it cannot
+        -- take the type of the ConstZST into account.
+        (TyFnDef defId, ConstZST) ->
+          pr_id defId
+        (_, ConstZST) ->
+          pretty "<ZST:" <+> pretty a <> pretty ">"
+        _ ->
+          pretty b
 
 instance Pretty NullOp where
     pretty SizeOf = pretty "sizeof"
@@ -323,7 +343,14 @@ instance Pretty ConstVal where
     pretty (ConstFunction a)   = pr_id a
     pretty (ConstInitializer a) = pr_id a
     pretty (ConstStaticRef a) = pretty "&" <> pr_id a
-    pretty ConstZST = pretty "<ZST>"
+    pretty ConstZST =
+      -- A ConstZST value represents a value with a zero-sized type, but we
+      -- cannot know what type it is by looking at the value in isolation. Note
+      -- that the `Pretty Constant` instance includes a special case for
+      -- ConstZST that value along with its type for clarity. In practice, most
+      -- ConstZSTs will be printed via the `Pretty Constant` instance, not the
+      -- code below.
+      pretty "<ZST>"
     pretty (ConstRawPtr a) = pretty a
     pretty (ConstStruct fs) = pretty "struct" <> list (map pretty fs)
     pretty (ConstEnum v fs) = pretty "enum" <> list ((pretty "variant" <+> pretty v) : map pretty fs)
