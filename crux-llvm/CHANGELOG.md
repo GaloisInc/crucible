@@ -2,6 +2,10 @@
 
 * Add support for the Bitwuzla SMT solver in the test suite.
 * Add `--debug` option for starting the Crucible debugger.
+* Emit a warning when parsing an LLVM bitcode metadata record that `crux-llvm`
+  does not support. (Previously, `crux-llvm` would throw a fatal error if this
+  occurred, so this change makes `crux-llvm` more permissive with respect to
+  unsupported LLVM versions.)
 
 # 0.9 -- 2024-08-30
 

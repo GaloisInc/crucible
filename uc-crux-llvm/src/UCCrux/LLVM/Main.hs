@@ -288,6 +288,8 @@ data SomeModuleContext'
   = forall m arch. SomeModuleContext' (ModuleContext m arch)
 
 translateFile ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
   LLVMOptions ->
   Crucible.HandleAllocator ->
   GlobalVar Mem ->
