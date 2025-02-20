@@ -29,6 +29,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 
 import Control.Lens((^.))
 
@@ -43,11 +44,11 @@ import GHC.Stack
 -- Generic operations over MIR AST
 --
 
--- 
+--
 -- These syntax-directed operations are defined via GHC.Generics so
 -- that they can automatically adapt to changes in the Mir AST.
 --
--- 
+--
 class GenericOps a where
 
   -- | Replace `TyInterned` with real types by applying a function.  The types
@@ -78,9 +79,9 @@ adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
         Just fn -> case fn^.fbody.mblocks of
             ( BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i)))) _loc] _term) ):_ ->
                 fromIntegerLit i
-            
+
             _ -> error ("enum discriminant constant should only have one basic block [variant id:" ++ show _aname ++ " discr index:" ++ show name ++ "]")
-          
+
         Nothing -> error $ "cannot find discriminant constant " ++ show did ++
             " for variant " ++ show name
     getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind _ _) =
@@ -160,12 +161,12 @@ instance GenericOps NamedTy
 instance GenericOps NonDivergingIntrinsic
 
 -- instances for newtypes
--- we need the deriving strategy 'anyclass' to disambiguate 
+-- we need the deriving strategy 'anyclass' to disambiguate
 -- from generalized newtype deriving
 -- either version would work, but GHC doesn't know that and gives a warning
 instance GenericOps Substs
 
--- *** Instances for Prelude types                 
+-- *** Instances for Prelude types
 
 instance GenericOps Int     where
    uninternTys = const id
@@ -175,29 +176,31 @@ instance GenericOps Char    where
    uninternTys = const id
 instance GenericOps Bool    where
    uninternTys = const id
-   
+instance GenericOps Word64  where
+   uninternTys = const id
+
 instance GenericOps Text    where
    uninternTys = const id
-   
+
 instance GenericOps B.ByteString where
    uninternTys = const id
-   
+
 instance GenericOps b => GenericOps (Map.Map a b) where
    uninternTys f     = Map.map (uninternTys f)
-   
+
 instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
 instance GenericOps a => GenericOps (Vector a) where
    uninternTys f     = V.map (uninternTys f)
-  
-   
+
+
 --------------------------------------------------------------------------------------
 -- ** Generic programming plumbing
 
 class GenericOps' f where
   uninternTys'   :: (Text -> Ty) -> f p -> f p
-  
+
 instance GenericOps' V1 where
   uninternTys' _  = error "impossible: this is a void type"
 
@@ -213,6 +216,6 @@ instance (GenericOps c) => GenericOps' (K1 i c) where
 
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
   uninternTys' s (M1 x) = M1 (uninternTys' s x)
-  
+
 instance (GenericOps' U1) where
   uninternTys' _s U1 = U1
