@@ -13,12 +13,14 @@
 
 module Crux.LLVM.Simulate where
 
+import Control.Monad (unless)
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
 import qualified Data.List as List
 import Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Map as MapF
+import Data.Sequence (Seq)
 import qualified Data.Traversable as T
 import Control.Lens ((&), (%~), (%=), (^.), use, view)
 import Control.Monad.IO.Class (liftIO)
@@ -30,7 +32,8 @@ import System.IO (stdout)
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 
-import Data.LLVM.BitCode (parseBitCodeFromFile)
+import Data.LLVM.BitCode (ParseWarning(..), parseBitCodeFromFileWithWarnings,
+                          ppParseWarnings)
 import qualified Text.LLVM as LLVM
 import Prettyprinter
 
@@ -116,12 +119,18 @@ setupSimCtxt halloc bak mo memVar =
     & profilingMetrics %~ Map.union (memMetrics memVar)
 
 -- | Parse an LLVM bit-code file.
-parseLLVM :: FilePath -> IO LLVM.Module
+parseLLVM ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  FilePath ->
+  IO LLVM.Module
 parseLLVM file =
-  do ok <- parseBitCodeFromFile file
+  do ok <- parseBitCodeFromFileWithWarnings file
      case ok of
        Left err -> throwCError (LLVMParseError err)
-       Right m  -> return m
+       Right (m, warnings) -> do
+         sayParseWarnings warnings
+         return m
 
 registerFunctions ::
   Crux.Logs msgs =>
@@ -255,6 +264,15 @@ prepLLVMModule llvmOpts halloc bak bcFile memVar = do
                populateAllGlobals bak (trans ^. globalInitMap)
                  =<< initializeAllMemory bak llvmCtxt llvmMod
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
+
+sayParseWarnings ::
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  Crux.Logs msgs =>
+  Seq ParseWarning -> IO ()
+sayParseWarnings warnings =
+  unless (null warnings) $
+    Log.sayCruxLLVM $ Log.ParseWarning $ Text.pack $ show $
+    ppParseWarnings warnings
 
 sayTranslationWarning ::
   Log.SupportsCruxLLVMLogMessage msgs =>

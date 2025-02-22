@@ -43,6 +43,7 @@ import qualified System.Directory as Dir
 import           System.Environment ( lookupEnv )
 import           System.Exit ( ExitCode(..) )
 import           System.FilePath ( (-<.>), splitExtension, splitFileName )
+import qualified System.IO as IO
 import qualified System.Process as Proc
 
 -- Modules being tested
@@ -112,11 +113,14 @@ assemble (LLVMAssembler llvm_as) !inputFile !outputFile =
 -- Mostly copied from crucible-c.
 parseLLVM :: FilePath -> IO (Either String Module)
 parseLLVM !file =
-  parseBitCodeFromFile file >>=
+  parseBitCodeFromFileWithWarnings file >>=
     \case
       Left err -> pure $ Left $ "Couldn't parse LLVM bitcode from file"
                                 ++ file ++ "\n" ++ show err
-      Right m  -> pure $ Right m
+      Right (m, warnings) -> do
+        unless (null warnings) $
+          IO.hPrint IO.stderr $ ppParseWarnings warnings
+        pure $ Right m
 
 llvmTestIngredients :: [TR.Ingredient]
 llvmTestIngredients = includingOptions [ TO.Option (Proxy @(SomeSym LLVMAssembler))
