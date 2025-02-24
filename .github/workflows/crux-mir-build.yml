@@ -9,17 +9,16 @@ on:
   workflow_dispatch:
 
 env:
-  # The CACHE_VERSION can be updated to force the use of a new cache if
-  # the current cache contents become corrupted/invalid.  This can
-  # sometimes happen when (for example) the OS version is changed but
-  # older .so files are cached, which can have various effects
-  # (e.g. cabal complains it can't find a valid version of the "happy"
-  # tool).
+  # The CABAL_CACHE_VERSION can be updated to force the use of a new cabal
+  # cache if the current cabal cache contents become corrupted/invalid.  This
+  # can sometimes happen when (for example) the OS version is changed but older
+  # .so files are cached, which can have various effects (e.g. cabal complains
+  # it can't find a valid version of the "happy" tool).
   #
-  # This also periodically happens on MacOS builds due to a tar bug
-  # (symptom: "No suitable image found ... unknown file type, first
-  # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
-  CACHE_VERSION: 4
+  # This also periodically happens on MacOS builds due to a tar bug (symptom:
+  # "No suitable image found ... unknown file type, first eight bytes: 0x00
+  # 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
+  CABAL_CACHE_VERSION: 4
   # If you update this, make sure to also update RUST_TOOLCHAIN in
   # .github/Dockerfile-crux-mir
   RUST_TOOLCHAIN: "nightly-2023-01-23"
@@ -120,9 +119,9 @@ jobs:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
-          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
+          key: ${{ env.CABAL_CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
+            ${{ env.CABAL_CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
 
       - shell: bash
         run: .github/ci.sh install_system_deps
@@ -222,7 +221,7 @@ jobs:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
-          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
+          key: ${{ env.CABAL_CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
 
   build-push-image:
     runs-on: ubuntu-22.04
