@@ -570,6 +570,8 @@ instance TestEquality TypeRepr where
                   )
 instance Eq (TypeRepr tp) where
   x == y = isJust (testEquality x y)
+instance EqF TypeRepr where
+  eqF x y = isJust (testEquality x y)
 
 instance OrdF TypeRepr where
   compareF = $(U.structuralTypeOrd [t|TypeRepr|]
