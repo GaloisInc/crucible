@@ -68,7 +68,7 @@ executable crux-mir
   default-language: Haskell2010
 
 
-test-suite test
+test-suite crux-mir-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
 
