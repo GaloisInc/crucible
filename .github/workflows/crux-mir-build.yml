@@ -129,8 +129,13 @@ jobs:
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
-      - shell: bash
-        run: cd dependencies/mir-json && cargo install --locked --force
+      - name: Install mir-json
+        shell: bash
+        working-directory: dependencies/mir-json
+        run: |
+          cargo install --locked --force
+          bash ./translate_libs.sh
+          echo "CRUX_RUST_LIBRARY_PATH=$(pwd)/rlibs" >> $GITHUB_ENV
 
       - shell: bash
         run: .github/ci.sh configure
@@ -146,9 +151,6 @@ jobs:
         name: Haddock
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
         run: cabal v2-haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
-
-      - shell: bash
-        run: cd crux-mir && bash ./translate_libs.sh
 
       - shell: bash
         run: .github/ci.sh test crux-mir

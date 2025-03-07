@@ -158,14 +158,6 @@ bundle_crux_mir_files() {
   setup_dist
   extract_exe crux-mir dist/bin
   cp crux-mir/README.md dist/doc
-  # rlibs is a symlink into rlibs_real; we can't just copy the symlink
-  # though because (currently at least) it's an absolute path that
-  # won't work in the output artefact.
-  #
-  # Use tar to copy (not cp -r, which isn't very safe) and descend
-  # into rlibs explicitly first as a cheap way to follow that symlink.
-  mkdir dist/rlibs
-  (cd crux-mir/rlibs && tar -cf - .) | (cd dist/rlibs && tar -xvf -)
   # It's less fragile to have users install mir-json themselves
   # (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
   VERSION=${VERSION:-$DATE}
