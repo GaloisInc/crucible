@@ -75,18 +75,20 @@ backendTests =
       let sym = LCB.backendGetSym bak
       a <- W4I.freshConstant sym (W4I.safeSymbol "a") W4I.BaseBoolRepr
       assumePred bak "assuming a" a
-      frm <- LCB.pushAssumptionFrame bak
       b <- W4I.freshConstant sym (W4I.safeSymbol "b") W4I.BaseBoolRepr
-      assumePred bak "assuming b" b
+      LCB.assert bak b (GenericSimError "asserting b")
+      frm <- LCB.pushAssumptionFrame bak
       c <- W4I.freshConstant sym (W4I.safeSymbol "c") W4I.BaseBoolRepr
-      LCB.assert bak c (GenericSimError "asserting c")
+      assumePred bak "assuming c" c
+      d <- W4I.freshConstant sym (W4I.safeSymbol "d") W4I.BaseBoolRepr
+      LCB.assert bak c (GenericSimError "asserting d")
       (_asmps, mbGoals) <- LCB.popAssumptionFrameAndObligations bak frm
       [LCB.ProofGoal asmps gl] <- pure (fromMaybe [] (LCB.goalsToList <$> mbGoals))
       asmpsPred <- LCB.assumptionsPred sym asmps
-      asmpsEqB <- W4I.eqPred sym b asmpsPred
-      Just True TTH.@=? W4I.asConstantPred asmpsEqB
-      goalEqC <- W4I.eqPred sym (gl ^. W4L.labeledPred) c
-      Just True TTH.@=? W4I.asConstantPred goalEqC
+      asmpsEqC <- W4I.eqPred sym c asmpsPred
+      Just True TTH.@=? W4I.asConstantPred asmpsEqC
+      goalEqD <- W4I.eqPred sym (gl ^. W4L.labeledPred) d
+      Just True TTH.@=? W4I.asConstantPred goalEqD
   ]
 
 panicTests :: IO TestTree
