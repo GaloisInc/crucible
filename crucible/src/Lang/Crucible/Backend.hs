@@ -206,6 +206,20 @@ class HasSymInterface sym bak | bak -> sym where
 --   type is expected to satisfy the `IsSymInterface` constraints, which
 --   provide access to the What4 expression language. A @sym@ is uniquely
 --   determined by a @bak@.
+--
+--
+--   == Note [Pushes and pops]
+--
+--   This class provides methods for pushing ('pushAssumptionFrame')
+--   and popping ('popAssumptionFrame', 'popUntilAssumptionFrame',
+--   'popAssumptionFrameAndObligations') frames. Pushes and pops must be
+--   well-bracketed. In particular, @popAssumptionFrame*@ are required to throw
+--   an exception if the provided frame identifier does not match the top of
+--   the stack.
+--
+--   It is relatively easy to end up with ill-bracketed pushes and pops in the
+--   presence of exceptions. When diagnosing such issues, consider popping
+--   frames using methods such as 'Control.Exception.try'.
 class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | bak -> sym where
 
   ----------------------------------------------------------------------
@@ -217,9 +231,9 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
   pushAssumptionFrame :: bak -> IO AS.FrameIdentifier
 
   -- | Pop an assumption frame from the stack.  The collected assumptions
-  --   in this frame are returned.  Pops are required to be well-bracketed
-  --   with pushes.  In particular, if the given frame identifier is not
-  --   the identifier of the top frame on the stack, an error will be raised.
+  --   in this frame are returned.
+  --
+  --   This may throw an exception, see Note [Pushes and pops].
   popAssumptionFrame :: bak -> AS.FrameIdentifier -> IO (Assumptions sym)
 
   -- | Pop all assumption frames up to and including the frame with the given
@@ -229,9 +243,12 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
 
   -- | Pop an assumption frame from the stack.  The collected assummptions
   --   in this frame are returned, along with any proof obligations that were
-  --   incurred while the frame was active. Pops are required to be well-bracketed
-  --   with pushes.  In particular, if the given frame identifier is not
-  --   the identifier of the top frame on the stack, an error will be raised.
+  --   incurred while the frame was active.
+  --
+  --   Note that the returned 'ProofObligation's only include assumptions from
+  --   the popped frame, not all frames above it.
+  --
+  --   This may throw an exception, see Note [Pushes and pops].
   popAssumptionFrameAndObligations ::
     bak -> AS.FrameIdentifier -> IO (Assumptions sym, ProofObligations sym)
 
