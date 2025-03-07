@@ -168,6 +168,7 @@ test-suite helper-tests
   build-depends: base,
                  hspec >= 2.5,
                  crucible,
+                 lens,
                  panic >= 0.3,
                  parameterized-utils,
                  tasty >= 0.10,
