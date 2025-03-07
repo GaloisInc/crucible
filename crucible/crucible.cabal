@@ -169,5 +169,8 @@ test-suite helper-tests
                  hspec >= 2.5,
                  crucible,
                  panic >= 0.3,
+                 parameterized-utils,
                  tasty >= 0.10,
-                 tasty-hspec >= 1.1
+                 tasty-hspec >= 1.1,
+                 tasty-hunit,
+                 what4
