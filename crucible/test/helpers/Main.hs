@@ -36,9 +36,14 @@ mkBackend = do
   sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
   Some . SomeBackend <$> newSimpleBackend sym
 
-assumePred :: LCB.IsSymBackend sym bak => bak -> W4I.Pred sym -> IO ()
-assumePred bak p =
-  LCB.addAssumption bak (LCB.GenericAssumption W4P.initializationLoc "" p)
+assumePred ::
+  LCB.IsSymBackend sym bak =>
+  bak ->
+  String ->
+  W4I.Pred sym ->
+  IO ()
+assumePred bak msg p =
+  LCB.addAssumption bak (LCB.GenericAssumption W4P.initializationLoc msg p)
 
 backendTests :: TestTree
 backendTests =
@@ -56,10 +61,10 @@ backendTests =
       Some (SomeBackend bak) <- mkBackend
       let sym = LCB.backendGetSym bak
       a <- W4I.freshConstant sym (W4I.safeSymbol "a") W4I.BaseBoolRepr
-      assumePred bak a
+      assumePred bak "assuming a" a
       frm <- LCB.pushAssumptionFrame bak
       b <- W4I.freshConstant sym (W4I.safeSymbol "b") W4I.BaseBoolRepr
-      assumePred bak b
+      assumePred bak "assuming b" b
       p <- LCB.assumptionsPred sym =<< LCB.popAssumptionFrame bak frm
       pEqB <- W4I.eqPred sym p b
       Just True TTH.@=? W4I.asConstantPred pEqB
@@ -69,12 +74,12 @@ backendTests =
       Some (SomeBackend bak) <- mkBackend
       let sym = LCB.backendGetSym bak
       a <- W4I.freshConstant sym (W4I.safeSymbol "a") W4I.BaseBoolRepr
-      assumePred bak a
+      assumePred bak "assuming a" a
       frm <- LCB.pushAssumptionFrame bak
       b <- W4I.freshConstant sym (W4I.safeSymbol "b") W4I.BaseBoolRepr
-      assumePred bak b
+      assumePred bak "assuming b" b
       c <- W4I.freshConstant sym (W4I.safeSymbol "c") W4I.BaseBoolRepr
-      LCB.assert bak c (GenericSimError "")
+      LCB.assert bak c (GenericSimError "asserting c")
       (_asmps, mbGoals) <- LCB.popAssumptionFrameAndObligations bak frm
       [LCB.ProofGoal asmps gl] <- pure (fromMaybe [] (LCB.goalsToList <$> mbGoals))
       asmpsPred <- LCB.assumptionsPred sym asmps
