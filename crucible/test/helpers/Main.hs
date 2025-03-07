@@ -44,11 +44,14 @@ backendTests :: TestTree
 backendTests =
   testGroup
   "Backend"
-  [ TTH.testCase "push/pop nothing" $ do
+  [ -- When popping an empty frame, the returned assumptions are just @True@
+    TTH.testCase "push/pop nothing" $ do
       Some (SomeBackend bak) <- mkBackend
       asmps <- LCB.popAssumptionFrame bak =<< LCB.pushAssumptionFrame bak
       p <- LCB.assumptionsPred (LCB.backendGetSym bak) asmps
       Just True TTH.@=? W4I.asConstantPred p
+    -- When popping a frame, the returned assumptions are the ones that were
+    -- assumed in that frame
   , TTH.testCase "push/pop assumptions" $ do
       Some (SomeBackend bak) <- mkBackend
       let sym = LCB.backendGetSym bak
@@ -60,6 +63,8 @@ backendTests =
       p <- LCB.assumptionsPred sym =<< LCB.popAssumptionFrame bak frm
       pEqB <- W4I.eqPred sym p b
       Just True TTH.@=? W4I.asConstantPred pEqB
+    -- When popping a frame, the returned obligations are the ones that were
+    -- asserted in that frame.
   , TTH.testCase "push/pop obligations" $ do
       Some (SomeBackend bak) <- mkBackend
       let sym = LCB.backendGetSym bak
