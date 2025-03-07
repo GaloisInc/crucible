@@ -85,6 +85,7 @@ library
     Lang.Crucible.Analysis.Reachable
     Lang.Crucible.Backend
     Lang.Crucible.Backend.AssumptionStack
+    Lang.Crucible.Backend.Goals
     Lang.Crucible.Backend.ProofGoals
     Lang.Crucible.Backend.Online
     Lang.Crucible.Backend.Prove
