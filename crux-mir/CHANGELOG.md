@@ -11,6 +11,11 @@ This release supports [version
   helps ensure that unsupported `mir-json` files do not cause unintended
   results.
 * Add `--debug` option for starting the Crucible debugger.
+* The modified copies of the Rust standard libraries that `mir-json` depends on
+  (and `crux-mir` therefore ingests) now live in the `mir-json` repo rather
+  than in the `crucible` repo. See the [`mir-json`
+  README](https://github.com/GaloisInc/mir-json/blob/master/README.md) for
+  details.
 
 # 0.9 -- 2024-08-30
 
