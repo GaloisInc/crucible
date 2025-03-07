@@ -247,6 +247,10 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
   -- | Get the current path condition as a predicate.  This consists of the conjunction
   --   of all the assumptions currently in scope.
   getPathCondition :: bak -> IO (Pred sym)
+  getPathCondition bak = do
+    let sym = backendGetSym bak
+    ps <- collectAssumptions bak
+    assumptionsPred sym ps
 
   -- | Collect all the assumptions currently in scope
   collectAssumptions :: bak -> IO (Assumptions sym)

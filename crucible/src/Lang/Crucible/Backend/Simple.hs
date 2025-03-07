@@ -88,11 +88,6 @@ instance IsSymInterface (B.ExprBuilder t st fs) =>
   collectAssumptions bak =
     AS.collectAssumptions (sbAssumptionStack bak)
 
-  getPathCondition bak = do
-    let sym = backendGetSym bak
-    ps <- AS.collectAssumptions (sbAssumptionStack bak)
-    assumptionsPred sym ps
-
   getProofObligations bak = do
     AS.getProofObligations (sbAssumptionStack bak)
 
