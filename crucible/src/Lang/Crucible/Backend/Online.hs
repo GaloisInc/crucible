@@ -589,11 +589,6 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
        -- Add assertions to list
        appendAssumptions as (assumptionStack bak)
 
-  getPathCondition bak =
-    do let sym = backendGetSym bak
-       ps <- AS.collectAssumptions (assumptionStack bak)
-       assumptionsPred sym ps
-
   collectAssumptions bak =
     AS.collectAssumptions (assumptionStack bak)
 
