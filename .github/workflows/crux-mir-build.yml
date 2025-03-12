@@ -37,7 +37,7 @@ jobs:
       release: ${{ steps.config.outputs.release }}
       retention-days: ${{ steps.config.outputs.retention-days }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -245,7 +245,7 @@ jobs:
             image: ghcr.io/galoisinc/crux-mir
             cache: ghcr.io/galoisinc/cache-crux-mir
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
