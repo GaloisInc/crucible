@@ -96,18 +96,6 @@ jobs:
           cabal user-config update -a "extra-include-dirs: \"\""
           cabal user-config update -a "extra-lib-dirs: \"\""
 
-      - name: Install Nix
-        if: runner.os == 'Linux'
-        uses: cachix/install-nix-action@v16
-        with:
-          nix_path: nixpkgs=channel:21.11
-          install_url: https://releases.nixos.org/nix/nix-2.10.3/install
-          # This token usage is to avoid GH rate-limiting; see commit
-          # 1696558326a8c57e1a9f0848aaaa1b8440294954. Apparently it'll
-          # work for anyone.
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-
       - uses: actions/cache/restore@v4
         name: Restore cabal store cache
         id: cache
@@ -125,44 +113,6 @@ jobs:
           SOLVER_PKG_VERSION: "snapshot-20240212"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
-
-      - name: Setup Environment Vars
-        if: runner.os == 'Linux'
-        run: |
-          GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
-          case ${{ matrix.ghc }} in
-            9.4.8) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
-            9.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
-            9.8.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
-            *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
-          esac
-          echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
-
-      - name: Package's Cabal/GHC compatibility
-        shell: bash
-        if: runner.os == 'Linux'
-        # Using setup will use the cabal library installed with GHC
-        # instead of the cabal library of the Cabal-install tool to
-        # verify the cabal file is compatible with the associated
-        # GHC cabal library version.  Cannot run configure or build,
-        # because dependencies aren't present, but a clean is
-        # sufficient to cause parsing/validation of the cabal file.
-        run: |
-          defsetup()  { echo import Distribution.Simple; echo main = defaultMain; }
-          setup_src() { if [ ! -f Setup.hs ] ; then defsetup > DefSetup.hs; fi; ls *Setup.hs; }
-          setup_bin() { echo setup.${{ matrix.ghc }}; }
-          with_ghc()  { $NS -c ${@}; }
-          (cd crucible;             with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-cli;         with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-debug;       with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-llvm;        with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-llvm-cli;    with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-llvm-debug;  with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crucible-llvm-syntax; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crux;                 with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crux-llvm;            with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd uc-crux-llvm;         with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-
 
       - shell: bash
         run: .github/ci.sh configure
@@ -280,6 +230,14 @@ jobs:
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
           key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: Check Cabal/GHC compatibility
+        uses: langston-barrett/.github/actions/cabal-ghc-compat@e002f215e05308cf337f919663986ed31ae78bf7
+        if: runner.os == 'Linux'
+        with:
+          dirs: crucible crucible-cli crucible-debug crucible-llvm crucible-llvm-cli crucible-llvm-debug crucible-llvm-syntax crux crux-llvm uc-crux-llvm
+          ghc: ${{ matrix.ghc }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   build-push-image:
     runs-on: ubuntu-22.04
