@@ -15,9 +15,10 @@ functionality.
 
     $ git submodule update --init
 
-Next, navigate to the `crucible/dependencies/mir-json` directory and install
-`mir-json` according to the instructions in [the `mir-json`
-README][mir-json-readme].
+Next, navigate to the `crucible/dependencies/mir-json` directory. Install
+`mir-json`, translate its standard libraries, and define the
+`CRUX_RUST_LIBRARY_PATH` environment variable according to the instructions in
+[the `mir-json` README][mir-json-readme].
 
 Currently, `crux-mir` supports [version
 1](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#1) of
@@ -44,21 +45,6 @@ Use GHC 9.4, 9.6, or 9.8. From the `crux-mir` directory, run:
 
     $ cabal v2-install exe:crux-mir --overwrite-policy=always
 
-Then translate the Rust libraries in `lib/`:
-
-    $ ./translate_libs.sh
-
-If you want to cross-compile for a different target, you can optionally set the
-environment variable `TARGET` to a [target
-triple](https://doc.rust-lang.org/nightly/rustc/platform-support.html) when
-running `./translate_libs.sh`. This is experimental and we have only tested
-`wasm32-unknown-unknown` to work; you might get build errors for other targets.
-
-    $ TARGET=wasm32-unknown-unknown ./translate_libs.sh
-
-When upgrading from a previous version, first install the new `mir-json`
-version, then rerun the `cabal v2-install` and `./translate_libs.sh` commands.
-
 
 ## Usage
 
@@ -71,8 +57,8 @@ compiled by checking for the `crux` configuration predicate using
 `#[cfg_attr(crux, crux::test)]`.
 
 Test cases can create and manipulate symbolic values using the functions in the
-[`crucible`](lib/crucible) Rust crate.  See
-[`example/ffs/lib.rs`](example/ffs/lib.rs) or the files in
+[`crucible`](https://github.com/GaloisInc/mir-json/tree/master/libs/crucible)
+Rust crate.  See [`example/ffs/lib.rs`](example/ffs/lib.rs) or the files in
 [`test/symb_eval/`](test/symb_eval) for examples of creating symbolic values
 and asserting properties about them.
 

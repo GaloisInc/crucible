@@ -158,7 +158,6 @@ bundle_crux_mir_files() {
   setup_dist
   extract_exe crux-mir dist/bin
   cp crux-mir/README.md dist/doc
-  cp -r crux-mir/rlibs dist
   # It's less fragile to have users install mir-json themselves
   # (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
   VERSION=${VERSION:-$DATE}

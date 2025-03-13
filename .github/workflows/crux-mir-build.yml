@@ -169,8 +169,13 @@ jobs:
           with_ghc()  { $NS -c ${@}; }
           (cd crux-mir;      with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
 
-      - shell: bash
-        run: cd dependencies/mir-json && cargo install --locked --force
+      - name: Install mir-json
+        shell: bash
+        working-directory: dependencies/mir-json
+        run: |
+          cargo install --locked --force
+          bash ./translate_libs.sh
+          echo "CRUX_RUST_LIBRARY_PATH=$(pwd)/rlibs" >> $GITHUB_ENV
 
       - shell: bash
         run: .github/ci.sh configure
@@ -185,9 +190,6 @@ jobs:
       - shell: bash
         name: Haddock
         run: cabal v2-haddock crucible-syntax crucible-concurrency crux-mir
-
-      - shell: bash
-        run: cd crux-mir && bash ./translate_libs.sh
 
       - shell: bash
         run: .github/ci.sh test crux-mir
