@@ -1078,13 +1078,14 @@ functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
 -- | Custom state inside the 'SimContext'.
 --
--- Crucible itself is entirely polymorphic over @p@, downstream applications can
+-- Crucible itself is entirely polymorphic over @p@. Downstream applications can
 -- instantiate it to any sort of state that they would like to associate with a
 -- 'SimContext'.
 --
--- For example, Macaw-based applications can instantiate this to
--- a structure holding enough information to perform incremental code discovery,
--- see @AmbientSimulatorState@ in the @ambient-verifier@ project.
+-- For example, applications based on @macaw-symbolic@ can instantiate this to a
+-- structure holding enough information to perform incremental code discovery.
+-- See @ambient-verifier@'s
+-- [@AmbientSimulatorState@](https://github.com/GaloisInc/ambient-verifier/blob/eab04abb9750825a25ec0cbe0379add63f05f6c6/src/Ambient/Extensions.hs#L1092-1137).
 --
 -- Code that needs to store some state in the personality but doesn\'t wish to
 -- fix a particular type can use the \"classy lenses\" approach, e.g.,
@@ -1094,8 +1095,10 @@ functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 --   fooState :: `Lens'` p FooState
 -- @
 --
--- For an example of this approach, see 'HasMacawLazySimulatorState' in Macaw or
--- 'HasGreaseSimulatorState' in GREASE.
+-- For an example of this approach, see
+--
+-- * [@HasMacawLazySimulatorState@](https://github.com/GaloisInc/macaw/blob/cbec559b428fdd194398d07fc08c8c570a1d3bab/symbolic/src/Data/Macaw/Symbolic/MemOps.hs#L385-L394)
+-- * [@HasGreaseSimulatorState@](https://github.com/GaloisInc/grease/blob/a50d54d2f414d15974dcf2d21654fbfe3527f0fa/src/Grease/Macaw/SimulatorState.hs#L90-L97)
 cruciblePersonality :: Lens' (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
