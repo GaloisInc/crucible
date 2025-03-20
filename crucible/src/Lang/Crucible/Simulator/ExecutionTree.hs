@@ -730,7 +730,7 @@ to stack call frames in a more traditional simulator environment.
 
 The type parameters have the following meanings:
 
-  * @p@ is the personality of the simulator (i.e., custom user state).
+  * @p@ is the personality, see 'cruciblePersonality'.
 
   * @sym@ is the simulator backend being used.
 
@@ -1032,6 +1032,7 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
                 , printHandle            :: !Handle
                 , extensionImpl          :: ExtensionImpl personality sym ext
                 , _functionBindings      :: !(FunctionBindings personality sym ext)
+                  -- | See 'cruciblePersonality'.
                 , _cruciblePersonality   :: !personality
                 , _profilingMetrics      :: !(Map Text (Metric personality sym ext))
                 }
@@ -1075,7 +1076,26 @@ ctxSymInterface = to (\ctx ->
 functionBindings :: Lens' (SimContext p sym ext) (FunctionBindings p sym ext)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
--- | Access the custom user-state inside the 'SimContext'.
+-- | Custom state inside the 'SimContext'.
+--
+-- Crucible itself is entirely polymorphic over @p@, downstream applications can
+-- instantiate it to any sort of state that they would like to associate with a
+-- 'SimContext'.
+--
+-- For example, Macaw-based applications can instantiate this to
+-- a structure holding enough information to perform incremental code discovery,
+-- see @AmbientSimulatorState@ in the @ambient-verifier@ project.
+--
+-- Code that needs to store some state in the personality but doesn\'t wish to
+-- fix a particular type can use the \"classy lenses\" approach, e.g.,
+--
+-- @
+-- class HasFooState p where
+--   fooState :: `Lens'` p FooState
+-- @
+--
+-- For an example of this approach, see 'HasMacawLazySimulatorState' in Macaw or
+-- 'HasGreaseSimulatorState' in GREASE.
 cruciblePersonality :: Lens' (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 

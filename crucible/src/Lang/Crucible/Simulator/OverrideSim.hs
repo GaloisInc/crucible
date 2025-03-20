@@ -135,7 +135,7 @@ import           Lang.Crucible.Utils.StateContT
 --
 -- Type parameters:
 --
---   * 'p'    the "personality", i.e. user-defined state parameterized by @sym@
+--   * 'p'    see 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality'
 --   * 'sym'  the symbolic backend
 --   * 'ext'  the syntax extension ("Lang.Crucible.CFG.Extension")
 --   * 'rtp'  global return type
