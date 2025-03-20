@@ -1,6 +1,7 @@
 # next
 
 * Add a `GlobalPair` argument to `AbortedExit`.
+* Add new helpers for extracting `SymGlobalState`s: `exec{Result,State}Globals`.
 
 # 0.7.2 -- 2025-03-21
 
