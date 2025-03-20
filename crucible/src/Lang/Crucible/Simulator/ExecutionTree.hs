@@ -70,6 +70,8 @@ module Lang.Crucible.Simulator.ExecutionTree
   , execResultContext
   , execStateContext
   , execStateSimState
+  , execResultGlobals
+  , execStateGlobals
 
     -- * Simulator context trees
     -- ** Main context data structures
@@ -166,7 +168,7 @@ import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation (EvalAppFunc)
-import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)
+import           Lang.Crucible.Simulator.GlobalState (SymGlobalState, globalMuxFn)
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.RegMap (RegMap, emptyRegMap, RegValue, RegEntry)
 import           Lang.Crucible.Types
@@ -390,6 +392,54 @@ execStateSimState = \case
   OverrideState _ st             -> Just (SomeSimState st)
   BranchMergeState _ st          -> Just (SomeSimState st)
   InitialState _ _ _ _ _         -> Nothing
+
+abortedGlobals ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  AbortedResult sym ext ->
+  IO (SymGlobalState sym)
+abortedGlobals sym iTypes =
+  \case
+    AbortedExec _ gp -> pure (gp ^. gpGlobals)
+    AbortedExit _ gp -> pure (gp ^. gpGlobals)
+    AbortedBranch _loc p rl rr -> do
+      l <- abortedGlobals sym iTypes rl
+      r <- abortedGlobals sym iTypes rr
+      globalMuxFn sym iTypes p l r
+
+-- | Extract the 'SymGlobalState' from an 'ExecResult'.
+execResultGlobals ::
+  IsSymInterface sym =>
+  ExecResult p sym ext rtp ->
+  IO (SymGlobalState sym)
+execResultGlobals =
+  \case
+    FinishedResult _ctx partial -> pure (partial ^. partialValue . gpGlobals)
+    TimeoutResult st -> execStateGlobals st
+    AbortedResult simCtx aborted ->
+      withBackend simCtx $ \bak ->
+        abortedGlobals (backendGetSym bak) (ctxIntrinsicTypes simCtx) aborted
+
+-- | Extract the 'SymGlobalState' from an 'ExecState'.
+execStateGlobals ::
+  IsSymInterface sym =>
+  ExecState p sym ext rtp ->
+  IO (SymGlobalState sym)
+execStateGlobals =
+  \case
+    AbortState _ st -> pure (st ^. stateGlobals)
+    BranchMergeState _ st -> pure (st ^. stateGlobals)
+    CallState _ _ st -> pure (st ^. stateGlobals)
+    ControlTransferState _ st -> pure (st ^. stateGlobals)
+    InitialState _ globState _ _ _ -> pure globState
+    OverrideState _ st -> pure (st ^. stateGlobals)
+    ResultState r -> execResultGlobals r
+    ReturnState _ _ _ st -> pure (st ^. stateGlobals)
+    RunningState _ st -> pure (st ^. stateGlobals)
+    SymbolicBranchState _ _ _ _ st -> pure (st ^. stateGlobals)
+    TailCallState _ _ st -> pure (st ^. stateGlobals)
+    UnwindCallState _ _ st -> pure (st ^. stateGlobals)
 
 -----------------------------------------------------------------------
 -- ExecState

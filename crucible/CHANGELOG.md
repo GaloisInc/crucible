@@ -5,6 +5,7 @@
   `TypeRepr`s. Modify the `Pretty` instance to use this function.
 * Add an `EqF TypeRepr` instance.
 * Add a `GlobalPair` argument to `AbortedExit`.
+* Add new helpers for extracting `SymGlobalState`s: `exec{Result,State}Globals`.
 
 # 0.7.1 -- 2024-08-30
 
