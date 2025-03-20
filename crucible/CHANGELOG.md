@@ -1,6 +1,6 @@
 # next
 
-Nothing yet.
+* Add a `GlobalPair` argument to `AbortedExit`.
 
 # 0.7.2 -- 2025-03-21
 
