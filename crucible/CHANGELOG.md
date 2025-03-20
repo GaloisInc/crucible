@@ -4,6 +4,7 @@
 * Add a function `ppTypeRepr` to `Lang.Crucible.Types` for pretty-printing
   `TypeRepr`s. Modify the `Pretty` instance to use this function.
 * Add an `EqF TypeRepr` instance.
+* Add a `GlobalPair` argument to `AbortedExit`.
 
 # 0.7.1 -- 2024-08-30
 

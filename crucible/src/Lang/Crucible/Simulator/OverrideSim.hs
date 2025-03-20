@@ -156,8 +156,14 @@ newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleTyp
 -- | Exit from the current execution by ignoring the continuation
 --   and immediately returning an aborted execution result.
 exitExecution :: IsSymInterface sym => ExitCode -> OverrideSim p sym ext rtp args r a
-exitExecution ec = Sim $ StateContT $ \_c s ->
-  return $ ResultState $ AbortedResult (s^.stateContext) (AbortedExit ec)
+exitExecution ec = do
+  ActiveTree _ctx ar0 <- use stateTree
+  let gp =
+        case ar0 of
+          TotalRes e -> e
+          PartialRes _loc _pred ex _ar1 -> ex
+  Sim $ StateContT $ \_c s ->
+    return $ ResultState $ AbortedResult (s^.stateContext) (AbortedExit ec gp)
 
 bindOverrideSim ::
   OverrideSim p sym ext rtp args r a ->

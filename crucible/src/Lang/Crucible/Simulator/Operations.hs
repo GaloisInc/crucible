@@ -125,8 +125,8 @@ mergeAbortedResult ::
   AbortedResult sym ext ->
   AbortedResult sym ext ->
   AbortedResult sym ext
-mergeAbortedResult _ _ (AbortedExit ec) _ = AbortedExit ec
-mergeAbortedResult _ _ _ (AbortedExit ec) = AbortedExit ec
+mergeAbortedResult _ _ ae@(AbortedExit {}) _ = ae
+mergeAbortedResult _ _ _ ae@(AbortedExit {}) = ae
 mergeAbortedResult loc pred q r = AbortedBranch loc pred q r
 
 mergePartialAndAbortedResult ::

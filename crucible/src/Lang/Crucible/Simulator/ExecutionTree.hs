@@ -229,9 +229,10 @@ data AbortedResult sym ext where
     !(GlobalPair sym (SimFrame sym ext l args)) ->
     AbortedResult sym ext
 
-  -- | An aborted execution that was ended by a call to 'exit'.
+  -- | An aborted execution that was ended by a call to @exit@.
   AbortedExit ::
     !ExitCode ->
+    !(GlobalPair sym (SimFrame sym ext l args)) ->
     AbortedResult sym ext
 
   -- | Two separate threads of execution aborted after a symbolic branch,
@@ -260,7 +261,9 @@ arFrames :: Simple Traversal (AbortedResult sym ext) (SomeFrame (SimFrame sym ex
 arFrames h (AbortedExec e p) =
   (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
      <$> h (SomeFrame (p^.gpValue))
-arFrames _ (AbortedExit ec) = pure (AbortedExit ec)
+arFrames h (AbortedExit ec p) =
+  (\(SomeFrame f') -> AbortedExit ec (p & gpValue .~ f'))
+     <$> h (SomeFrame (p^.gpValue))
 arFrames h (AbortedBranch predicate loc r s) =
   AbortedBranch predicate loc <$> arFrames h r
                               <*> arFrames h s
