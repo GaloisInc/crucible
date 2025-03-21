@@ -1,4 +1,5 @@
-# next
+
+# 0.4.1 -- 2025-03-21
 
 * Add a `Pretty` instance for ExprError.
 

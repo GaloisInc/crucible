@@ -1,4 +1,4 @@
-# next -- TBA
+# 0.9.1 -- 2025-03-21
 
 * Add support for the Bitwuzla SMT solver in the test suite.
 * Add `--debug` option for starting the Crucible debugger.
