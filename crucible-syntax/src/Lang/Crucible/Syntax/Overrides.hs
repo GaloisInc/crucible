@@ -56,9 +56,9 @@ proveObligations =
        let strat = CB.ProofStrategy prover CB.keepGoing
        let ppResult o =
              \case
-               CB.Proved {}  -> unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-               CB.Disproved {} -> unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-               CB.Unknown {} -> unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+               CB.Proved {}  -> unlines ["Proof Succeeded!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
+               CB.Disproved {} -> unlines ["Proof failed!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
+               CB.Unknown {} -> unlines ["Proof inconclusive!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
        let printer = CB.ProofConsumer $ \o r -> hPutStrLn h (ppResult o r)
        runExceptT (CB.proveCurrentObligations bak strat printer) >>=
          \case

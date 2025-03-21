@@ -89,6 +89,7 @@ common shared
   default-language: Haskell2010
 
 library
+  import: shared
   build-depends:
     base >= 4.9,
     bv-sized >= 1.0.0,
