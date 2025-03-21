@@ -8,6 +8,8 @@ license: BSD-3-Clause
 license-file: LICENSE
 category: Language
 synopsis: An interactive debugger for Crucible programs
+description:
+  An interactive debugger for Crucible programs.
 
 extra-doc-files: README.md, CHANGELOG.md
 extra-source-files:
@@ -85,7 +87,7 @@ library
   import: shared
 
   build-depends:
-    base >= 4.13,
+    base >= 4.13 && < 4.20,
     containers,
     crucible,
     crucible-syntax,
