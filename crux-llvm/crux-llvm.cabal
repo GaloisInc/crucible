@@ -145,6 +145,9 @@ executable crux-llvm-for-ide
     Paths_crux_llvm
     RealMain
 
+  autogen-modules:
+    Paths_crux_llvm
+
 
 executable crux-llvm-svcomp
   import: bldflags
