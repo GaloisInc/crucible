@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE NoStarIsType #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -24,6 +25,7 @@
 module Mir.TransCustom(customOps) where
 
 import Data.Bits (shift)
+import Data.Coerce (coerce)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.String (fromString)
@@ -35,12 +37,15 @@ import Control.Monad
 import Control.Lens
 
 import GHC.Stack
+import GHC.TypeLits (type (*))
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
+import Data.Parameterized.Utils.Endian (Endian(..))
+import qualified Data.Parameterized.Vector as PV
 
 
 -- crucible
@@ -106,6 +111,7 @@ customOpDefs = Map.fromList $ [
                          , intrinsics_assume
                          , assert_inhabited
                          , unlikely
+                         , bitreverse
 
                          , mem_transmute
                          , mem_crucible_identity_transmute
@@ -1577,6 +1583,90 @@ unlikely = (name, rhs)
         rhs substs = Just $ CustomOp $ \_ [op] -> pure op
 
 
+
+--------------------------------------------------------------------------------------------------------------------------
+
+-- | @fn bitreverse<T>(_x: T) -> T@.
+--
+-- Reverse the bits in an integer type @T@.
+bitreverse :: (ExplodedDefId, CustomRHS)
+bitreverse = (["core", "intrinsics", "{extern}", "bitreverse"],
+  \(Substs substs) ->
+    case substs of
+      [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp tpr@(C.BVRepr w) val] ->
+          return $ MirExp tpr $ bvBitreverse w val
+        _ -> mirFail $ "bad arguments to intrinsics::bitreverse: " ++ show ops
+      _ -> Nothing)
+  where
+    -- The code below is cargo-culted from the implementation of what4's
+    -- bvBitreverse function
+    -- (https://hackage.haskell.org/package/what4-1.6.3/docs/src/What4.Interface.html#bvBitreverse),
+    -- but modified to work over Crucible `Expr`s.
+
+    -- Swap the order of bits in a bitvector.
+    bvBitreverse ::
+      forall s w.
+      (1 <= w) =>
+      NatRepr w ->
+      R.Expr MIR s (C.BVType w) ->
+      R.Expr MIR s (C.BVType w)
+    bvBitreverse w v =
+      bvJoinVector (knownNat @1) $
+      PV.reverse $
+      bvSplitVector w (knownNat @1) v
+
+    -- Join a @PV.Vector@ of smaller bitvectors. The vector is interpreted in
+    -- big endian order; that is, with the most significant bitvector first.
+    bvJoinVector ::
+      forall s n w.
+      (1 <= w) =>
+      NatRepr w ->
+      PV.Vector n (R.Expr MIR s (C.BVType w)) ->
+      R.Expr MIR s (C.BVType (n * w))
+    bvJoinVector w =
+        coerce $ PV.joinWith @(BVExpr s) @n bvConcat' w
+      where
+        bvConcat' ::
+          forall l.
+          (1 <= l) =>
+          NatRepr l ->
+          BVExpr s w ->
+          BVExpr s l ->
+          BVExpr s (w + l)
+        bvConcat' l (BVExpr x) (BVExpr y)
+          | LeqProof <- leqAdd (LeqProof @1 @w) l
+          = BVExpr $ R.App $ E.BVConcat w l x y
+
+    -- Split a bitvector to a @PV.Vector@ of smaller bitvectors. The returned
+    -- vector is in big endian order; that is, with the most significant bitvector first.
+    bvSplitVector ::
+      forall s n w.
+      (1 <= w, 1 <= n) =>
+      NatRepr n ->
+      NatRepr w ->
+      R.Expr MIR s (C.BVType (n * w)) ->
+      PV.Vector n (R.Expr MIR s (C.BVType w))
+    bvSplitVector n w x =
+        coerce $ PV.splitWith BigEndian bvSelect' n w (BVExpr x)
+      where
+        bvSelect' ::
+          forall i.
+          (i + w <= n * w) =>
+          NatRepr (n * w) ->
+          NatRepr i ->
+          BVExpr s (n * w) ->
+          BVExpr s w
+        bvSelect' nw i (BVExpr y)
+          | LeqProof <- leqMulPos n w
+          = BVExpr $ R.App $ E.BVSelect i w nw y
+
+-- | This newtype is necessary for @bvJoinVector@ and @bvSplitVector@ (used in
+-- the implementation of 'bitreverse' above). These both use functions from
+-- "Data.Parameterized.Vector" that that expect a wrapper of kind @Nat -> Type@,
+-- defining this newtype with (w :: Nat) as the last type parameter allows us to
+-- partially apply @BVExpr s@ to obtain something of kind @Nat -> Type@.
+newtype BVExpr s w = BVExpr (R.Expr MIR s (C.BVType w))
 
 --------------------------------------------------------------------------------------------------------------------------
 -- MaybeUninit

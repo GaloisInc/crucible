@@ -15,6 +15,9 @@ This release supports [version
 * The Semigroup and Monoid instances for Collection, CollectionState, and
   RustModule have been removed. It is not expected that there are any
   downstream users.
+* Add a custom override for the
+  [`bitreverse`](https://doc.rust-lang.org/std/intrinsics/fn.bitreverse.html)
+  intrinsic.
 
 # 0.3 -- 2024-08-30
 
