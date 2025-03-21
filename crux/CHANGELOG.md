@@ -1,3 +1,7 @@
+# next
+
+Nothing yet.
+
 # 0.7.2 -- 2025-03-21
 
 * Add support for the Bitwuzla SMT solver.

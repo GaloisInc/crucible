@@ -1,3 +1,7 @@
+# next
+
+Nothing yet.
+
 # Revision history for crucible-symio
 
 ## 0.1.1 -- 2024-08-30

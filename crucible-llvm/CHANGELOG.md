@@ -1,3 +1,7 @@
+# next
+
+Nothing yet.
+
 # 0.7.1 -- 2025-03-21
 
 * Fix a bug in which the memory model would panic when attempting to unpack

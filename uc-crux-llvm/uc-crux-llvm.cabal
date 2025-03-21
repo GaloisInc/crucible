@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          uc-crux-llvm
-Version:       0.3
+Version:       0.3.0.0.99
 Author:        Galois Inc.
 Maintainer:    Langston Barrett, Scott Moore, Tristan Ravitch
 Copyright:     (c) Galois, Inc 2021-2022
