@@ -1,3 +1,10 @@
+# next
+
+* Add a `Pretty` instance for ExprError.
+
+* Allow exotic characters (including Unicode symbols) in fresh atom
+names instead of having them be restricted to plain text identifiers.
+
 # 0.4 -- 2024-02-05
 
 * The type `ACFG` has been removed in favor of `Lang.Crucible.CFG.Reg.AnyCFG`,
