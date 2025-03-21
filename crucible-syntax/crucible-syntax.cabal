@@ -12,7 +12,7 @@ Description:
   This package provides a syntax for directly constructing Crucible
   control-flow graphs, as well as for observing them.
 
-extra-doc-files: README.txt
+extra-doc-files: README.txt, CHANGELOG.md
 extra-source-files:
 
 common shared

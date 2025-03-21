@@ -10,6 +10,8 @@ category:            Language
 build-type:          Simple
 cabal-version:       2.0
 
+extra-doc-files: CHANGELOG.md
+
 executable crux-go
 
   hs-source-dirs: tool

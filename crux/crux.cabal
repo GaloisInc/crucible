@@ -17,6 +17,8 @@ Description:
   verification, usually by embedding verification specifications in
   the source language.
 
+extra-doc-files:  CHANGELOG.md
+
 source-repository head
   type:     git
   location: https://github.com/GaloisInc/crucible
