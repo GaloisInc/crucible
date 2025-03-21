@@ -11,6 +11,7 @@ This release supports [version
   helps ensure that unsupported `mir-json` files do not cause unintended
   results.
 * Add `--debug` option for starting the Crucible debugger.
+* The test suite is now called `crux-mir-test` instead of just `test`.
 
 # 0.9 -- 2024-08-30
 
