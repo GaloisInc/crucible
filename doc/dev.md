@@ -7,19 +7,28 @@ We try to support new versions as soon as they are supported by the libraries th
 
 ### Adding a new version
 
-The following checklist enumerates the steps needed to support a new version of GHC.
-When performing such an upgrade, it can be helpful to copy/paste this list into the MR description and check off what has been done, so as to not forget anything.
+Crucible has several Galois-developed dependencies that are pinned as Git submodules, in `dependencies/`.
+These dependencies need to support new GHC versions before Crucible itself can.
+First, create GitHub issues on each of these dependencies requesting support for the new GHC version.
+Then, create an issue on the Crucible repo that includes:
+
+1. A link to the GHC release notes for the new version
+2. Links to the issues on the dependencies
+3. A link to this section of this document
+
+Then, wait for the issues on the dependencies to be resolved.
+When adding support for the new GHC version to Crucible itself, complete the following steps:
 
 - [ ] Allow the [new version of `base`][base] in the Cabal `build-depends`
-- [ ] Run `cabal {build,test,haddock}`, bumping dependency bounds as needed
+- [ ] Run `cabal {build,test,haddock}`, bumping dependency bounds and submodules as needed
 - [ ] Fix any new warnings from [`-Wdefault`][wdefault]
 - [ ] Run [`cabal freeze`][freeze] and rename `cabal.freeze` to `cabal.GHC-X.Y.Z.config`
 - [ ] Add the new GHC version to the matrix in the GitHub Actions workflows
 - [ ] Add the new version to the code that sets `GHC_NIXPKGS` in the CI config
-- [ ] Use the new GHC version in the Dockerfiles in `.github/`
+- [ ] Bump the GHC version in the Dockerfiles in `.github/` to the oldest supported version
 - [ ] Follow the below steps to remove the oldest GHC version
 
-[base]: https://www.snoyman.com/base/
+[base]: https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/libraries/version-history
 [freeze]: https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-freeze
 [wdefault]: https://downloads.haskell.org/ghc/latest/docs/users_guide/using-warnings.html#ghc-flag-Wdefault
 
