@@ -1,6 +1,6 @@
 cabal-version: 2.4
 name: crucible-debug
-version: 0.1.0
+version: 0.1.0.0.99
 author: Galois Inc.
 maintainer: langston@galois.com
 build-type: Simple
@@ -8,8 +8,10 @@ license: BSD-3-Clause
 license-file: LICENSE
 category: Language
 synopsis: An interactive debugger for Crucible programs
+description:
+  An interactive debugger for Crucible programs.
 
-extra-doc-files: README.md
+extra-doc-files: README.md, CHANGELOG.md
 extra-source-files:
   LICENSE
   test-data/**/*.txt
@@ -85,7 +87,7 @@ library
   import: shared
 
   build-depends:
-    base >= 4.13,
+    base >= 4.13 && < 4.20,
     containers,
     crucible,
     crucible-syntax,

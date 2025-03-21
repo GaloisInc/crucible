@@ -1,5 +1,5 @@
 name:                crucible-mir
-version:             0.3.0.99
+version:             0.4.0.0.99
 -- synopsis:
 -- description:
 homepage:            https://github.com/GaloisInc/crucible/blob/master/crucible-mir/README.md
@@ -15,7 +15,7 @@ copyright:           2017-2023 Galois, Inc.
 category:            Web
 build-type:          Simple
 cabal-version:       2.0
-extra-source-files:  README.md
+extra-doc-files:  README.md, CHANGELOG.md
 
 library
   default-language: Haskell2010

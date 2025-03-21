@@ -1,5 +1,5 @@
 name:                crux-mir
-version:             0.9.0.99
+version:             0.10.0.0.99
 -- synopsis:
 -- description:
 homepage:            https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md
@@ -15,7 +15,7 @@ copyright:           2017-2020 Galois, Inc.
 category:            Web
 build-type:          Simple
 cabal-version:       2.0
-extra-source-files:  README.md
+extra-doc-files:  CHANGELOG.md, README.md
 
 library
   default-language: Haskell2010

@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible
-Version:       0.7.1.0.99
+Version:       0.7.2.0.99
 Author:        Galois Inc.
 Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
 Copyright:     (c) Galois, Inc 2014-2022
@@ -14,7 +14,7 @@ Description:
   (SSA) form control flow graphs, and a symbolic simulation engine for executing
   programs expressed in this format.  It also provides support for communicating with
   a variety of SAT and SMT solvers, including Z3, CVC4, Yices, STP, and dReal.
-extra-source-files: CHANGELOG.md
+extra-doc-files: CHANGELOG.md
 
 source-repository head
   type:     git

@@ -1,5 +1,5 @@
 Name:          crucible-jvm
-Version:       0.2
+Version:       0.2.0.0.99
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc. 2018-2022
 Maintainer:    huffman@galois.com, sweirich@galois.com
@@ -9,6 +9,8 @@ Build-type:    Simple
 Cabal-version: 2.0
 Category:      Language
 Synopsis:      Support for translating and executing JVM code in Crucible
+
+extra-doc-files: CHANGELOG.md
 
 executable crucible-jvm
 

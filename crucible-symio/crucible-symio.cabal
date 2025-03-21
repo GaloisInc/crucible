@@ -13,7 +13,7 @@ author:              Daniel Matichuk
 maintainer:          rscott@galois.com, kquick@galois.com, langston@galois.com
 build-type:          Simple
 category:            Language
-extra-source-files:  CHANGELOG.md
+extra-doc-files:  CHANGELOG.md
 
 source-repository head
   type:     git

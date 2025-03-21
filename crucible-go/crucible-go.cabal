@@ -1,5 +1,5 @@
 name:                crucible-go
-version:             0.1
+version:             0.1.0.0.99
 synopsis:            A Go frontend for Crucible
 license:             BSD3
 license-file:        LICENSE
@@ -9,6 +9,8 @@ copyright:           (c) 2020 Galois Inc
 category:            Language
 build-type:          Simple
 cabal-version:       2.0
+
+extra-doc-files: CHANGELOG.md
 
 executable crux-go
 

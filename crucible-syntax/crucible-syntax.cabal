@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible-syntax
-Version:       0.4
+Version:       0.4.1.0.99
 Author:        Galois Inc.
 Maintainer:    dtc@galois.com
 Build-type:    Simple
@@ -12,7 +12,7 @@ Description:
   This package provides a syntax for directly constructing Crucible
   control-flow graphs, as well as for observing them.
 
-extra-doc-files: README.txt
+extra-doc-files: README.txt, CHANGELOG.md
 extra-source-files:
 
 common shared
@@ -89,8 +89,10 @@ common shared
   default-language: Haskell2010
 
 library
+  default-language: Haskell2010
+
   build-depends:
-    base >= 4.9,
+    base >= 4.9 && < 4.20,
     bv-sized >= 1.0.0,
     containers,
     crucible >= 0.1,

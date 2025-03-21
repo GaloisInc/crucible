@@ -1,4 +1,8 @@
-# next -- TBA
+# next
+
+Nothing yet.
+
+# 0.7.2 -- 2025-03-21
 
 * Add support for Bitwuzla as an online SMT solver backend.
 * Add a function `ppTypeRepr` to `Lang.Crucible.Types` for pretty-printing

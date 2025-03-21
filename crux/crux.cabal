@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crux
-Version:       0.7.1.0.99
+Version:       0.7.2.0.99
 Copyright:     (c) Galois, Inc. 2018-2022
 Author:        sweirich@galois.com
 Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
@@ -16,6 +16,8 @@ Description:
   command-line interface to Crucible-based simulation and
   verification, usually by embedding verification specifications in
   the source language.
+
+extra-doc-files:  CHANGELOG.md
 
 source-repository head
   type:     git
