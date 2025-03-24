@@ -1,3 +1,7 @@
+# next
+
+Nothing yet.
+
 # 0.10 -- 2025-03-24
 
 * Sync the version number with `crux-mir-0.10` as part of the overall Crux 0.10
