@@ -209,7 +209,7 @@ gpGlobals = lens _gpGlobals (\s v -> s { _gpGlobals = v })
 --   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
 --   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 --   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
---   - @args@: arguments to this frame
+--   - @args@: arguments to this frame (see 'SimFrame')
 type TopFrame :: Type -> Type -> Type -> Maybe (Ctx CrucibleType) -> Type
 type TopFrame sym ext f args = GlobalPair sym (SimFrame sym ext f args)
 
@@ -323,7 +323,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 --
 --   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
 --   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
---   - @v@: Type of the result of the compoutation
+--   - @v@: Type of the result of the computation
 type PartialResult :: Type -> Type -> Type -> Type
 data PartialResult sym ext v
 
@@ -648,7 +648,7 @@ data ExecState p sym ext rtp
 --   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 --   - @rtp@: type of the return value
 --   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
---   - @args@: arguments to the current frame
+--   - @args@: arguments to the current frame (see 'SimFrame')
 type ExecCont :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx.Ctx CrucibleType) -> Type
 type ExecCont p sym ext rtp f args =
   ReaderT (SimState p sym ext rtp f args) IO (ExecState p sym ext rtp)
@@ -775,7 +775,7 @@ data PausedFrame p sym ext rtp f
 --   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 --   - @rtp@: type of the return value
 --   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
---   - @args@: arguments to this frame
+--   - @args@: arguments to this frame (see 'SimFrame')
 type VFFOtherPath :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx CrucibleType) -> Type
 data VFFOtherPath p sym ext ret f args
 
@@ -1010,7 +1010,7 @@ Type parameters:
 - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 - @root@: global return type of the entire computation
 - @f@: the frame type of the caller ('CrucibleLang' or 'OverrideLang')
-- @args@: types of the local variables in scope prior to the call
+- @args@: types of the local variables in scope prior to the call (see 'SimFrame')
 -}
 type ReturnHandler :: CrucibleType -> Type -> Type -> Type -> Type -> Type -> Maybe (Ctx CrucibleType) -> Type
 data ReturnHandler ret p sym ext root f args where
@@ -1060,7 +1060,7 @@ type PartialResultFrame sym ext f args =
      - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
      - @root@: global return type of the entire computation
      - @f@: the frame type of the caller ('CrucibleLang' or 'OverrideLang')
---   - @args@: arguments to the current frame
+--   - @args@: arguments to the current frame (see 'SimFrame')
 -}
 type ActiveTree :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx.Ctx CrucibleType) -> Type
 data ActiveTree p sym ext root f args
@@ -1355,7 +1355,7 @@ newtype AbortHandler p sym ext rtp
 --   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 --   - @rtp@: type of the return value
 --   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
---   - @args@: arguments to the current frame
+--   - @args@: arguments to the current frame (see 'SimFrame')
 type SimState :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx.Ctx CrucibleType) -> Type
 data SimState p sym ext rtp f args
    = SimState { _stateContext      :: !(SimContext p sym ext)

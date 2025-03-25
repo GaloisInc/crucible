@@ -281,7 +281,13 @@ type family FrameRetType (f :: Type) :: CrucibleType where
   FrameRetType (CrucibleLang b r) = r
   FrameRetType (OverrideLang r) = r
 
-data SimFrame sym ext l (args :: Maybe (Ctx CrucibleType)) where
+-- | A frame on the stack.
+--
+--   Type parameters:
+--
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
+--   - @args@: arguments; 'Just' for call frames, 'Nothing' for a return frame
+data SimFrame sym ext f (args :: Maybe (Ctx CrucibleType)) where
   -- | Custom code to execute, typically for "overrides"
   OF :: !(OverrideFrame sym ret args)
      -> SimFrame sym ext (OverrideLang ret) ('Just args)
