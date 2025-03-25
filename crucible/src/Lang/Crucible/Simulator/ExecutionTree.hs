@@ -177,7 +177,12 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- GlobalPair
 
--- | A value of some type 'v' together with a global state.
+-- | A value of some type @v@ together with a global state.
+--
+--   Type parameters:
+--
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @v@: type of the value
 type GlobalPair :: Type -> Type -> Type
 data GlobalPair sym v =
    GlobalPair
@@ -198,6 +203,13 @@ gpGlobals = lens _gpGlobals (\s v -> s { _gpGlobals = v })
 -- TopFrame
 
 -- | The currently-executing frame plus the global state associated with it.
+--
+--   Type parameters:
+--
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
+--   - @args@: arguments to this frame
 type TopFrame :: Type -> Type -> Type -> Maybe (Ctx CrucibleType) -> Type
 type TopFrame sym ext f args = GlobalPair sym (SimFrame sym ext f args)
 
@@ -227,6 +239,11 @@ overrideTopFrame = gpValue . overrideSimFrame
 --   path might abort because it became infeasible (inconsistent path
 --   conditions), because the program called an exit primitive, or
 --   because of a true error condition (e.g., a failed assertion).
+--
+--   Type parameters:
+--
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type AbortedResult :: Type -> Type -> Type
 data AbortedResult sym ext where
   -- | A single aborted execution with the execution state at time of the abort and the reason.
@@ -255,6 +272,8 @@ data AbortedResult sym ext where
 
 -- | This represents an execution frame where its frame type
 --   and arguments have been hidden.
+--
+--   The type parameter @f@ is usually 'SimFrame'.
 type SomeFrame :: forall fk argk. (fk -> argk -> Type) -> Type
 data SomeFrame f = forall l a . SomeFrame !(f l a)
 
@@ -299,6 +318,12 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 --   'PartialResult', then some of the computation paths that led to
 --   this result aborted for some reason, and the resulting value is
 --   only defined if the associated condition is true.
+--
+--   Type parameters:
+--
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @v@: Type of the result of the compoutation
 type PartialResult :: Type -> Type -> Type -> Type
 data PartialResult sym ext v
 
@@ -329,6 +354,13 @@ partialValue f (PartialRes loc p x r) = (\y -> PartialRes loc p y r) <$> f x
 {-# INLINE partialValue #-}
 
 -- | The result of resolving a function call.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @ret@: 'CrucibleType' of the return value
 type ResolvedCall :: Type -> Type -> Type -> CrucibleType -> Type
 data ResolvedCall p sym ext ret where
   -- | A resolved function call to an override.
@@ -353,6 +385,13 @@ resolvedCallHandle (CrucibleCall _ frm) = frameHandle frm
 
 -- | Executions that have completed either due to (partial or total)
 --   successful completion or by some abort condition.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
 type ExecResult :: Type -> Type -> Type -> Type -> Type
 data ExecResult p sym ext rtp
    = -- | At least one execution path resulted in some return result.
@@ -456,6 +495,13 @@ execStateGlobals =
 --   Crucible program.  The Crucible simulator executes by transitioning
 --   between these different states until it results in a 'ResultState',
 --   indicating the program has completed.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
 type ExecState :: Type -> Type -> Type -> Type -> Type
 data ExecState p sym ext rtp
    {- | The 'ResultState' is used to indicate that the program has completed. -}
@@ -594,12 +640,26 @@ data ExecState p sym ext rtp
 -- | An action which will construct an 'ExecState' given a current
 --   'SimState'. Such continuations correspond to a single transition
 --   of the simulator transition system.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
+--   - @args@: arguments to the current frame
 type ExecCont :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx.Ctx CrucibleType) -> Type
 type ExecCont p sym ext rtp f args =
   ReaderT (SimState p sym ext rtp f args) IO (ExecState p sym ext rtp)
 
 -- | Some additional information attached to a @RunningState@
 --   that indicates how we got to this running state.
+--
+--   Type parameters:
+--
+--   - @blocks@: types of variables in scope from previous blocks
+--   - @args@: arguments to this block
 type RunningStateInfo :: Ctx (Ctx CrucibleType) -> Ctx CrucibleType -> Type
 data RunningStateInfo blocks args
     -- | This indicates that we are now in a @RunningState@ because
@@ -618,6 +678,11 @@ data RunningStateInfo blocks args
 -- | A 'ResolvedJump' is a block label together with a collection of
 --   actual arguments that are expected by that block.  These data
 --   are sufficient to actually transfer control to the named label.
+--
+--   Type parameters:
+--
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @blocks@: types of variables in scope from previous blocks
 type ResolvedJump :: Type -> Ctx (Ctx CrucibleType) -> Type
 data ResolvedJump sym blocks
   = forall args.
@@ -629,6 +694,14 @@ data ResolvedJump sym blocks
 --   (while it first explores other paths), a 'ControlResumption'
 --   indicates what actions must later be taken in order to resume
 --   execution of that path.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
 type ControlResumption :: Type -> Type -> Type -> Type -> Type -> Type
 data ControlResumption p sym ext rtp f where
   {- | When resuming a paused frame with a @ContinueResumption@,
@@ -669,6 +742,14 @@ data ControlResumption p sym ext rtp f where
 --   while other paths are explored.  It consists of a (potentially partial)
 --   'SimFrame' together with some information about how to resume execution
 --   of that frame.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
 type PausedFrame :: Type -> Type -> Type -> Type -> Type -> Type
 data PausedFrame p sym ext rtp f
    = forall old_args.
@@ -686,6 +767,15 @@ data PausedFrame p sym ext rtp f
 --   stored in the 'VFFCompletePath' state until the second path also
 --   reaches its merge point.  The two paths will then be merged,
 --   and execution will continue beyond the merge point.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
+--   - @args@: arguments to this frame
 type VFFOtherPath :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx CrucibleType) -> Type
 data VFFOtherPath p sym ext ret f args
 
@@ -707,17 +797,13 @@ data VFFOtherPath p sym ext ret f args
 of the branching structure of a program.  The 'ValueFromFrame' states correspond
 to the structure of symbolic branching that occurs within a single function call.
 
-The type parameters have the following meanings:
+Type parameters:
 
-  * @p@ is the personality of the simulator (i.e., custom user state).
-
-  * @sym@ is the simulator backend being used.
-
-  * @ext@ specifies what extensions to the Crucible language are enabled
-
-  * @ret@ is the global return type of the entire execution.
-
-  * @f@ is the type of the top frame.
+- @p@: see 'cruciblePersonality'
+- @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+- @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+- @ret@: global return type of the entire execution
+- @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
 -}
 
 type ValueFromFrame :: Type -> Type -> Type -> Type -> Type -> Type
@@ -798,17 +884,11 @@ data PendingPartialMerges =
 of the branching structure of a program.  The 'ValueFromValue' states correspond
 to stack call frames in a more traditional simulator environment.
 
-The type parameters have the following meanings:
-
-  * @p@ is the personality, see 'cruciblePersonality'.
-
-  * @sym@ is the simulator backend being used.
-
-  * @ext@ specifies what extensions to the Crucible language are enabled
-
-  * @ret@ is the global return type of the entire computation
-
-  * @top_return@ is the return type of the top-most call on the stack.
+- @p@: see 'cruciblePersonality'
+- @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+- @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+- @ret@: global return type of the entire execution
+- @top_return@: return type of the top-most call on the stack.
 -}
 type ValueFromValue :: Type -> Type -> Type -> Type -> CrucibleType -> Type
 data ValueFromValue p sym ext ret top_return
@@ -922,21 +1002,15 @@ vfvParents c0 =
 executing in a caller's context once a function call has completed and
 the return value is available.
 
-The type parameters have the following meanings:
+Type parameters:
 
-  * @ret@ is the type of the return value that is expected.
-
-  * @p@ is the personality of the simulator (i.e., custom user state).
-
-  * @sym@ is the simulator backend being used.
-
-  * @ext@ specifies what extensions to the Crucible language are enabled.
-
-  * @root@ is the global return type of the entire computation.
-
-  * @f@ is the stack type of the caller.
-
-  * @args@ is the type of the local variables in scope prior to the call.
+- @ret@: the type of the return value that is expected
+- @p@: see 'cruciblePersonality'
+- @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+- @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+- @root@: global return type of the entire computation
+- @f@: the frame type of the caller ('CrucibleLang' or 'OverrideLang')
+- @args@: types of the local variables in scope prior to the call
 -}
 type ReturnHandler :: CrucibleType -> Type -> Type -> Type -> Type -> Type -> Maybe (Ctx CrucibleType) -> Type
 data ReturnHandler ret p sym ext root f args where
@@ -977,7 +1051,17 @@ type PartialResultFrame sym ext f args =
 
 {- | An active execution tree contains at least one active execution.
      The data structure is organized so that the current execution
-     can be accessed rapidly. -}
+     can be accessed rapidly.
+
+     Type parameters:
+
+     - @p@: see 'cruciblePersonality'
+     - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+     - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+     - @root@: global return type of the entire computation
+     - @f@: the frame type of the caller ('CrucibleLang' or 'OverrideLang')
+--   - @args@: arguments to the current frame
+-}
 type ActiveTree :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx.Ctx CrucibleType) -> Type
 data ActiveTree p sym ext root f args
    = ActiveTree
@@ -1034,6 +1118,14 @@ activeFrames (ActiveTree ctx ar) =
 -- SimContext
 
 -- | A definition of a function's semantics, given as a Haskell action.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @args@: types of arguments to the override
+--   - @ret@: return type of the override
 type Override :: Type -> Type -> Type -> Ctx CrucibleType -> CrucibleType -> Type
 data Override p sym ext (args :: Ctx CrucibleType) ret
    = Override { overrideName    :: FunctionName
@@ -1043,18 +1135,38 @@ data Override p sym ext (args :: Ctx CrucibleType) ret
 -- | State used to indicate what to do when function is called.  A function
 --   may either be defined by writing a Haskell 'Override' or by giving
 --   a Crucible control-flow graph representation.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @args@: argument types
+--   - @ret@: return type
 type FnState :: Type -> Type -> Type -> Ctx CrucibleType -> CrucibleType -> Type
 data FnState p sym ext args ret
    = UseOverride !(Override p sym ext args ret)
    | forall blocks . UseCFG !(CFG ext blocks args ret) !(CFGPostdom blocks)
 
 -- | A map from function handles to their semantics.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type FunctionBindings :: Type -> Type -> Type -> Type
 newtype FunctionBindings p sym ext = FnBindings { fnBindings :: FnHandleMap (FnState p sym ext) }
 
 -- | The type of functions that interpret extension statements.  These
 --   have access to the main simulator state, and can make fairly arbitrary
 --   changes to it.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type EvalStmtFunc :: Type -> Type -> Type -> Type
 type EvalStmtFunc p sym ext =
   forall rtp blocks r ctx tp'.
@@ -1065,6 +1177,12 @@ type EvalStmtFunc p sym ext =
 -- | In order to start executing a simulator, one must provide an implementation
 --   of the extension syntax.  This includes an evaluator for the added
 --   expression forms, and an evaluator for the added statement forms.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type ExtensionImpl :: Type -> Type -> Type -> Type
 data ExtensionImpl p sym ext
   = ExtensionImpl
@@ -1092,6 +1210,13 @@ emptyExtensionImpl =
 type IsSymInterfaceProof :: Type -> Type -> Type
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 
+-- | Some kind of 'Integer' to be collected during execution.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type Metric :: Type -> Type -> Type -> Type
 newtype Metric p sym ext =
   Metric {
@@ -1102,8 +1227,14 @@ newtype Metric p sym ext =
 --   remains persistent across all symbolic simulator actions.  In particular, it
 --   is not rolled back when the simulator returns previous program points to
 --   explore additional paths, etc.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type SimContext :: Type -> Type -> Type -> Type
-data SimContext personality sym ext
+data SimContext p sym ext
    = SimContext { _ctxBackend            :: !(SomeBackend sym)
                   -- | Class dictionary for @'IsSymInterface' sym@
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
@@ -1112,11 +1243,11 @@ data SimContext personality sym ext
                 , simHandleAllocator     :: !(HandleAllocator)
                   -- | Handle to write messages to.
                 , printHandle            :: !Handle
-                , extensionImpl          :: ExtensionImpl personality sym ext
-                , _functionBindings      :: !(FunctionBindings personality sym ext)
+                , extensionImpl          :: ExtensionImpl p sym ext
+                , _functionBindings      :: !(FunctionBindings p sym ext)
                   -- | See 'cruciblePersonality'.
-                , _cruciblePersonality   :: !personality
-                , _profilingMetrics      :: !(Map Text (Metric personality sym ext))
+                , _cruciblePersonality   :: !p
+                , _profilingMetrics      :: !(Map Text (Metric p sym ext))
                 }
 
 -- | Create a new 'SimContext' with the given bindings.
@@ -1200,6 +1331,13 @@ profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
 --   may be desirable to take additional or alternate actions on abort
 --   events; in which case, the library user may replace the default
 --   abort handler with their own.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
 newtype AbortHandler p sym ext rtp
       = AH { runAH :: forall (l :: Type) args.
                  AbortExecReason ->
@@ -1209,6 +1347,15 @@ newtype AbortHandler p sym ext rtp
 -- | A SimState contains the execution context, an error handler, and
 --   the current execution tree.  It captures the entire state
 --   of the symbolic simulator.
+--
+--   Type parameters:
+--
+--   - @p@: see 'cruciblePersonality'
+--   - @sym@: instance of 'Lang.Crucible.Backend.IsSymInterface'
+--   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
+--   - @rtp@: type of the return value
+--   - @f@: the type of the top frame ('CrucibleLang' or 'OverrideLang')
+--   - @args@: arguments to the current frame
 type SimState :: Type -> Type -> Type -> Type -> Type -> Maybe (Ctx.Ctx CrucibleType) -> Type
 data SimState p sym ext rtp f args
    = SimState { _stateContext      :: !(SimContext p sym ext)
