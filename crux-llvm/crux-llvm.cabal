@@ -97,7 +97,7 @@ library
     config-schema >= 1.2.2.0,
     logict,
     llvm-pretty,
-    llvm-pretty-bc-parser,
+    llvm-pretty-bc-parser >= 0.5,
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0

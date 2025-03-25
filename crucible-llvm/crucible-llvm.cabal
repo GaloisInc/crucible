@@ -40,7 +40,7 @@ library
     containers >= 0.5.8.0,
     crucible >= 0.5,
     crucible-symio,
-    what4 >= 0.4.1,
+    what4 >= 0.5,
     extra,
     lens,
     itanium-abi >= 0.1.1.1 && < 0.2,
