@@ -147,6 +147,26 @@ unix
 unix-compat
 ```
 
+Versioning scheme
+-----------------
+
+All of the library components in this repository conform to the Haskell [Package
+Versioning Policy][pvp]. Every executable has a corresponding library, and they
+share a version number.
+
+[pvp]: https://pvp.haskell.org/.
+
+The Crux packages (`crux{,-llvm,-mir}`) all share the same version number. The
+major version of Crux is bumped on *every* release, regardless of the changes
+(or lack thereof) in these individual packages.
+
+In addition to the release versions described above, we use *development
+versions* for each package. Immediately after release, we add a fifth component
+to the version number of each package. This component starts at `.99` and
+is incremented occasionally thereafter. These allow downstream packages to
+indicate in their Cabal files that depend on unreleased functionality. Such
+five-component versions are never uploaded to Hackage.
+
 Acknowledgements
 ----------------
 
