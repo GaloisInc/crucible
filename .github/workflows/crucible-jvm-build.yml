@@ -124,7 +124,8 @@ jobs:
         run: .github/ci.sh build exe:crucible-jvm
       - name: Haddock
         shell: bash
-        run: cabal v2-haddock crucible-jvm
+        # See Note [--disable-documentation] in `crucible-go-build.yml`.
+        run: cabal v2-haddock --disable-documentation crucible-jvm
 
       - uses: actions/cache/save@v4
         name: Save cabal store cache

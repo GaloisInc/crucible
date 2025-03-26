@@ -127,7 +127,8 @@ jobs:
         run: .github/ci.sh test crucible-wasm
       - name: Haddock
         shell: bash
-        run: cabal v2-haddock crucible-wasm
+        # See Note [--disable-documentation] in `crucible-go-build.yml`.
+        run: cabal v2-haddock --disable-documentation crucible-wasm
 
       - uses: actions/cache/save@v4
         name: Save cabal store cache

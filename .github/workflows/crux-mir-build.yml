@@ -184,7 +184,8 @@ jobs:
 
       - shell: bash
         name: Haddock
-        run: cabal v2-haddock crucible-syntax crucible-concurrency crux-mir
+        # See Note [--disable-documentation] in `crucible-go-build.yml`.
+        run: cabal v2-haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
 
       - shell: bash
         run: cd crux-mir && bash ./translate_libs.sh
