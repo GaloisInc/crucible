@@ -188,7 +188,8 @@ jobs:
 
       - shell: bash
         name: Haddock
-        run: cabal v2-haddock crucible-debug crucible-symio crucible-llvm{,-debug,-syntax} crux-llvm uc-crux-llvm
+        # See Note [--disable-documentation] in `crucible-go-build.yml`.
+        run: cabal v2-haddock --disable-documentation crucible-debug crucible-symio crucible-llvm{,-debug,-syntax} crux-llvm uc-crux-llvm
 
       - shell: bash
         name: Test crucible
