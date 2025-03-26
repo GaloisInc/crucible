@@ -783,7 +783,7 @@ to stack call frames in a more traditional simulator environment.
 
 The type parameters have the following meanings:
 
-  * @p@ is the personality of the simulator (i.e., custom user state).
+  * @p@ is the personality, see 'cruciblePersonality'.
 
   * @sym@ is the simulator backend being used.
 
@@ -1085,6 +1085,7 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
                 , printHandle            :: !Handle
                 , extensionImpl          :: ExtensionImpl personality sym ext
                 , _functionBindings      :: !(FunctionBindings personality sym ext)
+                  -- | See 'cruciblePersonality'.
                 , _cruciblePersonality   :: !personality
                 , _profilingMetrics      :: !(Map Text (Metric personality sym ext))
                 }
@@ -1128,7 +1129,30 @@ ctxSymInterface = to (\ctx ->
 functionBindings :: Lens' (SimContext p sym ext) (FunctionBindings p sym ext)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
--- | Access the custom user-state inside the 'SimContext'.
+-- | Custom state inside the 'SimContext'.
+--
+-- Crucible itself is entirely polymorphic over @p@. Downstream applications can
+-- instantiate it to any sort of state that they would like to associate with a
+-- 'SimContext'.
+--
+-- For example, applications based on
+-- [@macaw-symbolic@](https://github.com/GaloisInc/macaw/tree/master/symbolic)
+-- can instantiate this to a structure holding enough information to perform
+-- incremental code discovery. See @ambient-verifier@'s
+-- [@AmbientSimulatorState@](https://github.com/GaloisInc/ambient-verifier/blob/eab04abb9750825a25ec0cbe0379add63f05f6c6/src/Ambient/Extensions.hs#L1092-1137).
+--
+-- Code that needs to store some state in the personality but doesn\'t wish to
+-- fix a particular type can use the \"classy lenses\" approach, e.g.,
+--
+-- @
+-- class HasFooState p where
+--   fooState :: `Lens'` p FooState
+-- @
+--
+-- For examples of this approach, see
+--
+-- * [@HasMacawLazySimulatorState@](https://github.com/GaloisInc/macaw/blob/cbec559b428fdd194398d07fc08c8c570a1d3bab/symbolic/src/Data/Macaw/Symbolic/MemOps.hs#L385-L394)
+-- * [@HasGreaseSimulatorState@](https://github.com/GaloisInc/grease/blob/a50d54d2f414d15974dcf2d21654fbfe3527f0fa/src/Grease/Macaw/SimulatorState.hs#L90-L97)
 cruciblePersonality :: Lens' (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
