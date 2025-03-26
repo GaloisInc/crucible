@@ -158,7 +158,7 @@ runFSTest' bak (FSTest fsTest) = do
 showAbortedResult :: CS.AbortedResult c d -> String
 showAbortedResult ar = case ar of
   CS.AbortedExec reason _ -> show reason
-  CS.AbortedExit code -> show code
+  CS.AbortedExit code _ -> show code
   CS.AbortedBranch _ _ res' res'' -> "BRANCH: " <> showAbortedResult res' <> "\n" <> showAbortedResult res''
 
 data FSTest (wptr :: Nat)   where
