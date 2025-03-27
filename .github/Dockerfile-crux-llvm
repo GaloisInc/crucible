@@ -2,7 +2,7 @@
 # LINUX_LLVM_VER in .github/ci.sh (in the install_llvm() function).
 ARG LLVM_VER=14
 
-FROM ubuntu:22.04 AS build
+FROM ubuntu:24.04 AS build
 ARG LLVM_VER
 
 RUN apt-get update && \
@@ -45,7 +45,7 @@ WORKDIR rootfs/usr/local/bin
 # The URL here is based on the same logic used to specify BUILD_TARGET_OS and
 # BUILD_TARGET_ARCH in `.github/workflow/crux-llvm-build.yml`, but specialized
 # to x86-64 Ubuntu.
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20240212/ubuntu-22.04-X64-bin.zip"
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250326/ubuntu-24.04-X64-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 WORKDIR /crux-llvm
@@ -69,7 +69,7 @@ RUN cabal v2-update && \
 USER root
 RUN chown -R root:root /crux-llvm/rootfs
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 ARG LLVM_VER
 
 RUN apt-get update && \

@@ -27,7 +27,7 @@ env:
 
 jobs:
   config:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       name: ${{ steps.config.outputs.name }}
       crux-mir-version: ${{ steps.config.outputs.crux-mir-version }}
@@ -64,11 +64,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         cabal: ["3.10.3.0"]
         ghc: ["9.4.8", "9.6.5", "9.8.2"]
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             cabal: 3.10.3.0
             ghc: 9.4.8
           - os: macos-14
@@ -125,7 +125,7 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20240212"
+          SOLVER_PKG_VERSION: "snapshot-20250326"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
@@ -239,7 +239,7 @@ jobs:
           name: crux-mir-${{ matrix.os }}-${{ matrix.ghc }}
 
   build-push-image:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs: [config]
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true') && github.repository_owner == 'GaloisInc'
     strategy:
