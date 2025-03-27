@@ -593,7 +593,7 @@ synthExpr typeHint =
            Pair (ReferenceRepr t') e ->
              do loc <- position
                 return (SomeE t' (EDeref loc e))
-           Pair notRef _ -> later $ describe ("reference type (provided a "<> T.pack (show notRef) <>")") empty
+           Pair notRef _ -> later $ describe ("reference type (provided a " <> T.pack (show notRef) <> ")") empty
 
     globRef :: m (SomeExpr ext s)
     globRef =
@@ -796,7 +796,7 @@ synthExpr typeHint =
                Nothing ->
                  describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
                Just (Some idx) ->
-                 do let ty = MaybeRepr (ts^.ixF' idx)
+                 do let ty = MaybeRepr (ts ^. ixF' idx)
                     return $ SomeE ty $ EApp $ ProjectVariant ts idx e
            _ -> describe ("variant type (got " <> T.pack (show t) <> ")") empty
 
@@ -1044,7 +1044,7 @@ synthExpr typeHint =
                Nothing ->
                  describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
                Just (Some idx) ->
-                 do let ty = ts^.ixF' idx
+                 do let ty = ts ^. ixF' idx
                     return $ SomeE ty $ EApp $ GetStruct e idx ty
            _ -> describe ("struct type (got " <> T.pack (show t) <> ")") empty)))
 
@@ -1058,7 +1058,7 @@ synthExpr typeHint =
               case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
                 Nothing -> pure (Left (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)))
                 Just (Some idx) -> Right <$>
-                  do let ty = ts^.ixF' idx
+                  do let ty = ts ^. ixF' idx
                      (v,()) <- cons (check ty) emptyList
                      pure $ SomeE (StructRepr ts) $ EApp $ SetStruct ts e idx v)
           _ -> pure $ Left $ ("struct type, but got " <> T.pack (show tp))))

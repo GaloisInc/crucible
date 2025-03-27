@@ -34,8 +34,9 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader(..), ReaderT(..))
 import qualified Control.Monad.State.Strict as Strict
 
+import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable as Foldable
-import Data.List
+import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.String
@@ -234,7 +235,7 @@ data SyntaxError atom = SyntaxError (NonEmpty (Reason atom))
 -- humans to read.
 printSyntaxError :: IsAtom atom => SyntaxError atom -> Text
 printSyntaxError (SyntaxError rs) =
-  T.intercalate "\n\tor\n" $ nub $ map printGroup $ groupReasons rs
+  T.intercalate "\n\tor\n" $ nubOrd $ map printGroup $ groupReasons rs
  where
     reasonPos (Reason found _) = syntaxPos found
     groupReasons reasons =
@@ -244,7 +245,7 @@ printSyntaxError (SyntaxError rs) =
     printGroup (p, r@(Reason found _) :| more) =
       T.concat
       [ "At ", T.pack (show p)
-      , ", expected ", T.intercalate " or " (nub $ sort [ wanted | Reason _ wanted <- r:more ])
+      , ", expected ", T.intercalate " or " (nubOrd $ List.sort [ wanted | Reason _ wanted <- r:more ])
       , " but got ", toText mempty found]
 
 -- | Attempt to parse the given piece of syntax, returning the first success found,
