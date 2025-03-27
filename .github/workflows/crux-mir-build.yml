@@ -150,7 +150,7 @@ jobs:
       - shell: bash
         name: Haddock
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
-        run: cabal v2-haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
+        run: cabal haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
 
       - shell: bash
         run: .github/ci.sh test crux-mir

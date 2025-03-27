@@ -60,12 +60,12 @@ RUN mkdir -p /home/crux-llvm/.ghcup && \
     ghcup set ghc 9.4.8
 
 WORKDIR ${CRUX_BUILD_DIR}
-RUN cabal v2-update && \
-    cabal v2-build --only-dependencies crux-llvm && \
-    cabal v2-build crux-llvm && \
-    cabal v2-test crux-llvm && \
-    cp `cabal v2-exec which crux-llvm` /crux-llvm/rootfs/usr/local/bin && \
-    cp `cabal v2-exec which crux-llvm-svcomp` /crux-llvm/rootfs/usr/local/bin
+RUN cabal update && \
+    cabal build --only-dependencies crux-llvm && \
+    cabal build crux-llvm && \
+    cabal test crux-llvm && \
+    cp `cabal exec which crux-llvm` /crux-llvm/rootfs/usr/local/bin && \
+    cp `cabal exec which crux-llvm-svcomp` /crux-llvm/rootfs/usr/local/bin
 USER root
 RUN chown -R root:root /crux-llvm/rootfs
 

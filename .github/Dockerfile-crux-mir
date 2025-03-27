@@ -64,11 +64,11 @@ RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup set ghc 9.4.8
 
 WORKDIR ${CRUX_BUILD_DIR}
-RUN cabal v2-update && \
-    cabal v2-build --only-dependencies crux-mir && \
-    cabal v2-build crux-mir && \
-    cabal v2-test crux-mir && \
-    cp `cabal v2-exec which crux-mir` /crux-mir/rootfs/usr/local/bin
+RUN cabal update && \
+    cabal build --only-dependencies crux-mir && \
+    cabal build crux-mir && \
+    cabal test crux-mir && \
+    cp `cabal exec which crux-mir` /crux-mir/rootfs/usr/local/bin
 USER root
 RUN chown -R root:root /crux-mir/rootfs
 
