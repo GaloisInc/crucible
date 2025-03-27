@@ -162,10 +162,12 @@ thereof) in each.
 
 In addition to the release versions described above, we use *development
 versions* for each package. Immediately after release, we add a fifth component
-to the version number of each package. This component starts at `.99` and
-is incremented occasionally thereafter. These allow downstream packages to
-indicate in their Cabal files that they depend on unreleased functionality. Such
-five-component versions are never uploaded to Hackage.
+to the version number of each package. This component starts at `.99` and is
+incremented occasionally thereafter. These make it possible for downstream
+packages to indicate in their Cabal files that they depend on unreleased
+functionality, and for developers and users users to identify binaries compiled
+from development versions (via the `--version` flag). Such five-component
+versions are never uploaded to Hackage.
 
 Acknowledgements
 ----------------
