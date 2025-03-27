@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         cabal: ["3.10.3.0"]
         ghc: ["9.4.8", "9.6.5", "9.8.2"]
         include:
@@ -70,7 +70,7 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20240212"
+          SOLVER_PKG_VERSION: "snapshot-20250326"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 

@@ -3,7 +3,7 @@
 ARG RUST_TOOLCHAIN="nightly-2023-01-23"
 ARG CRUX_BUILD_DIR=/crux-mir/build
 
-FROM ubuntu:22.04 AS build
+FROM ubuntu:24.04 AS build
 ARG RUST_TOOLCHAIN
 ARG CRUX_BUILD_DIR
 
@@ -46,7 +46,7 @@ WORKDIR /crux-mir/rootfs/usr/local/bin
 # The URL here is based on the same logic used to specify BUILD_TARGET_OS and
 # BUILD_TARGET_ARCH in `.github/workflow/crux-mir-build.yml`, but specialized
 # to x86-64 Ubuntu.
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20240212/ubuntu-22.04-X64-bin.zip"
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250326/ubuntu-24.04-X64-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 WORKDIR /crux-mir
@@ -70,7 +70,7 @@ RUN cabal v2-update && \
 USER root
 RUN chown -R root:root /crux-mir/rootfs
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 ARG CRUX_BUILD_DIR
 
 RUN apt-get update && \

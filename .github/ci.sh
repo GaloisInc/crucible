@@ -69,10 +69,10 @@ install_llvm() {
     #
     # If you update the value of LINUX_LLVM_VER below, make sure to also update
     # the corresponding LLVM version in .github/Dockerfile-crux-llvm.
-    if [[ "$BUILD_TARGET_OS" = "ubuntu-22.04" ]]; then
+    if [[ "$BUILD_TARGET_OS" = "ubuntu-24.04" ]]; then
       LINUX_LLVM_VER=14
-    elif [[ "$BUILD_TARGET_OS" = "ubuntu-20.04" ]]; then
-      LINUX_LLVM_VER=12
+    elif [[ "$BUILD_TARGET_OS" = "ubuntu-22.04" ]]; then
+      LINUX_LLVM_VER=14
     else
       echo "Don't know what LLVM version to use for $LINUX_LLVM_VER."
       exit 1
