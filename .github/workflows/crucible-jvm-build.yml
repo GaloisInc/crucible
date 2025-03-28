@@ -73,19 +73,15 @@ jobs:
           SOLVER_PKG_VERSION: "snapshot-20250326"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
-      # See Note [Parallelism] in `crucible-go-build.yml`.
       - name: Configure
         shell: bash
-        run: .github/ci.sh configure crucible-jvm --ghc-options='-j'
-      - name: Build dependencies
-        shell: bash
-        run: cabal build --only-dependencies exe:crucible-jvm
-      - name: Build
-        shell: bash
-        run: cabal build --jobs=1 exe:crucible-jvm
+        run: .github/ci.sh configure crucible-jvm
       - name: Generate source distribution
         shell: bash
         run: cabal sdist crucible-jvm
+      - name: Build
+        shell: bash
+        run: cabal build exe:crucible-jvm
       - name: Haddock
         shell: bash
         # See Note [--disable-documentation] in `crucible-go-build.yml`.

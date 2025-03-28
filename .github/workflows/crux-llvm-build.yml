@@ -114,44 +114,27 @@ jobs:
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
-      # See Note [Parallelism] in `crucible-go-build.yml`.
       - shell: bash
-        run: .github/ci.sh configure --ghc-options='-j'
-
-      - shell: bash
-        run: |
-          cabal build --only-dependencies exe:crucible-debug
-          cabal build --only-dependencies exe:crucible-llvm-debug
-          cabal build --only-dependencies exe:crux-llvm
-          cabal build --only-dependencies exe:crux-llvm-for-ide
-          cabal build --only-dependencies exe:crux-llvm-svcomp
-          cabal build --only-dependencies exe:uc-crux-llvm
-          cabal build --only-dependencies lib:crucible
-          cabal build --only-dependencies lib:crucible-llvm
-          cabal build --only-dependencies lib:crucible-llvm-syntax
-          cabal build --only-dependencies lib:crucible-syntax
-          cabal build --only-dependencies pkg:crucible-cli
-          cabal build --only-dependencies pkg:crucible-llvm-cli
-
-      - shell: bash
-        run: >
-          cabal build --jobs=1
-          exe:crucible-debug
-          exe:crucible-llvm-debug
-          exe:crux-llvm
-          exe:crux-llvm-for-ide
-          exe:crux-llvm-svcomp
-          exe:uc-crux-llvm
-          lib:crucible
-          lib:crucible-llvm
-          lib:crucible-llvm-syntax
-          lib:crucible-syntax
-          pkg:crucible-cli
-          pkg:crucible-llvm-cli
+        run: .github/ci.sh configure
 
       - name: Generate source distributions
         shell: bash
         run: cabal sdist crucible-symio crux-llvm uc-crux-llvm crucible-{cli,debug} crucible-llvm{,-cli,-debug,-syntax}
+
+      - shell: bash
+        run: |
+          cabal build lib:crucible
+          cabal build lib:crucible-syntax
+          cabal build pkg:crucible-cli
+          cabal build exe:crucible-debug
+          cabal build lib:crucible-llvm
+          cabal build lib:crucible-llvm-syntax
+          cabal build pkg:crucible-llvm-cli
+          cabal build exe:crucible-llvm-debug
+          cabal build exe:crux-llvm
+          cabal build exe:crux-llvm-for-ide
+          cabal build exe:crux-llvm-svcomp
+          cabal build exe:uc-crux-llvm
 
       - shell: bash
         name: Haddock

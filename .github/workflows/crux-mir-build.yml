@@ -137,19 +137,15 @@ jobs:
           bash ./translate_libs.sh
           echo "CRUX_RUST_LIBRARY_PATH=$(pwd)/rlibs" >> $GITHUB_ENV
 
-      # See Note [Parallelism] in `crucible-go-build.yml`.
       - shell: bash
-        run: .github/ci.sh configure --ghc-options='-j'
-
-      - shell: bash
-        run: cabal build --only-dependencies exe:crux-mir
-
-      - shell: bash
-        run: cabal build --jobs=1 exe:crux-mir
+        run: .github/ci.sh configure
 
       - name: Generate source distributions
         shell: bash
         run: cabal sdist crucible-syntax crucible-concurrency crucible-mir crux-mir
+
+      - shell: bash
+        run: cabal build exe:crux-mir
 
       - shell: bash
         name: Haddock
