@@ -54,13 +54,6 @@ In addition, there are the following library/executable packages:
    simulator.  This is the backend for the `cargo crux-test` command provided
    by `mir-json`.  See the [`crux-mir` README](crux-mir/README.md) for details.
 
- * **`uc-crux-llvm`**, another standalone frontend for executing C and C++
-   programs in the Crucible symbolic simulator, using "under-constrained"
-   symbolic execution. Essentially, this technique can start at any function in
-   a given program with no user intervention and try to find bugs, but may raise
-   false positives and is less useful for full verification than `crux-llvm`.
-   See [the README](./uc-crux-llvm/README.md) for details.
-
 Finally, the following packages are intended primarily for use by Crucible
 developers:
 
