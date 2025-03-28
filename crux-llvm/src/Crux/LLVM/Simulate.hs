@@ -306,7 +306,7 @@ checkFun llvmOpts trans memVar =
              ,  Just Refl <- testEquality w (knownNat @32)
              -> checkMainWithArguments anyCfg
 
-           _ -> throwCError (BadFun nm isMain)  -- TODO(lb): Suggest uc-crux-llvm?
+           _ -> throwCError (BadFun nm isMain)
 
     Nothing -> throwCError (MissingFun nm)
   where

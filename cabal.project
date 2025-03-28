@@ -22,7 +22,6 @@ packages:
   crux/
   crux-llvm/
   crux-mir/
-  uc-crux-llvm/
 
 optional-packages:
   dependencies/golang/
