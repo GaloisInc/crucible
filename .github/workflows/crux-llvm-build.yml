@@ -119,7 +119,7 @@ jobs:
 
       - name: Generate source distributions
         shell: bash
-        run: cabal sdist crucible-symio crux-llvm uc-crux-llvm crucible-{cli,debug} crucible-llvm{,-cli,-debug,-syntax}
+        run: cabal sdist crucible-symio crux-llvm crucible-{cli,debug} crucible-llvm{,-cli,-debug,-syntax}
 
       - shell: bash
         run: >
@@ -133,12 +133,11 @@ jobs:
           crucible-llvm-syntax
           crucible-syntax
           crux-llvm
-          uc-crux-llvm
 
       - shell: bash
         name: Haddock
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
-        run: cabal haddock --disable-documentation crucible-debug crucible-symio crucible-llvm{,-debug,-syntax} crux-llvm uc-crux-llvm
+        run: cabal haddock --disable-documentation crucible-debug crucible-symio crucible-llvm{,-debug,-syntax} crux-llvm
 
       - shell: bash
         name: Test crucible
@@ -183,11 +182,6 @@ jobs:
         name: Test crux-llvm
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux' || runner.os == 'macOS'
-
-      - shell: bash
-        name: Test uc-crux-llvm (Linux)
-        run: .github/ci.sh test uc-crux-llvm
-        if: matrix.os == 'ubuntu-24.04'
 
       - uses: actions/cache/save@v4
         name: Save cabal store cache
@@ -248,7 +242,6 @@ jobs:
           (cd crucible-llvm-syntax; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux;                 with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux-llvm;            with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd uc-crux-llvm;         with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
 
       - name: Create binary artifact
         shell: bash
