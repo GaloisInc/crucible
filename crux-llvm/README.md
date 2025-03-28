@@ -1,6 +1,8 @@
-# Overview
+# Crux-LLVM
 
 <img src="../doc/crux.svg" alt="Crux logo" width="50%" />
+
+## Overview
 
 The `crux-llvm` tool (and corresponding C library) are intended for
 verifying C programs containing inline specifications (in the form of
@@ -8,7 +10,7 @@ function calls to create non-deterministic values and assert
 properties). For more information about Crux itself, refer to the
 [official website](https://crux.galois.com).
 
-# Licensing and bundled tools
+## Licensing and bundled tools
 
 `crux-llvm` is licensed under the 3-Clause BSD license. For more details, refer
 to the `LICENSE` file. Some binary distributions of `crux-llvm` come bundled
@@ -23,7 +25,7 @@ These tools are only invoked by `crux-llvm` as subprocesses. That is,
 `crux-llvm` does not link against any of these tools directly. As a result,
 `crux-llvm` adheres to the GPLv3 licensing terms in Yices.
 
-# Prerequisites
+## Prerequisites
 
 Before running `crux-llvm`, you'll need to install the following
 software:
@@ -52,7 +54,7 @@ convenient. Finally, LLVM versions from 3.6 through 16 are likely to
 work well, and any failures with versions in that range should be
 [reported as bugs](https://github.com/GaloisInc/crucible/issues).
 
-# Building
+## Building
 
 The `crux-llvm` tool can be built by doing the following:
 
@@ -74,7 +76,7 @@ following:
 You can also use the `--installdir` flag to install binaries in a
 different location.
 
-# Invocation
+## Invocation
 
 In the `crux-llvm` directory (either in the repository or the root of
 the directory extracted from a distribution tarball), to analyze
@@ -159,7 +161,7 @@ and use `supply-main-arguments: empty` to pass `argc=0` and `argv={}` to
 `main`, these arguments will _not_ be passed automatically to the
 counterexample executables.
 
-# API
+## API
 
 The [`crucible.h` header file](c-src/includes/crucible.h) contains
 declarations of several functions that can be used to describe the
@@ -193,7 +195,7 @@ user-specified names for non-deterministic variables, and b) ensuring
 that the conditions used in assertions are directly available and not
 obscured by a conditional wrapper around an error function.
 
-# Standard C and C++ Libraries
+## Standard C and C++ Libraries
 
 The code supplied to `crux-llvm` should be largely self-contained,
 without calls to external code. However, some standard library functions
@@ -255,7 +257,7 @@ containing the `libc++` library included with the `clang` compiler, so
 most C++ code that doesn't use third-party libraries (or that includes
 those libraries linked into a single bitcode file) should work.
 
-# Command-line Flags
+## Command-line Flags
 
 The most important and only required argument to `crux-llvm` is the
 source file or list of source files to analyze. In the case that
@@ -410,7 +412,7 @@ In addition, the following flags can optionally be provided:
 
 * `--debug`: Start the Crucible debugger.
 
-# Environment Variables
+## Environment Variables
 
 The following environment variables are supported:
 
@@ -425,7 +427,7 @@ The following environment variables are supported:
 * `LLVM_LINK`: Specify the name of the `llvm-link` command used to
   combine multiple LLVM bitcode files.
 
-# Configuration Files
+## Configuration Files
 
 In addition to command-line flags and environment variables, `crux-llvm`
 can be configured with a key-value input file. The file consists of a
@@ -452,7 +454,7 @@ This specifies the name of the command to run for `clang` and
 `llvm-link`, instructs `crux-llvm` not to create counter-example
 demonstration executables, and provides a list of input files.
 
-# Symbolic I/O [Experimental]
+## Symbolic I/O [Experimental]
 
 Note that Symbolic I/O is currently experimental.  We expect that the API (both
 internal and command line) will change.
@@ -536,7 +538,7 @@ a symbolic branch where both branches open a new file, the two branches will get
 sequential file descriptors. In contrast, the real program would allocate the
 same file descriptor to both (as only one branch would be taken).
 
-# Test suite
+## Test suite
 
 The `crux-llvm` test suite is implemented in `test/Test.hs`, and the
 accompanying test case data can be found under `test-data`. Each test case
@@ -576,7 +578,7 @@ when using Clangs older than `<version>`. Note that the test suite will not
 read anything past `SKIP_TEST`, so the rest of the file can be used to document
 why the test is skipped on that particular configuration.
 
-# Acknowledgements
+## Acknowledgements
 
 Crux is partly based upon work supported by the Defense Advanced
 Research Projects Agency (DARPA) under Contract No. N66001-18-C-4011.
