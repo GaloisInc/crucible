@@ -122,19 +122,18 @@ jobs:
         run: cabal sdist crucible-symio crux-llvm uc-crux-llvm crucible-{cli,debug} crucible-llvm{,-cli,-debug,-syntax}
 
       - shell: bash
-        run: |
-          .github/ci.sh build lib:crucible
-          .github/ci.sh build lib:crucible-syntax
-          .github/ci.sh build pkg:crucible-cli
-          .github/ci.sh build exe:crucible-debug
-          .github/ci.sh build lib:crucible-llvm
-          .github/ci.sh build lib:crucible-llvm-syntax
-          .github/ci.sh build pkg:crucible-llvm-cli
-          .github/ci.sh build exe:crucible-llvm-debug
-          .github/ci.sh build exe:crux-llvm
-          .github/ci.sh build exe:crux-llvm-for-ide
-          .github/ci.sh build exe:crux-llvm-svcomp
-          .github/ci.sh build exe:uc-crux-llvm
+        run: >
+          cabal build
+          crucible
+          crucible-cli
+          crucible-debug
+          crucible-llvm
+          crucible-llvm-cli
+          crucible-llvm-debug
+          crucible-llvm-syntax
+          crucible-syntax
+          crux-llvm
+          uc-crux-llvm
 
       - shell: bash
         name: Haddock

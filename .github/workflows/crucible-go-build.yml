@@ -82,7 +82,7 @@ jobs:
         run: cabal sdist crucible-go
       - name: Build
         shell: bash
-        run: .github/ci.sh build exe:crux-go
+        run: cabal build exe:crux-go
       - name: Haddock
         shell: bash
         # Note [--disable-documentation]

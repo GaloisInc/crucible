@@ -81,7 +81,7 @@ jobs:
         run: cabal sdist crucible-jvm
       - name: Build
         shell: bash
-        run: .github/ci.sh build exe:crucible-jvm
+        run: cabal build exe:crucible-jvm
       - name: Haddock
         shell: bash
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
