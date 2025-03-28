@@ -9,7 +9,7 @@ ARCH_TAG=X64
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 extract_exe() {
-  exe="$(cabal v2-exec which "$1$EXT" | tail -1)"
+  exe="$(cabal exec which "$1$EXT" | tail -1)"
   name="$(basename "$exe")"
   echo "Copying $name to $2"
   mkdir -p "$2"

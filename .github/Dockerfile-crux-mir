@@ -42,7 +42,7 @@ RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev
 RUN cargo install --locked && \
     ./translate_libs.sh
 # Define `CRUX_RUST_LIBRARY_PATH` this for the benefit of
-# `crux v2-test crux-mir` below.
+# `cabal v2-test crux-mir` below.
 ENV CRUX_RUST_LIBRARY_PATH=${CRUX_BUILD_DIR}/dependencies/mir-json/rlibs
 
 RUN mkdir -p /crux-mir/rootfs/usr/local/bin
