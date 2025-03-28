@@ -98,7 +98,7 @@ jobs:
         # identifiers from library dependencies. Since we are only building
         # Haddocks to ensure well-formedness, we consider this an acceptable
         # tradeoff.
-        run: cabal v2-haddock --disable-documentation crucible-go
+        run: cabal haddock --disable-documentation crucible-go
 
       - uses: actions/cache/save@v4
         name: Save cabal store cache

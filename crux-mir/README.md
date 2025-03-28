@@ -43,7 +43,7 @@ versions corresponding to the last two `crux-mir` releases.
 
 Use GHC 9.4, 9.6, or 9.8. From the `crux-mir` directory, run:
 
-    $ cabal v2-install exe:crux-mir --overwrite-policy=always
+    $ cabal install exe:crux-mir --overwrite-policy=always
 
 
 ## Usage
@@ -81,7 +81,7 @@ invoke `crux-mir` to symbolically simulate the test cases.
 
 To compile and test a single Rust program:
 
-    $ cabal v2-exec -- crux-mir test/conc_eval/prim/add1.rs
+    $ cabal exec -- crux-mir test/conc_eval/prim/add1.rs
 
 (Should print 2.)
 
@@ -104,7 +104,7 @@ type is available [here][dalek-fork].  This is the code that appears in the
 
 To run `crux-mir`'s test suite:
 
-    $ cabal v2-test
+    $ cabal test
 
 You need to have built and installed the mir-json tool such that it can be
 found on your $PATH. You also need translated libraries for the Rust target

@@ -11,7 +11,7 @@ mkdir -p "$BIN"
 is_exe() { [[ -x "$1/$2$EXT" ]] || command -v "$2" > /dev/null 2>&1; }
 
 extract_exe() {
-  exe="$(cabal v2-exec which "$1$EXT" | tail -1)"
+  exe="$(cabal exec which "$1$EXT" | tail -1)"
   name="$(basename "$exe")"
   echo "Copying $name to $2"
   mkdir -p "$2"
@@ -41,16 +41,15 @@ retry() {
 configure() {
   ghc_ver="$(ghc --numeric-version)"
   cp cabal.GHC-"$ghc_ver".config cabal.project.freeze
-  cabal v2-update
-  cabal v2-configure "$@" -j2 --enable-tests --minimize-conflict-set
+  cabal configure "$@" -j2 --enable-tests --minimize-conflict-set
   #tee -a cabal.project > /dev/null < cabal.project.ci
 }
 
 build() {
-  if ! retry cabal v2-build "$@" && [[ "$RUNNER_OS" == "macOS" ]]; then
+  if ! retry cabal build "$@" && [[ "$RUNNER_OS" == "macOS" ]]; then
     echo "Working around a dylib issue on macos by removing the cache and trying again"
-    cabal v2-clean
-    retry cabal v2-build "$@"
+    cabal clean
+    retry cabal build "$@"
   fi
 }
 
@@ -59,7 +58,7 @@ test() {
   export PATH="$PATH:/usr/local/opt/llvm/bin:/c/Program Files/LLVM/bin"
   ${CLANG:-:} --version || echo clang version unknown
   ${LLVM_LINK:-:} --version || echo llvm_link version unknown
-  cabal v2-test "$@"
+  cabal test "$@"
 }
 
 install_llvm() {

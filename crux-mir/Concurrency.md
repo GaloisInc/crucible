@@ -27,7 +27,7 @@ Having generated the libraries, we can simply run `crux-mir` with concurrency su
 passing the flat `--concurrency`. For example, to run the tests in [mutex.rs](./test/concurrency/mutex/mutex.rs)
 (via `cabal`):
 
-    $ cabal v2-exec -- crux-mir --concurrency test/mutex/mutex.rs
+    $ cabal exec -- crux-mir --concurrency test/mutex/mutex.rs
     
 ## Modeled primitives
 
