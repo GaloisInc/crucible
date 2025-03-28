@@ -74,15 +74,39 @@ jobs:
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
+      # Note [Parallelism]
+      # ~~~~~~~~~~~~~~~~~~
+      #
+      # We split the build into two steps:
+      #
+      # - Build only the dependencies. Build them in parallel at the package
+      #   level (which is Cabal's default, see haskell/cabal#5776).
+      # - Build local packages. Build them with --ghc-options=-j (via `cabal
+      #   configure`) to build their modules in parallel, but --jobs=1 (for
+      #   Cabal) to build each package serially.
+      #
+      # This scheme maximizes the use of parallelism while avoiding
+      # oversubscription. See GHC proposal #540 for additional background.
+      #
+      # It would be nice to replace this with `cabal configure --semaphore`, but
+      # this only became available with GHC 9.8. To support older versions, we
+      # don't use it just yet.
+      #
+      # We choose to build local packages serially but with --ghc-options=-j
+      # because the build graphs of our local pacakges tend to be "tall" rather
+      # than "wide" in the parlance of GHC proposal #540
       - name: Configure
         shell: bash
-        run: .github/ci.sh configure crux-go
+        run: .github/ci.sh configure crux-go --ghc-options='-j'
+      - name: Build dependencies
+        shell: bash
+        run: cabal build --only-dependencies exe:crux-go
+      - name: Build
+        shell: bash
+        run: cabal build --jobs=1 exe:crux-go
       - name: Generate source distribution
         shell: bash
         run: cabal sdist crucible-go
-      - name: Build
-        shell: bash
-        run: cabal build exe:crux-go
       - name: Haddock
         shell: bash
         # Note [--disable-documentation]
