@@ -124,18 +124,16 @@ jobs:
       - shell: bash
         run: >
           cabal build
-          lib:crucible
-          lib:crucible-syntax
-          pkg:crucible-cli
-          exe:crucible-debug
-          lib:crucible-llvm
-          lib:crucible-llvm-syntax
-          pkg:crucible-llvm-cli
-          exe:crucible-llvm-debug
-          exe:crux-llvm
-          exe:crux-llvm-for-ide
-          exe:crux-llvm-svcomp
-          exe:uc-crux-llvm
+          crucible
+          crucible-cli
+          crucible-debug
+          crucible-llvm
+          crucible-llvm-cli
+          crucible-llvm-debug
+          crucible-llvm-syntax
+          crucible-syntax
+          crux-llvm
+          uc-crux-llvm
 
       - shell: bash
         name: Haddock
