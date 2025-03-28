@@ -120,30 +120,34 @@ jobs:
 
       - shell: bash
         run: |
-          cabal build --only-dependencies crucible
-          cabal build --only-dependencies crucible-cli
-          cabal build --only-dependencies crucible-debug
-          cabal build --only-dependencies crucible-llvm
-          cabal build --only-dependencies crucible-llvm-cli
-          cabal build --only-dependencies crucible-llvm-debug
-          cabal build --only-dependencies crucible-llvm-syntax
-          cabal build --only-dependencies crucible-syntax
-          cabal build --only-dependencies crux-llvm
-          cabal build --only-dependencies uc-crux-llvm
+          cabal build --only-dependencies exe:crucible-debug
+          cabal build --only-dependencies exe:crucible-llvm-debug
+          cabal build --only-dependencies exe:crux-llvm
+          cabal build --only-dependencies exe:crux-llvm-for-ide
+          cabal build --only-dependencies exe:crux-llvm-svcomp
+          cabal build --only-dependencies exe:uc-crux-llvm
+          cabal build --only-dependencies lib:crucible
+          cabal build --only-dependencies lib:crucible-llvm
+          cabal build --only-dependencies lib:crucible-llvm-syntax
+          cabal build --only-dependencies lib:crucible-syntax
+          cabal build --only-dependencies pkg:crucible-cli
+          cabal build --only-dependencies pkg:crucible-llvm-cli
 
       - shell: bash
         run: >
           cabal build --jobs=1
-          crucible
-          crucible-cli
-          crucible-debug
-          crucible-llvm
-          crucible-llvm-cli
-          crucible-llvm-debug
-          crucible-llvm-syntax
-          crucible-syntax
-          crux-llvm
-          uc-crux-llvm
+          exe:crucible-debug
+          exe:crucible-llvm-debug
+          exe:crux-llvm
+          exe:crux-llvm-for-ide
+          exe:crux-llvm-svcomp
+          exe:uc-crux-llvm
+          lib:crucible
+          lib:crucible-llvm
+          lib:crucible-llvm-syntax
+          lib:crucible-syntax
+          pkg:crucible-cli
+          pkg:crucible-llvm-cli
 
       - name: Generate source distributions
         shell: bash
