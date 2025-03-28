@@ -1,5 +1,7 @@
 # Overview
 
+<img src="../doc/crux.svg" alt="Crux logo" width="50%" />
+
 The `crux-llvm` tool (and corresponding C library) are intended for
 verifying C programs containing inline specifications (in the form of
 function calls to create non-deterministic values and assert

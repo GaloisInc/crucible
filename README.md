@@ -1,6 +1,8 @@
 Introduction
 -------------
 
+<img src="doc/crucible.svg" alt="Crucible logo" width="50%" />
+
 Crucible is a language-agnostic library for performing forward
 symbolic execution of imperative programs.  It provides a collection
 of data-structures and APIs for expressing programs as control-flow
