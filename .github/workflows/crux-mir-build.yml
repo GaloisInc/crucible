@@ -145,7 +145,7 @@ jobs:
         run: cabal sdist crucible-syntax crucible-concurrency crucible-mir crux-mir
 
       - shell: bash
-        run: .github/ci.sh build exe:crux-mir
+        run: cabal build exe:crux-mir
 
       - shell: bash
         name: Haddock

@@ -82,7 +82,7 @@ jobs:
         run: cabal sdist crucible-wasm
       - name: Build
         shell: bash
-        run: .github/ci.sh build exe:crucible-wasm
+        run: cabal build exe:crucible-wasm
       - name: Test
         shell: bash
         run: .github/ci.sh test crucible-wasm

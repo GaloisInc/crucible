@@ -45,14 +45,6 @@ configure() {
   #tee -a cabal.project > /dev/null < cabal.project.ci
 }
 
-build() {
-  if ! retry cabal build "$@" && [[ "$RUNNER_OS" == "macOS" ]]; then
-    echo "Working around a dylib issue on macos by removing the cache and trying again"
-    cabal clean
-    retry cabal build "$@"
-  fi
-}
-
 test() {
   # System-agnostic path
   export PATH="$PATH:/usr/local/opt/llvm/bin:/c/Program Files/LLVM/bin"
