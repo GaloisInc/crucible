@@ -284,6 +284,14 @@ jobs:
           name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
 
 
+      - name: Check Cabal/GHC compatibility
+        uses: langston-barrett/.github/actions/cabal-ghc-compat@e002f215e05308cf337f919663986ed31ae78bf7
+        if: runner.os == 'Linux'
+        with:
+          dirs: crucible crucible-cli crucible-debug crucible-llvm crucible-llvm-cli crucible-llvm-debug crucible-llvm-syntax crux crux-llvm uc-crux-llvm
+          ghc: ${{ matrix.ghc }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   build-push-image:
     runs-on: ubuntu-24.04
     needs: [config]
