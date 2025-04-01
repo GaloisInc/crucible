@@ -1,3 +1,8 @@
+Crucible
+========
+
+<img src="doc/crucible.svg" alt="Crucible logo" width="25%" />
+
 Introduction
 -------------
 
