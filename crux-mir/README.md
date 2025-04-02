@@ -1,6 +1,6 @@
-# crux-mir
+<img src="../doc/crux.svg" alt="Crux logo" align="right" width="25%" />
 
-<img src="../doc/crux.svg" alt="Crux logo" width="25%" />
+# crux-mir
 
 This is a static simulator for Rust programs.  It runs a set of test cases and
 attempts to prove that all assertions pass on all valid inputs.

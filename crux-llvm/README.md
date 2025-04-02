@@ -1,6 +1,6 @@
-# Crux-LLVM
+<img src="../doc/crux.svg" alt="Crux logo" align="right" width="25%" />
 
-<img src="../doc/crux.svg" alt="Crux logo" width="25%" />
+# Crux-LLVM
 
 ## Overview
 
