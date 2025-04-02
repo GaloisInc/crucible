@@ -1,10 +1,9 @@
-<img src="doc/crucible.svg" alt="Crucible logo" align="right" width="25%" />
-
 Crucible
 ========
 
-Introduction
--------------
+<img src="doc/crucible.svg" alt="Crucible logo" align="right" width="25%" />
+
+## Introduction
 
 Crucible is a language-agnostic library for performing forward
 symbolic execution of imperative programs.  It provides a collection
