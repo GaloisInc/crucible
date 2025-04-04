@@ -11,6 +11,10 @@ RUN apt-get update && \
     apt-get install -y \
       # ghcup requirements
       build-essential curl libffi-dev libffi8 libgmp-dev libgmp10 libncurses-dev libncurses6 libtinfo6 \
+      # Although ghcup's version of GHC shouldn't require libnuma, the aarch64 \
+      # version does impose this requirement for unknown reasons. \
+      # (See https://gitlab.haskell.org/ghc/ghc/-/issues/20876#note_399802) \
+      libnuma1 \
       # Crux dependencies \
       pkg-config zlib1g-dev \
       # Miscellaneous
@@ -49,13 +53,32 @@ RUN mkdir -p /crux-mir/rootfs/usr/local/bin
 WORKDIR /crux-mir/rootfs/usr/local/bin
 # The URL here is based on the same logic used to specify BUILD_TARGET_OS and
 # BUILD_TARGET_ARCH in `.github/workflow/crux-mir-build.yml`, but specialized
-# to x86-64 Ubuntu.
-RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250326/ubuntu-24.04-X64-bin.zip"
+# to Ubuntu.
+ARG TARGETPLATFORM
+RUN case ${TARGETPLATFORM} in \
+      "linux/amd64") \
+        WHAT4_SOLVERS_ARCH=X64 ;; \
+      "linux/arm64" | "linux/arm64/v8") \
+        WHAT4_SOLVERS_ARCH=ARM64 ;; \
+      *) \
+        printf "Unsupported architecture: %s\n" "${TARGETPLATFORM}" >&2 \
+        exit 1 ;; \
+    esac && \
+    curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250326/ubuntu-24.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 WORKDIR /crux-mir
-RUN mkdir -p /home/crux-mir/.local/bin && \
-    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/x86_64-linux-ghcup-0.1.17.7 -o /home/crux-mir/.local/bin/ghcup && \
+RUN case ${TARGETPLATFORM} in \
+      "linux/amd64") \
+        GHCUP_ARCH=x86_64 ;; \
+      "linux/arm64" | "linux/arm64/v8") \
+        GHCUP_ARCH=aarch64 ;; \
+      *) \
+        printf "Unsupported architecture: %s\n" "${TARGETPLATFORM}" >&2 \
+        exit 1 ;; \
+    esac && \
+    mkdir -p /home/crux-mir/.local/bin && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/${GHCUP_ARCH}-linux-ghcup-0.1.17.7 -o /home/crux-mir/.local/bin/ghcup && \
     chmod +x /home/crux-mir/.local/bin/ghcup
 RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup --version && \
