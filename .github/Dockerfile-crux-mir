@@ -3,7 +3,9 @@
 ARG RUST_TOOLCHAIN="nightly-2023-01-23"
 ARG CRUX_BUILD_DIR=/crux-mir/build
 
-FROM ubuntu:24.04 AS build
+# Note that we intentionally do not use ubuntu:24.04 or later pending a
+# resolution to https://github.com/coder/coder/issues/17316.
+FROM ubuntu:22.04 AS build
 ARG RUST_TOOLCHAIN
 ARG CRUX_BUILD_DIR
 
@@ -64,7 +66,7 @@ RUN case ${TARGETPLATFORM} in \
         printf "Unsupported architecture: %s\n" "${TARGETPLATFORM}" >&2 \
         exit 1 ;; \
     esac && \
-    curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250326/ubuntu-24.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
+    curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250326/ubuntu-22.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 WORKDIR /crux-mir
@@ -95,7 +97,7 @@ RUN cabal update && \
 USER root
 RUN chown -R root:root /crux-mir/rootfs
 
-FROM ubuntu:24.04
+FROM ubuntu:22.04
 ARG CRUX_BUILD_DIR
 
 RUN apt-get update && \
