@@ -68,7 +68,7 @@ jobs:
             ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
 
       - shell: bash
-        run: .github/ci.sh install_system_deps
+        run: .github/ci.sh install_solvers
         env:
           SOLVER_PKG_VERSION: "snapshot-20250326"
           BUILD_TARGET_OS: ${{ matrix.os }}
