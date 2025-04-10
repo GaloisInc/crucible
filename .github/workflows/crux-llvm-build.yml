@@ -136,7 +136,19 @@ jobs:
 
       - shell: bash
         name: Haddock
-        # See Note [--disable-documentation] in `crucible-go-build.yml`.
+        # Note [--disable-documentation]
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        #
+        # Build the Haddocks to ensure that they are well formed. Somewhat
+        # counterintuitively, we run this with the --disable-documentation flag.
+        # This does not mean "do not build the Haddocks", but rather, "build the
+        # Haddocks for the top-level library, but do not build dependencies with
+        # Haddocks". The upshot is that we do not change the build configuration
+        # for any dependencies, which means that we don't have to rebuild them.
+        # The downside is that the rendered Haddocks won't contain any links to
+        # identifiers from library dependencies. Since we are only building
+        # Haddocks to ensure well-formedness, we consider this an acceptable
+        # tradeoff.
         run: cabal haddock --disable-documentation crucible-debug crucible-symio crucible-llvm{,-debug,-syntax} crux-llvm
 
       - shell: bash

@@ -5,24 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The CACHE_VERSION can be updated to force the use of a new cache if
-# the current cache contents become corrupted/invalid.  This can
-# sometimes happen when (for example) the OS version is changed but
-# older .so files are cached, which can have various effects
-# (e.g. cabal complains it can't find a valid version of the "happy"
-# tool).
-#
-# This also periodically happens on MacOS builds due to a tar bug
-# (symptom: "No suitable image found ... unknown file type, first
-# eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
 env:
-  CACHE_VERSION: 1
+  CI_TEST_LEVEL: "1"
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    env:
-      CI_TEST_LEVEL: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -37,117 +24,33 @@ jobs:
             cabal: 3.10.3.0
             ghc: 9.8.2
     name: crucible-go - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: haskell-actions/setup@v2
-        id: setup-haskell
-        with:
-          ghc-version: ${{ matrix.ghc }}
-          cabal-version: ${{ matrix.cabal }}
-
-      - name: Post-GHC installation fixups on Windows
-        shell: bash
-        if: runner.os == 'Windows'
-        run: |
-          # A workaround for https://github.com/Mistuke/CabalChoco/issues/5
-          cabal user-config update -a "extra-include-dirs: \"\""
-          cabal user-config update -a "extra-lib-dirs: \"\""
-
-      - uses: actions/cache/restore@v4
-        name: Restore cabal store cache
-        id: cache
-        with:
-          path: |
-            ${{ steps.setup-haskell.outputs.cabal-store }}
-            dist-newstyle
-          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.ref }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
-
-      - shell: bash
-        run: .github/ci.sh install_solvers
-        env:
-          SOLVER_PKG_VERSION: "snapshot-20250326"
-          BUILD_TARGET_OS: ${{ matrix.os }}
-          BUILD_TARGET_ARCH: ${{ runner.arch }}
-
-      - name: Configure
-        shell: bash
-        run: .github/ci.sh configure crux-go
-      - name: Generate source distribution
-        shell: bash
-        run: cabal sdist crucible-go
-      - name: Build
-        shell: bash
-        run: cabal build exe:crux-go
-      - name: Haddock
-        shell: bash
-        # Note [--disable-documentation]
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        #
-        # Build the Haddocks to ensure that they are well formed. Somewhat
-        # counterintuitively, we run this with the --disable-documentation flag.
-        # This does not mean "do not build the Haddocks", but rather, "build the
-        # Haddocks for the top-level library, but do not build dependencies with
-        # Haddocks". The upshot is that we do not change the build configuration
-        # for any dependencies, which means that we don't have to rebuild them.
-        # The downside is that the rendered Haddocks won't contain any links to
-        # identifiers from library dependencies. Since we are only building
-        # Haddocks to ensure well-formedness, we consider this an acceptable
-        # tradeoff.
-        run: cabal haddock --disable-documentation crucible-go
-
-      - uses: actions/cache/save@v4
-        name: Save cabal store cache
-        if: always()
-        with:
-          path: |
-            ${{ steps.setup-haskell.outputs.cabal-store }}
-            dist-newstyle
-          key: ${{ steps.cache.outputs.cache-primary-key }}
-
-      # The following block happens here for two reasons:
+    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@v1.4
+    with:
+      build-targets: pkg:crucible-go
+      cabal: ${{ matrix.cabal }}
+      # The numeric prefix can be updated to force the use of a new cache if
+      # the current cache contents become corrupted/invalid.  This can
+      # sometimes happen when (for example) the OS version is changed but
+      # older .so files are cached, which can have various effects
+      # (e.g. cabal complains it can't find a valid version of the "happy"
+      # tool).
       #
-      # 1. It rarely fails, going last can save some time if earlier steps fail
-      # 2. It must come after we save the Cabal cache as 'Package's Cabal/GHC
-      #    compatibility' runs `cabal clean`
-      - name: Install Nix
-        if: runner.os == 'Linux'
-        uses: cachix/install-nix-action@v16
-        with:
-          nix_path: nixpkgs=channel:21.11
-          install_url: https://releases.nixos.org/nix/nix-2.10.3/install
-          # This token usage is to avoid GH rate-limiting; see commit
-          # 1696558326a8c57e1a9f0848aaaa1b8440294954. Apparently it'll
-          # work for anyone.
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Environment Vars
-        if: runner.os == 'Linux'
-        run: |
-          GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
-          case ${{ matrix.ghc }} in
-            9.4.8) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
-            9.6.5) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
-            9.8.2) GHC_NIXPKGS=github:nixos/nixpkgs/nixos-24.05 ;;
-            *)     GHC_NIXPKGS=github:nixos/nixpkgs/21.11 ;;
-          esac
-          echo NS="nix shell ${GHC_NIXPKGS}#cabal-install ${GHC_NIXPKGS}#${GHC} nixpkgs#gmp nixpkgs#zlib nixpkgs#zlib.dev" >> $GITHUB_ENV
-      - name: Package's Cabal/GHC compatibility
-        shell: bash
-        if: runner.os == 'Linux'
-        # Using setup will use the cabal library installed with GHC
-        # instead of the cabal library of the Cabal-install tool to
-        # verify the cabal file is compatible with the associated
-        # GHC cabal library version.  Cannot run configure or build,
-        # because dependencies aren't present, but a clean is
-        # sufficient to cause parsing/validation of the cabal file.
-        run: |
-          defsetup()  { echo import Distribution.Simple; echo main = defaultMain; }
-          setup_src() { if [ ! -f Setup.hs ] ; then defsetup > DefSetup.hs; fi; ls *Setup.hs; }
-          setup_bin() { echo setup.${{ matrix.ghc }}; }
-          with_ghc()  { $NS -c ${@}; }
-          (cd crucible-go; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+      # This also periodically happens on MacOS builds due to a tar bug
+      # (symptom: "No suitable image found ... unknown file type, first
+      # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
+      cache-key-prefix: 1-go
+      check: false
+      ghc: ${{ matrix.ghc }}
+      os: ${{ matrix.os }}
+      pre-hook: |
+        cp "cabal.GHC-${{ matrix.ghc }}.config" cabal.project.freeze
+
+        env \
+          SOLVER_PKG_VERSION="snapshot-20250326" \
+          BUILD_TARGET_OS="${{ matrix.os }}" \
+          BUILD_TARGET_ARCH="${RUNNER_ARCH}" \
+          .github/ci.sh \
+          install_solvers
+      sdist-targets: crucible-go
+      submodules: "true"
+      test-targets: pkg:crucible-go
