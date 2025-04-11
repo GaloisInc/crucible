@@ -35,5 +35,6 @@ When adding support for the new GHC version to Crucible itself, complete the fol
 ### Removing an old version
 
 - [ ] Remove the old version from the matrix in the GitHub Actions configuration
+- [ ] Remove the old version's `cabal.GHC-X.Y.Z.config` file
 - [ ] Remove outdated CPP `ifdef`s that refer to the dropped version
 - [ ] Remove outdated `if` stanzas in the Cabal files
