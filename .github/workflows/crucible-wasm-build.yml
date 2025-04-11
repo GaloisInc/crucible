@@ -14,14 +14,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        cabal: ["3.10.3.0"]
+        cabal: ["3.14.2.0"]
         ghc: ["9.4.8", "9.6.5", "9.8.2"]
         include:
           - os: macos-14
-            cabal: 3.10.3.0
+            cabal: 3.14.2.0
             ghc: 9.8.2
           - os: windows-2019
-            cabal: 3.10.3.0
+            cabal: 3.14.2.0
             ghc: 9.8.2
     name: crucible-wasm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@v1
