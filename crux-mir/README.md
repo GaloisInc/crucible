@@ -11,7 +11,22 @@ functionality.
 [video]: https://www.youtube.com/watch?v=dCNQFHjgotU
 
 
-## Preliminaries
+## Prerequisites
+
+You will need to install the following software:
+
+* GHC and `cabal`. We recommend using `ghcup`:
+  <https://www.haskell.org/ghcup/>
+
+* The Yices SMT solver: <http://yices.csl.sri.com/>
+
+* The Z3 SMT solver: <https://github.com/Z3Prover/z3/releases>
+
+* The Rust toolchain currently supported by `mir-json`; see
+  [the `mir-json` README][mir-json-readme].
+
+
+## Setup: `mir-json`
 
 `crux-mir` uses several submodules, so make sure they're initialized:
 
@@ -41,7 +56,7 @@ versions corresponding to the last two `crux-mir` releases.
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
 
-## Installation
+## Setup: Build and Install
 
 Use GHC 9.4, 9.6, or 9.8. From the `crux-mir` directory, run:
 
