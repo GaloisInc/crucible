@@ -3,6 +3,7 @@ Copyright        : (c) Galois, Inc. 2025
 Maintainer       : Langston Barrett <langston@galois.com>
 -}
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}

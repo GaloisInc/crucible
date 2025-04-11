@@ -58,7 +58,7 @@ versions corresponding to the last two `crux-mir` releases.
 
 ## Setup: Build and Install
 
-Use GHC 9.4, 9.6, or 9.8. From the `crux-mir` directory, run:
+Use GHC 9.6, 9.8, or 9.10. From the `crux-mir` directory, run:
 
     $ cabal install exe:crux-mir --overwrite-policy=always
 
