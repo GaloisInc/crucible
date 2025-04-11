@@ -4,6 +4,9 @@
 --
 -- export PATH=$PWD/dist-newstyle/build/x86_64-linux/ghc-7.10.3/hpb-0.1.1/c/hpb/build/hpb:$PATH
 
+-- See https://github.com/Happstack/boomerang/issues/12
+allow-newer: boomerang:template-haskell
+
 packages:
   crucible/
   crucible-cli/

@@ -35,7 +35,7 @@ import Data.Bits
 import Data.Word
 import Data.Hashable
 import qualified Data.List as List
-import Prelude hiding (null, foldr, foldl)
+import Prelude hiding (null, foldr, foldl, foldl')
 
 newtype BitSet a = BitSet { getBits :: Integer }
  deriving (Show, Eq, Ord)
