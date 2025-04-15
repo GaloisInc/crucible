@@ -80,7 +80,7 @@ RUN case ${TARGETPLATFORM} in \
         exit 1 ;; \
     esac && \
     mkdir -p /home/crux-mir/.local/bin && \
-    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/${GHCUP_ARCH}-linux-ghcup-0.1.17.7 -o /home/crux-mir/.local/bin/ghcup && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.50.1/${GHCUP_ARCH}-linux-ghcup-0.1.50.1 -o /home/crux-mir/.local/bin/ghcup && \
     chmod +x /home/crux-mir/.local/bin/ghcup
 RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup --version && \
