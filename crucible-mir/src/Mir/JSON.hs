@@ -319,7 +319,7 @@ instance FromJSON Rvalue where
 
 instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v ->
-        AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> pure TyBool -- TODO
+        AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> v .: "ty"
 
 instance FromJSON Terminator where
     parseJSON = withObject "Terminator" $ \v -> case lookupKM "kind" v of
