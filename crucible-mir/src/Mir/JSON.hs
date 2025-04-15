@@ -405,27 +405,33 @@ instance FromJSON Vtable where
         Vtable <$> v .: "name" <*> v .: "items"
 
 instance FromJSON CastKind where
-    parseJSON = withObject "CastKind" $ \v -> case lookupKM "kind" v of
-                                               Just (String "Pointer(ReifyFnPointer)") -> pure ReifyFnPointer
-                                               Just (String "Pointer(ClosureFnPointer(Normal))") -> pure ClosureFnPointer
-                                               Just (String "Pointer(UnsafeFnPointer)") -> pure UnsafeFnPointer
-                                               Just (String "Pointer(Unsize)") -> pure Unsize
-                                               Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
-                                               Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
-                                               -- TODO: actually plumb this information through if it is relevant
-                                               -- instead of using Misc. See
-                                               -- https://github.com/GaloisInc/crucible/issues/1223
-                                               Just (String "PointerExposeAddress") -> pure Misc
-                                               Just (String "PointerFromExposedAddress") -> pure Misc
-                                               Just (String "Pointer(ArrayToPointer)") -> pure Misc
-                                               Just (String "DynStar") -> pure Misc
-                                               Just (String "IntToInt") -> pure Misc
-                                               Just (String "FloatToInt") -> pure Misc
-                                               Just (String "FloatToFloat") -> pure Misc
-                                               Just (String "IntToFloat") -> pure Misc
-                                               Just (String "PtrToPtr") -> pure Misc
-                                               Just (String "FnPtrToPtr") -> pure Misc
-                                               x -> fail ("bad CastKind: " ++ show x)
+    parseJSON = withObject "CastKind" $ \v ->
+        case lookupKM "kind" v of
+            Just (String "PointerCoercion") ->
+                let go = withObject "PointerCoercion" $ \v' ->
+                        case lookupKM "kind" v' of
+                            Just (String "ReifyFnPointer") -> pure ReifyFnPointer
+                            Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
+                            -- TODO: ClosureFnPointer
+                            Just (String "MutToConstPointer") -> pure MutToConstPointer
+                            Just (String "Unsize") -> pure Unsize
+                            x -> fail ("bad PointerCastKind: " ++ show x)
+                in v .: "cast" >>= go
+            Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
+            -- TODO: actually plumb this information through if it is relevant
+            -- instead of using Misc. See
+            -- https://github.com/GaloisInc/crucible/issues/1223
+            Just (String "PointerExposeAddress") -> pure Misc
+            Just (String "PointerFromExposedAddress") -> pure Misc
+            Just (String "Pointer(ArrayToPointer)") -> pure Misc
+            Just (String "DynStar") -> pure Misc
+            Just (String "IntToInt") -> pure Misc
+            Just (String "FloatToInt") -> pure Misc
+            Just (String "FloatToFloat") -> pure Misc
+            Just (String "IntToFloat") -> pure Misc
+            Just (String "PtrToPtr") -> pure Misc
+            Just (String "FnPtrToPtr") -> pure Misc
+            x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where
     parseJSON = withObject "Literal" $ \v -> do
