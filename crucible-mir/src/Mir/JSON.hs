@@ -148,7 +148,7 @@ instance FromJSON Adt where
         <*> v .: "size"
         <*> v .: "repr_transparent"
         <*> v .: "orig_def_id"
-        <*> v .: "orig_substs"
+        <*> v .: "orig_args"
 
 instance FromJSON AdtKind where
     parseJSON = withObject "AdtKind" $ \v -> case lookupKM "kind" v of
@@ -311,10 +311,15 @@ instance FromJSON Rvalue where
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
+                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
                                               Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
                                               Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
                                               Just (String "ThreadLocalRef") -> ThreadLocalRef <$> v .: "def_id" <*> v .: "ty"
                                               k -> fail $ "unsupported RValue " ++ show k
+
+instance FromJSON AdtAg where
+    parseJSON = withObject "AdtAg" $ \v ->
+        AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> pure TyBool -- TODO
 
 instance FromJSON Terminator where
     parseJSON = withObject "Terminator" $ \v -> case lookupKM "kind" v of
