@@ -32,7 +32,7 @@ ADD crux ${CRUX_BUILD_DIR}/crux
 ADD crux-mir ${CRUX_BUILD_DIR}/crux-mir
 ADD dependencies ${CRUX_BUILD_DIR}/dependencies
 ADD .github/cabal.project.crux-mir ${CRUX_BUILD_DIR}/cabal.project
-ADD cabal.GHC-9.6.5.config ${CRUX_BUILD_DIR}/cabal.project.freeze
+ADD cabal.GHC-9.6.7.config ${CRUX_BUILD_DIR}/cabal.project.freeze
 
 RUN useradd -m crux-mir && chown -R crux-mir:crux-mir /crux-mir
 USER crux-mir
@@ -85,8 +85,8 @@ RUN case ${TARGETPLATFORM} in \
 RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup --version && \
     ghcup install cabal 3.14.2.0 && \
-    ghcup install ghc 9.6.5 && \
-    ghcup set ghc 9.6.5
+    ghcup install ghc 9.6.7 && \
+    ghcup set ghc 9.6.7
 
 WORKDIR ${CRUX_BUILD_DIR}
 RUN cabal update && \
