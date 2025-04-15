@@ -149,11 +149,13 @@ libJsonFiles =
     , "libtest.mir"
     , "libunicode_width.mir"
     , "libunwind.mir"
+    {-
     -- additional libs
     , "libcrucible.mir"
     , "libint512.mir"
     , "libbyteorder.mir"
     , "libbytes.mir"
+    -}
     ]
 
 

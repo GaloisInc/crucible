@@ -1037,19 +1037,22 @@ evalRval (M.Discriminant lv discrTy) = do
         enumDiscriminant adt e
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show enumTy
 
-evalRval (M.Aggregate ak ops) = case ak of
-                                   M.AKTuple ->  do
-                                       exps <- mapM evalOperand ops
-                                       return $ buildTuple exps
-                                   M.AKArray ty -> do
-                                       exps <- mapM evalOperand ops
-                                       Some repr <- tyToReprM ty
-                                       buildArrayLit repr exps
-                                   M.AKClosure -> do
-                                       args <- mapM evalOperand ops
-                                       -- Closure environments have the same
-                                       -- representation as tuples.
-                                       return $ buildTuple args
+evalRval (M.Aggregate ak ops) =
+    case ak of
+        M.AKTuple ->  do
+            col <- use $ cs . collection
+            let tys = map typeOf ops
+            exps <- mapM evalOperand ops
+            return $ buildTupleMaybe col tys (map Just exps)
+        M.AKArray ty -> do
+            exps <- mapM evalOperand ops
+            Some repr <- tyToReprM ty
+            buildArrayLit repr exps
+        M.AKClosure -> do
+            args <- mapM evalOperand ops
+            -- Closure environments have the same
+            -- representation as tuples.
+            return $ buildTuple args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
       -- It's not legal to construct a MethodSpec using a Rust struct
