@@ -95,7 +95,7 @@ instance FromJSON InlineTy where
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
       Just (String "FnDef") -> TyFnDef <$> v .: "defid"
-      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
+      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "args"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
@@ -113,23 +113,23 @@ instance FromJSON NamedTy where
 instance FromJSON Instance where
     parseJSON = withObject "Instance" $ \v -> case lookupKM "kind" v of
         Just (String "Item") -> Instance IkItem
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "Intrinsic") -> Instance IkIntrinsic
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "VtableShim") -> Instance IkVtableShim
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "ReifyShim") -> Instance IkReifyShim
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "FnPtrShim") -> Instance
-            <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "args"
         Just (String "Virtual") -> Instance
             <$> (IkVirtual <$> v .: "trait_id" <*> v .: "index") <*> v .: "item_id" <*> pure mempty
         Just (String "ClosureOnceShim") -> Instance IkClosureOnceShim
-            <$> v .: "call_once" <*> v .: "substs"
+            <$> v .: "call_once" <*> v .: "args"
         Just (String "DropGlue") -> Instance
-            <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "args"
         Just (String "CloneShim") -> Instance
-            <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "args"
 
 instance FromJSON FnSig where
     parseJSON =
