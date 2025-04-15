@@ -199,7 +199,6 @@ instance Pretty Rvalue where
     pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c
-    pretty (CheckedBinaryOp a b c) = pretty b <+> pretty a <+> pretty c
     pretty (NullaryOp a _b) = pretty a
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
@@ -303,6 +302,7 @@ instance Pretty BinOp where
       Ge -> pretty ">="
       Gt -> pretty ">"
       Offset -> pretty "Offset"
+      Checked op' -> pretty op' <> pretty "?"
 
 instance Pretty CastKind where
     pretty = viaShow

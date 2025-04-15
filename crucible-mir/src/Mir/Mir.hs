@@ -335,7 +335,6 @@ data Rvalue =
         -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
-      | CheckedBinaryOp { _cbop :: BinOp, _cbop1 :: Operand, _cbop2 :: Operand }
       | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
       | Discriminant { _dvar :: Lvalue,
@@ -447,7 +446,8 @@ data BinOp =
       | Ge
       | Gt
       | Offset
-      deriving (Show,Eq, Ord, Generic)
+      | Checked BinOp
+  deriving (Show,Eq, Ord, Generic)
 
 data VtableItem = VtableItem
     { _vtFn :: DefId        -- ^ ID of the implementation that should be stored in the vtable
@@ -680,28 +680,27 @@ instance TypeOf Rvalue where
   typeOf (Cast _ _ ty) = ty
   typeOf (BinaryOp op x _y) =
     let ty = typeOf x
-    in case op of
-        Add -> ty
-        Sub -> ty
-        Mul -> ty
-        Div -> ty
-        Rem -> ty
-        BitXor -> ty
-        BitAnd -> ty
-        BitOr -> ty
-        Shl -> ty
-        Shr -> ty
-        Beq -> TyBool
-        Lt -> TyBool
-        Le -> TyBool
-        Ne -> TyBool
-        Ge -> TyBool
-        Gt -> TyBool
-        -- ptr::offset
-        Offset -> ty
-  typeOf (CheckedBinaryOp op x y) =
-    let resTy = typeOf $ BinaryOp op x y
-    in TyTuple [resTy, TyBool]
+        f op' = case op' of
+            Add -> ty
+            Sub -> ty
+            Mul -> ty
+            Div -> ty
+            Rem -> ty
+            BitXor -> ty
+            BitAnd -> ty
+            BitOr -> ty
+            Shl -> ty
+            Shr -> ty
+            Beq -> TyBool
+            Lt -> TyBool
+            Le -> TyBool
+            Ne -> TyBool
+            Ge -> TyBool
+            Gt -> TyBool
+            -- ptr::offset
+            Offset -> ty
+            Checked op'' -> TyTuple [f op'', TyBool]
+    in f op
   typeOf (NullaryOp op ty) = case op of
     SizeOf -> TyUint USize
     AlignOf -> TyUint USize

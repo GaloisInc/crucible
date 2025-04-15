@@ -460,7 +460,12 @@ transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
     let mat = M.arithType op1 `mplus` M.arithType op2
-    fst <$> evalBinOp bop mat me1 me2
+    case bop of
+        Checked bop' -> do
+            (res, overflow) <- evalBinOp bop' mat me1 me2
+            col <- use $ cs . collection
+            return $ buildTupleMaybe col [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow]
+        _ -> fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
 evalBinOp :: forall h s ret. M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
@@ -660,18 +665,6 @@ evalBinOp bop mat me1 me2 =
                 (S.app $ E.BVEq w x $ S.app $ eBVLit w (1 `shiftL` (w' - 1)))
                 (S.app $ E.BVEq w y $ S.app $ eBVLit w ((1 `shiftL` w') - 1))
       where w' = fromIntegral $ intValue w
-
-
-
-transCheckedBinOp ::  M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s) -- returns tuple of (result, bool)
-transCheckedBinOp op a b = do
-    a' <- evalOperand  a
-    b' <- evalOperand  b
-    let mat = M.arithType a `mplus` M.arithType b
-    (res, overflow) <- evalBinOp op mat a' b'
-    col <- use $ cs . collection
-    return $ buildTupleMaybe col [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow]
-
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
@@ -1033,7 +1026,6 @@ evalRval (M.Len lv) =
         ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
-evalRval (M.CheckedBinaryOp binop op1 op2) = transCheckedBinOp  binop op1 op2
 evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
 evalRval (M.Discriminant lv discrTy) = do

@@ -307,7 +307,6 @@ instance FromJSON Rvalue where
                                               Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "CheckedBinaryOp") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
                                               Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
@@ -370,8 +369,11 @@ instance FromJSON UnOp where
 instance FromJSON BinOp where
     parseJSON = withObject "BinOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "Add") -> pure Add
+                                             Just (String "AddWithOverflow") -> pure $ Checked Add
                                              Just (String "Sub") -> pure Sub
+                                             Just (String "SubWithOverflow") -> pure $ Checked Sub
                                              Just (String "Mul") -> pure Mul
+                                             Just (String "MulWithOverflow") -> pure $ Checked Mul
                                              Just (String "Div") -> pure Div
                                              Just (String "Rem") -> pure Rem
                                              Just (String "BitXor") -> pure BitXor
