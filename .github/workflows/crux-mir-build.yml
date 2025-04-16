@@ -8,6 +8,10 @@ on:
     - cron: "0 10 * * *" # 10am UTC -> 2/3am PST
   workflow_dispatch:
 
+defaults:
+  run:
+    shell: bash
+
 env:
   # The CABAL_CACHE_VERSION and CARGO_CACHE_VERSION environment variables can
   # be updated to force the use of a new cabal or cargo cache if the respective
@@ -89,7 +93,6 @@ jobs:
           cabal-version: ${{ matrix.cabal }}
 
       - name: Post-GHC installation fixups on Windows
-        shell: bash
         if: runner.os == 'Windows'
         run: |
           # A workaround for https://github.com/Mistuke/CabalChoco/issues/5
@@ -122,38 +125,31 @@ jobs:
           shared-key: "cargo-cache"
           workspaces: "dependencies/mir-json"
 
-      - shell: bash
-        run: .github/ci.sh install_system_deps
+      - run: .github/ci.sh install_system_deps
         env:
           SOLVER_PKG_VERSION: "snapshot-20250326"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
       - name: Install mir-json
-        shell: bash
         working-directory: dependencies/mir-json
         run: |
           cargo install --locked --force
           bash ./translate_libs.sh
           echo "CRUX_RUST_LIBRARY_PATH=$(pwd)/rlibs" >> $GITHUB_ENV
 
-      - shell: bash
-        run: .github/ci.sh configure
+      - run: .github/ci.sh configure
 
       - name: Generate source distributions
-        shell: bash
         run: cabal sdist crucible-syntax crucible-concurrency crucible-mir crux-mir
 
-      - shell: bash
-        run: cabal build exe:crux-mir
+      - run: cabal build exe:crux-mir
 
-      - shell: bash
-        name: Haddock
+      - name: Haddock
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
         run: cabal haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
 
-      - shell: bash
-        run: .github/ci.sh test crux-mir
+      - run: .github/ci.sh test crux-mir
 
       - uses: actions/cache/save@v4
         name: Save cabal store cache
@@ -179,14 +175,12 @@ jobs:
       # We run this after `actions/cache/save` since it deletes most of
       # `dist-newstyle`.
       - name: Check Cabal/GHC compatibility
-        shell: bash
         run: |
           cd crux-mir
           echo 'import Distribution.Simple; main = defaultMain' > Setup.hs
           runhaskell Setup.hs clean
 
       - name: Create binary artifact
-        shell: bash
         run: |
           NAME="crux-mir-${{ needs.config.outputs.crux-mir-version }}-${{ matrix.os }}-${{ runner.arch }}"
           echo "NAME=$NAME" >> $GITHUB_ENV
@@ -205,7 +199,6 @@ jobs:
         # isn't sufficient to test the pull request info because this job is
         # also scheduled. See notes in README.md.
         if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
-        shell: bash
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
