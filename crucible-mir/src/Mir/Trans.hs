@@ -866,16 +866,8 @@ evalCast' ck ty1 e ty2  = do
 
       -- Integer-to-pointer casts.  Pointer-to-integer casts are not yet
       -- supported.
-      (M.Misc, M.TyInt _, M.TyRawPtr ty _)
-        | MirExp (C.BVRepr w) val <- e -> do
-          Some tpr <- tyToReprM ty
-          let int = sbvToUsize w R.App val
-          MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
-      (M.Misc, M.TyUint _, M.TyRawPtr ty _)
-        | MirExp (C.BVRepr w) val <- e -> do
-          Some tpr <- tyToReprM ty
-          let int = bvToUsize w R.App val
-          MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
+      (M.Misc, M.TyInt _, M.TyRawPtr ty _) -> transmuteExp e ty1 ty2
+      (M.Misc, M.TyUint _, M.TyRawPtr ty _) -> transmuteExp e ty1 ty2
 
       --  *const [T] -> *T (discards the length and returns only the pointer)
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
@@ -915,7 +907,7 @@ evalCast' ck ty1 e ty2  = do
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show defId
 
-      (M.Transmute, _, _) -> transmuteExp e ty2
+      (M.Transmute, _, _) -> transmuteExp e ty1 ty2
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
@@ -973,8 +965,8 @@ evalCast ck op ty = do
     e <- evalOperand op
     evalCast' ck (M.typeOf op) e ty
 
-transmuteExp :: HasCallStack => MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
-transmuteExp e@(MirExp argTy argExpr) destMirTy = do
+transmuteExp :: HasCallStack => MirExp s -> M.Ty -> M.Ty -> MirGenerator h s ret (MirExp s)
+transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
   Some retTy <- tyToReprM destMirTy
   case (argTy, retTy) of
     -- Splitting an integer into pieces (usually bytes)
@@ -1017,6 +1009,14 @@ transmuteExp e@(MirExp argTy argExpr) destMirTy = do
             Nothing -> panic "transmute" ["impossible: w1 * (w2/w1) != w2?"]
           return result
         return $ MirExp retTy concatExpr
+
+    -- Cast integer to pointer, like `0 as *mut T`
+    (C.BVRepr w, MirReferenceRepr tpr) -> do
+        int <- case srcMirTy of
+            M.TyInt _ -> return $ sbvToUsize w R.App argExpr
+            M.TyUint _ -> return $ bvToUsize w R.App argExpr
+            _ -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy ++ " for tpr " ++ show argTy
+        MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
 
     -- Transmuting between values of the same Crucible repr
     _ | Just Refl <- testEquality argTy retTy -> return e

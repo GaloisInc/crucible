@@ -1026,7 +1026,7 @@ mem_transmute ::  (ExplodedDefId, CustomRHS)
 mem_transmute = (["core", "intrinsics", "{extern}", "transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e] -> transmuteExp e tyU
+        [e] -> transmuteExp e tyT tyU
         _ -> mirFail $ "bad arguments to transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing)
