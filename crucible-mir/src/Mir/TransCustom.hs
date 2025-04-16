@@ -993,7 +993,7 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
     )
 
 mem_bswap ::  (ExplodedDefId, CustomRHS)
-mem_bswap = (["core", "intrinsics", "", "bswap"],
+mem_bswap = (["core", "intrinsics", "bswap"],
     \ substs -> case substs of
       Substs [tyT] -> Just $ CustomOp $ \ _ ops -> case ops of
         [e@(MirExp argTy@C.BVRepr{} argExpr)] -> return . MirExp argTy $ bswap argTy argExpr
