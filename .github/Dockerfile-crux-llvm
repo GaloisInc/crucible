@@ -76,11 +76,11 @@ RUN case ${TARGETPLATFORM} in \
         exit 1 ;; \
     esac && \
     mkdir -p /home/crux-llvm/.local/bin && \
-    curl -L https://downloads.haskell.org/~ghcup/0.1.17.7/${GHCUP_ARCH}-linux-ghcup-0.1.17.7 -o /home/crux-llvm/.local/bin/ghcup && \
+    curl -L https://downloads.haskell.org/~ghcup/0.1.50.1/${GHCUP_ARCH}-linux-ghcup-0.1.50.1 -o /home/crux-llvm/.local/bin/ghcup && \
     chmod +x /home/crux-llvm/.local/bin/ghcup
 RUN mkdir -p /home/crux-llvm/.ghcup && \
     ghcup --version && \
-    ghcup install cabal 3.10.3.0 && \
+    ghcup install cabal 3.14.2.0 && \
     ghcup install ghc 9.4.8 && \
     ghcup set ghc 9.4.8
 
