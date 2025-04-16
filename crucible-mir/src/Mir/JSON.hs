@@ -431,6 +431,7 @@ instance FromJSON CastKind where
             Just (String "IntToFloat") -> pure Misc
             Just (String "PtrToPtr") -> pure Misc
             Just (String "FnPtrToPtr") -> pure Misc
+            Just (String "Transmute") -> pure Transmute
             x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where

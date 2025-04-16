@@ -915,6 +915,8 @@ evalCast' ck ty1 e ty2  = do
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show defId
 
+      (M.Transmute, _, _) -> transmuteExp e ty2
+
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where

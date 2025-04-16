@@ -470,6 +470,7 @@ data CastKind =
   | Unsize
   | UnsizeVtable VtableName
   | MutToConstPointer
+  | Transmute
   deriving (Show,Eq, Ord, Generic)
 
 data Constant = Constant Ty ConstVal
