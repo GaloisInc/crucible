@@ -420,6 +420,7 @@ instance FromJSON CastKind where
                             Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
                             -- TODO: ClosureFnPointer
                             Just (String "MutToConstPointer") -> pure MutToConstPointer
+                            Just (String "ArrayToPointer") -> pure Misc
                             Just (String "Unsize") -> pure Unsize
                             x -> fail ("bad PointerCastKind: " ++ show x)
                 in v .: "cast" >>= go
@@ -427,9 +428,8 @@ instance FromJSON CastKind where
             -- TODO: actually plumb this information through if it is relevant
             -- instead of using Misc. See
             -- https://github.com/GaloisInc/crucible/issues/1223
-            Just (String "PointerExposeAddress") -> pure Misc
-            Just (String "PointerFromExposedAddress") -> pure Misc
-            Just (String "Pointer(ArrayToPointer)") -> pure Misc
+            Just (String "PointerExposeProvenance") -> pure Misc
+            Just (String "PointerWithExposedProvenance") -> pure Misc
             Just (String "DynStar") -> pure Misc
             Just (String "IntToInt") -> pure Misc
             Just (String "FloatToInt") -> pure Misc
