@@ -45,7 +45,7 @@ library
   import: bldflags
   build-depends:
     async,
-    base >= 4.13 && < 4.20,
+    base >= 4.13 && < 4.21,
     bimap,
     bv-sized >= 1.0.0 && < 1.1,
     containers >= 0.5.9.0,

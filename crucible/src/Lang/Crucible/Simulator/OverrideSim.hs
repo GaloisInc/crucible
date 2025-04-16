@@ -89,7 +89,7 @@ import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Reader (ReaderT(..))
 import           Control.Monad.ST
 import           Control.Monad.State.Strict (StateT(..))
-import           Data.List (foldl')
+import qualified Data.Foldable as Foldable
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
 import qualified Data.Text as T
@@ -633,7 +633,7 @@ insertFnBinding m (FnBinding h s) = FnBindings $ insertHandleMap h s $ fnBinding
 -- | Build a map of function bindings from a list of
 --   handle/binding pairs.
 fnBindingsFromList :: [FnBinding p sym ext] -> FunctionBindings p sym ext
-fnBindingsFromList = foldl' insertFnBinding $ FnBindings emptyHandleMap
+fnBindingsFromList = Foldable.foldl' insertFnBinding $ FnBindings emptyHandleMap
 
 registerFnBinding :: FnBinding p sym ext
                    -> OverrideSim p sym ext rtp a r ()
