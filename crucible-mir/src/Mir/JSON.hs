@@ -372,28 +372,34 @@ instance FromJSON UnOp where
                                              Just (String "Neg") -> pure Neg
                                              x -> fail ("bad unOp: " ++ show x)
 instance FromJSON BinOp where
-    parseJSON = withObject "BinOp" $ \v -> case lookupKM "kind" v of
-                                             Just (String "Add") -> pure Add
-                                             Just (String "AddWithOverflow") -> pure $ Checked Add
-                                             Just (String "Sub") -> pure Sub
-                                             Just (String "SubWithOverflow") -> pure $ Checked Sub
-                                             Just (String "Mul") -> pure Mul
-                                             Just (String "MulWithOverflow") -> pure $ Checked Mul
-                                             Just (String "Div") -> pure Div
-                                             Just (String "Rem") -> pure Rem
-                                             Just (String "BitXor") -> pure BitXor
-                                             Just (String "BitAnd") -> pure BitAnd
-                                             Just (String "BitOr") -> pure BitOr
-                                             Just (String "Shl") -> pure Shl
-                                             Just (String "Shr") -> pure Shr
-                                             Just (String "Eq") -> pure Beq
-                                             Just (String "Lt") -> pure Lt
-                                             Just (String "Le") -> pure Le
-                                             Just (String "Ne") -> pure Ne
-                                             Just (String "Ge") -> pure Ge
-                                             Just (String "Gt") -> pure Gt
-                                             Just (String "Offset") -> pure Offset
-                                             x -> fail ("bad binop: " ++ show x)
+    parseJSON = withObject "BinOp" $ \v ->
+        case lookupKM "kind" v of
+            -- `AddUnchecked` is like `Add`, but is UB on overflow.
+            -- TODO: distinguish these cases so we can emit UB checks
+            Just (String "Add") -> pure Add
+            Just (String "AddUnchecked") -> pure Add
+            Just (String "AddWithOverflow") -> pure $ Checked Add
+            Just (String "Sub") -> pure Sub
+            Just (String "SubUnchecked") -> pure Sub
+            Just (String "SubWithOverflow") -> pure $ Checked Sub
+            Just (String "Mul") -> pure Mul
+            Just (String "MulUnchecked") -> pure Mul
+            Just (String "MulWithOverflow") -> pure $ Checked Mul
+            Just (String "Div") -> pure Div
+            Just (String "Rem") -> pure Rem
+            Just (String "BitXor") -> pure BitXor
+            Just (String "BitAnd") -> pure BitAnd
+            Just (String "BitOr") -> pure BitOr
+            Just (String "Shl") -> pure Shl
+            Just (String "Shr") -> pure Shr
+            Just (String "Eq") -> pure Beq
+            Just (String "Lt") -> pure Lt
+            Just (String "Le") -> pure Le
+            Just (String "Ne") -> pure Ne
+            Just (String "Ge") -> pure Ge
+            Just (String "Gt") -> pure Gt
+            Just (String "Offset") -> pure Offset
+            x -> fail ("bad binop: " ++ show x)
 
 
 instance FromJSON VtableItem where
