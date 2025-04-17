@@ -1,5 +1,5 @@
 
-#[cfg_attr(crux, crux_test)]
+#[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     assert_eq!( u8::swap_bytes(0x94_u8), 0x94_u8);
     assert_eq!(u32::swap_bytes(0xface9412_u32), 0x1294cefa_u32);
