@@ -23,7 +23,7 @@ env:
   # This also periodically happens on MacOS builds due to a tar bug (symptom:
   # "No suitable image found ... unknown file type, first eight bytes: 0x00
   # 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
-  CABAL_CACHE_VERSION: 4
+  CABAL_CACHE_VERSION: 1
   CARGO_CACHE_VERSION: 1
   # If you update this, make sure to also update RUST_TOOLCHAIN in
   # .github/Dockerfile-crux-mir
@@ -109,13 +109,16 @@ jobs:
       - uses: actions/cache/restore@v4
         name: Restore cabal store cache
         id: cache
+        env:
+          key: ${{ env.CABAL_CACHE_VERSION }}-crux-mir-${{ matrix.os }}-cabal${{ steps.setup-haskell.outputs.cabal-version }}-ghc${{ steps.setup-haskell.outputs.ghc-version }}
         with:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
-          key: ${{ env.CABAL_CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.ref }}
+          key: ${{ env.key }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.ref }}
           restore-keys: |
-            ${{ env.CABAL_CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
+            ${{ env.key }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
+            ${{ env.key }}-
 
       - uses: Swatinem/rust-cache@v2
         name: cargo cache
