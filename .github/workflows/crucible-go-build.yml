@@ -44,12 +44,12 @@ jobs:
       os: ${{ matrix.os }}
       pre-hook: |
         cp "cabal.GHC-${{ matrix.ghc }}.config" cabal.project.freeze
-
+      pre-test-hook: |
         env \
           SOLVER_PKG_VERSION="snapshot-20250326" \
           BUILD_TARGET_OS="${{ matrix.os }}" \
           BUILD_TARGET_ARCH="${RUNNER_ARCH}" \
-          .github/ci.sh \
+          "${GITHUB_WORKSPACE}/.github/ci.sh" \
           install_solvers
       sdist-targets: crucible-go
       submodules: "true"
