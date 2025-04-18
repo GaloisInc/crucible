@@ -370,6 +370,7 @@ instance FromJSON UnOp where
     parseJSON = withObject "UnOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "Not") -> pure Not
                                              Just (String "Neg") -> pure Neg
+                                             Just (String "PtrMetadata") -> pure PtrMetadata
                                              x -> fail ("bad unOp: " ++ show x)
 instance FromJSON BinOp where
     parseJSON = withObject "BinOp" $ \v ->

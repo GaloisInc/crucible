@@ -282,6 +282,7 @@ instance Pretty BorrowKind where
 instance Pretty UnOp where
     pretty Not = pretty "!"
     pretty Neg = pretty "-"
+    pretty PtrMetadata = pretty "PtrMetadata"
 
 instance Pretty BinOp where
     pretty op = case op of

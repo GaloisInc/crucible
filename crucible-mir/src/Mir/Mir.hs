@@ -425,6 +425,7 @@ data BorrowKind =
 data UnOp =
     Not
   | Neg
+  | PtrMetadata
   deriving (Show,Eq, Ord, Generic)
 
 
@@ -710,6 +711,11 @@ instance TypeOf Rvalue where
     in case op of
         Not -> ty
         Neg -> ty
+        PtrMetadata -> case ty of
+            TyRef (TySlice _) _ -> TyUint USize
+            TyRawPtr (TySlice _) _ -> TyUint USize
+            -- FIXME: also handle `&dyn Trait` and custom DSTs
+            _ -> TyTuple []
   typeOf (Discriminant _lv ty) = ty
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
