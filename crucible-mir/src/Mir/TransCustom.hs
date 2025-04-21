@@ -540,11 +540,11 @@ ptr_slice_from_raw_parts_impl = \substs -> case substs of
 
 ptr_slice_from_raw_parts :: (ExplodedDefId, CustomRHS)
 ptr_slice_from_raw_parts =
-    ( ["core", "ptr", "slice_from_raw_parts"]
+    ( ["core", "ptr", "slice_from_raw_parts", "crucible_slice_from_raw_parts_hook"]
     , ptr_slice_from_raw_parts_impl)
 ptr_slice_from_raw_parts_mut :: (ExplodedDefId, CustomRHS)
 ptr_slice_from_raw_parts_mut =
-    ( ["core", "ptr", "slice_from_raw_parts_mut"]
+    ( ["core", "ptr", "slice_from_raw_parts_mut", "crucible_slice_from_raw_parts_hook"]
     , ptr_slice_from_raw_parts_impl)
 
 
