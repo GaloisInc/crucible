@@ -362,6 +362,7 @@ instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)
     pretty AKTuple = pretty "tup"
     pretty AKClosure = pretty "closure"
+    pretty (AKRawPtr t mutbl) = brackets (pretty (TyRawPtr t mutbl))
 
 instance Pretty FnSig where
   pretty fs =

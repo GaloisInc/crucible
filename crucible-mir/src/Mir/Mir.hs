@@ -528,6 +528,7 @@ data AggregateKind =
         AKArray Ty
       | AKTuple
       | AKClosure
+      | AKRawPtr Ty Mutability
       deriving (Show,Eq, Ord, Generic)
 
 data Trait = Trait { _traitName       :: !DefId,
@@ -720,6 +721,7 @@ instance TypeOf Rvalue where
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
+  typeOf (Aggregate (AKRawPtr ty mutbl) ops) = TyRawPtr ty mutbl
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
   typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv

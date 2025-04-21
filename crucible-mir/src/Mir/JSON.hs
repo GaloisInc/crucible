@@ -572,6 +572,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> pure AKClosure
+                                                     Just (String "RawPtr") -> AKRawPtr <$> v .: "ty" <*> v .: "mutbl"
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)
 

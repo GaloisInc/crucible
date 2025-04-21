@@ -1111,6 +1111,22 @@ evalRval (M.Aggregate ak ops) =
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
             return $ buildTupleMaybe col tys (map Just exps)
+        M.AKRawPtr ty _mutbl -> do
+            args <- mapM evalOperand ops
+            (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
+                [p, m] -> return (p, m)
+                _ -> mirFail $ "evalRval: expected exactly two operands for " ++ show ak
+                    ++ ", but got " ++ show args
+            case ty of
+                TySlice _ -> case (tprPtr, tprMeta) of
+                    (MirReferenceRepr tpr, UsizeRepr) -> do
+                        let tup = S.mkStruct
+                                (Ctx.Empty Ctx.:> MirReferenceRepr tpr Ctx.:> knownRepr)
+                                (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
+                        return $ MirExp (MirSliceRepr tpr) tup
+                    _ -> mirFail $ "evalRval: unexpected reprs " ++ show (tprPtr, tprMeta)
+                        ++ " for aggregate " ++ show ak
+                _ -> mirFail $ "evalRval: unsupported output type for " ++ show ak
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
       -- It's not legal to construct a MethodSpec using a Rust struct
