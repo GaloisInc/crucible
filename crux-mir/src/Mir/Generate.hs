@@ -72,6 +72,7 @@ compileMirJson keepRlib quiet rustFile = do
             , "--extern", "std=" ++ rlibsDir ++ "/libstd.rlib"
             , "--extern", "compiler_builtins=" ++ rlibsDir ++ "/libcompiler_builtins.rlib"
             , "--cfg", "crux", "--cfg", "crux_top_level"
+            , "-Z", "ub-checks=false"
             , "-o", outFile]
     let cp' = if not quiet then cp else
             (cp { Proc.std_out = Proc.NoStream, Proc.std_err = Proc.NoStream })
