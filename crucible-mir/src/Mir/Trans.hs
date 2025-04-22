@@ -1206,7 +1206,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     CTyMaybeUninit _ -> do
         return $ MirPlace tpr ref NoMeta
 
-    ty | Just adt <- tyAdtDef col ty, Just tIdx <- findReprTransparentField col adt ->
+    ty | Just adt <- tyAdtDefSkipDowncast col ty, Just tIdx <- findReprTransparentField col adt ->
         if idx == tIdx then
             -- The field's low-level representation is identical to the struct
             -- itself, due to repr(transparent).
@@ -1215,6 +1215,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
             -- Since `findReprTransparentField` returned `Just`, we know that
             -- fields aside from `tIdx` must be zero-sized, and thus contain no
             -- actual data.  So we can return a dummy reference here.
+            --
+            -- Also, for enum types, `#[repr(transparent)]` is only allowed on
+            -- single-variant enums, so we know `tIdx` refers to a field of
+            -- variant 0 (as with structs).
             fieldTy <- case adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty of
                 Just x -> return x
                 Nothing -> mirFail $ "impossible: accessed out of range field " ++
@@ -1240,6 +1244,11 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     M.TyClosure ts -> tupleFieldRef ts idx tpr ref
     _ -> mirFail $
         "tried to get field " ++ show idx ++ " of unsupported type " ++ show ty
+  where
+    -- | Like `tyAdtDef`, but also accepts `TyDowncast (TyAdt ...)`.
+    tyAdtDefSkipDowncast :: Collection -> M.Ty -> Maybe M.Adt
+    tyAdtDefSkipDowncast col (M.TyDowncast ty' _) = tyAdtDef col ty'
+    tyAdtDefSkipDowncast col ty = tyAdtDef col ty
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta) of
     (M.TyArray elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
         idx' <- getIdx idxVar
