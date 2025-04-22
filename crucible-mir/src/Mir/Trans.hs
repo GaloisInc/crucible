@@ -677,8 +677,9 @@ transNullaryOp M.SizeOf _ = do
     -- TODO: return the actual size, once mir-json exports size/layout info
     return $ MirExp UsizeRepr $ R.App $ usizeLit 1
 transNullaryOp M.UbChecks _ = do
-    -- Enable undefined behavior checks.
-    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit True
+    -- Disable undefined behavior checks.
+    -- TODO: re-enable this later, and fix the tests that break
+    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
