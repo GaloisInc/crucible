@@ -893,10 +893,10 @@ evalCast' ck ty1 e ty2  = do
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
-      -- Arbitrary pointer-to-pointer casts are allowed as long as the pointee
-      -- has the same Crucible representation.  This is similar to calling
-      -- `transmute`.
-      (M.Misc, M.TyRawPtr ty1 _, M.TyRawPtr ty2 _)
+      -- Arbitrary pointer-to-pointer casts are allowed as long as the source
+      -- and destination types have the same Crucible representation.  This is
+      -- similar to calling `transmute`.
+      (M.Misc, M.TyRawPtr _ _, M.TyRawPtr _ _)
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
 
