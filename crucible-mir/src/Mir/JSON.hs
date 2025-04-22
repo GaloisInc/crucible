@@ -352,6 +352,7 @@ instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
                                              Just (String "AlignOf") -> pure AlignOf
+                                             Just (String "UbChecks") -> pure UbChecks
                                              x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where

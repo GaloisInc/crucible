@@ -273,6 +273,7 @@ instance Pretty Constant where
 instance Pretty NullOp where
     pretty SizeOf = pretty "sizeof"
     pretty AlignOf = pretty "alignof"
+    pretty UbChecks = pretty "ub_checks"
 
 instance Pretty BorrowKind where
     pretty = viaShow

@@ -411,6 +411,7 @@ data Operand =
 data NullOp =
         SizeOf
       | AlignOf
+      | UbChecks
       deriving (Show,Eq, Ord, Generic)
 
 
@@ -707,6 +708,7 @@ instance TypeOf Rvalue where
   typeOf (NullaryOp op ty) = case op of
     SizeOf -> TyUint USize
     AlignOf -> TyUint USize
+    UbChecks -> TyBool
   typeOf (UnaryOp op x) =
     let ty = typeOf x
     in case op of
