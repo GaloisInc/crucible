@@ -1,5 +1,3 @@
-#![feature(box_syntax)]
-
 struct Test(i32);
 
 #[cfg_attr(crux, crux::test)]
