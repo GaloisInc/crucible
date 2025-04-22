@@ -173,6 +173,7 @@ instance Pretty Statement where
       pretty "Intrinsic" <> brackets (pretty "CopyNonOverlapping")
                          <> tupled (pretty <$> [o1, o2, o3])
                          <> semi
+    pretty ConstEvalCounter = pretty "ConstEvalCounter"
 
 instance Pretty Lvalue where
     pretty (LBase base) = pretty base

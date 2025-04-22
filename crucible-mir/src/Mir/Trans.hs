@@ -1392,6 +1392,9 @@ transStatement (M.StmtIntrinsic ndi) =
                          , show destExp
                          , show countExp
                          ]
+-- Per the docs, this statement kind is only useful in the const eval
+-- interpreter, so it is a no-op for crucible-mir's purposes.
+transStatement M.ConstEvalCounter = return ()
 
 -- | Add a new `BranchTransInfo` entry for the current function.  Returns the
 -- index of the new entry.

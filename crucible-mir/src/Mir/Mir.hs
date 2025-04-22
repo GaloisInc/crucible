@@ -299,6 +299,7 @@ data Statement =
       | Nop
       | Deinit
       | StmtIntrinsic NonDivergingIntrinsic
+      | ConstEvalCounter
     deriving (Show,Eq, Ord, Generic)
 
 data NonDivergingIntrinsic =

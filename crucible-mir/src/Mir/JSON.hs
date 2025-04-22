@@ -272,6 +272,7 @@ instance FromJSON Statement where
                                     _ -> fail $ "unknown Intrinsic kind" ++ kind
 
                                 return $ StmtIntrinsic ndi
+                             Just (String "ConstEvalCounter") -> pure ConstEvalCounter
 
                              k -> fail $ "kind not found for statement: " ++ show k
 
