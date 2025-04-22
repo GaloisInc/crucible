@@ -1052,7 +1052,7 @@ assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
-array_from_slice = (["core","array", "{impl}", "try_from", "crucible_array_from_slice_hook"],
+array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_slice_hook"],
     \substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
