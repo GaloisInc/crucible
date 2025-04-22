@@ -70,14 +70,14 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         cabal: ["3.14.2.0"]
-        ghc: ["9.4.8", "9.6.5", "9.8.2"]
+        ghc: ["9.6.7", "9.8.4", "9.10.1"]
         include:
           - os: ubuntu-22.04
             cabal: 3.14.2.0
-            ghc: 9.4.8
+            ghc: 9.10.1
           - os: macos-14
             cabal: 3.14.2.0
-            ghc: 9.4.8
+            ghc: 9.10.1
 
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}

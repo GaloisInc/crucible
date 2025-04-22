@@ -15,6 +15,7 @@ import           Data.Char ( isLetter, isSpace )
 import           Data.List.Extra ( isInfixOf )
 import           Data.Maybe ( catMaybes, fromMaybe )
 import qualified Data.Text as T
+import qualified Data.Version as Version
 import           Data.Versions ( Versioning, versioning, prettyV, major )
 import qualified GHC.IO.Exception as GE
 import           Numeric.Natural
@@ -408,13 +409,18 @@ mkTest sweet _ expct =
           Info.arch /= "x86_64" &&
           TS.rootBaseName sweet == "T972-fail"
 
+    -- T816 has different output on GHC 9.10.1, see #1377.
+    let skipGhc910T816 =
+          Info.compilerVersion == Version.makeVersion [9, 10] &&
+          TS.rootBaseName sweet == "T816"
+
     -- If a .good file begins with SKIP_TEST, skip that test entirely. For test
     -- cases that require a minimum Clang version, this technique is used to
     -- prevent running the test on older Clang versions.
 
     skipTest <- ("SKIP_TEST" `BSIO.isPrefixOf`) <$> BSIO.readFile (TS.expectedFile expct)
 
-    if or [ skipTest, skipX86_64Tests, testLevel == "0" && longTests ]
+    if or [ skipTest, skipX86_64Tests, skipGhc910T816, testLevel == "0" && longTests ]
       then do
         when (testLevel == "0" && longTests) $
           putStrLn "*** Longer running test skipped; set CI_TEST_LEVEL=1 env var to enable"

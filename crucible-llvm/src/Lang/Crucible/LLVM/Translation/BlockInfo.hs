@@ -25,7 +25,7 @@ module Lang.Crucible.LLVM.Translation.BlockInfo
   ) where
 
 import Data.Foldable (toList)
-import Data.List (foldl')
+import qualified Data.Foldable as Foldable
 import Data.Maybe
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -131,7 +131,7 @@ buildSuccSet (s:ss) =
 
 -- | Compute predecessor sets from the successor sets already computed in @buildBlockInfo@
 updatePredSets :: LLVMBlockInfoMap s -> LLVMBlockInfoMap s
-updatePredSets bim0 = foldl' upd bim0 predEdges
+updatePredSets bim0 = Foldable.foldl' upd bim0 predEdges
   where
    upd bim (to,from) = Map.adjust (\bi -> bi{ block_pred_set = Set.insert from (block_pred_set bi) }) to bim
 

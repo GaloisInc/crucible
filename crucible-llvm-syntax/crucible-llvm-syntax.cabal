@@ -30,60 +30,82 @@ common shared
   -- available here:
   -- https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-warnings.html
 
-  -- Since GHC 8.10 or earlier:
+  -- Since GHC 9.6 or earlier:
   ghc-options:
     -Wall
+    -Werror=ambiguous-fields
     -Werror=compat-unqualified-imports
     -Werror=deferred-type-errors
     -Werror=deprecated-flags
     -Werror=deprecations
     -Werror=deriving-defaults
+    -Werror=deriving-typeable
     -Werror=dodgy-foreign-imports
     -Werror=duplicate-exports
     -Werror=empty-enumerations
+    -Werror=gadt-mono-local-binds
     -Werror=identities
     -Werror=inaccessible-code
     -Werror=incomplete-patterns
     -Werror=incomplete-record-updates
     -Werror=incomplete-uni-patterns
     -Werror=inline-rule-shadowing
+    -Werror=misplaced-pragmas
     -Werror=missed-extra-shared-lib
     -Werror=missing-exported-signatures
     -Werror=missing-fields
     -Werror=missing-home-modules
     -Werror=missing-methods
+    -Werror=missing-pattern-synonym-signatures
+    -Werror=missing-signatures
+    -Werror=name-shadowing
+    -Werror=noncanonical-monad-instances
+    -Werror=noncanonical-monoid-instances
+    -Werror=operator-whitespace
+    -Werror=operator-whitespace-ext-conflict
+    -Werror=orphans
     -Werror=overflowed-literals
     -Werror=overlapping-patterns
     -Werror=partial-fields
     -Werror=partial-type-signatures
+    -Werror=redundant-bang-patterns
+    -Werror=redundant-record-wildcards
+    -Werror=redundant-strictness-flags
     -Werror=simplifiable-class-constraints
     -Werror=star-binder
     -Werror=star-is-type
     -Werror=tabs
+    -Werror=type-defaults
     -Werror=typed-holes
+    -Werror=type-equality-out-of-scope
+    -Werror=type-equality-requires-operators
+    -Werror=unicode-bidirectional-format-characters
     -Werror=unrecognised-pragmas
     -Werror=unrecognised-warning-flags
     -Werror=unsupported-calling-conventions
     -Werror=unsupported-llvm-version
     -Werror=unticked-promoted-constructors
+    -Werror=unused-do-bind
     -Werror=unused-imports
+    -Werror=unused-record-wildcards
     -Werror=warnings-deprecations
     -Werror=wrong-do-bind
 
-  if impl(ghc >= 9.2)
-    ghc-options:
-      -Werror=ambiguous-fields
-      -Werror=operator-whitespace
-      -Werror=operator-whitespace-ext-conflict
-      -Werror=redundant-bang-patterns
-
-  if impl(ghc >= 9.4)
+  if impl(ghc < 9.8)
     ghc-options:
       -Werror=forall-identifier
-      -Werror=misplaced-pragmas
-      -Werror=redundant-strictness-flags
-      -Werror=type-equality-out-of-scope
-      -Werror=type-equality-requires-operators
+
+  if impl(ghc >= 9.8)
+    ghc-options:
+      -Werror=incomplete-export-warnings
+      -Werror=inconsistent-flags
+
+  if impl(ghc >= 9.10)
+    ghc-options:
+      -Werror=badly-staged-types
+      -Werror=data-kinds-tc
+      -Werror=deprecated-type-abstractions
+      -Werror=incomplete-record-selectors
 
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
