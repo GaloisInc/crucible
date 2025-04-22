@@ -25,6 +25,7 @@
 module Mir.TransCustom(customOps) where
 
 import Data.Bits (shift)
+import qualified Data.BitVector.Sized as BV
 import Data.Coerce (coerce)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -176,6 +177,8 @@ customOpDefs = Map.fromList $ [
                          , reallocate
 
                          , maybe_uninit_uninit
+
+                         , non_zero_new
 
                          , ctpop
 
@@ -1715,6 +1718,26 @@ maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
                 Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
         _ -> Nothing)
 
+--------------------------------------------------------------------------------------------------------------------------
+-- NonZero
+
+non_zero_new ::  (ExplodedDefId, CustomRHS)
+non_zero_new = (["core", "num", "nonzero", "{impl}", "new", "crucible_non_zero_new_hook"],
+    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+        fn <- findFn fnName
+        case (fn ^. fsig . fsreturn_ty, ops) of
+            (TyAdt optionMonoName _ _, [MirExp tpr@(C.BVRepr w) val]) -> do
+                let isZero = R.App $ E.BVEq w val $ R.App $ E.BVLit w $ BV.mkBV w 0
+                -- Get the Adt info for the return type, which should be
+                -- Option<NonZero<T>>.
+                adt <- findAdt optionMonoName
+                MirExp C.AnyRepr <$> G.ifte isZero
+                    (do enum <- buildEnum adt optionDiscrNone []
+                        unwrapMirExp C.AnyRepr enum)
+                    (do enum <- buildEnum adt optionDiscrSome [MirExp tpr val]
+                        unwrapMirExp C.AnyRepr enum)
+            _ -> mirFail $ "bad arguments to NonZero::new: " ++ show ops
+    )
 
 --------------------------------------------------------------------------------------------------------------------------
 
