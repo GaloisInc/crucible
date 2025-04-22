@@ -393,7 +393,9 @@ instance FromJSON BinOp where
             Just (String "BitAnd") -> pure BitAnd
             Just (String "BitOr") -> pure BitOr
             Just (String "Shl") -> pure Shl
+            Just (String "ShlUnchecked") -> pure Shl
             Just (String "Shr") -> pure Shr
+            Just (String "ShrUnchecked") -> pure Shr
             Just (String "Eq") -> pure Beq
             Just (String "Lt") -> pure Lt
             Just (String "Le") -> pure Le
