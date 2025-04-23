@@ -103,7 +103,6 @@ import Mir.GenericOps
 import Mir.TransTy
 
 import Mir.PP (fmt, fmtDoc)
-import GHC.Stack
 
 import Debug.Trace
 
@@ -1452,15 +1451,29 @@ transSwitch pos exp vals blks = do
 
     go :: Int -> Int -> [R.Expr MIR s C.BoolType] -> [R.Label s] ->
         MirGenerator h s ret a
-    go branchId idx [] [lab] = do
-        G.jump lab
-    go branchId idx [cond] [lab1, lab2] = do
-        setPosition $ posStr branchId idx
-        G.branch cond lab1 lab2
-    go branchId idx (cond : conds) (lab : labs) = do
-        fallthrough <- G.defineBlockLabel $ go branchId (idx + 1) conds labs
-        setPosition $ posStr branchId idx
-        G.branch cond lab fallthrough
+    go branchId idx [] labels =
+      case labels of
+        [lab] -> G.jump lab
+        _ ->
+          mirFail $
+            "no conditional but " ++ show (length labels) ++
+            " labels in switch"
+    go branchId idx [cond] labels =
+      case labels of
+        [lab1, lab2] -> do
+          setPosition $ posStr branchId idx
+          G.branch cond lab1 lab2
+        _ ->
+          mirFail $
+            "conditional with " ++ show (length labels) ++
+            " labels in switch"
+    go branchId idx (cond : conds) labels =
+      case labels of
+        lab : labs -> do
+          fallthrough <- G.defineBlockLabel $ go branchId (idx + 1) conds labs
+          setPosition $ posStr branchId idx
+          G.branch cond lab fallthrough
+        [] -> mirFail "multiple conditionals but no labels in switch"
 
     labelText :: R.Label s -> Text
     labelText l = Text.pack $ show $ R.LabelID l
@@ -1755,19 +1768,20 @@ initLocals localVars addrTaken = forM_ localVars $ \v -> do
 
     -- FIXME: temporary hack to put every local behind a MirReference, to work
     -- around issues with `&fn()` variables.
-    varinfo <- case True of --case Set.member name addrTaken of
-        True -> do
-            ref <- newMirRef tpr
-            case optVal of
-                Nothing -> return ()
-                Just val -> writeMirRef ref val
-            reg <- G.newReg ref
-            return $ Some $ VarReference reg
-        False -> do
-            reg <- case optVal of
-                Nothing -> G.newUnassignedReg tpr
-                Just val -> G.newReg val
-            return $ Some $ VarRegister reg
+    varinfo <-
+      if True --case Set.member name addrTaken of
+        then do
+          ref <- newMirRef tpr
+          case optVal of
+              Nothing -> return ()
+              Just val -> writeMirRef ref val
+          reg <- G.newReg ref
+          return $ Some $ VarReference reg
+        else do
+          reg <- case optVal of
+              Nothing -> G.newUnassignedReg tpr
+              Just val -> G.newReg val
+          return $ Some $ VarRegister reg
     varMap %= Map.insert name varinfo
 
 -- | Deallocate RefCells for all locals in `varMap`.

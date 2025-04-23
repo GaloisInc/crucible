@@ -706,7 +706,7 @@ instance TypeOf Rvalue where
             Offset -> ty
             Checked op'' -> TyTuple [f op'', TyBool]
     in f op
-  typeOf (NullaryOp op ty) = case op of
+  typeOf (NullaryOp op _ty) = case op of
     SizeOf -> TyUint USize
     AlignOf -> TyUint USize
     UbChecks -> TyBool
@@ -724,7 +724,7 @@ instance TypeOf Rvalue where
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
-  typeOf (Aggregate (AKRawPtr ty mutbl) ops) = TyRawPtr ty mutbl
+  typeOf (Aggregate (AKRawPtr ty mutbl) _ops) = TyRawPtr ty mutbl
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
   typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv

@@ -1530,12 +1530,12 @@ data ReversedRefPath sym :: CrucibleType -> CrucibleType -> Type where
 reverseRefPath :: forall sym tp tp'.
     MirReferencePath sym tp tp' ->
     ReversedRefPath sym tp tp'
-reverseRefPath rp = go RrpNil rp
+reverseRefPath = go RrpNil
   where
-    go :: forall sym tp tp' tp''.
-        ReversedRefPath sym tp' tp'' ->
-        MirReferencePath sym tp tp' ->
-        ReversedRefPath sym tp tp''
+    go :: forall tp_ tp_' tp_''.
+        ReversedRefPath sym tp_' tp_'' ->
+        MirReferencePath sym tp_ tp_' ->
+        ReversedRefPath sym tp_ tp_''
     go acc Empty_RefPath = acc
     go acc (Field_RefPath ctx rp idx) =
         go (Field_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
@@ -1564,7 +1564,7 @@ refRootOverlaps sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
   | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
 refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
   | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
-refRootOverlaps sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+refRootOverlaps _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
     leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
 refRootOverlaps sym _ _ = return $ falsePred sym
 
@@ -1585,9 +1585,9 @@ refPathOverlaps sym path1 path2 = do
     -- versa.
     go (reverseRefPath path1') (reverseRefPath path2')
   where
-    go :: forall tp1 tp1' tp2 tp2'.
-        ReversedRefPath sym tp1 tp1' ->
-        ReversedRefPath sym tp2 tp2' ->
+    go :: forall tp1_ tp1_' tp2_ tp2_'.
+        ReversedRefPath sym tp1_ tp1_' ->
+        ReversedRefPath sym tp2_ tp2_' ->
         MuxLeafT sym IO (RegValue sym BoolType)
     -- An empty RefPath (`RrpNil`) covers the whole object, so it overlaps with
     -- all other paths into the same object.
