@@ -6,6 +6,7 @@
 module Main (main) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isSpace)
 import           Data.List (dropWhileEnd, isPrefixOf)
@@ -169,8 +170,27 @@ doGoldenTest rustFile goodFile outFile act = goldenTest (takeBaseName rustFile)
     (BS.readFile goodFile)
     (act >> BS.readFile outFile)
     (\good out -> return $ if good == out then Nothing else
-      Just $ "files " ++ goodFile ++ " and " ++ outFile ++ " differ; " ++
-        outFile ++ " contains:\n" ++ BS8.toString out)
+      let el = BSC.lines good
+          al = BSC.lines out in
+
+      let dl (e,a) = if e == a then db e else de e <> da a
+          db b = ["    F        |" <> b]
+          de e = ["    F-expect>|" <> e]
+          da a = ["    F-actual>|" <> a] in
+
+      let details = concat $
+                    [ [ "MISMATCH for expected (" <> BS8.fromString goodFile <> ")"
+                      , "           and actual (" <> BS8.fromString outFile <> ") output:"
+                      ]
+                      -- Highly simplistic "diff" output assumes
+                      -- correlated lines: added or removed lines just
+                      -- cause everything to shown as different from
+                      -- that point forward.
+                    , concatMap dl $ zip el al
+                    , concatMap de $ drop (length al) el
+                    , concatMap da $ drop (length el) al
+                    ] in
+      Just $ BS8.toString (BSC.unlines details))
     (\out -> BS.writeFile goodFile out)
 
 -- | Sanitize the golden output in a file.
