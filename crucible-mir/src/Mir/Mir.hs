@@ -289,10 +289,16 @@ data BasicBlockData = BasicBlockData {
 }
     deriving (Show,Eq, Ord, Generic)
 
+-- | A pair of a 'StatementKind' and its source position.
+data Statement = Statement
+    { _stmtKind :: StatementKind
+    , _stmtPos :: Text
+    }
+    deriving (Eq, Ord, Show, Generic)
 
-data Statement =
-      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: Text }
-      -- TODO: the rest of these variants also have positions
+-- | The various kinds of statements that can appear in MIR.
+data StatementKind =
+      Assign { _alhs :: Lvalue, _arhs :: Rvalue }
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
       | StorageLive { _slv :: Var }
       | StorageDead { _sdv :: Var }
@@ -360,11 +366,18 @@ data Rvalue =
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
     deriving (Show, Eq, Ord, Generic)
 
+-- | A pair of a 'TerminatorKind' and its source position.
+data Terminator = Terminator
+    { _termKind :: TerminatorKind
+    , _termPos :: Text
+    }
+    deriving (Eq, Ord, Show, Generic)
 
-data Terminator =
+-- | The various kinds of terminators, representing ways of exiting from a basic
+-- block.
+data TerminatorKind =
         Goto { _gbb :: BasicBlockInfo}
         -- ^ normal control flow
-      -- TODO: the rest of these variants also have positions
       | SwitchInt { _sdiscr    :: Operand,
                     _switch_ty :: Ty,
                     _svalues   :: [Maybe Integer],
@@ -585,6 +598,8 @@ makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
+makeLenses ''Statement
+makeLenses ''Terminator
 makeWrapped ''Substs
 
 --------------------------------------------------------------------------------------

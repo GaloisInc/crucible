@@ -4,7 +4,7 @@ failures:
 
 ---- downcast_fail/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:15: error: in downcast_fail/<DISAMB>::crux_test[0]
+[Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:33: error: in downcast_fail/<DISAMB>::crux_test[0]
 [Crux]   failed to downcast Any as BVRepr 32
 
 [Crux] Overall status: Invalid.
