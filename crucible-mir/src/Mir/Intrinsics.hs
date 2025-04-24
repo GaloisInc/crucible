@@ -146,7 +146,7 @@ rustEnumVariant variantsCtx e = GetStruct e i2of2 (VariantRepr variantsCtx)
 
 -- Rust usize/isize representation
 
-type SizeBits = 32
+type SizeBits = 64
 
 type UsizeType = BVType SizeBits
 type IsizeType = BVType SizeBits
