@@ -355,9 +355,16 @@ data Rvalue =
       | ThreadLocalRef DefId Ty
     deriving (Show,Eq, Ord, Generic)
 
--- | An aggregate ADT expression. Currently, this is only used for enums (see
--- "Mir.Pass.AllocateEnum").
-data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
+-- | An aggregate ADT expression.
+data AdtAg = AdtAg {
+    _agadt :: Adt,
+    _avgariant :: Integer,
+    _aops :: [Operand],
+    _adtagty :: Ty,
+    -- | For union aggregates, there's only operand in `_aops`, and `_afield`
+    -- indicates which field of the union the value is written to.
+    _afield :: Maybe Int
+    }
     deriving (Show, Eq, Ord, Generic)
 
 
@@ -725,7 +732,7 @@ instance TypeOf Rvalue where
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (Aggregate (AKRawPtr ty mutbl) _ops) = TyRawPtr ty mutbl
-  typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
+  typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
   typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv
   typeOf (ThreadLocalRef _ ty) = ty

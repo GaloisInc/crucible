@@ -320,7 +320,7 @@ instance FromJSON Rvalue where
 
 instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v ->
-        AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> v .: "ty"
+        AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> v .: "ty" <*> v .: "field"
 
 instance FromJSON Terminator where
     parseJSON = withObject "Terminator" $ \v -> case lookupKM "kind" v of

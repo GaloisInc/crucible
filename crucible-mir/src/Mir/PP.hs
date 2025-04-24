@@ -210,8 +210,9 @@ instance Pretty Rvalue where
     pretty (ThreadLocalRef a b) = pretty_fn2 "ThreadLocalRef" a b
 
 instance Pretty AdtAg where
-  pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _) = pretty_fn3 "AdtAg" nm i ops
-
+  pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _ optField) = case optField of
+    Just field -> pretty_fn4 "AdtAg" nm i ops field
+    Nothing -> pretty_fn3 "AdtAg" nm i ops
 
 instance Pretty Terminator where
     pretty (Goto g) = pretty_fn1 "goto" g <> semi

@@ -1130,7 +1130,7 @@ evalRval (M.Aggregate ak ops) =
                     _ -> mirFail $ "evalRval: unexpected reprs " ++ show (tprPtr, tprMeta)
                         ++ " for aggregate " ++ show ak
                 _ -> mirFail $ "evalRval: unsupported output type for " ++ show ak
-evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
+evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
     case ty of
       -- It's not legal to construct a MethodSpec using a Rust struct
       -- constructor, so we translate as "assert(false)" instead.  Only
