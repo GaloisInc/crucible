@@ -1145,12 +1145,31 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
         col <- use $ cs . collection
         es <- mapM evalOperand ops
         case findReprTransparentField col adt of
-          Just idx -> do
-            op <- case ops ^? ix idx of
-                Just op -> pure op
-                Nothing -> mirFail $ "repr(transparent) field index " ++ show idx ++
-                    " out of range for " ++ show (adt ^. adtname)
-            evalOperand op
+          Just rtIdx ->
+            case optField of
+              Nothing -> do
+                -- `repr(transparent)` struct/enum case.
+                op <- case ops ^? ix rtIdx of
+                    Just op -> pure op
+                    Nothing -> mirFail $ "repr(transparent) field index " ++ show rtIdx ++
+                        " out of range for " ++ show (adt ^. adtname)
+                evalOperand op
+              Just unionFieldIdx
+                | unionFieldIdx == rtIdx -> do
+                    -- `repr(transparent)` union, initializing the primary
+                    -- field.  The result is the value of the field.
+                    op <- case ops ^? ix 0 of
+                        Just op -> pure op
+                        Nothing -> mirFail $ "missing operand for union AdtAg of type "
+                            ++ show (adt ^. adtname)
+                    evalOperand op
+                | otherwise -> do
+                    -- `repr(transparent)` union, initializing one of the
+                    -- zero-sized fields.  The result is an uninitialized
+                    -- union value.
+                    initialValue ty >>= \mv -> case mv of
+                        Just v -> return v
+                        Nothing -> mirFail $ "uninitialized union AdtAg unsupported for " ++ show ty
           Nothing -> do
             case adt^.adtkind of
                 M.Struct -> buildStruct adt es
