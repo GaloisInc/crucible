@@ -1361,16 +1361,20 @@ doAssign lv (MirExp tpr val) = do
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
-transStatement (M.Assign lv rv pos) = do
+transStatement (M.Statement skind spos) = do
+  setPosition spos
+  transStatementKind skind
+
+transStatementKind :: HasCallStack => M.StatementKind -> MirGenerator h s ret ()
+transStatementKind (M.Assign lv rv) = do
   col <- use $ cs . collection
   -- Skip writes to zero-sized fields, as they are effectively no-ops.
   when (not $ isZeroSized col $ typeOf lv) $ do
-    setPosition pos
     re <- evalRval rv
     doAssignCoerce lv (M.typeOf rv) re
-transStatement (M.StorageLive lv) = return ()
-transStatement (M.StorageDead lv) = return ()
-transStatement (M.SetDiscriminant lv i) = do
+transStatementKind (M.StorageLive lv) = return ()
+transStatementKind (M.StorageDead lv) = return ()
+transStatementKind (M.SetDiscriminant lv i) = do
   case M.typeOf lv of
     -- Currently we require that all uses of `SetDiscriminant` get bundled up
     -- with related field writes into an `RAdtAg` assignment during the
@@ -1382,9 +1386,9 @@ transStatement (M.SetDiscriminant lv i) = do
     -- allowing an enum value to have multiple initialized variants
     -- simultaneously), then we could remove AllocateEnum.
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
-transStatement M.Nop = return ()
-transStatement M.Deinit = return ()
-transStatement (M.StmtIntrinsic ndi) =
+transStatementKind M.Nop = return ()
+transStatementKind M.Deinit = return ()
+transStatementKind (M.StmtIntrinsic ndi) =
     case ndi of
         -- rustc uses assumptions from `assume` to optimize code. If we
         -- encounter an occurrence of `assume` in MIR code, we should check
@@ -1412,7 +1416,7 @@ transStatement (M.StmtIntrinsic ndi) =
                          ]
 -- Per the docs, this statement kind is only useful in the const eval
 -- interpreter, so it is a no-op for crucible-mir's purposes.
-transStatement M.ConstEvalCounter = return ()
+transStatementKind M.ConstEvalCounter = return ()
 
 -- | Add a new `BranchTransInfo` entry for the current function.  Returns the
 -- index of the new entry.
@@ -1523,11 +1527,11 @@ switchIsDropFlagCheck [0] [f, t] = do
     trueBb <- case optTrueBb of
         Just x -> return $ x
         Nothing -> mirFail $ "bad switch target " ++ show t
-    let stmtsOk = case trueBb ^. bbstmts of
-            [Assign (LBase _) (Use (OpConstant (Constant TyBool (ConstBool False)))) _] ->
+    let stmtsOk = case map _stmtKind (trueBb ^. bbstmts) of
+            [Assign (LBase _) (Use (OpConstant (Constant TyBool (ConstBool False))))] ->
                 True
             _ -> False
-    let termOk = case trueBb ^. bbterminator of
+    let termOk = case trueBb ^. bbterminator . termKind of
             Drop _ dest _ _ -> dest == f
             _ -> False
     return $ stmtsOk && termOk
@@ -1715,28 +1719,32 @@ doCall funid cargs cdest retRepr = do
             -- TODO: is this the correct behavior?
             G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
-
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
-transTerminator (M.Goto bbi) _ =
+transTerminator (M.Terminator tkind tpos) tr = do
+    setPosition tpos
+    transTerminatorKind tkind tr
+
+transTerminatorKind :: HasCallStack => M.TerminatorKind -> C.TypeRepr ret -> MirGenerator h s ret a
+transTerminatorKind (M.Goto bbi) _tr =
     jumpToBlock bbi
-transTerminator (M.SwitchInt swop _swty svals stargs spos) _ | all Maybe.isJust svals = do
+transTerminatorKind (M.SwitchInt swop _swty svals stargs spos) _tr | all Maybe.isJust svals = do
     s <- evalOperand swop
     transSwitch spos s (Maybe.catMaybes svals) stargs
-transTerminator (M.Return) tr =
+transTerminatorKind (M.Return) tr =
     doReturn tr
-transTerminator (M.DropAndReplace dlv dop dtarg _ dropFn) _ = do
+transTerminatorKind (M.DropAndReplace dlv dop dtarg _ dropFn) _tr = do
     let ptrOp = M.Temp $ M.Cast M.Misc
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
-    transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
+    transStatementKind (M.Assign dlv (M.Use dop))
     jumpToBlock dtarg
 
-transTerminator (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) tr = do
+transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid
     doCall funid cargs cretdest tr -- cleanup ignored
 
 
-transTerminator (M.Call funcOp cargs cretdest _) tr = do
+transTerminatorKind (M.Call funcOp cargs cretdest _) tr = do
     func <- evalOperand funcOp
     ret <- callHandle func RustAbi Nothing cargs
     case cretdest of
@@ -1746,25 +1754,25 @@ transTerminator (M.Call funcOp cargs cretdest _) tr = do
       Nothing -> do
           G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
-transTerminator (M.Assert cond expected msg target _cleanup) _ = do
+transTerminatorKind (M.Assert cond expected msg target _cleanup) _tr = do
     MirExp tpr e <- evalOperand cond
     Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
     G.assertExpr (S.app $ E.BoolEq e (S.app $ E.BoolLit expected)) $
         S.app $ E.StringLit $ W4.UnicodeLiteral $ msg
     jumpToBlock target
-transTerminator (M.Resume) tr =
+transTerminatorKind (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
-transTerminator (M.Drop dlv dt _dunwind dropFn) _ = do
+transTerminatorKind (M.Drop dlv dt _dunwind dropFn) _tr = do
     let ptrOp = M.Temp $ M.Cast M.Misc
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     jumpToBlock dt
-transTerminator M.Abort tr =
+transTerminatorKind M.Abort tr =
     G.reportError (S.litExpr "process abort in unwinding")
-transTerminator M.Unreachable tr = do
+transTerminatorKind M.Unreachable tr = do
     recordUnreachable
     G.reportError (S.litExpr "Unreachable!!!!!")
-transTerminator t _tr =
+transTerminatorKind t _tr =
     mirFail $ "unknown terminator: " ++ (show t)
 
 
@@ -1814,9 +1822,9 @@ cleanupLocals = do
 -- | Look at all of the assignments in the basic block and return
 -- the set of variables that have their addresses computed
 addrTakenVars :: M.BasicBlock -> Set Text.Text
-addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
+addrTakenVars bb = mconcat (map (f . M._stmtKind) (M._bbstmts (M._bbdata bb)))
  where
- f (M.Assign _ (M.Ref _ lv _) _) = g lv
+ f (M.Assign _ (M.Ref _ lv _)) = g lv
  f _ = mempty
 
  g (M.LBase (M.Var nm _ _ _)) = Set.singleton nm

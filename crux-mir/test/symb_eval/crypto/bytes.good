@@ -4,23 +4,23 @@ failures:
 
 ---- bytes/<DISAMB>::f[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
+[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
+[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
+[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
+[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:38:41: 38:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
+[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crypto/bytes.rs:85:7: 85:37: error: in bytes/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 [Crux]   	a[i] == b[i]
 

@@ -160,7 +160,10 @@ instance Pretty BasicBlockData where
 
 
 instance Pretty Statement where
-    pretty (Assign lhs rhs _) = pretty lhs <+> equals <+> pretty rhs <> semi
+  pretty stmt = pretty (stmt ^. stmtKind)
+
+instance Pretty StatementKind where
+    pretty (Assign lhs rhs) = pretty lhs <+> equals <+> pretty rhs <> semi
     pretty (SetDiscriminant lhs rhs) =
       pretty "discr(" <> pretty lhs <> pretty ")" <+> equals <+> pretty rhs <> semi
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
@@ -215,6 +218,9 @@ instance Pretty AdtAg where
     Nothing -> pretty_fn3 "AdtAg" nm i ops
 
 instance Pretty Terminator where
+  pretty term = pretty (term ^. termKind)
+
+instance Pretty TerminatorKind where
     pretty (Goto g) = pretty_fn1 "goto" g <> semi
     pretty (SwitchInt op ty vs bs _pos) =
       pretty "switchint" <+> pretty op <+> colon <> pretty ty <+>

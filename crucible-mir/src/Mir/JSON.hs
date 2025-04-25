@@ -254,28 +254,34 @@ instance FromJSON BasicBlockData where
         <*> v .: "terminator"
 
 instance FromJSON Statement where
-    parseJSON = withObject "Statement" $ \v -> case lookupKM "kind" v of
-                             Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs" <*> v .: "pos"
-                             Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
-                             Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
-                             Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
-                             Just (String "Nop") -> pure Nop
-                             Just (String "Deinit") -> pure Deinit
-                             Just (String "Intrinsic") -> do
-                                kind <- v .: "intrinsic_kind"
-                                ndi <- case kind of
-                                    "Assume" -> NDIAssume <$> v .: "operand"
-                                    "CopyNonOverlapping" ->
-                                        NDICopyNonOverlapping <$> v .: "src"
-                                                              <*> v .: "dst"
-                                                              <*> v .: "count"
-                                    _ -> fail $ "unknown Intrinsic kind" ++ kind
+    parseJSON j =
+      Statement
+        <$> parseJSON j
+        <*> withObject "Statement" (.: "pos") j
 
-                                return $ StmtIntrinsic ndi
-                             Just (String "ConstEvalCounter") -> pure ConstEvalCounter
+instance FromJSON StatementKind where
+    parseJSON = withObject "StatementKind" $ \v -> do
+      case lookupKM "kind" v of
+        Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs"
+        Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
+        Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
+        Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
+        Just (String "Nop") -> pure Nop
+        Just (String "Deinit") -> pure Deinit
+        Just (String "Intrinsic") -> do
+           kind <- v .: "intrinsic_kind"
+           ndi <- case kind of
+               "Assume" -> NDIAssume <$> v .: "operand"
+               "CopyNonOverlapping" ->
+                   NDICopyNonOverlapping <$> v .: "src"
+                                         <*> v .: "dst"
+                                         <*> v .: "count"
+               _ -> fail $ "unknown Intrinsic kind" ++ kind
 
-                             k -> fail $ "kind not found for statement: " ++ show k
+           return $ StmtIntrinsic ndi
+        Just (String "ConstEvalCounter") -> pure ConstEvalCounter
 
+        k -> fail $ "kind not found for statement: " ++ show k
 
 data RustcPlace = RustcPlace Var [PlaceElem]
 
@@ -323,24 +329,31 @@ instance FromJSON AdtAg where
         AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> v .: "ty" <*> v .: "field"
 
 instance FromJSON Terminator where
-    parseJSON = withObject "Terminator" $ \v -> case lookupKM "kind" v of
-                                                  Just (String "Goto") -> Goto <$> v .: "target"
-                                                  Just (String "SwitchInt") ->
-                                                    let  q :: Aeson.Parser [Maybe Integer]
-                                                         q = do
-                                                               lmt <- v .: "values"
-                                                               mapM (mapM convertIntegerText) lmt
-                                                    in
-                                                    SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets" <*> v .: "discr_span"
-                                                  Just (String "Resume") -> pure Resume
-                                                  Just (String "Abort") -> pure Abort
-                                                  Just (String "Return") -> pure Return
-                                                  Just (String "Unreachable") -> pure Unreachable
-                                                  Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
-                                                  Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
-                                                  Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
-                                                  Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
-                                                  k -> fail $ "unsupported terminator" ++ show k
+    parseJSON j =
+      Terminator
+        <$> parseJSON j
+        <*> withObject "Terminator" (.: "pos") j
+
+instance FromJSON TerminatorKind where
+    parseJSON = withObject "TerminatorKind" $ \v -> do
+      case lookupKM "kind" v of
+        Just (String "Goto") -> Goto <$> v .: "target"
+        Just (String "SwitchInt") ->
+          let  q :: Aeson.Parser [Maybe Integer]
+               q = do
+                     lmt <- v .: "values"
+                     mapM (mapM convertIntegerText) lmt
+          in
+          SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets" <*> v .: "discr_span"
+        Just (String "Resume") -> pure Resume
+        Just (String "Abort") -> pure Abort
+        Just (String "Return") -> pure Return
+        Just (String "Unreachable") -> pure Unreachable
+        Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
+        Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
+        Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
+        Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
+        k -> fail $ "unsupported terminator kind" ++ show k
 
 instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case lookupKM "kind" v of

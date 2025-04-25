@@ -46,7 +46,8 @@ import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Except (MonadError(..))
 import           Control.Lens hiding (op, (:>) )
-import           Data.List (foldl', genericLength, isPrefixOf)
+import qualified Data.Foldable as Foldable
+import           Data.List (genericLength, isPrefixOf)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -107,7 +108,7 @@ makeGlobalMap :: forall arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
               -> GlobalInitializerMap
-makeGlobalMap ctx m = foldl' addAliases globalMap1 (Map.toList (llvmGlobalAliases ctx))
+makeGlobalMap ctx m = Foldable.foldl' addAliases globalMap1 (Map.toList (llvmGlobalAliases ctx))
 
   where
    addAliases mp (glob, aliases) =

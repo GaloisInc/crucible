@@ -14,17 +14,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        cabal: ["3.10.3.0"]
-        ghc: ["9.4.8", "9.6.5", "9.8.2"]
+        cabal: ["3.14.2.0"]
+        ghc: ["9.6.7", "9.8.4", "9.10.1"]
         include:
           - os: macos-14
-            cabal: 3.10.3.0
-            ghc: 9.8.2
+            cabal: 3.14.2.0
+            ghc: 9.10.1
           - os: windows-2019
-            cabal: 3.10.3.0
-            ghc: 9.8.2
+            cabal: 3.14.2.0
+            ghc: 9.10.1
     name: crucible-jvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
-    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@v1.4
+    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@v1
     with:
       build-targets: pkg:crucible-jvm
       cabal: ${{ matrix.cabal }}
@@ -44,12 +44,12 @@ jobs:
       os: ${{ matrix.os }}
       pre-hook: |
         cp "cabal.GHC-${{ matrix.ghc }}.config" cabal.project.freeze
-
+      pre-test-hook: |
         env \
           SOLVER_PKG_VERSION="snapshot-20250326" \
           BUILD_TARGET_OS="${{ matrix.os }}" \
           BUILD_TARGET_ARCH="${RUNNER_ARCH}" \
-          .github/ci.sh \
+          "${GITHUB_WORKSPACE}/.github/ci.sh" \
           install_solvers
       sdist-targets: crucible-jvm
       submodules: "true"

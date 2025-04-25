@@ -61,25 +61,34 @@ lookupAdt defid = find (\adt -> _adtname adt == defid) (?col^.adts)
 
 
 isAdtFieldUpdate :: Statement -> Maybe FieldUpdate
-isAdtFieldUpdate (Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs) pos) =
-  Just (FieldUpdate lv j i ty rhs pos)
-isAdtFieldUpdate _ = Nothing
+isAdtFieldUpdate stmt =
+  case stmt ^. stmtKind of
+    Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs) ->
+      Just (FieldUpdate lv j i ty rhs (stmt ^. stmtPos))
+    _ ->
+      Nothing
 
 -- NB: Despite the name, the second argument to SetDiscriminant is a variant
 -- index, not a discriminant value.  The `Int` returned from this function
 -- similarly is a variant index.
 isSetDiscriminant :: (?col :: Collection) => Statement -> Maybe (Lvalue, Int, Adt)
-isSetDiscriminant (SetDiscriminant lv i) =
-  case typeOf lv of
-    TyAdt defid _ _ -> case (lookupAdt defid) of
-                          Just adt -> Just (lv,i,adt)
-                          Nothing  -> Nothing
-    _ -> Nothing
-isSetDiscriminant _ = Nothing
+isSetDiscriminant stmt =
+  case stmt ^. stmtKind of
+    SetDiscriminant lv i ->
+      case typeOf lv of
+        TyAdt defid _ _ -> case (lookupAdt defid) of
+                              Just adt -> Just (lv,i,adt)
+                              Nothing  -> Nothing
+        _ -> Nothing
+    _ ->
+      Nothing
 
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
 makeAggregate updates (lv, k, adt) =
-    (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty Nothing)) pos) where
+    Statement
+      { _stmtKind = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty Nothing))
+      , _stmtPos = pos
+      } where
   adt_did = _adtname adt
   ty  = typeOf lv
   pos = case updates of
