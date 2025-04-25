@@ -1,10 +1,13 @@
-# next
+# next -- TBA
 
 * The modified copies of the Rust standard libraries that `mir-json` depends on
   (and `crux-mir` therefore ingests) now live in the `mir-json` repo rather
   than in the `crucible` repo. See the [`mir-json`
   README](https://github.com/GaloisInc/mir-json/blob/master/README.md) for
   details.
+* Improve source position tracking for MIR statements during the translation to
+  Crucible. This should result in more precise error messages in certain
+  situations.
 
 # 0.10 -- 2025-03-21
 

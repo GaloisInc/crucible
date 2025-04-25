@@ -1,6 +1,15 @@
-# next
+# next -- TBA
 
-Nothing yet.
+This release supports [version
+1](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#1) of
+`mir-json`'s schema.
+
+* Split out the `StatementKind` and `TerminatorKind` data types from `Statement`
+  and `Terminator`, respectively. `{Statement,Terminator}` now contain a pair
+  of `{Statement,Terminator}Kind` and its source position.
+* Improve source position tracking for `Statement`s and `Terminator`s during
+  the translation to Crucible. This should result in more precise error messages
+  in certain situations.
 
 # 0.4 -- 2025-03-21
 
