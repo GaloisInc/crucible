@@ -5,7 +5,7 @@ failures:
 
 ---- early_fail/<DISAMB>::fail1[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/core/src/panic.rs:57:9: 57:73 !test/symb_eval/crux/early_fail.rs:11:5: 11:20: error: in early_fail/<DISAMB>::fail1[0]
+[Crux]   ./libs/core/src/panic.rs:107:9: 107:73 !test/symb_eval/crux/early_fail.rs:11:5: 11:20: error: in early_fail/<DISAMB>::fail1[0]
 [Crux]   panicking::panic_fmt, called from early_fail/<DISAMB>::fail1[0]
 
 ---- early_fail/<DISAMB>::fail2[0] counterexamples ----
