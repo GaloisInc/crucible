@@ -251,7 +251,8 @@ vector_replicate = ( ["crucible","vector","{impl}", "replicate"], ) $ \substs ->
 vector_len :: (ExplodedDefId, CustomRHS)
 vector_len = ( ["crucible","vector","{impl}", "len"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr (C.VectorRepr tpr)) eRef] -> do
+        [MirExp MirReferenceRepr eRef] -> do
+            Some tpr <- tyToReprM t
             e <- readMirRef (C.VectorRepr tpr) eRef
             return $ MirExp UsizeRepr (R.App $ vectorSizeUsize R.App e)
         _ -> mirFail $ "bad arguments for Vector::len: " ++ show ops
@@ -306,16 +307,17 @@ vector_pop_front = ( ["crucible","vector","{impl}", "pop_front"], ) $ \substs ->
 vector_as_slice_impl :: CustomRHS
 vector_as_slice_impl (Substs [t]) =
     Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr (C.VectorRepr tpr)) e] -> do
+        [MirExp MirReferenceRepr e] -> do
+            Some tpr <- tyToReprM t
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
             e' <- mirRef_vectorAsMirVector tpr e
             e'' <- subindexRef tpr e' (R.App $ usizeLit 0)
             let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> MirReferenceRepr tpr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
                     (Ctx.Empty Ctx.:> e'' Ctx.:> end)
-            return $ MirExp (MirSliceRepr tpr) tup
+            return $ MirExp MirSliceRepr tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
 vector_as_slice_impl _ = Nothing
 
@@ -351,7 +353,8 @@ vector_split_at = ( ["crucible","vector","{impl}", "split_at"], ) $ \substs -> c
 vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
 vector_copy_from_slice = ( ["crucible","vector","{impl}", "copy_from_slice"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirSliceRepr tpr) e] -> do
+        [MirExp MirSliceRepr e] -> do
+            Some tpr <- tyToReprM t
             let ptr = getSlicePtr e
             let len = getSliceLen e
             v <- vectorCopy tpr ptr len
@@ -402,13 +405,17 @@ array_update = ( ["crucible","array","{impl}", "update"], ) $ \substs -> case su
 array_as_slice_impl :: CustomRHS
 array_as_slice_impl (Substs [t]) =
     Just $ CustomOp $ \_ ops -> case ops of
-        [ MirExp (MirReferenceRepr (UsizeArrayRepr btpr)) e,
+        [ MirExp MirReferenceRepr e,
           MirExp UsizeRepr start,
           MirExp UsizeRepr len ] -> do
+            Some tpr <- tyToReprM t
+            Some btpr <- case C.asBaseType tpr of
+                C.AsBaseType btpr -> return $ Some btpr
+                C.NotBaseType -> mirFail $ "expected Crucible base type, but got "
+                    ++ show t ++ ", " ++ show tpr
             e' <- mirRef_arrayAsMirVector btpr e
-            let tpr = C.baseToType btpr
             ptr <- subindexRef tpr e' start
-            return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr ptr len
+            return $ MirExp MirSliceRepr $ mkSlice ptr len
         _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing
 
@@ -455,8 +462,8 @@ any_downcast = ( ["core", "crucible", "any", "{impl}", "downcast"], \substs -> c
 ptr_offset_impl :: CustomRHS
 ptr_offset_impl = \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ref, MirExp IsizeRepr offset] ->
-            MirExp (MirReferenceRepr tpr) <$> mirRef_offset tpr ref offset
+        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] ->
+            MirExp MirReferenceRepr <$> mirRef_offset ref offset
         _ -> mirFail $ "bad arguments for ptr::offset: " ++ show ops
     _ -> Nothing
 
@@ -468,8 +475,8 @@ ptr_offset_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset"], ptr_offset_imp
 ptr_wrapping_offset_impl :: CustomRHS
 ptr_wrapping_offset_impl = \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ref, MirExp IsizeRepr offset] ->
-            MirExp (MirReferenceRepr tpr) <$> mirRef_offsetWrap tpr ref offset
+        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] ->
+            MirExp MirReferenceRepr <$> mirRef_offsetWrap ref offset
         _ -> mirFail $ "bad arguments for ptr::wrapping_offset: " ++ show ops
     _ -> Nothing
 
@@ -483,8 +490,7 @@ ptr_wrapping_offset_mut =
 ptr_offset_from_impl :: CustomRHS
 ptr_offset_from_impl = \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr1) ref1, MirExp (MirReferenceRepr tpr2) ref2]
-          | Just Refl <- testEquality tpr1 tpr2 -> do
+        [MirExp MirReferenceRepr ref1, MirExp MirReferenceRepr ref2] -> do
             maybeOffset <- mirRef_tryOffsetFrom ref1 ref2
             let errMsg = R.App $ E.StringLit $ fromString $
                     "tried to subtract pointers into different arrays"
@@ -507,12 +513,12 @@ ptr_compare_usize :: (ExplodedDefId, CustomRHS)
 ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
     \substs -> case substs of
         Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-            [MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr val] -> do
-                valAsPtr <- integerToMirRef tpr val
+            [MirExp MirReferenceRepr ptr, MirExp UsizeRepr val] -> do
+                valAsPtr <- integerToMirRef val
                 MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
-            [MirExp (MirSliceRepr tpr) slice, MirExp UsizeRepr val] -> do
+            [MirExp MirSliceRepr slice, MirExp UsizeRepr val] -> do
                 let ptr = getSlicePtr slice
-                valAsPtr <- integerToMirRef tpr val
+                valAsPtr <- integerToMirRef val
                 MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
             -- TODO: `&dyn Tr` case (after defining MirDynRepr)
             _ -> mirFail $ "bad arguments for ptr::compare_usize: " ++ show ops
@@ -531,8 +537,8 @@ is_aligned_and_not_null = (["core", "intrinsics", "is_aligned_and_not_null"],
 ptr_slice_from_raw_parts_impl :: CustomRHS
 ptr_slice_from_raw_parts_impl = \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr len] ->
-            return $ MirExp (MirSliceRepr tpr) (mkSlice tpr ptr len)
+        [MirExp MirReferenceRepr ptr, MirExp UsizeRepr len] ->
+            return $ MirExp MirSliceRepr (mkSlice ptr len)
         _ -> mirFail $ "bad arguments for ptr::slice_from_raw_parts: " ++ show ops
     _ -> Nothing
 
@@ -548,8 +554,9 @@ ptr_slice_from_raw_parts_mut =
 
 ptr_read :: (ExplodedDefId, CustomRHS)
 ptr_read = ( ["core", "ptr", "read"], \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ptr] ->
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ptr] -> do
+            Some tpr <- tyToReprM ty
             MirExp tpr <$> readMirRef tpr ptr
         _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
     _ -> Nothing)
@@ -557,22 +564,21 @@ ptr_read = ( ["core", "ptr", "read"], \substs -> case substs of
 ptr_write :: (ExplodedDefId, CustomRHS)
 ptr_write = ( ["core", "ptr", "write"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ptr, MirExp tpr' val]
-          | Just Refl <- testEquality tpr tpr' -> do
-            writeMirRef ptr val
+        [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
+            writeMirRef tpr ptr val
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments for ptr::write: " ++ show ops
     _ -> Nothing)
 
 ptr_swap :: (ExplodedDefId, CustomRHS)
 ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ptr1, MirExp (MirReferenceRepr tpr') ptr2]
-          | Just Refl <- testEquality tpr tpr' -> do
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ptr1, MirExp MirReferenceRepr ptr2] -> do
+            Some tpr <- tyToReprM ty
             x1 <- readMirRef tpr ptr1
             x2 <- readMirRef tpr ptr2
-            writeMirRef ptr1 x2
-            writeMirRef ptr2 x1
+            writeMirRef tpr ptr1 x2
+            writeMirRef tpr ptr2 x1
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
     _ -> Nothing)
@@ -587,26 +593,25 @@ ptr_null_mut = ( ["core", "ptr", "null_mut", "crucible_null_hook"]
 
 null_ptr_impl :: String -> CustomRHS
 null_ptr_impl what substs = case substs of
-    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [] -> do
-            Some tpr <- tyToReprM ty
-            ref <- integerToMirRef tpr $ R.App $ eBVLit knownNat 0
-            return $ MirExp (MirReferenceRepr tpr) ref
+            ref <- integerToMirRef $ R.App $ eBVLit knownNat 0
+            return $ MirExp MirReferenceRepr ref
         _  -> mirFail $ "expected no arguments for " ++ what ++ ", received: " ++ show ops
     _ -> Nothing
 
 intrinsics_copy :: (ExplodedDefId, CustomRHS)
 intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) src,
-         MirExp (MirReferenceRepr tpr') dest,
-         MirExp UsizeRepr count]
-          | Just Refl <- testEquality tpr tpr' -> do
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr src,
+         MirExp MirReferenceRepr dest,
+         MirExp UsizeRepr count] -> do
+            Some tpr <- tyToReprM ty
             -- `copy` (as opposed to `copy_nonoverlapping`) must work
             -- atomically even when the source and dest overlap.  We do this by
             -- taking a snapshot of the source, then copying the snapshot into
             -- dest.
-            (srcVec, srcIdx) <- mirRef_peelIndex tpr src
+            (srcVec, srcIdx) <- mirRef_peelIndex src
             srcSnapVec <- readMirRef (MirVectorRepr tpr) srcVec
             srcSnapRoot <- constMirRef (MirVectorRepr tpr) srcSnapVec
             srcSnap <- subindexRef tpr srcSnapRoot srcIdx
@@ -620,11 +625,11 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
 intrinsics_copy_nonoverlapping :: (ExplodedDefId, CustomRHS)
 intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"],
     \substs -> case substs of
-        Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-            [MirExp (MirReferenceRepr tpr) src,
-             MirExp (MirReferenceRepr tpr') dest,
-             MirExp UsizeRepr count]
-              | Just Refl <- testEquality tpr tpr' ->
+        Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp MirReferenceRepr src,
+             MirExp MirReferenceRepr dest,
+             MirExp UsizeRepr count] -> do
+                Some tpr <- tyToReprM ty
                 copyNonOverlapping tpr src dest count
 
             _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
@@ -921,9 +926,9 @@ discriminant_value ::  (ExplodedDefId, CustomRHS)
 discriminant_value = (["core","intrinsics", "{extern}", "discriminant_value"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
-        ([TyRef (TyAdt nm _ _) Immut], [eRef]) -> do
+        ([TyRef ty@(TyAdt nm _ _) Immut], [eRef]) -> do
             adt <- findAdt nm
-            e <- derefExp eRef >>= readPlace
+            e <- derefExp ty eRef >>= readPlace
             MirExp tp' e' <- enumDiscriminant adt e
             case testEquality tp' IsizeRepr of
               Just Refl ->
@@ -959,13 +964,13 @@ min_align_of = (["core", "intrinsics", "{extern}", "min_align_of"], \substs -> c
 -- trivial to implement as a custom op.
 mem_swap ::  (ExplodedDefId, CustomRHS)
 mem_swap = (["core","mem", "swap"],
-    \ _substs -> Just $ CustomOp $ \ opTys ops -> case ops of
-        [MirExp (MirReferenceRepr ty1) e1, MirExp (MirReferenceRepr ty2) e2]
-          | Just Refl <- testEquality ty1 ty2 -> do
-            val1 <- readMirRef ty1 e1
-            val2 <- readMirRef ty2 e2
-            writeMirRef e1 val2
-            writeMirRef e2 val1
+    \(Substs [ty]) -> Just $ CustomOp $ \ opTys ops -> case ops of
+        [MirExp MirReferenceRepr e1, MirExp MirReferenceRepr e2] -> do
+            Some tpr <- tyToReprM ty
+            val1 <- readMirRef tpr e1
+            val2 <- readMirRef tpr e2
+            writeMirRef tpr e1 val2
+            writeMirRef tpr e2 val1
             return $ MirExp knownRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
     )
@@ -1023,7 +1028,7 @@ array_from_slice = (["core","array", "{impl}", "try_from", "crucible_array_from_
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
             ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty _) Immut]),
-              [MirExp (MirSliceRepr tpr) e, MirExp UsizeRepr eLen] ) -> do
+              [MirExp MirSliceRepr e, MirExp UsizeRepr eLen] ) -> do
                 -- TODO: This should be implemented as a type cast, so the
                 -- input and output are aliases.  However, the input slice is a
                 -- MirVector, while the output must be a plain crucible Vector.
@@ -1036,11 +1041,12 @@ array_from_slice = (["core","array", "{impl}", "try_from", "crucible_array_from_
                 -- Option<&[T; N]>.
                 adt <- findAdt optionMonoName
 
+                Some tpr <- tyToReprM ty
                 MirExp C.AnyRepr <$> G.ifte lenOk
                     (do v <- vectorCopy tpr ptr len
                         v' <- mirVector_fromVector tpr v
                         ref <- constMirRef (MirVectorRepr tpr) v'
-                        let vMir = MirExp (MirReferenceRepr (MirVectorRepr tpr)) ref
+                        let vMir = MirExp MirReferenceRepr ref
                         enum <- buildEnum adt optionDiscrSome [vMir]
                         unwrapMirExp C.AnyRepr enum)
                     (do enum <- buildEnum adt optionDiscrNone []
@@ -1075,7 +1081,7 @@ slice_len_impl :: CustomRHS
 slice_len_impl (Substs [_]) =
     Just $ CustomOp $ \ _optys ops ->
         case ops of
-            [MirExp (MirSliceRepr _) e] -> do
+            [MirExp MirSliceRepr e] -> do
                 return $ MirExp UsizeRepr $ getSliceLen e
             _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len"
 
@@ -1088,11 +1094,11 @@ slice_len_impl (Substs [_]) =
 slice_index_usize_get_unchecked_impl :: CustomRHS
 slice_index_usize_get_unchecked_impl (Substs [_elTy]) =
     Just $ CustomOp $ \ optys ops -> case ops of
-        [MirExp UsizeRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
+        [MirExp UsizeRepr ind, MirExp MirSliceRepr slice] -> do
             let ptr = getSlicePtr slice
             let len = getSliceLen slice
-            ptr' <- mirRef_offset el_tp ptr ind
-            return $ (MirExp (MirReferenceRepr el_tp) ptr')
+            ptr' <- mirRef_offset ptr ind
+            return $ (MirExp MirReferenceRepr ptr')
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
 slice_index_usize_get_unchecked_impl _ = Nothing
 
@@ -1109,15 +1115,15 @@ slice_index_usize_get_unchecked_mut =
 slice_index_range_get_unchecked_impl :: CustomRHS
 slice_index_range_get_unchecked_impl (Substs [_elTy]) =
     Just $ CustomOp $ \ optys ops -> case ops of
-        [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr tpr) slice]
+        [ MirExp tr1 start, MirExp tr2 end, MirExp MirSliceRepr slice]
           | Just Refl <- testEquality tr1 UsizeRepr
           , Just Refl <- testEquality tr2 UsizeRepr
           -> do
             let ptr = getSlicePtr slice
             let len = getSliceLen slice
-            ptr' <- mirRef_offset tpr ptr start
+            ptr' <- mirRef_offset ptr start
             let len' = S.app $ usizeSub end start
-            return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr ptr' len'
+            return $ MirExp MirSliceRepr $ mkSlice ptr' len'
 
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
 slice_index_range_get_unchecked_impl _ = Nothing
@@ -1349,23 +1355,23 @@ bv_overflowing_binop name bop =
     )
 
 bv_eq :: (ExplodedDefId, CustomRHS)
-bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \(Substs [_sz]) ->
+bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \(Substs [sz]) ->
     Just $ CustomOp $ \_optys ops -> case ops of
-        [MirExp (MirReferenceRepr (C.BVRepr w1)) r1, MirExp (MirReferenceRepr (C.BVRepr w2)) r2]
-          | Just Refl <- testEquality w1 w2 -> do
-            v1 <- readMirRef (C.BVRepr w1) r1
-            v2 <- readMirRef (C.BVRepr w2) r2
-            return $ MirExp C.BoolRepr $ S.app $ E.BVEq w1 v1 v2
+        [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2]
+          | Just (BVSize w) <- tyBvSize sz -> do
+            v1 <- readMirRef (C.BVRepr w) r1
+            v2 <- readMirRef (C.BVRepr w) r2
+            return $ MirExp C.BoolRepr $ S.app $ E.BVEq w v1 v2
         _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops)
 
 bv_lt :: (ExplodedDefId, CustomRHS)
-bv_lt = (["crucible", "bitvector", "{impl}", "lt"], \(Substs [_sz]) ->
+bv_lt = (["crucible", "bitvector", "{impl}", "lt"], \(Substs [sz]) ->
     Just $ CustomOp $ \_optys ops -> case ops of
-        [MirExp (MirReferenceRepr (C.BVRepr w1)) r1, MirExp (MirReferenceRepr (C.BVRepr w2)) r2]
-          | Just Refl <- testEquality w1 w2 -> do
-            v1 <- readMirRef (C.BVRepr w1) r1
-            v2 <- readMirRef (C.BVRepr w2) r2
-            return $ MirExp C.BoolRepr $ S.app $ E.BVUlt w1 v1 v2
+        [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2]
+          | Just (BVSize w) <- tyBvSize sz -> do
+            v1 <- readMirRef (C.BVRepr w) r1
+            v2 <- readMirRef (C.BVRepr w) r2
+            return $ MirExp C.BoolRepr $ S.app $ E.BVUlt w v1 v2
         _ -> mirFail $ "BUG: invalid arguments to bv_lt: " ++ show ops)
 
 type BVMakeLiteral = forall ext f w.
@@ -1401,11 +1407,11 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             Some tpr <- tyToReprM t
             vec <- mirVector_uninit tpr len
             ref <- newMirRef (MirVectorRepr tpr)
-            writeMirRef ref vec
+            writeMirRef (MirVectorRepr tpr) ref vec
             -- `subindexRef` doesn't do a bounds check (those happen on deref
             -- instead), so this works even when len is 0.
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
-            return $ MirExp (MirReferenceRepr tpr) ptr
+            return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 
@@ -1420,9 +1426,9 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
             vec <- mirVector_fromVector tpr vec
 
             ref <- newMirRef (MirVectorRepr tpr)
-            writeMirRef ref vec
+            writeMirRef (MirVectorRepr tpr) ref vec
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
-            return $ MirExp (MirReferenceRepr tpr) ptr
+            return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 
@@ -1434,16 +1440,17 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 reallocate :: (ExplodedDefId, CustomRHS)
 reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [ MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr newLen ] -> do
-            (vecPtr, idx) <- mirRef_peelIndex tpr ptr
+        [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
+            (vecPtr, idx) <- mirRef_peelIndex ptr
 
             let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
             G.assertExpr isZero $
                 S.litExpr "bad pointer in reallocate: not the start of an allocation"
 
+            Some tpr <- tyToReprM t
             oldVec <- readMirRef (MirVectorRepr tpr) vecPtr
             newVec <- mirVector_resize tpr oldVec newLen
-            writeMirRef vecPtr newVec
+            writeMirRef (MirVectorRepr tpr) vecPtr newVec
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
@@ -1469,29 +1476,28 @@ makeAtomicIntrinsics name variants rhs =
         | suffix <- "" : map ("_" <>) variants]
 
 atomic_store_impl :: CustomRHS
-atomic_store_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' val]
-      | Just Refl <- testEquality tpr tpr' -> do
-        writeMirRef ref val
+atomic_store_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
+    [MirExp MirReferenceRepr ref, MirExp tpr val] -> do
+        writeMirRef tpr ref val
         return $ MirExp C.UnitRepr $ R.App E.EmptyApp
     _ -> mirFail $ "BUG: invalid arguments to atomic_store: " ++ show ops
 
 atomic_load_impl :: CustomRHS
-atomic_load_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp (MirReferenceRepr tpr) ref] ->
+atomic_load_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([TyRawPtr ty _], [MirExp MirReferenceRepr ref]) -> do
+        Some tpr <- tyToReprM ty
         MirExp tpr <$> readMirRef tpr ref
     _ -> mirFail $ "BUG: invalid arguments to atomic_load: " ++ show ops
 
 atomic_cxchg_impl :: CustomRHS
 atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
-    ([_, ty, _], [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' expect, MirExp tpr'' val])
+    ([_, ty, _], [MirExp MirReferenceRepr ref, MirExp tpr expect, MirExp tpr' val])
       | Just Refl <- testEquality tpr tpr'
-      , Just Refl <- testEquality tpr tpr''
       , C.BVRepr w <- tpr -> do
         old <- readMirRef tpr ref
         let eq = R.App $ E.BVEq w old expect
         let new = R.App $ E.BVIte eq w val old
-        writeMirRef ref new
+        writeMirRef tpr ref new
         buildTupleMaybeM [ty, TyBool] $
             [Just $ MirExp tpr old, Just $ MirExp C.BoolRepr eq]
     _ -> mirFail $ "BUG: invalid arguments to atomic_cxchg: " ++ show ops
@@ -1513,12 +1519,11 @@ atomic_rmw_impl ::
         MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
     CustomRHS
 atomic_rmw_impl name rmw = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' val]
-      | Just Refl <- testEquality tpr tpr'
-      , C.BVRepr w <- tpr -> do
+    [MirExp MirReferenceRepr ref, MirExp tpr val]
+      | C.BVRepr w <- tpr -> do
         old <- readMirRef tpr ref
         new <- rmw w old val
-        writeMirRef ref new
+        writeMirRef tpr ref new
         return $ MirExp tpr old
     _ -> mirFail $ "BUG: invalid arguments to atomic_" ++ name ++ ": " ++ show ops
 
