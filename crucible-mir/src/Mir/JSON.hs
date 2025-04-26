@@ -550,6 +550,8 @@ instance FromJSON ConstVal where
             variant <- v .: "variant"
             fields <- v .: "fields"
             return $ ConstEnum variant fields
+        Just (String "union") ->
+            pure ConstUnion
 
         Just (String "fndef") -> ConstFunction <$> v .: "def_id"
         Just (String "static_ref") -> ConstStaticRef <$> v .: "def_id"

@@ -543,6 +543,7 @@ data ConstVal =
   | ConstRawPtr Integer
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
+  | ConstUnion
   | ConstFnPtr Instance
   deriving (Show,Eq, Ord, Generic)
 
