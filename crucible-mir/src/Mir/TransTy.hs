@@ -122,9 +122,6 @@ pattern CTyBvSize128 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector",
 pattern CTyBvSize256 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_256"]) (M.Substs [])
 pattern CTyBvSize512 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_512"]) (M.Substs [])
 pattern CTyBv t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "Bv"]) (M.Substs [t])
-pattern CTyBv128 <- CTyBv CTyBvSize128
-pattern CTyBv256 <- CTyBv CTyBvSize256
-pattern CTyBv512 <- CTyBv CTyBvSize512
 
 bvExplodedDefId :: M.ExplodedDefId
 bvExplodedDefId = ["crucible", "bitvector", "Bv"]
@@ -148,12 +145,21 @@ optionDiscrSome :: Int
 optionDiscrSome = 1
 
 
+tyBvSize :: M.Ty -> Maybe BVSize
+tyBvSize ty = case ty of
+    CTyBvSize128 -> Just $ BVSize $ knownNat @128
+    CTyBvSize256 -> Just $ BVSize $ knownNat @256
+    CTyBvSize512 -> Just $ BVSize $ knownNat @512
+    _ -> Nothing
+
+data BVSize where
+  BVSize :: forall w. (1 <= w) => NatRepr w -> BVSize
+
+
 tyToRepr :: TransTyConstraint => M.Collection -> M.Ty -> Some C.TypeRepr
 tyToRepr col t0 = case t0 of
   CTyInt512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
-  CTyBv128 -> Some $ C.BVRepr (knownNat :: NatRepr 128)
-  CTyBv256 -> Some $ C.BVRepr (knownNat :: NatRepr 256)
-  CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
+  CTyBv (tyBvSize -> Just (BVSize w)) -> Some $ C.BVRepr w
   CTyVector t -> tyToReprCont col t $ \repr -> Some (C.VectorRepr repr)
   CTyArray t
     | Some tpr <- tyToRepr col t
@@ -184,8 +190,8 @@ tyToRepr col t0 = case t0 of
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
   -- These definitions are *not* compositional
-  M.TyRef (M.TySlice t) _ -> tyToReprCont col t $ \repr -> Some (MirSliceRepr repr)
-  M.TyRef M.TyStr _       -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
+  M.TyRef (M.TySlice t) _ -> tyToReprCont col t $ \repr -> Some MirSliceRepr
+  M.TyRef M.TyStr _       -> Some MirSliceRepr
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
   -- data value (which is either `&Ty` or `&mut Ty`) and a vtable.  Both are
@@ -196,10 +202,10 @@ tyToRepr col t0 = case t0 of
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
   -- TODO: DSTs not behind a reference - these should never appear in real code
-  M.TySlice t -> tyToReprCont col t $ \repr -> Some (MirSliceRepr repr)
-  M.TyStr -> Some (MirSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
+  M.TySlice t -> tyToReprCont col t $ \repr -> Some MirSliceRepr
+  M.TyStr -> Some MirSliceRepr
 
-  M.TyRef t _       -> tyToReprCont col t $ \repr -> Some (MirReferenceRepr repr)
+  M.TyRef t _       -> tyToReprCont col t $ \repr -> Some MirReferenceRepr
   -- Raw pointers are represented like references, including the fat pointer
   -- cases that are special-cased above.
   M.TyRawPtr t mutbl -> tyToRepr col (M.TyRef t mutbl)
@@ -996,14 +1002,14 @@ enumDiscrLit tp discr =
 
 fieldDataRef ::
     FieldKind tp tp' ->
-    R.Expr MIR s (MirReferenceType tp') ->
-    MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+    R.Expr MIR s MirReferenceType ->
+    MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 fieldDataRef (FkInit tpr) ref = return ref
 fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 
 structFieldRef ::
     M.Adt -> Int ->
-    C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+    C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
 structFieldRef adt i tpr ref = do
     StructInfo ctx idx fld <- structInfo adt i
@@ -1017,7 +1023,7 @@ structFieldRef adt i tpr ref = do
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
-    C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+    C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
 enumFieldRef adt i j tpr ref = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
@@ -1040,7 +1046,7 @@ enumDiscriminant adt e = do
 
 tupleFieldRef ::
     [M.Ty] -> Int ->
-    C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+    C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
 tupleFieldRef tys i tpr ref = do
     col <- use $ cs . collection

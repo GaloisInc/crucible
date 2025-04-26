@@ -75,16 +75,17 @@ import qualified Mir.Mir as M
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
-    RegValue sym (MirSlice (BVType 8)) ->
+    RegValue sym MirSlice ->
     OverrideSim p sym MIR rtp args ret (Maybe Text)
 getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
+    let w = knownNat @8
     sym <- lift getSymInterface
     state <- get
     len <- readBV lenExpr
     bytes <- forM [0 .. len - 1] $ \i -> do
-        iExpr <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
-        elemPtr <- lift $ mirRef_offsetWrapSim knownRepr mirPtr iExpr
-        bExpr <- lift $ readMirRefSim knownRepr elemPtr
+        iExpr <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat i)
+        elemPtr <- lift $ mirRef_offsetWrapSim mirPtr iExpr
+        bExpr <- lift $ readMirRefSim (BVRepr w) elemPtr
         b <- readBV bExpr
         return $ fromIntegral b
     return $ Text.decodeUtf8 $ BS.pack bytes
@@ -95,7 +96,7 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
 makeSymbolicVar ::
     IsSymInterface sym =>
     BaseTypeRepr btp ->
-    TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice (BVType 8)) (BaseToType btp)
+    TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (BaseToType btp)
 makeSymbolicVar btpr =
   Crux.baseFreshOverride btpr strrepr $ \(RV strSlice) -> do
     mstr <- getString strSlice
@@ -106,14 +107,14 @@ makeSymbolicVar btpr =
           Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
           Right x -> return x
   where
-    strrepr :: TypeRepr (MirSlice (BVType 8))
+    strrepr :: TypeRepr MirSlice
     strrepr = knownRepr
 
 array_symbolic ::
   forall sym rtp btp p .
   (IsSymInterface sym) =>
   BaseTypeRepr btp ->
-  TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice (BVType 8)) (UsizeArrayType btp)
+  TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (UsizeArrayType btp)
 array_symbolic btpr = makeSymbolicVar (BaseArrayRepr (Empty :> BaseUsizeRepr) btpr)
 
 concretize ::
@@ -213,7 +214,8 @@ regEval bak baseEval tpr v = go tpr v
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go (MirSliceRepr tpr') (Empty :> RV ptr :> RV len) = do
+    go MirSliceRepr (Empty :> RV ptr :> RV len) = error "TODO: regEval MirSliceRepr"
+    {-
         state <- get
 
         len' <- go UsizeRepr len
@@ -231,6 +233,7 @@ regEval bak baseEval tpr v = go tpr v
         let vecRef = newConstMirRef sym (MirVectorRepr tpr') vec
         ptr <- subindexMirRefSim tpr' vecRef =<< liftIO (bvZero sym knownRepr)
         return $ Empty :> RV ptr :> RV len'
+    -}
 
     go (FloatRepr fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
@@ -249,13 +252,13 @@ regEval bak baseEval tpr v = go tpr v
         return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
-    go (MirReferenceRepr tpr') (MirReferenceMux mux) = do
+    go MirReferenceRepr (MirReferenceMux mux) = do
         ref <- goMuxTreeEntries tpr (viewFancyMuxTree mux)
         ref' <- case ref of
-            MirReference root path ->
-                MirReference <$> goMirReferenceRoot root <*> goMirReferencePath path
-            (MirReference_Integer _tpr i) ->
-                MirReference_Integer tpr' <$> go UsizeRepr i
+            MirReference tpr root path ->
+                MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
+            (MirReference_Integer i) ->
+                MirReference_Integer <$> go UsizeRepr i
         return $ MirReferenceMux $ toFancyMuxTree sym ref'
     go (MirVectorRepr tpr') vec = case vec of
         MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
@@ -395,9 +398,8 @@ bindFn ::
   OverrideSim (p sym) sym MIR rtp a r ()
 bindFn symOnline cs name cfg
   | hasInstPrefix ["crucible", "array", "symbolic"] explodedName
-  , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
+  , Empty :> MirSliceRepr <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
-  , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     runTypedOverride "array::symbolic" (array_symbolic btpr)
 
@@ -413,8 +415,7 @@ bindFn symOnline cs name cfg
     mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
 
   | hasInstPrefix ["crucible", "dump_what4"] explodedName
-  , Empty :> MirSliceRepr (BVRepr w) :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
-  , Just Refl <- testEquality w (knownNat @8)
+  , Empty :> MirSliceRepr :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "crucible_override_" UnitRepr $ do
@@ -468,7 +469,7 @@ bindFn _symOnline _cs fn cfg =
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
 
-    strrepr :: TypeRepr (MirSlice (BVType 8))
+    strrepr :: TypeRepr MirSlice
     strrepr = knownRepr
 
     symb_bv :: forall n . (1 <= n)
