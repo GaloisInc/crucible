@@ -417,6 +417,7 @@ instance FromJSON BinOp where
             Just (String "Ge") -> pure Ge
             Just (String "Gt") -> pure Gt
             Just (String "Offset") -> pure Offset
+            Just (String "Cmp") -> pure Cmp
             x -> fail ("bad binop: " ++ show x)
 
 

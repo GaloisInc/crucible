@@ -22,6 +22,7 @@ License          : BSD3
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
@@ -469,6 +470,7 @@ data BinOp =
       | Ge
       | Gt
       | Offset
+      | Cmp
       | Checked BinOp
   deriving (Show,Eq, Ord, Generic)
 
@@ -661,6 +663,16 @@ instance TypeOf a => ArithTyped a where
         _  -> Nothing
 
 --------------------------------------------------------------------------------------
+-- | Lang items
+
+pattern CTyOrdering :: Ty
+pattern CTyOrdering <- TyAdt _ $(explodedDefIdPat ["$lang", "OrderingEnum"]) (Substs [])
+  where CTyOrdering = TyAdt
+          (textId "$lang/0::OrderingEnum::_adt[0]")
+          (textId "$lang/0::OrderingEnum")
+          (Substs [])
+
+--------------------------------------------------------------------------------------
 -- | TypeOf
 
 class TypeOf a where
@@ -727,6 +739,7 @@ instance TypeOf Rvalue where
             Gt -> TyBool
             -- ptr::offset
             Offset -> ty
+            Cmp -> CTyOrdering
             Checked op'' -> TyTuple [f op'', TyBool]
     in f op
   typeOf (NullaryOp op _ty) = case op of

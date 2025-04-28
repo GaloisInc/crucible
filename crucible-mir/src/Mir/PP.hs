@@ -312,6 +312,7 @@ instance Pretty BinOp where
       Ge -> pretty ">="
       Gt -> pretty ">"
       Offset -> pretty "Offset"
+      Cmp -> pretty "Cmp"
       Checked op' -> pretty op' <> pretty "?"
 
 instance Pretty CastKind where
