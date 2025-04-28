@@ -10,7 +10,7 @@ failures:
 [Crux]   test/symb_eval/crux/mixed_fail.rs:8:22: 8:27: error: in mixed_fail/<DISAMB>::fail1[0]
 [Crux]   attempt to compute `copy _1 + const 1_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:32: error: in mixed_fail/<DISAMB>::fail1[0]
+[Crux]   ./libs/crucible/lib.rs:44:9: 44:79 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:32: error: in mixed_fail/<DISAMB>::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:8:5:
 [Crux]   	x + 1 > x
 
@@ -19,7 +19,7 @@ failures:
 [Crux]   test/symb_eval/crux/mixed_fail.rs:14:22: 14:27: error: in mixed_fail/<DISAMB>::fail2[0]
 [Crux]   attempt to compute `copy _1 + const 2_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:32: error: in mixed_fail/<DISAMB>::fail2[0]
+[Crux]   ./libs/crucible/lib.rs:44:9: 44:79 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:32: error: in mixed_fail/<DISAMB>::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:14:5:
 [Crux]   	x + 2 > x
 

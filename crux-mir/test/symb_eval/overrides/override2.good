@@ -4,7 +4,7 @@ failures:
 
 ---- override2/<DISAMB>::f[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/overrides/override2.rs:9:5: 9:49: error: in override2/<DISAMB>::f[0]
+[Crux]   ./libs/crucible/lib.rs:44:9: 44:79 !test/symb_eval/overrides/override2.rs:9:5: 9:49: error: in override2/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/overrides/override2.rs:9:5:
 [Crux]   	foo.wrapping_add(1) == foo
 
