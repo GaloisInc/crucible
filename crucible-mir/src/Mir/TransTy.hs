@@ -102,14 +102,14 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 pattern CTyInt512 <- M.TyAdt _ $(M.explodedDefIdPat ["int512", "Int512"]) (M.Substs [])
 pattern CTyBox t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "boxed", "Box"]) (M.Substs [t])
 
-pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "mem", "maybe_uninit", "MaybeUninit"]) (M.Substs [t])
+pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "MaybeUninit"]) (M.Substs [t])
 
 maybeUninitExplodedDefId :: M.ExplodedDefId
-maybeUninitExplodedDefId = ["core", "mem", "maybe_uninit", "MaybeUninit"]
+maybeUninitExplodedDefId = ["$lang", "MaybeUninit"]
 
 -- `UnsafeCell` isn't handled specially inside baseline `crucible-mir`, but
 -- `crux-mir-comp` looks for it (using this pattern synonym).
-pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "cell", "UnsafeCell"]) (M.Substs [t])
+pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "UnsafeCell"]) (M.Substs [t])
 
 pattern CTyVector t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "vector", "Vector"]) (M.Substs [t])
 
@@ -135,10 +135,10 @@ pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "met
 
 -- These don't have custom representation, but are referenced in various
 -- places.
-pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "option", "Option"]) (M.Substs [t])
+pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "Option"]) (M.Substs [t])
 
 optionExplodedDefId :: M.ExplodedDefId
-optionExplodedDefId = ["core", "option", "Option"]
+optionExplodedDefId = ["$lang", "Option"]
 optionDiscrNone :: Int
 optionDiscrNone = 0
 optionDiscrSome :: Int
