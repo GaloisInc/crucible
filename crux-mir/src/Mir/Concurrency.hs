@@ -57,9 +57,9 @@ mirJoin _ nm args cf _
 mirAtomic :: C.IsSymInterface sym => ExplorePrimitiveMatcher p sym MIR
 mirAtomic _ nm ctx cf _
   | matchGeneric "core::crucible::concurrency::sched_yield" nm
-  , Ctx.Empty Ctx.:> C.BoolRepr Ctx.:> MirReferenceRepr t <- ctx
+  , Ctx.Empty Ctx.:> C.BoolRepr Ctx.:> MirReferenceRepr <- ctx
   = do isRO <- W4.asConstantPred =<< retrieveTypedArg ctx cf C.BoolRepr 0
-       tr   <- retrieveTypedArg ctx cf (MirReferenceRepr t) 1
+       tr   <- retrieveTypedArg ctx cf MirReferenceRepr 1
        let refs = mirRefName tr
        pure $! ThreadYield SimpleYield refs isRO
   | otherwise = Nothing
@@ -67,16 +67,16 @@ mirAtomic _ nm ctx cf _
 mirLock :: C.IsSymInterface sym => ExplorePrimitiveMatcher p sym MIR
 mirLock _ nm ctx cf _
   | matchGeneric "core::crucible::concurrency::mutex_lock" nm
-  , Ctx.Empty Ctx.:> MirReferenceRepr t <- ctx
-  = do arg <- retrieveTypedArg ctx cf (MirReferenceRepr t) 0
+  , Ctx.Empty Ctx.:> MirReferenceRepr <- ctx
+  = do arg <- retrieveTypedArg ctx cf MirReferenceRepr 0
        let refs = mirRefName arg
        case refs of
          [ref] ->
            pure $! ThreadYield (Acquire ref) refs False
          _ -> error "TODO: Muxed mutex lock"
   | matchGeneric "core::crucible::concurrency::mutex_unlock" nm
-  , Ctx.Empty Ctx.:> MirReferenceRepr t <- ctx
-  = do arg <- retrieveTypedArg ctx cf (MirReferenceRepr t) 0
+  , Ctx.Empty Ctx.:> MirReferenceRepr <- ctx
+  = do arg <- retrieveTypedArg ctx cf MirReferenceRepr 0
        let refs = mirRefName arg
        case refs of
          [ref] ->
@@ -117,21 +117,21 @@ mirExit _ nm ctx cf _
   | otherwise
   = Nothing
 
-mirRefName :: C.IsSymInterface sym => MirReferenceMux sym tp -> [Text.Text]
+mirRefName :: C.IsSymInterface sym => MirReferenceMux sym -> [Text.Text]
 mirRefName t =
   case t of
     MirReferenceMux tree ->
        let refs = fst <$> viewFancyMuxTree tree
            extr r =
              case r of
-               MirReference root p ->
+               MirReference t root p ->
                  Text.pack (show root ++ mirPathName p)
                -- If std::sys::crux::Mutex becomes zero sized, then we might
                -- actually hit this case, as the compiler will be free to choose
                -- any integer to serve as an address. We can probably just get
                -- away with using this intger as the address, but the results might be
                -- strange if distinct mutexes are assigned the same address.
-               MirReference_Integer t rv ->
+               MirReference_Integer rv ->
                  error "Unexpected MirReference_Integer in mirRefName"
        in (extr <$> refs)
 

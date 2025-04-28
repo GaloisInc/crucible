@@ -137,7 +137,7 @@ data MirExp s where
 -- | MirExp, but with a static guarantee that it's a MirReference.  Used as the
 -- result of lvalue evaluation.
 data MirPlace s where
-    MirPlace :: C.TypeRepr ty -> R.Expr MIR s (MirReferenceType ty) -> PtrMetadata s -> MirPlace s
+    MirPlace :: C.TypeRepr ty -> R.Expr MIR s MirReferenceType -> PtrMetadata s -> MirPlace s
     -- | This is a hack used to support @&dyn Trait@ references. Unlike other
     -- reference types, trait objects do not use 'MirReferenceType', instead
     -- using a custom 'AnyType' representation that wraps a
@@ -273,13 +273,13 @@ data StaticVar where
 type VarMap s = Map Text.Text (Some (VarInfo s))
 data VarInfo s tp where
   VarRegister  :: R.Reg s tp -> VarInfo s tp
-  VarReference :: R.Reg s (MirReferenceType tp) -> VarInfo s tp
+  VarReference :: C.TypeRepr tp -> R.Reg s MirReferenceType -> VarInfo s tp
   VarAtom      :: R.Atom s tp -> VarInfo s tp
 
 instance Show (VarInfo s tp) where
     showsPrec d (VarRegister r) = showParen (d > 10) $
         showString "VarRegister " . showsPrec 11 r
-    showsPrec d (VarReference r) = showParen (d > 10) $
+    showsPrec d (VarReference _ r) = showParen (d > 10) $
         showString "VarReference " . showsPrec 11 r
     showsPrec d (VarAtom a) = showParen (d > 10) $
         showString "VarAtom " . showsPrec 11 a
@@ -426,10 +426,7 @@ expectFnContext = do
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
 varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
-varInfoRepr (VarReference reg0) =
-  case R.typeOfReg reg0 of
-    MirReferenceRepr tp -> tp
-    _ -> error "impossible: varInfoRepr"
+varInfoRepr (VarReference tp _) = tp
 varInfoRepr (VarAtom a) = R.typeOfAtom a
 
 findFn :: DefId -> MirGenerator h s ret Fn
@@ -620,121 +617,118 @@ makeTempOperand ty exp = do
 
 newMirRef ::
   C.TypeRepr tp ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 newMirRef tp = G.extensionStmt (MirNewRef tp)
 
 integerToMirRef ::
-  C.TypeRepr tp ->
   R.Expr MIR s UsizeType ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
-integerToMirRef tp i = G.extensionStmt (MirIntegerToRef tp i)
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+integerToMirRef i = G.extensionStmt (MirIntegerToRef i)
 
 globalMirRef ::
   G.GlobalVar tp ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 globalMirRef gv = G.extensionStmt (MirGlobalRef gv)
 
 constMirRef ::
   C.TypeRepr tp ->
   R.Expr MIR s tp ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 constMirRef tpr v = G.extensionStmt (MirConstRef tpr v)
 
 dropMirRef ::
-  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret ()
 dropMirRef refExp = void $ G.extensionStmt (MirDropRef refExp)
 
 readMirRef ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s tp)
 readMirRef tp refExp = G.extensionStmt (MirReadRef tp refExp)
 
 writeMirRef ::
-  R.Expr MIR s (MirReferenceType tp) ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
   R.Expr MIR s tp ->
   MirGenerator h s ret ()
-writeMirRef ref x = void $ G.extensionStmt (MirWriteRef ref x)
+writeMirRef tp ref x = void $ G.extensionStmt (MirWriteRef tp ref x)
 
 subanyRef ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType C.AnyType) ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subanyRef tpr ref = G.extensionStmt (MirSubanyRef tpr ref)
 
 subfieldRef ::
   C.CtxRepr ctx ->
-  R.Expr MIR s (MirReferenceType (C.StructType ctx)) ->
+  R.Expr MIR s MirReferenceType ->
   Index ctx tp ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
 
 subvariantRef ::
   C.TypeRepr discrTp ->
   C.CtxRepr variantsCtx ->
-  R.Expr MIR s (MirReferenceType (RustEnumType discrTp variantsCtx)) ->
+  R.Expr MIR s MirReferenceType ->
   Index variantsCtx tp ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subvariantRef tp ctx ref idx = G.extensionStmt (MirSubvariantRef tp ctx ref idx)
 
 subindexRef ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType (MirVectorType tp)) ->
+  R.Expr MIR s MirReferenceType ->
   R.Expr MIR s UsizeType ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
 
 subjustRef ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType (C.MaybeType tp)) ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
 mirRef_vectorAsMirVector ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType tp)))
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_vectorAsMirVector tpr ref = G.extensionStmt $ MirRef_VectorAsMirVector tpr ref
 
 mirRef_arrayAsMirVector ::
   C.BaseTypeRepr btp ->
-  R.Expr MIR s (MirReferenceType (UsizeArrayType btp)) ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType (C.BaseToType btp))))
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
 
 mirRef_eq ::
-  R.Expr MIR s (MirReferenceType tp) ->
-  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s MirReferenceType ->
+  R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s C.BoolType)
 mirRef_eq r1 r2 = G.extensionStmt $ MirRef_Eq r1 r2
 
 mirRef_offset ::
-  C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s MirReferenceType ->
   R.Expr MIR s IsizeType ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
-mirRef_offset tpr ref offset = G.extensionStmt $ MirRef_Offset tpr ref offset
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_offset ref offset = G.extensionStmt $ MirRef_Offset ref offset
 
 mirRef_offsetWrap ::
-  C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s MirReferenceType ->
   R.Expr MIR s IsizeType ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
-mirRef_offsetWrap tpr ref offset = G.extensionStmt $ MirRef_OffsetWrap tpr ref offset
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_offsetWrap ref offset = G.extensionStmt $ MirRef_OffsetWrap ref offset
 
 mirRef_tryOffsetFrom ::
-  R.Expr MIR s (MirReferenceType tp) ->
-  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s MirReferenceType ->
+  R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s (C.MaybeType IsizeType))
 mirRef_tryOffsetFrom r1 r2 = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2
 
 mirRef_peelIndex ::
-  C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType tp) ->
-  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType tp)), R.Expr MIR s UsizeType)
-mirRef_peelIndex tpr ref = do
-    pair <- G.extensionStmt $ MirRef_PeelIndex tpr ref
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType, R.Expr MIR s UsizeType)
+mirRef_peelIndex ref = do
+    pair <- G.extensionStmt $ MirRef_PeelIndex ref
     return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
 
 -----------------------------------------------------------------------

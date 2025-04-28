@@ -168,8 +168,8 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 -- staticSlicePlace does the first four of these actions; addrOfPlace
 -- does the last two.
 --
-transConstVal (M.TyRef _ _) (Some (MirSliceRepr tpr)) (M.ConstSliceRef defid len) = do
-    place <- staticSlicePlace tpr len defid
+transConstVal (M.TyRef _ _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
+    place <- staticSlicePlace len defid
     addr <- addrOfPlace place
     return addr
 
@@ -216,8 +216,8 @@ transConstVal ty _ ConstZST = initialValue ty >>= \case
     Just x -> return x
     Nothing -> mirFail $
         "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
-transConstVal _ty (Some (MirReferenceRepr tpr)) (ConstRawPtr i) =
-    MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr (R.App $ usizeLit i)
+transConstVal _ty (Some MirReferenceRepr) (ConstRawPtr i) =
+    MirExp MirReferenceRepr <$> integerToMirRef (R.App $ usizeLit i)
 transConstVal ty@(M.TyAdt aname _ _) tpr (ConstStruct fields) = do
     adt <- findAdt aname
     col <- use $ cs . collection
@@ -241,12 +241,14 @@ transConstVal ty@(M.TyAdt aname _ _) tpr (ConstEnum variant fields) = do
             let fieldTys = map (\f -> f ^. fty) fieldDefs
             exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr col ty) val) fields fieldTys
             buildEnum adt variant exps
-transConstVal ty (Some (MirReferenceRepr tpr)) init = do
-    MirExp tpr' val <- transConstVal (M.typeOfProj M.Deref ty) (Some tpr) init
+transConstVal ty (Some MirReferenceRepr) init = do
+    let pointeeTy = M.typeOfProj M.Deref ty
+    Some tpr <- tyToReprM pointeeTy
+    MirExp tpr' val <- transConstVal pointeeTy (Some tpr) init
     Refl <- testEqualityOrFail tpr tpr' $
         "transConstVal returned wrong type: expected " ++ show tpr ++ ", got " ++ show tpr'
     ref <- constMirRef tpr val
-    return $ MirExp (MirReferenceRepr tpr) ref
+    return $ MirExp MirReferenceRepr ref
 transConstVal _ty (Some tpr@(C.FunctionHandleRepr argTys retTy)) (ConstFnPtr inst) = do
     let did = inst^.inDefId
     mbHndl <- resolveFn did
@@ -329,7 +331,7 @@ readVar :: C.TypeRepr tp -> VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s t
 readVar tpr vi = do
     case vi of
         VarRegister reg -> G.readReg reg
-        VarReference reg -> G.readReg reg >>= readMirRef tpr
+        VarReference _ reg -> G.readReg reg >>= readMirRef tpr
         VarAtom a -> return $ R.AtomExpr a
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
@@ -344,7 +346,7 @@ varPlace (M.Var vname _ vty _) = do
     Some tpr <- tyToReprM vty
     vi <- typedVarInfo vname tpr
     r <- case vi of
-        VarReference reg -> G.readReg reg
+        VarReference _ reg -> G.readReg reg
         -- TODO: these cases won't be needed once immutable ref support is done
         -- - make them report an error instead
         VarRegister reg -> do
@@ -366,15 +368,16 @@ staticPlace did = do
 
 -- variant of staticPlace for slices
 -- tpr is the element type; len is the length
-staticSlicePlace :: HasCallStack => C.TypeRepr tp -> Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
-staticSlicePlace tpr len did = do
+staticSlicePlace :: HasCallStack => Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
+staticSlicePlace len did = do
     sm <- use $ cs.staticMap
     case Map.lookup did sm of
         Just (StaticVar gv) -> do
             let tpr_found = G.globalType gv
-            Refl <- testEqualityOrFail (MirVectorRepr tpr) tpr_found $
-                "staticSlicePlace: wrong type: expected vector of " ++
-                show tpr ++ ", found " ++ show tpr_found
+            Some tpr <- case tpr_found of
+                MirVectorRepr tpr -> return $ Some tpr
+                _ -> mirFail $
+                    "staticSlicePlace: wrong type: expected vector, found " ++ show tpr_found
             ref <- globalMirRef gv
             ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
             let len' = R.App $ usizeLit $ fromIntegral len
@@ -400,13 +403,16 @@ evalOperand (M.Temp rv) = evalRval rv
 
 -- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
 -- representation), producing a `MirPlace`.
-derefExp :: HasCallStack => MirExp s -> MirGenerator h s ret (MirPlace s)
-derefExp (MirExp (MirReferenceRepr tpr) e) = return $ MirPlace tpr e NoMeta
-derefExp (MirExp (MirSliceRepr tpr) e) = do
+derefExp :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret (MirPlace s)
+derefExp pointeeTy (MirExp MirReferenceRepr e) = do
+    Some tpr <- tyToReprM pointeeTy
+    return $ MirPlace tpr e NoMeta
+derefExp pointeeTy (MirExp MirSliceRepr e) = do
+    Some tpr <- tyToReprM pointeeTy
     let ptr = getSlicePtr e
     let len = getSliceLen e
     return $ MirPlace tpr ptr (SliceMeta len)
-derefExp (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
+derefExp pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
@@ -418,9 +424,9 @@ readPlace MirPlaceDynRef{} =
     mirFail "readPlace not supported for dyn references"
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
-addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp (MirReferenceRepr tpr) r
+addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp MirReferenceRepr r
 addrOfPlace (MirPlace tpr r (SliceMeta len)) =
-    return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr r len
+    return $ MirExp MirSliceRepr $ mkSlice r len
 addrOfPlace (MirPlaceDynRef dynRef) =
     return $ MirExp DynRefRepr dynRef
 
@@ -586,8 +592,7 @@ evalBinOp bop mat me1 me2 =
 
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
-      (MirExp (MirReferenceRepr tpr1) e1, MirExp (MirReferenceRepr tpr2) e2)
-        | Just Refl <- testEquality tpr1 tpr2 ->
+      (MirExp MirReferenceRepr e1, MirExp MirReferenceRepr e2) ->
           case bop of
             M.Beq -> do
                 eq <- mirRef_eq e1 e2
@@ -597,9 +602,9 @@ evalBinOp bop mat me1 me2 =
                 return (MirExp C.BoolRepr $ S.app $ E.Not eq, noOverflow)
             _ -> mirFail $ "No translation for pointer binop: " ++ fmt bop
 
-      (MirExp (MirReferenceRepr tpr) e1, MirExp UsizeRepr e2) -> do
-          newRef <- mirRef_offsetWrap tpr e1 e2
-          return (MirExp (MirReferenceRepr tpr) newRef, noOverflow)
+      (MirExp MirReferenceRepr e1, MirExp UsizeRepr e2) -> do
+          newRef <- mirRef_offsetWrap e1 e2
+          return (MirExp MirReferenceRepr newRef, noOverflow)
 
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
@@ -689,7 +694,7 @@ transUnaryOp uop op = do
       (M.Neg, MirExp (C.BVRepr n) e) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSub n (S.app $ eBVLit n 0) e)
       (M.Neg, MirExp C.IntegerRepr e) -> return $ MirExp C.IntegerRepr $ S.app $ E.IntNeg e
       (M.Neg, MirExp C.RealValRepr e) -> return $ MirExp C.RealValRepr $ S.app $ E.RealNeg e
-      (M.PtrMetadata, MirExp (MirSliceRepr _) e) -> return $ MirExp UsizeRepr $ getSliceLen e
+      (M.PtrMetadata, MirExp MirSliceRepr e) -> return $ MirExp UsizeRepr $ getSliceLen e
       (_ , MirExp ty e) -> mirFail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
 
 
@@ -875,16 +880,18 @@ evalCast' ck ty1 e ty2  = do
 
       --  *const [T] -> *T (discards the length and returns only the pointer)
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
-        | t1 == t2, m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
-        -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
+        | t1 == t2, m1 == m2, MirExp MirSliceRepr e' <- e
+        -> return $ MirExp MirReferenceRepr (getSlicePtr e')
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TyUint M.B8) m2)
-        | m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
-        -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
+        | m1 == m2, MirExp MirSliceRepr e' <- e
+        -> return $ MirExp MirReferenceRepr (getSlicePtr e')
 
       --  *const [T; N] -> *const T (get first element)
       (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
-        | t1 == t2, m1 == m2, MirExp (MirReferenceRepr (MirVectorRepr tpr)) e' <- e
-        -> MirExp (MirReferenceRepr tpr) <$> subindexRef tpr e' (R.App $ usizeLit 0)
+        | t1 == t2, m1 == m2, MirExp MirReferenceRepr e' <- e
+        -> do
+          Some tpr <- tyToReprM t1
+          MirExp MirReferenceRepr <$> subindexRef tpr e' (R.App $ usizeLit 0)
 
       --  *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
@@ -916,14 +923,15 @@ evalCast' ck ty1 e ty2  = do
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
-    unsizeArray tp sz tp'
-      | tp == tp', MirExp (MirReferenceRepr (MirVectorRepr elem_tp)) ref <- e
+    unsizeArray ty sz ty'
+      | ty == ty', MirExp MirReferenceRepr ref <- e
       = do
+        Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
         ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
-        let tup   = S.mkStruct (mirSliceCtxRepr elem_tp)
+        let tup   = S.mkStruct mirSliceCtxRepr
                         (Ctx.Empty Ctx.:> ref' Ctx.:> len)
-        return $ MirExp (MirSliceRepr elem_tp) tup
+        return $ MirExp MirSliceRepr tup
       | otherwise = mirFail $
         "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
@@ -1015,12 +1023,12 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
         return $ MirExp retTy concatExpr
 
     -- Cast integer to pointer, like `0 as *mut T`
-    (C.BVRepr w, MirReferenceRepr tpr) -> do
+    (C.BVRepr w, MirReferenceRepr) -> do
         int <- case srcMirTy of
             M.TyInt _ -> return $ sbvToUsize w R.App argExpr
             M.TyUint _ -> return $ bvToUsize w R.App argExpr
             _ -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy ++ " for tpr " ++ show argTy
-        MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
+        MirExp MirReferenceRepr <$> integerToMirRef int
 
     -- Transmuting between values of the same Crucible repr
     _ | Just Refl <- testEquality argTy retTy -> return e
@@ -1122,11 +1130,11 @@ evalRval (M.Aggregate ak ops) =
                     ++ ", but got " ++ show args
             case ty of
                 TySlice _ -> case (tprPtr, tprMeta) of
-                    (MirReferenceRepr tpr, UsizeRepr) -> do
+                    (MirReferenceRepr, UsizeRepr) -> do
                         let tup = S.mkStruct
-                                (Ctx.Empty Ctx.:> MirReferenceRepr tpr Ctx.:> knownRepr)
+                                (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
                                 (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
-                        return $ MirExp (MirSliceRepr tpr) tup
+                        return $ MirExp MirSliceRepr tup
                     _ -> mirFail $ "evalRval: unexpected reprs " ++ show (tprPtr, tprMeta)
                         ++ " for aggregate " ++ show ak
                 _ -> mirFail $ "evalRval: unsupported output type for " ++ show ak
@@ -1203,17 +1211,23 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
   where
-    doRef (M.TySlice _) | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
-    doRef M.TyStr | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
+    doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
+    doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = do
         dynRef <- readMirRef tpr ref
         return $ MirPlaceDynRef dynRef
-    doRef _ | MirReferenceRepr tpr' <- tpr = do
+    doRef ty' | MirReferenceRepr <- tpr = do
+        -- This use of `tyToRepr` is okay because `TyDynamic` and other unsized
+        -- cases are handled above.
+        Some tpr' <- tyToReprM ty'
         MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
     doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
 
-    doSlice tpr' ref' = do
-        slice <- readMirRef (MirSliceRepr tpr') ref'
+    doSlice ty' ref' = do
+        -- This use of `tyToRepr` is okay because we know the element type of a
+        -- slice is always sized.
+        Some tpr' <- tyToReprM ty'
+        slice <- readMirRef MirSliceRepr ref'
         let ptr = getSlicePtr slice
         let len = getSliceLen slice
         return $ MirPlace tpr' ptr (SliceMeta len)
@@ -1276,7 +1290,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         idx <- getIdx idxVar
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset elemTpr ref idx <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_offset ref idx <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -1296,7 +1310,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
         idx <- getIdx idx len fromEnd
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset elemTpr ref idx <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_offset ref idx <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -1357,7 +1371,7 @@ doAssign lv (MirExp tpr val) = do
             Refl <- testEqualityOrFail tpr tpr' $
                 "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
                     ++ " (" ++ show (M.typeOf lv) ++ ") " ++ show lv
-            writeMirRef ref val
+            writeMirRef tpr ref val
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
@@ -1402,11 +1416,12 @@ transStatementKind (M.StmtIntrinsic ndi) =
             srcExp <- evalOperand srcOp
             destExp <- evalOperand destOp
             countExp <- evalOperand countOp
+            let elemTy = M.typeOfProj M.Deref $ M.typeOf srcOp
+            Some tpr <- tyToReprM elemTy
             case (srcExp, destExp, countExp) of
-                ( MirExp (MirReferenceRepr tpr) src,
-                  MirExp (MirReferenceRepr tpr') dest,
+                ( MirExp MirReferenceRepr src,
+                  MirExp MirReferenceRepr dest,
                   MirExp UsizeRepr count )
-                    |  Just Refl <- testEquality tpr tpr'
                     -> void $ copyNonOverlapping tpr src dest count
                 _   -> mirFail $ unlines
                          [ "bad arguments for intrinsics::copy_nonoverlapping: "
@@ -1801,9 +1816,9 @@ initLocals localVars addrTaken = forM_ localVars $ \v -> do
           ref <- newMirRef tpr
           case optVal of
               Nothing -> return ()
-              Just val -> writeMirRef ref val
+              Just val -> writeMirRef tpr ref val
           reg <- G.newReg ref
-          return $ Some $ VarReference reg
+          return $ Some $ VarReference tpr reg
         else do
           reg <- case optVal of
               Nothing -> G.newUnassignedReg tpr
@@ -1816,7 +1831,7 @@ cleanupLocals :: MirGenerator h s ret ()
 cleanupLocals = do
     vm <- use varMap
     forM_ (Map.elems vm) $ \(Some vi) -> case vi of
-        VarReference reg -> G.readReg reg >>= dropMirRef
+        VarReference _ reg -> G.readReg reg >>= dropMirRef
         _ -> return ()
 
 -- | Look at all of the assignments in the basic block and return
@@ -1930,9 +1945,9 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
                         show (R.typeOfAtom input) ++ " != " ++ show (varInfoRepr vi)
                 case vi of
                     VarRegister reg -> G.assignReg reg $ R.AtomExpr input
-                    VarReference refReg -> do
+                    VarReference tpr refReg -> do
                         ref <- G.readReg refReg
-                        writeMirRef ref $ R.AtomExpr input
+                        writeMirRef tpr ref $ R.AtomExpr input
                     VarAtom _ -> mirFail $ "unexpected VarAtom"
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname
@@ -2490,7 +2505,7 @@ transStatics colState halloc = do
 -- Generate a loop that copies `len` elements starting at `ptr0` into a vector.
 --
 vectorCopy :: C.TypeRepr tp ->
-              G.Expr MIR s (MirReferenceType tp) ->
+              G.Expr MIR s MirReferenceType ->
               G.Expr MIR s UsizeType ->
               MirGenerator h s ret (G.Expr MIR s (C.VectorType tp))
 vectorCopy tpr ptr0 len = do
@@ -2514,7 +2529,7 @@ vectorCopy tpr ptr0 len = do
                      out <- G.readRef outRef
                      elt <- readMirRef tpr ptr
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
-                     ptr' <- mirRef_offset tpr ptr (S.app $ usizeLit 1)
+                     ptr' <- mirRef_offset ptr (S.app $ usizeLit 1)
                      let out' = S.app $ vectorSetUsize tpr R.App out i elt
                      G.writeRef iRef i'
                      G.writeRef ptrRef ptr'
@@ -2525,8 +2540,8 @@ vectorCopy tpr ptr0 len = do
 
 ptrCopy ::
     C.TypeRepr tp ->
-    G.Expr MIR s (MirReferenceType tp) ->
-    G.Expr MIR s (MirReferenceType tp) ->
+    G.Expr MIR s MirReferenceType ->
+    G.Expr MIR s MirReferenceType ->
     G.Expr MIR s UsizeType ->
     MirGenerator h s ret ()
 ptrCopy tpr src dest len = do
@@ -2535,18 +2550,18 @@ ptrCopy tpr src dest len = do
     G.while (pos, do i <- G.readRef iRef
                      return (G.App $ usizeLt i len))
             (pos, do i <- G.readRef iRef
-                     src' <- mirRef_offset tpr src i
-                     dest' <- mirRef_offset tpr dest i
+                     src' <- mirRef_offset src i
+                     dest' <- mirRef_offset dest i
                      val <- readMirRef tpr src'
-                     writeMirRef dest' val
+                     writeMirRef tpr dest' val
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
                      G.writeRef iRef i')
     G.dropRef iRef
 
 copyNonOverlapping ::
     C.TypeRepr tp ->
-    R.Expr MIR s (MirReferenceType tp) ->
-    R.Expr MIR s (MirReferenceType tp) ->
+    R.Expr MIR s MirReferenceType ->
+    R.Expr MIR s MirReferenceType ->
     R.Expr MIR s UsizeType ->
     MirGenerator h s ret (MirExp s)
 copyNonOverlapping tpr src dest count = do
