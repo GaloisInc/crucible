@@ -263,11 +263,13 @@ regEval bak baseEval tpr v = go tpr v
         ref' <- case ref of
             MirReference tpr root path ->
                 MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
-            (MirReference_Integer i) ->
+            MirReference_Integer i ->
                 MirReference_Integer <$> go UsizeRepr i
         return $ MirReferenceMux $ toFancyMuxTree sym ref'
     go (MirVectorRepr tpr') vec = case vec of
         MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
+        MirVector_PartialVector pv ->
+            MirVector_PartialVector <$> go (VectorRepr (MaybeRepr tpr')) pv
         MirVector_Array a
           | AsBaseType btpr' <- asBaseType tpr' ->
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
