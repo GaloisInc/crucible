@@ -1712,13 +1712,16 @@ mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
             liftIO $ mkPE similar <$> bvZero sym knownNat
+mirRef_tryOffsetFromLeaf sym (MirReference_Integer i1) (MirReference_Integer i2) = do
+    -- Return zero if `i1 == i2`; otherwise, return `Unassigned`.
+    --
+    -- For more interesting cases, we would need to know the element size to
+    -- use in converting the byte offset `i1 - i2` into an element count.
+    eq <- liftIO $ bvEq sym i1 i2
+    liftIO $ mkPE eq <$> bvZero sym knownNat
 mirRef_tryOffsetFromLeaf _ _ _ = do
     -- MirReference_Integer pointers are always disjoint from all MirReference
     -- pointers, so we report them as being in different objects.
-    --
-    -- For comparing two MirReference_Integer pointers, this answer is clearly
-    -- wrong, but it's (hopefully) a moot point since there's almost nothing
-    -- you can do with a MirReference_Integer anyway without causing a crash.
     return Unassigned
 
 mirRef_tryOffsetFromIO ::
