@@ -214,27 +214,33 @@ regEval bak baseEval tpr v = go tpr v
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go MirSliceRepr (Empty :> RV ptr :> RV len) = error "TODO: regEval MirSliceRepr"
-    {-
-        state <- get
+    go MirSliceRepr (Empty :> RV ptr :> RV len) = do
+        let MirReferenceMux mux = ptr
+        ref <- goMuxTreeEntries tpr (viewFancyMuxTree mux)
+        case ref of
+            MirReference tpr _ _ -> do
+                state <- get
 
-        len' <- go UsizeRepr len
-        let lenBV = BV.asUnsigned $
-                    fromMaybe (error "regEval produced non-concrete BV") $
-                    asBV len'
+                len' <- go UsizeRepr len
+                let lenBV = BV.asUnsigned $
+                            fromMaybe (error "regEval produced non-concrete BV") $
+                            asBV len'
 
-        vals <- forM [0 .. lenBV - 1] $ \i -> do
-            i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
-            ptr' <- mirRef_offsetSim tpr' ptr i'
-            val <- readMirRefSim tpr' ptr'
-            go tpr' val
+                vals <- forM [0 .. lenBV - 1] $ \i -> do
+                    i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
+                    ptr' <- mirRef_offsetSim tpr ptr i'
+                    val <- readMirRefSim tpr ptr'
+                    go tpr val
 
-        let vec = MirVector_Vector $ V.fromList vals
-        let vecRef = newConstMirRef sym (MirVectorRepr tpr') vec
-        ptr <- subindexMirRefSim tpr' vecRef =<< liftIO (bvZero sym knownRepr)
-        return $ Empty :> RV ptr :> RV len'
-    -}
-
+                let vec = MirVector_Vector $ V.fromList vals
+                let vecRef = newConstMirRef sym (MirVectorRepr tpr) vec
+                ptr' <- subindexMirRefSim tpr vecRef =<< liftIO (bvZero sym knownRepr)
+                return $ Empty :> RV ptr' :> RV len'
+            MirReference_Integer i -> do
+                i' <- go UsizeRepr i
+                let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
+                len' <- go UsizeRepr len
+                return $ Empty :> RV ptr' :> RV len'
     go (FloatRepr fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
     go UnitRepr () = pure ()
