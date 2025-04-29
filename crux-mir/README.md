@@ -123,10 +123,10 @@ To run `crux-mir`'s test suite:
 
     $ cabal test
 
-You need to have built and installed the mir-json tool such that it can be
-found on your $PATH. You also need translated libraries for the Rust target
-architecture you're testing on. See the "Preliminaries" section above for more
-details.
+You need to have built and installed the mir-json tool such that it can be found
+on your $PATH. You also need translated libraries for the Rust target
+architecture you're testing on. See the [Setup: `mir-json`](#setup-mir-json)
+section above for more details.
 
 ### Expected Failures
 
