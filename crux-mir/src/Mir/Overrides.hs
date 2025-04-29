@@ -214,27 +214,43 @@ regEval bak baseEval tpr v = go tpr v
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go MirSliceRepr (Empty :> RV ptr :> RV len) = error "TODO: regEval MirSliceRepr"
-    {-
-        state <- get
+    go MirSliceRepr (Empty :> RV ptr :> RV len) = do
+        let MirReferenceMux mux = ptr
+        ref <- goMuxTreeEntries tpr (viewFancyMuxTree mux)
+        case ref of
+            MirReference tpr _ _ -> do
+                state <- get
 
-        len' <- go UsizeRepr len
-        let lenBV = BV.asUnsigned $
-                    fromMaybe (error "regEval produced non-concrete BV") $
-                    asBV len'
+                len' <- go UsizeRepr len
+                let lenBV = BV.asUnsigned $
+                            fromMaybe (error "regEval produced non-concrete BV") $
+                            asBV len'
 
-        vals <- forM [0 .. lenBV - 1] $ \i -> do
-            i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
-            ptr' <- mirRef_offsetSim tpr' ptr i'
-            val <- readMirRefSim tpr' ptr'
-            go tpr' val
+                -- TODO: This logic is incorrect if `ptr` has been cast to a
+                -- different type.  For example, if the slice being inspected
+                -- is the result of interpreting `&[u32; 3]` as `&[u8]` (which
+                -- increases the length by a factor of 4), we'll end up with a
+                -- pointee type `tpr` of `BVType 32`, but a `len` of 12, even
+                -- though there are only 3 `u32`s in the actual array.  The
+                -- correct way to go about this would be to pass in the
+                -- `Mir.Ty` (for the example, `u8`), and use that together with
+                -- the `len`.  But threading the right `Ty` through to this
+                -- location would need a more invasive refactor.
+                vals <- forM [0 .. lenBV - 1] $ \i -> do
+                    i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
+                    ptr' <- mirRef_offsetSim tpr ptr i'
+                    val <- readMirRefSim tpr ptr'
+                    go tpr val
 
-        let vec = MirVector_Vector $ V.fromList vals
-        let vecRef = newConstMirRef sym (MirVectorRepr tpr') vec
-        ptr <- subindexMirRefSim tpr' vecRef =<< liftIO (bvZero sym knownRepr)
-        return $ Empty :> RV ptr :> RV len'
-    -}
-
+                let vec = MirVector_Vector $ V.fromList vals
+                let vecRef = newConstMirRef sym (MirVectorRepr tpr) vec
+                ptr' <- subindexMirRefSim tpr vecRef =<< liftIO (bvZero sym knownRepr)
+                return $ Empty :> RV ptr' :> RV len'
+            MirReference_Integer i -> do
+                i' <- go UsizeRepr i
+                let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
+                len' <- go UsizeRepr len
+                return $ Empty :> RV ptr' :> RV len'
     go (FloatRepr fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
     go UnitRepr () = pure ()
@@ -257,11 +273,13 @@ regEval bak baseEval tpr v = go tpr v
         ref' <- case ref of
             MirReference tpr root path ->
                 MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
-            (MirReference_Integer i) ->
+            MirReference_Integer i ->
                 MirReference_Integer <$> go UsizeRepr i
         return $ MirReferenceMux $ toFancyMuxTree sym ref'
     go (MirVectorRepr tpr') vec = case vec of
         MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
+        MirVector_PartialVector pv ->
+            MirVector_PartialVector <$> go (VectorRepr (MaybeRepr tpr')) pv
         MirVector_Array a
           | AsBaseType btpr' <- asBaseType tpr' ->
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
