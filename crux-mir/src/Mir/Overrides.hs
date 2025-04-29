@@ -226,6 +226,16 @@ regEval bak baseEval tpr v = go tpr v
                             fromMaybe (error "regEval produced non-concrete BV") $
                             asBV len'
 
+                -- TODO: This logic is incorrect if `ptr` has been cast to a
+                -- different type.  For example, if the slice being inspected
+                -- is the result of interpreting `&[u32; 3]` as `&[u8]` (which
+                -- increases the length by a factor of 4), we'll end up with a
+                -- pointee type `tpr` of `BVType 32`, but a `len` of 12, even
+                -- though there are only 3 `u32`s in the actual array.  The
+                -- correct way to go about this would be to pass in the
+                -- `Mir.Ty` (for the example, `u8`), and use that together with
+                -- the `len`.  But threading the right `Ty` through to this
+                -- location would need a more invasive refactor.
                 vals <- forM [0 .. lenBV - 1] $ \i -> do
                     i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
                     ptr' <- mirRef_offsetSim tpr ptr i'
