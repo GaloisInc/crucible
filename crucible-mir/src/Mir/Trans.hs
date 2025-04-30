@@ -1971,10 +1971,13 @@ transDefine :: forall h.
   -> M.Intrinsic
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transDefine colState intr = do
-    Some (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) <-
-        case Map.lookup fname (colState^.handleMap) of
+    MirHandle _hname _hsig (handle :: FH.FnHandle args ret) <-
+        case Map.lookup (intr ^. M.intrName) (colState^.handleMap) of
             Nothing -> error "bad handle!!"
-            Just mh -> return $ Some mh
+            Just mh -> return mh
+    error "TODO"
+
+{-
 fn@(M.Fn fname _ _ _) =
   case 
     Nothing -> error "bad handle!!"
@@ -1997,6 +2000,7 @@ fn@(M.Fn fname _ _ _) =
       fti <- readSTRef ftiRef
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa, fti)
+-}
 
 
 -- | Allocate method handles for each of the functions in the Collection
