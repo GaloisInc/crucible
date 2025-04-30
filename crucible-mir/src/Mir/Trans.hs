@@ -1968,12 +1968,17 @@ transDefine :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
   , ?printCrucible::Bool)
   => CollectionState
-  -> M.Fn
+  -> M.Intrinsic
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
-transDefine colState fn@(M.Fn fname _ _ _) =
-  case (Map.lookup fname (colState^.handleMap)) of
+transDefine colState intr = do
+    Some (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) <-
+        case Map.lookup fname (colState^.handleMap) of
+            Nothing -> error "bad handle!!"
+            Just mh -> return $ Some mh
+fn@(M.Fn fname _ _ _) =
+  case 
     Nothing -> error "bad handle!!"
-    Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
+    Just (MirHandle _hname _hsig (handle :: )) -> do
       ftiRef <- newSTRef mempty
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR FnState args ret (ST h)
@@ -2209,11 +2214,10 @@ traitMethodSig trait methName = case matchedMethSigs of
             TraitMethod methName' sig | methName' == methName -> Just sig
             _ -> Nothing) (trait ^. M.traitItems)
 
--- Generate method handles for all virtual-call shims (IkVirtual intrinsics)
--- used in the current crate.
-mkVirtCallHandleMap :: (HasCallStack) =>
+-- Generate method handles for all generated shims used in the current crate.
+mkShimHandleMap :: (HasCallStack) =>
     Collection -> FH.HandleAllocator -> IO HandleMap
-mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
+mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
   where
     mkHandle :: (M.IntrinsicName, M.Intrinsic) ->
         IO (Map M.DefId MirHandle)
@@ -2222,15 +2226,32 @@ mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. 
         let methName = intr ^. M.intrInst ^. M.inDefId
             trait = lookupTrait col dynTraitName
             methSig = traitMethodSig trait methName
-
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
         in liftM (Map.singleton name) $
             tyListToCtx col (methSig ^. M.fsarg_tys) $ \argctx ->
             tyToReprCont col (methSig ^. M.fsreturn_ty) $ \retrepr -> do
                  h <- FH.mkHandle' halloc handleName argctx retrepr
                  return $ MirHandle (intr ^. M.intrName) methSig h
+      | IkClosureFnPointerShim <- intr ^. M.intrInst . M.inKind = do
+        let callMutId = intr ^. M.intrInst . M.inDefId
+        callMutFn <- case col ^. M.functions . at callMutId of
+            Just x -> return x
+            Nothing -> error $ "undefined function " ++ show callMutId
+              ++ " for IkClosureFnPointerShim " ++ show name
+        let callMutSig = callMutFn ^. M.fsig
+        untupledArgTys <- case callMutSig ^? M.fsarg_tys . ix 1 of
+            Just (M.TyTuple tys) -> return tys
+            x -> error $ "expected tuple for second arg of " ++ show callMutId
+              ++ ", but got " ++ show x ++ ", for IkClosureFnPointerShim " ++ show name
+        let returnTy = callMutSig ^. M.fsreturn_ty
+        let fnPtrSig = M.FnSig untupledArgTys returnTy RustAbi Nothing
+        let handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
+        mh <- tyListToCtx col untupledArgTys $ \argCtx ->
+            tyToReprCont col returnTy $ \retRepr -> do
+                h <- FH.mkHandle' halloc handleName argCtx retRepr
+                return $ MirHandle (intr ^. M.intrName) fnPtrSig h
+        return $ Map.singleton name mh
       | otherwise = return Map.empty
-      where
 
 -- Generate a virtual-call shim.  The shim takes (&dyn Foo, args...), splits
 -- the `&dyn` into its data-pointer and vtable components, looks up the
@@ -2336,6 +2357,115 @@ transVirtCall colState intrName methName dynTraitName methIndex
         -- Call it
         G.tailCall vtsFH (recvData <: args)
 
+-- Generate a closure-to-fnptr shim.  The shim taske some args and calls the
+-- function `callMutId` with an empty tuple and a tuple of args.
+transClosureFnPointerShim :: forall h.
+  (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+  => CollectionState
+  -> M.IntrinsicName
+  -> M.MethName
+  -> ST h (Text, Core.AnyCFG MIR)
+transClosureFnPointerShim colState intrName callMutId
+  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
+    error "TODO"
+    {-
+    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
+    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
+        $ \eqMethArgs@Refl recvTy argTys ->
+    let retTy = FH.handleReturnType methFH in
+
+    checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
+        $ \eqRecvTy@Refl ->
+
+    -- Unpack vtable type
+    withSome vtableType $ \vtableStructTy ->
+    elimStructType vtableStructTy (die ["vtable type is not a struct"])
+        $ \eqVtableStructTy@Refl vtableTys ->
+
+    let someVtableIdx = case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
+            Just x -> x
+            Nothing -> die ["method index out of range for vtable:",
+                "method =", show methIndex, "; size =", show (Ctx.size vtableTys)] in
+    withSome someVtableIdx $ \vtableIdx ->
+
+    -- Check that the vtable entry has the correct signature.
+    elimFunctionHandleType (vtableTys Ctx.! vtableIdx) (die ["vtable entry is not a function"])
+        $ \eqVtableEntryTy@Refl vtsArgTys vtsRetTy ->
+    elimAssignmentLeft vtsArgTys (die ["vtable shim has no arguments"])
+        $ \eqVtsArgs@Refl vtsRecvTy vtsArgTys ->
+
+    checkEq vtsRecvTy C.AnyRepr (die ["vtable shim receiver is not Any"])
+        $ \eqVtsRecvTy@Refl ->
+    checkEq vtsArgTys argTys
+        (die ["vtable shim arguments don't match method; vtable shim =",
+            show vtsArgTys, "; method =", show argTys])
+        $ \eqVtsArgTys@Refl ->
+    checkEq vtsRetTy retTy
+        (die ["vtable shim return type doesn't match method; vtable shim =",
+            show vtsRetTy, "; method =", show retTy])
+        $ \eqVtsRetTy@Refl ->
+
+    do
+        R.SomeCFG g <- defineFunctionNoAuxs methFH
+            (buildShim argTys retTy vtableTys vtableIdx)
+        case SSA.toSSA g of
+            Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
+    -}
+
+
+  where
+    die :: [String] -> a
+    die words = error $ unwords
+        (["failed to generate closure-to-fnptr shim for", show callMutId,
+            "(intrinsic", show intrName, "):"] ++ words)
+
+    {-
+    dynTrait = case colState ^. collection . M.traits . at dynTraitName of
+        Just x -> x
+        Nothing -> die ["undefined trait " ++ show dynTraitName]
+
+    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
+    -- substs only, omitting the Self type.
+    vtableType :: Some C.TypeRepr
+    vtableType = traitVtableType (colState ^. collection) dynTraitName dynTrait
+    -}
+
+    methMH = case Map.lookup intrName (colState ^. handleMap) of
+        Just x -> x
+        Nothing -> die ["failed to find method handle for", show intrName]
+
+    {-
+    buildShim ::
+        C.CtxRepr argTys -> C.TypeRepr retTy -> C.CtxRepr vtableTys ->
+        Ctx.Index vtableTys (C.FunctionHandleType (C.AnyType :<: argTys) retTy) ->
+        G.FunctionDef MIR [] (DynRefType :<: argTys) retTy (ST h)
+    buildShim argTys retTy vtableTys vtableIdx argsA = (\x -> ([], x)) $ do
+        let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
+
+        -- Extract data and vtable parts of the `&dyn` receiver
+        let recvData = R.App $ E.GetStruct recv dynRefDataIndex C.AnyRepr
+        let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
+
+        -- Downcast the vtable to its proper struct type
+        errBlk <- G.newLabel
+        G.defineBlock errBlk $ do
+            G.reportError $ R.App $ E.StringLit $ fromString $
+                unwords ["bad vtable downcast:", show dynTraitName,
+                    "to", show vtableTys]
+
+        let vtableStructTy = C.StructRepr vtableTys
+        okBlk <- G.newLambdaLabel' vtableStructTy
+        vtable <- G.continueLambda okBlk $ do
+            G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
+
+        -- Extract the function handle from the vtable
+        let vtsFH = R.App $ E.GetStruct vtable vtableIdx
+                (C.FunctionHandleRepr (C.AnyRepr <: argTys) retTy)
+
+        -- Call it
+        G.tailCall vtsFH (recvData <: args)
+    -}
+
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s
 
@@ -2417,7 +2547,7 @@ transCollection col halloc = do
     -- build up the state in the Generator
 
     hmap1 <- mkHandleMap col halloc
-    hmap2 <- mkVirtCallHandleMap col halloc
+    hmap2 <- mkShimHandleMap col halloc
     let hmap = hmap1 <> hmap2
 
     vm <- mkVtableMap col halloc
@@ -2449,6 +2579,9 @@ transCollection col halloc = do
         Instance (IkVirtual dynTraitName methodIndex) methodId _substs ->
             stToIO $ Just <$> transVirtCall colState
                 (intr^.M.intrName) methodId dynTraitName methodIndex
+        Instance IkClosureFnPointerShim callMutId _substs ->
+            stToIO $ Just <$> transClosureFnPointerShim colState
+                (intr^.M.intrName) callMutId
         _ -> return Nothing) (Map.elems (col ^. M.intrinsics))
 
     return $ RustModule

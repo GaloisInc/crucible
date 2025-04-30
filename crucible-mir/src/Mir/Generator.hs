@@ -195,6 +195,8 @@ data FnTransContext
     -- ^ We are translating a function definition.
   | StaticContext
     -- ^ We are translating the initializer for static values.
+  | ShimContext
+    -- ^ We are generating a shim function of some kind.
 
 -- | State about the entire collection used for the translation
 data CollectionState
