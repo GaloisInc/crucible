@@ -918,6 +918,18 @@ evalCast' ck ty1 e ty2  = do
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show defId
 
+      (M.ClosureFnPointer shimDefId, M.TyClosure [], M.TyFnPtr sig@(M.FnSig args ret _ _))
+         -> do mhand <- lookupFunction shimDefId
+               case mhand of
+                 Just (me, sig')
+                   | sig == sig' -> return me
+                   | otherwise -> mirFail $
+                       "ClosureFnPointer: bad MIR: method handle has wrong sig: " ++
+                       show (shimDefId, sig, sig')
+                 Nothing -> mirFail $
+                        "ClosureFnPointer: bad MIR: can't find method handle: " ++
+                        show shimDefId
+
       (M.Transmute, _, _) -> transmuteExp e ty1 ty2
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++

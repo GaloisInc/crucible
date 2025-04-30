@@ -173,6 +173,10 @@ data InstanceKind =
     | IkClosureOnceShim
     | IkDropGlue (Maybe Ty)
     | IkCloneShim Ty [DefId]
+    | IkClosureFnPointerShim
+    -- ^ Shim used when converting a closure to a function pointer.  This
+    -- function builds a dummy closure value and then passes it to `_inDefId`,
+    -- which is the closure's `call_mut` method.
     deriving (Eq, Ord, Show, Generic)
 
 data Adt = Adt
@@ -490,7 +494,9 @@ data Vtable = Vtable
 data CastKind =
     Misc
   | ReifyFnPointer
-  | ClosureFnPointer
+  | ClosureFnPointer DefId
+  -- ^ Closure-to-fnptr cast.  The `DefId` refers to the
+  -- `IkClosureFnPointerShim` that is the result of the cast.
   | UnsafeFnPointer
   | Unsize
   | UnsizeVtable VtableName

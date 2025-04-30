@@ -130,6 +130,8 @@ instance FromJSON Instance where
             <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "args"
         Just (String "CloneShim") -> Instance
             <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "args"
+        Just (String "ClosureFnPointerShim") -> Instance IkClosureFnPointerShim
+            <$> v .: "call_mut" <*> pure mempty
 
 instance FromJSON FnSig where
     parseJSON =
@@ -441,9 +443,13 @@ instance FromJSON CastKind where
                             Just (String "MutToConstPointer") -> pure MutToConstPointer
                             Just (String "ArrayToPointer") -> pure Misc
                             Just (String "Unsize") -> pure Unsize
+                            Just (String "ClosureFnPointer") ->
+                              fail $ "bad PointerCastKind: ClosureFnPointer should be "
+                                ++ "handled specially as a separate CastKind"
                             x -> fail ("bad PointerCastKind: " ++ show x)
                 in v .: "cast" >>= go
             Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
+            Just (String "ClosureFnPointer") -> ClosureFnPointer <$> v .: "shim"
             -- TODO: actually plumb this information through if it is relevant
             -- instead of using Misc. See
             -- https://github.com/GaloisInc/crucible/issues/1223
