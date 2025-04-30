@@ -1030,20 +1030,20 @@ instance OrdFC MirStmt where
 
 instance TypeApp MirStmt where
   appType = \case
-    MirNewRef tp    -> MirReferenceRepr
+    MirNewRef _    -> MirReferenceRepr
     MirIntegerToRef _ -> MirReferenceRepr
-    MirGlobalRef gv -> MirReferenceRepr
-    MirConstRef tp _ -> MirReferenceRepr
+    MirGlobalRef _ -> MirReferenceRepr
+    MirConstRef _ _ -> MirReferenceRepr
     MirReadRef tp _ -> tp
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
-    MirSubanyRef tp _ -> MirReferenceRepr
-    MirSubfieldRef ctx _ idx -> MirReferenceRepr
-    MirSubvariantRef _ ctx _ idx -> MirReferenceRepr
-    MirSubindexRef tp _ _ -> MirReferenceRepr
-    MirSubjustRef tp _ -> MirReferenceRepr
-    MirRef_VectorAsMirVector tp _ -> MirReferenceRepr
-    MirRef_ArrayAsMirVector btp _ -> MirReferenceRepr
+    MirSubanyRef _ _ -> MirReferenceRepr
+    MirSubfieldRef _ _ _ -> MirReferenceRepr
+    MirSubvariantRef _ _ _ _ -> MirReferenceRepr
+    MirSubindexRef _ _ _ -> MirReferenceRepr
+    MirSubjustRef _ _ -> MirReferenceRepr
+    MirRef_VectorAsMirVector _ _ -> MirReferenceRepr
+    MirRef_ArrayAsMirVector _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ -> MirReferenceRepr
@@ -1182,6 +1182,12 @@ dropRefRoot _bak _gs (Const_RefRoot tpr _) =
     leafAbort $ GenericSimError $
         "Cannot drop Const_RefRoot (of type " ++ show tpr ++ ")"
 
+-- | Helper for defining a `MuxLeafT` operation that works only for
+-- `MirReference`s with a specific pointee type `tp`.  If the `MirReference`
+-- argument is a valid reference (not `MirReference_Integer`) with pointee type
+-- `tp`, this calls `k` on the reference's parts; otherwise, this fails.
+-- `desc` is a human-readable description of the operation, which is used in
+-- the `leafAbort` error message.
 typedLeafOp ::
     Monad m =>
     String ->
@@ -2070,7 +2076,7 @@ subindexMirRefIO bak iTypes tpr ref x =
 mirRef_offsetSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym -> RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-mirRef_offsetSim tpr ref off =
+mirRef_offsetSim _tpr ref off =
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off) ref
 
