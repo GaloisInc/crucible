@@ -1964,6 +1964,41 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname
 
+transCommon :: forall h.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool)
+  => CollectionState
+  -> M.DefId
+  -> FnTransContext
+  -> (forall s args ret.
+    C.TypeRepr ret
+    -> Ctx.Assignment (R.Atom s) args
+    -> MirGenerator h s ret (G.Label s))
+  -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
+transCommon colState name context gen = do
+    MirHandle _hname _hsig (handle :: FH.FnHandle args ret) <-
+        case Map.lookup name (colState^.handleMap) of
+            Nothing -> error "bad handle!!"
+            Just mh -> return mh
+    ftiRef <- newSTRef mempty
+    let rettype  = FH.handleReturnType handle
+    let def :: G.FunctionDef MIR FnState args ret (ST h)
+        def inputs = (s,f) where
+          s = initFnState colState context
+          f = do
+              lbl <- gen rettype inputs
+              fti <- use transInfo
+              lift $ writeSTRef ftiRef fti
+              G.jump lbl
+    R.SomeCFG g <- defineFunctionNoAuxs handle def
+    when ?printCrucible $ do
+        traceM $ unwords [" =======", show name, "======="]
+        traceShowM $ pretty g
+        traceM $ unwords [" ======= end", show name, "======="]
+    fti <- readSTRef ftiRef
+    case SSA.toSSA g of
+      Core.SomeCFG g_ssa -> return (M.idText name, Core.AnyCFG g_ssa, fti)
+
 transDefine :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
   , ?printCrucible::Bool)
@@ -1971,27 +2006,7 @@ transDefine :: forall h.
   -> M.Fn
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transDefine colState fn@(M.Fn fname _ _ _) =
-  case (Map.lookup fname (colState^.handleMap)) of
-    Nothing -> error "bad handle!!"
-    Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
-      ftiRef <- newSTRef mempty
-      let rettype  = FH.handleReturnType handle
-      let def :: G.FunctionDef MIR FnState args ret (ST h)
-          def inputs = (s,f) where
-            s = initFnState colState (FnContext fn)
-            f = do
-                lbl <- genFn fn rettype inputs
-                fti <- use transInfo
-                lift $ writeSTRef ftiRef fti
-                G.jump lbl
-      R.SomeCFG g <- defineFunctionNoAuxs handle def
-      when ?printCrucible $ do
-          traceM $ unwords [" =======", show fname, "======="]
-          traceShowM $ pretty g
-          traceM $ unwords [" ======= end", show fname, "======="]
-      fti <- readSTRef ftiRef
-      case SSA.toSSA g of
-        Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa, fti)
+  transCommon colState fname (FnContext fn) (genFn fn)
 
 
 -- | Allocate method handles for each of the functions in the Collection
