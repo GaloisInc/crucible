@@ -1999,14 +1999,43 @@ transCommon colState name context gen = do
     case SSA.toSSA g of
       Core.SomeCFG g_ssa -> return (M.idText name, Core.AnyCFG g_ssa, fti)
 
-transDefine :: forall h.
+transInstance :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
   , ?printCrucible::Bool)
   => CollectionState
-  -> M.Fn
-  -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
-transDefine colState fn@(M.Fn fname _ _ _) =
-  transCommon colState fname (FnContext fn) (genFn fn)
+  -> M.Intrinsic
+  -> ST h (Maybe (Text, Core.AnyCFG MIR, Maybe FnTransInfo))
+transInstance colState (M.Intrinsic defId (M.Instance kind origDefId _substs))
+  -- If a function body is available, translate it, regardless of the `kind`.
+  | Just fn <- colState ^. collection . M.functions . at defId = do
+      (name, cfg, fti) <- transCommon colState defId (FnContext fn) (genFn fn)
+      return $ Just (name, cfg, Just fti)
+  -- For some `kind`s, we have special logic for generating a body.
+  | M.IkVirtual dynTraitName methodIndex <- kind = do
+      let methodId = origDefId
+      (name, cfg) <- transVirtCall colState defId methodId dynTraitName methodIndex
+      return $ Just (name, cfg, Nothing)
+  | otherwise = return Nothing
+
+transStatic :: forall h.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool)
+  => CollectionState
+  -> M.Static
+  -> ST h (Maybe (Text, Core.AnyCFG MIR, FnTransInfo))
+transStatic colState st
+  -- Statics with a `ConstVal` initializer don't need a CFG, and might not have
+  -- a MIR body in `functions`.
+  | Just _ <- st ^. M.sConstVal = return Nothing
+  | otherwise = do
+      let defId = st ^. M.sName
+      fn <- case colState ^. collection . M.functions . at defId of
+        Just x -> return x
+        -- For each entry in `statics`, there should be a corresponding entry
+        -- in `functions` giving the MIR body of the static initializer.
+        Nothing -> panic "transStatic" ["function " ++ show defId ++ " not found for static"]
+      (name, cfg, fti) <- transCommon colState defId (FnContext fn) (genFn fn)
+      return $ Just (name, cfg, fti)
 
 
 -- | Allocate method handles for each of the functions in the Collection
@@ -2455,20 +2484,18 @@ transCollection col halloc = do
         colState = CollectionState hmap vm sm dm chm col
 
     -- translate all of the functions
-    fnInfo <- mapM (stToIO . transDefine colState) (Map.elems (col^.M.functions))
-    let pairs1 = [(name, cfg) | (name, cfg, _) <- fnInfo]
-    let transInfo = Map.fromList [(name, fti) | (name, _, fti) <- fnInfo]
+    fnInfo <- Maybe.catMaybes <$>
+      mapM (stToIO . transInstance colState) (Map.elems (col^.M.intrinsics))
+    staticInfo <- Maybe.catMaybes <$>
+      mapM (stToIO . transStatic colState) (Map.elems (col^.M.statics))
+    let allInfo = fnInfo ++ [(n, c, Just i) | (n, c, i) <- staticInfo]
+    let pairs1 = [(name, cfg) | (name, cfg, _) <- allInfo]
+    let transInfo = Map.fromList [(name, fti) | (name, _, Just fti) <- allInfo]
     pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col^.M.vtables))
-
-    pairs3 <- Maybe.catMaybes <$> mapM (\intr -> case intr^.M.intrInst of
-        Instance (IkVirtual dynTraitName methodIndex) methodId _substs ->
-            stToIO $ Just <$> transVirtCall colState
-                (intr^.M.intrName) methodId dynTraitName methodIndex
-        _ -> return Nothing) (Map.elems (col ^. M.intrinsics))
 
     return $ RustModule
                 { _rmCS    = colState
-                , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2 <> pairs3)
+                , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2)
                 , _rmTransInfo = transInfo
                 }
 
