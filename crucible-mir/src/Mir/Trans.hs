@@ -2253,11 +2253,10 @@ traitMethodSig trait methName = case matchedMethSigs of
             TraitMethod methName' sig | methName' == methName -> Just sig
             _ -> Nothing) (trait ^. M.traitItems)
 
--- Generate method handles for all virtual-call shims (IkVirtual intrinsics)
--- used in the current crate.
-mkVirtCallHandleMap :: (HasCallStack) =>
+-- Generate method handles for all generated shims used in the current crate.
+mkShimHandleMap :: (HasCallStack) =>
     Collection -> FH.HandleAllocator -> IO HandleMap
-mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
+mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
   where
     mkHandle :: (M.IntrinsicName, M.Intrinsic) ->
         IO (Map M.DefId MirHandle)
@@ -2461,7 +2460,7 @@ transCollection col halloc = do
     -- build up the state in the Generator
 
     hmap1 <- mkHandleMap col halloc
-    hmap2 <- mkVirtCallHandleMap col halloc
+    hmap2 <- mkShimHandleMap col halloc
     let hmap = hmap1 <> hmap2
 
     vm <- mkVtableMap col halloc
