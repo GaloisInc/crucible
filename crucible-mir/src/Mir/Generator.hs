@@ -195,6 +195,8 @@ data FnTransContext
     -- ^ We are translating a function definition.
   | StaticContext
     -- ^ We are translating the initializer for static values.
+  | ShimContext
+    -- ^ We are generating a shim function of some kind.
 
 -- | State about the entire collection used for the translation
 data CollectionState
@@ -413,15 +415,20 @@ instance Pretty MirHandle where
 
 instance Pretty FnTransContext where
     pretty (FnContext f) = pretty f
-    pretty StaticContext = "the static initializer"
+    pretty c = pretty (describeFnContext c)
+
+describeFnContext :: FnTransContext -> String
+describeFnContext c = case c of
+  FnContext f -> show (f^.fname)
+  StaticContext -> "the static initializer"
+  ShimContext -> "an auto-generated shim"
 
 expectFnContext :: MirGenerator h s ret Fn
 expectFnContext = do
   transCtxt <- use transContext
   case transCtxt of
     FnContext f -> pure f
-    StaticContext ->
-      mirFail "expected function when translating static initializer"
+    c -> mirFail $ "expected function when translating " ++ describeFnContext c
 
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
@@ -499,10 +506,7 @@ mirFail str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
   transCtxt <- use transContext
-  let loc = case transCtxt of
-              FnContext f   -> show (f^.fname)
-              StaticContext -> "the static initializer"
-      msg = "Translation error in " ++ loc ++ ": " ++ str
+  let msg = "Translation error in " ++ describeFnContext transCtxt ++ ": " ++ str
   if b then do
          when (db > 1) $ do
            traceM ("Translation failure: " ++ str)

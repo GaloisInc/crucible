@@ -1964,6 +1964,69 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname
 
+genClosureFnPointerShim :: forall h s args ret.
+  HasCallStack =>
+  M.DefId ->
+  C.TypeRepr ret ->
+  Ctx.Assignment (R.Atom s) args ->
+  MirGenerator h s ret (G.Label s)
+genClosureFnPointerShim callOnceId tprRet argAtoms = do
+  -- Look up `callOnceId` in the `HandleMap`.
+  hm <- use $ cs . handleMap
+  MirHandle _ sig (fh :: FH.FnHandle args' ret') <- case Map.lookup callOnceId hm of
+    Just x -> return x
+    Nothing -> mirFail $ "ClosureFnPointerShim callee " ++ show callOnceId ++ " not found"
+  -- Check that the function `call_once` function signature looks like we
+  -- expect, and extract the real argument types.
+  --
+  -- This implementation of `ClosureFnPointerShim` works for the cases we've
+  -- seen so far, but hardcodes certain assumptions about the shape of the
+  -- callee function `callOnceId` and duplicates a bit of the call translation
+  -- from `callExp` and `callHandle`.  In the future, it might be better to
+  -- turn this into a `CustomMirOp`, like `cloneShimDef` in `TransCustom`.
+  -- However, currently it's not possible to obtain a function pointer to a
+  -- `CustomOp` function (the `CustomOp` replaces the call instruction
+  -- instead), which would need to be changed first.
+  let M.FnSig callOnceArgTys _retTy abi spreadArg = sig
+  when (abi /= M.RustCall) $
+    mirFail $ "expected " ++ show callOnceId ++ " to have RustCall ABI, not " ++ show abi
+  when (spreadArg /= Just 2) $
+    mirFail $ "expected " ++ show callOnceId ++ " to have spreadArg = 2, not " ++ show spreadArg
+  (callOnceArgTy0, callOnceArgTy1) <- case callOnceArgTys of
+    [x, y] -> return (x, y)
+    _ -> mirFail $ "expected " ++ show callOnceId ++ " to have two args, but got "
+      ++ show callOnceArgTys
+  when (callOnceArgTy0 /= M.TyClosure []) $
+    mirFail $ "expected " ++ show callOnceId ++ " arg 0 to be an empty closure, but got "
+      ++ show callOnceArgTy0
+  argTys <- case callOnceArgTy1 of
+    M.TyTuple xs -> return xs
+    _ -> mirFail $ "expected " ++ show callOnceId ++ " arg 1 to be a tuple, but got "
+      ++ show callOnceArgTy1
+  -- Build the argument values for `call_once`.
+  let tprArg0 = C.StructRepr Ctx.Empty
+  let arg0 = R.App $ E.MkStruct Ctx.empty Ctx.empty
+  let argMirExps = foldrFC (\a es -> MirExp (R.typeOfAtom a) (R.AtomExpr a) : es) [] argAtoms
+  MirExp tprArg1 arg1 <- case argMirExps of
+    [] -> return $ MirExp C.UnitRepr (R.App E.EmptyApp)
+    _ -> buildTupleMaybeM argTys (map Just argMirExps)
+  let ctxArgs = Ctx.Empty Ctx.:> tprArg0 Ctx.:> tprArg1
+  let args = Ctx.Empty Ctx.:> arg0 Ctx.:> arg1
+  -- More checks, necessary for the call below to typecheck.
+  Refl <- testEqualityOrFail (FH.handleArgTypes fh) ctxArgs $
+    "genClosureFnPointerShim: expected " ++ show callOnceId ++ " to take "
+      ++ show ctxArgs ++ ", but got " ++ show (FH.handleArgTypes fh)
+  Refl <- testEqualityOrFail (FH.handleReturnType fh) tprRet $
+    "genClosureFnPointerShim: expected " ++ show callOnceId ++ " to return "
+      ++ show tprRet ++ ", but got " ++ show (FH.handleReturnType fh)
+  -- Actually call the function.
+  let funcExp = R.App $ E.HandleLit fh
+  label <- G.newLabel
+  G.defineBlock label $ do
+    ret <- G.call funcExp args
+    G.returnFromFunction ret
+  return label
+
 transCommon :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
   , ?printCrucible::Bool)
@@ -2015,6 +2078,10 @@ transInstance colState (M.Intrinsic defId (M.Instance kind origDefId _substs))
       let methodId = origDefId
       (name, cfg) <- transVirtCall colState defId methodId dynTraitName methodIndex
       return $ Just (name, cfg, Nothing)
+  | M.IkClosureFnPointerShim <- kind = do
+      (name, cfg, fti) <- transCommon colState defId ShimContext
+        (genClosureFnPointerShim origDefId)
+      return $ Just (name, cfg, Just fti)
   | otherwise = return Nothing
 
 transStatic :: forall h.
@@ -2272,6 +2339,25 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
             tyToReprCont col (methSig ^. M.fsreturn_ty) $ \retrepr -> do
                  h <- FH.mkHandle' halloc handleName argctx retrepr
                  return $ MirHandle (intr ^. M.intrName) methSig h
+      | IkClosureFnPointerShim <- intr ^. M.intrInst . M.inKind = do
+        let callMutId = intr ^. M.intrInst . M.inDefId
+        callMutFn <- case col ^. M.functions . at callMutId of
+            Just x -> return x
+            Nothing -> error $ "undefined function " ++ show callMutId
+              ++ " for IkClosureFnPointerShim " ++ show name
+        let callMutSig = callMutFn ^. M.fsig
+        untupledArgTys <- case callMutSig ^? M.fsarg_tys . ix 1 of
+            Just (M.TyTuple tys) -> return tys
+            x -> error $ "expected tuple for second arg of " ++ show callMutId
+              ++ ", but got " ++ show x ++ ", for IkClosureFnPointerShim " ++ show name
+        let returnTy = callMutSig ^. M.fsreturn_ty
+        let fnPtrSig = M.FnSig untupledArgTys returnTy RustAbi Nothing
+        let handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
+        mh <- tyListToCtx col untupledArgTys $ \argCtx ->
+            tyToReprCont col returnTy $ \retRepr -> do
+                h <- FH.mkHandle' halloc handleName argCtx retRepr
+                return $ MirHandle (intr ^. M.intrName) fnPtrSig h
+        return $ Map.singleton name mh
       | otherwise = return Map.empty
       where
 
