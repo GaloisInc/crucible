@@ -552,7 +552,7 @@ data ConstVal =
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
   | ConstUnion
-  | ConstFnPtr Instance
+  | ConstFnPtr DefId
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =

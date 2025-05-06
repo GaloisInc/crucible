@@ -1,4 +1,3 @@
-
 static F: fn() -> i32 = const { || 123 };
 
 #[cfg_attr(crux, crux::test)]
