@@ -1229,15 +1229,15 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         dynRef <- readMirRef tpr ref
         return $ MirPlaceDynRef dynRef
     doRef ty' | MirReferenceRepr <- tpr = do
-        -- This use of `tyToRepr` is okay because `TyDynamic` and other unsized
-        -- cases are handled above.
+        -- This use of `tyToReprM` is okay because `TyDynamic` and other
+        -- unsized cases are handled above.
         Some tpr' <- tyToReprM ty'
         MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
     doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
 
     doSlice ty' ref' = do
-        -- This use of `tyToRepr` is okay because we know the element type of a
-        -- slice is always sized.
+        -- This use of `tyToReprM` is okay because we know the element type of
+        -- a slice is always sized.
         Some tpr' <- tyToReprM ty'
         slice <- readMirRef MirSliceRepr ref'
         let ptr = getSlicePtr slice

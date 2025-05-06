@@ -10,6 +10,8 @@ This release supports [version
 * Improve source position tracking for `Statement`s and `Terminator`s during
   the translation to Crucible. This should result in more precise error messages
   in certain situations.
+* The `CTyBv{128,256,512}` pattern synonyms have been removed. It is not
+  expected that there are any downstream users.
 
 # 0.4 -- 2025-03-21
 
