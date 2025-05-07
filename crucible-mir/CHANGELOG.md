@@ -1,7 +1,7 @@
 # next -- TBA
 
 This release supports [version
-1](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#1) of
+2](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#2) of
 `mir-json`'s schema.
 
 * Split out the `StatementKind` and `TerminatorKind` data types from `Statement`

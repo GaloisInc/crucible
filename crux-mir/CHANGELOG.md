@@ -1,5 +1,9 @@
 # next -- TBA
 
+This release supports [version
+2](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#2) of
+`mir-json`'s schema.
+
 * The modified copies of the Rust standard libraries that `mir-json` depends on
   (and `crux-mir` therefore ingests) now live in the `mir-json` repo rather
   than in the `crucible` repo. See the [`mir-json`
