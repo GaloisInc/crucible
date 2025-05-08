@@ -38,6 +38,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , callExp
                 , derefExp, readPlace, addrOfPlace
                 , transmuteExp
+                , extendUnsignedBV
                 ) where
 
 import Control.Monad

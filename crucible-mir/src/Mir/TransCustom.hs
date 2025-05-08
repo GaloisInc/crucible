@@ -1751,7 +1751,9 @@ ctpop = (["core", "intrinsics", "ctpop"],
     \(Substs substs) -> case substs of
         [_] -> Just $ CustomOp $ \_ ops -> case ops of
             [MirExp tpr@(C.BVRepr w) val] ->
-                return $ MirExp tpr $ R.App $ E.BVPopcount w val
+                Mir.Trans.extendUnsignedBV
+                    (MirExp tpr $ R.App $ E.BVPopcount w val)
+                    (knownNat @32)
             _ -> mirFail $ "bad arguments to intrinsics::ctpop: " ++ show ops
         _ -> Nothing)
 
