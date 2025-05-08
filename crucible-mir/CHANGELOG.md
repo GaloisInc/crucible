@@ -4,6 +4,7 @@ This release supports [version
 2](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#2) of
 `mir-json`'s schema.
 
+* Support simulating Rust code up to version 1.86.
 * Split out the `StatementKind` and `TerminatorKind` data types from `Statement`
   and `Terminator`, respectively. `{Statement,Terminator}` now contain a pair
   of `{Statement,Terminator}Kind` and its source position.
