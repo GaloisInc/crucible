@@ -66,12 +66,15 @@ compileMirJson keepRlib quiet rustFile = do
 
     rlibsDir <- getRlibsDir
     -- TODO: don't hardcode -L library path
-    let cp = Proc.proc "mir-json"
-            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2021"
-            , "--extern", "core=" ++ rlibsDir ++ "/libcore.rlib"
-            , "--extern", "std=" ++ rlibsDir ++ "/libstd.rlib"
-            , "--extern", "compiler_builtins=" ++ rlibsDir ++ "/libcompiler_builtins.rlib"
-            , "--cfg", "crux", "--cfg", "crux_top_level"
+    let cp =
+          Proc.proc "mir-json" $
+            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2021"] ++
+            concat
+              [ [ "--extern"
+                , lib ++ "=" ++ rlibsDir </> "lib" ++ lib <.> "rlib"
+                ]
+              | lib <- libDependencies ] ++
+            [ "--cfg", "crux", "--cfg", "crux_top_level"
             , "-Z", "ub-checks=false"
             , "-o", outFile]
     let cp' = if not quiet then cp else
@@ -120,41 +123,40 @@ maybeLinkJson jsonFiles cacheFile = do
     else
         B.readFile cacheFile
 
-
-libJsonFiles :: [FilePath]
-libJsonFiles =
+libDependencies :: [FilePath]
+libDependencies =
     -- std and its dependencies
-    [ "libaddr2line.mir"
-    , "libadler2.mir"
-    , "liballoc.mir"
-    , "libcfg_if.mir"
-    , "libcompiler_builtins.mir"
-    , "libcore.mir"
-    , "libcrucible.mir"
-    , "libgetopts.mir"
-    , "libgimli.mir"
-    , "libhashbrown.mir"
-    , "liblibc.mir"
-    , "libmemchr.mir"
-    , "libminiz_oxide.mir"
-    , "libobject.mir"
-    , "libpanic_abort.mir"
-    , "libpanic_unwind.mir"
-    , "libproc_macro.mir"
-    , "librustc_demangle.mir"
-    , "librustc_std_workspace_alloc.mir"
-    , "librustc_std_workspace_core.mir"
-    , "librustc_std_workspace_std.mir"
-    , "libstd_detect.mir"
-    , "libstd.mir"
-    , "libtest.mir"
-    , "libunicode_width.mir"
-    , "libunwind.mir"
+    [ "addr2line"
+    , "adler2"
+    , "alloc"
+    , "cfg_if"
+    , "compiler_builtins"
+    , "core"
+    , "crucible"
+    , "getopts"
+    , "gimli"
+    , "hashbrown"
+    , "libc"
+    , "memchr"
+    , "miniz_oxide"
+    , "object"
+    , "panic_abort"
+    , "panic_unwind"
+    , "proc_macro"
+    , "rustc_demangle"
+    , "rustc_std_workspace_alloc"
+    , "rustc_std_workspace_core"
+    , "rustc_std_workspace_std"
+    , "std_detect"
+    , "std"
+    , "test"
+    , "unicode_width"
+    , "unwind"
     -- additional libs
-    , "libcrucible.mir"
-    , "libint512.mir"
-    , "libbyteorder.mir"
-    , "libbytes.mir"
+    , "crucible"
+    , "int512"
+    , "byteorder"
+    , "bytes"
     ]
 
 
@@ -173,7 +175,7 @@ generateMIR inputFile keepRlib
     let rustFile = inputFile
     maybeCompileMirJson keepRlib (?debug <= 2) rustFile
     rlibsDir <- getRlibsDir
-    let libJsonPaths = map (rlibsDir </>) libJsonFiles
+    let libJsonPaths = [rlibsDir </> "lib" ++ lib <.> "mir" | lib <- libDependencies]
     b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonPaths) (linkOutFile rustFile)
     parseMIR (linkOutFile rustFile) b
   | ext == ".json" = do
