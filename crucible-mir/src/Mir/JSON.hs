@@ -110,6 +110,10 @@ instance FromJSON NamedTy where
     parseJSON = withObject "NamedTy" $ \v ->
         NamedTy <$> v .: "name" <*> (getInlineTy <$> v .: "ty")
 
+instance FromJSON LangItem where
+    parseJSON = withObject "LangItem" $ \v ->
+        LangItem <$> v .: "orig_def_id" <*> v .: "name"
+
 instance FromJSON Instance where
     parseJSON = withObject "Instance" $ \v -> case lookupKM "kind" v of
         Just (String "Item") -> Instance IkItem
@@ -209,6 +213,7 @@ instance FromJSON Collection where
       (vtables :: [Vtable]  ) <- v .: "vtables"
       (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
       (tys    :: [NamedTy])   <- v .: "tys"
+      (langItems :: [LangItem]) <- v .: "lang_items"
       (roots :: [MethName])   <- v .: "roots"
       return $ Collection
         version
@@ -220,6 +225,7 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
         (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy) m) Map.empty tys)
+        (foldr (\ x m -> Map.insert (x^.liOrigDefId) (x^.liLangItemDefId) m) Map.empty langItems)
         roots
 
 

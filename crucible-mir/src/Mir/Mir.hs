@@ -121,6 +121,14 @@ data Ty =
 data NamedTy = NamedTy { _ntName :: Text, _ntTy :: Ty }
   deriving (Eq, Ord, Show, Generic)
 
+data LangItem = LangItem
+  { -- | The original 'DefId' for a lang item (e.g., @core::option::Option@).
+    _liOrigDefId :: DefId
+    -- | The @$lang@-based 'DefId' for a lang item (e.g., @$lang::Option@).
+  , _liLangItemDefId :: DefId
+  }
+  deriving (Eq, Ord, Show, Generic)
+
 data FnSig = FnSig {
     _fsarg_tys    :: ![Ty]
   , _fsreturn_ty  :: !Ty
@@ -253,6 +261,9 @@ data Collection = Collection {
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
     _namedTys  :: !(Map TyName Ty),
+    -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
+    -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
+    _langItems :: !(Map DefId DefId),
     _roots     :: !([MethName])
 } deriving (Show, Eq, Ord, Generic)
 
@@ -619,6 +630,7 @@ makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
+makeLenses ''LangItem
 makeLenses ''Statement
 makeLenses ''Terminator
 makeWrapped ''Substs
