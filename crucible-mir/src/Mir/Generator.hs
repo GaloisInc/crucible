@@ -478,27 +478,34 @@ findExplodedAdtTy edid substs = do
 -- consults the 'crateHashesMap' to ensure that the crate's disambiguator is
 -- correct. If a crate name is ambiguous (i.e., if there are multiple
 -- disambiguators associated with the crate name), this will throw an error.
+--
+-- This also consults the 'langItems' in the 'Collection' so that if a user
+-- looks up the original 'DefId' for a lang item (e.g., @core::option::Option@),
+-- then this function will return the @$lang@-based 'DefId' instead (e.g.,
+-- @$lang::Option@), as the latter 'DefId' is what will be used throughout the
+-- rest of the MIR code.
 findDefId :: ExplodedDefId -> MirGenerator h s ret DefId
 findDefId edid = do
     crateDisambigs <- use $ cs . crateHashesMap
+    langItemDefIds <- use $ cs . collection . langItems
     (crate, path) <-
       case edid of
         crate:path -> pure (crate, path)
         [] -> mirFail "findDefId: DefId with no crate"
     let crateStr = Text.unpack crate
-    case Map.lookup crate crateDisambigs of
-        Just allDisambigs@(disambig :| otherDisambigs)
-          |  F.null otherDisambigs
-          -> pure $ textId $ Text.intercalate "::"
-                  $ (crate <> "/" <> disambig) : path
-          |  otherwise
-          -> mirFail $ unlines $
-               [ "ambiguous crate " ++ crateStr
-               , "crate disambiguators:"
-               ] ++ F.toList (Text.unpack <$> allDisambigs)
-        Nothing -> mirFail $ "unknown crate " ++ crateStr
-  where
-    -- partialDefId = textId str
+    origDefId <-
+      case Map.lookup crate crateDisambigs of
+          Just allDisambigs@(disambig :| otherDisambigs)
+            |  F.null otherDisambigs
+            -> pure $ textId $ Text.intercalate "::"
+                    $ (crate <> "/" <> disambig) : path
+            |  otherwise
+            -> mirFail $ unlines $
+                 [ "ambiguous crate " ++ crateStr
+                 , "crate disambiguators:"
+                 ] ++ F.toList (Text.unpack <$> allDisambigs)
+          Nothing -> mirFail $ "unknown crate " ++ crateStr
+    pure $ Map.findWithDefault origDefId origDefId langItemDefIds
 
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a

@@ -2514,6 +2514,7 @@ mkCrateHashesMap
                 staticsM vtablesM intrinsicsM
                 -- namedTys ranges over type names, which aren't full DefIds.
                 _namedTysM
+                langItemsM
                 -- The roots are duplicates of other Maps' DefIds.
                 _rootsM) =
   Map.fromList $
@@ -2524,6 +2525,7 @@ mkCrateHashesMap
     ++ f staticsM
     ++ f vtablesM
     ++ f intrinsicsM
+    ++ f langItemsM
   where
     f :: Map M.DefId a -> [(Text, NonEmpty Text)]
     f m = map (\did -> (did ^. M.didCrate, did ^. M.didCrateDisambig :| []))
