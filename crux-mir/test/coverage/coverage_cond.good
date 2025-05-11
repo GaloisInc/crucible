@@ -4,9 +4,9 @@ warning: branch condition never has value false
 6 │     if cond { 10 } else { 20 }
   │        ^^^^
 
-warning: branch condition never has value true
-   ┌─ test/coverage/coverage_cond.rs:10:8
+warning: branch condition never has value false
+   ┌─ test/coverage/coverage_cond.rs:10:9
    │
 10 │     if !cond { 10 } else { 20 }
-   │        ^^^^^
+   │         ^^^^
 
