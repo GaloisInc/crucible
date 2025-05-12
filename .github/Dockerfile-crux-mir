@@ -1,6 +1,6 @@
 # If you update this, make sure to also update RUST_TOOLCHAIN in
 # .github/workflows/crux-mir-build.yml
-ARG RUST_TOOLCHAIN="nightly-2023-01-23"
+ARG RUST_TOOLCHAIN="nightly-2025-02-16"
 ARG CRUX_BUILD_DIR=/crux-mir/build
 
 # Note that we intentionally do not use ubuntu:24.04 or later pending a

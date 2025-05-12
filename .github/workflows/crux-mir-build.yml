@@ -27,7 +27,7 @@ env:
   CARGO_CACHE_VERSION: 1
   # If you update this, make sure to also update RUST_TOOLCHAIN in
   # .github/Dockerfile-crux-mir
-  RUST_TOOLCHAIN: "nightly-2023-01-23"
+  RUST_TOOLCHAIN: "nightly-2025-02-16"
 
 jobs:
   config:
