@@ -104,7 +104,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           override: true
-          components: rustc-dev
+          components: rustc-dev, rustc-src
 
       - uses: actions/cache/restore@v4
         name: Restore cabal store cache
@@ -138,7 +138,7 @@ jobs:
         working-directory: dependencies/mir-json
         run: |
           cargo install --locked --force
-          bash ./translate_libs.sh
+          mir-json-translate-libs
           echo "CRUX_RUST_LIBRARY_PATH=$(pwd)/rlibs" >> $GITHUB_ENV
 
       - run: .github/ci.sh configure

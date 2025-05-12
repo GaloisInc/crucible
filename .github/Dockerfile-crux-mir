@@ -44,9 +44,9 @@ ENV LANG=C.UTF-8 \
 
 WORKDIR ${CRUX_BUILD_DIR}/dependencies/mir-json
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN}
-RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev
+RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev rustc-src
 RUN cargo install --locked && \
-    ./translate_libs.sh
+    mir-json-translate-libs
 # Define `CRUX_RUST_LIBRARY_PATH` this for the benefit of
 # `cabal v2-test crux-mir` below.
 ENV CRUX_RUST_LIBRARY_PATH=${CRUX_BUILD_DIR}/dependencies/mir-json/rlibs
