@@ -160,7 +160,7 @@ coverageTests dir = do
         reportFiles <- findByExtension [".js"] reportDir
         out <- Proc.readProcess "cargo"
             (["run", "--manifest-path", "report-coverage/Cargo.toml", "--quiet",
-                "--", "--no-color", "--filter", rustFile] ++ reportFiles) ""
+                "--", "--no-color"] ++ reportFiles) ""
         writeFile outFile out
 
 
