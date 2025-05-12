@@ -44,7 +44,7 @@ ENV LANG=C.UTF-8 \
 
 WORKDIR ${CRUX_BUILD_DIR}/dependencies/mir-json
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN}
-RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev rustc-src
+RUN rustup component add --toolchain ${RUST_TOOLCHAIN} rustc-dev rust-src
 RUN cargo install --locked && \
     mir-json-translate-libs
 # Define `CRUX_RUST_LIBRARY_PATH` this for the benefit of

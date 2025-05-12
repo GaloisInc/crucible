@@ -104,7 +104,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           override: true
-          components: rustc-dev, rustc-src
+          components: rustc-dev, rust-src
 
       - uses: actions/cache/restore@v4
         name: Restore cabal store cache
