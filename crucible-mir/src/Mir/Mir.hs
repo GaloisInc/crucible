@@ -336,6 +336,7 @@ data PlaceElem =
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int, _sfrom_end :: Bool }
       | Downcast Integer
+      | Subtype Ty
       deriving (Show, Eq, Ord, Generic)
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
@@ -714,6 +715,7 @@ typeOfProj elm baseTy = case elm of
     ConstantIndex{} -> peelIdx baseTy
     Downcast i      -> TyDowncast baseTy i   --- TODO: check this
     Subslice{}      -> TySlice (peelIdx baseTy)
+    Subtype t       -> t
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t

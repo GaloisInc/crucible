@@ -191,6 +191,8 @@ instance Pretty Lvalue where
       pretty lv <> brackets (pretty "-" <> pretty f <> dot <> dot <> pretty "-" <> pretty t)
     pretty (LProj lv (Downcast i)) =
       parens (pretty lv <+> pretty "as" <+> pretty i)
+    pretty (LProj lv (Subtype ty)) =
+      parens (pretty lv <+> pretty "as subtype" <+> pretty ty)
 
 instance Pretty Rvalue where
     pretty (Use a) = pretty_fn1 "use" a

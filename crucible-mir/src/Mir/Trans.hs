@@ -1335,6 +1335,9 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
 -- Downcast is a no-op - it only affects the type reported by `M.type_of`.  The
 -- `PField` case above looks for `TyDowncast` to handle enum accesses.
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
+-- Subtype is a no-op, as it is only present in the MIR to making subtyping
+-- explicit during optimizations and codegen.
+evalPlaceProj _ pl (M.Subtype _ty) = return pl
 evalPlaceProj ty (MirPlace _ _ meta) proj =
     mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
 evalPlaceProj _ MirPlaceDynRef{} _ =
