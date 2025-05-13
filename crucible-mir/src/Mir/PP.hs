@@ -224,7 +224,7 @@ instance Pretty Terminator where
 
 instance Pretty TerminatorKind where
     pretty (Goto g) = pretty_fn1 "goto" g <> semi
-    pretty (SwitchInt op ty vs bs _pos) =
+    pretty (SwitchInt op ty vs bs) =
       pretty "switchint" <+> pretty op <+> colon <> pretty ty <+>
       pretty vs <+> arrow <+> pretty bs
     pretty Return = pretty "return;"

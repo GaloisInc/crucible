@@ -353,7 +353,7 @@ instance FromJSON TerminatorKind where
                      lmt <- v .: "values"
                      mapM (mapM convertIntegerText) lmt
           in
-          SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets" <*> v .: "discr_span"
+          SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
         Just (String "Resume") -> pure Resume
         Just (String "Abort") -> pure Abort
         Just (String "Return") -> pure Return

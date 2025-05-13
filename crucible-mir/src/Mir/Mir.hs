@@ -405,8 +405,7 @@ data TerminatorKind =
       | SwitchInt { _sdiscr    :: Operand,
                     _switch_ty :: Ty,
                     _svalues   :: [Maybe Integer],
-                    _stargets  :: [BasicBlockInfo],
-                    _spos      :: Text }
+                    _stargets  :: [BasicBlockInfo] }
         -- ^ case
       | Resume
       | Abort

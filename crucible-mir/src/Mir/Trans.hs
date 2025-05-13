@@ -1754,29 +1754,29 @@ doCall funid cargs cdest retRepr = do
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Terminator tkind tpos) tr = do
     setPosition tpos
-    transTerminatorKind tkind tr
+    transTerminatorKind tkind tpos tr
 
-transTerminatorKind :: HasCallStack => M.TerminatorKind -> C.TypeRepr ret -> MirGenerator h s ret a
-transTerminatorKind (M.Goto bbi) _tr =
+transTerminatorKind :: HasCallStack => M.TerminatorKind -> Text -> C.TypeRepr ret -> MirGenerator h s ret a
+transTerminatorKind (M.Goto bbi) _tpos _tr =
     jumpToBlock bbi
-transTerminatorKind (M.SwitchInt swop _swty svals stargs spos) _tr | all Maybe.isJust svals = do
+transTerminatorKind (M.SwitchInt swop _swty svals stargs) tpos _tr | all Maybe.isJust svals = do
     s <- evalOperand swop
-    transSwitch spos s (Maybe.catMaybes svals) stargs
-transTerminatorKind (M.Return) tr =
+    transSwitch tpos s (Maybe.catMaybes svals) stargs
+transTerminatorKind (M.Return) _tpos tr =
     doReturn tr
-transTerminatorKind (M.DropAndReplace dlv dop dtarg _ dropFn) _tr = do
+transTerminatorKind (M.DropAndReplace dlv dop dtarg _ dropFn) _tpos _tr = do
     let ptrOp = M.Temp $ M.Cast M.Misc
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     transStatementKind (M.Assign dlv (M.Use dop))
     jumpToBlock dtarg
 
-transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) tr = do
+transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) _tpos tr = do
     isCustom <- resolveCustom funid
     doCall funid cargs cretdest tr -- cleanup ignored
 
 
-transTerminatorKind (M.Call funcOp cargs cretdest _) tr = do
+transTerminatorKind (M.Call funcOp cargs cretdest _) _tpos tr = do
     func <- evalOperand funcOp
     ret <- callHandle func RustAbi Nothing cargs
     case cretdest of
@@ -1786,25 +1786,25 @@ transTerminatorKind (M.Call funcOp cargs cretdest _) tr = do
       Nothing -> do
           G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
-transTerminatorKind (M.Assert cond expected msg target _cleanup) _tr = do
+transTerminatorKind (M.Assert cond expected msg target _cleanup) _tpos _tr = do
     MirExp tpr e <- evalOperand cond
     Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
     G.assertExpr (S.app $ E.BoolEq e (S.app $ E.BoolLit expected)) $
         S.app $ E.StringLit $ W4.UnicodeLiteral $ msg
     jumpToBlock target
-transTerminatorKind (M.Resume) tr =
+transTerminatorKind (M.Resume) _tpos tr =
     doReturn tr -- resume happens when unwinding
-transTerminatorKind (M.Drop dlv dt _dunwind dropFn) _tr = do
+transTerminatorKind (M.Drop dlv dt _dunwind dropFn) _tpos _tr = do
     let ptrOp = M.Temp $ M.Cast M.Misc
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     jumpToBlock dt
-transTerminatorKind M.Abort tr =
+transTerminatorKind M.Abort _tpos tr =
     G.reportError (S.litExpr "process abort in unwinding")
-transTerminatorKind M.Unreachable tr = do
+transTerminatorKind M.Unreachable _tpos tr = do
     recordUnreachable
     G.reportError (S.litExpr "Unreachable!!!!!")
-transTerminatorKind t _tr =
+transTerminatorKind t _tpos _tr =
     mirFail $ "unknown terminator: " ++ (show t)
 
 
