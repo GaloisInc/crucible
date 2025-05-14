@@ -233,8 +233,11 @@ tyToRepr col t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _trait -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
+  -- Values of these types are zero-sized, which we represent as a unit value on
+  -- the Crucible side.
   M.TyFnDef _def -> Some C.UnitRepr
-  M.TyNever -> Some C.AnyRepr
+  M.TyNever -> Some C.UnitRepr
+
   M.TyLifetime -> Some C.AnyRepr
   M.TyForeign -> Some C.AnyRepr
   M.TyErased -> Some C.AnyRepr
