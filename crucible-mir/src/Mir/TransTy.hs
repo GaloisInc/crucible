@@ -1241,9 +1241,8 @@ initialValue (M.TyAdt nm _ _) = do
 
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
+initialValue M.TyNever     = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
 initialValue (M.TyDynamic _) = return $ Nothing
-initialValue M.TyNever = return $ Just $ MirExp knownRepr $
-    R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
 initialValue _ = return Nothing
 
 initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
