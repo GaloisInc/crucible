@@ -1087,7 +1087,7 @@ mkTraitObject traitName vtableName e = do
                 "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
 
     return $ buildTuple
-        [ packAny e
+        [ e
         , packAny vtable
         ]
 
@@ -2450,7 +2450,7 @@ transVirtCall colState intrName methName dynTraitName methIndex
         let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
 
         -- Extract data and vtable parts of the `&dyn` receiver
-        let recvData = R.App $ E.GetStruct recv dynRefDataIndex C.AnyRepr
+        let recvData = R.App $ E.GetStruct recv dynRefDataIndex MirReferenceRepr
         let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
 
         -- Downcast the vtable to its proper struct type
@@ -2470,7 +2470,7 @@ transVirtCall colState intrName methName dynTraitName methIndex
                 (C.FunctionHandleRepr (C.AnyRepr <: argTys) retTy)
 
         -- Call it
-        G.tailCall vtsFH (recvData <: args)
+        G.tailCall vtsFH (R.App (E.PackAny MirReferenceRepr recvData) <: args)
 
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s
