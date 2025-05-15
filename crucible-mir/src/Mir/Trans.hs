@@ -414,6 +414,7 @@ derefExp pointeeTy (MirExp MirSliceRepr e) = do
     let ptr = getSlicePtr e
     let len = getSliceLen e
     return $ MirPlace tpr ptr (SliceMeta len)
+-- TODO RGS: Do we need a case for trait objects?
 derefExp pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
@@ -421,16 +422,15 @@ readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
 readPlace (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
         ++ " (type " ++ show tpr ++ ")"
-readPlace MirPlaceDynRef{} =
-    -- See https://github.com/GaloisInc/crucible/issues/1092
-    mirFail "readPlace not supported for dyn references"
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp MirReferenceRepr r
 addrOfPlace (MirPlace tpr r (SliceMeta len)) =
     return $ MirExp MirSliceRepr $ mkSlice r len
-addrOfPlace (MirPlaceDynRef dynRef) =
-    return $ MirExp DynRefRepr dynRef
+addrOfPlace (MirPlace _tpr r (DynMeta vtable)) =
+    return $ MirExp DynRefRepr $
+      R.App $ E.MkStruct DynRefCtx $
+      Ctx.Empty Ctx.:> r Ctx.:> vtable
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
@@ -1106,9 +1106,6 @@ evalRval (M.Len lv) =
             place <- evalPlace lv
             meta <- case place of
                 MirPlace _tpr _ref meta -> pure meta
-                MirPlaceDynRef{} ->
-                    -- See https://github.com/GaloisInc/crucible/issues/1092
-                    mirFail "evalRval (length of slice) not supported for dyn references"
             case meta of
                 SliceMeta len -> return $ MirExp UsizeRepr len
                 _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
@@ -1237,7 +1234,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = do
         dynRef <- readMirRef tpr ref
-        return $ MirPlaceDynRef dynRef
+        let dynRefData = S.getStruct dynRefDataIndex dynRef
+        let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
+        -- TODO RGS: Is AnyRepr the correct type here?
+        return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1348,9 +1348,6 @@ evalPlaceProj _ pl (M.Downcast _idx) = return pl
 evalPlaceProj _ pl (M.Subtype _ty) = return pl
 evalPlaceProj ty (MirPlace _ _ meta) proj =
     mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
-evalPlaceProj _ MirPlaceDynRef{} _ =
-    -- See https://github.com/GaloisInc/crucible/issues/1092
-    mirFail "evalPlaceProj not supported for dyn references"
 
 --------------------------------------------------------------------------------------
 -- ** Statements
@@ -1389,9 +1386,6 @@ doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 doAssign lv (MirExp tpr val) = do
     place <- evalPlace lv
     case place of
-        MirPlaceDynRef{} ->
-            -- See https://github.com/GaloisInc/crucible/issues/1092
-            mirFail "doAssign not supported for dyn references"
         MirPlace tpr' ref _ -> do
             Refl <- testEqualityOrFail tpr tpr' $
                 "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
