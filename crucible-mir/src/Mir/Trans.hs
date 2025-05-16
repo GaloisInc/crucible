@@ -403,18 +403,12 @@ evalOperand (M.OpConstant (M.Constant conty constval)) = do
     transConstVal conty (Some tpr) constval
 evalOperand (M.Temp rv) = evalRval rv
 
--- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
--- representation), producing a `MirPlace`.
+-- | Dereference a `MirExp` (which must be `MirReferenceRepr` pointing to a
+-- sized type), producing a `MirPlace`.
 derefExp :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret (MirPlace s)
 derefExp pointeeTy (MirExp MirReferenceRepr e) = do
     Some tpr <- tyToReprM pointeeTy
     return $ MirPlace tpr e NoMeta
-derefExp pointeeTy (MirExp MirSliceRepr e) = do
-    Some tpr <- tyToReprM pointeeTy
-    let ptr = getSlicePtr e
-    let len = getSliceLen e
-    return $ MirPlace tpr ptr (SliceMeta len)
--- TODO RGS: Do we need a case for trait objects?
 derefExp pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
