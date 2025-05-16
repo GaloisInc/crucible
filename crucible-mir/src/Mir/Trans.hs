@@ -1764,12 +1764,6 @@ transTerminatorKind (M.SwitchInt swop _swty svals stargs) tpos _tr | all Maybe.i
     transSwitch tpos s (Maybe.catMaybes svals) stargs
 transTerminatorKind (M.Return) _tpos tr =
     doReturn tr
-transTerminatorKind (M.DropAndReplace dlv dop dtarg _ dropFn) _tpos _tr = do
-    let ptrOp = M.Temp $ M.Cast M.Misc
-            (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
-    maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
-    transStatementKind (M.Assign dlv (M.Use dop))
-    jumpToBlock dtarg
 
 transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) _tpos tr = do
     isCustom <- resolveCustom funid

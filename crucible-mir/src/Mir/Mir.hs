@@ -420,11 +420,6 @@ data TerminatorKind =
                -- custom drop implementation (and neither do its fields,
                -- transitively).
                _ddrop_fn :: Maybe MethName }
-      | DropAndReplace { _drloc    :: Lvalue,
-                         _drval    :: Operand,
-                         _drtarget :: BasicBlockInfo,
-                         _drunwind :: Maybe BasicBlockInfo,
-                         _drdrop_fn :: Maybe MethName }
       | Call { _cfunc   :: Operand,
                _cargs   :: [Operand],
                _cdest   :: Maybe (Lvalue, BasicBlockInfo),

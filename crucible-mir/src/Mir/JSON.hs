@@ -359,7 +359,6 @@ instance FromJSON TerminatorKind where
         Just (String "Return") -> pure Return
         Just (String "Unreachable") -> pure Unreachable
         Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
-        Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
         Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
         Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
         k -> fail $ "unsupported terminator kind" ++ show k
