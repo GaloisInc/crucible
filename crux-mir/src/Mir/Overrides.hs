@@ -101,7 +101,7 @@ makeSymbolicVar btpr =
   Crux.baseFreshOverride btpr strrepr $ \(RV strSlice) -> do
     mstr <- getString strSlice
     case mstr of
-      Nothing -> fail "symbolic variable name must be a concrete string"            
+      Nothing -> fail "symbolic variable name must be a concrete string"
       Just name ->
         case userSymbol (Text.unpack name) of
           Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
@@ -238,7 +238,7 @@ regEval bak baseEval tpr v = go tpr v
                 -- location would need a more invasive refactor.
                 vals <- forM [0 .. lenBV - 1] $ \i -> do
                     i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
-                    ptr' <- mirRef_offsetSim tpr ptr i'
+                    ptr' <- mirRef_offsetSim ptr i'
                     val <- readMirRefSim tpr ptr'
                     go tpr val
 

@@ -1,9 +1,9 @@
-warning: branch condition never has value true
-   ┌─ test/coverage/coverage_macro.rs:7:12
+warning: branch condition never has value false
+   ┌─ test/coverage/coverage_macro.rs:7:13
    │
- 7 │         if !$cond {
-   │            ^^^^^^
+ 7 │         if !$res.is_ok() {
+   │             ^^^^^^^^^^^^
    ·
-18 │     check!(u8::try_from(y_32).is_ok());
-   │     ---------------------------------- in this macro invocation
+18 │     check!(u8::try_from(y_32));
+   │     -------------------------- in this macro invocation
 

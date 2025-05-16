@@ -5,6 +5,6 @@ failures:
 ---- deserialize/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: error: in deserialize/<DISAMB>::deserialize[0]
-[Crux]   attempt to compute `move _61 + move _62`, which would overflow
+[Crux]   attempt to compute `copy _45 + move _60`, which would overflow
 
 [Crux] Overall status: Invalid.

@@ -102,14 +102,14 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 pattern CTyInt512 <- M.TyAdt _ $(M.explodedDefIdPat ["int512", "Int512"]) (M.Substs [])
 pattern CTyBox t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "boxed", "Box"]) (M.Substs [t])
 
-pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "mem", "maybe_uninit", "MaybeUninit"]) (M.Substs [t])
+pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "MaybeUninit"]) (M.Substs [t])
 
 maybeUninitExplodedDefId :: M.ExplodedDefId
-maybeUninitExplodedDefId = ["core", "mem", "maybe_uninit", "MaybeUninit"]
+maybeUninitExplodedDefId = ["$lang", "MaybeUninit"]
 
 -- `UnsafeCell` isn't handled specially inside baseline `crucible-mir`, but
 -- `crux-mir-comp` looks for it (using this pattern synonym).
-pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "cell", "UnsafeCell"]) (M.Substs [t])
+pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "UnsafeCell"]) (M.Substs [t])
 
 pattern CTyVector t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "vector", "Vector"]) (M.Substs [t])
 
@@ -135,10 +135,10 @@ pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "met
 
 -- These don't have custom representation, but are referenced in various
 -- places.
-pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "option", "Option"]) (M.Substs [t])
+pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "Option"]) (M.Substs [t])
 
 optionExplodedDefId :: M.ExplodedDefId
-optionExplodedDefId = ["core", "option", "Option"]
+optionExplodedDefId = ["$lang", "Option"]
 optionDiscrNone :: Int
 optionDiscrNone = 0
 optionDiscrSome :: Int
@@ -233,8 +233,11 @@ tyToRepr col t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _trait -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
+  -- Values of these types are zero-sized, which we represent as a unit value on
+  -- the Crucible side.
   M.TyFnDef _def -> Some C.UnitRepr
-  M.TyNever -> Some C.AnyRepr
+  M.TyNever -> Some C.UnitRepr
+
   M.TyLifetime -> Some C.AnyRepr
   M.TyForeign -> Some C.AnyRepr
   M.TyErased -> Some C.AnyRepr
@@ -1238,9 +1241,8 @@ initialValue (M.TyAdt nm _ _) = do
 
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
+initialValue M.TyNever     = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
 initialValue (M.TyDynamic _) = return $ Nothing
-initialValue M.TyNever = return $ Just $ MirExp knownRepr $
-    R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
 initialValue _ = return Nothing
 
 initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))

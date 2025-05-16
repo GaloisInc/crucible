@@ -175,10 +175,10 @@ noExtraOverrides _ _ _ _ = Nothing
 
 orOverride ::
     BindExtraOverridesFn -> BindExtraOverridesFn -> BindExtraOverridesFn
-orOverride f g symOnline cs name cfg =
-    case f symOnline cs name cfg of
+orOverride f g symOnline colState name cfg =
+    case f symOnline colState name cfg of
         Just x -> Just x
-        Nothing -> g symOnline cs name cfg
+        Nothing -> g symOnline colState name cfg
 
 
 -- | This closes over the Crucible 'personality' parameter, allowing us to select between

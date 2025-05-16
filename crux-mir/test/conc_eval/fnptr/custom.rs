@@ -1,5 +1,5 @@
 // FAIL: taking address of an overridden function
-use core::mem;
+use std::mem;
 
 #[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {

@@ -1,0 +1,10 @@
+test checked_shift/<DISAMB>::crux_test[0]: returned 0, FAILED
+
+failures:
+
+---- checked_shift/<DISAMB>::crux_test[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/num/checked_shift.rs:6:5: 6:15: error: in checked_shift/<DISAMB>::crux_test[0]
+[Crux]   attempt to shift left by `const 64_i64`, which would overflow
+
+[Crux] Overall status: Invalid.

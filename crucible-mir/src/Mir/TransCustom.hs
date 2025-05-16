@@ -25,6 +25,7 @@
 module Mir.TransCustom(customOps) where
 
 import Data.Bits (shift)
+import qualified Data.BitVector.Sized as BV
 import Data.Coerce (coerce)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -43,9 +44,11 @@ import GHC.TypeLits (type (*))
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
+import Data.Parameterized.Peano
 import Data.Parameterized.Some
 import Data.Parameterized.Utils.Endian (Endian(..))
 import qualified Data.Parameterized.Vector as PV
+import Data.Type.Equality (gcastWith) -- counterpart to NatRepr.withLeqProof but for Refl
 
 
 -- crucible
@@ -54,6 +57,7 @@ import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.CFG.Reg as R
+import Lang.Crucible.Panic
 
 
 import qualified Mir.DefId as M
@@ -114,6 +118,7 @@ customOpDefs = Map.fromList $ [
                          , bitreverse
 
                          , mem_transmute
+                         , mem_bswap
                          , mem_crucible_identity_transmute
                          , array_from_slice
 
@@ -173,6 +178,8 @@ customOpDefs = Map.fromList $ [
 
                          , maybe_uninit_uninit
 
+                         , non_zero_new
+
                          , ctpop
 
                          , integer_from_u8
@@ -201,7 +208,7 @@ exit = (["std", "process", "exit"], \s ->
            Just (CustomOpExit $ \ops -> return "process::exit"))
 
 abort :: (ExplodedDefId, CustomRHS)
-abort = (["core", "intrinsics", "{extern}", "abort"], \s ->
+abort = (["core", "intrinsics", "abort"], \s ->
             Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
@@ -525,8 +532,6 @@ ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
         _ -> Nothing)
 
 is_aligned_and_not_null :: (ExplodedDefId, CustomRHS)
--- Not an actual intrinsic, so it's not in an `extern` block, so it doesn't
--- have the "{extern}" element in its path.
 is_aligned_and_not_null = (["core", "intrinsics", "is_aligned_and_not_null"],
     -- TODO (layout): correct behavior is to return `True` for all valid
     -- references, and check `i != 0 && i % align_of::<T>() == 0` for
@@ -544,11 +549,11 @@ ptr_slice_from_raw_parts_impl = \substs -> case substs of
 
 ptr_slice_from_raw_parts :: (ExplodedDefId, CustomRHS)
 ptr_slice_from_raw_parts =
-    ( ["core", "ptr", "slice_from_raw_parts"]
+    ( ["core", "ptr", "slice_from_raw_parts", "crucible_slice_from_raw_parts_hook"]
     , ptr_slice_from_raw_parts_impl)
 ptr_slice_from_raw_parts_mut :: (ExplodedDefId, CustomRHS)
 ptr_slice_from_raw_parts_mut =
-    ( ["core", "ptr", "slice_from_raw_parts_mut"]
+    ( ["core", "ptr", "slice_from_raw_parts_mut", "crucible_slice_from_raw_parts_hook"]
     , ptr_slice_from_raw_parts_impl)
 
 
@@ -654,19 +659,19 @@ makeOverflowingArith name bop =
 
 wrapping_add ::  (ExplodedDefId, CustomRHS)
 wrapping_add =
-    ( ["core","intrinsics", "{extern}", "wrapping_add"]
+    ( ["core","intrinsics", "wrapping_add"]
     , makeOverflowingArith "wrapping_add" Add
     )
 
 wrapping_sub ::  (ExplodedDefId, CustomRHS)
 wrapping_sub =
-    ( ["core","intrinsics", "{extern}", "wrapping_sub"]
+    ( ["core","intrinsics", "wrapping_sub"]
     , makeOverflowingArith "wrapping_sub" Sub
     )
 
 wrapping_mul ::  (ExplodedDefId, CustomRHS)
 wrapping_mul =
-    ( ["core","intrinsics", "{extern}", "wrapping_mul"]
+    ( ["core","intrinsics", "wrapping_mul"]
     , makeOverflowingArith "wrapping_mul" Mul
     )
 
@@ -703,19 +708,19 @@ makeArithWithOverflow name isSignedOverride bop =
 
 add_with_overflow ::  (ExplodedDefId, CustomRHS)
 add_with_overflow =
-    ( ["core","intrinsics", "{extern}", "add_with_overflow"]
+    ( ["core","intrinsics", "add_with_overflow"]
     , makeArithWithOverflow "add_with_overflow" Nothing Add
     )
 
 sub_with_overflow ::  (ExplodedDefId, CustomRHS)
 sub_with_overflow =
-    ( ["core","intrinsics", "{extern}", "sub_with_overflow"]
+    ( ["core","intrinsics", "sub_with_overflow"]
     , makeArithWithOverflow "sub_with_overflow" Nothing Sub
     )
 
 mul_with_overflow ::  (ExplodedDefId, CustomRHS)
 mul_with_overflow =
-    ( ["core","intrinsics", "{extern}", "mul_with_overflow"]
+    ( ["core","intrinsics", "mul_with_overflow"]
     , makeArithWithOverflow "mul_with_overflow" Nothing Mul
     )
 
@@ -777,13 +782,13 @@ makeSaturatingArith name bop =
 
 saturating_add ::  (ExplodedDefId, CustomRHS)
 saturating_add =
-    ( ["core","intrinsics", "{extern}", "saturating_add"]
+    ( ["core","intrinsics", "saturating_add"]
     , makeSaturatingArith "saturating_add" Add
     )
 
 saturating_sub ::  (ExplodedDefId, CustomRHS)
 saturating_sub =
-    ( ["core","intrinsics", "{extern}", "saturating_sub"]
+    ( ["core","intrinsics", "saturating_sub"]
     , makeSaturatingArith "saturating_sub" Sub
     )
 
@@ -808,43 +813,43 @@ makeUncheckedArith name bop =
 
 unchecked_add ::  (ExplodedDefId, CustomRHS)
 unchecked_add =
-    ( ["core","intrinsics", "{extern}", "unchecked_add"]
+    ( ["core","intrinsics", "unchecked_add"]
     , makeUncheckedArith "unchecked_add" Add
     )
 
 unchecked_sub ::  (ExplodedDefId, CustomRHS)
 unchecked_sub =
-    ( ["core","intrinsics", "{extern}", "unchecked_sub"]
+    ( ["core","intrinsics", "unchecked_sub"]
     , makeUncheckedArith "unchecked_sub" Sub
     )
 
 unchecked_mul ::  (ExplodedDefId, CustomRHS)
 unchecked_mul =
-    ( ["core","intrinsics", "{extern}", "unchecked_mul"]
+    ( ["core","intrinsics", "unchecked_mul"]
     , makeUncheckedArith "unchecked_mul" Mul
     )
 
 unchecked_div ::  (ExplodedDefId, CustomRHS)
 unchecked_div =
-    ( ["core","intrinsics", "{extern}", "unchecked_div"]
+    ( ["core","intrinsics", "unchecked_div"]
     , makeUncheckedArith "unchecked_div" Div
     )
 
 unchecked_rem ::  (ExplodedDefId, CustomRHS)
 unchecked_rem =
-    ( ["core","intrinsics", "{extern}", "unchecked_rem"]
+    ( ["core","intrinsics", "unchecked_rem"]
     , makeUncheckedArith "unchecked_rem" Rem
     )
 
 unchecked_shl ::  (ExplodedDefId, CustomRHS)
 unchecked_shl =
-    ( ["core","intrinsics", "{extern}", "unchecked_shl"]
+    ( ["core","intrinsics", "unchecked_shl"]
     , makeUncheckedArith "unchecked_shl" Shl
     )
 
 unchecked_shr ::  (ExplodedDefId, CustomRHS)
 unchecked_shr =
-    ( ["core","intrinsics", "{extern}", "unchecked_shr"]
+    ( ["core","intrinsics", "unchecked_shr"]
     , makeUncheckedArith "unchecked_shr" Shr
     )
 
@@ -894,16 +899,16 @@ ctlz_impl name optFixedWidth _substs = Just $ CustomOp $ \_optys ops -> case ops
 
 ctlz :: (ExplodedDefId, CustomRHS)
 ctlz =
-    ( ["core","intrinsics", "{extern}", "ctlz"]
-    , ctlz_impl "ctlz" Nothing )
+    ( ["core","intrinsics", "ctlz"]
+    , ctlz_impl "ctlz" (Just $ Some $ knownNat @32) )
 
 ctlz_nonzero :: (ExplodedDefId, CustomRHS)
 ctlz_nonzero =
-    ( ["core","intrinsics", "{extern}", "ctlz_nonzero"]
-    , ctlz_impl "ctlz_nonzero" Nothing )
+    ( ["core","intrinsics", "ctlz_nonzero"]
+    , ctlz_impl "ctlz_nonzero" (Just $ Some $ knownNat @32) )
 
 rotate_left :: (ExplodedDefId, CustomRHS)
-rotate_left = ( ["core","intrinsics", "{extern}", "rotate_left"],
+rotate_left = ( ["core","intrinsics", "rotate_left"],
   \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
       | Just Refl <- testEquality w w' -> do
@@ -911,7 +916,7 @@ rotate_left = ( ["core","intrinsics", "{extern}", "rotate_left"],
     _ -> mirFail $ "invalid arguments for rotate_left")
 
 rotate_right :: (ExplodedDefId, CustomRHS)
-rotate_right = ( ["core","intrinsics", "{extern}", "rotate_right"],
+rotate_right = ( ["core","intrinsics", "rotate_right"],
   \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
       | Just Refl <- testEquality w w' -> do
@@ -923,7 +928,7 @@ rotate_right = ( ["core","intrinsics", "{extern}", "rotate_right"],
 -- ** Custom ::intrinsics::discriminant_value
 
 discriminant_value ::  (ExplodedDefId, CustomRHS)
-discriminant_value = (["core","intrinsics", "{extern}", "discriminant_value"],
+discriminant_value = (["core","intrinsics", "discriminant_value"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
         ([TyRef ty@(TyAdt nm _ _) Immut], [eRef]) -> do
@@ -939,20 +944,20 @@ discriminant_value = (["core","intrinsics", "{extern}", "discriminant_value"],
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)
-type_id = (["core","intrinsics", "{extern}", "type_id"],
+type_id = (["core","intrinsics", "type_id"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (eBVLit (knownRepr :: NatRepr 64) 0))
 
 size_of :: (ExplodedDefId, CustomRHS)
-size_of = (["core", "intrinsics", "{extern}", "size_of"], \substs -> case substs of
+size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         -- TODO: return the actual size, once mir-json exports size/layout info
         return $ MirExp UsizeRepr $ R.App $ usizeLit 1
     )
 
 min_align_of :: (ExplodedDefId, CustomRHS)
-min_align_of = (["core", "intrinsics", "{extern}", "min_align_of"], \substs -> case substs of
+min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         -- TODO: return the actual alignment, once mir-json exports size/layout info
         return $ MirExp UsizeRepr $ R.App $ usizeLit 1
@@ -993,23 +998,55 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
       _ -> Nothing
     )
 
+mem_bswap ::  (ExplodedDefId, CustomRHS)
+mem_bswap = (["core", "intrinsics", "bswap"],
+    \ substs -> case substs of
+      Substs [tyT] -> Just $ CustomOp $ \ _ ops -> case ops of
+        [e@(MirExp argTy@C.BVRepr{} argExpr)] -> return . MirExp argTy $ bswap argTy argExpr
+        _ -> mirFail $ "bswap expected `BVRepr w` but got: " ++ show (tyT, ops)
+      _ -> Nothing)
+  where
+    zero = knownNat @0
+    byte = knownNat @8
+    bswap :: C.TypeRepr (C.BVType w) -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w)
+    bswap (C.BVRepr w) bv
+        | Just Refl <- testEquality byte w = bv -- 8 ≡ w
+        | 0 <- natValue w `mod` natValue byte   -- 0 ≡ w%8
+        , Just (LeqProof, Refl, LeqProof) <- lemma w =
+            let x = R.App $ E.BVSelect zero byte w bv   -- least significant byte
+                xsw = subNat w byte                     -- size of int sans one byte
+                xs = R.App $ E.BVSelect byte xsw w bv   -- int sans least significant byte
+            in R.App $ E.BVConcat byte xsw x (bswap (C.BVRepr xsw) xs)
+        | otherwise = panic "bswap" ["`BVRepr w` must satisfy `8 ≤ w ∧ w%8 ≡ 0`"]
+    lemma :: NatRepr w -> Maybe (LeqProof 8 w, 8 + (w - 8) :~: w, LeqProof 1 (w - 8))
+    lemma w
+        | Just LeqProof <- testLeq byte w               -- 8 ≤ w
+        , Left (lt@LeqProof) <- testStrictLeq byte w    -- 8+1 ≤ w
+        , Refl <- plusComm (subNat w byte) byte         -- 8+(w-8) ≡ (w-8)+8
+        , Refl <- minusPlusCancel w byte                -- (w-8)+8 ≡ w
+        , LeqProof <- leqSub2 lt (leqRefl byte)         -- 1 ≤ w-8
+        = Just (LeqProof, Refl, LeqProof)
+        | otherwise = Nothing
+
 mem_transmute ::  (ExplodedDefId, CustomRHS)
-mem_transmute = (["core", "intrinsics", "{extern}", "transmute"],
+mem_transmute = (["core", "intrinsics", "transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e@(MirExp argTy _)] -> do
-            Some retTy <- tyToReprM tyU
-            case testEquality argTy retTy of
-                Just Refl -> return e
-                Nothing -> mirFail $
-                    "representation mismatch in transmute: " ++ show argTy ++ " != " ++ show retTy
+        [e] -> transmuteExp e tyT tyU
         _ -> mirFail $ "bad arguments to transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing)
-
+  where
+    sizeBytes sz = case sz of
+      USize -> intValue (knownNat @SizeBits) `div` 8
+      B8 -> 1
+      B16 -> 2
+      B32 -> 4
+      B64 -> 8
+      B128 -> 16
 
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
-intrinsics_assume = (["core", "intrinsics", "{extern}", "assume"], \_substs ->
+intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
     Just $ CustomOp $ \_ ops -> case ops of
         [MirExp C.BoolRepr cond] -> do
             G.assertExpr cond $
@@ -1019,11 +1056,11 @@ intrinsics_assume = (["core", "intrinsics", "{extern}", "assume"], \_substs ->
 
 -- TODO: needs layout info from mir-json
 assert_inhabited :: (ExplodedDefId, CustomRHS)
-assert_inhabited = (["core", "intrinsics", "{extern}", "assert_inhabited"], \_substs ->
+assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
-array_from_slice = (["core","array", "{impl}", "try_from", "crucible_array_from_slice_hook"],
+array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_slice_hook"],
     \substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
@@ -1472,7 +1509,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
 -- etc., all with the same `rhs`.
 makeAtomicIntrinsics :: Text -> [Text] -> CustomRHS -> [(ExplodedDefId, CustomRHS)]
 makeAtomicIntrinsics name variants rhs =
-    [(["core", "intrinsics", "{extern}", "atomic_" <> name <> suffix], rhs)
+    [(["core", "intrinsics", "atomic_" <> name <> suffix], rhs)
         | suffix <- "" : map ("_" <>) variants]
 
 atomic_store_impl :: CustomRHS
@@ -1584,7 +1621,7 @@ atomic_funcs =
 unlikely :: (ExplodedDefId, CustomRHS)
 unlikely = (name, rhs)
     where
-        name = ["core", "intrinsics", "{extern}", "unlikely"]
+        name = ["core", "intrinsics", "unlikely"]
         rhs substs = Just $ CustomOp $ \_ [op] -> pure op
 
 
@@ -1595,7 +1632,7 @@ unlikely = (name, rhs)
 --
 -- Reverse the bits in an integer type @T@.
 bitreverse :: (ExplodedDefId, CustomRHS)
-bitreverse = (["core", "intrinsics", "{extern}", "bitreverse"],
+bitreverse = (["core", "intrinsics", "bitreverse"],
   \(Substs substs) ->
     case substs of
       [_] -> Just $ CustomOp $ \_ ops -> case ops of
@@ -1686,15 +1723,37 @@ maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
                 Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
         _ -> Nothing)
 
+--------------------------------------------------------------------------------------------------------------------------
+-- NonZero
+
+non_zero_new ::  (ExplodedDefId, CustomRHS)
+non_zero_new = (["core", "num", "nonzero", "{impl}", "new", "crucible_non_zero_new_hook"],
+    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+        fn <- findFn fnName
+        case (fn ^. fsig . fsreturn_ty, ops) of
+            (TyAdt optionMonoName _ _, [MirExp tpr@(C.BVRepr w) val]) -> do
+                let isZero = R.App $ E.BVEq w val $ R.App $ E.BVLit w $ BV.mkBV w 0
+                -- Get the Adt info for the return type, which should be
+                -- Option<NonZero<T>>.
+                adt <- findAdt optionMonoName
+                MirExp C.AnyRepr <$> G.ifte isZero
+                    (do enum <- buildEnum adt optionDiscrNone []
+                        unwrapMirExp C.AnyRepr enum)
+                    (do enum <- buildEnum adt optionDiscrSome [MirExp tpr val]
+                        unwrapMirExp C.AnyRepr enum)
+            _ -> mirFail $ "bad arguments to NonZero::new: " ++ show ops
+    )
 
 --------------------------------------------------------------------------------------------------------------------------
 
 ctpop :: (ExplodedDefId, CustomRHS)
-ctpop = (["core", "intrinsics", "{extern}", "ctpop"],
+ctpop = (["core", "intrinsics", "ctpop"],
     \(Substs substs) -> case substs of
         [_] -> Just $ CustomOp $ \_ ops -> case ops of
             [MirExp tpr@(C.BVRepr w) val] ->
-                return $ MirExp tpr $ R.App $ E.BVPopcount w val
+                Mir.Trans.extendUnsignedBV
+                    (MirExp tpr $ R.App $ E.BVPopcount w val)
+                    (knownNat @32)
             _ -> mirFail $ "bad arguments to intrinsics::ctpop: " ++ show ops
         _ -> Nothing)
 
@@ -1707,18 +1766,19 @@ ctpop = (["core", "intrinsics", "{extern}", "ctpop"],
 
 fnPtrShimDef :: Ty -> CustomOp
 fnPtrShimDef (TyFnDef defId) = CustomMirOp $ \ops -> case ops of
-    [_fnptr, argTuple] -> do
-        argTys <- case typeOf argTuple of
-            TyTuple tys -> return $ tys
-            ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
-                " for fnptr shim of " ++ show defId
-        argBase <- case argTuple of
-            Copy lv -> return lv
-            Move lv -> return lv
-            _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
-                " for fnptr shim of " ++ show defId
-        let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
-        callExp defId argOps
+    [_fnptr, argTuple] -> case typeOf argTuple of
+        TyTuple [] -> do
+            callExp defId []
+        TyTuple argTys -> do
+            argBase <- case argTuple of
+                Copy lv -> return lv
+                Move lv -> return lv
+                _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
+                    " for fnptr shim of " ++ show defId
+            let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
+            callExp defId argOps
+        ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
+            " for fnptr shim of " ++ show defId
     _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
 fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show ty
 

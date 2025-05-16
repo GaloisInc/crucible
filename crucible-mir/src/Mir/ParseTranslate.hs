@@ -50,11 +50,11 @@ parseMIR path f = do
       Right col -> do
         -- If you update the supported mir-json schema version below, make sure
         -- to also update the crux-mir README accordingly.
-        unless (col^.version == 1) $
+        unless (col^.version == 2) $
           fail $ unlines
             [ path ++ " uses an unsupported mir-json schema version: "
                    ++ show (col^. version)
-            , "This crux-mir release only supports schema version 1."
+            , "This crux-mir release only supports schema version 2."
             , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
             , "for more details on what the schema version means.)"
             ]

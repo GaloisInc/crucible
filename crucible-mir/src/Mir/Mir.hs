@@ -22,6 +22,7 @@ License          : BSD3
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
@@ -120,6 +121,14 @@ data Ty =
 data NamedTy = NamedTy { _ntName :: Text, _ntTy :: Ty }
   deriving (Eq, Ord, Show, Generic)
 
+data LangItem = LangItem
+  { -- | The original 'DefId' for a lang item (e.g., @core::option::Option@).
+    _liOrigDefId :: DefId
+    -- | The @$lang@-based 'DefId' for a lang item (e.g., @$lang::Option@).
+  , _liLangItemDefId :: DefId
+  }
+  deriving (Eq, Ord, Show, Generic)
+
 data FnSig = FnSig {
     _fsarg_tys    :: ![Ty]
   , _fsreturn_ty  :: !Ty
@@ -172,6 +181,10 @@ data InstanceKind =
     | IkClosureOnceShim
     | IkDropGlue (Maybe Ty)
     | IkCloneShim Ty [DefId]
+    | IkClosureFnPointerShim
+    -- ^ Shim used when converting a closure to a function pointer.  This
+    -- function builds a dummy closure value and then passes it to `_inDefId`,
+    -- which is the closure's `call_mut` method.
     deriving (Eq, Ord, Show, Generic)
 
 data Adt = Adt
@@ -248,6 +261,9 @@ data Collection = Collection {
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
     _namedTys  :: !(Map TyName Ty),
+    -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
+    -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
+    _langItems :: !(Map DefId DefId),
     _roots     :: !([MethName])
 } deriving (Show, Eq, Ord, Generic)
 
@@ -305,6 +321,7 @@ data StatementKind =
       | Nop
       | Deinit
       | StmtIntrinsic NonDivergingIntrinsic
+      | ConstEvalCounter
     deriving (Show,Eq, Ord, Generic)
 
 data NonDivergingIntrinsic =
@@ -319,6 +336,7 @@ data PlaceElem =
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int, _sfrom_end :: Bool }
       | Downcast Integer
+      | Subtype Ty
       deriving (Show, Eq, Ord, Generic)
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
@@ -341,7 +359,6 @@ data Rvalue =
         -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
-      | CheckedBinaryOp { _cbop :: BinOp, _cbop1 :: Operand, _cbop2 :: Operand }
       | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
       | Discriminant { _dvar :: Lvalue,
@@ -361,9 +378,16 @@ data Rvalue =
       | ThreadLocalRef DefId Ty
     deriving (Show,Eq, Ord, Generic)
 
--- | An aggregate ADT expression. Currently, this is only used for enums (see
--- "Mir.Pass.AllocateEnum").
-data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
+-- | An aggregate ADT expression.
+data AdtAg = AdtAg {
+    _agadt :: Adt,
+    _avgariant :: Integer,
+    _aops :: [Operand],
+    _adtagty :: Ty,
+    -- | For union aggregates, there's only operand in `_aops`, and `_afield`
+    -- indicates which field of the union the value is written to.
+    _afield :: Maybe Int
+    }
     deriving (Show, Eq, Ord, Generic)
 
 -- | A pair of a 'TerminatorKind' and its source position.
@@ -381,8 +405,7 @@ data TerminatorKind =
       | SwitchInt { _sdiscr    :: Operand,
                     _switch_ty :: Ty,
                     _svalues   :: [Maybe Integer],
-                    _stargets  :: [BasicBlockInfo],
-                    _spos      :: Text }
+                    _stargets  :: [BasicBlockInfo] }
         -- ^ case
       | Resume
       | Abort
@@ -391,26 +414,18 @@ data TerminatorKind =
       | Unreachable
       | Drop { _dloc    :: Lvalue,
                _dtarget :: BasicBlockInfo,
-               _dunwind :: Maybe BasicBlockInfo,
                -- | The DefId of the `drop_in_place` implementation for the
                -- type being dropped.  `Nothing` indicates the type has no
                -- custom drop implementation (and neither do its fields,
                -- transitively).
                _ddrop_fn :: Maybe MethName }
-      | DropAndReplace { _drloc    :: Lvalue,
-                         _drval    :: Operand,
-                         _drtarget :: BasicBlockInfo,
-                         _drunwind :: Maybe BasicBlockInfo,
-                         _drdrop_fn :: Maybe MethName }
       | Call { _cfunc   :: Operand,
                _cargs   :: [Operand],
-               _cdest   :: Maybe (Lvalue, BasicBlockInfo),
-               _cleanup :: Maybe BasicBlockInfo }
+               _cdest   :: Maybe (Lvalue, BasicBlockInfo) }
       | Assert { _acond     :: Operand,
                  _aexpected :: Bool,
                  _amsg      :: AssertMessage,
-                 _atarget   :: BasicBlockInfo,
-                 _acleanup  :: Maybe BasicBlockInfo}
+                 _atarget   :: BasicBlockInfo }
       deriving (Show,Eq, Ord, Generic)
 
 data Operand =
@@ -425,6 +440,7 @@ data Operand =
 data NullOp =
         SizeOf
       | AlignOf
+      | UbChecks
       deriving (Show,Eq, Ord, Generic)
 
 
@@ -439,6 +455,7 @@ data BorrowKind =
 data UnOp =
     Not
   | Neg
+  | PtrMetadata
   deriving (Show,Eq, Ord, Generic)
 
 
@@ -460,7 +477,9 @@ data BinOp =
       | Ge
       | Gt
       | Offset
-      deriving (Show,Eq, Ord, Generic)
+      | Cmp
+      | Checked BinOp
+  deriving (Show,Eq, Ord, Generic)
 
 data VtableItem = VtableItem
     { _vtFn :: DefId        -- ^ ID of the implementation that should be stored in the vtable
@@ -478,11 +497,14 @@ data Vtable = Vtable
 data CastKind =
     Misc
   | ReifyFnPointer
-  | ClosureFnPointer
+  | ClosureFnPointer DefId
+  -- ^ Closure-to-fnptr cast.  The `DefId` refers to the
+  -- `IkClosureFnPointerShim` that is the result of the cast.
   | UnsafeFnPointer
   | Unsize
   | UnsizeVtable VtableName
   | MutToConstPointer
+  | Transmute
   deriving (Show,Eq, Ord, Generic)
 
 data Constant = Constant Ty ConstVal
@@ -532,13 +554,15 @@ data ConstVal =
   | ConstRawPtr Integer
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
-  | ConstFnPtr Instance
+  | ConstUnion
+  | ConstFnPtr DefId
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =
         AKArray Ty
       | AKTuple
       | AKClosure
+      | AKRawPtr Ty Mutability
       deriving (Show,Eq, Ord, Generic)
 
 data Trait = Trait { _traitName       :: !DefId,
@@ -598,6 +622,7 @@ makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
+makeLenses ''LangItem
 makeLenses ''Statement
 makeLenses ''Terminator
 makeWrapped ''Substs
@@ -648,6 +673,16 @@ instance TypeOf a => ArithTyped a where
         _  -> Nothing
 
 --------------------------------------------------------------------------------------
+-- | Lang items
+
+pattern CTyOrdering :: Ty
+pattern CTyOrdering <- TyAdt _ $(explodedDefIdPat ["$lang", "OrderingEnum"]) (Substs [])
+  where CTyOrdering = TyAdt
+          (textId "$lang/0::OrderingEnum::_adt[0]")
+          (textId "$lang/0::OrderingEnum")
+          (Substs [])
+
+--------------------------------------------------------------------------------------
 -- | TypeOf
 
 class TypeOf a where
@@ -671,6 +706,7 @@ typeOfProj elm baseTy = case elm of
     ConstantIndex{} -> peelIdx baseTy
     Downcast i      -> TyDowncast baseTy i   --- TODO: check this
     Subslice{}      -> TySlice (peelIdx baseTy)
+    Subtype t       -> t
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t
@@ -695,41 +731,48 @@ instance TypeOf Rvalue where
   typeOf (Cast _ _ ty) = ty
   typeOf (BinaryOp op x _y) =
     let ty = typeOf x
-    in case op of
-        Add -> ty
-        Sub -> ty
-        Mul -> ty
-        Div -> ty
-        Rem -> ty
-        BitXor -> ty
-        BitAnd -> ty
-        BitOr -> ty
-        Shl -> ty
-        Shr -> ty
-        Beq -> TyBool
-        Lt -> TyBool
-        Le -> TyBool
-        Ne -> TyBool
-        Ge -> TyBool
-        Gt -> TyBool
-        -- ptr::offset
-        Offset -> ty
-  typeOf (CheckedBinaryOp op x y) =
-    let resTy = typeOf $ BinaryOp op x y
-    in TyTuple [resTy, TyBool]
-  typeOf (NullaryOp op ty) = case op of
+        f op' = case op' of
+            Add -> ty
+            Sub -> ty
+            Mul -> ty
+            Div -> ty
+            Rem -> ty
+            BitXor -> ty
+            BitAnd -> ty
+            BitOr -> ty
+            Shl -> ty
+            Shr -> ty
+            Beq -> TyBool
+            Lt -> TyBool
+            Le -> TyBool
+            Ne -> TyBool
+            Ge -> TyBool
+            Gt -> TyBool
+            -- ptr::offset
+            Offset -> ty
+            Cmp -> CTyOrdering
+            Checked op'' -> TyTuple [f op'', TyBool]
+    in f op
+  typeOf (NullaryOp op _ty) = case op of
     SizeOf -> TyUint USize
     AlignOf -> TyUint USize
+    UbChecks -> TyBool
   typeOf (UnaryOp op x) =
     let ty = typeOf x
     in case op of
         Not -> ty
         Neg -> ty
+        PtrMetadata -> case ty of
+            TyRef (TySlice _) _ -> TyUint USize
+            TyRawPtr (TySlice _) _ -> TyUint USize
+            -- FIXME: also handle `&dyn Trait` and custom DSTs
+            _ -> TyTuple []
   typeOf (Discriminant _lv ty) = ty
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
-  typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
+  typeOf (Aggregate (AKRawPtr ty mutbl) _ops) = TyRawPtr ty mutbl
+  typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
   typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv
   typeOf (ThreadLocalRef _ ty) = ty

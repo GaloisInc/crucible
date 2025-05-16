@@ -1,7 +1,3 @@
-// FAIL: needs Vec data structure from stdlib
-// https://github.com/rust-lang/rust/blob/master/src/liballoc/vec.rs
-#![cfg_attr(not(with_main), no_std)]
-
 pub fn addn(x: &[u32], y: &[u32]) -> Vec<u32>
 {
     let mut res = Vec::with_capacity(x.len() + 1);
@@ -34,8 +30,7 @@ const ARG:u32 = 4;
 
 
 
-#[cfg(with_main)]
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }
+#[cfg_attr(crux, crux::test)] fn crux_test() -> bool { f(ARG) }

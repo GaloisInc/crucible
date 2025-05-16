@@ -1,9 +1,9 @@
-struct Test(i32);
+static F: fn() -> i32 = const { || 123 };
 
 #[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
-    let x = Box::new(Test(1));
-    x.0
+    let g: fn() -> i32 = const { || 123 };
+    F() + g()
 }
 
 pub fn main() {

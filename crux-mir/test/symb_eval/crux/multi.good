@@ -7,20 +7,20 @@ failures:
 ---- multi/<DISAMB>::fail1[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/crux/multi.rs:8:22: 8:27: error: in multi/<DISAMB>::fail1[0]
-[Crux]   attempt to compute `move _5 + const 1_u8`, which would overflow
+[Crux]   attempt to compute `copy _1 + const 1_u8`, which would overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crux/multi.rs:8:5: 8:32: error: in multi/<DISAMB>::fail1[0]
+[Crux]   ./libs/crucible/lib.rs:44:9: 44:79 !test/symb_eval/crux/multi.rs:8:5: 8:32: error: in multi/<DISAMB>::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:8:5:
 [Crux]   	x + 1 > x
 
 ---- multi/<DISAMB>::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/core/src/panic.rs:57:9: 57:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: error: in multi/<DISAMB>::fail2[0]
+[Crux]   ./libs/core/src/panic.rs:107:9: 107:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: error: in multi/<DISAMB>::fail2[0]
 [Crux]   panicking::panic_fmt, called from multi/<DISAMB>::fail2[0]
 
 ---- multi/<DISAMB>::fail3[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:41:9: 41:79 !test/symb_eval/crux/multi.rs:20:5: 20:29: error: in multi/<DISAMB>::assert_zero[0]
+[Crux]   ./libs/crucible/lib.rs:44:9: 44:79 !test/symb_eval/crux/multi.rs:20:5: 20:29: error: in multi/<DISAMB>::assert_zero[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 [Crux]   	x == 0
 

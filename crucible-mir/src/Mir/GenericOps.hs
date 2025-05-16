@@ -160,6 +160,7 @@ instance GenericOps Intrinsic
 instance GenericOps Instance
 instance GenericOps InstanceKind
 instance GenericOps NamedTy
+instance GenericOps LangItem
 instance GenericOps NonDivergingIntrinsic
 
 -- instances for newtypes

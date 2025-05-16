@@ -4,7 +4,7 @@ failures:
 
 ---- bad_symb1/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   libs/crucible/symbolic.rs:24:58: 24:69 !libs/crucible/symbolic.rs:30:1: 36:2: error: in crucible/<DISAMB>::symbolic[0]::{impl#1}[0]::symbolic[0]
+[Crux]   ./libs/crucible/symbolic.rs:24:58: 24:69 !./libs/crucible/symbolic.rs:30:1: 36:2: error: in crucible/<DISAMB>::symbolic[0]::{impl#1}[0]::symbolic[0]
 [Crux]   symbolic variable name must be a concrete string
 
 [Crux] Overall status: Invalid.
