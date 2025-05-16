@@ -414,7 +414,6 @@ data TerminatorKind =
       | Unreachable
       | Drop { _dloc    :: Lvalue,
                _dtarget :: BasicBlockInfo,
-               _dunwind :: Maybe BasicBlockInfo,
                -- | The DefId of the `drop_in_place` implementation for the
                -- type being dropped.  `Nothing` indicates the type has no
                -- custom drop implementation (and neither do its fields,
@@ -422,13 +421,11 @@ data TerminatorKind =
                _ddrop_fn :: Maybe MethName }
       | Call { _cfunc   :: Operand,
                _cargs   :: [Operand],
-               _cdest   :: Maybe (Lvalue, BasicBlockInfo),
-               _cleanup :: Maybe BasicBlockInfo }
+               _cdest   :: Maybe (Lvalue, BasicBlockInfo) }
       | Assert { _acond     :: Operand,
                  _aexpected :: Bool,
                  _amsg      :: AssertMessage,
-                 _atarget   :: BasicBlockInfo,
-                 _acleanup  :: Maybe BasicBlockInfo}
+                 _atarget   :: BasicBlockInfo }
       deriving (Show,Eq, Ord, Generic)
 
 data Operand =

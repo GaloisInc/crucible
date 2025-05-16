@@ -358,9 +358,9 @@ instance FromJSON TerminatorKind where
         Just (String "Abort") -> pure Abort
         Just (String "Return") -> pure Return
         Just (String "Unreachable") -> pure Unreachable
-        Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
-        Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
-        Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
+        Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "drop_fn"
+        Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination"
+        Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target"
         k -> fail $ "unsupported terminator kind" ++ show k
 
 instance FromJSON Operand where

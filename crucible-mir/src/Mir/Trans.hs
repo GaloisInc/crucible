@@ -1564,7 +1564,7 @@ switchIsDropFlagCheck [0] [f, t] = do
                 True
             _ -> False
     let termOk = case trueBb ^. bbterminator . termKind of
-            Drop _ dest _ _ -> dest == f
+            Drop _ dest _ -> dest == f
             _ -> False
     return $ stmtsOk && termOk
 switchIsDropFlagCheck _ _ = return False
@@ -1765,12 +1765,12 @@ transTerminatorKind (M.SwitchInt swop _swty svals stargs) tpos _tr | all Maybe.i
 transTerminatorKind (M.Return) _tpos tr =
     doReturn tr
 
-transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest _) _tpos tr = do
+transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest) _tpos tr = do
     isCustom <- resolveCustom funid
     doCall funid cargs cretdest tr -- cleanup ignored
 
 
-transTerminatorKind (M.Call funcOp cargs cretdest _) _tpos tr = do
+transTerminatorKind (M.Call funcOp cargs cretdest) _tpos tr = do
     func <- evalOperand funcOp
     ret <- callHandle func RustAbi Nothing cargs
     case cretdest of
@@ -1780,7 +1780,7 @@ transTerminatorKind (M.Call funcOp cargs cretdest _) _tpos tr = do
       Nothing -> do
           G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
-transTerminatorKind (M.Assert cond expected msg target _cleanup) _tpos _tr = do
+transTerminatorKind (M.Assert cond expected msg target) _tpos _tr = do
     MirExp tpr e <- evalOperand cond
     Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
     G.assertExpr (S.app $ E.BoolEq e (S.app $ E.BoolLit expected)) $
@@ -1788,7 +1788,7 @@ transTerminatorKind (M.Assert cond expected msg target _cleanup) _tpos _tr = do
     jumpToBlock target
 transTerminatorKind (M.Resume) _tpos tr =
     doReturn tr -- resume happens when unwinding
-transTerminatorKind (M.Drop dlv dt _dunwind dropFn) _tpos _tr = do
+transTerminatorKind (M.Drop dlv dt dropFn) _tpos _tr = do
     let ptrOp = M.Temp $ M.Cast M.Misc
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn

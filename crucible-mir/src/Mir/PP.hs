@@ -231,18 +231,12 @@ instance Pretty TerminatorKind where
     pretty Abort = pretty "abort;"
     pretty Resume = pretty "resume;"
     pretty Unreachable = pretty "unreachable;"
-    pretty (Drop l target _unwind dropFn) =
+    pretty (Drop l target dropFn) =
         pretty "drop" <+> pretty l <+> pretty "->" <+> pretty target <+> parens (viaShow dropFn) <> semi
-    pretty (Call f args (Just (lv,bb0)) bb1) =
-      pretty "call" <> tupled ([pretty lv <+> pretty "="
-                                       <+> pretty f <> tupled (map pretty args),
-                             pretty bb0] ++ Maybe.maybeToList (fmap pretty bb1))
-    pretty (Call f args Nothing  bb1 ) =
+    pretty (Call f args bb) =
       pretty "call" <> tupled ([pretty f <> tupled (map pretty args)]
-                             ++ Maybe.maybeToList (fmap pretty bb1))
-
-
-    pretty (Assert op expect _msg target1 _cleanup) =
+                             ++ Maybe.maybeToList (fmap pretty bb))
+    pretty (Assert op expect _msg target1) =
       pretty "assert" <+> pretty op <+> pretty "==" <+> pretty expect
                     <+> arrow <+> pretty target1
 
