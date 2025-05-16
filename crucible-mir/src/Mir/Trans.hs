@@ -1222,22 +1222,38 @@ evalPlace (M.LProj lv proj) = do
     pl <- evalPlace lv
     evalPlaceProj (M.typeOf lv) pl proj
 
-evalPlaceProj :: HasCallStack => M.Ty -> MirPlace s -> M.PlaceElem -> MirGenerator h s ret (MirPlace s)
+evalPlaceProj ::
+  forall h s ret.
+  HasCallStack =>
+  M.Ty ->
+  MirPlace s ->
+  M.PlaceElem ->
+  MirGenerator h s ret (MirPlace s)
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
+    -- In the general case (when T is a sized type), we have a MirPlace input of
+    -- the form:
+    --
+    --   MirPlace (*T) <expr: **T> NoMeta
+    --
+    -- And we want to produce output of the form:
+    --
+    --   MirPlace T <expr': *T> NoMeta
+    --
+    -- Where *T is hand-wavy syntax for reference types (e.g., &T and *const T).
+    -- Note the double indirection in <expr: **T>.
+    --
+    -- Things get a little bit trickier when dealing with unsized types,
+    -- however. See the comments below.
     case ty of
         M.TyRef t _ -> doRef t
         M.TyRawPtr t _ -> doRef t
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
   where
+    doRef :: M.Ty -> MirGenerator h s ret (MirPlace s)
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
-    doRef (M.TyDynamic _) | DynRefRepr <- tpr = do
-        dynRef <- readMirRef tpr ref
-        let dynRefData = S.getStruct dynRefDataIndex dynRef
-        let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
-        -- TODO RGS: Is AnyRepr the correct type here?
-        return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
+    doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1245,6 +1261,17 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
     doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
 
+    -- Slice types [U] are unsized, so we handle them differently. Given a
+    -- MirPlace input of the form:
+    --
+    --   MirPlace (*[U]) <expr: **[U]> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace U <data: *U> (SliceMeta len)
+    --
+    -- Where `data` is the slice's data pointer and `len` is the slice's length.
+    doSlice :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
     doSlice ty' ref' = do
         -- This use of `tyToReprM` is okay because we know the element type of
         -- a slice is always sized.
@@ -1253,6 +1280,28 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let ptr = getSlicePtr slice
         let len = getSliceLen slice
         return $ MirPlace tpr' ptr (SliceMeta len)
+
+    -- Types like `dyn Trait` are unsized, so we handle them differently. Given
+    -- a MirPlace input of the form:
+    --
+    --   MirPlace (*dyn Trait) <expr: **dyn Trait> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace AnyType <data: *?> (DynMeta vtable)
+    --
+    -- Where `data` is the trait object's data pointer (a reference to some
+    -- unknown type) and `vtable` is the trait object's vtable. Note that it is
+    -- unimportant what type we use as the first argument to MirPlace, as there
+    -- is no way to directly access `data` (e.g., you can't access (*x).field if
+    -- `x: &dyn Trait`). As such, it is acceptable to fill it in with a dummy
+    -- type like AnyType.
+    doDyn :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doDyn ref' = do
+        dynRef <- readMirRef DynRefRepr ref'
+        let dynRefData = S.getStruct dynRefDataIndex dynRef
+        let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
+        return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
 
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
