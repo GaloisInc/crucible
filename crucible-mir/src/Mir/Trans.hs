@@ -1822,7 +1822,7 @@ initLocals localVars addrTaken = forM_ localVars $ \v -> do
     -- FIXME: temporary hack to put every local behind a MirReference, to work
     -- around issues with `&fn()` variables.
     varinfo <-
-      if True --case Set.member name addrTaken of
+      if True -- if Set.member name addrTaken
         then do
           ref <- newMirRef tpr
           case optVal of
