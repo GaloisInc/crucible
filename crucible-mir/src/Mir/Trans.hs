@@ -685,6 +685,7 @@ transNullaryOp M.SizeOf _ = do
 transNullaryOp M.UbChecks _ = do
     -- Disable undefined behavior checks.
     -- TODO: re-enable this later, and fix the tests that break
+    -- (see https://github.com/GaloisInc/mir-json/issues/107)
     return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
