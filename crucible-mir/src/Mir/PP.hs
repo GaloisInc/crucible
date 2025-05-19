@@ -306,7 +306,8 @@ instance Pretty BinOp where
       Gt -> pretty ">"
       Offset -> pretty "Offset"
       Cmp -> pretty "Cmp"
-      Checked op' -> pretty op' <> pretty "?"
+      Unchecked op' -> pretty op' <> pretty "!"
+      WithOverflow op' -> pretty op' <> pretty "?"
 
 instance Pretty CastKind where
     pretty = viaShow
