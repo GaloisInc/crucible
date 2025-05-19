@@ -445,7 +445,6 @@ instance FromJSON CastKind where
                         case lookupKM "kind" v' of
                             Just (String "ReifyFnPointer") -> pure ReifyFnPointer
                             Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
-                            -- TODO: ClosureFnPointer
                             Just (String "MutToConstPointer") -> pure MutToConstPointer
                             Just (String "ArrayToPointer") -> pure Misc
                             Just (String "Unsize") -> pure Unsize
