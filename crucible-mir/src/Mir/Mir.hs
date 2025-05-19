@@ -479,6 +479,8 @@ data BinOp =
       | Offset
       | Cmp
       | Checked BinOp
+        -- ^ A variant of a 'BinOp' that returns @(T, bool)@ of both the wrapped
+        -- result and a @bool@ indicating whether it overflowed.
   deriving (Show,Eq, Ord, Generic)
 
 data VtableItem = VtableItem
