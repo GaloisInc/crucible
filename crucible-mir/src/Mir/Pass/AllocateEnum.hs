@@ -86,7 +86,7 @@ isSetDiscriminant stmt =
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
 makeAggregate updates (lv, k, adt) =
     Statement
-      { _stmtKind = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty))
+      { _stmtKind = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty Nothing))
       , _stmtPos = pos
       } where
   adt_did = _adtname adt

@@ -4,7 +4,7 @@ failures:
 
 ---- put_overflow/<DISAMB>::f[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/core/src/panic.rs:57:9: 57:73 !libs/bytes.rs:201:9: 202:49: error: in bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
+[Crux]   ./libs/core/src/panic.rs:107:9: 107:73 !./libs/bytes.rs:201:9: 202:49: error: in bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
 [Crux]   panicking::panic_fmt, called from bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
 
 [Crux] Overall status: Invalid.

@@ -95,7 +95,7 @@ instance FromJSON InlineTy where
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
       Just (String "FnDef") -> TyFnDef <$> v .: "defid"
-      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
+      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "args"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
@@ -110,26 +110,32 @@ instance FromJSON NamedTy where
     parseJSON = withObject "NamedTy" $ \v ->
         NamedTy <$> v .: "name" <*> (getInlineTy <$> v .: "ty")
 
+instance FromJSON LangItem where
+    parseJSON = withObject "LangItem" $ \v ->
+        LangItem <$> v .: "orig_def_id" <*> v .: "name"
+
 instance FromJSON Instance where
     parseJSON = withObject "Instance" $ \v -> case lookupKM "kind" v of
         Just (String "Item") -> Instance IkItem
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "Intrinsic") -> Instance IkIntrinsic
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "VtableShim") -> Instance IkVtableShim
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "ReifyShim") -> Instance IkReifyShim
-            <$> v .: "def_id" <*> v .: "substs"
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "FnPtrShim") -> Instance
-            <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "args"
         Just (String "Virtual") -> Instance
             <$> (IkVirtual <$> v .: "trait_id" <*> v .: "index") <*> v .: "item_id" <*> pure mempty
         Just (String "ClosureOnceShim") -> Instance IkClosureOnceShim
-            <$> v .: "call_once" <*> v .: "substs"
+            <$> v .: "call_once" <*> v .: "args"
         Just (String "DropGlue") -> Instance
-            <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "args"
         Just (String "CloneShim") -> Instance
-            <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "args"
+        Just (String "ClosureFnPointerShim") -> Instance IkClosureFnPointerShim
+            <$> v .: "call_mut" <*> pure mempty
 
 instance FromJSON FnSig where
     parseJSON =
@@ -148,7 +154,7 @@ instance FromJSON Adt where
         <*> v .: "size"
         <*> v .: "repr_transparent"
         <*> v .: "orig_def_id"
-        <*> v .: "orig_substs"
+        <*> v .: "orig_args"
 
 instance FromJSON AdtKind where
     parseJSON = withObject "AdtKind" $ \v -> case lookupKM "kind" v of
@@ -207,6 +213,7 @@ instance FromJSON Collection where
       (vtables :: [Vtable]  ) <- v .: "vtables"
       (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
       (tys    :: [NamedTy])   <- v .: "tys"
+      (langItems :: [LangItem]) <- v .: "lang_items"
       (roots :: [MethName])   <- v .: "roots"
       return $ Collection
         version
@@ -218,6 +225,7 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
         (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy) m) Map.empty tys)
+        (foldr (\ x m -> Map.insert (x^.liOrigDefId) (x^.liLangItemDefId) m) Map.empty langItems)
         roots
 
 
@@ -279,6 +287,7 @@ instance FromJSON StatementKind where
                _ -> fail $ "unknown Intrinsic kind" ++ kind
 
            return $ StmtIntrinsic ndi
+        Just (String "ConstEvalCounter") -> pure ConstEvalCounter
 
         k -> fail $ "kind not found for statement: " ++ show k
 
@@ -297,6 +306,7 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
+        Just (String "Subtype") -> Subtype <$> v .: "ty"
         x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where
@@ -313,15 +323,19 @@ instance FromJSON Rvalue where
                                               Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "CheckedBinaryOp") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
                                               Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
+                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
                                               Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
                                               Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
                                               Just (String "ThreadLocalRef") -> ThreadLocalRef <$> v .: "def_id" <*> v .: "ty"
                                               k -> fail $ "unsupported RValue " ++ show k
+
+instance FromJSON AdtAg where
+    parseJSON = withObject "AdtAg" $ \v ->
+        AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops" <*> v .: "ty" <*> v .: "field"
 
 instance FromJSON Terminator where
     parseJSON j =
@@ -339,15 +353,14 @@ instance FromJSON TerminatorKind where
                      lmt <- v .: "values"
                      mapM (mapM convertIntegerText) lmt
           in
-          SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets" <*> v .: "discr_span"
+          SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
         Just (String "Resume") -> pure Resume
         Just (String "Abort") -> pure Abort
         Just (String "Return") -> pure Return
         Just (String "Unreachable") -> pure Unreachable
-        Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
-        Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind" <*> v .: "drop_fn"
-        Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
-        Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
+        Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "drop_fn"
+        Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination"
+        Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target"
         k -> fail $ "unsupported terminator kind" ++ show k
 
 instance FromJSON Operand where
@@ -361,6 +374,7 @@ instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
                                              Just (String "AlignOf") -> pure AlignOf
+                                             Just (String "UbChecks") -> pure UbChecks
                                              x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where
@@ -379,27 +393,40 @@ instance FromJSON UnOp where
     parseJSON = withObject "UnOp" $ \v -> case lookupKM "kind" v of
                                              Just (String "Not") -> pure Not
                                              Just (String "Neg") -> pure Neg
+                                             Just (String "PtrMetadata") -> pure PtrMetadata
                                              x -> fail ("bad unOp: " ++ show x)
 instance FromJSON BinOp where
-    parseJSON = withObject "BinOp" $ \v -> case lookupKM "kind" v of
-                                             Just (String "Add") -> pure Add
-                                             Just (String "Sub") -> pure Sub
-                                             Just (String "Mul") -> pure Mul
-                                             Just (String "Div") -> pure Div
-                                             Just (String "Rem") -> pure Rem
-                                             Just (String "BitXor") -> pure BitXor
-                                             Just (String "BitAnd") -> pure BitAnd
-                                             Just (String "BitOr") -> pure BitOr
-                                             Just (String "Shl") -> pure Shl
-                                             Just (String "Shr") -> pure Shr
-                                             Just (String "Eq") -> pure Beq
-                                             Just (String "Lt") -> pure Lt
-                                             Just (String "Le") -> pure Le
-                                             Just (String "Ne") -> pure Ne
-                                             Just (String "Ge") -> pure Ge
-                                             Just (String "Gt") -> pure Gt
-                                             Just (String "Offset") -> pure Offset
-                                             x -> fail ("bad binop: " ++ show x)
+    parseJSON = withObject "BinOp" $ \v ->
+        case lookupKM "kind" v of
+            -- `AddUnchecked` is like `Add`, but is UB on overflow.
+            -- TODO: distinguish these cases so we can emit UB checks
+            Just (String "Add") -> pure Add
+            Just (String "AddUnchecked") -> pure Add
+            Just (String "AddWithOverflow") -> pure $ Checked Add
+            Just (String "Sub") -> pure Sub
+            Just (String "SubUnchecked") -> pure Sub
+            Just (String "SubWithOverflow") -> pure $ Checked Sub
+            Just (String "Mul") -> pure Mul
+            Just (String "MulUnchecked") -> pure Mul
+            Just (String "MulWithOverflow") -> pure $ Checked Mul
+            Just (String "Div") -> pure Div
+            Just (String "Rem") -> pure Rem
+            Just (String "BitXor") -> pure BitXor
+            Just (String "BitAnd") -> pure BitAnd
+            Just (String "BitOr") -> pure BitOr
+            Just (String "Shl") -> pure Shl
+            Just (String "ShlUnchecked") -> pure Shl
+            Just (String "Shr") -> pure Shr
+            Just (String "ShrUnchecked") -> pure Shr
+            Just (String "Eq") -> pure Beq
+            Just (String "Lt") -> pure Lt
+            Just (String "Le") -> pure Le
+            Just (String "Ne") -> pure Ne
+            Just (String "Ge") -> pure Ge
+            Just (String "Gt") -> pure Gt
+            Just (String "Offset") -> pure Offset
+            Just (String "Cmp") -> pure Cmp
+            x -> fail ("bad binop: " ++ show x)
 
 
 instance FromJSON VtableItem where
@@ -411,27 +438,38 @@ instance FromJSON Vtable where
         Vtable <$> v .: "name" <*> v .: "items"
 
 instance FromJSON CastKind where
-    parseJSON = withObject "CastKind" $ \v -> case lookupKM "kind" v of
-                                               Just (String "Pointer(ReifyFnPointer)") -> pure ReifyFnPointer
-                                               Just (String "Pointer(ClosureFnPointer(Normal))") -> pure ClosureFnPointer
-                                               Just (String "Pointer(UnsafeFnPointer)") -> pure UnsafeFnPointer
-                                               Just (String "Pointer(Unsize)") -> pure Unsize
-                                               Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
-                                               Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
-                                               -- TODO: actually plumb this information through if it is relevant
-                                               -- instead of using Misc. See
-                                               -- https://github.com/GaloisInc/crucible/issues/1223
-                                               Just (String "PointerExposeAddress") -> pure Misc
-                                               Just (String "PointerFromExposedAddress") -> pure Misc
-                                               Just (String "Pointer(ArrayToPointer)") -> pure Misc
-                                               Just (String "DynStar") -> pure Misc
-                                               Just (String "IntToInt") -> pure Misc
-                                               Just (String "FloatToInt") -> pure Misc
-                                               Just (String "FloatToFloat") -> pure Misc
-                                               Just (String "IntToFloat") -> pure Misc
-                                               Just (String "PtrToPtr") -> pure Misc
-                                               Just (String "FnPtrToPtr") -> pure Misc
-                                               x -> fail ("bad CastKind: " ++ show x)
+    parseJSON = withObject "CastKind" $ \v ->
+        case lookupKM "kind" v of
+            Just (String "PointerCoercion") ->
+                let go = withObject "PointerCoercion" $ \v' ->
+                        case lookupKM "kind" v' of
+                            Just (String "ReifyFnPointer") -> pure ReifyFnPointer
+                            Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
+                            -- TODO: ClosureFnPointer
+                            Just (String "MutToConstPointer") -> pure MutToConstPointer
+                            Just (String "ArrayToPointer") -> pure Misc
+                            Just (String "Unsize") -> pure Unsize
+                            Just (String "ClosureFnPointer") ->
+                              fail $ "bad PointerCastKind: ClosureFnPointer should be "
+                                ++ "handled specially as a separate CastKind"
+                            x -> fail ("bad PointerCastKind: " ++ show x)
+                in v .: "cast" >>= go
+            Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
+            Just (String "ClosureFnPointer") -> ClosureFnPointer <$> v .: "shim"
+            -- TODO: actually plumb this information through if it is relevant
+            -- instead of using Misc. See
+            -- https://github.com/GaloisInc/crucible/issues/1223
+            Just (String "PointerExposeProvenance") -> pure Misc
+            Just (String "PointerWithExposedProvenance") -> pure Misc
+            Just (String "DynStar") -> pure Misc
+            Just (String "IntToInt") -> pure Misc
+            Just (String "FloatToInt") -> pure Misc
+            Just (String "FloatToFloat") -> pure Misc
+            Just (String "IntToFloat") -> pure Misc
+            Just (String "PtrToPtr") -> pure Misc
+            Just (String "FnPtrToPtr") -> pure Misc
+            Just (String "Transmute") -> pure Transmute
+            x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where
     parseJSON = withObject "Literal" $ \v -> do
@@ -525,6 +563,8 @@ instance FromJSON ConstVal where
             variant <- v .: "variant"
             fields <- v .: "fields"
             return $ ConstEnum variant fields
+        Just (String "union") ->
+            pure ConstUnion
 
         Just (String "fndef") -> ConstFunction <$> v .: "def_id"
         Just (String "static_ref") -> ConstStaticRef <$> v .: "def_id"
@@ -543,7 +583,7 @@ instance FromJSON ConstVal where
             ConstClosure <$> v .: "upvars"
 
         Just (String "fn_ptr") ->
-            ConstFnPtr <$> v .: "instance"
+            ConstFnPtr <$> v .: "def_id"
 
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
@@ -564,6 +604,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> pure AKClosure
+                                                     Just (String "RawPtr") -> AKRawPtr <$> v .: "ty" <*> v .: "mutbl"
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)
 

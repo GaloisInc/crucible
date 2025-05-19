@@ -1,12 +1,6 @@
-warning: branch condition never has value false
-  ┌─ test/coverage/coverage_shortcircuit.rs:9:8
-  │
-9 │     if x == 0 || x == 1 {
-  │        ^^^^^^^^^^^^^^^^
-
 warning: branch condition never has a value other than [0]
   ┌─ test/coverage/coverage_shortcircuit.rs:9:8
   │
 9 │     if x == 0 || x == 1 {
-  │        ^
+  │        ^^^^^^
 

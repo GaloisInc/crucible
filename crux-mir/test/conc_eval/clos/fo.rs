@@ -1,14 +1,12 @@
 #![cfg_attr(not(with_main), no_std)]
 
-#![feature(type_ascription)]
-
 fn f (y:i32) -> i32 {
     let z = 12;
     let w = 13;
 
     let g = |x:i32| x + y + z + w;
 
-    g((1 :i32))
+    g(1)
 
 }
 

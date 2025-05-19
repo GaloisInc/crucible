@@ -176,6 +176,7 @@ instance Pretty StatementKind where
       pretty "Intrinsic" <> brackets (pretty "CopyNonOverlapping")
                          <> tupled (pretty <$> [o1, o2, o3])
                          <> semi
+    pretty ConstEvalCounter = pretty "ConstEvalCounter"
 
 instance Pretty Lvalue where
     pretty (LBase base) = pretty base
@@ -190,6 +191,8 @@ instance Pretty Lvalue where
       pretty lv <> brackets (pretty "-" <> pretty f <> dot <> dot <> pretty "-" <> pretty t)
     pretty (LProj lv (Downcast i)) =
       parens (pretty lv <+> pretty "as" <+> pretty i)
+    pretty (LProj lv (Subtype ty)) =
+      parens (pretty lv <+> pretty "as subtype" <+> pretty ty)
 
 instance Pretty Rvalue where
     pretty (Use a) = pretty_fn1 "use" a
@@ -202,7 +205,6 @@ instance Pretty Rvalue where
     pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c
-    pretty (CheckedBinaryOp a b c) = pretty b <+> pretty a <+> pretty c
     pretty (NullaryOp a _b) = pretty a
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
@@ -213,36 +215,28 @@ instance Pretty Rvalue where
     pretty (ThreadLocalRef a b) = pretty_fn2 "ThreadLocalRef" a b
 
 instance Pretty AdtAg where
-  pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _) = pretty_fn3 "AdtAg" nm i ops
-
+  pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _ optField) = case optField of
+    Just field -> pretty_fn4 "AdtAg" nm i ops field
+    Nothing -> pretty_fn3 "AdtAg" nm i ops
 
 instance Pretty Terminator where
   pretty term = pretty (term ^. termKind)
 
 instance Pretty TerminatorKind where
     pretty (Goto g) = pretty_fn1 "goto" g <> semi
-    pretty (SwitchInt op ty vs bs _pos) =
+    pretty (SwitchInt op ty vs bs) =
       pretty "switchint" <+> pretty op <+> colon <> pretty ty <+>
       pretty vs <+> arrow <+> pretty bs
     pretty Return = pretty "return;"
     pretty Abort = pretty "abort;"
     pretty Resume = pretty "resume;"
     pretty Unreachable = pretty "unreachable;"
-    pretty (Drop l target _unwind dropFn) =
+    pretty (Drop l target dropFn) =
         pretty "drop" <+> pretty l <+> pretty "->" <+> pretty target <+> parens (viaShow dropFn) <> semi
-    pretty (DropAndReplace l r target _unwind dropFn) =
-        pretty "dropreplace" <+> pretty l <+> equals <+> pretty r <+>
-            pretty "->" <+> pretty target <+> parens (viaShow dropFn) <> semi
-    pretty (Call f args (Just (lv,bb0)) bb1) =
-      pretty "call" <> tupled ([pretty lv <+> pretty "="
-                                       <+> pretty f <> tupled (map pretty args),
-                             pretty bb0] ++ Maybe.maybeToList (fmap pretty bb1))
-    pretty (Call f args Nothing  bb1 ) =
+    pretty (Call f args bb) =
       pretty "call" <> tupled ([pretty f <> tupled (map pretty args)]
-                             ++ Maybe.maybeToList (fmap pretty bb1))
-
-
-    pretty (Assert op expect _msg target1 _cleanup) =
+                             ++ Maybe.maybeToList (fmap pretty bb))
+    pretty (Assert op expect _msg target1) =
       pretty "assert" <+> pretty op <+> pretty "==" <+> pretty expect
                     <+> arrow <+> pretty target1
 
@@ -280,6 +274,7 @@ instance Pretty Constant where
 instance Pretty NullOp where
     pretty SizeOf = pretty "sizeof"
     pretty AlignOf = pretty "alignof"
+    pretty UbChecks = pretty "ub_checks"
 
 instance Pretty BorrowKind where
     pretty = viaShow
@@ -289,6 +284,7 @@ instance Pretty BorrowKind where
 instance Pretty UnOp where
     pretty Not = pretty "!"
     pretty Neg = pretty "-"
+    pretty PtrMetadata = pretty "PtrMetadata"
 
 instance Pretty BinOp where
     pretty op = case op of
@@ -309,6 +305,8 @@ instance Pretty BinOp where
       Ge -> pretty ">="
       Gt -> pretty ">"
       Offset -> pretty "Offset"
+      Cmp -> pretty "Cmp"
+      Checked op' -> pretty op' <> pretty "?"
 
 instance Pretty CastKind where
     pretty = viaShow
@@ -360,6 +358,7 @@ instance Pretty ConstVal where
     pretty (ConstRawPtr a) = pretty a
     pretty (ConstStruct fs) = pretty "struct" <> list (map pretty fs)
     pretty (ConstEnum v fs) = pretty "enum" <> list ((pretty "variant" <+> pretty v) : map pretty fs)
+    pretty ConstUnion = pretty "union"
     pretty (ConstSliceRef a _len) = pretty "&" <> pr_id a
     pretty (ConstFnPtr i)   = pretty "fn_ptr" <> brackets (pretty i)
 
@@ -367,6 +366,7 @@ instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)
     pretty AKTuple = pretty "tup"
     pretty AKClosure = pretty "closure"
+    pretty (AKRawPtr t mutbl) = brackets (pretty (TyRawPtr t mutbl))
 
 instance Pretty FnSig where
   pretty fs =

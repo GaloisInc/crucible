@@ -4,7 +4,7 @@ failures:
 
 ---- bad_symb2/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   libs/crucible/symbolic.rs:24:58: 24:69 !libs/crucible/symbolic.rs:30:1: 36:2: error: in crucible/<DISAMB>::symbolic[0]::{impl#1}[0]::symbolic[0]
+[Crux]   ./libs/crucible/symbolic.rs:24:58: 24:69 !./libs/crucible/symbolic.rs:30:1: 36:2: error: in crucible/<DISAMB>::symbolic[0]::{impl#1}[0]::symbolic[0]
 [Crux]   invalid symbolic variable name "\NUL:., /": Identifier must start with a letter.
 
 [Crux] Overall status: Invalid.

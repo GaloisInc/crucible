@@ -146,7 +146,7 @@ rustEnumVariant variantsCtx e = GetStruct e i2of2 (VariantRepr variantsCtx)
 
 -- Rust usize/isize representation
 
-type SizeBits = 32
+type SizeBits = 64
 
 type UsizeType = BVType SizeBits
 type IsizeType = BVType SizeBits
@@ -1539,12 +1539,12 @@ data ReversedRefPath sym :: CrucibleType -> CrucibleType -> Type where
 reverseRefPath :: forall sym tp tp'.
     MirReferencePath sym tp tp' ->
     ReversedRefPath sym tp tp'
-reverseRefPath rp = go RrpNil rp
+reverseRefPath = go RrpNil
   where
-    go :: forall sym tp tp' tp''.
-        ReversedRefPath sym tp' tp'' ->
-        MirReferencePath sym tp tp' ->
-        ReversedRefPath sym tp tp''
+    go :: forall tp_ tp_' tp_''.
+        ReversedRefPath sym tp_' tp_'' ->
+        MirReferencePath sym tp_ tp_' ->
+        ReversedRefPath sym tp_ tp_''
     go acc Empty_RefPath = acc
     go acc (Field_RefPath ctx rp idx) =
         go (Field_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
@@ -1573,7 +1573,7 @@ refRootOverlaps sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
   | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
 refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
   | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
-refRootOverlaps sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+refRootOverlaps _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
     leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
 refRootOverlaps sym _ _ = return $ falsePred sym
 
@@ -1594,9 +1594,9 @@ refPathOverlaps sym path1 path2 = do
     -- versa.
     go (reverseRefPath path1') (reverseRefPath path2')
   where
-    go :: forall tp1 tp1' tp2 tp2'.
-        ReversedRefPath sym tp1 tp1' ->
-        ReversedRefPath sym tp2 tp2' ->
+    go :: forall tp1_ tp1_' tp2_ tp2_'.
+        ReversedRefPath sym tp1_ tp1_' ->
+        ReversedRefPath sym tp2_ tp2_' ->
         MuxLeafT sym IO (RegValue sym BoolType)
     -- An empty RefPath (`RrpNil`) covers the whole object, so it overlaps with
     -- all other paths into the same object.
@@ -1718,13 +1718,16 @@ mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
             liftIO $ mkPE similar <$> bvZero sym knownNat
+mirRef_tryOffsetFromLeaf sym (MirReference_Integer i1) (MirReference_Integer i2) = do
+    -- Return zero if `i1 == i2`; otherwise, return `Unassigned`.
+    --
+    -- For more interesting cases, we would need to know the element size to
+    -- use in converting the byte offset `i1 - i2` into an element count.
+    eq <- liftIO $ bvEq sym i1 i2
+    liftIO $ mkPE eq <$> bvZero sym knownNat
 mirRef_tryOffsetFromLeaf _ _ _ = do
     -- MirReference_Integer pointers are always disjoint from all MirReference
     -- pointers, so we report them as being in different objects.
-    --
-    -- For comparing two MirReference_Integer pointers, this answer is clearly
-    -- wrong, but it's (hopefully) a moot point since there's almost nothing
-    -- you can do with a MirReference_Integer anyway without causing a crash.
     return Unassigned
 
 mirRef_tryOffsetFromIO ::
@@ -2074,9 +2077,9 @@ subindexMirRefIO bak iTypes tpr ref x =
     modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf tpr ref' x) ref
 
 mirRef_offsetSim :: IsSymInterface sym =>
-    TypeRepr tp -> MirReferenceMux sym -> RegValue sym IsizeType ->
+    MirReferenceMux sym -> RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-mirRef_offsetSim _tpr ref off =
+mirRef_offsetSim ref off =
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off) ref
 

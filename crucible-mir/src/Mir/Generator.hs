@@ -195,6 +195,8 @@ data FnTransContext
     -- ^ We are translating a function definition.
   | StaticContext
     -- ^ We are translating the initializer for static values.
+  | ShimContext
+    -- ^ We are generating a shim function of some kind.
 
 -- | State about the entire collection used for the translation
 data CollectionState
@@ -413,15 +415,20 @@ instance Pretty MirHandle where
 
 instance Pretty FnTransContext where
     pretty (FnContext f) = pretty f
-    pretty StaticContext = "the static initializer"
+    pretty c = pretty (describeFnContext c)
+
+describeFnContext :: FnTransContext -> String
+describeFnContext c = case c of
+  FnContext f -> show (f^.fname)
+  StaticContext -> "the static initializer"
+  ShimContext -> "an auto-generated shim"
 
 expectFnContext :: MirGenerator h s ret Fn
 expectFnContext = do
   transCtxt <- use transContext
   case transCtxt of
     FnContext f -> pure f
-    StaticContext ->
-      mirFail "expected function when translating static initializer"
+    c -> mirFail $ "expected function when translating " ++ describeFnContext c
 
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
@@ -471,27 +478,34 @@ findExplodedAdtTy edid substs = do
 -- consults the 'crateHashesMap' to ensure that the crate's disambiguator is
 -- correct. If a crate name is ambiguous (i.e., if there are multiple
 -- disambiguators associated with the crate name), this will throw an error.
+--
+-- This also consults the 'langItems' in the 'Collection' so that if a user
+-- looks up the original 'DefId' for a lang item (e.g., @core::option::Option@),
+-- then this function will return the @$lang@-based 'DefId' instead (e.g.,
+-- @$lang::Option@), as the latter 'DefId' is what will be used throughout the
+-- rest of the MIR code.
 findDefId :: ExplodedDefId -> MirGenerator h s ret DefId
 findDefId edid = do
     crateDisambigs <- use $ cs . crateHashesMap
+    langItemDefIds <- use $ cs . collection . langItems
     (crate, path) <-
       case edid of
         crate:path -> pure (crate, path)
         [] -> mirFail "findDefId: DefId with no crate"
     let crateStr = Text.unpack crate
-    case Map.lookup crate crateDisambigs of
-        Just allDisambigs@(disambig :| otherDisambigs)
-          |  F.null otherDisambigs
-          -> pure $ textId $ Text.intercalate "::"
-                  $ (crate <> "/" <> disambig) : path
-          |  otherwise
-          -> mirFail $ unlines $
-               [ "ambiguous crate " ++ crateStr
-               , "crate disambiguators:"
-               ] ++ F.toList (Text.unpack <$> allDisambigs)
-        Nothing -> mirFail $ "unknown crate " ++ crateStr
-  where
-    -- partialDefId = textId str
+    origDefId <-
+      case Map.lookup crate crateDisambigs of
+          Just allDisambigs@(disambig :| otherDisambigs)
+            |  F.null otherDisambigs
+            -> pure $ textId $ Text.intercalate "::"
+                    $ (crate <> "/" <> disambig) : path
+            |  otherwise
+            -> mirFail $ unlines $
+                 [ "ambiguous crate " ++ crateStr
+                 , "crate disambiguators:"
+                 ] ++ F.toList (Text.unpack <$> allDisambigs)
+          Nothing -> mirFail $ "unknown crate " ++ crateStr
+    pure $ Map.findWithDefault origDefId origDefId langItemDefIds
 
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
@@ -499,10 +513,7 @@ mirFail str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
   transCtxt <- use transContext
-  let loc = case transCtxt of
-              FnContext f   -> show (f^.fname)
-              StaticContext -> "the static initializer"
-      msg = "Translation error in " ++ loc ++ ": " ++ str
+  let msg = "Translation error in " ++ describeFnContext transCtxt ++ ": " ++ str
   if b then do
          when (db > 1) $ do
            traceM ("Translation failure: " ++ str)

@@ -5,6 +5,6 @@ failures:
 ---- checked_add/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/num/checked_add.rs:6:5: 6:12: error: in checked_add/<DISAMB>::crux_test[0]
-[Crux]   attempt to compute `const 100_u8 + move _2`, which would overflow
+[Crux]   attempt to compute `const 100_u8 + move _1`, which would overflow
 
 [Crux] Overall status: Invalid.

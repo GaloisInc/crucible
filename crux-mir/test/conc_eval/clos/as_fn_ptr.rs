@@ -1,5 +1,3 @@
-// FAIL: ClosureFnPointer cast
-
 #[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
     // The closure's `Fn::call` impl takes the closure environment as an argument, but the function

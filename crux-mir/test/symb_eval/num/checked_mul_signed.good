@@ -5,6 +5,6 @@ failures:
 ---- checked_mul_signed/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/num/checked_mul_signed.rs:6:5: 6:13: error: in checked_mul_signed/<DISAMB>::crux_test[0]
-[Crux]   attempt to compute `const -100_i8 * move _2`, which would overflow
+[Crux]   attempt to compute `const -100_i8 * move _1`, which would overflow
 
 [Crux] Overall status: Invalid.
