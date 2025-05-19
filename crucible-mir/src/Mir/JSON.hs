@@ -398,26 +398,24 @@ instance FromJSON UnOp where
 instance FromJSON BinOp where
     parseJSON = withObject "BinOp" $ \v ->
         case lookupKM "kind" v of
-            -- `AddUnchecked` is like `Add`, but is UB on overflow.
-            -- TODO: distinguish these cases so we can emit UB checks
             Just (String "Add") -> pure Add
-            Just (String "AddUnchecked") -> pure Add
-            Just (String "AddWithOverflow") -> pure $ Checked Add
+            Just (String "AddUnchecked") -> pure $ Unchecked Add
+            Just (String "AddWithOverflow") -> pure $ WithOverflow Add
             Just (String "Sub") -> pure Sub
-            Just (String "SubUnchecked") -> pure Sub
-            Just (String "SubWithOverflow") -> pure $ Checked Sub
+            Just (String "SubUnchecked") -> pure $ Unchecked Sub
+            Just (String "SubWithOverflow") -> pure $ WithOverflow Sub
             Just (String "Mul") -> pure Mul
-            Just (String "MulUnchecked") -> pure Mul
-            Just (String "MulWithOverflow") -> pure $ Checked Mul
+            Just (String "MulUnchecked") -> pure $ Unchecked Mul
+            Just (String "MulWithOverflow") -> pure $ WithOverflow Mul
             Just (String "Div") -> pure Div
             Just (String "Rem") -> pure Rem
             Just (String "BitXor") -> pure BitXor
             Just (String "BitAnd") -> pure BitAnd
             Just (String "BitOr") -> pure BitOr
             Just (String "Shl") -> pure Shl
-            Just (String "ShlUnchecked") -> pure Shl
+            Just (String "ShlUnchecked") -> pure $ Unchecked Shl
             Just (String "Shr") -> pure Shr
-            Just (String "ShrUnchecked") -> pure Shr
+            Just (String "ShrUnchecked") -> pure $ Unchecked Shr
             Just (String "Eq") -> pure Beq
             Just (String "Lt") -> pure Lt
             Just (String "Le") -> pure Le
@@ -445,7 +443,6 @@ instance FromJSON CastKind where
                         case lookupKM "kind" v' of
                             Just (String "ReifyFnPointer") -> pure ReifyFnPointer
                             Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
-                            -- TODO: ClosureFnPointer
                             Just (String "MutToConstPointer") -> pure MutToConstPointer
                             Just (String "ArrayToPointer") -> pure Misc
                             Just (String "Unsize") -> pure Unsize

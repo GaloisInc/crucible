@@ -470,7 +470,14 @@ transBinOp bop op1 op2 = do
     me2 <- evalOperand  op2
     let mat = M.arithType op1 `mplus` M.arithType op2
     case bop of
-        Checked bop' -> do
+        Unchecked bop' -> do
+            (res, overflow) <- evalBinOp bop' mat me1 me2
+            G.assertExpr (S.notExpr overflow) $
+              S.litExpr $
+              "Binary operation (" <> Text.pack (show (pretty bop')) <>
+              ") would overflow"
+            pure res
+        WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
             col <- use $ cs . collection
             return $ buildTupleMaybe col [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow]
@@ -685,6 +692,7 @@ transNullaryOp M.SizeOf _ = do
 transNullaryOp M.UbChecks _ = do
     -- Disable undefined behavior checks.
     -- TODO: re-enable this later, and fix the tests that break
+    -- (see https://github.com/GaloisInc/mir-json/issues/107)
     return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
@@ -1822,7 +1830,7 @@ initLocals localVars addrTaken = forM_ localVars $ \v -> do
     -- FIXME: temporary hack to put every local behind a MirReference, to work
     -- around issues with `&fn()` variables.
     varinfo <-
-      if True --case Set.member name addrTaken of
+      if True -- if Set.member name addrTaken
         then do
           ref <- newMirRef tpr
           case optVal of

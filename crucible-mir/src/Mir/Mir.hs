@@ -478,7 +478,11 @@ data BinOp =
       | Gt
       | Offset
       | Cmp
-      | Checked BinOp
+      | Unchecked BinOp
+        -- ^ A variant of a 'BinOp' for which overflow is undefined behavior.
+      | WithOverflow BinOp
+        -- ^ A variant of a 'BinOp' that returns @(T, bool)@ of both the wrapped
+        -- result and a @bool@ indicating whether it overflowed.
   deriving (Show,Eq, Ord, Generic)
 
 data VtableItem = VtableItem
@@ -751,7 +755,8 @@ instance TypeOf Rvalue where
             -- ptr::offset
             Offset -> ty
             Cmp -> CTyOrdering
-            Checked op'' -> TyTuple [f op'', TyBool]
+            Unchecked op'' -> f op''
+            WithOverflow op'' -> TyTuple [f op'', TyBool]
     in f op
   typeOf (NullaryOp op _ty) = case op of
     SizeOf -> TyUint USize
