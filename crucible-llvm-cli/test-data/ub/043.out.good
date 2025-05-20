@@ -1,0 +1,12 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/ub/043.cbl:8:12: error: in main
+  Undefined behavior encountered
+  Details:
+    Addition of an offset to a pointer resulted in a pointer to an address outside of the allocation
+  annotation Nonce {indexValue = 0} false
+COUNTEREXAMPLE

@@ -20,6 +20,8 @@
 -- code essentially have an additional hypothesis: that the LLVM
 -- compiler/hardware platform behave identically to Crucible's simulator when
 -- encountering such behavior.
+--
+-- See @crucible-llvm-cli/test-data/ub@ for tests demonstrating some of these.
 --------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}

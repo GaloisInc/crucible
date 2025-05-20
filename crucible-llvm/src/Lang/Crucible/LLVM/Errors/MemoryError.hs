@@ -6,6 +6,7 @@
 -- Maintainer       : Langston Barrett <lbarrett@galois.com>
 -- Stability        : provisional
 --
+-- See @crucible-llvm-cli/test-data/ub@ for tests demonstrating some of these.
 --------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}

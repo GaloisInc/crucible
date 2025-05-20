@@ -1,0 +1,10 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/ub/039.cbl:6:5: error: in main
+  Error during memory load
+  cnoSatisfyingWrite@0:b
+COUNTEREXAMPLE

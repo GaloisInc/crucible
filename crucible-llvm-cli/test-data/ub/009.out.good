@@ -1,0 +1,12 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/ub/009.cbl:14:5: error: in main
+  Memory store failed
+  Details:
+    The region wasn't allocated, wasn't large enough, or was marked as readonly
+  annotation Nonce {indexValue = 0} false
+COUNTEREXAMPLE
