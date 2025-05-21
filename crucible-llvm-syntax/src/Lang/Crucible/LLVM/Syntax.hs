@@ -41,7 +41,7 @@ import Lang.Crucible.LLVM.DataLayout (Alignment)
 import Lang.Crucible.LLVM.DataLayout qualified as DataLayout
 import Lang.Crucible.LLVM.Extension (LLVM)
 import Lang.Crucible.LLVM.Extension qualified as Ext
-import Lang.Crucible.LLVM.MemModel (Mem, pattern LLVMPointerRepr)
+import Lang.Crucible.LLVM.MemModel (Mem, pattern LLVMPointerRepr, pattern PtrRepr)
 import Lang.Crucible.LLVM.MemModel qualified as Mem
 import Lang.Crucible.LLVM.MemType (MemType)
 import Lang.Crucible.LLVM.MemType qualified as MemType
@@ -123,7 +123,7 @@ llvmAtomParser mvar =
 
       Atom.AtomName "ptr-add-offset" -> Parse.describe "LLVM ptr-add-offset arguments" $ do
         loc <- Parse.position
-        assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> BVRepr ?ptrWidth)
+        assign <- Parse.operands (Ctx.Empty Ctx.:> PtrRepr Ctx.:> BVRepr ?ptrWidth)
         let (rest, bv) = Ctx.decompose assign
         let (Ctx.Empty, ptr) = Ctx.decompose rest
         let stmt = Ext.LLVM_PtrAddOffset ?ptrWidth mvar ptr bv
@@ -157,7 +157,7 @@ llvmAtomParser mvar =
 
       Atom.AtomName "ptr-sub" -> Parse.describe "LLVM ptr-sub arguments" $ do
         loc <- Parse.position
-        assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> LLVMPointerRepr ?ptrWidth)
+        assign <- Parse.operands (Ctx.Empty Ctx.:> PtrRepr Ctx.:> PtrRepr)
         let (rest, subtrahend) = Ctx.decompose assign
         let (Ctx.Empty, minuend) = Ctx.decompose rest
         let stmt = Ext.LLVM_PtrSubtract ?ptrWidth mvar minuend subtrahend
@@ -180,7 +180,7 @@ llvmAtomParser mvar =
             parseAlign
             (Parse.cons
               parseMemType
-              (Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth)))
+              (Parse.operands (Ctx.Empty Ctx.:> PtrRepr)))
         llvmTypeAsRepr memTy $ \tyRep -> do
           case Mem.toStorableType memTy of
             Nothing -> empty
@@ -196,7 +196,7 @@ llvmAtomParser mvar =
             Parse.isType
             (Parse.cons
               (Parse.someAssign "list of argument types" Parse.isType)
-              (Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth)))
+              (Parse.operands (Ctx.Empty Ctx.:> PtrRepr)))
         let (Ctx.Empty, ptr) = Ctx.decompose assign
         let stmt = Ext.LLVM_LoadHandle mvar Nothing ptr args ret
         Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
@@ -213,7 +213,7 @@ llvmAtomParser mvar =
         Parse.depCons parseAlign $ \align ->
           Parse.depCons parseMemType $ \memTy ->
             llvmTypeAsRepr memTy $ \tyRep -> do
-              assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> tyRep)
+              assign <- Parse.operands (Ctx.Empty Ctx.:> PtrRepr Ctx.:> tyRep)
               case Mem.toStorableType memTy of
                 Nothing -> empty
                 Just storTy -> do
@@ -221,6 +221,34 @@ llvmAtomParser mvar =
                   let (Ctx.Empty, ptr) = Ctx.decompose rest
                   let stmt = Ext.LLVM_Store mvar ptr tyRep storTy align val
                   Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "pop-frame" -> Parse.describe "LLVM pop-frame arguments" $ do
+        loc <- Parse.position
+        () <- Parse.emptyList
+        let stmt = Ext.LLVM_PopFrame mvar
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "push-frame" -> Parse.describe "LLVM push-frame arguments" $ do
+        loc <- Parse.position
+        (name, ()) <- Parse.cons Parse.string Parse.emptyList
+        let stmt = Ext.LLVM_PushFrame name mvar
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "ptr-eq" -> Parse.describe "LLVM ptr-eq arguments" $ do
+        loc <- Parse.position
+        assign <- Parse.operands (Ctx.Empty Ctx.:> PtrRepr Ctx.:> PtrRepr)
+        let (rest, l) = Ctx.decompose assign
+        let (Ctx.Empty, r) = Ctx.decompose rest
+        let stmt = Ext.LLVM_PtrEq mvar l r
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "ptr-le" -> Parse.describe "LLVM ptr-le arguments" $ do
+        loc <- Parse.position
+        assign <- Parse.operands (Ctx.Empty Ctx.:> PtrRepr Ctx.:> PtrRepr)
+        let (rest, l) = Ctx.decompose assign
+        let (Ctx.Empty, r) = Ctx.decompose rest
+        let stmt = Ext.LLVM_PtrLe mvar l r
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
       _ -> empty
   where

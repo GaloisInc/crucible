@@ -30,6 +30,8 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 - `ptr-add-offset : Ptr w -> Bitvector w -> Ptr w`: add an offset to a pointer
 - `ptr-block : Ptr n -> Nat`: get the block number of a pointer
 - `ptr-offset : Ptr n -> Bitvector n`: get the offset of a pointer
+- `ptr-eq: Ptr w -> Ptr w -> Bool`: equality for pointers
+- `ptr-le: Ptr w -> Ptr w -> Bool`: less than or equal for pointers
 - `ptr-ite : Bool -> Ptr n -> Ptr n -> Ptr n`: if-then-else for pointers
 - `ptr-sub : Ptr w -> Ptr w -> Ptr w`: subtract two pointers
 - `alloca : Alignment -> Bitvector w -> Ptr w`: allocate space on the stack
@@ -37,6 +39,8 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 - `load-handle : Type -> [Type] -> Ptr w -> T`: load a function handle from memory, where the type `T` is determined by the given return and argument types
 - `store : Alignment -> LLVMType -> Ptr w -> T -> Unit`: store a value to memory, where the type `T` is determined by the `LLVMType`
 - `resolve-global : String -> Ptr w`: get the address of a global variable
+- `pop-frame : ()`: pop a frame off the LLVM stack
+- `push-frame : String -> ()`: push a frame onto the LLVM stack
 
 `Type` signifies a Crucible type, rather than an LLVM type. This means there
 are no C- or LLVM-like `Type`s such as `i8*` or `size_t`, but rather the base
