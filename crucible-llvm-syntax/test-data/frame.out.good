@@ -1,0 +1,17 @@
+(defun @test-frame () Unit
+   (start start:
+      (push-frame "test-frame")
+      (pop-frame)
+      (return ())))
+
+test-frame
+%0
+  % 3:5
+  $0 = pushFrame test-frame crucible-llvm-syntax-test-memory
+  % 4:5
+  $1 = popFrame crucible-llvm-syntax-test-memory
+  % 5:13
+  $2 = emptyApp()
+  % 5:5
+  return $2
+  % no postdom

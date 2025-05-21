@@ -222,6 +222,18 @@ llvmAtomParser mvar =
                   let stmt = Ext.LLVM_Store mvar ptr tyRep storTy align val
                   Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
+      Atom.AtomName "pop-frame" -> Parse.describe "LLVM pop-frame arguments" $ do
+        loc <- Parse.position
+        () <- Parse.emptyList
+        let stmt = Ext.LLVM_PopFrame mvar
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "push-frame" -> Parse.describe "LLVM push-frame arguments" $ do
+        loc <- Parse.position
+        (name, ()) <- Parse.cons Parse.string Parse.emptyList
+        let stmt = Ext.LLVM_PushFrame name mvar
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
       _ -> empty
   where
     parseAlign :: MonadSyntax Atomic m => m Alignment
