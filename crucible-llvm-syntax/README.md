@@ -30,6 +30,8 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 - `ptr-add-offset : Ptr w -> Bitvector w -> Ptr w`: add an offset to a pointer
 - `ptr-block : Ptr n -> Nat`: get the block number of a pointer
 - `ptr-offset : Ptr n -> Bitvector n`: get the offset of a pointer
+- `ptr-eq: Ptr w -> Ptr w -> Bool`: equality for pointers
+- `ptr-le: Ptr w -> Ptr w -> Bool`: less than or equal for pointers
 - `ptr-ite : Bool -> Ptr n -> Ptr n -> Ptr n`: if-then-else for pointers
 - `ptr-sub : Ptr w -> Ptr w -> Ptr w`: subtract two pointers
 - `alloca : Alignment -> Bitvector w -> Ptr w`: allocate space on the stack

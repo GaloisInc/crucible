@@ -4,10 +4,9 @@
     (let off0 (bv 64 0))
     (let p0 (ptr 64 blk0 off0))
     (let p (ptr-ite 64 #t p0 p0))
-    (let blk (ptr-block 64 p))
-    (let off (ptr-offset 64 p))
-    (assert! (equal? blk0 blk) "block numbers equal")
-    (assert! (equal? off0 off) "offsets equal")
+    (let beq (ptr-eq p p0))
+    (let ble (ptr-le p p0))
+    (assert! (and beq ble) "pointers equal")
 
     (let sz (bv 64 1))
     (let a (alloca none sz))

@@ -234,6 +234,22 @@ llvmAtomParser mvar =
         let stmt = Ext.LLVM_PushFrame name mvar
         Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
+      Atom.AtomName "ptr-eq" -> Parse.describe "LLVM ptr-eq arguments" $ do
+        loc <- Parse.position
+        assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> LLVMPointerRepr ?ptrWidth)
+        let (rest, l) = Ctx.decompose assign
+        let (Ctx.Empty, r) = Ctx.decompose rest
+        let stmt = Ext.LLVM_PtrEq mvar l r
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
+      Atom.AtomName "ptr-le" -> Parse.describe "LLVM ptr-le arguments" $ do
+        loc <- Parse.position
+        assign <- Parse.operands (Ctx.Empty Ctx.:> LLVMPointerRepr ?ptrWidth Ctx.:> LLVMPointerRepr ?ptrWidth)
+        let (rest, l) = Ctx.decompose assign
+        let (Ctx.Empty, r) = Ctx.decompose rest
+        let stmt = Ext.LLVM_PtrLe mvar l r
+        Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
+
       _ -> empty
   where
     parseAlign :: MonadSyntax Atomic m => m Alignment
