@@ -21,7 +21,8 @@ import Lang.Crucible.LLVM.CLI (withLlvmHooks)
 main :: IO ()
 main = do
   simTests <- findTests "LLVM simulation" "test-data" testSimulator
-  defaultMain simTests
+  ubTests <- findTests "Undefined behavior" "test-data/ub" testSimulator
+  defaultMain (testGroup "crucible-llvm-cli" [simTests, ubTests])
 
 findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
 findTests groupName testDir testAction =

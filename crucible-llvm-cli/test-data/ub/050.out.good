@@ -1,0 +1,12 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/ub/050.cbl:8:12: error: in main
+  Undefined behavior encountered
+  Details:
+    Comparison of pointers from different allocations
+  annotation Nonce {indexValue = 4} false
+COUNTEREXAMPLE
