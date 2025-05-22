@@ -46,6 +46,30 @@ If the numeral `w` is the width of a pointer and `n` is an arbitrary numeral,
 are no C- or LLVM-like `Type`s such as `i8*` or `size_t`, but rather the base
 Crucible types as defined by `crucible-syntax`, and `(Ptr n)`.
 
+## String manipulation
+
+This package also provides the following overrides for convenient manipulation
+of C-style null-terminated strings:
+
+* `read-bytes :: Pointer -> Vector (Bitvector 8)` reads a concrete,
+  null-terminated sequence of bytes from the `Pointer`. Unlike `read-c-string`,
+  this function reads the raw bytes without converting to a particular text
+  encoding.
+* `read-c-string :: Pointer -> String Unicode` reads a concrete,
+  null-terminated, UTF-8–encoded string from the `Pointer` and converts it to
+  a `String`. Representing it as a `String` can be more convenient in the syntax
+  override language, as it is easier to manipulate and check for equality.
+* `write-bytes :: Vector (Bitvector 8) -> Pointer` writes a sequence of bytes
+  to a `Pointer`, including a null terminator (which does not need to be in the
+  `Vector`). The null terminator written at the end will be concrete, but the
+  preceding bytes may be symbolic. Unlike `write-c-string`, this function writes
+  the raw bytes without converting to a particular text encoding. For example,
+  to write the string `"abc"`, supply `(vector (bv 8 97) (bv 8 98) (bv 8 99))`
+  as an argument, as the bytes `97`, `98`, and `99` correspond to the numeric
+  values of the `a`, `b`, and `c` characters, respectively.
+* `write-c-string :: Pointer -> String Unicode -> Unit` writes a concrete,
+  UTF-8–encoded string to a `Pointer`, including a null terminator.
+
 ## Further extensions
 
 The LLVM parser hooks can be further customized by passing yet another `ParserHooks`

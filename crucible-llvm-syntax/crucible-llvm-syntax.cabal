@@ -115,6 +115,8 @@ library
 
   build-depends:
     base >= 4.13,
+    bv-sized,
+    bytestring,
     containers,
     crucible >= 0.1,
     crucible-llvm,
@@ -124,6 +126,7 @@ library
     parameterized-utils >= 0.1.7,
     prettyprinter,
     text,
+    vector,
     what4,
 
   hs-source-dirs: src
@@ -131,6 +134,7 @@ library
   exposed-modules:
     Lang.Crucible.LLVM.Syntax
     Lang.Crucible.LLVM.Syntax.Overrides
+    Lang.Crucible.LLVM.Syntax.Overrides.String
     Lang.Crucible.LLVM.Syntax.TypeAlias
 
 test-suite crucible-llvm-syntax-tests
