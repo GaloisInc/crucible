@@ -102,6 +102,7 @@ import qualified Lang.Crucible.Simulator.GlobalState as LCSG
 
 import           Lang.Crucible.LLVM.Bytes (toBytes)
 import           Lang.Crucible.LLVM.MemModel
+import qualified Lang.Crucible.LLVM.MemModel.Strings as CStr
 import           Lang.Crucible.LLVM.Extension ( ArchWidth )
 import           Lang.Crucible.LLVM.DataLayout ( noAlignment )
 import           Lang.Crucible.LLVM.Intrinsics
@@ -380,7 +381,7 @@ loadFileIdent
 loadFileIdent memOps filename_ptr =
   ovrWithBackend $ \bak ->
    do mem <- readGlobal memOps
-      filename_bytes <- liftIO $ loadString bak mem filename_ptr Nothing
+      filename_bytes <- liftIO $ CStr.loadString bak mem filename_ptr Nothing
       liftIO $ W4.stringLit (backendGetSym bak) (W4.Char8Literal (BS.pack filename_bytes))
 
 returnIOError32

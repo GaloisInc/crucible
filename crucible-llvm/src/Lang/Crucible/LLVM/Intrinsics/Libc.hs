@@ -65,6 +65,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Partial
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as Ptr
+import           Lang.Crucible.LLVM.MemModel.Strings as CStr
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.TypeContext
@@ -596,7 +597,7 @@ callPuts mvar
   (regValue -> strPtr) =
     ovrWithBackend $ \bak -> do
       mem <- readGlobal mvar
-      str <- liftIO $ loadString bak mem strPtr Nothing
+      str <- liftIO $ CStr.loadString bak mem strPtr Nothing
       h <- printHandle <$> getContext
       liftIO $ hPutStrLn h (UTF8.toString str)
       -- return non-negative value on success
@@ -629,7 +630,7 @@ callAssert mvar (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
     let sym = backendGetSym bak
     when failUponExit $
       do mem <- readGlobal mvar
-         txt <- liftIO $ loadString bak mem (regValue ptxt) Nothing
+         txt <- liftIO $ CStr.loadString bak mem (regValue ptxt) Nothing
          let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
          liftIO $ addFailedAssertion bak err
     liftIO $
@@ -667,7 +668,7 @@ callPrintf mvar
   (regValue -> valist) =
     ovrWithBackend $ \bak -> do
       mem <- readGlobal mvar
-      formatStr <- liftIO $ loadString bak mem strPtr Nothing
+      formatStr <- liftIO $ CStr.loadString bak mem strPtr Nothing
       case parseDirectives formatStr of
         Left err -> overrideError $ AssertFailureSimError "Format string parsing failed" err
         Right ds -> do
@@ -731,7 +732,7 @@ printfOps bak valist =
      case valist V.!? (i-1) of
        Just (AnyValue PtrRepr ptr) ->
            do mem <- get
-              liftIO $ loadString bak mem ptr numchars
+              liftIO $ CStr.loadString bak mem ptr numchars
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion bak
               $ AssertFailureSimError

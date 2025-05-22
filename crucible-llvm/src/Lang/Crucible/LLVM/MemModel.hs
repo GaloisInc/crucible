@@ -83,9 +83,13 @@ module Lang.Crucible.LLVM.MemModel
   , doArrayStoreUnbounded
   , doArrayConstStore
   , doArrayConstStoreUnbounded
-  , loadString
-  , loadMaybeString
-  , strLen
+  -- TODO(#1308): When GHC 9.6 support is dropped, deprecate these imports
+  , -- {-# DEPRECATED "Exported from Crucible.LLVM.MemModel.Strings instead" #-}
+    loadString
+  , -- {-# DEPRECATED "Exported from Crucible.LLVM.MemModel.Strings instead" #-}
+    loadMaybeString
+  , -- {-# DEPRECATED "Exported from Crucible.LLVM.MemModel.Strings instead" #-}
+    strLen
   , uncheckedMemcpy
 
     -- * \"Raw\" operations with LLVMVal

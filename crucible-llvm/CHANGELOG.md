@@ -1,6 +1,7 @@
 # next
 
-Nothing yet.
+* `Lang.Crucible.LLVM.MemModel.{loadString,loadMaybeString,strLen}`
+  should now be imported from `Lang.Crucible.LLVM.MemModel.Strings`.
 
 # 0.7.1 -- 2025-03-21
 
