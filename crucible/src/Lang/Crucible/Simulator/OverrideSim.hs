@@ -78,6 +78,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , typedOverride
   , SomeTypedOverride(..)
   , runTypedOverride
+  , bindTypedOverride
     -- * Re-exports
   , Lang.Crucible.Simulator.ExecutionTree.Override
   ) where
@@ -725,3 +726,11 @@ runTypedOverride ::
 runTypedOverride nm typedOvr = mkOverride' nm (typedOverrideRet typedOvr) $ do
   RegMap args <- getOverrideArgs
   typedOverrideHandler typedOvr (fmapFC (RV . regValue) args)
+
+-- | Bind a 'TypedOverride' to a 'FnHandle'
+bindTypedOverride ::
+  FnHandle args ret ->
+  TypedOverride p sym ext args ret ->
+  OverrideSim p sym ext rtp args' ret' ()
+bindTypedOverride hdl ov =
+  bindFnHandle hdl (UseOverride (runTypedOverride (handleName hdl) ov))
