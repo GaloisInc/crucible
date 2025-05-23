@@ -37,6 +37,7 @@ import What4.Interface qualified as WI
 --
 -- The loaded string must be concrete. If a symbolic character is encountered
 -- while loading, this function will generate an assertion failure.
+-- (TODO(#1061))
 readBytesOverride ::
   ( LCLM.HasLLVMAnn sym
   , LCLM.HasPtrWidth w
@@ -52,6 +53,7 @@ readBytesOverride memVar =
 --
 -- The loaded string must be concrete. If a symbolic character is encountered
 -- while loading, this function will generate an assertion failure.
+-- (TODO(#1061))
 readBytes ::
   ( LCLM.HasLLVMAnn sym
   , LCLM.HasPtrWidth w
@@ -74,6 +76,7 @@ readBytes memVar ptr =
 --
 -- * The loaded string must be concrete. If a symbolic character is encountered
 --   while loading, this function will generate an assertion failure.
+--   (TODO(#1061))
 --
 -- * The loaded string should be UTF-8–encoded. Any invalid code points in the
 --   string will be replaced with the Unicode replacement character @U+FFFD@.
@@ -93,6 +96,7 @@ readCStringOverride memVar =
 --
 -- * The loaded string must be concrete. If a symbolic character is encountered
 --   while loading, this function will generate an assertion failure.
+--   (TODO(#1061))
 --
 -- * The loaded string should be UTF-8–encoded. Any invalid code points in the
 --   string will be replaced with the Unicode replacement character @U+FFFD@.
@@ -149,8 +153,7 @@ writeBytes memVar ptr bytes =
 --
 -- * The string will be UTF-8–encoded when written.
 writeCStringOverride ::
-  ( WI.IsExpr (WI.SymExpr sym)
-  , LCB.IsSymInterface sym
+  ( LCB.IsSymInterface sym
   , LCLM.HasLLVMAnn sym
   , LCLM.HasPtrWidth w
   , ?memOpts :: LCLM.MemOptions
