@@ -108,7 +108,7 @@ data LLVMVal sym where
   LLVMValUndef :: StorageType -> LLVMVal sym
 
 
-llvmValStorableType :: IsExprBuilder sym => LLVMVal sym -> StorageType
+llvmValStorableType :: IsExpr (SymExpr sym) => LLVMVal sym -> StorageType
 llvmValStorableType v =
   case v of
     LLVMValInt _ bv -> bitvectorType (bitsToBytes (natValue (bvWidth bv)))

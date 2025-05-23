@@ -75,8 +75,10 @@ module Lang.Crucible.Simulator.OverrideSim
   , useIntrinsic
     -- * Typed overrides
   , TypedOverride(..)
+  , typedOverride
   , SomeTypedOverride(..)
   , runTypedOverride
+  , bindTypedOverride
     -- * Re-exports
   , Lang.Crucible.Simulator.ExecutionTree.Override
   ) where
@@ -696,6 +698,21 @@ data TypedOverride p sym ext args ret
     , typedOverrideRet :: TypeRepr ret
     }
 
+-- | Create a 'TypedOverride' with a statically-known signature
+typedOverride ::
+  KnownRepr (Ctx.Assignment TypeRepr) args =>
+  KnownRepr TypeRepr ret =>
+  (forall rtp args' ret'.
+    Ctx.Assignment (RegValue' sym) args ->
+    OverrideSim p sym ext rtp args' ret' (RegValue sym ret)) ->
+  TypedOverride p sym ext args ret
+typedOverride handler =
+  TypedOverride
+  { typedOverrideHandler = handler
+  , typedOverrideArgs = knownRepr
+  , typedOverrideRet = knownRepr
+  }
+
 -- | A 'TypedOverride' with the type parameters @args@, @ret@ existentially
 -- quantified
 data SomeTypedOverride p sym ext =
@@ -709,3 +726,11 @@ runTypedOverride ::
 runTypedOverride nm typedOvr = mkOverride' nm (typedOverrideRet typedOvr) $ do
   RegMap args <- getOverrideArgs
   typedOverrideHandler typedOvr (fmapFC (RV . regValue) args)
+
+-- | Bind a 'TypedOverride' to a 'FnHandle'
+bindTypedOverride ::
+  FnHandle args ret ->
+  TypedOverride p sym ext args ret ->
+  OverrideSim p sym ext rtp args' ret' ()
+bindTypedOverride hdl ov =
+  bindFnHandle hdl (UseOverride (runTypedOverride (handleName hdl) ov))

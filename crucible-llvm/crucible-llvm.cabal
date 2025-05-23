@@ -85,6 +85,7 @@ library
     Lang.Crucible.LLVM.MemModel.MemLog
     Lang.Crucible.LLVM.MemModel.Partial
     Lang.Crucible.LLVM.MemModel.Pointer
+    Lang.Crucible.LLVM.MemModel.Strings
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf

@@ -22,6 +22,7 @@ module Lang.Crucible.CLI
 
 import Control.Monad
 import Control.Monad.Except (runExceptT)
+import Control.Monad.IO.Class (liftIO)
 import Data.Foldable
 import Data.Map (Map)
 import Data.Text (Text)
@@ -72,9 +73,16 @@ data SimulateProgramHooks ext = SimulateProgramHooks
       forall p sym bak rtp a r t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
         bak ->
         HandleAllocator ->
+        Map FunctionName SomeHandle ->  -- forward declarations
         OverrideSim p sym ext rtp a r ()
-    -- ^ Override action to execute before simulation. Used by the LLVM
-    -- frontend to set up the LLVM global memory variable.
+    -- ^ Override action to execute before simulation.
+    --
+    -- Used to resolve forward declarations (i.e., register overrides for them)
+    -- before simulating a program. If you do not intend to support forward
+    -- declarations, this is an appropriate place to error if a program contains
+    -- one or more forward declarations.
+    --
+    -- Used by the LLVM frontend to set up the LLVM global memory variable.
   , setupOverridesHook ::
       forall p sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
          sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
@@ -85,13 +93,6 @@ data SimulateProgramHooks ext = SimulateProgramHooks
     -- ^ Action to resolve externs before simulating a program. If you do not
     --   intend to support externs, this is an appropriate place to error if a
     --   program contains one or more externs.
-  , resolveForwardDeclarationsHook ::
-      forall p sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
-        Map FunctionName SomeHandle -> IO (FunctionBindings p sym ext)
-    -- ^ Action to resolve forward declarations before simulating a program.
-    --   If you do not intend to support forward declarations, this is an
-    --   appropriate place to error if a program contains one or more forward
-    --   declarations.
   }
 
 -- | A sensible default set of hooks for 'simulateProgram' that:
@@ -103,14 +104,11 @@ data SimulateProgramHooks ext = SimulateProgramHooks
 -- * Errors out if a program contains one or more forward declarations.
 defaultSimulateProgramHooks :: SimulateProgramHooks ext
 defaultSimulateProgramHooks = SimulateProgramHooks
-  { setupHook = \_sym _ha -> pure ()
+  { setupHook = \_sym _ha fds -> liftIO (assertNoForwardDecs fds)
   , setupOverridesHook = \_sym _ha -> pure []
   , resolveExternsHook = \_sym externs gst ->
     do assertNoExterns externs
        pure gst
-  , resolveForwardDeclarationsHook = \fds ->
-    do assertNoForwardDecs fds
-       pure $ FnBindings emptyHandleMap
   }
 
 simulateProgramWithExtension
@@ -150,8 +148,9 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                   Just (AnyCFG mn@(C.Reg.cfgArgTypes -> Ctx.Empty)) ->
                     do let retType = C.Reg.cfgReturnType mn
                        gst <- resolveExternsHook hooks sym externs emptyGlobals
-                       fwdDecFnBindings <- resolveForwardDeclarationsHook hooks fds
                        let mainHdl = cfgHandle mn
+                       ext <- mkExt bak
+                       let fns0 = FnBindings emptyHandleMap
                        let fns = foldl' (\(FnBindings m) (AnyCFG g) ->
                                           case toSSA g of
                                             C.SomeCFG ssa ->
@@ -160,13 +159,12 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                                                   (cfgHandle g)
                                                   (UseCFG ssa (postdomInfo ssa))
                                                   m)
-                                        fwdDecFnBindings cs
-                       ext <- mkExt bak
+                                        fns0 cs
                        let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext ()
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
-                                           setupHook hooks bak ha
+                                           setupHook hooks bak ha fds
                                            regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
 
                        hPutStrLn outh "==== Begin Simulation ===="

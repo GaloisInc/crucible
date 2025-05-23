@@ -1,6 +1,7 @@
 # next
 
-Nothing yet.
+* Remove `resolveForwardDeclarationsHook`. Instead, use `bindFnHandle` in
+  `setupHook`.
 
 # 0.1 -- 2024-02-05
 

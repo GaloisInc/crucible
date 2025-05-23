@@ -9,16 +9,23 @@ module Lang.Crucible.LLVM.CLI
   ( withLlvmHooks
   ) where
 
+import qualified Control.Monad as Monad
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
+import qualified Data.Text as Text
+import Data.Type.Equality ((:~:)(Refl), testEquality)
 
 import Data.Parameterized.NatRepr (knownNat)
 
+import qualified What4.FunctionName as W4
+
 import Lang.Crucible.Backend (IsSymBackend)
 import Lang.Crucible.FunctionHandle (newHandleAllocator)
+import qualified Lang.Crucible.FunctionHandle as C
 import Lang.Crucible.Simulator.ExecutionTree (ExtensionImpl)
 import Lang.Crucible.Simulator.OverrideSim (writeGlobal)
+import qualified Lang.Crucible.Simulator as C
 
 import Lang.Crucible.CLI (SimulateProgramHooks(..), defaultSimulateProgramHooks)
 
@@ -36,7 +43,21 @@ import Lang.Crucible.LLVM.TypeContext (mkTypeContext)
 
 import Lang.Crucible.LLVM.Syntax (llvmParserHooks)
 import Lang.Crucible.LLVM.Syntax.Overrides (registerLLVMOverrides)
+import qualified Lang.Crucible.LLVM.Syntax.Overrides.String as StrOv
 import Lang.Crucible.LLVM.Syntax.TypeAlias (typeAliasParserHooks, x86_64LinuxTypes)
+
+tryBindTypedOverride ::
+  C.FnHandle args ret ->
+  C.TypedOverride p sym ext args' ret' ->
+  C.OverrideSim p sym ext rtp args'' ret'' ()
+tryBindTypedOverride hdl ov = do
+  let err = fail ("Ill-typed declaration for " ++ Text.unpack (W4.functionName (C.handleName hdl)))
+  case testEquality (C.handleArgTypes hdl) (C.typedOverrideArgs ov) of
+    Nothing -> err
+    Just Refl ->
+      case testEquality (C.handleReturnType hdl) (C.typedOverrideRet ov) of
+        Nothing -> err
+        Just Refl -> C.bindTypedOverride hdl ov
 
 -- | Small helper for providing LLVM language-specific hooks, e.g., for use with
 -- 'Lang.Crucible.CLI.execCommand'.
@@ -54,7 +75,7 @@ withLlvmHooks k = do
   let ?parserHooks = llvmParserHooks (typeAliasParserHooks x86_64LinuxTypes) mvar
   let simulationHooks =
         defaultSimulateProgramHooks
-          { setupHook = \bak _ha -> do
+          { setupHook = \bak _ha fds -> do
               mem <- liftIO (Mem.emptyMem LittleEndian)
               writeGlobal mvar mem
               let ?recordLLVMAnnotation = \_ _ _ -> pure ()
@@ -76,9 +97,16 @@ withLlvmHooks k = do
               let ?memOpts = Mem.defaultMemOptions
               let ?intrinsicsOpts = defaultIntrinsicsOptions
               _ <- registerLLVMOverrides bak llvmCtx
+              Monad.forM_ (Map.toList fds) $ \(nm, C.SomeHandle hdl) -> do
+                case nm of
+                  "read-bytes" -> tryBindTypedOverride hdl (StrOv.readBytesOverride mvar)
+                  "read-c-string" -> tryBindTypedOverride hdl (StrOv.readCStringOverride mvar)
+                  "write-bytes" -> tryBindTypedOverride hdl (StrOv.writeBytesOverride mvar)
+                  "write-c-string" -> tryBindTypedOverride hdl (StrOv.writeCStringOverride mvar)
+                  _ -> pure ()
               return ()
           , setupOverridesHook = setupOverrides
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
               in pure (llvmExtensionImpl Mem.defaultMemOptions)
-  k ext simulationHooks 
+  k ext simulationHooks
