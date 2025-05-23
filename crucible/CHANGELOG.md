@@ -2,6 +2,8 @@
 
 * Add a `GlobalPair` argument to `AbortedExit`.
 * Add new helpers for extracting `SymGlobalState`s: `exec{Result,State}Globals`.
+* Add `typedOverride` for constructing `TypedOverride`s with statically-known
+  signatures.
 
 # 0.7.2 -- 2025-03-21
 

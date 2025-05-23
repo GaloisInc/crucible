@@ -75,6 +75,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , useIntrinsic
     -- * Typed overrides
   , TypedOverride(..)
+  , typedOverride
   , SomeTypedOverride(..)
   , runTypedOverride
     -- * Re-exports
@@ -695,6 +696,21 @@ data TypedOverride p sym ext args ret
     , typedOverrideArgs :: CtxRepr args
     , typedOverrideRet :: TypeRepr ret
     }
+
+-- | Create a 'TypedOverride' with a statically-known signature
+typedOverride ::
+  KnownRepr (Ctx.Assignment TypeRepr) args =>
+  KnownRepr TypeRepr ret =>
+  (forall rtp args' ret'.
+    Ctx.Assignment (RegValue' sym) args ->
+    OverrideSim p sym ext rtp args' ret' (RegValue sym ret)) ->
+  TypedOverride p sym ext args ret
+typedOverride handler =
+  TypedOverride
+  { typedOverrideHandler = handler
+  , typedOverrideArgs = knownRepr
+  , typedOverrideRet = knownRepr
+  }
 
 -- | A 'TypedOverride' with the type parameters @args@, @ret@ existentially
 -- quantified
