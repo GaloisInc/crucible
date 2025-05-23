@@ -190,22 +190,20 @@ tyToRepr col t0 = case t0 of
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
   -- These definitions are *not* compositional
-  M.TyRef (M.TySlice t) _ -> tyToReprCont col t $ \repr -> Some MirSliceRepr
+  M.TyRef (M.TySlice _) _ -> Some MirSliceRepr
   M.TyRef M.TyStr _       -> Some MirSliceRepr
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
-  -- data value (which is either `&Ty` or `&mut Ty`) and a vtable.  Both are
-  -- type-erased (`AnyRepr`), the first because it has to be, and the second
-  -- because we'd need to thread the `Collection` into this function (which we
-  -- don't want to do) in order to construct the precise vtable type.
+  -- data value (which is either `&Ty` or `&mut Ty`) and a vtable. The vtable
+  -- is type-erased (`AnyRepr`).
   M.TyRef (M.TyDynamic _) _ -> Some $ C.StructRepr $
-    Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+    Ctx.empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
 
   -- TODO: DSTs not behind a reference - these should never appear in real code
-  M.TySlice t -> tyToReprCont col t $ \repr -> Some MirSliceRepr
+  M.TySlice _ -> Some MirSliceRepr
   M.TyStr -> Some MirSliceRepr
 
-  M.TyRef t _       -> tyToReprCont col t $ \repr -> Some MirReferenceRepr
+  M.TyRef _ _       -> Some MirReferenceRepr
   -- Raw pointers are represented like references, including the fat pointer
   -- cases that are special-cased above.
   M.TyRawPtr t mutbl -> tyToRepr col (M.TyRef t mutbl)
@@ -244,8 +242,8 @@ tyToRepr col t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
-pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
-pattern DynRefCtx = Ctx.Empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
+pattern DynRefCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
 
 pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
 pattern DynRefRepr = C.StructRepr DynRefCtx

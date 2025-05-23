@@ -403,17 +403,12 @@ evalOperand (M.OpConstant (M.Constant conty constval)) = do
     transConstVal conty (Some tpr) constval
 evalOperand (M.Temp rv) = evalRval rv
 
--- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
--- representation), producing a `MirPlace`.
+-- | Dereference a `MirExp` (which must be `MirReferenceRepr` pointing to a
+-- sized type), producing a `MirPlace`.
 derefExp :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret (MirPlace s)
 derefExp pointeeTy (MirExp MirReferenceRepr e) = do
     Some tpr <- tyToReprM pointeeTy
     return $ MirPlace tpr e NoMeta
-derefExp pointeeTy (MirExp MirSliceRepr e) = do
-    Some tpr <- tyToReprM pointeeTy
-    let ptr = getSlicePtr e
-    let len = getSliceLen e
-    return $ MirPlace tpr ptr (SliceMeta len)
 derefExp pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
@@ -421,16 +416,15 @@ readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
 readPlace (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
         ++ " (type " ++ show tpr ++ ")"
-readPlace MirPlaceDynRef{} =
-    -- See https://github.com/GaloisInc/crucible/issues/1092
-    mirFail "readPlace not supported for dyn references"
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp MirReferenceRepr r
 addrOfPlace (MirPlace tpr r (SliceMeta len)) =
     return $ MirExp MirSliceRepr $ mkSlice r len
-addrOfPlace (MirPlaceDynRef dynRef) =
-    return $ MirExp DynRefRepr dynRef
+addrOfPlace (MirPlace _tpr r (DynMeta vtable)) =
+    return $ MirExp DynRefRepr $
+      R.App $ E.MkStruct DynRefCtx $
+      Ctx.Empty Ctx.:> r Ctx.:> vtable
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
@@ -1087,7 +1081,7 @@ mkTraitObject traitName vtableName e = do
                 "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
 
     return $ buildTuple
-        [ packAny e
+        [ e
         , packAny vtable
         ]
 
@@ -1106,9 +1100,6 @@ evalRval (M.Len lv) =
             place <- evalPlace lv
             meta <- case place of
                 MirPlace _tpr _ref meta -> pure meta
-                MirPlaceDynRef{} ->
-                    -- See https://github.com/GaloisInc/crucible/issues/1092
-                    mirFail "evalRval (length of slice) not supported for dyn references"
             case meta of
                 SliceMeta len -> return $ MirExp UsizeRepr len
                 _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
@@ -1225,19 +1216,38 @@ evalPlace (M.LProj lv proj) = do
     pl <- evalPlace lv
     evalPlaceProj (M.typeOf lv) pl proj
 
-evalPlaceProj :: HasCallStack => M.Ty -> MirPlace s -> M.PlaceElem -> MirGenerator h s ret (MirPlace s)
+evalPlaceProj ::
+  forall h s ret.
+  HasCallStack =>
+  M.Ty ->
+  MirPlace s ->
+  M.PlaceElem ->
+  MirGenerator h s ret (MirPlace s)
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
+    -- In the general case (when T is a sized type), we have a MirPlace input of
+    -- the form:
+    --
+    --   MirPlace (*T) <expr: **T> NoMeta
+    --
+    -- And we want to produce output of the form:
+    --
+    --   MirPlace T <expr': *T> NoMeta
+    --
+    -- Where *T is hand-wavy syntax for reference types (e.g., &T and *const T).
+    -- Note the double indirection in <expr: **T>.
+    --
+    -- Things get a little bit trickier when dealing with unsized types,
+    -- however. See the comments below.
     case ty of
         M.TyRef t _ -> doRef t
         M.TyRawPtr t _ -> doRef t
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
   where
+    doRef :: M.Ty -> MirGenerator h s ret (MirPlace s)
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
-    doRef (M.TyDynamic _) | DynRefRepr <- tpr = do
-        dynRef <- readMirRef tpr ref
-        return $ MirPlaceDynRef dynRef
+    doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1245,6 +1255,17 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
     doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
 
+    -- Slice types [U] are unsized, so we handle them differently. Given a
+    -- MirPlace input of the form:
+    --
+    --   MirPlace (*[U]) <expr: **[U]> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace U <data: *U> (SliceMeta len)
+    --
+    -- Where `data` is the slice's data pointer and `len` is the slice's length.
+    doSlice :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
     doSlice ty' ref' = do
         -- This use of `tyToReprM` is okay because we know the element type of
         -- a slice is always sized.
@@ -1253,6 +1274,28 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let ptr = getSlicePtr slice
         let len = getSliceLen slice
         return $ MirPlace tpr' ptr (SliceMeta len)
+
+    -- Types like `dyn Trait` are unsized, so we handle them differently. Given
+    -- a MirPlace input of the form:
+    --
+    --   MirPlace (*dyn Trait) <expr: **dyn Trait> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace AnyType <data: *?> (DynMeta vtable)
+    --
+    -- Where `data` is the trait object's data pointer (a reference to some
+    -- unknown type) and `vtable` is the trait object's vtable. Note that it is
+    -- unimportant what type we use as the first argument to MirPlace, as there
+    -- is no way to directly access `data` (e.g., you can't access (*x).field if
+    -- `x: &dyn Trait`). As such, it is acceptable to fill it in with a dummy
+    -- type like AnyType.
+    doDyn :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doDyn ref' = do
+        dynRef <- readMirRef DynRefRepr ref'
+        let dynRefData = S.getStruct dynRefDataIndex dynRef
+        let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
+        return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
 
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
@@ -1348,9 +1391,6 @@ evalPlaceProj _ pl (M.Downcast _idx) = return pl
 evalPlaceProj _ pl (M.Subtype _ty) = return pl
 evalPlaceProj ty (MirPlace _ _ meta) proj =
     mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
-evalPlaceProj _ MirPlaceDynRef{} _ =
-    -- See https://github.com/GaloisInc/crucible/issues/1092
-    mirFail "evalPlaceProj not supported for dyn references"
 
 --------------------------------------------------------------------------------------
 -- ** Statements
@@ -1389,9 +1429,6 @@ doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 doAssign lv (MirExp tpr val) = do
     place <- evalPlace lv
     case place of
-        MirPlaceDynRef{} ->
-            -- See https://github.com/GaloisInc/crucible/issues/1092
-            mirFail "doAssign not supported for dyn references"
         MirPlace tpr' ref _ -> do
             Refl <- testEqualityOrFail tpr tpr' $
                 "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
@@ -2450,7 +2487,7 @@ transVirtCall colState intrName methName dynTraitName methIndex
         let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
 
         -- Extract data and vtable parts of the `&dyn` receiver
-        let recvData = R.App $ E.GetStruct recv dynRefDataIndex C.AnyRepr
+        let recvData = R.App $ E.GetStruct recv dynRefDataIndex MirReferenceRepr
         let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
 
         -- Downcast the vtable to its proper struct type
@@ -2470,7 +2507,7 @@ transVirtCall colState intrName methName dynTraitName methIndex
                 (C.FunctionHandleRepr (C.AnyRepr <: argTys) retTy)
 
         -- Call it
-        G.tailCall vtsFH (recvData <: args)
+        G.tailCall vtsFH (R.App (E.PackAny MirReferenceRepr recvData) <: args)
 
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s
