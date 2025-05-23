@@ -18,7 +18,7 @@ import qualified Data.Text.IO as T
 import qualified System.FilePath as Path
 import qualified System.IO as IO
 
-import Lang.Crucible.Backend (IsSymInterface)
+import Lang.Crucible.Backend (IsSymBackend, IsSymInterface)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState (SymGlobalState, insertGlobal)
@@ -92,22 +92,24 @@ resolvedForwardDecTest =
     do mainContents <- T.readFile mainCbl
        simulateProgram mainCbl mainContents outh Nothing testOptions $
          defaultSimulateProgramHooks
-           { resolveForwardDeclarationsHook = resolveForwardDecs
+           { setupHook = resolveForwardDecs
            }
   ]
   where
     resolveForwardDecs ::
-      IsSymInterface sym =>
+      IsSymBackend sym bak =>
+      bak ->
+      HandleAllocator ->
       Map FunctionName SomeHandle ->
-      IO (FunctionBindings p sym ext)
-    resolveForwardDecs fds
+      OverrideSim p sym ext rtp a r ()
+    resolveForwardDecs _bak _ha fds
       | Just (SomeHandle hdl) <- Map.lookup "foo" fds
       , Just Refl <- testEquality (handleArgTypes hdl) Ctx.empty
       , Just Refl <- testEquality (handleReturnType hdl) IntegerRepr
-      = pure $ fnBindingsFromList [FnBinding hdl (UseOverride fooOv)]
+      = bindFnHandle hdl (UseOverride fooOv)
 
       | otherwise
-      = assertFailure "Could not find @foo function of the appropriate type"
+      = fail "Could not find @foo function of the appropriate type"
 
     fooOv ::
       IsSymInterface sym =>

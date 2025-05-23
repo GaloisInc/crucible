@@ -24,6 +24,7 @@ import Lang.Crucible.CLI (SimulateProgramHooks(..), defaultSimulateProgramHooks)
 
 import Lang.Crucible.Syntax.Concrete (ParserHooks)
 import Lang.Crucible.Syntax.Overrides (setupOverrides)
+import Lang.Crucible.Syntax.Prog (assertNoForwardDecs)
 
 import Lang.Crucible.LLVM (llvmExtensionImpl)
 import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian), defaultDataLayout)
@@ -54,7 +55,8 @@ withLlvmHooks k = do
   let ?parserHooks = llvmParserHooks (typeAliasParserHooks x86_64LinuxTypes) mvar
   let simulationHooks =
         defaultSimulateProgramHooks
-          { setupHook = \bak _ha -> do
+          { setupHook = \bak _ha fds -> do
+              liftIO (assertNoForwardDecs fds)
               mem <- liftIO (Mem.emptyMem LittleEndian)
               writeGlobal mvar mem
               let ?recordLLVMAnnotation = \_ _ _ -> pure ()
@@ -81,4 +83,4 @@ withLlvmHooks k = do
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
               in pure (llvmExtensionImpl Mem.defaultMemOptions)
-  k ext simulationHooks 
+  k ext simulationHooks
