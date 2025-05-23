@@ -48,6 +48,7 @@ import           Control.Lens (Traversal, folded)
 import           Data.Kind (Type)
 import           Data.Functor.Identity
 import           Data.Functor.Const
+import qualified Data.Parameterized.TraversableF as TF
 import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
 import qualified Prettyprinter as PP
@@ -76,6 +77,13 @@ data CrucibleAssumption (e :: BaseType -> Type)
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
 
+instance TF.FunctorF CrucibleAssumption where
+  fmapF = TF.fmapFDefault
+instance TF.FoldableF CrucibleAssumption where
+  foldMapF = TF.foldMapFDefault
+instance TF.TraversableF CrucibleAssumption where
+  traverseF = traverseAssumption
+
 -- | This type describes events we can track during program execution.
 data CrucibleEvent (e :: BaseType -> Type) where
   -- | This event describes the creation of a symbolic variable.
@@ -90,6 +98,13 @@ data CrucibleEvent (e :: BaseType -> Type) where
   LocationReachedEvent ::
     ProgramLoc ->
     CrucibleEvent e
+
+instance TF.FunctorF CrucibleEvent where
+  fmapF = TF.fmapFDefault
+instance TF.FoldableF CrucibleEvent where
+  foldMapF = TF.foldMapFDefault
+instance TF.TraversableF CrucibleEvent where
+  traverseF = traverseEvent
 
 -- | Pretty print an event
 ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann
@@ -151,6 +166,21 @@ instance Semigroup (CrucibleAssumptions e) where
 
 instance Monoid (CrucibleAssumptions e) where
   mempty = ManyAssumptions mempty
+
+instance TF.FunctorF CrucibleAssumptions where
+  fmapF = TF.fmapFDefault
+instance TF.FoldableF CrucibleAssumptions where
+  foldMapF = TF.foldMapFDefault
+instance TF.TraversableF CrucibleAssumptions where
+  traverseF f = \case
+    SingleAssumption a ->
+      SingleAssumption <$> TF.traverseF f a
+    SingleEvent e ->
+      SingleEvent <$> TF.traverseF f e
+    ManyAssumptions xs ->
+      ManyAssumptions <$> traverse (TF.traverseF f) xs
+    MergeAssumptions c xs ys ->
+      MergeAssumptions <$> f c <*> TF.traverseF f xs <*> TF.traverseF f ys
 
 singleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
 singleAssumption x = SingleAssumption x
