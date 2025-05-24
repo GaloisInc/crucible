@@ -2090,11 +2090,14 @@ topLevel :: (?parserHooks :: ParserHooks ext)
          => AST s
          -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
 topLevel ast =
-  (Just <$> functionHeader ast) `catchError` \e ->
-  (global ast $> Nothing)       `catchError` \_ ->
-  (declare ast $> Nothing)      `catchError` \_ ->
-  (extern ast $> Nothing)       `catchError` \_ ->
-  throwError e
+  case ast of
+    L (A (Kw Defun):_) -> Just <$> functionHeader ast
+    L (A (Kw Declare):_) -> declare ast $> Nothing
+    L (A (Kw DefGlobal):_) -> global ast $> Nothing
+    L (A (Kw Extern):_) -> extern ast $> Nothing
+    _ -> do
+     loc <- liftSyntaxParse position ast
+     throwError (TrivialErr loc)
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
 argTypes  = fmapFC (\(Arg _ _ t) -> t)

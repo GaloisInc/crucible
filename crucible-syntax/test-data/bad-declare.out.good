@@ -1,0 +1,3 @@
+(declare @main () BadType)
+
+At test-data/bad-declare.cbl:2:19, expected Any or Bool or Char or ComplexReal or Integer or Nat or Real or Unit or atomic type but got BadType
