@@ -80,7 +80,8 @@ instance Pretty Ty where
     pretty TyStr                 = pretty "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig
     pretty (TyDynamic trait)     = pretty "dynamic" <+> pretty trait
-    pretty (TyRawPtr ty mutability) = pretty "*" <> pretty mutability <+> pretty ty
+    pretty (TyRawPtr ty Immut) = pretty "*const" <+> pretty ty
+    pretty (TyRawPtr ty Mut)   = pretty "*mut" <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> pretty "as" <+> pretty i)
     pretty TyNever = pretty "never"
