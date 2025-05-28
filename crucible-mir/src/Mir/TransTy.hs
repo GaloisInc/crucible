@@ -259,6 +259,13 @@ tyToUnsizedRefRepr col ty =
 
     M.TyDynamic _ -> Just (Some DynRefRepr)
 
+    -- A structure whose last field is dynamically-sized is itself
+    -- dynamically-sized, and needs a fat pointer representation. See
+    -- https://doc.rust-lang.org/reference/dynamically-sized-types.html.
+    M.TyAdt name _ _ -> do
+      lastField <- findLastField col name
+      tyToUnsizedRefRepr col (lastField ^. M.fty)
+
     _ -> Nothing
 
 pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
