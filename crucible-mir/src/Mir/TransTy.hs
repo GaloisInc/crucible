@@ -257,6 +257,14 @@ tyToUnsizedRefRepr col ty =
 
     M.TyDynamic _ -> Just (Some DynRefRepr)
 
+    -- A structure whose last field is dynamically-sized is itself
+    -- dynamically-sized, and needs a fat pointer representation. See
+    -- https://doc.rust-lang.org/reference/dynamically-sized-types.html.
+    M.TyAdt monoName _ _ ->
+      case lastField col monoName of
+        Nothing -> Nothing
+        Just t -> tyToUnsizedRefRepr col t
+
     _ -> Nothing
 
 pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
@@ -310,6 +318,22 @@ isUnsized ty = case ty of
     M.TyDynamic _ -> True
     -- TODO: struct types whose last field is unsized ("custom DSTs")
     _ -> False
+
+-- | If, in the provided 'M.Collection', the provided (monomorphized) ADT name
+-- refers to an ADT with a single variant which itself contains at least one
+-- field, return the type of that field; else, 'Nothing'.
+lastField :: M.Collection -> M.DefId -> Maybe M.Ty
+lastField col adtMonoName =
+  case col ^? M.adts . ix adtMonoName of
+    Nothing -> Nothing
+    Just adt ->
+      case adt ^. M.adtvariants of
+        [] -> Nothing
+        (_:_:_) -> Nothing
+        [variant] ->
+          case reverse (variant ^. M.vfields) of
+            [] -> Nothing
+            (field:_) -> Just (field ^. M.fty)
 
 isZeroSized :: M.Collection -> M.Ty -> Bool
 isZeroSized col ty = go ty
