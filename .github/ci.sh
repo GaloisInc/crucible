@@ -19,25 +19,6 @@ extract_exe() {
   $IS_WIN || chmod +x "$2/$name"
 }
 
-retry() {
-  echo "Attempting with retry:" "$@"
-  local n=1
-  while true; do
-    if "$@"; then
-      break
-    else
-      if [[ $n -lt 3 ]]; then
-        sleep $n # don't retry immediately
-        ((n++))
-        echo "Command failed. Attempt $n/3:"
-      else
-        echo "The command has failed after $n attempts."
-        exit 1
-      fi
-    fi
-  done
-}
-
 configure() {
   ghc_ver="$(ghc --numeric-version)"
   cp cabal.GHC-"$ghc_ver".config cabal.project.freeze
