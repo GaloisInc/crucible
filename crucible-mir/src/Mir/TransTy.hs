@@ -193,11 +193,7 @@ tyToRepr col t0 = case t0 of
   M.TyRef (M.TySlice _) _ -> Some MirSliceRepr
   M.TyRef M.TyStr _       -> Some MirSliceRepr
 
-  -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
-  -- data value (which is either `&Ty` or `&mut Ty`) and a vtable. The vtable
-  -- is type-erased (`AnyRepr`).
-  M.TyRef (M.TyDynamic _) _ -> Some $ C.StructRepr $
-    Ctx.empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
+  M.TyRef (M.TyDynamic _) _ -> Some DynRefRepr
 
   -- TODO: DSTs not behind a reference - these should never appear in real code
   M.TySlice _ -> Some MirSliceRepr
@@ -258,6 +254,9 @@ tyToRepr col t0 = case t0 of
 pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
 pattern DynRefCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
 
+-- | The representation for a `&dyn Tr`/`&mut dyn Tr`. Both use the same
+-- representation: a pair of a data value (which is either `&Ty` or `&mut Ty`)
+-- and a vtable. The vtable is type-erased (`AnyRepr`).
 pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
 pattern DynRefRepr = C.StructRepr DynRefCtx
 
