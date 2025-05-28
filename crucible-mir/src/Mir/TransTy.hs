@@ -189,17 +189,15 @@ tyToRepr col t0 = case t0 of
   M.TyInt base  -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
-  -- These definitions are *not* compositional
-  M.TyRef (M.TySlice _) _ -> Some MirSliceRepr
-  M.TyRef M.TyStr _       -> Some MirSliceRepr
-
-  M.TyRef (M.TyDynamic _) _ -> Some DynRefRepr
+  M.TyRef t _ ->
+    case tyToUnsizedRefRepr col t of
+      Just unsizedRefRepr -> unsizedRefRepr
+      Nothing -> Some MirReferenceRepr
 
   -- TODO: DSTs not behind a reference - these should never appear in real code
   M.TySlice _ -> Some MirSliceRepr
   M.TyStr -> Some MirSliceRepr
 
-  M.TyRef _ _       -> Some MirReferenceRepr
   -- Raw pointers are represented like references, including the fat pointer
   -- cases that are special-cased above.
   M.TyRawPtr t mutbl -> tyToRepr col (M.TyRef t mutbl)
@@ -250,6 +248,18 @@ tyToRepr col t0 = case t0 of
   M.TyErased -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
+-- | If the provided type is unsized/dynamically-sized, return the
+-- representation of a _reference to_ that type; else, 'Nothing'.
+tyToUnsizedRefRepr :: TransTyConstraint => M.Collection -> M.Ty -> Maybe (Some C.TypeRepr)
+tyToUnsizedRefRepr col ty =
+  case ty of
+    -- These definitions are *not* compositional
+    M.TySlice _ -> Just (Some MirSliceRepr)
+    M.TyStr -> Just (Some MirSliceRepr)
+
+    M.TyDynamic _ -> Just (Some DynRefRepr)
+
+    _ -> Nothing
 
 pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
 pattern DynRefCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
