@@ -1331,6 +1331,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
+    doRef adtTy@(M.TyAdt _ _ _) | MirSliceRepr <- tpr = doSliceAdt adtTy ref
+    doRef adtTy@(M.TyAdt _ _ _) | DynRefRepr <- tpr = doDynAdt adtTy ref
+    -- TODO: do we need to go to the trouble here of figuring out if this ADT is
+    -- a DST, if it didn't come with a DST-indicative TypeRepr?
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1379,6 +1383,58 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let dynRefData = S.getStruct dynRefDataIndex dynRef
         let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
+
+    -- For (dynamically-sized) ADTs wrapping slices, with MirPlace input of the
+    -- form:
+    --
+    --   MirPlace (*S<[T]>) <expr: **S<[T; len]> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace S<[T]> <expr: *S<[T; len]> (SliceMeta len)
+    --
+    -- Where `len` is the wrapped slice's length.
+    doSliceAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doSliceAdt adtTy ref' =
+      do
+        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- but that would involve computing its slice field's representation,
+        -- which should error
+        let adtRepr = R.exprType ref'
+        adtRef <- readMirRef MirSliceRepr ref'
+        -- In both this case and the case of plain slices, `readMirRef` gives us
+        -- access to a double-wide DST pointer. In both cases, the second half
+        -- holds the slice length. In our case, the first half holds a pointer
+        -- to the ADT, while in the slice case, the first half holds the slice's
+        -- data pointer, i.e. a pointer to the first element of the slice.
+        --
+        -- In both cases, though, we can safely access the first half with
+        -- `getSlicePtr`.
+        let adtPtr = getSlicePtr adtRef
+        let sliceLen = getSliceLen adtRef
+        return $ MirPlace adtRepr adtPtr (SliceMeta sliceLen)
+
+    -- For (dynamically-sized) ADTs wrapping trait objects, with MirPlace input
+    -- of the form:
+    --
+    --   MirPlace (*S<dyn Trait>) <expr: **S<Concrete> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace S<dyn Trait> <expr: *S<Concrete> (DynMeta vtable)
+    --
+    -- Where `vtable` is the vtable for `Trait` at `Concrete`.
+    doDynAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doDynAdt adtTy ref' =
+      do
+        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- but that would involve computing its trait object field's
+        -- representation, which will error
+        let adtRepr = R.exprType ref'
+        dynRef <- readMirRef DynRefRepr ref'
+        let adtPtr = S.getStruct dynRefDataIndex dynRef
+        let vtable = S.getStruct dynRefVtableIndex dynRef
+        return $ MirPlace adtRepr adtPtr (DynMeta vtable)
 
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
