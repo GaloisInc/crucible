@@ -5,6 +5,9 @@
 * Add `typedOverride` for constructing `TypedOverride`s with statically-known
   signatures.
 * Add `bindTypedOverride` for binding `TypedOverride`s to `FnHandle`s.
+* Add `allAssumptionFrames` and `restoreAssumptionFrames` to
+  `Lang.Crucible.Online.Backend`, which allow configuring an online backend's
+  assumption frames.
 
 # 0.7.2 -- 2025-03-21
 
