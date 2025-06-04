@@ -7,6 +7,9 @@
 * Add `bindTypedOverride` for binding `TypedOverride`s to `FnHandle`s.
 * Add `FunctorF`, `FoldableF`, and `TraversableF` instances for `CrucibleEvent`,
   `CrucibleAssumption`, and `CrucibleAssumptions`.
+* Add `allAssumptionFrames` and `restoreAssumptionFrames` to
+  `Lang.Crucible.Online.Backend`, which allow configuring an online backend's
+  assumption frames.
 
 # 0.7.2 -- 2025-03-21
 

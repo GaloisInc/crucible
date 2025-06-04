@@ -49,6 +49,8 @@ module Lang.Crucible.Backend.Online
   , withSolverProcess
   , resetSolverProcess
   , restoreSolverState
+  , allAssumptionFrames
+  , restoreAssumptionFrames
   , UnsatFeatures(..)
   , unsatFeaturesToProblemFeatures
     -- * Branch satisfiability
@@ -337,7 +339,14 @@ withSolverConn ::
   IO ()
 withSolverConn bak k = withSolverProcess bak (pure ()) (k . solverConn)
 
+-- | Get the current assumption frames.
+allAssumptionFrames ::
+  OnlineBackend solver scope st fs ->
+  IO (AS.AssumptionFrames (CrucibleAssumptions (B.Expr scope)))
+allAssumptionFrames = AS.allAssumptionFrames . assumptionStack
 
+-- | Restore the assumption frames to a snapshot captured by the provided
+-- 'AS.AssumptionFrames' value.
 restoreAssumptionFrames ::
   OnlineSolver solver =>
   OnlineBackend solver scope st fs ->
