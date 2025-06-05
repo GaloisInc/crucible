@@ -13,6 +13,10 @@ This release supports [version
   in certain situations.
 * The `CTyBv{128,256,512}` pattern synonyms have been removed. It is not
   expected that there are any downstream users.
+* Struct and enum types are now translated directly to `StructType` and
+  `RustEnumType` instead of `AnyType`. As a result of these changes,
+  `Any_RefPath`, `MirSubanyRef`, `subanyRef`, and similar functions have been
+  removed, as they no longer serve a useful purpose.
 
 # 0.4 -- 2025-03-21
 

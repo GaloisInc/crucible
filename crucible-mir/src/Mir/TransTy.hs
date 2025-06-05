@@ -56,7 +56,7 @@ import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
-    , subanyRef, subfieldRef, subvariantRef, subjustRef
+    , subfieldRef, subvariantRef, subjustRef
     , mirVector_fromVector
     , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
@@ -78,9 +78,8 @@ import           Mir.Intrinsics
 -- Arrays and slices are both crucible vectors; no difference between them.
 -- Tuples are crucible structs.
 
--- Non-custom ADTs are encoded as Any.  The underlying type is either a Struct
--- or a Variant of Structs, depending on whether the Rust type is a struct or
--- enum.
+-- Non-custom ADTs are encoded either as a Struct or a variant of Structs,
+-- depending on whether the Rust type is a struct or enum.
 --
 -- Custom type translation is on the bottom of this file.
 
@@ -210,12 +209,24 @@ tyToRepr col t0 = case t0 of
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
-  -- An ADT is a `concreteAdtRepr` wrapped in `ANY`
-  M.TyAdt name _ _
-    | Just adt <- col ^? M.adts . ix name,
-      Just ty <- reprTransparentFieldTy col adt ->
-      tyToRepr col ty
-    | otherwise -> Some C.AnyRepr
+  -- An ADT type is a Struct (for structs) or a variant of Structs (for enums)
+  M.TyAdt name _ _ ->
+    let adt =
+          case col ^. M.adts . at name of
+            Just x -> x
+            Nothing -> error $ "unknown ADT " ++ show name in
+    case adt ^. M.adtkind of
+      _ | Just ty <- reprTransparentFieldTy col adt ->
+          tyToRepr col ty
+      M.Struct ->
+        case variantFields' col (M.onlyVariant adt) of
+          Some fctx -> Some $ C.StructRepr $ fieldCtxType fctx
+      M.Enum discrTy ->
+        tyToReprCont col discrTy $ \discrTp ->
+        case enumVariants col adt of
+          SomeRustEnumRepr _ ctx -> Some $ RustEnumRepr discrTp ctx
+      M.Union ->
+        error $ "Union types are unsupported, for " ++ show name
   M.TyDowncast _adt _i   -> Some C.AnyRepr
 
   M.TyFloat _ -> Some C.RealValRepr
@@ -462,16 +473,6 @@ exp_to_assgn_Maybe col =
 packAny ::  MirExp s -> (MirExp s)
 packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
-unpackAnyE :: HasCallStack => C.TypeRepr t -> MirExp s -> MirExp s
-unpackAnyE tpr e = MirExp tpr $ unpackAnyC tpr e
-
-unpackAnyC :: HasCallStack => C.TypeRepr tp -> MirExp s -> R.Expr MIR s tp
-unpackAnyC tpr (MirExp C.AnyRepr e) =
-    R.App $ E.FromJustValue tpr
-        (R.App $ E.UnpackAny tpr e)
-        (R.App $ E.StringLit $ fromString $ "bad unpack: Any as " ++ show tpr)
-unpackAnyC _ (MirExp tpr' _) = error $ "bad anytype unpack of " ++ show tpr'
-
 
 -- array in haskell -> crucible array
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
@@ -532,30 +533,6 @@ modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
   | otherwise = mirFail ("modifyAggregateIdxMaybe: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdxMaybe (MirExp ty _) _ _ =
   do mirFail ("modifyAggregateIdxMaybe: Expected Crucible structure type, but got:" ++ show ty)
-
-
--- TODO: most of the `testEqualityOrFail` in here should be replaced with an
--- `error`ing version
-
-readAnyE :: C.TypeRepr tp -> MirExp s -> MirGenerator h s ret (R.Expr MIR s tp)
-readAnyE tpr (MirExp tpr' e) = do
-    Refl <- testEqualityOrFail tpr' C.AnyRepr $
-        "readAnyE: expected Any, but got " ++ show tpr'
-    let valOpt = R.App $ E.UnpackAny tpr e
-    val <- G.fromJustExpr valOpt $ R.App $ E.StringLit $ fromString $
-        "readAnyE: bad unpack at type " ++ show tpr ++ ": " ++ show e
-    return val
-
-buildAnyE :: C.TypeRepr tp -> R.Expr MIR s tp -> MirGenerator h s ret (MirExp s)
-buildAnyE tpr e = return $ MirExp C.AnyRepr $ R.App $ E.PackAny tpr e
-
-adjustAnyE :: C.TypeRepr tp ->
-    (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
-    MirExp s -> MirGenerator h s ret (MirExp s)
-adjustAnyE tpr f me = do
-    x <- readAnyE tpr me
-    y <- f x
-    buildAnyE tpr y
 
 
 readEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
@@ -709,9 +686,9 @@ structInfo adt i = do
         show (adt ^. M.adtname)
 
 getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getStructField adt i me = do
+getStructField adt i (MirExp structTpr e) = do
     StructInfo ctx idx fld <- structInfo adt i
-    e <- readAnyE (C.StructRepr ctx) me
+    Refl <- expectStructOrFail ctx structTpr
     e <- readStructField ctx idx e
     e <- readFieldData' fld errFieldUninit e
     return $ MirExp (fieldDataType fld) e
@@ -721,17 +698,16 @@ getStructField adt i me = do
 
 setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setStructField adt i me (MirExp tpr e') = do
+setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = do
     StructInfo ctx idx fld <- structInfo adt i
-    Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
+    Refl <- expectStructOrFail ctx structTpr
+    Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
-    let f' = adjustAnyE (C.StructRepr ctx) $
-            \e -> writeStructField ctx idx e e'
-    f' me
+    MirExp structTpr <$> writeStructField ctx idx e e'
   where
     errFieldType :: FieldKind tp tp' -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i) ++
-        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show tpr
+        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
 
 -- Run `f`, checking that its return type is the same as its argument.  Fails
 -- if `f` returns a different type.
@@ -748,14 +724,15 @@ checkSameType desc f e = do
 mapStructField :: M.Adt -> Int ->
     (MirExp s -> MirGenerator h s ret (MirExp s)) ->
     MirExp s -> MirGenerator h s ret (MirExp s)
-mapStructField adt i f me = do
+mapStructField adt i f (MirExp structTpr e) = do
     StructInfo ctx idx fld <- structInfo adt i
-    let f' = adjustAnyE (C.StructRepr ctx) $
+    Refl <- expectStructOrFail ctx structTpr
+    let f' =
             adjustStructField ctx idx $
             adjustFieldData fld $
             checkSameType ("mapStructField " ++ show i ++ " of " ++ show (adt ^. M.adtname)) $
             f
-    f' me
+    MirExp structTpr <$> f' e
 
 
 data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
@@ -814,9 +791,9 @@ enumInfo adt i j = do
     return $ EnumInfo discrTp ctx idx ctx' idx' kind
 
 getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getEnumField adt i j me = do
+getEnumField adt i j (MirExp enumTpr e) = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
-    e <- readAnyE (RustEnumRepr discrTp ctx) me
+    Refl <- expectEnumOrFail discrTp ctx enumTpr
     e <- readEnumVariant discrTp ctx idx e
     e <- readStructField ctx' idx' e
     e <- readFieldData' fld errFieldUninit e
@@ -828,18 +805,18 @@ getEnumField adt i j me = do
 
 setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setEnumField adt i j me (MirExp tpr e') = do
+setEnumField adt i j (MirExp enumTpr e) (MirExp fldTpr e') = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
-    Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
+    Refl <- expectEnumOrFail discrTp ctx enumTpr
+    Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
-    let f' = adjustAnyE (RustEnumRepr discrTp ctx) $
-            adjustEnumVariant discrTp ctx idx $
+    let f' = adjustEnumVariant discrTp ctx idx $
             \e -> writeStructField ctx' idx' e e'
-    f' me
+    MirExp enumTpr <$> f' e
   where
     errFieldType :: FieldKind tp tp' -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i, j) ++
-        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show tpr
+        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
 
 
 
@@ -886,7 +863,7 @@ buildStruct' adt es = do
         Left err -> mirFail $ "error building struct " ++ show (var^.M.vname) ++ ": " ++ err
         Right x -> return x
     let ctx = fieldCtxType fctx
-    buildAnyE (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
+    pure $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
 
 buildStruct :: HasCallStack => M.Adt -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
@@ -931,7 +908,7 @@ buildEnum' adt i es = do
         Just x -> enumDiscrLit discrTp x
         Nothing -> mirFail $ "can't find discr for variant " ++ show (adt ^. M.adtname, i)
 
-    buildAnyE (RustEnumRepr discrTp ctx) $
+    pure $ MirExp (RustEnumRepr discrTp ctx) $
         R.App $ mkRustEnum discrTp ctx (R.App discr) $
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
@@ -1010,13 +987,10 @@ fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 
 structFieldRef ::
     M.Adt -> Int ->
-    C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
+    R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt i tpr ref = do
+structFieldRef adt i ref = do
     StructInfo ctx idx fld <- structInfo adt i
-    Refl <- testEqualityOrFail tpr C.AnyRepr $
-        "structFieldRef: bad referent type: expected Any, but got " ++ show tpr
-    ref <- subanyRef (C.StructRepr ctx) ref
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
@@ -1024,13 +998,10 @@ structFieldRef adt i tpr ref = do
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
-    C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
+    R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
-enumFieldRef adt i j tpr ref = do
+enumFieldRef adt i j ref = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
-    Refl <- testEqualityOrFail tpr C.AnyRepr $
-        "enumFieldRef: bad referent type: expected Any, but got " ++ show tpr
-    ref <- subanyRef (RustEnumRepr discrTp ctx) ref
     ref <- subvariantRef discrTp ctx ref idx
     ref <- subfieldRef ctx' ref idx'
     ref <- fieldDataRef fld ref
@@ -1040,9 +1011,9 @@ enumFieldRef adt i j tpr ref = do
 
 enumDiscriminant :: M.Adt -> MirExp s ->
     MirGenerator h s ret (MirExp s)
-enumDiscriminant adt e = do
+enumDiscriminant adt (MirExp enumTpr v) = do
     SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
-    let v = unpackAnyC (RustEnumRepr discrTpr variantsCtx) e
+    Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
     return $ MirExp discrTpr $ R.App $ rustEnumDiscriminant discrTpr v
 
 tupleFieldRef ::
@@ -1073,6 +1044,29 @@ testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s
 testEqualityOrFail x y msg = case testEquality x y of
     Just pf -> return pf
     Nothing -> mirFail msg
+
+expectStructOrFail ::
+  C.CtxRepr expectedStructCtx ->
+  C.TypeRepr actualStructTp ->
+  MirGenerator h s ret (C.StructType expectedStructCtx :~: actualStructTp)
+expectStructOrFail expectedStructCtx actualStructTpr =
+  testEqualityOrFail expectedStructTpr actualStructTpr $
+    "expected struct to have type" ++ show expectedStructTpr ++
+    ", but got " ++ show actualStructTpr
+  where
+    expectedStructTpr = C.StructRepr expectedStructCtx
+
+expectEnumOrFail ::
+  C.TypeRepr expectedDiscrTp ->
+  C.CtxRepr expectedVariantsCtx ->
+  C.TypeRepr actualEnumTp ->
+  MirGenerator h s ret (RustEnumType expectedDiscrTp expectedVariantsCtx :~: actualEnumTp)
+expectEnumOrFail expectedDiscrTpr expectedVariantsCtx actualEnumTpr =
+  testEqualityOrFail expectedEnumTpr actualEnumTpr $
+    "expected enum to have type" ++ show expectedEnumTpr ++
+    ", but got " ++ show actualEnumTpr
+  where
+    expectedEnumTpr = RustEnumRepr expectedDiscrTpr expectedVariantsCtx
 
 
 
