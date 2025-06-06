@@ -17,13 +17,68 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , storeString
   ) where
 
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.Parameterized.NatRepr as DPN
 import qualified Data.Vector as Vec
+import qualified GHC.Stack as GHC
 import qualified Lang.Crucible.Backend as LCB
 import qualified Lang.Crucible.LLVM.DataLayout as CLD
 import qualified Lang.Crucible.LLVM.MemModel as LCLM
 import qualified Lang.Crucible.LLVM.MemModel as Mem
 import qualified What4.Interface as WI
+import qualified Lang.Crucible.Simulator as LCS
+
+-- | Whether to stop or keep going
+data Continue
+  = KeepGoing
+  | Stop
+
+-- | Load a sequence of bytes, one at a time.
+--
+-- Not exported.
+loadBytes ::
+  forall m a sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  , MonadIO m
+  , Monoid a
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  (Mem.LLVMPtr sym 8 -> m (Continue, a)) ->
+  m a
+loadBytes bak mem = go mempty
+ where
+  go ::
+    a ->
+    Mem.LLVMPtr sym wptr ->
+    (a -> Mem.LLVMPtr sym 8 -> m (Continue, a)) ->
+    m a
+  go acc ptr f = do
+    let i1 = Mem.bitvectorType 1
+    let p8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
+    b <- liftIO (Mem.doLoad bak mem ptr i1 p8 CLD.noAlignment)
+    -- let err = LCS.AssertFailureSimError "Found pointer instead of byte when loading string" ""
+    -- x <- Partial.ptrToBv bak err v
+    (continue, result) <- f b
+    case continue of
+      Stop -> pure result
+      KeepGoing ->
+        go (result <> acc) _
+
+     -- case BV.asUnsigned <$> asBV x of
+     --   Just 0 -> return $ f []
+     --   Just c -> do
+     --       -- let c' :: Word8 = toEnum $ fromInteger c
+     --       p' <- doPtrAddOffset bak mem p =<< bvOne sym PtrWidth
+     --       go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
+     --   Nothing ->
+     --     addFailedAssertion bak
+     --        $ Unsupported GHC.callStack "Symbolic value encountered when loading a string"
 
 -- | Store a string to memory, adding a null terminator at the end.
 storeString ::
