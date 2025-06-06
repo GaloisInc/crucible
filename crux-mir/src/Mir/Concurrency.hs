@@ -139,7 +139,6 @@ mirPathName :: C.IsSymInterface sym => MirReferencePath sym tpr t -> String
 mirPathName p =
   case p of
     Empty_RefPath -> ""
-    Any_RefPath _ p -> mirPathName p
     Field_RefPath _ p idx -> mirPathName p ++ "." ++ show (indexVal idx)
     Variant_RefPath _ _ p idx -> mirPathName p ++ "." ++ show (indexVal idx)
     Index_RefPath _ p idx -> mirPathName p

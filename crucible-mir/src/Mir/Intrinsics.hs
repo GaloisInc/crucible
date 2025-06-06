@@ -376,10 +376,6 @@ data MirReferenceRoot sym :: CrucibleType -> Type where
 
 data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
   Empty_RefPath :: MirReferencePath sym tp tp
-  Any_RefPath ::
-    !(TypeRepr tp) ->
-    !(MirReferencePath sym tp_base AnyType) ->
-    MirReferencePath sym  tp_base tp
   Field_RefPath ::
     !(CtxRepr ctx) ->
     !(MirReferencePath sym tp_base (StructType ctx)) ->
@@ -433,7 +429,6 @@ instance IsSymInterface sym => Show (MirReferenceRoot sym tp) where
 
 instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
     show Empty_RefPath = "Empty_RefPath"
-    show (Any_RefPath tpr p) = "(Any_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
     show (Field_RefPath ctx p idx) = "(Field_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
     show (Variant_RefPath tp ctx p idx) = "(Variant_RefPath " ++ show tp ++ " " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
     show (Index_RefPath tpr p idx) = "(Index_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
@@ -468,10 +463,6 @@ instance OrdSkel (MirReference sym) where
         cmpPath Empty_RefPath Empty_RefPath = EQ
         cmpPath Empty_RefPath _ = LT
         cmpPath _ Empty_RefPath = GT
-        cmpPath (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2) =
-            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
-        cmpPath (Any_RefPath _ _) _ = LT
-        cmpPath _ (Any_RefPath _ _) = GT
         cmpPath (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2) =
             compareSkelF2 ctx1 idx1 ctx2 idx2 <> cmpPath p1 p2
         cmpPath (Field_RefPath _ _ _) _ = LT
@@ -527,10 +518,6 @@ muxRefPath ::
   MaybeT IO (MirReferencePath sym tp_base tp)
 muxRefPath sym c path1 path2 = case (path1,path2) of
   (Empty_RefPath, Empty_RefPath) -> return Empty_RefPath
-  (Any_RefPath ctx1 p1, Any_RefPath ctx2 p2)
-    | Just Refl <- testEquality ctx1 ctx2 ->
-         do p' <- muxRefPath sym c p1 p2
-            return (Any_RefPath ctx1 p')
   (Field_RefPath ctx1 p1 f1, Field_RefPath ctx2 p2 f2)
     | Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality f1 f2 ->
@@ -869,10 +856,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirDropRef ::
      !(f MirReferenceType) ->
      MirStmt f UnitType
-  MirSubanyRef ::
-     !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
   MirSubfieldRef ::
      !(CtxRepr ctx) ->
      !(f MirReferenceType) ->
@@ -1037,7 +1020,6 @@ instance TypeApp MirStmt where
     MirReadRef tp _ -> tp
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
-    MirSubanyRef _ _ -> MirReferenceRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubindexRef _ _ _ -> MirReferenceRepr
@@ -1072,7 +1054,6 @@ instance PrettyApp MirStmt where
     MirReadRef _ x  -> "readMirRef" <+> pp x
     MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
-    MirSubanyRef tpr x -> "subanyRef" <+> pretty tpr <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
@@ -1259,24 +1240,6 @@ dropMirRefIO ::
 dropMirRefIO bak gs (MirReferenceMux ref) =
     foldFancyMuxTree bak (dropMirRefLeaf bak) gs ref
 
-subanyMirRefLeaf ::
-    TypeRepr tp ->
-    MirReference sym ->
-    MuxLeafT sym IO (MirReference sym)
-subanyMirRefLeaf tpr ref =
-  typedLeafOp "subany" AnyRepr ref $ \root path -> do
-    return $ MirReference tpr root (Any_RefPath tpr path)
-
-subanyMirRefIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-subanyMirRefIO bak iTypes tpr ref =
-    modifyRefMuxIO bak iTypes (subanyMirRefLeaf tpr) ref
-
 subfieldMirRefLeaf ::
     CtxRepr ctx ->
     MirReference sym ->
@@ -1407,8 +1370,6 @@ refPathEq ::
     MirReferencePath sym tp_base2 tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
 refPathEq sym Empty_RefPath Empty_RefPath = return $ truePred sym
-refPathEq sym (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2)
-  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
 refPathEq sym (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2)
   | Just Refl <- testEquality ctx1 ctx2
   , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
@@ -1604,11 +1565,6 @@ refPathOverlaps sym path1 path2 = do
     go _ RrpNil = return $ truePred sym
     go (Empty_RefPath `RrpCons` rrp1) rrp2 = go rrp1 rrp2
     go rrp1 (Empty_RefPath `RrpCons` rrp2) = go rrp1 rrp2
-    -- If two `Any_RefPath`s have different `tpr`s, then we assume they don't
-    -- overlap, since applying both to the same root will cause at least one to
-    -- give a type mismatch error.
-    go (Any_RefPath tpr1 _ `RrpCons` rrp1) (Any_RefPath tpr2 _ `RrpCons` rrp2)
-      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
     go (Field_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Field_RefPath ctx2 _ idx2 `RrpCons` rrp2)
       | Just Refl <- testEquality ctx1 ctx2
       , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
@@ -1862,8 +1818,6 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          writeOnly s $ writeMirRefIO bak gs iTypes tpr ref x
        MirDropRef (regValue -> ref) ->
          writeOnly s $ dropMirRefIO bak gs ref
-       MirSubanyRef tp (regValue -> ref) ->
-         readOnly s $ subanyMirRefIO bak iTypes tp ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
@@ -2146,13 +2100,6 @@ adjustRefPath ::
   MuxLeafT sym IO (RegValue sym tp)
 adjustRefPath bak iTypes v path0 adj = case path0 of
   Empty_RefPath -> adj v
-  Any_RefPath tpr path ->
-      adjustRefPath bak iTypes v path (\(AnyValue vtp x) ->
-         case testEquality vtp tpr of
-           Nothing -> fail ("Any type mismatch! Expected: " ++ show tpr ++
-                            "\nbut got: " ++ show vtp)
-           Just Refl -> AnyValue vtp <$> adj x
-         )
   Field_RefPath _ctx path fld ->
       adjustRefPath bak iTypes v path
         (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
@@ -2194,12 +2141,6 @@ readRefPath ::
   MuxLeafT sym IO (RegValue sym tp')
 readRefPath bak iTypes v = \case
   Empty_RefPath -> return v
-  Any_RefPath tpr path ->
-    do AnyValue vtp x <- readRefPath bak iTypes v path
-       case testEquality vtp tpr of
-         Nothing -> leafAbort $ GenericSimError $
-            "Any type mismatch! Expected: " ++ show tpr ++ "\nbut got: " ++ show vtp
-         Just Refl -> return x
   Field_RefPath _ctx path fld ->
     do flds <- readRefPath bak iTypes v path
        return $ unRV $ flds ! fld

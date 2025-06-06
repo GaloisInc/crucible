@@ -609,22 +609,34 @@ showRegEntry col mty (C.RegEntry tp rv) =
       return $ "(" ++ List.intercalate ", " strs ++ ")"
 
     -- Tagged union type
-    (TyAdt name _ _, C.AnyRepr)
+    (TyAdt name _ _, _)
       | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col^.adts) -> do
         optParts <- case adt^.adtkind of
             Struct -> do
                 let var = onlyVariant adt
                 C.Some fctx <- return $ variantFields' col var
                 let ctx = fieldCtxType fctx
-                let fields = unpackAnyValue rv (C.StructRepr ctx)
-                return $ Right (var, readFields fctx fields)
+                let expectedStructTpr = C.StructRepr ctx
+                Refl <-
+                  case testEquality expectedStructTpr tp of
+                    Just r -> pure r
+                    Nothing -> fail $
+                      "expected struct to have type" ++ show expectedStructTpr ++
+                      ", but got " ++ show tp
+                return $ Right (var, readFields fctx rv)
             Enum _ -> do
                 SomeRustEnumRepr discrTp vctx <- return $ enumVariants col adt
-                let enumVal = unpackAnyValue rv (RustEnumRepr discrTp vctx)
+                let expectedEnumTpr = RustEnumRepr discrTp vctx
+                Refl <-
+                  case testEquality expectedEnumTpr tp of
+                    Just r -> pure r
+                    Nothing -> fail $
+                      "expected enum to have type" ++ show expectedEnumTpr ++
+                      ", but got " ++ show tp
                 -- Note we don't look at the discriminant here, because mapping
                 -- a discriminant value to a variant index is somewhat complex.
                 -- Instead we just find the first PartExpr that's initialized.
-                case findVariant vctx (C.unRV $ enumVal Ctx.! Ctx.i2of2) of
+                case findVariant vctx (C.unRV $ rv Ctx.! Ctx.i2of2) of
                     Just (C.Some (FoundVariant idx tpr fields)) -> do
                         let i = Ctx.indexVal idx
                         let var = fromMaybe (error "bad index from findVariant?") $
@@ -724,12 +736,6 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
 
   where
-    unpackAnyValue :: C.AnyValue sym -> C.TypeRepr tp -> C.RegValue sym tp
-    unpackAnyValue (C.AnyValue tpr val) tpr'
-      | Just Refl <- testEquality tpr tpr' = val
-      | otherwise = error $ "bad ANY unpack for " ++ show mty ++ ": expected" ++
-        show tpr' ++ ", but got " ++ show tpr
-
     readFields :: FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
         [C.Some (C.RegEntry sym)]
     readFields Ctx.Empty Ctx.Empty = []

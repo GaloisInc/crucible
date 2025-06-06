@@ -1329,13 +1329,13 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
-            Struct -> structFieldRef adt idx tpr ref
+            Struct -> structFieldRef adt idx ref
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> mirFail $ "evalPlace (PField, Union) NYI"
 
     M.TyDowncast (M.TyAdt nm _ _) i -> do
         adt <- findAdt nm
-        enumFieldRef adt (fromInteger i) idx tpr ref
+        enumFieldRef adt (fromInteger i) idx ref
 
     M.TyTuple ts -> tupleFieldRef ts idx tpr ref
     M.TyClosure ts -> tupleFieldRef ts idx tpr ref

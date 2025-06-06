@@ -358,8 +358,6 @@ regEval bak baseEval tpr v = go tpr v
         OverrideSim p sym MIR rtp args ret (MirReferencePath sym tp_base tp')
     goMirReferencePath Empty_RefPath =
         pure Empty_RefPath
-    goMirReferencePath (Any_RefPath tpr p) =
-        Any_RefPath tpr <$> goMirReferencePath p
     goMirReferencePath (Field_RefPath ctx p idx) =
         Field_RefPath ctx <$> goMirReferencePath p <*> pure idx
     goMirReferencePath (Variant_RefPath discrTp ctx p idx) =

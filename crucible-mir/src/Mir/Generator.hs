@@ -650,12 +650,6 @@ writeMirRef ::
   MirGenerator h s ret ()
 writeMirRef tp ref x = void $ G.extensionStmt (MirWriteRef tp ref x)
 
-subanyRef ::
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-subanyRef tpr ref = G.extensionStmt (MirSubanyRef tpr ref)
-
 subfieldRef ::
   C.CtxRepr ctx ->
   R.Expr MIR s MirReferenceType ->

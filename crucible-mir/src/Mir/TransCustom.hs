@@ -1077,17 +1077,21 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
                 -- Get the Adt info for the return type, which should be
                 -- Option<&[T; N]>.
                 adt <- findAdt optionMonoName
+                SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
+                let expectedEnumTpr = RustEnumRepr discrTpr variantsCtx
 
                 Some tpr <- tyToReprM ty
-                MirExp C.AnyRepr <$> G.ifte lenOk
+                MirExp expectedEnumTpr <$> G.ifte' expectedEnumTpr lenOk
                     (do v <- vectorCopy tpr ptr len
                         v' <- mirVector_fromVector tpr v
                         ref <- constMirRef (MirVectorRepr tpr) v'
                         let vMir = MirExp MirReferenceRepr ref
-                        enum <- buildEnum adt optionDiscrSome [vMir]
-                        unwrapMirExp C.AnyRepr enum)
-                    (do enum <- buildEnum adt optionDiscrNone []
-                        unwrapMirExp C.AnyRepr enum)
+                        MirExp enumTpr enum <- buildEnum adt optionDiscrSome [vMir]
+                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
+                        pure enum)
+                    (do MirExp enumTpr enum <- buildEnum adt optionDiscrNone []
+                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
+                        pure enum)
 
             _ -> mirFail $ "bad monomorphization of crucible_array_from_slice_hook: " ++
                 show (fnName, fn ^. fsig, ops)
@@ -1736,11 +1740,15 @@ non_zero_new = (["core", "num", "nonzero", "{impl}", "new", "crucible_non_zero_n
                 -- Get the Adt info for the return type, which should be
                 -- Option<NonZero<T>>.
                 adt <- findAdt optionMonoName
-                MirExp C.AnyRepr <$> G.ifte isZero
-                    (do enum <- buildEnum adt optionDiscrNone []
-                        unwrapMirExp C.AnyRepr enum)
-                    (do enum <- buildEnum adt optionDiscrSome [MirExp tpr val]
-                        unwrapMirExp C.AnyRepr enum)
+                SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
+                let expectedEnumTpr = RustEnumRepr discrTpr variantsCtx
+                MirExp expectedEnumTpr <$> G.ifte' expectedEnumTpr isZero
+                    (do MirExp enumTpr enum <- buildEnum adt optionDiscrNone []
+                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
+                        pure enum)
+                    (do MirExp enumTpr enum <- buildEnum adt optionDiscrSome [MirExp tpr val]
+                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
+                        pure enum)
             _ -> mirFail $ "bad arguments to NonZero::new: " ++ show ops
     )
 
@@ -1831,12 +1839,6 @@ cloneFromShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not i
 
 --------------------------------------------------------------------------------------------------------------------------
 
-unwrapMirExp :: C.TypeRepr tp -> MirExp s -> MirGenerator h s ret (R.Expr MIR s tp)
-unwrapMirExp tpr (MirExp tpr' e)
-  | Just Refl <- testEquality tpr tpr' = return e
-  | otherwise = mirFail $ "bad unwrap of MirExp: expected " ++ show tpr ++
-    ", but got " ++ show tpr'
-
 -- Convert a Crucible `MaybeType` into a Rust `Option`.
 --
 -- The caller is responsible for ensuring that `Option<T>` exists in the crate.
@@ -1844,7 +1846,14 @@ maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
     MirGenerator h s ret (MirExp s)
 maybeToOption ty tpr e = do
     adt <- findExplodedAdtInst optionExplodedDefId (Substs [ty])
-    e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
-        (\val -> buildEnum adt optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)
-        (buildEnum adt optionDiscrNone [] >>= unwrapMirExp C.AnyRepr)
-    return $ MirExp C.AnyRepr e'
+    SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
+    let expectedEnumTpr = RustEnumRepr discrTpr variantsCtx
+    e' <- G.caseMaybe e expectedEnumTpr $ G.MatchMaybe
+        (\val -> do
+          MirExp enumTpr enum <- buildEnum adt optionDiscrSome [MirExp tpr val]
+          Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
+          pure enum)
+        (do MirExp enumTpr enum <- buildEnum adt optionDiscrNone []
+            Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
+            pure enum)
+    return $ MirExp expectedEnumTpr e'
