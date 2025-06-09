@@ -77,7 +77,7 @@ jobs:
           - os: macos-14
             cabal: 3.14.2.0
             ghc: 9.10.1
-          - os: windows-2019
+          - os: windows-2022
             cabal: 3.14.2.0
             ghc: 9.10.1
     name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
@@ -115,7 +115,7 @@ jobs:
 
       - run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20250326"
+          SOLVER_PKG_VERSION: "snapshot-20250606"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
