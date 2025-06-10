@@ -98,6 +98,7 @@ import What4.FunctionName
 import What4.Symbol
 import What4.Utils.StringLiteral
 
+import Lang.Crucible.Syntax.ParsedProgram (ParsedProgram(..))
 import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom, showAtom)
 import Lang.Crucible.Syntax.Atoms hiding (atom)
 
@@ -210,23 +211,6 @@ data ParserHooks ext = ParserHooks {
 -- language.
 defaultParserHooks :: ParserHooks ()
 defaultParserHooks = ParserHooks empty empty
-
--- | The results of parsing a program.
-data ParsedProgram ext = ParsedProgram
-  { parsedProgGlobals :: Map GlobalName (Some GlobalVar)
-    -- ^ The parsed @defglobal@s.
-  , parsedProgExterns :: Map GlobalName (Some GlobalVar)
-    -- ^ For each parsed @extern@, map its name to its global variable. It is
-    --   the responsibility of the caller to insert each global variable into
-    --   the 'SymGlobalState' alongside an appropriate 'RegValue'.
-  , parsedProgCFGs :: [AnyCFG ext]
-    -- ^ The CFGs for each parsed @defun@.
-  , parsedProgForwardDecs :: Map FunctionName SomeHandle
-    -- ^ For each parsed @declare@, map its name to its function handle. It is
-    --   the responsibility of the caller to register each handle with an
-    --   appropriate 'FnState'.
-  }
-
 
 kw :: MonadSyntax Atomic m => Keyword -> m ()
 kw k = describe ("the keyword " <> showAtom (Kw k)) (atom (Kw k))

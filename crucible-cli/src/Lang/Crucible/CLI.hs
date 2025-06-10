@@ -38,18 +38,16 @@ import Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(Some))
 
-import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Reg as C.Reg
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.CFG.Reg
-import Lang.Crucible.CFG.SSAConversion
 
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Concrete
+import Lang.Crucible.Syntax.ParsedProgram (parsedProgramFnBindings)
 import Lang.Crucible.Syntax.Prog (doParseCheck, assertNoExterns, assertNoForwardDecs)
 import Lang.Crucible.Syntax.SExpr
 
-import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
 import qualified Lang.Crucible.Backend.Prove as Prove
 import Lang.Crucible.Backend.Simple
@@ -140,30 +138,24 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
             case parseResult of
               Left e ->
                 T.hPutStrLn outh (PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (PP.pretty e)))
-              Right (ParsedProgram{ parsedProgCFGs = cs
-                                  , parsedProgExterns = externs
-                                  , parsedProgForwardDecs = fds
-                                  }) -> do
+              Right parsedProg -> do
+                let ParsedProgram
+                      { parsedProgCFGs = cs
+                      , parsedProgExterns = externs
+                      , parsedProgForwardDecs = fds
+                      } = parsedProg
                 case find isMain cs of
                   Just (AnyCFG mn@(C.Reg.cfgArgTypes -> Ctx.Empty)) ->
                     do let retType = C.Reg.cfgReturnType mn
                        gst <- resolveExternsHook hooks sym externs emptyGlobals
                        let mainHdl = cfgHandle mn
                        ext <- mkExt bak
-                       let fns0 = FnBindings emptyHandleMap
-                       let fns = foldl' (\(FnBindings m) (AnyCFG g) ->
-                                          case toSSA g of
-                                            C.SomeCFG ssa ->
-                                              FnBindings $
-                                                insertHandleMap
-                                                  (cfgHandle g)
-                                                  (UseCFG ssa (postdomInfo ssa))
-                                                  m)
-                                        fns0 cs
+                       let fns = FnBindings emptyHandleMap
                        let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext ()
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
-                                        do mapM_ (registerFnBinding . fst) ovrs
+                                        do forM_ (parsedProgramFnBindings parsedProg) registerFnBinding
+                                           mapM_ (registerFnBinding . fst) ovrs
                                            setupHook hooks bak ha fds
                                            regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
 
