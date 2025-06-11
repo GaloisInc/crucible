@@ -5,7 +5,7 @@ fn crux_test() {
     let x = 12;
     let y = &x as *const i32;
     unsafe {
-        assert!(read_volatile(y) == 12);
+        assert!(std::ptr::read_volatile(y) == 12);
     }
 }
 
