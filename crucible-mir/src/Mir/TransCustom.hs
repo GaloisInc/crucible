@@ -117,7 +117,7 @@ customOpDefs = Map.fromList $ [
                          , unlikely
                          , bitreverse
                          , volatile_load
-                         , volatile_store
+                         , volatile_write
 
                          , mem_transmute
                          , mem_bswap
@@ -558,24 +558,37 @@ ptr_slice_from_raw_parts_mut =
     ( ["core", "ptr", "slice_from_raw_parts_mut", "crucible_slice_from_raw_parts_hook"]
     , ptr_slice_from_raw_parts_impl)
 
+-- | [@@std::ptr::read](https://doc.rust-lang.org/std/ptr/fn.read.html)
+ptr_read = (["core", "ptr", "read"], ptr_read_impl "ptr::write")
 
-ptr_read :: (ExplodedDefId, CustomRHS)
-ptr_read = ( ["core", "ptr", "read"], \substs -> case substs of
+-- | [@@std::ptr::write](https://doc.rust-lang.org/std/ptr/fn.write.html)
+ptr_write = (["core", "ptr", "write"], ptr_write_impl "ptr::write")
+
+-- | [@std::ptr::read_volatile@](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
+volatile_load = (["core", "intrinsics", "volatile_load"], ptr_read_impl "intrinsics::volatile_load")
+
+-- | [@std::ptr::write_volatile@](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
+volatile_write = (["core", "intrinsics", "volatile_store"], ptr_write_impl "intrinsics::volatile_write")
+
+ptr_read_impl :: String -> CustomRHS
+ptr_read_impl what substs =
+  case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr] -> do
             Some tpr <- tyToReprM ty
             MirExp tpr <$> readMirRef tpr ptr
-        _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
-    _ -> Nothing)
+        _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
+    _ -> Nothing
 
-ptr_write :: (ExplodedDefId, CustomRHS)
-ptr_write = ( ["core", "ptr", "write"], \substs -> case substs of
+ptr_write_impl :: String -> CustomRHS
+ptr_write_impl what substs =
+  case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
             writeMirRef tpr ptr val
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
-        _ -> mirFail $ "bad arguments for ptr::write: " ++ show ops
-    _ -> Nothing)
+        _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
+    _ -> Nothing
 
 ptr_swap :: (ExplodedDefId, CustomRHS)
 ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
@@ -1859,24 +1872,3 @@ maybeToOption ty tpr e = do
             Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
             pure enum)
     return $ MirExp expectedEnumTpr e'
-
---------------------------------------------------------------------------------------------------------------------------
--- | [@std::ptr::read_volatile@](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
-volatile_load :: (ExplodedDefId, CustomRHS)
-volatile_load = ( ["core", "intrinsics", "volatile_load"], \substs -> case substs of
-    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr ptr] -> do
-            Some tpr <- tyToReprM ty
-            MirExp tpr <$> readMirRef tpr ptr
-        _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
-    _ -> Nothing)
-
--- | [@std::ptr::write_volatile@](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
-volatile_store :: (ExplodedDefId, CustomRHS)
-volatile_store = ( ["core", "intrinsics", "volatile_store"], \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
-            writeMirRef tpr ptr val
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
-        _ -> mirFail $ "bad arguments for intrinsics::volatile_write: " ++ show ops
-    _ -> Nothing)
