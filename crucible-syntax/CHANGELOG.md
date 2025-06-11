@@ -1,6 +1,7 @@
 # next
 
-Nothing yet.
+* Add `parsedProgramFnBindings` to a new module,
+  `Lang.Crucible.Syntax.ParsedProgram`.
 
 # 0.4.1 -- 2025-03-21
 

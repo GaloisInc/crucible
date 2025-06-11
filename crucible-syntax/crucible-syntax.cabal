@@ -136,6 +136,7 @@ library
     Lang.Crucible.Syntax.Overrides
     Lang.Crucible.Syntax.ExprParse
     Lang.Crucible.Syntax.Monad
+    Lang.Crucible.Syntax.ParsedProgram
     Lang.Crucible.Syntax.Prog
 
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
