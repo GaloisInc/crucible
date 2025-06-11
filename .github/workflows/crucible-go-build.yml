@@ -24,7 +24,7 @@ jobs:
             cabal: 3.14.2.0
             ghc: 9.10.1
     name: crucible-go - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
-    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@v1
+    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@61c62aa4f5405a78f2f0a5425344b3e38efca20a
     with:
       build-targets: pkg:crucible-go
       cabal: ${{ matrix.cabal }}
