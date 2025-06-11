@@ -17,6 +17,8 @@ This release supports [version
   `RustEnumType` instead of `AnyType`. As a result of these changes,
   `Any_RefPath`, `MirSubanyRef`, `subanyRef`, and similar functions have been
   removed, as they no longer serve a useful purpose.
+* Added an intrinsic for [read_volatile](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
+  and [write_volatile](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
 
 # 0.4 -- 2025-03-21
 
