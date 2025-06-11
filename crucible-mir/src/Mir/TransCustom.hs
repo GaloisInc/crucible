@@ -1865,7 +1865,7 @@ maybeToOption ty tpr e = do
 -- write_volatile from https://doc.rust-lang.org/std/ptr/fn.write_volatile.html
 
 volatile_load :: (ExplodedDefId, CustomRHS)
-volatile_load = ( ["core", "intrinsics", "{extern}", "volatile_load"], \substs -> case substs of
+volatile_load = ( ["core", "intrinsics", "volatile_load"], \substs -> case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr] -> do
             Some tpr <- tyToReprM ty
@@ -1874,7 +1874,7 @@ volatile_load = ( ["core", "intrinsics", "{extern}", "volatile_load"], \substs -
     _ -> Nothing)
 
 volatile_store :: (ExplodedDefId, CustomRHS)
-volatile_store = ( ["core", "intrinsics", "{extern}", "volatile_store"], \substs -> case substs of
+volatile_store = ( ["core", "intrinsics", "volatile_store"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
             writeMirRef tpr ptr val
