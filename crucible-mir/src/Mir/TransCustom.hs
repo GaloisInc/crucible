@@ -116,6 +116,8 @@ customOpDefs = Map.fromList $ [
                          , assert_inhabited
                          , unlikely
                          , bitreverse
+                         , volatile_load
+                         , volatile_store
 
                          , mem_transmute
                          , mem_bswap
@@ -1857,3 +1859,25 @@ maybeToOption ty tpr e = do
             Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
             pure enum)
     return $ MirExp expectedEnumTpr e'
+
+--------------------------------------------------------------------------------------------------------------------------
+-- read_volatile from https://doc.rust-lang.org/std/ptr/fn.read_volatile.html
+-- write_volatile from https://doc.rust-lang.org/std/ptr/fn.write_volatile.html
+
+volatile_load :: (ExplodedDefId, CustomRHS)
+volatile_load = ( ["core", "intrinsics", "{extern}", "volatile_load"], \substs -> case substs of
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ptr] -> do
+            Some tpr <- tyToReprM ty
+            MirExp tpr <$> readMirRef tpr ptr
+        _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
+    _ -> Nothing)
+
+volatile_store :: (ExplodedDefId, CustomRHS)
+volatile_store = ( ["core", "intrinsics", "{extern}", "volatile_store"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
+            writeMirRef tpr ptr val
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for intrinsics::volatile_write: " ++ show ops
+    _ -> Nothing)
