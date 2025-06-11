@@ -1861,9 +1861,7 @@ maybeToOption ty tpr e = do
     return $ MirExp expectedEnumTpr e'
 
 --------------------------------------------------------------------------------------------------------------------------
--- read_volatile from https://doc.rust-lang.org/std/ptr/fn.read_volatile.html
--- write_volatile from https://doc.rust-lang.org/std/ptr/fn.write_volatile.html
-
+-- | [@std::ptr::read_volatile@](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
 volatile_load :: (ExplodedDefId, CustomRHS)
 volatile_load = ( ["core", "intrinsics", "volatile_load"], \substs -> case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
@@ -1873,6 +1871,7 @@ volatile_load = ( ["core", "intrinsics", "volatile_load"], \substs -> case subst
         _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
     _ -> Nothing)
 
+-- | [@std::ptr::write_volatile@](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
 volatile_store :: (ExplodedDefId, CustomRHS)
 volatile_store = ( ["core", "intrinsics", "volatile_store"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
