@@ -69,15 +69,27 @@ newtype FrameIdentifier = FrameIdentifier Word64
 --   part of the state of the simple and online backends.
 --
 --   'GoalCollector' can be somewhat counter-intuitive. The "top"
---   ('TopCollector') is at the *leaves* when 'GoalCollector' is considered as a
---   tree (which is a common way to conceptualize recursive algebraic data types
---   such as this one). Furthermore, the frame identified by the frist argument
+--   ('TopCollector') is the *leaf* when 'GoalCollector' is considered as
+--   a tree (which is a common way to conceptualize recursive algebraic
+--   data types such as this one). A 'GoalCollector' is shaped like a
+--   cons-list with three different cons-like constructors ('CollectorFrame',
+--   'CollectingAssumptions', and 'CollectingGoals') and one nil-like
+--   constructor 'TopCollector'. That is to say, a 'GoalCollector' is a sequence
+--   that always ends in a single 'TopCollector'.
+--
+--   Furthermore, the frame identified by the first ('FrameIdentifier') argument
 --   of 'CollectorFrame' does not conceptually contain the goals *inside* the
 --   second ('GoalCollector') argument, but rather contains all the assumptions
 --   and goals in whatever 'GoalCollector' *contains* the 'CollectorFrame'
---   constructor (everything *outside* of the 'CollectorFrame').
+--   constructor (everything *outside* of the 'CollectorFrame'). Concretely, in
+--   the expression
+--   @
+--   'CollectingGoals' gls ('CollectingAssumptions' asmps ('CollectorFrame' frm ('TopCollector' gls0)))
+--   @
+--   the goals @gls@ and assumptions @asmps@ are in the frame @frm@, rather than
+--   the top-level goals @gls0@.
 --
---   This upside-down structure is reflected in the pretty-printer
+--   This inside-out structure is reflected in the pretty-printer
 --   'ppGoalCollector' below. The Crucible-CLI test-case @assumption-state@
 --   shows this pretty-printer in action in a Crucible program with branching,
 --   which can be helpful in understanding 'GoalCollector'.
@@ -112,9 +124,9 @@ ppGoalCollector ppAsmp ppGoal = go mempty
           go (PP.hang 2 (PP.vcat pLines)) gc
         CollectingGoals gls gc ->
           let pLines = [ PP.pretty "Prove all:"
-                      , PP.list (map (ppGoals ppAsmp ppGoal) (F.toList gls))
-                      , remainder
-                      ] in
+                       , PP.list (map (ppGoals ppAsmp ppGoal) (F.toList gls))
+                       , remainder
+                       ] in
           go (PP.hang 2 (PP.vcat pLines)) gc
 
 -- | Intended for debugging, this is not generally a user-facing datatype.
