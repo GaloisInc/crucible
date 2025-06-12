@@ -559,15 +559,19 @@ ptr_slice_from_raw_parts_mut =
     , ptr_slice_from_raw_parts_impl)
 
 -- | [@@std::ptr::read](https://doc.rust-lang.org/std/ptr/fn.read.html)
+ptr_read :: (ExplodedDefId, CustomRHS)
 ptr_read = (["core", "ptr", "read"], ptr_read_impl "ptr::write")
 
 -- | [@@std::ptr::write](https://doc.rust-lang.org/std/ptr/fn.write.html)
+ptr_write :: (ExplodedDefId, CustomRHS)
 ptr_write = (["core", "ptr", "write"], ptr_write_impl "ptr::write")
 
 -- | [@std::ptr::read_volatile@](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
+volatile_load :: (ExplodedDefId, CustomRHS)
 volatile_load = (["core", "intrinsics", "volatile_load"], ptr_read_impl "intrinsics::volatile_load")
 
 -- | [@std::ptr::write_volatile@](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
+volatile_write :: (ExplodedDefId, CustomRHS)
 volatile_write = (["core", "intrinsics", "volatile_store"], ptr_write_impl "intrinsics::volatile_write")
 
 ptr_read_impl :: String -> CustomRHS
