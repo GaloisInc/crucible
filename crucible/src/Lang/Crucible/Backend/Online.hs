@@ -4,19 +4,26 @@
 -- Description : A solver backend that maintains a persistent connection
 -- Copyright   : (c) Galois, Inc 2015-2016
 -- License     : BSD3
--- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Maintainer  : Ryan Scott <rscott@galois.com>, Langston Barrett <langston@galois.com>
 -- Stability   : provisional
 --
--- The online backend maintains an open connection to an SMT solver
--- that is used to prune unsatisfiable execution traces during simulation.
--- At every symbolic branch point, the SMT solver is queried to determine
--- if one or both symbolic branches are unsatisfiable.
--- Only branches with satisfiable branch conditions are explored.
+-- A solver backend ('IsSymBackend') that maintains an open connection to an
+-- SMT solver (in contrast to "Lang.Crucible.Backend.Simple").
 --
--- The online backend also allows override definitions access to a
--- persistent SMT solver connection.  This can be useful for some
--- kinds of algorithms that benefit from quickly performing many
--- small solver queries in a tight interaction loop.
+-- The primary intended use-case is to prune unsatisfiable execution
+-- traces during simulation using the execution feature provided by
+-- "Lang.Crucible.Simulator.PathSatisfiability". That execution feature is
+-- parameterized over a function argument that can be instantiated with this
+-- module's 'considerSatisfiability'.
+--
+-- The online backend also allows override definitions access to a persistent
+-- SMT solver connection. This can be useful for some kinds of algorithms
+-- that benefit from quickly performing many small solver queries in a tight
+-- interaction loop.
+--
+-- The online backend is not currently used to dispatch proof obligations during
+-- symbolic execution, see [GaloisInc/crucible#369, \"Interleave proof with
+-- simulation\"](https://github.com/GaloisInc/crucible/issues/369).
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -27,9 +34,14 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module Lang.Crucible.Backend.Online
-  ( -- * OnlineBackend
-    OnlineBackend
+  ( -- * Configuration options
+    solverInteractionFile
+  , enableOnlineBackend
+  , onlineBackendOptions
+    -- * OnlineBackend
+  , OnlineBackend
   , withOnlineBackend
   , newOnlineBackend
   , checkSatisfiable
@@ -39,13 +51,10 @@ module Lang.Crucible.Backend.Online
   , restoreSolverState
   , UnsatFeatures(..)
   , unsatFeaturesToProblemFeatures
-    -- ** Configuration options
-  , solverInteractionFile
-  , enableOnlineBackend
-  , onlineBackendOptions
-    -- ** Branch satisfiability
+    -- * Branch satisfiability
   , BranchResult(..)
   , considerSatisfiability
+    -- * Backends for different solvers
     -- ** Yices
   , YicesOnlineBackend
   , withYicesOnlineBackend
@@ -68,7 +77,6 @@ module Lang.Crucible.Backend.Online
   , STPOnlineBackend
   , withSTPOnlineBackend
   ) where
-
 
 import           Control.Lens ( (^.) )
 import           Control.Monad
@@ -107,6 +115,9 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
+
+--------------------------------------------------------------------------------
+-- Configuration options
 
 data UnsatFeatures
   = NoUnsatFeatures
@@ -224,176 +235,6 @@ withOnlineBackend sym feats action = do
     )
 
 
-type YicesOnlineBackend scope st fs = OnlineBackend Yices.Connection scope st fs
-
--- | Do something with a Yices online backend.
---   The backend is only valid in the continuation.
---
---   The Yices configuration options will be automatically
---   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withYicesOnlineBackend FloatRealRepr ng f'
-withYicesOnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  ProblemFeatures ->
-  (YicesOnlineBackend scope st fs -> m a) ->
-  m a
-withYicesOnlineBackend sym unsatFeat extraFeatures action =
-  let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat  .|. extraFeatures in
-  withOnlineBackend sym feat $ \bak ->
-    do liftIO $ tryExtendConfig Yices.yicesOptions (getConfiguration sym)
-       action bak
-
-type Z3OnlineBackend scope st fs = OnlineBackend (SMT2.Writer Z3.Z3) scope st fs
-
--- | Do something with a Z3 online backend.
---   The backend is only valid in the continuation.
---
---   The Z3 configuration options will be automatically
---   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withz3OnlineBackend FloatRealRepr ng f'
-withZ3OnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  ProblemFeatures ->
-  (Z3OnlineBackend scope st fs -> m a) ->
-  m a
-withZ3OnlineBackend sym unsatFeat extraFeatures action =
-  let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
-  withOnlineBackend sym feat $ \bak ->
-    do liftIO $ tryExtendConfig Z3.z3Options (getConfiguration sym)
-       action bak
-
-type BitwuzlaOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Bitwuzla.Bitwuzla) scope st fs
-
--- | Do something with a Bitwuzla online backend.
---   The backend is only valid in the continuation.
---
---   The Bitwuzla configuration options will be automatically
---   installed into the backend configuration object.
---
---   > withBitwuzlaOnineBackend FloatRealRepr ng f'
-withBitwuzlaOnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  ProblemFeatures ->
-  (BitwuzlaOnlineBackend scope st fs -> m a) ->
-  m a
-withBitwuzlaOnlineBackend sym unsatFeat extraFeatures action =
-  let feat = (SMT2.defaultFeatures Bitwuzla.Bitwuzla .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
-  withOnlineBackend sym feat $ \bak -> do
-    liftIO $ tryExtendConfig Bitwuzla.bitwuzlaOptions (getConfiguration sym)
-    action bak
-
-type BoolectorOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Boolector.Boolector) scope st fs
-
--- | Do something with a Boolector online backend.
---   The backend is only valid in the continuation.
---
---   The Boolector configuration options will be automatically
---   installed into the backend configuration object.
---
---   > withBoolectorOnineBackend FloatRealRepr ng f'
-withBoolectorOnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  (BoolectorOnlineBackend scope st fs -> m a) ->
-  m a
-withBoolectorOnlineBackend sym unsatFeat action =
-  let feat = (SMT2.defaultFeatures Boolector.Boolector .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend sym feat $ \bak -> do
-    liftIO $ tryExtendConfig Boolector.boolectorOptions (getConfiguration sym)
-    action bak
-
-type CVC4OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC4.CVC4) scope st fs
-
--- | Do something with a CVC4 online backend.
---   The backend is only valid in the continuation.
---
---   The CVC4 configuration options will be automatically
---   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withCVC4OnlineBackend FloatRealRepr ng f'
-withCVC4OnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  ProblemFeatures ->
-  (CVC4OnlineBackend scope st fs -> m a) ->
-  m a
-withCVC4OnlineBackend sym unsatFeat extraFeatures action =
-  let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
-  withOnlineBackend sym feat $ \bak -> do
-    liftIO $ tryExtendConfig CVC4.cvc4Options (getConfiguration sym)
-    action bak
-
-type CVC5OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC5.CVC5) scope st fs
-
--- | Do something with a CVC5 online backend.
---   The backend is only valid in the continuation.
---
---   The CVC5 configuration options will be automatically
---   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withCVC5OnlineBackend FloatRealRepr ng f'
-withCVC5OnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  ProblemFeatures ->
-  (CVC5OnlineBackend scope st fs -> m a) ->
-  m a
-withCVC5OnlineBackend sym unsatFeat extraFeatures action =
-  let feat = (SMT2.defaultFeatures CVC5.CVC5 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
-  withOnlineBackend sym feat $ \bak -> do
-    liftIO $ tryExtendConfig CVC5.cvc5Options (getConfiguration sym)
-    action bak
-
-type STPOnlineBackend scope st fs = OnlineBackend (SMT2.Writer STP.STP) scope st fs
-
--- | Do something with a STP online backend.
---   The backend is only valid in the continuation.
---
---   The STO configuration options will be automatically
---   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withSTPOnlineBackend FloatRealRepr ng f'
-withSTPOnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  (STPOnlineBackend scope st fs -> m a) ->
-  m a
-withSTPOnlineBackend sym action =
-  withOnlineBackend sym (SMT2.defaultFeatures STP.STP) $ \bak -> do
-    liftIO $ tryExtendConfig STP.stpOptions (getConfiguration sym)
-    action bak
-
 -- | Shutdown any currently-active solver process.
 --   A fresh solver process will be started on the
 --   next call to `getSolverProcess`.
@@ -497,23 +338,6 @@ withSolverConn ::
 withSolverConn bak k = withSolverProcess bak (pure ()) (k . solverConn)
 
 
--- | Result of attempting to branch on a predicate.
-data BranchResult
-     -- | The both branches of the predicate might be satisfiable
-     --   (although satisfiablility of either branch is not guaranteed).
-   = IndeterminateBranchResult
-
-     -- | Commit to the branch where the given predicate is equal to
-     --   the returned boolean.  The opposite branch is unsatisfiable
-     --   (although the given branch is not necessarily satisfiable).
-   | NoBranch !Bool
-
-     -- | The context before considering the given predicate was already
-     --   unsatisfiable.
-   | UnsatisfiableContext
-   deriving (Data, Eq, Generic, Ord, Typeable)
-
-
 restoreAssumptionFrames ::
   OnlineSolver solver =>
   OnlineBackend solver scope st fs ->
@@ -529,29 +353,6 @@ restoreAssumptionFrames bak proc (AssumptionFrames base frms) =
      forM_ (map snd $ toList frms) $ \frm ->
       do push proc
          SMT.assume (solverConn proc) =<< assumptionsPred sym frm
-
-considerSatisfiability ::
-  OnlineSolver solver =>
-  OnlineBackend solver scope st fs ->
-  Maybe ProgramLoc ->
-  B.BoolExpr scope ->
-  IO BranchResult
-considerSatisfiability bak mbPloc p =
-  let sym = onlineExprBuilder bak in
-  withSolverProcess bak (pure IndeterminateBranchResult) $ \proc ->
-   do pnot <- notPred sym p
-      let locDesc = case mbPloc of
-            Just ploc -> show (plSourceLoc ploc)
-            Nothing -> "(unknown location)"
-      let rsn = "branch sat: " ++ locDesc
-      p_res <- checkSatisfiable proc rsn p
-      pnot_res <- checkSatisfiable proc rsn pnot
-      case (p_res, pnot_res) of
-        (Unsat{}, Unsat{}) -> return UnsatisfiableContext
-        (_      , Unsat{}) -> return (NoBranch True)
-        (Unsat{}, _      ) -> return (NoBranch False)
-        _                  -> return IndeterminateBranchResult
-
 
 instance HasSymInterface (B.ExprBuilder t st fs) (OnlineBackend solver t st fs) where
   backendGetSym = onlineExprBuilder
@@ -629,3 +430,183 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
     do restoreSolverState bak gc
        -- restore the previous assumption stack
        AS.restoreAssumptionStack gc (assumptionStack bak)
+
+--------------------------------------------------------------------------------
+-- Branch satisfiability
+
+-- | Result of attempting to branch on a predicate.
+data BranchResult
+     -- | The both branches of the predicate might be satisfiable
+     --   (although satisfiablility of either branch is not guaranteed).
+   = IndeterminateBranchResult
+
+     -- | Commit to the branch where the given predicate is equal to
+     --   the returned boolean.  The opposite branch is unsatisfiable
+     --   (although the given branch is not necessarily satisfiable).
+   | NoBranch !Bool
+
+     -- | The context before considering the given predicate was already
+     --   unsatisfiable.
+   | UnsatisfiableContext
+   deriving (Data, Eq, Generic, Ord, Typeable)
+
+considerSatisfiability ::
+  OnlineSolver solver =>
+  OnlineBackend solver scope st fs ->
+  Maybe ProgramLoc ->
+  B.BoolExpr scope ->
+  IO BranchResult
+considerSatisfiability bak mbPloc p =
+  let sym = onlineExprBuilder bak in
+  withSolverProcess bak (pure IndeterminateBranchResult) $ \proc ->
+   do pnot <- notPred sym p
+      let locDesc = case mbPloc of
+            Just ploc -> show (plSourceLoc ploc)
+            Nothing -> "(unknown location)"
+      let rsn = "branch sat: " ++ locDesc
+      p_res <- checkSatisfiable proc rsn p
+      pnot_res <- checkSatisfiable proc rsn pnot
+      case (p_res, pnot_res) of
+        (Unsat{}, Unsat{}) -> return UnsatisfiableContext
+        (_      , Unsat{}) -> return (NoBranch True)
+        (Unsat{}, _      ) -> return (NoBranch False)
+        _                  -> return IndeterminateBranchResult
+
+--------------------------------------------------------------------------------
+-- Backends for different solvers
+
+type YicesOnlineBackend scope st fs = OnlineBackend Yices.Connection scope st fs
+
+-- | Do something with a Yices online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Yices configuration options will be automatically
+--   installed into the backend configuration object.
+withYicesOnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  ProblemFeatures ->
+  (YicesOnlineBackend scope st fs -> m a) ->
+  m a
+withYicesOnlineBackend sym unsatFeat extraFeatures action =
+  let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat  .|. extraFeatures in
+  withOnlineBackend sym feat $ \bak ->
+    do liftIO $ tryExtendConfig Yices.yicesOptions (getConfiguration sym)
+       action bak
+
+type Z3OnlineBackend scope st fs = OnlineBackend (SMT2.Writer Z3.Z3) scope st fs
+
+-- | Do something with a Z3 online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Z3 configuration options will be automatically
+--   installed into the backend configuration object.
+withZ3OnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  ProblemFeatures ->
+  (Z3OnlineBackend scope st fs -> m a) ->
+  m a
+withZ3OnlineBackend sym unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
+  withOnlineBackend sym feat $ \bak ->
+    do liftIO $ tryExtendConfig Z3.z3Options (getConfiguration sym)
+       action bak
+
+type BitwuzlaOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Bitwuzla.Bitwuzla) scope st fs
+
+-- | Do something with a Bitwuzla online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Bitwuzla configuration options will be automatically
+--   installed into the backend configuration object.
+withBitwuzlaOnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  ProblemFeatures ->
+  (BitwuzlaOnlineBackend scope st fs -> m a) ->
+  m a
+withBitwuzlaOnlineBackend sym unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures Bitwuzla.Bitwuzla .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
+  withOnlineBackend sym feat $ \bak -> do
+    liftIO $ tryExtendConfig Bitwuzla.bitwuzlaOptions (getConfiguration sym)
+    action bak
+
+type BoolectorOnlineBackend scope st fs = OnlineBackend (SMT2.Writer Boolector.Boolector) scope st fs
+
+-- | Do something with a Boolector online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Boolector configuration options will be automatically
+--   installed into the backend configuration object.
+withBoolectorOnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  (BoolectorOnlineBackend scope st fs -> m a) ->
+  m a
+withBoolectorOnlineBackend sym unsatFeat action =
+  let feat = (SMT2.defaultFeatures Boolector.Boolector .|. unsatFeaturesToProblemFeatures unsatFeat) in
+  withOnlineBackend sym feat $ \bak -> do
+    liftIO $ tryExtendConfig Boolector.boolectorOptions (getConfiguration sym)
+    action bak
+
+type CVC4OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC4.CVC4) scope st fs
+
+-- | Do something with a CVC4 online backend.
+--   The backend is only valid in the continuation.
+--
+--   The CVC4 configuration options will be automatically
+--   installed into the backend configuration object.
+withCVC4OnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  ProblemFeatures ->
+  (CVC4OnlineBackend scope st fs -> m a) ->
+  m a
+withCVC4OnlineBackend sym unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
+  withOnlineBackend sym feat $ \bak -> do
+    liftIO $ tryExtendConfig CVC4.cvc4Options (getConfiguration sym)
+    action bak
+
+type CVC5OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC5.CVC5) scope st fs
+
+-- | Do something with a CVC5 online backend.
+--   The backend is only valid in the continuation.
+--
+--   The CVC5 configuration options will be automatically
+--   installed into the backend configuration object.
+withCVC5OnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  UnsatFeatures ->
+  ProblemFeatures ->
+  (CVC5OnlineBackend scope st fs -> m a) ->
+  m a
+withCVC5OnlineBackend sym unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures CVC5.CVC5 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
+  withOnlineBackend sym feat $ \bak -> do
+    liftIO $ tryExtendConfig CVC5.cvc5Options (getConfiguration sym)
+    action bak
+
+type STPOnlineBackend scope st fs = OnlineBackend (SMT2.Writer STP.STP) scope st fs
+
+-- | Do something with a STP online backend.
+--   The backend is only valid in the continuation.
+--
+--   The STO configuration options will be automatically
+--   installed into the backend configuration object.
+withSTPOnlineBackend ::
+  (MonadIO m, MonadMask m) =>
+  B.ExprBuilder scope st fs ->
+  (STPOnlineBackend scope st fs -> m a) ->
+  m a
+withSTPOnlineBackend sym action =
+  withOnlineBackend sym (SMT2.defaultFeatures STP.STP) $ \bak -> do
+    liftIO $ tryExtendConfig STP.stpOptions (getConfiguration sym)
+    action bak
