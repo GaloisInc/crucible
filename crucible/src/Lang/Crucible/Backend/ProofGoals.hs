@@ -3,8 +3,8 @@ Module      : Lang.Crucible.Backend.ProofGoals
 Copyright   : (c) Galois, Inc 2014-2018
 License     : BSD3
 
-This module defines a data strucutre for storing a collection of
-proof obligations, and the current state of assumptions.
+This module defines a data structure ('GoalCollector') for storing the current
+state of assumptions and a collection of proof obligations.
 -}
 
 {-# LANGUAGE RankNTypes #-}
@@ -59,6 +59,10 @@ newtype FrameIdentifier = FrameIdentifier Word64
 --   It keeps track both of the collection of assumptions that lead to
 --   the current state, as well as any proof obligations incurred along
 --   the way.
+--
+--   The main use of 'GoalCollector' is as the state of an
+--   'Lang.Crucible.Backend.AssumptionStack.AssumptionStack', which itself is
+--   part of the state of the simple and online backends.
 data GoalCollector asmp goal
   = TopCollector !(Seq (Goals asmp goal))
   | CollectorFrame !FrameIdentifier !(GoalCollector asmp goal)
