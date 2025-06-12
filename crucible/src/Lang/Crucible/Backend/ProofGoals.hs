@@ -7,6 +7,7 @@ This module defines a data structure ('GoalCollector') for storing the current
 state of assumptions and a collection of proof obligations.
 -}
 
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -22,6 +23,7 @@ module Lang.Crucible.Backend.ProofGoals
     -- * Goal collector
   , FrameIdentifier(..), GoalCollector
   , emptyGoalCollector
+  , ppGoalCollector
 
     -- ** traversals
   , traverseGoalCollector
@@ -40,9 +42,11 @@ module Lang.Crucible.Backend.ProofGoals
   where
 
 import           Control.Monad.Reader
+import qualified Data.Foldable as F
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Word (Word64)
+import qualified Prettyprinter as PP
 
 import           Lang.Crucible.Backend.Goals
 
@@ -55,7 +59,7 @@ newtype FrameIdentifier = FrameIdentifier Word64
  deriving(Eq,Ord,Show)
 
 
--- | A data-strucutre that can incrementally collect goals in context.
+-- | A data-structure that can incrementally collect goals in context.
 --   It keeps track both of the collection of assumptions that lead to
 --   the current state, as well as any proof obligations incurred along
 --   the way.
@@ -63,11 +67,59 @@ newtype FrameIdentifier = FrameIdentifier Word64
 --   The main use of 'GoalCollector' is as the state of an
 --   'Lang.Crucible.Backend.AssumptionStack.AssumptionStack', which itself is
 --   part of the state of the simple and online backends.
+--
+--   'GoalCollector' can be somewhat counter-intuitive. The "top"
+--   ('TopCollector') is at the *leaves* when 'GoalCollector' is considered as a
+--   tree (which is a common way to conceptualize recursive algebraic data types
+--   such as this one). Furthermore, the frame identified by the frist argument
+--   of 'CollectorFrame' does not conceptually contain the goals *inside* the
+--   second ('GoalCollector') argument, but rather contains all the assumptions
+--   and goals in whatever 'GoalCollector' *contains* the 'CollectorFrame'
+--   constructor (everything *outside* of the 'CollectorFrame').
+--
+--   This upside-down structure is reflected in the pretty-printer
+--   'ppGoalCollector' below. The Crucible-CLI test-case @assumption-state@
+--   shows this pretty-printer in action in a Crucible program with branching,
+--   which can be helpful in understanding 'GoalCollector'.
 data GoalCollector asmp goal
   = TopCollector !(Seq (Goals asmp goal))
   | CollectorFrame !FrameIdentifier !(GoalCollector asmp goal)
   | CollectingAssumptions !asmp !(GoalCollector asmp goal)
   | CollectingGoals !(Seq (Goals asmp goal)) !(GoalCollector asmp goal)
+
+ppGoalCollector ::
+  forall asmp goal ann.
+  (asmp -> PP.Doc ann) ->
+  (goal -> PP.Doc ann) ->
+  GoalCollector asmp goal ->
+  PP.Doc ann
+ppGoalCollector ppAsmp ppGoal = go mempty
+  where
+    go :: PP.Doc ann -> GoalCollector asmp goal -> PP.Doc ann
+    go remainder =
+      \case
+        TopCollector gls ->
+          PP.vcat
+          [ PP.pretty "Top-level goals:"
+          , PP.list (map (ppGoals ppAsmp ppGoal) (F.toList gls))
+          , remainder
+          ]
+        CollectorFrame (FrameIdentifier fid) gc ->
+          let pLines = [PP.pretty "Frame " <> PP.viaShow fid <> PP.pretty ":", remainder] in
+          go (PP.hang 2 (PP.vcat pLines)) gc
+        CollectingAssumptions asmp gc ->
+          let pLines = [PP.pretty "Assumptions:" , ppAsmp asmp, remainder] in
+          go (PP.hang 2 (PP.vcat pLines)) gc
+        CollectingGoals gls gc ->
+          let pLines = [ PP.pretty "Prove all:"
+                      , PP.list (map (ppGoals ppAsmp ppGoal) (F.toList gls))
+                      , remainder
+                      ] in
+          go (PP.hang 2 (PP.vcat pLines)) gc
+
+-- | Intended for debugging, this is not generally a user-facing datatype.
+instance (PP.Pretty asmp, PP.Pretty goal) => PP.Pretty (GoalCollector asmp goal) where
+  pretty = ppGoalCollector PP.pretty PP.pretty
 
 -- | A collector with no goals and no context.
 emptyGoalCollector :: GoalCollector asmp goal
