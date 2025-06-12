@@ -4,8 +4,8 @@ Copyright   : (c) Galois, Inc 2014-2022
 License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
-This module provides an interface that symbolic backends must provide
-for interacting with the symbolic simulator.
+This module provides the interface that the symbolic simulator uses when
+interacting with symbolic backends (i.e., SMT solvers).
 
 Compared to the solver connections provided by What4, Crucible backends provide
 a facility for managing an /assumption stack/ (see 'AS.AssumptionStack').  Note

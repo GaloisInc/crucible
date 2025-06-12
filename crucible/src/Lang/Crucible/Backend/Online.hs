@@ -4,19 +4,26 @@
 -- Description : A solver backend that maintains a persistent connection
 -- Copyright   : (c) Galois, Inc 2015-2016
 -- License     : BSD3
--- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Maintainer  : Ryan Scott <rscott@galois.com>, Langston Barrett <langston@galois.com>
 -- Stability   : provisional
 --
--- The online backend maintains an open connection to an SMT solver
--- that is used to prune unsatisfiable execution traces during simulation.
--- At every symbolic branch point, the SMT solver is queried to determine
--- if one or both symbolic branches are unsatisfiable.
--- Only branches with satisfiable branch conditions are explored.
+-- A solver backend ('IsSymBackend') that maintains an open connection to an
+-- SMT solver.
 --
--- The online backend also allows override definitions access to a
--- persistent SMT solver connection.  This can be useful for some
--- kinds of algorithms that benefit from quickly performing many
--- small solver queries in a tight interaction loop.
+-- The primary intended use-case is to prune unsatisfiable execution
+-- traces during simulation using the execution feature provided by
+-- "Lang.Crucible.Simulator.PathSatisfiability". That execution feature is
+-- parameterized over a function argument that can be intantiated  with this
+-- module's 'considerSatisfiability'.
+--
+-- The online backend also allows override definitions access to a persistent
+-- SMT solver connection. This can be useful for some kinds of algorithms
+-- that benefit from quickly performing many small solver queries in a tight
+-- interaction loop.
+--
+-- The online backend is not currently used to dispatch proof obligations during
+-- symbolic execution, see [GaloisInc/crucible#369, \"Interleave proof with
+-- simulation\"](https://github.com/GaloisInc/crucible/issues/369).
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -27,6 +34,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend

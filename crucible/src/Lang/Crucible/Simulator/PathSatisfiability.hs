@@ -5,7 +5,7 @@
 --                    at symbolic branch points
 -- Copyright        : (c) Galois, Inc 2018
 -- License          : BSD3
--- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Maintainer       : Ryan Scott <rscott@galois.com>, Langston Barrett <langston@galois.com>
 -- Stability        : provisional
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
@@ -54,14 +54,20 @@ pathSatOptions =
       (Just (ConcreteBool True))
   ]
 
-
+-- | Prune unsatisfiable execution traces during simulation.
+--
+-- At every symbolic branch point, an SMT solver is queried to determine if one
+-- or both symbolic branches are unsatisfiable. Only branches with satisfiable
+-- branch conditions are explored.
 pathSatisfiabilityFeature :: forall sym.
   IsSymInterface sym =>
   sym ->
-  (Maybe ProgramLoc -> Pred sym -> IO BranchResult)
-   {- ^ An action for considering the satisfiability of a predicate.
-        In the current state of the symbolic interface, indicate what
-        we can determine about the given predicate. -} ->
+  -- | An action for considering the satisfiability of a predicate. In the
+  -- current state of the symbolic interface, indicate what we can determine
+  -- about the given predicate.
+  --
+  -- Usually, this is set to 'Lang.Crucible.Backend.Online.considerSatisfiability'.
+  (Maybe ProgramLoc -> Pred sym -> IO BranchResult) ->
   IO (GenericExecutionFeature sym)
 pathSatisfiabilityFeature sym considerSatisfiability =
   do tryExtendConfig pathSatOptions (getConfiguration sym)
