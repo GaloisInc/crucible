@@ -4,13 +4,13 @@
 -- Description : The "simple" solver backend
 -- Copyright   : (c) Galois, Inc 2015-2016
 -- License     : BSD3
--- Maintainer  : Rob Dockins <rdockins@galois.com>
+-- Maintainer  : Ryan Scott <rscott@galois.com>, Langston Barrett <langston@galois.com>
 -- Stability   : provisional
 --
--- An "offline" backend for communicating with solvers.  This backend
--- does not maintain a persistent connection to a solver, and does
--- not perform satisfiability checks at symbolic branch points.
-------------------------------------------------------------------------
+-- An "offline" backend for communicating with SMT solvers. In contrast to
+-- "Lang.Crucible.Backend.Online", this backend does not maintain a persistent
+-- connection to a solver.
+-- ----------------------------------------------------------------------
 
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -42,7 +42,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
 
 ------------------------------------------------------------------------
--- SimpleBackendState
+-- SimpleBackend
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertion stack.

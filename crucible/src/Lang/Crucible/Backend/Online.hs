@@ -8,7 +8,7 @@
 -- Stability   : provisional
 --
 -- A solver backend ('IsSymBackend') that maintains an open connection to an
--- SMT solver.
+-- SMT solver (in contrast to "Lang.Crucible.Backend.Simple").
 --
 -- The primary intended use-case is to prune unsatisfiable execution
 -- traces during simulation using the execution feature provided by
