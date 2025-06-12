@@ -13,7 +13,7 @@
 -- The primary intended use-case is to prune unsatisfiable execution
 -- traces during simulation using the execution feature provided by
 -- "Lang.Crucible.Simulator.PathSatisfiability". That execution feature is
--- parameterized over a function argument that can be intantiated  with this
+-- parameterized over a function argument that can be instantiated with this
 -- module's 'considerSatisfiability'.
 --
 -- The online backend also allows override definitions access to a persistent
