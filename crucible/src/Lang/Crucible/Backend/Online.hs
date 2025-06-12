@@ -239,12 +239,6 @@ type YicesOnlineBackend scope st fs = OnlineBackend Yices.Connection scope st fs
 --
 --   The Yices configuration options will be automatically
 --   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withYicesOnlineBackend FloatRealRepr ng f'
 withYicesOnlineBackend ::
   (MonadIO m, MonadMask m) =>
   B.ExprBuilder scope st fs ->
@@ -265,12 +259,6 @@ type Z3OnlineBackend scope st fs = OnlineBackend (SMT2.Writer Z3.Z3) scope st fs
 --
 --   The Z3 configuration options will be automatically
 --   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withz3OnlineBackend FloatRealRepr ng f'
 withZ3OnlineBackend ::
   (MonadIO m, MonadMask m) =>
   B.ExprBuilder scope st fs ->
@@ -334,12 +322,6 @@ type CVC4OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC4.CVC4) scope
 --
 --   The CVC4 configuration options will be automatically
 --   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withCVC4OnlineBackend FloatRealRepr ng f'
 withCVC4OnlineBackend ::
   (MonadIO m, MonadMask m) =>
   B.ExprBuilder scope st fs ->
@@ -360,12 +342,6 @@ type CVC5OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC5.CVC5) scope
 --
 --   The CVC5 configuration options will be automatically
 --   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withCVC5OnlineBackend FloatRealRepr ng f'
 withCVC5OnlineBackend ::
   (MonadIO m, MonadMask m) =>
   B.ExprBuilder scope st fs ->
@@ -386,12 +362,6 @@ type STPOnlineBackend scope st fs = OnlineBackend (SMT2.Writer STP.STP) scope st
 --
 --   The STO configuration options will be automatically
 --   installed into the backend configuration object.
---
---   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily from the caller.
---   Example:
---
---   > withSTPOnlineBackend FloatRealRepr ng f'
 withSTPOnlineBackend ::
   (MonadIO m, MonadMask m) =>
   B.ExprBuilder scope st fs ->
