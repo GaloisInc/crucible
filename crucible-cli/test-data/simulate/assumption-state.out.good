@@ -1,0 +1,143 @@
+==== Begin Simulation ====
+------------------------------
+empty
+-----
+Top-level goals:
+[]
+
+------------------------------
+base
+----
+Top-level goals:
+[]
+Assumptions:
+  in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+  casmp0@1:b
+
+------------------------------
+if
+--
+Top-level goals:
+[]
+Assumptions:
+  in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+  casmp0@1:b
+  Frame 4:
+    Assumptions:
+      [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
+      cb0@3:b
+      , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
+      casmp1@5:b ]
+
+------------------------------
+else
+----
+Top-level goals:
+[]
+Assumptions:
+  in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+  casmp0@1:b
+  Frame 8:
+    Assumptions:
+      [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
+      not cb0@3:b
+      , in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
+      casmp2@9:b
+      , in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
+      casmp3@10:b ]
+
+------------------------------
+end
+---
+Top-level goals:
+[]
+Assumptions:
+  [ if not cb0@3:b
+    then [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
+         not cb0@3:b
+         , in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
+         casmp2@9:b
+         , in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
+         casmp3@10:b ]
+    else [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
+         cb0@3:b
+         , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
+         casmp1@5:b ]
+  , in main test-data/simulate/assumption-state.cbl:45:5: assumption #4: end
+  casmp4@13:b
+  , in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+  casmp0@1:b ]
+
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/simulate/assumption-state.cbl:8:5: error: in main
+  assertion #0
+  cgoal0@0:b
+COUNTEREXAMPLE
+Assuming:
+* in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+    casmp0@1:b
+Prove:
+  test-data/simulate/assumption-state.cbl:12:5: error: in main
+  assertion #1
+  cgoal1@2:b
+COUNTEREXAMPLE
+Assuming:
+* in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+    casmp0@1:b
+* The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
+    cb0@3:b
+* in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
+    casmp1@5:b
+Prove:
+  test-data/simulate/assumption-state.cbl:23:5: error: in main
+  assertion #2: if branch
+  cgoal2@6:b
+COUNTEREXAMPLE
+Assuming:
+* in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+    casmp0@1:b
+* The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
+    not cb0@3:b
+* in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
+    casmp2@9:b
+* in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
+    casmp3@10:b
+Prove:
+  test-data/simulate/assumption-state.cbl:35:5: error: in main
+  assertion #3: else branch
+  cgoal3@11:b
+COUNTEREXAMPLE
+Assuming:
+* in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+    casmp0@1:b
+* The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
+    not cb0@3:b
+* in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
+    casmp2@9:b
+* in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
+    casmp3@10:b
+Prove:
+  test-data/simulate/assumption-state.cbl:37:5: error: in main
+  assertion #4: else branch
+  cgoal4@12:b
+COUNTEREXAMPLE
+Assuming:
+* in main test-data/simulate/assumption-state.cbl:10:5: assumption #0
+    casmp0@1:b
+* in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
+    not (and (not cb0@3:b) (not casmp2@9:b))
+* in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
+    not (and (not cb0@3:b) (not casmp3@10:b))
+* in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
+    not (and cb0@3:b (not casmp1@5:b))
+* in main test-data/simulate/assumption-state.cbl:45:5: assumption #4: end
+    casmp4@13:b
+Prove:
+  test-data/simulate/assumption-state.cbl:47:5: error: in main
+  assertion #5: end
+  cgoal5@14:b
+COUNTEREXAMPLE

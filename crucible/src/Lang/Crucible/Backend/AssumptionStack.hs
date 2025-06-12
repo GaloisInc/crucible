@@ -4,17 +4,16 @@ Copyright   : (c) Galois, Inc 2018
 License     : BSD3
 Maintainer  : Rob Dockins <rdockins@galois.com>
 
-This module provides management support for keeping track
-of a context of logical assumptions.  The API provided here
-is similar to the interactive mode of an SMT solver.  Logical
-conditions can be assumed into the current context, and bundles
-of assumptions are organized into frames which are pushed and
-popped by the user to manage the state.
+This module provides management support for keeping track of a context of
+logical assumptions and proof obligations that arise from symbolic simulation.
+The API provided here is similar to the interactive mode of an SMT solver.
+Logical conditions can be assumed into the current context, and conjunctions
+of assumptions are organized into frames which are pushed and popped by the
+simulator to manage the state.
 
-Additionally, proof goals can be asserted to the system.  These will be
-turned into complete logical statements by assuming the current context
-and be stashed in a collection of remembered goals for later dispatch to
-solvers.
+Additionally, proof goals can be asserted to the system. These will be turned
+into complete logical statements by assuming the current context and will be
+stashed in a collection of remembered goals for later dispatch to SMT solvers.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -70,11 +69,13 @@ data AssumptionFrame asmp =
   , assumeFrameCond  :: asmp
   }
 
--- | An assumption stack is a data structure for tracking
---   logical assumptions and proof obligations.  Assumptions
---   can be added to the current stack frame, and stack frames
---   may be pushed (to remember a previous state) or popped
---   to restore a previous state.
+-- | An assumption stack is a data structure for tracking logical assumptions
+--   and proof obligations that arise from symbolic simulation.  Assumptions
+--   can be added to the current stack frame, and stack frames may be pushed (to
+--   remember a previous state) or popped (to restore a previous state).
+--
+--   The main use of 'AssumptionStack' is as the state of the simple or online
+--   backends.
 data AssumptionStack asmp ast =
   AssumptionStack
   { assumeStackGen   :: IO FrameIdentifier

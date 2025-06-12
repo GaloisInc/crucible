@@ -1,3 +1,9 @@
+{-|
+Module : Lang.Crucible.Syntax.Overrides
+
+A collection of overrides that are useful in testing and debugging Crucible.
+-}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -9,25 +15,32 @@ module Lang.Crucible.Syntax.Overrides
   ( setupOverrides
   ) where
 
+import qualified Control.Lens as Lens
 import Control.Lens hiding ((:>), Empty)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class
+import qualified Control.Monad.State.Strict as State
 import System.IO
 
 import Data.Parameterized.Context hiding (view)
 
 import What4.Expr.Builder
+import qualified What4.Interface as WI
 import What4.ProgramLoc
 import What4.Solver (LogData(..), defaultLogData)
 import What4.Solver.Z3 (z3Adapter)
 
 import Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.ProofGoals as CB
 import qualified Lang.Crucible.Backend.Prove as CB
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
+import qualified Lang.Crucible.Simulator as CS
 import qualified Lang.Crucible.Utils.Seconds as Sec
 import qualified Lang.Crucible.Utils.Timeout as CTO
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
 
 
 setupOverrides ::
@@ -36,8 +49,9 @@ setupOverrides ::
 setupOverrides _ ha =
   do f1 <- FnBinding <$> mkHandle ha "proveObligations"
                      <*> pure (UseOverride (mkOverride "proveObligations" proveObligations))
-
-     return [(f1, InternalPos)]
+     f2 <- FnBinding <$> mkHandle ha "crucible-print-assumption-state"
+                     <*> pure (UseOverride (mkOverride "crucible-print-assumption-state" printAssumptionState))
+     return [(f1, InternalPos), (f2, InternalPos)]
 
 
 proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
@@ -66,3 +80,23 @@ proveObligations =
            Right () -> pure ()
 
        clearProofObligations bak
+
+printAssumptionState ::
+  IsSymInterface sym =>
+  OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
+printAssumptionState = do
+  ctx <- State.gets (Lens.view stateContext)
+  let hdl = printHandle ctx
+  CS.ovrWithBackend $ \bak -> liftIO $ do
+    state <- saveAssumptionState bak
+    let render =  PP.renderIO hdl . PP.layoutSmart PP.defaultLayoutOptions
+    let ppPred (LabeledPred p simErr) =
+          PP.vcat
+          [ "Labeled predicate:"
+          , PP.indent 2 $
+              PP.vcat
+              [ WI.printSymExpr p
+              , ppSimError simErr
+              ]
+          ]
+    render (CB.ppGoalCollector ppAssumptions ppPred state <> PP.line)

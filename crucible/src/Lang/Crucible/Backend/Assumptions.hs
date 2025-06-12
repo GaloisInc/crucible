@@ -41,11 +41,14 @@ module Lang.Crucible.Backend.Assumptions
   , assumptionsPred
   , flattenAssumptions
   , assumptionsTopLevelLocs
+  , ppAssumptions'
+  , ppAssumptions
   ) where
 
 
 import           Control.Lens (Traversal, folded)
 import           Data.Kind (Type)
+import qualified Data.Foldable as F
 import           Data.Functor.Identity
 import           Data.Functor.Const
 import qualified Data.Parameterized.TraversableF as TF
@@ -107,11 +110,15 @@ instance TF.TraversableF CrucibleEvent where
   traverseF = traverseEvent
 
 -- | Pretty print an event
-ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann
-ppEvent (CreateVariableEvent loc nm _tpr v) =
-  "create var" PP.<+> PP.pretty nm PP.<+> "=" PP.<+> printSymExpr v PP.<+> "at" PP.<+> PP.pretty (plSourceLoc loc)
-ppEvent (LocationReachedEvent loc) =
+ppEvent' :: (forall t. e t -> PP.Doc ann) -> CrucibleEvent e -> PP.Doc ann
+ppEvent' ppExp (CreateVariableEvent loc nm _tpr v) =
+  "create var" PP.<+> PP.pretty nm PP.<+> "=" PP.<+> ppExp v PP.<+> "at" PP.<+> PP.pretty (plSourceLoc loc)
+ppEvent' _ppExp (LocationReachedEvent loc) =
   "reached" PP.<+> PP.pretty (plSourceLoc loc) PP.<+> "in" PP.<+> PP.pretty (plFunction loc)
+
+-- | Pretty print an event
+ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann
+ppEvent = ppEvent' printSymExpr
 
 -- | Return the program location associated with an event
 eventLoc :: CrucibleEvent e -> ProgramLoc
@@ -269,6 +276,8 @@ mergeAssumptions _sym p thens elses =
 
 ppAssumption :: (forall tp. e tp -> PP.Doc ann) -> CrucibleAssumption e -> PP.Doc ann
 ppAssumption ppDoc e =
+  -- TODO(lb): These should really all be `align`ed, but that breaks a bunch
+  -- of tests.
   case e of
     GenericAssumption l msg p ->
       PP.vsep [ ppLocated l (PP.pretty msg)
@@ -296,3 +305,27 @@ ppAssumption ppDoc e =
 
     ppLoc :: ProgramLoc -> PP.Doc ann
     ppLoc l = PP.pretty (plSourceLoc l)
+
+-- | Pretty-print 'CrucibleAssumptions'.
+ppAssumptions' ::
+  -- | How to print expressions. If @'IsExpr' e@ holds, then see 'ppAssumptions'
+  -- for a version that uses 'printSymExpr'.
+  (forall tp. e tp -> PP.Doc ann) ->
+  CrucibleAssumptions e ->
+  PP.Doc ann
+ppAssumptions' ppExp =
+  \case
+    SingleAssumption asmp -> ppAssumption ppExp asmp
+    SingleEvent e -> ppEvent' ppExp e
+    ManyAssumptions asmps -> PP.list (map (ppAssumptions' ppExp) (F.toList asmps))
+    MergeAssumptions b thn els ->
+      PP.align $
+        PP.vcat
+        [ "if " <> PP.align (ppExp b)
+        , "then " <> PP.align (ppAssumptions' ppExp thn)
+        , "else " <> PP.align (ppAssumptions' ppExp els)
+        ]
+
+-- | @'ppAssumptions' = `ppAssumptions'` 'printSymExpr'@
+ppAssumptions :: IsExpr e => CrucibleAssumptions e -> PP.Doc ann
+ppAssumptions = ppAssumptions' printSymExpr

@@ -7,12 +7,14 @@ This module defines a data strucutre for storing a collection of
 proof obligations, and the current state of assumptions.
 -}
 
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
 module Lang.Crucible.Backend.Goals
   ( ProofGoal(..)
   , Goals(..)
+  , ppGoals
   , goalsToList
   , assuming
   , proveAll
@@ -29,6 +31,7 @@ import           Control.Monad.Reader (ReaderT(..), withReaderT)
 import           Data.Functor.Const (Const(..))
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Prettyprinter as PP
 
 -- | A proof goal consists of a collection of assumptions
 --   that were in scope when an assertion was made, together
@@ -52,6 +55,33 @@ data Goals asmp goal =
     -- | A conjunction of two goals.
   | ProveConj !(Goals asmp goal) !(Goals asmp goal)
     deriving Show
+
+-- | Intended for debugging, this is not generally a user-facing datatype.
+ppGoals ::
+  (asmp -> PP.Doc ann) ->
+  (goal -> PP.Doc ann) ->
+  Goals asmp goal ->
+  PP.Doc ann
+ppGoals ppAsmp ppGoal =
+  \case
+    Assuming asmp gls ->
+      PP.vcat
+      [ PP.pretty "Assuming:"
+      , PP.indent 2 (ppAsmp asmp)
+      , PP.pretty "Prove:"
+      , PP.indent 2 (ppGoals ppAsmp ppGoal gls)
+      ]
+    Prove gl -> ppGoal gl
+    ProveConj gls gls' ->
+      PP.vcat
+      [ PP.pretty "Prove both:"
+      , PP.indent 2 (ppGoals ppAsmp ppGoal gls)
+      , PP.indent 2 (ppGoals ppAsmp ppGoal gls')
+      ]
+
+-- | Intended for debugging, this is not generally a user-facing datatype.
+instance (PP.Pretty asmp, PP.Pretty goal) => PP.Pretty (Goals asmp goal) where
+  pretty = ppGoals PP.pretty PP.pretty
 
 -- | Construct a goal that first assumes a collection of
 --   assumptions and then states a goal.
