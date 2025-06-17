@@ -1,12 +1,7 @@
 name: crux-mir
 on:
   push:
-    tags: ["crux-v?[0-9]+.[0-9]+(.[0-9]+)?"]
-    branches: [master, "release-**"]
   pull_request:
-  schedule:
-    - cron: "0 10 * * *" # 10am UTC -> 2/3am PST
-  workflow_dispatch:
 
 defaults:
   run:
@@ -214,13 +209,13 @@ jobs:
           path: crux-mir-*.tar.gz*
           name: crux-mir-${{ matrix.os }}-${{ matrix.ghc }}
 
-  build-push-image:
-    runs-on: ubuntu-24.04
+  build-image:
+    runs-on: ${{ matrix.runner }}
     needs: [config]
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true') && github.repository_owner == 'GaloisInc'
     strategy:
       fail-fast: false
       matrix:
+        runner: [ ubuntu-24.04, ubuntu-24.04-arm ]
         include:
           - file: .github/Dockerfile-crux-mir
             image: ghcr.io/galoisinc/crux-mir
@@ -263,13 +258,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v2
+      - uses: docker/build-push-action@v6
+        id: build
         with:
-          context: .
-          tags: ${{ matrix.image }}:${{ steps.common-tag.outputs.common-tag }}
+          platforms: ${{ runner.arch }}
           labels: ${{ steps.labels.outputs.labels }}
-          load: true
-          push: false
+          tags: ${{ matrix.image }}:${{ steps.common-tag.outputs.common-tag }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           file: ${{ matrix.file }}
           build-args: ${{ matrix.build-args }}
           cache-from: |
@@ -285,16 +280,60 @@ jobs:
           build-args: ${{ matrix.build-args }}
           cache-to: type=registry,ref=${{ matrix.cache }}:${{ steps.common-tag.outputs.common-tag }},mode=max
 
-      - if: needs.config.outputs.event-schedule == 'true'
-        name: ${{ matrix.image }}:nightly
+      - name: Export digest
         run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:nightly
-          docker push ${{ matrix.image }}:nightly
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
-      - if: needs.config.outputs.release == 'true'
-        name: ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ runner.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-push-image:
+    runs-on: ubuntu-latest
+    needs:
+      - build-image
+    env:
+      Image: ghcr.io/galoisinc/crux-mir
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: $Image
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
         run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
-          docker push ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:latest
-          docker push ${{ matrix.image }}:latest
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '$Image@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect $Image:${{ steps.meta.outputs.version }}
