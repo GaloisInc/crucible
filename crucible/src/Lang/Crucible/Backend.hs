@@ -314,6 +314,8 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
   resetAssumptionState bak = restoreAssumptionState bak PG.emptyGoalCollector
 
   -- | Get the state of the backend
+  --
+  -- In contrast to 'saveAssumptionState', this also includes the goals.
   getBackendState :: bak -> IO (AssumptionState sym)
 
 assertThenAssumeConfigOption :: ConfigOption BaseBoolType
