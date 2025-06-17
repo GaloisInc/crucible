@@ -74,7 +74,9 @@ baseImpl =
       , Ctxt.implBody = \ctx execState Rgx.MEmpty -> do
           let stateCtx = C.execStateContext execState
           C.withBackend stateCtx $ \bak -> do
-            resp <- C.debugPrintBackendState bak
+            let sym = C.backendGetSym bak
+            state <- C.getBackendState bak
+            let resp = C.ppAssumptionState (Just sym) state
             pure (def ctx) { Ctxt.evalResp = Resp.Backend resp }
       }
 

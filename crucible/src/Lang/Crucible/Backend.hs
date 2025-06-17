@@ -313,8 +313,8 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
   resetAssumptionState :: bak -> IO ()
   resetAssumptionState bak = restoreAssumptionState bak PG.emptyGoalCollector
 
-  -- | Render a human-readable representation of the state of the backend
-  debugPrintBackendState :: bak -> IO (PP.Doc ann)
+  -- | Get the state of the backend
+  getBackendState :: bak -> IO (AssumptionState sym)
 
 assertThenAssumeConfigOption :: ConfigOption BaseBoolType
 assertThenAssumeConfigOption = configOption knownRepr "assertThenAssume"

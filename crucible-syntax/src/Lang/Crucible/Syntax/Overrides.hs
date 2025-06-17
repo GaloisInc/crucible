@@ -30,6 +30,7 @@ import What4.Solver (LogData(..), defaultLogData)
 import What4.Solver.Z3 (z3Adapter)
 
 import Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.Backend.Prove as CB
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
@@ -87,4 +88,6 @@ printAssumptionState = do
   let hdl = printHandle ctx
   CS.ovrWithBackend $ \bak -> liftIO $ do
     let render =  PP.renderIO hdl . PP.layoutSmart PP.defaultLayoutOptions
-    render =<< debugPrintBackendState bak
+    let sym = CB.backendGetSym bak
+    state <- getBackendState bak
+    render (ppAssumptionState (Just sym) state)

@@ -113,6 +113,4 @@ instance IsSymInterface (B.ExprBuilder t st fs) =>
   restoreAssumptionState bak newstk = do
     AS.restoreAssumptionStack newstk (sbAssumptionStack bak)
 
-  debugPrintBackendState bak =
-    ppAssumptionState (Just (sbExprBuilder bak)) <$>
-      readIORef (AS.proofObligations (sbAssumptionStack bak))
+  getBackendState bak = readIORef (AS.proofObligations (sbAssumptionStack bak))
