@@ -431,6 +431,10 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
        -- restore the previous assumption stack
        AS.restoreAssumptionStack gc (assumptionStack bak)
 
+  debugPrintBackendState bak =
+    ppAssumptionState (Just (onlineExprBuilder bak)) <$>
+      readIORef (AS.proofObligations (assumptionStack bak))
+
 --------------------------------------------------------------------------------
 -- Branch satisfiability
 

@@ -25,13 +25,11 @@ import System.IO
 import Data.Parameterized.Context hiding (view)
 
 import What4.Expr.Builder
-import qualified What4.Interface as WI
 import What4.ProgramLoc
 import What4.Solver (LogData(..), defaultLogData)
 import What4.Solver.Z3 (z3Adapter)
 
 import Lang.Crucible.Backend
-import qualified Lang.Crucible.Backend.ProofGoals as CB
 import qualified Lang.Crucible.Backend.Prove as CB
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
@@ -88,15 +86,5 @@ printAssumptionState = do
   ctx <- State.gets (Lens.view stateContext)
   let hdl = printHandle ctx
   CS.ovrWithBackend $ \bak -> liftIO $ do
-    state <- saveAssumptionState bak
     let render =  PP.renderIO hdl . PP.layoutSmart PP.defaultLayoutOptions
-    let ppPred (LabeledPred p simErr) =
-          PP.vcat
-          [ "Labeled predicate:"
-          , PP.indent 2 $
-              PP.vcat
-              [ WI.printSymExpr p
-              , ppSimError simErr
-              ]
-          ]
-    render (CB.ppGoalCollector ppAssumptions ppPred state <> PP.line)
+    render =<< debugPrintBackendState bak
