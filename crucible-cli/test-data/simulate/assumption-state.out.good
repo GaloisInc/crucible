@@ -64,15 +64,15 @@ Assumptions:
       test-data/simulate/assumption-state.cbl:12:5: error: in main
       assertion #1
     , Assuming:
-      [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
-      cb0@3:b
-      , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
-      casmp1@5:b ]
-    Prove:
-      Labeled predicate:
-        cgoal2@6:b
-        test-data/simulate/assumption-state.cbl:23:5: error: in main
-        assertion #2: if branch ]
+        [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
+        cb0@3:b
+        , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
+        casmp1@5:b ]
+      Prove:
+        Labeled predicate:
+          cgoal2@6:b
+          test-data/simulate/assumption-state.cbl:23:5: error: in main
+          assertion #2: if branch ]
     Frame 8:
       Assumptions:
         [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
@@ -107,32 +107,32 @@ Assumptions:
       test-data/simulate/assumption-state.cbl:12:5: error: in main
       assertion #1
     , Assuming:
-      [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
-      cb0@3:b
-      , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
-      casmp1@5:b ]
-    Prove:
-      Labeled predicate:
-        cgoal2@6:b
-        test-data/simulate/assumption-state.cbl:23:5: error: in main
-        assertion #2: if branch
+        [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:20:16
+        cb0@3:b
+        , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
+        casmp1@5:b ]
+      Prove:
+        Labeled predicate:
+          cgoal2@6:b
+          test-data/simulate/assumption-state.cbl:23:5: error: in main
+          assertion #2: if branch
     , Assuming:
-      [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
-      not cb0@3:b
-      , in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
-      casmp2@9:b
-      , in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
-      casmp3@10:b ]
-    Prove:
-      Prove both:
-        Labeled predicate:
-          cgoal3@11:b
-          test-data/simulate/assumption-state.cbl:35:5: error: in main
-          assertion #3: else branch
-        Labeled predicate:
-          cgoal4@12:b
-          test-data/simulate/assumption-state.cbl:37:5: error: in main
-          assertion #4: else branch ]
+        [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
+        not cb0@3:b
+        , in main test-data/simulate/assumption-state.cbl:31:5: assumption #2: else branch
+        casmp2@9:b
+        , in main test-data/simulate/assumption-state.cbl:33:5: assumption #3: else branch
+        casmp3@10:b ]
+      Prove:
+        Prove both:
+          Labeled predicate:
+            cgoal3@11:b
+            test-data/simulate/assumption-state.cbl:35:5: error: in main
+            assertion #3: else branch
+          Labeled predicate:
+            cgoal4@12:b
+            test-data/simulate/assumption-state.cbl:37:5: error: in main
+            assertion #4: else branch ]
     Assumptions:
       [ if not cb0@3:b
         then [ The branch in main from test-data/simulate/assumption-state.cbl:18:5 to test-data/simulate/assumption-state.cbl:30:16
