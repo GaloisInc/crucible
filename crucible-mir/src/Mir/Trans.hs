@@ -836,21 +836,26 @@ evalCast' ck ty1 e ty2  = do
 
       -- Not sure why this appears in generated MIR, but libcore has some no-op
       -- unsizes from `*const dyn Any` to `*const dyn Any`
+      -- TODO: Remove this completely.
       (M.Unsize,a,b) | a == b -> return e
 
       -- ADT -> ADT unsizing is done via `CoerceUnsized`.
       (M.Unsize, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
-        coerceUnsized aname1 aname2 e
+        coerceUnsized ck aname1 aname2 e
+      (M.UnsizeVtable _, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
+        coerceUnsized ck aname1 aname2 e
 
       (M.Unsize, M.TyRef (M.TyArray tp sz) _, M.TyRef (M.TySlice tp') _) ->
         unsizeArray tp sz tp'
       (M.Unsize, M.TyRawPtr (M.TyArray tp sz) _, M.TyRawPtr (M.TySlice tp') _) ->
         unsizeArray tp sz tp'
 
-      -- TODO: extend coerceUnsized to handle UnsizeVtable as well
       -- Trait object creation from a ref
       (M.UnsizeVtable vtbl, M.TyRef baseType _,
         M.TyRef (M.TyDynamic traitName) _) ->
+          mkTraitObject traitName vtbl e
+      (M.UnsizeVtable vtbl, M.TyRawPtr baseType _,
+        M.TyRawPtr (M.TyDynamic traitName) _) ->
           mkTraitObject traitName vtbl e
 
       -- Casting between TyDynamics that vary only in their auto traits
@@ -957,20 +962,30 @@ evalCast' ck ty1 e ty2  = do
     -- the struct, coercing any raw pointers inside, and putting it back
     -- together again.
     coerceUnsized :: HasCallStack =>
-        M.AdtName -> M.AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
-    coerceUnsized an1 an2 e = do
+        M.CastKind -> M.AdtName -> M.AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
+    coerceUnsized ck an1 an2 e = do
         col <- use $ cs . collection
         adt1 <- findAdt an1
         adt2 <- findAdt an2
         case (reprTransparentFieldTy col adt1, reprTransparentFieldTy col adt2) of
-            (Just ty1, Just ty2) -> evalCast' M.Unsize ty1 e ty2
-            (Nothing, Nothing) -> coerceUnsizedNormal adt1 adt2 e
+            (Just ty1, Just ty2) ->
+              -- The struct is #[repr(transparent)], so it has only one non-ZST
+              -- field. This field must be the pointer/ref field being coerced,
+              -- as rustc currently forbids implementing CoerceUnsized if it
+              -- can't a field to coerce. Since this field is being coerced, its
+              -- old and new types should never be equal. Because CoerceUnsized
+              -- is unstable, a future version of rustc might change this
+              -- behavior, so we leave this check here in place as a safeguard.
+              if ty1 == ty2
+                then pure e
+                else evalCast' ck ty1 e ty2
+            (Nothing, Nothing) -> coerceUnsizedNormal ck adt1 adt2 e
             _ -> mirFail $ "impossible: coerceUnsized: one of " ++ show (an1, an2) ++
                 " is repr(transparent) and the other is not?"
 
     coerceUnsizedNormal :: HasCallStack =>
-        M.Adt -> M.Adt -> MirExp s -> MirGenerator h s ret (MirExp s)
-    coerceUnsizedNormal adt1 adt2 e = do
+        M.CastKind -> M.Adt -> M.Adt -> MirExp s -> MirGenerator h s ret (MirExp s)
+    coerceUnsizedNormal ck adt1 adt2 e = do
         when (adt1 ^. adtkind /= Struct || adt2 ^. adtkind /= Struct) $ mirFail $
             "coerceUnsized not yet implemented for non-struct types: " ++ show (an1, an2)
         let v1 = Maybe.fromJust $ adt1 ^? adtvariants . ix 0
@@ -981,7 +996,10 @@ evalCast' ck ty1 e ty2  = do
             "coerceUnsized on incompatible types (mismatched fields): " ++ show (an1, an2)
         vals' <- forM (zip3 [0..] (v1 ^. vfields) (v2 ^. vfields)) $ \(i, f1, f2) -> do
             val <- getStructField adt1 i e
-            evalCast' M.Unsize (f1 ^. fty) val (f2 ^. fty)
+            -- Only compute a cast if the types are syntactically unequal.
+            if (f1 ^. fty) == (f2 ^. fty)
+              then pure val
+              else evalCast' ck (f1 ^. fty) val (f2 ^. fty)
         buildStruct adt2 vals'
       where
         an1 = adt1 ^. adtname
