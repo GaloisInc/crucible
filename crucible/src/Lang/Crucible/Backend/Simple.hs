@@ -32,6 +32,7 @@ module Lang.Crucible.Backend.Simple
 
 import           Control.Lens ( (^.) )
 import           Control.Monad (void)
+import           Data.IORef (readIORef)
 
 import           What4.Config
 import           What4.Interface
@@ -111,3 +112,5 @@ instance IsSymInterface (B.ExprBuilder t st fs) =>
 
   restoreAssumptionState bak newstk = do
     AS.restoreAssumptionStack newstk (sbAssumptionStack bak)
+
+  getBackendState bak = readIORef (AS.proofObligations (sbAssumptionStack bak))

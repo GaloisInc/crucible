@@ -99,6 +99,7 @@ import Lang.Crucible.Simulator qualified as C
 import Lang.Crucible.Syntax.Concrete qualified as C
 import Lang.Crucible.Types qualified as C
 import Prettyprinter qualified as PP
+import Prettyprinter.Render.Text qualified as PP
 import System.Exit qualified as Exit
 import System.IO (stdout)
 import What4.Expr qualified as W4
@@ -301,8 +302,12 @@ bareDebuggerExt cExts cEval extImpl inps outps logger = do
   Monad.void $ C.executeCrucible [dbgr] simSt
   C.getProofObligations bak >>= \case
     Nothing -> pure ()
-    Just {} -> do
+    Just obls -> do
       logger "There were unhandled proof obligations! Try `prove` and `clear`."
+      let goals = C.goalsToList obls
+      prettyGoals <- mapM (C.ppProofObligation sym) goals
+      let render =  PP.renderStrict . PP.layoutSmart PP.defaultLayoutOptions
+      logger (render (PP.vcat prettyGoals))
       Exit.exitFailure
 
 -- | Start a debugger instance in an empty Crucible program.

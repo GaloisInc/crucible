@@ -81,6 +81,7 @@ module Lang.Crucible.Backend
   , ppProofObligation
   , backendOptions
   , assertThenAssumeConfigOption
+  , ppAssumptionState
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
@@ -110,6 +111,7 @@ import           Lang.Crucible.Backend.Assumptions
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
+import Lang.Crucible.Backend.ProofGoals (ppGoalCollector)
 
 type Assertion sym = LabeledPred (Pred sym) SimError
 type ProofObligation sym = AS.ProofGoal (Assumptions sym) (Assertion sym)
@@ -311,6 +313,11 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
   resetAssumptionState :: bak -> IO ()
   resetAssumptionState bak = restoreAssumptionState bak PG.emptyGoalCollector
 
+  -- | Get the state of the backend
+  --
+  -- In contrast to 'saveAssumptionState', this also includes the goals.
+  getBackendState :: bak -> IO (AssumptionState sym)
+
 assertThenAssumeConfigOption :: ConfigOption BaseBoolType
 assertThenAssumeConfigOption = configOption knownRepr "assertThenAssume"
 
@@ -490,3 +497,21 @@ ppProofObligation sym (AS.ProofGoal asmps gl) =
  ppGl =
    PP.indent 2 $
    PP.vsep [ppSimError (gl^.labeledPredMsg), printSymExpr (gl^.labeledPred)]
+
+-- | Pretty-printer for 'AssumptionState'.
+ppAssumptionState ::
+  IsExpr (SymExpr sym) =>
+  proxy sym ->
+  AssumptionState sym ->
+  PP.Doc ann
+ppAssumptionState _proxy = ppGoalCollector ppAssumptions ppPred
+  where
+  ppPred (LabeledPred p simErr) =
+    PP.vcat
+    [ "Labeled predicate:"
+    , PP.indent 2 $
+        PP.vcat
+        [ printSymExpr p
+        , ppSimError simErr
+        ]
+    ]

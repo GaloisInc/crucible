@@ -1,0 +1,101 @@
+> backend
+
+Top-level goals:
+[]
+
+
+> load test-data/backend.cbl
+
+Loaded 1 CFGs from test-data/backend.cbl
+
+> step
+
+Ok
+
+> b main
+
+Ok
+
+> call main
+
+Ok
+
+> step 2
+
+Ok
+
+> finish
+
+Ok
+
+> backend
+
+Top-level goals:
+[ Labeled predicate:
+  cgoal0@0:b
+  test-data/backend.cbl:4:5: error: in main
+  assertion #0 ]
+Assumptions:
+  in main test-data/backend.cbl:6:5: assumption #0
+  casmp0@1:b
+  Prove all:
+    [ Labeled predicate:
+      cgoal1@2:b
+      test-data/backend.cbl:8:5: error: in main
+      assertion #1
+    , Assuming:
+        [ The branch in main from test-data/backend.cbl:10:5 to test-data/backend.cbl:12:16
+        cb0@3:b
+        , in main test-data/backend.cbl:13:5: assumption #1: if branch
+        casmp1@5:b ]
+      Prove:
+        Labeled predicate:
+          cgoal2@6:b
+          test-data/backend.cbl:15:5: error: in main
+          assertion #2: if branch
+    , Assuming:
+        [ The branch in main from test-data/backend.cbl:10:5 to test-data/backend.cbl:18:16
+        not cb0@3:b
+        , in main test-data/backend.cbl:19:5: assumption #2: else branch
+        casmp2@9:b
+        , in main test-data/backend.cbl:21:5: assumption #3: else branch
+        casmp3@10:b ]
+      Prove:
+        Prove both:
+          Labeled predicate:
+            cgoal3@11:b
+            test-data/backend.cbl:23:5: error: in main
+            assertion #3: else branch
+          Labeled predicate:
+            cgoal4@12:b
+            test-data/backend.cbl:25:5: error: in main
+            assertion #4: else branch ]
+    Assumptions:
+      [ if not cb0@3:b
+        then [ The branch in main from test-data/backend.cbl:10:5 to test-data/backend.cbl:18:16
+             not cb0@3:b
+             , in main test-data/backend.cbl:19:5: assumption #2: else branch
+             casmp2@9:b
+             , in main test-data/backend.cbl:21:5: assumption #3: else branch
+             casmp3@10:b ]
+        else [ The branch in main from test-data/backend.cbl:10:5 to test-data/backend.cbl:12:16
+             cb0@3:b
+             , in main test-data/backend.cbl:13:5: assumption #1: if branch
+             casmp1@5:b ]
+      , in main test-data/backend.cbl:29:5: assumption #4: end
+      casmp4@13:b ]
+      Prove all:
+        [ Labeled predicate:
+          cgoal5@14:b
+          test-data/backend.cbl:31:5: error: in main
+          assertion #5: end ]
+
+
+> clear
+
+Cleared 1 proof obligation
+
+> done
+
+Ok
+

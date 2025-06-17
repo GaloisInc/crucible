@@ -1,0 +1,32 @@
+(defun @main () Unit
+  (start start:
+    (let goal0 (fresh Bool))
+    (assert! goal0 "assertion #0")
+    (let asmp0 (fresh Bool))
+    (assume! asmp0 "assumption #0")
+    (let goal1 (fresh Bool))
+    (assert! goal1 "assertion #1")
+    (let b0 (fresh Bool))
+    (branch b0 if: else:))
+  (defblock if:
+    (let asmp1 (fresh Bool))
+    (assume! asmp1 "assumption #1: if branch")
+    (let goal2 (fresh Bool))
+    (assert! goal2 "assertion #2: if branch")
+    (jump end:))
+  (defblock else:
+    (let asmp2 (fresh Bool))
+    (assume! asmp2 "assumption #2: else branch")
+    (let asmp3 (fresh Bool))
+    (assume! asmp3 "assumption #3: else branch")
+    (let goal3 (fresh Bool))
+    (assert! goal3 "assertion #3: else branch")
+    (let goal4 (fresh Bool))
+    (assert! goal4 "assertion #4: else branch")
+    (jump end:))
+  (defblock end:
+    (let asmp4 (fresh Bool))
+    (assume! asmp4 "assumption #4: end")
+    (let goal5 (fresh Bool))
+    (assert! goal5 "assertion #5: end")
+    (return ())))

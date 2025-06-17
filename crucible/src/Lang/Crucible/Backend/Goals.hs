@@ -65,19 +65,21 @@ ppGoals ::
 ppGoals ppAsmp ppGoal =
   \case
     Assuming asmp gls ->
-      PP.vcat
-      [ PP.pretty "Assuming:"
-      , PP.indent 2 (ppAsmp asmp)
-      , PP.pretty "Prove:"
-      , PP.indent 2 (ppGoals ppAsmp ppGoal gls)
-      ]
+      PP.align $
+        PP.vcat
+        [ PP.pretty "Assuming:"
+        , PP.indent 2 (ppAsmp asmp)
+        , PP.pretty "Prove:"
+        , PP.indent 2 (ppGoals ppAsmp ppGoal gls)
+        ]
     Prove gl -> ppGoal gl
     ProveConj gls gls' ->
-      PP.vcat
-      [ PP.pretty "Prove both:"
-      , PP.indent 2 (ppGoals ppAsmp ppGoal gls)
-      , PP.indent 2 (ppGoals ppAsmp ppGoal gls')
-      ]
+      PP.align $
+        PP.vcat
+        [ PP.pretty "Prove both:"
+        , PP.indent 2 (ppGoals ppAsmp ppGoal gls)
+        , PP.indent 2 (ppGoals ppAsmp ppGoal gls')
+        ]
 
 -- | Intended for debugging, this is not generally a user-facing datatype.
 instance (PP.Pretty asmp, PP.Pretty goal) => PP.Pretty (Goals asmp goal) where

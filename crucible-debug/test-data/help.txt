@@ -1,6 +1,7 @@
 > help
 
 # (#): Ignore all arguments and do nothing
+backend (bak): Print the state of the symbolic backend
 backtrace (bt): Print the backtrace (AKA stack trace)
 block (blk): Print the statements in the current block
 break (b): Set a breakpoint at the entry to a function

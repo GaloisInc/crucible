@@ -127,6 +127,7 @@ instance PP.Pretty ProofResult where
 
 data Response cExt
   = Arg (PP.Doc Void)
+  | Backend (PP.Doc Void)
   | Backtrace (PP.Doc Void)
   | Block (PP.Doc Void)
   | Cfg (PP.Doc Void)
@@ -155,6 +156,7 @@ instance (PP.Pretty (ResponseExt cExt), PP.Pretty cExt) => PP.Pretty (Response c
   pretty =
     \case
       Arg a -> fmap absurd a
+      Backend b -> fmap absurd b
       Backtrace bt -> fmap absurd bt
       Block b -> fmap absurd b
       Cfg c -> fmap absurd c

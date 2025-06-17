@@ -18,6 +18,7 @@ module Lang.Crucible.Debug.Command.Base
   , help
   , regex
   -- * Regular expressions
+  , rBackend
   , rBacktrace
   , rBlock
   , rBreak
@@ -55,7 +56,8 @@ import Lang.Crucible.Debug.Regex qualified as Rgx
 import Prettyprinter qualified as PP
 
 data BaseCommand
-  = Backtrace
+  = Backend
+  | Backtrace
   | Block
   | Break
   | Call
@@ -88,6 +90,7 @@ instance PP.Pretty BaseCommand where
 name :: BaseCommand -> Text
 name =
   \case
+    Backend -> "backend"
     Backtrace -> "backtrace"
     Block -> "block"
     Break -> "break"
@@ -117,6 +120,7 @@ name =
 abbrev :: BaseCommand -> Text
 abbrev =
   \case
+    Backend -> "bak"
     Backtrace -> "bt"
     Block -> "blk"
     Break -> "b"
@@ -147,6 +151,7 @@ abbrev =
 detail :: BaseCommand -> Maybe Text
 detail =
   \case
+    Backend -> Nothing
     Backtrace -> Nothing
     Block -> Nothing
     Break -> Nothing
@@ -195,6 +200,7 @@ detail =
 help :: BaseCommand -> Text
 help =
   \case
+    Backend -> "Print the state of the symbolic backend"
     Backtrace -> "Print the backtrace (AKA stack trace)"
     Block -> "Print the statements in the current block"
     Break -> "Set a breakpoint at the entry to a function"
@@ -224,6 +230,7 @@ help =
 regex :: BaseCommand -> Some (Rgx.RegexRepr ArgTypeRepr)
 regex =
   \case
+    Backend -> Some rBackend
     Backtrace -> Some rBacktrace
     Block -> Some rBlock
     Break -> Some rBreak
@@ -249,6 +256,9 @@ regex =
     Source -> Some rSource
     Trace -> Some rTrace
     Usage -> Some rUsage
+
+rBackend :: Rgx.RegexRepr ArgTypeRepr Rgx.Empty
+rBackend = knownRepr
 
 rBacktrace :: Rgx.RegexRepr ArgTypeRepr Rgx.Empty
 rBacktrace = knownRepr
