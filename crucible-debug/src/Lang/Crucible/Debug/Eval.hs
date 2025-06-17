@@ -68,6 +68,16 @@ baseImpl ::
   Ctxt.CommandImpl cExt p sym ext t
 baseImpl =
   \case
+    BCmd.Backend ->
+      Ctxt.CommandImpl
+      { Ctxt.implRegex = BCmd.rBackend
+      , Ctxt.implBody = \ctx execState Rgx.MEmpty -> do
+          let stateCtx = C.execStateContext execState
+          C.withBackend stateCtx $ \bak -> do
+            resp <- C.debugPrintBackendState bak
+            pure (def ctx) { Ctxt.evalResp = Resp.Backend resp }
+      }
+
     BCmd.Backtrace ->
       Ctxt.CommandImpl
       { Ctxt.implRegex = BCmd.rBacktrace
