@@ -112,7 +112,7 @@ import qualified What4.Solver.Yices as Yices
 import qualified What4.Solver.Z3 as Z3
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Backend.AssumptionStack as AS
+import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
@@ -192,7 +192,7 @@ newOnlineBackend ::
   ProblemFeatures ->
   IO (OnlineBackend solver scope st fs)
 newOnlineBackend sym feats =
-  do stk <- initAssumptionStack (sym ^. B.exprCounter)
+  do stk <- AS.initAssumptionStack (sym ^. B.exprCounter)
      procref <- newIORef SolverNotStarted
      featref <- newIORef feats
 
@@ -342,9 +342,9 @@ restoreAssumptionFrames ::
   OnlineSolver solver =>
   OnlineBackend solver scope st fs ->
   SolverProcess scope solver ->
-  AssumptionFrames (CrucibleAssumptions (B.Expr scope)) ->
+  AS.AssumptionFrames (CrucibleAssumptions (B.Expr scope)) ->
   IO ()
-restoreAssumptionFrames bak proc (AssumptionFrames base frms) =
+restoreAssumptionFrames bak proc (AS.AssumptionFrames base frms) =
   do let sym = onlineExprBuilder bak
      -- assume the base-level assumptions
      SMT.assume (solverConn proc) =<< assumptionsPred sym base
@@ -388,7 +388,7 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
          withSolverConn bak $ \conn -> SMT.assume conn p
 
        -- Add assertions to list
-       appendAssumptions as (assumptionStack bak)
+       AS.appendAssumptions as (assumptionStack bak)
 
   collectAssumptions bak =
     AS.collectAssumptions (assumptionStack bak)
@@ -397,11 +397,11 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
     -- NB, don't push a frame in the assumption stack unless
     -- pushing to the solver succeeded
     do withSolverProcess bak (pure ()) push
-       pushFrame (assumptionStack bak)
+       AS.pushFrame (assumptionStack bak)
 
   popAssumptionFrame bak ident =
     -- NB, pop the frame whether or not the solver pop succeeds
-    do frm <- popFrame ident (assumptionStack bak)
+    do frm <- AS.popFrame ident (assumptionStack bak)
        withSolverProcess bak (pure ()) pop
        return frm
 
@@ -413,7 +413,7 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
 
   popAssumptionFrameAndObligations bak ident = do
     -- NB, pop the frames whether or not the solver pop succeeds
-    do frmAndGls <- popFrameAndGoals ident (assumptionStack bak)
+    do frmAndGls <- AS.popFrameAndGoals ident (assumptionStack bak)
        withSolverProcess bak (pure ()) pop
        return frmAndGls
 

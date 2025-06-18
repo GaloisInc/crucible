@@ -7,6 +7,7 @@
 * Add `bindTypedOverride` for binding `TypedOverride`s to `FnHandle`s.
 * Add `FunctorF`, `FoldableF`, and `TraversableF` instances for `CrucibleEvent`,
   `CrucibleAssumption`, and `CrucibleAssumptions`.
+* Add `gcAddTopLevelAssume`, for making top-level assumptions.
 
 # 0.7.2 -- 2025-03-21
 

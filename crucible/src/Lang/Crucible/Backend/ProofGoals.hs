@@ -31,7 +31,7 @@ module Lang.Crucible.Backend.ProofGoals
 
     -- ** Context management
   , gcAddAssumes, gcProve
-  , gcPush, gcPop, gcAddGoals,
+  , gcPush, gcPop, gcAddGoals, gcAddTopLevelAssume,
 
     -- ** Global operations on context
     gcRemoveObligations, gcRestore, gcReset, gcFinish
@@ -209,6 +209,30 @@ gcAddGoals :: Goals asmp goal -> GoalCollector asmp goal -> GoalCollector asmp g
 gcAddGoals g (TopCollector gs) = TopCollector (gs Seq.|> g)
 gcAddGoals g (CollectingGoals gs gc) = CollectingGoals (gs Seq.|> g) gc
 gcAddGoals g gc = CollectingGoals (Seq.singleton g) gc
+
+-- | Add an assumption that is in scope for all goals, even ones in earlier
+-- frames.
+gcAddTopLevelAssume ::
+  Monoid asmp =>
+  asmp ->
+  GoalCollector asmp goal ->
+  GoalCollector asmp goal
+gcAddTopLevelAssume asmp =
+  \case
+    TopCollector gls ->
+      -- Syntactically, it appears that `asmp` is duplicated here, perhaps
+      -- unnecessarily. In fact, this is necessary. The `CollectingAssumptions`
+      -- constructor brings the assumption into scope for all the goals
+      -- *outside* of the top-level (see the comment on `GoalCollector` for
+      -- the "inside-out" structure of `GoalCollector`), whereas the `assuming`
+      -- brings it into scope for top-level goals.
+      CollectingAssumptions asmp (TopCollector (assuming asmp <$> gls))
+    CollectorFrame frm gc ->
+      CollectorFrame frm (gcAddTopLevelAssume asmp gc)
+    CollectingAssumptions asmp' gc ->
+      CollectingAssumptions asmp' (gcAddTopLevelAssume asmp gc)
+    CollectingGoals gls gc ->
+      CollectingGoals gls (gcAddTopLevelAssume asmp gc)
 
 -- | Add a new proof obligation to the current context.
 gcProve :: goal -> GoalCollector asmp goal -> GoalCollector asmp goal
