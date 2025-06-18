@@ -19,6 +19,7 @@ This release supports [version
   removed, as they no longer serve a useful purpose.
 * Added an intrinsic for [`read_volatile`](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
   and [`write_volatile`](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
+* Support raw-pointer and `CoerceUnsized` casts that introduce vtable metadata.
 
 # 0.4 -- 2025-03-21
 
