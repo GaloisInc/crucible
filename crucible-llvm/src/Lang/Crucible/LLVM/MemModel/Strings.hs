@@ -3,10 +3,13 @@
 {-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Manipulating C-style null-terminated strings
@@ -14,71 +17,171 @@ module Lang.Crucible.LLVM.MemModel.Strings
   ( Mem.loadString
   , Mem.loadMaybeString
   , Mem.strLen
+  , loadConcretelyNullTerminatedString
   , storeString
   ) where
 
+import           Data.Bifunctor (Bifunctor(bimap, first))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.NatRepr as DPN
+import           Data.Word (Word8)
 import qualified Data.Vector as Vec
 import qualified GHC.Stack as GHC
 import qualified Lang.Crucible.Backend as LCB
+import qualified Lang.Crucible.Simulator as LCS
 import qualified Lang.Crucible.LLVM.DataLayout as CLD
 import qualified Lang.Crucible.LLVM.MemModel as LCLM
 import qualified Lang.Crucible.LLVM.MemModel as Mem
+import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import qualified What4.Interface as WI
-import qualified Lang.Crucible.Simulator as LCS
 
 -- | Whether to stop or keep going
-data Continue
-  = KeepGoing
-  | Stop
+--
+-- Like Rust's @std::ops::ControlFlow@.
+data ControlFlow a b
+  = Continue a
+  | Break b
+  deriving Functor
+
+instance Bifunctor ControlFlow where
+  bimap l r =
+    \case
+      Continue x -> Continue (l x)
+      Break x -> Break (r x)
+
+-- | Compute a result from a symbolic byte, and check if the load should
+-- continue to the next byte.
+--
+-- Used to:
+--
+-- * Check if the byte is concretely a null terminator
+--   ('concretelyNullTerminatedString')
+-- * Check if we have surpassed a length limit ('withMaxChars')
+newtype ByteChecker m sym bak a b
+  = ByteChecker { runByteChecker :: bak -> a -> Mem.LLVMPtr sym 8 -> m (ControlFlow a b) }
 
 -- | Load a sequence of bytes, one at a time.
 --
 -- Not exported.
 loadBytes ::
-  forall m a sym bak wptr.
+  forall m a b sym bak wptr.
   ( LCB.IsSymBackend sym bak
   , Mem.HasPtrWidth wptr
   , Mem.HasLLVMAnn sym
   , ?memOpts :: Mem.MemOptions
   , GHC.HasCallStack
   , MonadIO m
-  , Monoid a
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Initial accumulator
+  a ->
+  Mem.LLVMPtr sym wptr ->
+  ByteChecker m sym bak a b ->
+  m b
+loadBytes bak mem = go
+ where
+  sym = LCB.backendGetSym bak
+  go ::
+    a ->
+    Mem.LLVMPtr sym wptr ->
+    ByteChecker m sym bak a b ->
+    m b
+  go acc ptr f = do
+    let i1 = Mem.bitvectorType 1
+    let p8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
+    byte <- liftIO (Mem.doLoad bak mem ptr i1 p8 CLD.noAlignment)
+    runByteChecker f bak acc byte >>=
+      \case
+        Break result -> pure result
+        Continue acc' -> do
+          ptr' <- liftIO (Mem.doPtrAddOffset bak mem ptr =<< WI.bvOne sym Mem.PtrWidth)
+          go acc' ptr' f
+
+ptrToBv8 ::
+  LCB.IsSymBackend sym bak =>
+  bak ->
+  Mem.LLVMPtr sym 8 ->
+  IO (WI.SymBV sym 8)
+ptrToBv8 bak bytePtr = do
+  let err = LCS.AssertFailureSimError "Found pointer instead of byte when loading string" ""
+  Partial.ptrToBv bak err bytePtr
+
+_fullyConcreteNullTerminatedString ::
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  ByteChecker IO sym bak ([Word8] -> [Word8]) [Word8]
+_fullyConcreteNullTerminatedString =
+  ByteChecker $ \bak acc bytePtr -> do
+    byte <- ptrToBv8 bak bytePtr
+    case BV.asUnsigned <$> WI.asBV byte of
+      Just 0 -> pure (Break (acc []))
+      Just c -> do
+        let c' = toEnum @Word8 (fromInteger c)
+        pure (Continue (acc . (c':)))
+      Nothing -> do
+        let msg = "Symbolic value encountered when loading a string"
+        LCB.addFailedAssertion bak (LCS.Unsupported GHC.callStack msg)
+
+concretelyNullTerminatedString ::
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  ByteChecker IO sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
+concretelyNullTerminatedString =
+  ByteChecker $ \bak acc bytePtr -> do
+    byte <- ptrToBv8 bak bytePtr
+    if isConcreteNullTerminator byte
+    then pure (Break (acc []))
+    else  pure (Continue (acc . (byte:)))
+  where
+    isConcreteNullTerminator symByte =
+      case BV.asUnsigned <$> WI.asBV symByte of
+        Just 0 -> True
+        _ -> False
+
+withMaxChars ::
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  Functor m =>
+  Int ->
+  (a -> m b) ->
+  ByteChecker m sym bak a b ->
+  ByteChecker m sym bak (a, Int) b
+withMaxChars limit done checker =
+  ByteChecker $ \bak (acc, i) bytePtr ->
+    if i > limit
+    then Break <$> done acc
+    else first (, i + 1) <$> runByteChecker checker bak acc bytePtr
+
+-- | Load a null-terminated string (with a concrete null terminator) from memory.
+--
+-- The string must contain a concrete null terminator. If a maximum number of
+-- characters is provided, no more than that number of characters will be read.
+-- In either case, 'loadConcretelyNullTerminatedString' will stop reading if it
+-- encounters a null terminator.
+--
+-- Note that the loaded string may actually be smaller than the returned list if
+-- any of the symbolic bytes may be 0.
+loadConcretelyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
   ) =>
   bak ->
   Mem.MemImpl sym ->
   Mem.LLVMPtr sym wptr ->
-  (Mem.LLVMPtr sym 8 -> m (Continue, a)) ->
-  m a
-loadBytes bak mem = go mempty
- where
-  go ::
-    a ->
-    Mem.LLVMPtr sym wptr ->
-    (a -> Mem.LLVMPtr sym 8 -> m (Continue, a)) ->
-    m a
-  go acc ptr f = do
-    let i1 = Mem.bitvectorType 1
-    let p8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
-    b <- liftIO (Mem.doLoad bak mem ptr i1 p8 CLD.noAlignment)
-    -- let err = LCS.AssertFailureSimError "Found pointer instead of byte when loading string" ""
-    -- x <- Partial.ptrToBv bak err v
-    (continue, result) <- f b
-    case continue of
-      Stop -> pure result
-      KeepGoing ->
-        go (result <> acc) _
-
-     -- case BV.asUnsigned <$> asBV x of
-     --   Just 0 -> return $ f []
-     --   Just c -> do
-     --       -- let c' :: Word8 = toEnum $ fromInteger c
-     --       p' <- doPtrAddOffset bak mem p =<< bvOne sym PtrWidth
-     --       go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
-     --   Nothing ->
-     --     addFailedAssertion bak
-     --        $ Unsupported GHC.callStack "Symbolic value encountered when loading a string"
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO [WI.SymBV sym 8]
+loadConcretelyNullTerminatedString bak mem ptr limit =
+  case limit of
+    Nothing -> loadBytes bak mem id ptr concretelyNullTerminatedString
+    Just l ->
+      let byteChecker = withMaxChars l (pure . ($ [])) concretelyNullTerminatedString in
+      loadBytes bak mem (id, 0) ptr byteChecker
 
 -- | Store a string to memory, adding a null terminator at the end.
 storeString ::
