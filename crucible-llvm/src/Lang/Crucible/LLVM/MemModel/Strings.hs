@@ -35,6 +35,7 @@ import qualified Lang.Crucible.LLVM.MemModel as LCLM
 import qualified Lang.Crucible.LLVM.MemModel as Mem
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import qualified What4.Interface as WI
+import qualified What4.Protocol.Online as WPO
 
 -- | Whether to stop or keep going
 --
@@ -58,6 +59,7 @@ instance Bifunctor ControlFlow where
 -- * Check if the byte is concretely a null terminator
 --   ('concretelyNullTerminatedString')
 -- * Check if we have surpassed a length limit ('withMaxChars')
+-- * Check if a byte is known by a solver to be a null terminator ('loadSymbolicString')
 newtype ByteChecker m sym bak a b
   = ByteChecker { runByteChecker :: bak -> a -> Mem.LLVMPtr sym 8 -> m (ControlFlow a b) }
 
@@ -182,6 +184,31 @@ loadConcretelyNullTerminatedString bak mem ptr limit =
     Just l ->
       let byteChecker = withMaxChars l (pure . ($ [])) concretelyNullTerminatedString in
       loadBytes bak mem (id, 0) ptr byteChecker
+
+-- | Load a null-terminated string from memory.
+--
+-- Consults an SMT solver to check if the loaded byte is known to be null (0).
+-- If a maximum number of characters is provided, no more than that number
+-- of charcters will be read. In either case, 'loadSymbolicString' will stop
+-- reading if it encounters a null terminator.
+--
+-- Note that the loaded string may actually be smaller than the returned list if
+-- any of the symbolic bytes may be 0.
+loadSymbolicString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  (WPO.SolverProcess scope solver -> IO a) ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO [WI.SymBV sym 8]
+loadSymbolicString bak solverProc = _
 
 -- | Store a string to memory, adding a null terminator at the end.
 storeString ::
