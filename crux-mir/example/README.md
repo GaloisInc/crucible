@@ -28,7 +28,7 @@ $ cd ffs
 $ cargo crux-mir --lib
 ```
 
-The expected results are that the test is passing, and the output will be similar to this:
+We expect to see that our test is passing, and the output will be similar to this:
 
 ```
 Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
@@ -52,7 +52,7 @@ ok
 
 In this example, we have hidden a failing corner case that triggers `panic!`. A regular `proptest` which uses random inputs will most likely not discover this case, so running `cargo test` will pass.
 
-However, when we write a symbolic test with `x` being a `u32::symbolic` variable, `crux-mir` will discover the edge case. Note that in this case we are defining a `crux_tes` module. This is suitable when we expect having more than one symbolic test, or when we need additional test functions:
+However, when we write a symbolic test with `x` being a `u32::symbolic` variable, `crux-mir` will discover the edge case. Note that in this case we are defining a `crux_test` module. This is suitable when we expect having more than one symbolic test, or when we need to define helper functions:
 
 ```Rust
 #[cfg(crux)]
@@ -92,7 +92,7 @@ The output will be something like:
 [Crux] Overall status: Invalid.
 ```
 
-Looking at the error message, we know that the error points to our failing corner case! Can we tell which value triggers this error? Yes! Add `-m` argument to the `crux-test` invocation, which will print the *symbolic model* values:
+Looking at the error message, we see that the error points to our failing corner case! Can we tell which exact value triggers this error? Yes! Add `-m` argument to the `crux-test` invocation, which will print the counterexample:
 
 ```
 $ cargo crux-test --lib -- -m
@@ -105,7 +105,7 @@ Model:
 [{"name": "x","loc": null,"val": "0x3ff","bits": "32"}]
 ```
 
-Note that the variable value is printed in hexadecimal format. `0x3ff` is `1023`, which neatly matches the condition guards:
+Note that the variable value is printed in hexadecimal format. `x` is the name of the symbolic variable, assigned when creating `u32::symbolic("x")`, and value `0x3ff` is `1023` decimal, which neatly matches the condition guards:
 
 ```Rust
 ...
@@ -136,7 +136,7 @@ fn will_fail() {
 }
 ```
 
-We will limit which test to run by passing the test name after the other arguments (see `will_fail` in the command below):
+Lets run the `will_fail` test, and because we have more than one test in this example, append `will_fail` at the end of the invocation to filter which tests are run:
 
 ```
 $ cd example-2
@@ -160,11 +160,11 @@ Model:
 error: test failed, to rerun pass `--lib`
 ```
 
-OK, that looks bad - we gave `estimate_size` a really big `u32` number, and it triggered the assertion (which in turn triggers `panic!` and that is what you see in the error message). Fortunately we can make assumptions about the symbolic values with `crucible_assume!` macro. From the documentation of `crucible_assume`:
+OK, that looks bad - we gave the `estimate_size()` function a really big `u32` number, and it triggered the assertion (which in turn triggers `panic!` and that is what you see in the error message). Fortunately we can make assumptions about the symbolic values with `crucible_assume!` macro. From the documentation of `crucible_assume!`:
 
-> Assume that a condition holds. crux-mir will not consider assignments to the symbolic variables that violate an assumption.
+> Assume that a condition holds. `crux-mir` will not consider assignments to the symbolic variables that violate an assumption.
 
-Let's write a new test, and assume that the symbolic value is always less than 406!
+Let's write a new test, and assume that the symbolic value is always less than 4096:
 
 ```Rust
 #[crux::test]
@@ -176,7 +176,7 @@ fn verify_success() {
 }
 ```
 
-Let's run it (this time we want to run only `verify_success`):
+Let's run the test (this time we want to run only `verify_success`):
 
 ```
 $ cargo crux-test --lib -- -m verify_success
@@ -204,8 +204,15 @@ And the test passes! You can use `crucible_assume!` any time you need to place c
 In this case we have code with a simple loop:
 
 ```Rust
-for i in 0..=length {
-    buffer[i] = 0;
+fn initialize_prefix(length: usize, buffer: &mut [u8]) {
+    // Let's just ignore invalid calls
+    if length >= buffer.len() {
+        return;
+    }
+
+    for i in 0..=length {
+        buffer[i] = 0;
+    }
 }
 ```
 
@@ -222,7 +229,7 @@ fn check_initialize_prefix() {
 }
 ```
 
-Notice we decided to use a small array with only 10 elements. Lets run the test:
+Notice we decided to use a relatively small array with only 10 elements. Lets run the test:
 
 ```
 $ cd example-3
@@ -231,9 +238,9 @@ $ cargo crux-test --lib
 # lot of time passes and the test is still running
 ```
 
-That looks like we have a test that does not terminate! Should we constraint the size of `length` with `crucible_assume!`? That will not help here, because any value that is larger than `buffer.len()` will lead to the same branch, and `crux-mir` is smart enough to know this. And if you assume that `length` is smaller, you are not covering all cases. 
+That looks like we have a test that does not terminate! Should we constraint the size of `length` with `crucible_assume!`? That will not help here, because any value that is larger than `buffer.len()` will lead to the same branch, and `crux-mir` is smart enough to know that. And if you assume that `length` is smaller than `LIMIT`, you are not covering all cases. We could also make `LIMIT` smaller, but 10 is already pretty small.
 
-Fortunately, we have an argument for loop unrolling! Add `--path-sat` to your `crux-mir` invocation. Then each time around the loop, `crux-mir` will check with the solver whether it should keep unrolling or no.
+Fortunately, we have an argument for loop unrolling! Add `--path-sat` to your `crux-mir` invocation. Then each time around the loop, `crux-mir` will check with the solver whether it should keep unrolling or not.
 
 ```
 $ cargo crux-test --lib -- --path-sat
@@ -267,14 +274,14 @@ Model:
 ...
 ```
 
-Remember that `0xa` is 10 in decimal. Once you fix the bug, see how much you can increase the size of the buffer with `const LIMIT` and still get a result within a reasonable time ⌛
+Remember that `0xa` is 10 in decimal. Once you fix the bug, see how much you can increase the size of the buffer by increasing `const LIMIT` and still get a result within a reasonable time ⌛
 
 
 ## Example 4: Integer overflow
 
 **NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
-In this example, we have a function that finds an average of two values:
+In this example, we have a function that calculates the average of two values:
 
 ```Rust
 fn find_midpoint(low: u32, high: u32) -> u32 {
@@ -282,7 +289,7 @@ fn find_midpoint(low: u32, high: u32) -> u32 {
 }
 ```
 
-We also have a simple symbolic test that checks the function for all possible input values:
+We also have a simple symbolic test that tests the function with all possible input values:
 
 ```Rust
 #[crux::test]
@@ -337,7 +344,7 @@ fn get_wrapped(i: usize, a: &[u32]) -> u32 {
 }
 ```
 
-Fortunately we have a symbolic test to help us test the example:
+Fortunately we have a symbolic test to help us find it:
 
 ```Rust
 #[crux::test]
@@ -350,7 +357,7 @@ fn bound_check() {
 }
 ```
 
-Note that while we could create a `Vec` with *symbolic* length but *fixed* capacity, rather than a fixed length vector, it would come at a performance cost, and in this example it does not make a difference. However, have a look at [Limitations & How-to](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) section in the [crux-mir README.md](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) for an example how to create a vector with *symbolic* length.
+Note that while we could create a `Vec` with *symbolic* length but *fixed* capacity, rather than a fixed length vector. It would come at a performance cost, and in this example it does not make a difference. However, have a look at [Limitations & How-to](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) section in the [crux-mir README.md](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) for an example how to create a vector with *symbolic* length.
 
 Let's run this example, and because we expect to find a bug there, use `-m` to show the counterexample right away:
 
@@ -414,7 +421,7 @@ $ cargo crux-test --lib -- bound_check
 ...
 ```
 
-Seeing that index `i=89` leads to `idx=9+1=10` which is the same as `a.len()` tells us we are off by one! You can use `crucible_assert!` when debugging complex errors in your code.
+Seeing that index `i=89` leads to `idx=9+1=10` which is the same as `a.len()` tells us we are off by one! You can use `crucible_assert!` when debugging complex errors in your code. Just don't forget to remove the `crucible` code when you are done debugging, as it would trigger a compilation error when building the code with `cargo build`.
 
 There is also `crucible_assert_unreachable!` which can be used instead of `unreachable!` macro.
 
@@ -422,9 +429,7 @@ There is also `crucible_assert_unreachable!` which can be used instead of `unrea
 ## Crux-mir in CI and changing solvers
 
 A fork of the curve25519-dalek library with symbolic tests for the `Scalar52`
-type is available [here](https://github.com/GaloisInc/curve25519-dalek). This is the code that appears in the [`crux-mir` demo video](https://www.youtube.com/watch?v=dCNQFHjgotU).
-
-We added a [prove CI job](https://github.com/GaloisInc/curve25519-dalek/blob/master/.github/workflows/ci.yml#L59) that shows how to use `crux-mir` in Github CI. Similar approach will run in Gitlab CI.
+type is available [here](https://github.com/GaloisInc/curve25519-dalek). This is the code that appears in the [`crux-mir` demo video](https://www.youtube.com/watch?v=dCNQFHjgotU). We added a [`prove` CI job](https://github.com/GaloisInc/curve25519-dalek/blob/master/.github/workflows/ci.yml#L59) that shows how to use `crux-mir` in Github CI. Similar approach will work in Gitlab CI.
 
 The resulting workflow runs are in the repo's [Actions page](https://github.com/GaloisInc/curve25519-dalek/actions/workflows/ci.yml). Note the actual `crux-mir` invocation is quite simple:
 
@@ -436,7 +441,7 @@ The resulting workflow runs are in the repo's [Actions page](https://github.com/
 ...
 ```
 
-Note the `-s z3` flag, which tells `crux-mir` to specifically use `z3` solver (assuming it is installed). In some cases it might be beneficial to use specific solvers, but the details of that are beyond the scope of this tutorial.
+The `-s z3` flag, which tells `crux-mir` to specifically use `z3` solver (assuming it is installed). In some cases it might be beneficial to use specific solvers, but the details of when are beyond the scope of this tutorial.
 
 
 ## Parting thoughts
