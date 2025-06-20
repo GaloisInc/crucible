@@ -146,10 +146,12 @@ To compile and test a single Rust program:
   ```
   $ crux-mir --lib --  --branch-coverage --path-sat --output-directory test-coverage
   ```
-* In your crate, run the following command, pointing it towards the `report-coverage` folder in `crucible` directory (note that you need to point to a directory in `test-coverage` folder that contains `report_data.js`, and the path is currently rather mangled):
+* In your crate, run the following command, pointing it towards the `report-coverage` folder in `crucible` directory, which contains the coverage script. You will need to point to a directory in the `test-coverage` folder that contains a function's coverage report data (`report_data.js`):
   ```
   $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- test-coverage/test/62f2dedb\:\:f\[0\]/report_data.js
   ```
+
+  Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works.
 * This will report all paths not covered, including ones from the standard library, for example:
   ```
   warning: branch condition never has value true
@@ -268,7 +270,7 @@ Similarly, if you see a Haskell error trace in the output, you have likely disco
 
 ### Loop-unrolling
 
-If your code contains loops, the default invocation `cargo crux-mir --lib` might be very slow. If that is the case, add `--path-sat` argument. Then each time around the loop, `crux-mir` will check with the solver whether it should keep unrolling or no. The full command is:
+If your code contains loops, the default invocation `cargo crux-mir --lib` might be very slow. If that is the case, add `--path-sat` argument. Then each time around the loop, `crux-mir` will check with the solver whether it should keep unrolling or not. The full command is:
 
 ```
 $ cargo crux-test --lib -- --path-sat
@@ -277,7 +279,7 @@ $ cargo crux-test --lib -- --path-sat
 
 ### Print counterexamples
 
-When your test fails, it is often useful to get concrete counterexample to better understand which input causes the failure. You can use `-m` argument to print the counterexample:
+When your test fails, it is often useful to get a concrete counterexample to better understand which input causes the failure. You can use the `-m` argument to print the counterexample:
 
 ```
 $ cargo crux-test --lib -- -m 
@@ -292,7 +294,7 @@ Model:
 
 The model shows the name of variable, as well as its concrete hexadecimal value.
 
-In addition to `-m` (which can be hard to interpret if you have multiple symbolic variables with the same name), you can use `crucible_assert!()` macro. For example `crucible_assert!(x == y, "expected x == y, but got x = {} and y = {}", x, y);` will print some concrete values of x and y. 
+In addition to `-m` (which can be hard to interpret if you have multiple symbolic variables with the same name), you can use the `crucible_assert!()` macro. For example `crucible_assert!(x == y, "expected x == y, but got x = {} and y = {}", x, y);` will print some concrete values of `x` and `y`. 
 
 ### Constraining symbolic values
 
@@ -316,9 +318,9 @@ if !(x < 3) { crucible_assume_unreachable!(); }
 You are probably looking for [https://github.com/GaloisInc/mir-json/tree/master/libs/crucible](https://github.com/GaloisInc/mir-json/tree/master/libs/crucible) - if you just want to see the crate level docs, have a look at **Library documentation** section above.
 
 
-### Implement symbolic trait for a custom type
+### Implement `Symbolic` trait for a custom type
 
-To be able to call `MyType::symbolic()` you need to implement the [`Symbolic`](https://github.com/GaloisInc/mir-json/blob/master/libs/crucible/symbolic.rs#L1) trait. For example for a simple `enum` the implementation can be as follows:
+To be able to call `MyType::symbolic()` you need to implement the [`Symbolic`](https://github.com/GaloisInc/mir-json/blob/master/libs/crucible/symbolic.rs#L1) trait. For example, for a simple `enum` the implementation can be as follows:
 
 ```Rust
 #[derive(Copy, Clone, Debug, PartialEq)]

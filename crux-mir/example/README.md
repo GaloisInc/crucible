@@ -2,11 +2,11 @@
 
 This tutorial is intended for engineers with *some* understanding of formal methods, rather than for formal methods experts. After reading through the tutorial, you should be able to write symbolic tests for your Rust code, and understand the results provided by `crux-mir`. This tutorial is [learning oriented](https://docs.divio.com/documentation-system/), if you need a quick reference for fixing problems, we recommend the [Limitations & How-to](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) section in the [crux-mir README.md](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md)
 
-Note that while the tool is called `crux-mir`, the invocation is via `cargo crux-test`, mostly for historical reasons. We will be using `crux-mir` and `crux-test` interchangeably.
+The `crux-mir` tool is geared towards compiling and testing a single, standalone Rust file. `mir-json` also offers a `cargo` subcommand, `cargo crux-test`, which generalizes `crux-mir` to allow compiling and testing a complete Cargo project. While we will be using `cargo crux-test` below to compile all of the examples, we will use the terms "`crux-mir`" and "`crux-test`" interchangeably to describe the underlying machinery.
 
 ## Find First Set
 
-This example implements [Find First Set](https://en.wikipedia.org/wiki/Find_first_set) algorithm, and uses `crux-mir` to prove equivalence between the reference implementation and the fast implementation.
+This example implements the [Find First Set](https://en.wikipedia.org/wiki/Find_first_set) algorithm and uses `crux-mir` to prove equivalence between the reference implementation and the fast implementation.
 
 
 Note that you don't need to create a new module, `cfg_attr` lets you specify individual functions that are visible only to `crux-test`:
@@ -48,7 +48,7 @@ ok
 
 ## Example 1: Failing corner case
 
-**NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
+**NOTE:** this example was adapted from the [Kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
 In this example, we have hidden a failing corner case that triggers `panic!`. A regular `proptest` which uses random inputs will most likely not discover this case, so running `cargo test` will pass.
 
@@ -105,7 +105,7 @@ Model:
 [{"name": "x","loc": null,"val": "0x3ff","bits": "32"}]
 ```
 
-Note that the variable value is printed in hexadecimal format. `x` is the name of the symbolic variable, assigned when creating `u32::symbolic("x")`, and value `0x3ff` is `1023` decimal, which neatly matches the condition guards:
+Note that the variable value is printed in hexadecimal format. `x` is the name of the symbolic variable, assigned when creating `u32::symbolic("x")`, and the value `0x3ff` is `1023` in decimal, which neatly matches the condition guards:
 
 ```Rust
 ...
@@ -126,7 +126,7 @@ fn estimate_size(x: u32) -> u32 {
 ...
 ```
 
-In our test suite, we limit the input such that the assertion is not triggered (try running `cargo test`), but when we write our symbolic test, and check the function with *all possible values* we get an error:
+In our test suite, we limit the input such that the assertion is not triggered (try running `cargo test`), but when we write our symbolic test and check the function with *all possible values*, we get an error:
 
 ```Rust
 #[crux::test]
@@ -136,7 +136,7 @@ fn will_fail() {
 }
 ```
 
-Lets run the `will_fail` test, and because we have more than one test in this example, append `will_fail` at the end of the invocation to filter which tests are run:
+Let's run the `will_fail` test, and because we have more than one test in this example, append `will_fail` at the end of the invocation to filter which tests are run:
 
 ```
 $ cd example-2
@@ -160,7 +160,7 @@ Model:
 error: test failed, to rerun pass `--lib`
 ```
 
-OK, that looks bad - we gave the `estimate_size()` function a really big `u32` number, and it triggered the assertion (which in turn triggers `panic!` and that is what you see in the error message). Fortunately we can make assumptions about the symbolic values with `crucible_assume!` macro. From the documentation of `crucible_assume!`:
+OK, that looks bad - we gave the `estimate_size()` function a really big `u32` number, and it triggered the assertion (which in turn triggers `panic!` and that is what you see in the error message). Fortunately we can make assumptions about the symbolic values with the `crucible_assume!` macro. From the documentation of `crucible_assume!`:
 
 > Assume that a condition holds. `crux-mir` will not consider assignments to the symbolic variables that violate an assumption.
 
@@ -229,7 +229,7 @@ fn check_initialize_prefix() {
 }
 ```
 
-Notice we decided to use a relatively small array with only 10 elements. Lets run the test:
+Notice we decided to use a relatively small array with only 10 elements. Let's run the test:
 
 ```
 $ cd example-3
@@ -324,7 +324,7 @@ Model:
 
 Note that the model representation is a bit hard to read, and might change (see [#1434](https://github.com/GaloisInc/crucible/issues/1434) for details). This shows us two values that when added together overflow `u32`, which is an error. You might get different values (depending on your solver), but they will overflow `u32` when added together.
 
-If you are wondering how to best fix this error, have a look at [Kani tutorial](https://model-checking.github.io/kani/tutorial-kinds-of-failure.html#exercise-classic-overflow-failure) where this example is adapted from.
+If you are wondering how to best fix this error, have a look at the [Kani tutorial](https://model-checking.github.io/kani/tutorial-kinds-of-failure.html#exercise-classic-overflow-failure) where this example is adapted from.
 
 
 ## Example 5: Debugging with crucible_assert
@@ -357,7 +357,7 @@ fn bound_check() {
 }
 ```
 
-Note that while we could create a `Vec` with *symbolic* length but *fixed* capacity, rather than a fixed length vector. It would come at a performance cost, and in this example it does not make a difference. However, have a look at [Limitations & How-to](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) section in the [crux-mir README.md](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) for an example how to create a vector with *symbolic* length.
+Note that while we could create a `Vec` with *symbolic* length but *fixed* capacity, rather than a fixed length vector. It would come at a performance cost, and in this example it does not make a difference. However, have a look at the [Limitations & How-to](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) section in the [crux-mir README.md](https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md) for an example of how to create a vector with *symbolic* length.
 
 Let's run this example, and because we expect to find a bug there, use `-m` to show the counterexample right away:
 
@@ -393,7 +393,7 @@ Fortunately we can use `crucible_assert!` macro, which is described as:
 > 
 > If the error message uses string formatting, `crux-mir` will choose an arbitrary concrete counterexample and use its values when formatting the message. For example: `crucible_assert!(x + y == z, "bad arithmetic: {} + {} != {}", x, y, z);` might print a message like bad arithmetic: `1 + 2 != 4`, assuming `x`, `y`, and `z` are symbolic variables that can take on the values 1, 2, and 4..
 
-We can use `crucible_assert!` in both the crux test code, and in the source code. In this case we will edit the source code, because we want to know what is the value of `idx` before the out of bounds access is attempted:
+We can use `crucible_assert!` in both the crux test code and in the source code. In this case we will edit the source code, because we want to know what is the value of `idx` before the out of bounds access is attempted:
 
 ```Rust
 extern crate crucible;
@@ -409,7 +409,7 @@ fn get_wrapped(i: usize, a: &[u32]) -> u32 {
 }
 ```
 
-When we run the code we get the assertion print additional debug information:
+When we run the code, the assertion will print additional debug information:
 
 ```
 $ cargo crux-test --lib -- bound_check
@@ -423,13 +423,13 @@ $ cargo crux-test --lib -- bound_check
 
 Seeing that index `i=89` leads to `idx=9+1=10` which is the same as `a.len()` tells us we are off by one! You can use `crucible_assert!` when debugging complex errors in your code. Just don't forget to remove the `crucible` code when you are done debugging, as it would trigger a compilation error when building the code with `cargo build`.
 
-There is also `crucible_assert_unreachable!` which can be used instead of `unreachable!` macro.
+There is also `crucible_assert_unreachable!` which can be used instead of the `unreachable!` macro.
 
 
 ## Crux-mir in CI and changing solvers
 
 A fork of the curve25519-dalek library with symbolic tests for the `Scalar52`
-type is available [here](https://github.com/GaloisInc/curve25519-dalek). This is the code that appears in the [`crux-mir` demo video](https://www.youtube.com/watch?v=dCNQFHjgotU). We added a [`prove` CI job](https://github.com/GaloisInc/curve25519-dalek/blob/master/.github/workflows/ci.yml#L59) that shows how to use `crux-mir` in Github CI. Similar approach will work in Gitlab CI.
+type is available [here](https://github.com/GaloisInc/curve25519-dalek). This is the code that appears in the [`crux-mir` demo video](https://www.youtube.com/watch?v=dCNQFHjgotU). We added a [`prove` CI job](https://github.com/GaloisInc/curve25519-dalek/blob/master/.github/workflows/ci.yml#L59) that shows how to use `crux-mir` in GitHub Actions. Similar approach will work in GitLab CI.
 
 The resulting workflow runs are in the repo's [Actions page](https://github.com/GaloisInc/curve25519-dalek/actions/workflows/ci.yml). Note the actual `crux-mir` invocation is quite simple:
 
@@ -441,7 +441,7 @@ The resulting workflow runs are in the repo's [Actions page](https://github.com/
 ...
 ```
 
-The `-s z3` flag, which tells `crux-mir` to specifically use `z3` solver (assuming it is installed). In some cases it might be beneficial to use specific solvers, but the details of when are beyond the scope of this tutorial.
+Note the `-s z3` flag, which tells `crux-mir` to specifically use the `z3` solver (assuming it is installed). In some cases it might be beneficial to use specific solvers, but the details of when are beyond the scope of this tutorial.
 
 
 ## Parting thoughts
