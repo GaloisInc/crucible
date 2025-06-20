@@ -1,13 +1,8 @@
 // Original file from:
 // https://github.com/model-checking/kani/tree/main/docs/src/tutorial
 
-fn get_wrapped(i: usize, a: &[u32]) -> u32 {
-    if a.len() == 0 {
-        return 0;
-    }
-
-    let idx = i % a.len() + 1;
-    return a[idx];
+fn find_midpoint(low: u32, high: u32) -> u32 {
+    return (low + high) / 2;
 }
 
 #[cfg(crux)]
@@ -17,11 +12,9 @@ mod crux_test {
     use self::crucible::*;
 
     #[crux::test]
-    fn bound_check() {
-        const LIMIT: usize = 10;
-        let size = LIMIT;
-        let i = usize::symbolic("i");
-        let array: Vec<u32> = vec![1; size];
-        get_wrapped(i, &array);
+    fn midpoint_overflow() {
+        let a = u32::symbolic("a");
+        let b = u32::symbolic("b");
+        find_midpoint(a, b);
     }
 }

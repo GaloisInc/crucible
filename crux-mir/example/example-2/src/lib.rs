@@ -2,8 +2,6 @@
 // https://github.com/model-checking/kani/tree/main/docs/src/tutorial
 
 fn estimate_size(x: u32) -> u32 {
-    assert!(x < 4096);
-
     if x < 256 {
         if x < 128 {
             return 1;
@@ -12,7 +10,10 @@ fn estimate_size(x: u32) -> u32 {
         }
     } else if x < 1024 {
         if x > 1022 {
-            return 4;
+            // TODO: uncomment once https://github.com/GaloisInc/crucible/issues/1431
+            // is fixed
+            //panic!("Oh no, a failing corner case!");
+            unsafe { return *(0 as *const u32) };
         } else {
             return 5;
         }
@@ -38,12 +39,11 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(10000))]
         #[test]
-        fn doesnt_crash(x in 0..4095u32) {
+        fn doesnt_crash(x: u32) {
             estimate_size(x);
         }
     }
 }
-
 
 #[cfg(crux)]
 mod crux_test {
@@ -52,16 +52,8 @@ mod crux_test {
     use self::crucible::*;
 
     #[crux::test]
-    fn verify_success() {
+    fn check_estimate_size() {
         let x: u32 = u32::symbolic("x");
-        crucible_assume!(x < 4096);
-        let y = estimate_size(x);
-        assert!(y < 10);
-    }
-
-    #[crux::test]
-    fn will_fail() {
-        let x: u32 = u32::symbolic("x");
-        let y = estimate_size(x);
+        estimate_size(x);
     }
 }

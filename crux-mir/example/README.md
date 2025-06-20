@@ -4,7 +4,7 @@ This tutorial is intended for engineers with *some* understanding of formal meth
 
 Note that while the tool is called `crux-mir`, the invocation is via `cargo crux-test`, mostly for historical reasons. We will be using `crux-mir` and `crux-test` interchangeably.
 
-## Find First Set
+## Example 1: Find First Set
 
 This example implements [Find First Set](https://en.wikipedia.org/wiki/Find_first_set) algorithm, and uses `crux-mir` to prove equivalence between the reference implementation and the fast implementation.
 
@@ -24,7 +24,7 @@ fn test_ffs_correct() {
 Run the test with:
 
 ```
-$ cd ffs
+$ cd example-1
 $ cargo crux-mir --lib
 ```
 
@@ -46,7 +46,7 @@ ok
 [Crux] Overall status: Valid.
 ```
 
-## Example 1: Failing corner case
+## Example 2: Failing corner case
 
 **NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
@@ -72,7 +72,7 @@ mod crux_test {
 Run the test with:
 
 ```
-$ cd example-1
+$ cd example-2
 $ cargo crux-test --lib
 ```
 
@@ -114,7 +114,7 @@ Note that the variable value is printed in hexadecimal format. `x` is the name o
 ...
 ```
 
-## Example 2: Constrain input values
+## Example 3: Constrain input values
 
 **NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
@@ -139,7 +139,7 @@ fn will_fail() {
 Lets run the `will_fail` test, and because we have more than one test in this example, append `will_fail` at the end of the invocation to filter which tests are run:
 
 ```
-$ cd example-2
+$ cd example-3
 $ cargo crux-test --lib -- -m will_fail
 ...
 ---- first_steps_v2/fb96b074::crux_test[0]::will_fail[0] counterexamples ----
@@ -197,7 +197,7 @@ ok
 And the test passes! You can use `crucible_assume!` any time you need to place constraints on your symbolic variables.
 
 
-## Example 3: Loop unwinding
+## Example 4: Loop unwinding
 
 **NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
@@ -232,7 +232,7 @@ fn check_initialize_prefix() {
 Notice we decided to use a relatively small array with only 10 elements. Lets run the test:
 
 ```
-$ cd example-3
+$ cd example-4
 $ cargo crux-test --lib
 ...
 # lot of time passes and the test is still running
@@ -277,7 +277,7 @@ Model:
 Remember that `0xa` is 10 in decimal. Once you fix the bug, see how much you can increase the size of the buffer by increasing `const LIMIT` and still get a result within a reasonable time ⌛
 
 
-## Example 4: Integer overflow
+## Example 5: Integer overflow
 
 **NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
@@ -303,7 +303,7 @@ fn midpoint_overflow() {
 When we run the test, we get an overflow error:
 
 ```
-$ cd example-4
+$ cd example-5
 $ cargo crux-test --lib -- midpoint_overflow
 ...
 ---- kinds_of_failure/a61f4978::overflow_quicksort[0]::crux_test[0]::midpoint_overflow[0] counterexamples ----
@@ -327,7 +327,7 @@ Note that the model representation is a bit hard to read, and might change (see 
 If you are wondering how to best fix this error, have a look at [Kani tutorial](https://model-checking.github.io/kani/tutorial-kinds-of-failure.html#exercise-classic-overflow-failure) where this example is adapted from.
 
 
-## Example 5: Debugging with crucible_assert
+## Example 6: Debugging with crucible_assert
 
 **NOTE:** this example was adapted from the [kani tutorial](https://model-checking.github.io/kani/kani-tutorial.html).
 
@@ -362,7 +362,7 @@ Note that while we could create a `Vec` with *symbolic* length but *fixed* capac
 Let's run this example, and because we expect to find a bug there, use `-m` to show the counterexample right away:
 
 ```
-$ cd example-5
+$ cd example-6
 $ cargo crux-test --lib -- -m
 ...
 ---- kinds_of_failure/3c6b0fc0::bounds_check[0]::crux_test[0]::bound_check[0] counterexamples ----
@@ -426,7 +426,7 @@ Seeing that index `i=89` leads to `idx=9+1=10` which is the same as `a.len()` te
 There is also `crucible_assert_unreachable!` which can be used instead of `unreachable!` macro.
 
 
-## Crux-mir in CI and changing solvers
+## Example 7: Crux-mir in CI and changing solvers
 
 A fork of the curve25519-dalek library with symbolic tests for the `Scalar52`
 type is available [here](https://github.com/GaloisInc/curve25519-dalek). This is the code that appears in the [`crux-mir` demo video](https://www.youtube.com/watch?v=dCNQFHjgotU). We added a [`prove` CI job](https://github.com/GaloisInc/curve25519-dalek/blob/master/.github/workflows/ci.yml#L59) that shows how to use `crux-mir` in Github CI. Similar approach will work in Gitlab CI.

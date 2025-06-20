@@ -1,13 +1,12 @@
-# Copyright Kani Contributors
-# SPDX-License-Identifier: Apache-2.0 OR MIT
 [package]
-name = "example-1"
+name = "ffs"
 version = "0.1.0"
+authors = ["Stuart Pernsteiner <spernsteiner@galois.com>"]
 edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
-[dev-dependencies]
-proptest = "1.0.0"
-
-[workspace]
+[lib]
+path = "lib.rs"
