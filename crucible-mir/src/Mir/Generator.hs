@@ -667,8 +667,9 @@ subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
 subfieldRef_Untyped ::
   R.Expr MIR s MirReferenceType ->
   Int ->
+  Maybe (Some C.TypeRepr) ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-subfieldRef_Untyped ref fieldNum = G.extensionStmt (MirSubfieldRef_Untyped ref fieldNum)
+subfieldRef_Untyped ref fieldNum expectedTy = G.extensionStmt (MirSubfieldRef_Untyped ref fieldNum expectedTy)
 
 subvariantRef ::
   C.TypeRepr discrTp ->

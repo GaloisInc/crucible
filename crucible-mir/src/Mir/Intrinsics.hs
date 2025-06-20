@@ -866,6 +866,7 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirSubfieldRef_Untyped ::
      !(f MirReferenceType) ->
      !Int ->
+     !(Maybe (Some TypeRepr)) ->
      MirStmt f MirReferenceType
   MirSubvariantRef ::
      !(TypeRepr discrTp) ->
@@ -1027,7 +1028,7 @@ instance TypeApp MirStmt where
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
-    MirSubfieldRef_Untyped _ _ -> MirReferenceRepr
+    MirSubfieldRef_Untyped _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubindexRef _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
@@ -1062,7 +1063,7 @@ instance PrettyApp MirStmt where
     MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
-    MirSubfieldRef_Untyped x fieldNum -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum
+    MirSubfieldRef_Untyped x fieldNum expectedTy -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum <+> viaShow expectedTy
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
@@ -1263,8 +1264,9 @@ subfieldMirRefLeaf ctx ref idx =
 subfieldMirRef_UntypedLeaf ::
     MirReference sym ->
     Int ->
+    Maybe (Some TypeRepr) ->
     MuxLeafT sym IO (MirReference sym)
-subfieldMirRef_UntypedLeaf ref fieldNum =
+subfieldMirRef_UntypedLeaf ref fieldNum expectedTy =
   case ref of
     MirReference_Integer _ ->
       bail $ "attempted untyped subfield on the result of an integer-to-pointer cast"
@@ -1283,6 +1285,18 @@ subfieldMirRef_UntypedLeaf ref fieldNum =
                     , show structCtx
                     ]
             let fieldRepr = structCtx ! fieldIdx
+            () <- case expectedTy of
+              Nothing -> pure ()
+              Just (Some expected) ->
+                case testEquality expected fieldRepr of
+                  Just Refl -> pure ()
+                  Nothing ->
+                    bail $ unwords $
+                      [ "expected field type"
+                      , show expected
+                      , "did not match actual field type"
+                      , show fieldRepr
+                      ]
             let fieldPath = Field_RefPath structCtx refPath fieldIdx
             pure $ MirReference fieldRepr refRoot fieldPath
         notAStruct ->
@@ -1310,9 +1324,10 @@ subfieldMirRef_UntypedIO ::
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
     Int ->
+    Maybe (Some TypeRepr) ->
     IO (MirReferenceMux sym)
-subfieldMirRef_UntypedIO bak iTypes ref fieldNum =
-    modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum) ref
+subfieldMirRef_UntypedIO bak iTypes ref fieldNum expectedTy =
+    modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum expectedTy) ref
 
 subvariantMirRefLeaf ::
     TypeRepr discrTp ->
@@ -1873,8 +1888,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          writeOnly s $ dropMirRefIO bak gs ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
-       MirSubfieldRef_Untyped (regValue -> ref) idx ->
-         readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx
+       MirSubfieldRef_Untyped (regValue -> ref) idx expectedTy ->
+         readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx expectedTy
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
        MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
