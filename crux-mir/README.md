@@ -83,25 +83,6 @@ Use GHC 9.6, 9.8, or 9.10. From the `crux-mir` directory, run:
     $ cabal install exe:crux-mir --overwrite-policy=always
 
 
-### Library documentation
-
-The documentation for the `crucible` crate can be built locally by following these steps:
-
-* clone https://github.com/GaloisInc/mir-json.git
-* build `mir-json` as described in the [Building from source](https://github.com/GaloisInc/mir-json?tab=readme-ov-file#building-from-source) section
-* build the docs with:
-  ```
-  rustdoc libs/crucible/lib.rs \
-    --edition 2021 \
-    --crate-name crucible \
-    --extern compiler_builtins=rlibs/libcompiler_builtins.rlib \
-    --extern core=rlibs/libcore.rlib \
-    -L rlibs \
-    --out-dir rustdocs \
-    --crate-type rlib
-  ```
-* open `rustdocs/crucible/index.html` in your browser!
-
 ## Usage
 
 ### Writing test cases
@@ -315,9 +296,15 @@ let x = u8::symbolic("x");
 if !(x < 3) { crucible_assume_unreachable!(); }
 ```
 
+
 ### Where is the source code for the crucible crate?
 
-You are probably looking for [https://github.com/GaloisInc/mir-json/tree/master/libs/crucible](https://github.com/GaloisInc/mir-json/tree/master/libs/crucible) - if you just want to see the crate level docs, have a look at **Library documentation** section above.
+You are probably looking for [https://github.com/GaloisInc/mir-json/tree/master/libs/crucible](https://github.com/GaloisInc/mir-json/tree/master/libs/crucible).
+
+
+### Where is the documentation for the crucible crate?
+
+The documentation for the `crucible` crate can be built locally, as described in [`mir-json`'s README](https://github.com/GaloisInc/mir-json#readme)
 
 
 ### Implement `Symbolic` trait for a custom type
