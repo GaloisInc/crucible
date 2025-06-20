@@ -144,7 +144,7 @@ To compile and test a single Rust program:
 * Clone this directory with `git clone https://github.com/GaloisInc/crucible.git` as we will need the `report-coverage` utility tool
 * In your crate run:
   ```
-  $ crux-mir --lib --  --branch-coverage --path-sat --output-directory test-coverage
+  $ cargo crux-test --lib --  --branch-coverage --path-sat --output-directory test-coverage
   ```
 * In your crate, run the following command, pointing it towards the `report-coverage` folder in `crucible` directory (note that you need to point to a directory in `test-coverage` folder that contains `report_data.js`, and the path is currently rather mangled):
   ```
