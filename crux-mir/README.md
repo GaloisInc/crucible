@@ -110,7 +110,7 @@ compiled by checking for the `crux` configuration predicate using
 
 Test cases can create and manipulate symbolic values using the functions in the
 [`crucible`](https://github.com/GaloisInc/mir-json/tree/master/libs/crucible)
-Rust crate.  See [`example/ffs/lib.rs`](example/ffs/lib.rs) or the files in
+Rust crate.  See [`examples/example-1/lib.rs`](examples/example-1/lib.rs) or the files in
 [`test/symb_eval/`](test/symb_eval) for examples of creating symbolic values
 and asserting properties about them.
 
@@ -122,7 +122,7 @@ translated libraries:
     $ export CRUX_RUST_LIBRARY_PATH=<mir-json checkout>/rlibs
 
 In the directory of a Cargo project (such as the [find-first-set
-example](example/ffs)), run the project's symbolic tests:
+example](examples/example-1)), run the project's symbolic tests:
 
     $ cargo crux-test --lib
 
@@ -188,11 +188,8 @@ To compile and test a single Rust program:
 
 ## Examples
 
-The [example/ffs/](example/ffs) directory in this repository contains a simple
-library with concrete and symbolic tests.  Use `cargo crux-test` to run the
-symbolic test, which proves that an optimized find-first-set function is
-equivalent to a simple reference implementation.
-Have a look at [example/README.md](./example/README.md) to learn more about different ways to use `crux-mir`.
+The [examples/](examples/) directory in this repository contains a number of examples with concrete and symbolic tests.
+Have a look at [examples/README.md](./examples/README.md) to learn more about different ways to use `crux-mir`.
 
 A fork of the curve25519-dalek library with symbolic tests for the `Scalar52`
 type is available [here][dalek-fork].  This is the code that appears in the
