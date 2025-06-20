@@ -78,7 +78,7 @@ import qualified Text.Regex as Regex
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Context
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 import qualified Data.Parameterized.Map as MapF
@@ -861,6 +861,12 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f MirReferenceType) ->
      !(Index ctx tp) ->
      MirStmt f MirReferenceType
+  -- | Like `MirSubfieldRef`, but for fields with statically-unknown types, such
+  -- as trait objects.
+  MirSubfieldRef_Untyped ::
+     !(f MirReferenceType) ->
+     !Int ->
+     MirStmt f MirReferenceType
   MirSubvariantRef ::
      !(TypeRepr discrTp) ->
      !(CtxRepr variantsCtx) ->
@@ -1021,6 +1027,7 @@ instance TypeApp MirStmt where
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
+    MirSubfieldRef_Untyped _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubindexRef _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
@@ -1055,6 +1062,7 @@ instance PrettyApp MirStmt where
     MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
+    MirSubfieldRef_Untyped x fieldNum -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
@@ -1250,6 +1258,41 @@ subfieldMirRefLeaf ctx ref idx =
     let tpr = ctx ! idx
     return $ MirReference tpr root (Field_RefPath ctx path idx)
 
+-- | Mimic `subfieldMirRefLeaf`, but infer the appropriate `CtxRepr` and `Index`
+-- at simulation time.
+subfieldMirRef_UntypedLeaf ::
+    MirReference sym ->
+    Int ->
+    MuxLeafT sym IO (MirReference sym)
+subfieldMirRef_UntypedLeaf ref fieldNum =
+  case ref of
+    MirReference_Integer _ ->
+      bail $ "attempted untyped subfield on the result of an integer-to-pointer cast"
+    MirReference structReprHopefully refRoot refPath ->
+      case structReprHopefully of
+        StructRepr structCtx ->
+          do
+            Some fieldIdx <-
+              case Ctx.intIndex fieldNum (Ctx.size structCtx) of
+                Just someIdx -> pure someIdx
+                Nothing ->
+                  bail $ unwords $
+                    [ "out-of-bounds field access: field"
+                    , show fieldNum
+                    , "of struct"
+                    , show structCtx
+                    ]
+            let fieldRepr = structCtx ! fieldIdx
+            let fieldPath = Field_RefPath structCtx refPath fieldIdx
+            pure $ MirReference fieldRepr refRoot fieldPath
+        notAStruct ->
+          bail $ unwords $
+            [ "untyped subfield requires a reference to a struct, but got a reference to"
+            , show notAStruct
+            ]
+  where
+    bail msg = leafAbort $ GenericSimError $ msg
+
 subfieldMirRefIO ::
     IsSymBackend sym bak =>
     bak ->
@@ -1260,6 +1303,16 @@ subfieldMirRefIO ::
     IO (MirReferenceMux sym)
 subfieldMirRefIO bak iTypes ctx ref idx =
     modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
+
+subfieldMirRef_UntypedIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    MirReferenceMux sym ->
+    Int ->
+    IO (MirReferenceMux sym)
+subfieldMirRef_UntypedIO bak iTypes ref fieldNum =
+    modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum) ref
 
 subvariantMirRefLeaf ::
     TypeRepr discrTp ->
@@ -1820,6 +1873,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          writeOnly s $ dropMirRefIO bak gs ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
+       MirSubfieldRef_Untyped (regValue -> ref) idx ->
+         readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
        MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
