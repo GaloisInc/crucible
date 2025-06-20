@@ -704,10 +704,12 @@ adjustFieldData (FkMaybe tpr) f e =
     adjustJust' tpr "adjustFieldData: expected Just, but got Nothing" f e
 
 
-data StructInfo = forall ctx tp tp'. StructInfo
-    (C.CtxRepr ctx)
-    (Ctx.Index ctx tp')
-    (FieldKind tp tp')
+data StructInfo where
+  StructInfo ::
+    C.CtxRepr ctx ->
+    Ctx.Index ctx tp' ->
+    FieldKind tp tp' ->
+    StructInfo
 
 -- First argument is `True` if a wrapper is expected.
 checkFieldKind :: Bool -> C.TypeRepr tp -> C.TypeRepr tp' -> String ->
