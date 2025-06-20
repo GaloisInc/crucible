@@ -57,7 +57,7 @@ import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
-    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef
+    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
     , mirVector_fromVector
     , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
@@ -686,6 +686,12 @@ data StructInfo where
   -- `StructInfo`.
   DynStructInfo ::
     StructInfo
+  -- | The field we describe is a slice, and so can't be described via
+  -- `StructInfo`.
+  SliceStructInfo ::
+    -- | The representation of the element type
+    C.TypeRepr tp ->
+    StructInfo
 
 -- First argument is `True` if a wrapper is expected.
 checkFieldKind :: Bool -> C.TypeRepr tp -> C.TypeRepr tp' -> String ->
@@ -714,6 +720,12 @@ structInfo adt i = do
     case fldTy of
         M.TyDynamic _ ->
             pure DynStructInfo
+        M.TySlice inner -> do
+            Some innerRepr <- tyToReprM inner
+            pure $ SliceStructInfo innerRepr
+        M.TyStr -> do
+            Some innerRepr <- tyToReprM (M.TyUint M.B8)
+            pure $ SliceStructInfo innerRepr
         _ -> do
             Some ctx <- variantFieldsM var
             Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
@@ -742,6 +754,8 @@ getStructField adt i (MirExp structTpr e) = structInfo adt i >>= \case
     return $ MirExp (fieldDataType fld) e
   DynStructInfo ->
     mirFail "getStructField: dynamic fields not supported"
+  SliceStructInfo _inner ->
+    mirFail "getStructField: slice fields not supported"
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt^.M.adtname) ++
         " read while uninitialized"
@@ -756,6 +770,8 @@ setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = structInfo adt i 
     MirExp structTpr <$> writeStructField ctx idx e e'
   DynStructInfo ->
     mirFail "setStructField: dynamic fields not supported"
+  SliceStructInfo _inner ->
+    mirFail "setStructField: slice fields not supported"
   where
     errFieldType :: FieldKind tp tp' -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i) ++
@@ -787,6 +803,8 @@ mapStructField adt i f (MirExp structTpr e) = structInfo adt i >>= \case
     MirExp structTpr <$> f' e
   DynStructInfo ->
     mirFail "mapStructField: dynamic fields not supported"
+  SliceStructInfo _inner ->
+    mirFail "mapStructField: slice fields not supported"
 
 
 data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
@@ -1086,6 +1104,31 @@ structFieldRef adt i ref meta = structInfo adt i >>= \case
         , "without accompanying vtable metadata"
         ]
     pure $ MirPlace repr dataRef metadata
+
+  -- The field we're trying to access holds a slice. Our `MirPlace` input is of
+  -- the form:
+  --
+  --   MirPlace S<[T]> <expr: *S<[T; len]> (SliceMeta len)
+  --
+  -- And we produce output of the form:
+  --
+  --   MirPlace T <data: *T> (SliceMeta len)
+  --
+  -- Where `data` is the slice's data pointer and `len` is the slice's length.
+  -- Note that we manually project into the first element of the underlying
+  -- array, yielding a `MirPlace T` rather than a `MirPlace [T; len]`.
+  SliceStructInfo innerRepr -> do
+    fieldRef <- subfieldRef_Untyped ref i
+    -- TODO: do we require `subjustRef` here?
+    elemRef <- subindexRef innerRepr fieldRef (R.App (usizeLit 0))
+    metadata <- case meta of
+      SliceMeta len -> pure (SliceMeta len)
+      _ -> mirFail $ unwords $
+        [ "attempted to access slice-typed field of"
+        , show (adt ^. M.adtname)
+        , "without accompanying slice metadata"
+        ]
+    pure $ MirPlace innerRepr elemRef metadata
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
