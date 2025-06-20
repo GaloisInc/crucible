@@ -28,6 +28,15 @@ You will need to install the following software:
 
 ## Setup: `mir-json`
 
+### Download `mir-json` binaries
+
+To download the latest version of `mir-json`, go to the [mir-json action](https://github.com/GaloisInc/mir-json/actions) page. Select the last build from `master` and scroll down the page, until you find and download the desired binary release (`mir-json-macos...` or `mir-json-ubuntu...`). Unzip the downloaded archive and add it to your path.
+
+The binary release comes with precompiled `rlibs`, so don't forget to set `CRUX_RUST_LIBRARY_PATH` variable pointing to the `rlibs` subfolder of the unzipped archive. Adding `export CRUX_RUST_LIBRARY_PATH=...` to your shell configuration is recommended.
+
+
+### Build `mir-json` from source
+
 `crux-mir` uses several submodules, so make sure they're initialized:
 
     $ git submodule update --init
@@ -56,34 +65,29 @@ versions corresponding to the last two `crux-mir` releases.
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
 
-## Setup
+## Setup: `crux-mir`
 
-### Build and Install
+### Download `crux-mir` binaries
+
+`crux-mir` comes with nightly builds and stable [binary releases](https://github.com/GaloisInc/crucible/releases). If you want to install the nightly build, do the following:
+
+* Go to the [crux-mir action](https://github.com/GaloisInc/crucible/actions/workflows/crux-mir-build.yml) page
+* Select the last build from `master` and scroll down the page, until you find and download the desired binary release (`crux-mir-macos...` or `crux-mir-ubuntu...`)
+* Unzip the downloaded archive and add it to your path
+
+
+### Build `crux-mir` from soruce
 
 Use GHC 9.6, 9.8, or 9.10. From the `crux-mir` directory, run:
 
     $ cabal install exe:crux-mir --overwrite-policy=always
 
-### Binary releases
-
-Both `crux-mir` and `mir-json` comes with nightly builds and stable binary releases. If you want to install the nightly build, do the following:
-
-* Go to the [crux-mir action](https://github.com/GaloisInc/crucible/actions/workflows/crux-mir-build.yml) page
-* Select the last build from `master` and scroll down the page, until you find and download the desired binary release (`crux-mir-macos...` or `crux-mir-ubuntu...`)
-* Unzip the downloaded archive and add it to your path
-* Do the same for `mir-json` by going to the [mir-json action](https://github.com/GaloisInc/mir-json/actions) page
-
-**Galois users only:** We provide a convenient install script for Linux and MacOS - you will need to provide a github access token to the `crucible` and `mir-json` repos:
-
-```
-$ ACCESS_TOKEN=xxx... install-crux.sh
-```
 
 ### Library documentation
 
 The documentation for the `crucible` crate can be built locally by following these steps:
 
-* clone https://github.com/GaloisInc/mir-json.git 
+* clone https://github.com/GaloisInc/mir-json.git
 * build `mir-json` as described in the [Building from source](https://github.com/GaloisInc/mir-json?tab=readme-ov-file#building-from-source) section
 * build the docs with:
   ```
@@ -148,27 +152,27 @@ To compile and test a single Rust program:
   ```
 * In your crate, run the following command, pointing it towards the `report-coverage` folder in `crucible` directory, which contains the coverage script. You will need to point to a directory in the `test-coverage` folder that contains a function's coverage report data (`report_data.js`):
   ```
-  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- test-coverage/test/62f2dedb\:\:f\[0\]/report_data.js
+  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- test-coverage/$YOUR_CRATE_NAME$/62f2dedb\:\:f\[0\]/report_data.js
   ```
 
-  Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works.
+  Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works. And `$YOUR_CRATE_NAME` is the `name` specified in the crate's `Cargo.toml` file.
 * This will report all paths not covered, including ones from the standard library, for example:
   ```
   warning: branch condition never has value true
     ┌─ ./libs/core/src/ub_checks.rs:1:1
     │
-  1 │ 
+  1 │
     │ ^
     │
     ┌─ ./libs/core/src/num/mod.rs:1:1
     │
-  1 │ 
+  1 │
     │ - in this macro invocation
 
   warning: branch condition never has value true
     ┌─ ./libs/core/src/ub_checks.rs:1:1
     │
-  1 │ 
+  1 │
     │ ^
 
   warning: branch condition never has value false
@@ -180,6 +184,7 @@ To compile and test a single Rust program:
   ```
 * To limit the coverage only to the code in your crate, use `--filter` to point the tool to the file you want to analyze. Then you get a more condensed output, for example:
   ```
+  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- --filter test.rs test-coverage/test/62f2dedb\:\:f\[0\]/report_data.js
   warning: branch condition never has value false
     ┌─ test.rs:2:8
     │
@@ -279,7 +284,7 @@ $ cargo crux-test --lib -- --path-sat
 When your test fails, it is often useful to get a concrete counterexample to better understand which input causes the failure. You can use the `-m` argument to print the counterexample:
 
 ```
-$ cargo crux-test --lib -- -m 
+$ cargo crux-test --lib -- -m
 ...
 ---- kinds_of_failure/c15b5012::overflow_quicksort[0]::crux_test[0]::midpoint_overflow[0] counterexamples ----
 [Crux] Found counterexample for verification goal
@@ -289,9 +294,9 @@ Model:
 [{"name": "a","loc": null,"val": "-0x58cf1802","bits": "32"},{"name": "b","loc": null,"val": "0x58cf1803","bits": "32"}]
 ```
 
-The model shows the name of variable, as well as its concrete hexadecimal value.
+The model shows the name of variable, as well as its concrete value.
 
-In addition to `-m` (which can be hard to interpret if you have multiple symbolic variables with the same name), you can use the `crucible_assert!()` macro. For example `crucible_assert!(x == y, "expected x == y, but got x = {} and y = {}", x, y);` will print some concrete values of `x` and `y`. 
+In addition to `-m` (which can be hard to interpret if you have multiple symbolic variables with the same name), you can use the `crucible_assert!()` macro. For example `crucible_assert!(x == y, "expected x == y, but got x = {} and y = {}", x, y);` will print some concrete values of `x` and `y`.
 
 ### Constraining symbolic values
 
