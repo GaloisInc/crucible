@@ -21,6 +21,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Mir.TransTy where
 
@@ -56,7 +57,7 @@ import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
-    , subfieldRef, subvariantRef, subjustRef
+    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef
     , mirVector_fromVector
     , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
@@ -681,6 +682,10 @@ data StructInfo where
     -- | `True` iff the described field is the struct's last
     Bool ->
     StructInfo
+  -- | The field we describe is a trait object, and so can't be described via
+  -- `StructInfo`.
+  DynStructInfo ::
+    StructInfo
 
 -- First argument is `True` if a wrapper is expected.
 checkFieldKind :: Bool -> C.TypeRepr tp -> C.TypeRepr tp' -> String ->
@@ -706,43 +711,51 @@ structInfo adt i = do
         Just fld -> return $ fld ^. M.fty
         Nothing -> mirFail errFieldIndex
 
-    Some ctx <- variantFieldsM var
-    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
-        Just x -> return x
-        Nothing -> mirFail errFieldIndex
-    let tpr' = ctx Ctx.! idx
-    Some tpr <- tyToReprM fldTy
+    case fldTy of
+        M.TyDynamic _ ->
+            pure DynStructInfo
+        _ -> do
+            Some ctx <- variantFieldsM var
+            Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+                Just x -> return x
+                Nothing -> mirFail errFieldIndex
+            let tpr' = ctx Ctx.! idx
+            Some tpr <- tyToReprM fldTy
 
-    col <- use $ cs . collection
-    kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
-        "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
+            col <- use $ cs . collection
+            kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
+                "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
 
-    let isLastField = i == length (var ^. M.vfields) - 1
+            let isLastField = i == length (var ^. M.vfields) - 1
 
-    return $ StructInfo ctx idx kind isLastField
+            return $ StructInfo ctx idx kind isLastField
   where
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
         show (adt ^. M.adtname)
 
 getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getStructField adt i (MirExp structTpr e) = do
-    StructInfo ctx idx fld _isLastField <- structInfo adt i
+getStructField adt i (MirExp structTpr e) = structInfo adt i >>= \case
+  StructInfo ctx idx fld _isLastField -> do
     Refl <- expectStructOrFail ctx structTpr
     e <- readStructField ctx idx e
     e <- readFieldData' fld errFieldUninit e
     return $ MirExp (fieldDataType fld) e
+  DynStructInfo ->
+    mirFail "getStructField: dynamic fields not supported"
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt^.M.adtname) ++
         " read while uninitialized"
 
 setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = do
-    StructInfo ctx idx fld _isLastField <- structInfo adt i
+setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = structInfo adt i >>= \case
+  StructInfo ctx idx fld _isLastField -> do
     Refl <- expectStructOrFail ctx structTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
     MirExp structTpr <$> writeStructField ctx idx e e'
+  DynStructInfo ->
+    mirFail "setStructField: dynamic fields not supported"
   where
     errFieldType :: FieldKind tp tp' -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i) ++
@@ -763,8 +776,8 @@ checkSameType desc f e = do
 mapStructField :: M.Adt -> Int ->
     (MirExp s -> MirGenerator h s ret (MirExp s)) ->
     MirExp s -> MirGenerator h s ret (MirExp s)
-mapStructField adt i f (MirExp structTpr e) = do
-    StructInfo ctx idx fld _isLastField <- structInfo adt i
+mapStructField adt i f (MirExp structTpr e) = structInfo adt i >>= \case
+  StructInfo ctx idx fld _isLastField -> do
     Refl <- expectStructOrFail ctx structTpr
     let f' =
             adjustStructField ctx idx $
@@ -772,6 +785,8 @@ mapStructField adt i f (MirExp structTpr e) = do
             checkSameType ("mapStructField " ++ show i ++ " of " ++ show (adt ^. M.adtname)) $
             f
     MirExp structTpr <$> f' e
+  DynStructInfo ->
+    mirFail "mapStructField: dynamic fields not supported"
 
 
 data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
@@ -1029,8 +1044,8 @@ structFieldRef ::
     R.Expr MIR s MirReferenceType ->
     PtrMetadata s ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt i ref meta = do
-    StructInfo ctx idx fld isLastField <- structInfo adt i
+structFieldRef adt i ref meta = structInfo adt i >>= \case
+  StructInfo ctx idx fld isLastField -> do    
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
     -- Only the last field of a struct can hold a dynamically-sized element to
@@ -1038,6 +1053,39 @@ structFieldRef adt i ref meta = do
     -- becomes meaningless.
     let metadata = if isLastField then meta else NoMeta
     return $ MirPlace (fieldDataType fld) ref metadata
+
+  -- The field we're trying to access holds a trait object. Our `MirPlace` input
+  -- is of the form:
+  --
+  --   MirPlace S<dyn Trait> <expr: *S<Concrete> (DynMeta vtable)
+  --
+  -- And we produce output of the form:
+  --
+  --   MirPlace AnyRepr <data: *Concrete> (DynMeta vtable)
+  --
+  -- Where `data` is the trait object's data pointer (a reference to some
+  -- unknown type) and `vtable` is the trait object's vtable. Note that it is
+  -- unimportant what type representation we use as the first argument to
+  -- MirPlace, as there is no way to directly access `data` (e.g., you can't
+  -- access (*x).field if `x: &dyn Trait`). As such, it is acceptable to fill it
+  -- in with a dummy type like AnyRepr.
+  DynStructInfo -> do
+    -- `subfieldRef` would fail, since it would attempt to evince the type
+    -- representation of the trait object, which is unknown at simulation time,
+    -- so we use `subfieldRef_Untyped` instead.
+    fieldRef <- subfieldRef_Untyped ref i
+    let repr = C.AnyRepr
+    -- The field holds a `TyDynamic` value, which cannot be initialized, so we
+    -- need to extend the path via `subjustRef`.
+    dataRef <- subjustRef repr fieldRef
+    metadata <- case meta of
+      DynMeta vtable -> pure (DynMeta vtable)
+      _ -> mirFail $ unwords $
+        [ "attempted to access trait-object-typed field of"
+        , show (adt ^. M.adtname)
+        , "without accompanying vtable metadata"
+        ]
+    pure $ MirPlace repr dataRef metadata
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
