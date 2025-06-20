@@ -8,6 +8,11 @@ import Data.List(intercalate)
 import Data.Maybe(fromMaybe)
 import System.Directory( canonicalizePath )
 
+import Data.Aeson.Encode.Pretty (encodePretty)
+import Data.Aeson (decode, Value)
+import qualified Data.ByteString.Lazy.Char8 as BL
+
+
 import What4.ProgramLoc
 
 jsLoc :: ProgramLoc -> IO (Maybe JS)
@@ -29,7 +34,7 @@ jsLoc x =
 newtype JS = JS { renderJS :: String }
 
 jsList :: [JS] -> JS
-jsList xs = JS $ "[" ++ intercalate "," [ x | JS x <- xs ] ++ "]"
+jsList xs = JS $ prettyPrintJson $ "[" ++ intercalate "," [ x | JS x <- xs ] ++ "]"
 
 infix 1 ~>
 
@@ -55,6 +60,19 @@ jsMaybe = fromMaybe jsNull
 jsNum :: Show a => a -> JS
 jsNum = JS . show
 
+
+
+prettyPrintJson :: String -> String
+prettyPrintJson s =
+  case val of
+    Just s' -> s'
+    Nothing -> "Error parsing JSON!"
+  where
+  val = prettyPrintJson' s
+  prettyPrintJson' :: String -> Maybe String
+  prettyPrintJson' str = do
+    val' <- decode (BL.pack str) :: Maybe Value
+    pure $ BL.unpack (encodePretty val')
 
 ---------------------------------------------------
 
