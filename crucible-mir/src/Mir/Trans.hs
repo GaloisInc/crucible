@@ -1365,7 +1365,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let vtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace adtRepr adtPtr (DynMeta vtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1397,7 +1397,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
-            Struct -> structFieldRef adt idx ref
+            Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> mirFail $ "evalPlace (PField, Union) NYI"
 

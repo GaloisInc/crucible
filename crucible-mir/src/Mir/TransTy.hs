@@ -677,6 +677,7 @@ data StructInfo = forall ctx tp tp'. StructInfo
     (C.CtxRepr ctx)
     (Ctx.Index ctx tp')
     (FieldKind tp tp')
+    Bool -- ^ `True` iff the described field is the struct's last
 
 -- First argument is `True` if a wrapper is expected.
 checkFieldKind :: Bool -> C.TypeRepr tp -> C.TypeRepr tp' -> String ->
@@ -713,14 +714,16 @@ structInfo adt i = do
     kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
         "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
 
-    return $ StructInfo ctx idx kind
+    let isLastField = i == length (var ^. M.vfields) - 1
+
+    return $ StructInfo ctx idx kind isLastField
   where
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
         show (adt ^. M.adtname)
 
 getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
 getStructField adt i (MirExp structTpr e) = do
-    StructInfo ctx idx fld <- structInfo adt i
+    StructInfo ctx idx fld _isLastField <- structInfo adt i
     Refl <- expectStructOrFail ctx structTpr
     e <- readStructField ctx idx e
     e <- readFieldData' fld errFieldUninit e
@@ -732,7 +735,7 @@ getStructField adt i (MirExp structTpr e) = do
 setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = do
-    StructInfo ctx idx fld <- structInfo adt i
+    StructInfo ctx idx fld _isLastField <- structInfo adt i
     Refl <- expectStructOrFail ctx structTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
@@ -758,7 +761,7 @@ mapStructField :: M.Adt -> Int ->
     (MirExp s -> MirGenerator h s ret (MirExp s)) ->
     MirExp s -> MirGenerator h s ret (MirExp s)
 mapStructField adt i f (MirExp structTpr e) = do
-    StructInfo ctx idx fld <- structInfo adt i
+    StructInfo ctx idx fld _isLastField <- structInfo adt i
     Refl <- expectStructOrFail ctx structTpr
     let f' =
             adjustStructField ctx idx $
@@ -1021,13 +1024,17 @@ fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 structFieldRef ::
     M.Adt -> Int ->
     R.Expr MIR s MirReferenceType ->
+    PtrMetadata s ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt i ref = do
-    StructInfo ctx idx fld <- structInfo adt i
+structFieldRef adt i ref meta = do
+    StructInfo ctx idx fld isLastField <- structInfo adt i
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
-    -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
-    return $ MirPlace (fieldDataType fld) ref NoMeta
+    -- Only the last field of a struct can hold a dynamically-sized element to
+    -- which metadata would pertain. If we access any other field, the metadata
+    -- becomes meaningless.
+    let metadata = if isLastField then meta else NoMeta
+    return $ MirPlace (fieldDataType fld) ref metadata
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
