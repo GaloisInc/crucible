@@ -34,15 +34,6 @@ emptyModelView = ModelView $ MapF.empty
 toDouble :: Rational -> Double
 toDouble = fromRational
 
-data BVRepr = HexSigned | HexUnsigned | Decimal
-
-showBVLiteral :: (1 <= w) => NatRepr w -> BV w -> String
-showBVLiteral w bv =
-    (if x < 0 then "-0x" else "0x") ++ N.showHex i (if natValue w == 64 then "L" else "")
-  where
-  x = BV.asSigned w bv
-  i = abs x
-
 showBVLiteralSigned :: (1 <= w) => NatRepr w -> BV w -> String
 showBVLiteralSigned w bv =
     (if x < 0 then "-0x" else "0x") ++ N.showHex i (if natValue w == 64 then "L" else "")
