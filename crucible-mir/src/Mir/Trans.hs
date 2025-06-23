@@ -875,10 +875,10 @@ evalCast' ck ty1 e ty2  = do
         unsizeAdtSlice an1 an2 e
       (M.Unsize, M.TyRawPtr (M.TyAdt an1 _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
         unsizeAdtSlice an1 an2 e
-      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt _ _ _) _, M.TyRef (M.TyAdt an2 _ _) _) ->
-        unsizeAdtDyn vtable an2 e
-      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt _ _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
-        unsizeAdtDyn vtable an2 e
+      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt an1 _ _) _, M.TyRef (M.TyAdt an2 _ _) _) ->
+        unsizeAdtDyn vtable an1 an2 e
+      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
+        unsizeAdtDyn vtable an2 an2 e
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
@@ -996,18 +996,29 @@ evalCast' ck ty1 e ty2  = do
             _ -> mirFail "attempted Unsize cast to non-slice target"
 
     -- | Perform an unsizing cast from a reference to a struct containing any
-    -- type in its (transitively) last field to one containing a trait object in
-    -- the same position.
-    unsizeAdtDyn :: VtableName -> AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
-    unsizeAdtDyn vtable castTarget adtRefExpr = do
+    -- initializable type in its (transitively) last field to one containing a
+    -- trait object in the same position. The restriction on initializability
+    -- makes it substantially easier to implement `Mir.TransTy.structFieldRef` -
+    -- see that function for details.
+    unsizeAdtDyn :: VtableName -> AdtName  -> AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
+    unsizeAdtDyn vtable castSource castTarget adtRefExpr = do
       col <- use $ cs . collection
-      case findLastFieldRec col castTarget of
+      eventualTraitObject <- case findLastFieldRec col castSource of
         Nothing ->
-          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castSource
         Just field ->
-          case field ^. M.fty of
-            M.TyDynamic traitName -> mkTraitObject traitName vtable adtRefExpr
-            _ -> mirFail "attempted UnsizeVtable cast with non-trait-object target"
+          pure (field ^. M.fty)
+      case tyToFieldRepr col eventualTraitObject of
+        Some (FieldRepr (FkMaybe _)) ->
+          mirFail "error: unsizeAdtDyn with non-initializable unsized field"
+        Some (FieldRepr (FkInit _)) ->
+          case findLastFieldRec col castTarget of
+            Nothing ->
+              mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+            Just field ->
+              case field ^. M.fty of
+                M.TyDynamic traitName -> mkTraitObject traitName vtable adtRefExpr
+                _ -> mirFail "attempted UnsizeVtable cast with non-trait-object target"
 
     unsizeArray ty sz ty'
       | ty == ty', MirExp MirReferenceRepr ref <- e
@@ -1436,7 +1447,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let vtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace adtRepr adtPtr (DynMeta vtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1468,7 +1479,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
-            Struct -> structFieldRef adt idx ref
+            Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> mirFail $ "evalPlace (PField, Union) NYI"
 
