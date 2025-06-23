@@ -28,6 +28,8 @@ You will need to install the following software:
 
 ## Setup: `mir-json`
 
+There are two different ways to set up `mir-json`: either by downloading the binaries from GitHub Actions (see the [Download `mir-json` binaries](#download-mir-json-binaries) section) or by building it from source (see the [Build `mir-json` from source](#build-mir-json-from-source) section).
+
 ### Download `mir-json` binaries
 
 To download the latest version of `mir-json`, go to the [mir-json action](https://github.com/GaloisInc/mir-json/actions) page. Select the last build from `master` and scroll down the page, until you find and download the desired binary release (`mir-json-macos...` or `mir-json-ubuntu...`). Unzip the downloaded archive and add it to your path.
@@ -67,6 +69,10 @@ versions corresponding to the last two `crux-mir` releases.
 
 ## Setup: `crux-mir`
 
+
+There are two different ways to set up `crux-mir`: either by downloading the binaries from GitHub Actions (see the [Download `crux-mir` binaries](#download-crux-mir-binaries) section) or by building it from source (see the [Build `crux-mir` from source](#build-crux-mir-from-source) section).
+
+
 ### Download `crux-mir` binaries
 
 `crux-mir` comes with nightly builds and stable [binary releases](https://github.com/GaloisInc/crucible/releases). If you want to install the nightly build, do the following:
@@ -76,7 +82,7 @@ versions corresponding to the last two `crux-mir` releases.
 * Unzip the downloaded archive and add it to your path
 
 
-### Build `crux-mir` from soruce
+### Build `crux-mir` from source
 
 Use GHC 9.6, 9.8, or 9.10. From the `crux-mir` directory, run:
 
