@@ -3,7 +3,9 @@
 -- | Utilites for generating JSON
 module Crux.UI.JS where
 
-import Data.Text(unpack)
+import Data.Text(unpack, Text)
+import qualified Data.Text as Text
+import Numeric
 import Data.List(intercalate)
 import Data.Maybe(fromMaybe)
 import System.Directory( canonicalizePath )
@@ -18,17 +20,27 @@ import What4.ProgramLoc
 jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
-    SourcePos f l c ->
-      do let fstr = unpack f
-         fabsolute <-
-            if | null fstr -> pure ""
-               | otherwise -> canonicalizePath fstr
-         pure $ Just $ jsObj
-           [ "file" ~> jsStr fabsolute
-           , "line" ~> jsStr (show l)
-           , "col"  ~> jsStr (show c)
-           ]
+    SourcePos fname l c -> parsePos fname l c
+    OtherPos s -> case Text.split (==':') s of
+          fname : line : col : _rest
+            | (l,[]):_ <- readDec (Text.unpack (Text.strip line))
+            , (c,[]):_ <- readDec (Text.unpack (Text.strip col))
+            -> parsePos fname l c
+          _ -> pure Nothing
     _ -> pure Nothing
+    where
+    parsePos :: Text -> Int -> Int -> IO (Maybe JS)
+    parsePos f l c = do
+      let fstr = unpack f
+      fabsolute <-
+        if null fstr
+          then pure ""
+          else canonicalizePath fstr
+      pure $ Just $ jsObj
+        [ "file" ~> jsStr fabsolute
+        , "line" ~> jsStr (show l)
+        , "col"  ~> jsStr (show c)
+        ]
 
 --------------------------------------------------------------------------------
 newtype JS = JS { renderJS :: String }
