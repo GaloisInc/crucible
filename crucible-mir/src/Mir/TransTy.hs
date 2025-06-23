@@ -705,7 +705,8 @@ adjustFieldData (FkMaybe tpr) f e =
 
 
 data StructInfo where
-  StructInfo ::
+  -- | Describes a sized field of a sized struct
+  SizedStruct ::
     C.CtxRepr ctx ->
     Ctx.Index ctx tp' ->
     FieldKind tp tp' ->
@@ -746,14 +747,14 @@ structInfo adt i = do
     kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
         "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
 
-    return $ StructInfo ctx idx kind
+    return $ SizedStruct ctx idx kind
   where
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
         show (adt ^. M.adtname)
 
 getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
 getStructField adt i (MirExp structTpr e) = do
-    StructInfo ctx idx fld <- structInfo adt i
+    SizedStruct ctx idx fld <- structInfo adt i
     Refl <- expectStructOrFail ctx structTpr
     e <- readStructField ctx idx e
     e <- readFieldData' fld errFieldUninit e
@@ -765,7 +766,7 @@ getStructField adt i (MirExp structTpr e) = do
 setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = do
-    StructInfo ctx idx fld <- structInfo adt i
+    SizedStruct ctx idx fld <- structInfo adt i
     Refl <- expectStructOrFail ctx structTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
@@ -791,7 +792,7 @@ mapStructField :: M.Adt -> Int ->
     (MirExp s -> MirGenerator h s ret (MirExp s)) ->
     MirExp s -> MirGenerator h s ret (MirExp s)
 mapStructField adt i f (MirExp structTpr e) = do
-    StructInfo ctx idx fld <- structInfo adt i
+    SizedStruct ctx idx fld <- structInfo adt i
     Refl <- expectStructOrFail ctx structTpr
     let f' =
             adjustStructField ctx idx $
@@ -1056,7 +1057,7 @@ structFieldRef ::
     R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
 structFieldRef adt i ref = do
-    StructInfo ctx idx fld <- structInfo adt i
+    SizedStruct ctx idx fld <- structInfo adt i
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
