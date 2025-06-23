@@ -21,6 +21,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Mir.TransTy where
 
@@ -57,7 +58,7 @@ import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
-    , subfieldRef, subvariantRef, subjustRef
+    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef
     , mirVector_fromVector
     , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
@@ -711,6 +712,10 @@ data StructInfo where
     Ctx.Index ctx tp' ->
     FieldKind tp tp' ->
     StructInfo
+  -- | Describes a sized field of an unsized struct
+  SizedField ::
+    FieldKind tp tp' ->
+    StructInfo
 
 -- First argument is `True` if a wrapper is expected.
 checkFieldKind :: Bool -> C.TypeRepr tp -> C.TypeRepr tp' -> String ->
@@ -726,6 +731,38 @@ checkFieldKind True tpr tpr' desc = do
         "(at " ++ desc ++ ")"
     return $ FkMaybe tpr
 
+data Sizedness = Sized | Unsized
+
+-- | Is this ADT sized or unsized?
+--
+-- An ADT is unsized iff it is a struct, contains at least one field, and the
+-- last field is unsized, per `tySizedness`.
+adtSizedness :: M.Collection -> M.Adt -> Sizedness
+adtSizedness col adt =
+  case adt ^. M.adtkind of
+    M.Enum _ -> Sized
+    M.Union -> Sized
+    M.Struct ->
+      case M.onlyVariant adt ^. M.vfields of
+        [] -> Sized  -- size 0 is still sized
+        fields -> tySizedness col (last fields ^. M.fty)
+
+-- | Is this type sized or unsized?
+--
+-- Unsized values include trait objects, slices, `str`s, and unsized structs,
+-- per `adtSizedness`.
+tySizedness :: HasCallStack => M.Collection -> M.Ty -> Sizedness
+tySizedness col ty =
+  case ty of
+    M.TyDynamic _ -> Unsized
+    M.TySlice _ -> Unsized
+    M.TyStr -> Unsized
+    M.TyAdt adtName _ _ ->
+      case col ^? M.adts . ix adtName of
+        Nothing -> error $ "unknown ADT: "<>show adtName
+        Just adt -> adtSizedness col adt
+    _ -> Sized
+
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
     when (adt ^. M.adtkind /= M.Struct) $ mirFail $
@@ -736,41 +773,56 @@ structInfo adt i = do
         Just fld -> return $ fld ^. M.fty
         Nothing -> mirFail errFieldIndex
 
-    Some ctx <- variantFieldsM var
-    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
-        Just x -> return x
-        Nothing -> mirFail errFieldIndex
-    let tpr' = ctx Ctx.! idx
-    Some tpr <- tyToReprM fldTy
-
     col <- use $ cs . collection
-    kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
-        "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
+    case adtSizedness col adt of
+      Sized -> do
+        Some ctx <- variantFieldsM var
+        Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+            Just x -> return x
+            Nothing -> mirFail errFieldIndex
+        let tpr' = ctx Ctx.! idx
+        Some tpr <- tyToReprM fldTy
 
-    return $ SizedStruct ctx idx kind
+        kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
+            "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
+
+        return $ SizedStruct ctx idx kind
+
+      -- We want to avoid attempting to compute the `CtxRepr` for this struct,
+      -- which may involve computing the `TypeRepr` of its unsized field, which
+      -- does (for `TyDynamic`) or should (for `TyStr` and `TySlice`) cause an
+      -- error.
+      Unsized -> do
+        Some (FieldRepr fieldKind) <- pure $ tyToFieldRepr col fldTy
+        pure $ SizedField fieldKind
+
   where
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
         show (adt ^. M.adtname)
 
 getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getStructField adt i (MirExp structTpr e) = do
-    SizedStruct ctx idx fld <- structInfo adt i
+getStructField adt i (MirExp structTpr e) = structInfo adt i >>= \case
+  SizedStruct ctx idx fld -> do
     Refl <- expectStructOrFail ctx structTpr
     e <- readStructField ctx idx e
     e <- readFieldData' fld errFieldUninit e
     return $ MirExp (fieldDataType fld) e
+  SizedField _fieldRepr ->
+    mirFail "getStructField: sized fields of unsized structs not yet supported"
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt^.M.adtname) ++
         " read while uninitialized"
 
 setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = do
-    SizedStruct ctx idx fld <- structInfo adt i
+setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = structInfo adt i >>= \case
+  SizedStruct ctx idx fld -> do
     Refl <- expectStructOrFail ctx structTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
     MirExp structTpr <$> writeStructField ctx idx e e'
+  SizedField _fieldRepr ->
+    mirFail "setStructField: sized fields of unsized structs not yet supported"
   where
     errFieldType :: FieldKind tp tp' -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i) ++
@@ -791,8 +843,8 @@ checkSameType desc f e = do
 mapStructField :: M.Adt -> Int ->
     (MirExp s -> MirGenerator h s ret (MirExp s)) ->
     MirExp s -> MirGenerator h s ret (MirExp s)
-mapStructField adt i f (MirExp structTpr e) = do
-    SizedStruct ctx idx fld <- structInfo adt i
+mapStructField adt i f (MirExp structTpr e) = structInfo adt i >>= \case
+  SizedStruct ctx idx fld -> do
     Refl <- expectStructOrFail ctx structTpr
     let f' =
             adjustStructField ctx idx $
@@ -800,6 +852,8 @@ mapStructField adt i f (MirExp structTpr e) = do
             checkSameType ("mapStructField " ++ show i ++ " of " ++ show (adt ^. M.adtname)) $
             f
     MirExp structTpr <$> f' e
+  SizedField _fieldRepr ->
+    mirFail "mapStructField: sized fields of unsized structs not yet supported"
 
 
 data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
@@ -1056,12 +1110,17 @@ structFieldRef ::
     M.Adt -> Int ->
     R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt i ref = do
-    SizedStruct ctx idx fld <- structInfo adt i
+structFieldRef adt i ref = structInfo adt i >>= \case
+  SizedStruct ctx idx fld -> do
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
     -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
     return $ MirPlace (fieldDataType fld) ref NoMeta
+  SizedField fieldKind -> do
+    let fieldRepr = fieldDataType fieldKind
+    fieldRef <- subfieldRef_Untyped ref i (Just (Some fieldRepr))
+    dataRef <- fieldDataRef fieldKind fieldRef
+    return $ MirPlace fieldRepr dataRef NoMeta
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->
