@@ -17,13 +17,14 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 
 import What4.ProgramLoc
 
--- | 'jsLoc' takes a program location, and optionally returns it
--- as @JS String@.
+-- | 'jsLoc' takes a program location and renders it as a JavaScript string.
+-- This returns @Nothing@ if it is unclear how to render the program location.
 jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
     SourcePos fname l c -> parsePos fname l c
     -- Attempt to parse `OtherPos` in case it is in fact a code span:
+    --
     --   * This case is necessary because of the particular shape of source
     --   spans that arise from `mir-json`
     --   (e.g., `test/symb_eval/num/checked_mul.rs:6:5: 6:12:`), which will
