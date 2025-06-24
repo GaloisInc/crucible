@@ -1,6 +1,8 @@
 # next
 
-Nothing yet.
+* `showBVLiteral` has been renamed to `showBVLiteralSigned` and
+  two additional functions `showBVLiteralUnsigned` and `showBVLiteralDecimal`
+  were added to improve printing of bit vectors
 
 # 0.7.2 -- 2025-03-21
 

@@ -35,7 +35,7 @@ import           Lang.Crucible.Simulator.SimError
 
 import           Crux
 import qualified Crux.Config.Common as CC
-import           Crux.Model ( toDouble, showBVLiteral, showFloatLiteral
+import           Crux.Model ( toDouble, showBVLiteralSigned, showFloatLiteral
                             , showDoubleLiteral )
 import           Crux.Types
 
@@ -325,7 +325,7 @@ ppValsC :: BaseTypeRepr ty -> Vals ty -> [String]
 ppValsC ty (Vals xs) =
   let (cty, cnm, ppRawVal) = case ty of
         BaseBVRepr n ->
-          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", showBVLiteral n)
+          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", showBVLiteralSigned n)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | Just Refl <- testEquality eb (knownNat @8)
           , Just Refl <- testEquality sb (knownNat @24)
