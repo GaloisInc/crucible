@@ -21,12 +21,11 @@ jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
     SourcePos fname l c -> parsePos fname l c
-    OtherPos s -> case Text.split (==':') s of
-          fname : line : col : _rest
-            | (l,[]):_ <- readDec (Text.unpack (Text.strip line))
-            , (c,[]):_ <- readDec (Text.unpack (Text.strip col))
-            -> parsePos fname l c
-          _ -> pure Nothing
+    OtherPos s
+      | fname : line : col : _rest <- Text.split (==':') s
+      , (l,[]):_ <- readDec (Text.unpack (Text.strip line))
+      , (c,[]):_ <- readDec (Text.unpack (Text.strip col)) ->
+        parsePos fname l c
     _ -> pure Nothing
     where
     parsePos :: Text -> Int -> Int -> IO (Maybe JS)
