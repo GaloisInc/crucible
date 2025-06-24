@@ -17,10 +17,22 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 
 import What4.ProgramLoc
 
+-- |`jsLoc` takes a program location, and optionally returns it
+-- as `JS String`
 jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
     SourcePos fname l c -> parsePos fname l c
+    -- |Attempt to parse `OtherPos` in case it is in fact a code span:
+    --   * This case is necessary because of the particular shape of source
+    --   spans that arise from `mir-json`
+    --   (e.g., `test/symb_eval/num/checked_mul.rs:6:5: 6:12:`), which will
+    --   always be represented as `OtherPos`.
+    --   * While `crux` doesn't have the machinery to represent the entire
+    --   source span in its UI framework, we can still achieve partial results
+    --   by parsing the first location from the source span
+    --   (e.g., `the test/symb_eval/num/checked_mul.rs:6:5:` bit). This does
+    --   not show the entire span, but it is still better than nothing.
     OtherPos s
       | fname : line : col : _rest <- Text.split (==':') s
       , (l,[]):_ <- readDec (Text.unpack (Text.strip line))
