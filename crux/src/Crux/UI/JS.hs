@@ -17,8 +17,8 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 
 import What4.ProgramLoc
 
--- |`jsLoc` takes a program location, and optionally returns it
--- as `JS String`
+-- | 'jsLoc' takes a program location, and optionally returns it
+-- as @JS String@.
 jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
