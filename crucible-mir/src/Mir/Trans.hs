@@ -113,12 +113,12 @@ parsePosition :: Text.Text -> PL.Position
 parsePosition posText =
   case Text.split (==':') posText of
     [fname,line,col]
-      | (l,[]):_ <- readDec (Text.unpack (Text.strip line))
-      , (c,[]):_ <- readDec (Text.unpack (Text.strip col))
+      | (l,[]):_ <- readDec (Text.unpack line)
+      , (c,[]):_ <- readDec (Text.unpack col)
       -> PL.SourcePos fname l c
-    fname : line : col : _rest
-      | (l,[]):_ <- readDec (Text.unpack (Text.strip line))
-      , (c,[]):_ <- readDec (Text.unpack (Text.strip col))
+    [fname,line,col, _, _]
+      | (l,[]):_ <- readDec (Text.unpack line)
+      , (c,[]):_ <- readDec (Text.unpack col)
       -> PL.SourcePos fname l c
     _ -> PL.OtherPos posText
 
