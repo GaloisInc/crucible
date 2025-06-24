@@ -72,7 +72,7 @@ showDoubleLiteral x
 valsJS :: BaseTypeRepr ty -> Vals ty -> IO [JS]
 valsJS ty (Vals xs) =
   let showEnt = case ty of
-        BaseBVRepr n -> showEnt'' n
+        BaseBVRepr n -> showBVEnt n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | Just Refl <- testEquality eb (knownNat @8)
           , Just Refl <- testEquality sb (knownNat @24)
@@ -97,8 +97,8 @@ valsJS ty (Vals xs) =
          , "bits" ~> jsStr (show n)
          ]
 
-  showEnt'' :: (1 <= w) => NatRepr w -> Entry (BV w) -> IO JS
-  showEnt'' n e = do
+  showBVEnt :: (1 <= w) => NatRepr w -> Entry (BV w) -> IO JS
+  showBVEnt n e = do
     l <- fromMaybe jsNull <$> jsLoc (entryLoc e)
     pure $ jsObj
       [ "name"         ~> jsStr (entryName e)
