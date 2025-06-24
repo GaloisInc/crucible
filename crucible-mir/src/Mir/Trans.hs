@@ -116,12 +116,7 @@ parsePosition posText =
       | (l,[]):_ <- readDec (Text.unpack line)
       , (c,[]):_ <- readDec (Text.unpack col)
       -> PL.SourcePos fname l c
-    [fname,line,col, _, _]
-      | (l,[]):_ <- readDec (Text.unpack line)
-      , (c,[]):_ <- readDec (Text.unpack col)
-      -> PL.SourcePos fname l c
     _ -> PL.OtherPos posText
-
 
 
 setPosition :: Text.Text -> MirGenerator h s ret ()
