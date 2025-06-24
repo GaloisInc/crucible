@@ -116,6 +116,10 @@ parsePosition posText =
       | (l,[]):_ <- readDec (Text.unpack (Text.strip line))
       , (c,[]):_ <- readDec (Text.unpack (Text.strip col))
       -> PL.SourcePos fname l c
+    fname : line : col : _rest
+      | (l,[]):_ <- readDec (Text.unpack (Text.strip line))
+      , (c,[]):_ <- readDec (Text.unpack (Text.strip col))
+      -> PL.SourcePos fname l c
     _ -> PL.OtherPos posText
 
 
