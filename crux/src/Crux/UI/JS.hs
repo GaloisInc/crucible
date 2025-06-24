@@ -23,7 +23,7 @@ jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
     SourcePos fname l c -> parsePos fname l c
-    -- |Attempt to parse `OtherPos` in case it is in fact a code span:
+    -- Attempt to parse `OtherPos` in case it is in fact a code span:
     --   * This case is necessary because of the particular shape of source
     --   spans that arise from `mir-json`
     --   (e.g., `test/symb_eval/num/checked_mul.rs:6:5: 6:12:`), which will
