@@ -839,7 +839,9 @@ evalCast' ck ty1 e ty2  = do
       -- TODO: Remove this completely.
       (M.Unsize,a,b) | a == b -> return e
 
-      -- ADT -> ADT unsizing is done via `CoerceUnsized`.
+      -- ADT -> ADT unsizing is done via `CoerceUnsized`, and handled here.
+      -- Reference-to-ADT -> reference-to-ADT casting is handled separately,
+      -- below.
       (M.Unsize, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
         coerceUnsized ck aname1 aname2 e
       (M.UnsizeVtable _, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
@@ -864,6 +866,19 @@ evalCast' ck ty1 e ty2  = do
       (M.Unsize, M.TyRef (M.TyDynamic t1) _, M.TyRef (M.TyDynamic t2) _)
         | t1 == t2
         -> return e
+
+      -- Unsized casts from references to sized structs to references to DSTs.
+      -- We defer to the provided cast kind to determine what kind of unsizing
+      -- cast we expect to perform, i.e. what kind of metadata to include in the
+      -- created fat pointer.
+      (M.Unsize, M.TyRef (M.TyAdt an1 _ _) _, M.TyRef (M.TyAdt an2 _ _) _) ->
+        unsizeAdtSlice an1 an2 e
+      (M.Unsize, M.TyRawPtr (M.TyAdt an1 _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
+        unsizeAdtSlice an1 an2 e
+      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt _ _ _) _, M.TyRef (M.TyAdt an2 _ _) _) ->
+        unsizeAdtDyn vtable an2 e
+      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt _ _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
+        unsizeAdtDyn vtable an2 e
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
@@ -944,6 +959,56 @@ evalCast' ck ty1 e ty2  = do
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
+    -- | Perform an unsizing cast from a reference to a struct containing an
+    -- array in its (transitively) last field to one containing a slice or `str`
+    -- in the same position.
+    unsizeAdtSlice :: AdtName  -> AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
+    unsizeAdtSlice an1 an2 adtRefExpr = do
+      adtRef <- case adtRefExpr of
+        MirExp MirReferenceRepr adtRef -> pure adtRef
+        _ -> mirFail "unsizeAdtSlice called on non-reference"
+      col <- use $ cs . collection
+
+      -- We expect to be casting from an array-containing DST to a
+      -- slice-containing DST. For the target of the cast to be a valid DST, the
+      -- slice needs to be its last field (or its last field's last field),
+      -- which means the source needs to have an array in the same position
+      lenExpr <- case findLastFieldRec col an1 of
+        Just field ->
+          case field ^. M.fty of
+            M.TyArray _elemTy len ->
+              pure $ R.App $ usizeLit $ fromIntegral len
+            _ ->
+              mirFail "attempted Unsize cast from non-array source"
+        Nothing ->
+          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an1
+
+      -- Sanity-check that we are indeed casting to a type with a slice in the
+      -- expected position
+      let ref = MirExp MirSliceRepr (mkSlice adtRef lenExpr)
+      case findLastFieldRec col an2 of
+        Nothing ->
+          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an2
+        Just field ->
+          case field ^. M.fty of
+            M.TySlice _elemTy -> pure ref
+            M.TyStr -> pure ref
+            _ -> mirFail "attempted Unsize cast to non-slice target"
+
+    -- | Perform an unsizing cast from a reference to a struct containing any
+    -- type in its (transitively) last field to one containing a trait object in
+    -- the same position.
+    unsizeAdtDyn :: VtableName -> AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
+    unsizeAdtDyn vtable castTarget adtRefExpr = do
+      col <- use $ cs . collection
+      case findLastFieldRec col castTarget of
+        Nothing ->
+          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+        Just field ->
+          case field ^. M.fty of
+            M.TyDynamic traitName -> mkTraitObject traitName vtable adtRefExpr
+            _ -> mirFail "attempted UnsizeVtable cast with non-trait-object target"
+
     unsizeArray ty sz ty'
       | ty == ty', MirExp MirReferenceRepr ref <- e
       = do

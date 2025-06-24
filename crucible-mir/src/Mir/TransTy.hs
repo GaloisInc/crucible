@@ -360,7 +360,32 @@ reprTransparentFieldTy col adt = do
   idx <- findReprTransparentField col adt
   adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty
 
+-- | If the given name refers to a struct in the given collection, and that
+-- struct has a nonzero number of fields, return the struct's last field.
+findLastField :: M.Collection -> M.AdtName -> Maybe M.Field
+findLastField col adtName = do
+  adt <- col ^? M.adts . ix adtName
+  guard (adt ^. M.adtkind == M.Struct)
+  let var = M.onlyVariant adt
+  case var ^. M.vfields of
+    [] -> Nothing
+    fields -> Just (last fields)
 
+-- | A version of `findLastField` that, when it encounters an ADT-type last
+-- field, will recursively find that ADT's last field.
+findLastFieldRec :: M.Collection -> M.AdtName -> Maybe M.Field
+findLastFieldRec col adtName = do
+  lastField <- findLastField col adtName
+  case lastField ^. M.fty of
+      M.TyAdt innerName _ _ ->
+        -- If we have a last field, but it's an ADT and it itself doesn't have a
+        -- last field, we want to be able to report our own last field. So,
+        -- instead of recursing unconditionally, we "peek" by using the
+        -- non-recursive `findLastField` before committing to drilling deeper.
+        case findLastField col innerName of
+          Nothing -> Just lastField
+          Just _ -> findLastFieldRec col innerName
+      _ -> Just lastField
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Some C.CtxRepr
 variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) =
