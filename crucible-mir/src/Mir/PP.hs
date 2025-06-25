@@ -311,7 +311,11 @@ instance Pretty BinOp where
       WithOverflow op' -> pretty op' <> pretty "?"
 
 instance Pretty VtableItem where
-  pretty (VtableItem fn def) = tupled [pretty fn, pretty def] <> semi
+  pretty (VtableItem fn def) =
+    vcat
+      [ pretty "(" <+> pretty fn
+      , pretty "," <+> pretty def <+> pretty ");"
+      ]
 
 instance Pretty Vtable where
   pretty (Vtable name items) =
