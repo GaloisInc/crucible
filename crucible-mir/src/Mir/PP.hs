@@ -310,6 +310,15 @@ instance Pretty BinOp where
       Unchecked op' -> pretty op' <> pretty "!"
       WithOverflow op' -> pretty op' <> pretty "?"
 
+instance Pretty VtableItem where
+  pretty (VtableItem fn def) = tupled [pretty fn, pretty def] <> semi
+
+instance Pretty Vtable where
+  pretty (Vtable name items) =
+    vcat [pretty "vtable" <+> pretty name <+> lbrace ,
+          indent 3 (vcat (map pretty items)),
+          rbrace]
+
 instance Pretty CastKind where
     pretty = viaShow
 
@@ -415,6 +424,8 @@ instance Pretty Collection where
           map pretty (Map.elems (col^.adts)) ++
           [pretty "TRAITs"] ++
           map pretty (Map.elems (col^.traits)) ++
+          [pretty "VTABLEs"] ++
+          map pretty (Map.elems (col^.vtables)) ++
           [pretty "INTRINSICSs"] ++
           map pretty (Map.elems (col^.intrinsics)) ++
           [pretty "STATICS"] ++
