@@ -657,9 +657,9 @@ subfieldRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
 
--- | Extend the reference path encapsulated in the provided `Expr MIR s
--- MirReferenceType` (i.e. `ref`), which should terminate in a struct, to
--- terminate at the `fieldNum`th field of that struct.
+-- | Extend the reference path encapsulated in the provided @Expr MIR s
+-- MirReferenceType@ (i.e. @ref@), which should terminate in a struct, to
+-- terminate at the @fieldNum@th field of that struct.
 --
 -- Essentially an untyped/dynamically-typed version of `subfieldRef` that infers
 -- the appropriate struct context and field type when they aren't statically
