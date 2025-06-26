@@ -313,8 +313,8 @@ instance Pretty BinOp where
 instance Pretty VtableItem where
   pretty (VtableItem fn def) =
     vcat
-      [ pretty "(" <+> pretty fn
-      , pretty "," <+> pretty def <+> pretty ");"
+      [ pretty "( " <+> pretty def
+      , pretty "=>" <+> pretty fn <+> pretty ");"
       ]
 
 instance Pretty Vtable where
