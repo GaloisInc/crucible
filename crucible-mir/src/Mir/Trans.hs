@@ -739,7 +739,7 @@ extendSignedBV (MirExp tp e) w =
       _ -> mirFail $ "unimplemented signed bvext " ++ show tp ++ " " ++ show w
 
 
-evalCast' :: HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
+evalCast' :: forall h s ret. HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  = do
     col <- use $ cs . collection
     case (ck, ty1, ty2) of
