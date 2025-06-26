@@ -773,7 +773,7 @@ tySizedness col ty =
     M.TyStr -> Unsized
     M.TyAdt adtName _ _ ->
       case col ^? M.adts . ix adtName of
-        Nothing -> error $ "unknown ADT: "<>show adtName
+        Nothing -> error $ "tySizedness: unknown ADT: "<>show adtName
         Just adt -> adtSizedness col adt
     _ -> Sized
 
@@ -813,15 +813,15 @@ structInfo adt i = do
         Unsized
           | i /= length (var ^. M.vfields) - 1 ->
             mirFail "encountered unsized field in non-last position"
-        Unsized ->
-          case fldTy of
-            M.TySlice innerTy -> do
-              Some innerRepr <- tyToReprM innerTy
-              pure $ UnsizedSliceField innerRepr
-            M.TyStr -> do
-              Some innerRepr <- tyToReprM (M.TyUint M.B8)
-              pure $ UnsizedSliceField innerRepr
-            _ -> pure UnsizedNonSliceField
+          | otherwise ->
+            case fldTy of
+              M.TySlice innerTy -> do
+                Some innerRepr <- tyToReprM innerTy
+                pure $ UnsizedSliceField innerRepr
+              M.TyStr -> do
+                Some innerRepr <- tyToReprM (M.TyUint M.B8)
+                pure $ UnsizedSliceField innerRepr
+              _ -> pure UnsizedNonSliceField
 
   where
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
