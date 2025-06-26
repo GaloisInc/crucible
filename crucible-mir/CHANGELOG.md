@@ -20,6 +20,8 @@ This release supports [version
 * Added an intrinsic for [`read_volatile`](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
   and [`write_volatile`](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html)
 * Support raw-pointer and `CoerceUnsized` casts that introduce vtable metadata.
+* Add `Pretty` instances for `Vtable` and `VtableItem`, and make the `Pretty`
+  instance for `Collection` print its vtables.
 
 # 0.4 -- 2025-03-21
 
