@@ -272,9 +272,9 @@ tyToUnsizedRefRepr col ty =
 pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
 pattern DynRefCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
 
--- | The representation for a `&dyn Tr`/`&mut dyn Tr`. Both use the same
--- representation: a pair of a data value (which is either `&Ty` or `&mut Ty`)
--- and a vtable. The vtable is type-erased (`AnyRepr`).
+-- | The representation for a @&dyn Tr@/@&mut dyn Tr@. Both use the same
+-- representation: a pair of a data value (which is either @&Ty@ or @&mut Ty@)
+-- and a vtable. The vtable is type-erased (`AnyRepr`). See `DynRefCtx`.
 pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
 pattern DynRefRepr = C.StructRepr DynRefCtx
 
@@ -717,11 +717,11 @@ data StructInfo where
     FieldKind tp tp' ->
     StructInfo
   -- | Describes an unsized field of an unsized struct which contains something
-  -- other than a slice or `str`
+  -- other than a slice or @str@
   UnsizedNonSliceField ::
     StructInfo
   -- | Describes an unsized field of an unsized struct which contains a slice or
-  -- a `str`, with the element type (representation) given by the `TypeRepr`
+  -- a @str@, with the element type (representation) given by the `TypeRepr`
   -- argument
   --
   -- We make the distinction because field-projecting into slicey values
@@ -763,7 +763,7 @@ adtSizedness col adt =
 
 -- | Is this type sized or unsized?
 --
--- Unsized values include trait objects, slices, `str`s, and unsized structs,
+-- Unsized values include trait objects, slices, @str@s, and unsized structs,
 -- per `adtSizedness`.
 tySizedness :: HasCallStack => M.Collection -> M.Ty -> Sizedness
 tySizedness col ty =

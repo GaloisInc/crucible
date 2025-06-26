@@ -959,8 +959,8 @@ evalCast' ck ty1 e ty2  = do
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
-    -- | Perform an unsizing cast from a reference to a struct containing an
-    -- array in its (transitively) last field to one containing a slice or `str`
+    -- | Perform an unsized cast from a reference to a struct containing an
+    -- array in its (transitively) last field to one containing a slice or @str@
     -- in the same position.
     unsizeAdtSlice :: AdtName  -> AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
     unsizeAdtSlice an1 an2 adtRefExpr = do
@@ -995,7 +995,7 @@ evalCast' ck ty1 e ty2  = do
             M.TyStr -> pure ref
             _ -> mirFail "attempted Unsize cast to non-slice target"
 
-    -- | Perform an unsizing cast from a reference to a struct containing any
+    -- | Perform an unsized cast from a reference to a struct containing any
     -- initializable type in its (transitively) last field to one containing a
     -- trait object in the same position. The restriction on initializability
     -- makes it substantially easier to implement `Mir.TransTy.structFieldRef` -
