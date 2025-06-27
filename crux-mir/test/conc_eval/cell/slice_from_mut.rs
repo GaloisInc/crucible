@@ -1,4 +1,3 @@
-// FAIL: unsupported misc cast: *mut [i32] -> *const Cell<[i32]>
 use std::cell::Cell;
 
 #[cfg_attr(crux, crux::test)]
