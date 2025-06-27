@@ -862,7 +862,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(Index ctx tp) ->
      MirStmt f MirReferenceType
   -- | Like `MirSubfieldRef`, but for fields with statically-unknown types, such
-  -- as trait objects.
+  -- as trait objects. The `Int` is the index of the field, and the `TypeRepr`
+  -- is an optional type hint, if the expected type happens to be known and
+  -- representable. If provided, it will be dynamically checked at simulation
+  -- time.
   MirSubfieldRef_Untyped ::
      !(f MirReferenceType) ->
      !Int ->
@@ -1260,7 +1263,8 @@ subfieldMirRefLeaf ctx ref idx =
     return $ MirReference tpr root (Field_RefPath ctx path idx)
 
 -- | Mimic `subfieldMirRefLeaf`, but infer the appropriate `CtxRepr` and `Index`
--- at simulation time.
+-- at simulation time. If @expectedTy@ is provided, this will assert that it
+-- matches the actual type of the field during simulation.
 subfieldMirRef_UntypedLeaf ::
     MirReference sym ->
     Int ->
