@@ -1,4 +1,3 @@
-// FAIL: unsupported unsize cast: &Cell<[i32; 5]> -> &Cell<[i32]>
 use std::cell::Cell;
 
 #[cfg_attr(crux, crux::test)]

@@ -871,14 +871,14 @@ evalCast' ck ty1 e ty2  = do
       -- We defer to the provided cast kind to determine what kind of unsizing
       -- cast we expect to perform, i.e. what kind of metadata to include in the
       -- created fat pointer.
-      (M.Unsize, M.TyRef (M.TyAdt an1 _ _) _, M.TyRef (M.TyAdt an2 _ _) _) ->
-        unsizeAdtSlice an1 an2
-      (M.Unsize, M.TyRawPtr (M.TyAdt an1 _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
-        unsizeAdtSlice an1 an2
-      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt an1 _ _) _, M.TyRef (M.TyAdt an2 _ _) _) ->
-        unsizeAdtDyn vtable an1 an2
-      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) _, M.TyRawPtr (M.TyAdt an2 _ _) _) ->
-        unsizeAdtDyn vtable an2 an2
+      (M.Unsize, M.TyRef (M.TyAdt an1 _ _) m1, M.TyRef (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtSlice M.TyRef an1 m1 an2 m2
+      (M.Unsize, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtSlice M.TyRawPtr an1 m1 an2 m2
+      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt an1 _ _) m1, M.TyRef (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtDyn vtable M.TyRef an1 m1 an2 m2
+      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtDyn vtable M.TyRawPtr an1 m1 an2 m2
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
@@ -959,11 +959,52 @@ evalCast' ck ty1 e ty2  = do
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
+    -- | Attempt to access the repr(transparent) field types of the two structs,
+    -- failing if only one is repr(transparent)
+    reprTransparentFieldTys :: AdtName -> AdtName -> MirGenerator h s ret (Maybe (Ty, Ty))
+    reprTransparentFieldTys an1 an2 = do
+      col <- use $ cs . collection
+      adt1 <- findAdt an1
+      adt2 <- findAdt an2
+      case (reprTransparentFieldTy col adt1, reprTransparentFieldTy col adt2) of
+        (Just field1Ty, Just field2Ty) ->
+          pure $ Just (field1Ty, field2Ty)
+        (Nothing, Nothing) ->
+          pure Nothing
+        (Just _, Nothing) ->
+          mirFail $ unwords
+            [ "reprTransparentFieldTys: impossible:"
+            , show $ adt1 ^. M.adtname
+            , "was repr(transparent), but"
+            , show $ adt2 ^. M.adtname
+            , "was not"
+            ]
+        (Nothing, Just _) ->
+          mirFail $ unwords
+            [ "reprTransparentFieldTys: impossible:"
+            , show $ adt2 ^. M.adtname
+            , "was repr(transparent), but"
+            , show $ adt1 ^. M.adtname
+            , "was not"
+            ]
+
     -- | Perform an unsized cast from a reference to a struct containing an
     -- array in its (transitively) last field to one containing a slice or @str@
     -- in the same position.
-    unsizeAdtSlice :: AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
-    unsizeAdtSlice an1 an2 = do
+    unsizeAdtSlice ::
+      (Ty -> Mutability -> Ty) ->
+      AdtName -> Mutability ->
+      AdtName -> Mutability ->
+      MirGenerator h s ret (MirExp s)
+    unsizeAdtSlice ref an1 m1 an2 m2 =
+      reprTransparentFieldTys an1 an2 >>= \case
+        Just (field1Ty, field2Ty) ->
+          evalCast' ck (ref field1Ty m1) e (ref field2Ty m2)
+        Nothing ->
+          unsizeAdtSliceNormal an1 an2
+
+    unsizeAdtSliceNormal :: AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
+    unsizeAdtSliceNormal an1 an2 = do
       adtRef <- case e of
         MirExp MirReferenceRepr adtRef -> pure adtRef
         _ -> mirFail "unsizeAdtSlice called on non-reference"
@@ -1000,8 +1041,21 @@ evalCast' ck ty1 e ty2  = do
     -- trait object in the same position. The restriction on initializability
     -- makes it substantially easier to implement `Mir.TransTy.structFieldRef` -
     -- see that function for details.
-    unsizeAdtDyn :: VtableName -> AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
-    unsizeAdtDyn vtable castSource castTarget = do
+    unsizeAdtDyn ::
+      VtableName ->
+      (Ty -> Mutability -> Ty) ->
+      AdtName -> Mutability ->
+      AdtName -> Mutability ->
+      MirGenerator h s ret (MirExp s)
+    unsizeAdtDyn vtable ref an1 m1 an2 m2 =
+      reprTransparentFieldTys an1 an2 >>= \case
+        Just (field1Ty, field2Ty) ->
+          evalCast' ck (ref field1Ty m1) e (ref field2Ty m2)
+        Nothing ->
+          unsizeAdtDynNormal vtable an1 an2
+
+    unsizeAdtDynNormal :: VtableName -> AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
+    unsizeAdtDynNormal vtable castSource castTarget = do
       col <- use $ cs . collection
       eventualTraitObject <- case findLastFieldRec col castSource of
         Nothing ->
