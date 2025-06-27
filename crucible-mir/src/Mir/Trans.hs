@@ -739,7 +739,7 @@ extendSignedBV (MirExp tp e) w =
       _ -> mirFail $ "unimplemented signed bvext " ++ show tp ++ " " ++ show w
 
 
-evalCast' :: HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
+evalCast' :: forall h s ret. HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  = do
     col <- use $ cs . collection
     case (ck, ty1, ty2) of
@@ -839,7 +839,9 @@ evalCast' ck ty1 e ty2  = do
       -- TODO: Remove this completely.
       (M.Unsize,a,b) | a == b -> return e
 
-      -- ADT -> ADT unsizing is done via `CoerceUnsized`.
+      -- ADT -> ADT unsizing is done via `CoerceUnsized`, and handled here.
+      -- Reference-to-ADT -> reference-to-ADT casting is handled separately,
+      -- below.
       (M.Unsize, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
         coerceUnsized ck aname1 aname2 e
       (M.UnsizeVtable _, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
@@ -864,6 +866,19 @@ evalCast' ck ty1 e ty2  = do
       (M.Unsize, M.TyRef (M.TyDynamic t1) _, M.TyRef (M.TyDynamic t2) _)
         | t1 == t2
         -> return e
+
+      -- Unsized casts from references to sized structs to references to DSTs.
+      -- We defer to the provided cast kind to determine what kind of unsizing
+      -- cast we expect to perform, i.e. what kind of metadata to include in the
+      -- created fat pointer.
+      (M.Unsize, M.TyRef (M.TyAdt an1 _ _) m1, M.TyRef (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtSlice M.TyRef an1 m1 an2 m2
+      (M.Unsize, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtSlice M.TyRawPtr an1 m1 an2 m2
+      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt an1 _ _) m1, M.TyRef (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtDyn vtable M.TyRef an1 m1 an2 m2
+      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtDyn vtable M.TyRawPtr an1 m1 an2 m2
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
@@ -944,6 +959,120 @@ evalCast' ck ty1 e ty2  = do
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
+    -- | Attempt to access the repr(transparent) field types of the two structs,
+    -- failing if only one is repr(transparent)
+    reprTransparentFieldTys :: AdtName -> AdtName -> MirGenerator h s ret (Maybe (Ty, Ty))
+    reprTransparentFieldTys an1 an2 = do
+      col <- use $ cs . collection
+      adt1 <- findAdt an1
+      adt2 <- findAdt an2
+      case (reprTransparentFieldTy col adt1, reprTransparentFieldTy col adt2) of
+        (Just field1Ty, Just field2Ty) ->
+          pure $ Just (field1Ty, field2Ty)
+        (Nothing, Nothing) ->
+          pure Nothing
+        (Just _, Nothing) ->
+          mirFail $ unwords
+            [ "reprTransparentFieldTys: impossible:"
+            , show $ adt1 ^. M.adtname
+            , "was repr(transparent), but"
+            , show $ adt2 ^. M.adtname
+            , "was not"
+            ]
+        (Nothing, Just _) ->
+          mirFail $ unwords
+            [ "reprTransparentFieldTys: impossible:"
+            , show $ adt2 ^. M.adtname
+            , "was repr(transparent), but"
+            , show $ adt1 ^. M.adtname
+            , "was not"
+            ]
+
+    -- | Perform an unsized cast from a reference to a struct containing an
+    -- array in its (transitively) last field to one containing a slice or @str@
+    -- in the same position.
+    unsizeAdtSlice ::
+      (Ty -> Mutability -> Ty) ->
+      AdtName -> Mutability ->
+      AdtName -> Mutability ->
+      MirGenerator h s ret (MirExp s)
+    unsizeAdtSlice ref an1 m1 an2 m2 =
+      reprTransparentFieldTys an1 an2 >>= \case
+        Just (field1Ty, field2Ty) ->
+          evalCast' ck (ref field1Ty m1) e (ref field2Ty m2)
+        Nothing ->
+          unsizeAdtSliceNormal an1 an2
+
+    unsizeAdtSliceNormal :: AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
+    unsizeAdtSliceNormal an1 an2 = do
+      adtRef <- case e of
+        MirExp MirReferenceRepr adtRef -> pure adtRef
+        _ -> mirFail "unsizeAdtSlice called on non-reference"
+      col <- use $ cs . collection
+
+      -- We expect to be casting from an array-containing DST to a
+      -- slice-containing DST. For the target of the cast to be a valid DST, the
+      -- slice needs to be its last field (or its last field's last field),
+      -- which means the source needs to have an array in the same position
+      lenExpr <- case findLastFieldRec col an1 of
+        Just field ->
+          case field ^. M.fty of
+            M.TyArray _elemTy len ->
+              pure $ R.App $ usizeLit $ fromIntegral len
+            _ ->
+              mirFail "attempted Unsize cast from non-array source"
+        Nothing ->
+          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an1
+
+      -- Sanity-check that we are indeed casting to a type with a slice in the
+      -- expected position
+      let ref = MirExp MirSliceRepr (mkSlice adtRef lenExpr)
+      case findLastFieldRec col an2 of
+        Nothing ->
+          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an2
+        Just field ->
+          case field ^. M.fty of
+            M.TySlice _elemTy -> pure ref
+            _ -> mirFail "attempted Unsize cast to non-slice target"
+
+    -- | Perform an unsized cast from a reference to a struct containing any
+    -- initializable type in its (transitively) last field to one containing a
+    -- trait object in the same position. The restriction on initializability
+    -- makes it substantially easier to implement `Mir.TransTy.structFieldRef` -
+    -- see that function for details.
+    unsizeAdtDyn ::
+      VtableName ->
+      (Ty -> Mutability -> Ty) ->
+      AdtName -> Mutability ->
+      AdtName -> Mutability ->
+      MirGenerator h s ret (MirExp s)
+    unsizeAdtDyn vtable ref an1 m1 an2 m2 =
+      reprTransparentFieldTys an1 an2 >>= \case
+        Just (field1Ty, field2Ty) ->
+          evalCast' ck (ref field1Ty m1) e (ref field2Ty m2)
+        Nothing ->
+          unsizeAdtDynNormal vtable an1 an2
+
+    unsizeAdtDynNormal :: VtableName -> AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
+    unsizeAdtDynNormal vtable castSource castTarget = do
+      col <- use $ cs . collection
+      eventualTraitObject <- case findLastFieldRec col castSource of
+        Nothing ->
+          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castSource
+        Just field ->
+          pure (field ^. M.fty)
+      case tyToFieldRepr col eventualTraitObject of
+        Some (FieldRepr (FkMaybe _)) ->
+          mirFail "error: unsizeAdtDyn with non-initializable unsized field"
+        Some (FieldRepr (FkInit _)) ->
+          case findLastFieldRec col castTarget of
+            Nothing ->
+              mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+            Just field ->
+              case field ^. M.fty of
+                M.TyDynamic traitName -> mkTraitObject traitName vtable e
+                _ -> mirFail "attempted UnsizeVtable cast with non-trait-object target"
+
     unsizeArray ty sz ty'
       | ty == ty', MirExp MirReferenceRepr ref <- e
       = do
@@ -1266,6 +1395,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
+    doRef adtTy@(M.TyAdt _ _ _) | MirSliceRepr <- tpr = doSliceAdt adtTy ref
+    doRef adtTy@(M.TyAdt _ _ _) | DynRefRepr <- tpr = doDynAdt adtTy ref
+    -- TODO: do we need to go to the trouble here of figuring out if this ADT is
+    -- a DST, if it didn't come with a DST-indicative TypeRepr?
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1315,7 +1448,59 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
+    -- For (dynamically-sized) ADTs wrapping slices, with MirPlace input of the
+    -- form:
+    --
+    --   MirPlace (*S<[T]>) <expr: **S<[T]> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace S<[T]> <expr: *S<[T; len]> (SliceMeta len)
+    --
+    -- Where `len` is the wrapped slice's length.
+    doSliceAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doSliceAdt adtTy ref' =
+      do
+        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- but that would involve computing its slice field's representation,
+        -- which should error
+        let adtRepr = R.exprType ref'
+        adtRef <- readMirRef MirSliceRepr ref'
+        -- In both this case and the case of plain slices, `readMirRef` gives us
+        -- access to a double-wide DST pointer. In both cases, the second half
+        -- holds the slice length. In our case, the first half holds a pointer
+        -- to the ADT, while in the slice case, the first half holds the slice's
+        -- data pointer, i.e. a pointer to the first element of the slice.
+        --
+        -- In both cases, though, we can safely access the first half with
+        -- `getSlicePtr`.
+        let adtPtr = getSlicePtr adtRef
+        let sliceLen = getSliceLen adtRef
+        return $ MirPlace adtRepr adtPtr (SliceMeta sliceLen)
+
+    -- For (dynamically-sized) ADTs wrapping trait objects, with MirPlace input
+    -- of the form:
+    --
+    --   MirPlace (*S<dyn Trait>) <expr: **S<dyn Trait> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace S<dyn Trait> <expr: *S<Concrete> (DynMeta vtable)
+    --
+    -- Where `vtable` is the vtable for `Trait` at `Concrete`.
+    doDynAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doDynAdt adtTy ref' =
+      do
+        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- but that would involve computing its trait object field's
+        -- representation, which will error
+        let adtRepr = R.exprType ref'
+        dynRef <- readMirRef DynRefRepr ref'
+        let adtPtr = S.getStruct dynRefDataIndex dynRef
+        let vtable = S.getStruct dynRefVtableIndex dynRef
+        return $ MirPlace adtRepr adtPtr (DynMeta vtable)
+
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1347,7 +1532,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
-            Struct -> structFieldRef adt idx ref
+            Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> mirFail $ "evalPlace (PField, Union) NYI"
 
