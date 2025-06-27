@@ -1033,7 +1033,6 @@ evalCast' ck ty1 e ty2  = do
         Just field ->
           case field ^. M.fty of
             M.TySlice _elemTy -> pure ref
-            M.TyStr -> pure ref
             _ -> mirFail "attempted Unsize cast to non-slice target"
 
     -- | Perform an unsized cast from a reference to a struct containing any
