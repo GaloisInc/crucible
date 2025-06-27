@@ -1451,7 +1451,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     -- For (dynamically-sized) ADTs wrapping slices, with MirPlace input of the
     -- form:
     --
-    --   MirPlace (*S<[T]>) <expr: **S<[T; len]> NoMeta
+    --   MirPlace (*S<[T]>) <expr: **S<[T]> NoMeta
     --
     -- We produce output of the form:
     --
@@ -1481,7 +1481,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     -- For (dynamically-sized) ADTs wrapping trait objects, with MirPlace input
     -- of the form:
     --
-    --   MirPlace (*S<dyn Trait>) <expr: **S<Concrete> NoMeta
+    --   MirPlace (*S<dyn Trait>) <expr: **S<dyn Trait> NoMeta
     --
     -- We produce output of the form:
     --
