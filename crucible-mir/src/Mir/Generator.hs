@@ -657,6 +657,22 @@ subfieldRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
 
+-- | Extend the reference path encapsulated in the provided @Expr MIR s
+-- MirReferenceType@ (i.e. @ref@), which should terminate in a struct, to
+-- terminate at the @fieldNum@th field of that struct. If @expectedTy@ is
+-- provided, then it will be asserted (via `subfieldMirRef_UntypedLeaf`) to
+-- match the observed type of the field during simulation.
+--
+-- Essentially an untyped/dynamically-typed version of `subfieldRef` that infers
+-- the appropriate struct context and field type when they aren't statically
+-- known/knowable - e.g. for structs containing trait objects.
+subfieldRef_Untyped ::
+  R.Expr MIR s MirReferenceType ->
+  Int ->
+  Maybe (Some C.TypeRepr) ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+subfieldRef_Untyped ref fieldNum expectedTy = G.extensionStmt (MirSubfieldRef_Untyped ref fieldNum expectedTy)
+
 subvariantRef ::
   C.TypeRepr discrTp ->
   C.CtxRepr variantsCtx ->
