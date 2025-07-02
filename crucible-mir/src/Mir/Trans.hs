@@ -2300,7 +2300,8 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys retTy implFH
-      | M.TyRef _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
+      | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
+      | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
     
     buildShimForRef :: forall recvTy argTys retTy .
