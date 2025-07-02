@@ -1980,7 +1980,7 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
 
   let addrTaken = mconcat (map addrTakenVars blocks)
   initLocals (argvars ++ localvars) addrTaken
-  initArgs inputs (reverse argvars)
+  initArgs (fmapFC R.AtomExpr inputs) (reverse argvars)
 
   db <- use debugLevel
   when (db > 3) $ do
@@ -2005,7 +2005,7 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
 
   where
     initArgs :: HasCallStack =>
-        Ctx.Assignment (R.Atom s) args -> [M.Var] -> MirGenerator h s ret ()
+        Ctx.Assignment (R.Expr MIR s) args -> [M.Var] -> MirGenerator h s ret ()
     initArgs inputs vars =
         case (Ctx.viewAssign inputs, vars) of
             (Ctx.AssignEmpty, []) -> return ()
@@ -2014,14 +2014,14 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
                 Some vi <- case mvi of
                     Just x -> return x
                     Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
-                Refl <- testEqualityOrFail (R.typeOfAtom input) (varInfoRepr vi) $
+                Refl <- testEqualityOrFail (R.exprType input) (varInfoRepr vi) $
                     "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
-                        show (R.typeOfAtom input) ++ " != " ++ show (varInfoRepr vi)
+                        show (R.exprType input) ++ " != " ++ show (varInfoRepr vi)
                 case vi of
-                    VarRegister reg -> G.assignReg reg $ R.AtomExpr input
+                    VarRegister reg -> G.assignReg reg input
                     VarReference tpr refReg -> do
                         ref <- G.readReg refReg
-                        writeMirRef tpr ref $ R.AtomExpr input
+                        writeMirRef tpr ref input
                     VarAtom _ -> mirFail $ "unexpected VarAtom"
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname
