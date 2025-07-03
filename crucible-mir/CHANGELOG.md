@@ -22,6 +22,8 @@ This release supports [version
 * Support raw-pointer and `CoerceUnsized` casts that introduce vtable metadata.
 * Add `Pretty` instances for `Vtable` and `VtableItem`, and make the `Pretty`
   instance for `Collection` print its vtables.
+* Generalize the custom overrides for `rotate_{left,right}` to work on integer
+  types besides `i32` or `u32`.
 
 # 0.4 -- 2025-03-21
 
