@@ -2746,6 +2746,33 @@ doVirtTailCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retT
   G.tailCall fnHandle args
 
 
+-- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
+-- then call that function on those arguments.
+--
+-- Note the extra quantified variable in the return type in this vs.
+-- 'doVirtTailCall', which makes this function slightly less restrictive:
+--
+-- > G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
+--
+-- vs
+--
+-- > G.Generator MIR s t retTy    (ST h) (R.Expr MIR s retTy)
+doVirtCall
+  :: HasCallStack
+  => M.Collection
+  -> M.TraitName
+  -> Integer -- ^ The method index
+  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
+  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
+  -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
+  -> C.TypeRepr retTy -- ^ The return type
+  -> G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
+doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = do
+  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy
+  G.call fnHandle args
+
+
 -- | Translate a virtual call. The logic for looking up the right method in the
 -- vtable is implemented in 'mkVirtCall'.
 transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
