@@ -929,19 +929,58 @@ ctlz_nonzero =
 rotate_left :: (ExplodedDefId, CustomRHS)
 rotate_left = ( ["core","intrinsics", "rotate_left"],
   \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
-      | Just Refl <- testEquality w w' -> do
-        return $ MirExp (C.BVRepr w) $ R.App $ E.BVRol w eVal eAmt
+    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt] ->
+      reduceRotate E.BVRol w eVal w' eAmt
     _ -> mirFail $ "invalid arguments for rotate_left")
 
 rotate_right :: (ExplodedDefId, CustomRHS)
 rotate_right = ( ["core","intrinsics", "rotate_right"],
   \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
-      | Just Refl <- testEquality w w' -> do
-        return $ MirExp (C.BVRepr w) $ R.App $ E.BVRor w eVal eAmt
+    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt] ->
+      reduceRotate E.BVRor w eVal w' eAmt
     _ -> mirFail $ "invalid arguments for rotate_right")
 
+-- | Perform a left or right rotation operation. If @wVal@ (the width of the
+-- first bitvector argument) is not the same as @wAmt@ (the width of the second
+-- bitvector argument), then zero-extend or truncate the second bitvector
+-- argument as needed before performing the rotation.
+--
+-- The implementation of this function is heavily inspired by @bvRol@ and
+-- @bvRor@ from @what4@, which also do similar zero-extension and truncation.
+reduceRotate ::
+  (1 <= wVal, 1 <= wAmt) =>
+  (NatRepr wVal ->
+    R.Expr MIR s (C.BVType wVal) ->
+    R.Expr MIR s (C.BVType wVal) ->
+    E.App MIR (R.Expr MIR s) (C.BVType wVal)) ->
+  NatRepr wVal ->
+  R.Expr MIR s (C.BVType wVal) ->
+  NatRepr wAmt ->
+  R.Expr MIR s (C.BVType wAmt) ->
+  MirGenerator h s ret (MirExp s)
+reduceRotate rotateOp wVal eVal wAmt eAmt =
+  case compareNat wVal wAmt of
+    -- already the same size, apply the operation
+    NatEQ ->
+      pure $ MirExp (C.BVRepr wVal) $ R.App
+           $ rotateOp wVal eVal eAmt
+
+    -- wAmt is shorter: zero extend.
+    NatGT _diff ->
+      pure $ MirExp (C.BVRepr wVal) $ R.App
+           $ rotateOp wVal eVal $ R.App
+           $ E.BVZext wVal wAmt eAmt
+
+    -- wAmt is longer: reduce modulo the width of wVal, then truncate.
+    -- Truncation is OK because the value will always fit after modulo
+    -- reduction.
+    NatLT _diff ->
+      pure $ MirExp (C.BVRepr wVal) $ R.App
+           $ rotateOp wVal eVal $ R.App
+           $ E.BVTrunc wVal wAmt $ R.App
+           $ E.BVUrem wAmt eAmt $ R.App
+           $ E.BVLit wAmt
+           $ BV.mkBV wAmt $ intValue wVal
 
 ---------------------------------------------------------------------------------------
 -- ** Custom ::intrinsics::discriminant_value
