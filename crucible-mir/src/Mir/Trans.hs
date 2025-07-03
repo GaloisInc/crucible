@@ -2300,12 +2300,20 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys retTy implFH
-      | M.TyRef recvMirTy' _ <- recvMirTy = \argsA -> (\x -> ([], x)) $ do
+      | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
+      | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
+      | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
+    
+    buildShimForRef :: forall recvTy argTys retTy .
+        C.TypeRepr recvTy ->
+        C.CtxRepr argTys ->
+        FH.FnHandle (recvTy :<: argTys) retTy ->
+        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
+    buildShimForRef recvTy argTys implFH = \argsA -> (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
             (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
         G.tailCall (R.App $ E.HandleLit implFH) (recvDowncast <: args)
-      | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
 
 splitMethodArgs :: forall recvTy argTys s.
     Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->
