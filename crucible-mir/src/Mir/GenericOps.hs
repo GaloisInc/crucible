@@ -131,6 +131,7 @@ instance GenericOps Mutability
 instance GenericOps Collection
 instance GenericOps Fn
 instance GenericOps Abi
+instance GenericOps RustCallBodyInfo
 instance GenericOps MirBody
 instance GenericOps BasicBlock
 instance GenericOps BasicBlockData

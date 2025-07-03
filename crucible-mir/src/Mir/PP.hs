@@ -387,11 +387,6 @@ instance Pretty FnSig where
   pretty fs =
     tupled (map pretty (fs^.fsarg_tys)) <+> arrow <+> pretty (fs^.fsreturn_ty)
                 <+> brackets (pretty (fs^.fsabi))
-                <+> maybeSpreadArg
-    where
-        maybeSpreadArg = case fs^.fsspreadarg of
-            Nothing -> mempty
-            Just i -> braces (pretty "spread_arg" <+> pretty i)
 
 instance Pretty Abi where
     pretty = viaShow
