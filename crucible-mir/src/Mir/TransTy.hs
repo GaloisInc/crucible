@@ -231,9 +231,10 @@ tyToRepr col t0 = case t0 of
 
   M.TyFloat _ -> Some C.RealValRepr
 
-  -- non polymorphic function types go to FunctionHandleRepr
+  -- Function types go to FunctionHandleRepr.  `RustCall` functions get special
+  -- handling in `abiFnArgs`.
   M.TyFnPtr sig@(M.FnSig args ret _abi) ->
-     tyListToCtx col args $ \argsr  ->
+     tyListToCtx col (abiFnArgs sig) $ \argsr  ->
      tyToReprCont col ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
 
@@ -312,6 +313,26 @@ isZeroSized col ty = go ty
       M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
       M.TyNever -> True
       _ -> False
+
+
+-- | Get the "ABI-level" function arguments for `sig`, which determines the
+-- arguments we use for the Crucible `FnHandle`.  This applies a special
+-- adjustment for `extern "rust-call"` functions, like the one rustc applies
+-- when converting a `FnSig` to `FnAbi`.
+abiFnArgs :: HasCallStack => M.FnSig -> [M.Ty]
+abiFnArgs sig = case sig ^. M.fsabi of
+  M.RustCall M.RcNoBody -> untupledArgs
+  M.RustCall M.RcNoSpreadArg -> normalArgs
+  M.RustCall (M.RcSpreadArg _) -> untupledArgs
+  _ -> normalArgs
+  where
+    normalArgs = sig ^. M.fsarg_tys
+    untupledArgs = case normalArgs of
+      [M.TyTuple tys] -> tys
+      [selfTy, M.TyTuple tys] -> selfTy : tys
+      _ -> error $
+          "unexpected argument list for " ++ show (sig ^. M.fsabi) ++  ": "
+            ++ show (sig ^. M.fsarg_tys)
 
 
 -- | Look up the `Adt` definition, if this `Ty` is `TyAdt`.
