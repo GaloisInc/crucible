@@ -232,7 +232,7 @@ tyToRepr col t0 = case t0 of
   M.TyFloat _ -> Some C.RealValRepr
 
   -- non polymorphic function types go to FunctionHandleRepr
-  M.TyFnPtr sig@(M.FnSig args ret _abi _spread) ->
+  M.TyFnPtr sig@(M.FnSig args ret _abi) ->
      tyListToCtx col args $ \argsr  ->
      tyToReprCont col ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)

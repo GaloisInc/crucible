@@ -915,7 +915,7 @@ evalCast' ck ty1 e ty2  = do
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
 
-      (M.ReifyFnPointer, M.TyFnDef defId, M.TyFnPtr sig@(M.FnSig args ret _ _))
+      (M.ReifyFnPointer, M.TyFnDef defId, M.TyFnPtr sig@(M.FnSig args ret _))
          -> do mhand <- lookupFunction defId
                case mhand of
                  Just (me, sig')
@@ -927,7 +927,7 @@ evalCast' ck ty1 e ty2  = do
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show defId
 
-      (M.ClosureFnPointer shimDefId, M.TyClosure [], M.TyFnPtr sig@(M.FnSig args ret _ _))
+      (M.ClosureFnPointer shimDefId, M.TyClosure [], M.TyFnPtr sig@(M.FnSig args ret _))
          -> do mhand <- lookupFunction shimDefId
                case mhand of
                  Just (me, sig')
@@ -1708,8 +1708,8 @@ lookupFunction nm = do
             return Nothing
 
 callHandle :: HasCallStack =>
-    MirExp s -> Abi -> Maybe Int -> [M.Operand] -> MirGenerator h s ret (MirExp s)
-callHandle e abi spreadArg cargs
+    MirExp s -> Abi -> [M.Operand] -> MirGenerator h s ret (MirExp s)
+callHandle e abi cargs
   | MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst <- e = do
     db    <- use debugLevel
     when (db > 3) $
@@ -1719,12 +1719,11 @@ callHandle e abi spreadArg cargs
 
     exps <- mapM evalOperand cargs
     exps' <- case abi of
-      RustCall
-        -- If the target has `spread_arg` set, then it expects a tuple
-        -- instead of individual arguments.  This is a hack - see comment
-        -- on the definition of Mir.Mir.FnSig for details.
-        | isJust $ spreadArg -> return exps
-
+      -- If the target has `spread_arg` set, then it expects a tuple
+      -- instead of individual arguments.  This is a hack - see comment
+      -- on the definition of Mir.Mir.FnSig for details.
+      RustCall (RcSpreadArg _) -> return exps
+      RustCall _
         -- Empty tuples use UnitRepr instead of StructRepr
         | [selfExp, MirExp C.UnitRepr _] <- exps -> do
           return [selfExp]
@@ -1782,7 +1781,7 @@ callExp funid cargs = do
           op cargs
 
        | Just (hand, sig) <- mhand -> do
-         callHandle hand (sig^.fsabi) (sig^.fsspreadarg) cargs
+         callHandle hand (sig^.fsabi) cargs
 
      _ -> mirFail $ "callExp: Don't know how to call " ++ fmt funid
 
@@ -1835,7 +1834,7 @@ transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) carg
 
 transTerminatorKind (M.Call funcOp cargs cretdest) _tpos tr = do
     func <- evalOperand funcOp
-    ret <- callHandle func RustAbi Nothing cargs
+    ret <- callHandle func RustAbi cargs
     case cretdest of
       Just (dest_lv, jdest) -> do
           doAssign dest_lv ret
@@ -2049,11 +2048,10 @@ genClosureFnPointerShim callOnceId tprRet argAtoms = do
   -- However, currently it's not possible to obtain a function pointer to a
   -- `CustomOp` function (the `CustomOp` replaces the call instruction
   -- instead), which would need to be changed first.
-  let M.FnSig callOnceArgTys _retTy abi spreadArg = sig
-  when (abi /= M.RustCall) $
-    mirFail $ "expected " ++ show callOnceId ++ " to have RustCall ABI, not " ++ show abi
-  when (spreadArg /= Just 2) $
-    mirFail $ "expected " ++ show callOnceId ++ " to have spreadArg = 2, not " ++ show spreadArg
+  let M.FnSig callOnceArgTys _retTy abi = sig
+  when (abi /= M.RustCall (M.RcSpreadArg 2)) $
+    mirFail $ "expected " ++ show callOnceId
+      ++ " to have RustCall ABI with spread_arg = 2, not " ++ show abi
   (callOnceArgTy0, callOnceArgTy1) <- case callOnceArgTys of
     [x, y] -> return (x, y)
     _ -> mirFail $ "expected " ++ show callOnceId ++ " to have two args, but got "
@@ -2421,7 +2419,7 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
             x -> error $ "expected tuple for second arg of " ++ show callMutId
               ++ ", but got " ++ show x ++ ", for IkClosureFnPointerShim " ++ show name
         let returnTy = callMutSig ^. M.fsreturn_ty
-        let fnPtrSig = M.FnSig untupledArgTys returnTy RustAbi Nothing
+        let fnPtrSig = M.FnSig untupledArgTys returnTy RustAbi
         let handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
         mh <- tyListToCtx col untupledArgTys $ \argCtx ->
             tyToReprCont col returnTy $ \retRepr -> do

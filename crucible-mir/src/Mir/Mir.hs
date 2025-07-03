@@ -133,28 +133,33 @@ data FnSig = FnSig {
     _fsarg_tys    :: ![Ty]
   , _fsreturn_ty  :: !Ty
   , _fsabi        :: Abi
-  -- TODO: current handling of spread_arg is a hack.
-  --
-  -- Correct behavior would be (1) always pass args tupled for rust-call abi
-  -- (in other words, translate the MIR as-is, with no special case for calls
-  -- to rust-call fns), and (2) in rust-call functions, if `spread_arg` is
-  -- null, adjust the sig (by tupling up the argument types) and explicitly
-  -- untuple the values on entry to the function.  Current behavior is (2)
-  -- translate rust-call function bodies as-is, and (1) tuple argument values
-  -- at the call site if the target has rust-call abi and spread_arg is null.
-  -- However, on the rust side, the value of spread_arg is part of the
-  -- mir::Body, not the signature, which means this design is broken in the
-  -- presence of function pointers.
-  --
-  -- Anyway, that's why this weird `fsspreadarg` field is here.  The sig of a
-  -- function definition will include the value of `spread_arg` from the
-  -- `mir::Body`, and that will be visible at *direct* calls (not via fn ptr)
-  -- of the function, to make decisions about whether to untuple the args.
-  , _fsspreadarg  :: Maybe Int
   }
   deriving (Eq, Ord, Show, Generic)
 
-data Abi = RustAbi | RustCall | RustIntrinsic | OtherAbi
+data Abi
+    = RustAbi
+    | RustCall RustCallBodyInfo
+    | RustIntrinsic
+    | OtherAbi
+    deriving (Show, Eq, Ord, Generic)
+
+data RustCallBodyInfo
+    = RcNoBody
+    -- ^ The `FnSig` containing this `RustCall` `Abi` isn't the signature of a
+    -- `Fn` body.  For example, `extern "rust-call"` function pointers always
+    -- have an ABI of `RustCall RcNoBody`.
+    | RcNoSpreadArg
+    -- ^ The `FnSig` is associated with a body, but the body's `spread_arg`
+    -- field is unset.  This applies to closure implementations, which are
+    -- are `extern "rust-call"` and are called with tupled arguments, but are
+    -- defined with un-tupled arguments (and no `spread_arg`).  For such
+    -- functions, `fsarg_tys` will contain the un-tupled arguments, and the ABI
+    -- will be `RustCall RcNoSpreadArg`.
+    | RcSpreadArg Int
+    -- ^ The `FnSig` is associated with a body, and the body has a `spread_arg`
+    -- index.  This applies to various `extern "rust-call"` closure-related
+    -- shims and vtable methods, which are both called and defined with a
+    -- tupled signature.
     deriving (Show, Eq, Ord, Generic)
 
 data Instance = Instance
