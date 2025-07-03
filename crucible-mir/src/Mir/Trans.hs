@@ -1719,10 +1719,6 @@ callHandle e abi cargs
 
     exps <- mapM evalOperand cargs
     exps' <- case abi of
-      -- If the target has `spread_arg` set, then it expects a tuple
-      -- instead of individual arguments.  This is a hack - see comment
-      -- on the definition of Mir.Mir.FnSig for details.
-      RustCall (RcSpreadArg _) -> return exps
       RustCall _
         -- Empty tuples use UnitRepr instead of StructRepr
         | [selfExp, MirExp C.UnitRepr _] <- exps -> do
@@ -1732,6 +1728,11 @@ callHandle e abi cargs
           tupleParts <- mapM (accessAggregateMaybe tupleExp)
               [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
           return $ selfExp : tupleParts
+
+        -- Some code in rustc_codegen_cranelift suggests that there may be
+        -- RustCall functions with only a tuple (which should be unpacked) and
+        -- no self/receiver argument, but so far we haven't encountered such a
+        -- thing.
 
         | otherwise -> mirFail $
           "callExp: RustCall arguments are the wrong shape: " ++ show cargs
@@ -1972,14 +1973,45 @@ genFn :: HasCallStack =>
     C.TypeRepr ret ->
     Ctx.Assignment (R.Atom s) args ->
     MirGenerator h s ret (G.Label s)
-genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = do
+genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs = do
 
   lm <- buildLabelMap body
   labelMap .= lm
 
   let addrTaken = mconcat (map addrTakenVars blocks)
   initLocals (argvars ++ localvars) addrTaken
-  initArgs (fmapFC R.AtomExpr inputs) (reverse argvars)
+  Some inputs' <- case sig ^. M.fsabi of
+    M.RustCall (M.RcSpreadArg spreadArg) -> do
+      -- The Rust signature looks like `(T, (U, V))`, but the Crucible version
+      -- uses the untupled form `(T, U, V)`.  `argvars` follows the tupled
+      -- form, but `inputs` follows the untupled form.  Here we convert
+      -- `inputs` to match `argvars` by tupling up some of the arguments.
+      --
+      -- Arguments from `spreadArg` onward need to be tupled.  Note that
+      -- `fsspreadarg` is 1-based (it's a MIR `Local` ID, and the first
+      -- argument is local `_1`), but we convert to a 0-based index for
+      -- convenience.
+      -- TODO fix comment^
+      let splitIndex = spreadArg - 1
+      {-
+      splitIndex <- case sig ^. M.fsspreadarg of
+        Just x
+          | x > 0 -> return (x - 1)
+          | otherwise -> mirFail $
+              "spread_arg = 0 is not a valid argument index, in " ++ show fname
+        Nothing -> mirFail $ "expected spread_arg to be set for extern \"rust-call\" function "
+          ++ show fname
+          -}
+      SomeSplitAssignment selfInputs tupleInputs <- case splitAssignment inputs splitIndex of
+        Just x -> return x
+        Nothing -> mirFail $ "split index " ++ show splitIndex ++ " out of range for "
+          ++ show (fmapFC R.typeOfAtom inputs)
+      let selfExprs = fmapFC R.AtomExpr selfInputs
+      let tupleExpr = R.App $
+            E.MkStruct (fmapFC R.typeOfAtom tupleInputs) (fmapFC R.AtomExpr tupleInputs)
+      return $ Some $ selfExprs Ctx.:> tupleExpr
+    _ -> return $ Some $ fmapFC R.AtomExpr inputs
+  initArgs inputs' (reverse argvars)
 
   db <- use debugLevel
   when (db > 3) $ do
@@ -2024,6 +2056,24 @@ genFn (M.Fn fname argvars _ body@(MirBody localvars blocks _)) rettype inputs = 
                     VarAtom _ -> mirFail $ "unexpected VarAtom"
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname
+
+data SomeSplitAssignment f ctx where
+  SomeSplitAssignment :: forall f ctx l r.  (l Ctx.<+> r ~ ctx) =>
+    Ctx.Assignment f l ->
+    Ctx.Assignment f r ->
+    SomeSplitAssignment f ctx
+
+splitAssignment ::
+  Ctx.Assignment f ctx -> Int -> Maybe (SomeSplitAssignment f ctx)
+splitAssignment ctx n
+  | n < 0 = error $ "splitAssignment expected n > 0, but got " ++ show n
+  | Ctx.sizeInt (Ctx.size ctx) == n = Just $ SomeSplitAssignment ctx Ctx.empty
+  | Ctx.sizeInt (Ctx.size ctx) < n = Nothing
+  | ctx' Ctx.:> x <- ctx = do
+      SomeSplitAssignment lCtx rCtx <- splitAssignment ctx' n
+      return $ SomeSplitAssignment lCtx (rCtx Ctx.:> x)
+  | otherwise = error $ "impossible: `size ctx > n >= 0`, but ctx is empty?"
+
 
 genClosureFnPointerShim :: forall h s args ret.
   HasCallStack =>
@@ -2170,15 +2220,15 @@ mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMa
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
     mkHandle :: M.Fn -> IO MirHandle
-    mkHandle (M.Fn fname fargs ty _fbody)  =
+    mkHandle (M.Fn fname _fargs fsig _fbody)  =
        let
-           targs = map typeOf fargs
+           targs = abiFnArgs fsig
            handleName = FN.functionNameFromText (M.idText fname)
        in
           tyListToCtx col targs $ \argctx -> do
-          tyToReprCont col (ty^.fsreturn_ty) $ \retrepr -> do
+          tyToReprCont col (fsig^.fsreturn_ty) $ \retrepr -> do
              h <- FH.mkHandle' halloc handleName argctx retrepr
-             return $ MirHandle fname ty h
+             return $ MirHandle fname fsig h
 
 vtableShimName :: M.VtableName -> M.DefId -> Text
 vtableShimName vtableName fnName =
@@ -2203,7 +2253,7 @@ mkVtableMap col halloc = mapM mkVtable (col^.vtables)
         let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
             handleName = FN.functionNameFromText (vtableShimName vtableName fnName)
         in
-            tyListToCtx col (shimSig ^. M.fsarg_tys) $ \argctx -> do
+            tyListToCtx col (abiFnArgs shimSig) $ \argctx -> do
             tyToReprCont col (shimSig ^. M.fsreturn_ty) $ \retrepr -> do
                 h <- FH.mkHandle' halloc handleName argctx retrepr
                 return $ MirHandle fnName shimSig h
@@ -2271,9 +2321,10 @@ transVtableShim colState vtableName (VtableItem fnName defName)
 
   where
     die :: [String] -> a
-    die words = error $ unwords
-        (["failed to generate vtable shim for", show vtableName,
-            "entry", show defName, "(instance", show fnName, "):"] ++ words)
+    die xs = error $ dieMsg xs
+    dieMsg :: [String] -> String
+    dieMsg xs = unwords (["failed to generate vtable shim for", show vtableName,
+            "entry", show defName, "(instance", show fnName, "):"] ++ xs)
 
     withMethodHandle :: forall r.
         MethName ->
@@ -2288,26 +2339,30 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     withBuildShim :: forall r recvTy argTys retTy.
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        (G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h) -> r) ->
+        (G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h) -> r) ->
         r
     withBuildShim recvMirTy recvTy argTys retTy implFH k =
         k $ buildShim recvMirTy recvTy argTys retTy implFH
 
+    fnState :: forall s. FnState s
+    fnState = initFnState colState ShimContext
+
     buildShim :: forall recvTy argTys retTy .
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
+        G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys retTy implFH
       | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
-      | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
-    
+      | otherwise = \argsA -> (\x -> (fnState, x)) $ do
+        mirFail $ dieMsg ["unsupported MIR receiver type", show recvMirTy]
+
     buildShimForRef :: forall recvTy argTys retTy .
         C.TypeRepr recvTy ->
         C.CtxRepr argTys ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
-    buildShimForRef recvTy argTys implFH = \argsA -> (\x -> ([], x)) $ do
+        G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
+    buildShimForRef recvTy argTys implFH = \argsA -> (\x -> (fnState, x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
             (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
@@ -2403,7 +2458,7 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
 
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
         in liftM (Map.singleton name) $
-            tyListToCtx col (methSig ^. M.fsarg_tys) $ \argctx ->
+            tyListToCtx col (abiFnArgs methSig) $ \argctx ->
             tyToReprCont col (methSig ^. M.fsreturn_ty) $ \retrepr -> do
                  h <- FH.mkHandle' halloc handleName argctx retrepr
                  return $ MirHandle (intr ^. M.intrName) methSig h
@@ -2618,6 +2673,13 @@ transCollection col halloc = do
     hmap1 <- mkHandleMap col halloc
     hmap2 <- mkShimHandleMap col halloc
     let hmap = hmap1 <> hmap2
+
+    --forM_ (Map.toList hmap) $ \(name, mh) -> do
+    --  MirHandle _ sig handle <- return mh
+    --  traceM $ "function " ++ show name ++ ":"
+    --  traceM $ "  sig = " ++ show sig
+    --  traceM $ "  handle = " ++ show (FH.handleType handle)
+
 
     vm <- mkVtableMap col halloc
 
