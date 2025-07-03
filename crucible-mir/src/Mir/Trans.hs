@@ -2640,24 +2640,26 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
       | otherwise = return Map.empty
       where
 
--- Generate a virtual-call shim.  The shim takes (&dyn Foo, args...), splits
--- the `&dyn` into its data-pointer and vtable components, looks up the
--- appropriate method (a vtable shim, produced by transVtableShim), and passes
--- in the data and `args...`.
-transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
-  => CollectionState
-  -> M.IntrinsicName
-  -> M.MethName
-  -> M.TraitName
-  -> Integer
-  -> ST h (Text, Core.AnyCFG MIR)
-transVirtCall colState intrName methName dynTraitName methIndex
-  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
-    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
-    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
-        $ \eqMethArgs@Refl recvTy argTys ->
-    let retTy = FH.handleReturnType methFH in
 
+-- | Provided a @&dyn@ receiver and appropriate arguments, generate a pair of
+-- @(function, arguments)@ expressions representing a virtual-call shim that
+-- will look up and call the right concrete method and provide it those
+-- arguments. See 'doVirtTailCall' for an example of actualy calling the
+-- function.
+mkVirtCall
+  :: HasCallStack
+  => M.Collection
+  -> M.TraitName
+  -> Integer -- ^ The method index
+  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
+  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
+  -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
+  -> C.TypeRepr retTy -- ^ The return type
+  -> G.Generator MIR s t ret (ST h)
+    ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
+    , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
+mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
         $ \eqRecvTy@Refl ->
 
@@ -2687,13 +2689,101 @@ transVirtCall colState intrName methName dynTraitName methIndex
     checkEq vtsRetTy retTy
         (die ["vtable shim return type doesn't match method; vtable shim =",
             show vtsRetTy, "; method =", show retTy])
-        $ \eqVtsRetTy@Refl ->
+        $ \eqVtsRetTy@Refl -> do
 
-    do
-        R.SomeCFG g <- defineFunctionNoAuxs methFH
-            (buildShim argTys retTy vtableTys vtableIdx)
-        case SSA.toSSA g of
-            Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
+    let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
+    let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
+
+    -- Downcast the vtable to its proper struct type
+    errBlk <- G.newLabel
+    G.defineBlock errBlk $ do
+        G.reportError $ R.App $ E.StringLit $ fromString $
+            unwords ["bad vtable downcast:", show dynTraitName,
+                "to", show vtableTys]
+
+    let vtableStructTy = C.StructRepr vtableTys
+    okBlk <- G.newLambdaLabel' vtableStructTy
+    vtable <- G.continueLambda okBlk $ do
+        G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
+
+    -- Extract the function handle from the vtable
+    let vtsFH = R.App $ E.GetStruct vtable vtableIdx
+            (C.FunctionHandleRepr (C.AnyRepr <: argTys) vtsRetTy)
+
+    pure (vtsFH, (R.App (E.PackAny MirReferenceRepr recvData) <: argExprs))
+
+  where
+    die :: [String] -> a
+    die words = error $ unwords
+        (["failed to generate virtual-call shim for method", show methIndex,
+            "of trait", show dynTraitName] ++ words)
+
+    dynTrait = case col ^. M.traits . at dynTraitName of
+        Just x -> x
+        Nothing -> die ["undefined trait " ++ show dynTraitName]
+
+    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
+    -- substs only, omitting the Self type.
+    vtableType :: Some C.TypeRepr
+    vtableType = traitVtableType col dynTraitName dynTrait
+
+
+-- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
+-- then tail-call that function on those arguments.
+doVirtTailCall
+  :: HasCallStack
+  => M.Collection
+  -> M.TraitName
+  -> Integer -- ^ The method index
+  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
+  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
+  -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
+  -> C.TypeRepr retTy -- ^ The return type
+  -> G.Generator MIR s t retTy (ST h) (R.Expr MIR s retTy)
+doVirtTailCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = do
+  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy
+  G.tailCall fnHandle args
+
+
+-- | Translate a virtual call. The logic for looking up the right method in the
+-- vtable is implemented in 'mkVirtCall'.
+transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+  => CollectionState
+  -> M.IntrinsicName
+  -> M.MethName
+  -> M.TraitName
+  -> Integer
+  -> ST h (Text, Core.AnyCFG MIR)
+transVirtCall colState intrName methName dynTraitName methIndex
+  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
+    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
+    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
+        $ \eqMethArgs@Refl recvTy argTys ->
+    let retTy = FH.handleReturnType methFH
+
+        -- | This is actually a 'G.FunctionDef', but that synonym hides some
+        -- types we apparently need to write out in this signature.
+        withArgs ::
+          Ctx.Assignment (R.Atom s) args ->
+          ([s], G.Generator MIR s [] ret (ST h) (R.Expr MIR s ret))
+        withArgs argsAssn =
+          let (recvExpr, argExprs) = splitMethodArgs argsAssn (Ctx.size argTys)
+              callExpr =
+                doVirtTailCall
+                  (colState ^. collection)
+                  dynTraitName
+                  (fromInteger methIndex)
+                  recvTy
+                  recvExpr
+                  argTys
+                  argExprs
+                  retTy
+          in  ([], callExpr)
+      in  do
+            R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
+            case SSA.toSSA g of
+                Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
 
   where
     die :: [String] -> a
@@ -2701,48 +2791,9 @@ transVirtCall colState intrName methName dynTraitName methIndex
         (["failed to generate virtual-call shim for", show methName,
             "(intrinsic", show intrName, "):"] ++ words)
 
-    dynTrait = case colState ^. collection . M.traits . at dynTraitName of
-        Just x -> x
-        Nothing -> die ["undefined trait " ++ show dynTraitName]
-
-    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
-    -- substs only, omitting the Self type.
-    vtableType :: Some C.TypeRepr
-    vtableType = traitVtableType (colState ^. collection) dynTraitName dynTrait
-
     methMH = case Map.lookup intrName (colState ^. handleMap) of
         Just x -> x
         Nothing -> die ["failed to find method handle for", show intrName]
-
-    buildShim ::
-        C.CtxRepr argTys -> C.TypeRepr retTy -> C.CtxRepr vtableTys ->
-        Ctx.Index vtableTys (C.FunctionHandleType (C.AnyType :<: argTys) retTy) ->
-        G.FunctionDef MIR [] (DynRefType :<: argTys) retTy (ST h)
-    buildShim argTys retTy vtableTys vtableIdx argsA = (\x -> ([], x)) $ do
-        let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
-
-        -- Extract data and vtable parts of the `&dyn` receiver
-        let recvData = R.App $ E.GetStruct recv dynRefDataIndex MirReferenceRepr
-        let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
-
-        -- Downcast the vtable to its proper struct type
-        errBlk <- G.newLabel
-        G.defineBlock errBlk $ do
-            G.reportError $ R.App $ E.StringLit $ fromString $
-                unwords ["bad vtable downcast:", show dynTraitName,
-                    "to", show vtableTys]
-
-        let vtableStructTy = C.StructRepr vtableTys
-        okBlk <- G.newLambdaLabel' vtableStructTy
-        vtable <- G.continueLambda okBlk $ do
-            G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
-
-        -- Extract the function handle from the vtable
-        let vtsFH = R.App $ E.GetStruct vtable vtableIdx
-                (C.FunctionHandleRepr (C.AnyRepr <: argTys) retTy)
-
-        -- Call it
-        G.tailCall vtsFH (R.App (E.PackAny MirReferenceRepr recvData) <: args)
 
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s
