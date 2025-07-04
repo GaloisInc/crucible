@@ -1980,38 +1980,32 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
 
   let addrTaken = mconcat (map addrTakenVars blocks)
   initLocals (argvars ++ localvars) addrTaken
-  Some inputs' <- case sig ^. M.fsabi of
+  let inputExps = toListFC (\atom -> MirExp (R.typeOfAtom atom) (R.AtomExpr atom)) inputs
+  inputExps' <- case sig ^. M.fsabi of
     M.RustCall (M.RcSpreadArg spreadArg) -> do
       -- The Rust signature looks like `(T, (U, V))`, but the Crucible version
       -- uses the untupled form `(T, U, V)`.  `argvars` follows the tupled
-      -- form, but `inputs` follows the untupled form.  Here we convert
-      -- `inputs` to match `argvars` by tupling up some of the arguments.
+      -- form, but `inputExps` follows the untupled form.  Here we convert
+      -- `inputExps` to match `argvars` by tupling up some of the arguments.
       --
       -- Arguments from `spreadArg` onward need to be tupled.  Note that
       -- `fsspreadarg` is 1-based (it's a MIR `Local` ID, and the first
       -- argument is local `_1`), but we convert to a 0-based index for
       -- convenience.
-      -- TODO fix comment^
       let splitIndex = spreadArg - 1
-      {-
-      splitIndex <- case sig ^. M.fsspreadarg of
-        Just x
-          | x > 0 -> return (x - 1)
-          | otherwise -> mirFail $
-              "spread_arg = 0 is not a valid argument index, in " ++ show fname
-        Nothing -> mirFail $ "expected spread_arg to be set for extern \"rust-call\" function "
-          ++ show fname
-          -}
-      SomeSplitAssignment selfInputs tupleInputs <- case splitAssignment inputs splitIndex of
-        Just x -> return x
-        Nothing -> mirFail $ "split index " ++ show splitIndex ++ " out of range for "
+      when (splitIndex > length inputExps) $
+        mirFail $ "split index " ++ show splitIndex ++ " out of range for "
           ++ show (fmapFC R.typeOfAtom inputs)
-      let selfExprs = fmapFC R.AtomExpr selfInputs
-      let tupleExpr = R.App $
-            E.MkStruct (fmapFC R.typeOfAtom tupleInputs) (fmapFC R.AtomExpr tupleInputs)
-      return $ Some $ selfExprs Ctx.:> tupleExpr
-    _ -> return $ Some $ fmapFC R.AtomExpr inputs
-  initArgs inputs' (reverse argvars)
+      let selfExps = take splitIndex inputExps
+      let tupleFieldExps = drop splitIndex inputExps
+      tupleFieldTys <- case map typeOf $ drop splitIndex argvars of
+        [M.TyTuple tys] -> return tys
+        _ -> mirFail $ "expected tuple at position " ++ show splitIndex
+          ++ ", but got " ++ show argvars
+      tupleExp <- buildTupleMaybeM tupleFieldTys (map Just tupleFieldExps)
+      return $ selfExps ++ [tupleExp]
+    _ -> return inputExps
+  initArgs inputExps' argvars
 
   db <- use debugLevel
   when (db > 3) $ do
@@ -2036,43 +2030,27 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
 
   where
     initArgs :: HasCallStack =>
-        Ctx.Assignment (R.Expr MIR s) args -> [M.Var] -> MirGenerator h s ret ()
+        [MirExp s] -> [M.Var] -> MirGenerator h s ret ()
     initArgs inputs vars =
-        case (Ctx.viewAssign inputs, vars) of
-            (Ctx.AssignEmpty, []) -> return ()
-            (Ctx.AssignExtend inputs' input, var : vars') -> do
+        case (inputs, vars) of
+            ([], []) -> return ()
+            (input : inputs', var : vars') -> do
                 mvi <- use $ varMap . at (var ^. varname)
                 Some vi <- case mvi of
                     Just x -> return x
                     Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
-                Refl <- testEqualityOrFail (R.exprType input) (varInfoRepr vi) $
+                MirExp inputTpr inputExpr <- return input
+                Refl <- testEqualityOrFail inputTpr (varInfoRepr vi) $
                     "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
-                        show (R.exprType input) ++ " != " ++ show (varInfoRepr vi)
+                        show inputTpr ++ " != " ++ show (varInfoRepr vi)
                 case vi of
-                    VarRegister reg -> G.assignReg reg input
+                    VarRegister reg -> G.assignReg reg inputExpr
                     VarReference tpr refReg -> do
                         ref <- G.readReg refReg
-                        writeMirRef tpr ref input
+                        writeMirRef tpr ref inputExpr
                     VarAtom _ -> mirFail $ "unexpected VarAtom"
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname
-
-data SomeSplitAssignment f ctx where
-  SomeSplitAssignment :: forall f ctx l r.  (l Ctx.<+> r ~ ctx) =>
-    Ctx.Assignment f l ->
-    Ctx.Assignment f r ->
-    SomeSplitAssignment f ctx
-
-splitAssignment ::
-  Ctx.Assignment f ctx -> Int -> Maybe (SomeSplitAssignment f ctx)
-splitAssignment ctx n
-  | n < 0 = error $ "splitAssignment expected n > 0, but got " ++ show n
-  | Ctx.sizeInt (Ctx.size ctx) == n = Just $ SomeSplitAssignment ctx Ctx.empty
-  | Ctx.sizeInt (Ctx.size ctx) < n = Nothing
-  | ctx' Ctx.:> x <- ctx = do
-      SomeSplitAssignment lCtx rCtx <- splitAssignment ctx' n
-      return $ SomeSplitAssignment lCtx (rCtx Ctx.:> x)
-  | otherwise = error $ "impossible: `size ctx > n >= 0`, but ctx is empty?"
 
 
 genClosureFnPointerShim :: forall h s args ret.
