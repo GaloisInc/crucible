@@ -35,9 +35,9 @@ import What4.Interface qualified as WI
 
 -- | Override for @read-bytes@.
 --
--- The loaded string must be concrete. If a symbolic character is encountered
--- while loading, this function will generate an assertion failure.
--- (TODO(#1061))
+-- The loaded string must contain a concrete null terminator and the vector may
+-- be longer than the actual string if the string contains symbolic bytes that
+-- may be null, see 'LCLMS.loadConcretelyNullTerminatedString'.
 readBytesOverride ::
   ( LCLM.HasLLVMAnn sym
   , LCLM.HasPtrWidth w
@@ -51,9 +51,9 @@ readBytesOverride memVar =
 
 -- | Implementation of the @read-bytes@ override.
 --
--- The loaded string must be concrete. If a symbolic character is encountered
--- while loading, this function will generate an assertion failure.
--- (TODO(#1061))
+-- The loaded string must contain a concrete null terminator and the vector may
+-- be longer than the actual string if the string contains symbolic bytes that
+-- may be null, see 'LCLMS.loadConcretelyNullTerminatedString'.
 readBytes ::
   ( LCLM.HasLLVMAnn sym
   , LCLM.HasPtrWidth w
@@ -64,11 +64,8 @@ readBytes ::
   LCS.OverrideSim p sym ext r args ret (LCS.RegValue sym (LCT.VectorType (LCT.BVType 8)))
 readBytes memVar ptr =
   LCS.ovrWithBackend $ \bak -> do
-    let sym = LCB.backendGetSym bak
     mem <- LCS.readGlobal memVar
-    bytes <- liftIO (LCLMS.loadString bak mem (C.unRV ptr) Nothing)
-    Vec.fromList <$>
-      liftIO (mapM (WI.bvLit sym (DPN.knownNat @8) . BV.word8) bytes)
+    Vec.fromList <$> liftIO (LCLMS.loadConcretelyNullTerminatedString bak mem (C.unRV ptr) Nothing)
 
 -- | Override for @read-c-string@.
 --
@@ -76,7 +73,6 @@ readBytes memVar ptr =
 --
 -- * The loaded string must be concrete. If a symbolic character is encountered
 --   while loading, this function will generate an assertion failure.
---   (TODO(#1061))
 --
 -- * The loaded string should be UTF-8–encoded. Any invalid code points in the
 --   string will be replaced with the Unicode replacement character @U+FFFD@.
@@ -96,7 +92,6 @@ readCStringOverride memVar =
 --
 -- * The loaded string must be concrete. If a symbolic character is encountered
 --   while loading, this function will generate an assertion failure.
---   (TODO(#1061))
 --
 -- * The loaded string should be UTF-8–encoded. Any invalid code points in the
 --   string will be replaced with the Unicode replacement character @U+FFFD@.
