@@ -2079,30 +2079,22 @@ genClosureFnPointerShim callOnceId tprRet argAtoms = do
   -- However, currently it's not possible to obtain a function pointer to a
   -- `CustomOp` function (the `CustomOp` replaces the call instruction
   -- instead), which would need to be changed first.
-  let M.FnSig callOnceArgTys _retTy abi = sig
-  when (abi /= M.RustCall (M.RcSpreadArg 2)) $
+  let callOnceArgTys = abiFnArgs sig
+  when (sig ^. fsabi /= M.RustCall (M.RcSpreadArg 2)) $
     mirFail $ "expected " ++ show callOnceId
-      ++ " to have RustCall ABI with spread_arg = 2, not " ++ show abi
-  (callOnceArgTy0, callOnceArgTy1) <- case callOnceArgTys of
-    [x, y] -> return (x, y)
-    _ -> mirFail $ "expected " ++ show callOnceId ++ " to have two args, but got "
+      ++ " to have RustCall ABI with spread_arg = 2, not " ++ show (sig ^. fsabi)
+  (callOnceArgTy0, callOnceArgTys') <- case callOnceArgTys of
+    x:y -> return (x, y)
+    [] -> mirFail $ "expected " ++ show callOnceId ++ " to have at least one arg, but got "
       ++ show callOnceArgTys
   when (callOnceArgTy0 /= M.TyClosure []) $
     mirFail $ "expected " ++ show callOnceId ++ " arg 0 to be an empty closure, but got "
       ++ show callOnceArgTy0
-  argTys <- case callOnceArgTy1 of
-    M.TyTuple xs -> return xs
-    _ -> mirFail $ "expected " ++ show callOnceId ++ " arg 1 to be a tuple, but got "
-      ++ show callOnceArgTy1
   -- Build the argument values for `call_once`.
   let tprArg0 = C.StructRepr Ctx.Empty
   let arg0 = R.App $ E.MkStruct Ctx.empty Ctx.empty
-  let argMirExps = foldrFC (\a es -> MirExp (R.typeOfAtom a) (R.AtomExpr a) : es) [] argAtoms
-  MirExp tprArg1 arg1 <- case argMirExps of
-    [] -> return $ MirExp C.UnitRepr (R.App E.EmptyApp)
-    _ -> buildTupleMaybeM argTys (map Just argMirExps)
-  let ctxArgs = Ctx.Empty Ctx.:> tprArg0 Ctx.:> tprArg1
-  let args = Ctx.Empty Ctx.:> arg0 Ctx.:> arg1
+  let ctxArgs = Ctx.singleton tprArg0 Ctx.<++> fmapFC (R.typeOfAtom) argAtoms
+  let args = Ctx.singleton arg0 Ctx.<++> fmapFC (R.AtomExpr @MIR) argAtoms
   -- More checks, necessary for the call below to typecheck.
   Refl <- testEqualityOrFail (FH.handleArgTypes fh) ctxArgs $
     "genClosureFnPointerShim: expected " ++ show callOnceId ++ " to take "
