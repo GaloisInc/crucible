@@ -124,14 +124,18 @@ processJVMOptions opts@JVMOptions{javaBinDirs} = do
   case mbJavaPath of
     Nothing       -> pure opts
     Just javaPath -> do
-      javaMajorVersion <- findJavaMajorVersion javaPath
-      if javaMajorVersion >= 9
-         then do putStrLn $ unlines
-                   [ "WARNING: crucible-jvm's support for JDK 9 or later is experimental."
-                   , "See https://github.com/GaloisInc/crucible/issues/641."
-                   ]
-                 pure opts
-         else addRTJar javaPath opts
+      mbJavaMajorVersion <- findJavaMajorVersion javaPath
+      case mbJavaMajorVersion of
+        Just v
+          | v >= 9 ->
+            putStrLn (unlines
+              [ "WARNING: crucible-jvm's support for JDK 9 or later is experimental."
+              , "See https://github.com/GaloisInc/crucible/issues/641."
+              ])
+            >> pure opts
+          | otherwise -> addRTJar javaPath opts
+        Nothing ->
+          putStrLn "WARNING: failed to determine JDK version." >> pure opts
   where
     -- rt.jar lives in a standard location relative to @java.home@. At least,
     -- this is the case on every operating system I've tested.

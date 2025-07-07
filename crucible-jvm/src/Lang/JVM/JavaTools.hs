@@ -13,9 +13,11 @@ module Lang.JVM.JavaTools
   , findJavaMajorVersion
   ) where
 
+import Control.Exception(handle,SomeException(..))
 import Data.List.Extra (dropPrefix, firstJust, stripInfix)
 import Data.Maybe
 import System.Directory
+import Text.Read(readMaybe)
 
 import Lang.JVM.ProcessUtils
 
@@ -57,7 +59,8 @@ findJavaToolIn toolName searchPaths
 -- This will throw an exception if @javaPath@'s system properties cannot be
 -- determined.
 findJavaProperty :: FilePath -> String -> IO (Maybe String)
-findJavaProperty javaPath propertyNeedle = do
+findJavaProperty javaPath propertyNeedle =
+  handle (\SomeException{} -> pure Nothing) $ do
   (_stdOut, stdErr) <- readProcessExitIfFailure javaPath ["-XshowSettings:properties", "-version"]
   let propertyHaystacks = lines stdErr
   pure $ firstJust getProperty_maybe propertyHaystacks
@@ -75,12 +78,12 @@ findJavaProperty javaPath propertyNeedle = do
 
 -- | @'findJavaMajorVersion' javaPath@ will consult @javaPath@ to find the
 -- major version number corresponding to that Java release.
-findJavaMajorVersion :: FilePath -> IO Int
+findJavaMajorVersion :: FilePath -> IO (Maybe Int)
 findJavaMajorVersion javaPath = do
   mbVersionStr <- findJavaProperty javaPath "java.version"
   case mbVersionStr of
-    Nothing         -> fail $ "Could not detect the version of Java at " ++ javaPath
-    Just versionStr -> pure $ read $ takeMajorVersionStr $ dropOldJavaVersionPrefix versionStr
+    Nothing         -> pure Nothing
+    Just versionStr -> pure $ readMaybe $ takeMajorVersionStr $ dropOldJavaVersionPrefix versionStr
   where
     -- e.g., if the version number is "11.0.9.1", then just take the "11" part.
     takeMajorVersionStr :: String -> String
