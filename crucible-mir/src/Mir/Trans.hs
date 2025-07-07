@@ -1880,6 +1880,7 @@ initLocals localVars addrTaken = forM_ localVars $ \v -> do
         Just (MirExp tpr' val) -> do
             Refl <- testEqualityOrFail tpr tpr' $
                 "initialValue produced " ++ show tpr' ++ " instead of " ++ show tpr
+                  ++ ", for " ++ show ty
             return $ Just val
 
     -- FIXME: temporary hack to put every local behind a MirReference, to work
@@ -2002,7 +2003,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
         [M.TyTuple tys] -> return tys
         _ -> mirFail $ "expected tuple at position " ++ show splitIndex
           ++ ", but got " ++ show argvars
-      tupleExp <- buildTupleMaybeM tupleFieldTys (map Just tupleFieldExps)
+      tupleExp <- case tupleFieldTys of
+        [] -> return $ MirExp C.UnitRepr (R.App E.EmptyApp)
+        _ -> buildTupleMaybeM tupleFieldTys (map Just tupleFieldExps)
       return $ selfExps ++ [tupleExp]
     _ -> return inputExps
   initArgs inputExps' argvars
