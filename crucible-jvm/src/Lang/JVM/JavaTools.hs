@@ -16,6 +16,8 @@ module Lang.JVM.JavaTools
 import Control.Exception(handle,SomeException(..))
 import Data.List.Extra (dropPrefix, firstJust, stripInfix)
 import Data.Maybe
+import Data.Text(Text)
+import qualified Data.Text as Text
 import System.Directory
 import Text.Read(readMaybe)
 
@@ -78,12 +80,16 @@ findJavaProperty javaPath propertyNeedle =
 
 -- | @'findJavaMajorVersion' javaPath@ will consult @javaPath@ to find the
 -- major version number corresponding to that Java release.
-findJavaMajorVersion :: FilePath -> IO (Maybe Int)
+findJavaMajorVersion :: FilePath -> IO (Either Text Int)
 findJavaMajorVersion javaPath = do
   mbVersionStr <- findJavaProperty javaPath "java.version"
-  case mbVersionStr of
-    Nothing         -> pure Nothing
-    Just versionStr -> pure $ readMaybe $ takeMajorVersionStr $ dropOldJavaVersionPrefix versionStr
+  pure $
+    case mbVersionStr of
+      Nothing         -> Left (Text.pack "Failed to find property `java.version`")
+      Just versionStr ->
+        case readMaybe $ takeMajorVersionStr $ dropOldJavaVersionPrefix versionStr of
+          Just v -> v
+          Nothing -> Left (Text.pack ("Failed to parse `java.version`: " ++ versionStr))
   where
     -- e.g., if the version number is "11.0.9.1", then just take the "11" part.
     takeMajorVersionStr :: String -> String

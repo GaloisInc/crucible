@@ -30,6 +30,7 @@ module Main where
 import Data.String(fromString)
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
+import qualified Data.Text as Text
 import Control.Lens((^.), (&), (%~))
 import Control.Monad.ST
 import Control.Monad
@@ -126,7 +127,7 @@ processJVMOptions opts@JVMOptions{javaBinDirs} = do
     Just javaPath -> do
       mbJavaMajorVersion <- findJavaMajorVersion javaPath
       case mbJavaMajorVersion of
-        Just v
+        Right v
           | v >= 9 ->
             putStrLn (unlines
               [ "WARNING: crucible-jvm's support for JDK 9 or later is experimental."
@@ -134,8 +135,7 @@ processJVMOptions opts@JVMOptions{javaBinDirs} = do
               ])
             >> pure opts
           | otherwise -> addRTJar javaPath opts
-        Nothing ->
-          putStrLn "WARNING: failed to determine JDK version." >> pure opts
+        Left e -> fail (Text.unpack e)
   where
     -- rt.jar lives in a standard location relative to @java.home@. At least,
     -- this is the case on every operating system I've tested.
