@@ -1856,6 +1856,7 @@ fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for
 
 cloneShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
+cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
 cloneShimDef (TyArray ty len) parts
   | [part] <- parts = CustomMirOp $ \ops -> do
     lv <- case ops of
@@ -1874,9 +1875,20 @@ cloneShimDef (TyArray ty len) parts
     buildArrayLit tpr clonedExps
   | otherwise = CustomOp $ \_ _ -> mirFail $
     "expected exactly one clone function for in array clone shim, but got " ++ show parts
+cloneShimDef (TyFnPtr _) parts
+  -- Function pointers do not have any fields, so implementing a clone shim for
+  -- a function pointer is as simple as dereferencing it.
+  | [] <- parts = CustomOp $ \opTys ops ->
+    case (opTys, ops) of
+      ([TyRef ty _], [eRef]) -> do
+        e <- derefExp ty eRef
+        readPlace e
+      _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (opTys, ops)
+  | otherwise = CustomOp $ \_ _ -> mirFail $
+    "expected no clone functions in function pointer clone shim, but got " ++ show parts
 cloneShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
--- | Create an 'IkCloneShim' implementation for a tuple type.
+-- | Create an 'IkCloneShim' implementation for a tuple or closure type.
 cloneShimTuple :: [Ty] -> [M.DefId] -> CustomOp
 cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"

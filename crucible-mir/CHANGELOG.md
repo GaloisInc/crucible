@@ -24,6 +24,7 @@ This release supports [version
   instance for `Collection` print its vtables.
 * Generalize the custom overrides for `rotate_{left,right}` to work on integer
   types besides `i32` or `u32`.
+* Support clone shims for function pointers and closures.
 
 # 0.4 -- 2025-03-21
 
