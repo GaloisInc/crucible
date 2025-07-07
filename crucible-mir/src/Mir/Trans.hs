@@ -1464,8 +1464,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
       do
         -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
         -- but that would involve computing its slice field's representation,
-        -- which should error
-        let adtRepr = R.exprType ref'
+        -- which should error. Because it represents an unsized value, we don't
+        -- expect to check/use this type directly elsewhere, so we can get away
+        -- with an `AnyRepr` placeholder.
+        let adtRepr = C.AnyRepr
         adtRef <- readMirRef MirSliceRepr ref'
         -- In both this case and the case of plain slices, `readMirRef` gives us
         -- access to a double-wide DST pointer. In both cases, the second half
@@ -1494,8 +1496,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
       do
         -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
         -- but that would involve computing its trait object field's
-        -- representation, which will error
-        let adtRepr = R.exprType ref'
+        -- representation, which will error. Because it represents an unsized
+        -- value, we don't expect to check/use this type directly elsewhere, so
+        -- we can get away with an `AnyRepr` placeholder.
+        let adtRepr = C.AnyRepr
         dynRef <- readMirRef DynRefRepr ref'
         let adtPtr = S.getStruct dynRefDataIndex dynRef
         let vtable = S.getStruct dynRefVtableIndex dynRef
