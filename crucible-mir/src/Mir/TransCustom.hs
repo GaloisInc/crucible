@@ -532,7 +532,10 @@ ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
                 let ptr = getSlicePtr slice
                 valAsPtr <- integerToMirRef val
                 MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
-            -- TODO: `&dyn Tr` case (after defining MirDynRepr)
+            [MirExp DynRefRepr dynRef, MirExp UsizeRepr val] -> do
+                let ptr = S.getStruct dynRefDataIndex dynRef
+                valAsPtr <- integerToMirRef val
+                MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
             _ -> mirFail $ "bad arguments for ptr::compare_usize: " ++ show ops
         _ -> Nothing)
 
