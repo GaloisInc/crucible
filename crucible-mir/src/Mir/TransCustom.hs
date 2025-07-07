@@ -21,6 +21,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Mir.TransCustom(customOps) where
 
@@ -164,6 +165,8 @@ customOpDefs = Map.fromList $ [
                          , ptr_swap
                          , ptr_null
                          , ptr_null_mut
+                         , drop_in_place_dyn
+
                          , intrinsics_copy
                          , intrinsics_copy_nonoverlapping
 
@@ -624,6 +627,49 @@ null_ptr_impl what substs = case substs of
         _  -> mirFail $ "expected no arguments for " ++ what ++ ", received: " ++ show ops
     _ -> Nothing
 
+-- | Experimentally, we've observed that rustc seems not to generate proper drop
+-- glue for @&dyn Trait@ drops. We get around this by overriding
+-- @core::ptr::drop_in_place@ (when instantiated at @dyn@ types) to fetch the
+-- appropriate drop method from the trait object's vtable. @mir-json@ will have
+-- included this method.
+drop_in_place_dyn :: (ExplodedDefId, CustomRHS)
+drop_in_place_dyn =
+    ( ["core", "ptr", "drop_in_place"],
+      \case
+        Substs [TyDynamic traitName] ->
+            Just $ CustomOp $ \argTys [op@(MirExp selfTy selfExpr)] -> do
+                col <- use $ cs . collection
+                let argTys = Ctx.empty
+                let argExprs = Ctx.empty
+                let retTy = C.UnitRepr
+                -- TODO: is it appropriate to check here that the vtable has at
+                -- least one method? `doVirtCall` (via `mkVirtCall`) will
+                -- indirectly perform this check, but we could emit a more
+                -- useful error message here, or perhaps avoid overriding at
+                -- all?
+                callExpr <-
+                    doVirtCall
+                        col
+                        traitName
+                        dropMethodIndex
+                        selfTy
+                        selfExpr
+                        argTys
+                        argExprs
+                        retTy
+                pure (MirExp retTy callExpr)
+        Substs [_] -> Nothing
+        Substs ss ->
+            Just $ CustomOp $ \_ _ -> mirFail $ unwords
+                [ "expected one subst for `core::ptr::drop_in_place`, saw"
+                , show (length ss) <> ":"
+                , show ss ]
+    )
+    where
+        -- The index at which we expect @mir-json@ to have placed this trait
+        -- object's drop method.
+        dropMethodIndex = 0
+
 intrinsics_copy :: (ExplodedDefId, CustomRHS)
 intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
@@ -1037,7 +1083,6 @@ mem_swap = (["core","mem", "swap"],
             return $ MirExp knownRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
     )
-
 
 -- This is like normal mem::transmute, but requires source and target types to
 -- have identical Crucible `TypeRepr`s.
