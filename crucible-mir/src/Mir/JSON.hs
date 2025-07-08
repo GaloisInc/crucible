@@ -230,13 +230,15 @@ instance FromJSON Collection where
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do
       args <- v .: "args"
-      abi <- v .: "abi" >>= \abi -> case abi of
+
+      origAbi <- v .: "abi"
+      abi <- case origAbi of
         RustCall _ -> do
           spreadArg <- v .: "spread_arg"
           case spreadArg of
             Just i -> return $ RustCall (RcSpreadArg i)
             Nothing -> return $ RustCall RcNoSpreadArg
-        _ -> return abi
+        _ -> return origAbi
 
       let sig = FnSig <$> return (map typeOf args)
                       <*> v .: "return_ty"

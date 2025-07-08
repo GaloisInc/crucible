@@ -31,6 +31,7 @@ import Data.List (findIndices)
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Vector as V
+import Prettyprinter (Pretty(..))
 
 import GHC.Stack
 
@@ -332,8 +333,8 @@ abiFnArgs sig = case sig ^. M.fsabi of
       [M.TyTuple tys] -> tys
       [selfTy, M.TyTuple tys] -> selfTy : tys
       _ -> error $
-          "unexpected argument list for " ++ show (sig ^. M.fsabi) ++  ": "
-            ++ show (sig ^. M.fsarg_tys)
+          "unexpected argument list for " ++ show (pretty $ sig ^. M.fsabi) ++  ": "
+            ++ show (pretty $ sig ^. M.fsarg_tys)
 
 
 -- | Look up the `Adt` definition, if this `Ty` is `TyAdt`.

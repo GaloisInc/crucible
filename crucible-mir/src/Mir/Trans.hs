@@ -1880,7 +1880,7 @@ initLocals localVars addrTaken = forM_ localVars $ \v -> do
         Just (MirExp tpr' val) -> do
             Refl <- testEqualityOrFail tpr tpr' $
                 "initialValue produced " ++ show tpr' ++ " instead of " ++ show tpr
-                  ++ ", for " ++ show ty
+                  ++ ", for " ++ show (pretty ty)
             return $ Just val
 
     -- FIXME: temporary hack to put every local behind a MirReference, to work
@@ -2036,12 +2036,11 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
     initArgs inputs vars =
         case (inputs, vars) of
             ([], []) -> return ()
-            (input : inputs', var : vars') -> do
+            (MirExp inputTpr inputExpr : inputs', var : vars') -> do
                 mvi <- use $ varMap . at (var ^. varname)
                 Some vi <- case mvi of
                     Just x -> return x
                     Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
-                MirExp inputTpr inputExpr <- return input
                 Refl <- testEqualityOrFail inputTpr (varInfoRepr vi) $
                     "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
                         show inputTpr ++ " != " ++ show (varInfoRepr vi)
