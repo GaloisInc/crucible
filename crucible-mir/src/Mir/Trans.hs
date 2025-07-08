@@ -1398,8 +1398,6 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
     doRef adtTy@(M.TyAdt _ _ _) | MirSliceRepr <- tpr = doSliceAdt adtTy ref
     doRef adtTy@(M.TyAdt _ _ _) | DynRefRepr <- tpr = doDynAdt adtTy ref
-    -- TODO: do we need to go to the trouble here of figuring out if this ADT is
-    -- a DST, if it didn't come with a DST-indicative TypeRepr?
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
