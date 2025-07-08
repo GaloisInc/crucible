@@ -645,11 +645,20 @@ drop_in_place_dyn =
                 let argTys = Ctx.empty
                 let argExprs = Ctx.empty
                 let retTy = C.UnitRepr
-                -- TODO: is it appropriate to check here that the vtable has at
-                -- least one method? `doVirtCall` (via `mkVirtCall`) will
-                -- indirectly perform this check, but we could emit a more
-                -- useful error message here, or perhaps avoid overriding at
-                -- all?
+
+                -- We expect @mir-json@ to have placed this trait object's drop
+                -- method at index 0, unless the trait object lacks a principal
+                -- trait. Check here whether the trait has any methods, to emit
+                -- a more relevant error message than `doVirtCall` would emit on
+                -- its own.
+                let dropMethodIndex = 0
+                () <- case col ^. traits . at traitName of
+                    Nothing -> mirFail $ "undefined trait: "<>show traitName
+                    Just trait ->
+                        case trait ^. traitItems of
+                            [] -> mirFail $ "no drop method available in trait "<>show traitName
+                            (_:_) -> pure ()
+
                 callExpr <-
                     doVirtCall
                         col
@@ -668,10 +677,6 @@ drop_in_place_dyn =
                 , show (length ss) <> ":"
                 , show ss ]
     )
-    where
-        -- The index at which we expect @mir-json@ to have placed this trait
-        -- object's drop method.
-        dropMethodIndex = 0
 
 intrinsics_copy :: (ExplodedDefId, CustomRHS)
 intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
