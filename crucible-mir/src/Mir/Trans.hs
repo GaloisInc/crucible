@@ -2645,12 +2645,12 @@ transCollection col halloc = do
     hmap2 <- mkShimHandleMap col halloc
     let hmap = hmap1 <> hmap2
 
-    --forM_ (Map.toList hmap) $ \(name, mh) -> do
-    --  MirHandle _ sig handle <- return mh
-    --  traceM $ "function " ++ show name ++ ":"
-    --  traceM $ "  sig = " ++ show sig
-    --  traceM $ "  handle = " ++ show (FH.handleType handle)
-
+    when (?debug > 3) $ do
+      forM_ (Map.toList hmap) $ \(name, mh) -> do
+        MirHandle _ sig handle <- return mh
+        traceM $ "function " ++ show name ++ ":"
+        traceM $ "  sig = " ++ show (pretty sig)
+        traceM $ "  handle = " ++ show (FH.handleType handle)
 
     vm <- mkVtableMap col halloc
 
