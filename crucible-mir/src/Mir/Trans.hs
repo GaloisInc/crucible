@@ -868,6 +868,19 @@ evalCast' ck ty1 e ty2  = do
         | t1 == t2
         -> return e
 
+      (M.Unsize, M.TyRef _ _, M.TyRef (M.TyDynamic _) _) ->
+        mirFail $ unlines $
+          [ "error when casting:"
+          , "  ty: "<>show ty1
+          , "  as: "<>show ty2
+          , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
+      (M.Unsize, M.TyRawPtr _ _, M.TyRawPtr (M.TyDynamic _) _) ->
+        mirFail $ unlines $
+          [ "error when casting:"
+          , "  ty: "<>show ty1
+          , "  as: "<>show ty2
+          , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
+
       -- Unsized casts from references to sized structs to references to DSTs.
       -- We defer to the provided cast kind to determine what kind of unsizing
       -- cast we expect to perform, i.e. what kind of metadata to include in the
