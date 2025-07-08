@@ -1989,10 +1989,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
       -- form, but `inputExps` follows the untupled form.  Here we convert
       -- `inputExps` to match `argvars` by tupling up some of the arguments.
       --
-      -- Arguments from `spreadArg` onward need to be tupled.  Note that
-      -- `fsspreadarg` is 1-based (it's a MIR `Local` ID, and the first
-      -- argument is local `_1`), but we convert to a 0-based index for
-      -- convenience.
+      -- Arguments from `splitIndex` onward need to be tupled.  Note that
+      -- `spreadArg` is 1-based (it's a MIR `Local` ID, and the first argument
+      -- is local `_1`), but we convert to a 0-based index for convenience.
       let splitIndex = spreadArg - 1
       when (splitIndex > length inputExps) $
         mirFail $ "split index " ++ show splitIndex ++ " out of range for "

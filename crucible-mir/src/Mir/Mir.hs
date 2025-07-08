@@ -146,18 +146,18 @@ data Abi
 data RustCallBodyInfo
     = RcNoBody
     -- ^ The `FnSig` containing this `RustCall` `Abi` isn't the signature of a
-    -- `Fn` body.  For example, `extern "rust-call"` function pointers always
-    -- have an ABI of `RustCall RcNoBody`.
+    -- `Fn` body.  For example, @extern "rust-call"@ function pointers always
+    -- have an ABI of @`RustCall` `RcNoBody`@.
     | RcNoSpreadArg
-    -- ^ The `FnSig` is associated with a body, but the body's `spread_arg`
+    -- ^ The `FnSig` is associated with a body, but the body's @spread_arg@
     -- field is unset.  This applies to closure implementations, which are
-    -- are `extern "rust-call"` and are called with tupled arguments, but are
-    -- defined with un-tupled arguments (and no `spread_arg`).  For such
+    -- are @extern "rust-call"@ and are called with tupled arguments, but are
+    -- defined with un-tupled arguments (and no @spread_arg@).  For such
     -- functions, `fsarg_tys` will contain the un-tupled arguments, and the ABI
-    -- will be `RustCall RcNoSpreadArg`.
+    -- will be @`RustCall` `RcNoSpreadArg`@.
     | RcSpreadArg Int
-    -- ^ The `FnSig` is associated with a body, and the body has a `spread_arg`
-    -- index.  This applies to various `extern "rust-call"` closure-related
+    -- ^ The `FnSig` is associated with a body, and the body has a @spread_arg@
+    -- index.  This applies to various @extern "rust-call"@ closure-related
     -- shims and vtable methods, which are both called and defined with a
     -- tupled signature.
     deriving (Show, Eq, Ord, Generic)

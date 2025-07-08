@@ -315,10 +315,9 @@ isZeroSized col ty = go ty
       _ -> False
 
 
--- | Get the "ABI-level" function arguments for `sig`, which determines the
--- arguments we use for the Crucible `FnHandle`.  This applies a special
--- adjustment for `extern "rust-call"` functions, like the one rustc applies
--- when converting a `FnSig` to `FnAbi`.
+-- | Get the "ABI-level" function arguments for @sig@, which determines the
+-- arguments we use for the Crucible @FnHandle@.  This includes the necessary
+-- adjustments for `extern "rust-call"` functions.
 abiFnArgs :: HasCallStack => M.FnSig -> [M.Ty]
 abiFnArgs sig = case sig ^. M.fsabi of
   M.RustCall M.RcNoBody -> untupledArgs
@@ -328,6 +327,8 @@ abiFnArgs sig = case sig ^. M.fsabi of
   where
     normalArgs = sig ^. M.fsarg_tys
     untupledArgs = case normalArgs of
+      -- This is similar to the adjustment rustc applies when lowering an
+      -- `extern "rust-call"` `FnSig` to a `FnAbi`.
       [M.TyTuple tys] -> tys
       [selfTy, M.TyTuple tys] -> selfTy : tys
       _ -> error $
