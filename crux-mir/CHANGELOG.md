@@ -13,6 +13,8 @@ This release supports [version
 * Improve source position tracking for MIR statements during the translation to
   Crucible. This should result in more precise error messages in certain
   situations.
+* Support using `dyn Fn` and `dyn FnMut` for closures.  Using `dyn FnOnce` is
+  not yet supported.
 
 # 0.10 -- 2025-03-21
 
