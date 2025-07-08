@@ -140,11 +140,9 @@ instance FromJSON Instance where
 instance FromJSON FnSig where
     parseJSON =
       withObject "FnSig" $ \v -> do
-         let spread = return Nothing
          FnSig <$> v .: "inputs"
                <*> v .: "output"
                <*> v .: "abi"
-               <*> spread
 
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt
@@ -232,10 +230,19 @@ instance FromJSON Collection where
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do
       args <- v .: "args"
+
+      origAbi <- v .: "abi"
+      abi <- case origAbi of
+        RustCall _ -> do
+          spreadArg <- v .: "spread_arg"
+          case spreadArg of
+            Just i -> return $ RustCall (RcSpreadArg i)
+            Nothing -> return $ RustCall RcNoSpreadArg
+        _ -> return origAbi
+
       let sig = FnSig <$> return (map typeOf args)
                       <*> v .: "return_ty"
-                      <*> v .: "abi"
-                      <*> v .: "spread_arg"
+                      <*> return abi
 
       Fn
         <$> v .: "name"
@@ -247,7 +254,10 @@ instance FromJSON Abi where
     parseJSON = withObject "Abi" $ \v -> case lookupKM "kind" v of
         Just (String "Rust") -> pure RustAbi
         Just (String "RustIntrinsic") -> pure RustIntrinsic
-        Just (String "RustCall") -> pure RustCall
+        -- For `RustCall`, defaut to `RcNoBody`.  The spread_arg info will be
+        -- added while parsing the `Fn`, if this `Abi` is part of a `Fn`'s
+        -- signature.
+        Just (String "RustCall") -> pure $ RustCall RcNoBody
         Just (String _) -> pure OtherAbi
         x -> fail $ "bad abi: " ++ show x
 

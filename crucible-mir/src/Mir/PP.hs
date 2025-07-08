@@ -135,12 +135,15 @@ pretty_temp (Var vn vm vty _vzst) =
 
 instance Pretty Fn where
     pretty (Fn fname1 fargs1 fs fbody1) =
-      vcat $ [pretty "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
+      vcat $ [extern <> pretty "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
                   <+> arrow <+> pretty rty <+> lbrace]
             ++ [indent 3 (pretty fbody1),
                 rbrace]
       where
         rty    = fs^.fsreturn_ty
+        extern = case fs^.fsabi of
+          RustAbi -> mempty
+          abi -> pretty "extern" <+> viaShow abi <+> mempty
 
 instance Pretty MirBody where
     pretty (MirBody mvs mbs _) =
@@ -387,11 +390,6 @@ instance Pretty FnSig where
   pretty fs =
     tupled (map pretty (fs^.fsarg_tys)) <+> arrow <+> pretty (fs^.fsreturn_ty)
                 <+> brackets (pretty (fs^.fsabi))
-                <+> maybeSpreadArg
-    where
-        maybeSpreadArg = case fs^.fsspreadarg of
-            Nothing -> mempty
-            Just i -> braces (pretty "spread_arg" <+> pretty i)
 
 instance Pretty Abi where
     pretty = viaShow
