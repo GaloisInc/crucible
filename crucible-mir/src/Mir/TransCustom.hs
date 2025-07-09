@@ -649,11 +649,15 @@ drop_in_place_dyn =
                 let argExprs = Ctx.empty
                 let retTy = C.UnitRepr
 
-                -- We expect @mir-json@ to have placed this trait object's drop
+                -- We expect `mir-json` to have placed this trait object's drop
                 -- method at index 0, unless the trait object lacks a principal
-                -- trait. Check here whether the trait has any methods, to emit
-                -- a more relevant error message than `doVirtCall` would emit on
-                -- its own.
+                -- trait (e.g. `dyn Send`). (This caveat for traits like `Send`
+                -- is a bug/limitation of `mir-json` - it _should_ emit a vtable
+                -- with a drop method for their trait objects, but that requires
+                -- some implementation effort we haven't yet spent, so it
+                -- currently does not.) Check here whether the trait has any
+                -- methods, to emit a more relevant error message than
+                -- `doVirtCall` would emit on its own.
                 let dropMethodIndex = 0
                 () <- case col ^. traits . at traitName of
                     Nothing -> mirFail $ "undefined trait: "<>show traitName
