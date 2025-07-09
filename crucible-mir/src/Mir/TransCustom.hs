@@ -635,6 +635,9 @@ null_ptr_impl what substs = case substs of
 -- @core::ptr::drop_in_place@ (when instantiated at @dyn@ types) to fetch the
 -- appropriate drop method from the trait object's vtable. @mir-json@ will have
 -- included this method.
+--
+-- For versions of @drop_in_place@ instantiated at other types, this override
+-- will not apply, and we will defer to the rustc-provided implementation.
 drop_in_place_dyn :: (ExplodedDefId, CustomRHS)
 drop_in_place_dyn =
     ( ["core", "ptr", "drop_in_place"],
@@ -670,7 +673,10 @@ drop_in_place_dyn =
                         argExprs
                         retTy
                 pure (MirExp retTy callExpr)
-        Substs [_] -> Nothing
+        Substs [_] ->
+            -- We weren't provided a `dyn`/`TyDynamic`, so we don't provide an
+            -- override, we just defer to the rustc-provided implementation.
+            Nothing
         Substs ss ->
             Just $ CustomOp $ \_ _ -> mirFail $ unwords
                 [ "expected one subst for `core::ptr::drop_in_place`, saw"
