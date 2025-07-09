@@ -36,6 +36,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , vectorCopy, ptrCopy, copyNonOverlapping
                 , evalRval
                 , callExp
+                , doVirtCall
                 , derefExp, readPlace, addrOfPlace
                 , transmuteExp
                 , extendUnsignedBV
@@ -739,7 +740,7 @@ extendSignedBV (MirExp tp e) w =
       _ -> mirFail $ "unimplemented signed bvext " ++ show tp ++ " " ++ show w
 
 
-evalCast' :: HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
+evalCast' :: forall h s ret. HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  = do
     col <- use $ cs . collection
     case (ck, ty1, ty2) of
@@ -839,7 +840,9 @@ evalCast' ck ty1 e ty2  = do
       -- TODO: Remove this completely.
       (M.Unsize,a,b) | a == b -> return e
 
-      -- ADT -> ADT unsizing is done via `CoerceUnsized`.
+      -- ADT -> ADT unsizing is done via `CoerceUnsized`, and handled here.
+      -- Reference-to-ADT -> reference-to-ADT casting is handled separately,
+      -- below.
       (M.Unsize, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
         coerceUnsized ck aname1 aname2 e
       (M.UnsizeVtable _, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
@@ -864,6 +867,32 @@ evalCast' ck ty1 e ty2  = do
       (M.Unsize, M.TyRef (M.TyDynamic t1) _, M.TyRef (M.TyDynamic t2) _)
         | t1 == t2
         -> return e
+
+      (M.Unsize, M.TyRef _ _, M.TyRef (M.TyDynamic _) _) ->
+        mirFail $ unlines $
+          [ "error when casting:"
+          , "  ty: "<>show ty1
+          , "  as: "<>show ty2
+          , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
+      (M.Unsize, M.TyRawPtr _ _, M.TyRawPtr (M.TyDynamic _) _) ->
+        mirFail $ unlines $
+          [ "error when casting:"
+          , "  ty: "<>show ty1
+          , "  as: "<>show ty2
+          , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
+
+      -- Unsized casts from references to sized structs to references to DSTs.
+      -- We defer to the provided cast kind to determine what kind of unsizing
+      -- cast we expect to perform, i.e. what kind of metadata to include in the
+      -- created fat pointer.
+      (M.Unsize, M.TyRef (M.TyAdt an1 _ _) m1, M.TyRef (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtSlice M.TyRef an1 m1 an2 m2
+      (M.Unsize, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtSlice M.TyRawPtr an1 m1 an2 m2
+      (M.UnsizeVtable vtable, M.TyRef (M.TyAdt an1 _ _) m1, M.TyRef (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtDyn vtable M.TyRef an1 m1 an2 m2
+      (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
+        unsizeAdtDyn vtable M.TyRawPtr an1 m1 an2 m2
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
@@ -944,6 +973,119 @@ evalCast' ck ty1 e ty2  = do
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
+    -- | Attempt to access the repr(transparent) field types of the two structs,
+    -- failing if only one is repr(transparent)
+    reprTransparentFieldTys :: AdtName -> AdtName -> MirGenerator h s ret (Maybe (Ty, Ty))
+    reprTransparentFieldTys an1 an2 = do
+      col <- use $ cs . collection
+      adt1 <- findAdt an1
+      adt2 <- findAdt an2
+      case (reprTransparentFieldTy col adt1, reprTransparentFieldTy col adt2) of
+        (Just field1Ty, Just field2Ty) ->
+          pure $ Just (field1Ty, field2Ty)
+        (Nothing, Nothing) ->
+          pure Nothing
+        (Just _, Nothing) ->
+          mirFail $ unwords
+            [ "reprTransparentFieldTys: impossible:"
+            , show $ adt1 ^. M.adtname, "was repr(transparent), but"
+            , show $ adt2 ^. M.adtname, "was not" ]
+        (Nothing, Just _) ->
+          mirFail $ unwords
+            [ "reprTransparentFieldTys: impossible:"
+            , show $ adt2 ^. M.adtname, "was repr(transparent), but"
+            , show $ adt1 ^. M.adtname, "was not" ]
+
+    -- | Perform an unsized cast from a reference to a struct containing an
+    -- array in its (transitively) last field to one containing a slice or @str@
+    -- in the same position.
+    unsizeAdtSlice ::
+      (Ty -> Mutability -> Ty) ->
+      AdtName -> Mutability ->
+      AdtName -> Mutability ->
+      MirGenerator h s ret (MirExp s)
+    unsizeAdtSlice ref an1 m1 an2 m2 =
+      reprTransparentFieldTys an1 an2 >>= \case
+        Just (field1Ty, field2Ty) ->
+          evalCast' ck (ref field1Ty m1) e (ref field2Ty m2)
+        Nothing ->
+          unsizeAdtSliceNormal an1 an2
+
+    -- | `unsizeAdtSlice`, for non-@repr(transparent)@ structs.
+    unsizeAdtSliceNormal :: AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
+    unsizeAdtSliceNormal an1 an2 = do
+      adtRef <- case e of
+        MirExp MirReferenceRepr adtRef -> pure adtRef
+        _ -> mirFail "unsizeAdtSlice called on non-reference"
+      col <- use $ cs . collection
+
+      -- We expect to be casting from an array-containing DST to a
+      -- slice-containing DST. For the target of the cast to be a valid DST, the
+      -- slice needs to be its last field (or its last field's last field),
+      -- which means the source needs to have an array in the same position
+      lenExpr <- case findLastFieldRec col an1 of
+        Just field ->
+          case field ^. M.fty of
+            M.TyArray _elemTy len ->
+              pure $ R.App $ usizeLit $ fromIntegral len
+            _ ->
+              mirFail "attempted Unsize cast from non-array source"
+        Nothing ->
+          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an1
+
+      -- Sanity-check that we are indeed casting to a type with a slice in the
+      -- expected position
+      let ref = MirExp MirSliceRepr (mkSlice adtRef lenExpr)
+      case findLastFieldRec col an2 of
+        Nothing ->
+          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an2
+        Just field ->
+          case field ^. M.fty of
+            M.TySlice _elemTy -> pure ref
+            _ -> mirFail "attempted Unsize cast to non-slice target"
+
+    -- | Perform an unsized cast from a reference to a struct containing any
+    -- initializable type in its (transitively) last field to one containing a
+    -- trait object in the same position. The restriction on initializability
+    -- makes it substantially easier to implement `Mir.TransTy.structFieldRef` -
+    -- see that function for details.
+    unsizeAdtDyn ::
+      VtableName ->
+      (Ty -> Mutability -> Ty) ->
+      AdtName -> Mutability ->
+      AdtName -> Mutability ->
+      MirGenerator h s ret (MirExp s)
+    unsizeAdtDyn vtable ref an1 m1 an2 m2 =
+      reprTransparentFieldTys an1 an2 >>= \case
+        Just (field1Ty, field2Ty) ->
+          evalCast' ck (ref field1Ty m1) e (ref field2Ty m2)
+        Nothing ->
+          unsizeAdtDynNormal vtable an1 an2
+
+    -- | `unsizeAdtDyn`, for non-@repr(transparent)@ structs.
+    unsizeAdtDynNormal :: VtableName -> AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
+    unsizeAdtDynNormal vtable castSource castTarget = do
+      col <- use $ cs . collection
+      eventualTraitObject <- case findLastFieldRec col castSource of
+        Nothing ->
+          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castSource
+        Just field ->
+          pure (field ^. M.fty)
+      -- `FkMaybe` fields are not initializable, and our rationale for
+      -- prohibiting them here is described in `unsizeAdtDyn`, above, and
+      -- `Mir.TransTy.structFieldRef`
+      case tyToFieldRepr col eventualTraitObject of
+        Some (FieldRepr (FkMaybe _)) ->
+          mirFail "error: unsizeAdtDyn with non-initializable unsized field"
+        Some (FieldRepr (FkInit _)) ->
+          case findLastFieldRec col castTarget of
+            Nothing ->
+              mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+            Just field ->
+              case field ^. M.fty of
+                M.TyDynamic traitName -> mkTraitObject traitName vtable e
+                _ -> mirFail "attempted UnsizeVtable cast with non-trait-object target"
+
     unsizeArray ty sz ty'
       | ty == ty', MirExp MirReferenceRepr ref <- e
       = do
@@ -1266,6 +1408,8 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
+    doRef adtTy@(M.TyAdt _ _ _) | MirSliceRepr <- tpr = doSliceAdt adtTy ref
+    doRef adtTy@(M.TyAdt _ _ _) | DynRefRepr <- tpr = doDynAdt adtTy ref
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1315,7 +1459,63 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
+    -- For (dynamically-sized) ADTs wrapping slices, with MirPlace input of the
+    -- form:
+    --
+    --   MirPlace (*S<[T]>) <expr: **S<[T]> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace AnyRepr <expr: *S<[T; len]> (SliceMeta len)
+    --
+    -- Where `len` is the wrapped slice's length.
+    doSliceAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doSliceAdt adtTy ref' =
+      do
+        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- but that would involve computing its slice field's representation,
+        -- which should error. Because it represents an unsized value, we don't
+        -- expect to check/use this type directly elsewhere, so we can get away
+        -- with an `AnyRepr` placeholder.
+        let adtRepr = C.AnyRepr
+        adtRef <- readMirRef MirSliceRepr ref'
+        -- In both this case and the case of plain slices, `readMirRef` gives us
+        -- access to a double-wide DST pointer. In both cases, the second half
+        -- holds the slice length. In our case, the first half holds a pointer
+        -- to the ADT, while in the slice case, the first half holds the slice's
+        -- data pointer, i.e. a pointer to the first element of the slice.
+        --
+        -- In both cases, though, we can safely access the first half with
+        -- `getSlicePtr`.
+        let adtPtr = getSlicePtr adtRef
+        let sliceLen = getSliceLen adtRef
+        return $ MirPlace adtRepr adtPtr (SliceMeta sliceLen)
+
+    -- For (dynamically-sized) ADTs wrapping trait objects, with MirPlace input
+    -- of the form:
+    --
+    --   MirPlace (*S<dyn Trait>) <expr: **S<dyn Trait> NoMeta
+    --
+    -- We produce output of the form:
+    --
+    --   MirPlace AnyRepr <expr: *S<Concrete> (DynMeta vtable)
+    --
+    -- Where `vtable` is the vtable for `Trait` at `Concrete`.
+    doDynAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doDynAdt adtTy ref' =
+      do
+        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- but that would involve computing its trait object field's
+        -- representation, which will error. Because it represents an unsized
+        -- value, we don't expect to check/use this type directly elsewhere, so
+        -- we can get away with an `AnyRepr` placeholder.
+        let adtRepr = C.AnyRepr
+        dynRef <- readMirRef DynRefRepr ref'
+        let adtPtr = S.getStruct dynRefDataIndex dynRef
+        let vtable = S.getStruct dynRefVtableIndex dynRef
+        return $ MirPlace adtRepr adtPtr (DynMeta vtable)
+
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1347,7 +1547,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = do
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
-            Struct -> structFieldRef adt idx ref
+            Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> mirFail $ "evalPlace (PField, Union) NYI"
 
@@ -2455,24 +2655,26 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
       | otherwise = return Map.empty
       where
 
--- Generate a virtual-call shim.  The shim takes (&dyn Foo, args...), splits
--- the `&dyn` into its data-pointer and vtable components, looks up the
--- appropriate method (a vtable shim, produced by transVtableShim), and passes
--- in the data and `args...`.
-transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
-  => CollectionState
-  -> M.IntrinsicName
-  -> M.MethName
-  -> M.TraitName
-  -> Integer
-  -> ST h (Text, Core.AnyCFG MIR)
-transVirtCall colState intrName methName dynTraitName methIndex
-  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
-    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
-    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
-        $ \eqMethArgs@Refl recvTy argTys ->
-    let retTy = FH.handleReturnType methFH in
 
+-- | Provided a @&dyn@ receiver and appropriate arguments, generate a pair of
+-- @(function, arguments)@ expressions representing a virtual-call shim that
+-- will look up and call the right concrete method and provide it those
+-- arguments. See 'doVirtTailCall' for an example of actualy calling the
+-- function.
+mkVirtCall
+  :: HasCallStack
+  => M.Collection
+  -> M.TraitName
+  -> Integer -- ^ The method index
+  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
+  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
+  -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
+  -> C.TypeRepr retTy -- ^ The return type
+  -> G.Generator MIR s t ret (ST h)
+    ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
+    , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
+mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
         $ \eqRecvTy@Refl ->
 
@@ -2502,13 +2704,128 @@ transVirtCall colState intrName methName dynTraitName methIndex
     checkEq vtsRetTy retTy
         (die ["vtable shim return type doesn't match method; vtable shim =",
             show vtsRetTy, "; method =", show retTy])
-        $ \eqVtsRetTy@Refl ->
+        $ \eqVtsRetTy@Refl -> do
 
-    do
-        R.SomeCFG g <- defineFunctionNoAuxs methFH
-            (buildShim argTys retTy vtableTys vtableIdx)
-        case SSA.toSSA g of
-            Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
+    let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
+    let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
+
+    -- Downcast the vtable to its proper struct type
+    errBlk <- G.newLabel
+    G.defineBlock errBlk $ do
+        G.reportError $ R.App $ E.StringLit $ fromString $
+            unwords ["bad vtable downcast:", show dynTraitName,
+                "to", show vtableTys]
+
+    let vtableStructTy = C.StructRepr vtableTys
+    okBlk <- G.newLambdaLabel' vtableStructTy
+    vtable <- G.continueLambda okBlk $ do
+        G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
+
+    -- Extract the function handle from the vtable
+    let vtsFH = R.App $ E.GetStruct vtable vtableIdx
+            (C.FunctionHandleRepr (C.AnyRepr <: argTys) vtsRetTy)
+
+    pure (vtsFH, (R.App (E.PackAny MirReferenceRepr recvData) <: argExprs))
+
+  where
+    die :: [String] -> a
+    die words = error $ unwords
+        (["failed to generate virtual-call shim for method", show methIndex,
+            "of trait", show dynTraitName] ++ words)
+
+    dynTrait = case col ^. M.traits . at dynTraitName of
+        Just x -> x
+        Nothing -> die ["undefined trait " ++ show dynTraitName]
+
+    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
+    -- substs only, omitting the Self type.
+    vtableType :: Some C.TypeRepr
+    vtableType = traitVtableType col dynTraitName dynTrait
+
+
+-- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
+-- then tail-call that function on those arguments.
+doVirtTailCall
+  :: HasCallStack
+  => M.Collection
+  -> M.TraitName
+  -> Integer -- ^ The method index
+  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
+  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
+  -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
+  -> C.TypeRepr retTy -- ^ The return type
+  -> G.Generator MIR s t retTy (ST h) (R.Expr MIR s retTy)
+doVirtTailCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = do
+  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy
+  G.tailCall fnHandle args
+
+
+-- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
+-- then call that function on those arguments.
+--
+-- Note the extra quantified variable in the return type in this vs.
+-- 'doVirtTailCall', which makes this function slightly less restrictive:
+--
+-- > G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
+--
+-- vs
+--
+-- > G.Generator MIR s t retTy    (ST h) (R.Expr MIR s retTy)
+doVirtCall
+  :: HasCallStack
+  => M.Collection
+  -> M.TraitName
+  -> Integer -- ^ The method index
+  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
+  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
+  -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
+  -> C.TypeRepr retTy -- ^ The return type
+  -> G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
+doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = do
+  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy
+  G.call fnHandle args
+
+
+-- | Translate a virtual call. The logic for looking up the right method in the
+-- vtable is implemented in 'mkVirtCall'.
+transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+  => CollectionState
+  -> M.IntrinsicName
+  -> M.MethName
+  -> M.TraitName
+  -> Integer
+  -> ST h (Text, Core.AnyCFG MIR)
+transVirtCall colState intrName methName dynTraitName methIndex
+  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
+    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
+    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
+        $ \eqMethArgs@Refl recvTy argTys ->
+    let retTy = FH.handleReturnType methFH
+
+        -- | This is actually a 'G.FunctionDef', but that synonym hides some
+        -- types we apparently need to write out in this signature.
+        withArgs ::
+          Ctx.Assignment (R.Atom s) args ->
+          ([s], G.Generator MIR s [] ret (ST h) (R.Expr MIR s ret))
+        withArgs argsAssn =
+          let (recvExpr, argExprs) = splitMethodArgs argsAssn (Ctx.size argTys)
+              callExpr =
+                doVirtTailCall
+                  (colState ^. collection)
+                  dynTraitName
+                  (fromInteger methIndex)
+                  recvTy
+                  recvExpr
+                  argTys
+                  argExprs
+                  retTy
+          in  ([], callExpr)
+      in  do
+            R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
+            case SSA.toSSA g of
+                Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
 
   where
     die :: [String] -> a
@@ -2516,48 +2833,9 @@ transVirtCall colState intrName methName dynTraitName methIndex
         (["failed to generate virtual-call shim for", show methName,
             "(intrinsic", show intrName, "):"] ++ words)
 
-    dynTrait = case colState ^. collection . M.traits . at dynTraitName of
-        Just x -> x
-        Nothing -> die ["undefined trait " ++ show dynTraitName]
-
-    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
-    -- substs only, omitting the Self type.
-    vtableType :: Some C.TypeRepr
-    vtableType = traitVtableType (colState ^. collection) dynTraitName dynTrait
-
     methMH = case Map.lookup intrName (colState ^. handleMap) of
         Just x -> x
         Nothing -> die ["failed to find method handle for", show intrName]
-
-    buildShim ::
-        C.CtxRepr argTys -> C.TypeRepr retTy -> C.CtxRepr vtableTys ->
-        Ctx.Index vtableTys (C.FunctionHandleType (C.AnyType :<: argTys) retTy) ->
-        G.FunctionDef MIR [] (DynRefType :<: argTys) retTy (ST h)
-    buildShim argTys retTy vtableTys vtableIdx argsA = (\x -> ([], x)) $ do
-        let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
-
-        -- Extract data and vtable parts of the `&dyn` receiver
-        let recvData = R.App $ E.GetStruct recv dynRefDataIndex MirReferenceRepr
-        let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
-
-        -- Downcast the vtable to its proper struct type
-        errBlk <- G.newLabel
-        G.defineBlock errBlk $ do
-            G.reportError $ R.App $ E.StringLit $ fromString $
-                unwords ["bad vtable downcast:", show dynTraitName,
-                    "to", show vtableTys]
-
-        let vtableStructTy = C.StructRepr vtableTys
-        okBlk <- G.newLambdaLabel' vtableStructTy
-        vtable <- G.continueLambda okBlk $ do
-            G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
-
-        -- Extract the function handle from the vtable
-        let vtsFH = R.App $ E.GetStruct vtable vtableIdx
-                (C.FunctionHandleRepr (C.AnyRepr <: argTys) retTy)
-
-        -- Call it
-        G.tailCall vtsFH (R.App (E.PackAny MirReferenceRepr recvData) <: args)
 
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s

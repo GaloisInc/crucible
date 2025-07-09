@@ -15,6 +15,8 @@ This release supports [version
   situations.
 * Support using `dyn Fn` and `dyn FnMut` for closures.  Using `dyn FnOnce` is
   not yet supported.
+* Support custom dynamically-sized types, allowing for use of types like
+  `Arc<dyn Fn>`, `Box<dyn Fn>`, et al.
 
 # 0.10 -- 2025-03-21
 
