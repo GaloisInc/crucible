@@ -9,7 +9,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isSpace)
-import           Data.List (dropWhileEnd, isPrefixOf)
+import           Data.List (dropWhileEnd, isPrefixOf, sort)
 import           Data.Maybe (catMaybes)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
 import           System.Exit (ExitCode(..))
@@ -284,6 +284,9 @@ testDir oracleTest dir = do
       gen f = doesDirectoryExist (dir </> f) >>= \case
         False -> return Nothing
         True -> Just <$> testDir oracleTest (dir </> f)
-  fs <- listDirectory dir
+  -- This `sort` is not technically necessary, it just ensures that test cases
+  -- will be performed in a stable ordering, since `listDirectory` doesn't
+  -- guarantee such an ordering.
+  fs <- sort <$> listDirectory dir
   tcs <- mapM gen fs
   return (testGroup (takeBaseName dir) (catMaybes tcs))
