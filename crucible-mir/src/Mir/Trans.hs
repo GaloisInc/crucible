@@ -1467,7 +1467,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     --
     -- We produce output of the form:
     --
-    --   MirPlace S<[T]> <expr: *S<[T; len]> (SliceMeta len)
+    --   MirPlace AnyRepr <expr: *S<[T; len]> (SliceMeta len)
     --
     -- Where `len` is the wrapped slice's length.
     doSliceAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
@@ -1499,7 +1499,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     --
     -- We produce output of the form:
     --
-    --   MirPlace S<dyn Trait> <expr: *S<Concrete> (DynMeta vtable)
+    --   MirPlace AnyRepr <expr: *S<Concrete> (DynMeta vtable)
     --
     -- Where `vtable` is the vtable for `Trait` at `Concrete`.
     doDynAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
