@@ -51,6 +51,7 @@ data ControlFlow a b
   | Break b
   deriving Functor
 
+-- NB: 'first' is used in this module
 instance Bifunctor ControlFlow where
   bimap l r =
     \case
@@ -131,7 +132,7 @@ _fullyConcreteNullTerminatedString =
       Just 0 -> pure (Break (acc []))
       Just c -> do
         let c' = toEnum @Word8 (fromInteger c)
-        pure (Continue (acc . (c':)))
+        pure (Continue (\l -> acc (c' : l)))
       Nothing -> do
         let msg = "Symbolic value encountered when loading a string"
         LCB.addFailedAssertion bak (LCS.Unsupported GHC.callStack msg)
@@ -146,7 +147,7 @@ concretelyNullTerminatedString =
     byte <- ptrToBv8 bak bytePtr
     if isConcreteNullTerminator byte
     then pure (Break (acc []))
-    else  pure (Continue (acc . (byte:)))
+    else  pure (Continue (\l -> acc (byte : l)))
   where
     isConcreteNullTerminator symByte =
       case BV.asUnsigned <$> WI.asBV symByte of
@@ -168,7 +169,7 @@ nullTerminatedString =
     isNullTerm <- isNullTerminator bak sym byte
     if isNullTerm
     then pure (Break (acc []))
-    else  pure (Continue (acc . (byte:)))
+    else  pure (Continue (\l -> acc (byte : l)))
   where
     isNullTerminator bak sym symByte =
       case BV.asUnsigned <$> WI.asBV symByte of
@@ -206,7 +207,7 @@ withMaxChars limit done checker =
 -- encounters a (concretely) null terminator.
 --
 -- Note that the loaded string may actually be smaller than the returned list if
--- any of the symbolic bytes may be 0.
+-- any of the symbolic bytes are equal to 0.
 loadConcretelyNullTerminatedString ::
   ( LCB.IsSymBackend sym bak
   , Mem.HasPtrWidth wptr
@@ -224,18 +225,18 @@ loadConcretelyNullTerminatedString bak mem ptr limit =
   case limit of
     Nothing -> loadBytes bak mem id ptr concretelyNullTerminatedString
     Just l ->
-      let byteChecker = withMaxChars l (pure . ($ [])) concretelyNullTerminatedString in
+      let byteChecker = withMaxChars l (\f -> pure (f [])) concretelyNullTerminatedString in
       loadBytes bak mem (id, 0) ptr byteChecker
 
 -- | Load a null-terminated string from memory.
 --
--- Consults an SMT solver to check if the loaded byte is known to be null (0).
--- If a maximum number of characters is provided, no more than that number
--- of charcters will be read. In either case, 'loadSymbolicString' will stop
--- reading if it encounters a null terminator.
+-- Consults an SMT solver to check if any of the loaded bytes are known to be
+-- null (0). If a maximum number of characters is provided, no more than that
+-- number of charcters will be read. In either case, 'loadSymbolicString' will
+-- stop reading if it encounters a null terminator.
 --
 -- Note that the loaded string may actually be smaller than the returned list if
--- any of the symbolic bytes may be 0.
+-- any of the symbolic bytes are equal to 0.
 loadSymbolicString ::
   ( LCB.IsSymBackend sym bak
   , sym ~ WEB.ExprBuilder scope st fs
