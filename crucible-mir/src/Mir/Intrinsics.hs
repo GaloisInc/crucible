@@ -1283,11 +1283,8 @@ subfieldMirRef_UntypedLeaf ref fieldNum expectedTy =
                 Just someIdx -> pure someIdx
                 Nothing ->
                   bail $ unwords $
-                    [ "out-of-bounds field access: field"
-                    , show fieldNum
-                    , "of struct"
-                    , show structCtx
-                    ]
+                    [ "out-of-bounds field access:"
+                    , "field", show fieldNum, "of struct", show structCtx ]
             let fieldRepr = structCtx ! fieldIdx
             () <- case expectedTy of
               Nothing -> pure ()
@@ -1296,18 +1293,14 @@ subfieldMirRef_UntypedLeaf ref fieldNum expectedTy =
                   Just Refl -> pure ()
                   Nothing ->
                     bail $ unwords $
-                      [ "expected field type"
-                      , show expected
-                      , "did not match actual field type"
-                      , show fieldRepr
-                      ]
+                      [ "expected field type", show expected
+                      , "did not match actual field type", show fieldRepr ]
             let fieldPath = Field_RefPath structCtx refPath fieldIdx
             pure $ MirReference fieldRepr refRoot fieldPath
         notAStruct ->
           bail $ unwords $
             [ "untyped subfield requires a reference to a struct, but got a reference to"
-            , show notAStruct
-            ]
+            , show notAStruct ]
   where
     bail msg = leafAbort $ GenericSimError $ msg
 

@@ -988,19 +988,13 @@ evalCast' ck ty1 e ty2  = do
         (Just _, Nothing) ->
           mirFail $ unwords
             [ "reprTransparentFieldTys: impossible:"
-            , show $ adt1 ^. M.adtname
-            , "was repr(transparent), but"
-            , show $ adt2 ^. M.adtname
-            , "was not"
-            ]
+            , show $ adt1 ^. M.adtname, "was repr(transparent), but"
+            , show $ adt2 ^. M.adtname, "was not" ]
         (Nothing, Just _) ->
           mirFail $ unwords
             [ "reprTransparentFieldTys: impossible:"
-            , show $ adt2 ^. M.adtname
-            , "was repr(transparent), but"
-            , show $ adt1 ^. M.adtname
-            , "was not"
-            ]
+            , show $ adt2 ^. M.adtname, "was repr(transparent), but"
+            , show $ adt1 ^. M.adtname, "was not" ]
 
     -- | Perform an unsized cast from a reference to a struct containing an
     -- array in its (transitively) last field to one containing a slice or @str@
