@@ -120,7 +120,9 @@ ptrToBv8 bak bytePtr = do
   let err = LCS.AssertFailureSimError "Found pointer instead of byte when loading string" ""
   Partial.ptrToBv bak err bytePtr
 
--- Currently unused, but analogous with 'Lang.Crucible.LLVM.MemModel.loadString'
+-- Currently unused, but analogous with
+-- 'Lang.Crucible.LLVM.MemModel.loadString'. In fact, it would be good to define
+-- that function in terms of this one. However, this is blocked on TODO(#1406).
 _fullyConcreteNullTerminatedString ::
   GHC.HasCallStack =>
   LCB.IsSymBackend sym bak =>
