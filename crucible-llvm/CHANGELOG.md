@@ -2,6 +2,9 @@
 
 * `Lang.Crucible.LLVM.MemModel.{loadString,loadMaybeString,strLen}`
   should now be imported from `Lang.Crucible.LLVM.MemModel.Strings`.
+* Two new functions for loading C-style null-terminated strings from
+  LLVM memory were added to `Lang.Crucible.LLVM.MemModel.Strings`:
+  `loadConcretelyNullTerminatedString` and `loadSymbolicString`.
 
 # 0.7.1 -- 2025-03-21
 
