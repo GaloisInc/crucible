@@ -1017,6 +1017,7 @@ evalCast' ck ty1 e ty2  = do
         Nothing ->
           unsizeAdtSliceNormal an1 an2
 
+    -- | `unsizeAdtSlice`, for non-@repr(transparent)@ structs.
     unsizeAdtSliceNormal :: AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
     unsizeAdtSliceNormal an1 an2 = do
       adtRef <- case e of
@@ -1067,6 +1068,7 @@ evalCast' ck ty1 e ty2  = do
         Nothing ->
           unsizeAdtDynNormal vtable an1 an2
 
+    -- | `unsizeAdtDyn`, for non-@repr(transparent)@ structs.
     unsizeAdtDynNormal :: VtableName -> AdtName  -> AdtName -> MirGenerator h s ret (MirExp s)
     unsizeAdtDynNormal vtable castSource castTarget = do
       col <- use $ cs . collection
@@ -1075,6 +1077,9 @@ evalCast' ck ty1 e ty2  = do
           mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castSource
         Just field ->
           pure (field ^. M.fty)
+      -- `FkMaybe` fields are not initializable, and our rationale for
+      -- prohibiting them here is described in `unsizeAdtDyn`, above, and
+      -- `Mir.TransTy.structFieldRef`
       case tyToFieldRepr col eventualTraitObject of
         Some (FieldRepr (FkMaybe _)) ->
           mirFail "error: unsizeAdtDyn with non-initializable unsized field"
