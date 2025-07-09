@@ -86,7 +86,10 @@ mkTest dir path =
 
 loadTests :: FilePath -> IO Tasty.TestTree
 loadTests dir = do
-  files <- Dir.listDirectory dir
+  -- This `List.sort` is not technically necessary, it just ensures that test
+  -- cases will be performed in a stable ordering, since `Dir.listDirectory`
+  -- doesn't guarantee such an ordering.
+  files <- List.sort <$> Dir.listDirectory dir
   let dbgScripts = List.filter (".txt" `List.isSuffixOf`) files
   let tests = map (uncurry mkTest) (map (dir,) dbgScripts)
   pure (Tasty.testGroup dir tests)
