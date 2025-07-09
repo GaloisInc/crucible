@@ -5,6 +5,9 @@
 * Two new functions for loading C-style null-terminated strings from
   LLVM memory were added to `Lang.Crucible.LLVM.MemModel.Strings`:
   `loadConcretelyNullTerminatedString` and `loadSymbolicString`.
+* Add a new "low-level" API for loading strings to
+  `Lang.Crucible.LLVM.MemModel.Strings`: `ByteLoader`, `ByteChecker`, and
+  `loadBytes`.
 
 # 0.7.1 -- 2025-03-21
 
