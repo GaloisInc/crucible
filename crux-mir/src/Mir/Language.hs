@@ -36,7 +36,7 @@ module Mir.Language (
     mirLoggingToSayWhat,
     withMirLogging,
     HasMirState,
-    getMirState
+    mirState
 ) where
 
 import qualified Data.Aeson as Aeson
@@ -174,7 +174,7 @@ type HasMirState p s = (MirPersonality p, MirState p ~ s)
 -- | Provides access to some custom state
 class MirPersonality p where
   type MirState p
-  mirState :: Lens' p (MirState p)
+  mirStateField :: Lens' p (MirState p)
 
 newtype CruxMir s sym = CruxMir { cruxMirState :: s }
 
@@ -183,15 +183,16 @@ cruxMirNoState = CruxMir ()
 
 instance MirPersonality (CruxMir s sym) where
   type MirState (CruxMir s sym) = s 
-  mirState = lens cruxMirState (const CruxMir)
+  mirStateField = lens cruxMirState (const CruxMir)
 
 -- | This is used when we execute with concurrency
 instance MirPersonality p => MirPersonality (Explore.Exploration p alg ext ret sym) where
   type MirState (Explore.Exploration p alg ext ret sym) = MirState p
-  mirState = Explore.personality . mirState
+  mirStateField = Explore.personality . mirStateField
 
-getMirState :: HasMirState (p sym) s => C.OverrideSim (p sym) sym ext rtp a r s
-getMirState = view (C.cruciblePersonality . mirState) <$> C.getContext
+mirState :: HasMirState (p sym) s => Lens' (C.SimState (p sym) sym ext r f a) s
+mirState = C.stateContext . C.cruciblePersonality . mirStateField
+
 
 
 type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
