@@ -82,13 +82,13 @@ scheduleFeature ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  ExplorePrimitives (ThreadExec alg sym ext ret) sym ext ->
+  ExplorePrimitives (ThreadExec p alg sym ext ret) sym ext ->
   -- | Some primitives allow waiting on the value of _source-defined_ global variables,
   -- so the client can provide an assoc list of source variables here if they'd like. This can
   -- frequently be empty -- some of the crucible-syntax examples implement mutexes as global
   -- boolean variables, but this is likely not the right approach for most languages.
   [Some GlobalVar]  ->
-  ExecutionFeature (ThreadExec alg sym ext ret) sym ext rtp
+  ExecutionFeature (ThreadExec p alg sym ext ret) sym ext rtp
 scheduleFeature prims =
   ExecutionFeature . schedule prims
 
@@ -96,14 +96,14 @@ scheduleFeature prims =
 -- the current one, performing some bookkeeping, or splitting a branch state into
 -- a taken branch and a branch that we must backtrack to.
 schedule ::
-  forall alg sym ext ret rtp.
+  forall p alg sym ext ret rtp.
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  ExplorePrimitives (ThreadExec alg sym ext ret) sym ext ->
+  ExplorePrimitives (ThreadExec p alg sym ext ret) sym ext ->
   [Some GlobalVar] ->
-  ExecState (ThreadExec alg sym ext ret) sym ext rtp ->
-  IO (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext rtp)
+  ExecState (ThreadExec p alg sym ext ret) sym ext rtp ->
+  IO (ExecutionFeatureResult (ThreadExec p alg sym ext ret) sym ext rtp)
 schedule prims globs = \case
   CallState rh (CrucibleCall x cf) s ->
     scheduleCall prims globs rh x cf s
@@ -159,13 +159,13 @@ scheduleCall ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  ExplorePrimitives (ThreadExec alg sym ext ret) sym ext ->
+  ExplorePrimitives (ThreadExec p alg sym ext ret) sym ext ->
   [Some GlobalVar] ->
-  ReturnHandler rty (ThreadExec alg sym ext ret) sym ext rtp f a {-^ rh of original CallState -} ->
+  ReturnHandler rty (ThreadExec p alg sym ext ret) sym ext rtp f a {-^ rh of original CallState -} ->
   C.BlockID callBlocks ctx {-^ block of original CrucibleTarget -} ->
   (CallFrame sym ext callBlocks rty ctx) {-^ callframe of original CrucibleTarget -} ->
-  SimState (ThreadExec alg sym ext ret) sym ext rtp f a {-^ SimState in which the CrucibleCall is executing -} ->
-  IO (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext rtp)
+  SimState (ThreadExec p alg sym ext ret) sym ext rtp f a {-^ SimState in which the CrucibleCall is executing -} ->
+  IO (ExecutionFeatureResult (ThreadExec p alg sym ext ret) sym ext rtp)
 scheduleCall prims globs rh@(ReturnToCrucible tpr rest) x cf@CallFrame { _frameCFG = cfg } s =
   case matchPrimitive prims globs nm blkRepr cf (SomeSimState s) of
     Just (ThreadJoin tid) ->
@@ -215,9 +215,9 @@ scheduleJoin ::
   ) =>
   [Some GlobalVar] ->
   ThreadID ->
-  ReturnHandler rty (ThreadExec alg sym ext ret) sym ext rtp (CrucibleLang blocks r) a ->
-  ThreadExecM alg sym ext ret rtp (CrucibleLang blocks r) a
-    (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext rtp)
+  ReturnHandler rty (ThreadExec p alg sym ext ret) sym ext rtp (CrucibleLang blocks r) a ->
+  ThreadExecM p alg sym ext ret rtp (CrucibleLang blocks r) a
+    (ExecutionFeatureResult (ThreadExec p alg sym ext ret) sym ext rtp)
 scheduleJoin globs tid rh =
   do ts0@(RunningThread _ rh' stk) <- gets (blockThreadOnJoin tid rh)
      mnext <- yieldThread globs ts0
@@ -235,13 +235,13 @@ scheduleYield ::
   , rtp ~ RegEntry sym ret
   ) =>
   [Some GlobalVar] ->
-  ReturnHandler rty (ThreadExec alg sym ext ret) sym ext rtp f a ->
-  ResolvedCall (ThreadExec alg sym ext ret) sym ext rty {-^ The original call prompting the yield -} ->
+  ReturnHandler rty (ThreadExec p alg sym ext ret) sym ext rtp f a ->
+  ResolvedCall (ThreadExec p alg sym ext ret) sym ext rty {-^ The original call prompting the yield -} ->
   YieldSpec {-^ A description of what triggered the yield -} ->
   [Text] {-^ The accessed resources triggering the yield -}  ->
   Bool {-^ Is this a readonly access? Always safe to pass False here -} ->
-  ThreadExecM alg sym ext ret rtp f a
-    (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext rtp)
+  ThreadExecM p alg sym ext ret rtp f a
+    (ExecutionFeatureResult (ThreadExec p alg sym ext ret) sym ext rtp)
 scheduleYield globs rh call spec mods ro =
   case spec of
     SimpleYield ->
@@ -278,8 +278,8 @@ scheduleThreadCreate ::
   RegValue sym ty {-^ The argument to pass to the new thread -} ->
   (sym -> Int -> IO (RegValue sym spawnRetTy)) {-^ How to construct the return value from the new thread's ID -} ->
   C.StmtSeq ext blocks rty (ctx C.::> spawnRetTy) {-^ Continuation of the spawn function -} ->
-  ThreadExecM alg sym ext ret root (CrucibleLang blocks rty) ('Just ctx)
-    (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext root)
+  ThreadExecM p alg sym ext ret root (CrucibleLang blocks rty) ('Just ctx)
+    (ExecutionFeatureResult (ThreadExec p alg sym ext ret) sym ext root)
 scheduleThreadCreate ty retTy tpr fh arg mkRet rest =
   do let newThread = NewThread ty retTy arg fh
      addThread (stateExpl.scheduler) newThread
@@ -303,8 +303,8 @@ yieldThread ::
   , rtp ~ RegEntry sym ret
   ) =>
   [Some GlobalVar] ->
-  ThreadState alg sym ext ret {-^ The thread state to use for the currently executing thread -}  ->
-  ThreadExecM alg sym ext ret rtp f a (Maybe (ExecState (ThreadExec alg sym ext ret) sym ext rtp))
+  ThreadState p alg sym ext ret {-^ The thread state to use for the currently executing thread -}  ->
+  ThreadExecM p alg sym ext ret rtp f a (Maybe (ExecState (ThreadExec p alg sym ext ret) sym ext rtp))
 yieldThread globs ts0 =
   do setActiveThreadState (stateExpl.scheduler) ts0 -- Critical! We want to be able to pick this thread
      ts <- runnableThreads globs
@@ -341,11 +341,11 @@ maybeTerminate ::
   , rtp ~ RegEntry sym ret
   ) =>
   [Some GlobalVar] ->
-  (SimState (ThreadExec alg sym ext ret) sym ext rtp f a->
-    ExecState (ThreadExec alg sym ext ret) sym ext rtp ) ->
-  ThreadState alg sym ext ret ->
-  SimState (ThreadExec alg sym ext ret) sym ext rtp f a ->
-  IO (ExecutionFeatureResult (ThreadExec alg sym ext ret) sym ext rtp)
+  (SimState (ThreadExec p alg sym ext ret) sym ext rtp f a->
+    ExecState (ThreadExec p alg sym ext ret) sym ext rtp ) ->
+  ThreadState p alg sym ext ret ->
+  SimState (ThreadExec p alg sym ext ret) sym ext rtp f a ->
+  IO (ExecutionFeatureResult (ThreadExec p alg sym ext ret) sym ext rtp)
 maybeTerminate globs withModified ts s =
   flip evalStateT s $!
     do res <- yieldThread globs ts
@@ -365,7 +365,7 @@ switchToPendingThread ::
   [Some GlobalVar] ->
   Bool ->
   (ThreadID, Direction) ->
-  ThreadExecM alg sym ext ret rtp f a (Maybe (ExecState (ThreadExec alg sym ext ret) sym ext rtp))
+  ThreadExecM p alg sym ext ret rtp f a (Maybe (ExecState (ThreadExec p alg sym ext ret) sym ext rtp))
 switchToPendingThread globals preempted (tid, dir) =
   do curr <- use $ stateExec.currentEventID
      tstate <- (V.! threadID tid) <$> use (stateExpl.scheduler.threads)
@@ -391,9 +391,9 @@ resumeThreadState ::
   ) =>
   [Some GlobalVar] ->
   ThreadID ->
-  ThreadState alg sym ext ret ->
+  ThreadState p alg sym ext ret ->
   Direction ->
-  ThreadExecM alg sym ext ret rtp f a (ExecState (ThreadExec alg sym ext ret) sym ext rtp)
+  ThreadExecM p alg sym ext ret rtp f a (ExecState (ThreadExec p alg sym ext ret) sym ext rtp)
 resumeThreadState globalVars tID ts dir =
   do stateExpl.scheduler.activeThread .= threadID tID
      case ts of
@@ -431,7 +431,7 @@ startNewThread ::
   C.TypeRepr ty ->
   RegValue sym ty ->
   FnHandle (Ctx.EmptyCtx Ctx.::> ty) retTy ->
-  ThreadExecM alg sym ext ret (RegEntry sym ret) f a (ExecState (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret))
+  ThreadExecM p alg sym ext ret (RegEntry sym ret) f a (ExecState (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret))
 startNewThread globalVars argRepr arg fh =
   do st   <- get
      loc  <- liftIO $ getCurrentProgramLoc (st ^. stateSymInterface)
@@ -457,9 +457,9 @@ restoreRunningThread ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  ReturnHandler r (ThreadExec alg sym ext ret) sym ext rtp g args ->
-  ActiveTree (ThreadExec alg sym ext ret) sym ext rtp g args ->
-  ThreadExecM alg sym ext ret rtp f a (ExecState (ThreadExec alg sym ext ret) sym ext rtp)
+  ReturnHandler r (ThreadExec p alg sym ext ret) sym ext rtp g args ->
+  ActiveTree (ThreadExec p alg sym ext ret) sym ext rtp g args ->
+  ThreadExecM p alg sym ext ret rtp f a (ExecState (ThreadExec p alg sym ext ret) sym ext rtp)
 restoreRunningThread (ReturnToCrucible C.UnitRepr rest) (ActiveTree ctx pres) =
   case pres ^. partialValue.gpValue of
     MF f ->
@@ -502,10 +502,10 @@ restoreBranchingThread ::
   ThreadID ->
   Direction ->
   Pred sym ->
-  ValueFromFrame (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) g ->
-  PausedFrame (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) g ->
-  PausedFrame (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) g ->
-  ThreadExecM alg sym ext ret (RegEntry sym ret) f a (ExecState (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret))
+  ValueFromFrame (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) g ->
+  PausedFrame (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) g ->
+  PausedFrame (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) g ->
+  ThreadExecM p alg sym ext ret (RegEntry sym ret) f a (ExecState (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret))
 restoreBranchingThread tID dir branchPred stk tframe fframe =
   use stateContext >>= \ctx -> withBackend ctx $ \bak ->
   do let sym = backendGetSym bak
@@ -528,7 +528,7 @@ abortInfeasible ::
   ( SchedulerConstraints sym ext alg
   , rtp ~ RegEntry sym ret
   ) =>
-  ThreadExecM alg sym ext ret rtp f a (ExecState (ThreadExec alg sym ext ret) sym ext rtp)
+  ThreadExecM p alg sym ext ret rtp f a (ExecState (ThreadExec p alg sym ext ret) sym ext rtp)
 abortInfeasible =
   do s <- get
      sym <- use (stateContext.ctxSymInterface)
@@ -540,7 +540,7 @@ returnFinishedResult ::
   , rtp ~ RegEntry sym ret
   ) =>
   Maybe (RegEntry sym ret) ->
-  ThreadExecM alg sym ext ret rtp f a (ExecState (ThreadExec alg sym ext ret) sym ext rtp)
+  ThreadExecM p alg sym ext ret rtp f a (ExecState (ThreadExec p alg sym ext ret) sym ext rtp)
 returnFinishedResult mres =
   use stateContext >>= \ctx -> withBackend ctx $ \bak ->
   do gp  <- use $ stateTree.actFrame
@@ -563,17 +563,17 @@ returnFinishedResult mres =
 -- | The ThreadState corresponding to a thread executing @join@
 blockThreadOnJoin ::
   ThreadID ->
-  ReturnHandler r (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) f a ->
-  SimState (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) f a ->
-  ThreadState alg sym ext ret
+  ReturnHandler r (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) f a ->
+  SimState (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) f a ->
+  ThreadState p alg sym ext ret
 blockThreadOnJoin tid = saveThreadState (OnJoin tid)
 
 -- | Grab enough state to be able resume running the current thread
 saveThreadState ::
   ResumeCond ->
-  ReturnHandler r (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) f a ->
-  SimState (ThreadExec alg sym ext ret) sym ext (RegEntry sym ret) f a ->
-  ThreadState alg sym ext ret
+  ReturnHandler r (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) f a ->
+  SimState (ThreadExec p alg sym ext ret) sym ext (RegEntry sym ret) f a ->
+  ThreadState p alg sym ext ret
 saveThreadState rcond rh st = RunningThread rcond rh (st ^. stateTree)
 
 -- | Modifying the Execution graph
@@ -583,7 +583,7 @@ saveThreadState rcond rh st = RunningThread rcond rh (st ^. stateTree)
 -- follow the given thread and direction. Creates new EventInfos if necessary.
 -- N.B. the assumption is that EITHER the requested EventInfos will be found, OR
 -- none of them will be, AND that they will be of the same sort (Writes, Reads, etc).
-lookupNextEvent :: EventID -> ThreadID -> Direction -> [EventInfo] -> ThreadExecM alg sym ext ret r f a [ThreadEvent]
+lookupNextEvent :: EventID -> ThreadID -> Direction -> [EventInfo] -> ThreadExecM p alg sym ext ret r f a [ThreadEvent]
 lookupNextEvent fromEvent p dir (i:infos) =
   do nextEId  <- use (stateExec.nextEvent. at (fromEvent, p, dir))
      case nextEId of
@@ -614,7 +614,7 @@ addNewEvent ::
   ThreadID ->
   EventInfo ->
   Direction ->
-  ThreadExecM alg sym ext ret r f a (ScheduleEvent EventInfo)
+  ThreadExecM p alg sym ext ret r f a (ScheduleEvent EventInfo)
 addNewEvent curr who ei dir =
   do eId   <- freshEventID
      let new = ScheduleEvent { _eventID = eId
@@ -636,7 +636,7 @@ addNewEvents ::
   ThreadID ->
   Direction ->
   [EventInfo] ->
-  ThreadExecM alg sym ext ret r f a [ScheduleEvent EventInfo]
+  ThreadExecM p alg sym ext ret r f a [ScheduleEvent EventInfo]
 addNewEvents curr who dir eis =
   reverse . snd <$> foldlM addOne (curr, []) eis
   where
@@ -644,13 +644,13 @@ addNewEvents curr who dir eis =
       do e' <- addNewEvent lastEvent who ei dir
          return (e' ^. eventID, e':es)
 
-freshEventID :: ThreadExecM alg sym ext ret r f a Int
+freshEventID :: ThreadExecM p alg sym ext ret r f a Int
 freshEventID =
   do stateExec.lastEventID %= (+1)
      use $ stateExec.lastEventID
 
 -- | Set a condition variable to True
-notifyThread :: Text -> ThreadState alg sym ext ret -> ThreadState alg sym ext ret
+notifyThread :: Text -> ThreadState p alg sym ext ret -> ThreadState p alg sym ext ret
 notifyThread gv ts =
   case ts of
     RunningThread (OnCond gv' m _) rh stk
@@ -661,8 +661,8 @@ notifyThread gv ts =
 checkRunnable ::
   IsSymInterface sym =>
   [Some GlobalVar] ->
-  ThreadState alg sym ext ret ->
-  ThreadExecM alg sym ext ret r f a Bool
+  ThreadState p alg sym ext ret ->
+  ThreadExecM p alg sym ext ret r f a Bool
 checkRunnable globs ts =
   do ths <- use (stateExpl.scheduler.threads)
      ourglobs <- use (stateExpl.gVars)
@@ -674,9 +674,9 @@ assertRunnable ::
   IsSymInterface sym =>
   [Some GlobalVar] ->
   ThreadID ->
-  ThreadState alg sym ext ret ->
+  ThreadState p alg sym ext ret ->
   ScheduleEvent EventInfo ->
-  ThreadExecM alg sym ext ret r f a ()
+  ThreadExecM p alg sym ext ret r f a ()
 assertRunnable globs thID thNext e =
   do canRun <- checkRunnable globs thNext
      unless canRun $
@@ -689,7 +689,7 @@ assertRunnable globs thID thNext e =
 runnableThreads ::
   IsSymInterface sym =>
   [Some GlobalVar] ->
-  ThreadExecM alg sym ext ret r f a [(Int, ThreadState alg sym ext ret)]
+  ThreadExecM p alg sym ext ret r f a [(Int, ThreadState p alg sym ext ret)]
 runnableThreads globs =
   do globState <- use stateGlobals
      ourglobs  <- use (stateExpl.gVars)
@@ -701,8 +701,8 @@ runnable ::
   SymGlobalState sym {-^ Current global state -} ->
   Map.Map Text (C.Some GlobalVar) {-^ Scheduler variables that we might want to inspect -} ->
   [Some GlobalVar] {-^ Program globals that we might want to inspect -} ->
-  V.Vector (ThreadState alg sym ext ret) {-^ State of all threads -} ->
-  ThreadState alg sym ext ret {-^ Thread in question -} ->
+  V.Vector (ThreadState p alg sym ext ret) {-^ State of all threads -} ->
+  ThreadState p alg sym ext ret {-^ Thread in question -} ->
   Bool
 runnable st ourglobals globals allThreads ts =
   case ts of
@@ -729,7 +729,7 @@ runnable st ourglobals globals allThreads ts =
     RunningThread (Resumable _) _ _ -> True
     BranchingThread {} -> True
   where
-    done :: ThreadState alg sym ext ret -> Bool
+    done :: ThreadState p alg sym ext ret -> Bool
     done EmptyThread = True
     done CompletedThread{} = True
     done _ = False
@@ -737,7 +737,7 @@ runnable st ourglobals globals allThreads ts =
 getInternalGlobal ::
   Text ->
   C.TypeRepr tp ->
-  ThreadExecM alg sym ext ret r f a (Maybe (RegValue sym tp))
+  ThreadExecM p alg sym ext ret r f a (Maybe (RegValue sym tp))
 getInternalGlobal l tpr =
   do gvar <- use $ stateExpl.gVars.at l
      case gvar of
@@ -750,7 +750,7 @@ setInternalGlobal ::
   Text ->
   C.TypeRepr tp ->
   (sym -> IO (RegValue sym tp)) ->
-  ThreadExecM alg sym ext ret r f a ()
+  ThreadExecM p alg sym ext ret r f a ()
 setInternalGlobal l tpr val =
   do gvar <- use $ stateExpl.gVars.at l
      case gvar of
@@ -764,7 +764,7 @@ setInternalGlobal l tpr val =
 
 -- | Adds a new internal global mapping from l |-> new global, if necessary.
 -- ADDITIONALLY sets the value *in crucible* of this global variable.
-initializeInternalGlobal :: Text -> C.TypeRepr ty -> (sym -> IO (RegValue sym ty)) -> ThreadExecM alg sym ext ret r f a ()
+initializeInternalGlobal :: Text -> C.TypeRepr ty -> (sym -> IO (RegValue sym ty)) -> ThreadExecM p alg sym ext ret r f a ()
 initializeInternalGlobal l tpr mkVal =
   do ha     <- use $ stateContext.to simHandleAllocator.to haCounter
      gvar   <- use $ stateExpl.gVars.at l
@@ -788,6 +788,6 @@ initializeInternalGlobal l tpr mkVal =
        _ -> return ()
 
 -- | Debugging
-ppScheduler :: Scheduler p sym1 ext (ThreadState alg sym2 ext ret1) ret2 -> [Char]
+ppScheduler :: Scheduler p sym1 ext (ThreadState p alg sym2 ext ret1) ret2 -> [Char]
 ppScheduler sched =
   "[" ++ unwords (ppThreadState <$> V.toList (_threads sched)) ++ "]"

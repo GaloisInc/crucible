@@ -23,27 +23,29 @@ import Crucibles.SchedulingAlgorithm (SchedAlgM, runSchedAlg)
 
 type ThreadEvent             = ScheduleEvent EventInfo
 type ThreadResource          = Text
-type ThreadSched p alg sym ext ret = Scheduler p sym ext (ThreadState alg sym ext ret) ret
-type ThreadExec alg sym ext ret = Exploration alg ext ret sym -- TODO: Rename me
+type ThreadSched p alg sym ext ret = Scheduler (Exploration p alg ext ret sym) sym ext (ThreadState p alg sym ext ret) ret
+type ThreadExec p alg sym ext ret = Exploration p alg ext ret sym -- TODO: Rename me
 type ThreadExecutions        = Executions ThreadEvent
-type ThreadExecM alg sym ext ret r f a =
-  StateT (SimState (ThreadExec alg sym ext ret) sym ext r f a) IO
-type ThreadState alg sym ext ret = ThreadStateP (ThreadExec alg sym ext ret) sym ext ret
+type ThreadExecM p alg sym ext ret r f a =
+  StateT (SimState (ThreadExec p alg sym ext ret) sym ext r f a) IO
+type ThreadState p alg sym ext ret = ThreadStateP (ThreadExec p alg sym ext ret) sym ext ret
 
 evalTEWithState ::
-  SimState (ThreadExec alg sym ext ret) sym ext r f a ->
-  ThreadExecM alg sym ext ret r f a b ->
+  SimState (ThreadExec p alg sym ext ret) sym ext r f a ->
+  ThreadExecM p alg sym ext ret r f a b ->
   IO b
 evalTEWithState s exec = evalStateT exec s
 
 -- | The state managed across multiple executions
-data Exploration alg ext ret sym = Exploration
+data Exploration p alg ext ret sym = Exploration
   { _exec      :: !(Executions ThreadEvent)
     -- ^ The current execution graph
-  , _scheduler :: !(ThreadSched (Exploration alg ext ret sym) alg sym ext ret)
+  , _scheduler :: !(ThreadSched p alg sym ext ret)
     -- ^ State of each thread
   , _schedAlg  :: !alg
     -- ^ State required by the scheduling algorithm
+  , _personality :: p
+    -- ^ Custom user state
   , _num       :: !Int
     -- ^ Number of executions explored
   , _gVars     :: !(Map Text (Some GlobalVar))
@@ -51,17 +53,17 @@ data Exploration alg ext ret sym = Exploration
   }
 makeLenses ''Exploration
 
-stateExpl :: Simple Lens (SimState (ThreadExec alg sym ext ret) sym ext r f a) (ThreadExec alg sym ext ret)
+stateExpl :: Simple Lens (SimState (ThreadExec p alg sym ext ret) sym ext r f a) (ThreadExec p alg sym ext ret)
 stateExpl = stateContext.cruciblePersonality
 
-stateExplAlg :: Lens' (SimState (ThreadExec alg sym ext ret) sym ext r f a) alg
+stateExplAlg :: Lens' (SimState (ThreadExec p alg sym ext ret) sym ext r f a) alg
 stateExplAlg = stateExpl.schedAlg
 
-stateExec :: Lens' (SimState (ThreadExec alg sym ext ret) sym ext r f a) ThreadExecutions
+stateExec :: Lens' (SimState (ThreadExec p alg sym ext ret) sym ext r f a) ThreadExecutions
 stateExec = stateExpl.exec
 
 runUpdateSchedAlg ::
-  (MonadState (SimState (ThreadExec alg sym ext ret) sym ext r f a) m) =>
+  (MonadState (SimState (ThreadExec p alg sym ext ret) sym ext r f a) m) =>
   SchedAlgM alg b ->
   m b
 runUpdateSchedAlg alg =

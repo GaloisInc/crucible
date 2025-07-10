@@ -129,9 +129,9 @@ run (cruxOpts, opts) =
                   (IsSymBackend s bak, IsExprBuilder s) =>
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
-                     , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()
+                     , ExplorePrimitives (ThreadExec() DPOR s () C.UnitType) s ()
                      , [Some GlobalVar]
-                     , FunctionBindings (ThreadExec DPOR s () C.UnitType) s ()
+                     , FunctionBindings (ThreadExec () DPOR s () C.UnitType) s ()
                      )
                 mkSym _bak =
                   do exploreBuiltins <- mkExplorePrims ha (pedantic opts) (Some nonceGen)
@@ -162,7 +162,7 @@ run (cruxOpts, opts) =
                                 )
             res <- Crux.runSimulator cruxOpts { Crux.solver = "yices"
                                               , Crux.pathSatSolver = Just "yices" } $
-                     exploreCallback cruxOpts ha (view Crux.outputHandle ?outputConfig) mkSym -- fns gvs mainHdl
+                     exploreCallback cruxOpts () ha (view Crux.outputHandle ?outputConfig) mkSym -- fns gvs mainHdl
             case res of
               CruxSimulationResult ProgramIncomplete _ ->
                 putStrLn "INCOMPLETE"
