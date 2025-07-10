@@ -198,12 +198,13 @@ ptrToBv8 bak bytePtr = do
 -- 'Lang.Crucible.LLVM.MemModel.loadString'. In fact, it would be good to define
 -- that function in terms of this one. However, this is blocked on TODO(#1406).
 fullyConcreteNullTerminatedString ::
+  MonadIO m =>
   GHC.HasCallStack =>
   LCB.IsSymBackend sym bak =>
-  ByteChecker IO sym bak ([Word8] -> [Word8]) [Word8]
+  ByteChecker m sym bak ([Word8] -> [Word8]) [Word8]
 fullyConcreteNullTerminatedString =
   ByteChecker $ \bak acc bytePtr -> do
-    byte <- ptrToBv8 bak bytePtr
+    byte <- liftIO (ptrToBv8 bak bytePtr)
     case BV.asUnsigned <$> WI.asBV byte of
       Just 0 -> pure (Break (acc []))
       Just c -> do
@@ -211,18 +212,19 @@ fullyConcreteNullTerminatedString =
         pure (Continue (\l -> acc (c' : l)))
       Nothing -> do
         let msg = "Symbolic value encountered when loading a string"
-        LCB.addFailedAssertion bak (LCS.Unsupported GHC.callStack msg)
+        liftIO (LCB.addFailedAssertion bak (LCS.Unsupported GHC.callStack msg))
 
 -- | 'ByteChecker' for loading symbolic strings with a concrete null terminator.
 --
 -- Used in 'loadConcretelyNullTerminatedString'.
 concretelyNullTerminatedString ::
+  MonadIO m =>
   GHC.HasCallStack =>
   LCB.IsSymBackend sym bak =>
-  ByteChecker IO sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
+  ByteChecker m sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
 concretelyNullTerminatedString =
   ByteChecker $ \bak acc bytePtr -> do
-    byte <- ptrToBv8 bak bytePtr
+    byte <- liftIO (ptrToBv8 bak bytePtr)
     if isConcreteNullTerminator byte
     then pure (Break (acc []))
     else  pure (Continue (\l -> acc (byte : l)))
@@ -236,17 +238,18 @@ concretelyNullTerminatedString =
 --
 -- Used in 'loadSymbolicString'.
 nullTerminatedString ::
+  MonadIO m =>
   GHC.HasCallStack =>
   LCB.IsSymBackend sym bak =>
   sym ~ WEB.ExprBuilder scope st fs =>
   bak ~ LCBO.OnlineBackend solver scope st fs =>
   WPO.OnlineSolver solver =>
-  ByteChecker IO sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
+  ByteChecker m sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
 nullTerminatedString =
   ByteChecker $ \bak acc bytePtr -> do
-    byte <- ptrToBv8 bak bytePtr
+    byte <- liftIO (ptrToBv8 bak bytePtr)
     let sym = LCB.backendGetSym bak
-    isNullTerm <- isNullTerminator bak sym byte
+    isNullTerm <- liftIO (isNullTerminator bak sym byte)
     if isNullTerm
     then pure (Break (acc []))
     else  pure (Continue (\l -> acc (byte : l)))
