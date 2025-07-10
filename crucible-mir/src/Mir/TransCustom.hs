@@ -1442,16 +1442,19 @@ bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
   where
     impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
     impl col u ops
-      | [MirExp (C.BVRepr w1) v] <- ops
-      , Some (C.BVRepr w2) <- tyToRepr col u
-      = case compareNat w1 w2 of
-            NatLT _ -> return $ MirExp (C.BVRepr w2) $
-                S.app $ E.BVZext w2 w1 v
-            NatGT _ -> return $ MirExp (C.BVRepr w2) $
-                S.app $ E.BVTrunc w2 w1 v
-            NatEQ -> return $ MirExp (C.BVRepr w2) v
-      | otherwise = mirFail $
-        "BUG: invalid arguments to bv_convert: " ++ show ops
+      | [MirExp (C.BVRepr w1) v] <- ops = do
+
+        Some r <- tyToReprM u
+        case r of
+            C.BVRepr w2 ->
+                case compareNat w1 w2 of
+                    NatLT _ -> return $ MirExp (C.BVRepr w2) $
+                        S.app $ E.BVZext w2 w1 v
+                    NatGT _ -> return $ MirExp (C.BVRepr w2) $
+                        S.app $ E.BVTrunc w2 w1 v
+                    NatEQ -> return $ MirExp (C.BVRepr w2) v
+            _ -> mirFail ("BUG: invalid arguments to bv_convert: " ++ show ops)
+      | otherwise = mirFail ("BUG: invalid arguments to bv_convert: " ++ show ops)
 
 bv_funcs :: [(ExplodedDefId, CustomRHS)]
 bv_funcs =

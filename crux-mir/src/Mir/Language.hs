@@ -614,7 +614,9 @@ showRegEntry col mty (C.RegEntry tp rv) =
         optParts <- case adt^.adtkind of
             Struct -> do
                 let var = onlyVariant adt
-                C.Some fctx <- return $ variantFields' col var
+                C.Some fctx <- case variantFields' col var of
+                    Left err -> fail ("Type not supported: " ++ err)
+                    Right x -> return x
                 let ctx = fieldCtxType fctx
                 let expectedStructTpr = C.StructRepr ctx
                 Refl <-
@@ -625,7 +627,9 @@ showRegEntry col mty (C.RegEntry tp rv) =
                       ", but got " ++ show tp
                 return $ Right (var, readFields fctx rv)
             Enum _ -> do
-                SomeRustEnumRepr discrTp vctx <- return $ enumVariants col adt
+             case enumVariants col adt of
+               Left err -> fail ("Type not supported: " ++ err)
+               Right (SomeRustEnumRepr discrTp vctx) -> do
                 let expectedEnumTpr = RustEnumRepr discrTp vctx
                 Refl <-
                   case testEquality expectedEnumTpr tp of
@@ -641,10 +645,12 @@ showRegEntry col mty (C.RegEntry tp rv) =
                         let i = Ctx.indexVal idx
                         let var = fromMaybe (error "bad index from findVariant?") $
                                 adt ^? adtvariants . ix i
-                        C.Some fctx <- return $ variantFields' col var
-                        Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
-                            ("when printing enum type " ++ show name)
-                        return $ Right (var, readFields fctx fields)
+                        case variantFields' col var of
+                            Left err -> return (Left ("Type not supported: " ++ err))
+                            Right (C.Some fctx) -> do 
+                                Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
+                                            ("when printing enum type " ++ show name)
+                                return $ Right (var, readFields fctx fields)
                     Nothing -> return $ Left "Symbolic enum"
             Union -> return $ Left "union printing is not yet implemented"
         case optParts of

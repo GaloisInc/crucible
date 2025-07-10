@@ -229,7 +229,7 @@ transConstVal ty@(M.TyAdt aname _ _) tpr (ConstStruct fields) = do
         Nothing -> do
             let fieldDefs = adt ^. adtvariants . ix 0 . vfields
             let fieldTys = map (\f -> f ^. fty) fieldDefs
-            exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr col ty) val) fields fieldTys
+            exps <- zipWithM (\val ty -> tyToReprM ty >>= \rpr -> transConstVal ty rpr val) fields fieldTys
             buildStruct adt exps
 
 transConstVal ty@(M.TyAdt aname _ _) tpr (ConstEnum variant fields) = do
@@ -241,7 +241,7 @@ transConstVal ty@(M.TyAdt aname _ _) tpr (ConstEnum variant fields) = do
         Nothing -> do
             let fieldDefs = adt ^. adtvariants . ix variant . vfields
             let fieldTys = map (\f -> f ^. fty) fieldDefs
-            exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr col ty) val) fields fieldTys
+            exps <- zipWithM (\val ty -> tyToReprM ty >>= \rpr -> transConstVal ty rpr val) fields fieldTys
             buildEnum adt variant exps
 transConstVal ty (Some MirReferenceRepr) init = do
     let pointeeTy = M.typeOfProj M.Deref ty
@@ -285,7 +285,9 @@ transConstTuple tys tprs vals = do
                      _ ->
                        mirFail $ "transConstTuple: expected tuple field to have MaybeType, but got " ++ show tpr)
                tys (toListFC Some tprs) vals
-    return $ buildTupleMaybe col tys $ map Just vals'
+    case buildTupleMaybe col tys $ map Just vals' of
+      Left err -> mirFail ("transConstTuple: " ++ err)
+      Right rpr -> return rpr
 
 -- Translate a struct or enum marked with repr(transparent).
 transTransparentVal ::
@@ -475,7 +477,9 @@ transBinOp bop op1 op2 = do
         WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
             col <- use $ cs . collection
-            return $ buildTupleMaybe col [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow]
+            case buildTupleMaybe col [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow] of
+              Left err -> mirFail ("transBinOp: " ++ err)
+              Right rpr -> return rpr
         _ -> fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
@@ -1075,9 +1079,10 @@ evalCast' ck ty1 e ty2  = do
       -- prohibiting them here is described in `unsizeAdtDyn`, above, and
       -- `Mir.TransTy.structFieldRef`
       case tyToFieldRepr col eventualTraitObject of
-        Some (FieldRepr (FkMaybe _)) ->
+        Left err -> mirFail ("unsizeAdtDynNormal: " ++ err)
+        Right (Some (FieldRepr (FkMaybe _))) ->
           mirFail "error: unsizeAdtDyn with non-initializable unsized field"
-        Some (FieldRepr (FkInit _)) ->
+        Right (Some (FieldRepr (FkInit _))) ->
           case findLastFieldRec col castTarget of
             Nothing ->
               mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
@@ -1233,7 +1238,9 @@ mkTraitObject traitName vtableName e = do
     trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName) <$>
         use (cs . collection . M.traits . at traitName)
     col <- use $ cs . collection
-    Some vtableTy' <- return $ traitVtableType col traitName trait
+    Some vtableTy' <- case traitVtableType col traitName trait of
+                        Left err -> error ("mkTraitObject: " ++ err)
+                        Right x -> return x
     case testEquality vtableTy vtableTy' of
         Just _ -> return ()
         Nothing -> error $ unwords
@@ -1283,7 +1290,9 @@ evalRval (M.Aggregate ak ops) =
             col <- use $ cs . collection
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
-            return $ buildTupleMaybe col tys (map Just exps)
+            case buildTupleMaybe col tys (map Just exps) of
+              Left err -> mirFail ("evalRval: " ++ err)
+              Right x -> return x
         M.AKArray ty -> do
             exps <- mapM evalOperand ops
             Some repr <- tyToReprM ty
@@ -1294,7 +1303,9 @@ evalRval (M.Aggregate ak ops) =
             col <- use $ cs . collection
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
-            return $ buildTupleMaybe col tys (map Just exps)
+            case buildTupleMaybe col tys (map Just exps) of
+              Left err -> mirFail ("evalRval: " ++ err)
+              Right x -> return x
         M.AKRawPtr ty _mutbl -> do
             args <- mapM evalOperand ops
             (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
@@ -2391,15 +2402,17 @@ mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMa
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
     mkHandle :: M.Fn -> IO MirHandle
-    mkHandle (M.Fn fname _fargs fsig _fbody)  =
-       let
-           targs = abiFnArgs fsig
-           handleName = FN.functionNameFromText (M.idText fname)
-       in
-          tyListToCtx col targs $ \argctx -> do
-          tyToReprCont col (fsig^.fsreturn_ty) $ \retrepr -> do
-             h <- FH.mkHandle' halloc handleName argctx retrepr
-             return $ MirHandle fname fsig h
+    mkHandle (M.Fn fname _fargs fsig _fbody)  = do
+      let targs = abiFnArgs fsig
+          handleName = FN.functionNameFromText (M.idText fname)
+      Some argctx <- case tyListToCtx col targs (Right . Some) of
+         Left err -> fail ("mkHandle: " ++ err)
+         Right x -> return x
+      Some retrepr <- case tyToRepr col (fsig^.fsreturn_ty) of
+        Left err -> fail ("mkHandle: " ++ err)
+        Right x -> return x
+      h <- FH.mkHandle' halloc handleName argctx retrepr
+      return $ MirHandle fname fsig h
 
 vtableShimName :: M.VtableName -> M.DefId -> Text
 vtableShimName vtableName fnName =
@@ -2420,14 +2433,21 @@ mkVtableMap col halloc = mapM mkVtable (col^.vtables)
 
     mkHandle :: M.DefId -> M.VtableItem -> IO MirHandle
     mkHandle vtableName (VtableItem fnName _)
-      | Just fn <- Map.lookup fnName (col^.functions) =
+      | Just fn <- Map.lookup fnName (col^.functions) = do
         let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
             handleName = FN.functionNameFromText (vtableShimName vtableName fnName)
-        in
-            tyListToCtx col (abiFnArgs shimSig) $ \argctx -> do
-            tyToReprCont col (shimSig ^. M.fsreturn_ty) $ \retrepr -> do
-                h <- FH.mkHandle' halloc handleName argctx retrepr
-                return $ MirHandle fnName shimSig h
+        
+        Some argctx <- case tyListToCtx col (abiFnArgs shimSig) (Right . Some) of
+          Left err -> fail ("mkVtableMap: " ++ err)
+          Right x -> return x
+
+        Some retrepr <- case tyToRepr col (shimSig ^. M.fsreturn_ty) of
+          Left err -> fail ("mkVtableMap: " ++ err)
+          Right x -> return x
+
+        h <- FH.mkHandle' halloc handleName argctx retrepr
+        return $ MirHandle fnName shimSig h
+
       | otherwise = error $ unwords ["undefined function", show fnName, "in", show vtableName]
 
 transVtable :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
@@ -2628,11 +2648,15 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
             methSig = traitMethodSig trait methName
 
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
-        in liftM (Map.singleton name) $
-            tyListToCtx col (abiFnArgs methSig) $ \argctx ->
-            tyToReprCont col (methSig ^. M.fsreturn_ty) $ \retrepr -> do
-                 h <- FH.mkHandle' halloc handleName argctx retrepr
-                 return $ MirHandle (intr ^. M.intrName) methSig h
+        in liftM (Map.singleton name) $ do
+            Some argctx <- case tyListToCtx col (abiFnArgs methSig) (Right . Some) of
+              Left err -> fail ("mkShimHandleMap: " ++ err)
+              Right x -> return x
+            Some retrepr <- case tyToRepr col (methSig ^. M.fsreturn_ty) of
+              Left err -> fail ("mkShimHandleMap: " ++ err)
+              Right x -> return x
+            h <- FH.mkHandle' halloc handleName argctx retrepr
+            return $ MirHandle (intr ^. M.intrName) methSig h
       | IkClosureFnPointerShim <- intr ^. M.intrInst . M.inKind = do
         let callMutId = intr ^. M.intrInst . M.inDefId
         callMutFn <- case col ^. M.functions . at callMutId of
@@ -2647,11 +2671,19 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
         let returnTy = callMutSig ^. M.fsreturn_ty
         let fnPtrSig = M.FnSig untupledArgTys returnTy RustAbi
         let handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
-        mh <- tyListToCtx col untupledArgTys $ \argCtx ->
-            tyToReprCont col returnTy $ \retRepr -> do
-                h <- FH.mkHandle' halloc handleName argCtx retRepr
-                return $ MirHandle (intr ^. M.intrName) fnPtrSig h
+        
+        Some argCtx <- case  tyListToCtx col untupledArgTys (Right . Some) of
+          Left err -> fail ("mkShimHandleMap: " ++ err)
+          Right x -> return x
+
+        Some retRepr <- case tyToRepr col returnTy of
+          Left err -> fail ("mkShimHandleMap: " ++ err)
+          Right x -> return x
+
+        h <- FH.mkHandle' halloc handleName argCtx retRepr
+        let mh = MirHandle (intr ^. M.intrName) fnPtrSig h
         return $ Map.singleton name mh
+  
       | otherwise = return Map.empty
       where
 
@@ -2740,7 +2772,9 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     -- The type of the entire vtable.  Note `traitVtableType` wants the trait
     -- substs only, omitting the Self type.
     vtableType :: Some C.TypeRepr
-    vtableType = traitVtableType col dynTraitName dynTrait
+    vtableType = case traitVtableType col dynTraitName dynTrait of
+      Left err -> die ["vtableType: " ++ err]
+      Right x -> x
 
 
 -- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
@@ -2935,11 +2969,13 @@ transCollection col halloc = do
     -- translate the statics and create the initialization code
     -- allocate references for statics
     let allocateStatic :: Static -> Map M.DefId StaticVar -> IO (Map M.DefId StaticVar)
-        allocateStatic static staticMap =
-          tyToReprCont col (static^.sTy) $ \staticRepr -> do
-            let gname =  (M.idText (static^.sName) <> "_global")
-            g <- G.freshGlobalVar halloc gname staticRepr
-            return $ Map.insert (static^.sName) (StaticVar g) staticMap
+        allocateStatic static staticMap = do
+          Some staticRepr <- case tyToRepr col (static^.sTy) of
+            Left err -> fail ("allocateState: " ++ err)
+            Right x -> return x
+          let gname =  (M.idText (static^.sName) <> "_global")
+          g <- G.freshGlobalVar halloc gname staticRepr
+          return $ Map.insert (static^.sName) (StaticVar g) staticMap
 
     sm <- foldrM allocateStatic Map.empty (col^.statics)
 
