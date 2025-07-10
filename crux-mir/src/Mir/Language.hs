@@ -1,3 +1,5 @@
+
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -14,6 +16,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -32,6 +35,8 @@ module Mir.Language (
     MirLogging(..),
     mirLoggingToSayWhat,
     withMirLogging,
+    HasMirState,
+    getMirState
 ) where
 
 import qualified Data.Aeson as Aeson
@@ -164,6 +169,8 @@ mainWithOutputConfig mkOutCfg customState bindExtra =
     Crux.loadOptions mkOutCfg "crux-mir" Paths_crux_mir.version mirConfig
         $ runTestsWithExtraOverrides customState bindExtra
 
+type HasMirState p s = (MirPersonality p, MirState p ~ s)
+
 -- | Provides access to some custom state
 class MirPersonality p where
   type MirState p
@@ -183,11 +190,12 @@ instance MirPersonality p => MirPersonality (Explore.Exploration p alg ext ret s
   type MirState (Explore.Exploration p alg ext ret sym) = MirState p
   mirState = Explore.personality . mirState
 
-
+getMirState :: HasMirState (p sym) s => C.OverrideSim (p sym) sym ext rtp a r s
+getMirState = view (C.cruciblePersonality . mirState) <$> C.getContext
 
 
 type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
-    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, MirPersonality (p sym), MirState (p sym) ~ s) =>
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasMirState (p sym) s) =>
     Maybe (Crux.SomeOnlineSolver sym bak) ->
     CollectionState ->
     Text ->
@@ -289,7 +297,7 @@ runTestsWithExtraOverrides customState bindExtra (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, MirPersonality (p sym), MirState (p sym) ~ s) =>
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasMirState (p sym) s) =>
             Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
@@ -318,8 +326,7 @@ runTestsWithExtraOverrides customState bindExtra (cruxOpts, mirOpts) = do
     let simTestBody :: forall sym bak p t st fs.
             ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
-            , MirPersonality (p sym)
-            , MirState (p sym) ~ s
+            , HasMirState (p sym) s
             ) =>
             bak ->
             Maybe (Crux.SomeOnlineSolver sym bak) ->
