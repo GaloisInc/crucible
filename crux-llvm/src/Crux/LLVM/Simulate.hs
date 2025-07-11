@@ -107,7 +107,7 @@ setupSimCtxt ::
   bak ->
   MemOptions ->
   GlobalVar Mem ->
-  SimCtxt Crux sym LLVM
+  SimCtxt (Crux sym) sym LLVM
 setupSimCtxt halloc bak mo memVar =
   initSimContext bak
                  (MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes)
@@ -140,7 +140,7 @@ registerFunctions ::
   LLVM.Module ->
   ModuleTranslation arch ->
   Maybe (LLVMFileSystem ptrW) ->
-  OverM Crux sym LLVM ()
+  OverM (Crux sym) sym LLVM ()
 registerFunctions llvmOpts llvm_module mtrans fs0 =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
