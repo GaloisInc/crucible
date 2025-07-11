@@ -121,6 +121,7 @@ library
     crucible-llvm,
     crucible-llvm-syntax,
     crucible-syntax,
+    lens,
     mtl,
     parameterized-utils >= 0.1.7,
     prettyprinter,

@@ -9,6 +9,7 @@ module Lang.Crucible.LLVM.CLI
   ( withLlvmHooks
   ) where
 
+import qualified Control.Lens as Lens
 import qualified Control.Monad as Monad
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.IntMap as IntMap
@@ -17,6 +18,7 @@ import qualified Data.Text as Text
 import Data.Type.Equality ((:~:)(Refl), testEquality)
 
 import Data.Parameterized.NatRepr (knownNat)
+import qualified Data.Parameterized.Map as MapF
 
 import qualified What4.FunctionName as W4
 
@@ -37,7 +39,8 @@ import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian), defaultDataLayou
 import Lang.Crucible.LLVM.Extension (LLVM, ArchRepr(X86Repr))
 import Lang.Crucible.LLVM.MemModel (HasPtrWidth)
 import qualified Lang.Crucible.LLVM.MemModel as Mem
-import Lang.Crucible.LLVM.Intrinsics (defaultIntrinsicsOptions)
+import Lang.Crucible.LLVM.Intrinsics (defaultIntrinsicsOptions, llvmIntrinsicTypes)
+import Lang.Crucible.LLVM.SymIO (llvmSymIOIntrinsicTypes)
 import Lang.Crucible.LLVM.Translation (LLVMContext(..))
 import Lang.Crucible.LLVM.TypeContext (mkTypeContext)
 
@@ -76,6 +79,11 @@ withLlvmHooks k = do
   let simulationHooks =
         defaultSimulateProgramHooks
           { setupHook = \bak _ha fds -> do
+              let addIntrinsicTypes types ctx =
+                    ctx { C.ctxIntrinsicTypes = MapF.union (C.ctxIntrinsicTypes ctx) types }
+              let iTypes = MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes
+              C.stateContext Lens.%= addIntrinsicTypes iTypes
+
               mem <- liftIO (Mem.emptyMem LittleEndian)
               writeGlobal mvar mem
               let ?recordLLVMAnnotation = \_ _ _ -> pure ()
