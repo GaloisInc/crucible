@@ -129,7 +129,7 @@ run (cruxOpts, opts) =
                   (IsSymBackend s bak, IsExprBuilder s) =>
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
-                     , ExplorePrimitives (ThreadExec() DPOR s () C.UnitType) s ()
+                     , ExplorePrimitives (ThreadExec () DPOR s () C.UnitType) s ()
                      , [Some GlobalVar]
                      , FunctionBindings (ThreadExec () DPOR s () C.UnitType) s ()
                      )
