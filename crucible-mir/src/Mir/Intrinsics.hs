@@ -437,8 +437,11 @@ instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
     show (ArrayAsMirVector_RefPath btpr p) = "(ArrayAsMirVector_RefPath " ++ show btpr ++ " " ++ show p ++ ")"
 
 instance IsSymInterface sym => Show (MirReference sym) where
-    show (MirReference _ root path) = "(MirReference " ++ show root ++ " " ++ show path ++ ")"
+    show (MirReference tpr root path) = "(MirReference " ++ show tpr ++ " " ++ show (refRootType root) ++ " " ++ show root ++ " " ++ show path ++ ")"
     show (MirReference_Integer _) = "(MirReference_Integer _)"
+
+instance IsSymInterface sym => Show (MirReferenceMux sym) where
+  show (MirReferenceMux tree) = show tree
 
 instance OrdSkel (MirReference sym) where
     compareSkel = cmpRef
