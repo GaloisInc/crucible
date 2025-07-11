@@ -15,21 +15,30 @@
 
 -- | Manipulating C-style null-terminated strings
 module Lang.Crucible.LLVM.MemModel.Strings
-  ( Mem.loadString
+  ( storeString
+  -- * Loading strings
+  , Mem.loadString
   , Mem.loadMaybeString
-  , Mem.strLen
   , loadConcretelyNullTerminatedString
   , loadProvablyNullTerminatedString
-  , storeString
+  -- * String length
+  , Mem.strLen
+  , strlenConcreteString
+  , strlenConcretelyNullTerminatedString
+  , strlenProvablyNullTerminatedString
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
   , ByteChecker(..)
   , withMaxChars
-  -- ** 'ByteChecker'
+  -- *** For loading strings
   , fullyConcreteNullTerminatedString
   , concretelyNullTerminatedString
   , provablyNullTerminatedString
+  -- *** For string length
+  , fullyConcreteNullTerminatedStringLength
+  , concretelyNullTerminatedStringLength
+  , provablyNullTerminatedStringLength
   -- ** 'ByteLoader'
   , ByteLoader(..)
   , llvmByteLoader
@@ -39,6 +48,7 @@ module Lang.Crucible.LLVM.MemModel.Strings
 
 import           Data.Bifunctor (Bifunctor(bimap, first))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
+import qualified Control.Monad.State.Strict as State
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor ((<&>))
 import qualified Data.Parameterized.NatRepr as DPN
@@ -56,6 +66,35 @@ import qualified What4.Expr.Builder as WEB
 import qualified What4.Interface as WI
 import qualified What4.Protocol.Online as WPO
 import qualified What4.SatResult as WS
+
+-- | Store a string to memory, adding a null terminator at the end.
+storeString ::
+  forall sym bak w.
+  ( LCB.IsSymBackend sym bak
+  , WI.IsExpr (WI.SymExpr sym)
+  , LCLM.HasPtrWidth w
+  , LCLM.HasLLVMAnn sym
+  , ?memOpts :: LCLM.MemOptions
+  ) =>
+  bak ->
+  LCLM.MemImpl sym ->
+  -- | Pointer to write string to
+  LCLM.LLVMPtr sym w ->
+  -- | The bytes of the string to write (null terminator not included)
+  Vec.Vector (WI.SymBV sym 8) ->
+  IO (LCLM.MemImpl sym)
+storeString bak mem ptr bytesBvs = do
+  let sym = LCB.backendGetSym bak
+  zeroNat <- WI.natLit sym 0
+  let bytes = Vec.map (Mem.LLVMValInt zeroNat) bytesBvs
+  zeroByte <- Mem.LLVMValInt zeroNat <$> WI.bvZero sym (DPN.knownNat @8)
+  let nullTerminatedBytes = Vec.snoc bytes zeroByte
+  let val = Mem.LLVMValArray (Mem.bitvectorType 1) nullTerminatedBytes
+  let storTy = Mem.llvmValStorableType @sym val
+  Mem.storeRaw bak mem ptr storTy CLD.noAlignment val
+
+---------------------------------------------------------------------
+-- * Loading strings
 
 -- | Load a null-terminated string (with a concrete null terminator) from memory.
 --
@@ -121,31 +160,102 @@ loadProvablyNullTerminatedString bak mem ptr limit =
       let byteChecker = withMaxChars l (\f -> pure (f [])) provablyNullTerminatedString in
       loadBytes bak mem (id, 0) ptr loader byteChecker
 
--- | Store a string to memory, adding a null terminator at the end.
-storeString ::
-  forall sym bak w.
+---------------------------------------------------------------------
+-- * String length
+ 
+-- | @strlen@ of a concrete string.
+--
+-- If any symbolic bytes are encountered, an assertion failure will be
+-- generated. If a maximum number of characters is provided, no more than that
+-- number of characters will be read. In either case, 'strlenConcreteString'
+-- will stop reading if it encounters a null terminator.
+strlenConcreteString ::
   ( LCB.IsSymBackend sym bak
-  , WI.IsExpr (WI.SymExpr sym)
-  , LCLM.HasPtrWidth w
-  , LCLM.HasLLVMAnn sym
-  , ?memOpts :: LCLM.MemOptions
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
   ) =>
   bak ->
-  LCLM.MemImpl sym ->
-  -- | Pointer to write string to
-  LCLM.LLVMPtr sym w ->
-  -- | The bytes of the string to write (null terminator not included)
-  Vec.Vector (WI.SymBV sym 8) ->
-  IO (LCLM.MemImpl sym)
-storeString bak mem ptr bytesBvs = do
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO Int
+strlenConcreteString bak mem ptr limit = do
+  let loader = llvmByteLoader mem
+  case limit of
+    Nothing -> loadBytes bak mem 0 ptr loader fullyConcreteNullTerminatedStringLength
+    Just l -> do
+      let byteChecker = withMaxChars l pure fullyConcreteNullTerminatedStringLength
+      loadBytes bak mem (0, 0) ptr loader byteChecker
+ 
+-- | @strlen@ of a null-terminated string (with a concrete null terminator).
+--
+-- The string must contain a concrete null terminator. If a maximum number of
+-- characters is provided, no more than that number of characters will be read.
+-- In either case, 'strlenConcretelyNullTerminatedString' will stop reading if
+-- it encounters a (concretely) null terminator.
+--
+-- This has the same behavior as 'Lang.Crucible.LLVM.MemModel.strLen', except
+-- that it supports a maximum length.
+strlenConcretelyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO (WI.SymBV sym wptr)
+strlenConcretelyNullTerminatedString bak mem ptr limit = do
+  let loader = llvmByteLoader mem
   let sym = LCB.backendGetSym bak
-  zeroNat <- WI.natLit sym 0
-  let bytes = Vec.map (Mem.LLVMValInt zeroNat) bytesBvs
-  zeroByte <- Mem.LLVMValInt zeroNat <$> WI.bvZero sym (DPN.knownNat @8)
-  let nullTerminatedBytes = Vec.snoc bytes zeroByte
-  let val = Mem.LLVMValArray (Mem.bitvectorType 1) nullTerminatedBytes
-  let storTy = Mem.llvmValStorableType @sym val
-  Mem.storeRaw bak mem ptr storTy CLD.noAlignment val
+  z <- WI.bvZero sym ?ptrWidth
+  flip State.evalStateT (WI.truePred sym) $
+    case limit of
+      Nothing -> loadBytes bak mem z ptr loader concretelyNullTerminatedStringLength
+      Just l -> do
+        let byteChecker = withMaxChars l pure concretelyNullTerminatedStringLength
+        loadBytes bak mem (z, 0) ptr loader byteChecker
+
+-- | @strlen@ of a provably null-terminated string.
+--
+-- Consults an SMT solver to check if any of the loaded bytes are known
+-- to be null (0). If a maximum number of characters is provided, no
+-- more than that number of charcters will be read. In either case,
+-- 'strlenProvablyNullTerminatedString' will stop reading if it encounters a
+-- (provably) null terminator.
+strlenProvablyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  , sym ~ WEB.ExprBuilder scope st fs
+  , bak ~ LCBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO (WI.SymBV sym wptr)
+strlenProvablyNullTerminatedString bak mem ptr limit = do
+  let loader = llvmByteLoader mem
+  let sym = LCB.backendGetSym bak
+  z <- WI.bvZero sym ?ptrWidth
+  flip State.evalStateT (WI.truePred sym) $
+    case limit of
+      Nothing -> loadBytes bak mem z ptr loader provablyNullTerminatedStringLength
+      Just l -> do
+        let byteChecker = withMaxChars l pure provablyNullTerminatedStringLength
+        loadBytes bak mem (z, 0) ptr loader byteChecker
 
 ---------------------------------------------------------------------
 -- * Low-level string loading primitives
@@ -212,7 +322,7 @@ withMaxChars limit done checker =
     else first (, i + 1) <$> runByteChecker checker bak acc bytePtr
 
 ---------------------------------------------------------------------
--- ** For loading strings
+-- *** For loading strings
 
 -- | 'ByteChecker' for loading concrete strings.
 --
@@ -268,30 +378,116 @@ provablyNullTerminatedString ::
   WPO.OnlineSolver solver =>
   ByteChecker m sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
 provablyNullTerminatedString =
-  ByteChecker $ \bak acc bytePtr -> do
-    byte <- liftIO (ptrToBv8 bak bytePtr)
+  ByteChecker $ \bak acc bytePtr -> liftIO $ do
+    byte <- ptrToBv8 bak bytePtr
     let sym = LCB.backendGetSym bak
-    isNullTerm <- liftIO (isNullTerminator bak sym byte)
+    isNullTerm <- isProvablyNullTerminator bak sym byte
     if isNullTerm
     then pure (Break (acc []))
     else  pure (Continue (\l -> acc (byte : l)))
-  where
-    isNullTerminator bak sym symByte =
-      case BV.asUnsigned <$> WI.asBV symByte of
-        Just 0 -> pure True
-        Just _ -> pure False
-        _ ->
-          LCBO.withSolverProcess bak (pure False) $ \proc -> do
-            z <- WI.bvZero sym (WI.knownNat @8)
-            p <- WI.notPred sym =<< WI.bvEq sym z symByte
-            WPO.checkSatisfiable proc "provablyNullTerminatedString" p <&>
-              \case
-                WS.Unsat () -> True
-                WS.Sat () -> False
-                WS.Unknown -> False
+
+-- Helper, not exported
+isProvablyNullTerminator ::
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  sym ~ WEB.ExprBuilder scope st fs =>
+  bak ~ LCBO.OnlineBackend solver scope st fs =>
+  WPO.OnlineSolver solver =>
+  bak ->
+  sym ->
+  WI.SymBV sym 8 ->
+  IO Bool
+isProvablyNullTerminator bak sym symByte =
+  case BV.asUnsigned <$> WI.asBV symByte of
+    Just 0 -> pure True
+    Just _ -> pure False
+    _ ->
+      LCBO.withSolverProcess bak (pure False) $ \proc -> do
+        z <- WI.bvZero sym (WI.knownNat @8)
+        p <- WI.notPred sym =<< WI.bvEq sym z symByte
+        WPO.checkSatisfiable proc "isProvablyNullTerminator" p <&>
+          \case
+            WS.Unsat () -> True
+            WS.Sat () -> False
+            WS.Unknown -> False
 
 ---------------------------------------------------------------------
--- ** For string length
+-- *** For string length
+
+-- | 'ByteChecker' for @strlen@ of concrete strings.
+fullyConcreteNullTerminatedStringLength ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  ByteChecker m sym bak Int Int
+fullyConcreteNullTerminatedStringLength =
+  ByteChecker $ \bak acc bytePtr -> do
+    byte <- liftIO (ptrToBv8 bak bytePtr)
+    case BV.asUnsigned <$> WI.asBV byte of
+      Just 0 -> pure (Break acc)
+      Just _ -> pure (Continue $! acc + 1)
+      Nothing -> do
+        let msg = "Symbolic value encountered when loading a string"
+        liftIO (LCB.addFailedAssertion bak (LCS.Unsupported GHC.callStack msg))
+
+-- Helper, not exported
+symStringLength ::
+  MonadIO m =>
+  State.MonadState (WI.Pred sym) m =>
+  GHC.HasCallStack =>
+  Mem.HasPtrWidth wptr =>
+  LCB.IsSymBackend sym bak =>
+  -- | How to check if a predicate is false
+  (bak -> WI.Pred sym -> m Bool) ->
+  ByteChecker m sym bak (WI.SymBV sym wptr) (WI.SymBV sym wptr)
+symStringLength predIsFalse =
+  ByteChecker $ \bak len bytePtr -> do
+    byte <- liftIO (ptrToBv8 bak bytePtr)
+    keepGoing <- State.get
+    let sym = LCB.backendGetSym bak
+    byteWasNonNull <- liftIO (WI.bvIsNonzero sym byte)
+    keepGoing' <- liftIO (WI.andPred sym keepGoing byteWasNonNull)
+    stopHere <- predIsFalse bak keepGoing'
+    if stopHere
+    then pure (Break len)
+    else do
+      State.put keepGoing'
+      lenPlusOne <- liftIO (WI.bvAdd sym len =<< WI.bvOne sym ?ptrWidth)
+      Continue <$> liftIO (WI.bvIte sym keepGoing' lenPlusOne len)
+
+-- | 'ByteChecker' for @strlen@ of strings with a concrete null terminator.
+concretelyNullTerminatedStringLength ::
+  MonadIO m =>
+  State.MonadState (WI.Pred sym) m =>
+  GHC.HasCallStack =>
+  Mem.HasPtrWidth wptr =>
+  LCB.IsSymBackend sym bak =>
+  ByteChecker m sym bak (WI.SymBV sym wptr) (WI.SymBV sym wptr)
+concretelyNullTerminatedStringLength =
+  symStringLength (\_bak p -> pure (WI.asConstantPred p == Just False))
+
+-- | 'ByteChecker' for @strlen@ for strings with a provably-null terminator.
+provablyNullTerminatedStringLength ::
+  MonadIO m =>
+  State.MonadState (WI.Pred sym) m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  Mem.HasPtrWidth wptr =>
+  sym ~ WEB.ExprBuilder scope st fs =>
+  bak ~ LCBO.OnlineBackend solver scope st fs =>
+  WPO.OnlineSolver solver =>
+  ByteChecker m sym bak (WI.SymBV sym wptr) (WI.SymBV sym wptr)
+provablyNullTerminatedStringLength =
+  symStringLength $ \bak p ->
+    case WI.asConstantPred p of
+      Just b -> pure b
+      _ ->
+        liftIO $ LCBO.withSolverProcess bak (pure False) $ \proc -> do
+          WPO.checkSatisfiable proc "provablyNullTerminatedStringLength" p <&>
+            \case
+              WS.Unsat () -> True
+              WS.Sat () -> False
+              WS.Unknown -> False
 
 ---------------------------------------------------------------------
 -- ** 'ByteLoader'
