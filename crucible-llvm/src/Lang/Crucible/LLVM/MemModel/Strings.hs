@@ -354,5 +354,14 @@ loadBytes bak mem = go
       \case
         Break result -> pure result
         Continue acc' -> do
+          -- It is important that safety assertions for later loads can use
+          -- the assumption that earlier bytes were nonzero, see #1463 or
+          -- `crucible-llvm-cli/test-data/T1463-read-bytes.cbl` for details.
+          prevByteWasNonNull <-
+            liftIO (WI.notPred sym =<< Mem.ptrIsNull sym (WI.knownNat @8) byte)
+          loc <- liftIO (WI.getCurrentProgramLoc sym)
+          let assump = LCB.BranchCondition loc Nothing prevByteWasNonNull
+          liftIO (LCB.addAssumption bak assump)
+
           ptr' <- liftIO (Mem.doPtrAddOffset bak mem ptr =<< WI.bvOne sym Mem.PtrWidth)
           go acc' ptr' loader checker 
