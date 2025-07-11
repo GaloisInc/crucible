@@ -128,17 +128,17 @@ defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 main :: IO ()
 main = do
     mkOutCfg <- defaultOutputConfig
-    exitCode <- mainWithOutputConfig mkOutCfg CruxMir noExtraOverrides
+    exitCode <- mainWithOutputConfig mkOutCfg (pure cruxMirNoState) noExtraOverrides
     exitWith exitCode
 
-mainWithExtraOverrides :: p -> BindExtraOverridesFn p -> IO ()
+mainWithExtraOverrides :: IO p -> BindExtraOverridesFn p -> IO ()
 mainWithExtraOverrides s bindExtra = do
     mkOutCfg <- defaultOutputConfig
     exitCode <- mainWithOutputConfig mkOutCfg s bindExtra
     exitWith exitCode
 
 mainWithOutputTo ::
-  Handle -> p -> BindExtraOverridesFn p -> IO ExitCode
+  Handle -> IO p -> BindExtraOverridesFn p -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig $
     Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
@@ -163,7 +163,7 @@ withMirLogging computation =
      in computation
 
 mainWithOutputConfig :: (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
-                     -> p -> BindExtraOverridesFn p -> IO ExitCode
+                     -> IO p -> BindExtraOverridesFn p -> IO ExitCode
 mainWithOutputConfig mkOutCfg customState bindExtra =
     withMirLogging $
     Crux.loadOptions mkOutCfg "crux-mir" Paths_crux_mir.version mirConfig
@@ -221,7 +221,7 @@ data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
   forall personality.
     SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
                 , testFeatures :: [C.ExecutionFeature personality sym MIR (C.RegEntry sym ty)]
-                , testPersonality :: personality
+                , testPersonality :: IO personality
                 }
 
 
@@ -230,14 +230,14 @@ runTests ::
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
-runTests = runTestsWithExtraOverrides cruxMirNoState noExtraOverrides
+runTests = runTestsWithExtraOverrides (pure cruxMirNoState) noExtraOverrides
 
 runTestsWithExtraOverrides ::
     forall s msgs.
     Crux.Logs msgs =>
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
-    s ->
+    IO s {- ^ Initialize custom state.  Done at the start of a test -} ->
     BindExtraOverridesFn s ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
@@ -386,13 +386,13 @@ runTestsWithExtraOverrides customState bindExtra (cruxOpts, mirOpts) = do
             { testOvr = do printTest fnName
                            exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
             , testFeatures = [scheduleFeature mirExplorePrimitives []]
-            , testPersonality = emptyExploration @DPOR (CruxMir customState)
+            , testPersonality = emptyExploration @DPOR . CruxMir <$> customState
             }
           | otherwise = SomeTestOvr
             { testOvr = do printTest fnName
                            simTestBody bak symOnline fnName
             , testFeatures = []
-            , testPersonality = CruxMir customState
+            , testPersonality = CruxMir <$> customState
             }
 
     let simCallbacks fnName =
@@ -402,7 +402,8 @@ runTestsWithExtraOverrides customState bindExtra (cruxOpts, mirOpts) = do
                 { Crux.setupHook =
                     \bak symOnline ->
                       case simTest bak symOnline fnName of
-                        SomeTestOvr testFn features personality -> do
+                        SomeTestOvr testFn features personalityIO -> do
+                          personality <- personalityIO
                           let outH = view outputHandle ?outputConfig
                           let sym = C.backendGetSym bak
                           setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
