@@ -96,7 +96,7 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
 makeSymbolicVar ::
     IsSymInterface sym =>
     BaseTypeRepr btp ->
-    TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (BaseToType btp)
+    TypedOverride p sym MIR (EmptyCtx ::> MirSlice) (BaseToType btp)
 makeSymbolicVar btpr =
   Crux.baseFreshOverride btpr strrepr $ \(RV strSlice) -> do
     mstr <- getString strSlice
@@ -114,7 +114,7 @@ array_symbolic ::
   forall sym rtp btp p .
   (IsSymInterface sym) =>
   BaseTypeRepr btp ->
-  TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (UsizeArrayType btp)
+  TypedOverride p sym MIR (EmptyCtx ::> MirSlice) (UsizeArrayType btp)
 array_symbolic btpr = makeSymbolicVar (BaseArrayRepr (Empty :> BaseUsizeRepr) btpr)
 
 concretize ::
@@ -377,7 +377,7 @@ overrideRust ::
   (IsSymInterface sym) =>
   CollectionState ->
   Text ->
-  OverrideSim (p sym) sym MIR rtp args ret ()
+  OverrideSim p sym MIR rtp args ret ()
 overrideRust cs name = do
   let tyArgs = cs ^? collection . M.intrinsics . ix (textId name) .
         M.intrInst . M.inSubsts . _Wrapped
@@ -411,7 +411,7 @@ bindFn ::
   CollectionState ->
   Text ->
   CFG MIR blocks args ret ->
-  OverrideSim (p sym) sym MIR rtp a r ()
+  OverrideSim p sym MIR rtp a r ()
 bindFn symOnline cs name cfg
   | hasInstPrefix ["crucible", "array", "symbolic"] explodedName
   , Empty :> MirSliceRepr <- cfgArgTypes cfg
@@ -472,8 +472,8 @@ bindFn _symOnline _cs fn cfg =
       ExplodedDefId -> CtxRepr args -> TypeRepr ret ->
       (forall rtp args' ret'.
         Ctx.Assignment (RegValue' sym) args ->
-        OverrideSim (p sym) sym MIR rtp args' ret' (RegValue sym ret)) ->
-      (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
+        OverrideSim p sym MIR rtp args' ret' (RegValue sym ret)) ->
+      (ExplodedDefId, SomeTypedOverride p sym MIR)
     override edid args ret act =
         ( edid
         , SomeTypedOverride (TypedOverride act args ret)
@@ -490,12 +490,12 @@ bindFn _symOnline _cs fn cfg =
 
     symb_bv :: forall n . (1 <= n)
             => ExplodedDefId -> NatRepr n
-            -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
+            -> (ExplodedDefId, SomeTypedOverride p sym MIR)
     symb_bv edid n = (edid, SomeTypedOverride $ makeSymbolicVar (BaseBVRepr n))
 
     overrides :: IsSymBackend sym bak'
               => bak'
-              -> Map ExplodedDefId (SomeTypedOverride (p sym) sym MIR)
+              -> Map ExplodedDefId (SomeTypedOverride p sym MIR)
     overrides bak =
       let sym = backendGetSym bak in
       fromList [ override ["crucible", "one"] Empty (BVRepr (knownNat @8)) $ \_args ->

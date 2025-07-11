@@ -17,14 +17,14 @@ import           Lang.Crucible.Simulator
 import           Lang.Crucible.Types
 
 -- | A simulator context
-type SimCtxt personality sym p = SimContext (personality sym) sym p
+type SimCtxt personality sym p = SimContext personality sym p
 
 -- | The instance of the override monad we use,
 -- when we don't care about the context of the surrounding function.
 type OverM personality sym ext a =
   forall r args ret.
   OverrideSim
-    (personality sym)  -- Extra data available in overrides (frontend-specific)
+    personality        -- Extra data available in overrides (frontend-specific)
     sym                -- The symbolic backend (usually a what4 ExprBuilder in some form)
     ext                -- The Crucible syntax extension for the target language
     r
@@ -36,7 +36,7 @@ type OverM personality sym ext a =
 type Fun personality sym ext args ret =
   forall r.
   OverrideSim
-    (personality sym)
+    personality
     sym                                    -- the backend
     ext
     r
@@ -45,7 +45,7 @@ type Fun personality sym ext args ret =
     (RegValue sym ret)
 
 data Result personality sym where
-  Result :: (ExecResult (personality sym) sym ext (RegEntry sym UnitType)) -> Result personality sym
+  Result :: (ExecResult personality sym ext (RegEntry sym UnitType)) -> Result personality sym
 
 
 data ProcessedGoals =

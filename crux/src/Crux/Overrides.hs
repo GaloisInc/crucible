@@ -63,7 +63,7 @@ baseFreshOverride ::
   C.TypeRepr stringTy ->
   -- | Get the variable name as a concrete string from the override arguments
   (C.RegValue' sym stringTy -> OverM p sym ext W4.SolverSymbol) ->
-  C.TypedOverride (p sym) sym ext (C.EmptyCtx C.::> stringTy) (C.BaseToType bty)
+  C.TypedOverride p sym ext (C.EmptyCtx C.::> stringTy) (C.BaseToType bty)
 baseFreshOverride bty sty getStr =
   C.TypedOverride
   { C.typedOverrideHandler = \(Ctx.Empty Ctx.:> strVal) -> do
