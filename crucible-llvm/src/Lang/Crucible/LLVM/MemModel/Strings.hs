@@ -19,16 +19,17 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , Mem.loadMaybeString
   , Mem.strLen
   , loadConcretelyNullTerminatedString
-  , loadSymbolicString
+  , loadProvablyNullTerminatedString
   , storeString
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
   , ByteChecker(..)
+  , withMaxChars
+  -- ** 'ByteChecker'
   , fullyConcreteNullTerminatedString
   , concretelyNullTerminatedString
-  , nullTerminatedString
-  , withMaxChars
+  , provablyNullTerminatedString
   -- ** 'ByteLoader'
   , ByteLoader(..)
   , llvmByteLoader
@@ -88,14 +89,15 @@ loadConcretelyNullTerminatedString bak mem ptr limit =
 
 -- | Load a null-terminated string from memory.
 --
--- Consults an SMT solver to check if any of the loaded bytes are known to be
--- null (0). If a maximum number of characters is provided, no more than that
--- number of charcters will be read. In either case, 'loadSymbolicString' will
--- stop reading if it encounters a null terminator.
+-- Consults an SMT solver to check if any of the loaded bytes are known
+-- to be null (0). If a maximum number of characters is provided, no
+-- more than that number of charcters will be read. In either case,
+-- 'loadProvablyNullTerminatedString' will stop reading if it encounters a null
+-- terminator.
 --
 -- Note that the loaded string may actually be smaller than the returned list if
 -- any of the symbolic bytes are equal to 0.
-loadSymbolicString ::
+loadProvablyNullTerminatedString ::
   ( LCB.IsSymBackend sym bak
   , sym ~ WEB.ExprBuilder scope st fs
   , bak ~ LCBO.OnlineBackend solver scope st fs
@@ -111,12 +113,12 @@ loadSymbolicString ::
   -- | Maximum number of characters to read
   Maybe Int ->
   IO [WI.SymBV sym 8]
-loadSymbolicString bak mem ptr limit =
+loadProvablyNullTerminatedString bak mem ptr limit =
   let loader = llvmByteLoader mem in
   case limit of
-    Nothing -> loadBytes bak mem id ptr loader nullTerminatedString
+    Nothing -> loadBytes bak mem id ptr loader provablyNullTerminatedString
     Just l ->
-      let byteChecker = withMaxChars l (\f -> pure (f [])) nullTerminatedString in
+      let byteChecker = withMaxChars l (\f -> pure (f [])) provablyNullTerminatedString in
       loadBytes bak mem (id, 0) ptr loader byteChecker
 
 -- | Store a string to memory, adding a null terminator at the end.
@@ -192,6 +194,26 @@ ptrToBv8 bak bytePtr = do
   let err = LCS.AssertFailureSimError "Found pointer instead of byte when loading string" ""
   Partial.ptrToBv bak err bytePtr
 
+-- | 'ByteChecker' for adding a maximum character length.
+withMaxChars ::
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  Functor m =>
+  -- | Maximum number of bytes to load
+  Int ->
+  -- | What to do when the maximum is reached
+  (a -> m b) ->
+  ByteChecker m sym bak a b ->
+  ByteChecker m sym bak (a, Int) b
+withMaxChars limit done checker =
+  ByteChecker $ \bak (acc, i) bytePtr ->
+    if i > limit
+    then Break <$> done acc
+    else first (, i + 1) <$> runByteChecker checker bak acc bytePtr
+
+---------------------------------------------------------------------
+-- ** For loading strings
+
 -- | 'ByteChecker' for loading concrete strings.
 --
 -- Currently unused internally, but analogous with
@@ -234,10 +256,10 @@ concretelyNullTerminatedString =
         Just 0 -> True
         _ -> False
 
--- | 'ByteChecker' for loading symbolic strings with a null terminator.
+-- | 'ByteChecker' for loading symbolic strings with a provably-null terminator.
 --
 -- Used in 'loadSymbolicString'.
-nullTerminatedString ::
+provablyNullTerminatedString ::
   MonadIO m =>
   GHC.HasCallStack =>
   LCB.IsSymBackend sym bak =>
@@ -245,7 +267,7 @@ nullTerminatedString ::
   bak ~ LCBO.OnlineBackend solver scope st fs =>
   WPO.OnlineSolver solver =>
   ByteChecker m sym bak ([WI.SymBV sym 8] -> [WI.SymBV sym 8]) [WI.SymBV sym 8]
-nullTerminatedString =
+provablyNullTerminatedString =
   ByteChecker $ \bak acc bytePtr -> do
     byte <- liftIO (ptrToBv8 bak bytePtr)
     let sym = LCB.backendGetSym bak
@@ -262,28 +284,14 @@ nullTerminatedString =
           LCBO.withSolverProcess bak (pure False) $ \proc -> do
             z <- WI.bvZero sym (WI.knownNat @8)
             p <- WI.notPred sym =<< WI.bvEq sym z symByte
-            WPO.checkSatisfiable proc "nullTerminatedString" p <&>
+            WPO.checkSatisfiable proc "provablyNullTerminatedString" p <&>
               \case
                 WS.Unsat () -> True
                 WS.Sat () -> False
                 WS.Unknown -> False
 
--- | 'ByteChecker' for adding a maximum character length.
-withMaxChars ::
-  GHC.HasCallStack =>
-  LCB.IsSymBackend sym bak =>
-  Functor m =>
-  -- | Maximum number of bytes to load
-  Int ->
-  -- | What to do when the maximum is reached
-  (a -> m b) ->
-  ByteChecker m sym bak a b ->
-  ByteChecker m sym bak (a, Int) b
-withMaxChars limit done checker =
-  ByteChecker $ \bak (acc, i) bytePtr ->
-    if i > limit
-    then Break <$> done acc
-    else first (, i + 1) <$> runByteChecker checker bak acc bytePtr
+---------------------------------------------------------------------
+-- ** For string length
 
 ---------------------------------------------------------------------
 -- ** 'ByteLoader'
