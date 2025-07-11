@@ -1,0 +1,10 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/T1463-read-bytes.cbl:33:12: error: in main
+  Error during memory load
+  not (and (eq 0x0:[8] cbv0@0:bv) (not cnoSatisfyingWrite@27:b))
+COUNTEREXAMPLE

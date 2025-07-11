@@ -1,0 +1,14 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/T1463-strlen.cbl:36:5: error: in main
+  Error during memory load: strlen
+  let -- test-data/T1463-strlen.cbl:31:13
+      v13 = eq 0x0:[8] cbv0@0:bv
+      -- test-data/T1463-strlen.cbl:36:5
+      v37 = and v13 (not (eq 0x0:[8] cbv0@0:bv)) (not cnoSatisfyingWrite@29:b)
+   in not v37
+PROVED
