@@ -65,6 +65,7 @@ import Lang.Crucible.Utils.MuxTree
 
 
 import Crux (SomeOnlineSolver(..))
+import Crux.Log
 import qualified Crux.Overrides as Crux
 
 import Mir.DefId
@@ -405,8 +406,8 @@ overrideRust cs name = do
 
 
 bindFn ::
-  forall p ng args ret blocks sym bak rtp a r.
-  (IsSymInterface sym) =>
+  forall p msgs args ret blocks sym bak rtp a r.
+  (IsSymInterface sym, Logs msgs) =>
   Maybe (SomeOnlineSolver sym bak) ->
   CollectionState ->
   Text ->
@@ -430,16 +431,39 @@ bindFn symOnline cs name cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
 
+  | ["crucible", "print_str"] == explodedName
+  , Empty :> MirSliceRepr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "print_str" UnitRepr $ do
+        RegMap (Empty :> RegEntry _ strRef) <- getOverrideArgs
+        str <- getString strRef >>= \x -> case x of
+            Just x -> return x
+            Nothing -> fail $ "print_str: desc string must be concrete"
+        liftIO $ outputLn $ Text.unpack str
+
   | hasInstPrefix ["crucible", "dump_what4"] explodedName
   , Empty :> MirSliceRepr :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "crucible_override_" UnitRepr $ do
+    mkOverride' "dump_what4" UnitRepr $ do
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just x -> return x
             Nothing -> fail $ "dump_what4: desc string must be concrete"
-        liftIO $ putStrLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+        liftIO $ outputLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+
+  | hasInstPrefix ["crucible", "dump_rv"] explodedName
+  , Empty :> MirSliceRepr :> tpr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "dump_rv" UnitRepr $ do
+        RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
+        str <- getString strRef >>= \x -> case x of
+            Just x -> return x
+            Nothing -> fail $ "dump_rv: desc string must be concrete"
+        liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV tpr expr
+
   where
     explodedName = textIdKey name
 
@@ -452,6 +476,24 @@ bindFn symOnline cs name cfg
         Just (edidInit, edidLast) ->
           pfxInit == edidInit &&
           "_inst" `Text.isPrefixOf` edidLast
+
+    showRV :: TypeRepr tp' -> RegValue sym tp' -> String
+    showRV (BVRepr _) x = show (printSymExpr x)
+    showRV AnyRepr (AnyValue tpr' rv') = "(AnyValue " ++ show tpr' ++ " " ++ showRV tpr' rv' ++ ")"
+    showRV UnitRepr () = "Unit"
+    showRV (MaybeRepr tpr') Unassigned = "(Maybe Unassigned)"
+    showRV (MaybeRepr tpr') (PE cond rv') = "(Maybe " ++ showRV tpr' rv' ++ " " ++ show (printSymExpr cond) ++ ")"
+    showRV (VectorRepr tpr') v = "(Vector " ++ show tpr' ++ " " ++
+      unwords (map (showRV tpr') (V.toList v)) ++ ")"
+    showRV (StructRepr ctx) rvs = "(Struct" ++ showStruct ctx rvs ++ ")"
+    showRV MirReferenceRepr ref = "(Ref " ++ show ref ++ ")"
+    -- Add more cases as needed
+    showRV tpr _ = "[unsupported: " ++ show tpr ++ "]"
+
+    showStruct :: CtxRepr ctx -> Ctx.Assignment (RegValue' sym) ctx -> String
+    showStruct Ctx.Empty Ctx.Empty = ""
+    showStruct (ctx Ctx.:> tpr) (rvs Ctx.:> RV rv) =
+      showStruct ctx rvs ++ " " ++ showRV tpr rv
 
 bindFn _symOnline _cs fn cfg =
   ovrWithBackend $ \bak ->
