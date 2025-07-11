@@ -2287,14 +2287,14 @@ class MethodSpecImpl sym ms where
     msPrettyPrint ::
         forall p rtp args ret.
         ms ->
-        OverrideSim (p sym) sym MIR rtp args ret (RegValue sym MirSlice)
+        OverrideSim p sym MIR rtp args ret (RegValue sym MirSlice)
 
     -- | Enable the MethodSpec for use as an override for the remainder of the
     -- current test.
     msEnable ::
         forall p rtp args ret.
         ms ->
-        OverrideSim (p sym) sym MIR rtp args ret ()
+        OverrideSim p sym MIR rtp args ret ()
 
 data MethodSpec sym = forall ms. MethodSpecImpl sym ms => MethodSpec {
     msData :: ms,
@@ -2325,19 +2325,19 @@ instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
 class MethodSpecBuilderImpl sym msb where
     msbAddArg :: forall p rtp args ret tp.
         TypeRepr tp -> MirReferenceMux sym -> msb ->
-        OverrideSim (p sym) sym MIR rtp args ret msb
+        OverrideSim p sym MIR rtp args ret msb
     msbSetReturn :: forall p rtp args ret tp.
         TypeRepr tp -> MirReferenceMux sym -> msb ->
-        OverrideSim (p sym) sym MIR rtp args ret msb
+        OverrideSim p sym MIR rtp args ret msb
     msbGatherAssumes :: forall p rtp args ret.
         msb ->
-        OverrideSim (p sym) sym MIR rtp args ret msb
+        OverrideSim p sym MIR rtp args ret msb
     msbGatherAsserts :: forall p rtp args ret.
         msb ->
-        OverrideSim (p sym) sym MIR rtp args ret msb
+        OverrideSim p sym MIR rtp args ret msb
     msbFinish :: forall p rtp args ret.
         msb ->
-        OverrideSim (p sym) sym MIR rtp args ret (MethodSpec sym)
+        OverrideSim p sym MIR rtp args ret (MethodSpec sym)
 
 data MethodSpecBuilder sym = forall msb. MethodSpecBuilderImpl sym msb => MethodSpecBuilder msb
 

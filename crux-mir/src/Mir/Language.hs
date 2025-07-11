@@ -176,13 +176,13 @@ class MirPersonality p where
   type MirState p
   mirStateField :: Lens' p (MirState p)
 
-newtype CruxMir s sym = CruxMir { cruxMirState :: s }
+newtype CruxMir s = CruxMir { cruxMirState :: s }
 
-cruxMirNoState :: CruxMir () sym
+cruxMirNoState :: CruxMir ()
 cruxMirNoState = CruxMir ()
 
-instance MirPersonality (CruxMir s sym) where
-  type MirState (CruxMir s sym) = s 
+instance MirPersonality (CruxMir s) where
+  type MirState (CruxMir s) = s 
   mirStateField = lens cruxMirState (const CruxMir)
 
 -- | This is used when we execute with concurrency
@@ -190,18 +190,18 @@ instance MirPersonality p => MirPersonality (Explore.Exploration p alg ext ret s
   type MirState (Explore.Exploration p alg ext ret sym) = MirState p
   mirStateField = Explore.personality . mirStateField
 
-mirState :: HasMirState (p sym) s => Lens' (C.SimState (p sym) sym ext r f a) s
+mirState :: HasMirState p s => Lens' (C.SimState p sym ext r f a) s
 mirState = C.stateContext . C.cruciblePersonality . mirStateField
 
 
 
 type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
-    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasMirState (p sym) s) =>
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasMirState p s) =>
     Maybe (Crux.SomeOnlineSolver sym bak) ->
     CollectionState ->
     Text ->
     C.CFG MIR blocks args ret ->
-    Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
+    Maybe (C.OverrideSim p sym MIR rtp a r ())
 
 noExtraOverrides :: BindExtraOverridesFn p
 noExtraOverrides _ _ _ _ = Nothing
@@ -220,8 +220,8 @@ orOverride f g symOnline colState name cfg =
 data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
   forall personality.
     SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
-                , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
-                , testPersonality :: personality sym
+                , testFeatures :: [C.ExecutionFeature personality sym MIR (C.RegEntry sym ty)]
+                , testPersonality :: personality
                 }
 
 
@@ -298,8 +298,8 @@ runTestsWithExtraOverrides customState bindExtra (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasMirState (p sym) s) =>
-            Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasMirState p s) =>
+            Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim p sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
                 case bindExtra symOnline (mir ^. rmCS) fn cfg of
@@ -327,7 +327,7 @@ runTestsWithExtraOverrides customState bindExtra (cruxOpts, mirOpts) = do
     let simTestBody :: forall sym bak p t st fs.
             ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
-            , HasMirState (p sym) s
+            , HasMirState p s
             ) =>
             bak ->
             Maybe (Crux.SomeOnlineSolver sym bak) ->

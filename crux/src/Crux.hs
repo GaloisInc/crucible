@@ -98,15 +98,15 @@ import           Crux.Log as Log
 import           Crux.Report
 import           Crux.Types
 
-pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext) => ExecState (personality sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
+pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext) => ExecState personality sym ext (RegEntry sym UnitType) -> RunnableState sym
 pattern RunnableState es = RunnableStateWithExtensions es []
 
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
 data RunnableState sym where
   RunnableStateWithExtensions :: (IsSyntaxExtension ext)
-                              => ExecState (personality sym) sym ext (RegEntry sym UnitType)
-                              -> [ExecutionFeature (personality sym) sym ext (RegEntry sym UnitType)]
+                              => ExecState personality sym ext (RegEntry sym UnitType)
+                              -> [ExecutionFeature personality sym ext (RegEntry sym UnitType)]
                               -> RunnableState sym
 
 -- | Individual crux tools will generally call the @runSimulator@ combinator to
