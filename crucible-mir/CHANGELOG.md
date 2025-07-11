@@ -25,6 +25,9 @@ This release supports [version
 * Generalize the custom overrides for `rotate_{left,right}` to work on integer
   types besides `i32` or `u32`.
 * Support clone shims for function pointers and closures.
+* Type translation functions like `tyToRepr` now fail gracefully
+  so that failed translations can be handled by upstream tooling
+  instead of failing using `error`
 
 # 0.4 -- 2025-03-21
 
