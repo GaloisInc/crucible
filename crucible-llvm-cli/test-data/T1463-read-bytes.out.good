@@ -2,9 +2,11 @@
 
 ==== Finish Simulation ====
 ==== Proof obligations ====
-
+Assuming:
+* The branch in main at test-data/T1463-read-bytes.cbl:33:12
+    not (eq 0x0:[8] cbv0@0:bv)
 Prove:
   test-data/T1463-read-bytes.cbl:33:12: error: in main
   Error during memory load
-  not (and (eq 0x0:[8] cbv0@0:bv) (not cnoSatisfyingWrite@27:b))
-COUNTEREXAMPLE
+  not (and (eq 0x0:[8] cbv0@0:bv) (not cnoSatisfyingWrite@29:b))
+PROVED
