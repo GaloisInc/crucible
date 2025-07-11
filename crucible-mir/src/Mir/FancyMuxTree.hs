@@ -136,6 +136,9 @@ import           Unsafe.Coerce
 -- returning Nothing.
 newtype FancyMuxTree sym a = FancyMuxTree (Map (Skeleton a) (a, Pred sym))
 
+instance (Show a, IsSymInterface sym) => Show (FancyMuxTree sym a) where
+  show (FancyMuxTree m) = show [(x, printSymExpr y) | (x, y) <- Map.elems m]
+
 
 class OrdSkel t where
     compareSkel :: t -> t -> Ordering
