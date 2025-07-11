@@ -17,8 +17,8 @@ import qualified Data.Map as Map
 import qualified Data.Text as Text
 import Data.Type.Equality ((:~:)(Refl), testEquality)
 
-import Data.Parameterized.NatRepr (knownNat)
 import qualified Data.Parameterized.Map as MapF
+import Data.Parameterized.NatRepr (knownNat)
 
 import qualified What4.FunctionName as W4
 
