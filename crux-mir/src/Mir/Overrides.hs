@@ -439,7 +439,7 @@ bindFn symOnline cs name cfg
         RegMap (Empty :> RegEntry _ strRef) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just x -> return x
-            Nothing -> fail $ "print_str: desc string must be concrete"
+            Nothing -> fail "print_str: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str
 
   | hasInstPrefix ["crucible", "dump_what4"] explodedName
@@ -461,7 +461,7 @@ bindFn symOnline cs name cfg
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just x -> return x
-            Nothing -> fail $ "dump_rv: desc string must be concrete"
+            Nothing -> fail "dump_rv: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV tpr expr
 
   where
