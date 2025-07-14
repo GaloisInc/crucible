@@ -1,0 +1,6 @@
+test dump_rv/<DISAMB>::test[0]: a = {Just 0x7b:[32] if true, Just 0x1c8:[32] if true}
+b = {Just cxy@1:bv if true, Just cxy@2:bv if true}
+c = {cxy@1:bv, cxy@2:bv}
+ok
+
+[Crux] Overall status: Valid.
