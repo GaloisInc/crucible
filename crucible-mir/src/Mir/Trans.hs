@@ -2436,7 +2436,7 @@ mkVtableMap col halloc = mapM mkVtable (col^.vtables)
       | Just fn <- Map.lookup fnName (col^.functions) = do
         let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
             handleName = FN.functionNameFromText (vtableShimName vtableName fnName)
-        
+
         Some argctx <- case tyListToCtx col (abiFnArgs shimSig) (Right . Some) of
           Left err -> fail ("mkVtableMap: " ++ err)
           Right x -> return x
@@ -2671,7 +2671,7 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
         let returnTy = callMutSig ^. M.fsreturn_ty
         let fnPtrSig = M.FnSig untupledArgTys returnTy RustAbi
         let handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
-        
+
         Some argCtx <- case  tyListToCtx col untupledArgTys (Right . Some) of
           Left err -> fail ("mkShimHandleMap: " ++ err)
           Right x -> return x
@@ -2683,7 +2683,7 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
         h <- FH.mkHandle' halloc handleName argCtx retRepr
         let mh = MirHandle (intr ^. M.intrName) fnPtrSig h
         return $ Map.singleton name mh
-  
+
       | otherwise = return Map.empty
       where
 
