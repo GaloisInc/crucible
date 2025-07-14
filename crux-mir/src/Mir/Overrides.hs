@@ -10,6 +10,7 @@
 {-# Language TypeApplications #-}
 {-# Language PartialTypeSignatures #-}
 {-# Language FlexibleContexts #-}
+{-# Language AllowAmbiguousTypes #-}
 
 module Mir.Overrides (bindFn, getString) where
 
@@ -33,8 +34,11 @@ import qualified Data.Vector as V
 
 import System.IO (hPutStrLn)
 
+import qualified Prettyprinter as PP
+
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
 
 import What4.Config( getOpt, setOpt, getOptionSetting )
@@ -55,6 +59,7 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
+import Lang.Crucible.Pretty
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.OverrideSim
@@ -462,7 +467,7 @@ bindFn symOnline cs name cfg
         str <- getString strRef >>= \x -> case x of
             Just x -> return x
             Nothing -> fail "dump_rv: desc string must be concrete"
-        liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV tpr expr
+        liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV @sym tpr expr
 
   where
     explodedName = textIdKey name
@@ -476,24 +481,6 @@ bindFn symOnline cs name cfg
         Just (edidInit, edidLast) ->
           pfxInit == edidInit &&
           "_inst" `Text.isPrefixOf` edidLast
-
-    showRV :: TypeRepr tp' -> RegValue sym tp' -> String
-    showRV (BVRepr _) x = show (printSymExpr x)
-    showRV AnyRepr (AnyValue tpr' rv') = "(AnyValue " ++ show tpr' ++ " " ++ showRV tpr' rv' ++ ")"
-    showRV UnitRepr () = "Unit"
-    showRV (MaybeRepr tpr') Unassigned = "(Maybe Unassigned)"
-    showRV (MaybeRepr tpr') (PE cond rv') = "(Maybe " ++ showRV tpr' rv' ++ " " ++ show (printSymExpr cond) ++ ")"
-    showRV (VectorRepr tpr') v = "(Vector " ++ show tpr' ++ " " ++
-      unwords (map (showRV tpr') (V.toList v)) ++ ")"
-    showRV (StructRepr ctx) rvs = "(Struct" ++ showStruct ctx rvs ++ ")"
-    showRV MirReferenceRepr ref = "(Ref " ++ show ref ++ ")"
-    -- Add more cases as needed
-    showRV tpr _ = "[unsupported: " ++ show tpr ++ "]"
-
-    showStruct :: CtxRepr ctx -> Ctx.Assignment (RegValue' sym) ctx -> String
-    showStruct Ctx.Empty Ctx.Empty = ""
-    showStruct (ctx Ctx.:> tpr) (rvs Ctx.:> RV rv) =
-      showStruct ctx rvs ++ " " ++ showRV tpr rv
 
 bindFn _symOnline _cs fn cfg =
   ovrWithBackend $ \bak ->
@@ -587,3 +574,15 @@ bindFn _symOnline _cs fn cfg =
                        liftIO $ addAssumption bak reason
                        return ()
                ]
+
+
+mirReferencePrettyFn :: forall sym. IsSymInterface sym =>
+  IntrinsicPrettyFn sym MirReferenceSymbol
+mirReferencePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty ref -> PP.viaShow ref
+
+intrinsicPrinters :: forall sym. IsSymInterface sym => IntrinsicPrinters sym
+intrinsicPrinters = IntrinsicPrinters $ MapF.singleton knownRepr mirReferencePrettyFn
+
+showRV :: forall sym tp. IsSymInterface sym =>
+  TypeRepr tp -> RegValue sym tp -> String
+showRV tpr rv = show $ ppRegVal intrinsicPrinters tpr (RV @sym rv)

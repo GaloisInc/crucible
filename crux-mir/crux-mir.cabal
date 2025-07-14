@@ -30,6 +30,7 @@ library
                  time,
                  crucible,
                  crucible-concurrency,
+                 crucible-debug,
                  crucible-mir,
                  parameterized-utils >= 1.0.8,
                  containers,
