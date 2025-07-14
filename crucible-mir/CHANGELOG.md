@@ -28,6 +28,9 @@ This release supports [version
 * Type translation functions like `tyToRepr` now fail gracefully
   so that failed translations can be handled by upstream tooling
   instead of failing using `error`
+* Fix a bug in which static items with non-constant initializer expressions that
+  depend on static items with constant initializer expressions would fail to
+  simulate correctly.
 
 # 0.4 -- 2025-03-21
 

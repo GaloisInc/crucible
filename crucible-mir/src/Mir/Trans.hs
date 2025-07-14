@@ -3002,7 +3002,14 @@ transCollection col halloc = do
                 }
 
 -- | Produce a crucible CFG that initializes the global variables for the static
--- part of the crate
+-- part of the crate.
+--
+-- Note that while static items' definitions can depend on other static items,
+-- this function does not currently translate static items in a way that
+-- respects dependency order in general. (See #1108.) We do make a limited
+-- effort to minimize the chances of static items being translated in the wrong
+-- order, however. See the comments near @constValStatics@/@nonConstValStatics@
+-- below.
 transStatics ::
   (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool) =>
   CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
@@ -3042,10 +3049,28 @@ transStatics colState halloc = do
   -- TODO: make the name of the static initialization function configurable
   let initName = FN.functionNameFromText "static_initializer"
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
+  let allStatics :: [Static]
+      allStatics = Map.elems (colState^.collection.statics)
+  -- Partition the static items into those with constant initializer expressions
+  -- (constValStatics) and those with non-constant initializer expressions
+  -- (nonConstValStatics). We do this because nonConstValStatics can depend on
+  -- constValStatics, but because constValStatics typically use names like
+  -- {{alloc}}[0], their names are almost certain to be later alphabetically
+  -- than nonConstValStatics' names. This, in turn, is liable to trigger the
+  -- issues observed in #1108 when one tries to translate a nonConstValStatic
+  -- before the constValStatic that it depends on.
+  --
+  -- To work around #1108, we deliberately translate all constValStatics before
+  -- translating any nonConstValStatics. This is not a complete fix for #1108,
+  -- but it does make it far less likely to appear in practice.
+  let constValStatics, nonConstValStatics :: [Static]
+      (constValStatics, nonConstValStatics) =
+        List.partition (\s -> Maybe.isJust (s ^. sConstVal)) allStatics
   let def :: G.FunctionDef MIR FnState Ctx.EmptyCtx C.UnitType (ST w)
       def inputs = (s, f) where
           s = initFnState colState StaticContext
-          f = do mapM_ initializeStatic (colState^.collection.statics)
+          f = do mapM_ initializeStatic constValStatics
+                 mapM_ initializeStatic nonConstValStatics
                  return (R.App $ E.EmptyApp)
   init_cfg <- stToIO $ do
     R.SomeCFG g <- defineFunctionNoAuxs initHandle def
