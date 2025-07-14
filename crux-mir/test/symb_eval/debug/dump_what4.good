@@ -1,0 +1,6 @@
+test dump_what4/<DISAMB>::test[0]: a = 0x7b:[32]
+b = bvSum cx@1:bv 0x1:[32]
+c = eq 0x0:[32] cx@1:bv
+ok
+
+[Crux] Overall status: Valid.

@@ -10,6 +10,7 @@
 {-# Language TypeApplications #-}
 {-# Language PartialTypeSignatures #-}
 {-# Language FlexibleContexts #-}
+{-# Language AllowAmbiguousTypes #-}
 
 module Mir.Overrides (bindFn, getString) where
 
@@ -33,8 +34,11 @@ import qualified Data.Vector as V
 
 import System.IO (hPutStrLn)
 
+import qualified Prettyprinter as PP
+
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
 
 import What4.Config( getOpt, setOpt, getOptionSetting )
@@ -55,6 +59,7 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
+import Lang.Crucible.Pretty
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.OverrideSim
@@ -65,6 +70,7 @@ import Lang.Crucible.Utils.MuxTree
 
 
 import Crux (SomeOnlineSolver(..))
+import Crux.Log
 import qualified Crux.Overrides as Crux
 
 import Mir.DefId
@@ -405,8 +411,8 @@ overrideRust cs name = do
 
 
 bindFn ::
-  forall p ng args ret blocks sym bak rtp a r.
-  (IsSymInterface sym) =>
+  forall p msgs args ret blocks sym bak rtp a r.
+  (IsSymInterface sym, Logs msgs) =>
   Maybe (SomeOnlineSolver sym bak) ->
   CollectionState ->
   Text ->
@@ -430,16 +436,39 @@ bindFn symOnline cs name cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
 
+  | ["crucible", "print_str"] == explodedName
+  , Empty :> MirSliceRepr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "print_str" UnitRepr $ do
+        RegMap (Empty :> RegEntry _ strRef) <- getOverrideArgs
+        str <- getString strRef >>= \x -> case x of
+            Just x -> return x
+            Nothing -> fail "print_str: desc string must be concrete"
+        liftIO $ outputLn $ Text.unpack str
+
   | hasInstPrefix ["crucible", "dump_what4"] explodedName
   , Empty :> MirSliceRepr :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "crucible_override_" UnitRepr $ do
+    mkOverride' "dump_what4" UnitRepr $ do
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just x -> return x
             Nothing -> fail $ "dump_what4: desc string must be concrete"
-        liftIO $ putStrLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+        liftIO $ outputLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+
+  | hasInstPrefix ["crucible", "dump_rv"] explodedName
+  , Empty :> MirSliceRepr :> tpr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "dump_rv" UnitRepr $ do
+        RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
+        str <- getString strRef >>= \x -> case x of
+            Just x -> return x
+            Nothing -> fail "dump_rv: desc string must be concrete"
+        liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV @sym tpr expr
+
   where
     explodedName = textIdKey name
 
@@ -545,3 +574,15 @@ bindFn _symOnline _cs fn cfg =
                        liftIO $ addAssumption bak reason
                        return ()
                ]
+
+
+mirReferencePrettyFn :: forall sym. IsSymInterface sym =>
+  IntrinsicPrettyFn sym MirReferenceSymbol
+mirReferencePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty ref -> PP.viaShow ref
+
+intrinsicPrinters :: forall sym. IsSymInterface sym => IntrinsicPrinters sym
+intrinsicPrinters = IntrinsicPrinters $ MapF.singleton knownRepr mirReferencePrettyFn
+
+showRV :: forall sym tp. IsSymInterface sym =>
+  TypeRepr tp -> RegValue sym tp -> String
+showRV tpr rv = show $ ppRegVal intrinsicPrinters tpr (RV @sym rv)

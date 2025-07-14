@@ -33,6 +33,7 @@ import           Data.Parameterized.TraversableFC (toListFC)
 
 -- what4
 import qualified What4.Interface as W4
+import qualified What4.Partial as W4
 
 -- crucible
 import qualified Lang.Crucible.FunctionHandle as C
@@ -103,6 +104,10 @@ ppRegVal iFns tp (C.RV v) =
 
     -- More complex cases
     C.FunctionHandleRepr args ret -> ppFnVal args ret v
+    C.MaybeRepr tpr -> case v of
+      W4.Unassigned -> "Nothing"
+      W4.PE cond v' ->
+        "Just" PP.<+> ppRegVal iFns tpr (C.RV v') PP.<+> "if" PP.<+> W4.printSymExpr cond
     _ -> "<unsupported>"
 
 ppFnVal ::
