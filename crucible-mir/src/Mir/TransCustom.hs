@@ -1956,6 +1956,12 @@ cloneShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implement
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
 cloneShimTuple :: [Ty] -> [M.DefId] -> CustomOp
+cloneShimTuple [] [] = CustomMirOp $ \_ops ->
+    -- We're cloning unit, i.e. `()`. Without this case, deferring to
+    -- `buildTupleMaybeM` to construct `()` results in a struct-like expression
+    -- with an empty `StructRepr`. In this particular case, that's wrong - what
+    -- we need to produce is a `UnitRepr` expression.
+    pure $ MirExp C.UnitRepr $ R.App E.EmptyApp
 cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
     lv <- case ops of
