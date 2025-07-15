@@ -512,7 +512,7 @@ reprsToCtx rs f = go rs Ctx.empty
 tyListToCtxMaybe :: forall a. TransTyConstraint =>
   M.Collection -> [M.Ty] -> (forall ctx. C.CtxRepr ctx -> Either String a) -> Either String a
 tyListToCtxMaybe col ts f = do
-    rs <- traverse (tyToRepr col) ts 
+    rs <- traverse (tyToRepr col) ts
     go rs Ctx.empty
  where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> Either String a
        go []       ctx      = f ctx
