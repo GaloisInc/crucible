@@ -227,7 +227,16 @@ tyToRepr col t0 = case t0 of
         SomeRustEnumRepr _ ctx <- enumVariants col adt
         Right (Some (RustEnumRepr discrTp ctx))
       M.Union ->
-        Left ("Union types are unsupported, for " ++ show name)
+        -- This is a hack. crucible-mir doesn't _actually_ support union types,
+        -- and if you try simulating a code that performs an operation on a
+        -- union-typed value, then it will fail at simulation time.
+        -- Nevertheless, we intentionally choose to use Any as a placeholder
+        -- type instead of failing so that crucible-mir can translate type
+        -- signatures mentioning union types without crashing during MIR
+        -- translation (e.g., in Mir.Trans.mkHandleMap).
+        --
+        -- See #1429 for the larger issue of properly supporting union types.
+        Right (Some C.AnyRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
   M.TyFloat _ -> Right (Some C.RealValRepr)
@@ -512,7 +521,7 @@ reprsToCtx rs f = go rs Ctx.empty
 tyListToCtxMaybe :: forall a. TransTyConstraint =>
   M.Collection -> [M.Ty] -> (forall ctx. C.CtxRepr ctx -> Either String a) -> Either String a
 tyListToCtxMaybe col ts f = do
-    rs <- traverse (tyToRepr col) ts 
+    rs <- traverse (tyToRepr col) ts
     go rs Ctx.empty
  where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> Either String a
        go []       ctx      = f ctx
