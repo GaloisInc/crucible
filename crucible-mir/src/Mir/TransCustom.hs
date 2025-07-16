@@ -1907,12 +1907,12 @@ fnPtrShimDef fnTy = case fnTy of
                     Copy lv -> return lv
                     Move lv -> return lv
                     _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
-                        " for fnptr shim of " ++ show defId
+                        " for fnptr shim of type " ++ show fnTy
                 let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
                 callExp defId argOps
             ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
-                " for fnptr shim of " ++ show defId
-        _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
+                " for fnptr shim of type " ++ show fnTy
+        _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of type " ++ show fnTy
     _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
 
 
