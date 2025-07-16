@@ -122,17 +122,17 @@ defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 main :: IO ()
 main = do
     mkOutCfg <- defaultOutputConfig
-    exitCode <- mainWithOutputConfig mkOutCfg noExtraOverrides
+    exitCode <- mainWithOutputConfig (pure Nothing) mkOutCfg noExtraOverrides
     exitWith exitCode
 
-mainWithExtraOverrides :: BindExtraOverridesFn -> IO ()
-mainWithExtraOverrides bindExtra = do
+mainWithExtraOverrides :: (forall sym. IO (s sym)) -> BindExtraOverridesFn s -> IO ()
+mainWithExtraOverrides initS bindExtra = do
     mkOutCfg <- defaultOutputConfig
-    exitCode <- mainWithOutputConfig mkOutCfg bindExtra
+    exitCode <- mainWithOutputConfig initS mkOutCfg bindExtra
     exitWith exitCode
 
-mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig $
+mainWithOutputTo :: (forall sym. IO (s sym)) -> Handle -> BindExtraOverridesFn s -> IO ExitCode
+mainWithOutputTo initS h = mainWithOutputConfig initS $
     Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
 data MirLogging
@@ -155,30 +155,33 @@ withMirLogging computation =
         ?injectMirLogMessage = LoggingMir
      in computation
 
-mainWithOutputConfig :: (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
-                     -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputConfig mkOutCfg bindExtra =
+mainWithOutputConfig ::
+    (forall sym. IO (s sym)) ->
+    (Maybe Crux.OutputOptions -> OutputConfig MirLogging) ->
+    BindExtraOverridesFn s -> IO ExitCode
+mainWithOutputConfig initS mkOutCfg bindExtra =
     withMirLogging $
     Crux.loadOptions mkOutCfg "crux-mir" Paths_crux_mir.version mirConfig
-        $ runTestsWithExtraOverrides bindExtra
+        $ runTestsWithExtraOverrides initS bindExtra
 
-type BindExtraOverridesFn = forall sym bak p t st fs args ret blocks rtp a r.
+type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    s sym ->
     Maybe (Crux.SomeOnlineSolver sym bak) ->
     CollectionState ->
     Text ->
     C.CFG MIR blocks args ret ->
     Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
 
-noExtraOverrides :: BindExtraOverridesFn
-noExtraOverrides _ _ _ _ = Nothing
+noExtraOverrides :: BindExtraOverridesFn Maybe
+noExtraOverrides _ _ _ _ _ = Nothing
 
 orOverride ::
-    BindExtraOverridesFn -> BindExtraOverridesFn -> BindExtraOverridesFn
-orOverride f g symOnline colState name cfg =
-    case f symOnline colState name cfg of
+    BindExtraOverridesFn s -> BindExtraOverridesFn s -> BindExtraOverridesFn s
+orOverride f g state symOnline colState name cfg =
+    case f state symOnline colState name cfg of
         Just x -> Just x
-        Nothing -> g symOnline colState name cfg
+        Nothing -> g state symOnline colState name cfg
 
 
 -- | This closes over the Crucible 'personality' parameter, allowing us to select between
@@ -197,16 +200,18 @@ runTests ::
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
-runTests opts = runTestsWithExtraOverrides noExtraOverrides opts
+runTests opts = runTestsWithExtraOverrides (pure Nothing) noExtraOverrides opts
 
 runTestsWithExtraOverrides ::
+    forall s msgs.
     Crux.Logs msgs =>
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
-    BindExtraOverridesFn ->
+    (forall sym. IO (s sym)) ->
+    BindExtraOverridesFn s ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
-runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
+runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     let ?debug              = Crux.simVerbose (Crux.outputOptions cruxOpts)
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
@@ -264,10 +269,10 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
     -- Simulate each test case
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-            Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
-        linkOverrides symOnline =
+            s sym -> Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
+        linkOverrides state symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
-                case bindExtra symOnline (mir ^. rmCS) fn cfg of
+                case bindExtra state symOnline (mir ^. rmCS) fn cfg of
                     Just f -> f
                     Nothing -> bindFn symOnline (mir ^. rmCS) fn cfg
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
@@ -298,7 +303,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             DefId ->
             Fun p sym MIR Ctx.EmptyCtx C.UnitType
         simTestBody bak symOnline fnName =
-          do linkOverrides symOnline
+          do state <- liftIO initS
+             linkOverrides state symOnline
              _ <- C.callCFG staticInitCfg C.emptyRegMap
 
              -- Label the current path for later use
@@ -334,7 +340,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
           when (not $ printResultOnly mirOpts) $
             liftIO $ output $ "test " ++ show fnName ++ ": "
 
-    let simTest :: forall sym bak t st fs msgs.
+    let simTest :: forall sym bak t st fs.
             ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
             , Logs msgs
