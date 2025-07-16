@@ -1897,22 +1897,23 @@ ctpop = (["core", "intrinsics", "ctpop"],
 
 
 fnPtrShimDef :: Ty -> CustomOp
-fnPtrShimDef (TyFnDef defId) = CustomMirOp $ \ops -> case ops of
-    [_fnptr, argTuple] -> case typeOf argTuple of
-        TyTuple [] -> do
-            callExp defId []
-        TyTuple argTys -> do
-            argBase <- case argTuple of
-                Copy lv -> return lv
-                Move lv -> return lv
-                _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
-                    " for fnptr shim of " ++ show defId
-            let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
-            callExp defId argOps
-        ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
-            " for fnptr shim of " ++ show defId
-    _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
-fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show ty
+fnPtrShimDef fnTy = case fnTy of
+    TyFnDef defId -> CustomMirOp $ \ops -> case ops of
+        [_fnPtr, argTuple] -> case typeOf argTuple of
+            TyTuple [] -> do
+                callExp defId []
+            TyTuple argTys -> do
+                argBase <- case argTuple of
+                    Copy lv -> return lv
+                    Move lv -> return lv
+                    _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
+                        " for fnptr shim of " ++ show defId
+                let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
+                callExp defId argOps
+            ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
+                " for fnptr shim of " ++ show defId
+        _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
+    _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
 
 
 --------------------------------------------------------------------------------------------------------------------------
