@@ -1898,10 +1898,16 @@ ctpop = (["core", "intrinsics", "ctpop"],
 
 fnPtrShimDef :: Ty -> CustomOp
 fnPtrShimDef fnTy = case fnTy of
-    TyFnDef defId -> CustomMirOp $ \ops -> case ops of
-        [_fnPtr, argTuple] -> case typeOf argTuple of
-            TyTuple [] -> do
-                callExp defId []
+    TyFnDef defId -> CustomMirOp $ \ops -> do
+        (_fnPtr, argOps) <- untupleArgOps ops
+        callExp defId argOps
+    _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
+  where
+    untupleArgOps :: [Operand] -> MirGenerator h s ret (Operand, [Operand])
+    untupleArgOps ops = case ops of
+        [fnPtr, argTuple] -> case typeOf argTuple of
+            TyTuple [] ->
+                pure (fnPtr, [])
             TyTuple argTys -> do
                 argBase <- case argTuple of
                     Copy lv -> return lv
@@ -1909,11 +1915,10 @@ fnPtrShimDef fnTy = case fnTy of
                     _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
                         " for fnptr shim of type " ++ show fnTy
                 let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
-                callExp defId argOps
+                pure (fnPtr, argOps)
             ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
                 " for fnptr shim of type " ++ show fnTy
         _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of type " ++ show fnTy
-    _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
 
 
 --------------------------------------------------------------------------------------------------------------------------
