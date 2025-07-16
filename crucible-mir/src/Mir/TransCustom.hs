@@ -1901,6 +1901,17 @@ fnPtrShimDef fnTy = case fnTy of
     TyFnDef defId -> CustomMirOp $ \ops -> do
         (_fnPtr, argOps) <- untupleArgOps ops
         callExp defId argOps
+    TyFnPtr sig -> CustomMirOp $ \ops -> do
+        (fnPtr, argOps) <- untupleArgOps ops
+        fnPtrExp <- evalOperand fnPtr
+        Some argTys <- Ctx.fromList <$> mapM tyToReprM (sig ^. fsarg_tys)
+        Some retTy <- tyToReprM (sig ^. fsreturn_ty)
+        let fnRepr = C.FunctionHandleRepr argTys retTy
+        fnExp <- case fnPtrExp of
+            MirExp MirReferenceRepr fnRef -> MirExp fnRepr <$> readMirRef fnRepr fnRef
+            _ -> mirFail $
+                "fnPtrShimDef: expected fnptr to be reference, but it was " ++ show fnPtrExp
+        callHandle fnExp (sig ^. fsabi) argOps
     _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
   where
     untupleArgOps :: [Operand] -> MirGenerator h s ret (Operand, [Operand])
