@@ -1909,8 +1909,9 @@ fnPtrShimDef fnTy = case fnTy of
         let fnRepr = C.FunctionHandleRepr argTys retTy
         fnExp <- case fnPtrExp of
             MirExp MirReferenceRepr fnRef -> MirExp fnRepr <$> readMirRef fnRepr fnRef
+            MirExp (C.FunctionHandleRepr _ _) _ -> pure fnPtrExp
             _ -> mirFail $
-                "fnPtrShimDef: expected fnptr to be reference, but it was " ++ show fnPtrExp
+                "fnPtrShimDef: expected fnptr to be reference or fn, but it was " ++ show fnPtrExp
         callHandle fnExp (sig ^. fsabi) argOps
     _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
   where
