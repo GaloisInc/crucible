@@ -2040,22 +2040,20 @@ transTerminatorKind (M.SwitchInt swop _swty svals stargs) tpos _tr | all Maybe.i
     transSwitch tpos s (Maybe.catMaybes svals) stargs
 transTerminatorKind (M.Return) _tpos tr =
     doReturn tr
-
-transTerminatorKind (M.Call (M.OpConstant (M.Constant (M.TyFnDef funid) _)) cargs cretdest) _tpos tr = do
-    isCustom <- resolveCustom funid
-    doCall funid cargs cretdest tr -- cleanup ignored
-
-
-transTerminatorKind (M.Call funcOp cargs cretdest) _tpos tr = do
+transTerminatorKind (M.Call funcOp cargs cretdest) _tpos retTy = case M.typeOf funcOp of
+  M.TyFnDef defId -> do
+    isCustom <- resolveCustom defId
+    doCall defId cargs cretdest retTy -- cleanup ignored
+  M.TyFnPtr _ -> do
     func <- evalOperand funcOp
     ret <- callHandle func RustAbi cargs
     case cretdest of
       Just (dest_lv, jdest) -> do
-          doAssign dest_lv ret
-          jumpToBlock jdest
-      Nothing -> do
-          G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
-
+        doAssign dest_lv ret
+        jumpToBlock jdest
+      Nothing ->
+        G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
+  calleeTy -> mirFail $ "expected callee to be a function, but it was "<>show calleeTy
 transTerminatorKind (M.Assert cond expected msg target) _tpos _tr = do
     MirExp tpr e <- evalOperand cond
     Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
