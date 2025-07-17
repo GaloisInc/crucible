@@ -164,6 +164,7 @@ data EndianForm = BigEndian | LittleEndian
 data DataLayout
    = DL { _intLayout :: EndianForm
         , _stackAlignment :: !Alignment
+        , _functionPointerAlignment :: !Alignment
         , _ptrSize     :: !Bytes
         , _ptrAlign    :: !Alignment
         , _integerInfo :: !AlignInfo
@@ -183,6 +184,10 @@ intLayout = lens _intLayout (\s v -> s { _intLayout = v})
 
 stackAlignment :: Lens' DataLayout Alignment
 stackAlignment = lens _stackAlignment (\s v -> s { _stackAlignment = v})
+
+functionPointerAlignment :: Lens' DataLayout Alignment
+functionPointerAlignment =
+  lens _functionPointerAlignment (\s v -> s { _functionPointerAlignment = v})
 
 -- | Size of pointers in bytes.
 ptrSize :: Lens' DataLayout Bytes
@@ -238,6 +243,7 @@ defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
   where dl = DL { _intLayout = BigEndian
                 , _stackAlignment = noAlignment
+                , _functionPointerAlignment = noAlignment
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
                 , _ptrAlign = Alignment 3 -- 64 bit alignment: 2^3=8 byte boundaries
                 , _integerInfo = emptyAlignInfo
@@ -269,6 +275,7 @@ defaultDataLayout = execState defaults dl
 maxAlignment :: DataLayout -> Alignment
 maxAlignment dl =
   maximum [ dl^.stackAlignment
+          , dl^.functionPointerAlignment
           , dl^.ptrAlign
           , maxAlignmentInTree (dl^.integerInfo)
           , maxAlignmentInTree (dl^.vectorInfo)
@@ -322,6 +329,7 @@ addLayoutSpec ls =
       L.StackObjSize   sz a _ -> setAtBits stackInfo   ls sz a
       L.NativeIntSize _ -> return ()
       L.StackAlign a    -> setBits stackAlignment ls a
+      L.FunctionPointerAlign _ a -> setBits functionPointerAlignment ls a
       L.Mangling _      -> return ()
 
 -- | Create parsed data layout from layout spec AST.
