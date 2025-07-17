@@ -33,9 +33,11 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , writeMirRef
                 , subindexRef
                 , evalBinOp
+                , evalOperand
                 , vectorCopy, ptrCopy, copyNonOverlapping
                 , evalRval
                 , callExp
+                , callHandle
                 , doVirtCall
                 , derefExp, readPlace, addrOfPlace
                 , transmuteExp

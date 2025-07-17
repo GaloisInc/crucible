@@ -1897,22 +1897,40 @@ ctpop = (["core", "intrinsics", "ctpop"],
 
 
 fnPtrShimDef :: Ty -> CustomOp
-fnPtrShimDef (TyFnDef defId) = CustomMirOp $ \ops -> case ops of
-    [_fnptr, argTuple] -> case typeOf argTuple of
-        TyTuple [] -> do
-            callExp defId []
-        TyTuple argTys -> do
-            argBase <- case argTuple of
-                Copy lv -> return lv
-                Move lv -> return lv
-                _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
-                    " for fnptr shim of " ++ show defId
-            let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
-            callExp defId argOps
-        ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
-            " for fnptr shim of " ++ show defId
-    _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
-fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show ty
+fnPtrShimDef fnTy = case fnTy of
+    TyFnDef defId -> CustomMirOp $ \ops -> do
+        (_fnPtr, argOps) <- untupleArgOps ops
+        callExp defId argOps
+    TyFnPtr sig -> CustomMirOp $ \ops -> do
+        (fnPtr, argOps) <- untupleArgOps ops
+        fnPtrExp <- evalOperand fnPtr
+        Some argTys <- Ctx.fromList <$> mapM tyToReprM (sig ^. fsarg_tys)
+        Some retTy <- tyToReprM (sig ^. fsreturn_ty)
+        let fnRepr = C.FunctionHandleRepr argTys retTy
+        fnExp <- case fnPtrExp of
+            MirExp MirReferenceRepr fnRef -> MirExp fnRepr <$> readMirRef fnRepr fnRef
+            MirExp (C.FunctionHandleRepr _ _) _ -> pure fnPtrExp
+            _ -> mirFail $
+                "fnPtrShimDef: expected fnptr to be reference or fn, but it was " ++ show fnPtrExp
+        callHandle fnExp (sig ^. fsabi) argOps
+    _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
+  where
+    untupleArgOps :: [Operand] -> MirGenerator h s ret (Operand, [Operand])
+    untupleArgOps ops = case ops of
+        [fnPtr, argTuple] -> case typeOf argTuple of
+            TyTuple [] ->
+                pure (fnPtr, [])
+            TyTuple argTys -> do
+                argBase <- case argTuple of
+                    Copy lv -> return lv
+                    Move lv -> return lv
+                    _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
+                        " for fnptr shim of type " ++ show fnTy
+                let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
+                pure (fnPtr, argOps)
+            ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
+                " for fnptr shim of type " ++ show fnTy
+        _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of type " ++ show fnTy
 
 
 --------------------------------------------------------------------------------------------------------------------------
