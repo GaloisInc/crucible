@@ -175,7 +175,7 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
-simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallbacks msgs Crux.CruxSimulationResult
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallbacks msgs st Crux.CruxSimulationResult
 simulateJVM copts opts =
   Crux.SimulatorCallbacks $
     return $

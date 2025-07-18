@@ -165,7 +165,7 @@ simulateLLVMFile ::
   -- | Path to the LLVM module
   FilePath ->
   LLVMOptions ->
-  Crux.SimulatorCallbacks msgs Crux.Types.CruxSimulationResult
+  Crux.SimulatorCallbacks msgs st Crux.Types.CruxSimulationResult
 simulateLLVMFile llvm_file llvmOpts =
   Crux.SimulatorCallbacks $
     do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
