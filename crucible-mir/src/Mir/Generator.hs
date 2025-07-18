@@ -211,7 +211,6 @@ data CollectionState
 
 data CustomOpMap = CustomOpMap
     { _opDefs :: Map ExplodedDefId CustomRHS
-    , _fnPtrShimOp :: Ty -> CustomOp
     , _cloneShimOp :: Ty -> [DefId] -> CustomOp
     , _cloneFromShimOp :: Ty -> [DefId] -> CustomOp
     }
@@ -529,9 +528,6 @@ resolveCustom instDefId = do
     case optIntr of
         Nothing -> return Nothing
         Just intr -> case intr ^. intrInst . inKind of
-            IkFnPtrShim ty -> do
-                f <- use $ customOps . fnPtrShimOp
-                return $ Just $ f ty
             IkCloneShim ty parts
               | idKey (intr ^. intrInst . inDefId) == ["core", "clone", "Clone", "clone"] -> do
                 f <- use $ customOps . cloneShimOp

@@ -23,6 +23,8 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
 
+{-# OPTIONS_GHC -Wunused-top-binds #-}
+
 module Mir.TransCustom(customOps) where
 
 import Data.Bits (shift)
@@ -76,7 +78,7 @@ import           Mir.Trans
 
 
 
-customOps = CustomOpMap customOpDefs fnPtrShimDef cloneShimDef cloneFromShimDef
+customOps = CustomOpMap customOpDefs cloneShimDef cloneFromShimDef
 
 customOpDefs :: Map ExplodedDefId CustomRHS
 customOpDefs = Map.fromList $ [
@@ -1888,50 +1890,6 @@ ctpop = (["core", "intrinsics", "ctpop"],
                     (knownNat @32)
             _ -> mirFail $ "bad arguments to intrinsics::ctpop: " ++ show ops
         _ -> Nothing)
-
-
---------------------------------------------------------------------------------------------------------------------------
--- Implementation for `IkFnPtrShim`.  Function pointer shims are auto-generated
--- `Fn`/`FnMut`/`FnOnce` methods for `TyFnDef` and `TyFnPtr`, allowing ordinary
--- functions to be passed as closures.
-
-
-fnPtrShimDef :: Ty -> CustomOp
-fnPtrShimDef fnTy = case fnTy of
-    TyFnDef defId -> CustomMirOp $ \ops -> do
-        (_fnPtr, argOps) <- untupleArgOps ops
-        callExp defId argOps
-    TyFnPtr sig -> CustomMirOp $ \ops -> do
-        (fnPtr, argOps) <- untupleArgOps ops
-        fnPtrExp <- evalOperand fnPtr
-        Some argTys <- Ctx.fromList <$> mapM tyToReprM (sig ^. fsarg_tys)
-        Some retTy <- tyToReprM (sig ^. fsreturn_ty)
-        let fnRepr = C.FunctionHandleRepr argTys retTy
-        fnExp <- case fnPtrExp of
-            MirExp MirReferenceRepr fnRef -> MirExp fnRepr <$> readMirRef fnRepr fnRef
-            MirExp (C.FunctionHandleRepr _ _) _ -> pure fnPtrExp
-            _ -> mirFail $
-                "fnPtrShimDef: expected fnptr to be reference or fn, but it was " ++ show fnPtrExp
-        callHandle fnExp (sig ^. fsabi) argOps
-    _ -> CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show fnTy
-  where
-    untupleArgOps :: [Operand] -> MirGenerator h s ret (Operand, [Operand])
-    untupleArgOps ops = case ops of
-        [fnPtr, argTuple] -> case typeOf argTuple of
-            TyTuple [] ->
-                pure (fnPtr, [])
-            TyTuple argTys -> do
-                argBase <- case argTuple of
-                    Copy lv -> return lv
-                    Move lv -> return lv
-                    _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
-                        " for fnptr shim of type " ++ show fnTy
-                let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
-                pure (fnPtr, argOps)
-            ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
-                " for fnptr shim of type " ++ show fnTy
-        _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of type " ++ show fnTy
-
 
 --------------------------------------------------------------------------------------------------------------------------
 -- Implementations for `IkCloneShim`.  Clone shims are auto-generated `clone`
