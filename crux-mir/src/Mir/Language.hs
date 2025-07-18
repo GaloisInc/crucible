@@ -170,9 +170,8 @@ mainWithOutputConfig initS mkOutCfg bindExtra =
 -- the overrides.  It is simlar to the "personality" parameter @p@, but
 -- note that we don't quantify over it, and also we don't thread it
 -- through computations (it is only an input).
-type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
+type BindExtraOverridesFn st = forall sym bak p t fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    s sym ->
     Maybe (Crux.SomeOnlineSolver sym bak) ->
     CollectionState ->
     Text ->
@@ -183,21 +182,21 @@ type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
 We use this to create a fresh user input at the start of each test,
 and we pass it to the overrides used by the simulator. -}
 newtype InitUserState s =
-  InitUserState { initUserState :: forall sym. IO (s sym) }
+  InitUserState { initUserState :: forall t. IO (s t) }
 
 -- | A helper to use when we don't have interesting user state.
 noInitUserState :: InitUserState Maybe
 noInitUserState = InitUserState { initUserState = pure Nothing }
 
 noExtraOverrides :: BindExtraOverridesFn s
-noExtraOverrides _ _ _ _ _ = Nothing
+noExtraOverrides _ _ _ _ = Nothing
 
 orOverride ::
     BindExtraOverridesFn s -> BindExtraOverridesFn s -> BindExtraOverridesFn s
-orOverride f g state symOnline colState name cfg =
-    case f state symOnline colState name cfg of
+orOverride f g symOnline colState name cfg =
+    case f symOnline colState name cfg of
         Just x -> Just x
-        Nothing -> g state symOnline colState name cfg
+        Nothing -> g symOnline colState name cfg
 
 
 -- | This closes over the Crucible 'personality' parameter, allowing us to select between
@@ -219,12 +218,12 @@ runTests ::
 runTests opts = runTestsWithExtraOverrides noInitUserState noExtraOverrides opts
 
 runTestsWithExtraOverrides ::
-    forall s msgs.
+    forall st msgs.
     Crux.Logs msgs =>
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
-    InitUserState s ->
-    BindExtraOverridesFn s ->
+    InitUserState st ->
+    BindExtraOverridesFn st ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
 runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
@@ -285,10 +284,10 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
 
     -- Simulate each test case
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-            s sym -> Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
-        linkOverrides state symOnline =
+           Maybe (Crux.SomeOnlineSolver sym bak) -> C.OverrideSim (p sym) sym MIR rtp a r ()
+        linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
-                case bindExtra state symOnline (mir ^. rmCS) fn cfg of
+                case bindExtra symOnline (mir ^. rmCS) fn cfg of
                     Just f -> f
                     Nothing -> bindFn symOnline (mir ^. rmCS) fn cfg
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
@@ -310,7 +309,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     -- for tests that failed.
 
     let ?bound = 0
-    let simTestBody :: forall sym bak p t st fs.
+    let simTestBody :: forall sym bak p t fs.
             ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
             ) =>
@@ -319,8 +318,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             DefId ->
             Fun p sym MIR Ctx.EmptyCtx C.UnitType
         simTestBody bak symOnline fnName =
-          do state <- liftIO (initUserState initS)
-             linkOverrides state symOnline
+          do linkOverrides symOnline
              _ <- C.callCFG staticInitCfg C.emptyRegMap
 
              -- Label the current path for later use
@@ -356,7 +354,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
           when (not $ printResultOnly mirOpts) $
             liftIO $ output $ "test " ++ show fnName ++ ": "
 
-    let simTest :: forall sym bak t st fs.
+    let simTest :: forall sym bak t fs.
             ( C.IsSymBackend sym bak
             , sym ~ W4.ExprBuilder t st fs
             , Logs msgs
@@ -429,7 +427,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             -- same `outDir`.
             Aeson.encodeFile path (mir ^. rmTransInfo)
 
-        res <- Crux.runSimulator cruxOpts' $ simCallbacks fnName
+        res <- Crux.runSimulatorWithUserState (initUserState initS) cruxOpts' $ simCallbacks fnName
         when (not $ printResultOnly mirOpts) $ do
             clearFromCursorToLineEnd
             outputResult res
