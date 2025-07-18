@@ -25,6 +25,7 @@ module Mir.Language (
     runTests,
     runTestsWithExtraOverrides,
     BindExtraOverridesFn,
+    InitUserState(..),
     noExtraOverrides,
     orOverride,
     MIROptions(..),
@@ -122,16 +123,16 @@ defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 main :: IO ()
 main = do
     mkOutCfg <- defaultOutputConfig
-    exitCode <- mainWithOutputConfig (pure Nothing) mkOutCfg noExtraOverrides
+    exitCode <- mainWithOutputConfig noInitUserState mkOutCfg noExtraOverrides
     exitWith exitCode
 
-mainWithExtraOverrides :: (forall sym. IO (s sym)) -> BindExtraOverridesFn s -> IO ()
+mainWithExtraOverrides :: InitUserState s -> BindExtraOverridesFn s -> IO ()
 mainWithExtraOverrides initS bindExtra = do
     mkOutCfg <- defaultOutputConfig
     exitCode <- mainWithOutputConfig initS mkOutCfg bindExtra
     exitWith exitCode
 
-mainWithOutputTo :: (forall sym. IO (s sym)) -> Handle -> BindExtraOverridesFn s -> IO ExitCode
+mainWithOutputTo :: InitUserState s-> Handle -> BindExtraOverridesFn s -> IO ExitCode
 mainWithOutputTo initS h = mainWithOutputConfig initS $
     Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
@@ -156,7 +157,7 @@ withMirLogging computation =
      in computation
 
 mainWithOutputConfig ::
-    (forall sym. IO (s sym)) ->
+    InitUserState s ->
     (Maybe Crux.OutputOptions -> OutputConfig MirLogging) ->
     BindExtraOverridesFn s -> IO ExitCode
 mainWithOutputConfig initS mkOutCfg bindExtra =
@@ -164,6 +165,11 @@ mainWithOutputConfig initS mkOutCfg bindExtra =
     Crux.loadOptions mkOutCfg "crux-mir" Paths_crux_mir.version mirConfig
         $ runTestsWithExtraOverrides initS bindExtra
 
+-- | This is for extra overrides to be used by the symbolic simulator.
+-- The type parameters `s` is for any custom input that might be needed by
+-- the overrides.  It is simlar to the "personality" parameter `p`, but
+-- note that we don't quatnify over it, and also we don't thread it
+-- through computations (it is only an input).
 type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     s sym ->
@@ -173,7 +179,17 @@ type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
     C.CFG MIR blocks args ret ->
     Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
 
-noExtraOverrides :: BindExtraOverridesFn Maybe
+{- | Create a fresh user state.
+We use this to create a fresh user input at the start of each test,
+and we pass it to the overrides used by the simulator. -}
+newtype InitUserState s =
+  InitUserState { initUserState :: forall sym. IO (s sym) }
+
+-- | A helper to use when we don't have interesting user state.
+noInitUserState :: InitUserState Maybe
+noInitUserState = InitUserState { initUserState = pure Nothing }
+
+noExtraOverrides :: BindExtraOverridesFn s
 noExtraOverrides _ _ _ _ _ = Nothing
 
 orOverride ::
@@ -200,14 +216,14 @@ runTests ::
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
-runTests opts = runTestsWithExtraOverrides (pure Nothing) noExtraOverrides opts
+runTests opts = runTestsWithExtraOverrides noInitUserState noExtraOverrides opts
 
 runTestsWithExtraOverrides ::
     forall s msgs.
     Crux.Logs msgs =>
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
-    (forall sym. IO (s sym)) ->
+    InitUserState s ->
     BindExtraOverridesFn s ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
@@ -303,7 +319,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             DefId ->
             Fun p sym MIR Ctx.EmptyCtx C.UnitType
         simTestBody bak symOnline fnName =
-          do state <- liftIO initS
+          do state <- liftIO (initUserState initS)
              linkOverrides state symOnline
              _ <- C.callCFG staticInitCfg C.emptyRegMap
 
