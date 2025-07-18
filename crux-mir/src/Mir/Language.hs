@@ -167,9 +167,8 @@ mainWithOutputConfig initS mkOutCfg bindExtra =
 
 -- | This is for extra overrides to be used by the symbolic simulator.
 -- The type parameter @s@ is for any custom input that might be needed by
--- the overrides.  It is simlar to the "personality" parameter @p@, but
--- note that we don't quantify over it, and also we don't thread it
--- through computations (it is only an input).
+-- the overrides.  It is simlar to the "personality" parameter @p@, it
+-- is stored in the symbolick backend instead of the simulator itself.
 type BindExtraOverridesFn st = forall sym bak p t fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     Maybe (Crux.SomeOnlineSolver sym bak) ->
@@ -179,8 +178,7 @@ type BindExtraOverridesFn st = forall sym bak p t fs args ret blocks rtp a r.
     Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
 
 {- | Create a fresh user state.
-We use this to create a fresh user input at the start of each test,
-and we pass it to the overrides used by the simulator. -}
+We use this to create a fresh user input when we create a new simulator. -}
 newtype InitUserState s =
   InitUserState { initUserState :: forall t. IO (s t) }
 
