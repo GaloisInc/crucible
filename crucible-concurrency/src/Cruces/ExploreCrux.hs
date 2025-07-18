@@ -47,7 +47,7 @@ import           Crux.Goal (proveGoalsOnline)
 import           Crux.Types (totalProcessedGoals, provedGoals)
 
 -- | Callback for crucible-syntax exploration
-exploreCallback :: forall alg.
+exploreCallback :: forall alg st.
   (?bound::Int, SchedulingAlgorithm alg) =>
   Crux.Logs Crux.CruxLogMessage =>
   Crux.CruxOptions ->
@@ -61,7 +61,7 @@ exploreCallback :: forall alg.
            , [Some C.GlobalVar]
            , FunctionBindings (ThreadExec alg s () C.UnitType) s ())
            ) ->
-  Crux.SimulatorCallbacks Crux.CruxLogMessage Crux.Types.CruxSimulationResult
+  Crux.SimulatorCallbacks Crux.CruxLogMessage st Crux.Types.CruxSimulationResult
 exploreCallback cruxOpts ha outh mkSym =
   Crux.withCruxLogMessage $
   Crux.SimulatorCallbacks $

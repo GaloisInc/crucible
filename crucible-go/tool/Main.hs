@@ -42,7 +42,7 @@ cruxGoConfig = Crux.Config
 simulateGo ::
   Crux.CruxOptions ->
   GoOptions ->
-  Crux.SimulatorCallbacks msgs Crux.CruxSimulationResult
+  Crux.SimulatorCallbacks msgs st Crux.CruxSimulationResult
 simulateGo copts _opts =
   Crux.SimulatorCallbacks $
     return $

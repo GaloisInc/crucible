@@ -56,7 +56,7 @@ setupWasmState bak memOptions s =
 simulateWasm ::
   Crux.CruxOptions ->
   WasmOptions ->
-  Crux.SimulatorCallbacks msgs Crux.Types.CruxSimulationResult
+  Crux.SimulatorCallbacks msgs st Crux.Types.CruxSimulationResult
 simulateWasm cruxOpts _wasmOpts =
   Crux.SimulatorCallbacks $
     return $

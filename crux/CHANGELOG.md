@@ -1,5 +1,9 @@
 # next
 
+* We now support running simulations with custom users state.
+  For this reason, some of the Crux types now have an additional `st`
+  parameter.
+
 * `showBVLiteral` has been renamed to `showBVLiteralSigned` and
   two additional functions `showBVLiteralUnsigned` and `showBVLiteralDecimal`
   were added to improve printing of bit vectors
