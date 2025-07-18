@@ -132,7 +132,7 @@ mainWithExtraOverrides initS bindExtra = do
     exitCode <- mainWithOutputConfig initS mkOutCfg bindExtra
     exitWith exitCode
 
-mainWithOutputTo :: InitUserState s-> Handle -> BindExtraOverridesFn s -> IO ExitCode
+mainWithOutputTo :: InitUserState s -> Handle -> BindExtraOverridesFn s -> IO ExitCode
 mainWithOutputTo initS h = mainWithOutputConfig initS $
     Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
@@ -166,9 +166,9 @@ mainWithOutputConfig initS mkOutCfg bindExtra =
         $ runTestsWithExtraOverrides initS bindExtra
 
 -- | This is for extra overrides to be used by the symbolic simulator.
--- The type parameters `s` is for any custom input that might be needed by
--- the overrides.  It is simlar to the "personality" parameter `p`, but
--- note that we don't quatnify over it, and also we don't thread it
+-- The type parameter @s@ is for any custom input that might be needed by
+-- the overrides.  It is simlar to the "personality" parameter @p@, but
+-- note that we don't quantify over it, and also we don't thread it
 -- through computations (it is only an input).
 type BindExtraOverridesFn s = forall sym bak p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
