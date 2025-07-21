@@ -25,7 +25,7 @@ module Mir.Language (
     runTests,
     runTestsWithExtraOverrides,
     BindExtraOverridesFn,
-    InitUserState(..),
+    Crux.InitUserState(..),
     noExtraOverrides,
     orOverride,
     MIROptions(..),
@@ -123,16 +123,16 @@ defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 main :: IO ()
 main = do
     mkOutCfg <- defaultOutputConfig
-    exitCode <- mainWithOutputConfig noInitUserState mkOutCfg noExtraOverrides
+    exitCode <- mainWithOutputConfig Crux.noInitUserState mkOutCfg noExtraOverrides
     exitWith exitCode
 
-mainWithExtraOverrides :: InitUserState s -> BindExtraOverridesFn s -> IO ()
+mainWithExtraOverrides :: Crux.InitUserState s -> BindExtraOverridesFn s -> IO ()
 mainWithExtraOverrides initS bindExtra = do
     mkOutCfg <- defaultOutputConfig
     exitCode <- mainWithOutputConfig initS mkOutCfg bindExtra
     exitWith exitCode
 
-mainWithOutputTo :: InitUserState s -> Handle -> BindExtraOverridesFn s -> IO ExitCode
+mainWithOutputTo :: Crux.InitUserState s -> Handle -> BindExtraOverridesFn s -> IO ExitCode
 mainWithOutputTo initS h = mainWithOutputConfig initS $
     Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
@@ -157,7 +157,7 @@ withMirLogging computation =
      in computation
 
 mainWithOutputConfig ::
-    InitUserState s ->
+    Crux.InitUserState s ->
     (Maybe Crux.OutputOptions -> OutputConfig MirLogging) ->
     BindExtraOverridesFn s -> IO ExitCode
 mainWithOutputConfig initS mkOutCfg bindExtra =
@@ -177,14 +177,7 @@ type BindExtraOverridesFn st = forall sym bak p t fs args ret blocks rtp a r.
     C.CFG MIR blocks args ret ->
     Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
 
-{- | Create a fresh user state.
-We use this to create a fresh user input when we create a new simulator. -}
-newtype InitUserState s =
-  InitUserState { initUserState :: forall t. IO (s t) }
 
--- | A helper to use when we don't have interesting user state.
-noInitUserState :: InitUserState Maybe
-noInitUserState = InitUserState { initUserState = pure Nothing }
 
 noExtraOverrides :: BindExtraOverridesFn s
 noExtraOverrides _ _ _ _ = Nothing
@@ -213,14 +206,14 @@ runTests ::
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
-runTests opts = runTestsWithExtraOverrides noInitUserState noExtraOverrides opts
+runTests = runTestsWithExtraOverrides Crux.noInitUserState noExtraOverrides
 
 runTestsWithExtraOverrides ::
     forall st msgs.
     Crux.Logs msgs =>
     Crux.SupportsCruxLogMessage msgs =>
     Log.SupportsMirLogMessage msgs =>
-    InitUserState st ->
+    Crux.InitUserState st ->
     BindExtraOverridesFn st ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
@@ -425,7 +418,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             -- same `outDir`.
             Aeson.encodeFile path (mir ^. rmTransInfo)
 
-        res <- Crux.runSimulatorWithUserState (initUserState initS) cruxOpts' $ simCallbacks fnName
+        res <- Crux.runSimulatorWithUserState initS cruxOpts' $ simCallbacks fnName
         when (not $ printResultOnly mirOpts) $ do
             clearFromCursorToLineEnd
             outputResult res

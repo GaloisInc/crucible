@@ -13,6 +13,8 @@
 module Crux
   ( runSimulator
   , runSimulatorWithUserState
+  , InitUserState(..)
+  , noInitUserState
   , postprocessSimResult
   , loadOptions
   , mkOutputConfig
@@ -578,6 +580,15 @@ withSolverAdapters solverOffs k =
     go nextOff withAdapters adapters = withSolverAdapter nextOff (\adapter -> withAdapters (adapter:adapters))
 
 
+{- | Create a fresh user state.
+We use this to create a fresh user input when we create a new simulator. -}
+newtype InitUserState s =
+  InitUserState { initUserState :: forall t. IO (s t) }
+
+-- | A helper to use when we don't have interesting user state.
+noInitUserState :: InitUserState WE.EmptyExprBuilderState
+noInitUserState = InitUserState { initUserState = pure WE.EmptyExprBuilderState }
+
 -- | Parse through all of the user-provided options and start up the verification process
 --
 -- This figures out which solvers need to be run, and in which modes.  It takes
@@ -590,7 +601,7 @@ runSimulator ::
   CruxOptions ->
   SimulatorCallbacks msgs WE.EmptyExprBuilderState r ->
   IO r
-runSimulator = runSimulatorWithUserState (pure WE.EmptyExprBuilderState)
+runSimulator = runSimulatorWithUserState noInitUserState
 
 -- | Parse through all of the user-provided options and start up the verification process
 --
@@ -601,7 +612,7 @@ runSimulator = runSimulatorWithUserState (pure WE.EmptyExprBuilderState)
 runSimulatorWithUserState ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
-  (forall t. IO (st t)) ->
+  InitUserState st ->
   CruxOptions ->
   SimulatorCallbacks msgs st r ->
   IO r
@@ -609,7 +620,7 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
   sayCrux (Log.Checking (inputFiles cruxOpts))
   createDirectoryIfMissing True (outDir cruxOpts)
   Some (nonceGen :: NonceGenerator IO s) <- newIONonceGenerator
-  userState <- mkUser
+  userState <- initUserState mkUser
   case CCS.parseSolverConfig cruxOpts of
 
     Right (CCS.SingleOnlineSolver onSolver) ->
