@@ -4,6 +4,7 @@ This release supports [version
 2](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#2) of
 `mir-json`'s schema.
 
+* Additional overrides by the simulator may maintain an external state
 * Support simulating Rust code up to version 1.86.
 * The modified copies of the Rust standard libraries that `mir-json` depends on
   (and `crux-mir` therefore ingests) now live in the `mir-json` repo rather

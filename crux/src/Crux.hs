@@ -12,6 +12,9 @@
 
 module Crux
   ( runSimulator
+  , runSimulatorWithUserState
+  , InitUserState(..)
+  , noInitUserState
   , postprocessSimResult
   , loadOptions
   , mkOutputConfig
@@ -121,10 +124,10 @@ data RunnableState sym where
 --   * When simulation ends, regardless of the outcome, to interpret the results.
 --
 --   All of these callbacks have access to the symbolic backend.
-newtype SimulatorCallbacks msgs r
+newtype SimulatorCallbacks msgs st r
   = SimulatorCallbacks
     { getSimulatorCallbacks ::
-        forall sym bak t st fs.
+        forall sym bak t fs.
           ( IsSymBackend sym bak
           , Logs msgs
           , sym ~ WE.ExprBuilder t st fs
@@ -576,6 +579,16 @@ withSolverAdapters solverOffs k =
     base adapters = k adapters
     go nextOff withAdapters adapters = withSolverAdapter nextOff (\adapter -> withAdapters (adapter:adapters))
 
+
+{- | Create a fresh user state.
+We use this to create a fresh user input when we create a new simulator. -}
+newtype InitUserState s =
+  InitUserState { initUserState :: forall t. IO (s t) }
+
+-- | A helper to use when we don't have interesting user state.
+noInitUserState :: InitUserState WE.EmptyExprBuilderState
+noInitUserState = InitUserState { initUserState = pure WE.EmptyExprBuilderState }
+
 -- | Parse through all of the user-provided options and start up the verification process
 --
 -- This figures out which solvers need to be run, and in which modes.  It takes
@@ -586,23 +599,39 @@ runSimulator ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallbacks msgs r ->
+  SimulatorCallbacks msgs WE.EmptyExprBuilderState r ->
   IO r
-runSimulator cruxOpts simCallback = do
+runSimulator = runSimulatorWithUserState noInitUserState
+
+-- | Parse through all of the user-provided options and start up the verification process
+--
+-- This figures out which solvers need to be run, and in which modes.  It takes
+-- as arguments some of the results of common setup code.  It also tries to
+-- minimize code duplication between the different verification paths (e.g.,
+-- online vs offline solving).
+runSimulatorWithUserState ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  InitUserState st ->
+  CruxOptions ->
+  SimulatorCallbacks msgs st r ->
+  IO r
+runSimulatorWithUserState mkUser cruxOpts simCallback = do
   sayCrux (Log.Checking (inputFiles cruxOpts))
   createDirectoryIfMissing True (outDir cruxOpts)
   Some (nonceGen :: NonceGenerator IO s) <- newIONonceGenerator
+  userState <- initUserState mkUser
   case CCS.parseSolverConfig cruxOpts of
 
     Right (CCS.SingleOnlineSolver onSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing WE.EmptyExprBuilderState $ \bak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
         doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOnline bak)
 
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing WE.EmptyExprBuilderState $ \bak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
@@ -616,9 +645,9 @@ runSimulator cruxOpts simCallback = do
           doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
 
     Right (CCS.OnlyOfflineSolvers offSolvers) ->
-      withFloatRepr (WE.EmptyExprBuilderState @s) cruxOpts offSolvers $ \floatRepr -> do
+      withFloatRepr userState cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
-          sym <- WE.newExprBuilder floatRepr WE.EmptyExprBuilderState nonceGen
+          sym <- WE.newExprBuilder floatRepr userState nonceGen
           bak <- CBS.newSimpleBackend sym
           setupSolver cruxOpts Nothing sym
           -- Since we have a bare SimpleBackend here, we have to initialize it
@@ -631,7 +660,7 @@ runSimulator cruxOpts simCallback = do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
       -- mode.
-      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing WE.EmptyExprBuilderState $ \pathSatBak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing userState $ \pathSatBak -> do
         let sym = backendGetSym pathSatBak
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatBak (Just (SomeOnlineSolver pathSatBak))
@@ -657,7 +686,7 @@ doSimWithResults ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallbacks msgs r ->
+  SimulatorCallbacks msgs st r ->
   bak ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
