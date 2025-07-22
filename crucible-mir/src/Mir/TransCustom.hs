@@ -126,6 +126,7 @@ customOpDefs = Map.fromList $ [
                          , mem_bswap
                          , mem_crucible_identity_transmute
                          , array_from_slice
+                         , array_from_ref
 
                          , vector_new
                          , vector_replicate
@@ -1220,6 +1221,24 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
                 show (fnName, fn ^. fsig, ops)
     )
 
+array_from_ref ::  (ExplodedDefId, CustomRHS)
+array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
+    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+        fn <- findFn fnName
+        case (fn ^. fsig . fsreturn_ty, ops) of
+            (TyRef (TyArray elemTy 1) Immut, [MirExp MirReferenceRepr elemRef]) -> do
+                -- TODO: Like `array_from_slice`, above, this would be more
+                -- correctly implemented as a type cast, so that the input and
+                -- output are aliases.
+                Some elemRepr <- tyToReprM elemTy
+                elemVal <- readMirRef elemRepr elemRef
+                let vecVal = R.App (E.VectorLit elemRepr (V.fromList [elemVal]))
+                mirVecVal <- mirVector_fromVector elemRepr vecVal
+                mirVecRef <- constMirRef (MirVectorRepr elemRepr) mirVecVal
+                pure (MirExp MirReferenceRepr mirVecRef)
+            _ -> mirFail $ "bad monomorphization of crucible_array_from_ref_hook: " ++
+                show (fnName, fn ^. fsig, ops)
+    )
 
 
 -------------------------------------------------------------------------------------------------------
