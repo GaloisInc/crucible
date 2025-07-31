@@ -8,6 +8,8 @@
 * Add a new "low-level" API for loading strings to
   `Lang.Crucible.LLVM.MemModel.Strings`: `ByteLoader`, `ByteChecker`, and
   `loadBytes`.
+* Support simulating LLVM bitcode files whose data layout strings specify
+  function pointer alignment.
 
 # 0.7.1 -- 2025-03-21
 

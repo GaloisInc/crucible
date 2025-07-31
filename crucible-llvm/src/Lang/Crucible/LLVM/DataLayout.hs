@@ -164,6 +164,7 @@ data EndianForm = BigEndian | LittleEndian
 data DataLayout
    = DL { _intLayout :: EndianForm
         , _stackAlignment :: !Alignment
+        , _functionPtrAlignment :: !Alignment
         , _ptrSize     :: !Bytes
         , _ptrAlign    :: !Alignment
         , _integerInfo :: !AlignInfo
@@ -183,6 +184,10 @@ intLayout = lens _intLayout (\s v -> s { _intLayout = v})
 
 stackAlignment :: Lens' DataLayout Alignment
 stackAlignment = lens _stackAlignment (\s v -> s { _stackAlignment = v})
+
+functionPtrAlignment :: Lens' DataLayout Alignment
+functionPtrAlignment =
+  lens _functionPtrAlignment (\s v -> s { _functionPtrAlignment = v})
 
 -- | Size of pointers in bytes.
 ptrSize :: Lens' DataLayout Bytes
@@ -238,6 +243,7 @@ defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
   where dl = DL { _intLayout = BigEndian
                 , _stackAlignment = noAlignment
+                , _functionPtrAlignment = noAlignment
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
                 , _ptrAlign = Alignment 3 -- 64 bit alignment: 2^3=8 byte boundaries
                 , _integerInfo = emptyAlignInfo
@@ -269,6 +275,7 @@ defaultDataLayout = execState defaults dl
 maxAlignment :: DataLayout -> Alignment
 maxAlignment dl =
   maximum [ dl^.stackAlignment
+          , dl^.functionPtrAlignment
           , dl^.ptrAlign
           , maxAlignmentInTree (dl^.integerInfo)
           , maxAlignmentInTree (dl^.vectorInfo)
@@ -322,6 +329,13 @@ addLayoutSpec ls =
       L.StackObjSize   sz a _ -> setAtBits stackInfo   ls sz a
       L.NativeIntSize _ -> return ()
       L.StackAlign a    -> setBits stackAlignment ls a
+      -- TODO: For now, we ignore the FunctionPointerAlignType field. This tells
+      -- us whether the function pointer alignment is related to the alignment
+      -- of functions, but llvm-pretty currently does not track the alignment of
+      -- individual functions, so we have no use for this info just yet. When
+      -- https://github.com/GaloisInc/llvm-pretty/issues/164 is implemented, we
+      -- should revisit this.
+      L.FunctionPointerAlign _ a -> setBits functionPtrAlignment ls a
       L.Mangling _      -> return ()
 
 -- | Create parsed data layout from layout spec AST.
