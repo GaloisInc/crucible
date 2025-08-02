@@ -29,6 +29,8 @@ jobs:
           (cd crucible-llvm-cli/; ../hlint-3.8/hlint src test)
           (cd crucible-llvm-syntax/; ../hlint-3.8/hlint src test)
           (cd crucible-mir/; ../hlint-3.8/hlint src)
+          (cd crucible-mir-cli/; ../hlint-3.8/hlint src test)
+          (cd crucible-mir-syntax/; ../hlint-3.8/hlint src test)
           (cd crucible-symio/; ../hlint-3.8/hlint src tests)
           (cd crucible-syntax/; ../hlint-3.8/hlint src test)
           (cd crucible-wasm/; ../hlint-3.8/hlint src test)

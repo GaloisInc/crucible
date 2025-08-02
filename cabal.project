@@ -18,6 +18,8 @@ packages:
   crucible-llvm-debug/
   crucible-llvm-syntax/
   crucible-mir/
+  crucible-mir-cli/
+  crucible-mir-syntax/
   crucible-wasm/
   crucible-syntax/
   crucible-concurrency/

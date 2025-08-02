@@ -152,6 +152,8 @@ jobs:
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
         run: cabal haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
 
+      - run: .github/ci.sh test crucible-mir-syntax
+      - run: .github/ci.sh test crucible-mir-cli
       - run: .github/ci.sh test crux-mir
 
       - uses: actions/cache/save@v4
