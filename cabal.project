@@ -19,6 +19,7 @@ packages:
   crucible-llvm-syntax/
   crucible-mir/
   crucible-mir-cli/
+  crucible-mir-debug/
   crucible-mir-syntax/
   crucible-wasm/
   crucible-syntax/
