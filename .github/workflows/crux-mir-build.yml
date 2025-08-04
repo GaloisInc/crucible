@@ -154,6 +154,7 @@ jobs:
 
       - run: .github/ci.sh test crucible-mir-syntax
       - run: .github/ci.sh test crucible-mir-cli
+      - run: .github/ci.sh test crucible-mir-debug
       - run: .github/ci.sh test crux-mir
 
       - uses: actions/cache/save@v4
