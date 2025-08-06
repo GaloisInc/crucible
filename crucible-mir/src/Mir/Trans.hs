@@ -2918,6 +2918,7 @@ mkCrateHashesMap
                 staticsM vtablesM intrinsicsM
                 -- namedTys ranges over type names, which aren't full DefIds.
                 _namedTysM
+                _layoutsM
                 langItemsM
                 -- The roots are duplicates of other Maps' DefIds.
                 _rootsM) =

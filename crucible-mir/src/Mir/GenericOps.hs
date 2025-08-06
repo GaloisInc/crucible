@@ -161,6 +161,7 @@ instance GenericOps Intrinsic
 instance GenericOps Instance
 instance GenericOps InstanceKind
 instance GenericOps NamedTy
+instance GenericOps Layout
 instance GenericOps LangItem
 instance GenericOps NonDivergingIntrinsic
 

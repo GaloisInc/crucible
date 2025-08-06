@@ -43,7 +43,7 @@ import Debug.Trace
 -- If you update the supported mir-json schema version below, make sure to also
 -- update the crux-mir README accordingly.
 supportedSchemaVersion :: Word64
-supportedSchemaVersion = 2
+supportedSchemaVersion = 3
 
 parseMIR :: (HasCallStack, ?debug::Int) =>
             FilePath
