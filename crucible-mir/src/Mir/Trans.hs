@@ -684,17 +684,23 @@ evalBinOp bop mat me1 me2 =
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
-transNullaryOp M.AlignOf ty = do
-    -- TODO: return the actual alignment
-    return $ MirExp UsizeRepr $ R.App $ usizeLit 4
-transNullaryOp M.SizeOf _ = do
-    -- TODO: return the actual size, once mir-json exports size/layout info
-    return $ MirExp UsizeRepr $ R.App $ usizeLit 1
-transNullaryOp M.UbChecks _ = do
-    -- Disable undefined behavior checks.
-    -- TODO: re-enable this later, and fix the tests that break
-    -- (see https://github.com/GaloisInc/mir-json/issues/107)
-    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
+transNullaryOp nop ty =
+  case nop of
+    M.AlignOf -> lookupLayout layAlign
+    M.SizeOf -> lookupLayout laySize
+    M.UbChecks -> do
+      -- Disable undefined behavior checks.
+      -- TODO: re-enable this later, and fix the tests that break
+      -- (see https://github.com/GaloisInc/mir-json/issues/107)
+      return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
+  where
+    lookupLayout layField = do
+      lays <- use (cs . collection . layouts)
+      case Map.lookup ty lays of
+        Just (Just lay) -> return $
+          MirExp UsizeRepr $ R.App $ usizeLit $ toInteger $ lay ^. layField
+        Just Nothing -> mirFail $ fmt nop ++ " on unsized type " ++ fmt ty
+        Nothing -> mirFail $ fmt nop ++ ": no layout info for " ++ fmt ty
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
