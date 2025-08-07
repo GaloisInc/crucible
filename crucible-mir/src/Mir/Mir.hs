@@ -279,7 +279,7 @@ data Collection = Collection {
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
-    _namedTys  :: !(Map TyName Ty),
+    _namedTys  :: !(Map TyName (Ty, Maybe Layout)),
     -- | Layouts for known types. If the value is 'Nothing' then the type is
     -- unsized.
     _layouts   :: !(Map Ty (Maybe Layout)),

@@ -71,7 +71,11 @@ parseMIR path f = do
         return $ uninternMir col
 
 uninternMir :: Collection -> Collection
-uninternMir col = uninternTys unintern (col { _namedTys = mempty })
+uninternMir col =
+  (uninternTys unintern (col { _namedTys = mempty }))
+    { -- the keys of the layouts map need to be uninterned
+      _layouts = M.fromList $ M.elems tyMap
+    }
   where
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
     -- other values.  This should be okay: the original `rustc::ty::Ty`s are
@@ -79,7 +83,7 @@ uninternMir col = uninternTys unintern (col { _namedTys = mempty })
     tyMap = fmap (uninternTys unintern) (col^.namedTys)
     unintern name = case M.lookup name tyMap of
         Nothing -> error $ "missing " ++ show name ++ " in type map"
-        Just ty -> ty
+        Just (ty, _) -> ty
 
 
 -- | Translate a MIR collection to Crucible
