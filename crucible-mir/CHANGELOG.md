@@ -33,8 +33,8 @@ This release supports [version
   simulate correctly.
 * Add a new map `layouts` in `Collection` to store layout information of sized
   types as exported by `mir-json`.
-* Implement the `SizeOf` and `AlignOf` nullary ops correctly using the layout
-  information.
+* Implement the `size_of` and `(min_)align_of` nullary ops and intrinsics
+  correctly using the layout information.
 
 # 0.4 -- 2025-03-21
 
