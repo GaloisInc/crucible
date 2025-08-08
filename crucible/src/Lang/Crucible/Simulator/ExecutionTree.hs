@@ -169,7 +169,7 @@ import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation (EvalAppFunc)
-import           Lang.Crucible.Simulator.GlobalState (SymGlobalState, globalMuxFn)
+import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.RegMap (RegMap, emptyRegMap, RegValue, RegEntry)
 import           Lang.Crucible.Types
@@ -441,39 +441,51 @@ execStateSimState = \case
   InitialState _ _ _ _ _         -> Nothing
 
 abortedGlobals ::
-  IsSymInterface sym =>
-  sym ->
-  IntrinsicTypes sym ->
+  Monad f =>
+  -- | How to handle 'AbortedBranch'.
+  --
+  -- Common options include concretizing the 'Pred' or returning a partial
+  -- result (e.g., 'Nothing').
+  (ProgramLoc -> Pred sym -> SymGlobalState sym -> SymGlobalState sym -> f (SymGlobalState sym)) ->
   AbortedResult sym ext ->
-  IO (SymGlobalState sym)
-abortedGlobals sym iTypes =
+  f (SymGlobalState sym)
+abortedGlobals handleBranch =
   \case
     AbortedExec _ gp -> pure (gp ^. gpGlobals)
     AbortedExit _ gp -> pure (gp ^. gpGlobals)
-    AbortedBranch _loc p rl rr -> do
-      l <- abortedGlobals sym iTypes rl
-      r <- abortedGlobals sym iTypes rr
-      globalMuxFn sym iTypes p l r
+    AbortedBranch loc p rl rr -> do
+      l <- abortedGlobals handleBranch rl
+      r <- abortedGlobals handleBranch rr
+      handleBranch loc p l r
 
 -- | Extract the 'SymGlobalState' from an 'ExecResult'.
 execResultGlobals ::
-  IsSymInterface sym =>
+  Monad f =>
+  -- | How to handle 'AbortedBranch'.
+  --
+  -- Common options include concretizing the 'Pred' or returning a partial
+  -- result (e.g., 'Nothing').
+  (SimContext p sym ext -> ProgramLoc -> Pred sym -> SymGlobalState sym -> SymGlobalState sym -> f (SymGlobalState sym)) ->
   ExecResult p sym ext rtp ->
-  IO (SymGlobalState sym)
-execResultGlobals =
+  f (SymGlobalState sym)
+execResultGlobals handleBranch =
   \case
     FinishedResult _ctx partial -> pure (partial ^. partialValue . gpGlobals)
-    TimeoutResult st -> execStateGlobals st
+    TimeoutResult st -> execStateGlobals handleBranch st
     AbortedResult simCtx aborted ->
-      withBackend simCtx $ \bak ->
-        abortedGlobals (backendGetSym bak) (ctxIntrinsicTypes simCtx) aborted
+      abortedGlobals (handleBranch simCtx) aborted
 
 -- | Extract the 'SymGlobalState' from an 'ExecState'.
 execStateGlobals ::
-  IsSymInterface sym =>
+  Monad f =>
+  -- | How to handle 'AbortedBranch'.
+  --
+  -- Common options include concretizing the 'Pred' or returning a partial
+  -- result (e.g., 'Nothing').
+  (SimContext p sym ext -> ProgramLoc -> Pred sym -> SymGlobalState sym -> SymGlobalState sym -> f (SymGlobalState sym)) ->
   ExecState p sym ext rtp ->
-  IO (SymGlobalState sym)
-execStateGlobals =
+  f (SymGlobalState sym)
+execStateGlobals handleBranch =
   \case
     AbortState _ st -> pure (st ^. stateGlobals)
     BranchMergeState _ st -> pure (st ^. stateGlobals)
@@ -481,7 +493,7 @@ execStateGlobals =
     ControlTransferState _ st -> pure (st ^. stateGlobals)
     InitialState _ globState _ _ _ -> pure globState
     OverrideState _ st -> pure (st ^. stateGlobals)
-    ResultState r -> execResultGlobals r
+    ResultState r -> execResultGlobals handleBranch r
     ReturnState _ _ _ st -> pure (st ^. stateGlobals)
     RunningState _ st -> pure (st ^. stateGlobals)
     SymbolicBranchState _ _ _ _ st -> pure (st ^. stateGlobals)
