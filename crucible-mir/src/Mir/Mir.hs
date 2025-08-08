@@ -361,6 +361,13 @@ data PlaceElem =
       | Index Var
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int, _sfrom_end :: Bool }
+        -- ^ Project into a subslice of a sequence (i.e. slice or array). For a
+        -- sequence @s@, when @fromEnd@ is `False`, @Subslice from to fromEnd@
+        -- is like saying @s[from..to]@ in Rust - it selects elements in @s@ in
+        -- the half-open range @[from, to)@. When @fromEnd@ is `True`, @to@ is
+        -- interpreted relative to the end of the sequence, rather than the
+        -- beginning - so if @s@ has length @len@, elements are instead selected
+        -- from the (still half-open) range @[from, len - to)@.
       | Downcast Integer
       | Subtype Ty
       deriving (Show, Eq, Ord, Generic)
