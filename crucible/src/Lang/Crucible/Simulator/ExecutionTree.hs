@@ -442,7 +442,10 @@ execStateSimState = \case
 
 abortedGlobals ::
   Monad f =>
-  -- | How to handle 'AbortedBranch'
+  -- | How to handle 'AbortedBranch'.
+  --
+  -- Common options include concretizing the 'Pred' or returning a partial
+  -- result (e.g., 'Nothing').
   (ProgramLoc -> Pred sym -> SymGlobalState sym -> SymGlobalState sym -> f (SymGlobalState sym)) ->
   AbortedResult sym ext ->
   f (SymGlobalState sym)
@@ -458,7 +461,10 @@ abortedGlobals handleBranch =
 -- | Extract the 'SymGlobalState' from an 'ExecResult'.
 execResultGlobals ::
   Monad f =>
-  -- | How to handle 'AbortedBranch'
+  -- | How to handle 'AbortedBranch'.
+  --
+  -- Common options include concretizing the 'Pred' or returning a partial
+  -- result (e.g., 'Nothing').
   (SimContext p sym ext -> ProgramLoc -> Pred sym -> SymGlobalState sym -> SymGlobalState sym -> f (SymGlobalState sym)) ->
   ExecResult p sym ext rtp ->
   f (SymGlobalState sym)
@@ -472,7 +478,10 @@ execResultGlobals handleBranch =
 -- | Extract the 'SymGlobalState' from an 'ExecState'.
 execStateGlobals ::
   Monad f =>
-  -- | How to handle 'AbortedBranch'
+  -- | How to handle 'AbortedBranch'.
+  --
+  -- Common options include concretizing the 'Pred' or returning a partial
+  -- result (e.g., 'Nothing').
   (SimContext p sym ext -> ProgramLoc -> Pred sym -> SymGlobalState sym -> SymGlobalState sym -> f (SymGlobalState sym)) ->
   ExecState p sym ext rtp ->
   f (SymGlobalState sym)
