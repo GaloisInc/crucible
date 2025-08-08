@@ -279,9 +279,13 @@ data Collection = Collection {
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
+    -- | This corresponds to the @tys@ table from @mir-json@ and is cleared
+    -- after uninterning. The @TyName -> Ty@ mappings are used for uninterning
+    -- the types in the rest of the 'Collection', and the uninterned @(Ty, Maybe
+    -- Layout)@ pairs are saved into '_layouts'.
     _namedTys  :: !(Map TyName (Ty, Maybe Layout)),
     -- | Layouts for known types. If the value is 'Nothing' then the type is
-    -- unsized.
+    -- unsized. This is not populated until uninterning.
     _layouts   :: !(Map Ty (Maybe Layout)),
     -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
     -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
