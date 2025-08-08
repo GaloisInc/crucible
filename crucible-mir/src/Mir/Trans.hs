@@ -70,6 +70,7 @@ import qualified Data.Text as Text
 import qualified Data.Traversable as Trav
 import qualified Data.Vector as V
 import Data.String (fromString)
+import Data.Word (Word64)
 import Numeric
 import Numeric.Natural()
 
@@ -694,11 +695,12 @@ transNullaryOp nop ty =
       -- (see https://github.com/GaloisInc/mir-json/issues/107)
       return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
   where
-    lookupLayout layField = do
+    lookupLayout :: Getter Layout Word64 -> MirGenerator h s ret (MirExp s)
+    lookupLayout layFieldLens = do
       lays <- use (cs . collection . layouts)
       case Map.lookup ty lays of
         Just (Just lay) -> return $
-          MirExp UsizeRepr $ R.App $ usizeLit $ toInteger $ lay ^. layField
+          MirExp UsizeRepr $ R.App $ usizeLit $ toInteger $ lay ^. layFieldLens
         Just Nothing -> mirFail $ fmt nop ++ " on unsized type " ++ fmt ty
         Nothing -> mirFail $ fmt nop ++ ": no layout info for " ++ fmt ty
 
