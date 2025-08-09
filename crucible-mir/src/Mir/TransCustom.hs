@@ -1078,24 +1078,14 @@ type_id = (["core","intrinsics", "type_id"],
 
 size_of :: (ExplodedDefId, CustomRHS)
 size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ _ -> do
-        lays <- use (cs . collection . layouts)
-        case Map.lookup t lays of
-            Just (Just lay) -> return $
-                MirExp UsizeRepr $ R.App $ usizeLit $ toInteger $ lay ^. laySize
-            Just Nothing -> mirFail $ "size_of on unsized type " ++ show t
-            Nothing -> mirFail $ "size_of: no layout info for " ++ show t
+    Substs [t] -> Just $ CustomOp $ \_ _ ->
+        getLayoutFieldAsMirExp "size_of" laySize t
     )
 
 min_align_of :: (ExplodedDefId, CustomRHS)
 min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ _ -> do
-        lays <- use (cs . collection . layouts)
-        case Map.lookup t lays of
-            Just (Just lay) -> return $
-                MirExp UsizeRepr $ R.App $ usizeLit $ toInteger $ lay ^. layAlign
-            Just Nothing -> mirFail $ "min_align_of on unsized type " ++ show t
-            Nothing -> mirFail $ "min_align_of: no layout info for " ++ show t
+    Substs [t] -> Just $ CustomOp $ \_ _ ->
+        getLayoutFieldAsMirExp "min_align_of" layAlign t
     )
 
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
