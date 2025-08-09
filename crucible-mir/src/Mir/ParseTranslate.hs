@@ -20,6 +20,7 @@ import Control.Monad (unless, when)
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as M
+import Data.Word (Word64)
 
 import GHC.Stack
 
@@ -39,6 +40,11 @@ import qualified Mir.TransCustom as Mir (customOps)
 import Debug.Trace
 
 
+-- If you update the supported mir-json schema version below, make sure to also
+-- update the crux-mir README accordingly.
+supportedSchemaVersion :: Word64
+supportedSchemaVersion = 3
+
 parseMIR :: (HasCallStack, ?debug::Int) =>
             FilePath
          -> B.ByteString
@@ -48,13 +54,12 @@ parseMIR path f = do
   case c of
       Left msg -> fail $ "JSON Decoding of " ++ path ++ " failed: " ++ msg
       Right col -> do
-        -- If you update the supported mir-json schema version below, make sure
-        -- to also update the crux-mir README accordingly.
-        unless (col^.version == 2) $
+        unless (col^.version == supportedSchemaVersion) $
           fail $ unlines
             [ path ++ " uses an unsupported mir-json schema version: "
                    ++ show (col^. version)
-            , "This crux-mir release only supports schema version 2."
+            , "This crux-mir release only supports schema version "
+              ++ show supportedSchemaVersion ++ "."
             , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
             , "for more details on what the schema version means.)"
             ]
@@ -66,7 +71,11 @@ parseMIR path f = do
         return $ uninternMir col
 
 uninternMir :: Collection -> Collection
-uninternMir col = uninternTys unintern (col { _namedTys = mempty })
+uninternMir col =
+  (uninternTys unintern (col { _namedTys = mempty }))
+    { -- the keys of the layouts map need to be uninterned
+      _layouts = M.fromList $ M.elems tyMap
+    }
   where
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
     -- other values.  This should be okay: the original `rustc::ty::Ty`s are
@@ -74,7 +83,7 @@ uninternMir col = uninternTys unintern (col { _namedTys = mempty })
     tyMap = fmap (uninternTys unintern) (col^.namedTys)
     unintern name = case M.lookup name tyMap of
         Nothing -> error $ "missing " ++ show name ++ " in type map"
-        Just ty -> ty
+        Just (ty, _) -> ty
 
 
 -- | Translate a MIR collection to Crucible

@@ -108,7 +108,13 @@ instance FromJSON InlineTy where
 
 instance FromJSON NamedTy where
     parseJSON = withObject "NamedTy" $ \v ->
-        NamedTy <$> v .: "name" <*> (getInlineTy <$> v .: "ty")
+        NamedTy <$> v .: "name"
+                <*> (getInlineTy <$> v .: "ty")
+                <*> v .:? "layout"
+
+instance FromJSON Layout where
+    parseJSON = withObject "Layout" $ \v ->
+        Layout <$> v .: "align" <*> v .: "size"
 
 instance FromJSON LangItem where
     parseJSON = withObject "LangItem" $ \v ->
@@ -222,7 +228,8 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
-        (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy) m) Map.empty tys)
+        (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy, x^.ntLayout) m) Map.empty tys)
+        Map.empty -- layouts map has Tys as keys, so it needs to be populated after uninterning
         (foldr (\ x m -> Map.insert (x^.liOrigDefId) (x^.liLangItemDefId) m) Map.empty langItems)
         roots
 

@@ -1079,15 +1079,13 @@ type_id = (["core","intrinsics", "type_id"],
 size_of :: (ExplodedDefId, CustomRHS)
 size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
-        -- TODO: return the actual size, once mir-json exports size/layout info
-        return $ MirExp UsizeRepr $ R.App $ usizeLit 1
+        getLayoutFieldAsMirExp "size_of" laySize t
     )
 
 min_align_of :: (ExplodedDefId, CustomRHS)
 min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
-        -- TODO: return the actual alignment, once mir-json exports size/layout info
-        return $ MirExp UsizeRepr $ R.App $ usizeLit 1
+        getLayoutFieldAsMirExp "min_align_of" layAlign t
     )
 
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
