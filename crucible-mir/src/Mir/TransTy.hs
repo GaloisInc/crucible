@@ -29,9 +29,11 @@ import Control.Monad
 import Control.Lens
 import qualified Data.BitVector.Sized as BV
 import Data.List (findIndices)
+import qualified Data.Map.Strict as Map
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 import Prettyprinter (Pretty(..))
 
 import GHC.Stack
@@ -1274,6 +1276,22 @@ expectEnumOrFail expectedDiscrTpr expectedVariantsCtx actualEnumTpr =
   where
     expectedEnumTpr = RustEnumRepr expectedDiscrTpr expectedVariantsCtx
 
+
+-- | Retrieve the specified kind of layout data for a given type and turn it
+-- into a 'MirExp'.
+getLayoutFieldAsMirExp ::
+     String -- ^ The name of the operation that is looking up the layout data
+            -- (only used for error messages)
+  -> Getter M.Layout Word64 -- ^ Which field of the layout data to retrieve
+  -> M.Ty -- ^ The type to look up layout data for
+  -> MirGenerator h s ret (MirExp s)
+getLayoutFieldAsMirExp opName layoutFieldLens ty = do
+  lays <- use (cs . collection . M.layouts)
+  case Map.lookup ty lays of
+    Just (Just lay) -> pure $
+      MirExp UsizeRepr $ R.App $ usizeLit $ toInteger (lay ^. layoutFieldLens)
+    Just Nothing -> mirFail $ opName ++ " on unsized type " ++ show ty
+    Nothing -> mirFail $ opName ++ ": no layout info for " ++ show ty
 
 
 -- Vtable handling

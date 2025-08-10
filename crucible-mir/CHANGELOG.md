@@ -1,7 +1,7 @@
 # next -- TBA
 
 This release supports [version
-2](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#2) of
+3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.86.
@@ -31,6 +31,10 @@ This release supports [version
 * Fix a bug in which static items with non-constant initializer expressions that
   depend on static items with constant initializer expressions would fail to
   simulate correctly.
+* Add a new map `layouts` in `Collection` to store layout information of sized
+  types as exported by `mir-json`.
+* Implement the `size_of` and `(min_)align_of` nullary ops and intrinsics
+  correctly using the layout information.
 
 # 0.4 -- 2025-03-21
 

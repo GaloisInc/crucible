@@ -49,7 +49,7 @@ Next, navigate to the `crucible/dependencies/mir-json` directory. Install
 [the `mir-json` README][mir-json-readme].
 
 Currently, `crux-mir` supports [version
-2](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#2) of
+3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
 `mir-json`'s schema. Note that the schema versions produced by `mir-json` can
 change over time as dictated by internal requirements and upstream changes. To
 help smooth this over:

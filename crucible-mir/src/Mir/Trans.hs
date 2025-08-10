@@ -684,17 +684,15 @@ evalBinOp bop mat me1 me2 =
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
-transNullaryOp M.AlignOf ty = do
-    -- TODO: return the actual alignment
-    return $ MirExp UsizeRepr $ R.App $ usizeLit 4
-transNullaryOp M.SizeOf _ = do
-    -- TODO: return the actual size, once mir-json exports size/layout info
-    return $ MirExp UsizeRepr $ R.App $ usizeLit 1
-transNullaryOp M.UbChecks _ = do
-    -- Disable undefined behavior checks.
-    -- TODO: re-enable this later, and fix the tests that break
-    -- (see https://github.com/GaloisInc/mir-json/issues/107)
-    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
+transNullaryOp nop ty =
+  case nop of
+    M.AlignOf -> getLayoutFieldAsMirExp "AlignOf" layAlign ty
+    M.SizeOf -> getLayoutFieldAsMirExp "SizeOf" laySize ty
+    M.UbChecks -> do
+      -- Disable undefined behavior checks.
+      -- TODO: re-enable this later, and fix the tests that break
+      -- (see https://github.com/GaloisInc/mir-json/issues/107)
+      return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
@@ -2918,6 +2916,7 @@ mkCrateHashesMap
                 staticsM vtablesM intrinsicsM
                 -- namedTys ranges over type names, which aren't full DefIds.
                 _namedTysM
+                _layoutsM
                 langItemsM
                 -- The roots are duplicates of other Maps' DefIds.
                 _rootsM) =
