@@ -1,6 +1,7 @@
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Lang.Crucible.MIR.Debug
   ( mirCommandExt
@@ -42,6 +43,15 @@ mirCommandExt =
   , Debug.extName = name
   , Debug.extRegex = regex
   }
+
+-- | There are currently no MIR-specific debugger responses, but we may add some
+-- in the future.
+data MIRResponse
+
+instance PP.Pretty MIRResponse where
+  pretty = \case
+
+type instance Debug.ResponseExt MIRCommand = MIRResponse
 
 mirExtImpl :: ExtImpl MIRCommand p sym ext t
 mirExtImpl =
