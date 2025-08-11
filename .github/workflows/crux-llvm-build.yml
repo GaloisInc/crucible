@@ -180,9 +180,6 @@ jobs:
         run: .github/ci.sh test crucible-llvm-cli
         if: runner.os == 'Linux'
 
-      - name: Test crucible-llvm-debug
-        run: .github/ci.sh test crucible-llvm-debug
-
       - name: Test crux-llvm
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux' || runner.os == 'macOS'

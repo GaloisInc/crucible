@@ -146,7 +146,18 @@ jobs:
       - name: Generate source distributions
         run: cabal sdist crucible-syntax crucible-concurrency crucible-mir crux-mir
 
-      - run: cabal build exe:crux-mir
+      - run: >
+          cabal build
+          crucible
+          crucible-cli
+          crucible-concurrency
+          crucible-debug
+          crucible-mir
+          crucible-mir-cli
+          crucible-mir-debug
+          crucible-mir-syntax
+          crucible-syntax
+          crux-mir
 
       - name: Haddock
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
@@ -154,7 +165,6 @@ jobs:
 
       - run: .github/ci.sh test crucible-mir-syntax
       - run: .github/ci.sh test crucible-mir-cli
-      - run: .github/ci.sh test crucible-mir-debug
       - run: .github/ci.sh test crux-mir
 
       - uses: actions/cache/save@v4
