@@ -1628,21 +1628,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) 
           newMeta = SliceMeta newLen
       in MirPlace elemTpr <$> mirRef_offset headRef firstIndex <*> pure newMeta
 
-    -- TODO: Crucible's representation of `MirReference`s to arrays is not
-    -- expressive enough to implement this case properly. A Crucible reference
-    -- to an array is a reference to the entire array, and cannot have
-    -- `mirRef_offset` applied to it - unlike slices, a Crucible reference to
-    -- which is represented as a reference to its first element.
-
-    -- A couple possible ways past this:
-    -- - Make Crucible array references actually point to the first element of
-    --   the array, mimicking Crucible's approach to slices and Rust itself's
-    --   approach to arrays. Then, they'd be amenable to `mirRef_offset`.
-    -- - Implement a new reference path extension, something like
-    --   "MirRef_Subarray". Such a path extension would behave somewhat like
-    --   `MirRef_Index`, but instead of offering read/write access to a single
-    --   element of the parent array, it would offer read/write access to a
-    --   subarray of elements of the parent array.
+    -- TODO: https://github.com/GaloisInc/crucible/issues/1494
     --
     -- NB: after implementing this, update `Mir.Mir.typeOfProj`, which currently
     -- declares that `Subslice` unconditionally yields a slice. This is
