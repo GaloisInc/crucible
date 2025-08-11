@@ -35,6 +35,7 @@ This release supports [version
   types as exported by `mir-json`.
 * Implement the `size_of` and `(min_)align_of` nullary ops and intrinsics
   correctly using the layout information.
+* Support translating `Subslice` projections on slices.
 
 # 0.4 -- 2025-03-21
 
