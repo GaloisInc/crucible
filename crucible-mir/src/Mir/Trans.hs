@@ -1618,6 +1618,32 @@ evalPlaceProj _ pl (M.Downcast _idx) = return pl
 -- Subtype is a no-op, as it is only present in the MIR to making subtyping
 -- explicit during optimizations and codegen.
 evalPlaceProj _ pl (M.Subtype _ty) = return pl
+-- Subslicing is defined on slices and arrays. See the haddock for `Subslice`
+-- for details on the semantics of `fromIndex` and `toIndex`.
+evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) =
+  case (ty, ref, tpr, meta) of
+    (M.TySlice _elemTy, headRef, elemTpr, SliceMeta len) ->
+      let lastIndex = mkLastIndex len
+          newLen = R.App (lastIndex `usizeSub` firstIndex)
+          newMeta = SliceMeta newLen
+      in MirPlace elemTpr <$> mirRef_offset headRef firstIndex <*> pure newMeta
+
+    -- TODO: https://github.com/GaloisInc/crucible/issues/1494
+    --
+    -- NB: after implementing this, update `Mir.Mir.typeOfProj`, which currently
+    -- declares that `Subslice` unconditionally yields a slice. This is
+    -- incorrect; `Subslice` applied to an array will yield an array.
+    (M.TyArray {}, _, _, _) -> mirFail
+      "evalPlaceProj: subslicing not yet supported on arrays"
+
+    _ -> mirFail $
+      "evalPlaceProj: subslicing not supported on " ++ show (ty, tpr, meta)
+  where
+    usize = R.App . usizeLit . fromIntegral
+    firstIndex = usize fromIndex
+    mkLastIndex len
+      | fromEnd = R.App (len `usizeSub` usize toIndex)
+      | otherwise = usize toIndex
 evalPlaceProj ty (MirPlace _ _ meta) proj =
     mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
 
