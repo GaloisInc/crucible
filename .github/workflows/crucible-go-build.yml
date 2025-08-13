@@ -1,7 +1,6 @@
 name: crucible-go builds
 on:
   push:
-    branches: [master, "release-**"]
   pull_request:
   workflow_dispatch:
 
@@ -24,7 +23,7 @@ jobs:
             cabal: 3.14.2.0
             ghc: 9.10.1
     name: crucible-go - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
-    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@v1
+    uses: GaloisInc/.github/.github/workflows/haskell-ci.yml@88edf8d7021b82a8ad01dfa0c1991e7282e7ed34
     with:
       build-targets: pkg:crucible-go
       cabal: ${{ matrix.cabal }}
@@ -40,8 +39,6 @@ jobs:
       # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
       cache-key-prefix: 1-go
       check: false
-      # https://github.com/GaloisInc/.github/issues/55
-      check-freeze: false
       ghc: ${{ matrix.ghc }}
       os: ${{ matrix.os }}
       pre-hook: |
