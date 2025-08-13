@@ -40,8 +40,7 @@ jobs:
       # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
       cache-key-prefix: 1-wasm
       check: false
-      # https://github.com/GaloisInc/.github/issues/55
-      check-freeze: false
+      check-freeze: ${{ startsWith(matrix.os, 'ubuntu') }}
       ghc: ${{ matrix.ghc }}
       os: ${{ matrix.os }}
       pre-hook: |
