@@ -1,5 +1,5 @@
 [package]
-name = "ffs"
+name = "example-1"
 version = "0.1.0"
 authors = ["Stuart Pernsteiner <spernsteiner@galois.com>"]
 edition = "2018"
