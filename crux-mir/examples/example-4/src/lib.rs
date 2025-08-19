@@ -3,7 +3,7 @@
 
 fn initialize_prefix(length: usize, buffer: &mut [u8]) {
     // Let's just ignore invalid calls
-    if length >= buffer.len() {
+    if length > buffer.len() {
         return;
     }
 

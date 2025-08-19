@@ -46,7 +46,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-1"
+name = "example-2"
 version = "0.1.0"
 dependencies = [
  "proptest",
