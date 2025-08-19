@@ -322,7 +322,7 @@ Model:
 [{"name": "a","loc": null,"val": "0xa730e7fe","bits": "32"},{"name": "b","loc": null,"val": "0x58cf1803","bits": "32"}]
 ```
 
-Note that the model representation is a bit hard to read, and might change (see [#1434](https://github.com/GaloisInc/crucible/issues/1434) for details). This shows us two values that when added together overflow `u32`, which is an error. You might get different values (depending on your solver), but they will overflow `u32` when added together.
+Note that the model representation is a bit hard to read, and might change (see [#1440](https://github.com/GaloisInc/crucible/issues/1440) for details). This shows us two values that when added together overflow `u32`, which is an error. You might get different values (depending on your solver), but they will overflow `u32` when added together.
 
 If you are wondering how to best fix this error, have a look at the [Kani tutorial](https://model-checking.github.io/kani/tutorial-kinds-of-failure.html#exercise-classic-overflow-failure) where this example is adapted from.
 
