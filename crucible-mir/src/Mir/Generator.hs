@@ -702,6 +702,23 @@ mirRef_arrayAsMirVector ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
 
+mirRef_agElem ::
+  R.Expr MIR s UsizeType ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_agElem off sz tpr ref = G.extensionStmt $ MirRef_AgElem off sz tpr ref
+
+mirRef_agElem_constOffset ::
+  Word ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_agElem_constOffset off sz tpr ref =
+  mirRef_agElem (R.App $ usizeLit $ fromIntegral off) sz tpr ref
+
 mirRef_eq ::
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s MirReferenceType ->

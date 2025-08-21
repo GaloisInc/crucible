@@ -408,6 +408,14 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     !(BaseTypeRepr btp) ->
     !(MirReferencePath sym tp_base (UsizeArrayType btp)) ->
     MirReferencePath sym tp_base (MirVectorType (BaseToType btp))
+  -- | Access an entry in a `MirAggregate`.
+  AgElem_RefPath ::
+    !(RegValue sym UsizeType) ->
+    -- | Size in bytes of the entry to access
+    !Word ->
+    !(TypeRepr tp) ->
+    !(MirReferencePath sym tp_base MirAggregateType) ->
+    MirReferencePath sym tp_base tp
 
 data MirReference sym where
   MirReference ::
@@ -437,6 +445,7 @@ instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
     show (Just_RefPath tpr p) = "(Just_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
     show (VectorAsMirVector_RefPath tpr p) = "(VectorAsMirVector_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
     show (ArrayAsMirVector_RefPath btpr p) = "(ArrayAsMirVector_RefPath " ++ show btpr ++ " " ++ show p ++ ")"
+    show (AgElem_RefPath off sz tpr p) = "(AgElem_RefPath " ++ show (printSymExpr off) ++ " " ++ show sz ++ " " ++ show tpr ++ " " ++ show p ++ ")"
 
 instance IsSymInterface sym => Show (MirReference sym) where
     show (MirReference tpr root path) = "(MirReference " ++ show tpr ++ " " ++ show (refRootType root) ++ " " ++ show root ++ " " ++ show path ++ ")"
@@ -490,6 +499,10 @@ instance OrdSkel (MirReference sym) where
         cmpPath _ (VectorAsMirVector_RefPath _ _) = GT
         cmpPath (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2) =
             compareSkelF tpr1 tpr2 <> cmpPath p1 p2
+        cmpPath (ArrayAsMirVector_RefPath _ _) _ = LT
+        cmpPath _ (ArrayAsMirVector_RefPath _ _) = GT
+        cmpPath (AgElem_RefPath _off1 sz1 tpr1 p1) (AgElem_RefPath _off2 sz2 tpr2 p2) =
+            compare sz1 sz2 <> compareSkelF tpr1 tpr2 <> cmpPath p1 p2
 
 refRootType :: MirReferenceRoot sym tp -> TypeRepr tp
 refRootType (RefCell_RefRoot r) = refType r
@@ -547,6 +560,10 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
   (ArrayAsMirVector_RefPath tp p1, ArrayAsMirVector_RefPath _ p2) ->
          do p' <- muxRefPath sym c p1 p2
             return (ArrayAsMirVector_RefPath tp p')
+  (AgElem_RefPath off1 sz tpr p1, AgElem_RefPath off2 _ _ p2) ->
+         do off' <- lift $ bvIte sym c off1 off2
+            p' <- muxRefPath sym c p1 p2
+            return (AgElem_RefPath off' sz tpr p')
   _ -> mzero
 
 muxRef' :: forall sym.
@@ -690,6 +707,162 @@ muxMirAggregate sym itefns c (MirAggregate sz1 m1) (MirAggregate sz2 m2) = do
     muxEntries off e1 e2 = muxMirAggregateEntry sym itefns off' c e1 e2
       where off' = (fromIntegral :: Int -> Word) off
 
+-- | Return the `(offset, regValue)` pair for each entry whose type is `tpr`.
+-- When performing a typed access, these are all the entries that the access
+-- could apply to.
+--
+-- Results are returned in ascending order by offset.
+mirAgTypedCandidates ::
+  forall sym tp.
+  TypeRepr tp ->
+  MirAggregate sym ->
+  [(Word, RegValue sym (MaybeType tp))]
+mirAgTypedCandidates tpr (MirAggregate _ m) =
+  Maybe.mapMaybe
+    (\(o, MirAggregateEntry _ tpr' rv) ->
+      case testEquality tpr tpr' of
+        Just Refl -> Just (fromIntegral o, rv)
+        Nothing -> Nothing)
+    (IntMap.toAscList m)
+
+wordLit :: IsSymInterface sym => sym -> Word -> IO (RegValue sym UsizeType)
+wordLit sym o = bvLit sym knownNat (BV.mkBV knownNat (fromIntegral o))
+
+-- | Lift `iteFn` from type `tp` to type `MaybeType tp`.
+liftIteFnMaybe ::
+  forall sym tp.
+  IsSymInterface sym =>
+  sym ->
+  TypeRepr tp ->
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  Pred sym ->
+  RegValue sym (MaybeType tp) ->
+  RegValue sym (MaybeType tp) ->
+  IO (RegValue sym (MaybeType tp))
+liftIteFnMaybe sym _tpr iteFn c x y =
+  mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
+
+readMirAggregateWithSymOffset ::
+  forall sym bak tp.
+  (IsSymBackend sym bak) =>
+  bak ->
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  RegValue sym UsizeType ->
+  TypeRepr tp ->
+  MirAggregate sym ->
+  MuxLeafT sym IO (RegValue sym tp)
+readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate _ m)
+  | Just off' <- asBV off = do
+      case IntMap.lookup (fromIntegral $ BV.asUnsigned off') m of
+        Nothing -> leafAbort $ ReadBeforeWriteSimError $
+          "no value at offset " ++ show off'
+        Just (MirAggregateEntry _ tpr' rv)
+          | Just Refl <- testEquality tpr tpr' ->
+              leafReadPartExpr bak rv $ ReadBeforeWriteSimError $
+                "no value at offset " ++ show off'
+          | otherwise -> leafAbort $ GenericSimError $
+              "wrong type at offset " ++ show off' ++ ": got " ++ show tpr'
+                ++ ", but the requested type is " ++ show tpr
+
+  | otherwise =
+      case candidates of
+        -- Normally the final "else" branch returns the last candidate.  But if
+        -- there are no candidates, we have no element to return, so we have to
+        -- special-case it.
+        [] -> leafAbort $ GenericSimError $
+          -- This error is a bit vague, but since `candidates` only contains
+          -- entries that match `tpr`, we don't have a more precise answer.
+          "no value or wrong type: the requested type is " ++ show tpr
+        (o0, rv0) : candidates' -> do
+          offsetValid0 <- liftIO $ bvEq sym off =<< offsetLit o0
+          offsetValid <- liftIO $ foldM (orPred sym) offsetValid0
+            =<< mapM (\(o, _) -> bvEq sym off =<< offsetLit o) candidates'
+          leafAssert bak offsetValid $ GenericSimError $
+            "no value or wrong type: the requested type is " ++ show tpr
+          rv <- liftIO $ foldM
+            (\acc (o, rv) -> do
+              -- If `off == o`, return `rv`, else `acc`
+              offsetEq <- bvEq sym off =<< offsetLit o
+              iteFn' offsetEq rv acc)
+            rv0 candidates'
+          leafReadPartExpr bak rv $ ReadBeforeWriteSimError $
+            "no value at offset <symbolic>"
+
+  where
+    sym = backendGetSym bak
+    candidates = mirAgTypedCandidates tpr ag
+    offsetLit = wordLit sym
+    iteFn' = liftIteFnMaybe sym tpr iteFn
+
+adjustMirAggregateWithSymOffset ::
+  forall sym bak tp.
+  (IsSymBackend sym bak) =>
+  bak ->
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  RegValue sym UsizeType ->
+  TypeRepr tp ->
+  (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
+  MirAggregate sym ->
+  MuxLeafT sym IO (MirAggregate sym)
+adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
+      MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
+        Just x -> return x
+        Nothing -> leafAbort $ ReadBeforeWriteSimError $
+          "no value at offset " ++ show off'
+      Refl <- case testEquality tpr tpr' of
+        Just x -> return x
+        Nothing -> leafAbort $ GenericSimError $
+          "type mismatch at offset " ++ show off' ++ ": got " ++ show tpr'
+            ++ ", but the requested type is " ++ show tpr
+      rv <- leafReadPartExpr bak rvPart $ ReadBeforeWriteSimError $
+        "no value at offset " ++ show off'
+      rv' <- f rv
+      let rvPart' = justPartExpr sym rv'
+      let entry' = MirAggregateEntry sz tpr rvPart'
+      let m' = IntMap.insert off' entry' m
+      return $ MirAggregate totalSize m'
+
+  | otherwise = do
+      -- This handles the inner `MaybeType`s like `adjustMirVectorWithSymIndex`
+      -- does.
+      let f' rvPart = do
+            rv <- leafReadPartExpr bak rvPart $ ReadBeforeWriteSimError $
+                "no value at offset <symbolic>"
+            rv' <- f rv
+            return $ justPartExpr sym rv'
+
+      xs <- forM candidates $ \(o, rvPart) -> do
+        hit <- liftIO $ bvEq sym off =<< offsetLit o
+        mRvPart' <- subMuxLeafIO bak (f' rvPart) hit
+        rvPart'' <- case mRvPart' of
+          Just rvPart' -> liftIO $ iteFn' hit rvPart' rvPart
+          Nothing -> return rvPart
+        return ((o, rvPart''), hit)
+
+      -- `off` must refer to some existing offset with type `tpr`.  Using
+      -- `adjust` to create new entries is not allowed.
+      hitAny <- liftIO $ foldM (orPred sym) (falsePred sym) (map snd xs)
+      leafAssert bak hitAny $ GenericSimError $
+        "no value or wrong type: the requested type is " ++ show tpr
+
+      let newEntryRvs = IntMap.fromAscList $ map (\((o, rv), _) -> (fromIntegral o, rv)) xs
+      let newEntries = IntMap.intersectionWith
+            (\(MirAggregateEntry sz tpr' _) rv ->
+              case testEquality tpr' tpr of
+                Just Refl -> MirAggregateEntry sz tpr rv
+                Nothing ->
+                  error "impossible: `candidates`/`xs` should only contain entries of type `tpr`")
+            m newEntryRvs
+      let m' = IntMap.union newEntries m
+      return $ MirAggregate totalSize m'
+
+  where
+    sym = backendGetSym bak
+    candidates = mirAgTypedCandidates tpr ag
+    offsetLit = wordLit sym
+    iteFn' = liftIteFnMaybe sym tpr iteFn
+
 mirAggregate_insert ::
   Word ->
   MirAggregateEntry sym ->
@@ -725,6 +898,34 @@ mirAggregate_insert off entry@(MirAggregateEntry sz tpr _) (MirAggregate totalSi
   return $ MirAggregate totalSize $ IntMap.insert (fromIntegral off) entry m
   where
     die msg = Left $ "bad MirAggregate insert: " ++ msg
+
+writeMirAggregateWithSymOffset ::
+  forall sym bak tp.
+  (IsSymBackend sym bak) =>
+  bak ->
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  RegValue sym UsizeType ->
+  Word ->
+  TypeRepr tp ->
+  RegValue sym tp ->
+  MirAggregate sym ->
+  MuxLeafT sym IO (MirAggregate sym)
+writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
+  -- Concrete case: insert a new entry or overwrite an existing one with
+  -- `mirAggregate_insert`.
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
+      let entry = MirAggregateEntry sz tpr $ justPartExpr sym val
+      case mirAggregate_insert off' entry ag of
+        Left err -> leafAbort $ GenericSimError err
+        Right ag' -> return ag'
+
+  -- Symbolic case: overwrite an existing entry with `adjustMirAggregateWithSymOffset`.
+  -- Creating a new entry at a symbolic offset is not allowed.
+  | otherwise = do
+      adjustMirAggregateWithSymOffset bak iteFn off tpr (\_oldVal -> return val) ag
+
+  where
+    sym = backendGetSym bak
 
 
 
@@ -1037,6 +1238,12 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(BaseTypeRepr btp) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
+  MirRef_AgElem ::
+     !(f UsizeType) ->
+     !Word ->
+     !(TypeRepr tp) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
   MirRef_Eq ::
      !(f MirReferenceType) ->
      !(f MirReferenceType) ->
@@ -1201,6 +1408,7 @@ instance TypeApp MirStmt where
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_VectorAsMirVector _ _ -> MirReferenceRepr
     MirRef_ArrayAsMirVector _ _ -> MirReferenceRepr
+    MirRef_AgElem _ _ _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ -> MirReferenceRepr
@@ -1239,6 +1447,7 @@ instance PrettyApp MirStmt where
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
     MirRef_ArrayAsMirVector _ a -> "mirRef_arrayAsMirVector" <+> pp a
+    MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o -> "mirRef_offset" <+> pp p <+> pp o
     MirRef_OffsetWrap p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
@@ -1582,6 +1791,28 @@ mirRef_arrayAsMirVectorIO ::
     IO (MirReferenceMux sym)
 mirRef_arrayAsMirVectorIO bak iTypes btpr ref =
     modifyRefMuxIO bak iTypes (mirRef_arrayAsMirVectorLeaf btpr) ref
+
+mirRef_agElemLeaf ::
+    RegValue sym UsizeType ->
+    Word ->
+    TypeRepr tp ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_agElemLeaf off sz tpr ref =
+  typedLeafOp "MirAggregate element projection" MirAggregateRepr ref $ \root path -> do
+    return $ MirReference tpr root (AgElem_RefPath off sz tpr path)
+
+mirRef_agElemIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    Word ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_agElemIO bak iTypes off sz tpr ref =
+    modifyRefMuxIO bak iTypes (mirRef_agElemLeaf off sz tpr) ref
 
 
 refRootEq ::
@@ -2112,6 +2343,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ mirRef_vectorAsMirVectorIO bak iTypes tpr ref
        MirRef_ArrayAsMirVector tpr (regValue -> ref) ->
          readOnly s $ mirRef_arrayAsMirVectorIO bak iTypes tpr ref
+       MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
+         readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset (regValue -> ref) (regValue -> off) ->
@@ -2376,6 +2609,12 @@ writeRefPath bak iTypes v (Just_RefPath _tp path) x =
 writeRefPath bak iTypes v (Index_RefPath tp path idx) x = do
   adjustRefPath bak iTypes v path (\vec ->
     writeMirVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx x)
+-- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
+-- entry into the aggregate.
+writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) x = do
+  adjustRefPath bak iTypes v path (\v' -> do
+    writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
+      idx sz tpr x v')
 writeRefPath bak iTypes v path x =
   adjustRefPath bak iTypes v path (\_ -> return x)
 
@@ -2420,6 +2659,10 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
             MirVector_Array v'' -> return v''
             _ -> leafAbort $ Unsupported callStack $
                 "tried to change underlying type of MirVector ref"
+  AgElem_RefPath idx _sz tpr path ->
+      adjustRefPath bak iTypes v path (\v' -> do
+        adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
+          idx tpr adj v')
 
 readRefPath ::
   (IsSymBackend sym bak) =>
@@ -2450,6 +2693,9 @@ readRefPath bak iTypes v = \case
     MirVector_Vector <$> readRefPath bak iTypes v path
   ArrayAsMirVector_RefPath _ path -> do
     MirVector_Array <$> readRefPath bak iTypes v path
+  AgElem_RefPath off _sz tpr path -> do
+    ag <- readRefPath bak iTypes v path
+    readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off tpr ag
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
