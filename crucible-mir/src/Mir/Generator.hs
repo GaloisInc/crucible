@@ -823,6 +823,29 @@ mirVector_resize ::
 mirVector_resize tpr vec len = G.extensionStmt $ MirVector_Resize tpr vec len
 
 
+mirAggregate_uninit ::
+  Word ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_uninit sz = G.extensionStmt $ MirAggregate_Uninit sz
+
+mirAggregate_get ::
+  Word ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirAggregateType ->
+  MirGenerator h s ret (R.Expr MIR s tp)
+mirAggregate_get off sz tpr ag = G.extensionStmt $ MirAggregate_Get off sz tpr ag
+
+mirAggregate_set ::
+  Word ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s tp ->
+  R.Expr MIR s MirAggregateType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_set off sz tpr val ag = G.extensionStmt $ MirAggregate_Set off sz tpr val ag
+
+
 
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct

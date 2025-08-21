@@ -690,6 +690,42 @@ muxMirAggregate sym itefns c (MirAggregate sz1 m1) (MirAggregate sz2 m2) = do
     muxEntries off e1 e2 = muxMirAggregateEntry sym itefns off' c e1 e2
       where off' = (fromIntegral :: Int -> Word) off
 
+mirAggregate_insert ::
+  Word ->
+  MirAggregateEntry sym ->
+  MirAggregate sym ->
+  Either String (MirAggregate sym)
+mirAggregate_insert off entry@(MirAggregateEntry sz tpr _) (MirAggregate totalSize m) = do
+  -- For now, we require that either there are no entries overlapping the byte
+  -- range `off .. off + sz`, or there is an entry covering exactly that range
+  -- whose type matches `tpr`.  In the future we could relax this by deleting
+  -- existing entries that are fully covered by the new one (though this could
+  -- cause trouble when the old and new `MirAggregate` get muxed together).
+  case IntMap.lookupLT (fromIntegral $ off + sz) m of
+    Nothing -> return ()
+    Just (fromIntegral -> off', MirAggregateEntry sz' tpr' _)
+      | off' == off -> do
+          case testEquality tpr tpr' of
+            Nothing -> die $ "type mismatch at offset " ++ show off ++ ": "
+              ++ show tpr ++ " != " ++ show tpr'
+            Just _ -> return ()
+          when (sz /= sz') $
+            die $ "size mismatch at offset " ++ show off ++ ": "
+              ++ show sz ++ " != " ++ show sz'
+      -- Existing entry's range comes entirely before the new one, so there is
+      -- no overlap.
+      | off' + sz' <= off -> return ()
+      | otherwise -> die $ "partial overlap: " ++ show off ++ ".." ++ show (off + sz)
+          ++ " vs " ++ show off' ++ ".." ++ show (off' + sz')
+  -- New entry must not extend past `0 .. totalSize`.
+  when (off + sz > totalSize) $
+    die $ "entry out of range: covers " ++ show off ++ ".." ++ show (off + sz)
+      ++ ", but total size is " ++ show totalSize
+  -- All checks passed - insert the new entry
+  return $ MirAggregate totalSize $ IntMap.insert (fromIntegral off) entry m
+  where
+    die msg = Left $ "bad MirAggregate insert: " ++ msg
+
 
 
 --------------------------------------------------------------
@@ -1090,6 +1126,27 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(f (MirVectorType tp)) ->
     !(f UsizeType) ->
     MirStmt f (MirVectorType tp)
+  -- | Create an empty `MirAggregate` of the given size.
+  MirAggregate_Uninit ::
+    !Word ->
+    MirStmt f MirAggregateType
+  MirAggregate_Get ::
+    -- | Offset
+    !Word ->
+    -- | Size
+    !Word ->
+    !(TypeRepr tp) ->
+    !(f MirAggregateType) ->
+    MirStmt f tp
+  MirAggregate_Set ::
+    -- | Offset
+    !Word ->
+    -- | Size
+    !Word ->
+    !(TypeRepr tp) ->
+    !(f tp) ->
+    !(f MirAggregateType) ->
+    MirStmt f MirAggregateType
 
 $(return [])
 
@@ -1162,6 +1219,9 @@ instance TypeApp MirStmt where
     MirVector_FromVector tp _ -> MirVectorRepr tp
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
     MirVector_Resize tp _ _ -> MirVectorRepr tp
+    MirAggregate_Uninit _ -> MirAggregateRepr
+    MirAggregate_Get _ _ tp _ -> tp
+    MirAggregate_Set _ _ _ _ _ -> MirAggregateRepr
 
 instance PrettyApp MirStmt where
   ppApp pp = \case
@@ -1197,6 +1257,9 @@ instance PrettyApp MirStmt where
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
     MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
+    MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> viaShow sz
+    MirAggregate_Get off sz _ ag -> "mirAggregate_get" <+> viaShow off <+> viaShow sz <+> pp ag
+    MirAggregate_Set off sz _ rv ag -> "mirAggregate_set" <+> viaShow off <+> viaShow sz <+> pp rv <+> pp ag
 
 
 instance FunctorFC MirStmt where
@@ -1655,6 +1718,51 @@ mirVector_resizeIO bak _tpr mirVec newLenSym = do
     pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
 
 
+mirAggregate_getIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    Word ->
+    Word ->
+    TypeRepr tp ->
+    MirAggregate sym ->
+    IO (RegValue sym tp)
+mirAggregate_getIO bak off sz tpr (MirAggregate _ m) = do
+  -- TODO: deduplicate logic between this and readMirAg* concrete case?
+  MirAggregateEntry sz' tpr' rvPart <- case IntMap.lookup (fromIntegral off) m of
+    Just x -> return x
+    Nothing -> addFailedAssertion bak $ ReadBeforeWriteSimError $
+      "getIO " ++ show off ++ " " ++ show sz ++ " " ++ show tpr ++ " " ++ show m ++ ": no entry at offset " ++ show off
+  Refl <- case testEquality tpr tpr' of
+    Just x -> return x
+    Nothing -> addFailedAssertion bak $ GenericSimError $
+      "type mismatch at offset " ++ show off ++ ": " ++ show tpr ++ " != " ++ show tpr'
+  when (sz /= sz') $
+    addFailedAssertion bak $ GenericSimError $
+      "size mismatch at offset " ++ show off ++ ": " ++ show sz ++ " != " ++ show sz'
+  rv <- readPartExpr bak rvPart $ ReadBeforeWriteSimError $
+    "uninitialized entry at offset " ++ show off
+  return rv
+
+mirAggregate_setIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    Word ->
+    Word ->
+    TypeRepr tp ->
+    RegValue sym tp ->
+    MirAggregate sym ->
+    IO (MirAggregate sym)
+mirAggregate_setIO bak off sz tpr rv ag = do
+  let sym = backendGetSym bak
+  -- Entries are partial, but `mirAggregate_set` always inserts `Just`.  The
+  -- `Nothing` case arises only from muxing.
+  let rv' = justPartExpr sym rv
+  let entry = MirAggregateEntry sz tpr rv'
+  case mirAggregate_insert off entry ag of
+    Left err -> fail err
+    Right ag' -> return ag'
+
+
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
 -- turn `tp` into `tp''`, we first use a subsidiary `MirReferencePath` to turn
 -- `tp` into `tp'`, then perform one last step to turn `tp'` into `tp''`.
@@ -2046,6 +2154,13 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
             return (MirVector_Array a, s)
        MirVector_Resize tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
             readOnly s $ mirVector_resizeIO bak tpr mirVec newLenSym
+
+       MirAggregate_Uninit sz -> do
+            return (MirAggregate sz mempty, s)
+       MirAggregate_Get off sz tpr (regValue -> ag) -> do
+            readOnly s $ mirAggregate_getIO bak off sz tpr ag
+       MirAggregate_Set off sz tpr (regValue -> rv) (regValue -> ag) -> do
+            readOnly s $ mirAggregate_setIO bak off sz tpr rv ag
   where
     gs = s^.stateTree.actFrame.gpGlobals
     ctx = s^.stateContext
