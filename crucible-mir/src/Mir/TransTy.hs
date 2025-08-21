@@ -28,7 +28,7 @@ module Mir.TransTy where
 import Control.Monad
 import Control.Lens
 import qualified Data.BitVector.Sized as BV
-import Data.List (findIndices)
+import Data.List (findIndices, zip3)
 import qualified Data.Map.Strict as Map
 import           Data.String (fromString)
 import           Data.Text (Text)
@@ -61,11 +61,13 @@ import qualified Debug.Trace as Debug
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
-    , mirVector_fromVector
+    , mirRef_agElem_constOffset
+    , mirVector_fromVector, mirAggregate_uninit, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , pattern MirVectorRepr
+    , pattern MirAggregateRepr
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
@@ -181,12 +183,9 @@ tyToRepr col t0 = case t0 of
   M.TyBool -> Right (Some C.BoolRepr)
   M.TyTuple [] -> Right (Some C.UnitRepr)
 
-  -- non-empty tuples are mapped to structures of "maybe" types so
-  -- that they can be allocated without being initialized
-  M.TyTuple ts    -> tyListToCtxMaybe col ts (Right . Some . C.StructRepr)
-
+  M.TyTuple _ts -> Right (Some MirAggregateRepr)
   -- Closures are just tuples with a fancy name
-  M.TyClosure ts  -> tyListToCtxMaybe col ts (Right . Some . C.StructRepr)
+  M.TyClosure _ts -> Right (Some MirAggregateRepr)
 
   M.TyArray t _sz -> do
     Some rpr <- tyToRepr col t
@@ -319,10 +318,10 @@ canInitialize col ty = case ty of
     M.TyUint _ -> True
     -- ADTs and related data structures
     M.TyTuple _ -> True
+    M.TyClosure _ -> True
     M.TyAdt _ _ _
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
       | otherwise -> True
-    M.TyClosure _ -> True
     -- Others
     M.TyArray _ _ -> True
     -- TODO: workaround for a ref init bug - see initialValue for details
@@ -573,33 +572,43 @@ buildArrayLit trep exps = do
                 return $ V.cons e v'
             Nothing -> mirFail "bad type in build array"
 
-buildTuple :: [MirExp s] -> MirExp s
-buildTuple xs = exp_to_assgn (xs) $ \ctx asgn ->
-    MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
-
-buildTupleMaybe :: M.Collection -> [M.Ty] -> [Maybe (MirExp s)] -> Either String (MirExp s)
-buildTupleMaybe col tys xs = exp_to_assgn_Maybe col tys xs $ \ctx asgn ->
-    Right (MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asgn))
+buildTupleM :: [M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildTupleM tys xs = buildTupleMaybeM tys (map Just xs)
 
 buildTupleMaybeM :: [M.Ty] -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
 buildTupleMaybeM tys xs = do
-  col <- use $ cs . collection
-  case buildTupleMaybe col tys xs of
-    Left err -> mirFail ("buildTupleMaybe: " ++ err)
-    Right rpr -> return rpr
+    col <- use $ cs . collection
+    ag <- mirAggregate_uninit (fromIntegral $ length tys)
+    ag' <- foldM
+        (\ag (i, ty, mExp) -> do
+            case mExp of
+                Just (MirExp tpr rv) -> mirAggregate_set i 1 tpr rv ag
+                Nothing -> return ag)
+        ag (zip3 [0..] tys xs)
+    return $ MirExp MirAggregateRepr ag'
 
-accessAggregateMaybe :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
-accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-      let tpr = ctx Ctx.! idx
-      case tpr of
-        C.MaybeRepr tpr' ->
-            let mv = R.App $ E.FromJustValue tpr' (S.getStruct idx ag)
-                    (R.App $ E.StringLit "Unitialized aggregate value")
-            in return $ MirExp tpr' mv
-        _ -> mirFail "accessAggregateMaybe: non-maybe struct"
+getTupleElem :: HasCallStack => [M.Ty] -> MirExp s -> Int -> MirGenerator h s ret (MirExp s)
+getTupleElem tys tupleExp i = do
+    ty <- case tys ^? ix i of
+        Just x -> return x
+        Nothing -> mirFail $ "getTupleElem: index " ++ show i ++ " out of range for " ++ show tys
+    getTupleElemTyped tupleExp i ty
 
-accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field (maybe) " ++ (show b)
+getTupleElemTyped :: HasCallStack => MirExp s -> Int -> M.Ty -> MirGenerator h s ret (MirExp s)
+getTupleElemTyped (MirExp tpr ag) i ty = do
+    col <- use $ cs . collection
+    case isZeroSized col ty of
+        False -> do
+            let tpr' = MirAggregateRepr
+            Refl <- testEqualityOrFail tpr tpr' $
+                "getTupleElem: expected tuple to be " ++ show tpr' ++ ", but got " ++ show tpr
+            Some tpr <- tyToReprM ty
+            MirExp tpr <$> mirAggregate_get (fromIntegral i) 1 tpr ag
+        True -> do
+            mVal <- initialValue ty
+            case mVal of
+                Just x -> return x
+                Nothing -> error "zero-sized type with no initialValue?"
 
 modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
@@ -1229,23 +1238,16 @@ tupleFieldRef ::
     C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
 tupleFieldRef tys i tpr ref = do
-    col <- use $ cs . collection
-    Some ctx <- either (mirFail . ("tupleFieldRef: " ++)) return (tyListToCtxMaybe col tys (Right . Some))
-    let tpr' = C.StructRepr ctx
+    let tpr' = MirAggregateRepr
     Refl <- testEqualityOrFail tpr tpr' $ "bad representation " ++ show tpr ++
         " for tuple type " ++ show tys ++ ": expected " ++ show tpr'
-    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
-        Just x -> return x
-        Nothing -> mirFail $ "field index " ++ show i ++
+    ty <- case drop i tys of
+        x : _ -> return x
+        [] -> mirFail $ "field index " ++ show i ++
             " is out of range for tuple " ++ show tys
-    let elemTpr = ctx Ctx.! idx
-    case elemTpr of
-        C.MaybeRepr valTpr -> do
-            ref <- subfieldRef ctx ref idx
-            ref <- subjustRef valTpr ref
-            return $ MirPlace valTpr ref NoMeta
-        _ -> mirFail $ "expected tuple field to have MaybeType, but got " ++ show elemTpr
-
+    Some valTpr <- tyToReprM ty
+    ref' <- mirRef_agElem_constOffset (fromIntegral i) 1 valTpr ref
+    return $ MirPlace valTpr ref' NoMeta
 
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
@@ -1353,12 +1355,10 @@ initialValue CTyMethodSpecBuilder = return Nothing
 
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
-initialValue (M.TyTuple tys) = do
-    mexps <- mapM initialValue tys
-    col <- use $ cs . collection
-    case buildTupleMaybe col tys mexps of
-        Left err -> mirFail ("initialValue: " ++ err)
-        Right rpr -> return (Just rpr)
+initialValue (M.TyTuple tys) =
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral $ length tys)
+initialValue (M.TyClosure tys) = do
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral $ length tys)
 initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
@@ -1432,12 +1432,6 @@ initialValue (M.TyRef t M.Mut)
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
-initialValue (M.TyClosure tys) = do
-    mexps <- mapM initialValue tys
-    col <- use $ cs . collection
-    case buildTupleMaybe col tys mexps of
-        Left err -> mirFail ("initialValue: " ++ err)
-        Right rpr -> return (Just rpr)
 initialValue (M.TyAdt nm _ _) = do
     adt <- findAdt nm
     col <- use $ cs . collection

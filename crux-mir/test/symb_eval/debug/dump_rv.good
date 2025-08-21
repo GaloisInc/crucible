@@ -1,5 +1,5 @@
-test dump_rv/<DISAMB>::test[0]: a = {Just 0x7b:[32], Just 0x1c8:[32]}
-b = {Just cxy@1:bv, Just cxy@2:bv}
+test dump_rv/<DISAMB>::test[0]: a = {0..1 -> 0x7b:[32], 1..2 -> 0x1c8:[32], size 2}
+b = {0..1 -> cxy@1:bv, 1..2 -> cxy@2:bv, size 2}
 c = {cxy@1:bv, cxy@2:bv}
 ok
 

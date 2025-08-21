@@ -38,9 +38,9 @@ module Mir.Language (
 import qualified Data.Aeson as Aeson
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Char       as Char
-import           Data.Functor.Const (Const(..))
 import           Control.Monad
 import           Control.Monad.IO.Class
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.List       as List
 import           Data.Text (Text)
 import qualified Data.Text       as Text
@@ -67,7 +67,6 @@ import           Control.Lens (view)
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
-import qualified Data.Parameterized.TraversableFC as Ctx
 
 -- crucible
 import qualified Lang.Crucible.Simulator               as C
@@ -106,7 +105,8 @@ import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, SomeRustEnumRepr(..),
-                    pattern MirVectorRepr, MirVector(..))
+                    pattern MirVectorRepr, MirVector(..),
+                    pattern MirAggregateRepr, MirAggregate(..), MirAggregateEntry(..))
 import           Mir.Generator
 import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
@@ -598,25 +598,13 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     (TyTuple [], C.UnitRepr) -> return "()"
 
-    (TyTuple tys, C.StructRepr (ctxr :: C.CtxRepr ctx)) -> do
-      let rv' :: Ctx.Assignment (C.RegValue' sym) ctx
-          rv' = rv
-
-      let
-          go :: forall typ. Ctx.Index ctx typ -> C.RegValue' sym typ ->
-                (C.OverrideSim p sym MIR rtp args ret (Const String typ))
-          go idx (C.RV elt)
-            | C.MaybeRepr tpr <- ctxr Ctx.! idx = case elt of
-                W4.NoErr (W4.Partial p e) | Just True <- W4.asConstantPred p -> do
-                    let i   = Ctx.indexVal idx
-                    let mty0 = tys !! i
-                    str <- showRegEntry col mty0 (C.RegEntry tpr e)
-                    return (Const str)
-                _ -> return $ Const $ "symbolic tuple element"
-            | otherwise = error $ "expected MaybeRepr, but got " ++ show (ctxr Ctx.! idx)
-
-      (cstrs :: Ctx.Assignment (Const String) ctx) <- Ctx.traverseWithIndex go rv'
-      let strs = Ctx.toListFC (\(Const str) -> str) cstrs
+    (TyTuple tys, MirAggregateRepr) -> do
+      let MirAggregate _ m = rv
+      strs <- forM (zip [0..] tys) $ \(off, ty) -> do
+        MirAggregateEntry _ elemTpr elemRvPart <- case IntMap.lookup off m of
+          Just x -> return x
+          Nothing -> error $ "no entry at offset " ++ show off
+        goMaybe ty elemTpr elemRvPart
       return $ "(" ++ List.intercalate ", " strs ++ ")"
 
     -- Tagged union type
@@ -735,11 +723,8 @@ showRegEntry col mty (C.RegEntry tp rv) =
       values <- case rv of
         MirVector_Vector v -> forM (Vector.toList v) $ \val -> do
             showRegEntry col ty $ C.RegEntry tyr val
-        MirVector_PartialVector pv -> forM (Vector.toList pv) $ \partVal -> case partVal of
-            W4.Unassigned -> return "<uninitialized>"
-            W4.PE p v | Just True <- W4.asConstantPred p ->
-                showRegEntry col ty $ C.RegEntry tyr v
-            W4.PE _ _ | otherwise -> return "<possibly uninitialized>"
+        MirVector_PartialVector pv -> forM (Vector.toList pv) $
+            \partVal -> goMaybe ty tyr partVal
         MirVector_Array _ -> return ["<symbolic array...>"]
       return $ "[" ++ List.intercalate ", " values ++ "]"
 
@@ -765,6 +750,18 @@ showRegEntry col mty (C.RegEntry tp rv) =
         C.Some (C.RegEntry tpr v)
     readField (FieldRepr (FkMaybe tpr)) (W4.Err _) =
         error $ "readField: W4.Err for type " ++ show tpr
+
+    goMaybe ::
+      Ty ->
+      C.TypeRepr tp ->
+      C.RegValue sym (C.MaybeType tp) ->
+      C.OverrideSim p sym MIR rtp args ret String
+    goMaybe ty tpr rvPart =
+      case rvPart of
+        W4.Unassigned -> return "<uninitialized>"
+        W4.PE p rv'
+          | Just True <- W4.asConstantPred p -> showRegEntry col ty $ C.RegEntry tpr rv'
+          | otherwise ->return "<possibly uninitialized>"
 
 
 data FoundVariant sym ctx tp where
