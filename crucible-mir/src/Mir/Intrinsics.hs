@@ -608,9 +608,23 @@ muxRef sym iTypes c (MirReferenceMux mt1) (MirReferenceMux mt2) =
 
 
 --------------------------------------------------------------
--- A MirAggregateType is a collection of elements of any type, with each
--- primitive covering a specific range of logical bytes.
+-- A MirAggregateType is a collection of elements of any type, with each entry
+-- covering a specific range of logical bytes.
 
+-- | A block of memory representing an aggregate value, such as a struct,
+-- tuple, or array.  A `MirAggregate` value has a size in bytes and a set of
+-- entries.  Each entry covers some range of bytes within the aggregate and
+-- associates a `RegValue` with that range.  Entries are nonoverlapping, they
+-- never extend past the size of the overall aggregate, and their byte ranges
+-- and types are concrete (but their values may be symbolic).
+--
+-- The set of entries in a `MirAggregate` is not determined by its type (note
+-- that `MirAggregate` doesn't take a `CtxRepr` or similar type index).
+-- Instead, each `MirAggregate` begins empty, and entries are added to it
+-- dynamically.  To keep the implementation simple, new entries are not allowed
+-- to partially overlap old ones - they must either be disjoint from all
+-- existing entries, or fully overwrite an existing entry.  Read operations
+-- must also touch exactly one entry.
 data MirAggregate sym where
   MirAggregate ::
     -- | Total size in bytes.  No entry can extend beyond this limit.
@@ -619,6 +633,13 @@ data MirAggregate sym where
     !(IntMap (MirAggregateEntry sym)) ->
     MirAggregate sym
 
+-- | A single entry in a `MirAggregate`.  The start of the covered byte range
+-- is not stored here; instead, it's used as the key in the `MirAggregate`'s
+-- `IntMap`.  This stores the size of the entry in bytes (which determines the
+-- end of the range), the type of value, and a symbolic value of that type.
+-- The value is wrapped in `MaybeRepr` / `PartExpr` so that the output of a mux
+-- operation on `MirAggregate`s can have entries that are only conditionally
+-- initialized.
 data MirAggregateEntry sym where
   MirAggregateEntry :: forall sym tp.
     -- | Size in bytes
