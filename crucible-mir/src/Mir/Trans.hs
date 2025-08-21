@@ -1220,8 +1220,11 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
 -- | Create a new trait object by combining `e` with the named vtable.  This is
 -- only valid when `e` is TyRef or TyRawPtr.  Coercions via the `CoerceUnsized`
 -- trait require unpacking and repacking structs, which we don't handle here.
-mkTraitObject :: HasCallStack => M.TraitName ->
-    M.VtableName -> MirExp s ->
+mkTraitObject :: forall h s ret.
+    HasCallStack =>
+    M.TraitName ->
+    M.VtableName ->
+    MirExp s ->
     MirGenerator h s ret (MirExp s)
 mkTraitObject traitName vtableName e = do
     handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
@@ -1231,7 +1234,7 @@ mkTraitObject traitName vtableName e = do
         mkEntry (MirHandle hname _ fh) =
             MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
-    vtable@(MirExp vtableTy _) <- return $ buildTuple $ map mkEntry handles
+    vtable@(MirExp vtableTy _) <- return $ buildStructExp $ map mkEntry handles
 
     -- Check that the vtable we constructed has the appropriate type for the
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
@@ -1247,10 +1250,23 @@ mkTraitObject traitName vtableName e = do
             ["vtable signature mismatch for vtable", show vtableName,
                 "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
 
-    return $ buildTuple
+    return $ buildStructExp
         [ e
         , packAny vtable
         ]
+
+    where
+        buildStructExp :: [MirExp s] -> MirExp s
+        buildStructExp exps = buildStructExp' Ctx.Empty Ctx.Empty exps
+
+        buildStructExp' :: forall ctx.
+            C.CtxRepr ctx ->
+            Ctx.Assignment (R.Expr MIR s) ctx ->
+            [MirExp s] ->
+            MirExp s
+        buildStructExp' ctx asn [] = MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asn)
+        buildStructExp' ctx asn (MirExp tpr e : exps) =
+            buildStructExp' (ctx Ctx.:> tpr) (asn Ctx.:> e) exps
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
