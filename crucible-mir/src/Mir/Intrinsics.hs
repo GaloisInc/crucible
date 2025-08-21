@@ -63,6 +63,8 @@ import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
 import           Data.Kind(Type)
+import           Data.IntMap.Strict(IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
@@ -586,6 +588,108 @@ muxRef :: forall sym.
 muxRef sym iTypes c (MirReferenceMux mt1) (MirReferenceMux mt2) =
     MirReferenceMux <$> mergeFancyMuxTree sym mux c mt1 mt2
   where mux p a b = liftIO $ muxRef' sym iTypes p a b
+
+
+--------------------------------------------------------------
+-- A MirAggregateType is a collection of elements of any type, with each
+-- primitive covering a specific range of logical bytes.
+
+data MirAggregate sym where
+  MirAggregate ::
+    -- | Total size in bytes.  No entry can extend beyond this limit.
+    !Word ->
+    -- | Maps byte offset to an entry starting at that offset.
+    !(IntMap (MirAggregateEntry sym)) ->
+    MirAggregate sym
+
+data MirAggregateEntry sym where
+  MirAggregateEntry :: forall sym tp.
+    -- | Size in bytes
+    !Word ->
+    !(TypeRepr tp) ->
+    !(RegValue sym (MaybeType tp)) ->
+    MirAggregateEntry sym
+
+instance IsSymInterface sym => Show (MirAggregateEntry sym) where
+  show (MirAggregateEntry sz tpr _rv) =
+    "(MirAggregateEntry " ++ show sz ++ " " ++ show tpr ++ " <regvalue>)"
+
+type MirAggregateSymbol = "MirAggregate"
+type MirAggregateType = IntrinsicType MirAggregateSymbol EmptyCtx
+
+pattern MirAggregateRepr :: () => tp' ~ MirAggregateType => TypeRepr tp'
+pattern MirAggregateRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MirAggregateSymbol) -> Just Refl) Empty
+ where MirAggregateRepr = IntrinsicRepr (knownSymbol @MirAggregateSymbol) Empty
+
+type family MirAggregateFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MirAggregateFam sym EmptyCtx = MirAggregate sym
+  MirAggregateFam sym ctx = TypeError
+    ('Text "MirAggregateType expects no arguments, but was given" ':<>: 'ShowType ctx)
+
+instance IsSymInterface sym => IntrinsicClass sym MirAggregateSymbol where
+  type Intrinsic sym MirAggregateSymbol ctx = MirAggregateFam sym ctx
+
+  muxIntrinsic sym tys _nm Empty = muxMirAggregate sym tys
+  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
+
+muxMirAggregateEntry :: forall sym.
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  Word ->
+  Pred sym ->
+  Maybe (MirAggregateEntry sym) ->
+  Maybe (MirAggregateEntry sym) ->
+  IO (MirAggregateEntry sym)
+muxMirAggregateEntry sym itefns offset c mEntry1 mEntry2 =
+  case (mEntry1, mEntry2) of
+    (Nothing, Nothing) -> error "impossible"
+    (Just entry1, Nothing) -> goOneSided c entry1
+    (Nothing, Just entry2) -> do
+      c' <- notPred sym c
+      goOneSided c' entry2
+    (Just entry1, Just entry2) -> goTwoSided entry1 entry2
+  where
+    goOneSided :: Pred sym -> MirAggregateEntry sym -> IO (MirAggregateEntry sym)
+    goOneSided activeCond (MirAggregateEntry sz tpr rv) = do
+      rv' <- muxRegForType sym itefns (MaybeRepr tpr) activeCond rv Unassigned
+      return $ MirAggregateEntry sz tpr rv'
+
+    goTwoSided :: MirAggregateEntry sym -> MirAggregateEntry sym -> IO (MirAggregateEntry sym)
+    goTwoSided (MirAggregateEntry sz tpr rv1) (MirAggregateEntry sz' tpr' rv2) = do
+      when (sz' /= sz) $
+        die $ "entry size " ++ show sz ++ " != " ++ show sz'
+      Refl <- case testEquality tpr tpr' of
+        Just x -> return x
+        Nothing -> die $ "type mismatch: " ++ show tpr ++ " != " ++ show tpr'
+      rv' <- muxRegForType sym itefns (MaybeRepr tpr) c rv1 rv2
+      return $ MirAggregateEntry sz tpr rv'
+
+    die :: String -> IO a
+    die msg = fail $ "bad MirAggregate merge: offset " ++ show offset ++ ": " ++ msg
+
+muxMirAggregate :: forall sym.
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  Pred sym ->
+  MirAggregate sym ->
+  MirAggregate sym ->
+  IO (MirAggregate sym)
+muxMirAggregate sym itefns c (MirAggregate sz1 m1) (MirAggregate sz2 m2) = do
+  when (sz1 /= sz2) $ do
+    fail $ "bad MirAggregate merge: size " ++ show sz1 ++ " != " ++ show sz2
+  m' <- sequence $ IntMap.mergeWithKey
+    (\offset entry1 entry2 -> Just $ muxEntries offset (Just entry1) (Just entry2))
+    (IntMap.mapWithKey $ \offset entry1 -> muxEntries offset (Just entry1) Nothing)
+    (IntMap.mapWithKey $ \offset entry2 -> muxEntries offset Nothing (Just entry2))
+    m1 m2
+  return $ MirAggregate sz1 m'
+  where
+    muxEntries off e1 e2 = muxMirAggregateEntry sym itefns off' c e1 e2
+      where off' = (fromIntegral :: Int -> Word) off
+
 
 
 --------------------------------------------------------------
@@ -2371,6 +2475,7 @@ mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 mirIntrinsicTypes =
    MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
    MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MirAggregateSymbol) IntrinsicMuxFn $
    MapF.insert (knownSymbol @MethodSpecSymbol) IntrinsicMuxFn $
    MapF.insert (knownSymbol @MethodSpecBuilderSymbol) IntrinsicMuxFn $
    MapF.empty
