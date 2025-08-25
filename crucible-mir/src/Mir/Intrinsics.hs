@@ -727,7 +727,7 @@ muxMirAggregate sym itefns c (MirAggregate sz1 m1) (MirAggregate sz2 m2) = do
   return $ MirAggregate sz1 m'
   where
     muxEntries off e1 e2 = muxMirAggregateEntry sym itefns off' c e1 e2
-      where off' = (fromIntegral :: Int -> Word) off
+      where off' = fromIntegral off
 
 -- | Return the @(offset, regValue)@ pair for each entry whose type is @tpr@.
 -- When performing a typed access, these are all the entries that the access
