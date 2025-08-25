@@ -1216,7 +1216,7 @@ mkTraitObject traitName vtableName e = do
         mkEntry (MirHandle hname _ fh) =
             MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
-    vtable@(MirExp vtableTy _) <- return $ buildStructExp $ map mkEntry handles
+    vtable@(MirExp vtableTy _) <- return $ mkStructExp $ map mkEntry handles
 
     -- Check that the vtable we constructed has the appropriate type for the
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
@@ -1232,23 +1232,27 @@ mkTraitObject traitName vtableName e = do
             ["vtable signature mismatch for vtable", show vtableName,
                 "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
 
-    return $ buildStructExp
+    return $ mkStructExp
         [ e
         , packAny vtable
         ]
 
     where
-        buildStructExp :: [MirExp s] -> MirExp s
-        buildStructExp exps = buildStructExp' Ctx.Empty Ctx.Empty exps
+        -- | `E.MkStruct`, but lifted to work on `MirExp`s.  We use this for
+        -- building vtables and trait objects.  These don't correspond to any
+        -- `M.TyAdt` or `M.TyTuple`, so we can't use the higher-level
+        -- `buildStruct` or `buildTupleM` functions for this.
+        mkStructExp :: [MirExp s] -> MirExp s
+        mkStructExp exps = mkStructExp' Ctx.Empty Ctx.Empty exps
 
-        buildStructExp' :: forall ctx.
+        mkStructExp' :: forall ctx.
             C.CtxRepr ctx ->
             Ctx.Assignment (R.Expr MIR s) ctx ->
             [MirExp s] ->
             MirExp s
-        buildStructExp' ctx asn [] = MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asn)
-        buildStructExp' ctx asn (MirExp tpr e : exps) =
-            buildStructExp' (ctx Ctx.:> tpr) (asn Ctx.:> e) exps
+        mkStructExp' ctx asn [] = MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asn)
+        mkStructExp' ctx asn (MirExp tpr e : exps) =
+            mkStructExp' (ctx Ctx.:> tpr) (asn Ctx.:> e) exps
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
