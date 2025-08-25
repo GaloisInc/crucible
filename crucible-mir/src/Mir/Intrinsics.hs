@@ -729,7 +729,7 @@ muxMirAggregate sym itefns c (MirAggregate sz1 m1) (MirAggregate sz2 m2) = do
     muxEntries off e1 e2 = muxMirAggregateEntry sym itefns off' c e1 e2
       where off' = (fromIntegral :: Int -> Word) off
 
--- | Return the `(offset, regValue)` pair for each entry whose type is `tpr`.
+-- | Return the @(offset, regValue)@ pair for each entry whose type is @tpr@.
 -- When performing a typed access, these are all the entries that the access
 -- could apply to.
 --
@@ -750,7 +750,7 @@ mirAgTypedCandidates tpr (MirAggregate _ m) =
 wordLit :: IsSymInterface sym => sym -> Word -> IO (RegValue sym UsizeType)
 wordLit sym o = bvLit sym knownNat (BV.mkBV knownNat (fromIntegral o))
 
--- | Lift `iteFn` from type `tp` to type `MaybeType tp`.
+-- | Lift @iteFn@ from type @tp@ to type @MaybeType tp@.
 liftIteFnMaybe ::
   forall sym tp.
   IsSymInterface sym =>
