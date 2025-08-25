@@ -702,6 +702,23 @@ mirRef_arrayAsMirVector ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
 
+mirRef_agElem ::
+  R.Expr MIR s UsizeType ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_agElem off sz tpr ref = G.extensionStmt $ MirRef_AgElem off sz tpr ref
+
+mirRef_agElem_constOffset ::
+  Word ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_agElem_constOffset off sz tpr ref =
+  mirRef_agElem (R.App $ usizeLit $ fromIntegral off) sz tpr ref
+
 mirRef_eq ::
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s MirReferenceType ->
@@ -821,6 +838,29 @@ mirVector_resize ::
     R.Expr MIR s UsizeType ->
     MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
 mirVector_resize tpr vec len = G.extensionStmt $ MirVector_Resize tpr vec len
+
+
+mirAggregate_uninit ::
+  Word ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_uninit sz = G.extensionStmt $ MirAggregate_Uninit sz
+
+mirAggregate_get ::
+  Word ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirAggregateType ->
+  MirGenerator h s ret (R.Expr MIR s tp)
+mirAggregate_get off sz tpr ag = G.extensionStmt $ MirAggregate_Get off sz tpr ag
+
+mirAggregate_set ::
+  Word ->
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s tp ->
+  R.Expr MIR s MirAggregateType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_set off sz tpr val ag = G.extensionStmt $ MirAggregate_Set off sz tpr val ag
 
 
 

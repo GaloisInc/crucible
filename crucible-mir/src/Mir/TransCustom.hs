@@ -764,14 +764,14 @@ wrapping_mul =
     )
 
 
-overflowResult :: C.TypeRepr tp ->
+overflowResult ::
+    Ty ->
+    C.TypeRepr tp ->
     R.Expr MIR s tp ->
     R.Expr MIR s C.BoolType ->
     MirGenerator h s ret (MirExp s)
-overflowResult tpr value over = return $ buildTuple
-    [ MirExp (C.MaybeRepr tpr) $ R.App $ E.JustValue tpr value
-    , MirExp (C.MaybeRepr C.BoolRepr) $ R.App $ E.JustValue C.BoolRepr over
-    ]
+overflowResult valTy tpr value over =
+  buildTupleM [valTy, TyBool] [MirExp tpr value, MirExp C.BoolRepr over]
 
 makeArithWithOverflow :: String -> Maybe Bool -> BinOp -> CustomRHS
 makeArithWithOverflow name isSignedOverride bop =
@@ -781,7 +781,7 @@ makeArithWithOverflow name isSignedOverride bop =
             (result, overflow) <- evalBinOp bop arithType e1 e2
             case result of
                 MirExp (C.BVRepr w) result' ->
-                    overflowResult (C.BVRepr w) result' overflow
+                    overflowResult t (C.BVRepr w) result' overflow
                 MirExp tpr _ -> mirFail $
                     "bad return values from evalBinOp " ++ show bop ++ ": " ++ show tpr
         _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (t, ops)

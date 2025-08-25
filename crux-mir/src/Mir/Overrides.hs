@@ -23,6 +23,7 @@ import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
+import qualified Data.IntMap as IntMap
 import Data.List.Extra (unsnoc)
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
@@ -290,6 +291,8 @@ regEval bak baseEval tpr v = go tpr v
           | AsBaseType btpr' <- asBaseType tpr' ->
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
           | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
+    go MirAggregateRepr (MirAggregate sz m) =
+        MirAggregate sz <$> mapM goMirAggregateEntry m
     -- TODO: StringMapRepr
     go tpr v = throwUnsupported sym $
           "evaluation of " ++ show tpr ++ " is not yet implemented"
@@ -376,6 +379,13 @@ regEval bak baseEval tpr v = go tpr v
         VectorAsMirVector_RefPath tpr <$> goMirReferencePath p
     goMirReferencePath (ArrayAsMirVector_RefPath tpr p) =
         ArrayAsMirVector_RefPath tpr <$> goMirReferencePath p
+
+    goMirAggregateEntry ::
+        MirAggregateEntry sym ->
+        OverrideSim p sym MIR rtp args ret (MirAggregateEntry sym)
+    goMirAggregateEntry (MirAggregateEntry sz tpr' rvPart) = do
+        rvPart' <- goPartExpr tpr' rvPart
+        return $ MirAggregateEntry sz tpr' rvPart'
 
 
 -- | Override one Rust function with another.
@@ -580,9 +590,29 @@ mirReferencePrettyFn :: forall sym. IsSymInterface sym =>
   IntrinsicPrettyFn sym MirReferenceSymbol
 mirReferencePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty ref -> PP.viaShow ref
 
+mirAggregatePrettyFn :: forall sym. IsSymInterface sym =>
+  IntrinsicPrettyFn sym MirAggregateSymbol
+mirAggregatePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty (MirAggregate totalSize m) ->
+  let renderVal :: forall tpr ann. TypeRepr tpr -> RegValue sym (MaybeType tpr) -> PP.Doc ann
+      renderVal tpr Unassigned = "<uninit>"
+      renderVal tpr (PE p rv)
+        | Just True <- asConstantPred p = ppRV @sym tpr rv
+        | otherwise = ppRV @sym tpr rv PP.<+> PP.parens ("if" PP.<+> ppRV @sym BoolRepr p)
+      kvs = [PP.viaShow off <> ".." <> PP.viaShow (off + sz) PP.<+> "->" PP.<+> renderVal tpr rv
+        | (fromIntegral -> off, MirAggregateEntry sz tpr rv) <- IntMap.toAscList m]
+  in
+  PP.encloseSep "{" "}" ", " $ kvs ++ ["size" PP.<+> PP.viaShow totalSize]
+
 intrinsicPrinters :: forall sym. IsSymInterface sym => IntrinsicPrinters sym
-intrinsicPrinters = IntrinsicPrinters $ MapF.singleton knownRepr mirReferencePrettyFn
+intrinsicPrinters = IntrinsicPrinters $
+  MapF.insert knownRepr mirReferencePrettyFn $
+  MapF.insert knownRepr mirAggregatePrettyFn $
+  MapF.empty
+
+ppRV :: forall sym tp ann. IsSymInterface sym =>
+  TypeRepr tp -> RegValue sym tp -> PP.Doc ann
+ppRV tpr rv = ppRegVal intrinsicPrinters tpr (RV @sym rv)
 
 showRV :: forall sym tp. IsSymInterface sym =>
   TypeRepr tp -> RegValue sym tp -> String
-showRV tpr rv = show $ ppRegVal intrinsicPrinters tpr (RV @sym rv)
+showRV tpr rv = show $ ppRV @sym tpr rv
