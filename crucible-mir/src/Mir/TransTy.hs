@@ -601,7 +601,7 @@ getTupleElemTyped (MirExp tpr ag) i ty = do
         False -> do
             let tpr' = MirAggregateRepr
             Refl <- testEqualityOrFail tpr tpr' $
-                "getTupleElem: expected tuple to be " ++ show tpr' ++ ", but got " ++ show tpr
+                "getTupleElemTyped: expected tuple to be " ++ show tpr' ++ ", but got " ++ show tpr
             Some tpr <- tyToReprM ty
             MirExp tpr <$> mirAggregate_get (fromIntegral i) 1 tpr ag
         True -> do

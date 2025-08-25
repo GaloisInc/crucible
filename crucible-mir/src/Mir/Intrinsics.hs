@@ -766,7 +766,7 @@ liftIteFnMaybe sym _tpr iteFn c x y =
 
 readMirAggregateWithSymOffset ::
   forall sym bak tp.
-  (IsSymBackend sym bak) =>
+  IsSymBackend sym bak =>
   bak ->
   (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   RegValue sym UsizeType ->
