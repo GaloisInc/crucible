@@ -601,10 +601,11 @@ showRegEntry col mty (C.RegEntry tp rv) =
     (TyTuple tys, MirAggregateRepr) -> do
       let MirAggregate _ m = rv
       strs <- forM (zip [0..] tys) $ \(off, ty) -> do
-        MirAggregateEntry _ elemTpr elemRvPart <- case IntMap.lookup off m of
-          Just x -> return x
-          Nothing -> error $ "no entry at offset " ++ show off
-        goMaybe ty elemTpr elemRvPart
+        case IntMap.lookup off m of
+          Just (MirAggregateEntry _ elemTpr elemRvPart) ->
+            goMaybe ty elemTpr elemRvPart
+          Nothing -> return "<uninit>"
+
       return $ "(" ++ List.intercalate ", " strs ++ ")"
 
     -- Tagged union type

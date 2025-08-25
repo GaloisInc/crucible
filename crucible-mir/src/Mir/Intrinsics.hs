@@ -90,6 +90,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
@@ -682,7 +683,7 @@ muxMirAggregateEntry :: forall sym.
   IO (MirAggregateEntry sym)
 muxMirAggregateEntry sym itefns offset c mEntry1 mEntry2 =
   case (mEntry1, mEntry2) of
-    (Nothing, Nothing) -> error "impossible"
+    (Nothing, Nothing) -> panic "muxMirAggregateEntry" ["requires at least one entry"]
     (Just entry1, Nothing) -> goOneSided c entry1
     (Nothing, Just entry2) -> do
       c' <- notPred sym c
@@ -873,7 +874,8 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
               case testEquality tpr' tpr of
                 Just Refl -> MirAggregateEntry sz tpr rv
                 Nothing ->
-                  error "impossible: `candidates`/`xs` should only contain entries of type `tpr`")
+                  panic "adjustMirAggregateWithSymOffset"
+                    ["`candidates`/`xs` should only contain entries of type `tpr`"])
             m newEntryRvs
       let m' = IntMap.union newEntries m
       return $ MirAggregate totalSize m'

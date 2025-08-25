@@ -608,7 +608,7 @@ getTupleElemTyped (MirExp tpr ag) i ty = do
             mVal <- initialValue ty
             case mVal of
                 Just x -> return x
-                Nothing -> error "zero-sized type with no initialValue?"
+                Nothing -> mirFail "zero-sized type with no initialValue?"
 
 modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
