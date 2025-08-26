@@ -25,7 +25,7 @@ import qualified Crux.Config.Common as CCC
 
 data SolverOnline = Yices | Z3 | CVC4 | CVC5 | STP | Bitwuzla
   deriving (Eq, Ord, Show)
-data SolverOffline = SolverOnline SolverOnline | Boolector | DReal
+data SolverOffline = SolverOnline SolverOnline | Boolector | DReal | RME
   deriving (Eq, Ord, Show)
 
 class HasDefaultFloatRepr solver where
@@ -50,6 +50,7 @@ instance HasDefaultFloatRepr SolverOffline where
     case s of
       SolverOnline s' -> withDefaultFloatRepr st s' k
       Boolector -> k WEB.FloatUninterpretedRepr
+      RME -> k WEB.FloatUninterpretedRepr
       DReal -> k WEB.FloatRealRepr
 
 -- | Test to see if an online and offline solver are actually the same
@@ -106,31 +107,33 @@ instance Alternative Validated where
 invalid :: String -> Validated a
 invalid rsn = Invalid [rsn]
 
--- | Boolector and DReal only support offline solving (for our purposes), so
+-- | Boolector, RME and DReal only support offline solving (for our purposes), so
 -- attempt to parse them from the given string
 asOnlyOfflineSolver :: String -> Validated SolverOffline
 asOnlyOfflineSolver s =
   case s of
     "dreal" -> pure DReal
     "boolector" -> pure Boolector
-    _ -> invalid (printf "%s is not an offline-only solver (expected dreal or boolector)" s)
+    "rme" -> pure RME
+    _ -> invalid (printf "%s is not an offline-only solver (expected dreal, rme or boolector)" s)
 
 -- | Solvers that can be used in offline mode
 asAnyOfflineSolver :: String -> Validated SolverOffline
 asAnyOfflineSolver s = case s of
       "dreal" -> pure DReal
       "boolector" -> pure Boolector
+      "rme" -> pure RME
       "z3" -> pure (SolverOnline Z3)
       "yices" -> pure (SolverOnline Yices)
       "cvc4" -> pure (SolverOnline CVC4)
       "cvc5" -> pure (SolverOnline CVC5)
       "stp" -> pure (SolverOnline STP)
       "bitwuzla" -> pure (SolverOnline Bitwuzla)
-      _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc4, cvc5, stp, or bitwuzla)" s)
+      _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc4, cvc5, stp, rme, or bitwuzla)" s)
 
 asManyOfflineSolvers :: String -> Validated [SolverOffline]
 asManyOfflineSolvers s
-  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc4,cvc5,stp,bitwuzla"
+  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc4,cvc5,stp,bitwuzla,rme"
   | length solvers > 1 = traverse asAnyOfflineSolver solvers
   | otherwise          = invalid (printf "%s is not a valid solver list (expected 'all' or a comma separated list of solvers)" s)
   where

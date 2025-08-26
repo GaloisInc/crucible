@@ -19,3 +19,6 @@
 [submodule "dependencies/haskell-wasm"]
 	path = dependencies/haskell-wasm
 	url = https://github.com/SPY/haskell-wasm
+[submodule "dependencies/rme"]
+	path = dependencies/rme
+	url = https://github.com/GaloisInc/rme
