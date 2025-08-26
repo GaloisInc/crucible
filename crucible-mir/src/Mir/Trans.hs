@@ -201,10 +201,10 @@ transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 transConstVal _ty (Some C.UnitRepr) (M.ConstTuple []) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
-transConstVal (M.TyTuple tys) (Some (C.StructRepr tprs)) (M.ConstTuple vals) =
-    transConstTuple tys tprs vals
-transConstVal (M.TyClosure upvar_tys) (Some (C.StructRepr upvar_tprs)) (M.ConstClosure upvar_vals) =
-    transConstTuple upvar_tys upvar_tprs upvar_vals
+transConstVal (M.TyTuple tys) (Some MirAggregateRepr) (M.ConstTuple vals) =
+    transConstTuple tys vals
+transConstVal (M.TyClosure upvar_tys) (Some MirAggregateRepr) (M.ConstClosure upvar_vals) =
+    transConstTuple upvar_tys upvar_vals
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -276,20 +276,12 @@ transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 
 -- Translate a constant (non-empty) tuple or constant closure value.
-transConstTuple :: [M.Ty] -> C.CtxRepr ctx -> [ConstVal] -> MirGenerator h s ret (MirExp s)
-transConstTuple tys tprs vals = do
-    col <- use $ cs . collection
-    vals' <- zipWith3M
-               (\ty (Some tpr) val ->
-                 case tpr of
-                     C.MaybeRepr valTpr -> do
-                       transConstVal ty (Some valTpr) val
-                     _ ->
-                       mirFail $ "transConstTuple: expected tuple field to have MaybeType, but got " ++ show tpr)
-               tys (toListFC Some tprs) vals
-    case buildTupleMaybe col tys $ map Just vals' of
-      Left err -> mirFail ("transConstTuple: " ++ err)
-      Right rpr -> return rpr
+transConstTuple :: [M.Ty] -> [ConstVal] -> MirGenerator h s ret (MirExp s)
+transConstTuple tys vals = do
+    exps <- forM (zip tys vals) $ \(ty, val) -> do
+        Some tpr <- tyToReprM ty
+        transConstVal ty (Some tpr) val
+    buildTupleMaybeM tys (map Just exps)
 
 -- Translate a struct or enum marked with repr(transparent).
 transTransparentVal ::
@@ -312,14 +304,6 @@ transTransparentVal ty tpr adt fields idx = do
         Nothing -> mirFail $ "repr(transparent) field index " ++ show idx ++
             " out of range for " ++ show (pretty ty) ++ " initializer"
     transConstVal ty tpr const
-
--- Taken from GHC's source code, which is BSD-3 licensed.
-zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]
-{-# INLINE zipWith3M #-}
--- Inline so that fusion with 'zipWith3' and 'sequenceA' has a chance to fire.
--- See Note [Inline @zipWithNM@ functions] in GHC.Utils.Monad in the
--- GHC source code.
-zipWith3M f xs ys zs = sequenceA (zipWith3 f xs ys zs)
 
 typedVarInfo :: HasCallStack => Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
 typedVarInfo name tpr = do
@@ -479,9 +463,7 @@ transBinOp bop op1 op2 = do
         WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
             col <- use $ cs . collection
-            case buildTupleMaybe col [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow] of
-              Left err -> mirFail ("transBinOp: " ++ err)
-              Right rpr -> return rpr
+            buildTupleM [typeOf op1, TyBool] [res, MirExp C.BoolRepr overflow]
         _ -> fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
@@ -1220,8 +1202,11 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
 -- | Create a new trait object by combining `e` with the named vtable.  This is
 -- only valid when `e` is TyRef or TyRawPtr.  Coercions via the `CoerceUnsized`
 -- trait require unpacking and repacking structs, which we don't handle here.
-mkTraitObject :: HasCallStack => M.TraitName ->
-    M.VtableName -> MirExp s ->
+mkTraitObject :: forall h s ret.
+    HasCallStack =>
+    M.TraitName ->
+    M.VtableName ->
+    MirExp s ->
     MirGenerator h s ret (MirExp s)
 mkTraitObject traitName vtableName e = do
     handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
@@ -1231,7 +1216,7 @@ mkTraitObject traitName vtableName e = do
         mkEntry (MirHandle hname _ fh) =
             MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
-    vtable@(MirExp vtableTy _) <- return $ buildTuple $ map mkEntry handles
+    vtable@(MirExp vtableTy _) <- return $ mkStructExp $ map mkEntry handles
 
     -- Check that the vtable we constructed has the appropriate type for the
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
@@ -1247,10 +1232,27 @@ mkTraitObject traitName vtableName e = do
             ["vtable signature mismatch for vtable", show vtableName,
                 "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
 
-    return $ buildTuple
+    return $ mkStructExp
         [ e
         , packAny vtable
         ]
+
+    where
+        -- | `E.MkStruct`, but lifted to work on `MirExp`s.  We use this for
+        -- building vtables and trait objects.  These don't correspond to any
+        -- `M.TyAdt` or `M.TyTuple`, so we can't use the higher-level
+        -- `buildStruct` or `buildTupleM` functions for this.
+        mkStructExp :: [MirExp s] -> MirExp s
+        mkStructExp exps = mkStructExp' Ctx.Empty Ctx.Empty exps
+
+        mkStructExp' :: forall ctx.
+            C.CtxRepr ctx ->
+            Ctx.Assignment (R.Expr MIR s) ctx ->
+            [MirExp s] ->
+            MirExp s
+        mkStructExp' ctx asn [] = MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asn)
+        mkStructExp' ctx asn (MirExp tpr e : exps) =
+            mkStructExp' (ctx Ctx.:> tpr) (asn Ctx.:> e) exps
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
@@ -1290,9 +1292,7 @@ evalRval (M.Aggregate ak ops) =
             col <- use $ cs . collection
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
-            case buildTupleMaybe col tys (map Just exps) of
-              Left err -> mirFail ("evalRval: " ++ err)
-              Right x -> return x
+            buildTupleMaybeM tys (map Just exps)
         M.AKArray ty -> do
             exps <- mapM evalOperand ops
             Some repr <- tyToReprM ty
@@ -1303,9 +1303,7 @@ evalRval (M.Aggregate ak ops) =
             col <- use $ cs . collection
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
-            case buildTupleMaybe col tys (map Just exps) of
-              Left err -> mirFail ("evalRval: " ++ err)
-              Right x -> return x
+            buildTupleMaybeM tys (map Just exps)
         M.AKRawPtr ty _mutbl -> do
             args <- mapM evalOperand ops
             (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
@@ -1954,6 +1952,7 @@ callHandle e abi cargs
            PP.viaShow e, "with arguments", pretty cargs,
            "abi:",pretty abi])
 
+    let tys = map typeOf cargs
     exps <- mapM evalOperand cargs
     exps' <- case abi of
       RustCall _
@@ -1961,9 +1960,9 @@ callHandle e abi cargs
         | [selfExp, MirExp C.UnitRepr _] <- exps -> do
           return [selfExp]
 
-        | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
-          tupleParts <- mapM (accessAggregateMaybe tupleExp)
-              [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
+        | [selfExp, tupleExp@(MirExp MirAggregateRepr _)] <- exps
+        , [_, M.TyTuple tupleTys] <- tys -> do
+          tupleParts <- mapM (\(i, ty) -> getTupleElemTyped tupleExp i ty) (zip [0..] tupleTys)
           return $ selfExp : tupleParts
 
         -- Some code in rustc_codegen_cranelift suggests that there may be
@@ -2324,8 +2323,8 @@ genClosureFnPointerShim callOnceId tprRet argAtoms = do
     mirFail $ "expected " ++ show callOnceId ++ " arg 0 to be an empty closure, but got "
       ++ show callOnceArgTy0
   -- Build the argument values for `call_once`.
-  let tprArg0 = C.StructRepr Ctx.Empty
-  let arg0 = R.App $ E.MkStruct Ctx.empty Ctx.empty
+  let tprArg0 = MirAggregateRepr
+  arg0 <- mirAggregate_uninit 0
   let ctxArgs = Ctx.singleton tprArg0 Ctx.<++> fmapFC (R.typeOfAtom) argAtoms
   let args = Ctx.singleton arg0 Ctx.<++> fmapFC (R.AtomExpr @MIR) argAtoms
   -- More checks, necessary for the call below to typecheck.
