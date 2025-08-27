@@ -60,7 +60,8 @@ library
     config-schema >= 1.2.2.0,
     semigroupoids,
     xml,
-    yaml >= 0.11 && < 0.12
+    yaml >= 0.11 && < 0.12,
+    rme-what4 ^>= 0.1,
 
   hs-source-dirs: src
 

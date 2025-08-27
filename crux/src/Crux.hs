@@ -88,6 +88,7 @@ import           What4.Solver.CVC4 (cvc4Timeout)
 import           What4.Solver.CVC5 (cvc5Timeout)
 import           What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
 import           What4.Solver.Z3 (z3Timeout)
+import           Data.RME.What4 (rmeAdapter)
 
 import           Crux.Config
 import           Crux.Config.Common
@@ -565,6 +566,7 @@ withSolverAdapter solverOff k =
   case solverOff of
     CCS.Boolector -> k WS.boolectorAdapter
     CCS.DReal -> k WS.drealAdapter
+    CCS.RME -> k rmeAdapter
     CCS.SolverOnline CCS.CVC4 -> k WS.cvc4Adapter
     CCS.SolverOnline CCS.CVC5 -> k WS.cvc5Adapter
     CCS.SolverOnline CCS.STP -> k WS.stpAdapter
