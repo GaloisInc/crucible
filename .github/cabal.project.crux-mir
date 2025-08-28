@@ -8,4 +8,6 @@ packages:
   crux-mir/
 
 optional-packages:
+  dependencies/rme/rme/
+  dependencies/rme/rme-what4/
   dependencies/what4/what4/
