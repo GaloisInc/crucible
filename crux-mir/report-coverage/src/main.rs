@@ -318,7 +318,7 @@ struct FnCoverage<'a> {
     /// Did we call this function at all
     fn_called: bool,
 
-    /// Information about the branches in the functin
+    /// Information about the branches in the function
     branch_cov: HashMap<&'a str, BranchCoverage>,
 }
 
