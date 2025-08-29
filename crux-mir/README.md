@@ -49,7 +49,7 @@ Next, navigate to the `crucible/dependencies/mir-json` directory. Install
 [the `mir-json` README][mir-json-readme].
 
 Currently, `crux-mir` supports [version
-3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
+4](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#4) of
 `mir-json`'s schema. Note that the schema versions produced by `mir-json` can
 change over time as dictated by internal requirements and upstream changes. To
 help smooth this over:
@@ -135,7 +135,7 @@ To compile and test a single Rust program:
 * Clone this directory with `git clone https://github.com/GaloisInc/crucible.git` as we will need the `report-coverage` utility tool
 * In your crate run:
   ```
-  $ cargo crux-test --lib --  --branch-coverage --path-sat --output-directory test-coverage
+  $ EXPORT_ALL=true cargo crux-test --lib --  --branch-coverage --path-sat --output-directory test-coverage
   ```
 * In your crate, run the following command, pointing it towards the `report-coverage` folder in `crucible` directory, which contains the coverage script. You will need to point to a directory in the `test-coverage` folder that contains a function's coverage report data (`report_data.js`):
   ```
@@ -143,6 +143,15 @@ To compile and test a single Rust program:
   ```
 
   Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works. And `$YOUR_CRATE_NAME` is the `name` specified in the crate's `Cargo.toml` file.
+
+  It is also possible to run `report-coverage` with multiple input files, in which case you will
+  get the combined coverge from all tests.  For example:
+  ```
+  find ./test-coverage -name 'report_data.js' | xargs cargo run --manifest-path $COV_REP --
+  ```
+  where `COV_REP` is the path to `report-coverage` as above.
+
+  XXX: UPDATE OUTPUT
 * This will report all paths not covered, including ones from the standard library, for example:
   ```
   warning: branch condition never has value true

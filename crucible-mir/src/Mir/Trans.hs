@@ -2943,8 +2943,8 @@ mkCrateHashesMap
                 _namedTysM
                 _layoutsM
                 langItemsM
-                -- The roots are duplicates of other Maps' DefIds.
-                _rootsM) =
+                -- The roots and tests are duplicates of other Maps' DefIds.
+                _rootsM _testsM) =
   Map.fromList $
        f functionsM
     ++ f adtsM

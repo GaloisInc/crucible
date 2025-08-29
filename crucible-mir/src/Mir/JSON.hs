@@ -219,6 +219,7 @@ instance FromJSON Collection where
       (tys    :: [NamedTy])   <- v .: "tys"
       (langItems :: [LangItem]) <- v .: "lang_items"
       (roots :: [MethName])   <- v .: "roots"
+      (tests :: [MethName])   <- v .: "tests"
       return $ Collection
         version
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
@@ -232,6 +233,7 @@ instance FromJSON Collection where
         Map.empty -- layouts map has Tys as keys, so it needs to be populated after uninterning
         (foldr (\ x m -> Map.insert (x^.liOrigDefId) (x^.liLangItemDefId) m) Map.empty langItems)
         roots
+        tests
 
 
 instance FromJSON Fn where
