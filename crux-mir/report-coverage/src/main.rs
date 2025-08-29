@@ -631,6 +631,24 @@ impl Reporter {
         }
     }
 
+    fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) {
+        use std::io::Write;
+        use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
+
+
+        let call_stat = if called { "✅" } else { "❌" }; 
+        let mut stdout = StandardStream::stdout(self.color_choice);
+        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+        let perc = if branch_tot == 0 { 100 } else { 100 * branch_seen / branch_tot }; 
+        write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
+
+        let color =
+          if called && branch_seen == branch_tot { Color::Green } else { Color::Yellow };
+
+        stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
+        writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
+    }
+
     fn warn(&mut self, span: &str, msg: impl Display) {
         let key = format!("{}; {}", span, msg);
         if !self.seen.insert(key) {
@@ -774,8 +792,8 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
         // hacky: skip core-library or crucible functions
         if fun.starts_with("core/") || fun.starts_with ("crucible/") { continue }
 
-        let mut seen = if fn_cov.fn_called { 1 } else { 0 };
-        let mut tot  = 1;
+        let mut seen = 0;
+        let mut tot  = 0;
 
         for (span, bcov) in fn_cov.iter_sorted() {
             let is_boolean = bcov.is_boolean &&
@@ -827,11 +845,11 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
                 }
             }
         }
-        summary.insert(fun, (seen, tot));
+        summary.insert(fun, (fn_cov.fn_called, seen, tot));
     }
 
-    for (fun,(seen,tot)) in summary.into_iter() {
-        println!("{}: {}/{}", fun, seen, tot);
+    for (fun,(called, seen,tot)) in summary.into_iter() {
+        reporter.coverage_stats(fun, called, seen, tot);
     }
     
 }
