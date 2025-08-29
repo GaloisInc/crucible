@@ -287,7 +287,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     let filterTests defIds = case nameFilter of
             Just x -> filter (\d -> x `Text.isInfixOf` idText d) defIds
             Nothing -> defIds
-    let testNames = List.sort $ filterTests $ col ^. roots
+    let testNames = List.sort $ filterTests $ col ^. tests
 
     -- The output for each test looks like:
     --      test foo::bar1: ok
