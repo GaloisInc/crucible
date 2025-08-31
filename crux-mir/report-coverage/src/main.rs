@@ -409,11 +409,12 @@ struct BranchCoverage {
     /// Whether this is a boolean branch.  If so, warnings will be formatted slightly differently
     /// (its values are rendered `false` and `true` instead of `0` and `1`).
     pub is_boolean: bool,
-    /// Did we visit this branch at all.
-    /// We don't report coverage warnings for branches
-    /// that never got reached, but we use them to compute
-    /// coverage stats.
-    pub visited: bool,
+}
+
+impl BranchCoverage {
+    fn visited(&self) -> bool {
+        self.default_seen || self.seen.len() > 0
+    }
 }
 
 fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, trans: &'a FnTrans) {
@@ -498,7 +499,6 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
         match *bt {
             BranchTrans::Bool(_, ref span) => {
                 let bcov = fn_cov.branch(span);
-                bcov.visited = visited;
                 bcov.is_boolean = true;
                 // The entries in `possible` and `seen` are discriminant values (0/false or
                 // 1/true), not indices.  In a boolean branch, the exit at index 0 is the true/1
@@ -509,17 +509,16 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
                 if !dest_unreachable(1) {
                     bcov.possible.insert(0);
                 }
-                if dest_visited(0) {
+                if visited && dest_visited(0) {
                     bcov.seen.insert(1);
                 }
-                if dest_visited(1) {
+                if visited && dest_visited(1) {
                     bcov.seen.insert(0);
                 }
             },
 
             BranchTrans::Int(ref vals, ref dests, ref span) => {
                 let bcov = fn_cov.branch(span);
-                bcov.visited = visited;
                 for i in 0 .. dests.len() {
                     // If this destination is `Unreachable`, don't complain that the edge wasn't
                     // taken.  Branches to unreachable blocks are generated in exhaustive `match`
@@ -535,7 +534,7 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
                         bcov.default_possible = true;
                     }
 
-                    if dest_visited(i) {
+                    if visited && dest_visited(i) {
                         if i < vals.len() {
                             bcov.seen.insert(vals[i]);
                         } else {
@@ -804,12 +803,12 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
                 tot += 2;
 
                 if !bcov.seen.contains(&0) {
-                    if bcov.visited { reporter.warn(span, "branch condition never has value false"); }
+                    if bcov.visited() { reporter.warn(span, "branch condition never has value false"); }
                 } else {
                     seen += 1;
                 }
                 if !bcov.seen.contains(&1) {
-                    if bcov.visited { reporter.warn(span, "branch condition never has value true"); }
+                    if bcov.visited() { reporter.warn(span, "branch condition never has value true"); }
                 } else {
                     seen += 1;
                 }
@@ -828,7 +827,7 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
                     seen += 1;
                 }
                 else {
-                    if bcov.visited { reporter.warn(span, format_args!("branch condition never has value {}", val)); }
+                    if bcov.visited() { reporter.warn(span, format_args!("branch condition never has value {}", val)); }
                 }
             }
 
@@ -836,7 +835,7 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
                 if bcov.default_seen {
                     seen += 1;
                 } else {
-                    if bcov.visited {
+                    if bcov.visited() {
                         reporter.warn(
                             span,
                             format_args!("branch condition never has a value other than {:?}", possible)
