@@ -478,8 +478,6 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
 
     // We go over all branches rather than just the visited ones, so
     // we can report full stats about the coverage of a function.
-    // We record which ones were not visited so that we can report them as
-    // such and avoid spurious warnings. 
     for (branch_id_32, bt) in trans.branches.iter().enumerate() {
         let branch_id = branch_id_32 as u32;
         let visited = visited_branches.contains(&branch_id);
