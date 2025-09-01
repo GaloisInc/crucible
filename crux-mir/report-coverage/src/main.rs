@@ -782,7 +782,7 @@ impl Filter {
 
 fn report_all(reporter: &mut Reporter, cov: &Coverage) {
 
-    let mut summary = HashMap::new();
+    let mut summary = vec![];
 
     for (fun, fn_cov) in cov.iter_sorted() {
         
@@ -842,10 +842,11 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
                 }
             }
         }
-        summary.insert(fun, (fn_cov.fn_called, seen, tot));
+        summary.push((fun, fn_cov.fn_called, seen, tot));
     }
 
-    for (fun,(called, seen,tot)) in summary.into_iter() {
+
+    for (fun, called, seen,tot) in summary.into_iter() {
         reporter.coverage_stats(fun, called, seen, tot);
     }
     
