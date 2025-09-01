@@ -10,6 +10,6 @@ warning: branch condition never has value false
 10 │     if !cond { 10 } else { 20 }
    │         ^^^^
 
-✅ 100% coverage_cond/972a6117::crux_test[0]: 0/0
-✅  50% coverage_cond/972a6117::f[0]: 1/2
-✅  50% coverage_cond/972a6117::g[0]: 1/2
+✅ 100% coverage_cond/crux_test[0]: 0/0
+✅  50% coverage_cond/f[0]: 1/2
+✅  50% coverage_cond/g[0]: 1/2

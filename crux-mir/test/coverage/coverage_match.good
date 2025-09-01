@@ -10,7 +10,7 @@ warning: branch condition never has value 20
 21 │     let y = match e {
    │             ^^^^^^^
 
-❌   0% coverage_match/144f2e6b::E[0]::A[0]::{constant#0}[0]: 0/0
-❌   0% coverage_match/144f2e6b::E[0]::B[0]::{constant#0}[0]: 0/0
-❌   0% coverage_match/144f2e6b::E[0]::C[0]::{constant#0}[0]: 0/0
-✅  71% coverage_match/144f2e6b::crux_test[0]: 5/7
+❌   0% coverage_match/E[0]::A[0]::{constant#0}[0]: 0/0
+❌   0% coverage_match/E[0]::B[0]::{constant#0}[0]: 0/0
+❌   0% coverage_match/E[0]::C[0]::{constant#0}[0]: 0/0
+✅  71% coverage_match/crux_test[0]: 5/7

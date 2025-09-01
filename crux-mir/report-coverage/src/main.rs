@@ -389,6 +389,18 @@ fn try_strip_instance<'a>(s: &'a str) -> Option<&'a str> {
     Some(&s[..colon_colon])
 }
 
+/// Function names are of the form `crate/disambig::name`, `disambig` is
+/// a hash used to avoid clashes between different compilations of the same
+/// crate.  This function tries to remove the `disambig` because we don't
+/// want to show in user facing outpus.
+fn strip_crate_hash<'a>(s: &'a str) -> Option<String>{
+    let start = s.find('/')? + 1;
+    let end = start + s[start ..].find(':')? + 1;
+    let mut cs = s[end ..].chars();
+    if cs.next()? != ':' { return None }
+    Some(s.chars().take(start).chain(cs).collect())
+}
+
 /// Coverage information for an abstract branch, which may be formed by merging several concrete
 /// branches with the same source span.  Records the values that were possible and the values that
 /// were seen, unioned across all of the merged branches.  (The set of possible values is usually
@@ -637,6 +649,7 @@ impl Reporter {
         let mut stdout = StandardStream::stdout(self.color_choice);
         stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
         let perc = if branch_tot == 0 { if called { 100 } else { 0 } } else { 100 * branch_seen / branch_tot }; 
+        let fun = strip_crate_hash(fun).unwrap_or_else(||fun.to_string());
         write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
 
         let color =

@@ -159,9 +159,9 @@ To compile and test a single Rust program:
   43 │     assert!(a == b);
      │             ^^^^^^
   
-  ✅ 100% example_1/8139fa2e::ffs_fast[0]: 10/10
-  ✅ 100% example_1/8139fa2e::ffs_ref[0]: 4/4
-  ✅  50% example_1/8139fa2e::test_ffs_correct[0]: 1/2
+  ✅ 100% example_1/ffs_fast[0]: 10/10
+  ✅ 100% example_1/ffs_ref[0]: 4/4
+  ✅  50% example_1/test_ffs_correct[0]: 1/2
   ```
   In addition to warnings about uncovered paths, we generate statistics about
   the coverage for each function.   A green checkmark (✅) indicates that a

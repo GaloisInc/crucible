@@ -4,5 +4,5 @@ warning: branch condition never has value 1
 10 │     let y: u8 = y_32.try_into().ok()?;
    │                 ^^^^^^^^^^^^^^^^^^^^^
 
-✅ 100% coverage_try/42549b8d::crux_test[0]: 0/0
-✅  75% coverage_try/42549b8d::f[0]: 3/4
+✅ 100% coverage_try/crux_test[0]: 0/0
+✅  75% coverage_try/f[0]: 3/4

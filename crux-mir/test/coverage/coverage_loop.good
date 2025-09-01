@@ -4,4 +4,4 @@ warning: branch condition never has value true
 12 │         } else if i > 99 {
    │                   ^^^^^^
 
-✅  87% coverage_loop/93614f80::crux_test[0]: 7/8
+✅  87% coverage_loop/crux_test[0]: 7/8
