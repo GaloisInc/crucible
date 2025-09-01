@@ -292,7 +292,7 @@ data Collection = Collection {
     _langItems :: !(Map DefId DefId),
     -- | The roots of all things that were translated
     _roots     :: ![MethName],
-    -- | The subset of roots that was marked as tests to execut
+    -- | The subset of roots that was marked as tests to execute
     _tests     :: ![MethName]
 
 } deriving (Show, Eq, Ord, Generic)
