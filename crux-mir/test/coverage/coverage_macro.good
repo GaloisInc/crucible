@@ -7,3 +7,5 @@ warning: branch condition never has value false
 18 │     check!(u8::try_from(y_32));
    │     -------------------------- in this macro invocation
 
+✅ 100% coverage_macro/f0b85575::crux_test[0]: 0/0
+✅  75% coverage_macro/f0b85575::f[0]: 3/4

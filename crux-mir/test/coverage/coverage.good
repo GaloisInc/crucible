@@ -4,3 +4,4 @@ warning: branch condition never has a value other than [1]
 11 │     } else if x == 1 {
    │               ^^^^^^
 
+✅  75% coverage/a49d3f29::crux_test[0]: 3/4
