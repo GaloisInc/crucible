@@ -305,11 +305,21 @@ regEval bak baseEval tpr v = go tpr v
         halloc <- simHandleAllocator <$> use stateContext
         rc' <- liftIO $ freshRefCell halloc tpr
 
-        globalState <- use $ stateTree.actFrame.gpGlobals
-        let pe = lookupRef rc globalState
+        -- Retrieve the current global state, use it to look up the pointee
+        -- value (if it exists), and concretize the pointee value.
+        globalState0 <- use $ stateTree.actFrame.gpGlobals
+        let pe = lookupRef rc globalState0
         pe' <- goPartExpr tpr pe
-        let globalState' = updateRef rc' pe' globalState
-        stateTree.actFrame.gpGlobals .= globalState'
+
+        -- Retrieve the current global state again. We must do this in case the
+        -- call to goPartExpr above changed the global state further (e.g., in
+        -- case we have a reference to another reference).
+        globalState1 <- use $ stateTree.actFrame.gpGlobals
+
+        -- Update the global state with the new refcell pointing to the
+        -- concretized pointee value.
+        let globalState2 = updateRef rc' pe' globalState1
+        stateTree.actFrame.gpGlobals .= globalState2
 
         return rc'
 

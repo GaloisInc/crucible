@@ -18,6 +18,8 @@ This release supports [version
   not yet supported.
 * Support custom dynamically-sized types, allowing for use of types like
   `Arc<dyn Fn>`, `Box<dyn Fn>`, et al.
+* Fix a bug where concretizing reference values or `Vec` values would cause the
+  simulator to crash when attempting to read from the concretized values.
 
 # 0.10 -- 2025-03-21
 
