@@ -909,7 +909,7 @@ fn hash<H: Hash>(x: &H) -> u64 {
 }
 
 /*
-Covergae information is computed from two files:
+Coverage information is computed from two files:
   * `translation.json` contains static information about the program:
     for each function it tracks the Rust source code locations of branches,
     their targets, and also blocks that were marked as unreachable
