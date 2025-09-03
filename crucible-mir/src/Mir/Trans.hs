@@ -2098,6 +2098,8 @@ transTerminatorKind M.Abort _tpos tr =
 transTerminatorKind M.Unreachable _tpos tr = do
     recordUnreachable
     G.reportError (S.litExpr "Unreachable!!!!!")
+transTerminatorKind M.InlineAsm _tpos _tr =
+    mirFail "Inline assembly not supported"
 
 
 --- translation of toplevel glue ---
