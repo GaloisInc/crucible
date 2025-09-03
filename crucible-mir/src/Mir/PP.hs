@@ -243,6 +243,7 @@ instance Pretty TerminatorKind where
     pretty (Assert op expect _msg target1) =
       pretty "assert" <+> pretty op <+> pretty "==" <+> pretty expect
                     <+> arrow <+> pretty target1
+    pretty InlineAsm = pretty "inlineasm;"
 
 
 

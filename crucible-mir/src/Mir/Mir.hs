@@ -459,6 +459,11 @@ data TerminatorKind =
                  _aexpected :: Bool,
                  _amsg      :: AssertMessage,
                  _atarget   :: BasicBlockInfo }
+      | InlineAsm
+        -- ^ @crucible-mir@ does not support simulating inline assembly, but we
+        -- nevertheless include this as a 'TerminatorKind' so that we can
+        -- successfully translate code that mentions it. Provided that that
+        -- code is never simulated, this should work out.
       deriving (Show,Eq, Ord, Generic)
 
 data Operand =
