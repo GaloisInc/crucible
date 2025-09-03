@@ -63,7 +63,7 @@ struct BlockId(pub String);
 struct Report {
     fns: HashMap<FnId, FnReport>,
     /// Only report coverage for the functions on this crates.
-    /// If this is empty, report coverage for al crates.
+    /// If this is empty, report coverage for all crates.
     /// We use the first block in a profiling report to determine its crate.
     report_crates: Vec<String>,
 }
