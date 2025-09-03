@@ -420,7 +420,6 @@ fn strip_crate_hash(s: &str) -> Option<String>{
 fn get_crate(s: &str) -> Option<String> {
     let end = s.find('/')?;
     Some(s[..end].to_string())
-
 }
 
 /// Coverage information for an abstract branch, which may be formed by merging several concrete
