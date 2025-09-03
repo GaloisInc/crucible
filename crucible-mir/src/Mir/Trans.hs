@@ -2058,9 +2058,12 @@ transTerminator (M.Terminator tkind tpos) tr = do
 transTerminatorKind :: HasCallStack => M.TerminatorKind -> Text -> C.TypeRepr ret -> MirGenerator h s ret a
 transTerminatorKind (M.Goto bbi) _tpos _tr =
     jumpToBlock bbi
-transTerminatorKind (M.SwitchInt swop _swty svals stargs) tpos _tr | all Maybe.isJust svals = do
-    s <- evalOperand swop
-    transSwitch tpos s (Maybe.catMaybes svals) stargs
+transTerminatorKind t@(M.SwitchInt swop _swty svals stargs) tpos _tr
+  | all Maybe.isJust svals = do
+      s <- evalOperand swop
+      transSwitch tpos s (Maybe.catMaybes svals) stargs
+  | otherwise =
+      mirFail $ "SwitchInt with no values to compare: " ++ show (pretty t)
 transTerminatorKind (M.Return) _tpos tr =
     doReturn tr
 transTerminatorKind (M.Call funcOp cargs cretdest) _tpos retTy = case M.typeOf funcOp of
@@ -2095,8 +2098,6 @@ transTerminatorKind M.Abort _tpos tr =
 transTerminatorKind M.Unreachable _tpos tr = do
     recordUnreachable
     G.reportError (S.litExpr "Unreachable!!!!!")
-transTerminatorKind t _tpos _tr =
-    mirFail $ "unknown terminator: " ++ (show t)
 
 
 --- translation of toplevel glue ---
