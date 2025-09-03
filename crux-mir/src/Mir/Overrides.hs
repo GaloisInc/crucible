@@ -43,7 +43,8 @@ import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
 
 import What4.Config( getOpt, setOpt, getOptionSetting )
-import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
+import What4.Expr.GroundEval
+    (GroundValue, GroundEvalFn(..), GroundArray(..), groundToSym)
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
 import What4.Partial (PartExpr, pattern PE, pattern Unassigned)
@@ -148,7 +149,7 @@ concretize (Just (SomeOnlineSolver bak)) = do
             _ -> addFailedAssertion bak $
                    GenericSimError "path is already unreachable"
     let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
-        evalBase btr v = evalGround v >>= groundExpr sym btr
+        evalBase btr v = evalGround v >>= groundToSym sym btr
 
     RegMap (Empty :> RegEntry tpr val) <- getOverrideArgs
     x <- regEval bak (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
@@ -159,47 +160,6 @@ concretize (Just (SomeOnlineSolver bak)) = do
     return x
 
 concretize Nothing = fail "`concretize` requires an online solver backend"
-
-groundExpr ::
-    IsExprBuilder sym =>
-    sym ->
-    BaseTypeRepr tp ->
-    GroundValue tp ->
-    IO (SymExpr sym tp)
-groundExpr sym tpr v = case tpr of
-    BaseBoolRepr -> return $ if v then truePred sym else falsePred sym
-    BaseIntegerRepr -> intLit sym v
-    BaseRealRepr -> realLit sym v
-    BaseBVRepr w -> bvLit sym w v
-    BaseComplexRepr -> mkComplexLit sym v
-    BaseStringRepr _ -> stringLit sym v
-    -- TODO: this case is implemented, but always hits the `ArrayMapping` case,
-    -- which fails.  It seems like z3 always returns a function for array
-    -- instances.  Fixing this would require Crucible changes to recognize
-    -- the if/else tree used for array instances and produce `ArrayConcrete`
-    -- instead of `ArrayMapping` in that case.
-    BaseArrayRepr idxTprs tpr' -> case v of
-        ArrayMapping _ -> fail "groundExpr: can't convert array backed by function"
-        ArrayConcrete dfl vals -> do
-            dfl' <- groundExpr sym tpr' dfl
-            vals' <- mapM (\(idxs, val) -> do
-                idxs' <- Ctx.zipWithM (indexExpr sym) idxTprs idxs
-                val' <- groundExpr sym tpr' val
-                return (idxs', val')) $ Map.toList vals
-            arr0 <- constantArray sym idxTprs dfl'
-            foldM (\arr (idxs, val) -> arrayUpdate sym arr idxs val) arr0 vals'
-    _ -> throwUnsupported sym $
-              "groundExpr: conversion of " ++ show tpr ++ " is not yet implemented"
-
-indexExpr :: IsExprBuilder sym =>
-    sym ->
-    BaseTypeRepr tp ->
-    IndexLit tp ->
-    IO (SymExpr sym tp)
-indexExpr sym tpr l = case l of
-    IntIndexLit n  -> intLit sym n
-    BVIndexLit w i -> bvLit sym w i
-
 
 regEval ::
     forall sym bak tp rtp args ret p .
@@ -345,11 +305,21 @@ regEval bak baseEval tpr v = go tpr v
         halloc <- simHandleAllocator <$> use stateContext
         rc' <- liftIO $ freshRefCell halloc tpr
 
-        globalState <- use $ stateTree.actFrame.gpGlobals
-        let pe = lookupRef rc globalState
+        -- Retrieve the current global state, use it to look up the pointee
+        -- value (if it exists), and concretize the pointee value.
+        globalState0 <- use $ stateTree.actFrame.gpGlobals
+        let pe = lookupRef rc globalState0
         pe' <- goPartExpr tpr pe
-        let globalState' = updateRef rc' pe' globalState
-        stateTree.actFrame.gpGlobals .= globalState'
+
+        -- Retrieve the current global state again. We must do this in case the
+        -- call to goPartExpr above changed the global state further (e.g., in
+        -- case we have a reference to another reference).
+        globalState1 <- use $ stateTree.actFrame.gpGlobals
+
+        -- Update the global state with the new refcell pointing to the
+        -- concretized pointee value.
+        let globalState2 = updateRef rc' pe' globalState1
+        stateTree.actFrame.gpGlobals .= globalState2
 
         return rc'
 
