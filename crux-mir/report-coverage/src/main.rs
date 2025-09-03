@@ -62,6 +62,10 @@ struct BlockId(pub String);
 #[derive(Clone, Debug, Default)]
 struct Report {
     fns: HashMap<FnId, FnReport>,
+    /// Only report coverage for the functions on this crates.
+    /// If this is empty, report coverage for al crates.
+    /// We use the first block in a profiling report to determine its crate.
+    report_crates: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -91,11 +95,18 @@ fn parse_report_into(json: Value, r: &mut Report) -> Result<(), String> {
             .ok_or_else(|| format!("callgraph section has no `events` field"))?;
         let events = events.as_array()
             .ok_or_else(|| format!("expected callgraph `events` field to be an array"))?;
+        let mut first_block = true;
         for evt in events {
             let evt = evt.as_object()
                 .ok_or_else(|| format!("expected event to be an object"))?;
             if evt.get("type").map_or(false, |j| j == "BLOCK") {
                 let fn_id = event_function(evt)?;
+                if first_block {
+                    if let Some(c) = get_crate(&fn_id) {
+                        r.report_crates.push(c);
+                    }
+                }
+                first_block = false;
                 r.fns.entry(fn_id).or_insert_with(FnReport::default)
                     .visited_blocks.extend(event_blocks(evt)?);
             } else if evt.get("type").map_or(false, |j| j == "BRANCH") {
@@ -342,6 +353,10 @@ struct Coverage<'a> {
     /// source function; otherwise, every exit must be covered in every monomorphization.
     merge_functions: bool,
 
+    /// Report stats only for these crates.  If this is empty, then report for
+    /// all crates.
+    report_crates: Vec<String>,
+
     // Information about the coverage a function
     fun_cov: HashMap<&'a str, FnCoverage<'a>>
 }
@@ -351,6 +366,7 @@ impl<'a> Coverage<'a> {
         Coverage {
             merge_functions,
             fun_cov: HashMap::new(),
+            report_crates: vec!()
         }
     }
 
@@ -393,12 +409,18 @@ fn try_strip_instance<'a>(s: &'a str) -> Option<&'a str> {
 /// a hash used to avoid clashes between different compilations of the same
 /// crate.  This function tries to remove the `disambig` because we don't
 /// want to show in user facing outpus.
-fn strip_crate_hash<'a>(s: &'a str) -> Option<String>{
+fn strip_crate_hash(s: &str) -> Option<String>{
     let start = s.find('/')? + 1;
     let end = start + s[start ..].find(':')? + 1;
     let mut cs = s[end ..].chars();
     if cs.next()? != ':' { return None }
     Some(s.chars().take(start).chain(cs).collect())
+}
+
+fn get_crate(s: &str) -> Option<String> {
+    let end = s.find('/')?;
+    Some(s[..end].to_string())
+
 }
 
 /// Coverage information for an abstract branch, which may be formed by merging several concrete
@@ -797,10 +819,19 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
 
     let mut summary = vec![];
 
+    let consider = |f| {
+        if cov.report_crates.len() == 0 { return true }
+        if let Some(c) = get_crate(f) {
+            cov.report_crates.iter().any(|yes| c == *yes)
+        } else {
+            false
+        }
+    };
+
     for (fun, fn_cov) in cov.iter_sorted() {
         
-        // hacky: skip core-library or crucible functions
-        if fun.starts_with("core/") || fun.starts_with ("crucible/") { continue }
+        if !consider(fun) { continue }
+        
 
         let mut seen = 0;
         let mut tot  = 0;
@@ -944,6 +975,8 @@ fn main() {
     let default_fr = FnReport::default();
     let merge_monos = !m.is_present("no-merge-monos");
     let mut coverage = Coverage::new(merge_monos);
+    coverage.report_crates = report.report_crates;
+
     for (fn_id, ft) in trans.fns.iter() {
         let fr = report.fns.get(fn_id).unwrap_or(&default_fr);
         process(&mut coverage, fn_id, fr, ft);
