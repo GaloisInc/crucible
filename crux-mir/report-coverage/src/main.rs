@@ -669,7 +669,12 @@ impl Reporter {
         let call_stat = if called { "✅" } else { "❌" }; 
         let mut stdout = StandardStream::stdout(self.color_choice);
         stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
-        let perc = if branch_tot == 0 { if called { 100 } else { 0 } } else { 100 * branch_seen / branch_tot }; 
+        let perc =
+            if branch_tot == 0 {
+                if called { 100 } else { 0 }
+            } else {
+                100 * branch_seen / branch_tot
+            }; 
         let fun = strip_crate_hash(fun).unwrap_or_else(||fun.to_string());
         write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
 
