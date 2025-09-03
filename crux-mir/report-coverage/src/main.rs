@@ -417,6 +417,10 @@ fn strip_crate_hash(s: &str) -> Option<String>{
     Some(s.chars().take(start).chain(cs).collect())
 }
 
+
+
+/// Function names are of the form `crate/disambig::name`.  This function
+/// returns the `crate` portion of it.
 fn get_crate(s: &str) -> Option<String> {
     let end = s.find('/')?;
     Some(s[..end].to_string())
