@@ -44,6 +44,7 @@ import           Control.Exception ( SomeException, bracket_,  )
 import           Control.Lens ( Getter, view )
 import qualified Data.Aeson as JSON
 import           Data.Aeson.TH ( deriveToJSON )
+import qualified Data.List as List
 import qualified Data.Text as T
 import           Data.Text.IO as TIO ( hPutStr, hPutStrLn )
 import           Data.Version ( Version, showVersion )
@@ -59,7 +60,8 @@ import           System.IO ( Handle, hPutStr, hPutStrLn )
 
 import           Crux.Types
     ( CruxSimulationResult, ProvedGoals, SayLevel(..), SayWhat(..) )
-import           Crux.Version ( version )
+import           Crux.Version
+    ( commitBranch, commitDirty, commitHash, version )
 import           Lang.Crucible.Backend ( ProofGoal(..), ProofObligation )
 import           What4.Expr.Builder ( ExprBuilder )
 import           What4.LabeledPred ( labeledPred, labeledPredMsg )
@@ -129,7 +131,9 @@ data CruxLogMessage
   | StartedGoal Integer
   | TotalPathsExplored Word64
   | UnsupportedTimeoutFor String -- ^ name of the backend
-  | Version T.Text Version
+  | Version
+      T.Text -- ^ name of the backend
+      Version -- ^ backend-specific version
   deriving (Generic)
 
 $(deriveToJSON JSON.defaultOptions ''CruxLogMessage)
@@ -220,13 +224,23 @@ cruxLogMessageToSayWhat (UnsupportedTimeoutFor backend) =
 cruxLogMessageToSayWhat (Version nm ver) =
   cruxOK
     ( T.pack
-        ( unwords
+      ( List.intercalate
+        "\n"
+        [ unwords
             [ "version: " <> version <> ",",
               T.unpack nm,
-              "version: " <> (showVersion ver)
+              "version: " <> showVersion ver
             ]
-        )
+        , "Git commit " <> commitHash
+        , "    branch " <> commitBranch <> dirtyLab
+        ]
+      )
     )
+  where
+    dirtyLab :: String
+    dirtyLab
+      | commitDirty = " (non-committed files present during build)"
+      | otherwise = ""
 
 -- | Main function used to log/output a general text message of some kind
 say ::

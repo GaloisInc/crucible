@@ -380,6 +380,7 @@ instance FromJSON TerminatorKind where
         Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "drop_fn"
         Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination"
         Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target"
+        Just (String "InlineAsm") -> pure InlineAsm
         k -> fail $ "unsupported terminator kind" ++ show k
 
 instance FromJSON Operand where

@@ -36,6 +36,9 @@ This release supports [version
 * Implement the `size_of` and `(min_)align_of` nullary ops and intrinsics
   correctly using the layout information.
 * Support translating `Subslice` projections on slices.
+* Add basic scaffolding for representing inline assembly (e.g., using the
+  `std::arch::asm!` macro). `crucible-mir` does not support _simulating_ inline
+  assembly, but it can now translate code that uses it without crashing.
 
 # 0.4 -- 2025-03-21
 
