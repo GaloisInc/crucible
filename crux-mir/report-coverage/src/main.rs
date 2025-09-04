@@ -329,7 +329,8 @@ struct FnCoverage<'a> {
     /// Did we call this function at all
     fn_called: bool,
 
-    /// Information about the branches in the function
+    /// Information about the branches in the function.
+    /// The keys are the source spans of the branches.
     branch_cov: HashMap<&'a str, BranchCoverage>,
 }
 
@@ -340,9 +341,9 @@ impl<'a> FnCoverage<'a> {
     }
 
     pub fn iter_sorted<'b>(&'b self) -> impl Iterator<Item = (&'a str, &'b BranchCoverage)> + 'b {
-        let mut keys = self.branch_cov.keys().collect::<Vec<_>>();
-        keys.sort();
-        keys.into_iter().map(move |k| (*k, self.branch_cov.get(*k).unwrap()))
+        let mut assocs = self.branch_cov.iter().collect::<Vec<_>>();
+        assocs.sort_by_key(|x|x.0);
+        assocs.into_iter().map(|(&k,v)| (k,v))
     }
 }
 
@@ -376,9 +377,9 @@ impl<'a> Coverage<'a> {
     }
 
     pub fn iter_sorted<'b>(&'b self) -> impl Iterator<Item = (&'a str, &'b FnCoverage<'a>)> + 'b {
-        let mut keys = self.fun_cov.keys().collect::<Vec<_>>();
-        keys.sort();
-        keys.into_iter().map(move |k| (*k, self.fun_cov.get(*k).unwrap()))
+        let mut assocs = self.fun_cov.iter().collect::<Vec<_>>();
+        assocs.sort_by_key(|x| x.0);
+        assocs.into_iter().map(|(&k,v)| (k,v))
     }
 }
 
