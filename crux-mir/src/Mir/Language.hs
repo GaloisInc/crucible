@@ -647,7 +647,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                                 adt ^? adtvariants . ix i
                         case variantFields' col var of
                             Left err -> return (Left ("Type not supported: " ++ err))
-                            Right (C.Some fctx) -> do 
+                            Right (C.Some fctx) -> do
                                 Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
                                             ("when printing enum type " ++ show name)
                                 return $ Right (var, readFields fctx fields)
