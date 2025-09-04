@@ -8,6 +8,23 @@ EXT=""
 $IS_WIN && EXT=".exe"
 mkdir -p "$BIN"
 
+# Create a crux.buildinfo.json file for the benefit of the Crux Docker images.
+# (See Note [crux.buildinfo.json] in crux/src/Crux/Version.hs.)
+#
+# The first argument is the git commit, and the second argument is the git
+# branch name.
+generate_buildinfo() {
+  CI_COMMIT_SHA=$1
+  CI_COMMIT_REF_NAME=$2
+
+  jq -n \
+    --arg hash "$CI_COMMIT_SHA" \
+    --arg branch "$CI_COMMIT_REF_NAME" \
+    --argjson dirty false \
+    '{"hash": $hash, "branch": $branch, "dirty": $dirty}' \
+    > crux/crux.buildinfo.json
+}
+
 is_exe() { [[ -x "$1/$2$EXT" ]] || command -v "$2" > /dev/null 2>&1; }
 
 extract_exe() {

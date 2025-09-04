@@ -18,6 +18,7 @@ Description:
   the source language.
 
 extra-doc-files:  CHANGELOG.md
+extra-source-files: crux.buildinfo.json
 
 source-repository head
   type:     git
@@ -39,8 +40,10 @@ library
     crucible-debug,
     crucible-syntax,
     directory,
+    file-embed ^>= 0.0.16,
     filepath,
     generic-lens,
+    githash ^>= 0.1.7,
     lens,
     libBF >= 0.6 && < 0.7,
     lumberjack >= 1.0 && < 1.1,
@@ -87,6 +90,7 @@ library
     Crux.Version
 
   other-modules:
+   Crux.GitHash,
    Crux.UI.Jquery,
    Crux.UI.IndexHtml
    Paths_crux

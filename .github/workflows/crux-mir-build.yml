@@ -243,6 +243,10 @@ jobs:
         with:
           submodules: true
 
+      - name: Generate crux.buildinfo.json
+        shell: bash
+        run: .github/ci.sh generate_buildinfo "${{ github.sha }}" "${{ github.ref_name }}"
+
       - name: Clear up some disk space
         run: |
           # The crux-mir Docker image is rather large (~1GB compressed), and

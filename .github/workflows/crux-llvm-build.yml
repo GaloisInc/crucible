@@ -263,6 +263,10 @@ jobs:
         with:
           submodules: true
 
+      - name: Generate crux.buildinfo.json
+        shell: bash
+        run: .github/ci.sh generate_buildinfo "${{ github.sha }}" "${{ github.ref_name }}"
+
       - uses: rlespinasse/github-slug-action@v3.x
 
       - id: common-tag
