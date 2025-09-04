@@ -20,6 +20,9 @@ This release supports [version
   `Arc<dyn Fn>`, `Box<dyn Fn>`, et al.
 * Fix a bug where concretizing reference values or `Vec` values would cause the
   simulator to crash when attempting to read from the concretized values.
+* Add a `--test-skip-filter <string>` flag, which only runs tests whose names
+  do not contain `<string>`. This acts as a `crux-mir` analog to `cargo test`'s
+  `--skip` flag.
 
 # 0.10 -- 2025-03-21
 

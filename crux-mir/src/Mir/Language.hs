@@ -287,7 +287,10 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     let filterTests defIds = case nameFilter of
             Just x -> filter (\d -> x `Text.isInfixOf` idText d) defIds
             Nothing -> defIds
-    let testNames = List.sort $ filterTests $ col ^. roots
+    let filterSkipTests defIds = case testSkipFilter mirOpts of
+            Just x -> filter (\d -> not (x `Text.isInfixOf` idText d)) defIds
+            Nothing -> defIds
+    let testNames = List.sort $ filterTests $ filterSkipTests $ col ^. roots
 
     -- The output for each test looks like:
     --      test foo::bar1: ok
@@ -486,6 +489,7 @@ data MIROptions = MIROptions
     -- and attempt to explore all interleaving executions
     , concurrency :: Bool
     , testFilter   :: Maybe Text
+    , testSkipFilter :: Maybe Text
     , cargoTestFile :: Maybe FilePath
     , defaultRlibsDir :: FilePath
     -- ^ Directory to search for builds of `crux-mir`'s custom standard
@@ -503,6 +507,7 @@ defaultMirOptions = MIROptions
     , concurrency = False
     , printResultOnly = False
     , testFilter = Nothing
+    , testSkipFilter = Nothing
     , cargoTestFile = Nothing
     , defaultRlibsDir = "rlibs"
     }
@@ -539,6 +544,10 @@ mirConfig = Crux.Config
         , GetOpt.Option []  ["test-filter"]
             "run only tests whose names contain this string"
             (GetOpt.ReqArg "string" (\v opts -> Right opts { testFilter = Just $ Text.pack v }))
+
+        , GetOpt.Option []  ["test-skip-filter"]
+            "run only tests whose names do not contain this string"
+            (GetOpt.ReqArg "string" (\v opts -> Right opts { testSkipFilter = Just $ Text.pack v }))
 
         , GetOpt.Option []  ["cargo-test-file"]
             "treat trailing args as --test-filter instead of FILES, like `cargo test`; load program from this file instead (used by `cargo crux test`)"
