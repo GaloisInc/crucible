@@ -1,42 +1,7 @@
 warning: branch condition never has value true
-    ┌─ ./libs/core/src/num/int_macros.rs:547:16
-    │
-547 │             if intrinsics::unlikely(b) { None } else { Some(a) }
-    │                ^^^^^^^^^^^^^^^^^^^^^^^
-    │
-    ┌─ ./libs/core/src/num/mod.rs:284:5
-    │  
-284 │ ╭     int_impl! {
-285 │ │         Self = i32,
-286 │ │         ActualT = i32,
-287 │ │         UnsignedT = u32,
-288 │ │         BITS = 32,
-289 │ │         BITS_MINUS_ONE = 31,
-290 │ │         Min = -2147483648,
-291 │ │         Max = 2147483647,
-292 │ │         rot = 8,
-293 │ │         rot_op = "0x10000b3",
-294 │ │         rot_result = "0xb301",
-295 │ │         swap_op = "0x12345678",
-296 │ │         swapped = "0x78563412",
-297 │ │         reversed = "0x1e6a2c48",
-298 │ │         le_bytes = "[0x78, 0x56, 0x34, 0x12]",
-299 │ │         be_bytes = "[0x12, 0x34, 0x56, 0x78]",
-300 │ │         to_xe_bytes_doc = "",
-301 │ │         from_xe_bytes_doc = "",
-302 │ │         bound_condition = "",
-303 │ │     }
-    │ ╰─────' in this macro invocation
-
-warning: branch condition never has value 0
-     ┌─ ./libs/core/src/option.rs:1060:9
-     │
-1060 │         match self {
-     │         ^^^^^^^^^^
-
-warning: branch condition never has value true
    ┌─ test/coverage/coverage_loop.rs:12:19
    │
 12 │         } else if i > 99 {
    │                   ^^^^^^
 
+✅  87% coverage_loop/crux_test[0]: 7/8

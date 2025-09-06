@@ -290,7 +290,11 @@ data Collection = Collection {
     -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
     -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
     _langItems :: !(Map DefId DefId),
-    _roots     :: !([MethName])
+    -- | The roots of all things that were translated
+    _roots     :: ![MethName],
+    -- | The subset of roots that was marked as tests to execute
+    _tests     :: ![MethName]
+
 } deriving (Show, Eq, Ord, Generic)
 
 data Intrinsic = Intrinsic

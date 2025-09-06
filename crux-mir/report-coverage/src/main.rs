@@ -62,6 +62,10 @@ struct BlockId(pub String);
 #[derive(Clone, Debug, Default)]
 struct Report {
     fns: HashMap<FnId, FnReport>,
+    /// Only report coverage for the functions on this crates.
+    /// If this is empty, report coverage for all crates.
+    /// We use the first block in a profiling report to determine its crate.
+    report_crates: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -91,11 +95,18 @@ fn parse_report_into(json: Value, r: &mut Report) -> Result<(), String> {
             .ok_or_else(|| format!("callgraph section has no `events` field"))?;
         let events = events.as_array()
             .ok_or_else(|| format!("expected callgraph `events` field to be an array"))?;
+        let mut first_block = true;
         for evt in events {
             let evt = evt.as_object()
                 .ok_or_else(|| format!("expected event to be an object"))?;
             if evt.get("type").map_or(false, |j| j == "BLOCK") {
                 let fn_id = event_function(evt)?;
+                if first_block {
+                    if let Some(c) = get_crate(&fn_id) {
+                        r.report_crates.push(c);
+                    }
+                }
+                first_block = false;
                 r.fns.entry(fn_id).or_insert_with(FnReport::default)
                     .visited_blocks.extend(event_blocks(evt)?);
             } else if evt.get("type").map_or(false, |j| j == "BRANCH") {
@@ -312,54 +323,68 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
     }
 }
 
+/// Info about the coverage of a funcion
+#[derive(Default)]
+struct FnCoverage<'a> {
+    /// Did we call this function at all
+    fn_called: bool,
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-struct CoverageKey<'a> {
-    fn_id: &'a str,
-    branch_span: &'a str,
+    /// Information about the branches in the function.
+    /// The keys are the source spans of the branches.
+    branch_cov: HashMap<&'a str, BranchCoverage>,
 }
+
+impl<'a> FnCoverage<'a> {
+
+    pub fn branch(&mut self, span: &'a str) -> &mut BranchCoverage {
+        self.branch_cov.entry(span).or_insert_with(||BranchCoverage::default())
+    }
+
+    pub fn iter_sorted<'b>(&'b self) -> impl Iterator<Item = (&'a str, &'b BranchCoverage)> + 'b {
+        let mut assocs = self.branch_cov.iter().collect::<Vec<_>>();
+        assocs.sort_by_key(|x|x.0);
+        assocs.into_iter().map(|(&k,v)| (k,v))
+    }
+}
+
 
 struct Coverage<'a> {
     /// Whether to merge multiple monomorphized instances of a function when computing coverage.
     /// If set, then an exit is considered covered if it is covered in any monomorphization of the
     /// source function; otherwise, every exit must be covered in every monomorphization.
     merge_functions: bool,
-    branches: HashMap<CoverageKey<'a>, BranchCoverage>,
+
+    /// Report stats only for these crates.  If this is empty, then report for
+    /// all crates.
+    report_crates: Vec<String>,
+
+    // Information about the coverage a function
+    fun_cov: HashMap<&'a str, FnCoverage<'a>>
 }
 
 impl<'a> Coverage<'a> {
     pub fn new(merge_functions: bool) -> Coverage<'a> {
         Coverage {
             merge_functions,
-            branches: HashMap::new(),
+            fun_cov: HashMap::new(),
+            report_crates: vec!()
         }
     }
 
-    fn key(&self, fn_id: &'a FnId, span: &'a str) -> CoverageKey<'a> {
-        CoverageKey {
-            fn_id: if self.merge_functions {
-                strip_instance(fn_id)
-            } else {
-                fn_id as &str
-            },
-            branch_span: span,
-        }
+    pub fn fun<'b>(&'b mut self, fn_id: &'a FnId) -> &'b mut FnCoverage<'a> {
+        let k = if self.merge_functions { strip_instance(fn_id) } else { fn_id };
+        self.fun_cov.entry(k).or_insert_with(||FnCoverage::default())
     }
 
-    pub fn branch(&mut self, fn_id: &'a FnId, span: &'a str) -> &mut BranchCoverage {
-        let key = self.key(fn_id, span);
-        self.branches.entry(key).or_insert_with(BranchCoverage::default)
-    }
-
-    pub fn iter_sorted<'b>(&'b self) -> impl Iterator<Item = (&'a str, &'b BranchCoverage)> + 'b {
-        let mut keys = self.branches.keys().collect::<Vec<_>>();
-        keys.sort();
-        keys.into_iter().map(move |k| (k.branch_span, self.branches.get(k).unwrap()))
+    pub fn iter_sorted<'b>(&'b self) -> impl Iterator<Item = (&'a str, &'b FnCoverage<'a>)> + 'b {
+        let mut assocs = self.fun_cov.iter().collect::<Vec<_>>();
+        assocs.sort_by_key(|x| x.0);
+        assocs.into_iter().map(|(&k,v)| (k,v))
     }
 }
 
 /// If `s` ends with something that looks like a monomorphized instance disambiguator
-/// (`::inst0123456789abcdef[0]`), then remove that suffix.  If no such suffix is present, `s` is
+/// (`::_inst0123456789abcdef[0]`), then remove that suffix.  If no such suffix is present, `s` is
 /// returned unchanged.
 fn strip_instance<'a>(s: &'a str) -> &'a str {
     try_strip_instance(s).unwrap_or(s)
@@ -379,6 +404,27 @@ fn try_strip_instance<'a>(s: &'a str) -> Option<&'a str> {
         return None;
     }
     Some(&s[..colon_colon])
+}
+
+/// Function names are of the form `crate/disambig::name`, `disambig` is
+/// a hash used to avoid clashes between different compilations of the same
+/// crate.  This function tries to remove the `disambig` because we don't
+/// want to show in user facing outpus.
+fn strip_crate_hash(s: &str) -> Option<String>{
+    let start = s.find('/')? + 1;
+    let end = start + s[start ..].find(':')? + 1;
+    let mut cs = s[end ..].chars();
+    if cs.next()? != ':' { return None }
+    Some(s.chars().take(start).chain(cs).collect())
+}
+
+
+
+/// Function names are of the form `crate/disambig::name`.  This function
+/// returns the `crate` portion of it.
+fn get_crate(s: &str) -> Option<String> {
+    let end = s.find('/')?;
+    Some(s[..end].to_string())
 }
 
 /// Coverage information for an abstract branch, which may be formed by merging several concrete
@@ -403,10 +449,18 @@ struct BranchCoverage {
     pub is_boolean: bool,
 }
 
+impl BranchCoverage {
+    fn visited(&self) -> bool {
+        self.default_seen || self.seen.len() > 0
+    }
+}
+
 fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, trans: &'a FnTrans) {
     // Maps (branch ID, dest index) to the Core `BlockId` of the destination.
     let mut dest_map: HashMap<(u32, usize), BlockId> = HashMap::new();
     let mut visited_branches = HashSet::new();
+    let fn_cov = cov.fun(fn_id);
+    fn_cov.fn_called = !report.visited_blocks.is_empty();
 
     fn insert_dest(
         fn_id: &FnId,
@@ -460,11 +514,11 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
         }
     }
 
-
-    let mut branch_ids = visited_branches.into_iter().collect::<Vec<_>>();
-    branch_ids.sort();
-    for branch_id in branch_ids {
-        let bt = &trans.branches[branch_id as usize];
+    // We go over all branches rather than just the visited ones, so
+    // we can report full stats about the coverage of a function.
+    for (branch_id_32, bt) in trans.branches.iter().enumerate() {
+        let branch_id = branch_id_32 as u32;
+        let visited = visited_branches.contains(&branch_id);
 
         let dest_visited = |index| {
             let block_id = match dest_map.get(&(branch_id, index)) {
@@ -480,7 +534,7 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
 
         match *bt {
             BranchTrans::Bool(_, ref span) => {
-                let bcov = cov.branch(fn_id, span);
+                let bcov = fn_cov.branch(span);
                 bcov.is_boolean = true;
                 // The entries in `possible` and `seen` are discriminant values (0/false or
                 // 1/true), not indices.  In a boolean branch, the exit at index 0 is the true/1
@@ -491,16 +545,16 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
                 if !dest_unreachable(1) {
                     bcov.possible.insert(0);
                 }
-                if dest_visited(0) {
+                if visited && dest_visited(0) {
                     bcov.seen.insert(1);
                 }
-                if dest_visited(1) {
+                if visited && dest_visited(1) {
                     bcov.seen.insert(0);
                 }
             },
 
             BranchTrans::Int(ref vals, ref dests, ref span) => {
-                let bcov = cov.branch(fn_id, span);
+                let bcov = fn_cov.branch(span);
                 for i in 0 .. dests.len() {
                     // If this destination is `Unreachable`, don't complain that the edge wasn't
                     // taken.  Branches to unreachable blocks are generated in exhaustive `match`
@@ -516,7 +570,7 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
                         bcov.default_possible = true;
                     }
 
-                    if dest_visited(i) {
+                    if visited && dest_visited(i) {
                         if i < vals.len() {
                             bcov.seen.insert(vals[i]);
                         } else {
@@ -610,6 +664,30 @@ impl Reporter {
             seen: HashSet::new(),
             color_choice,
         }
+    }
+
+    fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) {
+        use std::io::Write;
+        use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
+
+
+        let call_stat = if called { "✅" } else { "❌" }; 
+        let mut stdout = StandardStream::stdout(self.color_choice);
+        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+        let perc =
+            if branch_tot == 0 {
+                if called { 100 } else { 0 }
+            } else {
+                100 * branch_seen / branch_tot
+            }; 
+        let fun = strip_crate_hash(fun).unwrap_or_else(||fun.to_string());
+        write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
+
+        let color =
+          if called && branch_seen == branch_tot { Color::Green } else { Color::Yellow };
+
+        stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
+        writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
     }
 
     fn warn(&mut self, span: &str, msg: impl Display) {
@@ -747,35 +825,84 @@ impl Filter {
 
 
 fn report_all(reporter: &mut Reporter, cov: &Coverage) {
-    for (span, bcov) in cov.iter_sorted() {
-        let is_boolean = bcov.is_boolean &&
-            bcov.possible.iter().all(|&x| x == 0 || x == 1) &&
-            !bcov.default_possible;
-        if is_boolean {
-            if !bcov.seen.contains(&0) {
-                reporter.warn(span, "branch condition never has value false");
-            }
-            if !bcov.seen.contains(&1) {
-                reporter.warn(span, "branch condition never has value true");
-            }
-            continue;
-        }
 
-        let mut possible = bcov.possible.iter().cloned().collect::<Vec<_>>();
-        possible.sort();
-        for &val in &possible {
-            if !bcov.seen.contains(&val) {
-                reporter.warn(span, format_args!("branch condition never has value {}", val));
+    let mut summary = vec![];
+
+    let consider = |f| {
+        if cov.report_crates.len() == 0 { return true }
+        if let Some(c) = get_crate(f) {
+            cov.report_crates.iter().any(|yes| c == *yes)
+        } else {
+            false
+        }
+    };
+
+    for (fun, fn_cov) in cov.iter_sorted() {
+        
+        if !consider(fun) { continue }
+        
+
+        let mut seen = 0;
+        let mut tot  = 0;
+
+        for (span, bcov) in fn_cov.iter_sorted() {
+            let is_boolean = bcov.is_boolean &&
+                bcov.possible.iter().all(|&x| x == 0 || x == 1) &&
+                !bcov.default_possible;
+ 
+            if is_boolean {
+                tot += 2;
+
+                if !bcov.seen.contains(&0) {
+                    if bcov.visited() { reporter.warn(span, "branch condition never has value false"); }
+                } else {
+                    seen += 1;
+                }
+                if !bcov.seen.contains(&1) {
+                    if bcov.visited() { reporter.warn(span, "branch condition never has value true"); }
+                } else {
+                    seen += 1;
+                }
+                continue;
+            }
+
+            let mut possible = bcov.possible.iter().cloned().collect::<Vec<_>>();
+            possible.sort();
+
+            tot += possible.len();
+            if bcov.default_possible { tot += 1; }
+
+            for &val in &possible {
+
+                if bcov.seen.contains(&val) {
+                    seen += 1;
+                }
+                else {
+                    if bcov.visited() { reporter.warn(span, format_args!("branch condition never has value {}", val)); }
+                }
+            }
+
+            if bcov.default_possible {
+                if bcov.default_seen {
+                    seen += 1;
+                } else {
+                    if bcov.visited() {
+                        reporter.warn(
+                            span,
+                            format_args!("branch condition never has a value other than {:?}", possible)
+                        );
+                    }
+                }
             }
         }
-
-        if bcov.default_possible && !bcov.default_seen {
-            reporter.warn(
-                span,
-                format_args!("branch condition never has a value other than {:?}", possible),
-            );
-        }
+        summary.push((fun, fn_cov.fn_called, seen, tot));
     }
+
+
+    for (fun, called, seen,tot) in summary.into_iter() {
+        reporter.coverage_stats(fun, called, seen, tot);
+    }
+    
 }
 
 
@@ -785,6 +912,15 @@ fn hash<H: Hash>(x: &H) -> u64 {
     x.hash(&mut hasher);
     hasher.finish()
 }
+
+/*
+Coverage information is computed from two files:
+  * `translation.json` contains static information about the program:
+    for each function it tracks the Rust source code locations of branches,
+    their targets, and also blocks that were marked as unreachable
+  * `report_data.js` contains dynamic information about blocks visited by
+    the simluator.
+*/
 
 fn main() {
     let m = parse_args();
@@ -845,11 +981,13 @@ fn main() {
         },
     };
 
-    let default_ft = FnTrans::default();
+    let default_fr = FnReport::default();
     let merge_monos = !m.is_present("no-merge-monos");
     let mut coverage = Coverage::new(merge_monos);
-    for (fn_id, fr) in report.fns.iter() {
-        let ft = trans.fns.get(fn_id).unwrap_or(&default_ft);
+    coverage.report_crates = report.report_crates;
+
+    for (fn_id, ft) in trans.fns.iter() {
+        let fr = report.fns.get(fn_id).unwrap_or(&default_fr);
         process(&mut coverage, fn_id, fr, ft);
     }
 

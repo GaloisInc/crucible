@@ -4,3 +4,4 @@ warning: branch condition never has a value other than [0]
 9 │     if x == 0 || x == 1 {
   │        ^^^^^^
 
+✅  25% coverage_shortcircuit/crux_test[0]: 1/4

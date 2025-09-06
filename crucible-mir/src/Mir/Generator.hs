@@ -342,7 +342,16 @@ instance Aeson.ToJSON BranchTransInfo where
 -- parameter to a bunch of things.
 data FnTransInfo = FnTransInfo
     { _ftiBranches :: Seq BranchTransInfo
+      -- ^ Information about branches in the function
+      -- (location in the original source, branch targets etc)
+      -- Note that the order of the sequence is important, because during
+      -- profiling we refer to branches by their index in this sequence.
+
     , _ftiUnreachable :: Set Text
+      -- ^ These are basic blocks that have been marked as unreachable.
+      -- That can happen as the "default" case for a `match` where
+      -- all the cases were handled, for example.
+
     }
   deriving (Generic)
 

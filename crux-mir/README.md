@@ -49,7 +49,7 @@ Next, navigate to the `crucible/dependencies/mir-json` directory. Install
 [the `mir-json` README][mir-json-readme].
 
 Currently, `crux-mir` supports [version
-3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
+4](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#4) of
 `mir-json`'s schema. Note that the schema versions produced by `mir-json` can
 change over time as dictated by internal requirements and upstream changes. To
 help smooth this over:
@@ -143,32 +143,33 @@ To compile and test a single Rust program:
   ```
 
   Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works. And `$YOUR_CRATE_NAME` is the `name` specified in the crate's `Cargo.toml` file.
-* This will report all paths not covered, including ones from the standard library, for example:
+
+  It is also possible to run `report-coverage` with multiple input files, in which case you will
+  get the combined coverge from all tests.  For example:
   ```
-  warning: branch condition never has value true
-    ┌─ ./libs/core/src/ub_checks.rs:1:1
-    │
-  1 │
-    │ ^
-    │
-    ┌─ ./libs/core/src/num/mod.rs:1:1
-    │
-  1 │
-    │ - in this macro invocation
+  find ./test-coverage -name 'report_data.js' | xargs cargo run --manifest-path $COV_REP --
+  ```
+  where `COV_REP` is the path to `report-coverage` as above.
 
-  warning: branch condition never has value true
-    ┌─ ./libs/core/src/ub_checks.rs:1:1
-    │
-  1 │
-    │ ^
-
+* This will report all paths not covered, for example:
+  ```
   warning: branch condition never has value false
-    ┌─ lib.rs:43:13
-    │
+     ┌─ lib.rs:43:13
+     │
   43 │     assert!(a == b);
-    │             ^^^^^^
-
+     │             ^^^^^^
+  
+  ✅ 100% example_1/ffs_fast[0]: 10/10
+  ✅ 100% example_1/ffs_ref[0]: 4/4
+  ✅  50% example_1/test_ffs_correct[0]: 1/2
   ```
+  In addition to warnings about uncovered paths, we generate statistics about
+  the coverage for each function.   A green checkmark (✅) indicates that a
+  function was called during symbolic execution, while a red cross (❌) indicates
+  that a function was not visited at all.  For each function we also report
+  how many of the alternatives of all branches were visited, which is also
+  summarized as a percantage.
+
 * To limit the coverage only to the code in your crate, use `--filter` to point the tool to the file you want to analyze. Then you get a more condensed output, for example:
   ```
   $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- --filter test.rs test-coverage/test/62f2dedb\:\:f\[0\]/report_data.js

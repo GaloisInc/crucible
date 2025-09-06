@@ -290,7 +290,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     let filterSkipTests defIds = case testSkipFilter mirOpts of
             Just x -> filter (\d -> not (x `Text.isInfixOf` idText d)) defIds
             Nothing -> defIds
-    let testNames = List.sort $ filterTests $ filterSkipTests $ col ^. roots
+    let testNames = List.sort $ filterTests $ filterSkipTests $ col ^. tests
 
     -- The output for each test looks like:
     --      test foo::bar1: ok
