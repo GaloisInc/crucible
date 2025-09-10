@@ -418,8 +418,11 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             -- It's a bit redundant to emit the entire crate's translation
             -- metadata for each test, but we do it anyway.  This keeps us from
             -- overwriting the metadata when multiple tests are run with the
-            -- same `outDir`.
+            -- same `outDir`. 
             Aeson.encodeFile path (mir ^. rmTransInfo)
+
+            let testFile = Crux.outDir cruxOpts' </> "tests.json"
+            Aeson.encodeFile testFile (map idText testNames)
 
         res <- Crux.runSimulatorWithUserState initS cruxOpts' $ simCallbacks fnName
         when (not $ printResultOnly mirOpts) $ do

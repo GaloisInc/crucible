@@ -62,10 +62,6 @@ struct BlockId(pub String);
 #[derive(Clone, Debug, Default)]
 struct Report {
     fns: HashMap<FnId, FnReport>,
-    /// Only report coverage for the functions on this crates.
-    /// If this is empty, report coverage for all crates.
-    /// We use the first block in a profiling report to determine its crate.
-    report_crates: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -95,18 +91,12 @@ fn parse_report_into(json: Value, r: &mut Report) -> Result<(), String> {
             .ok_or_else(|| format!("callgraph section has no `events` field"))?;
         let events = events.as_array()
             .ok_or_else(|| format!("expected callgraph `events` field to be an array"))?;
-        let mut first_block = true;
+
         for evt in events {
             let evt = evt.as_object()
                 .ok_or_else(|| format!("expected event to be an object"))?;
             if evt.get("type").map_or(false, |j| j == "BLOCK") {
                 let fn_id = event_function(evt)?;
-                if first_block {
-                    if let Some(c) = get_crate(&fn_id) {
-                        r.report_crates.push(c);
-                    }
-                }
-                first_block = false;
                 r.fns.entry(fn_id).or_insert_with(FnReport::default)
                     .visited_blocks.extend(event_blocks(evt)?);
             } else if evt.get("type").map_or(false, |j| j == "BRANCH") {
@@ -356,18 +346,18 @@ struct Coverage<'a> {
 
     /// Report stats only for these crates.  If this is empty, then report for
     /// all crates.
-    report_crates: Vec<String>,
+    report_crates: HashSet<String>,
 
     // Information about the coverage a function
     fun_cov: HashMap<&'a str, FnCoverage<'a>>
 }
 
 impl<'a> Coverage<'a> {
-    pub fn new(merge_functions: bool) -> Coverage<'a> {
+    pub fn new(merge_functions: bool, crates: HashSet<String>) -> Coverage<'a> {
         Coverage {
             merge_functions,
             fun_cov: HashMap::new(),
-            report_crates: vec!()
+            report_crates: crates
         }
     }
 
@@ -944,10 +934,12 @@ fn main() {
     let mut report = Report::default();
     let mut trans = None;
     let mut trans_hash = None;
+    let mut top_crates = HashSet::new();
 
     for report_path_str in m.values_of_os("input").unwrap() {
         let report_path = Path::new(report_path_str);
         let trans_path = report_path.with_file_name("translation.json");
+        let tests_path = report_path.with_file_name("tests.json");
 
         let report_bytes = fs::read(report_path).unwrap();
         let idx0 = report_bytes.iter().position(|&x| x == b'(').unwrap() + 1;
@@ -957,6 +949,16 @@ fn main() {
 
         parse_report_into(report_json, &mut report).unwrap();
 
+        let tests_bytes = fs::read(tests_path).unwrap();
+        let tests_json: Value = serde_json::from_slice(&tests_bytes).unwrap();
+        drop(tests_bytes);
+        for x in tests_json.as_array().unwrap().iter() {
+            let fun = x.as_str().unwrap();
+            if let Some(c) = get_crate(fun) {
+              top_crates.insert(c);
+            }
+        }
+        
         let trans_bytes = fs::read(trans_path).unwrap();
         let cur_trans_hash = hash(&trans_bytes);
         if let Some(old_trans_hash) = trans_hash {
@@ -983,8 +985,7 @@ fn main() {
 
     let default_fr = FnReport::default();
     let merge_monos = !m.is_present("no-merge-monos");
-    let mut coverage = Coverage::new(merge_monos);
-    coverage.report_crates = report.report_crates;
+    let mut coverage = Coverage::new(merge_monos, top_crates);
 
     for (fn_id, ft) in trans.fns.iter() {
         let fr = report.fns.get(fn_id).unwrap_or(&default_fr);
