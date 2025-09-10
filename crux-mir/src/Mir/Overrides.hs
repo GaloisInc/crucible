@@ -56,7 +56,7 @@ import Lang.Crucible.Backend
     ( CrucibleAssumption(..), IsSymBackend, addAssumption
     , assert, getPathCondition, addFailedAssertion, IsSymInterface
     , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym
-    , throwUnsupported )
+    , throwUnsupported, LabeledPred(..), addProofObligation )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType)
 import Lang.Crucible.FunctionHandle
@@ -140,24 +140,46 @@ concretize (Just (SomeOnlineSolver bak)) = do
     -- enable online solving to concretize
     _ <- liftIO $ setOpt enabledOpt True
 
+    -- If the current path condition is satisfiable, retrieve the underlying
+    -- model to use for concretizing symbolic values.
     let onlineDisabled = panic "concretize" ["requires online solving to be enabled"]
-    GroundEvalFn evalGround <- liftIO $ withSolverProcess bak onlineDisabled $ \sp -> do
+    mbGroundEval <- liftIO $ withSolverProcess bak onlineDisabled $ \sp -> do
         cond <- getPathCondition bak
         result <- checkWithAssumptionsAndModel sp "concretize" [cond]
         case result of
-            Sat f -> return f
-            _ -> addFailedAssertion bak $
-                   GenericSimError "path is already unreachable"
-    let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
-        evalBase btr v = evalGround v >>= groundToSym sym btr
+            Sat f -> pure $ Just f
+            _ -> pure Nothing
 
     RegMap (Empty :> RegEntry tpr val) <- getOverrideArgs
-    x <- regEval bak (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
+
+    res <-
+      case mbGroundEval of
+        -- If the current path condition is satisfiable, concretize the
+        -- argument and return it.
+        Just (GroundEvalFn evalGround) -> do
+          let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
+              evalBase btr v = evalGround v >>= groundToSym sym btr
+
+          regEval bak (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
+
+        -- If the current path condition is not satisfiable, then return the
+        -- original argument unchanged. This is fine to do since the path will
+        -- be deemed unreachable anyway.
+        --
+        -- To be on the safe side, we also emit a failing proof goal. Note that
+        -- we don't want to simply abort here, since doing so might cause the
+        -- current assumption frame to become unbalanced (#1526). Instead, we
+        -- do everything that 'addFailedAssertion' does /besides/ aborting.
+        Nothing -> do
+          loc <- liftIO $ getCurrentProgramLoc sym
+          let err = SimError loc "path is already unreachable"
+          liftIO $ addProofObligation bak (LabeledPred (falsePred sym) err)
+          pure val
 
     -- restore the previous setting of the online backend
     _ <- liftIO $ setOpt enabledOpt wasEnabled
 
-    return x
+    pure res
 
 concretize Nothing = fail "`concretize` requires an online solver backend"
 

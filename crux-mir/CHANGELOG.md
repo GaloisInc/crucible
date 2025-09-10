@@ -23,6 +23,8 @@ This release supports [version
 * Add a `--test-skip-filter <string>` flag, which only runs tests whose names
   do not contain `<string>`. This acts as a `crux-mir` analog to `cargo test`'s
   `--skip` flag.
+* Fix a bug that could cause the `crucible::concretize` function to crash Crux
+  when using the `bitwuzla`, `cvc4`, or `cvc5` solvers.
 
 # 0.10 -- 2025-03-21
 
