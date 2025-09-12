@@ -407,7 +407,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     results <- forM testNames $ \fnName -> do
         let cruxOpts' = cruxOpts {
                 Crux.outDir = if Crux.outDir cruxOpts == "" then ""
-                    else Crux.outDir cruxOpts </> show fnName
+                    else Crux.outDir cruxOpts </> caseSensitiveTag (show fnName)
             }
 
         -- When profiling Crucible evaluation, also save metadata about the
@@ -476,6 +476,25 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
       else
         return ExitSuccess
 
+-- | Add a prefix to the string, that will be different depending on the
+-- cases of the letters.  We use it to avoid name collision on case
+-- insensitive file systems.
+caseSensitiveTag :: String -> String
+caseSensitiveTag f = tag f ++ "_" ++ f
+  where
+  tag = map (toChar . toNum) . chunk . map Char.isUpper . filter Char.isAlpha
+  chunk xs = 
+    case splitAt 5 xs of
+      ([],_)  -> []
+      (as,bs) -> as : chunk bs
+  toNum = List.foldl' addBit 0
+  toChar n 
+    | n < 26    = toEnum (fromEnum 'a' + n)
+    | otherwise = toEnum (fromEnum '0' + (n - 26))
+  addBit n x = 
+    let n' = 2 * n 
+    in if x then n' + 1 else n'
+    
 
 
 
