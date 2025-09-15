@@ -480,7 +480,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
 -- cases of the letters.  We use it to avoid name collision on case
 -- insensitive file systems.
 caseSensitiveTag :: String -> String
-caseSensitiveTag f = tag f ++ "_" ++ f
+caseSensitiveTag f = f ++ "#" ++ tag f
   where
   tag = map (toChar . toNum) . chunk . map Char.isUpper . filter Char.isAlpha
   chunk xs = 
