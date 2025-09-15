@@ -323,6 +323,9 @@ canInitialize col ty = case ty of
     M.TyClosure _ -> True
     M.TyAdt _ _ _
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
+      | Just adt <- tyAdtDef col ty
+      , M.Union <- adt ^. M.adtkind ->
+        False
       | otherwise -> True
     -- Others
     M.TyArray _ _ -> True
