@@ -293,7 +293,7 @@ tyToReprM ty = do
     Left err -> mirFail ("tyToRepr: " ++ err)
 
 -- Checks whether a type can be default-initialized.  Any time this returns
--- `True`, `Trans.initialValue` must also return `Just`.  Non-initializable ADT
+-- `True`, `initialValue` must also return `Just`.  Non-initializable ADT
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
