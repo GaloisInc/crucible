@@ -303,7 +303,7 @@ tyToReprM ty = do
     Right repr -> return repr
     Left err -> mirFail ("tyToRepr: " ++ err)
 
--- Checks whether a type can be default-initialized.  Any time this returns
+-- | Checks whether a type can be default-initialized.  Any time this returns
 -- `True`, `initialValue` must also return `Just`.  Non-initializable ADT
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Collection -> M.Ty -> Bool
