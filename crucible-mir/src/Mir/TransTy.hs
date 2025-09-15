@@ -236,7 +236,9 @@ tyToRepr col t0 = case t0 of
         -- signatures mentioning union types without crashing during MIR
         -- translation (e.g., in Mir.Trans.mkHandleMap).
         --
-        -- See #1429 for the larger issue of properly supporting union types.
+        -- See #1429 for the larger issue of properly supporting union types,
+        -- and see `Mir.Trans.evalRval` for a related hack to help "support"
+        -- unions.
         Right (Some C.AnyRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
