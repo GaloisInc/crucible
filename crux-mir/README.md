@@ -180,6 +180,23 @@ To compile and test a single Rust program:
     │        ^
   ```
 
+### Symbolic profiling
+
+`crux-mir` support symbolic profiling, i.e., displaying profiling information for symbolic execution. This information can be useful to see if a particular proof or test is taking an outsized amount of time, and to understand the execution profile. `crux-mir` uses [`sympro-ui`](https://github.com/GaloisInc/sympro-ui) for visualization of the traces.
+
+In order to record a profiling trace, run `crux-mir` with the arguments `--branch-coverage --path-sat --output-directory test-coverage --profile-crucible --profile-solver --skip-report` to generate the necessary profiling events. The full command would be:
+
+```
+$ cargo crux-test --lib -- --branch-coverage --path-sat --output-directory test-coverage --profile-crucible --profile-solver --skip-report
+```
+
+This will generate a `report_data.js` file that can be fed into the [`sympro-ui`](https://github.com/GaloisInc/sympro-ui) tool. An example of a more complicated `crux-mir` proof for a SHA2 implementation is shown below:
+
+![symbolic profile](./crux-mir-symbolic-profiling.png)
+
+`_start` is a dummy name that Crucible assigns to the entrypoint to symbolic execution. First, `crux-mir` performs symbolic execution and generates a number of proof goals, generally corresponding to the `crux::test` proofs.
+
+The second part of the `crux-mir` invocation, under the `<Prove Goals>` label, is attempting to discharge the proof goals to an SMT solver. Because the SMT solvers are external subprocesses, `crux-mir` does not have much profiling information besides the total duration.
 
 ## Examples
 
