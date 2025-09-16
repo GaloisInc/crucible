@@ -139,10 +139,10 @@ To compile and test a single Rust program:
   ```
 * In your crate, run the following command, pointing it towards the `report-coverage` folder in `crucible` directory, which contains the coverage script. You will need to point to a directory in the `test-coverage` folder that contains a function's coverage report data (`report_data.js`):
   ```
-  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- test-coverage/$YOUR_CRATE_NAME$/62f2dedb\:\:f\[0\]/report_data.js
+  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- test-coverage/$YOUR_CRATE_NAME$/62f2dedb\:\:f\[0\]#aaa/report_data.js
   ```
 
-  Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works. And `$YOUR_CRATE_NAME` is the `name` specified in the crate's `Cargo.toml` file.
+  Note that the `62f2dedb` part of this path will likely be different on your machine due to how `mir-json` works. And `$YOUR_CRATE_NAME` is the `name` specified in the crate's `Cargo.toml` file.  The `#a` suffix is a tag derived from the crate and function name to avoid name collisions on case insensitive file systems.
 
   It is also possible to run `report-coverage` with multiple input files, in which case you will
   get the combined coverge from all tests.  For example:
@@ -172,7 +172,7 @@ To compile and test a single Rust program:
 
 * To limit the coverage only to the code in your crate, use `--filter` to point the tool to the file you want to analyze. Then you get a more condensed output, for example:
   ```
-  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- --filter test.rs test-coverage/test/62f2dedb\:\:f\[0\]/report_data.js
+  $ cargo run --manifest-path $PATH_TO_CRUCIBLE_REPO/report-coverage/Cargo.toml -- --filter test.rs test-coverage/test/62f2dedb\:\:f\[0\]#a/report_data.js
   warning: branch condition never has value false
     ┌─ test.rs:2:8
     │
