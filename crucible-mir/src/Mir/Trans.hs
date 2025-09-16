@@ -1364,8 +1364,23 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
             case adt^.adtkind of
                 M.Struct -> buildStruct adt es
                 M.Enum _ -> buildEnum adt (fromInteger agv) es
-                M.Union -> do
-                    mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
+                -- This is a hack. crucible-mir doesn't _actually_ support union
+                -- types, and if you try simulating a code that performs an
+                -- operation on a union-typed value, then it will fail at
+                -- simulation time. Nevertheless, we intentionally choose to
+                -- give unions a dummy value here instead of outright failing so
+                -- that crucible-mir can translate some union-typed declarations
+                -- without crashing during MIR translation.
+                --
+                -- We apply `packAny` here to match the similar hack described
+                -- in the union case of `Mir.Trans.tyToRepr`, which gives
+                -- union-typed values a dummy representation of `AnyRepr`.
+                --
+                -- See #1429 for the larger issue of properly supporting union
+                -- types.
+                M.Union ->
+                  let dummyExpr = R.App $ usizeLit 0xdeadbeef
+                   in pure $ packAny $ MirExp knownRepr dummyExpr
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 

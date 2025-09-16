@@ -236,7 +236,9 @@ tyToRepr col t0 = case t0 of
         -- signatures mentioning union types without crashing during MIR
         -- translation (e.g., in Mir.Trans.mkHandleMap).
         --
-        -- See #1429 for the larger issue of properly supporting union types.
+        -- See #1429 for the larger issue of properly supporting union types,
+        -- and see `Mir.Trans.evalRval` for a related hack to help "support"
+        -- unions.
         Right (Some C.AnyRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
@@ -301,8 +303,8 @@ tyToReprM ty = do
     Right repr -> return repr
     Left err -> mirFail ("tyToRepr: " ++ err)
 
--- Checks whether a type can be default-initialized.  Any time this returns
--- `True`, `Trans.initialValue` must also return `Just`.  Non-initializable ADT
+-- | Checks whether a type can be default-initialized.  Any time this returns
+-- `True`, `initialValue` must also return `Just`.  Non-initializable ADT
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
@@ -321,6 +323,9 @@ canInitialize col ty = case ty of
     M.TyClosure _ -> True
     M.TyAdt _ _ _
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
+      | Just adt <- tyAdtDef col ty
+      , M.Union <- adt ^. M.adtkind ->
+        False
       | otherwise -> True
     -- Others
     M.TyArray _ _ -> True
