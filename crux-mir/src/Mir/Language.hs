@@ -476,9 +476,16 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
       else
         return ExitSuccess
 
--- | Add a prefix to the string, that will be different depending on the
+-- | Add a suffix to the string, that will be different depending on the
 -- cases of the letters.  We use it to avoid name collision on case
--- insensitive file systems.
+-- insensitive file systems.  The algorithm is: consider only letters,
+-- create a bit string with 1 for upper case letters, turn into 5 bit numbers
+-- and encode by indexing in `['a'..'z'] ++ ['0'..'6']`.  For example:
+-- > "lower_case" -> "lower_case#aa"
+-- > "lower_CASE" -> "lower_CASE#ap"
+-- In both cases the `_` is ignored. "lower" is all lower case, which maps
+-- to 0, hence we see an `a`.  "CASE" is all upper case, so we get 4 1s,
+-- which is 15, which maps to `p`.
 caseSensitiveTag :: String -> String
 caseSensitiveTag f = f ++ "#" ++ tag f
   where
