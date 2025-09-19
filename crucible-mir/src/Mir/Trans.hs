@@ -1438,6 +1438,17 @@ union's fields. When interpreting this initialization:
 - We declare that the given field spans the entire `MirAggregate` representing
   the union, even if the field type's size on its own would be smaller than the
   size of the union/`MirAggregate`.
+
+The type of a (subrange of a) `MirAggregate` is unspecified until it's written
+to, and fixed thereafter. This means that, once a union's `MirAggregate` is
+initialized with a field of a given type, we only support reading from the union
+via a field of the same type (which, in practice, generally means the same
+field). When reading from the union, we rely on the initialization behavior
+described above, by reading the entire `MirAggregate` starting from offset 0.
+
+To properly implement reinterpretation of union values at other types, we'd need
+to change the behavior of `MirAggregate` to support type-switching, and we'd
+need to mimic Rust's layout rules for unions.
 -}
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
@@ -1589,7 +1600,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let vtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace adtRepr adtPtr (DynMeta vtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1623,7 +1634,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
         case adt^.adtkind of
             Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
-            Union -> mirFail $ "evalPlace (PField, Union) NYI"
+            Union -> unionFieldRef adt idx fieldTy ref
 
     M.TyDowncast (M.TyAdt nm _ _) i -> do
         adt <- findAdt nm
