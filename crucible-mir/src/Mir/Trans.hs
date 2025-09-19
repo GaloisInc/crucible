@@ -1440,7 +1440,8 @@ union's fields. When interpreting this initialization:
   size of the union/`MirAggregate`.
 
 The type of a (subrange of a) `MirAggregate` is unspecified until it's written
-to, and fixed thereafter. This means that, once a union's `MirAggregate` is
+to, and fixed thereafter. This allows for unions to be default-initialized by an
+untyped `MirAggregate`. This also means that, once a union's `MirAggregate` is
 initialized with a field of a given type, we only support reading from the union
 via a field of the same type (which, in practice, generally means the same
 field). When reading from the union, we rely on the initialization behavior

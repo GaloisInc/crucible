@@ -1481,7 +1481,12 @@ initialValue (M.TyAdt nm _ _) = do
                 Just (discr, var) -> do
                     fldExps <- mapM initField (var^.M.vfields)
                     Just <$> buildEnum' adt discr fldExps
-        M.Union -> return Nothing
+        M.Union ->
+            -- Unions are default-initialized to an untyped `MirAggregate` of an
+            -- appropriate size, like tuples. See Note [union representation] in
+            -- `Mir.Trans`.
+            let unionSize = fromIntegral (adt ^. M.adtSize)
+            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
 
 
 
