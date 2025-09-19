@@ -1615,14 +1615,6 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
             -- Since `findReprTransparentField` returned `Just`, we know that
             -- fields aside from `tIdx` must be zero-sized, and thus contain no
             -- actual data.  So we can return a dummy reference here.
-            --
-            -- Also, for enum types, `#[repr(transparent)]` is only allowed on
-            -- single-variant enums, so we know `tIdx` refers to a field of
-            -- variant 0 (as with structs).
-            fieldTy <- case adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty of
-                Just x -> return x
-                Nothing -> mirFail $ "impossible: accessed out of range field " ++
-                    show idx ++ " of " ++ show adt ++ "?"
             MirExp tpr' e <- initialValue fieldTy >>= \x -> case x of
                 Just x -> return x
                 Nothing -> mirFail $ "failed to produce dummy value of type " ++ show fieldTy
