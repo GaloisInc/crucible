@@ -228,16 +228,7 @@ tyToRepr col t0 = case t0 of
         SomeRustEnumRepr _ ctx <- enumVariants col adt
         Right (Some (RustEnumRepr discrTp ctx))
       M.Union ->
-        -- This is a hack. crucible-mir doesn't _actually_ support union types,
-        -- and if you try simulating a code that performs an operation on a
-        -- union-typed value, then it will fail at simulation time.
-        -- Nevertheless, we intentionally choose to use Any as a placeholder
-        -- type instead of failing so that crucible-mir can translate type
-        -- signatures mentioning union types without crashing during MIR
-        -- translation (e.g., in Mir.Trans.mkHandleMap).
-        --
-        -- See #1429 for the larger issue of properly supporting union types.
-        Right (Some C.AnyRepr)
+        Right (Some MirAggregateRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
   M.TyFloat _ -> Right (Some C.RealValRepr)
@@ -301,8 +292,8 @@ tyToReprM ty = do
     Right repr -> return repr
     Left err -> mirFail ("tyToRepr: " ++ err)
 
--- Checks whether a type can be default-initialized.  Any time this returns
--- `True`, `Trans.initialValue` must also return `Just`.  Non-initializable ADT
+-- | Checks whether a type can be default-initialized.  Any time this returns
+-- `True`, `initialValue` must also return `Just`.  Non-initializable ADT
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
@@ -1249,6 +1240,47 @@ tupleFieldRef tys i tpr ref = do
     ref' <- mirRef_agElem_constOffset (fromIntegral i) 1 valTpr ref
     return $ MirPlace valTpr ref' NoMeta
 
+-- | Acquire a reference to the union field specified by the given index and
+-- type. The field type must match the type specified in the provided `M.Adt`.
+--
+-- Additionally, the field type must match the expression type with which the
+-- union was initialized - see Note [union representation] in `Mir.Trans`.
+unionFieldRef ::
+  M.Adt ->
+  -- | The index of the field being accessed
+  Int ->
+  M.Ty ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (MirPlace s)
+unionFieldRef unionAdt fieldIdx fieldTy unionRef = do
+  unionFields <- case unionAdt ^. M.adtvariants of
+    [v] -> pure (v ^. M.vfields)
+    [] -> die "no variants?"
+    _ -> die "multiple variants?"
+
+  unionField <- case unionFields ^? ix fieldIdx of
+    Just field -> pure field
+    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
+
+  Some expectedFieldTpr <- tyToReprM (unionField ^. M.fty)
+  Some fieldTpr <- tyToReprM fieldTy
+  case testEquality expectedFieldTpr fieldTpr of
+    Just _ -> pure ()
+    Nothing -> die $
+      "expected field to have type " <> show expectedFieldTpr <>
+      ", but it was " <> show fieldTpr
+
+  fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
+  pure $ MirPlace fieldTpr fieldRef NoMeta
+  where
+    unionSize = fromIntegral (unionAdt ^. M.adtSize)
+
+    -- See Note [union representation] in `Mir.Trans`
+    fieldOffset = 0
+    fieldSize = unionSize
+
+    die :: String -> MirGenerator h s ret a
+    die s = mirFail ("unionFieldRef: "<>show (unionAdt ^. M.adtname)<>": "<>s)
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
 testEqualityOrFail x y msg = case testEquality x y of
@@ -1449,7 +1481,12 @@ initialValue (M.TyAdt nm _ _) = do
                 Just (discr, var) -> do
                     fldExps <- mapM initField (var^.M.vfields)
                     Just <$> buildEnum' adt discr fldExps
-        M.Union -> return Nothing
+        M.Union ->
+            -- Unions are default-initialized to an untyped `MirAggregate` of an
+            -- appropriate size, like tuples. See Note [union representation] in
+            -- `Mir.Trans`.
+            let unionSize = fromIntegral (adt ^. M.adtSize)
+            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
 
 
 

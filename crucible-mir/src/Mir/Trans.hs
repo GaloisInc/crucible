@@ -1365,7 +1365,14 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
                 M.Struct -> buildStruct adt es
                 M.Enum _ -> buildEnum adt (fromInteger agv) es
                 M.Union -> do
-                    mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
+                  fieldExpr <- case es of
+                    [e] -> pure e
+                    [] -> mirFail "evalRval: no union field initializer?"
+                    _ -> mirFail "evalRval: multiple union field initializers?"
+                  fieldIdx <- case optField of
+                    Just idx -> pure idx
+                    Nothing -> mirFail "evalRval: no union field initializer index?"
+                  buildUnion adt fieldIdx fieldExpr
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
@@ -1374,6 +1381,76 @@ evalRval rv@(M.CopyForDeref lv) = evalLvalue lv
 
 evalRval rv@(M.ShallowInitBox op ty) = mirFail
     "evalRval: ShallowInitBox not supported"
+
+-- | Construct a `MirExp` representing a union, and initialize it with a
+-- particular field, specified by a field index and an expression. The
+-- expression's type must match the field's type in the provided `M.Adt`.
+buildUnion ::
+  M.Adt ->
+  -- | The index of the field being used to initialize the union
+  Int ->
+  MirExp s ->
+  MirGenerator h s ret (MirExp s)
+buildUnion unionAdt fieldIdx (MirExp fieldTpr fieldExpr) = do
+  unionFields <- case unionAdt ^. M.adtvariants of
+    [v] -> pure (v ^. M.vfields)
+    [] -> die "no variants?"
+    _ -> die "multiple variants?"
+
+  unionField <- case unionFields ^? ix fieldIdx of
+    Just field -> pure field
+    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
+
+  Some expectedFieldTpr <- tyToReprM (unionField ^. M.fty)
+  case testEquality expectedFieldTpr fieldTpr of
+    Just _ -> pure ()
+    Nothing -> die $
+      "expected field to have type " <> show expectedFieldTpr <>
+      ", but it was " <> show fieldTpr
+
+  emptyAg <- mirAggregate_uninit unionSize
+  fullAg <- mirAggregate_set fieldOffset fieldSize fieldTpr fieldExpr emptyAg
+  pure (MirExp MirAggregateRepr fullAg)
+  where
+    unionSize = fromIntegral (unionAdt ^. M.adtSize)
+
+    -- See Note [union representation]
+    fieldOffset = 0
+    fieldSize = unionSize
+
+    die :: String -> MirGenerator h s ret a
+    die s = mirFail ("buildUnion: "<>show (unionAdt ^. M.adtname)<>": "<>s)
+
+{- 
+Note [union representation]
+----------------------------------------
+
+Crucible represents Rust unions as `MirAggregate` values.
+
+A union's `MirAggregate` representation has the same size as the union itself,
+according to the `_adtSize` field of the `Mir.Mir.Adt` that describes it.
+
+A union is always initialized with a single expression representing one of the
+union's fields. When interpreting this initialization:
+- We declare that the given field appears at offset 0 in the `MirAggregate`,
+  even if the field would appear at a nonzero offset according to Rust's memory
+  model.
+- We declare that the given field spans the entire `MirAggregate` representing
+  the union, even if the field type's size on its own would be smaller than the
+  size of the union/`MirAggregate`.
+
+The type of a (subrange of a) `MirAggregate` is unspecified until it's written
+to, and fixed thereafter. This allows for unions to be default-initialized by an
+untyped `MirAggregate`. This also means that, once a union's `MirAggregate` is
+initialized with a field of a given type, we only support reading from the union
+via a field of the same type (which, in practice, generally means the same
+field). When reading from the union, we rely on the initialization behavior
+described above, by reading the entire `MirAggregate` starting from offset 0.
+
+To properly implement reinterpretation of union values at other types, we'd need
+to change the behavior of `MirAggregate` to support type-switching, and we'd
+need to mimic Rust's layout rules for unions.
+-}
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
@@ -1524,7 +1601,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let vtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace adtRepr adtPtr (DynMeta vtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1539,14 +1616,6 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
             -- Since `findReprTransparentField` returned `Just`, we know that
             -- fields aside from `tIdx` must be zero-sized, and thus contain no
             -- actual data.  So we can return a dummy reference here.
-            --
-            -- Also, for enum types, `#[repr(transparent)]` is only allowed on
-            -- single-variant enums, so we know `tIdx` refers to a field of
-            -- variant 0 (as with structs).
-            fieldTy <- case adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty of
-                Just x -> return x
-                Nothing -> mirFail $ "impossible: accessed out of range field " ++
-                    show idx ++ " of " ++ show adt ++ "?"
             MirExp tpr' e <- initialValue fieldTy >>= \x -> case x of
                 Just x -> return x
                 Nothing -> mirFail $ "failed to produce dummy value of type " ++ show fieldTy
@@ -1558,7 +1627,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
         case adt^.adtkind of
             Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
-            Union -> mirFail $ "evalPlace (PField, Union) NYI"
+            Union -> unionFieldRef adt idx fieldTy ref
 
     M.TyDowncast (M.TyAdt nm _ _) i -> do
         adt <- findAdt nm
