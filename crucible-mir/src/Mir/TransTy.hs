@@ -1240,6 +1240,47 @@ tupleFieldRef tys i tpr ref = do
     ref' <- mirRef_agElem_constOffset (fromIntegral i) 1 valTpr ref
     return $ MirPlace valTpr ref' NoMeta
 
+-- | Acquire a reference to the union field specified by the given index and
+-- type. The field type must match the type specified in the provided `M.Adt`.
+--
+-- Additionally, the field type must match the expression type with which the
+-- union was initialized - see Note [union representation] in `Mir.Trans`.
+unionFieldRef ::
+  M.Adt ->
+  -- | The index of the field being accessed
+  Int ->
+  M.Ty ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (MirPlace s)
+unionFieldRef unionAdt fieldIdx fieldTy unionRef = do
+  unionFields <- case unionAdt ^. M.adtvariants of
+    [v] -> pure (v ^. M.vfields)
+    [] -> die "no variants?"
+    _ -> die "multiple variants?"
+
+  unionField <- case unionFields ^? ix fieldIdx of
+    Just field -> pure field
+    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
+
+  Some expectedFieldTpr <- tyToReprM (unionField ^. M.fty)
+  Some fieldTpr <- tyToReprM fieldTy
+  case testEquality expectedFieldTpr fieldTpr of
+    Just _ -> pure ()
+    Nothing -> die $
+      "expected field to have type " <> show expectedFieldTpr <>
+      ", but it was " <> show fieldTpr
+
+  fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
+  pure $ MirPlace fieldTpr fieldRef NoMeta
+  where
+    unionSize = fromIntegral (unionAdt ^. M.adtSize)
+
+    -- See Note [union representation] in `Mir.Trans`
+    fieldOffset = 0
+    fieldSize = unionSize
+
+    die :: String -> MirGenerator h s ret a
+    die s = mirFail ("unionFieldRef: "<>show (unionAdt ^. M.adtname)<>": "<>s)
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
 testEqualityOrFail x y msg = case testEquality x y of
