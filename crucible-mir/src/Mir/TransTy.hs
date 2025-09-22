@@ -1021,6 +1021,9 @@ data UnionInfo where
 -- within that union.
 unionInfo :: M.Adt -> Int -> MirGenerator h s ret UnionInfo
 unionInfo unionAdt fieldIdx = do
+  unless (unionAdt ^. M.adtkind == M.Union) $
+    die "ADT was not a union"
+
   unionFields <- case unionAdt ^. M.adtvariants of
     [v] -> pure (v ^. M.vfields)
     [] -> die "no variants?"
