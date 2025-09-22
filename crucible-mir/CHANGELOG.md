@@ -1,7 +1,7 @@
 # next -- TBA
 
 This release supports [version
-3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
+5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.86.
@@ -40,6 +40,10 @@ This release supports [version
   `std::arch::asm!` macro). `crucible-mir` does not support _simulating_ inline
   assembly, but it can now translate code that uses it without crashing.
 * Implement basic support for creation and manipulation of union-type values.
+* `TyConst` now has a `ConstVal` field to indicate the value of the constant
+  used to instantiate a const generic parameter. This has no impact on the
+  semantics of `crucible-mir` itself, but this can be used by tools that want
+  to distinguish different instantiations of const generic functions.
 
 # 0.4 -- 2025-03-21
 
