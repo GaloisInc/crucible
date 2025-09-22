@@ -1033,9 +1033,8 @@ unionInfo unionAdt fieldIdx = do
 
   pure $ UnionInfo unionSize fieldSize fieldOffset fieldTpr
   where
-    unionSize = fromIntegral $ unionAdt ^. M.adtSize
-
     -- See Note [union representation]
+    unionSize = 1
     fieldOffset = 0
     fieldSize = unionSize
 
@@ -1226,17 +1225,26 @@ Note [union representation]
 
 Crucible represents Rust unions as `MirAggregate` values.
 
-A union's `MirAggregate` representation has the same size as the union itself,
-according to the `_adtSize` field of the `Mir.Mir.Adt` that describes it.
+A union's `MirAggregate` representation has size 1, regardless of the size (e.g.
+according to the `_adtSize` field) of the `Mir.Mir.Adt` that describes it.
 
 A union is always initialized with a single expression representing one of the
 union's fields. When interpreting this initialization:
 - We declare that the given field appears at offset 0 in the `MirAggregate`,
   even if the field would appear at a nonzero offset according to Rust's memory
   model.
-- We declare that the given field spans the entire `MirAggregate` representing
-  the union, even if the field type's size on its own would be smaller than the
-  size of the union/`MirAggregate`.
+- We declare that the given field has size 1, even if the field type's size on
+  its own would be smaller or larger.
+
+When reading from the union, we rely on this initialization behavior, by reading
+the offset-0, size-1 subrange of the `MirAggregate` - that is, the entire
+aggregate - regardless of the type/field being read.
+
+The choice to represent unions and their constituent fields as having size 1 is
+temporary, intended to match similar temporary behavior elsewhere, e.g. in tuple
+construction (see `buildTupleMaybeM`). In the medium term, we'll want to update
+this to incorporate size and layout information to compute and use the proper
+sizes and offsets for each field.
 
 The type representation associated with a (subrange of a) `MirAggregate` is
 unspecified until the aggregate is written to, and fixed thereafter. This allows
@@ -1246,10 +1254,6 @@ This also means that, once a union's `MirAggregate` is initialized with a field
 of a given type representation, we only support reading from/writing to the
 union via a field of that same type _representation_. Note that this does not
 necessarily mean code must read from/write to the exact same field.
-
-When reading from the union, we rely on the initialization behavior described
-above, by reading the entire `MirAggregate` starting from offset 0, regardless
-of the type being read.
 
 To properly implement reinterpretation of union values at other types, we'd need
 to change the behavior of `MirAggregate` to support type-switching, and we'd
@@ -1547,8 +1551,9 @@ initialValue (M.TyAdt nm _ _) = do
                     Just <$> buildEnum' adt discr fldExps
         M.Union ->
             -- Unions are default-initialized to an untyped `MirAggregate` of an
-            -- appropriate size, like tuples. See Note [union representation].
-            let unionSize = fromIntegral (adt ^. M.adtSize)
+            -- appropriate size, like tuples. See Note [union representation]
+            -- for details, including some regarding this choice of size.
+            let unionSize = 1
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
 
 
