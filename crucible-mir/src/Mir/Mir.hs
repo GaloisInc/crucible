@@ -100,8 +100,11 @@ data Ty =
       | TyNever
       | TyForeign       -- External types, of unknown size and alignment
 
+      | TyConst !ConstVal
+        -- ^ Represents constants in 'Substs'. This has no effect on the
+        -- semantics of @crucible-mir@, but it is used for looking up
+        -- instantiations of polymorphic functions or ADTs in SAW.
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
-      | TyConst         -- Placeholder for representing constants in `Substs`
 
       -- | The erased concrete type of a trait object.  This is never emitted
       -- by mir-json.  It's used in vtable shims, to replace the type of the

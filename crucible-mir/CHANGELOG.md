@@ -46,6 +46,10 @@ This release supports [version
   unsigned integers and mirrors the semantics of Rust's
   `core::intrinsics::exact_div`.
 * Add an intrinsic for [`needs_drop`](https://doc.rust-lang.org/std/intrinsics/fn.needs_drop.html).
+* `TyConst` now has a `ConstVal` field to indicate the value of the constant
+  used to instantiate a const generic parameter. This has no impact on the
+  semantics of `crucible-mir` itself, but this can be used by tools that want
+  to distinguish different instantiations of const generic functions.
 
 # 0.4 -- 2025-03-21
 

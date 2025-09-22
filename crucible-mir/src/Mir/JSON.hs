@@ -75,7 +75,6 @@ instance FromJSON Substs where
 instance FromJSON Ty where
     parseJSON = withText "Ty" $ \v -> case v of
         "nonty::Lifetime" -> pure TyLifetime
-        "nonty::Const" -> pure TyConst
         _ -> pure $ TyInterned v
 
 newtype InlineTy = InlineTy { getInlineTy :: Ty }
@@ -105,6 +104,7 @@ instance FromJSON InlineTy where
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
       Just (String "Foreign") -> pure TyForeign
+      Just (String "Const") -> TyConst <$> v .: "constant"
       r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON NamedTy where
