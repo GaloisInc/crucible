@@ -1372,7 +1372,8 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
                   fieldIdx <- case optField of
                     Just idx -> pure idx
                     Nothing -> mirFail "evalRval: no union field initializer index?"
-                  buildUnion adt fieldIdx fieldExpr
+                  info <- unionInfo adt fieldIdx
+                  buildUnion info fieldExpr
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
@@ -1557,7 +1558,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
         case adt^.adtkind of
             Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
-            Union -> unionFieldRef adt idx fieldTy ref
+            Union -> do
+              info <- unionInfo adt idx
+              unionFieldRef info ref
 
     M.TyDowncast (M.TyAdt nm _ _) i -> do
         adt <- findAdt nm

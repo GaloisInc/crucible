@@ -1002,6 +1002,48 @@ setEnumField adt i j (MirExp enumTpr e) (MirExp fldTpr e') = do
         " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
 
 
+-- | A description of an individual field of a union.
+data UnionInfo where
+  UnionInfo ::
+    -- | The overall size of the union
+    Word ->
+    -- | The size of this field
+    Word ->
+    -- | The offset of this field
+    Word ->
+    -- | The type of this field
+    C.TypeRepr fieldTpr ->
+    UnionInfo
+
+-- | Construct a `UnionInfo` to describe the field of the provided `M.Adt` at
+-- the provided index. The `M.Adt` must be a union, and field index must exist
+-- within that union.
+unionInfo :: M.Adt -> Int -> MirGenerator h s ret UnionInfo
+unionInfo unionAdt fieldIdx = do
+  unionFields <- case unionAdt ^. M.adtvariants of
+    [v] -> pure (v ^. M.vfields)
+    [] -> die "no variants?"
+    _ -> die "multiple variants?"
+
+  unionField <- case unionFields ^? ix fieldIdx of
+    Just field -> pure field
+    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
+
+  Some fieldTpr <- tyToReprM (unionField ^. M.fty)
+
+  pure $ UnionInfo unionSize fieldSize fieldOffset fieldTpr
+  where
+    unionSize = fromIntegral $ unionAdt ^. M.adtSize
+
+    -- See Note [union representation]
+    fieldOffset = 0
+    fieldSize = unionSize
+
+    die :: String -> MirGenerator h s ret a
+    die s =
+      mirFail $
+        "unionInfo: " <> show (unionAdt ^. M.adtname) <> ": " <> s
+
 
 buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
@@ -1161,44 +1203,22 @@ enumDiscrLit tp discr =
     C.BVRepr w -> pure $ E.BVLit w $ BV.mkBV w discr
     _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
--- | Construct a `MirExp` representing a union, and initialize it with a
--- particular field, specified by a field index and an expression. The
--- expression's type must match the field's type in the provided `M.Adt`.
-buildUnion ::
-  M.Adt ->
-  -- | The index of the field being used to initialize the union
-  Int ->
-  MirExp s ->
-  MirGenerator h s ret (MirExp s)
-buildUnion unionAdt fieldIdx (MirExp fieldTpr fieldExpr) = do
-  unionFields <- case unionAdt ^. M.adtvariants of
-    [v] -> pure (v ^. M.vfields)
-    [] -> die "no variants?"
-    _ -> die "multiple variants?"
-
-  unionField <- case unionFields ^? ix fieldIdx of
-    Just field -> pure field
-    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
-
-  Some expectedFieldTpr <- tyToReprM (unionField ^. M.fty)
-  case testEquality expectedFieldTpr fieldTpr of
-    Just _ -> pure ()
-    Nothing -> die $
-      "expected field to have type " <> show expectedFieldTpr <>
-      ", but it was " <> show fieldTpr
-
-  emptyAg <- mirAggregate_uninit unionSize
-  fullAg <- mirAggregate_set fieldOffset fieldSize fieldTpr fieldExpr emptyAg
-  pure (MirExp MirAggregateRepr fullAg)
-  where
-    unionSize = fromIntegral (unionAdt ^. M.adtSize)
+-- | Construct and initialize a `MirExp` representing a union.
+buildUnion :: UnionInfo -> MirExp s -> MirGenerator h s ret (MirExp s)
+buildUnion
+  (UnionInfo unionSize fieldSize fieldOffset expectedFieldTpr)
+  (MirExp actualFieldTpr fieldExpr) = do
+    Refl <-
+      testEqualityOrFail expectedFieldTpr actualFieldTpr $
+        "expected field to have type "
+          <> show expectedFieldTpr
+          <> ", but it was "
+          <> show actualFieldTpr
 
     -- See Note [union representation]
-    fieldOffset = 0
-    fieldSize = unionSize
-
-    die :: String -> MirGenerator h s ret a
-    die s = mirFail ("buildUnion: "<>show (unionAdt ^. M.adtname)<>": "<>s)
+    emptyAg <- mirAggregate_uninit unionSize
+    fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
+    pure (MirExp MirAggregateRepr fullAg)
 
 {-
 Note [union representation]
@@ -1311,47 +1331,15 @@ tupleFieldRef tys i tpr ref = do
     ref' <- mirRef_agElem_constOffset (fromIntegral i) 1 valTpr ref
     return $ MirPlace valTpr ref' NoMeta
 
--- | Acquire a reference to the union field specified by the given index and
--- type. The field type must match the type specified in the provided `M.Adt`.
---
--- Additionally, the field type must match the expression type with which the
--- union was initialized - see Note [union representation].
+-- | Provided a reference to a union, acquire a reference to the union field
+-- specified by the provided `UnionInfo`.
 unionFieldRef ::
-  M.Adt ->
-  -- | The index of the field being accessed
-  Int ->
-  M.Ty ->
+  UnionInfo ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (MirPlace s)
-unionFieldRef unionAdt fieldIdx fieldTy unionRef = do
-  unionFields <- case unionAdt ^. M.adtvariants of
-    [v] -> pure (v ^. M.vfields)
-    [] -> die "no variants?"
-    _ -> die "multiple variants?"
-
-  unionField <- case unionFields ^? ix fieldIdx of
-    Just field -> pure field
-    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
-
-  Some expectedFieldTpr <- tyToReprM (unionField ^. M.fty)
-  Some fieldTpr <- tyToReprM fieldTy
-  case testEquality expectedFieldTpr fieldTpr of
-    Just _ -> pure ()
-    Nothing -> die $
-      "expected field to have type " <> show expectedFieldTpr <>
-      ", but it was " <> show fieldTpr
-
+unionFieldRef (UnionInfo unionSize fieldSize fieldOffset fieldTpr) unionRef = do
   fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
   pure $ MirPlace fieldTpr fieldRef NoMeta
-  where
-    unionSize = fromIntegral (unionAdt ^. M.adtSize)
-
-    -- See Note [union representation] in `Mir.Trans`
-    fieldOffset = 0
-    fieldSize = unionSize
-
-    die :: String -> MirGenerator h s ret a
-    die s = mirFail ("unionFieldRef: "<>show (unionAdt ^. M.adtname)<>": "<>s)
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
 testEqualityOrFail x y msg = case testEquality x y of
