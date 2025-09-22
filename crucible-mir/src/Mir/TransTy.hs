@@ -1161,6 +1161,77 @@ enumDiscrLit tp discr =
     C.BVRepr w -> pure $ E.BVLit w $ BV.mkBV w discr
     _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
+-- | Construct a `MirExp` representing a union, and initialize it with a
+-- particular field, specified by a field index and an expression. The
+-- expression's type must match the field's type in the provided `M.Adt`.
+buildUnion ::
+  M.Adt ->
+  -- | The index of the field being used to initialize the union
+  Int ->
+  MirExp s ->
+  MirGenerator h s ret (MirExp s)
+buildUnion unionAdt fieldIdx (MirExp fieldTpr fieldExpr) = do
+  unionFields <- case unionAdt ^. M.adtvariants of
+    [v] -> pure (v ^. M.vfields)
+    [] -> die "no variants?"
+    _ -> die "multiple variants?"
+
+  unionField <- case unionFields ^? ix fieldIdx of
+    Just field -> pure field
+    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
+
+  Some expectedFieldTpr <- tyToReprM (unionField ^. M.fty)
+  case testEquality expectedFieldTpr fieldTpr of
+    Just _ -> pure ()
+    Nothing -> die $
+      "expected field to have type " <> show expectedFieldTpr <>
+      ", but it was " <> show fieldTpr
+
+  emptyAg <- mirAggregate_uninit unionSize
+  fullAg <- mirAggregate_set fieldOffset fieldSize fieldTpr fieldExpr emptyAg
+  pure (MirExp MirAggregateRepr fullAg)
+  where
+    unionSize = fromIntegral (unionAdt ^. M.adtSize)
+
+    -- See Note [union representation]
+    fieldOffset = 0
+    fieldSize = unionSize
+
+    die :: String -> MirGenerator h s ret a
+    die s = mirFail ("buildUnion: "<>show (unionAdt ^. M.adtname)<>": "<>s)
+
+{-
+Note [union representation]
+----------------------------------------
+
+Crucible represents Rust unions as `MirAggregate` values.
+
+A union's `MirAggregate` representation has the same size as the union itself,
+according to the `_adtSize` field of the `Mir.Mir.Adt` that describes it.
+
+A union is always initialized with a single expression representing one of the
+union's fields. When interpreting this initialization:
+- We declare that the given field appears at offset 0 in the `MirAggregate`,
+  even if the field would appear at a nonzero offset according to Rust's memory
+  model.
+- We declare that the given field spans the entire `MirAggregate` representing
+  the union, even if the field type's size on its own would be smaller than the
+  size of the union/`MirAggregate`.
+
+The type of a (subrange of a) `MirAggregate` is unspecified until it's written
+to, and fixed thereafter. This allows for unions to be default-initialized by an
+untyped `MirAggregate`. This also means that, once a union's `MirAggregate` is
+initialized with a field of a given type, we only support reading from the union
+via a field of the same type (which, in practice, generally means the same
+field). When reading from the union, we rely on the initialization behavior
+described above, by reading the entire `MirAggregate` starting from offset 0.
+
+To properly implement reinterpretation of union values at other types, we'd need
+to change the behavior of `MirAggregate` to support type-switching, and we'd
+need to mimic Rust's layout rules for unions.
+-}
+
+
 fieldDataRef ::
     FieldKind tp tp' ->
     R.Expr MIR s MirReferenceType ->
@@ -1244,7 +1315,7 @@ tupleFieldRef tys i tpr ref = do
 -- type. The field type must match the type specified in the provided `M.Adt`.
 --
 -- Additionally, the field type must match the expression type with which the
--- union was initialized - see Note [union representation] in `Mir.Trans`.
+-- union was initialized - see Note [union representation].
 unionFieldRef ::
   M.Adt ->
   -- | The index of the field being accessed
@@ -1483,8 +1554,7 @@ initialValue (M.TyAdt nm _ _) = do
                     Just <$> buildEnum' adt discr fldExps
         M.Union ->
             -- Unions are default-initialized to an untyped `MirAggregate` of an
-            -- appropriate size, like tuples. See Note [union representation] in
-            -- `Mir.Trans`.
+            -- appropriate size, like tuples. See Note [union representation].
             let unionSize = fromIntegral (adt ^. M.adtSize)
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
 
