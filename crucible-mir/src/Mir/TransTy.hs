@@ -1257,7 +1257,8 @@ necessarily mean code must read from/write to the exact same field.
 
 To properly implement reinterpretation of union values at other types, we'd need
 to change the behavior of `MirAggregate` to support type-switching, and we'd
-need to mimic Rust's layout rules for unions.
+need to mimic Rust's layout rules for unions. See
+https://github.com/GaloisInc/crucible/issues/1548.
 -}
 
 
