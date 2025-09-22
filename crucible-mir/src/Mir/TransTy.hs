@@ -1238,13 +1238,18 @@ union's fields. When interpreting this initialization:
   the union, even if the field type's size on its own would be smaller than the
   size of the union/`MirAggregate`.
 
-The type of a (subrange of a) `MirAggregate` is unspecified until it's written
-to, and fixed thereafter. This allows for unions to be default-initialized by an
-untyped `MirAggregate`. This also means that, once a union's `MirAggregate` is
-initialized with a field of a given type, we only support reading from the union
-via a field of the same type (which, in practice, generally means the same
-field). When reading from the union, we rely on the initialization behavior
-described above, by reading the entire `MirAggregate` starting from offset 0.
+The type representation associated with a (subrange of a) `MirAggregate` is
+unspecified until the aggregate is written to, and fixed thereafter. This allows
+for unions to be default-initialized by an untyped `MirAggregate`.
+
+This also means that, once a union's `MirAggregate` is initialized with a field
+of a given type representation, we only support reading from/writing to the
+union via a field of that same type _representation_. Note that this does not
+necessarily mean code must read from/write to the exact same field.
+
+When reading from the union, we rely on the initialization behavior described
+above, by reading the entire `MirAggregate` starting from offset 0, regardless
+of the type being read.
 
 To properly implement reinterpretation of union values at other types, we'd need
 to change the behavior of `MirAggregate` to support type-switching, and we'd
