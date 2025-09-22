@@ -957,7 +957,7 @@ evalCast' ck ty1 e ty2  = do
       (M.Transmute, _, _) -> transmuteExp e ty1 ty2
 
       -- This casts from a safe pointer to an unsafe one.
-      -- Since we don't track safness this is just a no-op for now, but if
+      -- Since we don't track safeness this is just a no-op for now, but if
       -- we decide to track that, this needs to be updated.
       (M.UnsafeFnPointer, _, _) | ty1 == ty2 -> pure e
 
