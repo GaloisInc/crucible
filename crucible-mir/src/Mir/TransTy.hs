@@ -228,6 +228,7 @@ tyToRepr col t0 = case t0 of
         SomeRustEnumRepr _ ctx <- enumVariants col adt
         Right (Some (RustEnumRepr discrTp ctx))
       M.Union ->
+        -- See Note [union representation]
         Right (Some MirAggregateRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
