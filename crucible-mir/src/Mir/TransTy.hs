@@ -1207,21 +1207,26 @@ enumDiscrLit tp discr =
     _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
 -- | Construct and initialize a `MirExp` representing a union.
-buildUnion :: UnionInfo -> MirExp s -> MirGenerator h s ret (MirExp s)
-buildUnion
-  (UnionInfo unionSize fieldOffset fieldSize expectedFieldTpr)
-  (MirExp actualFieldTpr fieldExpr) = do
-    Refl <-
-      testEqualityOrFail expectedFieldTpr actualFieldTpr $
-        "expected field to have type "
-          <> show expectedFieldTpr
-          <> ", but it was "
-          <> show actualFieldTpr
+buildUnion ::
+  M.Adt ->
+  -- | The index of the field being used to initialize the union
+  Int ->
+  MirExp s ->
+  MirGenerator h s ret (MirExp s)
+buildUnion unionAdt fieldIdx (MirExp actualFieldTpr fieldExpr) = do
+  UnionInfo unionSize fieldOffset fieldSize expectedFieldTpr <-
+    unionInfo unionAdt fieldIdx
+  Refl <-
+    testEqualityOrFail expectedFieldTpr actualFieldTpr $
+      "expected field to have type "
+        <> show expectedFieldTpr
+        <> ", but it was "
+        <> show actualFieldTpr
 
-    -- See Note [union representation]
-    emptyAg <- mirAggregate_uninit unionSize
-    fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
-    pure (MirExp MirAggregateRepr fullAg)
+  -- See Note [union representation]
+  emptyAg <- mirAggregate_uninit unionSize
+  fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
+  pure (MirExp MirAggregateRepr fullAg)
 
 {-
 Note [union representation]
@@ -1346,12 +1351,15 @@ tupleFieldRef tys i tpr ref = do
     return $ MirPlace valTpr ref' NoMeta
 
 -- | Provided a reference to a union, acquire a reference to the union field
--- specified by the provided `UnionInfo`.
+-- indicated by the provided index.
 unionFieldRef ::
-  UnionInfo ->
+  M.Adt ->
+  -- | The index of the field being referenced
+  Int ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (MirPlace s)
-unionFieldRef (UnionInfo unionSize fieldOffset fieldSize fieldTpr) unionRef = do
+unionFieldRef unionAdt fieldIdx unionRef = do
+  UnionInfo unionSize fieldOffset fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
   fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
   pure $ MirPlace fieldTpr fieldRef NoMeta
 
