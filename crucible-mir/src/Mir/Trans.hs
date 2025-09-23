@@ -1370,7 +1370,14 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
                 M.Struct -> buildStruct adt es
                 M.Enum _ -> buildEnum adt (fromInteger agv) es
                 M.Union -> do
-                    mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
+                  fieldExpr <- case es of
+                    [e] -> pure e
+                    [] -> mirFail "evalRval: no union field initializer?"
+                    _ -> mirFail "evalRval: multiple union field initializers?"
+                  fieldIdx <- case optField of
+                    Just idx -> pure idx
+                    Nothing -> mirFail "evalRval: no union field initializer index?"
+                  buildUnion adt fieldIdx fieldExpr
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
@@ -1529,7 +1536,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         let vtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace adtRepr adtPtr (DynMeta vtable)
 
-evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
+evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
   col <- use $ cs . collection
   case ty of
     CTyMaybeUninit _ -> do
@@ -1544,14 +1551,6 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
             -- Since `findReprTransparentField` returned `Just`, we know that
             -- fields aside from `tIdx` must be zero-sized, and thus contain no
             -- actual data.  So we can return a dummy reference here.
-            --
-            -- Also, for enum types, `#[repr(transparent)]` is only allowed on
-            -- single-variant enums, so we know `tIdx` refers to a field of
-            -- variant 0 (as with structs).
-            fieldTy <- case adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty of
-                Just x -> return x
-                Nothing -> mirFail $ "impossible: accessed out of range field " ++
-                    show idx ++ " of " ++ show adt ++ "?"
             MirExp tpr' e <- initialValue fieldTy >>= \x -> case x of
                 Just x -> return x
                 Nothing -> mirFail $ "failed to produce dummy value of type " ++ show fieldTy
@@ -1563,7 +1562,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx _mirTy) = do
         case adt^.adtkind of
             Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
-            Union -> mirFail $ "evalPlace (PField, Union) NYI"
+            Union -> unionFieldRef adt idx ref
 
     M.TyDowncast (M.TyAdt nm _ _) i -> do
         adt <- findAdt nm

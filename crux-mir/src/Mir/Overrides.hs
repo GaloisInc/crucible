@@ -58,7 +58,9 @@ import Lang.Crucible.Backend
     , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym
     , throwUnsupported, LabeledPred(..), addProofObligation )
 import Lang.Crucible.Backend.Online
-import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType)
+import Lang.Crucible.CFG.Core
+    ( CFG, GlobalVar(..), cfgArgTypes, cfgHandle, cfgReturnType
+    , freshGlobalVar )
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
 import Lang.Crucible.Pretty
@@ -345,13 +347,51 @@ regEval bak baseEval tpr v = go tpr v
 
         return rc'
 
+    goGlobalVar :: forall tp'.
+        GlobalVar tp' ->
+        OverrideSim p sym MIR rtp args ret (GlobalVar tp')
+    goGlobalVar gv = do
+        let nm = globalName gv
+        let tpr = globalType gv
+        -- Generate a new global variable to store the evaluated copy. We don't
+        -- want to mutate anything in-place, since `concretize` is meant to be
+        -- side-effect-free.
+        -- TODO: deduplicate global variables, so structures with sharing don't
+        -- become exponentially large
+        halloc <- simHandleAllocator <$> use stateContext
+        gv' <- liftIO $ freshGlobalVar halloc nm tpr
+
+        -- Retrieve the current global state, use it to look up the pointee
+        -- value (if it exists), and concretize the pointee value.
+        globalState0 <- use $ stateTree.actFrame.gpGlobals
+        e <-
+          case lookupGlobal gv globalState0 of
+            Just e -> pure e
+            Nothing ->
+              panic
+                "regEval"
+                [ "GlobalVar with no SymGlobalState entry"
+                , Text.unpack nm
+                ]
+        e' <- go tpr e
+
+        -- Retrieve the current global state again. We must do this in case the
+        -- call to `go` above changed the global state further (e.g., in case
+        -- we have a reference to another reference).
+        globalState1 <- use $ stateTree.actFrame.gpGlobals
+
+        -- Update the global state with the new global variable pointing to the
+        -- concretized pointee value.
+        let globalState2 = insertGlobal gv' e' globalState1
+        stateTree.actFrame.gpGlobals .= globalState2
+
+        return gv'
+
     goMirReferenceRoot :: forall tp' .
         MirReferenceRoot sym tp' ->
         OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
     goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
-    goMirReferenceRoot (GlobalVar_RefRoot gv) =
-        throwUnsupported sym $
-          "evaluation of GlobalVar_RefRoot is not yet implemented"
+    goMirReferenceRoot (GlobalVar_RefRoot gv) = GlobalVar_RefRoot <$> goGlobalVar gv
     goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
 
     goMirReferencePath :: forall tp_base tp' .
