@@ -228,16 +228,8 @@ tyToRepr col t0 = case t0 of
         SomeRustEnumRepr _ ctx <- enumVariants col adt
         Right (Some (RustEnumRepr discrTp ctx))
       M.Union ->
-        -- This is a hack. crucible-mir doesn't _actually_ support union types,
-        -- and if you try simulating a code that performs an operation on a
-        -- union-typed value, then it will fail at simulation time.
-        -- Nevertheless, we intentionally choose to use Any as a placeholder
-        -- type instead of failing so that crucible-mir can translate type
-        -- signatures mentioning union types without crashing during MIR
-        -- translation (e.g., in Mir.Trans.mkHandleMap).
-        --
-        -- See #1429 for the larger issue of properly supporting union types.
-        Right (Some C.AnyRepr)
+        -- See Note [union representation]
+        Right (Some MirAggregateRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
   M.TyFloat _ -> Right (Some C.RealValRepr)
@@ -301,8 +293,8 @@ tyToReprM ty = do
     Right repr -> return repr
     Left err -> mirFail ("tyToRepr: " ++ err)
 
--- Checks whether a type can be default-initialized.  Any time this returns
--- `True`, `Trans.initialValue` must also return `Just`.  Non-initializable ADT
+-- | Checks whether a type can be default-initialized.  Any time this returns
+-- `True`, `initialValue` must also return `Just`.  Non-initializable ADT
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
@@ -1011,6 +1003,50 @@ setEnumField adt i j (MirExp enumTpr e) (MirExp fldTpr e') = do
         " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
 
 
+-- | A description of an individual field of a union.
+data UnionInfo where
+  UnionInfo ::
+    -- | The overall size of the union
+    Word ->
+    -- | The offset of this field
+    Word ->
+    -- | The size of this field
+    Word ->
+    -- | The type of this field
+    C.TypeRepr fieldTpr ->
+    UnionInfo
+
+-- | Construct a `UnionInfo` to describe the field of the provided `M.Adt` at
+-- the provided index. The `M.Adt` must be a union, and field index must exist
+-- within that union.
+unionInfo :: M.Adt -> Int -> MirGenerator h s ret UnionInfo
+unionInfo unionAdt fieldIdx = do
+  unless (unionAdt ^. M.adtkind == M.Union) $
+    die "ADT was not a union"
+
+  unionFields <- case unionAdt ^. M.adtvariants of
+    [v] -> pure (v ^. M.vfields)
+    [] -> die "no variants?"
+    _ -> die "multiple variants?"
+
+  unionField <- case unionFields ^? ix fieldIdx of
+    Just field -> pure field
+    Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
+
+  Some fieldTpr <- tyToReprM (unionField ^. M.fty)
+
+  pure $ UnionInfo unionSize fieldOffset fieldSize fieldTpr
+  where
+    -- See Note [union representation]
+    unionSize = 1
+    fieldOffset = 0
+    fieldSize = unionSize
+
+    die :: String -> MirGenerator h s ret a
+    die s =
+      mirFail $
+        "unionInfo: " <> show (unionAdt ^. M.adtname) <> ": " <> s
+
 
 buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
@@ -1170,6 +1206,71 @@ enumDiscrLit tp discr =
     C.BVRepr w -> pure $ E.BVLit w $ BV.mkBV w discr
     _ -> mirFail $ "Unknown enum discriminant type: " ++ show tp
 
+-- | Construct and initialize a `MirExp` representing a union.
+buildUnion ::
+  M.Adt ->
+  -- | The index of the field being used to initialize the union
+  Int ->
+  MirExp s ->
+  MirGenerator h s ret (MirExp s)
+buildUnion unionAdt fieldIdx (MirExp actualFieldTpr fieldExpr) = do
+  UnionInfo unionSize fieldOffset fieldSize expectedFieldTpr <-
+    unionInfo unionAdt fieldIdx
+  Refl <-
+    testEqualityOrFail expectedFieldTpr actualFieldTpr $
+      "expected field to have type "
+        <> show expectedFieldTpr
+        <> ", but it was "
+        <> show actualFieldTpr
+
+  -- See Note [union representation]
+  emptyAg <- mirAggregate_uninit unionSize
+  fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
+  pure (MirExp MirAggregateRepr fullAg)
+
+{-
+Note [union representation]
+----------------------------------------
+
+Crucible represents Rust unions as `MirAggregate` values.
+
+A union's `MirAggregate` representation has size 1, regardless of the size (e.g.
+according to the `_adtSize` field) of the `Mir.Mir.Adt` that describes it.
+
+A union is always initialized with a single expression representing one of the
+union's fields. When interpreting this initialization:
+- We declare that the given field appears at offset 0 in the `MirAggregate`,
+  even if the field would appear at a nonzero offset according to Rust's memory
+  model.
+- We declare that the given field has size 1, even if the field type's size on
+  its own would be smaller or larger.
+
+When reading from the union, we rely on this initialization behavior, by reading
+the offset-0, size-1 subrange of the `MirAggregate` - that is, the entire
+aggregate - regardless of the type/field being read.
+
+The choice to represent unions and their constituent fields as having size 1 is
+temporary, intended to match similar temporary behavior elsewhere, e.g. in tuple
+construction (see `buildTupleMaybeM`). In the medium term, we'll want to update
+this to incorporate size and layout information to compute and use the proper
+sizes and offsets for each field.
+
+The type representation associated with a (subrange of a) `MirAggregate` is
+unspecified until the aggregate is written to, and fixed thereafter. This allows
+for unions to be default-initialized by an untyped `MirAggregate`.
+
+This also means that, once a union's `MirAggregate` is initialized with a field
+of a given type representation, we only support reading from/writing to the
+union via a field of that same type _representation_. Note that this does not
+necessarily mean code must read from/write to the exact same field.
+
+To properly implement reinterpretation of union values at other types, we'd need
+to change the behavior of `MirAggregate` to support type-switching, and we'd
+need to mimic Rust's layout rules for unions. See
+https://github.com/GaloisInc/crucible/issues/1548.
+-}
+
+
 fieldDataRef ::
     FieldKind tp tp' ->
     R.Expr MIR s MirReferenceType ->
@@ -1249,6 +1350,18 @@ tupleFieldRef tys i tpr ref = do
     ref' <- mirRef_agElem_constOffset (fromIntegral i) 1 valTpr ref
     return $ MirPlace valTpr ref' NoMeta
 
+-- | Provided a reference to a union, acquire a reference to the union field
+-- indicated by the provided index.
+unionFieldRef ::
+  M.Adt ->
+  -- | The index of the field being referenced
+  Int ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (MirPlace s)
+unionFieldRef unionAdt fieldIdx unionRef = do
+  UnionInfo unionSize fieldOffset fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
+  fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
+  pure $ MirPlace fieldTpr fieldRef NoMeta
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
 testEqualityOrFail x y msg = case testEquality x y of
@@ -1449,7 +1562,12 @@ initialValue (M.TyAdt nm _ _) = do
                 Just (discr, var) -> do
                     fldExps <- mapM initField (var^.M.vfields)
                     Just <$> buildEnum' adt discr fldExps
-        M.Union -> return Nothing
+        M.Union ->
+            -- Unions are default-initialized to an untyped `MirAggregate` of an
+            -- appropriate size, like tuples. See Note [union representation]
+            -- for details, including some regarding this choice of size.
+            let unionSize = 1
+            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
 
 
 

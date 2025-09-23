@@ -39,6 +39,7 @@ This release supports [version
 * Add basic scaffolding for representing inline assembly (e.g., using the
   `std::arch::asm!` macro). `crucible-mir` does not support _simulating_ inline
   assembly, but it can now translate code that uses it without crashing.
+* Implement basic support for creation and manipulation of union-type values.
 
 # 0.4 -- 2025-03-21
 
