@@ -1008,9 +1008,9 @@ data UnionInfo where
   UnionInfo ::
     -- | The overall size of the union
     Word ->
-    -- | The size of this field
-    Word ->
     -- | The offset of this field
+    Word ->
+    -- | The size of this field
     Word ->
     -- | The type of this field
     C.TypeRepr fieldTpr ->
@@ -1035,7 +1035,7 @@ unionInfo unionAdt fieldIdx = do
 
   Some fieldTpr <- tyToReprM (unionField ^. M.fty)
 
-  pure $ UnionInfo unionSize fieldSize fieldOffset fieldTpr
+  pure $ UnionInfo unionSize fieldOffset fieldSize fieldTpr
   where
     -- See Note [union representation]
     unionSize = 1
@@ -1209,7 +1209,7 @@ enumDiscrLit tp discr =
 -- | Construct and initialize a `MirExp` representing a union.
 buildUnion :: UnionInfo -> MirExp s -> MirGenerator h s ret (MirExp s)
 buildUnion
-  (UnionInfo unionSize fieldSize fieldOffset expectedFieldTpr)
+  (UnionInfo unionSize fieldOffset fieldSize expectedFieldTpr)
   (MirExp actualFieldTpr fieldExpr) = do
     Refl <-
       testEqualityOrFail expectedFieldTpr actualFieldTpr $
@@ -1351,7 +1351,7 @@ unionFieldRef ::
   UnionInfo ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (MirPlace s)
-unionFieldRef (UnionInfo unionSize fieldSize fieldOffset fieldTpr) unionRef = do
+unionFieldRef (UnionInfo unionSize fieldOffset fieldSize fieldTpr) unionRef = do
   fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
   pure $ MirPlace fieldTpr fieldRef NoMeta
 
