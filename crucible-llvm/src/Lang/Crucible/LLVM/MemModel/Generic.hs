@@ -91,6 +91,7 @@ import           Data.Text (Text)
 import           Numeric.Natural
 import           Prettyprinter
 import           Lang.Crucible.Panic (panic)
+import qualified Data.Vector as V
 
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
