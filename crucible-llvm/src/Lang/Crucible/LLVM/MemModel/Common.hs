@@ -511,8 +511,10 @@ valueLoad ::
   ValueView {- ^ view of stored value -} ->
   ValueCtor (ValueLoad Addr)
 valueLoad lo ltp so v
-  | le <= so = ValueCtorVar (OldMemory lo ltp) -- Load ends before store
-  | se <= lo = ValueCtorVar (OldMemory lo ltp) -- Store ends before load
+  -- The non-zero test ensures that 0-byte loads are always overlapping
+  -- with the most recent store so that they're not spuriously rejected.
+  | le <= so && nonZeroLoad = ValueCtorVar (OldMemory lo ltp) -- Load ends before store
+  | se <= lo && nonZeroLoad = ValueCtorVar (OldMemory lo ltp) -- Store ends before load
     -- Load is before store.
   | lo < so  = splitTypeValue ltp (so - lo) (\o tp -> valueLoad (lo+o) tp so v)
     -- Load ends after store ends.
@@ -534,6 +536,7 @@ valueLoad lo ltp so v
  where stp = fromMaybe (error ("Coerce value given bad view " ++ show v)) (viewType v)
        le = typeEnd lo ltp
        se = so + storageTypeSize stp
+       nonZeroLoad = le - lo > 0
 
 -- | @LinearLoadStoreOffsetDiff stride delta@ represents the fact that
 --   the difference between the load offset and the store offset is

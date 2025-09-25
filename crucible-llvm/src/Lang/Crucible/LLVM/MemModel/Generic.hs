@@ -91,6 +91,7 @@ import           Data.Text (Text)
 import           Numeric.Natural
 import           Prettyprinter
 import           Lang.Crucible.Panic (panic)
+import qualified Data.Vector as V
 
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
@@ -695,6 +696,21 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
       | otherwise
       = liftIO (Partial.partErr sym mop $ Invalidated msg)
 
+-- | Construct a value of a type that has no in-memory representation at all
+buildEmptyVal :: StorageType -> Maybe (LLVMVal sym)
+buildEmptyVal t =
+  case storageTypeF t of
+    Struct fields   -> LLVMValStruct <$> traverse emptyStorageField fields
+    Array n eltTy
+      | n == 0      -> Just (LLVMValArray eltTy V.empty)
+      | otherwise   -> LLVMValArray eltTy . V.replicate (fromIntegral n) <$> buildEmptyVal eltTy
+    X86_FP80        -> Nothing
+    Float           -> Nothing
+    Double          -> Nothing
+    Bitvector {}    -> Nothing -- Bitvectors can't be empty; they have a non-zero size invariant
+  where
+    emptyStorageField field = (,) field <$> buildEmptyVal (field ^. fieldVal)
+
 -- | Read a value from memory.
 readMem :: forall sym w.
   ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
@@ -707,6 +723,12 @@ readMem :: forall sym w.
   Alignment ->
   Mem sym ->
   IO (PartLLVMVal sym)
+readMem sym _ _ _ tp _ _
+  -- no actual memory read happens when reading a value with
+  -- no memory representation. This check comes up in
+  -- particular when evaluating llvm_points_to statements
+  -- in SAW script.
+  | Just v <- buildEmptyVal tp = pure (Partial.totalLLVMVal sym v)
 readMem sym w gsym l tp alignment m = do
   sz         <- bvLit sym w (bytesToBV w (typeEnd 0 tp))
   p1         <- isAllocated sym w alignment l (Just sz) m
