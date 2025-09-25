@@ -511,6 +511,8 @@ valueLoad ::
   ValueView {- ^ view of stored value -} ->
   ValueCtor (ValueLoad Addr)
 valueLoad lo ltp so v
+  -- The non-zero test ensures that 0-byte loads are always overlapping
+  -- with the most recent store so that they're not spuriously rejected.
   | le <= so && nonZeroLoad = ValueCtorVar (OldMemory lo ltp) -- Load ends before store
   | se <= lo && nonZeroLoad = ValueCtorVar (OldMemory lo ltp) -- Store ends before load
     -- Load is before store.
