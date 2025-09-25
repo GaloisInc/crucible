@@ -26,6 +26,8 @@ This release supports [version
 * Fix a bug that could cause the `crucible::concretize` function to crash Crux
   when using the `bitwuzla`, `cvc4`, or `cvc5` solvers.
 * Allow calling `crucible::concretize` on `static` references.
+* Allow casting pointers to unsafe pointers, which at present should be OK,
+  as we don't track the safe/unsafe attribute of pointers anyway. 
 
 # 0.10 -- 2025-03-21
 
