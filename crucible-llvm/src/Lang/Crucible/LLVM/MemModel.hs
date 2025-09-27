@@ -26,6 +26,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Lang.Crucible.LLVM.MemModel
   ( -- * Memories
     Mem
@@ -266,6 +267,15 @@ import qualified What4.ProgramLoc as W4
 newtype BlockSource = BlockSource (IORef Natural)
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
 
+
+data MemEvalState p sym ext rtp blocks ret args = MemEvalState {_currState :: CrucibleState p sym ext rtp blocks ret args, _errStates :: [(Pred sym, CrucibleState p sym ext rtp blocks ret args)]}
+
+
+type EvalM p sym ext rtp blocks ret args a =
+  StateT (MemEvalState p sym ext rtp blocks ret args) IO a
+
+$(makeLenses ''MemEvalState)
+
 nextBlock :: BlockSource -> IO Natural
 nextBlock (BlockSource ref) =
   atomicModifyIORef' ref (\n -> (n+1, n))
@@ -307,9 +317,10 @@ doDumpMem h mem = do
 -- Memory operations
 --
 
+-- \bak p err -> addAssumption bak (AssumingNoError (SimError W4.initializationLoc err) p))
 
-memAssert :: (?memOpts :: MemOptions, IsSymBackend sym bak) => bak -> Pred sym -> SimErrorReason -> IO ()
-memAssert = if assertsAsAssumes ?memOpts then (\bak p err -> addAssumption bak (AssumingNoError (SimError W4.initializationLoc err) p)) else assert
+memAssert :: (?memOpts :: MemOptions, IsSymBackend sym bak) => bak -> Pred sym -> SimErrorReason -> EvalM p sym ext rtp blocks ret args ()
+memAssert bak p err = if assertsAsAssumes ?memOpts then undefined else (liftIO $ assert  bak p err)
 
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
@@ -319,10 +330,10 @@ assertUndefined ::
   CallStack ->
   Pred sym ->
   (UB.UndefinedBehavior (RegValue' sym)) {- ^ The undesirable behavior -} ->
-  IO ()
+  EvalM p sym ext rtp blocks ret args ()
 assertUndefined bak callStack p ub =
   do let sym = backendGetSym bak
-     p' <- Partial.annotateUB sym callStack ub p
+     p' <- liftIO $ Partial.annotateUB sym callStack ub p
      memAssert bak p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
 
 
@@ -332,10 +343,10 @@ assertStoreError ::
   MemErrContext sym wptr ->
   MemoryErrorReason ->
   Pred sym ->
-  IO ()
+  EvalM p sym ext rtp blocks ret args ()
 assertStoreError bak errCtx rsn p =
   do let sym = backendGetSym bak
-     p' <- Partial.annotateME sym errCtx rsn p
+     p' <- liftIO $ Partial.annotateME sym errCtx rsn p
      memAssert bak p' $ AssertFailureSimError "Memory store failed" (show (ppMemoryErrorReason rsn))
 
 instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
@@ -371,10 +382,13 @@ llvmStatementExec ::
 llvmStatementExec stmt cst =
   let simCtx = cst^.stateContext
    in withBackend simCtx $ \bak ->
-        runStateT (evalStmt bak stmt) cst
+        do 
+          (rval, MemEvalState {_currState = nst, _errStates = _}) <-
+            runStateT (evalStmt bak stmt)  (MemEvalState {_currState = cst, _errStates = []})
+          pure (rval, nst)
 
-type EvalM p sym ext rtp blocks ret args a =
-  StateT (CrucibleState p sym ext rtp blocks ret args) IO a
+
+
 
 -- | Actual workhorse function for evaluating LLVM extension statements.
 --   The semantics are explicitly organized as a state transformer monad
@@ -392,7 +406,7 @@ evalStmt bak = eval
   getMem :: GlobalVar Mem ->
             EvalM p sym ext rtp blocks ret args (MemImpl sym)
   getMem mvar =
-    do gs <- use (stateTree.actFrame.gpGlobals)
+    do gs <- use (currState.stateTree.actFrame.gpGlobals)
        case lookupGlobal mvar gs of
          Just mem -> return mem
          Nothing  ->
@@ -404,7 +418,7 @@ evalStmt bak = eval
   setMem :: GlobalVar Mem ->
             MemImpl sym ->
             EvalM p sym ext rtp blocks ret args ()
-  setMem mvar mem = stateTree.actFrame.gpGlobals %= insertGlobal mvar mem
+  setMem mvar mem = currState.stateTree.actFrame.gpGlobals %= insertGlobal mvar mem
 
   failedAssert :: String -> String -> EvalM p sym ext rtp blocks ret args a
   failedAssert msg details =
@@ -486,10 +500,10 @@ evalStmt bak = eval
 
   eval (LLVM_PtrEq mvar (regValue -> x) (regValue -> y)) = do
      mem <- getMem mvar
-     liftIO $ do
-        v1 <- isValidPointer sym x mem
-        v2 <- isValidPointer sym y mem
-        v3 <- G.notAliasable sym x y (memImplHeap mem)
+     do
+        v1 <- liftIO $ isValidPointer sym x mem
+        v2 <- liftIO $ isValidPointer sym y mem
+        v3 <- liftIO $ G.notAliasable sym x y (memImplHeap mem)
 
         let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
         assertUndefined bak callStack v1 $
@@ -502,20 +516,20 @@ evalStmt bak = eval
              let x_doc = G.ppPtr x
              let y_doc = G.ppPtr y
              -- TODO: Is this undefined behavior? If so, add to the UB module
-             assert bak v3 $
+             liftIO $ assert bak v3 $
                AssertFailureSimError
                "Const pointers compared for equality"
                (unlines [ show x_doc
                         , show y_doc
                         , show allocs_doc
                         ])
-        ptrEq sym PtrWidth x y
+        liftIO $  ptrEq sym PtrWidth x y
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
     mem <- getMem mvar
-    liftIO $ do
-       v1 <- isValidPointer sym x mem
-       v2 <- isValidPointer sym y mem
+    do
+       v1 <- liftIO $ isValidPointer sym x mem
+       v2 <- liftIO $ isValidPointer sym y mem
 
        let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
        assertUndefined bak callStack v1
@@ -523,7 +537,7 @@ evalStmt bak = eval
        assertUndefined bak callStack v2
         (UB.CompareInvalidPointer UB.Leq (RV x) (RV y))
 
-       (le, valid) <- ptrLe sym PtrWidth x y
+       (le, valid) <- liftIO $ ptrLe sym PtrWidth x y
        assertUndefined bak callStack valid
          (UB.CompareDifferentAllocs (RV x) (RV y))
 
@@ -647,19 +661,21 @@ doCalloc ::
   SymBV sym wptr {- ^ size   -} ->
   SymBV sym wptr {- ^ number -} ->
   Alignment {- ^ Minimum alignment of the resulting allocation -} ->
-  IO (LLVMPtr sym wptr, MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 doCalloc bak mem sz num alignment = do
-  let sym = backendGetSym bak
-  (ov, sz') <- unsignedWideMultiplyBV sym sz num
-  ov_iszero <- notPred sym =<< bvIsNonzero sym ov
-  -- TODO, this probably shouldn't be UB
-  assert bak ov_iszero
-     (AssertFailureSimError "Multiplication overflow in calloc()" "")
+  (mem', ptr, z, sz') <- liftIO $  do 
+    let sym = backendGetSym bak
+    (ov, sz') <- unsignedWideMultiplyBV sym sz num
+    ov_iszero <- notPred sym =<< bvIsNonzero sym ov
+    -- TODO, this probably shouldn't be UB
+    assert bak ov_iszero
+      (AssertFailureSimError "Multiplication overflow in calloc()" "")
 
-  loc <- plSourceLoc <$> getCurrentProgramLoc sym
-  let displayString = "<calloc> " ++ show loc
-  z <- bvZero sym knownNat
-  (ptr, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz' alignment
+    loc <- plSourceLoc <$> getCurrentProgramLoc sym
+    let displayString = "<calloc> " ++ show loc
+    z <- bvZero sym knownNat
+    (ptr, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz' alignment
+    pure $ (mem', ptr, z, sz')
   mem'' <- doMemset bak PtrWidth mem' ptr z sz'
   return (ptr, mem'')
 
@@ -770,12 +786,12 @@ doFree
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doFree bak mem ptr = do
   let sym = backendGetSym bak
   let LLVMPointer blk _off = ptr
-  loc <- show . plSourceLoc <$> getCurrentProgramLoc sym
-  (heap', p1, p2, notFreed) <- G.freeMem sym PtrWidth ptr (memImplHeap mem) loc
+  loc <- show . plSourceLoc <$> (liftIO $ getCurrentProgramLoc sym)
+  (heap', p1, p2, notFreed) <- liftIO $ G.freeMem sym PtrWidth ptr (memImplHeap mem) loc
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -784,10 +800,10 @@ doFree bak mem ptr = do
          Nothing -> memImplHandleMap mem
 
   -- NB: free is defined and has no effect if passed a null pointer
-  isNull    <- ptrIsNull sym PtrWidth ptr
-  p1'       <- orPred sym p1 isNull
-  p2'       <- orPred sym p2 isNull
-  notFreed' <- orPred sym notFreed isNull
+  isNull    <- liftIO $ ptrIsNull sym PtrWidth ptr
+  p1'       <- liftIO $ orPred sym p1 isNull
+  p2'       <- liftIO $ orPred sym p2 isNull
+  notFreed' <- liftIO $ orPred sym notFreed isNull
   let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
   assertUndefined bak callStack p1' (UB.FreeBadOffset (RV ptr))
   assertUndefined bak callStack p2' (UB.FreeUnallocated (RV ptr))
@@ -806,12 +822,12 @@ doMemset ::
   LLVMPtr sym wptr {- ^ destination -} ->
   SymBV sym 8      {- ^ fill byte   -} ->
   SymBV sym w      {- ^ length      -} ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doMemset bak w mem dest val len = do
   let sym = backendGetSym bak
-  len' <- sextendBVTo sym w PtrWidth len
+  len' <- liftIO $ sextendBVTo sym w PtrWidth len
 
-  (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
+  (heap', p) <- liftIO $ G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
   let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
   assertUndefined bak callStack p $
@@ -858,7 +874,7 @@ doArrayStore
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> SymBV sym w {- ^ array length -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayStore bak mem ptr alignment arr len = doArrayStoreSize (Just len) bak mem ptr alignment arr
 
 -- | Store an array of unbounded length in memory.
@@ -871,7 +887,7 @@ doArrayStoreUnbounded
   -> LLVMPtr sym w {- ^ destination  -}
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayStoreUnbounded = doArrayStoreSize Nothing
 
 
@@ -883,11 +899,11 @@ doArrayStoreSize
   -> LLVMPtr sym w {- ^ destination  -}
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayStoreSize len bak mem ptr alignment arr = do
   let sym = backendGetSym bak
   (heap', p1, p2) <-
-    G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+    liftIO $ G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
 
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   let mop = MemStoreBytesOp gsym ptr len (memImplHeap mem)
@@ -910,7 +926,7 @@ doArrayConstStore
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> SymBV sym w {- ^ array length -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayConstStore bak mem ptr alignment arr len =
   doArrayConstStoreSize (Just len) bak mem ptr alignment arr
 
@@ -925,7 +941,7 @@ doArrayConstStoreUnbounded
   -> LLVMPtr sym w {- ^ destination  -}
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayConstStoreUnbounded = doArrayConstStoreSize Nothing
 
 -- | The workhorse for 'doArrayConstStore' (if the first argument is
@@ -939,11 +955,11 @@ doArrayConstStoreSize
   -> LLVMPtr sym w {- ^ destination  -}
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayConstStoreSize len bak mem ptr alignment arr = do
   let sym = backendGetSym bak
   (heap', p1, p2) <-
-    G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+    liftIO $ G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
 
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   let mop = MemStoreBytesOp gsym ptr len (memImplHeap mem)
@@ -1015,10 +1031,10 @@ doPtrSubtract ::
   MemImpl sym ->
   LLVMPtr sym wptr ->
   LLVMPtr sym wptr ->
-  IO (SymBV sym wptr)
+  EvalM p sym ext rtp blocks ret args (SymBV sym wptr)
 doPtrSubtract bak mem x y = do
   let sym = backendGetSym bak
-  (diff, valid) <- ptrDiff sym PtrWidth x y
+  (diff, valid) <- liftIO $ ptrDiff sym PtrWidth x y
   let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
   assertUndefined bak callStack valid $
     UB.PtrSubDifferentAllocs (RV x) (RV y)
@@ -1032,14 +1048,14 @@ doPtrAddOffset ::
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
-  IO (LLVMPtr sym wptr)
+  EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr)
 doPtrAddOffset bak m x off = do
   let sym = backendGetSym bak
-  isBV <- ptrIsBv sym x
-  x' <- ptrAdd sym PtrWidth x off
+  isBV <- liftIO $ ptrIsBv sym x
+  x' <- liftIO $ ptrAdd sym PtrWidth x off
   v <- case asConstantPred isBV of
          Just True  -> return isBV
-         _ -> orPred sym isBV =<< G.isValidPointer sym PtrWidth x' (memImplHeap m)
+         _ -> (liftIO $ orPred sym isBV =<< G.isValidPointer sym PtrWidth x' (memImplHeap m))
   unless (laxLoadsAndStores ?memOpts) $
     let callStack = getCallStack (m ^. to memImplHeap . ML.memState)
     in assertUndefined bak callStack v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
@@ -1055,10 +1071,10 @@ doStoreStableSymbolic ::
   LLVMPtr sym wptr       {- ^ destination       -} ->
   Maybe (SymBV sym wptr) {- ^ allocation size   -} ->
   Alignment              {- ^ pointer alignment -} ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doStoreStableSymbolic bak mem ptr mbSz alignment = do
   let sym = backendGetSym bak
-  bytes <- freshConstant sym emptySymbol
+  bytes <- liftIO $ freshConstant sym emptySymbol
              (BaseArrayRepr (Ctx.singleton (BaseBVRepr ?ptrWidth))
                             (BaseBVRepr (knownNat @8)))
   case mbSz of
@@ -1079,10 +1095,10 @@ doConstStoreStableSymbolic ::
   LLVMPtr sym wptr       {- ^ destination       -} ->
   Maybe (SymBV sym wptr) {- ^ allocation size   -} ->
   Alignment              {- ^ pointer alignment -} ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doConstStoreStableSymbolic bak mem ptr mbSz alignment = do
   let sym = backendGetSym bak
-  bytes <- freshConstant sym emptySymbol
+  bytes <- liftIO $ freshConstant sym emptySymbol
              (BaseArrayRepr (Ctx.singleton (BaseBVRepr ?ptrWidth))
                             (BaseBVRepr (knownNat @8)))
   case mbSz of
@@ -1120,42 +1136,57 @@ isAllocatedAlignedPointer ::
 isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
   G.isAllocatedAlignedPointer sym w alignment mutability ptr size (memImplHeap mem)
 
+
+
+iteMIO :: (MonadIO m, IsExprBuilder sym) =>
+  (sym -> Pred sym -> v -> v -> m v) ->
+  sym -> Pred sym -> m v -> m v -> m v
+iteMIO ite sym p mx my = do
+  case asConstantPred p of
+    Just True -> mx
+    Just False -> my
+    Nothing -> join $ ite sym p <$> mx <*> my
+
 -- | Compute the length of a null-terminated string.
 --
 --   The pointer to read from must be concrete and nonnull.  The contents
 --   of the string may be symbolic; HOWEVER, this function will not terminate
 --   until it eventually reaches a concete null-terminator or a load error.
-strLen ::
+strLen :: forall bak sym wptr p ext rtp blocks ret args.
   ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
-  IO (SymBV sym wptr)
+  EvalM p sym ext rtp blocks ret args (SymBV sym wptr)
 strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
   where
   sym = backendGetSym bak
-
+  go :: BV.BV wptr
+      -> SymExpr sym BaseBoolType
+      -> LLVMPtr sym wptr
+      -> EvalM p sym ext rtp blocks ret args (SymExpr sym (BaseBVType wptr))
   go !n cond p =
-    loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
+    (liftIO $ loadRaw sym mem p (bitvectorType 1) noAlignment) >>= \case
       Partial.Err pe ->
+        liftIO $ 
         do ast <- impliesPred sym cond pe
            assert bak ast $ AssertFailureSimError "Error during memory load: strlen" ""
            bvZero sym PtrWidth -- bogus value, but have to return something...
       Partial.NoErr loadok llvmval ->
-        do ast <- impliesPred sym cond loadok
-           assert bak ast $ AssertFailureSimError "Error during memory load: strlen" ""
-           v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
+        do ast <- liftIO $  impliesPred sym cond loadok
+           liftIO $  assert bak ast $ AssertFailureSimError "Error during memory load: strlen" ""
+           v <- liftIO $  unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
            let err = AssertFailureSimError "Found pointer instead of byte in string passed to `strlen`" ""
-           test <- bvIsNonzero sym =<< Partial.ptrToBv bak err v
-           iteM bvIte sym
+           test <- (liftIO $  bvIsNonzero sym =<< Partial.ptrToBv bak err v)
+           iteMIO (\s' p' v1 v2 -> liftIO $ bvIte  s' p' v1 v2 ) sym
              test
-             (do cond' <- andPred sym cond test
-                 p'    <- doPtrAddOffset bak mem p =<< bvOne sym PtrWidth
+             (do cond' <- liftIO $ andPred sym cond test
+                 p'    <- doPtrAddOffset bak mem p =<< (liftIO $ bvOne sym PtrWidth)
                  case BV.succUnsigned PtrWidth n of
                    Just n_1 -> go n_1 cond' p'
                    Nothing -> panic "Lang.Crucible.LLVM.MemModel.strLen" ["string length exceeds pointer width"])
-             (bvLit sym PtrWidth n)
+             (liftIO $ bvLit sym PtrWidth n)
 
 
 -- | Load a null-terminated string from the memory.
@@ -1166,32 +1197,32 @@ strLen bak mem = go (BV.zero PtrWidth) (truePred sym)
 -- terminated.  If a maximum number of characters is provided, no more
 -- than that number of charcters will be read.  In either case,
 -- `loadString` will stop reading if it encounters a null-terminator.
-loadString :: forall sym bak wptr.
+loadString :: forall sym bak wptr p ext rtp blocks ret args.
   ( IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym
   , ?memOpts :: MemOptions, GHC.HasCallStack ) =>
   bak ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
   Maybe Int        {- ^ maximum characters to read -} ->
-  IO [Word8]
+  EvalM p sym ext rtp blocks ret args [Word8]
 loadString bak mem = go id
  where
   sym = backendGetSym bak
 
-  go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> IO [Word8]
+  go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> EvalM p sym ext rtp blocks ret args [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
      v <- doLoad bak mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
      let err = AssertFailureSimError "Found pointer instead of byte when loading string" ""
-     x <- Partial.ptrToBv bak err v
+     x <- liftIO $ Partial.ptrToBv bak err v
      case BV.asUnsigned <$> asBV x of
        Just 0 -> return $ f []
        Just c -> do
            let c' :: Word8 = toEnum $ fromInteger c
-           p' <- doPtrAddOffset bak mem p =<< bvOne sym PtrWidth
+           p' <- doPtrAddOffset bak mem p =<< (liftIO $ bvOne sym PtrWidth)
            go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
        Nothing ->
-         addFailedAssertion bak
+         liftIO $ addFailedAssertion bak
             $ Unsupported GHC.callStack "Symbolic value encountered when loading a string"
 
 -- | Like 'loadString', except the pointer to load may be null.  If
