@@ -450,7 +450,7 @@ callCloseFile _memOps fsVars filedesc =
        Nothing -> \_ -> returnIOError32
 
 readFileHandle
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMFileSystem wptr
   -> LLVMOverride p sym ext
            (EmptyCtx ::> BVType 32
@@ -462,7 +462,7 @@ readFileHandle fsVars =
   (\memOps args -> uncurryAssignment (callReadFileHandle memOps fsVars) args)
 
 callReadFileHandle ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
   GlobalVar Mem ->
   LLVMFileSystem wptr ->
   RegEntry sym (BVType 32) ->

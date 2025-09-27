@@ -211,6 +211,9 @@ llvmCruxConfig = do
                        noSatisfyingWriteFreshConstant <-
                          Crux.section "no-satisfying-write-fresh-constant" Crux.yesOrNoSpec True
                            "Make a fresh constant for the NoSatisfyingWrite annotation."
+                       assertsAsAssumes <-
+                        Crux.section "asserts-as-assumes" Crux.yesOrNoSpec False
+                           "Do not add safety obligations as assertions and instead under-approximate the set of valid states by assuming the obligation."
                        return MemOptions{..}
 
          transOpts <- do laxArith <-

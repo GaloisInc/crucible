@@ -258,6 +258,7 @@ import           Lang.Crucible.Panic (panic)
 
 
 import           GHC.Stack (HasCallStack)
+import qualified What4.ProgramLoc as W4
 
 ----------------------------------------------------------------------
 -- The MemImpl type
@@ -307,10 +308,13 @@ doDumpMem h mem = do
 --
 
 
+memAssert :: (?memOpts :: MemOptions, IsSymBackend sym bak) => bak -> Pred sym -> SimErrorReason -> IO ()
+memAssert = if assertsAsAssumes ?memOpts then (\bak p err -> addAssumption bak (AssumingNoError (SimError W4.initializationLoc err) p)) else assert
+
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
 assertUndefined ::
-  (IsSymBackend sym bak, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   CallStack ->
   Pred sym ->
@@ -319,11 +323,11 @@ assertUndefined ::
 assertUndefined bak callStack p ub =
   do let sym = backendGetSym bak
      p' <- Partial.annotateUB sym callStack ub p
-     assert bak p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
+     memAssert bak p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
 
 
 assertStoreError ::
-  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, 1 <= wptr) =>
+  (IsSymBackend sym bak, Partial.HasLLVMAnn sym, 1 <= wptr, ?memOpts :: MemOptions) =>
   bak ->
   MemErrContext sym wptr ->
   MemoryErrorReason ->
@@ -332,7 +336,7 @@ assertStoreError ::
 assertStoreError bak errCtx rsn p =
   do let sym = backendGetSym bak
      p' <- Partial.annotateME sym errCtx rsn p
-     assert bak p' $ AssertFailureSimError "Memory store failed" (show (ppMemoryErrorReason rsn))
+     memAssert bak p' $ AssertFailureSimError "Memory store failed" (show (ppMemoryErrorReason rsn))
 
 instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -762,7 +766,7 @@ doLookupHandle _sym mem ptr = do
 -- Precondition: the pointer either points to the beginning of an allocated
 -- region, or is null. Freeing a null pointer has no effect.
 doFree
-  :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -795,7 +799,7 @@ doFree bak mem ptr = do
 --
 -- Precondition: the memory range falls within a valid allocated region.
 doMemset ::
-  (1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (1 <= w, IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   NatRepr w ->
   MemImpl sym ->
@@ -847,7 +851,7 @@ doInvalidate bak w mem dest msg len = do
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStore
-  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -861,7 +865,7 @@ doArrayStore bak mem ptr alignment arr len = doArrayStoreSize (Just len) bak mem
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStoreUnbounded
-  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -872,7 +876,7 @@ doArrayStoreUnbounded = doArrayStoreSize Nothing
 
 
 doArrayStoreSize
-  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => Maybe (SymBV sym w) {- ^ possibly-unbounded array length -}
   -> bak
   -> MemImpl sym
@@ -899,7 +903,7 @@ doArrayStoreSize len bak mem ptr alignment arr = do
 -- Precondition: the pointer is valid and points to a mutable or immutable memory region.
 -- Therefore it can be used to initialize read-only memory regions.
 doArrayConstStore
-  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -915,7 +919,7 @@ doArrayConstStore bak mem ptr alignment arr len =
 -- Precondition: the pointer is valid and points to a mutable or immutable memory region.
 -- Therefore it can be used to initialize read-only memory regions.
 doArrayConstStoreUnbounded
-  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => bak
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -928,7 +932,7 @@ doArrayConstStoreUnbounded = doArrayConstStoreSize Nothing
 -- @'Just' len@) or 'doArrayConstStoreUnbounded' (if the first argument is
 -- 'Nothing').
 doArrayConstStoreSize
-  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym)
+  :: (IsSymBackend sym bak, HasPtrWidth w, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions)
   => Maybe (SymBV sym w) {- ^ possibly-unbounded array length -}
   -> bak
   -> MemImpl sym
@@ -1006,7 +1010,7 @@ uncheckedMemcpy sym mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 doPtrSubtract ::
-  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr ->
@@ -1045,7 +1049,7 @@ doPtrAddOffset bak m x off = do
 -- pointer. This is used in various spots whenever 'laxLoadsAndStores' is
 -- enabled and 'indeterminateLoadBehavior' is set to 'StableSymbolic'.
 doStoreStableSymbolic ::
-  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr       {- ^ destination       -} ->
@@ -1069,7 +1073,7 @@ doStoreStableSymbolic bak mem ptr mbSz alignment = do
 -- memory region. Therefore it can be used to initialize read-only memory
 -- regions.
 doConstStoreStableSymbolic ::
-  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  (IsSymBackend sym bak, HasPtrWidth wptr, Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   bak ->
   MemImpl sym ->
   LLVMPtr sym wptr       {- ^ destination       -} ->

@@ -240,7 +240,7 @@ llvmMemmoveOverride =
     )
 
 llvmMemsetOverride :: forall p sym ext wptr.
-     (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+     (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType 32
@@ -261,7 +261,7 @@ llvmMemsetOverride =
     )
 
 llvmMemsetChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                  ::> BVType 32
@@ -333,7 +333,7 @@ posixMemalignOverride =
 
 
 llvmFreeOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr)
          UnitType
@@ -497,7 +497,7 @@ callCalloc mvar alignment
       doCalloc bak mem sz num alignment
 
 callFree
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym ext r args ret ()
@@ -555,7 +555,7 @@ callMemmove mvar
          return ((), mem')
 
 callMemset
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 8)

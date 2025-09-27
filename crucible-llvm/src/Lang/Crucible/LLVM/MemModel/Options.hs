@@ -74,6 +74,9 @@ data MemOptions
       --   because it's a variable, it won't be constant-folded away and it's
       --   relatively sure the annotation will survive. If 'False', annotate
       --   'false'.
+    , assertsAsAssumes :: !Bool
+    -- ^ Should safety obligations be added as assumptions resulting in an 
+    -- underappoximating memory model
     }
 
 
@@ -123,6 +126,7 @@ defaultMemOptions =
     -- won't have any effect when laxLoadsAndStores is disabled.
   , indeterminateLoadBehavior = StableSymbolic
   , noSatisfyingWriteFreshConstant = True
+  , assertsAsAssumes = False
   }
 
 

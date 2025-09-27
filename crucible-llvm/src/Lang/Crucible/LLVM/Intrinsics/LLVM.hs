@@ -553,7 +553,7 @@ llvmMemmoveOverride_8_8_64_noalign_opaque =
 
 
 llvmMemsetOverride_8_64
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -567,7 +567,7 @@ llvmMemsetOverride_8_64 =
     Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset memOps dst val len v) args)
 
 llvmMemsetOverride_8_64_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -579,7 +579,7 @@ llvmMemsetOverride_8_64_noalign =
   (\memOps args -> Ctx.uncurryAssignment (Libc.callMemset memOps) args)
 
 llvmMemsetOverride_8_64_noalign_opaque
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -592,7 +592,7 @@ llvmMemsetOverride_8_64_noalign_opaque =
 
 
 llvmMemsetOverride_8_32
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -606,7 +606,7 @@ llvmMemsetOverride_8_32 =
     Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset memOps dst val len v) args)
 
 llvmMemsetOverride_8_32_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -618,7 +618,7 @@ llvmMemsetOverride_8_32_noalign =
   (\memOps args -> Ctx.uncurryAssignment (Libc.callMemset memOps) args)
 
 llvmMemsetOverride_8_32_noalign_opaque
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
   => LLVMOverride p sym ext
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
