@@ -438,7 +438,7 @@ evalStmt bak = eval
 
   eval (LLVM_Alloca _w mvar (regValue -> sz) alignment loc) =
      do mem <- getMem mvar
-        (ptr, mem') <- liftIO $ doAlloca bak mem sz alignment loc
+        (ptr, mem') <- doAlloca bak mem sz alignment loc
         setMem mvar mem'
         return ptr
 
@@ -450,12 +450,12 @@ evalStmt bak = eval
     do mem <- getMem mvar
        z   <- liftIO $ bvZero sym knownNat
        len <- liftIO $ bvLit sym PtrWidth (bytesToBV PtrWidth bytes)
-       mem' <- liftIO $ doMemset bak PtrWidth mem ptr z len
+       mem' <- doMemset bak PtrWidth mem ptr z len
        setMem mvar mem'
 
   eval (LLVM_Store mvar (regValue -> ptr) tpr valType alignment (regValue -> val)) =
      do mem <- getMem mvar
-        mem' <- liftIO $ doStore bak mem ptr tpr valType alignment val
+        mem' <- doStore bak mem ptr tpr valType alignment val
         setMem mvar mem'
 
   eval (LLVM_LoadHandle mvar ltp (regValue -> ptr) args ret) =
@@ -545,11 +545,11 @@ evalStmt bak = eval
 
   eval (LLVM_PtrAddOffset _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
-       liftIO $ doPtrAddOffset bak mem x y
+       doPtrAddOffset bak mem x y
 
   eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
-       liftIO $ doPtrSubtract bak mem x y
+       doPtrSubtract bak mem x y
 
   eval LLVM_Debug{} = pure ()
 
@@ -583,7 +583,7 @@ doAlloca ::
   SymBV sym wptr {- ^ allocation size -} ->
   Alignment      {- ^ pointer alignment -} ->
   String         {- ^ source location for use in error messages -} ->
-  IO (LLVMPtr sym wptr, MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 doAlloca bak mem sz alignment loc = do
   let sym = backendGetSym bak
   blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
@@ -639,11 +639,11 @@ doStore ::
   StorageType      {- ^ type of value to store -} ->
   Alignment ->
   RegValue sym tp  {- ^ value to store         -} ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doStore bak mem ptr tpr valType alignment val = do
     --putStrLn "MEM STORE"
     let sym = backendGetSym bak
-    val' <- packMemValue sym valType tpr val
+    val' <- liftIO $ packMemValue sym valType tpr val
     storeRaw bak mem ptr valType alignment val'
 
 data SomeFnHandle where
@@ -663,7 +663,7 @@ doCalloc ::
   Alignment {- ^ Minimum alignment of the resulting allocation -} ->
   EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 doCalloc bak mem sz num alignment = do
-  (mem', ptr, z, sz') <- liftIO $  do 
+  (z, sz', loc) <- liftIO $ do 
     let sym = backendGetSym bak
     (ov, sz') <- unsignedWideMultiplyBV sym sz num
     ov_iszero <- notPred sym =<< bvIsNonzero sym ov
@@ -672,10 +672,10 @@ doCalloc bak mem sz num alignment = do
       (AssertFailureSimError "Multiplication overflow in calloc()" "")
 
     loc <- plSourceLoc <$> getCurrentProgramLoc sym
-    let displayString = "<calloc> " ++ show loc
     z <- bvZero sym knownNat
-    (ptr, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz' alignment
-    pure $ (mem', ptr, z, sz')
+    pure(z, sz', loc)
+  let displayString = "<calloc> " ++ show loc
+  (ptr, mem') <- doMalloc bak G.HeapAlloc G.Mutable displayString mem sz' alignment
   mem'' <- doMemset bak PtrWidth mem' ptr z sz'
   return (ptr, mem'')
 
@@ -690,7 +690,7 @@ doMalloc
   -> MemImpl sym
   -> SymBV sym wptr {- ^ allocation size -}
   -> Alignment
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 doMalloc bak allocType mut loc mem sz alignment = doMallocSize (Just sz) bak allocType mut loc mem alignment
 
 -- | Allocate a memory region of unbounded size.
@@ -703,7 +703,7 @@ doMallocUnbounded
   -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
   -> Alignment
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 doMallocUnbounded = doMallocSize Nothing
 
 doMallocSize
@@ -716,12 +716,12 @@ doMallocSize
   -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
   -> Alignment
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 doMallocSize sz bak allocType mut loc mem alignment = do
   let sym = backendGetSym bak
-  blkNum <- nextBlock (memImplBlockSource mem)
-  blk    <- natLit sym blkNum
-  z      <- bvZero sym PtrWidth
+  blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
+  blk    <- liftIO $ natLit sym blkNum
+  z      <- liftIO $ bvZero sym PtrWidth
   let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   let mem'  = mem{ memImplHeap = heap' }
@@ -844,22 +844,22 @@ doInvalidate ::
   LLVMPtr sym wptr {- ^ destination -} ->
   Text             {- ^ message     -} ->
   SymBV sym w      {- ^ length      -} ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doInvalidate bak w mem dest msg len = do
   let sym = backendGetSym bak
-  len' <- sextendBVTo sym w PtrWidth len
+  len' <- liftIO $ sextendBVTo sym w PtrWidth len
 
   (heap', p) <- if laxLoadsAndStores ?memOpts &&
                    indeterminateLoadBehavior ?memOpts == StableSymbolic
-                then do p <- G.isAllocatedMutable sym PtrWidth noAlignment dest (Just len') (memImplHeap mem)
+                then do p <- liftIO $ G.isAllocatedMutable sym PtrWidth noAlignment dest (Just len') (memImplHeap mem)
                         mem' <- doStoreStableSymbolic bak mem dest (Just len') noAlignment
                         pure (memImplHeap mem', p)
-                else G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
+                else liftIO $ G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) dest
   let mop = MemInvalidateOp msg gsym dest len (memImplHeap mem)
-  p' <- Partial.annotateME sym mop UnwritableRegion p
-  assert bak p' $ AssertFailureSimError "Invalidation of unallocated or readonly region" ""
+  p' <- liftIO $ Partial.annotateME sym mop UnwritableRegion p
+  liftIO $ assert bak p' $ AssertFailureSimError "Invalidation of unallocated or readonly region" ""
 
   return mem{ memImplHeap = heap' }
 
@@ -1212,7 +1212,7 @@ loadString bak mem = go id
   go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> EvalM p sym ext rtp blocks ret args [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
-     v <- doLoad bak mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
+     v <- liftIO $ doLoad bak mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
      let err = AssertFailureSimError "Found pointer instead of byte when loading string" ""
      x <- liftIO $ Partial.ptrToBv bak err v
      case BV.asUnsigned <$> asBV x of
@@ -1235,12 +1235,12 @@ loadMaybeString ::
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
   Maybe Int        {- ^ maximum characters to read -} ->
-  IO (Maybe [Word8])
+  EvalM p sym ext rtp blocks ret args (Maybe [Word8])
 loadMaybeString bak mem ptr n = do
   let sym = backendGetSym bak
-  isnull <- ptrIsNull sym PtrWidth ptr
+  isnull <- liftIO $ ptrIsNull sym PtrWidth ptr
   case asConstantPred isnull of
-    Nothing    -> addFailedAssertion bak
+    Nothing    -> liftIO $ addFailedAssertion bak
                     $ Unsupported GHC.callStack "Symbolic pointer encountered when loading a string"
     Just True  -> return Nothing
     Just False -> Just <$> loadString bak mem ptr n
@@ -1331,11 +1331,11 @@ storeRaw ::
   -> StorageType      {- ^ type of value to store -}
   -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 storeRaw bak mem ptr valType alignment val = do
     let sym = backendGetSym bak
     let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
-    (heap', p1, p2) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
+    (heap', p1, p2) <- liftIO $ G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
@@ -1410,7 +1410,7 @@ condStoreRaw ::
   -> StorageType      {- ^ type of value to store -}
   -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 condStoreRaw bak mem cond ptr valType alignment val = do
   let sym = backendGetSym bak
   let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
@@ -1422,12 +1422,12 @@ condStoreRaw bak mem cond ptr valType alignment val = do
   let mop = MemStoreOp valType gsym ptr preBranchHeap
 
   -- Write to the heap
-  (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
+  (postWriteHeap, isAllocated, isAligned) <- liftIO $  G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
-  do condIsAllocated <- impliesPred sym cond isAllocated
+  do condIsAllocated <- liftIO $ impliesPred sym cond isAllocated
      assertStoreError bak mop UnwritableRegion condIsAllocated
   -- Assert is aligned if write executes
-  do condIsAligned <- impliesPred sym cond isAligned
+  do condIsAligned <- liftIO $ impliesPred sym cond isAligned
      let callStack = getCallStack (mem ^. to memImplHeap . ML.memState)
      assertUndefined bak callStack condIsAligned (UB.WriteBadAlignment (RV ptr) alignment)
   -- Merge the write heap and non-write heap
@@ -1449,11 +1449,11 @@ storeConstRaw ::
   -> StorageType      {- ^ type of value to store -}
   -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
-  -> IO (MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 storeConstRaw bak mem ptr valType alignment val = do
     let sym = backendGetSym bak
     let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
-    (heap', p1, p2) <- G.writeConstMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
+    (heap', p1, p2) <- liftIO $ G.writeConstMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
@@ -1471,7 +1471,7 @@ mallocRaw
   -> MemImpl sym
   -> SymBV sym wptr {- ^ size in bytes -}
   -> Alignment
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 mallocRaw bak mem sz alignment =
   doMalloc bak G.HeapAlloc G.Mutable "<malloc>" mem sz alignment
 
@@ -1483,7 +1483,7 @@ mallocConstRaw
   -> MemImpl sym
   -> SymBV sym wptr
   -> Alignment
-  -> IO (LLVMPtr sym wptr, MemImpl sym)
+  -> EvalM p sym ext rtp blocks ret args (LLVMPtr sym wptr, MemImpl sym)
 mallocConstRaw bak mem sz alignment =
   doMalloc bak G.HeapAlloc G.Immutable "<malloc>" mem sz alignment
 
@@ -1893,7 +1893,7 @@ allocGlobals ::
   bak ->
   [(L.Global, [L.Symbol], Bytes, Alignment)] ->
   MemImpl sym ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 allocGlobals bak gs mem = foldM (allocGlobal bak) mem gs
 
 allocGlobal ::
@@ -1902,13 +1902,13 @@ allocGlobal ::
   bak ->
   MemImpl sym ->
   (L.Global, [L.Symbol], Bytes, Alignment) ->
-  IO (MemImpl sym)
+  EvalM p sym ext rtp blocks ret args (MemImpl sym)
 allocGlobal bak mem (g, aliases, sz, alignment) = do
   let sym = backendGetSym bak
   let symbol@(L.Symbol sym_str) = L.globalSym g
   let displayName = "[global variable  ] " ++ sym_str
   let mut = if L.gaConstant (L.globalAttrs g) then G.Immutable else G.Mutable
-  sz' <- bvLit sym PtrWidth (bytesToBV PtrWidth sz)
+  sz' <- liftIO $ bvLit sym PtrWidth (bytesToBV PtrWidth sz)
   -- TODO: Aliases are not propagated to doMalloc for error messages
   (ptr, mem') <- doMalloc bak G.GlobalAlloc mut displayName mem sz' alignment
   return (registerGlobal mem' (symbol:aliases) ptr)
