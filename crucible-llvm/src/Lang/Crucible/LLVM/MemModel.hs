@@ -100,6 +100,7 @@ module Lang.Crucible.LLVM.MemModel
   , ppLLVMValWithGlobals
   , FloatSize(..)
   , unpackMemValue
+  , unpackMemoryM
   , packMemValue
   , loadRaw
   , loadArrayConcreteSizeRaw
@@ -192,6 +193,9 @@ module Lang.Crucible.LLVM.MemModel
   , ML.concLLVMVal
   , ML.concMem
   , concMemImpl
+
+  , EvalM
+  , MemEvalState(..)
   ) where
 
 import           Prelude hiding (seq)
@@ -877,6 +881,19 @@ doArrayStore
   -> EvalM p sym ext rtp blocks ret args (MemImpl sym)
 doArrayStore bak mem ptr alignment arr len = doArrayStoreSize (Just len) bak mem ptr alignment arr
 
+
+{- | Unpacks the memory monad by assuming that there are no error states.
+This function panics if we are running in an underapproximate mode
+-}
+unpackMemoryM :: EvalM p sym ext rtp blocks ret args (CrucibleState p sym ext rtp blocks ret args)
+unpackMemoryM = do
+  st <- use currState
+  errList <- use errStates
+  if length errList > 0
+    then
+      panic "Lang.Crucible.LLVM.MemModel.unpackMemoryM" ["called unpack memory when running with underapproximate assertions"]
+    else pure ()
+  pure st
 -- | Store an array of unbounded length in memory.
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.

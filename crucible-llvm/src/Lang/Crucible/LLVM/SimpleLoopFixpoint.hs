@@ -32,7 +32,7 @@ import           Control.Lens
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Reader (ReaderT(..))
-import           Control.Monad.State (MonadState(..), StateT(..))
+import           Control.Monad.State (MonadState(..), StateT(..), evalStateT)
 import           Control.Monad.Trans.Maybe
 import           Data.Either
 import           Data.Foldable
@@ -76,6 +76,7 @@ import qualified Lang.Crucible.LLVM.MemModel as C
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as C hiding (Mem)
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as C
 import qualified Lang.Crucible.LLVM.MemModel.Type as C
+import Lang.Crucible.LLVM.MemModel (MemEvalState(_errStates))
 
 
 -- | When live loop-carried dependencies are discovered as we traverse
@@ -403,14 +404,14 @@ storeMemJoinVariables ::
   C.MemImpl sym ->
   Map (Natural, Natural, Natural) (MemFixpointEntry sym, C.StorageType) ->
   MapF (W4.SymExpr sym) (W4.SymExpr sym) ->
-  IO (C.MemImpl sym)
+  C.EvalM p sym ext rtp blocks ret args  (C.MemImpl sym)
 storeMemJoinVariables bak mem mem_subst eq_subst =
   let sym = C.backendGetSym bak in
   foldlM
   (\mem_acc ((blk, off, _sz), (MemFixpointEntry { memFixpointEntryJoinVariable = join_varaible }, storeage_type)) -> do
-    ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
+    ptr <- liftIO $ C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth $ fromIntegral off)
     C.doStore bak mem_acc ptr (C.LLVMPointerRepr $ W4.bvWidth join_varaible) storeage_type C.noAlignment =<<
-      C.llvmPointer_bv sym (MapF.findWithDefault join_varaible join_varaible eq_subst))
+      (liftIO $ C.llvmPointer_bv sym (MapF.findWithDefault join_varaible join_varaible eq_subst)))
   mem
   (Map.toAscList mem_subst)
 
@@ -740,11 +741,11 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
             let res_reg_map = applySubstitutionRegEntries sym equality_substitution join_reg_map
 
             -- unify widening varialbes in the memory subst
-            res_mem_impl <- storeMemJoinVariables
+            res_mem_impl <- evalStateT (storeMemJoinVariables
               bak
               (header_mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" (C.memImplHeap header_mem_impl) })
               mem_substitution
-              equality_substitution
+              equality_substitution) (C.MemEvalState { _currState = sim_state, _errStates = [] })
 
             -- finally we can determine the loop bounds
             loop_index_bound <- findLoopIndexBound sym normal_substitution $ fixpointLoopCondition fixpoint_record
@@ -778,10 +779,10 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
               "SimpleLoopFixpoint: RunningState: ComputeFixpoint: -> ComputeFixpoint"
 
             -- write any new widening variables into memory state
-            res_mem_impl <- storeMemJoinVariables bak
+            res_mem_impl <- evalStateT (storeMemJoinVariables bak
               (header_mem_impl { C.memImplHeap = C.pushStackFrameMem "fix" (C.memImplHeap header_mem_impl) })
               mem_substitution
-              MapF.empty
+              MapF.empty)  (C.MemEvalState { _currState = sim_state, _errStates = [] })
 
             writeIORef fixpoint_state_ref $ ComputeFixpoint
               FixpointRecord
@@ -849,10 +850,10 @@ advanceFixpointState bak mem_var fixpoint_func block_id sim_state fixpoint_state
         let res_reg_map = C.RegMap $
               applySubstitutionRegEntries sym fixpoint_func_substitution (C.regMap reg_map)
 
-        res_mem_impl <- storeMemJoinVariables bak
+        res_mem_impl <- evalStateT (storeMemJoinVariables bak
           header_mem_impl
           (fixpointMemSubstitution fixpoint_record)
-          fixpoint_func_substitution
+          fixpoint_func_substitution)  (C.MemEvalState { _currState = sim_state, _errStates = [] })
 
         (_ :: ()) <- case loop_bound of
           LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
