@@ -158,7 +158,7 @@ To compile and test a single Rust program:
      │
   43 │     assert!(a == b);
      │             ^^^^^^
-  
+
   ✅ 100% example_1/ffs_fast[0]: 10/10
   ✅ 100% example_1/ffs_ref[0]: 4/4
   🚧  50% example_1/test_ffs_correct[0]: 1/2
