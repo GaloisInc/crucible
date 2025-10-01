@@ -8,4 +8,4 @@ warning: branch condition never has value false
    │     -------------------------- in this macro invocation
 
 ✅ 100% coverage_macro/crux_test[0]: 0/0
-✅  75% coverage_macro/f[0]: 3/4
+🚧  75% coverage_macro/f[0]: 3/4
