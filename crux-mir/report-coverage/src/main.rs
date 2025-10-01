@@ -656,25 +656,33 @@ impl Reporter {
         }
     }
 
+    /// Calculate coverage stats for a given function `fun`
+    /// ✅ if `fun` was called, and has 100% branch coverage
+    /// 🚧 if `fun` was called, but the coverage is less than 100%
+    /// ❌ if `fun` was not called
     fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) {
         use std::io::Write;
         use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
-
-        let call_stat = if called { "✅" } else { "❌" }; 
-        let mut stdout = StandardStream::stdout(self.color_choice);
-        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
         let perc =
             if branch_tot == 0 {
                 if called { 100 } else { 0 }
             } else {
                 100 * branch_seen / branch_tot
-            }; 
+            };
+        let call_stat =
+            if called {
+                if perc < 100 { "🚧" } else { "✅" }
+            } else {
+                "❌"
+            };
         let fun = strip_crate_hash(fun).unwrap_or_else(||fun.to_string());
-        write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
-
         let color =
           if called && branch_seen == branch_tot { Color::Green } else { Color::Yellow };
+
+        let mut stdout = StandardStream::stdout(self.color_choice);
+        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+        write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
 
         stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
         writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
