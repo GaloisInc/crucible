@@ -161,14 +161,13 @@ To compile and test a single Rust program:
   
   ✅ 100% example_1/ffs_fast[0]: 10/10
   ✅ 100% example_1/ffs_ref[0]: 4/4
-  ✅  50% example_1/test_ffs_correct[0]: 1/2
+  🚧  50% example_1/test_ffs_correct[0]: 1/2
+  ❌  0% example_1/never_called_func[0]: 0/0
   ```
   In addition to warnings about uncovered paths, we generate statistics about
   the coverage for each function.   A green checkmark (✅) indicates that a
-  function was called during symbolic execution, while a red cross (❌) indicates
-  that a function was not visited at all.  For each function we also report
-  how many of the alternatives of all branches were visited, which is also
-  summarized as a percantage.
+  function was called during symbolic execution and *all* paths were covered, while a red cross (❌) indicates that a function was not visited at all. A construction sign (🚧) indicates a function that was called, but not all branches were covered.
+  For each function we also report how many of the alternatives of all branches were visited, which is also summarized as a percentage.
 
 * To limit the coverage only to the code in your crate, use `--filter` to point the tool to the file you want to analyze. Then you get a more condensed output, for example:
   ```
