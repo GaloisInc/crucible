@@ -48,6 +48,8 @@ module Lang.Crucible.Simulator.RegValue
   , muxVector
   , muxSymSequence
   , muxHandle
+    -- * Equality
+  , eqRegValue
   ) where
 
 import           Control.Monad
@@ -361,3 +363,26 @@ muxVariant sym recf ctx = \p x y ->
                 p
                 (unVB (x Ctx.! i))
                 (unVB (y Ctx.! i))
+
+------------------------------------------------------------------------
+-- Equality
+
+eqRegValue ::
+  IsInterpretedFloatExprBuilder sym =>
+  sym ->
+  TypeRepr tp ->
+  RegValue sym tp ->
+  RegValue sym tp ->
+  IO (Pred sym)
+eqRegValue sym tp x y =
+  case tp of
+    -- Base types
+    BoolRepr -> eqPred sym x y
+    BVRepr _width -> bvEq sym x y
+    ComplexRealRepr -> cplxEq sym x y
+    FloatRepr _ -> isEq sym x y
+    IEEEFloatRepr _fpp -> floatEq sym x y
+    IntegerRepr -> intEq sym x y
+    NatRepr -> natEq sym x y
+    RealValRepr -> realEq sym x y
+    _ -> pure (falsePred sym) -- TODO
