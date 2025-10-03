@@ -7,15 +7,27 @@
 -- Maintainer       : Langston Barrett <langston@galois.com>
 -- Stability        : provisional
 --
--- This module defines 'concRegValue', a function that takes a 'RegValue' (i.e.,
--- a symbolic value), and a model from the SMT solver ('W4GE.GroundEvalFn'), and
--- returns the concrete value that the symbolic value takes in the model.
+-- This module defines three different kinds of functions. In order of how much
+-- work they perform:
 --
--- This can be used to report specific values that lead to violations of
--- assertions, including safety assertions.
+-- * /Grounding/ functions (e.g., 'groundRegValue') take symbolic values
+--   ('RegValue's) and a model from an SMT solver ('W4GE.GroundEvalFn'), and
+--   return the concrete value ('ConcRegValue') that the symbolic value takes in
+--   the model. These functions can be used to report specific values that lead
+--   to violations of assertions, including safety assertions.
+-- * /Concretization/ functions (e.g., 'concRegValue') request a model that is
+--   consistent with the current assumptions (e.g., path conditions) from the
+--   symbolic backend, and then ground a value in that model. These can be used
+--   to reduce the size and complexity of later queries to SMT solvers, at the
+--   cost of no longer being sound from a verification standpoint.
+-- * /Unique concretization/ functions (e.g., 'uniquelyConcRegValue') do the
+--   same thing as concretization functions, but then check if the concrete
+--   value is the /only possible/ value for the given symbolic expression in
+--   /any/ model.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
@@ -30,24 +42,38 @@
 module Lang.Crucible.Concretize
   ( ConcRegValue
   , ConcRV'(..)
+  , asConcRegValue
+  , asConcRegEntry
+  , asConcRegMap
   , ConcAnyValue(..)
   , ConcIntrinsic
   , IntrinsicConcFn(..)
   , ConcCtx(..)
+    -- * Grounding
+  , groundRegValue
+  , groundRegEntry
+  , groundRegMap
+    -- * Concretization
   , concRegValue
   , concRegEntry
   , concRegMap
+    -- * Unique concretization
+  , uniquelyConcRegValue
+  , uniquelyConcRegEntry
+  , uniquelyConcRegMap
     -- * There and back again
   , IntrinsicConcToSymFn(..)
   , concToSym
   ) where
 
 import qualified Data.Foldable as F
+import           Data.Functor.Const (Const(..))
 import           Data.Kind (Type)
 import           Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Proxy (Proxy(Proxy))
 import           Data.Sequence (Seq)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -57,14 +83,20 @@ import           Data.Word (Word16)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.TraversableFC (traverseFC)
+import           Data.Parameterized.TraversableFC (traverseFC, foldlMFC)
 
+import qualified What4.Concretize as W4C
+import qualified What4.Config as W4Cfg
 import           What4.Expr (Expr, ExprBuilder, Flags, FloatModeRepr(..))
 import qualified What4.Expr.GroundEval as W4GE
 import           What4.Interface (SymExpr)
 import qualified What4.Interface as W4I
 import qualified What4.Partial as W4P
+import qualified What4.Protocol.Online as WPO
+import qualified What4.SatResult as WSat
 
+import qualified Lang.Crucible.Backend as CB
+import qualified Lang.Crucible.Backend.Online as CBO
 import           Lang.Crucible.FunctionHandle (FnHandle, RefCell)
 import           Lang.Crucible.Simulator.Intrinsics (Intrinsic)
 import           Lang.Crucible.Simulator.RegMap (RegEntry, RegMap)
@@ -84,7 +116,7 @@ newtype ConcRV' sym tp = ConcRV' { unConcRV' :: ConcRegValue sym tp }
 
 -- | Defines the \"concrete\" interpretations of 'CrucibleType' (as opposed
 -- to the \"symbolic\" interpretations, which are defined by 'RegValue'), as
--- returned by 'concRegValue'.
+-- returned by 'groundRegValue'.
 --
 -- Unlike What4\'s 'W4GE.GroundValue', this type family is parameterized
 -- by @sym@, the symbolic backend. This is because Crucible makes use of
@@ -112,10 +144,40 @@ type family ConcRegValue sym tp where
   ConcRegValue sym (IntrinsicType nm ctx) = ConcIntrinsic nm ctx
   ConcRegValue sym (StringMapType tp) = Map Text (ConcRV' sym tp)
 
+-- | Check if a 'RegValue' is actually concrete
+asConcRegValue ::
+  W4I.IsExpr (SymExpr sym) =>
+  proxy sym ->
+  TypeRepr tp ->
+  RegValue sym tp ->
+  Maybe (ConcRegValue sym tp)
+asConcRegValue _proxy tp val =
+  -- TODO: More cases could be added here.
+  case asBaseType tp of
+    AsBaseType {} -> W4GE.asGround val
+    _ -> Nothing
+
+-- | Check if a 'RM.RegEntry' is actually concrete
+asConcRegEntry ::
+  forall sym tp.
+  W4I.IsExpr (SymExpr sym) =>
+  RM.RegEntry sym tp ->
+  Maybe (ConcRegValue sym tp)
+asConcRegEntry (RM.RegEntry t v) = asConcRegValue (Proxy @sym) t v
+
+-- | Check if a 'RM.RegMap' is actually concrete
+asConcRegMap ::
+  forall sym tp.
+  W4I.IsExpr (SymExpr sym) =>
+  RM.RegMap sym tp ->
+  Maybe (Ctx.Assignment (ConcRV' sym) tp)
+asConcRegMap (RM.RegMap assign) =
+  traverseFC (\re -> ConcRV' <$> asConcRegEntry re) assign
+
 ---------------------------------------------------------------------
 -- * ConcCtx
 
--- | Context needed for 'concRegValue'
+-- | Context needed for 'groundRegValue'
 --
 -- The @t@ parameter matches that on 'W4GE.GroundEvalFn' and 'Expr', namely, it
 -- is a phantom type brand used to relate nonces to a specific nonce generator
@@ -172,7 +234,7 @@ concPartial ::
   W4P.Partial (W4I.Pred sym) (RegValue sym tp) ->
   IO (Maybe (ConcRegValue sym tp))
 concPartial ctx tp (W4P.Partial p v) =
-  iteIO ctx p (Just <$> concRegValue ctx tp v) (pure Nothing)
+  iteIO ctx p (Just <$> groundRegValue ctx tp v) (pure Nothing)
 
 -- | Helper, not exported
 concPartialWithErr ::
@@ -224,13 +286,13 @@ tryConcIntrinsic ctx nm tyCtx v = do
 ---------------------------------------------------------------------
 -- * Any
 
--- | An 'AnyValue' concretized by 'concRegValue'
+-- | An 'AnyValue' concretized by 'groundRegValue'
 data ConcAnyValue sym = forall tp. ConcAnyValue (TypeRepr tp) (ConcRV' sym tp)
 
 ---------------------------------------------------------------------
 -- * FnVal
 
--- | A 'FnVal' concretized by 'concRegValue'
+-- | A 'FnVal' concretized by 'groundRegValue'
 data ConcFnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
   ConcClosureFnVal ::
     !(ConcFnVal sym (args ::> tp) ret) ->
@@ -260,7 +322,7 @@ concFnVal ctx args ret =
   \case
     RV.ClosureFnVal fv t v -> do
       concV <- concFnVal ctx (args Ctx.:> t) ret fv
-      v' <- concRegValue ctx t v
+      v' <- groundRegValue ctx t v
       pure (ConcClosureFnVal concV t (ConcRV' v'))
     RV.VarargsFnVal hdl extra ->
       pure (ConcVarargsFnVal hdl extra)
@@ -306,7 +368,7 @@ concSymSequence ::
 concSymSequence ctx tp =
   SymSeq.concretizeSymSequence
     (ground ctx)
-    (fmap ConcRV' . concRegValue ctx tp)
+    (fmap ConcRV' . groundRegValue ctx tp)
 
 ---------------------------------------------------------------------
 -- * StringMap
@@ -331,7 +393,7 @@ concStringMap ctx tp v = Map.fromList <$> go (Map.toList v)
 ---------------------------------------------------------------------
 -- * Variant
 
--- | Note that we do not attempt to \"normalize\" variants in 'concRegValue'
+-- | Note that we do not attempt to \"normalize\" variants in 'groundRegValue'
 -- in any way. If the model reports that multiple branches of a variant are
 -- plausible, then multiple branches might be included as 'Just's.
 newtype ConcVariantBranch sym tp
@@ -356,21 +418,21 @@ concVariant ctx tps vs = Ctx.zipWithM concBranch tps vs
         Nothing -> pure (ConcVariantBranch Nothing)
 
 ---------------------------------------------------------------------
--- * 'concRegValue'
+-- * 'groundRegValue'
 
 -- | Pick a feasible concrete value from the model
 --
 -- This function does not attempt to \"normalize\" variants nor mux trees in any
 -- way. If the model reports that multiple branches of a variant or mux tree are
 -- plausible, then multiple branches might be included in the result.
-concRegValue ::
+groundRegValue ::
   (SymExpr sym ~ Expr t) =>
   W4I.IsExprBuilder sym =>
   ConcCtx sym t ->
   TypeRepr tp ->
   RegValue sym tp ->
   IO (ConcRegValue sym tp)
-concRegValue ctx tp v =
+groundRegValue ctx tp v =
   case (tp, v) of
     -- Base types
     (BoolRepr, _) -> ground ctx v
@@ -391,13 +453,13 @@ concRegValue ctx tp v =
 
     -- Simple recursive cases
     (AnyRepr, RV.AnyValue tp' v') ->
-      ConcAnyValue tp' . ConcRV' <$> concRegValue ctx tp' v'
+      ConcAnyValue tp' . ConcRV' <$> groundRegValue ctx tp' v'
     (RecursiveRepr symb tyCtx, RV.RolledType v') ->
-      concRegValue ctx (unrollType symb tyCtx) v'
+      groundRegValue ctx (unrollType symb tyCtx) v'
     (StructRepr tps, _) ->
-      Ctx.zipWithM (\tp' (RV.RV v') -> ConcRV' <$> concRegValue ctx tp' v') tps v
+      Ctx.zipWithM (\tp' (RV.RV v') -> ConcRV' <$> groundRegValue ctx tp' v') tps v
     (VectorRepr tp', _) ->
-      traverse (fmap ConcRV' . concRegValue ctx tp') v
+      traverse (fmap ConcRV' . groundRegValue ctx tp') v
 
     -- Cases with helper functions
     (MaybeRepr tp', _) ->
@@ -422,26 +484,209 @@ concRegValue ctx tp v =
     -- Incomplete cases
     (WordMapRepr _ _, _) -> pure ()
 
--- | Like 'concRegValue', but for 'RegEntry'
-concRegEntry ::
+-- | Like 'groundRegValue', but for 'RegEntry'
+groundRegEntry ::
   (SymExpr sym ~ Expr t) =>
   W4I.IsExprBuilder sym =>
   ConcCtx sym t ->
   RegEntry sym tp ->
   IO (ConcRegValue sym tp)
-concRegEntry ctx e = concRegValue ctx (RM.regType e) (RM.regValue e)
+groundRegEntry ctx e = groundRegValue ctx (RM.regType e) (RM.regValue e)
 
--- | Like 'concRegEntry', but for a whole 'RegMap'
-concRegMap ::
+-- | Like 'groundRegEntry', but for a whole 'RegMap'
+groundRegMap ::
   (SymExpr sym ~ Expr t) =>
   W4I.IsExprBuilder sym =>
   ConcCtx sym t ->
   RegMap sym tps ->
   IO (Ctx.Assignment (ConcRV' sym) tps)
-concRegMap ctx (RM.RegMap m) = traverseFC (fmap ConcRV' . concRegEntry ctx) m
+groundRegMap ctx (RM.RegMap m) = traverseFC (fmap ConcRV' . groundRegEntry ctx) m
 
 ---------------------------------------------------------------------
--- * concToSym
+-- * 'concRegValue'
+
+-- | Generate a model and pick a feasible concrete value from it
+concRegValue ::
+  forall tp sym bak solver scope st fs.
+  ( CB.IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st fs
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  MapF SymbolRepr (IntrinsicConcFn scope) ->
+  TypeRepr tp ->
+  RegValue sym tp ->
+  IO (Either W4C.ConcretizationFailure (ConcRegValue sym tp))
+concRegValue bak iFns tp v = concRegEntry bak iFns (RM.RegEntry tp v)
+
+-- | Generate a model and pick a feasible concrete value from it
+concRegEntry ::
+  forall tp sym bak solver scope st fs.
+  ( CB.IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st fs
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  MapF SymbolRepr (IntrinsicConcFn scope) ->
+  RM.RegEntry sym tp ->
+  IO (Either W4C.ConcretizationFailure (ConcRegValue sym tp))
+concRegEntry bak iFns re = do
+  res <- concRegMap bak iFns (RM.RegMap (Ctx.singleton re))
+  case res of
+    Left e -> pure (Left e)
+    Right (Ctx.Empty Ctx.:> ConcRV' concV) -> pure (Right concV)
+
+-- | Like 'concRegValue', but for a whole 'RegMap'
+concRegMap ::
+  forall tps sym bak solver scope st fs.
+  ( CB.IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st fs
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  MapF SymbolRepr (IntrinsicConcFn scope) ->
+  RegMap sym tps ->
+  IO (Either W4C.ConcretizationFailure (Ctx.Assignment (ConcRV' sym) tps))
+concRegMap bak iFns m = do
+  case asConcRegMap m of
+    Just concM -> pure (Right concM)
+    Nothing ->
+      withEnabledOnline $ do
+        let err = panic "concRegValue" ["requires online solving to be enabled"]
+        cond <- CB.getPathCondition bak
+        CBO.withSolverProcess bak err $ \sp -> do
+          msat <- WPO.checkWithAssumptionsAndModel sp "concRegValue" [cond]
+          case msat of
+            WSat.Unknown -> pure $ Left W4C.SolverUnknown
+            WSat.Unsat {} -> pure $ Left W4C.UnsatInitialAssumptions
+            WSat.Sat mdl -> do
+              let ctx = ConcCtx { model = mdl, intrinsicConcFuns = iFns }
+              expr <- groundRegMap @sym ctx m
+              pure (Right expr)
+  where
+    withEnabledOnline f = do
+      let sym = CB.backendGetSym bak
+      let conf = W4I.getConfiguration sym
+      enabledOpt <- W4Cfg.getOptionSetting CBO.enableOnlineBackend conf
+      wasEnabled <- W4Cfg.getOpt enabledOpt
+      _ <- W4Cfg.setOpt enabledOpt True
+      r <- f
+      _ <- W4Cfg.setOpt enabledOpt wasEnabled
+      pure r
+
+---------------------------------------------------------------------
+-- * 'uniquelyConcRegValue'
+
+-- | Generate a model and pick a feasible concrete value from it
+uniquelyConcRegValue ::
+  forall tp sym bak solver scope st fm.
+  ( CB.IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st (Flags fm)
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st (Flags fm)
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  FloatModeRepr fm ->
+  MapF SymbolRepr (IntrinsicConcFn scope) ->
+  MapF SymbolRepr IntrinsicConcToSymFn ->
+  TypeRepr tp ->
+  RegValue sym tp ->
+  IO (Either W4C.UniqueConcretizationFailure (ConcRegValue sym tp))
+uniquelyConcRegValue bak fm iFns sFns tp v =
+  uniquelyConcRegEntry bak fm iFns sFns (RM.RegEntry tp v)
+
+-- | Generate a model and pick a feasible concrete value from it
+uniquelyConcRegEntry ::
+  forall tp sym bak solver scope st fm.
+  ( CB.IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st (Flags fm)
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st (Flags fm)
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  FloatModeRepr fm ->
+  MapF SymbolRepr (IntrinsicConcFn scope) ->
+  MapF SymbolRepr IntrinsicConcToSymFn ->
+  RM.RegEntry sym tp ->
+  IO (Either W4C.UniqueConcretizationFailure (ConcRegValue sym tp))
+uniquelyConcRegEntry bak fm iFns sFns re = do
+  res <- uniquelyConcRegMap bak fm iFns sFns (RM.RegMap (Ctx.singleton re))
+  case res of
+    Left e -> pure (Left e)
+    Right (Ctx.Empty Ctx.:> ConcRV' concV) -> pure (Right concV)
+
+-- | Like 'concRegValue', but for a whole 'RegMap'
+uniquelyConcRegMap ::
+  forall tps sym bak solver scope st fm.
+  ( CB.IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st (Flags fm)
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st (Flags fm)
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  FloatModeRepr fm ->
+  MapF SymbolRepr (IntrinsicConcFn scope) ->
+  MapF SymbolRepr IntrinsicConcToSymFn ->
+  RegMap sym tps ->
+  IO (Either W4C.UniqueConcretizationFailure (Ctx.Assignment (ConcRV' sym) tps))
+uniquelyConcRegMap bak fm iFns sFns m = do
+  case asConcRegMap m of
+    Just concM -> pure (Right concM)
+    Nothing -> do
+      -- First, check to see if there are a models of the symbolic values.
+      concM_ <- concRegMap bak iFns m
+      case concM_ of
+        Left e -> pure (Left (W4C.GroundingFailure e))
+        Right concM -> do
+          -- We found a model, so check to see if this is the only possible
+          -- model for these symbolic values.  We do this by adding a blocking
+          -- clause that assumes the `RegValue`s are /not/ equal to the
+          -- model we found in the previous step. If this is unsatisfiable,
+          -- the `RegValue`s can only be equal to the first model, so we can
+          -- conclude they are concrete. If it is satisfiable, on the other
+          -- hand, the `RegValue`s can be multiple values, so they are truly
+          -- symbolic.
+          let sym = CB.backendGetSym bak
+          let notEq ::
+                forall tp.
+                ConcRV' sym tp ->
+                RM.RegEntry sym tp ->
+                IO (Const (W4I.Pred sym) tp)
+              notEq (ConcRV' concV) (RM.RegEntry tp v) = do
+                symV <- concToSym sym sFns fm tp concV
+                p <- W4I.notPred sym =<< RV.eqRegValue sym tp symV v
+                pure (Const p)
+          let RM.RegMap mAssign = m
+          preds <- Ctx.zipWithM notEq concM mAssign
+          p <-
+            foldlMFC
+              (\p (Const p') -> W4I.andPred sym p p')
+              (W4I.truePred sym)
+              preds
+
+          frm <- CB.pushAssumptionFrame bak
+          loc <- W4I.getCurrentProgramLoc sym
+          CB.addAssumption bak (CB.GenericAssumption loc "uniquelyConcRegMap" p)
+          concM_' <- concRegMap bak iFns m
+          res <-
+            case concM_' of
+              Left W4C.UnsatInitialAssumptions -> pure (Right concM)
+              Left e -> pure (Left (W4C.GroundingFailure e))
+              Right _ -> pure (Left W4C.MultipleModels)
+          _ <- CB.popAssumptionFrame bak frm
+          pure res
+
+---------------------------------------------------------------------
+-- * 'concToSym'
 
 -- | Function for re-symbolizing an intrinsic type
 type IntrinsicConcToSymFn :: Symbol -> Type
