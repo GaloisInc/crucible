@@ -76,6 +76,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
 
 import           Prelude hiding (pred)
 
+import qualified Control.Exception as X
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.State.Strict
@@ -1606,21 +1607,41 @@ freeMem sym w (LLVMPointer blk off) m loc =
     isHeapMutable (AllocInfo HeapAlloc _ Mutable _ _) = pure (truePred sym)
     isHeapMutable _ = pure (falsePred sym)
 
+-- | Prepare memory so that it can later be merged via 'mergeMem'.
+--
+-- This is primarily intended for use in the implementation of
+-- 'Lang.Crucible.Simulator.Intrinsics.pushBranchIntrinsic' for LLVM memory.
+-- It would be nice to remove this someday, see #890.
+--
+-- For more information about branching and merging, see the comment on 'Mem'.
 branchMem :: Mem sym -> Mem sym
 branchMem = memState %~ \s ->
   BranchFrame (memStateAllocCount s) (memStateWriteCount s) emptyChanges s
 
+-- | Remove the top 'BranchFrame', adding changes to the underlying memory.
+--
+-- This is primarily intended for use in the implementation of
+-- 'Lang.Crucible.Simulator.Intrinsics.abortBranchIntrinsic' for LLVM memory.
 branchAbortMem :: Mem sym -> Mem sym
 branchAbortMem = memState %~ popf
   where popf (BranchFrame _ _ c s) = s & memStateAddChanges c
         popf _ = error "branchAbortMem given unexpected memory"
 
+-- | Merge memory that was previously prepared via 'branchMem'.
+--
+-- This is primarily intended for use in the implementation of
+-- 'Lang.Crucible.Simulator.Intrinsics.muxIntrinsic' for LLVM memory.
+--
+-- For more information about branching and merging, see the comment on 'Mem'.
 mergeMem :: IsExpr (SymExpr sym) => Pred sym -> Mem sym -> Mem sym -> Mem sym
 mergeMem c x y =
   case (x^.memState, y^.memState) of
-    (BranchFrame _ _ a s, BranchFrame _ _ b _) ->
-      let s' = s & memStateAddChanges (muxChanges c a b)
-      in x & memState .~ s'
+    (BranchFrame as ws a s, BranchFrame as' ws' b _) ->
+      -- The memories to be merged must have originated from the same memory,
+      -- and in particular, should have matching alloc/write counts.
+      X.assert (as == as' && ws == ws') $
+        let s' = s & memStateAddChanges (muxChanges c a b)
+        in x & memState .~ s'
     _ -> error "mergeMem given unexpected memories"
 
 --------------------------------------------------------------------------------
