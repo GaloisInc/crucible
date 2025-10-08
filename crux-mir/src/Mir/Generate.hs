@@ -60,8 +60,8 @@ mirJsonOutFile rustFile = rustFile -<.> "mir"
 getRlibsDir :: (?defaultRlibsDir :: FilePath) => IO FilePath
 getRlibsDir = maybe ?defaultRlibsDir id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
 
-compileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> Bool -> FilePath -> IO ()
-compileMirJson keepRlib quiet rustFile = do
+compileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> FilePath -> IO ()
+compileMirJson keepRlib rustFile = do
     let outFile = rustFile -<.> "bin"
 
     rlibsDir <- getRlibsDir
@@ -77,12 +77,15 @@ compileMirJson keepRlib quiet rustFile = do
             [ "--cfg", "crux", "--cfg", "crux_top_level"
             , "-Z", "ub-checks=false"
             , "-o", outFile]
-    let cp' = if not quiet then cp else
-            (cp { Proc.std_out = Proc.NoStream, Proc.std_err = Proc.NoStream })
-    ec <- Proc.withCreateProcess cp' $ \_ _ _ ph -> Proc.waitForProcess ph
+    (ec, sout, serr) <- Proc.readCreateProcessWithExitCode cp ""
     case ec of
-        ExitFailure cd -> fail $
-            "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
+        ExitFailure cd -> fail $ unlines $
+            [ "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
+            , "*** Standard out:"
+            ] ++
+            [ "   " ++ l | l <- lines sout ] ++
+            [ "*** Standard error:" ] ++
+            [ "   " ++ l | l <- lines serr ]
         ExitSuccess    -> return ()
 
     when (not keepRlib) $ do
@@ -90,10 +93,10 @@ compileMirJson keepRlib quiet rustFile = do
             True  -> removeFile outFile
             False -> return ()
 
-maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> Bool -> FilePath -> IO ()
-maybeCompileMirJson keepRlib quiet rustFile = do
+maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> FilePath -> IO ()
+maybeCompileMirJson keepRlib rustFile = do
     build <- needsRebuild (mirJsonOutFile rustFile) [rustFile]
-    when build $ compileMirJson keepRlib quiet rustFile
+    when build $ compileMirJson keepRlib rustFile
 
 
 linkJson :: [FilePath] -> IO B.ByteString
@@ -173,7 +176,7 @@ generateMIR inputFile keepRlib
     when (?debug > 2) $
         traceM $ "Generating " ++ stem <.> "mir"
     let rustFile = inputFile
-    maybeCompileMirJson keepRlib (?debug <= 2) rustFile
+    maybeCompileMirJson keepRlib rustFile
     rlibsDir <- getRlibsDir
     let libJsonPaths = [rlibsDir </> "lib" ++ lib <.> "mir" | lib <- libDependencies]
     b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonPaths) (linkOutFile rustFile)
