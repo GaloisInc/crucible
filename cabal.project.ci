@@ -1,0 +1,3 @@
+-- See Note [Asserts] in crucible-llvm
+package crucible-llvm
+  ghc-options: -fno-ignore-asserts
