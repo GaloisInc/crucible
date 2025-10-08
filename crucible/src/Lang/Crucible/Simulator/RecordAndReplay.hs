@@ -86,38 +86,6 @@ locAsStr sym = do
   let txtLoc = Text.pack (show loc)
   W4.stringLit sym (W4.UnicodeLiteral txtLoc)
 
-insertNewTrace ::
-  HasRecordAndReplayState p p sym ext rtp =>
-  C.SimContext p sym ext ->
-  C.SymGlobalState sym ->
-  IO (C.SymGlobalState sym)
-insertNewTrace simCtx globals = do
-  let RecordAndReplayState g = simCtx ^. C.cruciblePersonality . rrState
-  let sym = simCtx ^. C.ctxSymInterface
-  nil <- CSSS.nilSymSequence sym
-  return (C.insertGlobal g nil globals)
-
-insertTrace ::
-  HasRecordAndReplayState p p sym ext rtp =>
-  C.SimState p sym ext rtp f args ->
-  C.RegValue sym TraceType ->
-  C.SimState p sym ext rtp f args
-insertTrace st v = do
-  let simCtx = st ^. C.stateContext
-  let RecordAndReplayState g = simCtx ^. C.cruciblePersonality . rrState
-  st & C.stateGlobals %~ C.insertGlobal g v
-
-consTrace ::
-  HasRecordAndReplayState p p sym ext rtp =>
-  C.SimState p sym ext rtp f args ->
-  C.RegValue sym (CT.StringType W4.Unicode) ->
-  IO (C.SimState p sym ext rtp f args)
-consTrace st v = do
-  s <- getTraceOrThrow st
-  let sym = st ^. C.stateSymInterface
-  s' <- CSSS.consSymSequence sym v s
-  pure (insertTrace st s')
-
 getTrace ::
   HasRecordAndReplayState p p sym ext rtp =>
   C.SimState p sym ext rtp f args ->
@@ -135,6 +103,16 @@ getTraceOrThrow st =
   case getTrace st of
     Nothing -> X.throw TraceGlobalNotDefined
     Just t -> pure t
+
+insertTrace ::
+  HasRecordAndReplayState p p sym ext rtp =>
+  C.SimState p sym ext rtp f args ->
+  C.RegValue sym TraceType ->
+  C.SimState p sym ext rtp f args
+insertTrace st v = do
+  let simCtx = st ^. C.stateContext
+  let RecordAndReplayState g = simCtx ^. C.cruciblePersonality . rrState
+  st & C.stateGlobals %~ C.insertGlobal g v
 
 -- | An 'C.ExecutionFeature' to record traces.
 --
@@ -163,21 +141,28 @@ recordFeature =
         let rState = C.RunningState runStateInfo st'
         return $ C.ExecutionFeatureModifiedState rState
       _ -> pure C.ExecutionFeatureNoChange
+  where
+    insertNewTrace ::
+      HasRecordAndReplayState p p sym ext rtp =>
+      C.SimContext p sym ext ->
+      C.SymGlobalState sym ->
+      IO (C.SymGlobalState sym)
+    insertNewTrace simCtx globals = do
+      let RecordAndReplayState g = simCtx ^. C.cruciblePersonality . rrState
+      let sym = simCtx ^. C.ctxSymInterface
+      nil <- CSSS.nilSymSequence sym
+      return (C.insertGlobal g nil globals)
 
-concretizeAndReverseTrace ::
-  W4.IsExprBuilder sym =>
-  sym ->
-  -- | Evaluation for booleans, usually a 'What4.Expr.GroundEval.GroundEvalFn'
-  (W4.Pred sym -> IO Bool) ->
-  -- | Evaluation for strings, usually a 'What4.Expr.GroundEval.GroundEvalFn'
-  (W4.SymString sym W4.Unicode -> IO Text.Text) ->
-  C.RegValue sym TraceType ->
-  IO (C.RegValue sym TraceType)
-concretizeAndReverseTrace sym evalBool evalStr s = do
-  concretized <- CSSS.concretizeSymSequence evalBool evalStr s
-  let reversed = Seq.reverse concretized
-  symbolized <- mapM (W4.stringLit sym . W4.UnicodeLiteral) reversed
-  CSSS.fromListSymSequence sym (F.toList symbolized)
+    consTrace ::
+      HasRecordAndReplayState p p sym ext rtp =>
+      C.SimState p sym ext rtp f args ->
+      C.RegValue sym (CT.StringType W4.Unicode) ->
+      IO (C.SimState p sym ext rtp f args)
+    consTrace st v = do
+      s <- getTraceOrThrow st
+      let sym = st ^. C.stateSymInterface
+      s' <- CSSS.consSymSequence sym v s
+      pure (insertTrace st s')
 
 -- | A trace from 'recordFeature', processed and ready for consumption by
 -- 'replayFeature'.
@@ -200,8 +185,13 @@ getRecordedTrace ::
 getRecordedTrace globals g sym evalBool evalStr = do
   case C.lookupGlobal g globals of
     Nothing -> X.throw TraceGlobalNotDefined
-    Just s ->
-      RecordedTrace <$> concretizeAndReverseTrace sym evalBool evalStr s
+    Just s -> RecordedTrace <$> concretizeAndReverseTrace s
+  where
+    concretizeAndReverseTrace s = do
+      concretized <- CSSS.concretizeSymSequence evalBool evalStr s
+      let reversed = Seq.reverse concretized
+      symbolized <- mapM (W4.stringLit sym . W4.UnicodeLiteral) reversed
+      CSSS.fromListSymSequence sym (F.toList symbolized)
 
 -- | An 'C.ExecutionFeature' to replay traces recorded with 'recordFeature'.
 --
