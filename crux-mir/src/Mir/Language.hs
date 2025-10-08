@@ -418,7 +418,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             -- It's a bit redundant to emit the entire crate's translation
             -- metadata for each test, but we do it anyway.  This keeps us from
             -- overwriting the metadata when multiple tests are run with the
-            -- same `outDir`. 
+            -- same `outDir`.
             Aeson.encodeFile path (mir ^. rmTransInfo)
 
             let testFile = Crux.outDir cruxOpts' </> "tests.json"
@@ -490,18 +490,18 @@ caseSensitiveTag :: String -> String
 caseSensitiveTag f = f ++ "#" ++ tag f
   where
   tag = map (toChar . toNum) . chunk . map Char.isUpper . filter Char.isAlpha
-  chunk xs = 
+  chunk xs =
     case splitAt 5 xs of
       ([],_)  -> []
       (as,bs) -> as : chunk bs
   toNum = List.foldl' addBit 0
-  toChar n 
+  toChar n
     | n < 26    = toEnum (fromEnum 'a' + n)
     | otherwise = toEnum (fromEnum '0' + (n - 26))
-  addBit n x = 
-    let n' = 2 * n 
+  addBit n x =
+    let n' = 2 * n
     in if x then n' + 1 else n'
-    
+
 
 
 
