@@ -344,8 +344,12 @@ data MemState sym =
     -- of the list.
   | StackFrame !Int !Int Text (MemChanges sym) (MemState sym)
     -- | Represents a push of a branch frame, and changes since that branch.
+    --
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
+    --
+    -- For more information about branching and merging, see the comment on
+    -- 'Mem'.
   | BranchFrame !Int !Int (MemChanges sym) (MemState sym)
 
 type MemChanges sym = (MemAllocs sym, MemWrites sym)
