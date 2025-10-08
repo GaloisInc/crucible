@@ -255,7 +255,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                 ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
 
     -- Load the MIR collection
-    col <- generateMIR filename False
+    col <- generateMIR cruxOpts filename False
 
     when (onlyPP mirOpts) $ do
       -- TODO: make this exit more gracefully somehow
