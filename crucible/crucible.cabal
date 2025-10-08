@@ -117,6 +117,7 @@ library
     Lang.Crucible.Simulator.PathSplitting
     Lang.Crucible.Simulator.PositionTracking
     Lang.Crucible.Simulator.Profiling
+    Lang.Crucible.Simulator.RecordAndReplay
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.SimError
