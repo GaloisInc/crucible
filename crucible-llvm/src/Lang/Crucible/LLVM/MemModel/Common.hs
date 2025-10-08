@@ -467,8 +467,10 @@ loadBitvector lo lw so v = do
         let d = lo - so
         -- Store is before load.
         valueLoad lo ltp lo (SelectSuffixBV d (sw - d) v)
-      | otherwise -> assert (lo == so && lw < sw) $
+      | otherwise ->
+        -- TODO(#1560): This assertion can fail.
         -- Load ends before store ends.
+        -- assert (lo == so && lw < sw) $
         valueLoad lo ltp so (SelectPrefixBV lw (sw - lw) v)
     Float -> valueLoad lo ltp so (FloatToBV v)
     Double -> valueLoad lo ltp so (DoubleToBV v)

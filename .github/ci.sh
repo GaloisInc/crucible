@@ -40,7 +40,7 @@ configure() {
   ghc_ver="$(ghc --numeric-version)"
   cp cabal.GHC-"$ghc_ver".config cabal.project.freeze
   cabal configure "$@" --enable-tests --minimize-conflict-set --semaphore
-  #tee -a cabal.project > /dev/null < cabal.project.ci
+  cat cabal.project.ci >> cabal.project.local
 }
 
 test() {

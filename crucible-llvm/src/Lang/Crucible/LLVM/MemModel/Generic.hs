@@ -1636,10 +1636,12 @@ branchAbortMem = memState %~ popf
 mergeMem :: IsExpr (SymExpr sym) => Pred sym -> Mem sym -> Mem sym -> Mem sym
 mergeMem c x y =
   case (x^.memState, y^.memState) of
-    (BranchFrame as ws a s, BranchFrame as' ws' b _) ->
+    (BranchFrame _ _ a s, BranchFrame _ _ b s') ->
       -- The memories to be merged must have originated from the same memory,
       -- and in particular, should have matching alloc/write counts.
-      X.assert (as == as' && ws == ws') $
+      let allocsEq = memStateAllocCount s == memStateAllocCount s' in
+      let writesEq = memStateWriteCount s == memStateWriteCount s' in
+      X.assert (allocsEq && writesEq) $
         let s' = s & memStateAddChanges (muxChanges c a b)
         in x & memState .~ s'
     _ -> error "mergeMem given unexpected memories"

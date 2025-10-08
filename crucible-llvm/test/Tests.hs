@@ -47,6 +47,7 @@ import qualified System.IO as IO
 import qualified System.Process as Proc
 
 -- Modules being tested
+import           Lang.Crucible.LLVM.Internal (assertionsEnabled)
 import           Lang.Crucible.LLVM.MemModel ( mkMemVar )
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
@@ -157,7 +158,11 @@ main = do
 
        defaultMainWithIngredients llvmTestIngredients $
          testGroup "Tests"
-         [ functionTests
+         [ -- See Note [Asserts] in crucible-llvm
+           testCase "assertions enabled" $ do
+             assertsEnabled <- assertionsEnabled
+             assertBool "assertions should be enabled" assertsEnabled
+         , functionTests
          , globalTests
          , memoryTests
          , translationTests

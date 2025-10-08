@@ -73,6 +73,7 @@ library
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Functions
     Lang.Crucible.LLVM.Globals
+    Lang.Crucible.LLVM.Internal
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.Intrinsics.Cast
     Lang.Crucible.LLVM.Intrinsics.Libc
