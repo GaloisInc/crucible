@@ -1,5 +1,7 @@
 # next
 
+* Add `Lang.Crucible.Simulator.RecordAndReplay`, a module with two new execution
+  features for recording and replaying control-flow traces.
 * Add a `GlobalPair` argument to `AbortedExit`.
 * Add new helpers for extracting `SymGlobalState`s: `exec{Result,State}Globals`.
 * Add `typedOverride` for constructing `TypedOverride`s with statically-known
