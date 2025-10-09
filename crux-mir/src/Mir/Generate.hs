@@ -35,6 +35,9 @@ import Mir.Mir
 import Mir.ParseTranslate (parseMIR)
 import Mir.PP()
 
+import qualified Crux.Config.Common as Crux (CruxOptions(..), OutputOptions(..))
+import qualified Crux.Config.Load as Crux (ColorOptions(..))
+
 import Debug.Trace
 
 
@@ -60,11 +63,18 @@ mirJsonOutFile rustFile = rustFile -<.> "mir"
 getRlibsDir :: (?defaultRlibsDir :: FilePath) => IO FilePath
 getRlibsDir = maybe ?defaultRlibsDir id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
 
-compileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> Bool -> FilePath -> IO ()
-compileMirJson keepRlib quiet rustFile = do
+compileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> Bool -> FilePath -> IO ()
+compileMirJson cruxOpts keepRlib rustFile = do
     let outFile = rustFile -<.> "bin"
 
     rlibsDir <- getRlibsDir
+    -- rustc produces colorful error messages, so preserve the colors whenever
+    -- possible when printing the error messages back out to the user.
+    let colorOpts
+          | Crux.noColorsErr $ Crux.colorOptions $ Crux.outputOptions cruxOpts
+          = []
+          | otherwise
+          = ["--color=always"]
     -- TODO: don't hardcode -L library path
     let cp =
           Proc.proc "mir-json" $
@@ -74,15 +84,15 @@ compileMirJson keepRlib quiet rustFile = do
                 , lib ++ "=" ++ rlibsDir </> "lib" ++ lib <.> "rlib"
                 ]
               | lib <- libDependencies ] ++
+            colorOpts ++
             [ "--cfg", "crux", "--cfg", "crux_top_level"
             , "-Z", "ub-checks=false"
             , "-o", outFile]
-    let cp' = if not quiet then cp else
-            (cp { Proc.std_out = Proc.NoStream, Proc.std_err = Proc.NoStream })
-    ec <- Proc.withCreateProcess cp' $ \_ _ _ ph -> Proc.waitForProcess ph
+    (ec, _sout, serr) <- Proc.readCreateProcessWithExitCode cp ""
     case ec of
-        ExitFailure cd -> fail $
-            "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
+        ExitFailure cd -> do
+            hPutStrLn stderr serr
+            fail $ "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
         ExitSuccess    -> return ()
 
     when (not keepRlib) $ do
@@ -90,10 +100,10 @@ compileMirJson keepRlib quiet rustFile = do
             True  -> removeFile outFile
             False -> return ()
 
-maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> Bool -> FilePath -> IO ()
-maybeCompileMirJson keepRlib quiet rustFile = do
+maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> Bool -> FilePath -> IO ()
+maybeCompileMirJson cruxOpts keepRlib rustFile = do
     build <- needsRebuild (mirJsonOutFile rustFile) [rustFile]
-    when build $ compileMirJson keepRlib quiet rustFile
+    when build $ compileMirJson cruxOpts keepRlib rustFile
 
 
 linkJson :: [FilePath] -> IO B.ByteString
@@ -165,15 +175,16 @@ libDependencies =
 -- last .mir file was created, this function does nothing
 -- This function uses 'failIO' if any error occurs
 generateMIR :: (HasCallStack, ?debug::Int, ?defaultRlibsDir :: FilePath) =>
-               FilePath          -- ^ location of input file
+               Crux.CruxOptions
+            -> FilePath          -- ^ location of input file
             -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection
-generateMIR inputFile keepRlib
+generateMIR cruxOpts inputFile keepRlib
   | ext == ".rs" = do
     when (?debug > 2) $
         traceM $ "Generating " ++ stem <.> "mir"
     let rustFile = inputFile
-    maybeCompileMirJson keepRlib (?debug <= 2) rustFile
+    maybeCompileMirJson cruxOpts keepRlib rustFile
     rlibsDir <- getRlibsDir
     let libJsonPaths = [rlibsDir </> "lib" ++ lib <.> "mir" | lib <- libDependencies]
     b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonPaths) (linkOutFile rustFile)
