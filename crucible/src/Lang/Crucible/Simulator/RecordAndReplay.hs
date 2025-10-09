@@ -9,8 +9,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}  -- IntrinsicClass
-
 module Lang.Crucible.Simulator.RecordAndReplay (
   HasRecordState(..),
   RecordState,
