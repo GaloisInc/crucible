@@ -167,7 +167,8 @@ replayTraceLength simState = do
 -- | An 'C.ExecutionFeature' to record traces.
 --
 -- During execution this logs program locations to a Crucible global variable.
--- Such a trace may be passed to 'replayFeature' to \"replay\" it, i.e., to
+-- After execution, this variable may be read with 'getRecordedTrace' and the
+-- 'RecordedTrace' can be passed to 'replayFeature' to \"replay\" it, i.e., to
 -- abort all branches that deviate from it.
 --
 -- If this is not called with 'C.InitialState' before any other 'C.ExecState',
@@ -236,7 +237,8 @@ recordFeature =
 -- 'replayFeature'.
 newtype RecordedTrace sym
   = RecordedTrace (C.RegValue sym TraceType)
-    -- ^ constructor intentionally not exported
+    -- ^ constructor intentionally not exported to keep 'TraceType' out of the
+    -- API, but it could be exported in the future if necessary.
 
 -- | Obtain a 'RecordedTrace' after execution.
 --
