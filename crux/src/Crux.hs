@@ -54,7 +54,7 @@ import           System.Console.Terminal.Size (Window(Window), size)
 import           System.Directory (createDirectoryIfMissing)
 import           System.Exit (exitSuccess, ExitCode(..), exitFailure, exitWith)
 import           System.FilePath ((</>))
-import           System.IO ( Handle, hPutStr, stdout, stderr )
+import           System.IO ( Handle, hPutStrLn, stdout, stderr )
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Nonce (newIONonceGenerator, NonceGenerator)
@@ -290,7 +290,7 @@ mkOutputConfig (outHandle, outWantsColor) (errHandle, errWantsColor) logMessageT
                               [ AC.SetConsoleIntensity AC.BoldIntensity
                               , AC.SetColor AC.Foreground AC.Vivid AC.Red]
                      seeCalm = AC.hSetSGR errHandle [AC.Reset]
-                     dispExc = hPutStr errHandle . Ex.displayException
+                     dispExc = hPutStrLn errHandle . Ex.displayException
                  in if errShouldColor
                     then LJ.LogAction $ \e -> Ex.bracket_ seeRed seeCalm $ dispExc e
                     else LJ.LogAction $ dispExc
