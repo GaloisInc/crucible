@@ -20,13 +20,13 @@ import Data.Parameterized.Some (Some(Some))
 import Hedgehog (Gen)
 import Hedgehog qualified as H
 import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
 import Lang.Crucible.Backend (SomeBackend(SomeBackend), backendGetSym)
 import Lang.Crucible.Backend.Simple (newSimpleBackend)
 import Lang.Crucible.Simulator.SymSequence (SymSequence)
 import Lang.Crucible.Simulator.SymSequence qualified as S
 import Test.Tasty qualified as TT
 import Test.Tasty.Hedgehog qualified as TTH
+import Test.Tasty.HUnit qualified as TTHU
 import What4.Expr (EmptyExprBuilderState(EmptyExprBuilderState))
 import What4.Expr.Builder (newExprBuilder)
 import What4.FloatMode (FloatModeRepr(FloatIEEERepr))
@@ -38,17 +38,37 @@ import What4.Partial qualified as WP
 
 tests :: TT.TestTree
 tests =
-  TTH.testProperty
-    "propSame"
-    -- This is a big API, so we want adequate coverage (default is 100)
-    (H.withTests 4096 propSame)
+  TT.testGroup "SymSequence"
+  [ TTH.testProperty "propSame" propSame
+  -- TODO: reflexivity, symmetry, transitivity of equality
+  , TTH.testProperty "propSameEq"
+      (H.withTests 4096 (H.withShrinks 4096 propSameEq))
+
+  -- Concrete test cases that have failed in the past
+  , TTHU.testCase "concrete test 1" $ do
+      let false = OElem False
+      testCase $
+        OEq
+        (OAppend (OAppend ONil ONil) (OCons false ONil))
+        (OAppend (OCons false ONil) ONil)
+  , TTHU.testCase "concrete test 2" $ do
+      testCase (OEq (OAppend ONil ONil) ONil)
+  ]
+  where
+    testCase :: Op Bool Bool -> TTHU.Assertion
+    testCase op = do
+      Some (SomeBackend bak) <- mkBackend
+      let sym = backendGetSym bak
+      let l = opList op
+      r <- liftIO (opSeq sym op)
+      l TTHU.@=? r
 
 propSame :: H.Property
 propSame =
   H.property $ do
     Some (SomeBackend bak) <- liftIO mkBackend
     let sym = backendGetSym bak
-    op <- H.forAll (Gen.sized $ \n -> genList (H.unSize n) Gen.bool)
+    op <- H.forAll (genList Gen.bool)
     let l = opList op
     s <- liftIO (opSeq sym op)
     l' <- liftIO (F.toList <$> asSeq sym s)
@@ -56,6 +76,19 @@ propSame =
   where
     asSeq sym =
       S.concretizeSymSequence (pure . asConstPred (Just sym)) pure
+
+propSameEq :: H.Property
+propSameEq =
+  H.property $ do
+    Some (SomeBackend bak) <- liftIO mkBackend
+    let sym = backendGetSym bak
+    op <- H.forAll (genEq Gen.bool)
+    -- For debugging nontermination:
+    -- liftIO (putStrLn "~~~~~~~~~~~~~~~~~")
+    -- liftIO (print op)
+    let l = opList op
+    r <- liftIO (opSeq sym op)
+    l H.=== r
 
 ---------------------------------------------------------------------
 -- Helpers
@@ -117,6 +150,10 @@ data Op a t where
   -- Operations
   OUncons :: Op a (List a) -> Op a (Maybe (Elem a), (List a))
   OLength :: Op a (List a) -> Op a Integer
+  OEq :: Op a (List a) -> Op a (List a) -> Op a Bool
+  -- TODO: length actually can't be generated from genList
+  -- bc there is no consumer for its return type
+
   -- TODO: isNil, head, tail
 
 sexp :: [String] -> String
@@ -154,67 +191,59 @@ instance Show a => Show (Op a t) where
       -- Operations
       OUncons l -> fun1 "uncons" l
       OLength l -> fun1 "length" l
+      OEq l r -> fun2 "eq" l r
 
 ---------------------------------------------------------------------
 -- Generating Op
 
-genBool :: Gen (Op a Bool)
-genBool =
-  Gen.choice
-  [ pure OTrue
-  , pure OFalse
-  ]
+genBoolLit :: Gen (Op a Bool)
+genBoolLit = Gen.choice [pure OTrue , pure OFalse]
 
-genElem ::
-  Int ->
-  Gen a ->
-  Gen (Op a (Elem a))
-genElem sz genA =
-  if sz <= 0
-  then OElem <$> genA
-  else
+genBool :: Gen a -> Gen (Op a Bool)
+genBool genA =
+  Gen.recursive
     Gen.choice
-    [ OElem <$> genA
-    , OFromMaybe
-      <$> genElem (sz - 1) genA
-      <*> (OFst <$> (OUncons <$> genList (sz - 1) genA))
+    [genBoolLit]
+    [genEq genA]
+
+genElem :: Gen a -> Gen (Op a (Elem a))
+genElem genA =
+  Gen.recursive
+    Gen.choice
+    [OElem <$> genA]
+    [ OFromMaybe
+      <$> genElem genA
+      <*> (OFst <$> (OUncons <$> genList genA))
     ]
 
-genList ::
-  Int ->
-  Gen a ->
-  Gen (Op a (List a))
-genList sz genA =
-  if sz <= 0
-  then pure ONil
-  else
+genList :: Gen a -> Gen (Op a (List a))
+genList genA =
+  Gen.recursive
     Gen.choice
+    [pure ONil]
     [ genCons
     , genAppend
     , genMux
     ]
   where
-    sub1 = genList (sz - 1) genA
-    sub2 = do
-      let budget = max 0 (sz - 1)
-      bl <- Gen.integral (Range.linear 0 budget)
-      let br = max 0 (budget - bl)
-      l <- genList bl genA
-      r <- genList br genA
-      pure (l, r)
+    sub1 = genList genA
+    sub2 = (,) <$> genList genA <*> genList genA
 
-    genCons = OCons <$> genElem (sz - 1) genA <*> sub1
+    genCons = OCons <$> genElem genA <*> sub1
 
     genAppend = uncurry OAppend <$> sub2
 
     genMux = do
-      b <- genBool
+      b <- genBool genA
       uncurry (OMux b) <$> sub2
+
+genEq :: Gen a -> Gen (Op a Bool)
+genEq genA = OEq <$> genList genA <*> genList genA
 
 ---------------------------------------------------------------------
 -- Interpreting Op
 
-opList :: Op a t -> AsList t
+opList :: Eq a => Op a t -> AsList t
 opList =
   \case
     -- Generic functions
@@ -238,9 +267,11 @@ opList =
         Just (hd, tl) -> (Just hd, tl)
         Nothing -> (Nothing, l')
     OLength l -> fromIntegral @Int @Integer (length (opList l))  -- safe
+    OEq l r -> opList l == opList r
 
 opSeq ::
   WI.IsExprBuilder sym =>
+  Eq a =>
   sym ->
   Op a t ->
   IO (AsSeq sym t)
@@ -295,3 +326,11 @@ opSeq sym =
       case WI.asInteger (WI.natToIntegerPure l) of
         Just l' -> pure l'
         Nothing -> error "SymSequence: symbolic length"
+    OEq l r -> do
+      let predEq x y =
+            pure (if x == y then WI.truePred sym else WI.falsePred sym)
+      let mux b x y = pure (if asConstPred (Just sym) b then x else y)
+      l' <- opSeq sym l
+      r' <- opSeq sym r
+      p <- S.eqSymSequence sym predEq mux l' r'
+      pure (asConstPred (Just sym) p)
