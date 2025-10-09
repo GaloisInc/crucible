@@ -121,6 +121,7 @@ customOpDefs = Map.fromList $ [
                          , bitreverse
                          , volatile_load
                          , volatile_write
+                         , exact_div
 
                          , mem_transmute
                          , mem_bswap
@@ -940,6 +941,47 @@ unchecked_shr =
     ( ["core","intrinsics", "unchecked_shr"]
     , makeUncheckedArith "unchecked_shr" Shr
     )
+
+-- Implement the [`core::intrinsics::exact_div`] intrinsic.
+-- This operation performs integer division that triggers undefined behavior
+-- if the division has a nonzero remainder or overflows.
+-- Supports both signed and unsigned integer types.
+makeExactDiv :: String -> CustomRHS
+makeExactDiv name =
+  \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([TyInt _ , TyInt _ ], [e1, e2]) ->
+      checkExact name (Just Signed) e1 e2
+    ([TyUint _, TyUint _], [e1, e2]) ->
+      checkExact name (Just Unsigned) e1 e2
+    _ ->
+      mirFail $ "BUG: invalid arguments to " ++ name ++ ": " ++ show (opTys, ops)
+
+checkExact ::
+  String ->
+  Maybe ArithType ->
+  MirExp s -> MirExp s ->
+  MirGenerator h s ret (MirExp s)
+checkExact name arithType e1 e2 = do
+  (q, overflow) <- evalBinOp Div arithType e1 e2
+  (r, _)        <- evalBinOp Rem arithType e1 e2
+  case (q, r) of
+    (MirExp (C.BVRepr wq) q', MirExp (C.BVRepr wr) r')
+      | Just Refl <- testEquality wq wr -> do
+          let zero = R.App $ E.BVLit wq (BV.mkBV wq 0)
+          let remZero = R.App $ E.BVEq wq r' zero
+          G.assertExpr (R.App $ E.Not overflow)
+            (S.litExpr $ Text.pack $ "undefined behavior: " ++ name ++ " overflowed")
+          G.assertExpr remZero
+            (S.litExpr $ Text.pack $ "undefined behavior: " ++ name ++ " not exact")
+          pure (MirExp (C.BVRepr wq) q')
+    _ -> mirFail $ "BUG: invalid arguments to " ++ name ++ ": " ++ show (q, r)
+
+exact_div :: (ExplodedDefId, CustomRHS)
+exact_div =
+  ( ["core","intrinsics","exact_div"]
+  , makeExactDiv "exact_div"
+  )
+
 
 -- Build a "count leading zeros" implementation.  The function will be
 -- polymorphic, accepting bitvectors of any width.  The `NatRepr` is the width
