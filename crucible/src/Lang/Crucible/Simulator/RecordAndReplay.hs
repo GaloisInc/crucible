@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ImportQualifiedPost #-}
@@ -11,14 +12,14 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}  -- IntrinsicClass
 
 module Lang.Crucible.Simulator.RecordAndReplay (
-  TraceType,
   HasRecordState(..),
   RecordState,
   mkRecordState,
   HasReplayState(..),
   ReplayState,
   mkReplayState,
-  traceLength,
+  recordTraceLength,
+  replayTraceLength,
   RecordedTrace,
   getRecordedTrace,
   recordFeature,
@@ -35,6 +36,7 @@ import Data.Sequence qualified as Seq
 import Lang.Crucible.Backend qualified as CB
 import Lang.Crucible.CFG.Core qualified as C
 import Lang.Crucible.FunctionHandle qualified as C
+import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator qualified as C
 import Lang.Crucible.Simulator.EvalStmt qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
@@ -46,6 +48,8 @@ import What4.Partial qualified as W4P
 
 -- | A trace consists of the 'W4.ProgramLoc's returned by
 -- 'W4.getCurrentProgramLoc' in 'C.RunningState's during symbolic execution.
+--
+-- Intentionally not part of the API so as to keep the implementation abstract.
 type TraceType = CT.SequenceType (CT.StringType W4.Unicode)
 
 -- | Type parameters:
@@ -55,7 +59,9 @@ type TraceType = CT.SequenceType (CT.StringType W4.Unicode)
 -- * @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 -- * @rtp@: type of the simulator return value
 type RecordState :: Type -> Type -> Type -> Type -> Type
-newtype RecordState p sym ext rtp = RecordState (C.GlobalVar TraceType)
+newtype RecordState p sym ext rtp
+  = RecordState (C.GlobalVar TraceType)
+    -- ^ constructor intentionally not exported
 
 -- | Type parameters:
 --
@@ -64,7 +70,9 @@ newtype RecordState p sym ext rtp = RecordState (C.GlobalVar TraceType)
 -- * @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 -- * @rtp@: type of the simulator return value
 type ReplayState :: Type -> Type -> Type -> Type -> Type
-newtype ReplayState p sym ext rtp = ReplayState (C.GlobalVar TraceType)
+newtype ReplayState p sym ext rtp
+  = ReplayState (C.GlobalVar TraceType)
+    -- ^ constructor intentionally not exported
 
 -- | Constructor for 'RecordState'
 mkRecordState ::
@@ -116,6 +124,27 @@ locAsStr sym = do
   let txtLoc = Text.pack (show loc)
   W4.stringLit sym (W4.UnicodeLiteral txtLoc)
 
+getRecordTrace ::
+  HasRecordState p p sym ext rtp =>
+  C.SimState p sym ext rtp f args ->
+  Maybe (C.RegValue sym TraceType)
+getRecordTrace simState = do
+  let ctx = simState ^. C.stateContext
+  let RecordState g = ctx ^. C.cruciblePersonality . recordState
+  C.lookupGlobal g (simState ^. C.stateGlobals)
+
+-- | Get the length of the currently recorded trace
+recordTraceLength ::
+  W4.IsExprBuilder sym =>
+  HasRecordState p p sym ext rtp =>
+  C.SimState p sym ext rtp f args ->
+  IO (Maybe (W4.SymNat sym))
+recordTraceLength simState = do
+  let sym = simState ^. C.stateSymInterface
+  case getRecordTrace simState of
+    Nothing -> pure Nothing
+    Just s -> Just <$> CSSS.lengthSymSequence sym s
+
 getReplayTrace ::
   HasReplayState p p sym ext rtp =>
   C.SimState p sym ext rtp f args ->
@@ -125,13 +154,13 @@ getReplayTrace simState = do
   let ReplayState g = ctx ^. C.cruciblePersonality . replayState
   C.lookupGlobal g (simState ^. C.stateGlobals)
 
--- | Get the length of the current trace
-traceLength ::
+-- | Get the length of the trace being replayed
+replayTraceLength ::
   W4.IsExprBuilder sym =>
   HasReplayState p p sym ext rtp =>
   C.SimState p sym ext rtp f args ->
   IO (Maybe (W4.SymNat sym))
-traceLength simState = do
+replayTraceLength simState = do
   let sym = simState ^. C.stateSymInterface
   case getReplayTrace simState of
     Nothing -> pure Nothing
@@ -139,10 +168,9 @@ traceLength simState = do
 
 -- | An 'C.ExecutionFeature' to record traces.
 --
--- During execution this logs program locations to a Crucible global variable
--- (@'C.GlobalVar' 'TraceType'@). Such a trace may be passed as the first
--- parameter to this function to \"replay\" it, i.e., to abort all branches that
--- deviate from it.
+-- During execution this logs program locations to a Crucible global variable.
+-- Such a trace may be passed to 'replayFeature' to \"replay\" it, i.e., to
+-- abort all branches that deviate from it.
 --
 -- If this is not called with 'C.InitialState' before any other 'C.ExecState',
 -- it may throw a 'TraceGlobalNotDefined' exception.
@@ -176,21 +204,12 @@ recordFeature =
       nil <- CSSS.nilSymSequence sym
       return (C.insertGlobal g nil globals)
 
-    getTrace ::
-      HasRecordState p p sym ext rtp =>
-      C.SimState p sym ext rtp f args ->
-      Maybe (C.RegValue sym TraceType)
-    getTrace simState = do
-      let ctx = simState ^. C.stateContext
-      let RecordState g = ctx ^. C.cruciblePersonality . recordState
-      C.lookupGlobal g (simState ^. C.stateGlobals)
-
     getTraceOrThrow ::
       HasRecordState p p sym ext rtp =>
       C.SimState p sym ext rtp f args ->
       IO (C.RegValue sym TraceType)
     getTraceOrThrow st =
-      case getTrace st of
+      case getRecordTrace st of
         Nothing -> X.throw TraceGlobalNotDefined
         Just t -> pure t
 
@@ -217,7 +236,9 @@ recordFeature =
 
 -- | A trace from 'recordFeature', processed and ready for consumption by
 -- 'replayFeature'.
-newtype RecordedTrace sym = RecordedTrace (C.RegValue sym TraceType)
+newtype RecordedTrace sym
+  = RecordedTrace (C.RegValue sym TraceType)
+    -- ^ constructor intentionally not exported
 
 -- | Obtain a 'RecordedTrace' after execution.
 --
@@ -226,23 +247,31 @@ newtype RecordedTrace sym = RecordedTrace (C.RegValue sym TraceType)
 getRecordedTrace ::
   W4.IsExprBuilder sym =>
   C.SymGlobalState sym ->
-  C.GlobalVar TraceType ->
+  RecordState p sym ext rtp ->
   sym ->
   -- | Evaluation for booleans, usually a 'What4.Expr.GroundEval.GroundEvalFn'
   (W4.Pred sym -> IO Bool) ->
-  -- | Evaluation for strings, usually a 'What4.Expr.GroundEval.GroundEvalFn'
-  (W4.SymString sym W4.Unicode -> IO Text.Text) ->
   IO (RecordedTrace sym)
-getRecordedTrace globals g sym evalBool evalStr = do
+getRecordedTrace globals (RecordState g) sym evalBool = do
   case C.lookupGlobal g globals of
     Nothing -> X.throw TraceGlobalNotDefined
     Just s -> RecordedTrace <$> concretizeAndReverseTrace s
   where
     concretizeAndReverseTrace s = do
-      concretized <- CSSS.concretizeSymSequence evalBool evalStr s
+      concretized <- CSSS.concretizeSymSequence evalBool (evalStr sym) s
       let reversed = Seq.reverse concretized
       symbolized <- mapM (W4.stringLit sym . W4.UnicodeLiteral) reversed
       CSSS.fromListSymSequence sym (F.toList symbolized)
+
+    evalStr ::
+      W4.IsExpr (W4.SymExpr sym) =>
+      sym ->
+      W4.SymString sym W4.Unicode ->
+      IO Text.Text
+    evalStr _sym s =
+      case W4.asString s of
+        Just (W4.UnicodeLiteral s') -> pure s'
+        Nothing -> panic "getRecordedTrace" ["Non-literal trace element?"]
 
 -- | An 'C.ExecutionFeature' to replay traces recorded with 'recordFeature'.
 --
@@ -295,7 +324,7 @@ replayFeature (RecordedTrace trace) stop =
                   CB.assert bak atExpectedLoc (C.AssertFailureSimError msg' "")
                   let st' = insertTrace st rest
                   let rState = C.RunningState runStateInfo st'
-                  pure (C.ExecutionFeatureNewState rState)
+                  pure (C.ExecutionFeatureModifiedState rState)
 
       _ -> pure C.ExecutionFeatureNoChange
   where
