@@ -1879,6 +1879,15 @@ refPathEq sym (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr
   | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
 refPathEq sym (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2)
   | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (AgElem_RefPath off1 sz1 _tpr1 p1) (AgElem_RefPath off2 sz2 _tpr2 p2)
+  | sz1 == sz2 = do
+    offEq <- liftIO $ bvEq sym off1 off2
+    -- NB: Don't check the TypeReprs for equality, as pointers with the same
+    -- memory addresses can have different types if pointer casting is involved
+    -- (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs test case
+    -- for an example).
+    pEq <- refPathEq sym p1 p2
+    liftIO $ andPred sym offEq pEq
 
 refPathEq sym Empty_RefPath _ = return $ falsePred sym
 refPathEq sym (Field_RefPath {}) _ = return $ falsePred sym
@@ -1887,7 +1896,7 @@ refPathEq sym (Index_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (Just_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (VectorAsMirVector_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (ArrayAsMirVector_RefPath {}) _ = return $ falsePred sym
-refPathEq sym _ _ = return $ falsePred sym -- TODO: Missing case for AgElem_RefPath
+refPathEq sym (AgElem_RefPath {}) _ = return $ falsePred sym
 
 mirRef_eqLeaf ::
     IsSymInterface sym =>
@@ -2064,7 +2073,8 @@ reverseRefPath = go RrpNil
         go (VectorAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
     go acc (ArrayAsMirVector_RefPath tpr rp) =
         go (ArrayAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
-    -- TODO: Missing case for AgElem_RefPath
+    go acc (AgElem_RefPath off sz tpr rp) =
+        go (AgElem_RefPath off sz tpr Empty_RefPath `RrpCons` acc) rp
 
 -- | If the final step of `path` is an `Index_RefPath`, remove it.  Otherwise,
 -- return `path` unchanged.
@@ -2133,6 +2143,16 @@ refPathOverlaps sym path1 path2 = do
     go (ArrayAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
         (ArrayAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
       | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` rrp1)
+        (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2)
+      | sz1 == sz2 = do
+        offEq <- liftIO $ bvEq sym off1 off2
+        -- NB: Don't check the TypeReprs for equality, as pointers with the
+        -- same memory addresses can have different types if pointer casting is
+        -- involved (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs
+        -- test case for an example).
+        pEq <- go rrp1 rrp2
+        liftIO $ andPred sym offEq pEq
 
     go (Field_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (Variant_RefPath {} `RrpCons` _) _ = return $ falsePred sym
@@ -2140,7 +2160,7 @@ refPathOverlaps sym path1 path2 = do
     go (Just_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (VectorAsMirVector_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (ArrayAsMirVector_RefPath {} `RrpCons` _) _ = return $ falsePred sym
-    go _ _ = return $ falsePred sym -- TODO: Missing case for AgElem_RefPath
+    go (AgElem_RefPath {} `RrpCons` _) _ = return $ falsePred sym
 
 -- | Check whether the memory accessible through `ref1` overlaps the memory
 -- accessible through `ref2`.
