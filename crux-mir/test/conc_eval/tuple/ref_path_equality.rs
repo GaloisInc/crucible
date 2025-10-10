@@ -1,6 +1,17 @@
 // A regression test for #1564. This ensures that `crucible-mir` can correctly
 // deem two pointers to be equal even when their types differ, which is
-// something that can occur when pointer type casting is involved.
+// something that can occur when pointer type casting is involved. Moreover,
+// this tests that crucible-mir can correctly check for pointer equality when
+// both pointers have an AgElem_RefPath in their path.
+//
+// Note that this test case implicitly relies on unspecified details of how the
+// `Rust` representation lays out tuple types. More specifically, given `p :
+// *const (A, B)`, it relies on the fact that `p` will have the same memory
+// address as `&(*p).0`. This happens to be the case in this example, but is
+// not guaranteed by anything stated in the Rust Reference (see
+// https://doc.rust-lang.org/1.86.0/reference/type-layout.html#r-layout.repr.rust).
+// If Rust ever changes this in the future, we will need to update this test
+// case accordingly.
 
 #[cfg_attr(crux, crux::test)]
 pub fn crux_test() {
