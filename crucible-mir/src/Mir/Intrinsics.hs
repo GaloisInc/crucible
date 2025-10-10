@@ -1879,13 +1879,18 @@ refPathEq sym (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr
   | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
 refPathEq sym (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2)
   | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
-refPathEq sym (AgElem_RefPath off1 sz1 _tpr1 p1) (AgElem_RefPath off2 sz2 _tpr2 p2)
-  | sz1 == sz2 = do
+refPathEq sym (AgElem_RefPath off1 _sz1 _tpr1 p1) (AgElem_RefPath off2 _sz2 _tpr2 p2) = do
     offEq <- liftIO $ bvEq sym off1 off2
-    -- NB: Don't check the TypeReprs for equality, as pointers with the same
-    -- memory addresses can have different types if pointer casting is involved
-    -- (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs test case
-    -- for an example).
+    -- NB: Don't check the following for equality:
+    --
+   --
+    -- * The TypeReprs (_tpr{1,2}), as pointers with the same memory addresses
+    --   can have different types if pointer casting is involved (see the
+    --   crux-mir/test/conc_eval/tuple/ref_path_equality.rs test case for an
+    --   example).
+    --
+    -- * The sizes (_sz{1,2}), as pointers of different types may have
+    --   different layout sizes.
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
 
@@ -2144,15 +2149,26 @@ refPathOverlaps sym path1 path2 = do
         (ArrayAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
       | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
     go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` rrp1)
-        (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2)
-      | sz1 == sz2 = do
-        offEq <- liftIO $ bvEq sym off1 off2
+        (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2) = do
+        let sizeWidth = knownNat @SizeBits
+        let bvSizeLit :: Word -> MuxLeafT sym IO (SymBV sym SizeBits)
+            bvSizeLit = liftIO . bvLit sym sizeWidth . BV.mkBV sizeWidth . toInteger
+        szBv1 <- bvSizeLit sz1
+        szBv2 <- bvSizeLit sz2
+        offSz1 <- liftIO $ bvAdd sym off1 szBv1
+        offSz2 <- liftIO $ bvAdd sym off2 szBv2
+        -- Check that `[off1 .. off1 + sz1]` overlaps `[off2 .. off2 + sz2]`.
+        -- This check is unique to AgElem_RefPath because its sub-locations may
+        -- not necessarily be disjoint from each other.
+        overlapsPart1 <- liftIO $ bvUle sym offSz1 off2
+        overlapsPart2 <- liftIO $ bvUle sym offSz2 off1
+        overlaps <- liftIO $ andPred sym overlapsPart1 overlapsPart2
         -- NB: Don't check the TypeReprs for equality, as pointers with the
         -- same memory addresses can have different types if pointer casting is
         -- involved (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs
         -- test case for an example).
         pEq <- go rrp1 rrp2
-        liftIO $ andPred sym offEq pEq
+        liftIO $ andPred sym overlaps pEq
 
     go (Field_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (Variant_RefPath {} `RrpCons` _) _ = return $ falsePred sym
