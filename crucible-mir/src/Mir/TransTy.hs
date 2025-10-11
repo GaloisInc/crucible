@@ -187,9 +187,7 @@ tyToRepr col t0 = case t0 of
   -- Closures are just tuples with a fancy name
   M.TyClosure _ts -> Right (Some MirAggregateRepr)
 
-  M.TyArray t _sz -> do
-    Some rpr <- tyToRepr col t
-    Right (Some (MirVectorRepr rpr))
+  M.TyArray t _sz -> Right (Some MirAggregateRepr)
 
   M.TyInt M.USize  -> Right (Some IsizeRepr)
   M.TyUint M.USize -> Right (Some UsizeRepr)
@@ -549,20 +547,17 @@ packAny ::  MirExp s -> (MirExp s)
 packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
 
--- array in haskell -> crucible array
+-- | Build a `MirAggregateRepr` from a list of `MirExp`s.
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildArrayLit trep exps = do
-    vec <- go exps V.empty
-    exp <- mirVector_fromVector trep $ S.app $ E.VectorLit trep vec
-    return $ MirExp (MirVectorRepr trep) exp
-  where go :: [MirExp s] -> V.Vector (R.Expr MIR s tp) -> MirGenerator h s ret (V.Vector (R.Expr MIR s tp))
-        go [] v = return v
-        go ((MirExp erepr e):es) v = do
-          case (testEquality erepr trep) of
-            Just Refl -> do
-                v' <- go es v
-                return $ V.cons e v'
-            Nothing -> mirFail "bad type in build array"
+buildArrayLit tpr exps = do
+    ag <- mirAggregate_uninit (fromIntegral $ length exps)
+    ag' <- foldM
+        (\ag (i, MirExp tpr' e) -> do
+            Refl <- testEqualityOrFail tpr tpr' $
+                "buildArrayLit: expected elem to be " ++ show tpr ++ ", but got " ++ show tpr'
+            mirAggregate_set i 1 tpr e ag)
+        ag (zip [0 :: Word ..] exps)
+    return $ MirExp MirAggregateRepr ag'
 
 buildTupleM :: [M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildTupleM tys xs = buildTupleMaybeM tys (map Just xs)
@@ -572,6 +567,8 @@ buildTupleMaybeM tys xs = do
     col <- use $ cs . collection
     ag <- mirAggregate_uninit (fromIntegral $ length tys)
     ag' <- foldM
+        -- TODO: `ty` is unused
+        -- TODO: `rv` is not a RegValue
         (\ag (i, ty, mExp) -> do
             case mExp of
                 Just (MirExp tpr rv) -> mirAggregate_set i 1 tpr rv ag
@@ -1478,10 +1475,8 @@ initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
 initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
-initialValue (M.TyArray t size) = do
-    Some tpr <- tyToReprM t
-    mv <- mirVector_uninit tpr $ S.app $ eBVLit knownNat (fromIntegral size)
-    return $ Just $ MirExp (MirVectorRepr tpr) mv
+initialValue (M.TyArray _ size) = do
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral size)
 -- TODO: disabled to workaround for a bug with muxing null and non-null refs
 -- The problem is with
 --      if (*) {
