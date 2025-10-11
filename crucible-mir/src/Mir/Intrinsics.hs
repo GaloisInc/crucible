@@ -29,7 +29,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.Intrinsics
@@ -1850,7 +1850,10 @@ refRootEq sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
   | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
 refRootEq _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
     leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
-refRootEq sym _ _ = return $ falsePred sym
+
+refRootEq sym (RefCell_RefRoot {}) _ = return $ falsePred sym
+refRootEq sym (GlobalVar_RefRoot {}) _ = return $ falsePred sym
+refRootEq sym (Const_RefRoot {}) _ = return $ falsePred sym
 
 refPathEq ::
     IsSymInterface sym =>
@@ -1876,7 +1879,29 @@ refPathEq sym (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr
   | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
 refPathEq sym (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2)
   | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
-refPathEq sym _ _ = return $ falsePred sym
+refPathEq sym (AgElem_RefPath off1 _sz1 _tpr1 p1) (AgElem_RefPath off2 _sz2 _tpr2 p2) = do
+    offEq <- liftIO $ bvEq sym off1 off2
+    -- NB: Don't check the following for equality:
+    --
+   --
+    -- * The TypeReprs (_tpr{1,2}), as pointers with the same memory addresses
+    --   can have different types if pointer casting is involved (see the
+    --   crux-mir/test/conc_eval/tuple/ref_path_equality.rs test case for an
+    --   example).
+    --
+    -- * The sizes (_sz{1,2}), as pointers of different types may have
+    --   different layout sizes.
+    pEq <- refPathEq sym p1 p2
+    liftIO $ andPred sym offEq pEq
+
+refPathEq sym Empty_RefPath _ = return $ falsePred sym
+refPathEq sym (Field_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (Variant_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (Index_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (Just_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (VectorAsMirVector_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (ArrayAsMirVector_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (AgElem_RefPath {}) _ = return $ falsePred sym
 
 mirRef_eqLeaf ::
     IsSymInterface sym =>
@@ -2053,6 +2078,8 @@ reverseRefPath = go RrpNil
         go (VectorAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
     go acc (ArrayAsMirVector_RefPath tpr rp) =
         go (ArrayAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (AgElem_RefPath off sz tpr rp) =
+        go (AgElem_RefPath off sz tpr Empty_RefPath `RrpCons` acc) rp
 
 -- | If the final step of `path` is an `Index_RefPath`, remove it.  Otherwise,
 -- return `path` unchanged.
@@ -2070,7 +2097,10 @@ refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
   | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
 refRootOverlaps _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
     leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
-refRootOverlaps sym _ _ = return $ falsePred sym
+
+refRootOverlaps sym (RefCell_RefRoot {}) _ = return $ falsePred sym
+refRootOverlaps sym (GlobalVar_RefRoot {}) _ = return $ falsePred sym
+refRootOverlaps sym (Const_RefRoot {}) _ = return $ falsePred sym
 
 -- | Check whether two `MirReferencePath`s might reference overlapping memory
 -- regions, when starting from the same `MirReferenceRoot`.
@@ -2118,7 +2148,35 @@ refPathOverlaps sym path1 path2 = do
     go (ArrayAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
         (ArrayAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
       | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
-    go _ _ = return $ falsePred sym
+    go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` rrp1)
+        (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2) = do
+        let sizeWidth = knownNat @SizeBits
+        let bvSizeLit :: Word -> MuxLeafT sym IO (SymBV sym SizeBits)
+            bvSizeLit = liftIO . bvLit sym sizeWidth . BV.mkBV sizeWidth . toInteger
+        szBv1 <- bvSizeLit sz1
+        szBv2 <- bvSizeLit sz2
+        offSz1 <- liftIO $ bvAdd sym off1 szBv1
+        offSz2 <- liftIO $ bvAdd sym off2 szBv2
+        -- Check that `[off1 .. off1 + sz1]` overlaps `[off2 .. off2 + sz2]`.
+        -- This check is unique to AgElem_RefPath because its sub-locations may
+        -- not necessarily be disjoint from each other.
+        overlapsPart1 <- liftIO $ bvUle sym offSz1 off2
+        overlapsPart2 <- liftIO $ bvUle sym offSz2 off1
+        overlaps <- liftIO $ andPred sym overlapsPart1 overlapsPart2
+        -- NB: Don't check the TypeReprs for equality, as pointers with the
+        -- same memory addresses can have different types if pointer casting is
+        -- involved (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs
+        -- test case for an example).
+        pEq <- go rrp1 rrp2
+        liftIO $ andPred sym overlaps pEq
+
+    go (Field_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (Variant_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (Index_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (Just_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (VectorAsMirVector_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (ArrayAsMirVector_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (AgElem_RefPath {} `RrpCons` _) _ = return $ falsePred sym
 
 -- | Check whether the memory accessible through `ref1` overlaps the memory
 -- accessible through `ref2`.
@@ -2723,7 +2781,7 @@ readRefPath bak iTypes v = \case
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
 mirExtImpl = ExtensionImpl
-             { extensionEval = \_sym -> \case
+             { extensionEval = \_sym _iTypes _log _f _state -> \case
              , extensionExec = execMirStmt
              }
 
