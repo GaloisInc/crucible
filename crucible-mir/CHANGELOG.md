@@ -40,6 +40,11 @@ This release supports [version
   `std::arch::asm!` macro). `crucible-mir` does not support _simulating_ inline
   assembly, but it can now translate code that uses it without crashing.
 * Implement basic support for creation and manipulation of union-type values.
+* Add an intrinsic for [`exact_div`](https://doc.rust-lang.org/std/intrinsics/fn.exact_div.html),
+  which performs integer division that triggers undefined behavior if the
+  division has a nonzero remainder. This is implemented for both signed and
+  unsigned integers and mirrors the semantics of Rust's
+  `core::intrinsics::exact_div`.
 
 # 0.4 -- 2025-03-21
 
