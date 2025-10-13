@@ -1205,14 +1205,6 @@ mem_transmute = (["core", "intrinsics", "transmute"],
         _ -> mirFail $ "bad arguments to transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing)
-  where
-    sizeBytes sz = case sz of
-      USize -> intValue (knownNat @SizeBits) `div` 8
-      B8 -> 1
-      B16 -> 2
-      B32 -> 4
-      B64 -> 8
-      B128 -> 16
 
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
 intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
