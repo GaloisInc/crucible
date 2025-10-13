@@ -703,9 +703,12 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             -- atomically even when the source and dest overlap.  We do this by
             -- taking a snapshot of the source, then copying the snapshot into
             -- dest.
-            (srcVec, srcIdx) <- mirRef_peelIndex src
-            srcSnapVec <- readMirRef (MirVectorRepr tpr) srcVec
-            srcSnapRoot <- constMirRef (MirVectorRepr tpr) srcSnapVec
+            --
+            -- TODO: check for overlap and copy in reverse order if needed.
+            -- This will let us avoid the temporary `constMirRef`.
+            (srcAg, srcIdx) <- mirRef_peelIndex src
+            srcSnapAg <- readMirRef MirAggregateRepr srcAg
+            srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
             srcSnap <- subindexRef tpr srcSnapRoot srcIdx
 
             ptrCopy tpr srcSnap dest count
@@ -1226,16 +1229,18 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
     \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
-            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty _) Immut]),
-              [MirExp MirSliceRepr e, MirExp UsizeRepr eLen] ) -> do
+            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty tyLen) Immut]),
+              [MirExp MirSliceRepr e, _] ) -> do
                 -- TODO: This should be implemented as a type cast, so the
-                -- input and output are aliases.  However, the input slice is a
-                -- MirVector, while the output must be a plain crucible Vector.
-                -- We don't currently have a way to do that downcast, so we use
-                -- `vectorCopy` instead.
+                -- input and output are aliases.  However, the input slice's
+                -- data pointer may point into a `MirVector` rather than a
+                -- `MirAggregate`, whereas the output must always point to a
+                -- `MirAggregate`.  So for now, we use `aggregateCopy` to build
+                -- the output.  Once `MirAggregate` flattening is enabled, we
+                -- may be able to turn this into a proper cast.
                 let ptr = getSlicePtr e
                 let len = getSliceLen e
-                let lenOk = R.App $ usizeEq len eLen
+                let lenOk = R.App $ usizeEq len (R.App $ usizeLit $ fromIntegral tyLen)
                 -- Get the Adt info for the return type, which should be
                 -- Option<&[T; N]>.
                 adt <- findAdt optionMonoName
@@ -1244,11 +1249,10 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
 
                 Some tpr <- tyToReprM ty
                 MirExp expectedEnumTpr <$> G.ifte' expectedEnumTpr lenOk
-                    (do v <- vectorCopy tpr ptr len
-                        v' <- mirVector_fromVector tpr v
-                        ref <- constMirRef (MirVectorRepr tpr) v'
-                        let vMir = MirExp MirReferenceRepr ref
-                        MirExp enumTpr enum <- buildEnum adt optionDiscrSome [vMir]
+                    (do ag <- aggregateCopy_constLen tpr ptr tyLen 1  -- TODO: hardcoded size=1
+                        ref <- constMirRef MirAggregateRepr ag
+                        let refMir = MirExp MirReferenceRepr ref
+                        MirExp enumTpr enum <- buildEnum adt optionDiscrSome [refMir]
                         Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
                         pure enum)
                     (do MirExp enumTpr enum <- buildEnum adt optionDiscrNone []
@@ -1270,10 +1274,10 @@ array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
                 -- output are aliases.
                 Some elemRepr <- tyToReprM elemTy
                 elemVal <- readMirRef elemRepr elemRef
-                let vecVal = R.App (E.VectorLit elemRepr (V.fromList [elemVal]))
-                mirVecVal <- mirVector_fromVector elemRepr vecVal
-                mirVecRef <- constMirRef (MirVectorRepr elemRepr) mirVecVal
-                pure (MirExp MirReferenceRepr mirVecRef)
+                ag <- mirAggregate_uninit 1
+                ag' <- mirAggregate_set 0 1 elemRepr elemVal ag
+                agRef <- constMirRef MirAggregateRepr ag'
+                pure (MirExp MirReferenceRepr agRef)
             _ -> mirFail $ "bad monomorphization of crucible_array_from_ref_hook: " ++
                 show (fnName, fn ^. fsig, ops)
     )
@@ -1684,13 +1688,13 @@ bv_leading_zeros =
 allocate :: (ExplodedDefId, CustomRHS)
 allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp UsizeRepr len] -> do
+        [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirVector_PartialVector` of length
             -- `len`, and return a pointer to its first element.
             Some tpr <- tyToReprM t
-            vec <- mirVector_uninit tpr len
-            ref <- newMirRef (MirVectorRepr tpr)
-            writeMirRef (MirVectorRepr tpr) ref vec
+            ag <- mirAggregate_uninitSym sz
+            ref <- newMirRef MirAggregateRepr
+            writeMirRef MirAggregateRepr ref ag
             -- `subindexRef` doesn't do a bounds check (those happen on deref
             -- instead), so this works even when len is 0.
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
@@ -1704,12 +1708,11 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
         [MirExp UsizeRepr len] -> do
             Some tpr <- tyToReprM t
             zero <- mkZero tpr
-            let lenNat = R.App $ usizeToNat len
-            let vec0 = R.App $ E.VectorReplicate tpr lenNat zero
-            vec1 <- mirVector_fromVector tpr vec0
+            let sz = 1  -- TODO: hardcoded size=1
+            ag <- mirAggregate_replicate sz tpr zero len
 
-            ref <- newMirRef (MirVectorRepr tpr)
-            writeMirRef (MirVectorRepr tpr) ref vec1
+            ref <- newMirRef MirAggregateRepr
+            writeMirRef MirAggregateRepr ref ag
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
@@ -1722,18 +1725,17 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
 reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
-            (vecPtr, idx) <- mirRef_peelIndex ptr
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newSz ] -> do
+            (agPtr, idx) <- mirRef_peelIndex ptr
 
             let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
             G.assertExpr isZero $
                 S.litExpr "bad pointer in reallocate: not the start of an allocation"
 
-            Some tpr <- tyToReprM t
-            oldVec <- readMirRef (MirVectorRepr tpr) vecPtr
-            newVec <- mirVector_resize tpr oldVec newLen
-            writeMirRef (MirVectorRepr tpr) vecPtr newVec
+            oldAg <- readMirRef MirAggregateRepr agPtr
+            newAg <- mirAggregate_resize oldAg newSz
+            writeMirRef MirAggregateRepr agPtr newAg
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)

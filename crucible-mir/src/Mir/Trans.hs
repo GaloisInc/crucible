@@ -29,7 +29,8 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , subindexRef
                 , evalBinOp
                 , evalOperand
-                , vectorCopy, ptrCopy, copyNonOverlapping
+                , vectorCopy, aggregateCopy_constLen
+                , ptrCopy, copyNonOverlapping
                 , evalRval
                 , callExp
                 , callHandle
@@ -62,7 +63,6 @@ import Data.STRef
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Traversable as Trav
-import qualified Data.Vector as V
 import Data.String (fromString)
 import Numeric
 import Numeric.Natural()
@@ -166,27 +166,38 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 -- staticSlicePlace does the first four of these actions; addrOfPlace
 -- does the last two.
 --
-transConstVal (M.TyRef _ _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
-    place <- staticSlicePlace len defid
+transConstVal (M.TyRef (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
+    Some tpr <- tyToReprM ty
+    place <- staticSlicePlace len (Some tpr) defid
+    addr <- addrOfPlace place
+    return addr
+transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
+    let tpr = C.BVRepr $ knownNat @8
+    place <- staticSlicePlace len (Some tpr) defid
     addr <- addrOfPlace place
     return addr
 
-transConstVal _ty (Some (MirVectorRepr u8Repr@(C.BVRepr w))) (M.ConstStrBody bs)
-  | Just Refl <- testEquality w (knownNat @8) = do
+transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
-    let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
-    mirVec <- mirVector_fromVector u8Repr vec
-    return $ MirExp (MirVectorRepr u8Repr) mirVec
+    ag <- mirAggregate_uninit (fromIntegral $ length bytes)
+    ag' <- foldM
+        (\ag' (i, b) -> mirAggregate_set i 1 knownRepr b ag')
+        ag (zip [0..] bytes)
+    return $ MirExp MirAggregateRepr ag'
 
-transConstVal (M.TyArray ty _sz) (Some (MirVectorRepr tpr)) (M.ConstArray arr) = do
+transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
+    Some tpr <- tyToReprM ty
     arr' <- Trav.for arr $ \e -> do
         MirExp tpr' e' <- transConstVal ty (Some tpr) e
         Refl <- testEqualityOrFail tpr tpr' $
             "transConstVal (ConstArray): returned wrong type: expected " ++
             show tpr ++ ", got " ++ show tpr'
         pure e'
-    vec <- mirVector_fromVector tpr $ R.App $ E.VectorLit tpr $ V.fromList arr'
-    return $ MirExp (MirVectorRepr tpr) vec
+    ag <- mirAggregate_uninit (fromIntegral $ length arr')
+    ag' <- foldM
+        (\ag' (i, x) -> mirAggregate_set i 1 tpr x ag')
+        ag (zip [0..] arr')
+    return $ MirExp MirAggregateRepr ag'
 
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
@@ -353,18 +364,24 @@ staticPlace did = do
 
 -- variant of staticPlace for slices
 -- tpr is the element type; len is the length
-staticSlicePlace :: HasCallStack => Int -> M.DefId -> MirGenerator h s ret (MirPlace s)
-staticSlicePlace len did = do
+staticSlicePlace ::
+    HasCallStack =>
+    Int ->
+    Some C.TypeRepr ->
+    M.DefId ->
+    MirGenerator h s ret (MirPlace s)
+staticSlicePlace len (Some tpr) did = do
     sm <- use $ cs.staticMap
     case Map.lookup did sm of
         Just (StaticVar gv) -> do
             let tpr_found = G.globalType gv
-            Some tpr <- case tpr_found of
-                MirVectorRepr tpr -> return $ Some tpr
+            -- TODO: why is `() <- ...` needed here?
+            () <- case tpr_found of
+                MirAggregateRepr -> return ()
                 _ -> mirFail $
                     "staticSlicePlace: wrong type: expected vector, found " ++ show tpr_found
             ref <- globalMirRef gv
-            ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
+            ref' <- mirRef_agElem_constOffset 0 1 tpr ref
             let len' = R.App $ usizeLit $ fromIntegral len
             return $ MirPlace tpr ref' (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
@@ -685,10 +702,13 @@ transUnaryOp uop op = do
 -- a -> u -> [a;u]
 buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
-    (MirExp tp e) <- evalOperand op
+    MirExp tpr e <- evalOperand op
     let n = fromInteger size
-    expr <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
-    return $ MirExp (MirVectorRepr tp) expr
+    ag <- mirAggregate_uninit n
+    ag' <- foldM
+        (\ag' i -> mirAggregate_set i 1 tpr e ag')
+        ag [0 .. n - 1]
+    return $ MirExp MirAggregateRepr ag'
 
 
 
@@ -1076,7 +1096,7 @@ evalCast' ck ty1 e ty2  = do
       = do
         Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
-        ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
+        ref' <- mirRef_agElem_constOffset 0 1 elem_tp ref
         let tup   = S.mkStruct mirSliceCtxRepr
                         (Ctx.Empty Ctx.:> ref' Ctx.:> len)
         return $ MirExp MirSliceRepr tup
@@ -1138,34 +1158,38 @@ evalCast ck op ty = do
     e <- evalOperand op
     evalCast' ck (M.typeOf op) e ty
 
-transmuteExp :: HasCallStack => MirExp s -> M.Ty -> M.Ty -> MirGenerator h s ret (MirExp s)
+transmuteExp ::
+  forall h s ret.
+  HasCallStack =>
+  MirExp s ->
+  M.Ty ->
+  M.Ty ->
+  MirGenerator h s ret (MirExp s)
 transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
   Some retTy <- tyToReprM destMirTy
+  col <- use $ cs . collection
   case (argTy, retTy) of
     -- Splitting an integer into pieces (usually bytes)
-    (C.BVRepr w1, MirVectorRepr (C.BVRepr w2))
-      | natValue w1 `mod` natValue w2 == 0 -> do
-        let n = natValue w1 `div` natValue w2
+    (C.BVRepr w1, MirAggregateRepr)
+      | TyArray (tyToRepr col -> Right (Some (C.BVRepr w2))) n <- destMirTy
+      , natValue w1 == natValue w2 * fromIntegral n -> do
         pieces <- forM [0 .. n - 1] $ \i -> do
-          Some i' <- return $ mkNatRepr i
+          Some i' <- return $ mkNatRepr $ fromIntegral i
           let offset = natMultiply i' w2
           LeqProof <- case testLeq (addNat offset w2) w1 of
             Just x -> return x
             Nothing -> panic "transmute" ["impossible: (w1 / w2 - 1) * w2 + w2 > w1?"]
-          return $ R.App $ E.BVSelect (natMultiply i' w2) w2 w1 argExpr
-        let v = R.App $ E.VectorLit (C.BVRepr w2) (V.fromList pieces)
-        mv <- mirVector_fromVector (C.BVRepr w2) v
-        return $ MirExp retTy mv
+          return $ MirExp (C.BVRepr w2) $ R.App $ E.BVSelect offset w2 w1 argExpr
+        buildArrayLit (C.BVRepr w2) pieces
 
     -- Reconstructing an integer from pieces (usually bytes)
-    (MirVectorRepr (C.BVRepr w1), C.BVRepr w2)
-      | natValue w2 `mod` natValue w1 == 0 -> do
-        let n = natValue w2 `div` natValue w1
-        vecRef <- constMirRef (MirVectorRepr (C.BVRepr w1)) argExpr
-        pieces <- forM [0 .. n - 1] $ \i -> do
-          let idx = R.App $ usizeLit (fromIntegral i)
-          elemRef <- subindexRef (C.BVRepr w1) vecRef idx
-          readMirRef (C.BVRepr w1) elemRef
+    (MirAggregateRepr, C.BVRepr w2)
+      | TyArray (tyToRepr col -> Right (Some (C.BVRepr w1))) n <- srcMirTy
+      , natValue w1 * fromIntegral n == natValue w2 -> do
+        let pieceSize = 1   -- TODO: hardcoded size=1
+        pieces <- forM [0 .. n - 1] $ \(fromIntegral -> i) -> do
+          let off = pieceSize * i
+          mirAggregate_get off pieceSize (C.BVRepr w1) argExpr
         let go :: (1 <= wp) =>
               NatRepr wp ->
               [R.Expr MIR s (C.BVType wp)] ->
@@ -1570,9 +1594,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
     tyAdtDefSkipDowncast col (M.TyDowncast ty' _) = tyAdtDef col ty'
     tyAdtDefSkipDowncast col ty' = tyAdtDef col ty'
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta) of
-    (M.TyArray _elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
+    (M.TyArray elemTy _sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idxVar
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
+        Some elemTpr <- tyToReprM elemTy
+        MirPlace elemTpr <$> mirRef_agElem idx' 1 elemTpr ref <*> pure NoMeta
 
     (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
@@ -1590,9 +1615,10 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         return idx
 evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) = case (ty, tpr, meta) of
     -- TODO: should this check sz >= minLen?
-    (M.TyArray _elemTy sz, MirVectorRepr elemTpr, NoMeta) -> do
+    (M.TyArray elemTy sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
+        Some elemTpr <- tyToReprM elemTy
+        MirPlace elemTpr <$> mirRef_agElem idx' 1 elemTpr ref <*> pure NoMeta
 
     (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd
@@ -3126,6 +3152,25 @@ vectorCopy tpr ptr0 len = do
     out1 <- G.readRef outRef
     G.jumpToLambda c_id out1
   G.continueLambda c_id (G.branch cond x_id y_id)
+
+-- | Generate a loop that copies `len` elements starting at `ptr0` into a new
+-- `MirAggregate`.  `size` is used as both the element size and the stride of
+-- the array, matching the way that rustc lays out arrays.
+aggregateCopy_constLen ::
+  C.TypeRepr tp ->
+  G.Expr MIR s MirReferenceType ->
+  Int ->
+  Word ->
+  MirGenerator h s ret (G.Expr MIR s MirAggregateType)
+aggregateCopy_constLen tpr ptr0 len size = do
+  ag <- mirAggregate_uninit (fromIntegral len * size)
+  ag' <- foldM
+    (\ag' i -> do
+       ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i)
+       elt <- readMirRef tpr ptr
+       mirAggregate_set (fromIntegral i * size) size tpr elt ag')
+    ag [0 .. len - 1]
+  return ag'
 
 ptrCopy ::
     C.TypeRepr tp ->

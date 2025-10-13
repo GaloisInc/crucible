@@ -103,8 +103,8 @@ import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, SomeRustEnumRepr(..),
-                    pattern MirVectorRepr, MirVector(..),
-                    pattern MirAggregateRepr, MirAggregate(..), MirAggregateEntry(..))
+                    pattern MirAggregateRepr, MirAggregate(..), MirAggregateEntry(..),
+                    mirAggregate_lookup)
 import           Mir.Generator
 import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
@@ -751,14 +751,17 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
-    (TyArray ty _sz, MirVectorRepr tyr) -> do
-      values <- case rv of
-        MirVector_Vector v -> forM (Vector.toList v) $ \val -> do
-            showRegEntry col ty $ C.RegEntry tyr val
-        MirVector_PartialVector pv -> forM (Vector.toList pv) $
-            \partVal -> goMaybe ty tyr partVal
-        MirVector_Array _ -> return ["<symbolic array...>"]
-      return $ "[" ++ List.intercalate ", " values ++ "]"
+    (TyArray ty len, MirAggregateRepr) -> do
+      case tyToRepr col ty of
+        Right (C.Some tpr) -> do
+          let size = 1  -- TODO: hardcoded size=1
+          values <- forM [0 .. len - 1] $ \i -> do
+            case mirAggregate_lookup (fromIntegral i * size) tpr rv of
+              Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
+              Right partVal -> goMaybe ty tpr partVal
+          return $ "[" ++ List.intercalate ", " values ++ "]"
+        Left e -> return $ "error handling type " ++ show (pretty ty) ++ ": " ++ e
+
 
     (TyStr, C.VectorRepr tyr) -> do
       let entries = Vector.map (C.RegEntry tyr) rv

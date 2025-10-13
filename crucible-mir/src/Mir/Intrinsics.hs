@@ -927,6 +927,34 @@ writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
   where
     sym = backendGetSym bak
 
+mirAggregate_lookup ::
+  Word ->
+  TypeRepr tp ->
+  MirAggregate sym ->
+  Either String (RegValue sym (MaybeType tp))
+mirAggregate_lookup off tpr (MirAggregate totalSize m) = do
+  -- We return @Right Unassigned@ if the offset is valid but there's no value
+  -- there, and @Left errorMessage@ if offset is invalid (in the middle of some
+  -- entry) or the type @tpr@ is incorrect.
+  case IntMap.lookupLE (fromIntegral off) m of
+    _ | off >= totalSize ->
+      die $ "offset " ++ show off ++ " is out of range "
+        ++ "for aggregate total size " ++ show totalSize
+    Nothing -> Right Unassigned
+    Just (fromIntegral -> off', MirAggregateEntry sz' tpr' rv)
+      | off' == off -> do
+          case testEquality tpr tpr' of
+            Nothing -> die $ "type mismatch at offset " ++ show off ++ ": "
+              ++ show tpr ++ " != " ++ show tpr'
+            Just Refl -> Right rv
+      -- Existing entry's range comes entirely before the new one, so there is
+      -- no overlap (and no value at `off`).
+      | off' + sz' <= off -> Right Unassigned
+      | otherwise -> die $ "partial overlap: " ++ show off
+          ++ " vs " ++ show off' ++ ".." ++ show (off' + sz')
+  where
+    die msg = Left $ "bad MirAggregate lookup: " ++ msg
+
 -- | Resize a `MirAggregate`.  If the new size is larger, the extra space will
 -- be left uninitialized.  If the new size is smaller, any entries that extend
 -- past the new end point will be discarded.
