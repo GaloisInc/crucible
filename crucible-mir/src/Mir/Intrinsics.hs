@@ -927,6 +927,20 @@ writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
   where
     sym = backendGetSym bak
 
+-- | Resize a `MirAggregate`.  If the new size is larger, the extra space will
+-- be left uninitialized.  If the new size is smaller, any entries that extend
+-- past the new end point will be discarded.
+resizeMirAggregate ::
+  MirAggregate sym ->
+  Word ->
+  MirAggregate sym
+resizeMirAggregate (MirAggregate totalSize m) newSize
+  | newSize >= totalSize = MirAggregate newSize m
+  | otherwise = MirAggregate newSize m'
+  where
+    m' = IntMap.filterWithKey
+      (\off (MirAggregateEntry sz _ _) -> fromIntegral off + sz <= newSize)
+      m
 
 
 --------------------------------------------------------------
@@ -1337,6 +1351,27 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirAggregate_Uninit ::
     !Word ->
     MirStmt f MirAggregateType
+  -- | Create an empty `MirAggregate`, where the size is given as an expression
+  -- of `UsizeType`.  The size must still be a concrete expression at symbolic
+  -- execution time.
+  MirAggregate_UninitSym ::
+    !(f UsizeType) ->
+    MirStmt f MirAggregateType
+  -- | Create a `MirAggregate` by replicating a value @len@ times.  The total
+  -- size in bytes is @elemSz * len@.  The array stride is set equal to the
+  -- element size.
+  MirAggregate_Replicate ::
+    !Word ->
+    !(TypeRepr tp) ->
+    !(f tp) ->
+    !(f UsizeType) ->
+    MirStmt f MirAggregateType
+  -- | Resize a `MirAggregate`.  As with `MirAggregate_UninitSym`, the
+  -- `UsizeType` expression must be concrete.
+  MirAggregate_Resize ::
+    !(f MirAggregateType) ->
+    !(f UsizeType) ->
+    MirStmt f MirAggregateType
   MirAggregate_Get ::
     -- | Offset
     !Word ->
@@ -1428,6 +1463,9 @@ instance TypeApp MirStmt where
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
     MirVector_Resize tp _ _ -> MirVectorRepr tp
     MirAggregate_Uninit _ -> MirAggregateRepr
+    MirAggregate_UninitSym _ -> MirAggregateRepr
+    MirAggregate_Replicate _ _ _ _ -> MirAggregateRepr
+    MirAggregate_Resize _ _ -> MirAggregateRepr
     MirAggregate_Get _ _ tp _ -> tp
     MirAggregate_Set _ _ _ _ _ -> MirAggregateRepr
 
@@ -1467,6 +1505,9 @@ instance PrettyApp MirStmt where
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
     MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
     MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> viaShow sz
+    MirAggregate_UninitSym szSym -> "mirAggregate_uninit" <+> pp szSym
+    MirAggregate_Replicate elemSz _ elemVal lenSym -> "mirAggregate_replicate" <+> viaShow elemSz <+> pp elemVal <+> pp lenSym
+    MirAggregate_Resize ag szSym -> "mirAggregate_resize" <+> pp ag <+> pp szSym
     MirAggregate_Get off sz _ ag -> "mirAggregate_get" <+> viaShow off <+> viaShow sz <+> pp ag
     MirAggregate_Set off sz _ rv ag -> "mirAggregate_set" <+> viaShow off <+> viaShow sz <+> pp rv <+> pp ag
 
@@ -1974,6 +2015,52 @@ mirVector_resizeIO bak _tpr mirVec newLenSym = do
     pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
 
 
+mirAggregate_uninitSymIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_uninitSymIO bak szSym = do
+  sz <- case asBV szSym of
+    Just x -> return (BV.asUnsigned x)
+    Nothing -> addFailedAssertion bak $ Unsupported callStack $
+      "Attempted to allocate aggregate of symbolic size"
+  return $ MirAggregate (fromIntegral sz) mempty
+
+mirAggregate_replicateIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    Word ->
+    TypeRepr tp ->
+    RegValue sym tp ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym = do
+  let sym = backendGetSym bak
+  len <- case asBV lenSym of
+    Just x -> return (BV.asUnsigned x)
+    Nothing -> addFailedAssertion bak $ Unsupported callStack $
+      "Attempted to allocate aggregate of symbolic size"
+  let totalSize = fromIntegral len * elemSz
+  let entries =
+        [(fromIntegral i * fromIntegral elemSz,
+          MirAggregateEntry elemSz elemTpr (justPartExpr sym elemVal))
+        | i <- [0 .. len]]
+  return $ MirAggregate totalSize (IntMap.fromAscList entries)
+
+mirAggregate_resizeIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym MirAggregateType ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_resizeIO bak ag szSym = do
+  sz <- case asBV szSym of
+    Just x -> return (BV.asUnsigned x)
+    Nothing -> addFailedAssertion bak $ Unsupported callStack $
+      "Attempted to allocate aggregate of symbolic size"
+  return $ resizeMirAggregate ag (fromIntegral sz)
+
 mirAggregate_getIO ::
     IsSymBackend sym bak =>
     bak ->
@@ -2448,6 +2535,12 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
 
        MirAggregate_Uninit sz -> do
             return (MirAggregate sz mempty, s)
+       MirAggregate_UninitSym (regValue -> szSym) -> do
+            readOnly s $ mirAggregate_uninitSymIO bak szSym
+       MirAggregate_Replicate elemSz elemTpr (regValue -> elemVal) (regValue -> lenSym) -> do
+            readOnly s $ mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym
+       MirAggregate_Resize (regValue -> ag) (regValue -> szSym) -> do
+            readOnly s $ mirAggregate_resizeIO bak ag szSym
        MirAggregate_Get off sz tpr (regValue -> ag) -> do
             readOnly s $ mirAggregate_getIO bak off sz tpr ag
        MirAggregate_Set off sz tpr (regValue -> rv) (regValue -> ag) -> do

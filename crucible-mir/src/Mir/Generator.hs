@@ -839,6 +839,27 @@ mirAggregate_uninit ::
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
 mirAggregate_uninit sz = G.extensionStmt $ MirAggregate_Uninit sz
 
+mirAggregate_uninitSym ::
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_uninitSym szSym = G.extensionStmt $ MirAggregate_UninitSym szSym
+
+mirAggregate_replicate ::
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s tp ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_replicate elemSz elemTpr elemVal lenSym =
+  G.extensionStmt $ MirAggregate_Replicate elemSz elemTpr elemVal lenSym
+
+mirAggregate_resize ::
+  R.Expr MIR s MirAggregateType ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_resize ag sz =
+  G.extensionStmt $ MirAggregate_Resize ag sz
+
 mirAggregate_get ::
   Word ->
   Word ->
