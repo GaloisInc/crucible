@@ -381,7 +381,7 @@ staticSlicePlace len (Some tpr) did = do
                 _ -> mirFail $
                     "staticSlicePlace: wrong type: expected vector, found " ++ show tpr_found
             ref <- globalMirRef gv
-            ref' <- mirRef_agElem_constOffset 0 1 tpr ref
+            ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
             let len' = R.App $ usizeLit $ fromIntegral len
             return $ MirPlace tpr ref' (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
@@ -1096,7 +1096,7 @@ evalCast' ck ty1 e ty2  = do
       = do
         Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
-        ref' <- mirRef_agElem_constOffset 0 1 elem_tp ref
+        ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
         let tup   = S.mkStruct mirSliceCtxRepr
                         (Ctx.Empty Ctx.:> ref' Ctx.:> len)
         return $ MirExp MirSliceRepr tup
@@ -1597,7 +1597,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
     (M.TyArray elemTy _sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idxVar
         Some elemTpr <- tyToReprM elemTy
-        MirPlace elemTpr <$> mirRef_agElem idx' 1 elemTpr ref <*> pure NoMeta
+        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
     (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
@@ -1618,7 +1618,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
     (M.TyArray elemTy sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         Some elemTpr <- tyToReprM elemTy
-        MirPlace elemTpr <$> mirRef_agElem idx' 1 elemTpr ref <*> pure NoMeta
+        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
     (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd
