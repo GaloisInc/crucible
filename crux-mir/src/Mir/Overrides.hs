@@ -411,6 +411,8 @@ regEval bak baseEval tpr v = go tpr v
         VectorAsMirVector_RefPath tpr <$> goMirReferencePath p
     goMirReferencePath (ArrayAsMirVector_RefPath tpr p) =
         ArrayAsMirVector_RefPath tpr <$> goMirReferencePath p
+    goMirReferencePath (AgElem_RefPath off sz tpr p) =
+        AgElem_RefPath <$> go UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
 
     goMirAggregateEntry ::
         MirAggregateEntry sym ->
