@@ -1617,6 +1617,26 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
+-- | Like `typedLeafOp`, but accepts two different pointee types.
+typedLeafOp2 ::
+    Monad m =>
+    String ->
+    MirReference sym ->
+    TypeRepr tp1 ->
+    (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp1 -> MuxLeafT sym m a) ->
+    TypeRepr tp2 ->
+    (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp2 -> MuxLeafT sym m a) ->
+    MuxLeafT sym m a
+typedLeafOp2 desc (MirReference tpr root path) expectTpr1 k1 expectTpr2 k2
+  | Just Refl <- testEquality tpr expectTpr1 = k1 root path
+  | Just Refl <- testEquality tpr expectTpr2 = k2 root path
+  | otherwise = leafAbort $ GenericSimError $
+      desc ++ " requires a reference to " ++ show expectTpr1 ++ " or " ++ show expectTpr2
+        ++ ", but got a reference to " ++ show tpr
+typedLeafOp2 desc (MirReference_Integer _) _ _ _ _ =
+    leafAbort $ GenericSimError $
+        "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
+
 readMirRefLeaf ::
     (IsSymBackend sym bak) =>
     bak ->
@@ -1775,8 +1795,12 @@ subindexMirRefLeaf ::
     RegValue sym UsizeType ->
     MuxLeafT sym IO (MirReference sym)
 subindexMirRefLeaf tpr ref idx =
-  typedLeafOp "subindex" (MirVectorRepr tpr) ref $ \root path -> do
-    return $ MirReference tpr root (Index_RefPath tpr path idx)
+  typedLeafOp2 "subindex" ref
+    (MirVectorRepr tpr) (\root path -> do
+      return $ MirReference tpr root (Index_RefPath tpr path idx))
+    MirAggregateRepr (\root path -> do
+      let sz = 1  -- TODO: hardcoded size=1
+      return $ MirReference tpr root (AgElem_RefPath idx sz tpr path))
 
 subjustMirRefLeaf ::
     TypeRepr tp ->
@@ -2296,6 +2320,11 @@ mirRef_offsetWrapLeaf bak (MirReference tpr root (Index_RefPath tpr' path idx)) 
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- liftIO $ bvAdd sym idx offset
     return $ MirReference tpr root $ Index_RefPath tpr' path idx'
+mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath idx sz tpr' path)) offset = do
+    let sym = backendGetSym bak
+    -- `wrapping_offset` puts no restrictions on the arithmetic performed.
+    idx' <- liftIO $ bvAdd sym idx offset
+    return $ MirReference tpr root $ AgElem_RefPath idx' sz tpr' path
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
@@ -2325,6 +2354,13 @@ mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 
             similar <- liftIO $ andPred sym rootEq pathEq
             -- TODO: implement overflow checks, similar to `offset`
             offset <- liftIO $ bvSub sym idx1 idx2
+            return $ mkPE similar offset
+        (AgElem_RefPath off1 _ _ path1', AgElem_RefPath off2 _ _ path2') -> do
+            pathEq <- refPathEq sym path1' path2'
+            similar <- liftIO $ andPred sym rootEq pathEq
+            -- TODO: divide by `sz`?  This implements `byte_offset_from`, which
+            -- is the same as `offset_from` only when size=1
+            offset <- liftIO $ bvSub sym off1 off2
             return $ mkPE similar offset
         _ -> do
             pathEq <- refPathEq sym path1 path2
@@ -2362,6 +2398,10 @@ mirRef_peelIndexLeaf ::
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
 mirRef_peelIndexLeaf sym (MirReference tpr root (Index_RefPath _tpr' path idx)) = do
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (MirVectorRepr tpr) root path
+    return $ Empty :> RV ref :> RV idx
+mirRef_peelIndexLeaf sym (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
+    -- TODO: assumes hardcoded size=1
+    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf _sym (MirReference _ _ _) =
     leafAbort $ Unsupported callStack $
@@ -2708,7 +2748,7 @@ mirRef_offsetSim :: IsSymInterface sym =>
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
 mirRef_offsetSim ref off =
     ovrWithBackend $ \bak ->
-      modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off) ref
+      modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off) ref
 
 mirRef_offsetIO ::
     IsSymBackend sym bak =>
