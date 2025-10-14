@@ -274,6 +274,9 @@ getRecordedTrace globals (RecordState g) sym evalBool = do
         Just (W4.UnicodeLiteral s') -> pure s'
         Nothing -> panic "getRecordedTrace" ["Non-literal trace element?"]
 
+{- | Inserts a recorded trace into the state's replay trace variable
+The replay feature will follow this trace if it is enabled
+-}
 insertReplayTrace ::
   (HasReplayState p p sym ext rtp) =>
   C.SimState p sym ext rtp f args ->
