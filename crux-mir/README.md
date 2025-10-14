@@ -32,7 +32,7 @@ There are two different ways to set up `mir-json`: either by downloading the bin
 
 ### Download `mir-json` binaries
 
-To download the latest version of `mir-json`, go to the [mir-json action](https://github.com/GaloisInc/mir-json/actions) page. Select the last build from `master` and scroll down the page, until you find and download the desired binary release (`mir-json-macos...` or `mir-json-ubuntu...`). Unzip the downloaded archive and add it to your path.
+To download the latest version of `mir-json`, go to the [mir-json CI workflows](https://github.com/GaloisInc/mir-json/actions/workflows/ci.yml) page. Select the latest build from the `master` branch and scroll down the page, until you find and download the desired binary release (`mir-json-macos...` or `mir-json-ubuntu...`). Unzip the downloaded archive and add it to your path.
 
 The binary release comes with precompiled `rlibs`, so don't forget to set `CRUX_RUST_LIBRARY_PATH` variable pointing to the `rlibs` subfolder of the unzipped archive. Adding `export CRUX_RUST_LIBRARY_PATH=...` to your shell configuration is recommended.
 
