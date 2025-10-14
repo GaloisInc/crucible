@@ -22,6 +22,7 @@ module Lang.Crucible.Simulator.RecordAndReplay (
   getRecordedTrace,
   recordFeature,
   replayFeature,
+  insertReplayTrace,
 ) where
 
 import Control.Exception qualified as X
@@ -273,6 +274,16 @@ getRecordedTrace globals (RecordState g) sym evalBool = do
         Just (W4.UnicodeLiteral s') -> pure s'
         Nothing -> panic "getRecordedTrace" ["Non-literal trace element?"]
 
+insertReplayTrace ::
+  (HasReplayState p p sym ext rtp) =>
+  C.SimState p sym ext rtp f args ->
+  C.RegValue sym TraceType ->
+  C.SimState p sym ext rtp f args
+insertReplayTrace st v = do
+  let simCtx = st ^. C.stateContext
+  let ReplayState g = simCtx ^. C.cruciblePersonality . replayState
+  st & C.stateGlobals %~ C.insertGlobal g v
+
 -- | An 'C.ExecutionFeature' to replay traces recorded with 'recordFeature'.
 --
 -- Branches that deviate from the given trace will be aborted with
@@ -322,7 +333,7 @@ replayFeature (RecordedTrace trace) stop =
                 _ -> do
                   let msg' = "Execution deviated from trace"
                   CB.assert bak atExpectedLoc (C.AssertFailureSimError msg' "")
-                  let st' = insertTrace st rest
+                  let st' = insertReplayTrace st rest
                   let rState = C.RunningState runStateInfo st'
                   pure (C.ExecutionFeatureModifiedState rState)
 
@@ -336,13 +347,3 @@ replayFeature (RecordedTrace trace) stop =
       case getReplayTrace st of
         Nothing -> X.throw TraceGlobalNotDefined
         Just t -> pure t
-
-    insertTrace ::
-      HasReplayState p p sym ext rtp =>
-      C.SimState p sym ext rtp f args ->
-      C.RegValue sym TraceType ->
-      C.SimState p sym ext rtp f args
-    insertTrace st v = do
-      let simCtx = st ^. C.stateContext
-      let ReplayState g = simCtx ^. C.cruciblePersonality . replayState
-      st & C.stateGlobals %~ C.insertGlobal g v
