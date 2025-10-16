@@ -123,7 +123,7 @@ _printState =
     C.UnwindCallState {} -> "UnwindCallState"
 
 stepState ::
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext rtp ->
   IO DebuggerState
 stepState ctx =
@@ -198,16 +198,17 @@ stopped ::
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
+  Ctxt.ExtImpl cExt p sym ext t ->
   C.ExecState p sym ext (C.RegEntry sym t) ->
   IO (EvalResult cExt p sym ext t)
-stopped ctx0 execState0 = go ctx0 execState0 C.ExecutionFeatureNoChange
+stopped ctx0 ext execState0 = go ctx0 execState0 C.ExecutionFeatureNoChange
   where
     go c0 s0 r = do
       let cEnv = Ctxt.toCompletionEnv c0 s0
       let sEnv = Ctxt.toStyleEnv c0 s0
       stmt <- Style.runStyleM sEnv (Complete.runCompletionM cEnv (Inps.recv (Ctxt.dbgInputs c0)))
-      result0 <- Eval.eval c0 s0 stmt
+      result0 <- Eval.eval c0 ext s0 stmt
       let featResult = mergeResults r (Eval.evalFeatureResult result0)
       let result = result0 { Eval.evalFeatureResult = featResult }
       let s = Maybe.fromMaybe s0 (resultState featResult)
@@ -225,19 +226,20 @@ dispatch ::
   W4.IsExpr (W4.SymExpr sym) =>
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
+  Ctxt.ExtImpl cExt p sym ext t ->
   C.ExecState p sym ext (C.RegEntry sym t) ->
-  IO (Context cExt p sym ext t, C.ExecutionFeatureResult p sym ext (C.RegEntry sym t))
-dispatch ctx0 execState =
+  IO (Context cExt sym ext t, C.ExecutionFeatureResult p sym ext (C.RegEntry sym t))
+dispatch ctx0 ext execState =
   case Ctxt.dbgState ctx0 of
     Ctxt.Quit ->
       pure (ctx0, C.ExecutionFeatureNoChange)
     Ctxt.Running {} | C.ResultState {} <- execState -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Stopped }
-      dispatch ctx execState
+      dispatch ctx ext execState
     Ctxt.Running (Ctxt.Step i) | i <= 1 -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Stopped }
-      dispatch ctx execState
+      dispatch ctx ext execState
     Ctxt.Running (Ctxt.Step i) -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Running (Ctxt.Step (i - 1)) }
       state <- stepState ctx execState
@@ -248,7 +250,7 @@ dispatch ctx0 execState =
       let ctx = ctx0 { Ctxt.dbgState = state }
       pure (ctx, C.ExecutionFeatureNoChange)
     Ctxt.Stopped -> do
-      result <- stopped ctx0 execState
+      result <- stopped ctx0 ext execState
       pure (Eval.evalCtx result, Eval.evalFeatureResult result)
 
 debugger ::
@@ -270,7 +272,7 @@ debugger cExt impl iFns ins outs rTy = do
   pure $
     C.ExecutionFeature $ \execState -> do
       ctx0 <- IORef.readIORef ctxRef
-      (ctx, featResult) <- dispatch ctx0 execState
+      (ctx, featResult) <- dispatch ctx0 impl execState
       IORef.writeIORef ctxRef ctx
       pure featResult
 
