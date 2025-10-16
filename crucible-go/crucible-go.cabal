@@ -22,8 +22,10 @@ executable crux-go
   build-depends:
     base >= 4 && < 5,
     crucible,
+    crucible-debug,
     parameterized-utils >= 1.0 && < 2.2,
     golang,
+    lens,
     crucible-go,
     crux,
     bytestring

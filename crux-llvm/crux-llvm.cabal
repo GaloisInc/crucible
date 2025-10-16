@@ -187,6 +187,7 @@ library
     aeson,
     bv-sized,
     config-schema >= 1.2.2.0,
+    crucible-debug,
     logict,
     llvm-pretty,
     llvm-pretty-bc-parser >= 0.5,

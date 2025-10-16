@@ -66,10 +66,6 @@ newtype Personality alg ext ret sym
   = Personality { _personality :: Exploration (Personality alg ext ret sym) alg ext ret sym }
 makeLenses ''Personality
 
-instance HasExploration (Personality alg ext ret sym) alg ext ret sym where
-  exploration = personality
-  {-# INLINE exploration #-}
-
 stateExpl ::
   HasExploration p alg ext ret sym =>
   Lens' (SimState p sym ext r f a) (ThreadExec p alg sym ext ret)

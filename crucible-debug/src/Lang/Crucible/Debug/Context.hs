@@ -122,13 +122,12 @@ data Context cExt sym ext t
 initCtx ::
   W4.IsExpr (W4.SymExpr sym) =>
   CommandExt cExt ->
-  ExtImpl cExt p sym ext t ->
   IntrinsicPrinters sym ->
   Inputs (CompletionT cExt (StyleT cExt IO)) (Statement cExt) ->
   Outputs IO (Response cExt) ->
   TypeRepr t ->
   IO (Context cExt sym ext t)
-initCtx cExts impl iFns ins outs rTy = do
+initCtx cExts iFns ins outs rTy = do
   t <- Trace.empty (knownNat @512)  -- arbitrary max size
   pure $
     Context
@@ -142,6 +141,7 @@ initCtx cExts impl iFns ins outs rTy = do
     , dbgStopOnAbort = False
     , dbgTrace = t
     }
+
 
 toCompletionEnv ::
   Context cExt sym ext t ->
@@ -164,3 +164,4 @@ toStyleEnv ctxt execState =
   , Style.envCommandExt = dbgCommandExt ctxt
   , Style.envState = execState
   }
+
