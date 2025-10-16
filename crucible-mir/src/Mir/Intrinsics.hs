@@ -863,6 +863,10 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
+mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym)]
+mirAggregate_entries _sym (MirAggregate _totalSize m) =
+  [(fromIntegral off, entry) | (off, entry) <- IntMap.toList m]
+
 mirAggregate_insert ::
   Word ->
   MirAggregateEntry sym ->
@@ -2067,6 +2071,13 @@ mirVector_resizeIO bak _tpr mirVec newLenSym = do
     pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
 
 
+mirAggregate_uninitIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    Word ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_uninitIO _bak sz = return $ MirAggregate sz mempty
+
 mirAggregate_uninitSymIO ::
     IsSymBackend sym bak =>
     bak ->
@@ -2602,7 +2613,7 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
             readOnly s $ mirVector_resizeIO bak tpr mirVec newLenSym
 
        MirAggregate_Uninit sz -> do
-            return (MirAggregate sz mempty, s)
+            readOnly s $ mirAggregate_uninitIO bak sz
        MirAggregate_UninitSym (regValue -> szSym) -> do
             readOnly s $ mirAggregate_uninitSymIO bak szSym
        MirAggregate_Replicate elemSz elemTpr (regValue -> elemVal) (regValue -> lenSym) -> do
