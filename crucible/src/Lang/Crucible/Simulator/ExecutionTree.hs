@@ -69,7 +69,9 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ResolvedCall(..)
   , resolvedCallHandle
   , execResultContext
+  , setExecResultContext
   , execStateContext
+  , setExecStateContext
   , execStateSimState
   , execResultGlobals
   , execStateGlobals
@@ -409,6 +411,16 @@ execResultContext (FinishedResult ctx _) = ctx
 execResultContext (AbortedResult ctx _) = ctx
 execResultContext (TimeoutResult exst) = execStateContext exst
 
+setExecResultContext ::
+  SimContext p sym ext ->
+  ExecResult p sym ext r ->
+  ExecResult p sym ext r
+setExecResultContext ctx =
+  \case
+    FinishedResult _ x -> FinishedResult ctx x
+    AbortedResult _ x -> AbortedResult ctx x
+    TimeoutResult execState -> TimeoutResult (setExecStateContext ctx execState)
+
 execStateContext :: ExecState p sym ext r -> SimContext p sym ext
 execStateContext = \case
   ResultState res        -> execResultContext res
@@ -423,6 +435,24 @@ execStateContext = \case
   OverrideState _ st -> st^.stateContext
   BranchMergeState _ st -> st^.stateContext
   InitialState stctx _ _ _ _ -> stctx
+
+setExecStateContext ::
+  SimContext p sym ext ->
+  ExecState p sym ext r ->
+  ExecState p sym ext r
+setExecStateContext ctx = \case
+  ResultState res        -> ResultState (setExecResultContext ctx res)
+  AbortState x st -> AbortState x (st & stateContext .~ ctx)
+  UnwindCallState x y st -> UnwindCallState x y (st & stateContext .~ ctx)
+  CallState x y st -> CallState x y (st & stateContext .~ ctx)
+  TailCallState x y st -> TailCallState x y (st & stateContext .~ ctx)
+  ReturnState x y z st -> ReturnState x y z (st & stateContext .~ ctx)
+  ControlTransferState x st -> ControlTransferState x (st & stateContext .~ ctx)
+  RunningState x st -> RunningState x (st & stateContext .~ ctx)
+  SymbolicBranchState u v x y st -> SymbolicBranchState u v x y (st & stateContext .~ ctx)
+  OverrideState x st -> OverrideState x (st & stateContext .~ ctx)
+  BranchMergeState x st -> BranchMergeState x (st & stateContext .~ ctx)
+  InitialState _ u v x y -> InitialState ctx u v x y
 
 execStateSimState :: ExecState p sym ext r
                   -> Maybe (SomeSimState p sym ext r)
