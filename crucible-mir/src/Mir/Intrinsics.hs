@@ -2487,6 +2487,22 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (Index_RefPath _tpr'
             "can't compute allocation length for MirVector_Array, which is unbounded"
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
     return (idx, len)
+mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
+    let sym = backendGetSym bak
+    let parentTpr = MirAggregateRepr
+    let parent = MirReference parentTpr root path
+    parentAg <- readMirRefLeaf bak gs iTypes parentTpr parent
+    let MirAggregate totalSize _ = parentAg
+    -- TODO: hardcoded size=1 (implied in conversion of `totalSize` to `lenWord`)
+    let lenWord = totalSize
+    --when (totalSize `mod` sz /= 0) $
+    --    leafAbort $ Unsupported callStack $
+    --        "exepcted aggregate size (" ++ show totalSize ++ ") to be a multiple of "
+    --            ++ "element size (" ++ show sz ++ ")"
+    --let lenWord = totalSize `div` sz
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
+    -- TODO: also divide `idx` by `sz`, and assert that it's divisible
+    return (idx, len)
 mirRef_indexAndLenLeaf bak _ _ (MirReference _ _ _) = do
     let sym = backendGetSym bak
     idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
