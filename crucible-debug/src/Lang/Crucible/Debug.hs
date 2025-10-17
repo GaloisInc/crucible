@@ -18,6 +18,7 @@ module Lang.Crucible.Debug
   , bareDebuggerExt
   , bareDebugger
   , Inps.defaultDebuggerInputs
+  , Inps.prepend
   , Outps.defaultDebuggerOutputs
   , Arg.Arg(..)
   , AType.ArgTypeRepr(..)
@@ -36,6 +37,7 @@ module Lang.Crucible.Debug
   , Ctxt.CommandImpl(..)
   , Ctxt.ExtImpl(..)
   , Ctxt.voidImpl
+  , Ctxt.DebuggerState(..)
   , Resp.Response(Ok, UserError, XResponse)
   , Resp.UserError(NotApplicable)
   , Resp.NotApplicable(DoneSimulating, NotYetSimulating)
@@ -48,12 +50,20 @@ module Lang.Crucible.Debug
   , type Rgx.Star
   , Rgx.Match(..)
   , Rgx.RegexRepr(..)
+  , Stmt.ParseError
+  , Stmt.parse
+  , Stmt.renderParseError
   , Trace.Trace
   , Trace.TraceEntry(..)
   , Trace.latest
   , IntrinsicPrinters(..)
   , Ctxt.initCtx
   , Pers.HasContext(..)
+  , Ov.debuggerPrepend
+  , Ov.debuggerQuit
+  , Ov.debuggerStop
+  , Ov.debugOverride
+  , Ov.debugRunOverride
   ) where
 
 import Control.Applicative qualified as Applicative
@@ -85,11 +95,13 @@ import Lang.Crucible.Debug.Inputs (Inputs)
 import Lang.Crucible.Debug.Inputs qualified as Inps
 import Lang.Crucible.Debug.Outputs (Outputs)
 import Lang.Crucible.Debug.Outputs qualified as Outps
+import Lang.Crucible.Debug.Override qualified as Ov
 import Lang.Crucible.Debug.Personality qualified as Pers
 import Lang.Crucible.Debug.Regex qualified as Rgx
 import Lang.Crucible.Debug.Response qualified as Resp
 import Lang.Crucible.Debug.Response (Response)
 import Lang.Crucible.Debug.Statement (Statement)
+import Lang.Crucible.Debug.Statement qualified as Stmt
 import Lang.Crucible.Debug.Style qualified as Style
 import Lang.Crucible.Debug.Style (StyleT)
 import Lang.Crucible.Debug.Trace qualified as Trace

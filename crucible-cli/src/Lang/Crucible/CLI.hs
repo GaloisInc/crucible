@@ -1,10 +1,14 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.CLI
   ( simulateProgramWithExtension
@@ -20,13 +24,16 @@ module Lang.Crucible.CLI
   , execCommand
   ) where
 
+import qualified Control.Lens as Lens
 import Control.Monad
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable
 import Data.Map (Map)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.String (IsString(..))
+import Data.Void (Void)
 import qualified Data.Text.IO as T
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
@@ -36,11 +43,14 @@ import Text.Megaparsec as MP
 
 import Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Reg as C.Reg
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import Lang.Crucible.CFG.Reg
+
+import qualified Lang.Crucible.Debug as Debug
 
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Concrete
@@ -54,6 +64,7 @@ import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.Profiling
+import qualified Lang.Crucible.Types as CT
 import qualified Lang.Crucible.Utils.Seconds as Sec
 import qualified Lang.Crucible.Utils.Timeout as CTO
 
@@ -64,6 +75,15 @@ import What4.FunctionName
 import What4.ProgramLoc
 import What4.Solver (defaultLogData)
 import What4.Solver.Z3 (z3Adapter, z3Options)
+
+-- | Personality (see
+-- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+newtype Personality ext sym
+  = Personality { getPersonality :: Debug.Context Void sym ext CT.UnitType }
+
+instance Debug.HasContext (Personality ext sym) Void sym ext CT.UnitType where
+  context = Lens.lens getPersonality (const Personality)
+  {-# INLINE context #-}
 
 -- | Allows users to hook into the various stages of 'simulateProgram'.
 data SimulateProgramHooks ext = SimulateProgramHooks
@@ -110,17 +130,20 @@ defaultSimulateProgramHooks = SimulateProgramHooks
   }
 
 simulateProgramWithExtension
-   :: (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
-   => (forall sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
-        bak -> IO (ExtensionImpl () sym ext))
+   :: forall ext.
+      (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
+   => (forall p sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
+        bak -> IO (ExtensionImpl p sym ext))
    -> FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
    -> SimulateProgramHooks ext -- ^ Hooks into various parts of the function
+   -> Bool -- ^ whether to start the debugger
+   -> [Text] -- ^ extra debugger commands
    -> IO ()
-simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
+simulateProgramWithExtension mkExt fn theInput outh profh opts hooks dbg dbgCmds =
   do Some ng <- newIONonceGenerator
      ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
@@ -129,11 +152,45 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
+         do (sym :: ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE)) <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
             bak <- newSimpleBackend sym
             extendConfig opts (getConfiguration sym)
-            ovrs <- setupOverridesHook hooks @() sym ha
-            let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
+
+            let cExts = Debug.voidExts
+            inps_ <- Debug.defaultDebuggerInputs cExts
+            stmts <-
+              forM dbgCmds $ \cmdTxt ->
+                case Debug.parse cExts cmdTxt of
+                  Left err -> do
+                    putStrLn (Text.unpack (Debug.renderParseError err))
+                    exitFailure
+                  Right stmt -> pure stmt
+            inps <- Debug.prepend stmts inps_
+            dbgCtx_ <-
+              Debug.initCtx
+                cExts
+                (Debug.IntrinsicPrinters MapF.empty)
+                inps
+                Debug.defaultDebuggerOutputs
+                CT.UnitRepr
+            let dbgCtx =
+                  if dbg
+                  then dbgCtx_
+                  else dbgCtx_ { Debug.dbgState = Debug.Quit }
+            let p = Personality @ext @(ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE)) dbgCtx
+
+            ovrs_ <- setupOverridesHook hooks @(Personality ext (ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE))) sym ha
+            dbgOv <-
+              FnBinding
+              <$> mkHandle ha "debug"
+              <*> pure (UseOverride (runTypedOverride "debug" Debug.debugOverride))
+            dbgRunOv <-
+              FnBinding
+              <$> mkHandle ha "debug-run"
+              <*> pure (UseOverride (runTypedOverride "debug-run" (Debug.debugRunOverride cExts)))
+            let ovrs = (dbgOv, InternalPos) : (dbgRunOv, InternalPos) : ovrs_
+            let hdls = [ (SomeHandle h, o) | (FnBinding h _, o) <- ovrs ]
+
             parseResult <- top ng ha hdls $ prog v
             case parseResult of
               Left e ->
@@ -145,13 +202,16 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
                       , parsedProgForwardDecs = fds
                       } = parsedProg
                 case find isMain cs of
-                  Just (AnyCFG mn@(C.Reg.cfgArgTypes -> Ctx.Empty)) ->
+                  Just (AnyCFG mn)
+                    | Ctx.Empty <- C.Reg.cfgArgTypes mn
+                    , CT.UnitRepr <- C.Reg.cfgReturnType mn ->
                     do let retType = C.Reg.cfgReturnType mn
                        gst <- resolveExternsHook hooks sym externs emptyGlobals
                        let mainHdl = cfgHandle mn
                        ext <- mkExt bak
+
                        let fns = FnBindings emptyHandleMap
-                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext ()
+                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext p
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do forM_ (parsedProgramFnBindings parsedProg) registerFnBinding
@@ -163,7 +223,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks =
 
                        case profh of
                          Nothing ->
-                           void $ executeCrucible [] simSt
+                           void $ executeCrucible [Debug.debugger Debug.voidImpl] simSt
                          Just ph ->
                            do proftab <- newProfilingTable
                               pf <- profilingFeature proftab profilingEventFilter Nothing
@@ -204,11 +264,13 @@ simulateProgram
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
    -> SimulateProgramHooks () -- ^ Hooks into various parts of the function
+   -> Bool -- ^ whether to start the debugger
+   -> [Text] -- ^ extra debugger commands
    -> IO ()
-simulateProgram fn theInput outh profh opts hooks = do
+simulateProgram fn theInput outh profh opts hooks dbg dbgCmds = do
   let ?parserHooks = defaultParserHooks
   let ext = const (pure emptyExtensionImpl)
-  simulateProgramWithExtension ext fn theInput outh profh opts hooks
+  simulateProgramWithExtension ext fn theInput outh profh opts hooks dbg dbgCmds
 
 repl :: 
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
@@ -229,6 +291,8 @@ data CheckCmd
 data SimCmd
   = SimCmd { _simInFile :: FilePath
            , _simOutFile :: Maybe FilePath
+           ,  _simDebug :: Bool
+           , _simDebugCmd :: [Text]
            }
 
 data ProfCmd 
@@ -249,8 +313,8 @@ data Command
 -- line), and this function takes care of the rest.
 execCommand :: 
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
-  (forall sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
-    bak -> IO (ExtensionImpl () sym ext)) ->
+  (forall p sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
+    bak -> IO (ExtensionImpl p sym ext)) ->
   SimulateProgramHooks ext ->
   Command ->
   IO ()
@@ -266,17 +330,17 @@ execCommand ext simulationHooks =
            Just outputFile ->
              withFile outputFile WriteMode (doParseCheck inputFile contents pp)
    
-    SimulateCommand (SimCmd inputFile out) ->
+    SimulateCommand (SimCmd inputFile out dbg dbgCmds) ->
       do contents <- T.readFile inputFile
          case out of
-           Nothing -> sim inputFile contents  stdout Nothing configOptions simulationHooks
+           Nothing -> sim inputFile contents  stdout Nothing configOptions simulationHooks dbg dbgCmds
            Just outputFile ->
              withFile outputFile WriteMode
-               (\outh -> sim inputFile contents outh Nothing configOptions simulationHooks)
+               (\outh -> sim inputFile contents outh Nothing configOptions simulationHooks dbg dbgCmds)
    
     ProfileCommand (ProfCmd inputFile outputFile) ->
       do contents <- T.readFile inputFile
          withFile outputFile WriteMode
-            (\outh -> sim inputFile contents stdout (Just outh) configOptions simulationHooks)
+            (\outh -> sim inputFile contents stdout (Just outh) configOptions simulationHooks False [])
   where configOptions = z3Options
         sim = simulateProgramWithExtension ext
