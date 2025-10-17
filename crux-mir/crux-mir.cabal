@@ -55,6 +55,7 @@ library
   other-modules: Paths_crux_mir
   autogen-modules: Paths_crux_mir
 
+  ghc-options: -Wall
 
 executable crux-mir
   hs-source-dirs: exe

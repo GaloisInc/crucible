@@ -15,8 +15,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-{-# OPTIONS_GHC -Wall #-}
-
 module Mir.Language (
     main,
     mainWithExtraOverrides,
