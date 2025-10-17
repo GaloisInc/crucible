@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ImplicitParams #-}
-module Main where
+module Main (main) where
 
 import qualified Crux
 import Cruces.CrucesMain

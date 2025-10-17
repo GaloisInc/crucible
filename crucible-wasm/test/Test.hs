@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Main where
+module Main (main) where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
 import           Control.Lens ( (^.), (^?), _Right, to )

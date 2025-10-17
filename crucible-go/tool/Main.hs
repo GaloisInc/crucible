@@ -2,7 +2,7 @@
 {-# Language ImplicitParams #-}
 {-# Language OverloadedStrings #-}
 
-module Main where
+module Main (main) where
 
 import qualified Data.ByteString.Lazy as BS
 
