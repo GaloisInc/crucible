@@ -2,7 +2,6 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# Language OverloadedStrings #-}
 {-# Language ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wall #-}
 module Main (main) where
 
 import qualified Data.ByteString as BS
