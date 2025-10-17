@@ -3,7 +3,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 

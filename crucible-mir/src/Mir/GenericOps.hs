@@ -20,8 +20,6 @@
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
 
-{-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
-
 module Mir.GenericOps where
 
 import qualified Data.ByteString as B
