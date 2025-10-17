@@ -25,9 +25,6 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE DeriveGeneric #-}
 
--- Turn off some warnings during active development
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
-
 -- The data structures used during translation
 module Mir.Generator
 {-
@@ -73,7 +70,7 @@ import qualified Data.Text as Text
 import           Data.Char(isDigit)
 import           GHC.Generics (Generic)
 
-import           Control.Lens hiding (Empty, (:>), Index, view)
+import           Control.Lens hiding (Empty, (:>), Index, parts, view)
 import           Control.Monad
 import           Control.Monad.ST
 
@@ -588,8 +585,8 @@ makeTemp (MirExp _ e) = do
     allocTempForAtom atom
 
 makeTempLvalue :: Ty -> MirExp s -> MirGenerator h s ret Lvalue
-makeTempLvalue ty exp = do
-    name <- makeTemp exp
+makeTempLvalue ty expr = do
+    name <- makeTemp expr
     -- varIsZST is used only for deciding whether to initialize the variable at
     -- the start of the function, which is not relevant for temporaries created
     -- mid-translation.
@@ -597,8 +594,8 @@ makeTempLvalue ty exp = do
     return $ LBase var
 
 makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
-makeTempOperand ty exp = do
-    Move <$> makeTempLvalue ty exp
+makeTempOperand ty expr = do
+    Move <$> makeTempLvalue ty expr
 
 
 -----------------------------------------------------------------------
