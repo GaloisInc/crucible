@@ -6,6 +6,9 @@ Maintainer       : Alexander Bakst <abakst@galois.com>
 -}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Crucibles.ExploreTypes where
 
 import Control.Lens
@@ -23,24 +26,24 @@ import Crucibles.SchedulingAlgorithm (SchedAlgM, runSchedAlg)
 
 type ThreadEvent             = ScheduleEvent EventInfo
 type ThreadResource          = Text
-type ThreadSched p alg sym ext ret = Scheduler p sym ext (ThreadState alg sym ext ret) ret
-type ThreadExec alg sym ext ret = Exploration alg ext ret sym -- TODO: Rename me
+type ThreadSched p alg sym ext ret = Scheduler p sym ext (ThreadState p sym ext ret) ret
+type ThreadExec p alg sym ext ret = Exploration p alg ext ret sym -- TODO: Rename me
 type ThreadExecutions        = Executions ThreadEvent
-type ThreadExecM alg sym ext ret r f a =
-  StateT (SimState (ThreadExec alg sym ext ret) sym ext r f a) IO
-type ThreadState alg sym ext ret = ThreadStateP (ThreadExec alg sym ext ret) sym ext ret
+type ThreadExecM p sym ext r f a =
+  StateT (SimState p sym ext r f a) IO
+type ThreadState p sym ext ret = ThreadStateP p sym ext ret
 
 evalTEWithState ::
-  SimState (ThreadExec alg sym ext ret) sym ext r f a ->
-  ThreadExecM alg sym ext ret r f a b ->
+  SimState p sym ext r f a ->
+  ThreadExecM p sym ext r f a b ->
   IO b
 evalTEWithState s exec = evalStateT exec s
 
 -- | The state managed across multiple executions
-data Exploration alg ext ret sym = Exploration
+data Exploration p alg ext ret sym = Exploration
   { _exec      :: !(Executions ThreadEvent)
     -- ^ The current execution graph
-  , _scheduler :: !(ThreadSched (Exploration alg ext ret sym) alg sym ext ret)
+  , _scheduler :: !(ThreadSched p alg sym ext ret)
     -- ^ State of each thread
   , _schedAlg  :: !alg
     -- ^ State required by the scheduling algorithm
@@ -51,17 +54,41 @@ data Exploration alg ext ret sym = Exploration
   }
 makeLenses ''Exploration
 
-stateExpl :: Simple Lens (SimState (ThreadExec alg sym ext ret) sym ext r f a) (ThreadExec alg sym ext ret)
-stateExpl = stateContext.cruciblePersonality
+-- | A class for Crucible personality types @p@ which contain an
+-- 'Exploration'.
+class HasExploration p alg ext ret sym | p -> alg ext ret sym where
+  exploration :: Lens' p (Exploration p alg ext ret sym)
 
-stateExplAlg :: Lens' (SimState (ThreadExec alg sym ext ret) sym ext r f a) alg
+-- | A Crucible personality type
+-- (see 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+-- suitable for use with @crucible-concurrency@.
+newtype Personality alg ext ret sym
+  = Personality { _personality :: Exploration (Personality alg ext ret sym) alg ext ret sym }
+makeLenses ''Personality
+
+instance HasExploration (Personality alg ext ret sym) alg ext ret sym where
+  exploration = personality
+  {-# INLINE exploration #-}
+
+stateExpl ::
+  HasExploration p alg ext ret sym =>
+  Lens' (SimState p sym ext r f a) (ThreadExec p alg sym ext ret)
+stateExpl = stateContext.cruciblePersonality.exploration
+
+stateExplAlg ::
+  HasExploration p alg ext ret sym =>
+  Lens' (SimState p sym ext r f a) alg
 stateExplAlg = stateExpl.schedAlg
 
-stateExec :: Lens' (SimState (ThreadExec alg sym ext ret) sym ext r f a) ThreadExecutions
+stateExec ::
+  HasExploration p alg ext ret sym =>
+  Lens' (SimState p sym ext r f a) ThreadExecutions
 stateExec = stateExpl.exec
 
 runUpdateSchedAlg ::
-  (MonadState (SimState (ThreadExec alg sym ext ret) sym ext r f a) m) =>
+  ( MonadState (SimState p sym ext r f a) m
+  , HasExploration p alg ext ret sym
+  ) =>
   SchedAlgM alg b ->
   m b
 runUpdateSchedAlg alg =

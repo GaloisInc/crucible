@@ -364,7 +364,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             { testOvr = do printTest fnName
                            exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
             , testFeatures = [scheduleFeature mirExplorePrimitives []]
-            , testPersonality = emptyExploration @DPOR
+            , testPersonality = Personality (emptyExploration @DPOR)
             }
           | otherwise = SomeTestOvr
             { testOvr = do printTest fnName

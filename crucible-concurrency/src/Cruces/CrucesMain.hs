@@ -129,9 +129,9 @@ run (cruxOpts, opts) =
                   (IsSymBackend s bak, IsExprBuilder s) =>
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
-                     , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()
+                     , ExplorePrimitives (Personality DPOR () C.UnitType s) s ()
                      , [Some GlobalVar]
-                     , FunctionBindings (ThreadExec DPOR s () C.UnitType) s ()
+                     , FunctionBindings (Personality DPOR () C.UnitType s) s ()
                      )
                 mkSym _bak =
                   do exploreBuiltins <- mkExplorePrims ha (pedantic opts) (Some nonceGen)
