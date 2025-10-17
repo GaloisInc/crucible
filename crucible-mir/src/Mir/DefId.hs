@@ -3,7 +3,6 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
@@ -31,14 +30,11 @@ import Data.Aeson
 import qualified Language.Haskell.TH.Syntax as TH
 import qualified Data.Text as T
 import           Data.Text (Text)
-import qualified Text.Regex as Regex
 
 import Data.Maybe (fromMaybe)
 
 import Data.String (IsString(..))
 import GHC.Generics
-
-import qualified Debug.Trace as Debug
 
 import Prettyprinter
 

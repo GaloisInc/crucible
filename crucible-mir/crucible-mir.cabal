@@ -31,7 +31,6 @@ library
                  lens,
                  vector,
                  mtl,
-                 regex-compat,
                  transformers,
                  what4,
                  scientific       >= 0.3,
