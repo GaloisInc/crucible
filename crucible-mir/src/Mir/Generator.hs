@@ -26,8 +26,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 -- Turn off some warnings during active development
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall
-                -fno-warn-unused-imports
+{-# OPTIONS_GHC -fno-warn-unused-imports
                 -fno-warn-name-shadowing
                 -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors #-}

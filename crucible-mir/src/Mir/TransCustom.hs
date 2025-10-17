@@ -23,8 +23,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
 
-{-# OPTIONS_GHC -Wunused-top-binds #-}
-
 module Mir.TransCustom(customOps) where
 
 import Data.Bits (shift)
@@ -38,20 +36,17 @@ import qualified Data.Text as Text
 import qualified Data.Vector as V
 
 import Control.Monad
-import Control.Lens
+import Control.Lens ((^.), at, use)
 
 import GHC.Stack
-import GHC.TypeLits (type (*))
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Peano
 import Data.Parameterized.Some
 import Data.Parameterized.Utils.Endian (Endian(..))
 import qualified Data.Parameterized.Vector as PV
-import Data.Type.Equality (gcastWith) -- counterpart to NatRepr.withLeqProof but for Refl
 
 
 -- crucible
@@ -78,6 +73,7 @@ import           Mir.Trans
 
 
 
+customOps :: CustomOpMap
 customOps = CustomOpMap customOpDefs cloneShimDef cloneFromShimDef
 
 customOpDefs :: Map ExplodedDefId CustomRHS
@@ -215,27 +211,27 @@ customOpDefs = Map.fromList $ [
 -- ** Custom: Exit
 
 exit :: (ExplodedDefId, CustomRHS)
-exit = (["std", "process", "exit"], \s ->
-           Just (CustomOpExit $ \ops -> return "process::exit"))
+exit = (["std", "process", "exit"], \_ ->
+           Just (CustomOpExit $ \_ -> return "process::exit"))
 
 abort :: (ExplodedDefId, CustomRHS)
-abort = (["core", "intrinsics", "abort"], \s ->
-            Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
+abort = (["core", "intrinsics", "abort"], \_ ->
+            Just (CustomOpExit $ \_ -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
-panicking_begin_panic = (["std", "panicking", "begin_panic"], \s -> Just $ CustomOpExit $ \ops -> do
+panicking_begin_panic = (["std", "panicking", "begin_panic"], \_ -> Just $ CustomOpExit $ \_ -> do
     fn <- expectFnContext
     return $ "panicking::begin_panic, called from " <> M.idText (fn^.fname)
     )
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
-panicking_panic = (["core", "panicking", "panic"], \s -> Just $ CustomOpExit $ \ops -> do
+panicking_panic = (["core", "panicking", "panic"], \_ -> Just $ CustomOpExit $ \_ -> do
     fn <- expectFnContext
     return $ "panicking::panic, called from " <> M.idText (fn^.fname)
     )
 
 panicking_panic_fmt :: (ExplodedDefId, CustomRHS)
-panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \s -> Just $ CustomOpExit $ \ops -> do
+panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \_ -> Just $ CustomOpExit $ \_ -> do
     fn <- expectFnContext
     return $ "panicking::panic_fmt, called from " <> M.idText (fn^.fname)
     )
@@ -259,7 +255,7 @@ vector_new = ( ["crucible","vector","{impl}", "new"], ) $ \substs -> case substs
 
 vector_replicate :: (ExplodedDefId, CustomRHS)
 vector_replicate = ( ["crucible","vector","{impl}", "replicate"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp tpr eVal, MirExp UsizeRepr eLen] -> do
             let eLenNat = R.App $ usizeToNat eLen
             return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorReplicate tpr eLenNat eVal)
@@ -278,7 +274,7 @@ vector_len = ( ["crucible","vector","{impl}", "len"], ) $ \substs -> case substs
 
 vector_push :: (ExplodedDefId, CustomRHS)
 vector_push = ( ["crucible","vector","{impl}", "push"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
           | Just Refl <- testEquality tpr tpr' -> do
             eSnoc <- vectorSnoc tpr eVec eItem
@@ -288,7 +284,7 @@ vector_push = ( ["crucible","vector","{impl}", "push"], ) $ \substs -> case subs
 
 vector_push_front :: (ExplodedDefId, CustomRHS)
 vector_push_front = ( ["crucible","vector","{impl}", "push_front"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
           | Just Refl <- testEquality tpr tpr' -> do
             let eSnoc = R.App $ E.VectorCons tpr eItem eVec
@@ -349,7 +345,7 @@ vector_as_mut_slice = ( ["crucible","vector","{impl}", "as_mut_slice"], vector_a
 
 vector_concat :: (ExplodedDefId, CustomRHS)
 vector_concat = ( ["crucible","vector","{impl}", "concat"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr1) e1, MirExp (C.VectorRepr tpr2) e2]
           | Just Refl <- testEquality tpr1 tpr2 -> do
             MirExp (C.VectorRepr tpr1) <$> vectorConcat tpr1 e1 e2
@@ -398,7 +394,7 @@ array_zeroed = ( ["crucible","array","{impl}", "zeroed"], ) $ \substs -> case su
 
 array_lookup :: (ExplodedDefId, CustomRHS)
 array_lookup = ( ["crucible","array","{impl}", "lookup"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp (UsizeArrayRepr btr) eArr,
           MirExp UsizeRepr eIdx ] -> do
             let idx = E.BaseTerm BaseUsizeRepr eIdx
@@ -409,7 +405,7 @@ array_lookup = ( ["crucible","array","{impl}", "lookup"], ) $ \substs -> case su
 
 array_update :: (ExplodedDefId, CustomRHS)
 array_update = ( ["crucible","array","{impl}", "update"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp arrTpr@(UsizeArrayRepr btr) eArr,
           MirExp UsizeRepr eIdx,
           MirExp (C.asBaseType -> C.AsBaseType btr') eVal ]
@@ -648,8 +644,9 @@ drop_in_place_dyn :: (ExplodedDefId, CustomRHS)
 drop_in_place_dyn =
     ( ["core", "ptr", "drop_in_place"],
       \case
-        Substs [TyDynamic traitName] ->
-            Just $ CustomOp $ \argTys [op@(MirExp selfTy selfExpr)] -> do
+        Substs [TyDynamic traitName'] ->
+            Just $ CustomOp $ \_argTys args -> case args of
+              [MirExp selfTy selfExpr] -> do
                 col <- use $ cs . collection
                 let argTys = Ctx.empty
                 let argExprs = Ctx.empty
@@ -665,17 +662,17 @@ drop_in_place_dyn =
                 -- methods, to emit a more relevant error message than
                 -- `doVirtCall` would emit on its own.
                 let dropMethodIndex = 0
-                () <- case col ^. traits . at traitName of
-                    Nothing -> mirFail $ "undefined trait: "<>show traitName
+                () <- case col ^. traits . at traitName' of
+                    Nothing -> mirFail $ "undefined trait: "<>show traitName'
                     Just trait ->
                         case trait ^. traitItems of
-                            [] -> mirFail $ "no drop method available in trait "<>show traitName
+                            [] -> mirFail $ "no drop method available in trait "<>show traitName'
                             (_:_) -> pure ()
 
                 callExpr <-
                     doVirtCall
                         col
-                        traitName
+                        traitName'
                         dropMethodIndex
                         selfTy
                         selfExpr
@@ -683,6 +680,7 @@ drop_in_place_dyn =
                         argExprs
                         retTy
                 pure (MirExp retTy callExpr)
+              _ -> mirFail $ "bad arguments for core::ptr::drop_in_place: " ++ show args
         Substs [_] ->
             -- We weren't provided a `dyn`/`TyDynamic`, so we don't provide an
             -- override, we just defer to the rustc-provided implementation.
@@ -775,17 +773,19 @@ overflowResult valTy tpr value over =
   buildTupleM [valTy, TyBool] [MirExp tpr value, MirExp C.BoolRepr over]
 
 makeArithWithOverflow :: String -> Maybe Bool -> BinOp -> CustomRHS
-makeArithWithOverflow name isSignedOverride bop =
-    \(Substs [t]) -> Just $ CustomOp $ \_opTys ops -> case ops of
+makeArithWithOverflow name isSignedOverride bop = \substs ->
+  case substs of
+    Substs [t] -> Just $ CustomOp $ \_opTys ops -> case ops of
         [e1, e2] -> do
-            let arithType = fmap (\s -> if s then Signed else Unsigned) $ isSigned t
-            (result, overflow) <- evalBinOp bop arithType e1 e2
+            let arithType' = fmap (\s -> if s then Signed else Unsigned) $ isSigned t
+            (result, overflow) <- evalBinOp bop arithType' e1 e2
             case result of
                 MirExp (C.BVRepr w) result' ->
                     overflowResult t (C.BVRepr w) result' overflow
                 MirExp tpr _ -> mirFail $
                     "bad return values from evalBinOp " ++ show bop ++ ": " ++ show tpr
         _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (t, ops)
+    _ -> Nothing
   where
     isSigned _ | Just s <- isSignedOverride = Just s
     isSigned (TyInt _) = Just True
@@ -826,7 +826,7 @@ saturateValueUnsigned :: (1 <= w) => NatRepr w -> BinOp -> Maybe (R.Expr MIR s (
 saturateValueUnsigned w Add = Just $ R.App $ eBVLit w (shift 1 (fromInteger $ C.intValue w) - 1)
 saturateValueUnsigned w Sub = Just $ R.App $ eBVLit w 0
 saturateValueUnsigned w Mul = Just $ R.App $ eBVLit w (shift 1 (fromInteger $ C.intValue w) - 1)
-saturateValueUnsigned w _ = Nothing
+saturateValueUnsigned _ _ = Nothing
 
 saturateValueSigned :: (1 <= w) => NatRepr w -> BinOp -> R.Expr MIR s C.BoolType -> Maybe (R.Expr MIR s (C.BVType w))
 saturateValueSigned w op pos = case op of
@@ -962,9 +962,9 @@ evalExactDiv ::
   ArithType ->
   MirExp s -> MirExp s ->
   MirGenerator h s ret (MirExp s)
-evalExactDiv arithType e1 e2 = do
-  (q, overflow) <- evalBinOp Div (Just arithType) e1 e2
-  (r, _)        <- evalBinOp Rem (Just arithType) e1 e2
+evalExactDiv arithType' e1 e2 = do
+  (q, overflow) <- evalBinOp Div (Just arithType') e1 e2
+  (r, _)        <- evalBinOp Rem (Just arithType') e1 e2
   case (q, r) of
     (MirExp (C.BVRepr wq) q', MirExp (C.BVRepr wr) r')
       | Just Refl <- testEquality wq wr -> do
@@ -1114,7 +1114,7 @@ discriminant_value = (["core","intrinsics", "discriminant_value"],
 
 type_id ::  (ExplodedDefId, CustomRHS)
 type_id = (["core","intrinsics", "type_id"],
-  \ _substs -> Just $ CustomOp $ \ opTys ops ->
+  \ _substs -> Just $ CustomOp $ \ _ _ ->
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (eBVLit (knownRepr :: NatRepr 64) 0))
 
@@ -1122,12 +1122,14 @@ size_of :: (ExplodedDefId, CustomRHS)
 size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         getLayoutFieldAsMirExp "size_of" laySize t
+    _ -> Nothing
     )
 
 min_align_of :: (ExplodedDefId, CustomRHS)
 min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         getLayoutFieldAsMirExp "min_align_of" layAlign t
+    _ -> Nothing
     )
 
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
@@ -1135,8 +1137,9 @@ min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs o
 -- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
 -- trivial to implement as a custom op.
 mem_swap ::  (ExplodedDefId, CustomRHS)
-mem_swap = (["core","mem", "swap"],
-    \(Substs [ty]) -> Just $ CustomOp $ \ opTys ops -> case ops of
+mem_swap = (["core","mem", "swap"], \substs ->
+  case substs of
+    Substs [ty] -> Just $ CustomOp $ \ opTys ops -> case ops of
         [MirExp MirReferenceRepr e1, MirExp MirReferenceRepr e2] -> do
             Some tpr <- tyToReprM ty
             val1 <- readMirRef tpr e1
@@ -1145,7 +1148,7 @@ mem_swap = (["core","mem", "swap"],
             writeMirRef tpr e2 val1
             return $ MirExp knownRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
-    )
+    _ -> Nothing)
 
 -- This is like normal mem::transmute, but requires source and target types to
 -- have identical Crucible `TypeRepr`s.
@@ -1156,7 +1159,7 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
         [e@(MirExp argTy _)] -> do
             Some retTy <- tyToReprM tyU
             case testEquality argTy retTy of
-                Just refl -> return e
+                Just _ -> return e
                 Nothing -> mirFail $ "crucible_identity_transmute: types are not compatible: " ++
                     show (tyT, argTy) ++ " != " ++ show (tyU, retTy)
         _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
@@ -1168,7 +1171,7 @@ mem_bswap ::  (ExplodedDefId, CustomRHS)
 mem_bswap = (["core", "intrinsics", "bswap"],
     \ substs -> case substs of
       Substs [tyT] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e@(MirExp argTy@C.BVRepr{} argExpr)] -> return . MirExp argTy $ bswap argTy argExpr
+        [MirExp argTy@C.BVRepr{} argExpr] -> return . MirExp argTy $ bswap argTy argExpr
         _ -> mirFail $ "bswap expected `BVRepr w` but got: " ++ show (tyT, ops)
       _ -> Nothing)
   where
@@ -1202,14 +1205,6 @@ mem_transmute = (["core", "intrinsics", "transmute"],
         _ -> mirFail $ "bad arguments to transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing)
-  where
-    sizeBytes sz = case sz of
-      USize -> intValue (knownNat @SizeBits) `div` 8
-      B8 -> 1
-      B16 -> 2
-      B32 -> 4
-      B64 -> 8
-      B128 -> 16
 
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
 intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
@@ -1218,6 +1213,7 @@ intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
             G.assertExpr cond $
                 S.litExpr "undefined behavior: core::intrinsics::assume(false)"
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "BUG: invalid arguments to core::intrinsics::assume: " ++ show ops
     )
 
 -- TODO: needs layout info from mir-json
@@ -1227,7 +1223,7 @@ assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
 array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_slice_hook"],
-    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
             ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty _) Immut]),
@@ -1265,7 +1261,7 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
 
 array_from_ref ::  (ExplodedDefId, CustomRHS)
 array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
-    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
             (TyRef (TyArray elemTy 1) Immut, [MirExp MirReferenceRepr elemRef]) -> do
@@ -1284,10 +1280,10 @@ array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
 
 slice_from :: Mutability -> (ExplodedDefId, CustomRHS)
 slice_from mut = (["core", "slice", "raw", Text.pack hookLoc, Text.pack hookName],
-    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
-            (TyRef (TySlice elemTy) m, [MirExp MirReferenceRepr elemRef])
+            (TyRef (TySlice _elemTy) m, [MirExp MirReferenceRepr elemRef])
                 | m == mut -> do
                 -- Unlike `array_from_ref` and `array_from_slice`, this _does_
                 -- alias the input and output. This is possible because while a
@@ -1337,6 +1333,7 @@ slice_len_impl (Substs [_]) =
             [MirExp MirSliceRepr e] -> do
                 return $ MirExp UsizeRepr $ getSliceLen e
             _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len"
+slice_len_impl _ = Nothing
 
 -- These four custom ops implement mutable and immutable unchecked indexing by
 -- usize and by Range.  All other indexing dispatches to one of these.  Note
@@ -1346,10 +1343,9 @@ slice_len_impl (Substs [_]) =
 
 slice_index_usize_get_unchecked_impl :: CustomRHS
 slice_index_usize_get_unchecked_impl (Substs [_elTy]) =
-    Just $ CustomOp $ \ optys ops -> case ops of
+    Just $ CustomOp $ \ _ ops -> case ops of
         [MirExp UsizeRepr ind, MirExp MirSliceRepr slice] -> do
             let ptr = getSlicePtr slice
-            let len = getSliceLen slice
             ptr' <- mirRef_offset ptr ind
             return $ (MirExp MirReferenceRepr ptr')
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
@@ -1367,13 +1363,12 @@ slice_index_usize_get_unchecked_mut =
 
 slice_index_range_get_unchecked_impl :: CustomRHS
 slice_index_range_get_unchecked_impl (Substs [_elTy]) =
-    Just $ CustomOp $ \ optys ops -> case ops of
+    Just $ CustomOp $ \ _ ops -> case ops of
         [ MirExp tr1 start, MirExp tr2 end, MirExp MirSliceRepr slice]
           | Just Refl <- testEquality tr1 UsizeRepr
           , Just Refl <- testEquality tr2 UsizeRepr
           -> do
             let ptr = getSlicePtr slice
-            let len = getSliceLen slice
             ptr' <- mirRef_offset ptr start
             let len' = S.app $ usizeSub end start
             return $ MirExp MirSliceRepr $ mkSlice ptr' len'
@@ -1394,7 +1389,8 @@ slice_index_range_get_unchecked_mut =
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Integer
 
-integerWidth = knownNat :: NatRepr 512
+integerWidth :: NatRepr 512
+integerWidth = knownNat
 
 integer_from_u8 :: (ExplodedDefId, CustomRHS)
 integer_from_u8 = (["int512", "u8", "from_prim"], integerFromUnsigned)
@@ -1412,6 +1408,7 @@ integerFromSigned (Substs []) =
         [MirExp (C.BVRepr w) int_e] | Just LeqProof <- testLeq (incNat w) w' ->
             return $ MirExp (C.BVRepr w') (S.app $ E.BVSext w' w int_e)
         _ -> mirFail $ "BUG: invalid arguments to integerFromSigned: " ++ show ops
+integerFromSigned _ = Nothing
 
 integerFromUnsigned :: CustomRHS
 integerFromUnsigned (Substs []) =
@@ -1420,6 +1417,7 @@ integerFromUnsigned (Substs []) =
         [MirExp (C.BVRepr w) int_e] | Just LeqProof <- testLeq (incNat w) w' ->
             return $ MirExp (C.BVRepr w') (S.app $ E.BVZext w' w int_e)
         _ -> mirFail $ "BUG: invalid arguments to integerFromUnsigned: " ++ show ops
+integerFromUnsigned _ = Nothing
 
 
 integer_as_u8 :: (ExplodedDefId, CustomRHS)
@@ -1436,103 +1434,123 @@ integerAsUnsigned w (Substs []) =
         [MirExp (C.BVRepr w') int_e] | Just LeqProof <- testLeq (incNat w) w' ->
             return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w w' int_e)
         _ -> mirFail $ "BUG: invalid arguments to integerAsUnsigned: " ++ show ops
+integerAsUnsigned _ _ = Nothing
 
 
 integer_shl :: (ExplodedDefId, CustomRHS)
-integer_shl = (["int512", "shl"], \(Substs []) ->
+integer_shl = (["int512", "shl"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
           | Just LeqProof <- testLeq (incNat w) w' ->
             let amt_e' = S.app $ E.BVZext w' w amt_e in
             return $ MirExp (C.BVRepr w') (S.app $ E.BVShl w' val_e amt_e')
         _ -> mirFail $ "BUG: invalid arguments to integer_shl: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_shr :: (ExplodedDefId, CustomRHS)
-integer_shr = (["int512", "shr"], \(Substs []) ->
+integer_shr = (["int512", "shr"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
           | Just LeqProof <- testLeq (incNat w) w' ->
             let amt_e' = S.app $ E.BVZext w' w amt_e in
             return $ MirExp (C.BVRepr w') (S.app $ E.BVLshr w' val_e amt_e')
         _ -> mirFail $ "BUG: invalid arguments to integer_shr: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_bitand :: (ExplodedDefId, CustomRHS)
-integer_bitand = (["int512", "bitand"], \(Substs []) ->
+integer_bitand = (["int512", "bitand"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVAnd w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_bitand: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_bitor :: (ExplodedDefId, CustomRHS)
-integer_bitor = (["int512", "bitor"], \(Substs []) ->
+integer_bitor = (["int512", "bitor"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVOr w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_bitor: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_eq :: (ExplodedDefId, CustomRHS)
-integer_eq = (["int512", "eq"], \(Substs []) ->
+integer_eq = (["int512", "eq"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp C.BoolRepr (S.app $ E.BVEq w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_eq: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_lt :: (ExplodedDefId, CustomRHS)
-integer_lt = (["int512", "lt"], \(Substs []) ->
+integer_lt = (["int512", "lt"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp C.BoolRepr (S.app $ E.BVSlt w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_lt: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_add :: (ExplodedDefId, CustomRHS)
-integer_add = (["int512", "add"], \(Substs []) ->
+integer_add = (["int512", "add"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVAdd w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_add: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_sub :: (ExplodedDefId, CustomRHS)
-integer_sub = (["int512", "sub"], \(Substs []) ->
+integer_sub = (["int512", "sub"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSub w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_sub: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 integer_rem :: (ExplodedDefId, CustomRHS)
-integer_rem = (["int512", "rem"], \(Substs []) ->
+integer_rem = (["int512", "rem"], \substs -> case substs of
+  Substs [] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_rem: " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 
 --------------------------------------------------------------------------------------------------------------------------
 -- crucible::bitvector::Bv implementation
 
 bv_convert :: (ExplodedDefId, CustomRHS)
-bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
-    Just $ CustomOp $ \_optys ops -> do
-        col <- use $ cs . collection
-        impl col u ops)
+bv_convert = (["crucible", "bitvector", "convert"], \substs -> case substs of
+  Substs [_, u] ->
+    Just $ CustomOp $ \_optys ops -> impl u ops
+  _ ->
+    Nothing)
   where
-    impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-    impl col u ops
+    impl :: HasCallStack => Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+    impl u ops
       | [MirExp (C.BVRepr w1) v] <- ops = do
 
         Some r <- tyToReprM u
@@ -1578,12 +1596,14 @@ type BVUnOp = forall ext f w. (1 <= w)
         -> E.App ext f (C.BVType w)
 
 bv_unop :: Text -> BVUnOp -> (ExplodedDefId, CustomRHS)
-bv_unop name op = (["crucible", "bitvector", "{impl}", name], \(Substs [_sz]) ->
+bv_unop name op = (["crucible", "bitvector", "{impl}", name], \substs -> case substs of
+  Substs [_sz] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) v1] ->
             return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1)
         _ -> mirFail $ "BUG: invalid arguments to bv_" ++ Text.unpack name ++ ": " ++ show ops
-    )
+  _ ->
+    Nothing)
 
 type BVBinOp = forall ext f w. (1 <= w)
         => (NatRepr w)
@@ -1600,6 +1620,7 @@ bv_binop_impl name op (Substs [_sz]) = Just $ CustomOp $ \_optys ops -> case ops
       | Just Refl <- testEquality w1 w2 ->
         return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1 v2)
     _ -> mirFail $ "BUG: invalid arguments to bv_" ++ Text.unpack name ++ ": " ++ show ops
+bv_binop_impl _ _ _ = Nothing
 
 bv_shift_op :: Text -> BVBinOp -> (ExplodedDefId, CustomRHS)
 bv_shift_op name op = (["crucible", "bitvector", name], bv_binop_impl name op)
@@ -1611,37 +1632,43 @@ bv_overflowing_binop name bop =
     )
 
 bv_eq :: (ExplodedDefId, CustomRHS)
-bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \(Substs [sz]) ->
+bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \substs -> case substs of
+  Substs [sz] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2]
           | Just (BVSize w) <- tyBvSize sz -> do
             v1 <- readMirRef (C.BVRepr w) r1
             v2 <- readMirRef (C.BVRepr w) r2
             return $ MirExp C.BoolRepr $ S.app $ E.BVEq w v1 v2
-        _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops)
+        _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops
+  _ -> Nothing)
 
 bv_lt :: (ExplodedDefId, CustomRHS)
-bv_lt = (["crucible", "bitvector", "{impl}", "lt"], \(Substs [sz]) ->
+bv_lt = (["crucible", "bitvector", "{impl}", "lt"], \substs -> case substs of
+  Substs [sz] ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2]
           | Just (BVSize w) <- tyBvSize sz -> do
             v1 <- readMirRef (C.BVRepr w) r1
             v2 <- readMirRef (C.BVRepr w) r2
             return $ MirExp C.BoolRepr $ S.app $ E.BVUlt w v1 v2
-        _ -> mirFail $ "BUG: invalid arguments to bv_lt: " ++ show ops)
+        _ -> mirFail $ "BUG: invalid arguments to bv_lt: " ++ show ops
+  _ -> Nothing)
 
 type BVMakeLiteral = forall ext f w.
     (1 <= w) => NatRepr w -> E.App ext f (C.BVType w)
 
 bv_literal :: Text -> BVMakeLiteral -> (ExplodedDefId, CustomRHS)
-bv_literal name op = (["crucible", "bitvector", "{impl}", name], \(Substs [sz]) ->
+bv_literal name op = (["crucible", "bitvector", "{impl}", name], \substs -> case substs of
+  Substs [sz] ->
     Just $ CustomOp $ \_optys _ops -> do
         bvTy <- findExplodedAdtTy bvExplodedDefId (Substs [sz])
         tyToReprM bvTy >>= \(Some tpr) -> case tpr of
             C.BVRepr w ->
                 return $ MirExp (C.BVRepr w) $ S.app $ op w
             _ -> mirFail $
-                "BUG: invalid type param for bv_" ++ Text.unpack name ++ ": " ++ show sz)
+                "BUG: invalid type param for bv_" ++ Text.unpack name ++ ": " ++ show sz
+  _ -> Nothing)
 
 bv_leading_zeros :: (ExplodedDefId, CustomRHS)
 bv_leading_zeros =
@@ -1678,18 +1705,18 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
             Some tpr <- tyToReprM t
             zero <- mkZero tpr
             let lenNat = R.App $ usizeToNat len
-            let vec = R.App $ E.VectorReplicate tpr lenNat zero
-            vec <- mirVector_fromVector tpr vec
+            let vec0 = R.App $ E.VectorReplicate tpr lenNat zero
+            vec1 <- mirVector_fromVector tpr vec0
 
             ref <- newMirRef (MirVectorRepr tpr)
-            writeMirRef (MirVectorRepr tpr) ref vec
+            writeMirRef (MirVectorRepr tpr) ref vec1
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 
 mkZero :: C.TypeRepr tp -> MirGenerator h s ret (R.Expr MIR s tp)
-mkZero tpr@(C.BVRepr w) = return $ R.App $ eBVLit w 0
+mkZero (C.BVRepr w) = return $ R.App $ eBVLit w 0
 mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
@@ -1732,7 +1759,7 @@ makeAtomicIntrinsics name variants rhs =
         | suffix <- "" : map ("_" <>) variants]
 
 atomic_store_impl :: CustomRHS
-atomic_store_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
+atomic_store_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp MirReferenceRepr ref, MirExp tpr val] -> do
         writeMirRef tpr ref val
         return $ MirExp C.UnitRepr $ R.App E.EmptyApp
@@ -1800,6 +1827,7 @@ makeAtomicRMW name rmw =
 allAtomicOrderings :: [Text]
 allAtomicOrderings = ["acquire", "release", "acqrel", "relaxed", "seqcst"]
 
+atomic_funcs :: [(ExplodedDefId, CustomRHS)]
 atomic_funcs =
     makeAtomicIntrinsics "store" storeVariants atomic_store_impl ++
     makeAtomicIntrinsics "load" loadVariants atomic_load_impl ++
@@ -1808,7 +1836,7 @@ atomic_funcs =
     makeAtomicIntrinsics "fence" fenceVariants atomic_fence_impl ++
     makeAtomicIntrinsics "singlethreadfence" fenceVariants atomic_fence_impl ++
     concat [
-        makeAtomicRMW "xchg" $ \w old val -> return val,
+        makeAtomicRMW "xchg" $ \_w _old val -> return val,
         makeAtomicRMW "xadd" $ \w old val -> return $ R.App $ E.BVAdd w old val,
         makeAtomicRMW "xsub" $ \w old val -> return $ R.App $ E.BVSub w old val,
         makeAtomicRMW "and" $ \w old val -> return $ R.App $ E.BVAnd w old val,
@@ -1841,7 +1869,9 @@ unlikely :: (ExplodedDefId, CustomRHS)
 unlikely = (name, rhs)
     where
         name = ["core", "intrinsics", "unlikely"]
-        rhs substs = Just $ CustomOp $ \_ [op] -> pure op
+        rhs _substs = Just $ CustomOp $ \_ ops -> case ops of
+          [op] -> pure op
+          _ -> mirFail $ "bad arguments to intrinsics::unlikely: " ++ show ops
 
 
 
@@ -1936,8 +1966,8 @@ maybe_uninit_uninit :: (ExplodedDefId, CustomRHS)
 maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
     \substs -> case substs of
         Substs [t] -> Just $ CustomOp $ \_ _ -> do
-            t <- findExplodedAdtTy maybeUninitExplodedDefId (Substs [t])
-            initialValue t >>= \mv -> case mv of
+            maybeUninitTy <- findExplodedAdtTy maybeUninitExplodedDefId (Substs [t])
+            initialValue maybeUninitTy >>= \mv -> case mv of
                 Just v -> return v
                 Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
         _ -> Nothing)
@@ -1947,7 +1977,7 @@ maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{impl}", "uninit"],
 
 non_zero_new ::  (ExplodedDefId, CustomRHS)
 non_zero_new = (["core", "num", "nonzero", "{impl}", "new", "crucible_non_zero_new_hook"],
-    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
             (TyAdt optionMonoName _ _, [MirExp tpr@(C.BVRepr w) val]) -> do
@@ -2000,7 +2030,7 @@ cloneShimDef (TyArray ty len) parts
     let elementRefRvs = map (\i ->
             Ref Shared (LProj (LProj lv Deref) (ConstantIndex i len False)) "_") [0 .. len - 1]
     elementRefExps <- mapM evalRval elementRefRvs
-    elementRefOps <- mapM (\exp -> makeTempOperand (TyRef ty Immut) exp) elementRefExps
+    elementRefOps <- mapM (\expr -> makeTempOperand (TyRef ty Immut) expr) elementRefExps
     clonedExps <- mapM (\op -> callExp part [op]) elementRefOps
     Some tpr <- tyToReprM ty
     buildArrayLit tpr clonedExps
@@ -2017,7 +2047,7 @@ cloneShimDef (TyFnPtr _) parts
       _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (opTys, ops)
   | otherwise = CustomOp $ \_ _ -> mirFail $
     "expected no clone functions in function pointer clone shim, but got " ++ show parts
-cloneShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
+cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
 cloneShimTuple :: [Ty] -> [M.DefId] -> CustomOp
@@ -2039,12 +2069,12 @@ cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     let fieldRefRvs = zipWith (\ty i ->
             Ref Shared (LProj (LProj lv Deref) (PField i ty)) "_") tys [0..]
     fieldRefExps <- mapM evalRval fieldRefRvs
-    fieldRefOps <- zipWithM (\ty exp -> makeTempOperand (TyRef ty Immut) exp) tys fieldRefExps
+    fieldRefOps <- zipWithM (\ty expr -> makeTempOperand (TyRef ty Immut) expr) tys fieldRefExps
     clonedExps <- zipWithM (\part op -> callExp part [op]) parts fieldRefOps
     buildTupleMaybeM tys (map Just clonedExps)
 
 cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
-cloneFromShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
+cloneFromShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
 
 
 

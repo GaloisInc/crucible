@@ -33,7 +33,7 @@ import Mir.Mir (Collection(..), namedTys, version)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
-import Mir.Generator(RustModule(..),CollectionState(..), collection)
+import Mir.Generator(RustModule(..))
 import Mir.Trans(transCollection)
 import qualified Mir.TransCustom as Mir (customOps)
 

@@ -23,8 +23,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall
-                -fno-warn-name-shadowing
+{-# OPTIONS_GHC -fno-warn-name-shadowing
                 -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors #-}
 
@@ -1228,7 +1227,7 @@ mkTraitObject traitName vtableName e = do
     trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName) <$>
         use (cs . collection . M.traits . at traitName)
     col <- use $ cs . collection
-    Some vtableTy' <- case traitVtableType col traitName trait of
+    Some vtableTy' <- case traitVtableType col trait of
                         Left err -> error ("mkTraitObject: " ++ err)
                         Right x -> return x
     case testEquality vtableTy vtableTy' of
@@ -2802,7 +2801,7 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     -- The type of the entire vtable.  Note `traitVtableType` wants the trait
     -- substs only, omitting the Self type.
     vtableType :: Some C.TypeRepr
-    vtableType = case traitVtableType col dynTraitName dynTrait of
+    vtableType = case traitVtableType col dynTrait of
       Left err -> die ["vtableType: " ++ err]
       Right x -> x
 
