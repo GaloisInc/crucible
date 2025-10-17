@@ -24,8 +24,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -fno-warn-name-shadowing
-                -fno-warn-unused-matches
-                -fno-warn-unticked-promoted-constructors #-}
+                -fno-warn-unused-matches #-}
 
 module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , readMirRef

@@ -28,8 +28,7 @@
 -- Turn off some warnings during active development
 {-# OPTIONS_GHC -fno-warn-unused-imports
                 -fno-warn-name-shadowing
-                -fno-warn-unused-matches
-                -fno-warn-unticked-promoted-constructors #-}
+                -fno-warn-unused-matches #-}
 
 -- The data structures used during translation
 module Mir.Generator
