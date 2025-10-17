@@ -85,7 +85,7 @@ mirLock _ nm ctx cf _
   | otherwise = Nothing
 
 mutexName :: BV.BV 32 -> Text.Text
-mutexName bv = Text.pack ("resource-"++ show bv)
+mutexName bv = Text.pack ("resource-" ++ show bv)
 
 mirSpawn :: C.IsSymInterface sym => ExplorePrimitiveMatcher p sym MIR
 mirSpawn _ nm ctx cf@C.CallFrame { C._frameCFG = cfg } _

@@ -264,12 +264,12 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     halloc  <- C.newHandleAllocator
     mir     <- translateMIR col halloc
 
-    C.AnyCFG staticInitCfg <- transStatics (mir^.rmCS) halloc
+    C.AnyCFG staticInitCfg <- transStatics (mir ^. rmCS) halloc
     let hi = C.cfgHandle staticInitCfg
     Refl <- failIfNotEqual (C.handleArgTypes hi) Ctx.Empty
            $ "BUG: static initializer should not require arguments"
 
-    let cfgMap = mir^.rmCFGs
+    let cfgMap = mir ^. rmCFGs
 
     -- Simulate each test case
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -326,7 +326,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
              Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
                  "test function " ++ show fnName ++ " should not take arguments"
              resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
-                 Just fn -> return $ fn^.fsig.fsreturn_ty
+                 Just fn -> return $ fn ^. fsig.fsreturn_ty
                  Nothing -> fail $ "couldn't find return type for " ++ show fnName
              res <- C.callCFG cfg C.emptyRegMap
 
@@ -646,8 +646,8 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, _)
-      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col^.adts) -> do
-        optParts <- case adt^.adtkind of
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts) -> do
+        optParts <- case adt ^. adtkind of
             Struct -> do
                 let var = onlyVariant adt
                 C.Some fctx <- case variantFields' col var of
@@ -694,7 +694,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
             Right (var, vals) -> do
                 strs <- zipWithM (\ty (C.Some entry) -> showRegEntry col ty entry)
                     (var ^.. vfields . each . fty) vals
-                let varName = Text.unpack $ cleanVariantName (var^.vname)
+                let varName = Text.unpack $ cleanVariantName (var ^. vname)
                 case var ^. vctorkind of
                     Just FnKind -> return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
                     Just ConstKind -> return varName
