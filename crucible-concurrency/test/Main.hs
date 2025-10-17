@@ -2,16 +2,12 @@
 {-# LANGUAGE ImplicitParams #-}
 module Main (main) where
 
-import Data.List
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
+import qualified Data.List as List
 import System.FilePath
-import System.Directory
 import System.IO
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
-import Test.Tasty.HUnit
 
 import qualified Crux as Crux
 import qualified Crux.Config.Common as Crux
@@ -23,7 +19,6 @@ import Cruces.CrucesMain
 
 main :: IO ()
 main = do
-  wd <- getCurrentDirectory
   examples <- findTests "Examples" "examples" testSimulator
   svtests <- findTests "SVComp" "sv-benchmarks" testSimulator
   let allTests = testGroup "Tests" [examples, svtests]
@@ -49,15 +44,14 @@ findTests group_name test_dir test_action =
           goodFile -- golden file path
           outFile
           (test_action input outFile) -- action whose result is tested
-       | input <- sort inputs
+       | input <- List.sort inputs
        , let outFile = replaceExtension input ".out"
        , let goodFile = replaceExtension input ".out.good"
        ]
 
 testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
-  do contents <- T.readFile inFile
-     withFile outFile WriteMode $ \outh ->
+  do withFile outFile WriteMode $ \outh ->
        do let outOpts = (Crux.outputOptions defaultCruxOptions)
                           { Crux.simVerbose = 0
                           }
