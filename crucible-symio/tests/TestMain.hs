@@ -21,7 +21,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Main where
+module Main (main) where
 
 import           GHC.TypeNats
 import           Control.Lens ( (^.) )

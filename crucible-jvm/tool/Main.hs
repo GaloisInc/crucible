@@ -25,7 +25,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module Main where
+module Main (main) where
 
 import Data.String(fromString)
 import qualified Data.Sequence as Seq

@@ -9,7 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Main where
+module Main (main) where
 
 -- Crucible
 import           Lang.Crucible.FunctionHandle ( newHandleAllocator )

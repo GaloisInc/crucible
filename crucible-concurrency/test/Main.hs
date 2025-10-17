@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ImplicitParams #-}
-module Main where
+module Main (main) where
 
 import Data.List
 import qualified Data.Text as T
