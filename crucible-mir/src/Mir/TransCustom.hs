@@ -221,19 +221,19 @@ abort = (["core", "intrinsics", "abort"], \_ ->
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
 panicking_begin_panic = (["std", "panicking", "begin_panic"], \_ -> Just $ CustomOpExit $ \_ -> do
     fn <- expectFnContext
-    return $ "panicking::begin_panic, called from " <> M.idText (fn^.fname)
+    return $ "panicking::begin_panic, called from " <> M.idText (fn ^. fname)
     )
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
 panicking_panic = (["core", "panicking", "panic"], \_ -> Just $ CustomOpExit $ \_ -> do
     fn <- expectFnContext
-    return $ "panicking::panic, called from " <> M.idText (fn^.fname)
+    return $ "panicking::panic, called from " <> M.idText (fn ^. fname)
     )
 
 panicking_panic_fmt :: (ExplodedDefId, CustomRHS)
 panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \_ -> Just $ CustomOpExit $ \_ -> do
     fn <- expectFnContext
-    return $ "panicking::panic_fmt, called from " <> M.idText (fn^.fname)
+    return $ "panicking::panic_fmt, called from " <> M.idText (fn ^. fname)
     )
 
 panicking_panicking :: (ExplodedDefId, CustomRHS)
@@ -663,10 +663,10 @@ drop_in_place_dyn =
                 -- `doVirtCall` would emit on its own.
                 let dropMethodIndex = 0
                 () <- case col ^. traits . at traitName' of
-                    Nothing -> mirFail $ "undefined trait: "<>show traitName'
+                    Nothing -> mirFail $ "undefined trait: " <> show traitName'
                     Just trait ->
                         case trait ^. traitItems of
-                            [] -> mirFail $ "no drop method available in trait "<>show traitName'
+                            [] -> mirFail $ "no drop method available in trait " <> show traitName'
                             (_:_) -> pure ()
 
                 callExpr <-
@@ -995,7 +995,7 @@ ctlz_impl name optFixedWidth _substs = Just $ CustomOp $ \_optys ops -> case ops
         Just (Some w')
           | Just LeqProof <- isPosNat w' ->
             return $ MirExp (C.BVRepr w') $ S.app $ buildMux w w w' v
-          | otherwise -> error $ "bad output width "++ show w' ++ " for ctlz_impl"
+          | otherwise -> error $ "bad output width " ++ show w' ++ " for ctlz_impl"
     _ -> mirFail $ "BUG: invalid arguments to " ++ Text.unpack name ++ ": " ++ show ops
   where
     getBit :: (1 <= w, i + 1 <= w) =>

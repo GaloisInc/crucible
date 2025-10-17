@@ -621,7 +621,7 @@ modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
                       Int -> -- index
                       MirGenerator h s ret (MirExp s)
 modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size agctx) = do
+  | Just (Some idx) <- Ctx.intIndex i (Ctx.size agctx) = do
       let tpr = agctx Ctx.! idx
       case tpr of
          C.MaybeRepr tpr' ->
@@ -807,7 +807,7 @@ tySizedness col ty =
     M.TyStr -> Unsized
     M.TyAdt adtName _ _ ->
       case col ^? M.adts . ix adtName of
-        Nothing -> error $ "tySizedness: unknown ADT: "<>show adtName
+        Nothing -> error $ "tySizedness: unknown ADT: " <> show adtName
         Just adt -> adtSizedness col adt
     _ -> Sized
 
@@ -825,7 +825,7 @@ structInfo adt i = do
     case adtSizedness col adt of
       Sized -> do
         Some ctx <- variantFieldsM var
-        Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+        Some idx <- case Ctx.intIndex i (Ctx.size ctx) of
             Just x -> return x
             Nothing -> mirFail errFieldIndex
         let tpr' = ctx Ctx.! idx
@@ -877,7 +877,7 @@ getStructField adt i (MirExp structTpr e0) = structInfo adt i >>= \case
   UnsizedSliceField _innerRepr ->
     mirFail "getStructField: unsized fields of unsized structs not yet supported"
   where
-    errFieldUninit = "field " ++ show i ++ " of " ++ show (adt^.M.adtname) ++
+    errFieldUninit = "field " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++
         " read while uninitialized"
 
 setStructField :: M.Adt -> Int ->
@@ -896,7 +896,7 @@ setStructField adt i (MirExp structTpr structExp) (MirExp fldTpr fldExp) = struc
     mirFail "setStructField: unsized fields of unsized structs not yet supported"
   where
     errFieldType :: FieldKind tp tp' -> String
-    errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i) ++
+    errFieldType fld = "expected field value for " ++ show (adt ^. M.adtname, i) ++
         " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
 
 -- Run `f`, checking that its return type is the same as its argument.  Fails
@@ -965,7 +965,7 @@ enumInfo adt i j = do
             show (adt ^. M.adtname) ++ " variant " ++ show i
 
     SomeRustEnumRepr _ ctx <- enumVariantsM adt
-    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+    Some idx <- case Ctx.intIndex i (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
@@ -973,7 +973,7 @@ enumInfo adt i j = do
         Just x -> return x
         Nothing -> mirFail $ "variant " ++ show i ++ " of enum " ++
             show (adt ^. M.adtname) ++ " is not a struct?"
-    Some idx' <- case Ctx.intIndex (fromIntegral j) (Ctx.size ctx') of
+    Some idx' <- case Ctx.intIndex j (Ctx.size ctx') of
         Just x -> return x
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
@@ -995,7 +995,7 @@ getEnumField adt i j (MirExp enumTpr e0) = do
     e3 <- readFieldData' fld errFieldUninit e2
     return $ MirExp (R.exprType e3) e3
   where
-    errFieldUninit = "field " ++ show j ++ " of " ++ show (adt^.M.adtname) ++
+    errFieldUninit = "field " ++ show j ++ " of " ++ show (adt ^. M.adtname) ++
         " variant " ++ show i ++ " read while uninitialized"
 
 
@@ -1011,7 +1011,7 @@ setEnumField adt i j (MirExp enumTpr enumExp) (MirExp fldTpr fldExp) = do
     MirExp enumTpr <$> f' enumExp
   where
     errFieldType :: FieldKind tp tp' -> String
-    errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i, j) ++
+    errFieldType fld = "expected field value for " ++ show (adt ^. M.adtname, i, j) ++
         " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
 
 
@@ -1100,7 +1100,7 @@ buildStruct' adt es = do
     let var = M.onlyVariant adt
     Some fctx <- variantFieldsM' var
     asn <- case buildStructAssign' fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
-        Left err -> mirFail $ "error building struct " ++ show (var^.M.vname) ++ ": " ++ err
+        Left err -> mirFail $ "error building struct " ++ show (var ^. M.vname) ++ ": " ++ err
         Right x -> return x
     let ctx = fieldCtxType fctx
     pure $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
@@ -1124,7 +1124,7 @@ buildEnum' adt i es = do
             show (adt ^. M.adtname)
 
     SomeRustEnumRepr _ ctx <- enumVariantsM adt
-    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+    Some idx <- case Ctx.intIndex i (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
@@ -1138,7 +1138,7 @@ buildEnum' adt i es = do
     es' <- inferElidedVariantFields ftys es
     asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es' of
         Left err ->
-            mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err ++ " -- " ++ show es'
+            mirFail $ "error building variant " ++ show (var ^. M.vname) ++ ": " ++ err ++ " -- " ++ show es'
         Right x -> return x
     Refl <- testEqualityOrFail (fieldCtxType fctx') ctx' $
         "got wrong fields for " ++ show (adt ^. M.adtname, i) ++ "?"
@@ -1564,7 +1564,7 @@ initialValue (M.TyAdt nm _ _) = do
         _ | Just ty <- reprTransparentFieldTy col adt -> initialValue ty
         M.Struct -> do
             let var = M.onlyVariant adt
-            fldExps <- mapM initField (var^.M.vfields)
+            fldExps <- mapM initField (var ^. M.vfields)
             Just <$> buildStruct' adt fldExps
         M.Enum _ -> do
             case ifind (\_ vars -> vars ^. M.vinhabited) (adt ^. M.adtvariants) of
@@ -1572,7 +1572,7 @@ initialValue (M.TyAdt nm _ _) = do
                 Nothing -> return Nothing
                 -- Inhabited enums get initialized to their first inhabited variant.
                 Just (discr, var) -> do
-                    fldExps <- mapM initField (var^.M.vfields)
+                    fldExps <- mapM initField (var ^. M.vfields)
                     Just <$> buildEnum' adt discr fldExps
         M.Union ->
             -- Unions are default-initialized to an untyped `MirAggregate` of an

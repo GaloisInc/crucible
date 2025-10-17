@@ -397,7 +397,7 @@ instance Pretty FnTransContext where
 
 describeFnContext :: FnTransContext -> String
 describeFnContext c = case c of
-  FnContext f -> show (f^.fname)
+  FnContext f -> show (f ^. fname)
   StaticContext -> "the static initializer"
   ShimContext -> "an auto-generated shim"
 

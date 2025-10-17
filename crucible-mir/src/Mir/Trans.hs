@@ -108,7 +108,7 @@ import Debug.Trace
 
 parsePosition :: Text.Text -> PL.Position
 parsePosition posText =
-  case Text.split (==':') posText of
+  case Text.split (== ':') posText of
     [fname',line,col]
       | (l,[]):_ <- readDec (Text.unpack line)
       , (c,[]):_ <- readDec (Text.unpack col)
@@ -418,7 +418,7 @@ extendToMax :: (1 <= n, 1 <= m) =>
                NatRepr m -> G.Expr MIR s (C.BVType m) -> Maybe M.ArithType ->
    (forall n'. (1 <= n') => NatRepr n' -> G.Expr MIR s (C.BVType n') -> G.Expr MIR s (C.BVType n') -> a) -> a
 extendToMax n e1 m e2 (Just arith) k =
-   let extend :: (1 <= w, 1 <= r, w+1 <= r) => (NatRepr r)
+   let extend :: (1 <= w, 1 <= r, w + 1 <= r) => (NatRepr r)
          -> (NatRepr w)
          -> (f (C.BVType w))
          -> E.App MIR f (C.BVType r)
@@ -850,14 +850,14 @@ evalCast' ck ty1 e ty2  = do
       (M.Unsize, M.TyRef _ _, M.TyRef (M.TyDynamic _) _) ->
         mirFail $ unlines $
           [ "error when casting:"
-          , "  ty: "<>show ty1
-          , "  as: "<>show ty2
+          , "  ty: " <> show ty1
+          , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
       (M.Unsize, M.TyRawPtr _ _, M.TyRawPtr (M.TyDynamic _) _) ->
         mirFail $ unlines $
           [ "error when casting:"
-          , "  ty: "<>show ty1
-          , "  as: "<>show ty2
+          , "  ty: " <> show ty1
+          , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
       -- Unsized casts from references to sized structs to references to DSTs.
@@ -1015,14 +1015,14 @@ evalCast' ck ty1 e ty2  = do
             _ ->
               mirFail "attempted Unsize cast from non-array source"
         Nothing ->
-          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an1
+          mirFail $ "unsizedAdtSlice: unable to determine last field of " <> show an1
 
       -- Sanity-check that we are indeed casting to a type with a slice in the
       -- expected position
       let ref = MirExp MirSliceRepr (mkSlice adtRef lenExpr)
       case findLastFieldRec col an2 of
         Nothing ->
-          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an2
+          mirFail $ "unsizedAdtSlice: unable to determine last field of " <> show an2
         Just field ->
           case field ^. M.fty of
             M.TySlice _elemTy -> pure ref
@@ -1052,7 +1052,7 @@ evalCast' ck ty1 e ty2  = do
       col <- use $ cs . collection
       eventualTraitObject <- case findLastFieldRec col castSource of
         Nothing ->
-          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castSource
+          mirFail $ "unsizedAdtDyn: unable to determine last field of " <> show castSource
         Just field ->
           pure (field ^. M.fty)
       -- `FkMaybe` fields are not initializable, and our rationale for
@@ -1065,7 +1065,7 @@ evalCast' ck ty1 e ty2  = do
         Right (Some (FieldRepr (FkInit _))) ->
           case findLastFieldRec col castTarget of
             Nothing ->
-              mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+              mirFail $ "unsizedAdtDyn: unable to determine last field of " <> show castTarget
             Just field ->
               case field ^. M.fty of
                 M.TyDynamic traitName' -> mkTraitObject traitName' vtable e
@@ -1357,7 +1357,7 @@ evalRval (M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
                         Just v -> return v
                         Nothing -> mirFail $ "uninitialized union AdtAg unsupported for " ++ show ty
           Nothing -> do
-            case adt^.adtkind of
+            case adt ^. adtkind of
                 M.Struct -> buildStruct adt es
                 M.Enum _ -> buildEnum adt (fromInteger agv) es
                 M.Union -> do
@@ -1551,7 +1551,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
 
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
-        case adt^.adtkind of
+        case adt ^. adtkind of
             Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> unionFieldRef adt idx ref
@@ -1884,7 +1884,7 @@ doReturn tr = do
     -- To detect if the current function is a static initializer, we check if
     -- there's an entry in `statics` matching the current `fname`.
     fn <- expectFnContext
-    let curName = fn^.fname
+    let curName = fn ^. fname
     isStatic <- use $ cs . collection . statics . to (Map.member curName)
     when (not isStatic) cleanupLocals
 
@@ -2014,7 +2014,7 @@ callExp funid cargs = do
           op cargs
 
        | Just (hand, sig) <- mhand -> do
-         callHandle hand (sig^.fsabi) cargs
+         callHandle hand (sig ^. fsabi) cargs
 
      _ -> mirFail $ "callExp: Don't know how to call " ++ fmt funid
 
@@ -2073,7 +2073,7 @@ transTerminatorKind (M.Call funcOp cargs cretdest) _tpos _retTy = case M.typeOf 
         jumpToBlock jdest
       Nothing ->
         G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
-  calleeTy -> mirFail $ "expected callee to be a function, but it was "<>show calleeTy
+  calleeTy -> mirFail $ "expected callee to be a function, but it was " <> show calleeTy
 transTerminatorKind (M.Assert cond expected msg target) _tpos _tr = do
     MirExp tpr e <- evalOperand cond
     Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
@@ -2339,7 +2339,7 @@ transCommon :: forall h.
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transCommon colState name context gen = do
     MirHandle _hname _hsig (handle :: FH.FnHandle args ret) <-
-        case Map.lookup name (colState^.handleMap) of
+        case Map.lookup name (colState ^. handleMap) of
             Nothing -> error "bad handle!!"
             Just mh -> return mh
     ftiRef <- newSTRef mempty
@@ -2406,7 +2406,7 @@ transStatic colState st
 
 -- | Allocate method handles for each of the functions in the Collection
 mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMap
-mkHandleMap col halloc = mapM mkHandle (col^.functions) where
+mkHandleMap col halloc = mapM mkHandle (col ^. functions) where
 
     mkHandle :: M.Fn -> IO MirHandle
     mkHandle (M.Fn fname' _fargs fsig' _fbody)  = do
@@ -2415,7 +2415,7 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
       Some argctx <- case tyListToCtx col targs (Right . Some) of
          Left err -> fail ("mkHandle: " ++ err)
          Right x -> return x
-      Some retrepr <- case tyToRepr col (fsig'^.fsreturn_ty) of
+      Some retrepr <- case tyToRepr col (fsig' ^. fsreturn_ty) of
         Left err -> fail ("mkHandle: " ++ err)
         Right x -> return x
       h <- FH.mkHandle' halloc handleName argctx retrepr
@@ -2433,14 +2433,14 @@ vtableShimSig vtableName fnName sig = sig & M.fsarg_tys %~ \xs -> case xs of
 
 -- | Allocate method handles for all vtable shims.
 mkVtableMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO VtableMap
-mkVtableMap col halloc = mapM mkVtable (col^.vtables)
+mkVtableMap col halloc = mapM mkVtable (col ^. vtables)
   where
     mkVtable :: M.Vtable -> IO [MirHandle]
     mkVtable (M.Vtable name items) = mapM (mkHandle name) items
 
     mkHandle :: M.DefId -> M.VtableItem -> IO MirHandle
     mkHandle vtableName (VtableItem fnName _)
-      | Just fn <- Map.lookup fnName (col^.functions) = do
+      | Just fn <- Map.lookup fnName (col ^. functions) = do
         let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
             handleName = FN.functionNameFromText (vtableShimName vtableName fnName)
 
@@ -2479,7 +2479,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     let shimRet = FH.handleReturnType shimFH in
 
     -- Retrieve impl Fn and FnHandle; unpack impl signature
-    (\k -> case Map.lookup fnName (colState^.collection.functions) of
+    (\k -> case Map.lookup fnName (colState ^. collection.functions) of
             Just fn -> k fn
             Nothing -> die ["failed to look up implementation", show fnName])
         $ \implFn ->
@@ -2530,7 +2530,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         (forall args' ret'. FH.FnHandle args' ret' -> r) ->
         r
     withMethodHandle name kNothing kJust =
-        case Map.lookup name (colState^.handleMap) of
+        case Map.lookup name (colState ^. handleMap) of
             Just (MirHandle _ _ fh) -> kJust fh
             Nothing -> kNothing
 
@@ -2911,8 +2911,8 @@ checkEq a b kNe kEq
 
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
 mkDiscrMap col = mconcat
-    [ Map.singleton (adt^.M.adtname) (adtIndices adt col)
-    | adt <- Map.elems $ col^.M.adts, Lens.is _Enum (adt^.M.adtkind) ]
+    [ Map.singleton (adt ^. M.adtname) (adtIndices adt col)
+    | adt <- Map.elems $ col ^. M.adts, Lens.is _Enum (adt ^. M.adtkind) ]
 
 -- | Gather all of the 'M.DefId's in a 'M.Collection' and construct a
 -- 'crateHashesMap' from it. To accomplish this, it suffices to look at the
@@ -2978,14 +2978,14 @@ transCollection col halloc = do
     -- allocate references for statics
     let allocateStatic :: Static -> Map M.DefId StaticVar -> IO (Map M.DefId StaticVar)
         allocateStatic static staticMap' = do
-          Some staticRepr <- case tyToRepr col (static^.sTy) of
+          Some staticRepr <- case tyToRepr col (static ^. sTy) of
             Left err -> fail ("allocateState: " ++ err)
             Right x -> return x
-          let gname =  (M.idText (static^.sName) <> "_global")
+          let gname =  (M.idText (static ^. sName) <> "_global")
           g <- G.freshGlobalVar halloc gname staticRepr
-          return $ Map.insert (static^.sName) (StaticVar g) staticMap'
+          return $ Map.insert (static ^. sName) (StaticVar g) staticMap'
 
-    sm <- foldrM allocateStatic Map.empty (col^.statics)
+    sm <- foldrM allocateStatic Map.empty (col ^. statics)
 
     let dm = mkDiscrMap col
     let chm = mkCrateHashesMap col
@@ -2995,13 +2995,13 @@ transCollection col halloc = do
 
     -- translate all of the functions
     fnInfo <- Maybe.catMaybes <$>
-      mapM (stToIO . transInstance colState) (Map.elems (col^.M.intrinsics))
+      mapM (stToIO . transInstance colState) (Map.elems (col ^. M.intrinsics))
     staticInfo <- Maybe.catMaybes <$>
-      mapM (stToIO . transStatic colState) (Map.elems (col^.M.statics))
+      mapM (stToIO . transStatic colState) (Map.elems (col ^. M.statics))
     let allInfo = fnInfo ++ [(n, c, Just i) | (n, c, i) <- staticInfo]
     let pairs1 = [(name, cfg) | (name, cfg, _) <- allInfo]
     let transInfo' = Map.fromList [(name, fti) | (name, _, Just fti) <- allInfo]
-    pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col^.M.vtables))
+    pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col ^. M.vtables))
 
     return $ RustModule
                 { _rmCS    = colState
@@ -3022,16 +3022,16 @@ transStatics ::
   (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool) =>
   CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
 transStatics colState halloc = do
-  let sm = colState^.staticMap
-  let hmap = colState^.handleMap
+  let sm = colState ^. staticMap
+  let hmap = colState ^. handleMap
   let initializeStatic :: forall h s r . Static -> MirGenerator h s r ()
       initializeStatic static =
-        let staticName = static^.sName in
+        let staticName = static ^. sName in
         case Map.lookup staticName sm of
           Just (StaticVar g) ->
             let repr = G.globalType g in
-            if |  Just constval <- static^.sConstVal
-               -> do let constty = static^.sTy
+            if |  Just constval <- static ^. sConstVal
+               -> do let constty = static ^. sTy
                      Some tpr <- tyToReprM constty
                      MirExp constty' constval' <- transConstVal constty (Some tpr) constval
                      case testEquality repr constty' of
@@ -3058,7 +3058,7 @@ transStatics colState halloc = do
   let initName = FN.functionNameFromText "static_initializer"
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
   let allStatics :: [Static]
-      allStatics = Map.elems (colState^.collection.statics)
+      allStatics = Map.elems (colState ^. collection.statics)
   -- Partition the static items into those with constant initializer expressions
   -- (constValStatics) and those with non-constant initializer expressions
   -- (nonConstValStatics). We do this because nonConstValStatics can depend on
