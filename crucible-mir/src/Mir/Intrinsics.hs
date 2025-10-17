@@ -28,7 +28,6 @@
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.Intrinsics
@@ -50,32 +49,22 @@ module Mir.Intrinsics
 , mirExtImpl
 ) -} where
 
-import           GHC.Natural
 import           GHC.Stack
 import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
-import           Control.Exception (throwIO)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.State.Strict
-import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
 import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import           Data.Map.Strict(Map)
-import qualified Data.Map.Strict as Map
-import           Data.Text (Text)
-import qualified Data.Text as Text
-import           Data.String
 import qualified Data.Vector as V
 import           Data.Word
 
 import           Prettyprinter
-import qualified Text.Regex as Regex
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
@@ -93,7 +82,6 @@ import           Lang.Crucible.Panic
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
-import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
@@ -101,21 +89,11 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
-import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial
     (PartExpr, pattern Unassigned, maybePartExpr, justPartExpr, joinMaybePE, mergePartial, mkPE)
-import           What4.Utils.MonadST
-
-import           Mir.DefId
-import           Mir.Mir
-import           Mir.PP
 
 import           Mir.FancyMuxTree
-
-import           Debug.Trace
-
-import           Unsafe.Coerce
 
 
 
