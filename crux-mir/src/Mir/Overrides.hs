@@ -625,20 +625,45 @@ mirReferencePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty ref -> PP.viaShow ref
 mirAggregatePrettyFn :: forall sym. IsSymInterface sym =>
   IntrinsicPrettyFn sym MirAggregateSymbol
 mirAggregatePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty (MirAggregate totalSize m) ->
-  let renderVal :: forall tpr ann. TypeRepr tpr -> RegValue sym (MaybeType tpr) -> PP.Doc ann
-      renderVal tpr Unassigned = "<uninit>"
-      renderVal tpr (PE p rv)
-        | Just True <- asConstantPred p = ppRV @sym tpr rv
-        | otherwise = ppRV @sym tpr rv PP.<+> PP.parens ("if" PP.<+> ppRV @sym BoolRepr p)
-      kvs = [PP.viaShow off <> ".." <> PP.viaShow (off + sz) PP.<+> "->" PP.<+> renderVal tpr rv
+  let kvs = [PP.viaShow off <> ".." <> PP.viaShow (off + sz) PP.<+> "->" PP.<+> ppMaybeRV @sym tpr rv
         | (fromIntegral -> off, MirAggregateEntry sz tpr rv) <- IntMap.toAscList m]
   in
   PP.encloseSep "{" "}" ", " $ kvs ++ ["size" PP.<+> PP.viaShow totalSize]
+
+mirVectorPrettyFn :: forall sym. IsSymInterface sym =>
+  IntrinsicPrettyFn sym MirVectorSymbol
+mirVectorPrettyFn = IntrinsicPrettyFn $ \(Ctx.Empty :> tpr) v ->
+  case v of
+    MirVector_Vector v ->
+      PP.list (ppRV @sym tpr <$> V.toList v)
+    MirVector_PartialVector v ->
+      PP.list (ppMaybeRV @sym tpr <$> V.toList v)
+    MirVector_Array arr
+      | AsBaseType btpr <- asBaseType tpr ->
+          ppRV @sym (UsizeArrayRepr btpr) arr
+      | otherwise ->
+          panic
+            "mirVectorPrettyFn"
+            [ "MirVector_Array element type is not a base type"
+            , show tpr
+            ]
+
+ppMaybeRV ::
+  forall sym tpr ann.
+  IsSymInterface sym =>
+  TypeRepr tpr ->
+  RegValue sym (MaybeType tpr) ->
+  PP.Doc ann
+ppMaybeRV tpr Unassigned = "<uninit>"
+ppMaybeRV tpr (PE p rv)
+  | Just True <- asConstantPred p = ppRV @sym tpr rv
+  | otherwise = ppRV @sym tpr rv PP.<+> PP.parens ("if" PP.<+> ppRV @sym BoolRepr p)
 
 intrinsicPrinters :: forall sym. IsSymInterface sym => IntrinsicPrinters sym
 intrinsicPrinters = IntrinsicPrinters $
   MapF.insert knownRepr mirReferencePrettyFn $
   MapF.insert knownRepr mirAggregatePrettyFn $
+  MapF.insert knownRepr mirVectorPrettyFn $
   MapF.empty
 
 ppRV :: forall sym tp ann. IsSymInterface sym =>
