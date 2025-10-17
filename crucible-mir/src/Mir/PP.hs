@@ -1,6 +1,6 @@
 {- A more compact pretty printer that looks more similar to Rust syntax -}
 
-{-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.PP where
 

@@ -28,10 +28,9 @@ module Mir.TransTy where
 import Control.Monad
 import Control.Lens
 import qualified Data.BitVector.Sized as BV
-import Data.List (findIndices, zip3)
+import Data.List (findIndices)
 import qualified Data.Map.Strict as Map
 import           Data.String (fromString)
-import           Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Prettyprinter (Pretty(..))
@@ -43,7 +42,6 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
-import Data.Parameterized.TraversableFC
 
 
 -- crucible
@@ -56,7 +54,6 @@ import qualified Lang.Crucible.Syntax as S
 
 import qualified Mir.DefId as M
 import qualified Mir.Mir as M
-import qualified Debug.Trace as Debug
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
@@ -104,9 +101,13 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
 -- Custom type aliases
+pattern CTyInt512 :: M.Ty
 pattern CTyInt512 <- M.TyAdt _ $(M.explodedDefIdPat ["int512", "Int512"]) (M.Substs [])
+
+pattern CTyBox :: M.Ty -> M.Ty
 pattern CTyBox t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "boxed", "Box"]) (M.Substs [t])
 
+pattern CTyMaybeUninit :: M.Ty -> M.Ty
 pattern CTyMaybeUninit t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "MaybeUninit"]) (M.Substs [t])
 
 maybeUninitExplodedDefId :: M.ExplodedDefId
@@ -114,32 +115,46 @@ maybeUninitExplodedDefId = ["$lang", "MaybeUninit"]
 
 -- `UnsafeCell` isn't handled specially inside baseline `crucible-mir`, but
 -- `crux-mir-comp` looks for it (using this pattern synonym).
+pattern CTyUnsafeCell :: M.Ty -> M.Ty
 pattern CTyUnsafeCell t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "UnsafeCell"]) (M.Substs [t])
 
+pattern CTyVector :: M.Ty -> M.Ty
 pattern CTyVector t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "vector", "Vector"]) (M.Substs [t])
 
 vectorExplodedDefId :: M.ExplodedDefId
 vectorExplodedDefId = ["crucible", "vector", "Vector"]
 
+pattern CTyArray :: M.Ty -> M.Ty
 pattern CTyArray t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "array", "Array"]) (M.Substs [t])
 
+pattern CTyBvSize128 :: M.Ty
 pattern CTyBvSize128 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_128"]) (M.Substs [])
+
+pattern CTyBvSize256 :: M.Ty
 pattern CTyBvSize256 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_256"]) (M.Substs [])
+
+pattern CTyBvSize512 :: M.Ty
 pattern CTyBvSize512 <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "_512"]) (M.Substs [])
+
+pattern CTyBv :: M.Ty -> M.Ty
 pattern CTyBv t <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "bitvector", "Bv"]) (M.Substs [t])
 
 bvExplodedDefId :: M.ExplodedDefId
 bvExplodedDefId = ["crucible", "bitvector", "Bv"]
 
+pattern CTyAny :: M.Ty
 pattern CTyAny <- M.TyAdt _ $(M.explodedDefIdPat ["core", "crucible", "any", "Any"]) (M.Substs [])
 
+pattern CTyMethodSpec :: M.Ty
 pattern CTyMethodSpec <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpec"]) (M.Substs [])
 
+pattern CTyMethodSpecBuilder :: M.Ty
 pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpecBuilder"]) (M.Substs [])
 
 
 -- These don't have custom representation, but are referenced in various
 -- places.
+pattern CTyOption :: M.Ty -> M.Ty
 pattern CTyOption t <- M.TyAdt _ $(M.explodedDefIdPat ["$lang", "Option"]) (M.Substs [t])
 
 optionExplodedDefId :: M.ExplodedDefId
@@ -236,7 +251,7 @@ tyToRepr col t0 = case t0 of
 
   -- Function types go to FunctionHandleRepr.  `RustCall` functions get special
   -- handling in `abiFnArgs`.
-  M.TyFnPtr sig@(M.FnSig args ret _abi) ->
+  M.TyFnPtr sig@(M.FnSig _args ret _abi) ->
      tyListToCtx col (abiFnArgs sig) $ \argsr  ->
      tyToReprCont col ret $ \retr ->
         Right (Some (C.FunctionHandleRepr argsr retr))
@@ -329,12 +344,12 @@ isUnsized ty = case ty of
     _ -> False
 
 isZeroSized :: M.Collection -> M.Ty -> Bool
-isZeroSized col ty = go ty
+isZeroSized col = go
   where
     go ty = case ty of
       M.TyTuple tys -> all go tys
       M.TyClosure tys -> all go tys
-      M.TyArray ty n -> n == 0 || go ty
+      M.TyArray elemTy n -> n == 0 || go elemTy
       M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
       M.TyNever -> True
       _ -> False
@@ -492,7 +507,7 @@ tyReprListToCtx ts f =  go ts Ctx.empty
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
 
 fieldReprListToCtx :: forall a. TransTyConstraint => [Some FieldRepr] -> (forall ctx. FieldCtxRepr ctx -> a) -> a
-fieldReprListToCtx frs f =  go frs Ctx.empty
+fieldReprListToCtx frs0 f =  go frs0 Ctx.empty
  where go :: forall ctx. [Some FieldRepr] -> FieldCtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some fr:frs) ctx = go frs (ctx Ctx.:> fr)
@@ -553,8 +568,8 @@ packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildArrayLit trep exps = do
     vec <- go exps V.empty
-    exp <- mirVector_fromVector trep $ S.app $ E.VectorLit trep vec
-    return $ MirExp (MirVectorRepr trep) exp
+    expr <- mirVector_fromVector trep $ S.app $ E.VectorLit trep vec
+    return $ MirExp (MirVectorRepr trep) expr
   where go :: [MirExp s] -> V.Vector (R.Expr MIR s tp) -> MirGenerator h s ret (V.Vector (R.Expr MIR s tp))
         go [] v = return v
         go ((MirExp erepr e):es) v = do
@@ -569,35 +584,34 @@ buildTupleM tys xs = buildTupleMaybeM tys (map Just xs)
 
 buildTupleMaybeM :: [M.Ty] -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
 buildTupleMaybeM tys xs = do
-    col <- use $ cs . collection
-    ag <- mirAggregate_uninit (fromIntegral $ length tys)
-    ag' <- foldM
-        (\ag (i, ty, mExp) -> do
+    ag0 <- mirAggregate_uninit (fromIntegral $ length tys)
+    ag1 <- foldM
+        (\ag (i, mExp) -> do
             case mExp of
                 Just (MirExp tpr rv) -> mirAggregate_set i 1 tpr rv ag
                 Nothing -> return ag)
-        ag (zip3 [0..] tys xs)
-    return $ MirExp MirAggregateRepr ag'
+        ag0 (zip [0..] xs)
+    return $ MirExp MirAggregateRepr ag1
 
 getTupleElem :: HasCallStack => [M.Ty] -> MirExp s -> Int -> MirGenerator h s ret (MirExp s)
-getTupleElem tys tupleExp i = do
-    ty <- case tys ^? ix i of
-        Just x -> return x
-        Nothing -> mirFail $ "getTupleElem: index " ++ show i ++ " out of range for " ++ show tys
-    getTupleElemTyped tupleExp i ty
+getTupleElem elemTys tupleExp i = do
+    elemTy <- case elemTys ^? ix i of
+        Just elemTy -> return elemTy
+        Nothing -> mirFail $ "getTupleElem: index " ++ show i ++ " out of range for " ++ show elemTys
+    getTupleElemTyped tupleExp i elemTy
 
 getTupleElemTyped :: HasCallStack => MirExp s -> Int -> M.Ty -> MirGenerator h s ret (MirExp s)
-getTupleElemTyped (MirExp tpr ag) i ty = do
+getTupleElemTyped (MirExp tpr ag) i elemTy = do
     col <- use $ cs . collection
-    case isZeroSized col ty of
+    case isZeroSized col elemTy of
         False -> do
             let tpr' = MirAggregateRepr
             Refl <- testEqualityOrFail tpr tpr' $
                 "getTupleElemTyped: expected tuple to be " ++ show tpr' ++ ", but got " ++ show tpr
-            Some tpr <- tyToReprM ty
-            MirExp tpr <$> mirAggregate_get (fromIntegral i) 1 tpr ag
+            Some elemTpr <- tyToReprM elemTy
+            MirExp elemTpr <$> mirAggregate_get (fromIntegral i) 1 elemTpr ag
         True -> do
-            mVal <- initialValue ty
+            mVal <- initialValue elemTy
             case mVal of
                 Just x -> return x
                 Nothing -> mirFail "zero-sized type with no initialValue?"
@@ -622,12 +636,11 @@ modifyAggregateIdxMaybe (MirExp ty _) _ _ =
   do mirFail ("modifyAggregateIdxMaybe: Expected Crucible structure type, but got:" ++ show ty)
 
 
-readEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
+readEnumVariant :: C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
     R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s tp)
-readEnumVariant tp ctx idx e = do
-    let tpr = ctx Ctx.! idx
+readEnumVariant ctx idx e = do
     let optVal = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx e
-    readJust' tpr optVal $
+    readJust' optVal $
         "readEnumVariant: wrong variant; expected " ++ show idx
 
 buildEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
@@ -641,7 +654,7 @@ adjustEnumVariant :: C.TypeRepr discrTp -> C.CtxRepr variantsCtx -> Ctx.Index va
     (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
     R.Expr MIR s (RustEnumType discrTp variantsCtx) -> MirGenerator h s ret (R.Expr MIR s (RustEnumType discrTp variantsCtx))
 adjustEnumVariant tp ctx idx f e = do
-    x <- readEnumVariant tp ctx idx e
+    x <- readEnumVariant ctx idx e
     y <- f x
     buildEnumVariant tp ctx idx y
 
@@ -655,8 +668,7 @@ readStructField ctx idx e = do
 writeStructField :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
     R.Expr MIR s (C.StructType ctx) -> R.Expr MIR s tp ->
     MirGenerator h s ret (R.Expr MIR s (C.StructType ctx))
-writeStructField ctx idx e e' = do
-    let tpr = ctx Ctx.! idx
+writeStructField ctx idx e e' =
     return $ R.App $ E.SetStruct ctx e idx e'
 
 adjustStructField :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
@@ -668,9 +680,9 @@ adjustStructField ctx idx f e = do
     writeStructField ctx idx e y
 
 
-readJust' :: C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) -> String ->
+readJust' :: R.Expr MIR s (C.MaybeType tp) -> String ->
     MirGenerator h s ret (R.Expr MIR s tp)
-readJust' tpr e msg =
+readJust' e msg =
     G.fromJustExpr e $ R.App $ E.StringLit $ fromString msg
 
 buildNothing :: C.TypeRepr tp ->
@@ -685,7 +697,7 @@ adjustJust' :: C.TypeRepr tp -> String ->
     (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
     R.Expr MIR s (C.MaybeType tp) -> MirGenerator h s ret (R.Expr MIR s (C.MaybeType tp))
 adjustJust' tpr msg f e = do
-    x <- readJust' tpr e msg
+    x <- readJust' e msg
     y <- f x
     buildJust tpr y
 
@@ -708,12 +720,12 @@ fieldDataType (FkMaybe tpr) = tpr
 
 readFieldData' :: FieldKind tp tp' -> String ->
     R.Expr MIR s tp' -> MirGenerator h s ret (R.Expr MIR s tp)
-readFieldData' (FkInit tpr) msg e = return e
-readFieldData' (FkMaybe tpr) msg e = readJust' tpr e msg
+readFieldData' (FkInit _tpr) _msg e = return e
+readFieldData' (FkMaybe _tpr) msg e = readJust' e msg
 
 buildFieldData :: FieldKind tp tp' ->
     R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp')
-buildFieldData (FkInit tpr) e = return e
+buildFieldData (FkInit _tpr) e = return e
 buildFieldData (FkMaybe tpr) e = buildJust tpr e
 
 -- Adjust the data inside a field.  If `wrapped`, then `tp' ~ MaybeType tp`,
@@ -722,7 +734,7 @@ buildFieldData (FkMaybe tpr) e = buildJust tpr e
 adjustFieldData :: FieldKind tp tp' ->
     (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
     R.Expr MIR s tp' -> MirGenerator h s ret (R.Expr MIR s tp')
-adjustFieldData (FkInit tpr) f e = f e
+adjustFieldData (FkInit _tpr) f e = f e
 adjustFieldData (FkMaybe tpr) f e =
     adjustJust' tpr "adjustFieldData: expected Just, but got Nothing" f e
 
@@ -852,12 +864,12 @@ structInfo adt i = do
         show (adt ^. M.adtname)
 
 getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getStructField adt i (MirExp structTpr e) = structInfo adt i >>= \case
+getStructField adt i (MirExp structTpr e0) = structInfo adt i >>= \case
   SizedStruct ctx idx fld -> do
     Refl <- expectStructOrFail ctx structTpr
-    e <- readStructField ctx idx e
-    e <- readFieldData' fld errFieldUninit e
-    return $ MirExp (fieldDataType fld) e
+    e1 <- readStructField ctx idx e0
+    e2 <- readFieldData' fld errFieldUninit e1
+    return $ MirExp (fieldDataType fld) e2
   SizedField _fieldRepr ->
     mirFail "getStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
@@ -870,12 +882,12 @@ getStructField adt i (MirExp structTpr e) = structInfo adt i >>= \case
 
 setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setStructField adt i (MirExp structTpr e) (MirExp fldTpr e') = structInfo adt i >>= \case
+setStructField adt i (MirExp structTpr structExp) (MirExp fldTpr fldExp) = structInfo adt i >>= \case
   SizedStruct ctx idx fld -> do
     Refl <- expectStructOrFail ctx structTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
-    e' <- buildFieldData fld e'
-    MirExp structTpr <$> writeStructField ctx idx e e'
+    fldExp' <- buildFieldData fld fldExp
+    MirExp structTpr <$> writeStructField ctx idx structExp fldExp'
   SizedField _fieldRepr ->
     mirFail "setStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
@@ -894,7 +906,7 @@ checkSameType :: String ->
     R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)
 checkSameType desc f e = do
     let tpr = R.exprType e
-    MirExp tpr' e' <- f (MirExp tpr e)
+    MirExp tpr' _e' <- f (MirExp tpr e)
     Refl <- testEqualityOrFail tpr tpr' $ "checkSameType: bad result type: expected " ++
         show tpr ++ ", but got " ++ show tpr' ++ " (in " ++ show desc ++ ")"
     return e
@@ -975,13 +987,13 @@ enumInfo adt i j = do
     return $ EnumInfo discrTp ctx idx ctx' idx' kind
 
 getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getEnumField adt i j (MirExp enumTpr e) = do
+getEnumField adt i j (MirExp enumTpr e0) = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- expectEnumOrFail discrTp ctx enumTpr
-    e <- readEnumVariant discrTp ctx idx e
-    e <- readStructField ctx' idx' e
-    e <- readFieldData' fld errFieldUninit e
-    return $ MirExp (R.exprType e) e
+    e1 <- readEnumVariant ctx idx e0
+    e2 <- readStructField ctx' idx' e1
+    e3 <- readFieldData' fld errFieldUninit e2
+    return $ MirExp (R.exprType e3) e3
   where
     errFieldUninit = "field " ++ show j ++ " of " ++ show (adt^.M.adtname) ++
         " variant " ++ show i ++ " read while uninitialized"
@@ -989,14 +1001,14 @@ getEnumField adt i j (MirExp enumTpr e) = do
 
 setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setEnumField adt i j (MirExp enumTpr e) (MirExp fldTpr e') = do
+setEnumField adt i j (MirExp enumTpr enumExp) (MirExp fldTpr fldExp) = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- expectEnumOrFail discrTp ctx enumTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
-    e' <- buildFieldData fld e'
+    fldExp' <- buildFieldData fld fldExp
     let f' = adjustEnumVariant discrTp ctx idx $
-            \e -> writeStructField ctx' idx' e e'
-    MirExp enumTpr <$> f' e
+            \enumExp' -> writeStructField ctx' idx' enumExp' fldExp'
+    MirExp enumTpr <$> f' enumExp
   where
     errFieldType :: FieldKind tp tp' -> String
     errFieldType fld = "expected field value for " ++ show (adt^.M.adtname, i, j) ++
@@ -1050,7 +1062,7 @@ unionInfo unionAdt fieldIdx = do
 
 buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
-buildStructAssign' ctx es = go ctx $ reverse es
+buildStructAssign' ctx0 es0 = go ctx0 $ reverse es0
   where
     go :: forall ctx s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
         Either String (Ctx.Assignment (R.Expr MIR s) ctx)
@@ -1078,7 +1090,7 @@ buildStructAssign' ctx es = go ctx $ reverse es
     continue ctx' rest tpr e = case testEquality tpr (R.exprType e) of
         Just Refl -> go ctx' rest >>= \flds -> return $ Ctx.extend flds e
         Nothing -> Left $ "type mismatch: expected " ++ show tpr ++ " but got " ++
-            show (R.exprType e) ++ " in field " ++ show (length rest) ++ ": " ++ show (ctx, es)
+            show (R.exprType e) ++ " in field " ++ show (length rest) ++ ": " ++ show (ctx0, es0)
 
 buildStruct' :: HasCallStack => M.Adt -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
@@ -1275,7 +1287,7 @@ fieldDataRef ::
     FieldKind tp tp' ->
     R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-fieldDataRef (FkInit tpr) ref = return ref
+fieldDataRef (FkInit _tpr) ref = return ref
 fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 
 structFieldRef ::
@@ -1283,14 +1295,14 @@ structFieldRef ::
     R.Expr MIR s MirReferenceType ->
     PtrMetadata s ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt i ref meta = structInfo adt i >>= \case
+structFieldRef adt i ref0 meta = structInfo adt i >>= \case
   SizedStruct ctx idx fld -> do
-    ref <- subfieldRef ctx ref idx
-    ref <- fieldDataRef fld ref
-    return $ MirPlace (fieldDataType fld) ref NoMeta
+    ref1 <- subfieldRef ctx ref0 idx
+    ref2 <- fieldDataRef fld ref1
+    return $ MirPlace (fieldDataType fld) ref2 NoMeta
   SizedField fieldKind -> do
     let fieldRepr = fieldDataType fieldKind
-    fieldRef <- subfieldRef_Untyped ref i (Just (Some fieldRepr))
+    fieldRef <- subfieldRef_Untyped ref0 i (Just (Some fieldRepr))
     dataRef <- fieldDataRef fieldKind fieldRef
     return $ MirPlace fieldRepr dataRef NoMeta
 
@@ -1301,10 +1313,10 @@ structFieldRef adt i ref meta = structInfo adt i >>= \case
   -- restriction, but it lets us get away without knowing the concrete type of
   -- the inhabitant of that field, which is unknown at translation time.
   UnsizedNonSliceField -> do
-    fieldRef <- subfieldRef_Untyped ref i Nothing
+    fieldRef <- subfieldRef_Untyped ref0 i Nothing
     return $ MirPlace C.AnyRepr fieldRef meta
   UnsizedSliceField innerRepr -> do
-    fieldRef <- subfieldRef_Untyped ref i Nothing
+    fieldRef <- subfieldRef_Untyped ref0 i Nothing
     elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0)
     case meta of
       NoMeta ->
@@ -1318,13 +1330,13 @@ enumFieldRef ::
     M.Adt -> Int -> Int ->
     R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
-enumFieldRef adt i j ref = do
+enumFieldRef adt i j ref0 = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
-    ref <- subvariantRef discrTp ctx ref idx
-    ref <- subfieldRef ctx' ref idx'
-    ref <- fieldDataRef fld ref
+    ref1 <- subvariantRef discrTp ctx ref0 idx
+    ref2 <- subfieldRef ctx' ref1 idx'
+    ref3 <- fieldDataRef fld ref2
     -- TODO: for custom DSTs, we'll need to propagate enum metadata to fields
-    return $ MirPlace (fieldDataType fld) ref NoMeta
+    return $ MirPlace (fieldDataType fld) ref3 NoMeta
 
 
 enumDiscriminant :: M.Adt -> MirExp s ->
@@ -1359,7 +1371,7 @@ unionFieldRef ::
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (MirPlace s)
 unionFieldRef unionAdt fieldIdx unionRef = do
-  UnionInfo unionSize fieldOffset fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
+  UnionInfo _unionSize fieldOffset fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
   fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
   pure $ MirPlace fieldTpr fieldRef NoMeta
 
@@ -1414,8 +1426,8 @@ getLayoutFieldAsMirExp opName layoutFieldLens ty = do
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>
-    M.Collection -> M.TraitName -> M.Trait -> Either String (Some C.TypeRepr)
-traitVtableType col tname trait = vtableTy
+    M.Collection -> M.Trait -> Either String (Some C.TypeRepr)
+traitVtableType col trait = vtableTy
   where
     convertShimSig sig = eraseSigReceiver sig
 
