@@ -11,9 +11,6 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-{-# OPTIONS_GHC -Wall -fno-warn-unused-imports #-}
-
-
 module Main(main) where
 
 import qualified Mir.Language as Mir (main)
