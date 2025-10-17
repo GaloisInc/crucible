@@ -74,7 +74,7 @@ adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
     getDiscr _ (Variant _ _ _ _ (Just i) _) = i
 
     getDiscr _ (Variant name (Explicit did) _fields _knd _ _) = case Map.lookup did (_functions col) of
-        Just fn -> case fn^.fbody.mblocks of
+        Just fn -> case fn ^. fbody.mblocks of
             ( BasicBlock _info (BasicBlockData [Statement (Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i))))) _loc] _term) ):_ ->
                 fromIntegerLit i
 

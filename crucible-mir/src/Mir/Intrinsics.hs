@@ -2358,8 +2358,8 @@ mirRef_indexAndLenSim ::
 mirRef_indexAndLenSim ref = do
   ovrWithBackend $ \bak ->
     do s <- get
-       let gs = s^.stateTree.actFrame.gpGlobals
-       let iTypes = ctxIntrinsicTypes $ s^.stateContext
+       let gs = s ^. stateTree.actFrame.gpGlobals
+       let iTypes = ctxIntrinsicTypes $ s ^. stateContext
        liftIO $ mirRef_indexAndLenIO bak gs iTypes ref
 
 
@@ -2453,10 +2453,10 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirAggregate_Set off sz tpr (regValue -> rv) (regValue -> ag) -> do
             readOnly s $ mirAggregate_setIO bak off sz tpr rv ag
   where
-    gs = s^.stateTree.actFrame.gpGlobals
-    ctx = s^.stateContext
+    gs = s ^. stateTree.actFrame.gpGlobals
+    ctx = s ^. stateContext
     iTypes = ctxIntrinsicTypes ctx
-    sym = ctx^.ctxSymInterface
+    sym = ctx ^. ctxSymInterface
     halloc = simHandleAllocator ctx
 
     mkRef :: MirReference sym -> MirReferenceMux sym
@@ -2548,8 +2548,8 @@ readMirRefSim :: IsSymInterface sym =>
 readMirRefSim tpr ref =
    ovrWithBackend $ \bak ->
    do s <- get
-      let gs = s^.stateTree.actFrame.gpGlobals
-      let iTypes = ctxIntrinsicTypes $ s^.stateContext
+      let gs = s ^. stateTree.actFrame.gpGlobals
+      let iTypes = ctxIntrinsicTypes $ s ^. stateContext
       liftIO $ readMirRefIO bak gs iTypes tpr ref
 
 readMirRefIO ::
@@ -2571,8 +2571,8 @@ writeMirRefSim ::
     OverrideSim m sym MIR rtp args ret ()
 writeMirRefSim tpr ref x = do
     s <- get
-    let gs0 = s^.stateTree.actFrame.gpGlobals
-    let iTypes = ctxIntrinsicTypes $ s^.stateContext
+    let gs0 = s ^. stateTree.actFrame.gpGlobals
+    let iTypes = ctxIntrinsicTypes $ s ^. stateContext
     ovrWithBackend $ \bak -> do
       gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes tpr ref x
       put $ s & stateTree.actFrame.gpGlobals .~ gs1

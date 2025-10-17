@@ -18,7 +18,7 @@ module Mir.Pass.AllocateEnum
 
 import Control.Lens hiding (op)
 import qualified Data.Text as T
-import Data.List
+import qualified Data.List as List
 
 import Mir.DefId
 import Mir.Mir
@@ -57,7 +57,7 @@ data FieldUpdate = FieldUpdate { adtLvalue :: Lvalue,
 
 
 lookupAdt :: (?col :: Collection) => DefId -> Maybe Adt
-lookupAdt defid = find (\adt -> _adtname adt == defid) (?col^.adts)
+lookupAdt defid = List.find (\adt -> _adtname adt == defid) (?col ^. adts)
 
 
 isAdtFieldUpdate :: Statement -> Maybe FieldUpdate
@@ -100,7 +100,7 @@ makeAggregate updates (lv, k, adt) =
   pos = case updates of
           u:_ -> upos u
           []  -> "internal"
-  ops = map rhs $ sortOn fieldNum updates
+  ops = map rhs $ List.sortOn fieldNum updates
 
 findAllocEnum :: (?col :: Collection) => [Statement] -> Maybe ( Statement, [Statement] )
 findAllocEnum ss0 = f ss0 [] where
