@@ -54,7 +54,7 @@ data Exploration p alg ext ret sym = Exploration
   }
 makeLenses ''Exploration
 
--- | A class for Crucible personality types @p@ which contain a
+-- | A class for Crucible personality types @p@ which contain an
 -- 'Exploration'.
 class HasExploration p alg ext ret sym | p -> alg ext ret sym where
   exploration :: Lens' p (Exploration p alg ext ret sym)
