@@ -171,7 +171,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks dbg dbgCmds
                 cExts
                 (Debug.IntrinsicPrinters MapF.empty)
                 inps
-                Debug.defaultDebuggerOutputs
+                (Debug.prettyOut outh PP.defaultLayoutOptions)
                 CT.UnitRepr
             let dbgCtx =
                   if dbg

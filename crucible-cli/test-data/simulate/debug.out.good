@@ -1,0 +1,9 @@
+==== Begin Simulation ====
+before!
+While returning value from debug
+In main at test-data/simulate/debug.cbl:8:5
+Ok
+after!
+
+==== Finish Simulation ====
+==== No proof obligations ====

@@ -19,6 +19,7 @@ module Lang.Crucible.Debug
   , bareDebugger
   , Inps.defaultDebuggerInputs
   , Inps.prepend
+  , Outps.prettyOut
   , Outps.defaultDebuggerOutputs
   , Arg.Arg(..)
   , AType.ArgTypeRepr(..)
