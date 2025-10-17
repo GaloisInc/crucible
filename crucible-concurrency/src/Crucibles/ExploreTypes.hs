@@ -56,42 +56,38 @@ makeLenses ''Exploration
 
 -- | A class for Crucible personality types @p@ which contain a
 -- 'Exploration'.
-class HasExploration p q alg ext ret sym | p -> q alg ext ret sym where
-  exploration :: Lens' p (Exploration q alg ext ret sym)
-
-instance HasExploration (Exploration p alg ext ret sym) p alg ext ret sym where
-  exploration = id
-  {-# INLINE exploration #-}
+class HasExploration p alg ext ret sym | p -> alg ext ret sym where
+  exploration :: Lens' p (Exploration p alg ext ret sym)
 
 -- | A Crucible personality type
--- ( see 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+-- (see 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
 -- suitable for use with @crucible-concurrency@.
 newtype Personality alg ext ret sym
   = Personality { _personality :: Exploration (Personality alg ext ret sym) alg ext ret sym }
 makeLenses ''Personality
 
-instance HasExploration (Personality alg ext ret sym) (Personality alg ext ret sym) alg ext ret sym where
+instance HasExploration (Personality alg ext ret sym) alg ext ret sym where
   exploration = personality
   {-# INLINE exploration #-}
 
 stateExpl ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   Lens' (SimState p sym ext r f a) (ThreadExec p alg sym ext ret)
 stateExpl = stateContext.cruciblePersonality.exploration
 
 stateExplAlg ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   Lens' (SimState p sym ext r f a) alg
 stateExplAlg = stateExpl.schedAlg
 
 stateExec ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   Lens' (SimState p sym ext r f a) ThreadExecutions
 stateExec = stateExpl.exec
 
 runUpdateSchedAlg ::
   ( MonadState (SimState p sym ext r f a) m
-  , HasExploration p p alg ext ret sym
+  , HasExploration p alg ext ret sym
   ) =>
   SchedAlgM alg b ->
   m b

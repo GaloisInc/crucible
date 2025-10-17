@@ -111,7 +111,7 @@ exploreOvr :: forall sym bak ext alg ret rtp msgs p.
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
   (?bound::Int, IsSymBackend sym bak, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
-  HasExploration (p sym) (p sym) alg ext ret sym =>
+  HasExploration (p sym) alg ext ret sym =>
   bak ->
   Maybe (Crux.SomeOnlineSolver sym bak) ->
   Crux.CruxOptions ->

@@ -79,7 +79,7 @@ type SchedulerConstraints p alg ext ret sym =
   , IsSymInterface sym
   , IsSyntaxExtension ext
   , SchedulingAlgorithm alg
-  , HasExploration p p alg ext ret sym
+  , HasExploration p alg ext ret sym
   )
 
 -- | Toplevel feature
@@ -590,7 +590,7 @@ saveThreadState rcond rh st = RunningThread rcond rh (st ^. stateTree)
 -- N.B. the assumption is that EITHER the requested EventInfos will be found, OR
 -- none of them will be, AND that they will be of the same sort (Writes, Reads, etc).
 lookupNextEvent ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   EventID ->
   ThreadID ->
   Direction ->
@@ -622,7 +622,7 @@ lookupNextEvent _ _ _ [] = return []
 -- already be a "next" event from the given @EventID@ along the triple of the
 -- given @ThreadID@, @EventInfo@'s thread, and @Direction@.
 addNewEvent ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   EventID ->
   ThreadID ->
   EventInfo ->
@@ -645,7 +645,7 @@ addNewEvent curr who ei dir =
      return new
 
 addNewEvents ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   EventID ->
   ThreadID ->
   Direction ->
@@ -659,7 +659,7 @@ addNewEvents curr who dir eis =
          return (e' ^. eventID, e':es)
 
 freshEventID ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   ThreadExecM p sym ext r f a Int
 freshEventID =
   do stateExec.lastEventID %= (+1)
@@ -675,7 +675,7 @@ notifyThread gv ts =
 
 -- | Return True if the given @ThreadState@ denotes an executable thread
 checkRunnable ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   IsSymInterface sym =>
   [Some GlobalVar] ->
   ThreadState p sym ext ret ->
@@ -688,7 +688,7 @@ checkRunnable globs ts =
 
 -- | Exit with an error if the given @ThreadState@ is is not runnable
 assertRunnable ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   IsSymInterface sym =>
   [Some GlobalVar] ->
   ThreadID ->
@@ -705,7 +705,7 @@ assertRunnable globs thID thNext e =
 
 -- | Return all the threads that can be run
 runnableThreads ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   IsSymInterface sym =>
   [Some GlobalVar] ->
   ThreadExecM p sym ext r f a [(Int, ThreadState p sym ext ret)]
@@ -754,7 +754,7 @@ runnable st ourglobals globals allThreads ts =
     done _ = False
 
 getInternalGlobal ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   Text ->
   C.TypeRepr tp ->
   ThreadExecM p sym ext r f a (Maybe (RegValue sym tp))
@@ -767,7 +767,7 @@ getInternalGlobal l tpr =
        _ -> return Nothing
 
 setInternalGlobal ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   Text ->
   C.TypeRepr tp ->
   (sym -> IO (RegValue sym tp)) ->
@@ -786,7 +786,7 @@ setInternalGlobal l tpr val =
 -- | Adds a new internal global mapping from l |-> new global, if necessary.
 -- ADDITIONALLY sets the value *in crucible* of this global variable.
 initializeInternalGlobal ::
-  HasExploration p p alg ext ret sym =>
+  HasExploration p alg ext ret sym =>
   Text ->
   C.TypeRepr ty ->
   (sym -> IO (RegValue sym ty)) ->
