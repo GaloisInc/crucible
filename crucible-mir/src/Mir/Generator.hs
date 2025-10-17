@@ -26,8 +26,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 -- Turn off some warnings during active development
-{-# OPTIONS_GHC -fno-warn-name-shadowing
-                -fno-warn-unused-matches #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 -- The data structures used during translation
 module Mir.Generator
