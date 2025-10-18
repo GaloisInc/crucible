@@ -86,7 +86,6 @@ common shared
     -Werror=unrecognised-warning-flags
     -Werror=unsupported-calling-conventions
     -Werror=unsupported-llvm-version
-    -Werror=unticked-promoted-constructors
     -Werror=unused-do-bind
     -Werror=unused-imports
     -Werror=unused-record-wildcards

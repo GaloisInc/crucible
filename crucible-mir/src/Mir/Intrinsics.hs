@@ -341,7 +341,7 @@ pattern MirReferenceRepr <-
 
 type family MirReferenceFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirReferenceFam sym EmptyCtx = MirReferenceMux sym
-  MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" ':<>:
+  MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" :<>:
                                        'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MirReferenceSymbol where
   type Intrinsic sym MirReferenceSymbol ctx = MirReferenceFam sym ctx
@@ -641,7 +641,7 @@ pattern MirAggregateRepr <-
 type family MirAggregateFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirAggregateFam sym EmptyCtx = MirAggregate sym
   MirAggregateFam sym ctx = TypeError
-    ('Text "MirAggregateType expects no arguments, but was given" ':<>: 'ShowType ctx)
+    ('Text "MirAggregateType expects no arguments, but was given" :<>: 'ShowType ctx)
 
 instance IsSymInterface sym => IntrinsicClass sym MirAggregateSymbol where
   type Intrinsic sym MirAggregateSymbol ctx = MirAggregateFam sym ctx
@@ -952,7 +952,7 @@ pattern MirVectorRepr tp <-
 
 type family MirVectorFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirVectorFam sym (EmptyCtx ::> tp) = MirVector sym tp
-  MirVectorFam sym ctx = TypeError ('Text "MirVector expects a single argument, but was given" ':<>:
+  MirVectorFam sym ctx = TypeError ('Text "MirVector expects a single argument, but was given" :<>:
                                        'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MirVectorSymbol where
   type Intrinsic sym MirVectorSymbol ctx = MirVectorFam sym ctx
@@ -2838,7 +2838,7 @@ pattern MethodSpecRepr <-
 type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MethodSpecFam sym EmptyCtx = MethodSpec sym
   MethodSpecFam sym ctx = TypeError
-    ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
+    ('Text "MethodSpecType expects no arguments, but was given" :<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
   type Intrinsic sym MethodSpecSymbol ctx = MethodSpecFam sym ctx
 
@@ -2878,7 +2878,7 @@ pattern MethodSpecBuilderRepr <-
 type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
   MethodSpecBuilderFam sym ctx = TypeError
-    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
+    ('Text "MethodSpecBuilderType expects no arguments, but was given" :<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
   type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
 
