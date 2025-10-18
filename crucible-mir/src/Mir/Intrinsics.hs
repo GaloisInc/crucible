@@ -2183,6 +2183,10 @@ data ReversedRefPath sym :: CrucibleType -> CrucibleType -> Type where
     ReversedRefPath sym tp' tp'' ->
     ReversedRefPath sym tp tp''
 
+instance IsSymInterface sym => Show (ReversedRefPath sym tp tp') where
+    show RrpNil = "RrpNil"
+    show (RrpCons rp rrp) = "(RrpCons " ++ show rp ++ " " ++ show rrp ++ ")"
+
 reverseRefPath :: forall sym tp tp'.
     MirReferencePath sym tp tp' ->
     ReversedRefPath sym tp tp'
@@ -2212,6 +2216,7 @@ reverseRefPath = go RrpNil
 -- return `path` unchanged.
 popIndex :: MirReferencePath sym tp tp' -> Some (MirReferencePath sym tp)
 popIndex (Index_RefPath _ p _) = Some p
+popIndex (AgElem_RefPath _ _ _ p) = Some p
 popIndex p = Some p
 
 
