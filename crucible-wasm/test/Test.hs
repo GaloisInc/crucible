@@ -4,18 +4,11 @@
 
 module Main (main) where
 
-import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
-import           Control.Lens ( (^.), (^?), _Right, to )
+import           Control.Exception ( SomeException, try )
 import           Control.Monad ( unless, when )
-import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
-import           Data.Char ( isLetter, isSpace )
-import           Data.List.Extra ( isInfixOf, isPrefixOf, stripPrefix )
 import           Data.Maybe ( catMaybes, fromMaybe, isJust )
-import qualified Data.Text as T
-import           Data.Versions ( Versioning, versioning, prettyV, major )
-import qualified GHC.IO.Exception as GE
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit (ExitCode(..))
