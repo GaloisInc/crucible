@@ -177,7 +177,7 @@ backtrace execState =
 block ::
   C.IsSyntaxExtension ext =>
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext r ->
   IO (Response cExt)
 block _ctx execState =
@@ -271,7 +271,7 @@ cfg execState =
 frame ::
   C.IsSyntaxExtension ext =>
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext r ->
   IO (Response cExt)
 frame _ctx execState =
@@ -384,7 +384,7 @@ prove bak = do
 reg ::
   forall p sym ext r t cExt.
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext r ->
   [Int] ->
   IO (Response cExt)
@@ -425,7 +425,7 @@ reg ctx execState idxs =
 
 secret ::
   PP.Pretty cExt =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext r ->
   Rgx.Match (Arg.Arg cExt) BCmd.SecretRegex ->
   IO (Resp.Response cExt)
@@ -454,7 +454,7 @@ secret ctx execState m =
           pure (Resp.Style (Style.runStyle sEnv (Style.style rx args)))
 
 source ::
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   FilePath ->
   IO (Either X.IOException (Inputs (CompletionT cExt (StyleT cExt IO)) (Statement cExt)))
 source ctx path = do

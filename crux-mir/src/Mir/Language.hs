@@ -190,15 +190,11 @@ orOverride f g symOnline colState name cfg =
         Nothing -> g symOnline colState name cfg
 
 
--- | This closes over the Crucible 'personality' parameter, allowing us to select between
--- normal execution over Models and concurrent exeuctions that use an Exploration
--- personality.
-data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
-  forall personality.
-    SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
-                , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
-                , testPersonality :: personality sym
-                }
+data SomeTestOvr alg sym ctx (ty :: C.CrucibleType) =
+    SomeTestOvr
+    { testOvr :: Fun (CruxPersonality alg MIR ty) sym MIR ctx ty
+    , testFeatures :: [C.ExecutionFeature (CruxPersonality alg MIR ty sym) sym MIR (C.RegEntry sym ty)]
+    }
 
 
 runTests ::
@@ -358,19 +354,17 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             bak ->
             Maybe (Crux.SomeOnlineSolver sym bak) ->
             DefId ->
-            SomeTestOvr sym Ctx.EmptyCtx C.UnitType
+            SomeTestOvr DPOR sym Ctx.EmptyCtx C.UnitType
         simTest bak symOnline fnName
           | concurrency mirOpts = SomeTestOvr
             { testOvr = do printTest fnName
                            exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
-            , testFeatures = [scheduleFeature mirExplorePrimitives []]
-            , testPersonality = Personality (emptyExploration @DPOR)
+            , testFeatures = [scheduleFeature @_ @DPOR mirExplorePrimitives []]
             }
           | otherwise = SomeTestOvr
             { testOvr = do printTest fnName
                            simTestBody bak symOnline fnName
             , testFeatures = []
-            , testPersonality = Crux.CruxPersonality
             }
 
     let simCallbacks fnName =
@@ -380,7 +374,8 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                 { Crux.setupHook =
                     \bak symOnline ->
                       case simTest bak symOnline fnName of
-                        SomeTestOvr testFn features personality -> do
+                        SomeTestOvr testFn features -> do
+                          personality <- mkCruxPersonality @DPOR
                           let outH = view outputHandle ?outputConfig
                           let sym = C.backendGetSym bak
                           setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym

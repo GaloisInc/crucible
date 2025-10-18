@@ -126,6 +126,7 @@ library
   build-depends:       base >=4.7 && < 5
                      , containers
                      , crucible
+                     , crucible-debug
                      , crucible-syntax
                      , crux
                      , generic-lens

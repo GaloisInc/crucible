@@ -1,18 +1,22 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Crux.LLVM.Simulate where
 
+import qualified Control.Lens as Lens
 import Control.Monad (unless)
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
@@ -25,6 +29,7 @@ import qualified Data.Traversable as T
 import Control.Lens ((&), (%~), (%=), (^.), use, view)
 import Control.Monad.IO.Class (liftIO)
 import Data.Text as Text (Text, pack)
+import Data.Void (Void)
 import GHC.Exts ( proxy# )
 
 import System.IO (stdout)
@@ -58,6 +63,8 @@ import Lang.Crucible.Simulator.ExecutionTree ( actFrame, gpGlobals, stateGlobals
 import Lang.Crucible.Simulator.GlobalState ( insertGlobal, lookupGlobal )
 import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
+-- crucible-debug
+import qualified Lang.Crucible.Debug as Debug
 
 -- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerLazyModule )
@@ -100,6 +107,14 @@ import Crux.LLVM.Config
 import qualified Crux.LLVM.Log as Log
 import Crux.LLVM.Overrides
 
+-- | Crux LLVM personality
+newtype CruxLLVM sym
+  = CruxLLVM { getCruxLLVM :: Debug.Context Void sym LLVM UnitType }
+
+instance Debug.HasContext (CruxLLVM sym) Void sym LLVM UnitType where
+  context = Lens.lens getCruxLLVM (const CruxLLVM)
+  {-# INLINE context #-}
+
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
   (IsSymBackend sym bak, HasLLVMAnn sym) =>
@@ -107,16 +122,27 @@ setupSimCtxt ::
   bak ->
   MemOptions ->
   GlobalVar Mem ->
-  SimCtxt Crux sym LLVM
-setupSimCtxt halloc bak mo memVar =
-  initSimContext bak
-                 (MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes)
-                 halloc
-                 stdout
-                 (fnBindingsFromList [])
-                 (llvmExtensionImpl mo)
-                 CruxPersonality
-    & profilingMetrics %~ Map.union (memMetrics memVar)
+  IO (SimCtxt CruxLLVM sym LLVM)
+setupSimCtxt halloc bak mo memVar = do
+  -- TODO(#1576): Use LLVM debugger extensions (crucible-llvm-debug)
+  let cExts = Debug.voidExts
+  inps <- Debug.defaultDebuggerInputs cExts
+  dbgCtx <-
+    Debug.initCtx
+      cExts
+      (Debug.IntrinsicPrinters MapF.empty)
+      inps
+      Debug.defaultDebuggerOutputs
+      UnitRepr
+  pure $
+    initSimContext bak
+                   (MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes)
+                   halloc
+                   stdout
+                   (fnBindingsFromList [])
+                   (llvmExtensionImpl mo)
+                   (CruxLLVM dbgCtx)
+      & profilingMetrics %~ Map.union (memMetrics memVar)
 
 -- | Parse an LLVM bit-code file.
 parseLLVM ::
@@ -140,7 +166,7 @@ registerFunctions ::
   LLVM.Module ->
   ModuleTranslation arch ->
   Maybe (LLVMFileSystem ptrW) ->
-  OverM Crux sym LLVM ()
+  OverM CruxLLVM sym LLVM ()
 registerFunctions llvmOpts llvm_module mtrans fs0 =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
@@ -199,8 +225,8 @@ setupFileSim halloc llvm_file llvmOpts bak _maybeOnline =
   do let sym = backendGetSym bak
      memVar <- mkMemVar "crux:llvm_memory" halloc
 
-     let simctx = (setupSimCtxt halloc bak (memOpts llvmOpts) memVar)
-                  { printHandle = view outputHandle ?outputConfig }
+     simctx_ <- setupSimCtxt halloc bak (memOpts llvmOpts) memVar
+     let simctx = simctx_ { printHandle = view outputHandle ?outputConfig }
 
      prepped <- prepLLVMModule llvmOpts halloc bak llvm_file memVar
 

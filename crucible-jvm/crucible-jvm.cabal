@@ -25,6 +25,7 @@ executable crucible-jvm
     array,
     containers,
     crucible,
+    crucible-debug,
     crucible-jvm,
     directory,
     filepath,

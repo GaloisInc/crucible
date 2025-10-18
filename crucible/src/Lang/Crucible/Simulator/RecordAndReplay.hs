@@ -87,7 +87,7 @@ mkReplayState halloc =
 -- | A class for Crucible personality types @p@ which contain a
 -- 'RecordState'. This execution feature is polymorphic over
 -- 'RecordState' so that downstream users can supply their own
--- personality types that extend 'RecordAndReplay' further.
+-- personality types that extend 'RecordState' further.
 class HasRecordState p r sym ext rtp | p -> r sym ext rtp where
   recordState :: Lens.Lens' p (RecordState r sym ext rtp)
 
@@ -98,7 +98,7 @@ instance HasRecordState (RecordState p sym ext rtp) p sym ext rtp where
 -- | A class for Crucible personality types @p@ which contain a
 -- 'ReplayState'. This execution feature is polymorphic over
 -- 'ReplayState' so that downstream users can supply their own
--- personality types that extend 'ReplayAndReplay' further.
+-- personality types that extend 'ReplayState' further.
 class HasReplayState p r sym ext rtp | p -> r sym ext rtp where
   replayState :: Lens.Lens' p (ReplayState r sym ext rtp)
 

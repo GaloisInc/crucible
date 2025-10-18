@@ -18,6 +18,8 @@ module Lang.Crucible.Debug
   , bareDebuggerExt
   , bareDebugger
   , Inps.defaultDebuggerInputs
+  , Inps.prepend
+  , Outps.prettyOut
   , Outps.defaultDebuggerOutputs
   , Arg.Arg(..)
   , AType.ArgTypeRepr(..)
@@ -36,6 +38,7 @@ module Lang.Crucible.Debug
   , Ctxt.CommandImpl(..)
   , Ctxt.ExtImpl(..)
   , Ctxt.voidImpl
+  , Ctxt.DebuggerState(..)
   , Resp.Response(Ok, UserError, XResponse)
   , Resp.UserError(NotApplicable)
   , Resp.NotApplicable(DoneSimulating, NotYetSimulating)
@@ -48,16 +51,26 @@ module Lang.Crucible.Debug
   , type Rgx.Star
   , Rgx.Match(..)
   , Rgx.RegexRepr(..)
+  , Stmt.ParseError
+  , Stmt.parse
+  , Stmt.renderParseError
   , Trace.Trace
   , Trace.TraceEntry(..)
   , Trace.latest
   , IntrinsicPrinters(..)
+  , Ctxt.initCtx
+  , Pers.HasContext(..)
+  , Ov.debuggerPrepend
+  , Ov.debuggerQuit
+  , Ov.debuggerStop
+  , Ov.debugOverride
+  , Ov.debugRunOverride
   ) where
 
 import Control.Applicative qualified as Applicative
 import Control.Lens qualified as Lens
 import Control.Monad qualified as Monad
-import Data.IORef qualified as IORef
+import Data.Function ((&))
 import Data.Maybe qualified as Maybe
 import Data.Parameterized.Map qualified as MapF
 import Data.Parameterized.Nonce qualified as Nonce
@@ -83,10 +96,13 @@ import Lang.Crucible.Debug.Inputs (Inputs)
 import Lang.Crucible.Debug.Inputs qualified as Inps
 import Lang.Crucible.Debug.Outputs (Outputs)
 import Lang.Crucible.Debug.Outputs qualified as Outps
+import Lang.Crucible.Debug.Override qualified as Ov
+import Lang.Crucible.Debug.Personality qualified as Pers
 import Lang.Crucible.Debug.Regex qualified as Rgx
 import Lang.Crucible.Debug.Response qualified as Resp
 import Lang.Crucible.Debug.Response (Response)
 import Lang.Crucible.Debug.Statement (Statement)
+import Lang.Crucible.Debug.Statement qualified as Stmt
 import Lang.Crucible.Debug.Style qualified as Style
 import Lang.Crucible.Debug.Style (StyleT)
 import Lang.Crucible.Debug.Trace qualified as Trace
@@ -123,7 +139,7 @@ _printState =
     C.UnwindCallState {} -> "UnwindCallState"
 
 stepState ::
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext rtp ->
   IO DebuggerState
 stepState ctx =
@@ -198,16 +214,17 @@ stopped ::
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
+  Ctxt.ExtImpl cExt p sym ext t ->
   C.ExecState p sym ext (C.RegEntry sym t) ->
   IO (EvalResult cExt p sym ext t)
-stopped ctx0 execState0 = go ctx0 execState0 C.ExecutionFeatureNoChange
+stopped ctx0 ext execState0 = go ctx0 execState0 C.ExecutionFeatureNoChange
   where
     go c0 s0 r = do
       let cEnv = Ctxt.toCompletionEnv c0 s0
       let sEnv = Ctxt.toStyleEnv c0 s0
       stmt <- Style.runStyleM sEnv (Complete.runCompletionM cEnv (Inps.recv (Ctxt.dbgInputs c0)))
-      result0 <- Eval.eval c0 s0 stmt
+      result0 <- Eval.eval c0 ext s0 stmt
       let featResult = mergeResults r (Eval.evalFeatureResult result0)
       let result = result0 { Eval.evalFeatureResult = featResult }
       let s = Maybe.fromMaybe s0 (resultState featResult)
@@ -225,19 +242,20 @@ dispatch ::
   W4.IsExpr (W4.SymExpr sym) =>
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
+  Ctxt.ExtImpl cExt p sym ext t ->
   C.ExecState p sym ext (C.RegEntry sym t) ->
-  IO (Context cExt p sym ext t, C.ExecutionFeatureResult p sym ext (C.RegEntry sym t))
-dispatch ctx0 execState =
+  IO (Context cExt sym ext t, C.ExecutionFeatureResult p sym ext (C.RegEntry sym t))
+dispatch ctx0 ext execState =
   case Ctxt.dbgState ctx0 of
     Ctxt.Quit ->
       pure (ctx0, C.ExecutionFeatureNoChange)
     Ctxt.Running {} | C.ResultState {} <- execState -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Stopped }
-      dispatch ctx execState
+      dispatch ctx ext execState
     Ctxt.Running (Ctxt.Step i) | i <= 1 -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Stopped }
-      dispatch ctx execState
+      dispatch ctx ext execState
     Ctxt.Running (Ctxt.Step i) -> do
       let ctx = ctx0 { Ctxt.dbgState = Ctxt.Running (Ctxt.Step (i - 1)) }
       state <- stepState ctx execState
@@ -248,31 +266,43 @@ dispatch ctx0 execState =
       let ctx = ctx0 { Ctxt.dbgState = state }
       pure (ctx, C.ExecutionFeatureNoChange)
     Ctxt.Stopped -> do
-      result <- stopped ctx0 execState
+      result <- stopped ctx0 ext execState
       pure (Eval.evalCtx result, Eval.evalFeatureResult result)
 
 debugger ::
+  Pers.HasContext p cExt sym ext t =>
   (sym ~ W4.ExprBuilder s st fs) =>
   C.IsSymInterface sym =>
   C.IsSyntaxExtension ext =>
   W4.IsExpr (W4.SymExpr sym) =>
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
-  Cmd.CommandExt cExt ->
   Ctxt.ExtImpl cExt p sym ext t ->
-  IntrinsicPrinters sym ->
-  Inputs (CompletionT cExt (StyleT cExt IO)) (Statement cExt) ->
-  Outputs IO (Response cExt) ->
-  C.TypeRepr t ->
-  IO (C.ExecutionFeature p sym ext (C.RegEntry sym t))
-debugger cExt impl iFns ins outs rTy = do
-  ctxRef <- IORef.newIORef =<< Ctxt.initCtx cExt impl iFns ins outs rTy
-  pure $
-    C.ExecutionFeature $ \execState -> do
-      ctx0 <- IORef.readIORef ctxRef
-      (ctx, featResult) <- dispatch ctx0 execState
-      IORef.writeIORef ctxRef ctx
-      pure featResult
+  C.ExecutionFeature p sym ext (C.RegEntry sym t)
+debugger ext =
+  C.ExecutionFeature $ \execState -> do
+    let simCtx = execState Lens.^. Lens.to C.execStateContext
+    let ctx0 = simCtx Lens.^. C.cruciblePersonality . Pers.context
+    (ctx, featResult) <- dispatch ctx0 ext execState
+    let simCtx' = 
+          case featResult of
+            C.ExecutionFeatureNoChange -> simCtx
+            C.ExecutionFeatureModifiedState execState' ->
+              C.execStateContext execState'
+            C.ExecutionFeatureNewState execState' ->
+              C.execStateContext execState'
+    let simCtx'' = simCtx' & C.cruciblePersonality . Pers.context Lens..~ ctx
+    pure $
+      case featResult of
+        C.ExecutionFeatureNoChange ->
+          C.ExecutionFeatureModifiedState
+            (C.setExecStateContext simCtx'' execState)
+        C.ExecutionFeatureModifiedState execState' ->
+          C.ExecutionFeatureModifiedState
+            (C.setExecStateContext simCtx'' execState')
+        C.ExecutionFeatureNewState execState' ->
+          C.ExecutionFeatureNewState
+            (C.setExecStateContext simCtx'' execState')
 
 -- | Like 'bareDebugger', but with a syntax extension
 bareDebuggerExt ::
@@ -293,13 +323,13 @@ bareDebuggerExt cExts cEval extImpl inps outps logger = do
   bak <- C.newSimpleBackend sym
   let retType = C.UnitRepr
   let fns = C.FnBindings C.emptyHandleMap
-  let simCtx = C.initSimContext bak C.emptyIntrinsicTypes ha stdout fns extImpl ()
+  initCtx <- do
+    let iFns = IntrinsicPrinters MapF.empty
+    Ctxt.initCtx cExts iFns inps outps retType
+  let simCtx = C.initSimContext bak C.emptyIntrinsicTypes ha stdout fns extImpl initCtx
   let ov = C.runOverrideSim retType $ return ()
   let simSt  = C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler retType ov
-  dbgr <- do
-    let iFns = IntrinsicPrinters MapF.empty
-    debugger cExts cEval iFns inps outps retType
-  Monad.void $ C.executeCrucible [dbgr] simSt
+  Monad.void $ C.executeCrucible [debugger cEval] simSt
   C.getProofObligations bak >>= \case
     Nothing -> pure ()
     Just obls -> do

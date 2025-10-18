@@ -1,5 +1,6 @@
 # next
 
+* Add `setExecResultContext`, `setExecStateContext`
 * Add `Lang.Crucible.Simulator.RecordAndReplay`, a module with two new execution
   features for recording and replaying control-flow traces.
 * Add a `GlobalPair` argument to `AbortedExit`.

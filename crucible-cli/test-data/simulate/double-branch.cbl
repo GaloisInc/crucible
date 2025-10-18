@@ -1,4 +1,4 @@
-(defun @main () Integer
+(defun @main () Unit
   (start start:
     (let a (fresh Integer))
     (let b (fresh Integer))
@@ -9,5 +9,5 @@
     (assert! (equal? a (the Integer 5)) "assert")
     (jump end:))
   (defblock end:
-    (return 0))
+    (return ()))
 )

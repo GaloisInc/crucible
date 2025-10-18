@@ -73,14 +73,15 @@ testOptions = z3Options
 testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
-     IO.withFile outFile IO.WriteMode $ \outh ->
-       simulateProgram inFile contents outh Nothing testOptions $
-         defaultSimulateProgramHooks
-           { setupOverridesHook =  \sym ha ->
-               do os1 <- SyntaxOvrs.setupOverrides sym ha
-                  os2 <- TestOvrs.setupOverrides sym ha
-                  return $ concat [os1,os2]
-           }
+     IO.withFile outFile IO.WriteMode $ \outh -> do
+       let hooks = 
+             defaultSimulateProgramHooks
+               { setupOverridesHook =  \sym ha ->
+                   do os1 <- SyntaxOvrs.setupOverrides sym ha
+                      os2 <- TestOvrs.setupOverrides sym ha
+                      return $ concat [os1,os2]
+               }
+       simulateProgram inFile contents outh Nothing testOptions hooks False []
 
 -- | A basic test that ensures a forward declaration behaves as expected when
 -- invoked with an override that is assigned to it after parsing.
@@ -90,10 +91,11 @@ resolvedForwardDecTest =
   [ goldenFileTestCase ("test-data" Path.</> "declare" Path.</> "main.cbl") $ \mainCbl mainOut ->
     IO.withFile mainOut IO.WriteMode $ \outh ->
     do mainContents <- T.readFile mainCbl
-       simulateProgram mainCbl mainContents outh Nothing testOptions $
-         defaultSimulateProgramHooks
-           { setupHook = resolveForwardDecs
-           }
+       let hooks =
+             defaultSimulateProgramHooks
+               { setupHook = resolveForwardDecs
+               }
+       simulateProgram mainCbl mainContents outh Nothing testOptions hooks False []
   ]
   where
     resolveForwardDecs ::
@@ -126,10 +128,11 @@ resolvedExternTest =
   [ goldenFileTestCase ("test-data" Path.</> "extern" Path.</> "main.cbl") $ \mainCbl mainOut ->
     IO.withFile mainOut IO.WriteMode $ \outh ->
     do mainContents <- T.readFile mainCbl
-       simulateProgram mainCbl mainContents outh Nothing testOptions $
-         defaultSimulateProgramHooks
-           { resolveExternsHook = resolveExterns
-           }
+       let hooks =
+             defaultSimulateProgramHooks
+               { resolveExternsHook = resolveExterns
+               }
+       simulateProgram mainCbl mainContents outh Nothing testOptions hooks False []
   ]
   where
     resolveExterns ::

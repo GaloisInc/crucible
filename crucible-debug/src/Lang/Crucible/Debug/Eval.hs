@@ -42,7 +42,7 @@ import What4.Expr.Builder qualified as W4
 import What4.Interface qualified as W4
 
 runCmd ::
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext (C.RegEntry sym t) ->
   Ctxt.RunningState ->
   IO (Ctxt.EvalResult cExt p sym ext t)
@@ -54,7 +54,7 @@ runCmd ctx execState runState =
     _ -> pure (def ctx) { Ctxt.evalCtx = ctx { Ctxt.dbgState = Ctxt.Running runState  } }
 
 -- | Helper, not exported
-def :: Context cExt p sym ext t -> Ctxt.EvalResult cExt p sym ext t
+def :: Context cExt sym ext t -> Ctxt.EvalResult cExt p sym ext t
 def ctx = Ctxt.EvalResult ctx C.ExecutionFeatureNoChange Resp.Ok
 
 baseImpl ::
@@ -318,13 +318,13 @@ cmdImpl ::
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Ctxt.ExtImpl cExt p sym ext t ->
   Cmd.Command cExt ->
   Ctxt.CommandImpl cExt p sym ext t
-cmdImpl ctx cmd =
+cmdImpl ext cmd =
   case cmd of
     Cmd.Base bCmd -> baseImpl bCmd
-    Cmd.Ext xCmd -> Ctxt.getExtImpl (Ctxt.dbgExtImpl ctx) xCmd
+    Cmd.Ext xCmd -> Ctxt.getExtImpl ext xCmd
 
 eval ::
   (sym ~ W4.ExprBuilder s st fs) =>
@@ -333,14 +333,15 @@ eval ::
   (?parserHooks :: C.ParserHooks ext) =>
   PP.Pretty cExt =>
   W4.IsExpr (W4.SymExpr sym) =>
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
+  Ctxt.ExtImpl cExt p sym ext t ->
   C.ExecState p sym ext (C.RegEntry sym t) ->
   Statement cExt ->
   IO (Ctxt.EvalResult cExt p sym ext t)
-eval ctx execState stmt =
+eval ctx ext execState stmt =
   let args = Stmt.stmtArgs stmt in
   let argError err = (def ctx) { Ctxt.evalResp = Resp.UserError (Resp.ArgError (Stmt.stmtCmd stmt) err) } in
-  case cmdImpl ctx (Stmt.stmtCmd stmt) of
+  case cmdImpl ext (Stmt.stmtCmd stmt) of
     Ctxt.CommandImpl { Ctxt.implRegex = r, Ctxt.implBody = f } ->
       case Arg.match (Arg.convert (Ctxt.dbgCommandExt ctx) r) args of
         Left e -> pure (argError e)
