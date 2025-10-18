@@ -23,10 +23,11 @@ import Lang.Crucible.Debug.Inputs qualified as Inps
 import Lang.Crucible.Debug.Statement (Statement)
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
 
--- | A class for Crucible personality types @p@ which contain a
--- 'RecordState'. This execution feature is polymorphic over
--- 'RecordState' so that downstream users can supply their own
--- personality types that extend 'RecordAndReplay' further.
+-- | A class for Crucible personality types @p@ (see
+-- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality') which contain a
+-- 'Context'. This execution feature is polymorphic over the personality so that
+-- downstream users can supply their own personality types that extend 'Context'
+-- further.
 class HasContext p cExt sym ext t | p -> cExt sym ext t where
   context :: Lens.Lens' p (Context cExt sym ext t)
 
