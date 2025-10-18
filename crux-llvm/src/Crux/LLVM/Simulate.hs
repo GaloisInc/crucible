@@ -225,7 +225,7 @@ setupFileSim halloc llvm_file llvmOpts bak _maybeOnline =
   do let sym = backendGetSym bak
      memVar <- mkMemVar "crux:llvm_memory" halloc
 
-     simctx_ <- (setupSimCtxt halloc bak (memOpts llvmOpts) memVar)
+     simctx_ <- setupSimCtxt halloc bak (memOpts llvmOpts) memVar
      let simctx = simctx_ { printHandle = view outputHandle ?outputConfig }
 
      prepped <- prepLLVMModule llvmOpts halloc bak llvm_file memVar
