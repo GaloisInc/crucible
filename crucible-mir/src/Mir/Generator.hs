@@ -25,13 +25,6 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE DeriveGeneric #-}
 
--- Turn off some warnings during active development
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall
-                -fno-warn-unused-imports
-                -fno-warn-name-shadowing
-                -fno-warn-unused-matches
-                -fno-warn-unticked-promoted-constructors #-}
-
 -- The data structures used during translation
 module Mir.Generator
 {-
@@ -71,16 +64,13 @@ import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import           Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import           Data.Set (Set)
-import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Char(isDigit)
-import           Data.Functor.Identity
 import           GHC.Generics (Generic)
 
-import           Control.Lens hiding (Empty, (:>), Index, view)
+import           Control.Lens hiding (Empty, (:>), Index, parts, view)
 import           Control.Monad
 import           Control.Monad.ST
 
@@ -89,16 +79,12 @@ import           Prettyprinter
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context
-import           Data.Parameterized.TraversableFC
-import           Data.Parameterized.Peano
-import           Data.Parameterized.BoolRepr
 import           Data.Parameterized.NatRepr
 
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Reg as R
-import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Panic as P
 import qualified Lang.Crucible.Syntax as S
@@ -110,7 +96,6 @@ import           Mir.Mir
 import           Mir.Intrinsics
 import           Mir.PP
 
-import           Unsafe.Coerce(unsafeCoerce)
 import           Debug.Trace
 import           GHC.Stack
 import Control.Applicative ((<|>))
@@ -412,7 +397,7 @@ instance Pretty FnTransContext where
 
 describeFnContext :: FnTransContext -> String
 describeFnContext c = case c of
-  FnContext f -> show (f^.fname)
+  FnContext f -> show (f ^. fname)
   StaticContext -> "the static initializer"
   ShimContext -> "an auto-generated shim"
 
@@ -600,8 +585,8 @@ makeTemp (MirExp _ e) = do
     allocTempForAtom atom
 
 makeTempLvalue :: Ty -> MirExp s -> MirGenerator h s ret Lvalue
-makeTempLvalue ty exp = do
-    name <- makeTemp exp
+makeTempLvalue ty expr = do
+    name <- makeTemp expr
     -- varIsZST is used only for deciding whether to initialize the variable at
     -- the start of the function, which is not relevant for temporaries created
     -- mid-translation.
@@ -609,8 +594,8 @@ makeTempLvalue ty exp = do
     return $ LBase var
 
 makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
-makeTempOperand ty exp = do
-    Move <$> makeTempLvalue ty exp
+makeTempOperand ty expr = do
+    Move <$> makeTempLvalue ty expr
 
 
 -----------------------------------------------------------------------

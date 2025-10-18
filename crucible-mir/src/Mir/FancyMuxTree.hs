@@ -31,8 +31,6 @@
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.FancyMuxTree
@@ -54,68 +52,24 @@ module Mir.FancyMuxTree
 , mirExtImpl
 ) -} where
 
-import           GHC.Natural
-import           GHC.TypeLits
-import           Control.Applicative (Alternative)
-import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
-import           Control.Monad.Fail
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Except
-import           Control.Monad.Trans.Maybe
 import           Control.Monad.Trans.Reader
-import           Data.Kind(Type)
-import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Merge.Strict as Map
-import           Data.Text (Text)
-import qualified Data.Text as Text
-import           Data.String
-import qualified Data.Vector as V
 
-import qualified Text.Regex as Regex
-
-import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Context
-import           Data.Parameterized.TraversableFC
-import qualified Data.Parameterized.TH.GADT as U
-import qualified Data.Parameterized.Map as MapF
-import qualified Data.Parameterized.NatRepr as N
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Expr
-import           Lang.Crucible.CFG.Generator hiding (dropRef)
-import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Panic
-import           Lang.Crucible.Syntax
-import           Lang.Crucible.Types
-import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
-import           Lang.Crucible.Simulator.Evaluation
-import           Lang.Crucible.Simulator.GlobalState
-import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.RegValue
-import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Utils.MuxTree
 
-import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial
-    (PartExpr, pattern Unassigned, pattern PE, maybePartExpr, justPartExpr, joinMaybePE,
-        mergePartial, mkPE)
-import           What4.Utils.MonadST
-
-import           Mir.DefId
-import           Mir.Mir
-import           Mir.PP
-
-import           Debug.Trace
-
-import           Unsafe.Coerce
+    (PartExpr, pattern Unassigned, pattern PE, justPartExpr, mergePartial, mkPE)
 
 
 -- | A fancier version of MuxTree, where the value type `a` can include

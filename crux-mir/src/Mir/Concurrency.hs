@@ -85,7 +85,7 @@ mirLock _ nm ctx cf _
   | otherwise = Nothing
 
 mutexName :: BV.BV 32 -> Text.Text
-mutexName bv = Text.pack ("resource-"++ show bv)
+mutexName bv = Text.pack ("resource-" ++ show bv)
 
 mirSpawn :: C.IsSymInterface sym => ExplorePrimitiveMatcher p sym MIR
 mirSpawn _ nm ctx cf@C.CallFrame { C._frameCFG = cfg } _
@@ -124,14 +124,14 @@ mirRefName t =
        let refs = fst <$> viewFancyMuxTree tree
            extr r =
              case r of
-               MirReference t root p ->
+               MirReference _ root p ->
                  Text.pack (show root ++ mirPathName p)
                -- If std::sys::crux::Mutex becomes zero sized, then we might
                -- actually hit this case, as the compiler will be free to choose
                -- any integer to serve as an address. We can probably just get
                -- away with using this intger as the address, but the results might be
                -- strange if distinct mutexes are assigned the same address.
-               MirReference_Integer rv ->
+               MirReference_Integer {} ->
                  error "Unexpected MirReference_Integer in mirRefName"
        in (extr <$> refs)
 
@@ -139,12 +139,13 @@ mirPathName :: C.IsSymInterface sym => MirReferencePath sym tpr t -> String
 mirPathName p =
   case p of
     Empty_RefPath -> ""
-    Field_RefPath _ p idx -> mirPathName p ++ "." ++ show (indexVal idx)
-    Variant_RefPath _ _ p idx -> mirPathName p ++ "." ++ show (indexVal idx)
-    Index_RefPath _ p idx -> mirPathName p
-    Just_RefPath _ p -> mirPathName p
-    VectorAsMirVector_RefPath _ p -> mirPathName p
-    ArrayAsMirVector_RefPath _ p -> mirPathName p
+    Field_RefPath _ p' idx -> mirPathName p' ++ "." ++ show (indexVal idx)
+    Variant_RefPath _ _ p' idx -> mirPathName p' ++ "." ++ show (indexVal idx)
+    Index_RefPath _ p' _ -> mirPathName p'
+    Just_RefPath _ p' -> mirPathName p'
+    VectorAsMirVector_RefPath _ p' -> mirPathName p'
+    ArrayAsMirVector_RefPath _ p' -> mirPathName p'
+    AgElem_RefPath _ _ _ p' -> mirPathName p'
 
 -- | Match a the name of a polymorphic method with a possible instance by
 -- dropping the last segment
