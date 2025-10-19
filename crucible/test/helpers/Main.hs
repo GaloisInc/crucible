@@ -27,10 +27,12 @@ import qualified What4.ProgramLoc as W4P
 
 import qualified Panic as P
 
+import qualified SymSequence as S
+
 main :: IO ()
 main = do
   p <- panicTests
-  defaultMain (testGroup "crucible" [p, backendTests])
+  defaultMain (testGroup "crucible" [p, backendTests, S.tests])
 
 mkBackend :: IO (Some SomeBackend)
 mkBackend = do

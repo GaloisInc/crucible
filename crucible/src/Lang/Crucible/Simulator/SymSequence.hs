@@ -22,6 +22,7 @@ module Lang.Crucible.Simulator.SymSequence
 , headSymSequence
 , tailSymSequence
 , unconsSymSequence
+, eqSymSequence
 , traverseSymSequence
 , concreteizeSymSequence
 , concretizeSymSequence
@@ -318,6 +319,158 @@ unconsSymSequence sym mux = \s -> getSeqUncons <$> evalWithFreshCache f s
                     t <- appendSymSequence sym (snd ux) ys
                     let ux' = (fst ux, t)
                     SeqUncons <$> runPartialT sym p (f' px ux' uy)
+
+eqSymSequence ::
+  IsExprBuilder sym =>
+  sym ->
+  (a -> a -> IO (Pred sym)) {- ^ equality function on values -} ->
+  (Pred sym -> a -> a -> IO a) {- ^ mux function on values -} ->
+  SymSequence sym a ->
+  SymSequence sym a ->
+  IO (Pred sym)
+eqSymSequence sym eq mux s s' =
+  go =<< eqSymSequencePrefix sym eq mux s s'
+  where
+    go =
+      \case
+        NotPrefix -> pure (falsePred sym)
+        LeftLonger {} -> pure (falsePred sym)
+        RightLonger {} -> pure (falsePred sym)
+        Equal p -> pure p
+        Ite p l r -> do
+          l' <- go l
+          r' <- go r
+          i <- itePred sym p l' r'
+          pure i
+
+data AsPrefixResult sym a
+  = LeftLonger (Pred sym) (SymSequence sym a)
+  | RightLonger (Pred sym) (SymSequence sym a)
+  | Equal (Pred sym)
+  | Ite (Pred sym) (AsPrefixResult sym a) (AsPrefixResult sym a)
+  | NotPrefix
+
+reverseAsPrefixResult ::
+  IsExprBuilder sym =>
+  sym ->
+  AsPrefixResult sym a ->
+  IO (AsPrefixResult sym a)
+reverseAsPrefixResult sym =
+  \case
+    LeftLonger p s -> pure (RightLonger p s)
+    RightLonger p s -> pure (LeftLonger p s)
+    Equal p -> pure (Equal p)
+    NotPrefix -> pure NotPrefix
+    Ite p l r -> do
+      p' <- notPred sym p
+      pure (Ite p' r l)
+
+andAsPrefixResult ::
+  IsExprBuilder sym =>
+  sym ->
+  Pred sym ->
+  AsPrefixResult sym a ->
+  IO (AsPrefixResult sym a)
+andAsPrefixResult sym l =
+  \case
+    LeftLonger r rest -> do
+      p <- andPred sym l r
+      pure (LeftLonger p rest)
+    RightLonger r rest -> do
+      p <- andPred sym l r
+      pure (RightLonger p rest)
+    Equal r -> do
+      p <- andPred sym l r
+      pure (Equal p)
+    NotPrefix -> pure NotPrefix
+    Ite p l' r' -> do
+      l'' <- andAsPrefixResult sym l l'
+      r'' <- andAsPrefixResult sym l r'
+      pure (Ite p l'' r'')
+
+eqSymSequencePrefix ::
+  IsExprBuilder sym =>
+  sym ->
+  (a -> a -> IO (Pred sym)) {- ^ equality function on values -} ->
+  (Pred sym -> a -> a -> IO a) {- ^ mux function on values -} ->
+  SymSequence sym a ->
+  SymSequence sym a ->
+  IO (AsPrefixResult sym a)
+eqSymSequencePrefix sym eq mux l r =
+  case (l, r) of
+    (SymSequenceNil, SymSequenceNil) -> pure (Equal (truePred sym))
+    (SymSequenceNil, SymSequenceCons {}) -> pure (RightLonger (truePred sym) r)
+    (SymSequenceCons {}, SymSequenceNil) -> pure (LeftLonger (truePred sym) l)
+    (SymSequenceMerge n _ _ _, SymSequenceMerge n' _ _ _) | n == n' ->
+      pure (Equal (truePred sym))
+    (SymSequenceMerge _ p t f, _) ->
+      eqIte p t f r
+    (_, SymSequenceMerge _ p t f) ->
+      eqIte p t f l
+    (SymSequenceCons n _ _, SymSequenceCons n' _ _) | n == n' ->
+      pure (Equal (truePred sym))
+    (SymSequenceCons _ x rest, SymSequenceCons _ x' rest') -> do
+      heads <- eq x x'
+      case asConstantPred heads of
+        Just False -> pure NotPrefix
+        _ -> do
+          tails <- eqSymSequencePrefix sym eq mux rest rest'
+          andAsPrefixResult sym heads tails
+    (SymSequenceAppend n _ _, SymSequenceAppend n' _ _) | n == n' ->
+      pure (Equal (truePred sym))
+    (SymSequenceAppend _ us vs, SymSequenceAppend _ xs ys) ->
+      eqAppend us vs xs ys
+    (SymSequenceNil, SymSequenceAppend _ xs ys) -> do
+      nilXs <- isNilSymSequence sym xs
+      nilYs <- isNilSymSequence sym ys
+      isNil <- andPred sym nilXs nilYs
+      -- pure (Equal isNil)
+      -- pure (RightLonger isNil r)
+      pure (Ite isNil (Equal (truePred sym)) (RightLonger (truePred sym) r))
+    (SymSequenceAppend {}, SymSequenceNil) ->
+      reverseAsPrefixResult sym =<<
+        eqSymSequencePrefix sym eq mux r l  -- above case
+    (SymSequenceCons _ x xs, SymSequenceAppend {}) -> do
+      mS <- unconsSymSequence sym mux r
+      case mS of
+        Unassigned -> pure NotPrefix
+        PE ok (y, ys) -> do
+          heads <- eq x y
+          valid <- andPred sym ok heads
+          tails <- eqSymSequencePrefix sym eq mux xs ys
+          andAsPrefixResult sym valid tails
+    (SymSequenceAppend {}, SymSequenceCons {}) ->
+      reverseAsPrefixResult sym =<<
+        eqSymSequencePrefix sym eq mux r l  -- above case
+  where
+    eqIte p t f s = do
+      t' <- eqSymSequencePrefix sym eq mux t s
+      f' <- eqSymSequencePrefix sym eq mux f s
+      pure (Ite p t' f')
+
+    eqAppend us vs xs ys =
+      eqSymSequencePrefix sym eq mux us xs >>=
+        appendPfx us vs xs ys
+
+    appendPfx us vs xs ys =
+      \case
+        NotPrefix ->
+          eqSymSequencePrefix sym eq mux l ys
+        Equal heads -> do
+          tails <- eqSymSequencePrefix sym eq mux vs ys
+          andAsPrefixResult sym heads tails
+        LeftLonger heads us' -> do
+          vs' <- appendSymSequence sym us' vs
+          tails <- eqSymSequencePrefix sym eq mux vs' ys
+          andAsPrefixResult sym heads tails
+        RightLonger heads xs' ->  do
+          ys' <- appendSymSequence sym xs' ys
+          tails <- eqSymSequencePrefix sym eq mux vs ys'
+          andAsPrefixResult sym heads tails
+        Ite p t f -> do
+          t' <- appendPfx us vs xs ys t
+          f' <- appendPfx us vs xs ys f
+          pure (Ite p t' f')
 
 newtype SeqTail sym tp =
   SeqTail
