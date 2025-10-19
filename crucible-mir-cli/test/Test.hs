@@ -46,4 +46,4 @@ testSimulator inFile outFile =
   do contents <- T.readFile inFile
      withFile outFile WriteMode $ \outh ->
        withMirHooks $ \ext hooks ->
-         simulateProgramWithExtension ext inFile contents outh Nothing z3Options hooks
+         simulateProgramWithExtension ext inFile contents outh Nothing z3Options hooks False []

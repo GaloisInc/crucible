@@ -47,7 +47,22 @@ profFile =
 
 simFile :: Opt.Parser SimCmd
 simFile =
-  SimCmd <$> input <*> Opt.optional output
+  SimCmd
+  <$> input
+  <*> Opt.optional output
+  <*> Opt.switch
+        (mconcat
+          [ Opt.long "debug"
+          , Opt.help "Run the Crucible debugger"
+          ])
+  <*> Opt.many
+        (Opt.strOption
+          (mconcat
+            [ Opt.long "debug-cmd"
+            , Opt.metavar "CMD"
+            , Opt.help "Command to pass to the Crucible debugger"
+            ]
+          ))
 
 parseCheck :: Opt.Parser CheckCmd
 parseCheck =
@@ -56,7 +71,7 @@ parseCheck =
 main ::
   (?parserHooks :: ParserHooks ext, IsSyntaxExtension ext) =>
   String ->
-  (forall sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) => bak -> IO (ExtensionImpl () sym ext)) ->
+  (forall p sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) => bak -> IO (ExtensionImpl p sym ext)) ->
   SimulateProgramHooks ext ->
   IO ()
 main name ext simulationHooks =

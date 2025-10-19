@@ -27,7 +27,7 @@ import Lang.Crucible.MIR.Syntax (emptyParserHooks, mirParserHooks)
 -- 'Lang.Crucible.CLI.execCommand'.
 withMirHooks ::
   ( (?parserHooks :: ParserHooks MIR) =>
-    (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym MIR)) ->
+    (forall p sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl p sym MIR)) ->
     SimulateProgramHooks MIR ->
     IO a) ->
   IO a

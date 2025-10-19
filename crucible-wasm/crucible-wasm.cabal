@@ -130,6 +130,7 @@ library
     bytestring,
     containers,
     crucible,
+    crucible-debug,
     crucible-llvm,
     crux,
     filepath,

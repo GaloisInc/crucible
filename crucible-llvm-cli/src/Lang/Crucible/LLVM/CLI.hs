@@ -67,7 +67,7 @@ tryBindTypedOverride hdl ov = do
 withLlvmHooks ::
   (forall w.
     (HasPtrWidth w, ?parserHooks :: ParserHooks LLVM) =>
-    (forall sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl () sym LLVM)) ->
+    (forall p sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl p sym LLVM)) ->
     SimulateProgramHooks LLVM ->
     IO a) ->
   IO a
