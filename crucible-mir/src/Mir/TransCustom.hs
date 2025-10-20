@@ -122,6 +122,9 @@ customOpDefs = Map.fromList $ [
                          , volatile_load
                          , volatile_write
                          , exact_div
+                         , intrinsics_offset
+                         , intrinsics_arith_offset
+                         , intrinsics_ptr_offset_from
 
                          , mem_transmute
                          , mem_bswap
@@ -1309,6 +1312,15 @@ slice_from_ref = slice_from Immut
 
 slice_from_mut ::  (ExplodedDefId, CustomRHS)
 slice_from_mut = slice_from Mut
+
+intrinsics_offset :: (ExplodedDefId, CustomRHS)
+intrinsics_offset = (["core", "intrinsics", "offset"], ptr_offset_impl)
+
+intrinsics_arith_offset :: (ExplodedDefId, CustomRHS)
+intrinsics_arith_offset = (["core", "intrinsics", "arith_offset"], ptr_wrapping_offset_impl)
+
+intrinsics_ptr_offset_from :: (ExplodedDefId, CustomRHS)
+intrinsics_ptr_offset_from = (["core", "intrinsics", "ptr_offset_from"], ptr_offset_from_impl)
 
 
 -------------------------------------------------------------------------------------------------------
