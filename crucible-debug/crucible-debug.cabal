@@ -85,7 +85,6 @@ common shared
     -Werror=unrecognised-warning-flags
     -Werror=unsupported-calling-conventions
     -Werror=unsupported-llvm-version
-    -Werror=unticked-promoted-constructors
     -Werror=unused-do-bind
     -Werror=unused-imports
     -Werror=unused-record-wildcards
@@ -172,7 +171,7 @@ test-suite crucible-debug-tests
     tasty,
     tasty-golden,
     text,
- 
+
 executable crucible-debug
   import: shared
   hs-source-dirs: app

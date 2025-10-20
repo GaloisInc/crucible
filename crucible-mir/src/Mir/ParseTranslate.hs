@@ -33,7 +33,7 @@ import Mir.Mir (Collection(..), namedTys, version)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
-import Mir.Generator(RustModule(..),CollectionState(..), collection)
+import Mir.Generator(RustModule(..))
 import Mir.Trans(transCollection)
 import qualified Mir.TransCustom as Mir (customOps)
 
@@ -54,10 +54,10 @@ parseMIR path f = do
   case c of
       Left msg -> fail $ "JSON Decoding of " ++ path ++ " failed: " ++ msg
       Right col -> do
-        unless (col^.version == supportedSchemaVersion) $
+        unless (col ^. version == supportedSchemaVersion) $
           fail $ unlines
             [ path ++ " uses an unsupported mir-json schema version: "
-                   ++ show (col^. version)
+                   ++ show (col ^. version)
             , "This crux-mir release only supports schema version "
               ++ show supportedSchemaVersion ++ "."
             , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
@@ -80,7 +80,7 @@ uninternMir col =
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
     -- other values.  This should be okay: the original `rustc::ty::Ty`s are
     -- acyclic, so the entries in `tyMap` should be too.
-    tyMap = fmap (uninternTys unintern) (col^.namedTys)
+    tyMap = fmap (uninternTys unintern) (col ^. namedTys)
     unintern name = case M.lookup name tyMap of
         Nothing -> error $ "missing " ++ show name ++ " in type map"
         Just (ty, _) -> ty

@@ -28,8 +28,6 @@
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.Intrinsics
@@ -51,32 +49,22 @@ module Mir.Intrinsics
 , mirExtImpl
 ) -} where
 
-import           GHC.Natural
 import           GHC.Stack
 import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
-import           Control.Exception (throwIO)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.State.Strict
-import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
 import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import           Data.Map.Strict(Map)
-import qualified Data.Map.Strict as Map
-import           Data.Text (Text)
-import qualified Data.Text as Text
-import           Data.String
 import qualified Data.Vector as V
 import           Data.Word
 
 import           Prettyprinter
-import qualified Text.Regex as Regex
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
@@ -94,7 +82,6 @@ import           Lang.Crucible.Panic
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
-import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
@@ -102,21 +89,11 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
-import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial
     (PartExpr, pattern Unassigned, maybePartExpr, justPartExpr, joinMaybePE, mergePartial, mkPE)
-import           What4.Utils.MonadST
-
-import           Mir.DefId
-import           Mir.Mir
-import           Mir.PP
 
 import           Mir.FancyMuxTree
-
-import           Debug.Trace
-
-import           Unsafe.Coerce
 
 
 
@@ -364,7 +341,7 @@ pattern MirReferenceRepr <-
 
 type family MirReferenceFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirReferenceFam sym EmptyCtx = MirReferenceMux sym
-  MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" ':<>:
+  MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" :<>:
                                        'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MirReferenceSymbol where
   type Intrinsic sym MirReferenceSymbol ctx = MirReferenceFam sym ctx
@@ -664,7 +641,7 @@ pattern MirAggregateRepr <-
 type family MirAggregateFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirAggregateFam sym EmptyCtx = MirAggregate sym
   MirAggregateFam sym ctx = TypeError
-    ('Text "MirAggregateType expects no arguments, but was given" ':<>: 'ShowType ctx)
+    ('Text "MirAggregateType expects no arguments, but was given" :<>: 'ShowType ctx)
 
 instance IsSymInterface sym => IntrinsicClass sym MirAggregateSymbol where
   type Intrinsic sym MirAggregateSymbol ctx = MirAggregateFam sym ctx
@@ -975,7 +952,7 @@ pattern MirVectorRepr tp <-
 
 type family MirVectorFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirVectorFam sym (EmptyCtx ::> tp) = MirVector sym tp
-  MirVectorFam sym ctx = TypeError ('Text "MirVector expects a single argument, but was given" ':<>:
+  MirVectorFam sym ctx = TypeError ('Text "MirVector expects a single argument, but was given" :<>:
                                        'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MirVectorSymbol where
   type Intrinsic sym MirVectorSymbol ctx = MirVectorFam sym ctx
@@ -2381,8 +2358,8 @@ mirRef_indexAndLenSim ::
 mirRef_indexAndLenSim ref = do
   ovrWithBackend $ \bak ->
     do s <- get
-       let gs = s^.stateTree.actFrame.gpGlobals
-       let iTypes = ctxIntrinsicTypes $ s^.stateContext
+       let gs = s ^. stateTree.actFrame.gpGlobals
+       let iTypes = ctxIntrinsicTypes $ s ^. stateContext
        liftIO $ mirRef_indexAndLenIO bak gs iTypes ref
 
 
@@ -2476,10 +2453,10 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirAggregate_Set off sz tpr (regValue -> rv) (regValue -> ag) -> do
             readOnly s $ mirAggregate_setIO bak off sz tpr rv ag
   where
-    gs = s^.stateTree.actFrame.gpGlobals
-    ctx = s^.stateContext
+    gs = s ^. stateTree.actFrame.gpGlobals
+    ctx = s ^. stateContext
     iTypes = ctxIntrinsicTypes ctx
-    sym = ctx^.ctxSymInterface
+    sym = ctx ^. ctxSymInterface
     halloc = simHandleAllocator ctx
 
     mkRef :: MirReference sym -> MirReferenceMux sym
@@ -2571,8 +2548,8 @@ readMirRefSim :: IsSymInterface sym =>
 readMirRefSim tpr ref =
    ovrWithBackend $ \bak ->
    do s <- get
-      let gs = s^.stateTree.actFrame.gpGlobals
-      let iTypes = ctxIntrinsicTypes $ s^.stateContext
+      let gs = s ^. stateTree.actFrame.gpGlobals
+      let iTypes = ctxIntrinsicTypes $ s ^. stateContext
       liftIO $ readMirRefIO bak gs iTypes tpr ref
 
 readMirRefIO ::
@@ -2594,8 +2571,8 @@ writeMirRefSim ::
     OverrideSim m sym MIR rtp args ret ()
 writeMirRefSim tpr ref x = do
     s <- get
-    let gs0 = s^.stateTree.actFrame.gpGlobals
-    let iTypes = ctxIntrinsicTypes $ s^.stateContext
+    let gs0 = s ^. stateTree.actFrame.gpGlobals
+    let iTypes = ctxIntrinsicTypes $ s ^. stateContext
     ovrWithBackend $ \bak -> do
       gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes tpr ref x
       put $ s & stateTree.actFrame.gpGlobals .~ gs1
@@ -2861,7 +2838,7 @@ pattern MethodSpecRepr <-
 type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MethodSpecFam sym EmptyCtx = MethodSpec sym
   MethodSpecFam sym ctx = TypeError
-    ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
+    ('Text "MethodSpecType expects no arguments, but was given" :<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
   type Intrinsic sym MethodSpecSymbol ctx = MethodSpecFam sym ctx
 
@@ -2901,7 +2878,7 @@ pattern MethodSpecBuilderRepr <-
 type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
   MethodSpecBuilderFam sym ctx = TypeError
-    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
+    ('Text "MethodSpecBuilderType expects no arguments, but was given" :<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
   type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
 
