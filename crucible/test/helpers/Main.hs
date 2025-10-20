@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-module Main where
+
+module Main (main) where
 
 import Control.Lens ((^.))
 import Data.List (isInfixOf)
@@ -26,9 +27,12 @@ import qualified What4.ProgramLoc as W4P
 
 import qualified Panic as P
 
+import qualified SymSequence as S
+
 main :: IO ()
-main =
-  defaultMain =<< panicTests
+main = do
+  p <- panicTests
+  defaultMain (testGroup "crucible" [p, backendTests, S.tests])
 
 mkBackend :: IO (Some SomeBackend)
 mkBackend = do
@@ -81,7 +85,7 @@ backendTests =
       c <- W4I.freshConstant sym (W4I.safeSymbol "c") W4I.BaseBoolRepr
       assumePred bak "assuming c" c
       d <- W4I.freshConstant sym (W4I.safeSymbol "d") W4I.BaseBoolRepr
-      LCB.assert bak c (GenericSimError "asserting d")
+      LCB.assert bak d (GenericSimError "asserting d")
       (_asmps, mbGoals) <- LCB.popAssumptionFrameAndObligations bak frm
       [LCB.ProofGoal asmps gl] <- pure (fromMaybe [] (LCB.goalsToList <$> mbGoals))
       asmpsPred <- LCB.assumptionsPred sym asmps

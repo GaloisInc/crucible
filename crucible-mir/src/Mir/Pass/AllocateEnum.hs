@@ -18,7 +18,7 @@ module Mir.Pass.AllocateEnum
 
 import Control.Lens hiding (op)
 import qualified Data.Text as T
-import Data.List
+import qualified Data.List as List
 
 import Mir.DefId
 import Mir.Mir
@@ -57,14 +57,21 @@ data FieldUpdate = FieldUpdate { adtLvalue :: Lvalue,
 
 
 lookupAdt :: (?col :: Collection) => DefId -> Maybe Adt
-lookupAdt defid = find (\adt -> _adtname adt == defid) (?col^.adts)
+lookupAdt defid = List.find (\adt -> _adtname adt == defid) (?col ^. adts)
 
 
 isAdtFieldUpdate :: Statement -> Maybe FieldUpdate
 isAdtFieldUpdate stmt =
   case stmt ^. stmtKind of
-    Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs) ->
-      Just (FieldUpdate lv j i ty rhs (stmt ^. stmtPos))
+    Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs') ->
+      Just $ FieldUpdate
+               { adtLvalue = lv
+               , discr = j
+               , fieldNum = i
+               , fieldTy = ty
+               , rhs = rhs'
+               , upos = stmt ^. stmtPos
+               }
     _ ->
       Nothing
 
@@ -89,23 +96,22 @@ makeAggregate updates (lv, k, adt) =
       { _stmtKind = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty Nothing))
       , _stmtPos = pos
       } where
-  adt_did = _adtname adt
   ty  = typeOf lv
   pos = case updates of
           u:_ -> upos u
           []  -> "internal"
-  ops = map rhs $ sortOn fieldNum updates
+  ops = map rhs $ List.sortOn fieldNum updates
 
 findAllocEnum :: (?col :: Collection) => [Statement] -> Maybe ( Statement, [Statement] )
-findAllocEnum ss = f ss [] where
-  f []     updates = Nothing
+findAllocEnum ss0 = f ss0 [] where
+  f []     _updates = Nothing
   f (s:ss) updates | Just (lv,i,adt) <- isSetDiscriminant s
                    = Just (makeAggregate updates (lv,i,adt), ss)
                    | Just fd         <- isAdtFieldUpdate  s  = f ss (fd : updates)
                    | otherwise                               = Nothing
 
 pcr :: HasCallStack => (?col :: Collection) => BasicBlock -> BasicBlock
-pcr (BasicBlock inf (BasicBlockData stmts term)) = BasicBlock inf (BasicBlockData (go stmts) term) where
+pcr (BasicBlock inf (BasicBlockData stmts0 term)) = BasicBlock inf (BasicBlockData (go stmts0) term) where
    go :: [Statement] -> [Statement]
    go [] = []
    go stmtss@(stmt:stmts)

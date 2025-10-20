@@ -1,19 +1,28 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.Wasm.Main where
 
+import qualified Control.Lens as Lens
+import Data.Void (Void)
 import System.Exit
 import System.FilePath (takeExtension)
 import System.IO
 
 import qualified Data.ByteString.Lazy as LBS
 
+import qualified Data.Parameterized.Map as MapF
+
 import Lang.Crucible.Backend
 import Lang.Crucible.Types
 import Lang.Crucible.Simulator
 import Lang.Crucible.FunctionHandle
+
+import qualified Lang.Crucible.Debug as Debug
 
 import Lang.Crucible.LLVM.MemModel
 
@@ -39,8 +48,20 @@ cruxWasmConfig = Crux.Config
   , Crux.cfgCmdLineFlag = []
   }
 
+-- | Personality (see
+-- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+newtype Personality sym
+  = Personality { getPersonality :: Debug.Context Void sym WasmExt UnitType }
+
+instance Debug.HasContext (Personality sym) Void sym WasmExt UnitType where
+  context = Lens.lens getPersonality (const Personality)
+  {-# INLINE context #-}
+
 setupWasmState :: (IsSymBackend sym bak) =>
-  bak -> MemOptions -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
+  bak ->
+  MemOptions ->
+  Wasm.Script ->
+  IO (ExecState (Personality sym) sym WasmExt (RegEntry sym UnitType))
 setupWasmState bak memOptions s =
   do halloc <- newHandleAllocator
 
@@ -48,7 +69,17 @@ setupWasmState bak memOptions s =
      let ?memOpts = memOptions
      let globals = emptyGlobals
      let bindings = emptyHandleMap
-     let simctx = initSimContext bak wasmIntrinsicTypes halloc stdout (FnBindings bindings) (extImpl memOptions) Crux.CruxPersonality
+     let cExts = Debug.voidExts
+     inps <- Debug.defaultDebuggerInputs cExts
+     dbgCtx <-
+       Debug.initCtx
+         cExts
+         (Debug.IntrinsicPrinters MapF.empty)
+         inps
+         Debug.defaultDebuggerOutputs
+         UnitRepr
+     let p = Personality dbgCtx
+     let simctx = initSimContext bak wasmIntrinsicTypes halloc stdout (FnBindings bindings) (extImpl memOptions) p
      let m = execScript s emptyScriptState >> pure ()
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))

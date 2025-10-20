@@ -1,17 +1,23 @@
 -- | Command line interface to crucible-go
+{-# Language FlexibleInstances #-}
 {-# Language ImplicitParams #-}
+{-# Language MultiParamTypeClasses #-}
 {-# Language OverloadedStrings #-}
 
-module Main where
+module Main (main) where
 
+import qualified Control.Lens as Lens
 import qualified Data.ByteString.Lazy as BS
-
+import Data.Void (Void)
 import System.Exit (exitWith)
 
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 
 -- crucible/crucible
 import Lang.Crucible.Simulator
+import qualified Lang.Crucible.Debug as Debug
+import qualified Lang.Crucible.Types as CT
 
 -- crux
 import qualified Crux
@@ -24,9 +30,6 @@ import Lang.Crucible.Go.Simulate (setupCrucibleGoCrux)
 import Lang.Crucible.Go.Types
 import Paths_crucible_go (version)
 
--- | A simulator context
-type SimCtxt sym = SimContext (Crux.Crux sym) sym Go
-
 data GoOptions = GoOptions { }
 
 defaultOptions :: GoOptions
@@ -38,6 +41,15 @@ cruxGoConfig = Crux.Config
   , Crux.cfgEnv = []
   , Crux.cfgCmdLineFlag = []
   }
+
+-- | Personality (see
+-- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+newtype Personality sym
+  = Personality { getPersonality :: Debug.Context Void sym Go CT.UnitType }
+
+instance Debug.HasContext (Personality sym) Void sym Go CT.UnitType where
+  context = Lens.lens getPersonality (const Personality)
+  {-# INLINE context #-}
 
 simulateGo ::
   Crux.CruxOptions ->
@@ -62,9 +74,20 @@ simulateGo copts _opts =
               -- Initialize arguments to the function
               let regmap = RegMap Ctx.Empty
 
+              let cExts = Debug.voidExts
+              inps <- Debug.defaultDebuggerInputs cExts
+              dbgCtx <-
+                Debug.initCtx
+                  cExts
+                  (Debug.IntrinsicPrinters MapF.empty)
+                  inps
+                  Debug.defaultDebuggerOutputs
+                  CT.UnitRepr
+              let p = Personality dbgCtx
+
               -- Set up initial crucible execution state
               Crux.RunnableState <$>
-                setupCrucibleGoCrux 32 fwi verbosity sym Crux.CruxPersonality regmap
+                setupCrucibleGoCrux 32 fwi verbosity sym p regmap
 
         -- TODO add failure explanations
         , Crux.onErrorHook = \_sym -> return (\_ _ -> return mempty)

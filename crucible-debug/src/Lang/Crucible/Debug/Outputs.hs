@@ -13,7 +13,7 @@ module Lang.Crucible.Debug.Outputs
   , lift
   , accumulate
   , hPutStrLn
-  , pretty
+  , prettyOut
   , defaultDebuggerOutputs
   ) where
 
@@ -41,16 +41,16 @@ accumulate r = Outputs (IORef.modifyIORef r . (:))
 hPutStrLn :: Handle -> Outputs IO Text
 hPutStrLn hOut = Outputs (IO.hPutStrLn hOut)
 
-pretty ::
+prettyOut ::
   PP.Pretty a =>
   Handle ->
   PP.LayoutOptions ->
   Outputs IO a
-pretty hOut opts =
+prettyOut hOut opts =
   Outputs (PP.renderIO hOut . PP.layoutPretty opts . (PP.<> "\n") . PP.pretty)
 
 defaultDebuggerOutputs ::
   PP.Pretty cExt =>
   PP.Pretty (ResponseExt cExt) =>
   Outputs IO (Response cExt)
-defaultDebuggerOutputs = pretty stdout PP.defaultLayoutOptions
+defaultDebuggerOutputs = prettyOut stdout PP.defaultLayoutOptions

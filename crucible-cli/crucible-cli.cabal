@@ -84,7 +84,6 @@ common shared
     -Werror=unrecognised-warning-flags
     -Werror=unsupported-calling-conventions
     -Werror=unsupported-llvm-version
-    -Werror=unticked-promoted-constructors
     -Werror=unused-do-bind
     -Werror=unused-imports
     -Werror=unused-record-wildcards
@@ -117,6 +116,7 @@ library
     base >= 4.13,
     containers,
     crucible >= 0.1,
+    crucible-debug,
     crucible-syntax,
     lens,
     megaparsec >= 7.0 && < 9.7,

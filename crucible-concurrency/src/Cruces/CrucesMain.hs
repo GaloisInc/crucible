@@ -34,7 +34,6 @@ import Lang.Crucible.CFG.SSAConversion
 
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
-import Lang.Crucible.Syntax.ExprParse (printSyntaxError)
 import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.Analysis.Postdom
@@ -55,7 +54,6 @@ import Text.Read (readMaybe)
 
 import Crucibles.Primitives
 import Crucibles.DPOR (DPOR)
-import Crucibles.ExploreTypes
 import Cruces.ExploreCrux
 
 data CrucesOptions = CrucesOptions
@@ -129,9 +127,9 @@ run (cruxOpts, opts) =
                   (IsSymBackend s bak, IsExprBuilder s) =>
                   bak ->
                   IO ( FnVal s Ctx.EmptyCtx C.UnitType
-                     , ExplorePrimitives (ThreadExec DPOR s () C.UnitType) s ()
+                     , ExplorePrimitives (CruxPersonality DPOR () C.UnitType s) s ()
                      , [Some GlobalVar]
-                     , FunctionBindings (ThreadExec DPOR s () C.UnitType) s ()
+                     , FunctionBindings (CruxPersonality DPOR () C.UnitType s) s ()
                      )
                 mkSym _bak =
                   do exploreBuiltins <- mkExplorePrims ha (pedantic opts) (Some nonceGen)

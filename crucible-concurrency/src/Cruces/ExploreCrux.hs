@@ -5,14 +5,23 @@ Copyright        : (c) Galois, Inc 2021
 Maintainer       : Alexander Bakst <abakst@galois.com>
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Cruces.ExploreCrux where
+module Cruces.ExploreCrux
+  ( CruxPersonality
+  , mkCruxPersonality
+  , exploreCallback
+  , exploreOvr
+  ) where
 
 import           Control.Monad.IO.Class
 import           Control.Monad (when)
@@ -20,12 +29,15 @@ import           Control.Lens
 import           Data.Generics.Product.Fields (field, setField)
 import qualified Data.Vector as V
 import qualified Data.Map.Strict as Map
+import           Data.Void (Void)
 import           System.IO (Handle)
 
 import           What4.Interface
 import           What4.Config
 
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
+import qualified Lang.Crucible.Debug as Debug
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.Simulator
@@ -46,6 +58,60 @@ import           Crucibles.Common
 import           Crux.Goal (proveGoalsOnline)
 import           Crux.Types (totalProcessedGoals, provedGoals)
 
+
+-- | A Crucible personality type
+-- (see 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+-- suitable for use with @crucible-concurrency@ and Crux.
+data CruxPersonality alg ext ret sym
+  = CruxPersonality
+    { _pExploration :: Exploration (CruxPersonality alg ext ret sym) alg ext ret sym
+    , _pDbgContext :: Debug.Context Void sym ext ret
+    }
+makeLenses ''CruxPersonality
+
+instance HasExploration (CruxPersonality alg ext ret sym) alg ext ret sym where
+  exploration = pExploration
+  {-# INLINE exploration #-}
+
+instance Debug.HasContext (CruxPersonality alg ext ret sym) Void sym ext ret where
+  context = pDbgContext
+  {-# INLINE context #-}
+
+mkCruxPersonality ::
+  SchedulingAlgorithm alg =>
+  IsExpr (SymExpr sym) =>
+  IO (CruxPersonality alg ext C.UnitType sym)
+mkCruxPersonality = do
+  let cExts = Debug.voidExts
+  inps <- Debug.defaultDebuggerInputs cExts
+  dbgCtx <-
+    Debug.initCtx
+      cExts
+      (Debug.IntrinsicPrinters MapF.empty)
+      inps
+      Debug.defaultDebuggerOutputs
+      C.UnitRepr
+  pure (CruxPersonality emptyExploration dbgCtx)
+  where
+    emptyExploration ::
+      SchedulingAlgorithm alg =>
+      Exploration p alg ext C.UnitType sym
+    emptyExploration =
+      Exploration
+      { _exec      = initialExecutions
+      , _scheduler = s0
+      , _schedAlg  = initialAlgState
+      , _num       = 0
+      , _gVars     = mempty
+      }
+      where
+        s0 = Scheduler { _threads      = V.fromList [EmptyThread]
+                       , _retRepr      = C.UnitRepr
+                       , mainCont      = return ()
+                       , _activeThread = 0
+                       , _numSwitches  = 0
+                       }
+
 -- | Callback for crucible-syntax exploration
 exploreCallback :: forall alg st.
   (?bound::Int, SchedulingAlgorithm alg) =>
@@ -57,9 +123,9 @@ exploreCallback :: forall alg st.
    IsSymBackend s bak =>
    bak ->
         IO ( FnVal s Ctx.EmptyCtx C.UnitType
-           , ExplorePrimitives (ThreadExec alg s () C.UnitType) s ()
+           , ExplorePrimitives (CruxPersonality alg () C.UnitType s) s ()
            , [Some C.GlobalVar]
-           , FunctionBindings (ThreadExec alg s () C.UnitType) s ())
+           , FunctionBindings (CruxPersonality alg () C.UnitType s) s ())
            ) ->
   Crux.SimulatorCallbacks Crux.CruxLogMessage st Crux.Types.CruxSimulationResult
 exploreCallback cruxOpts ha outh mkSym =
@@ -70,8 +136,8 @@ exploreCallback cruxOpts ha outh mkSym =
         { Crux.setupHook =
             \bak symOnline ->
               do (mainHdl, prims, globs, fns) <- mkSym bak
-                 let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
-
+                 p <- mkCruxPersonality 
+                 let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl p
                      st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
                                 runOverrideSim
                                   C.UnitRepr
@@ -88,34 +154,18 @@ exploreCallback cruxOpts ha outh mkSym =
         , Crux.resultHook = \_bak result -> return result
         }
 
-
--- | Empty exploration state
-emptyExploration :: SchedulingAlgorithm alg => Exploration alg ext C.UnitType sym
-emptyExploration = Exploration { _exec      = initialExecutions
-                               , _scheduler = s0
-                               , _schedAlg  = initialAlgState
-                               , _num       = 0
-                               , _gVars     = mempty
-                               }
-  where
-    s0 = Scheduler { _threads      = V.fromList [EmptyThread]
-                   , _retRepr      = C.UnitRepr
-                   , mainCont      = return ()
-                   , _activeThread = 0
-                   , _numSwitches  = 0
-                   }
-
 -- | Wrap an override to produce a NEW override that will explore the executions of a concurrent program.
 -- Must also use the 'scheduleFeature' 'ExecutionFeature'
-exploreOvr :: forall sym bak ext alg ret rtp msgs.
+exploreOvr :: forall sym bak ext alg ret rtp msgs p.
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
   (?bound::Int, IsSymBackend sym bak, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
+  HasExploration (p sym) alg ext ret sym =>
   bak ->
   Maybe (Crux.SomeOnlineSolver sym bak) ->
   Crux.CruxOptions ->
-  (forall rtp'. OverrideSim (Exploration alg ext ret sym) sym ext rtp' Ctx.EmptyCtx ret (RegValue sym ret)) ->
-  OverrideSim (Exploration alg ext ret sym) sym ext rtp Ctx.EmptyCtx ret (RegValue sym ret)
+  (forall rtp'. OverrideSim (p sym) sym ext rtp' Ctx.EmptyCtx ret (RegValue sym ret)) ->
+  OverrideSim (p sym) sym ext rtp Ctx.EmptyCtx ret (RegValue sym ret)
 exploreOvr bak symOnline cruxOpts mainAct =
   do assmSt  <- liftIO $ saveAssumptionState bak
      verbOpt <- liftIO $ getOptionSetting verbosity $ getConfiguration sym
@@ -128,13 +178,13 @@ exploreOvr bak symOnline cruxOpts mainAct =
     loop ::
       Int ->
       AssumptionState sym ->
-      forall r. OverrideSim (Exploration alg ext ret sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
+      forall r. OverrideSim (p sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
     loop verb assmSt =
       do reset verb assmSt
          exploreAPath
          retH verb assmSt
 
-    checkGoals :: forall r. OverrideSim (Exploration alg ext ret sym) sym ext r Ctx.EmptyCtx ret Bool
+    checkGoals :: forall r. OverrideSim (p sym) sym ext r Ctx.EmptyCtx ret Bool
     checkGoals =
       Crux.withCruxLogMessage $
       case symOnline of
@@ -150,7 +200,7 @@ exploreOvr bak symOnline cruxOpts mainAct =
            return provedAll
       Nothing -> return True
 
-    retH :: Int -> AssumptionState sym -> forall r. OverrideSim (Exploration alg ext ret sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
+    retH :: Int -> AssumptionState sym -> forall r. OverrideSim (p sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
     retH verb assmSt =
      do stateExpl.num %= (+1)
         exc          <- use stateExec
@@ -170,10 +220,10 @@ exploreOvr bak symOnline cruxOpts mainAct =
         else
           loop verb assmSt
 
-    exploreAPath :: forall r. OverrideSim (Exploration alg ext ret sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
+    exploreAPath :: forall r. OverrideSim (p sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
     exploreAPath = mainAct
 
-    reset ::  Int -> AssumptionState sym -> forall r. OverrideSim (Exploration alg ext ret sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
+    reset ::  Int -> AssumptionState sym -> forall r. OverrideSim (p sym) sym ext r Ctx.EmptyCtx ret (RegValue sym ret)
     reset verb assmSt =
       do stateExec.currentEventID .= 0
          -- Reset scheduler state

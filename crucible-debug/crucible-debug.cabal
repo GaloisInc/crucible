@@ -85,7 +85,6 @@ common shared
     -Werror=unrecognised-warning-flags
     -Werror=unsupported-calling-conventions
     -Werror=unsupported-llvm-version
-    -Werror=unticked-promoted-constructors
     -Werror=unused-do-bind
     -Werror=unused-imports
     -Werror=unused-record-wildcards
@@ -150,6 +149,8 @@ library
     Lang.Crucible.Debug.Complete
     Lang.Crucible.Debug.Context
     Lang.Crucible.Debug.Eval
+    Lang.Crucible.Debug.Override
+    Lang.Crucible.Debug.Personality
     Lang.Crucible.Debug.Regex
     Lang.Crucible.Debug.Response
     Lang.Crucible.Debug.Statement
@@ -170,7 +171,7 @@ test-suite crucible-debug-tests
     tasty,
     tasty-golden,
     text,
- 
+
 executable crucible-debug
   import: shared
   hs-source-dirs: app

@@ -17,7 +17,6 @@ module Mir.Overrides (bindFn, getString) where
 import Control.Lens ((^?), (.=), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.State (get)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
@@ -43,20 +42,17 @@ import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
 
 import What4.Config( getOpt, setOpt, getOptionSetting )
-import What4.Expr.GroundEval
-    (GroundValue, GroundEvalFn(..), GroundArray(..), groundToSym)
-import What4.FunctionName (FunctionName, functionNameFromText)
+import What4.Expr.GroundEval (GroundEvalFn(..), groundToSym)
+import What4.FunctionName (functionNameFromText)
 import What4.Interface
 import What4.Partial (PartExpr, pattern PE, pattern Unassigned)
 import What4.Protocol.Online ( checkWithAssumptionsAndModel )
 import What4.SatResult (SatResult(..))
 
-import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
     ( CrucibleAssumption(..), IsSymBackend, addAssumption
     , assert, getPathCondition, addFailedAssertion, IsSymInterface
-    , singleEvent, addAssumptions, CrucibleEvent(..), backendGetSym
-    , throwUnsupported, LabeledPred(..), addProofObligation )
+    , backendGetSym, throwUnsupported, LabeledPred(..), addProofObligation )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core
     ( CFG, GlobalVar(..), cfgArgTypes, cfgHandle, cfgReturnType
@@ -90,7 +86,6 @@ getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
 getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
     let w = knownNat @8
     sym <- lift getSymInterface
-    state <- get
     len <- readBV lenExpr
     bytes <- forM [0 .. len - 1] $ \i -> do
         iExpr <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat i)
@@ -121,7 +116,7 @@ makeSymbolicVar btpr =
     strrepr = knownRepr
 
 array_symbolic ::
-  forall sym rtp btp p .
+  forall sym btp p .
   (IsSymInterface sym) =>
   BaseTypeRepr btp ->
   TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (UsizeArrayType btp)
@@ -162,7 +157,7 @@ concretize (Just (SomeOnlineSolver bak)) = do
           let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
               evalBase btr v = evalGround v >>= groundToSym sym btr
 
-          regEval bak (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
+          regEval bak (\btpr expr -> liftIO $ evalBase btpr expr) tpr val
 
         -- If the current path condition is not satisfiable, then return the
         -- original argument unchanged. This is fine to do since the path will
@@ -194,7 +189,7 @@ regEval ::
     TypeRepr tp ->
     RegValue sym tp ->
     OverrideSim p sym MIR rtp args ret (RegValue sym tp)
-regEval bak baseEval tpr v = go tpr v
+regEval bak baseEval = go
   where
     sym = backendGetSym bak
 
@@ -207,11 +202,9 @@ regEval bak baseEval tpr v = go tpr v
     -- evaluating lookups at every index inside the slice bounds.
     go MirSliceRepr (Empty :> RV ptr :> RV len) = do
         let MirReferenceMux mux = ptr
-        ref <- goMuxTreeEntries tpr (viewFancyMuxTree mux)
+        ref <- goMuxTreeEntries MirSliceRepr (viewFancyMuxTree mux)
         case ref of
             MirReference tpr _ _ -> do
-                state <- get
-
                 len' <- go UsizeRepr len
                 let lenBV = BV.asUnsigned $
                             fromMaybe (error "regEval produced non-concrete BV") $
@@ -242,7 +235,7 @@ regEval bak baseEval tpr v = go tpr v
                 let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
                 len' <- go UsizeRepr len
                 return $ Empty :> RV ptr' :> RV len'
-    go (FloatRepr fi) v = pure v
+    go (FloatRepr _fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
     go UnitRepr () = pure ()
     go CharRepr c = pure c
@@ -251,7 +244,7 @@ regEval bak baseEval tpr v = go tpr v
     go (VectorRepr tpr) vec = traverse (go tpr) vec
     go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
     go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
-    go (ReferenceRepr _tpr) v = do
+    go tpr@(ReferenceRepr _tpr) v = do
         -- Can't use `collapseMuxTree` here since it's in the IO monad, not
         -- OverrideSim.
         rc <- goMuxTreeEntries tpr (viewMuxTree v)
@@ -260,7 +253,7 @@ regEval bak baseEval tpr v = go tpr v
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
     go MirReferenceRepr (MirReferenceMux mux) = do
-        ref <- goMuxTreeEntries tpr (viewFancyMuxTree mux)
+        ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
         ref' <- case ref of
             MirReference tpr root path ->
                 MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
@@ -278,7 +271,7 @@ regEval bak baseEval tpr v = go tpr v
     go MirAggregateRepr (MirAggregate sz m) =
         MirAggregate sz <$> mapM goMirAggregateEntry m
     -- TODO: StringMapRepr
-    go tpr v = throwUnsupported sym $
+    go tpr _v = throwUnsupported sym $
           "evaluation of " ++ show tpr ++ " is not yet implemented"
 
     go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' ->
@@ -291,11 +284,12 @@ regEval bak baseEval tpr v = go tpr v
     goFnVal args ret (ClosureFnVal fv tpr v) =
         ClosureFnVal <$> goFnVal (args :> tpr) ret fv <*> pure tpr <*> go tpr v
     goFnVal _ _ (HandleFnVal fh) = pure $ HandleFnVal fh
+    goFnVal _ _ (VarargsFnVal fh addlArgs) = pure $ VarargsFnVal fh addlArgs
 
     goPartExpr :: forall tp' . TypeRepr tp' ->
         PartExpr (Pred sym) (RegValue sym tp') ->
         OverrideSim p sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym tp'))
-    goPartExpr tpr Unassigned = pure Unassigned
+    goPartExpr _tpr Unassigned = pure Unassigned
     goPartExpr tpr (PE p v) = PE <$> baseEval BaseBoolRepr p <*> go tpr v
 
     goVariantBranch :: forall tp' . TypeRepr tp' ->
@@ -306,11 +300,11 @@ regEval bak baseEval tpr v = go tpr v
     goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
         [(a, Pred sym)] ->
         OverrideSim p sym MIR rtp args ret a
-    goMuxTreeEntries tpr [] = liftIO $ addFailedAssertion bak $ GenericSimError $
+    goMuxTreeEntries _tpr [] = liftIO $ addFailedAssertion bak $ GenericSimError $
         "empty or incomplete mux tree?"
-    goMuxTreeEntries tpr ((x, pred) : xs) = do
-        pred' <- baseEval BaseBoolRepr pred
-        case asConstantPred pred' of
+    goMuxTreeEntries tpr ((x, p) : xs) = do
+        p' <- baseEval BaseBoolRepr p
+        case asConstantPred p' of
             Just True -> return x
             Just False -> goMuxTreeEntries tpr xs
             Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
@@ -411,6 +405,8 @@ regEval bak baseEval tpr v = go tpr v
         VectorAsMirVector_RefPath tpr <$> goMirReferencePath p
     goMirReferencePath (ArrayAsMirVector_RefPath tpr p) =
         ArrayAsMirVector_RefPath tpr <$> goMirReferencePath p
+    goMirReferencePath (AgElem_RefPath off sz tpr p) =
+        AgElem_RefPath off sz tpr <$> goMirReferencePath p
 
     goMirAggregateEntry ::
         MirAggregateEntry sym ->
@@ -485,18 +481,18 @@ bindFn symOnline cs name cfg
     mkOverride' "print_str" UnitRepr $ do
         RegMap (Empty :> RegEntry _ strRef) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
-            Just x -> return x
+            Just str -> return str
             Nothing -> fail "print_str: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str
 
   | hasInstPrefix ["crucible", "dump_what4"] explodedName
-  , Empty :> MirSliceRepr :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
+  , Empty :> MirSliceRepr :> (asBaseType -> AsBaseType _btpr) <- cfgArgTypes cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "dump_what4" UnitRepr $ do
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
-            Just x -> return x
+            Just str -> return str
             Nothing -> fail $ "dump_what4: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
 
@@ -507,7 +503,7 @@ bindFn symOnline cs name cfg
     mkOverride' "dump_rv" UnitRepr $ do
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
-            Just x -> return x
+            Just str -> return str
             Nothing -> fail "dump_rv: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV @sym tpr expr
 
@@ -526,10 +522,9 @@ bindFn symOnline cs name cfg
 
 bindFn _symOnline _cs fn cfg =
   ovrWithBackend $ \bak ->
-  let s = backendGetSym bak in
   case Map.lookup (textIdKey fn) (overrides bak) of
     Nothing -> bindCFG cfg
-    Just (SomeTypedOverride o@(TypedOverride f argTys retTy)) ->
+    Just (SomeTypedOverride o@(TypedOverride _f argTys retTy)) ->
       case (,) <$> testEquality (cfgReturnType cfg) retTy <*> testEquality (cfgArgTypes cfg) argTys of
         Nothing -> error $ "Mismatching override type for " ++ Text.unpack fn ++
                            ".\n\tExpected (" ++ show (cfgArgTypes cfg) ++ ") → " ++ show (cfgReturnType cfg) ++
@@ -539,19 +534,16 @@ bindFn _symOnline _cs fn cfg =
 
   where
     override ::
-      forall args ret .
-      ExplodedDefId -> CtxRepr args -> TypeRepr ret ->
-      (forall rtp args' ret'.
-        Ctx.Assignment (RegValue' sym) args ->
-        OverrideSim (p sym) sym MIR rtp args' ret' (RegValue sym ret)) ->
+      forall args' ret' .
+      ExplodedDefId -> CtxRepr args' -> TypeRepr ret' ->
+      (forall rtp' args'' ret''.
+        Ctx.Assignment (RegValue' sym) args' ->
+        OverrideSim (p sym) sym MIR rtp' args'' ret'' (RegValue sym ret')) ->
       (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
     override edid args ret act =
         ( edid
         , SomeTypedOverride (TypedOverride act args ret)
         )
-
-    u8repr :: TypeRepr (BaseToType (BaseBVType 8))
-    u8repr = knownRepr
 
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
@@ -620,25 +612,64 @@ bindFn _symOnline _cs fn cfg =
 
 mirReferencePrettyFn :: forall sym. IsSymInterface sym =>
   IntrinsicPrettyFn sym MirReferenceSymbol
-mirReferencePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty ref -> PP.viaShow ref
+-- mirReferencePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty ref -> PP.viaShow ref
+mirReferencePrettyFn = IntrinsicPrettyFn $ \tyCtx ref ->
+  case tyCtx of
+    Ctx.Empty ->
+      PP.viaShow ref
+    _ Ctx.:> _ ->
+      panic "mirReferencePrettyFn" ["Unexpected type context", show tyCtx]
 
 mirAggregatePrettyFn :: forall sym. IsSymInterface sym =>
   IntrinsicPrettyFn sym MirAggregateSymbol
-mirAggregatePrettyFn = IntrinsicPrettyFn $ \Ctx.Empty (MirAggregate totalSize m) ->
-  let renderVal :: forall tpr ann. TypeRepr tpr -> RegValue sym (MaybeType tpr) -> PP.Doc ann
-      renderVal tpr Unassigned = "<uninit>"
-      renderVal tpr (PE p rv)
-        | Just True <- asConstantPred p = ppRV @sym tpr rv
-        | otherwise = ppRV @sym tpr rv PP.<+> PP.parens ("if" PP.<+> ppRV @sym BoolRepr p)
-      kvs = [PP.viaShow off <> ".." <> PP.viaShow (off + sz) PP.<+> "->" PP.<+> renderVal tpr rv
-        | (fromIntegral -> off, MirAggregateEntry sz tpr rv) <- IntMap.toAscList m]
-  in
-  PP.encloseSep "{" "}" ", " $ kvs ++ ["size" PP.<+> PP.viaShow totalSize]
+mirAggregatePrettyFn = IntrinsicPrettyFn $ \tyCtx ag ->
+  case (tyCtx, ag) of
+    (Ctx.Empty, MirAggregate totalSize m) ->
+      let kvs = [PP.viaShow off <> ".." <> PP.viaShow (off + sz) PP.<+> "->" PP.<+> ppMaybeRV @sym tpr rv
+            | (fromIntegral -> off, MirAggregateEntry sz tpr rv) <- IntMap.toAscList m]
+      in
+      PP.encloseSep "{" "}" ", " $ kvs ++ ["size" PP.<+> PP.viaShow totalSize]
+    (_ Ctx.:> _, _) ->
+      panic "mirAggregatePrettyFn" ["Unexpected type context", show tyCtx]
+
+mirVectorPrettyFn :: forall sym. IsSymInterface sym =>
+  IntrinsicPrettyFn sym MirVectorSymbol
+mirVectorPrettyFn = IntrinsicPrettyFn $ \tyCtx v ->
+  case tyCtx of
+    Ctx.Empty :> tpr ->
+      case v of
+        MirVector_Vector v' ->
+          PP.list (ppRV @sym tpr <$> V.toList v')
+        MirVector_PartialVector v' ->
+          PP.list (ppMaybeRV @sym tpr <$> V.toList v')
+        MirVector_Array arr
+          | AsBaseType btpr <- asBaseType tpr ->
+              ppRV @sym (UsizeArrayRepr btpr) arr
+          | otherwise ->
+              panic
+                "mirVectorPrettyFn"
+                [ "MirVector_Array element type is not a base type"
+                , show tpr
+                ]
+    _ ->
+      panic "mirVectorPrettyFn" ["Unexpected type context", show tyCtx]
+
+ppMaybeRV ::
+  forall sym tpr ann.
+  IsSymInterface sym =>
+  TypeRepr tpr ->
+  RegValue sym (MaybeType tpr) ->
+  PP.Doc ann
+ppMaybeRV _tpr Unassigned = "<uninit>"
+ppMaybeRV tpr (PE p rv)
+  | Just True <- asConstantPred p = ppRV @sym tpr rv
+  | otherwise = ppRV @sym tpr rv PP.<+> PP.parens ("if" PP.<+> ppRV @sym BoolRepr p)
 
 intrinsicPrinters :: forall sym. IsSymInterface sym => IntrinsicPrinters sym
 intrinsicPrinters = IntrinsicPrinters $
   MapF.insert knownRepr mirReferencePrettyFn $
   MapF.insert knownRepr mirAggregatePrettyFn $
+  MapF.insert knownRepr mirVectorPrettyFn $
   MapF.empty
 
 ppRV :: forall sym tp ann. IsSymInterface sym =>

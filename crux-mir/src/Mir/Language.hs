@@ -15,8 +15,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-{-# OPTIONS_GHC -Wall #-}
-
 module Mir.Language (
     main,
     mainWithExtraOverrides,
@@ -190,15 +188,11 @@ orOverride f g symOnline colState name cfg =
         Nothing -> g symOnline colState name cfg
 
 
--- | This closes over the Crucible 'personality' parameter, allowing us to select between
--- normal execution over Models and concurrent exeuctions that use an Exploration
--- personality.
-data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
-  forall personality.
-    SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
-                , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
-                , testPersonality :: personality sym
-                }
+data SomeTestOvr alg sym ctx (ty :: C.CrucibleType) =
+    SomeTestOvr
+    { testOvr :: Fun (CruxPersonality alg MIR ty) sym MIR ctx ty
+    , testFeatures :: [C.ExecutionFeature (CruxPersonality alg MIR ty sym) sym MIR (C.RegEntry sym ty)]
+    }
 
 
 runTests ::
@@ -266,12 +260,12 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     halloc  <- C.newHandleAllocator
     mir     <- translateMIR col halloc
 
-    C.AnyCFG staticInitCfg <- transStatics (mir^.rmCS) halloc
+    C.AnyCFG staticInitCfg <- transStatics (mir ^. rmCS) halloc
     let hi = C.cfgHandle staticInitCfg
     Refl <- failIfNotEqual (C.handleArgTypes hi) Ctx.Empty
            $ "BUG: static initializer should not require arguments"
 
-    let cfgMap = mir^.rmCFGs
+    let cfgMap = mir ^. rmCFGs
 
     -- Simulate each test case
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -328,7 +322,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
              Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
                  "test function " ++ show fnName ++ " should not take arguments"
              resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
-                 Just fn -> return $ fn^.fsig.fsreturn_ty
+                 Just fn -> return $ fn ^. fsig.fsreturn_ty
                  Nothing -> fail $ "couldn't find return type for " ++ show fnName
              res <- C.callCFG cfg C.emptyRegMap
 
@@ -358,19 +352,17 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             bak ->
             Maybe (Crux.SomeOnlineSolver sym bak) ->
             DefId ->
-            SomeTestOvr sym Ctx.EmptyCtx C.UnitType
+            SomeTestOvr DPOR sym Ctx.EmptyCtx C.UnitType
         simTest bak symOnline fnName
           | concurrency mirOpts = SomeTestOvr
             { testOvr = do printTest fnName
                            exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
-            , testFeatures = [scheduleFeature mirExplorePrimitives []]
-            , testPersonality = emptyExploration @DPOR
+            , testFeatures = [scheduleFeature @_ @DPOR mirExplorePrimitives []]
             }
           | otherwise = SomeTestOvr
             { testOvr = do printTest fnName
                            simTestBody bak symOnline fnName
             , testFeatures = []
-            , testPersonality = Crux.CruxPersonality
             }
 
     let simCallbacks fnName =
@@ -380,7 +372,8 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                 { Crux.setupHook =
                     \bak symOnline ->
                       case simTest bak symOnline fnName of
-                        SomeTestOvr testFn features personality -> do
+                        SomeTestOvr testFn features -> do
+                          personality <- mkCruxPersonality @DPOR
                           let outH = view outputHandle ?outputConfig
                           let sym = C.backendGetSym bak
                           setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
@@ -648,8 +641,8 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, _)
-      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col^.adts) -> do
-        optParts <- case adt^.adtkind of
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts) -> do
+        optParts <- case adt ^. adtkind of
             Struct -> do
                 let var = onlyVariant adt
                 C.Some fctx <- case variantFields' col var of
@@ -696,7 +689,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
             Right (var, vals) -> do
                 strs <- zipWithM (\ty (C.Some entry) -> showRegEntry col ty entry)
                     (var ^.. vfields . each . fty) vals
-                let varName = Text.unpack $ cleanVariantName (var^.vname)
+                let varName = Text.unpack $ cleanVariantName (var ^. vname)
                 case var ^. vctorkind of
                     Just FnKind -> return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
                     Just ConstKind -> return varName

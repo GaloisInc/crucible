@@ -1,6 +1,6 @@
 {- A more compact pretty printer that looks more similar to Rust syntax -}
 
-{-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.PP where
 
@@ -140,8 +140,8 @@ instance Pretty Fn where
             ++ [indent 3 (pretty fbody1),
                 rbrace]
       where
-        rty    = fs^.fsreturn_ty
-        extern = case fs^.fsabi of
+        rty    = fs ^. fsreturn_ty
+        extern = case fs ^. fsabi of
           RustAbi -> mempty
           abi -> pretty "extern" <+> viaShow abi <+> mempty
 
@@ -389,8 +389,8 @@ instance Pretty AggregateKind where
 
 instance Pretty FnSig where
   pretty fs =
-    tupled (map pretty (fs^.fsarg_tys)) <+> arrow <+> pretty (fs^.fsreturn_ty)
-                <+> brackets (pretty (fs^.fsabi))
+    tupled (map pretty (fs ^. fsarg_tys)) <+> arrow <+> pretty (fs ^. fsreturn_ty)
+                <+> brackets (pretty (fs ^. fsabi))
 
 instance Pretty Abi where
     pretty = viaShow
@@ -422,14 +422,14 @@ instance Pretty InstanceKind where
 instance Pretty Collection where
   pretty col =
     vcat ([pretty "FNs"] ++
-          map pretty (Map.elems (col^.functions)) ++
+          map pretty (Map.elems (col ^. functions)) ++
           [pretty "ADTs"] ++
-          map pretty (Map.elems (col^.adts)) ++
+          map pretty (Map.elems (col ^. adts)) ++
           [pretty "TRAITs"] ++
-          map pretty (Map.elems (col^.traits)) ++
+          map pretty (Map.elems (col ^. traits)) ++
           [pretty "VTABLEs"] ++
-          map pretty (Map.elems (col^.vtables)) ++
+          map pretty (Map.elems (col ^. vtables)) ++
           [pretty "INTRINSICSs"] ++
-          map pretty (Map.elems (col^.intrinsics)) ++
+          map pretty (Map.elems (col ^. intrinsics)) ++
           [pretty "STATICS"] ++
-          map pretty (Map.elems (col^.statics)))
+          map pretty (Map.elems (col ^. statics)))

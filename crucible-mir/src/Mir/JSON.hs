@@ -7,6 +7,7 @@ License          : BSD3
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Mir.JSON where
 
@@ -21,7 +22,6 @@ import qualified Data.Char as Char
 import Data.Text (Text,  unpack)
 import qualified Data.Text as T
 import qualified Data.Text.Read  as T
-import qualified Data.Vector as V
 import Data.Word (Word64)
 import Control.Lens((^.))
 
@@ -142,6 +142,7 @@ instance FromJSON Instance where
             <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "args"
         Just (String "ClosureFnPointerShim") -> Instance IkClosureFnPointerShim
             <$> v .: "call_mut" <*> pure mempty
+        r -> fail $ "unsupported instance: " ++ show r
 
 instance FromJSON FnSig where
     parseJSON =
@@ -209,31 +210,31 @@ instance FromJSON Var where
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> do
-      (version :: Word64)     <- v .: "version"
-      (fns    :: [Fn])        <- v .: "fns"
-      (adts   :: [Adt])       <- v .: "adts"
-      (traits :: [Trait])     <- v .: "traits"
-      (statics :: [Static]  ) <- v .: "statics"
-      (vtables :: [Vtable]  ) <- v .: "vtables"
-      (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
-      (tys    :: [NamedTy])   <- v .: "tys"
-      (langItems :: [LangItem]) <- v .: "lang_items"
-      (roots :: [MethName])   <- v .: "roots"
-      (tests :: [MethName])   <- v .: "tests"
+      (version' :: Word64)     <- v .: "version"
+      (fns'    :: [Fn])        <- v .: "fns"
+      (adts'   :: [Adt])       <- v .: "adts"
+      (traits' :: [Trait])     <- v .: "traits"
+      (statics' :: [Static]  ) <- v .: "statics"
+      (vtables' :: [Vtable]  ) <- v .: "vtables"
+      (intrinsics' :: [Intrinsic]) <- v .: "intrinsics"
+      (tys'    :: [NamedTy])   <- v .: "tys"
+      (langItems' :: [LangItem]) <- v .: "lang_items"
+      (roots' :: [MethName])   <- v .: "roots"
+      (tests' :: [MethName])   <- v .: "tests"
       return $ Collection
-        version
-        (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
-        (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
-        (foldr (\ x m -> Map.insertWith (++) (x^.adtOrigDefId) [x] m) Map.empty adts)
-        (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
-        (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
-        (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
-        (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
-        (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy, x^.ntLayout) m) Map.empty tys)
+        version'
+        (foldr (\ x m -> Map.insert (x ^. fname) x m)     Map.empty fns')
+        (foldr (\ x m -> Map.insert (x ^. adtname) x m)   Map.empty adts')
+        (foldr (\ x m -> Map.insertWith (++) (x ^. adtOrigDefId) [x] m) Map.empty adts')
+        (foldr (\ x m -> Map.insert (x ^. traitName) x m) Map.empty traits')
+        (foldr (\ x m -> Map.insert (x ^. sName) x m)     Map.empty statics')
+        (foldr (\ x m -> Map.insert (x ^. vtName) x m)    Map.empty vtables')
+        (foldr (\ x m -> Map.insert (x ^. intrName) x m)  Map.empty intrinsics')
+        (foldr (\ x m -> Map.insert (x ^. ntName) (x ^. ntTy, x ^. ntLayout) m) Map.empty tys')
         Map.empty -- layouts map has Tys as keys, so it needs to be populated after uninterning
-        (foldr (\ x m -> Map.insert (x^.liOrigDefId) (x^.liLangItemDefId) m) Map.empty langItems)
-        roots
-        tests
+        (foldr (\ x m -> Map.insert (x ^. liOrigDefId) (x ^. liLangItemDefId) m) Map.empty langItems')
+        roots'
+        tests'
 
 
 instance FromJSON Fn where
@@ -289,7 +290,7 @@ instance FromJSON Statement where
 instance FromJSON StatementKind where
     parseJSON = withObject "StatementKind" $ \v -> do
       case lookupKM "kind" v of
-        Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs"
+        Just (String "Assign") ->  Assign <$> v .: "lhs" <*> v .: "rhs"
         Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
         Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
         Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
@@ -491,9 +492,9 @@ instance FromJSON CastKind where
 instance FromJSON Constant where
     parseJSON = withObject "Literal" $ \v -> do
       ty <- v .: "ty"
-      rend <- v .:? "rendered"
-      init <- v .:? "initializer"
-      case (rend, init) of
+      mbRend <- v .:? "rendered"
+      mbInit <- v .:? "initializer"
+      case (mbRend, mbInit) of
         (Just rend, _) ->
             pure $ Constant ty rend
         (Nothing, Just (RustcConstInitializer defid)) ->
@@ -563,7 +564,7 @@ instance FromJSON ConstVal where
 
         Just (String "slice") -> do
             def_id <- v .: "def_id"
-            len <- v.: "len"
+            len <- v .: "len"
             return $ ConstSliceRef def_id len
 
         Just (String "strbody") -> do

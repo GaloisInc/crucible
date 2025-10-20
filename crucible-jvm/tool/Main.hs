@@ -7,6 +7,8 @@
 
 -- TODO: set this up so we can make it run test cases
 
+{-# Language FlexibleInstances #-}
+{-# Language MultiParamTypeClasses #-}
 {-# Language OverloadedStrings #-}
 {-# Language TypeFamilies #-}
 {-# Language RankNTypes #-}
@@ -25,15 +27,16 @@
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module Main where
+module Main (main) where
 
 import Data.String(fromString)
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
-import Control.Lens((^.), (&), (%~))
+import Control.Lens((^.), (&), (%~), lens)
 import Control.Monad.ST
 import Control.Monad
 import Control.Monad.State.Strict
+import Data.Void (Void)
 
 import Control.Exception(SomeException(..),displayException,catch)
 
@@ -61,6 +64,9 @@ import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.PathSplitting
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.RegMap
+
+-- crucible-debug
+import qualified Lang.Crucible.Debug as Debug
 
 -- crucible/what4
 import What4.ProgramLoc
@@ -175,6 +181,15 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
+-- | Crux JVM personality (see
+-- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
+newtype CruxJVM sym
+  = CruxJVM { getCruxJVM :: Debug.Context Void sym JVM UnitType }
+
+instance Debug.HasContext (CruxJVM sym) Void sym JVM UnitType where
+  context = lens getCruxJVM (const CruxJVM)
+  {-# INLINE context #-}
+
 simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallbacks msgs st Crux.CruxSimulationResult
 simulateJVM copts opts =
   Crux.SimulatorCallbacks $
@@ -198,8 +213,18 @@ simulateJVM copts opts =
               let nullstr = RegEntry refRepr W4.Unassigned
               let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
+              let cExts = Debug.voidExts
+              inps <- Debug.defaultDebuggerInputs cExts
+              dbgCtx <-
+                Debug.initCtx
+                  cExts
+                  (Debug.IntrinsicPrinters MapF.empty)
+                  inps
+                  Debug.defaultDebuggerOutputs
+                  UnitRepr
+
               Crux.RunnableState <$>
-                setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.CruxPersonality
+                setupCrucibleJVMCrux @UnitType cb verbosity sym (CruxJVM dbgCtx)
                   cname mname regmap
 
         -- TODO add failure explanations

@@ -28,8 +28,6 @@ License          : BSD3
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-unticked-promoted-constructors #-}
-
 module Mir.Mir where
 
 import qualified Data.ByteString as B

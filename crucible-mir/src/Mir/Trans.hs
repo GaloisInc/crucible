@@ -23,11 +23,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall
-                -fno-warn-name-shadowing
-                -fno-warn-unused-matches
-                -fno-warn-unticked-promoted-constructors #-}
-
 module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , readMirRef
                 , writeMirRef
@@ -62,7 +57,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Sequence as Seq
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.STRef
 import Data.Text (Text)
@@ -114,11 +108,11 @@ import Debug.Trace
 
 parsePosition :: Text.Text -> PL.Position
 parsePosition posText =
-  case Text.split (==':') posText of
-    [fname,line,col]
+  case Text.split (== ':') posText of
+    [fname',line,col]
       | (l,[]):_ <- readDec (Text.unpack line)
       , (c,[]):_ <- readDec (Text.unpack col)
-      -> PL.SourcePos fname l c
+      -> PL.SourcePos fname' l c
     _ -> PL.OtherPos posText
 
 
@@ -231,7 +225,7 @@ transConstVal ty@(M.TyAdt aname _ _) tpr (ConstStruct fields) = do
         Nothing -> do
             let fieldDefs = adt ^. adtvariants . ix 0 . vfields
             let fieldTys = map (\f -> f ^. fty) fieldDefs
-            exps <- zipWithM (\val ty -> tyToReprM ty >>= \rpr -> transConstVal ty rpr val) fields fieldTys
+            exps <- zipWithM (\val ty' -> tyToReprM ty' >>= \rpr -> transConstVal ty' rpr val) fields fieldTys
             buildStruct adt exps
 
 transConstVal ty@(M.TyAdt aname _ _) tpr (ConstEnum variant fields) = do
@@ -243,12 +237,12 @@ transConstVal ty@(M.TyAdt aname _ _) tpr (ConstEnum variant fields) = do
         Nothing -> do
             let fieldDefs = adt ^. adtvariants . ix variant . vfields
             let fieldTys = map (\f -> f ^. fty) fieldDefs
-            exps <- zipWithM (\val ty -> tyToReprM ty >>= \rpr -> transConstVal ty rpr val) fields fieldTys
+            exps <- zipWithM (\val ty' -> tyToReprM ty' >>= \rpr -> transConstVal ty' rpr val) fields fieldTys
             buildEnum adt variant exps
-transConstVal ty (Some MirReferenceRepr) init = do
+transConstVal ty (Some MirReferenceRepr) cv = do
     let pointeeTy = M.typeOfProj M.Deref ty
     Some tpr <- tyToReprM pointeeTy
-    MirExp tpr' val <- transConstVal pointeeTy (Some tpr) init
+    MirExp tpr' val <- transConstVal pointeeTy (Some tpr) cv
     Refl <- testEqualityOrFail tpr tpr' $
         "transConstVal returned wrong type: expected " ++ show tpr ++ ", got " ++ show tpr'
     ref <- constMirRef tpr val
@@ -295,15 +289,15 @@ transTransparentVal ::
   Int {- The index of the underlying field in the variant. -} ->
   MirGenerator h s ret (MirExp s)
 transTransparentVal ty tpr adt fields idx = do
-    ty <- case adt ^? adtvariants . ix 0 . vfields . ix idx . fty of
+    ty' <- case adt ^? adtvariants . ix 0 . vfields . ix idx . fty of
         Just x -> return x
         Nothing -> mirFail $ "repr(transparent) field index " ++ show idx ++
             " out of range for " ++ show (pretty ty)
-    const <- case fields ^? ix idx of
+    constant <- case fields ^? ix idx of
         Just x -> return x
         Nothing -> mirFail $ "repr(transparent) field index " ++ show idx ++
-            " out of range for " ++ show (pretty ty) ++ " initializer"
-    transConstVal ty tpr const
+            " out of range for " ++ show (pretty ty') ++ " initializer"
+    transConstVal ty' tpr constant
 
 typedVarInfo :: HasCallStack => Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
 typedVarInfo name tpr = do
@@ -326,16 +320,16 @@ readVar tpr vi = do
         VarAtom a -> return $ R.AtomExpr a
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
-varExp (M.Var vname _ vty _) = do
+varExp (M.Var vname' _ vty _) = do
     Some tpr <- tyToReprM vty
-    vi <- typedVarInfo vname tpr
+    vi <- typedVarInfo vname' tpr
     x <- readVar tpr vi
     return $ MirExp tpr x
 
 varPlace :: HasCallStack => M.Var -> MirGenerator h s ret (MirPlace s)
-varPlace (M.Var vname _ vty _) = do
+varPlace (M.Var vname' _ vty _) = do
     Some tpr <- tyToReprM vty
-    vi <- typedVarInfo vname tpr
+    vi <- typedVarInfo vname' tpr
     r <- case vi of
         VarReference _ reg -> G.readReg reg
         -- TODO: these cases won't be needed once immutable ref support is done
@@ -398,7 +392,7 @@ derefExp :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret (MirPlace s
 derefExp pointeeTy (MirExp MirReferenceRepr e) = do
     Some tpr <- tyToReprM pointeeTy
     return $ MirPlace tpr e NoMeta
-derefExp pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
+derefExp _pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
@@ -407,8 +401,8 @@ readPlace (MirPlace tpr _ meta) =
         ++ " (type " ++ show tpr ++ ")"
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
-addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp MirReferenceRepr r
-addrOfPlace (MirPlace tpr r (SliceMeta len)) =
+addrOfPlace (MirPlace _tpr r NoMeta) = return $ MirExp MirReferenceRepr r
+addrOfPlace (MirPlace _tpr r (SliceMeta len)) =
     return $ MirExp MirSliceRepr $ mkSlice r len
 addrOfPlace (MirPlace _tpr r (DynMeta vtable)) =
     return $ MirExp DynRefRepr $
@@ -422,9 +416,9 @@ addrOfPlace (MirPlace _tpr r (DynMeta vtable)) =
 extendToMax :: (1 <= n, 1 <= m) =>
                NatRepr n -> G.Expr MIR s (C.BVType n) ->
                NatRepr m -> G.Expr MIR s (C.BVType m) -> Maybe M.ArithType ->
-   (forall n. (1 <= n) => NatRepr n -> G.Expr MIR s (C.BVType n) -> G.Expr MIR s (C.BVType n) -> a) -> a
+   (forall n'. (1 <= n') => NatRepr n' -> G.Expr MIR s (C.BVType n') -> G.Expr MIR s (C.BVType n') -> a) -> a
 extendToMax n e1 m e2 (Just arith) k =
-   let extend :: (1 <= w, 1 <= r, w+1 <= r) => (NatRepr r)
+   let extend :: (1 <= w, 1 <= r, w + 1 <= r) => (NatRepr r)
          -> (NatRepr w)
          -> (f (C.BVType w))
          -> E.App MIR f (C.BVType r)
@@ -462,7 +456,6 @@ transBinOp bop op1 op2 = do
             pure res
         WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
-            col <- use $ cs . collection
             buildTupleM [typeOf op1, TyBool] [res, MirExp C.BoolRepr overflow]
         _ -> fst <$> evalBinOp bop mat me1 me2
 
@@ -686,7 +679,7 @@ transUnaryOp uop op = do
       (M.Neg, MirExp C.IntegerRepr e) -> return $ MirExp C.IntegerRepr $ S.app $ E.IntNeg e
       (M.Neg, MirExp C.RealValRepr e) -> return $ MirExp C.RealValRepr $ S.app $ E.RealNeg e
       (M.PtrMetadata, MirExp MirSliceRepr e) -> return $ MirExp UsizeRepr $ getSliceLen e
-      (_ , MirExp ty e) -> mirFail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
+      (_ , MirExp ty _) -> mirFail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
 
 
 -- a -> u -> [a;u]
@@ -694,8 +687,8 @@ buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     (MirExp tp e) <- evalOperand op
     let n = fromInteger size
-    exp <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
-    return $ MirExp (MirVectorRepr tp) exp
+    expr <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
+    return $ MirExp (MirVectorRepr tp) expr
 
 
 
@@ -840,12 +833,12 @@ evalCast' ck ty1 e ty2  = do
         unsizeArray tp sz tp'
 
       -- Trait object creation from a ref
-      (M.UnsizeVtable vtbl, M.TyRef baseType _,
-        M.TyRef (M.TyDynamic traitName) _) ->
-          mkTraitObject traitName vtbl e
-      (M.UnsizeVtable vtbl, M.TyRawPtr baseType _,
-        M.TyRawPtr (M.TyDynamic traitName) _) ->
-          mkTraitObject traitName vtbl e
+      (M.UnsizeVtable vtbl, M.TyRef _ _,
+        M.TyRef (M.TyDynamic traitName') _) ->
+          mkTraitObject traitName' vtbl e
+      (M.UnsizeVtable vtbl, M.TyRawPtr _ _,
+        M.TyRawPtr (M.TyDynamic traitName') _) ->
+          mkTraitObject traitName' vtbl e
 
       -- Casting between TyDynamics that vary only in their auto traits
       -- TODO: this should also normalize the TraitProjection predicates, to
@@ -857,14 +850,14 @@ evalCast' ck ty1 e ty2  = do
       (M.Unsize, M.TyRef _ _, M.TyRef (M.TyDynamic _) _) ->
         mirFail $ unlines $
           [ "error when casting:"
-          , "  ty: "<>show ty1
-          , "  as: "<>show ty2
+          , "  ty: " <> show ty1
+          , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
       (M.Unsize, M.TyRawPtr _ _, M.TyRawPtr (M.TyDynamic _) _) ->
         mirFail $ unlines $
           [ "error when casting:"
-          , "  ty: "<>show ty1
-          , "  as: "<>show ty2
+          , "  ty: " <> show ty1
+          , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
       -- Unsized casts from references to sized structs to references to DSTs.
@@ -891,16 +884,16 @@ evalCast' ck ty1 e ty2  = do
         evalCast' M.Misc (M.TyInt M.USize) discr (M.TyUint sz)
 
       -- References have the same representation as Raw pointers
-      (M.Misc, M.TyRef ty1 mut1, M.TyRawPtr ty2 mut2)
-         | ty1 == ty2 && mut1 == mut2 -> return e
+      (M.Misc, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)
+         | ty1' == ty2' && mut1 == mut2 -> return e
 
-      (M.MutToConstPointer, M.TyRawPtr ty1 M.Mut, M.TyRawPtr ty2 M.Immut)
-         | ty1 == ty2 -> return e
+      (M.MutToConstPointer, M.TyRawPtr ty1' M.Mut, M.TyRawPtr ty2' M.Immut)
+         | ty1' == ty2' -> return e
 
       -- Integer-to-pointer casts.  Pointer-to-integer casts are not yet
       -- supported.
-      (M.Misc, M.TyInt _, M.TyRawPtr ty _) -> transmuteExp e ty1 ty2
-      (M.Misc, M.TyUint _, M.TyRawPtr ty _) -> transmuteExp e ty1 ty2
+      (M.Misc, M.TyInt _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
+      (M.Misc, M.TyUint _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
 
       --  *const [T] -> *T (discards the length and returns only the pointer)
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
@@ -930,7 +923,7 @@ evalCast' ck ty1 e ty2  = do
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
 
-      (M.ReifyFnPointer, M.TyFnDef defId, M.TyFnPtr sig@(M.FnSig args ret _))
+      (M.ReifyFnPointer, M.TyFnDef defId, M.TyFnPtr sig)
          -> do mhand <- lookupFunction defId
                case mhand of
                  Just (me, sig')
@@ -942,7 +935,7 @@ evalCast' ck ty1 e ty2  = do
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show defId
 
-      (M.ClosureFnPointer shimDefId, M.TyClosure [], M.TyFnPtr sig@(M.FnSig args ret _))
+      (M.ClosureFnPointer shimDefId, M.TyClosure [], M.TyFnPtr sig)
          -> do mhand <- lookupFunction shimDefId
                case mhand of
                  Just (me, sig')
@@ -1022,14 +1015,14 @@ evalCast' ck ty1 e ty2  = do
             _ ->
               mirFail "attempted Unsize cast from non-array source"
         Nothing ->
-          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an1
+          mirFail $ "unsizedAdtSlice: unable to determine last field of " <> show an1
 
       -- Sanity-check that we are indeed casting to a type with a slice in the
       -- expected position
       let ref = MirExp MirSliceRepr (mkSlice adtRef lenExpr)
       case findLastFieldRec col an2 of
         Nothing ->
-          mirFail $ "unsizedAdtSlice: unable to determine last field of "<>show an2
+          mirFail $ "unsizedAdtSlice: unable to determine last field of " <> show an2
         Just field ->
           case field ^. M.fty of
             M.TySlice _elemTy -> pure ref
@@ -1059,7 +1052,7 @@ evalCast' ck ty1 e ty2  = do
       col <- use $ cs . collection
       eventualTraitObject <- case findLastFieldRec col castSource of
         Nothing ->
-          mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castSource
+          mirFail $ "unsizedAdtDyn: unable to determine last field of " <> show castSource
         Just field ->
           pure (field ^. M.fty)
       -- `FkMaybe` fields are not initializable, and our rationale for
@@ -1072,10 +1065,10 @@ evalCast' ck ty1 e ty2  = do
         Right (Some (FieldRepr (FkInit _))) ->
           case findLastFieldRec col castTarget of
             Nothing ->
-              mirFail $ "unsizedAdtDyn: unable to determine last field of "<>show castTarget
+              mirFail $ "unsizedAdtDyn: unable to determine last field of " <> show castTarget
             Just field ->
               case field ^. M.fty of
-                M.TyDynamic traitName -> mkTraitObject traitName vtable e
+                M.TyDynamic traitName' -> mkTraitObject traitName' vtable e
                 _ -> mirFail "attempted UnsizeVtable cast with non-trait-object target"
 
     unsizeArray ty sz ty'
@@ -1097,12 +1090,12 @@ evalCast' ck ty1 e ty2  = do
     -- together again.
     coerceUnsized :: HasCallStack =>
         M.CastKind -> M.AdtName -> M.AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
-    coerceUnsized ck an1 an2 e = do
+    coerceUnsized ck' an1 an2 expr = do
         col <- use $ cs . collection
         adt1 <- findAdt an1
         adt2 <- findAdt an2
         case (reprTransparentFieldTy col adt1, reprTransparentFieldTy col adt2) of
-            (Just ty1, Just ty2) ->
+            (Just ty1', Just ty2') ->
               -- The struct is #[repr(transparent)], so it has only one non-ZST
               -- field. This field must be the pointer/ref field being coerced,
               -- as rustc currently forbids implementing CoerceUnsized if it
@@ -1110,16 +1103,16 @@ evalCast' ck ty1 e ty2  = do
               -- old and new types should never be equal. Because CoerceUnsized
               -- is unstable, a future version of rustc might change this
               -- behavior, so we leave this check here in place as a safeguard.
-              if ty1 == ty2
-                then pure e
-                else evalCast' ck ty1 e ty2
-            (Nothing, Nothing) -> coerceUnsizedNormal ck adt1 adt2 e
+              if ty1' == ty2'
+                then pure expr
+                else evalCast' ck' ty1' e ty2'
+            (Nothing, Nothing) -> coerceUnsizedNormal ck adt1 adt2 expr
             _ -> mirFail $ "impossible: coerceUnsized: one of " ++ show (an1, an2) ++
                 " is repr(transparent) and the other is not?"
 
     coerceUnsizedNormal :: HasCallStack =>
         M.CastKind -> M.Adt -> M.Adt -> MirExp s -> MirGenerator h s ret (MirExp s)
-    coerceUnsizedNormal ck adt1 adt2 e = do
+    coerceUnsizedNormal ck' adt1 adt2 expr = do
         when (adt1 ^. adtkind /= Struct || adt2 ^. adtkind /= Struct) $ mirFail $
             "coerceUnsized not yet implemented for non-struct types: " ++ show (an1, an2)
         let v1 = Maybe.fromJust $ adt1 ^? adtvariants . ix 0
@@ -1129,11 +1122,11 @@ evalCast' ck ty1 e ty2  = do
         when (numFields' /= numFields) $ mirFail $
             "coerceUnsized on incompatible types (mismatched fields): " ++ show (an1, an2)
         vals' <- forM (zip3 [0..] (v1 ^. vfields) (v2 ^. vfields)) $ \(i, f1, f2) -> do
-            val <- getStructField adt1 i e
+            val <- getStructField adt1 i expr
             -- Only compute a cast if the types are syntactically unequal.
             if (f1 ^. fty) == (f2 ^. fty)
               then pure val
-              else evalCast' ck (f1 ^. fty) val (f2 ^. fty)
+              else evalCast' ck' (f1 ^. fty) val (f2 ^. fty)
         buildStruct adt2 vals'
       where
         an1 = adt1 ^. adtname
@@ -1213,29 +1206,29 @@ mkTraitObject :: forall h s ret.
     M.VtableName ->
     MirExp s ->
     MirGenerator h s ret (MirExp s)
-mkTraitObject traitName vtableName e = do
+mkTraitObject traitName' vtableName e = do
     handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
         use (cs . vtableMap . at vtableName)
 
     let mkEntry :: MirHandle -> MirExp s
-        mkEntry (MirHandle hname _ fh) =
+        mkEntry (MirHandle _ _ fh) =
             MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
     vtable@(MirExp vtableTy _) <- return $ mkStructExp $ map mkEntry handles
 
     -- Check that the vtable we constructed has the appropriate type for the
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
-    trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName) <$>
-        use (cs . collection . M.traits . at traitName)
+    trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName') <$>
+        use (cs . collection . M.traits . at traitName')
     col <- use $ cs . collection
-    Some vtableTy' <- case traitVtableType col traitName trait of
+    Some vtableTy' <- case traitVtableType col trait of
                         Left err -> error ("mkTraitObject: " ++ err)
                         Right x -> return x
     case testEquality vtableTy vtableTy' of
         Just _ -> return ()
         Nothing -> error $ unwords
             ["vtable signature mismatch for vtable", show vtableName,
-                "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
+                "of trait", show traitName', ":", show vtableTy, "!=", show vtableTy']
 
     return $ mkStructExp
         [ e
@@ -1256,8 +1249,8 @@ mkTraitObject traitName vtableName e = do
             [MirExp s] ->
             MirExp s
         mkStructExp' ctx asn [] = MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asn)
-        mkStructExp' ctx asn (MirExp tpr e : exps) =
-            mkStructExp' (ctx Ctx.:> tpr) (asn Ctx.:> e) exps
+        mkStructExp' ctx asn (MirExp tpr expr : exps) =
+            mkStructExp' (ctx Ctx.:> tpr) (asn Ctx.:> expr) exps
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
@@ -1282,7 +1275,7 @@ evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
-evalRval (M.Discriminant lv discrTy) = do
+evalRval (M.Discriminant lv _discrTy) = do
     e <- evalLvalue lv
     let enumTy = typeOf lv
     case enumTy of
@@ -1294,7 +1287,6 @@ evalRval (M.Discriminant lv discrTy) = do
 evalRval (M.Aggregate ak ops) =
     case ak of
         M.AKTuple ->  do
-            col <- use $ cs . collection
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
             buildTupleMaybeM tys (map Just exps)
@@ -1305,7 +1297,6 @@ evalRval (M.Aggregate ak ops) =
         M.AKClosure -> do
             -- Closure environments have the same
             -- representation as tuples.
-            col <- use $ cs . collection
             let tys = map typeOf ops
             exps <- mapM evalOperand ops
             buildTupleMaybeM tys (map Just exps)
@@ -1325,7 +1316,7 @@ evalRval (M.Aggregate ak ops) =
                     _ -> mirFail $ "evalRval: unexpected reprs " ++ show (tprPtr, tprMeta)
                         ++ " for aggregate " ++ show ak
                 _ -> mirFail $ "evalRval: unsupported output type for " ++ show ak
-evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
+evalRval (M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
     case ty of
       -- It's not legal to construct a MethodSpec using a Rust struct
       -- constructor, so we translate as "assert(false)" instead.  Only
@@ -1366,7 +1357,7 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
                         Just v -> return v
                         Nothing -> mirFail $ "uninitialized union AdtAg unsupported for " ++ show ty
           Nothing -> do
-            case adt^.adtkind of
+            case adt ^. adtkind of
                 M.Struct -> buildStruct adt es
                 M.Enum _ -> buildEnum adt (fromInteger agv) es
                 M.Union -> do
@@ -1382,9 +1373,9 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
 evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
 -- We treat CopyForDeref(lv) the same as Rvalue::Use(Operand::Copy(lv)).
-evalRval rv@(M.CopyForDeref lv) = evalLvalue lv
+evalRval (M.CopyForDeref lv) = evalLvalue lv
 
-evalRval rv@(M.ShallowInitBox op ty) = mirFail
+evalRval (M.ShallowInitBox {}) = mirFail
     "evalRval: ShallowInitBox not supported"
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
@@ -1404,7 +1395,7 @@ evalPlaceProj ::
   MirPlace s ->
   M.PlaceElem ->
   MirGenerator h s ret (MirPlace s)
-evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
+evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
     -- In the general case (when T is a sized type), we have a MirPlace input of
     -- the form:
     --
@@ -1429,8 +1420,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
     doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
-    doRef adtTy@(M.TyAdt _ _ _) | MirSliceRepr <- tpr = doSliceAdt adtTy ref
-    doRef adtTy@(M.TyAdt _ _ _) | DynRefRepr <- tpr = doDynAdt adtTy ref
+    doRef (M.TyAdt _ _ _)
+      | MirSliceRepr <- tpr = doSliceAdt ref
+      | DynRefRepr <- tpr = doDynAdt ref
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1490,10 +1482,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     --   MirPlace AnyRepr <expr: *S<[T; len]> (SliceMeta len)
     --
     -- Where `len` is the wrapped slice's length.
-    doSliceAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
-    doSliceAdt adtTy ref' =
+    doSliceAdt :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doSliceAdt ref' =
       do
-        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- Normally we'd use `tyToReprM` to get the ADT's representation,
         -- but that would involve computing its slice field's representation,
         -- which should error. Because it represents an unsized value, we don't
         -- expect to check/use this type directly elsewhere, so we can get away
@@ -1522,10 +1514,10 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     --   MirPlace AnyRepr <expr: *S<Concrete> (DynMeta vtable)
     --
     -- Where `vtable` is the vtable for `Trait` at `Concrete`.
-    doDynAdt :: M.Ty -> R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
-    doDynAdt adtTy ref' =
+    doDynAdt :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
+    doDynAdt ref' =
       do
-        -- Normally we'd use `tyToReprM adtTy` to get the ADT's representation,
+        -- Normally we'd use `tyToReprM` to get the ADT's representation,
         -- but that would involve computing its trait object field's
         -- representation, which will error. Because it represents an unsized
         -- value, we don't expect to check/use this type directly elsewhere, so
@@ -1542,7 +1534,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
     CTyMaybeUninit _ -> do
         return $ MirPlace tpr ref NoMeta
 
-    ty | Just adt <- tyAdtDefSkipDowncast col ty, Just tIdx <- findReprTransparentField col adt ->
+    ty' | Just adt <- tyAdtDefSkipDowncast col ty', Just tIdx <- findReprTransparentField col adt ->
         if idx == tIdx then
             -- The field's low-level representation is identical to the struct
             -- itself, due to repr(transparent).
@@ -1552,14 +1544,14 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
             -- fields aside from `tIdx` must be zero-sized, and thus contain no
             -- actual data.  So we can return a dummy reference here.
             MirExp tpr' e <- initialValue fieldTy >>= \x -> case x of
-                Just x -> return x
+                Just expr -> return expr
                 Nothing -> mirFail $ "failed to produce dummy value of type " ++ show fieldTy
-            ref <- constMirRef tpr' e
-            return $ MirPlace tpr' ref NoMeta
+            ref' <- constMirRef tpr' e
+            return $ MirPlace tpr' ref' NoMeta
 
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
-        case adt^.adtkind of
+        case adt ^. adtkind of
             Struct -> structFieldRef adt idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> unionFieldRef adt idx ref
@@ -1576,13 +1568,13 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
     -- | Like `tyAdtDef`, but also accepts `TyDowncast (TyAdt ...)`.
     tyAdtDefSkipDowncast :: Collection -> M.Ty -> Maybe M.Adt
     tyAdtDefSkipDowncast col (M.TyDowncast ty' _) = tyAdtDef col ty'
-    tyAdtDefSkipDowncast col ty = tyAdtDef col ty
+    tyAdtDefSkipDowncast col ty' = tyAdtDef col ty'
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta) of
-    (M.TyArray elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
+    (M.TyArray _elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
         idx' <- getIdx idxVar
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
-    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
+    (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
@@ -1592,28 +1584,28 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
   where
     getIdx :: M.Var -> MirGenerator h s ret (R.Expr MIR s UsizeType)
     getIdx var = do
-        MirExp tpr idx <- varExp var
-        Refl <- testEqualityOrFail tpr UsizeRepr $
-            "expected index to be UsizeRepr, but got " ++ show tpr
+        MirExp tpr' idx <- varExp var
+        Refl <- testEqualityOrFail tpr' UsizeRepr $
+            "expected index to be UsizeRepr, but got " ++ show tpr'
         return idx
 evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) = case (ty, tpr, meta) of
     -- TODO: should this check sz >= minLen?
-    (M.TyArray elemTy sz, MirVectorRepr elemTpr, NoMeta) -> do
+    (M.TyArray _elemTy sz, MirVectorRepr elemTpr, NoMeta) -> do
         idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
-    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
-        idx <- getIdx idx len fromEnd
-        G.assertExpr (R.App $ usizeLt idx len)
+    (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
+        idx' <- getIdx idx len fromEnd
+        G.assertExpr (R.App $ usizeLt idx' len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset ref idx <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_offset ref idx' <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
     getIdx :: Int -> R.Expr MIR s UsizeType -> Bool ->
         MirGenerator h s ret (R.Expr MIR s UsizeType)
-    getIdx idx len True = return $ R.App $ usizeSub len $ R.App $ usizeLit $ fromIntegral idx
-    getIdx idx _ False = return $ R.App $ usizeLit $ fromIntegral idx
+    getIdx idx' len True = return $ R.App $ usizeSub len $ R.App $ usizeLit $ fromIntegral idx'
+    getIdx idx' _ False = return $ R.App $ usizeLit $ fromIntegral idx'
 -- Downcast is a no-op - it only affects the type reported by `M.type_of`.  The
 -- `PField` case above looks for `TyDowncast` to handle enum accesses.
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
@@ -1657,10 +1649,10 @@ evalPlaceProj ty (MirPlace _ _ meta) proj =
 -- coercion is not legal in Rust.
 -- TODO: use this to implmeent parts of `evalCast`
 tryCoerce :: M.Ty -> M.Ty -> MirExp s -> Maybe (MirGenerator h s ret (MirExp s))
-tryCoerce ty1 ty2 exp
-  | ty1 == ty2 = Just $ return exp
-tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) exp@(MirExp tpr e)
-  | ty1 == ty2 = Just $ return exp
+tryCoerce ty1 ty2 expr
+  | ty1 == ty2 = Just $ return expr
+tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) expr
+  | ty1 == ty2 = Just $ return expr
 -- Special hack: using `CTyBox` as a constructor (as `typeOf` does for the
 -- `Box` nullop) produces a `TyAdt` with an invalid `DefId`.  This is because
 -- we don't have a way to compute the correct hash inside the `CTyBox` ctor.
@@ -1668,19 +1660,19 @@ tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) exp@(MirExp tpr e)
 -- `CTyBox` pattern ignores the bad field already.)
 -- TODO: implement `Eq` to ignore the field, or else remove it entirely and use
 -- a different key for `findAdt`.
-tryCoerce (CTyBox ty1) (CTyBox ty2) exp
-  | ty1 == ty2 = Just $ return exp
+tryCoerce (CTyBox ty1) (CTyBox ty2) expr
+  | ty1 == ty2 = Just $ return expr
 tryCoerce _ _ _ = Nothing
 
 evalCoerce :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
-evalCoerce ty1 ty2 exp@(MirExp tpr _)
-  | Just action <- tryCoerce ty1 ty2 exp = action
+evalCoerce ty1 ty2 expr@(MirExp tpr _)
+  | Just action <- tryCoerce ty1 ty2 expr = action
   | otherwise = mirFail $ "illegal or unimplemented coercion from "
         ++ show ty1 ++ " (concretely " ++ show tpr ++ ") to " ++ show ty2
 
 doAssignCoerce :: HasCallStack => M.Lvalue -> M.Ty -> MirExp s -> MirGenerator h s ret ()
-doAssignCoerce lv ty exp =
-    doAssign lv =<< evalCoerce ty (M.typeOf lv) exp
+doAssignCoerce lv ty expr =
+    doAssign lv =<< evalCoerce ty (M.typeOf lv) expr
 
 doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 doAssign lv (MirExp tpr val) = do
@@ -1703,11 +1695,11 @@ transStatementKind (M.Assign lv rv) = do
   col <- use $ cs . collection
   -- Skip writes to zero-sized fields, as they are effectively no-ops.
   when (not $ isZeroSized col $ typeOf lv) $ do
-    re <- evalRval rv
-    doAssignCoerce lv (M.typeOf rv) re
-transStatementKind (M.StorageLive lv) = return ()
-transStatementKind (M.StorageDead lv) = return ()
-transStatementKind (M.SetDiscriminant lv i) = do
+    rve <- evalRval rv
+    doAssignCoerce lv (M.typeOf rv) rve
+transStatementKind (M.StorageLive _lv) = return ()
+transStatementKind (M.StorageDead _lv) = return ()
+transStatementKind (M.SetDiscriminant lv _i) = do
   case M.typeOf lv of
     -- Currently we require that all uses of `SetDiscriminant` get bundled up
     -- with related field writes into an `RAdtAg` assignment during the
@@ -1774,17 +1766,17 @@ transSwitch ::
     [M.BasicBlockInfo] -> -- jumps
     MirGenerator h s ret a
 transSwitch _pos _ [] [targ] = jumpToBlock targ
-transSwitch pos exp vals blks = do
+transSwitch pos expr vals blks = do
     setPosition pos
     lm <- use labelMap
-    conds <- mapM (doCompare exp) vals
+    conds <- mapM (doCompare expr) vals
     labels <- forM blks $ \b -> case Map.lookup b lm of
         Just lab -> return lab
         Nothing -> mirFail "bad jump"
 
     isDropFlag <- switchIsDropFlagCheck vals blks
-    let info = case (exp, vals, labels) of
-            (MirExp C.BoolRepr _, [0], [fd, td]) | isDropFlag -> DropFlagBranch
+    let info = case (expr, vals, labels) of
+            (MirExp C.BoolRepr _, [0], [_fd, _td]) | isDropFlag -> DropFlagBranch
             (MirExp C.BoolRepr _, [0], [fd, td]) ->
                 BoolBranch (labelText td) (labelText fd) pos
             (MirExp C.BoolRepr _, [1], [td, fd]) ->
@@ -1808,7 +1800,7 @@ transSwitch pos exp vals blks = do
 
     go :: Int -> Int -> [R.Expr MIR s C.BoolType] -> [R.Label s] ->
         MirGenerator h s ret a
-    go branchId idx [] labels =
+    go _branchId _idx [] labels =
       case labels of
         [lab] -> G.jump lab
         _ ->
@@ -1892,7 +1884,7 @@ doReturn tr = do
     -- To detect if the current function is a static initializer, we check if
     -- there's an entry in `statics` matching the current `fname`.
     fn <- expectFnContext
-    let curName = fn^.fname
+    let curName = fn ^. fname
     isStatic <- use $ cs . collection . statics . to (Map.member curName)
     when (not isStatic) cleanupLocals
 
@@ -1934,10 +1926,10 @@ lookupFunction nm = do
        -> return Nothing
 
        -- a normal function
-       | Just (MirHandle nm fs fh) <- isImpl
+       | Just (MirHandle nm' fs fh) <- isImpl
        -> do
             when (db > 3) $ do
-              traceM $ "**lookupFunction: " ++ fmt nm ++ " resolved as normal call"
+              traceM $ "**lookupFunction: " ++ fmt nm' ++ " resolved as normal call"
 
             return $ Just $ (mkFunExp fh, fs)
 
@@ -2022,7 +2014,7 @@ callExp funid cargs = do
           op cargs
 
        | Just (hand, sig) <- mhand -> do
-         callHandle hand (sig^.fsabi) cargs
+         callHandle hand (sig ^. fsabi) cargs
 
      _ -> mirFail $ "callExp: Don't know how to call " ++ fmt funid
 
@@ -2030,10 +2022,9 @@ callExp funid cargs = do
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
 doCall :: forall h s ret a. (HasCallStack) => M.DefId -> [M.Operand]
-   -> Maybe (M.Lvalue, M.BasicBlockInfo) -> C.TypeRepr ret -> MirGenerator h s ret a
-doCall funid cargs cdest retRepr = do
+   -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
+doCall funid cargs cdest = do
     _am    <- use $ cs.collection
-    db    <- use debugLevel
     isCustom <- resolveCustom funid
     case cdest of
       (Just (dest_lv, jdest)) -> do
@@ -2070,10 +2061,9 @@ transTerminatorKind t@(M.SwitchInt swop _swty svals stargs) tpos _tr
       mirFail $ "SwitchInt with no values to compare: " ++ show (pretty t)
 transTerminatorKind (M.Return) _tpos tr =
     doReturn tr
-transTerminatorKind (M.Call funcOp cargs cretdest) _tpos retTy = case M.typeOf funcOp of
-  M.TyFnDef defId -> do
-    isCustom <- resolveCustom defId
-    doCall defId cargs cretdest retTy -- cleanup ignored
+transTerminatorKind (M.Call funcOp cargs cretdest) _tpos _retTy = case M.typeOf funcOp of
+  M.TyFnDef defId ->
+    doCall defId cargs cretdest -- cleanup ignored
   M.TyFnPtr _ -> do
     func <- evalOperand funcOp
     ret <- callHandle func RustAbi cargs
@@ -2083,7 +2073,7 @@ transTerminatorKind (M.Call funcOp cargs cretdest) _tpos retTy = case M.typeOf f
         jumpToBlock jdest
       Nothing ->
         G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
-  calleeTy -> mirFail $ "expected callee to be a function, but it was "<>show calleeTy
+  calleeTy -> mirFail $ "expected callee to be a function, but it was " <> show calleeTy
 transTerminatorKind (M.Assert cond expected msg target) _tpos _tr = do
     MirExp tpr e <- evalOperand cond
     Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
@@ -2097,9 +2087,9 @@ transTerminatorKind (M.Drop dlv dt dropFn) _tpos _tr = do
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     jumpToBlock dt
-transTerminatorKind M.Abort _tpos tr =
+transTerminatorKind M.Abort _tpos _tr =
     G.reportError (S.litExpr "process abort in unwinding")
-transTerminatorKind M.Unreachable _tpos tr = do
+transTerminatorKind M.Unreachable _tpos _tr = do
     recordUnreachable
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminatorKind M.InlineAsm _tpos _tr =
@@ -2110,8 +2100,8 @@ transTerminatorKind M.InlineAsm _tpos _tr =
 
 -- | Allocate RefCells for all locals and populate `varMap`.  Locals are
 -- default-initialized when possible using the result of `initialValue`.
-initLocals :: [M.Var] -> Set.Set Text.Text -> MirGenerator h s ret ()
-initLocals localVars addrTaken = forM_ localVars $ \v -> do
+initLocals :: [M.Var] -> MirGenerator h s ret ()
+initLocals localVars = forM_ localVars $ \v -> do
     let name = v ^. varname
     let ty = v ^. varty
     Some tpr <- tyToReprM ty
@@ -2150,18 +2140,6 @@ cleanupLocals = do
         VarReference _ reg -> G.readReg reg >>= dropMirRef
         _ -> return ()
 
--- | Look at all of the assignments in the basic block and return
--- the set of variables that have their addresses computed
-addrTakenVars :: M.BasicBlock -> Set Text.Text
-addrTakenVars bb = mconcat (map (f . M._stmtKind) (M._bbstmts (M._bbdata bb)))
- where
- f (M.Assign _ (M.Ref _ lv _)) = g lv
- f _ = mempty
-
- g (M.LBase (M.Var nm _ _ _)) = Set.singleton nm
- g (M.LProj lv _) = g lv
-
-
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks _) = Map.fromList <$> mapM buildLabel blocks
 
@@ -2194,11 +2172,11 @@ translateBlockBody tr (M.BasicBlockData stmts terminator) = (mapM_ transStatemen
 
 --
 registerBlock :: HasCallStack => C.TypeRepr ret -> M.BasicBlock -> MirGenerator h s ret ()
-registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
+registerBlock tr (M.BasicBlock bbinfo' bbdata')  = do
     lm <- use labelMap
-    case (Map.lookup bbinfo lm) of
+    case (Map.lookup bbinfo' lm) of
       Just lab -> do
-        G.defineBlock lab (translateBlockBody tr bbdata)
+        G.defineBlock lab (translateBlockBody tr bbdata')
       _ -> mirFail "bad label"
 
 
@@ -2215,13 +2193,12 @@ genFn :: HasCallStack =>
     C.TypeRepr ret ->
     Ctx.Assignment (R.Atom s) args ->
     MirGenerator h s ret (G.Label s)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs = do
+genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs = do
 
   lm <- buildLabelMap body
   labelMap .= lm
 
-  let addrTaken = mconcat (map addrTakenVars blocks)
-  initLocals (argvars ++ localvars) addrTaken
+  initLocals (argvars ++ localvars)
   let inputExps = toListFC (\atom -> MirExp (R.typeOfAtom atom) (R.AtomExpr atom)) inputs
   inputExps' <- case sig ^. M.fsabi of
     M.RustCall (M.RcSpreadArg spreadArg) -> do
@@ -2255,27 +2232,27 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
      vmm <- use varMap
      let showVar var = fmt var ++ " : " ++ fmt (M.typeOf var)
      traceM $ "-----------------------------------------------------------------------------"
-     traceM $ "Generating code for: " ++ show fname
+     traceM $ "Generating code for: " ++ show fname'
      traceM $ "Function args are: " ++ List.intercalate "," (map showVar argvars)
      traceM $ "VarMap is: " ++ fmt (Map.keys vmm)
      traceM $ "Body is:\n" ++ fmt body
      traceM $ "-----------------------------------------------------------------------------"
-  blocks@(enter NE.:| _) <- case body of
-    M.MirBody _mvars (enter : blocksRest) _ -> return (enter NE.:| blocks)
+  blocks'@(enter NE.:| _) <- case body of
+    M.MirBody _mvars (enter : _blocksRest) _ -> return (enter NE.:| blocks)
     _ -> mirFail $ "expected body to be MirBody, but got " ++ show body
   -- actually translate all of the blocks of the function
-  mapM_ (registerBlock rettype) blocks
+  mapM_ (registerBlock rettype) blocks'
   let (M.BasicBlock bbi _) = enter
-  lm <- use labelMap
-  case (Map.lookup bbi lm) of
+  lm' <- use labelMap
+  case (Map.lookup bbi lm') of
     Just lbl -> return lbl
     _ -> mirFail "bad thing happened"
 
   where
     initArgs :: HasCallStack =>
         [MirExp s] -> [M.Var] -> MirGenerator h s ret ()
-    initArgs inputs vars =
-        case (inputs, vars) of
+    initArgs inputs0 vars =
+        case (inputs0, vars) of
             ([], []) -> return ()
             (MirExp inputTpr inputExpr : inputs', var : vars') -> do
                 mvi <- use $ varMap . at (var ^. varname)
@@ -2292,7 +2269,7 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs 
                         writeMirRef tpr ref inputExpr
                     VarAtom _ -> mirFail $ "unexpected VarAtom"
                 initArgs inputs' vars'
-            _ -> mirFail $ "mismatched argument count for " ++ show fname
+            _ -> mirFail $ "mismatched argument count for " ++ show fname'
 
 
 genClosureFnPointerShim :: forall h s args ret.
@@ -2322,8 +2299,8 @@ genClosureFnPointerShim callOnceId tprRet argAtoms = do
   when (sig ^. fsabi /= M.RustCall (M.RcSpreadArg 2)) $
     mirFail $ "expected " ++ show callOnceId
       ++ " to have RustCall ABI with spread_arg = 2, not " ++ show (sig ^. fsabi)
-  (callOnceArgTy0, callOnceArgTys') <- case callOnceArgTys of
-    x:y -> return (x, y)
+  callOnceArgTy0 <- case callOnceArgTys of
+    x:_ -> return x
     [] -> mirFail $ "expected " ++ show callOnceId ++ " to have at least one arg, but got "
       ++ show callOnceArgTys
   when (callOnceArgTy0 /= M.TyClosure []) $
@@ -2362,7 +2339,7 @@ transCommon :: forall h.
   -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transCommon colState name context gen = do
     MirHandle _hname _hsig (handle :: FH.FnHandle args ret) <-
-        case Map.lookup name (colState^.handleMap) of
+        case Map.lookup name (colState ^. handleMap) of
             Nothing -> error "bad handle!!"
             Just mh -> return mh
     ftiRef <- newSTRef mempty
@@ -2429,20 +2406,20 @@ transStatic colState st
 
 -- | Allocate method handles for each of the functions in the Collection
 mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMap
-mkHandleMap col halloc = mapM mkHandle (col^.functions) where
+mkHandleMap col halloc = mapM mkHandle (col ^. functions) where
 
     mkHandle :: M.Fn -> IO MirHandle
-    mkHandle (M.Fn fname _fargs fsig _fbody)  = do
-      let targs = abiFnArgs fsig
-          handleName = FN.functionNameFromText (M.idText fname)
+    mkHandle (M.Fn fname' _fargs fsig' _fbody)  = do
+      let targs = abiFnArgs fsig'
+          handleName = FN.functionNameFromText (M.idText fname')
       Some argctx <- case tyListToCtx col targs (Right . Some) of
          Left err -> fail ("mkHandle: " ++ err)
          Right x -> return x
-      Some retrepr <- case tyToRepr col (fsig^.fsreturn_ty) of
+      Some retrepr <- case tyToRepr col (fsig' ^. fsreturn_ty) of
         Left err -> fail ("mkHandle: " ++ err)
         Right x -> return x
       h <- FH.mkHandle' halloc handleName argctx retrepr
-      return $ MirHandle fname fsig h
+      return $ MirHandle fname' fsig' h
 
 vtableShimName :: M.VtableName -> M.DefId -> Text
 vtableShimName vtableName fnName =
@@ -2456,14 +2433,14 @@ vtableShimSig vtableName fnName sig = sig & M.fsarg_tys %~ \xs -> case xs of
 
 -- | Allocate method handles for all vtable shims.
 mkVtableMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO VtableMap
-mkVtableMap col halloc = mapM mkVtable (col^.vtables)
+mkVtableMap col halloc = mapM mkVtable (col ^. vtables)
   where
     mkVtable :: M.Vtable -> IO [MirHandle]
     mkVtable (M.Vtable name items) = mapM (mkHandle name) items
 
     mkHandle :: M.DefId -> M.VtableItem -> IO MirHandle
     mkHandle vtableName (VtableItem fnName _)
-      | Just fn <- Map.lookup fnName (col^.functions) = do
+      | Just fn <- Map.lookup fnName (col ^. functions) = do
         let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
             handleName = FN.functionNameFromText (vtableShimName vtableName fnName)
 
@@ -2496,13 +2473,13 @@ transVtableShim :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap
   -> MirHandle
   -> ST h (Text, Core.AnyCFG MIR)
 transVtableShim colState vtableName (VtableItem fnName defName)
-        (MirHandle hname hsig (shimFH :: FH.FnHandle args ret)) =
+        (MirHandle _hname _hsig (shimFH :: FH.FnHandle args ret)) =
     -- Unpack shim signature
     let shimArgs = FH.handleArgTypes shimFH in
     let shimRet = FH.handleReturnType shimFH in
 
     -- Retrieve impl Fn and FnHandle; unpack impl signature
-    (\k -> case Map.lookup fnName (colState^.collection.functions) of
+    (\k -> case Map.lookup fnName (colState ^. collection.functions) of
             Just fn -> k fn
             Nothing -> die ["failed to look up implementation", show fnName])
         $ \implFn ->
@@ -2517,22 +2494,22 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     -- Peel off receiver from shim and impl arg lists
     -- NB: assignments built by `tyListToCtx` are constructed in reverse order
     elimAssignmentLeft shimArgs (die ["shim has no arguments"])
-        $ \eqShimArgs@Refl shimArg0 shimArgs' ->
+        $ \Refl shimArg0 shimArgs' ->
     elimAssignmentLeft implArgs (die ["impl has no arguments"])
-        $ \eqImplArgs@Refl implArg0 implArgs' ->
+        $ \Refl implArg0 implArgs' ->
 
     -- Check equalities over Crucible (translated) types:
     --  * Non-receiver arg types of impl and shim are equal
     (\k -> case testEquality implArgs' shimArgs' of { Just x -> k x;
         Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs] })
-        $ \eqArgs'@Refl ->
+        $ \Refl ->
     --  * Return types of impl and shim are equal
     (\k -> case testEquality implRet shimRet of { Just x -> k x;
         Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet] })
-        $ \eqRet@Refl ->
+        $ \Refl ->
     --  * Shim receiver type is ANY
     (\k -> case testEquality shimArg0 C.AnyRepr of { Just x -> k x;
-        Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \eqShimArg0Any@Refl ->
+        Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \Refl ->
 
     -- Construct the shim and return it
     withBuildShim implMirArg0 implArg0 implArgs' implRet implFH $ \shimDef -> do
@@ -2550,10 +2527,10 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     withMethodHandle :: forall r.
         MethName ->
         (r) ->
-        (forall args ret. FH.FnHandle args ret -> r) ->
+        (forall args' ret'. FH.FnHandle args' ret' -> r) ->
         r
     withMethodHandle name kNothing kJust =
-        case Map.lookup name (colState^.handleMap) of
+        case Map.lookup name (colState ^. handleMap) of
             Just (MirHandle _ _ fh) -> kJust fh
             Nothing -> kNothing
 
@@ -2572,10 +2549,10 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
-    buildShim recvMirTy recvTy argTys retTy implFH
+    buildShim recvMirTy recvTy argTys _retTy implFH
       | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
-      | otherwise = \argsA -> (\x -> (fnState, x)) $ do
+      | otherwise = \_argsA -> (\x -> (fnState, x)) $ do
         mirFail $ dieMsg ["unsupported MIR receiver type", show recvMirTy]
 
     buildShimForRef :: forall recvTy argTys retTy .
@@ -2645,9 +2622,9 @@ splitAssignmentLeft xs sz =
 
 
 lookupTrait :: M.Collection -> M.TraitName -> M.Trait
-lookupTrait col traitName = case col ^. M.traits . at traitName of
+lookupTrait col traitName' = case col ^. M.traits . at traitName' of
     Just x -> x
-    Nothing -> error $ "undefined trait " ++ show traitName
+    Nothing -> error $ "undefined trait " ++ show traitName'
 
 -- Get the function signature of the declaration of a trait method.  Raises an
 -- error if the method is not found in the trait.
@@ -2738,12 +2715,12 @@ mkVirtCall
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
 mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
-        $ \eqRecvTy@Refl ->
+        $ \Refl ->
 
     -- Unpack vtable type
     withSome vtableType $ \vtableStructTy ->
     elimStructType vtableStructTy (die ["vtable type is not a struct"])
-        $ \eqVtableStructTy@Refl vtableTys ->
+        $ \Refl vtableTys ->
 
     let someVtableIdx = case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
             Just x -> x
@@ -2753,20 +2730,20 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
 
     -- Check that the vtable entry has the correct signature.
     elimFunctionHandleType (vtableTys Ctx.! vtableIdx) (die ["vtable entry is not a function"])
-        $ \eqVtableEntryTy@Refl vtsArgTys vtsRetTy ->
+        $ \Refl vtsArgTys vtsRetTy ->
     elimAssignmentLeft vtsArgTys (die ["vtable shim has no arguments"])
-        $ \eqVtsArgs@Refl vtsRecvTy vtsArgTys ->
+        $ \Refl vtsRecvTy vtsArgTys' ->
 
     checkEq vtsRecvTy C.AnyRepr (die ["vtable shim receiver is not Any"])
-        $ \eqVtsRecvTy@Refl ->
-    checkEq vtsArgTys argTys
+        $ \Refl ->
+    checkEq vtsArgTys' argTys
         (die ["vtable shim arguments don't match method; vtable shim =",
-            show vtsArgTys, "; method =", show argTys])
-        $ \eqVtsArgTys@Refl ->
+            show vtsArgTys', "; method =", show argTys])
+        $ \Refl ->
     checkEq vtsRetTy retTy
         (die ["vtable shim return type doesn't match method; vtable shim =",
             show vtsRetTy, "; method =", show retTy])
-        $ \eqVtsRetTy@Refl -> do
+        $ \Refl -> do
 
     let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
     let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
@@ -2778,10 +2755,10 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
             unwords ["bad vtable downcast:", show dynTraitName,
                 "to", show vtableTys]
 
-    let vtableStructTy = C.StructRepr vtableTys
-    okBlk <- G.newLambdaLabel' vtableStructTy
+    let vtableStructTy' = C.StructRepr vtableTys
+    okBlk <- G.newLambdaLabel' vtableStructTy'
     vtable <- G.continueLambda okBlk $ do
-        G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
+        G.branchMaybe (R.App $ E.UnpackAny vtableStructTy' recvVtable) okBlk errBlk
 
     -- Extract the function handle from the vtable
     let vtsFH = R.App $ E.GetStruct vtable vtableIdx
@@ -2791,9 +2768,9 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
 
   where
     die :: [String] -> a
-    die words = error $ unwords
+    die words' = error $ unwords
         (["failed to generate virtual-call shim for method", show methIndex,
-            "of trait", show dynTraitName] ++ words)
+            "of trait", show dynTraitName] ++ words')
 
     dynTrait = case col ^. M.traits . at dynTraitName of
         Just x -> x
@@ -2802,7 +2779,7 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     -- The type of the entire vtable.  Note `traitVtableType` wants the trait
     -- substs only, omitting the Self type.
     vtableType :: Some C.TypeRepr
-    vtableType = case traitVtableType col dynTraitName dynTrait of
+    vtableType = case traitVtableType col dynTrait of
       Left err -> die ["vtableType: " ++ err]
       Right x -> x
 
@@ -2861,11 +2838,11 @@ transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, 
   -> M.TraitName
   -> Integer
   -> ST h (Text, Core.AnyCFG MIR)
-transVirtCall colState intrName methName dynTraitName methIndex
-  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
+transVirtCall colState intrName' methName dynTraitName methIndex
+  | MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH =
     -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
     elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
-        $ \eqMethArgs@Refl recvTy argTys ->
+        $ \Refl recvTy argTys ->
     let retTy = FH.handleReturnType methFH
 
         -- | This is actually a 'G.FunctionDef', but that synonym hides some
@@ -2889,17 +2866,17 @@ transVirtCall colState intrName methName dynTraitName methIndex
       in  do
             R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
             case SSA.toSSA g of
-                Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
+                Core.SomeCFG g_ssa -> return (M.idText intrName', Core.AnyCFG g_ssa)
 
   where
     die :: [String] -> a
-    die words = error $ unwords
+    die words' = error $ unwords
         (["failed to generate virtual-call shim for", show methName,
-            "(intrinsic", show intrName, "):"] ++ words)
+            "(intrinsic", show intrName', "):"] ++ words')
 
-    methMH = case Map.lookup intrName (colState ^. handleMap) of
+    methMH = case Map.lookup intrName' (colState ^. handleMap) of
         Just x -> x
-        Nothing -> die ["failed to find method handle for", show intrName]
+        Nothing -> die ["failed to find method handle for", show intrName']
 
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s
@@ -2934,8 +2911,8 @@ checkEq a b kNe kEq
 
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
 mkDiscrMap col = mconcat
-    [ Map.singleton (adt^.M.adtname) (adtIndices adt col)
-    | adt <- Map.elems $ col^.M.adts, Lens.is _Enum (adt^.M.adtkind) ]
+    [ Map.singleton (adt ^. M.adtname) (adtIndices adt col)
+    | adt <- Map.elems $ col ^. M.adts, Lens.is _Enum (adt ^. M.adtkind) ]
 
 -- | Gather all of the 'M.DefId's in a 'M.Collection' and construct a
 -- 'crateHashesMap' from it. To accomplish this, it suffices to look at the
@@ -3000,15 +2977,15 @@ transCollection col halloc = do
     -- translate the statics and create the initialization code
     -- allocate references for statics
     let allocateStatic :: Static -> Map M.DefId StaticVar -> IO (Map M.DefId StaticVar)
-        allocateStatic static staticMap = do
-          Some staticRepr <- case tyToRepr col (static^.sTy) of
+        allocateStatic static staticMap' = do
+          Some staticRepr <- case tyToRepr col (static ^. sTy) of
             Left err -> fail ("allocateState: " ++ err)
             Right x -> return x
-          let gname =  (M.idText (static^.sName) <> "_global")
+          let gname =  (M.idText (static ^. sName) <> "_global")
           g <- G.freshGlobalVar halloc gname staticRepr
-          return $ Map.insert (static^.sName) (StaticVar g) staticMap
+          return $ Map.insert (static ^. sName) (StaticVar g) staticMap'
 
-    sm <- foldrM allocateStatic Map.empty (col^.statics)
+    sm <- foldrM allocateStatic Map.empty (col ^. statics)
 
     let dm = mkDiscrMap col
     let chm = mkCrateHashesMap col
@@ -3018,18 +2995,18 @@ transCollection col halloc = do
 
     -- translate all of the functions
     fnInfo <- Maybe.catMaybes <$>
-      mapM (stToIO . transInstance colState) (Map.elems (col^.M.intrinsics))
+      mapM (stToIO . transInstance colState) (Map.elems (col ^. M.intrinsics))
     staticInfo <- Maybe.catMaybes <$>
-      mapM (stToIO . transStatic colState) (Map.elems (col^.M.statics))
+      mapM (stToIO . transStatic colState) (Map.elems (col ^. M.statics))
     let allInfo = fnInfo ++ [(n, c, Just i) | (n, c, i) <- staticInfo]
     let pairs1 = [(name, cfg) | (name, cfg, _) <- allInfo]
-    let transInfo = Map.fromList [(name, fti) | (name, _, Just fti) <- allInfo]
-    pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col^.M.vtables))
+    let transInfo' = Map.fromList [(name, fti) | (name, _, Just fti) <- allInfo]
+    pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col ^. M.vtables))
 
     return $ RustModule
                 { _rmCS    = colState
                 , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2)
-                , _rmTransInfo = transInfo
+                , _rmTransInfo = transInfo'
                 }
 
 -- | Produce a crucible CFG that initializes the global variables for the static
@@ -3045,16 +3022,16 @@ transStatics ::
   (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool) =>
   CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
 transStatics colState halloc = do
-  let sm = colState^.staticMap
-  let hmap = colState^.handleMap
+  let sm = colState ^. staticMap
+  let hmap = colState ^. handleMap
   let initializeStatic :: forall h s r . Static -> MirGenerator h s r ()
       initializeStatic static =
-        let staticName = static^.sName in
+        let staticName = static ^. sName in
         case Map.lookup staticName sm of
           Just (StaticVar g) ->
             let repr = G.globalType g in
-            if |  Just constval <- static^.sConstVal
-               -> do let constty = static^.sTy
+            if |  Just constval <- static ^. sConstVal
+               -> do let constty = static ^. sTy
                      Some tpr <- tyToReprM constty
                      MirExp constty' constval' <- transConstVal constty (Some tpr) constval
                      case testEquality repr constty' of
@@ -3081,7 +3058,7 @@ transStatics colState halloc = do
   let initName = FN.functionNameFromText "static_initializer"
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
   let allStatics :: [Static]
-      allStatics = Map.elems (colState^.collection.statics)
+      allStatics = Map.elems (colState ^. collection.statics)
   -- Partition the static items into those with constant initializer expressions
   -- (constValStatics) and those with non-constant initializer expressions
   -- (nonConstValStatics). We do this because nonConstValStatics can depend on
@@ -3098,7 +3075,7 @@ transStatics colState halloc = do
       (constValStatics, nonConstValStatics) =
         List.partition (\s -> Maybe.isJust (s ^. sConstVal)) allStatics
   let def :: G.FunctionDef MIR FnState Ctx.EmptyCtx C.UnitType (ST w)
-      def inputs = (s, f) where
+      def _inputs = (s, f) where
           s = initFnState colState StaticContext
           f = do mapM_ initializeStatic constValStatics
                  mapM_ initializeStatic nonConstValStatics
@@ -3129,25 +3106,25 @@ vectorCopy tpr ptr0 len = do
   -- Else branch
   y_id <- G.defineBlockLabel $ do
     elt0 <- readMirRef tpr ptr0
-    let out = S.app $ E.VectorReplicate tpr (S.app $ usizeToNat len) elt0
+    let out0 = S.app $ E.VectorReplicate tpr (S.app $ usizeToNat len) elt0
     iRef <- G.newRef $ S.app $ usizeLit 0
     ptrRef <- G.newRef ptr0
-    outRef <- G.newRef out
+    outRef <- G.newRef out0
     let pos = PL.InternalPos
     G.while (pos, do i <- G.readRef iRef
                      return (G.App $ usizeLt i len))
             (pos, do i <- G.readRef iRef
                      ptr <- G.readRef ptrRef
-                     out <- G.readRef outRef
+                     out1 <- G.readRef outRef
                      elt <- readMirRef tpr ptr
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
                      ptr' <- mirRef_offset ptr (S.app $ usizeLit 1)
-                     let out' = S.app $ vectorSetUsize tpr R.App out i elt
+                     let out2 = S.app $ vectorSetUsize tpr R.App out1 i elt
                      G.writeRef iRef i'
                      G.writeRef ptrRef ptr'
-                     G.writeRef outRef out')
-    out <- G.readRef outRef
-    G.jumpToLambda c_id out
+                     G.writeRef outRef out2)
+    out1 <- G.readRef outRef
+    G.jumpToLambda c_id out1
   G.continueLambda c_id (G.branch cond x_id y_id)
 
 ptrCopy ::

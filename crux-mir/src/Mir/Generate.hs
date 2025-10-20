@@ -30,6 +30,7 @@ import           Data.Time.Clock (UTCTime)
 
 import GHC.Stack
 
+import Lang.Crucible.Panic (panic)
 
 import Mir.Mir
 import Mir.ParseTranslate (parseMIR)
@@ -49,9 +50,9 @@ getModificationTimeIfExists path = doesFileExist path >>= \case
 
 needsRebuild :: FilePath -> [FilePath] -> IO Bool
 needsRebuild output inputs = do
-    outTime <- getModificationTimeIfExists output
-    inTimes <- mapM getModificationTimeIfExists inputs
-    return $ case (outTime, sequence inTimes) of
+    mbOutTime <- getModificationTimeIfExists output
+    mbInTimes <- mapM getModificationTimeIfExists inputs
+    return $ case (mbOutTime, sequence mbInTimes) of
         (Nothing, _) -> True
         (_, Nothing) -> True
         (Just outTime, Just inTimes) -> any (> outTime) inTimes
@@ -108,15 +109,25 @@ maybeCompileMirJson cruxOpts keepRlib rustFile = do
 
 linkJson :: [FilePath] -> IO B.ByteString
 linkJson jsonFiles = Proc.withCreateProcess cp $
-    \Nothing (Just stdout) Nothing ph -> do
-        hSetBinaryMode stdout True
-        b <- BS.hGetContents stdout
-        ec <- Proc.waitForProcess ph
-        case ec of
-            ExitFailure cd -> fail $
-                "Error " ++ show cd ++ " while running mir-json on " ++ show jsonFiles
-            ExitSuccess    -> return ()
-        return $ B.fromStrict b
+    \mbHStdin mbHStdout mbHStderr ph ->
+      case (mbHStdin, mbHStdout, mbHStderr) of
+        (Nothing, Just hStdout, Nothing) -> do
+          hSetBinaryMode hStdout True
+          b <- BS.hGetContents hStdout
+          ec <- Proc.waitForProcess ph
+          case ec of
+              ExitFailure cd -> fail $
+                  "Error " ++ show cd ++ " while running mir-json on " ++ show jsonFiles
+              ExitSuccess    -> return ()
+          return $ B.fromStrict b
+        _ ->
+          panic
+            "linkJson"
+            [ "Unexpected process handles"
+            , "stdin:  " ++ show mbHStdin
+            , "stdout: " ++ show mbHStdout
+            , "stderr: " ++ show mbHStderr
+            ]
   where
     cp = (Proc.proc "mir-json-dce" jsonFiles) { Proc.std_out = Proc.CreatePipe }
 

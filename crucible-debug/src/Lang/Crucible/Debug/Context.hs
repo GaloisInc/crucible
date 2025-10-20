@@ -75,7 +75,7 @@ data CommandImpl cExt p sym ext t
       -- from matching 'implRegex' against the command line provided by the
       -- user.
     , implBody ::
-        Context cExt p sym ext t ->
+        Context cExt sym ext t ->
         C.ExecState p sym ext (C.RegEntry sym t) ->
         Rgx.Match (Arg.Arg cExt) r ->
         IO (EvalResult cExt p sym ext t)
@@ -90,7 +90,7 @@ voidImpl = ExtImpl absurd
 -- | The result of evaluating a 'Statement'
 data EvalResult cExt p sym ext t
   = EvalResult
-  { evalCtx :: Context cExt p sym ext t
+  { evalCtx :: Context cExt sym ext t
   , evalFeatureResult :: C.ExecutionFeatureResult p sym ext (C.RegEntry sym t)
   , evalResp :: Response cExt
   }
@@ -106,11 +106,10 @@ data EvalResult cExt p sym ext t
 -- 'cExt' is different from 'ext' because it\'s not necessarily true that you
 -- would want the debugger command extensions to be tied in a 1:1 fashion with
 -- the syntax extension (source language).
-data Context cExt p sym ext t
+data Context cExt sym ext t
   = Context
   { dbgBreakpoints :: Set Breakpoint
   , dbgCommandExt :: CommandExt cExt
-  , dbgExtImpl :: ExtImpl cExt p sym ext t
   , dbgInputs :: Inputs (CompletionT cExt (StyleT cExt IO)) (Statement cExt)
   , dbgOutputs :: Outputs IO (Response cExt)
   , dbgPpIntrinsic :: IntrinsicPrinters sym
@@ -123,19 +122,17 @@ data Context cExt p sym ext t
 initCtx ::
   W4.IsExpr (W4.SymExpr sym) =>
   CommandExt cExt ->
-  ExtImpl cExt p sym ext t ->
   IntrinsicPrinters sym ->
   Inputs (CompletionT cExt (StyleT cExt IO)) (Statement cExt) ->
   Outputs IO (Response cExt) ->
   TypeRepr t ->
-  IO (Context cExt p sym ext t)
-initCtx cExts impl iFns ins outs rTy = do
+  IO (Context cExt sym ext t)
+initCtx cExts iFns ins outs rTy = do
   t <- Trace.empty (knownNat @512)  -- arbitrary max size
   pure $
     Context
     { dbgBreakpoints = Set.empty
     , dbgCommandExt = cExts
-    , dbgExtImpl = impl
     , dbgInputs = ins
     , dbgOutputs = outs
     , dbgPpIntrinsic = iFns
@@ -145,8 +142,9 @@ initCtx cExts impl iFns ins outs rTy = do
     , dbgTrace = t
     }
 
+
 toCompletionEnv ::
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext r ->
   CompletionEnv cExt
 toCompletionEnv ctxt execState =
@@ -157,7 +155,7 @@ toCompletionEnv ctxt execState =
   }
 
 toStyleEnv ::
-  Context cExt p sym ext t ->
+  Context cExt sym ext t ->
   C.ExecState p sym ext r ->
   StyleEnv cExt
 toStyleEnv ctxt execState =
@@ -166,3 +164,4 @@ toStyleEnv ctxt execState =
   , Style.envCommandExt = dbgCommandExt ctxt
   , Style.envState = execState
   }
+
