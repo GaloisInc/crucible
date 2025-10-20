@@ -2031,16 +2031,24 @@ arrayZeroedIO sym idxs w = do
     zero <- bvZero sym w
     constantArray sym idxs zero
 
+concreteAllocSize :: 
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym UsizeType ->
+    IO Integer
+concreteAllocSize bak szSym =
+    case asBV szSym of
+        Just x -> return (BV.asUnsigned x)
+        Nothing -> addFailedAssertion bak $ Unsupported callStack $
+            "Attempted to create allocation of symbolic size"
+
 mirVector_uninitIO ::
     IsSymBackend sym bak =>
     bak ->
     RegValue sym UsizeType ->
     IO (MirVector sym tp)
 mirVector_uninitIO bak lenSym = do
-    len <- case asBV lenSym of
-        Just x -> return (BV.asUnsigned x)
-        Nothing -> addFailedAssertion bak $ Unsupported callStack $
-            "Attempted to allocate vector of symbolic length"
+    len <- concreteAllocSize bak lenSym
     let pv = V.replicate (fromInteger len) Unassigned
     return (MirVector_PartialVector pv)
 
@@ -2053,10 +2061,7 @@ mirVector_resizeIO ::
     IO (RegValue sym (MirVectorType tp))
 mirVector_resizeIO bak _tpr mirVec newLenSym = do
     let sym = backendGetSym bak
-    newLen <- case asBV newLenSym of
-        Just x -> return (BV.asUnsigned x)
-        Nothing -> addFailedAssertion bak $ Unsupported callStack $
-            "Attempted to resize vector to symbolic length"
+    newLen <- concreteAllocSize bak newLenSym
     getter <- case mirVec of
         MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
         MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
@@ -2071,10 +2076,7 @@ mirAggregate_uninitIO ::
     RegValue sym UsizeType ->
     IO (RegValue sym MirAggregateType)
 mirAggregate_uninitIO bak szSym = do
-  sz <- case asBV szSym of
-    Just x -> return (BV.asUnsigned x)
-    Nothing -> addFailedAssertion bak $ Unsupported callStack $
-      "Attempted to allocate aggregate of symbolic size"
+  sz <- concreteAllocSize bak szSym
   return $ MirAggregate (fromIntegral sz) mempty
 
 mirAggregate_replicateIO ::
@@ -2087,10 +2089,7 @@ mirAggregate_replicateIO ::
     IO (RegValue sym MirAggregateType)
 mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym = do
   let sym = backendGetSym bak
-  len <- case asBV lenSym of
-    Just x -> return (BV.asUnsigned x)
-    Nothing -> addFailedAssertion bak $ Unsupported callStack $
-      "Attempted to allocate aggregate of symbolic size"
+  len <- concreteAllocSize bak lenSym
   let totalSize = fromIntegral len * elemSz
   let entries =
         [(fromIntegral i * fromIntegral elemSz,
@@ -2105,10 +2104,7 @@ mirAggregate_resizeIO ::
     RegValue sym UsizeType ->
     IO (RegValue sym MirAggregateType)
 mirAggregate_resizeIO bak ag szSym = do
-  sz <- case asBV szSym of
-    Just x -> return (BV.asUnsigned x)
-    Nothing -> addFailedAssertion bak $ Unsupported callStack $
-      "Attempted to allocate aggregate of symbolic size"
+  sz <- concreteAllocSize bak szSym
   return $ resizeMirAggregate ag (fromIntegral sz)
 
 mirAggregate_getIO ::
