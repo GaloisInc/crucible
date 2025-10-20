@@ -1,5 +1,4 @@
 #![feature(core_intrinsics)]
-#![feature(ptr_offset_from_unsigned)]
 use std::intrinsics::ptr_offset_from_unsigned;
 
 #[cfg_attr(crux, crux::test)]
