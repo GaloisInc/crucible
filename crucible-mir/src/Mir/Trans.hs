@@ -169,13 +169,11 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 transConstVal (M.TyRef (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
     Some tpr <- tyToReprM ty
     place <- staticSlicePlace len (Some tpr) defid
-    addr <- addrOfPlace place
-    return addr
+    addrOfPlace place
 transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
     let tpr = C.BVRepr $ knownNat @8
     place <- staticSlicePlace len (Some tpr) defid
-    addr <- addrOfPlace place
-    return addr
+    addrOfPlace place
 
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
