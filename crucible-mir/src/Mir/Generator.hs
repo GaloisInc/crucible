@@ -835,14 +835,14 @@ mirVector_resize tpr vec len = G.extensionStmt $ MirVector_Resize tpr vec len
 
 
 mirAggregate_uninit ::
-  Word ->
+  R.Expr MIR s UsizeType ->
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
 mirAggregate_uninit sz = G.extensionStmt $ MirAggregate_Uninit sz
 
-mirAggregate_uninitSym ::
-  R.Expr MIR s UsizeType ->
+mirAggregate_uninit_constSize ::
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
-mirAggregate_uninitSym szSym = G.extensionStmt $ MirAggregate_UninitSym szSym
+mirAggregate_uninit_constSize sz = mirAggregate_uninit (R.App $ usizeLit $ fromIntegral sz)
 
 mirAggregate_replicate ::
   Word ->

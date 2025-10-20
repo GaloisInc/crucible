@@ -59,7 +59,7 @@ import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
     , mirRef_agElem_constOffset
-    , mirAggregate_uninit, mirAggregate_get, mirAggregate_set
+    , mirAggregate_uninit_constSize, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
@@ -564,7 +564,7 @@ packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 -- | Build a `MirAggregateRepr` from a list of `MirExp`s.
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildArrayLit tpr exps = do
-    ag0 <- mirAggregate_uninit (fromIntegral $ length exps)
+    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length exps)
     ag1 <- foldM
         (\ag (i, MirExp tpr' e) -> do
             Refl <- testEqualityOrFail tpr tpr' $
@@ -578,7 +578,7 @@ buildTupleM tys xs = buildTupleMaybeM tys (map Just xs)
 
 buildTupleMaybeM :: [M.Ty] -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
 buildTupleMaybeM tys xs = do
-    ag0 <- mirAggregate_uninit (fromIntegral $ length tys)
+    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length tys)
     ag1 <- foldM
         (\ag (i, mExp) -> do
             case mExp of
@@ -1230,7 +1230,7 @@ buildUnion unionAdt fieldIdx (MirExp actualFieldTpr fieldExpr) = do
         <> show actualFieldTpr
 
   -- See Note [union representation]
-  emptyAg <- mirAggregate_uninit unionSize
+  emptyAg <- mirAggregate_uninit_constSize unionSize
   fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
   pure (MirExp MirAggregateRepr fullAg)
 
@@ -1475,9 +1475,9 @@ initialValue CTyMethodSpecBuilder = return Nothing
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) =
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral $ length tys)
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
 initialValue (M.TyClosure tys) = do
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral $ length tys)
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
 initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
@@ -1485,7 +1485,7 @@ initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usiz
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
 initialValue (M.TyArray _ size) = do
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral size)
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral size)
 -- TODO: disabled to workaround for a bug with muxing null and non-null refs
 -- The problem is with
 --      if (*) {
@@ -1571,7 +1571,7 @@ initialValue (M.TyAdt nm _ _) = do
             -- appropriate size, like tuples. See Note [union representation]
             -- for details, including some regarding this choice of size.
             let unionSize = 1
-            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
+            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
 
 
 

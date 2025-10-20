@@ -179,7 +179,7 @@ transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len
 
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
-    ag <- mirAggregate_uninit (fromIntegral $ length bytes)
+    ag <- mirAggregate_uninit_constSize (fromIntegral $ length bytes)
     ag' <- foldM
         (\ag' (i, b) -> mirAggregate_set i 1 knownRepr b ag')
         ag (zip [0..] bytes)
@@ -193,7 +193,7 @@ transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
             "transConstVal (ConstArray): returned wrong type: expected " ++
             show tpr ++ ", got " ++ show tpr'
         pure e'
-    ag <- mirAggregate_uninit (fromIntegral $ length arr')
+    ag <- mirAggregate_uninit_constSize (fromIntegral $ length arr')
     ag' <- foldM
         (\ag' (i, x) -> mirAggregate_set i 1 tpr x ag')
         ag (zip [0..] arr')
@@ -704,7 +704,7 @@ buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     MirExp tpr e <- evalOperand op
     let n = fromInteger size
-    ag <- mirAggregate_uninit n
+    ag <- mirAggregate_uninit_constSize n
     ag' <- foldM
         (\ag' i -> mirAggregate_set i 1 tpr e ag')
         ag [0 .. n - 1]
@@ -2334,7 +2334,7 @@ genClosureFnPointerShim callOnceId tprRet argAtoms = do
       ++ show callOnceArgTy0
   -- Build the argument values for `call_once`.
   let tprArg0 = MirAggregateRepr
-  arg0 <- mirAggregate_uninit 0
+  arg0 <- mirAggregate_uninit_constSize 0
   let ctxArgs = Ctx.singleton tprArg0 Ctx.<++> fmapFC (R.typeOfAtom) argAtoms
   let args = Ctx.singleton arg0 Ctx.<++> fmapFC (R.AtomExpr @MIR) argAtoms
   -- More checks, necessary for the call below to typecheck.
@@ -3163,7 +3163,7 @@ aggregateCopy_constLen ::
   Word ->
   MirGenerator h s ret (G.Expr MIR s MirAggregateType)
 aggregateCopy_constLen tpr ptr0 len size = do
-  ag <- mirAggregate_uninit (fromIntegral len * size)
+  ag <- mirAggregate_uninit_constSize (fromIntegral len * size)
   ag' <- foldM
     (\ag' i -> do
        ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i)

@@ -1379,14 +1379,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(f (MirVectorType tp)) ->
     !(f UsizeType) ->
     MirStmt f (MirVectorType tp)
-  -- | Create an empty `MirAggregate` of the given size.
-  MirAggregate_Uninit ::
-    !Word ->
-    MirStmt f MirAggregateType
   -- | Create an empty `MirAggregate`, where the size is given as an expression
   -- of `UsizeType`.  The size must still be a concrete expression at symbolic
   -- execution time.
-  MirAggregate_UninitSym ::
+  MirAggregate_Uninit ::
     !(f UsizeType) ->
     MirStmt f MirAggregateType
   -- | Create a `MirAggregate` by replicating a value @len@ times.  The total
@@ -1398,8 +1394,8 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(f tp) ->
     !(f UsizeType) ->
     MirStmt f MirAggregateType
-  -- | Resize a `MirAggregate`.  As with `MirAggregate_UninitSym`, the
-  -- `UsizeType` expression must be concrete.
+  -- | Resize a `MirAggregate`.  As with `MirAggregate_Uninit`, the `UsizeType`
+  -- expression must be concrete.
   MirAggregate_Resize ::
     !(f MirAggregateType) ->
     !(f UsizeType) ->
@@ -1495,7 +1491,6 @@ instance TypeApp MirStmt where
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
     MirVector_Resize tp _ _ -> MirVectorRepr tp
     MirAggregate_Uninit _ -> MirAggregateRepr
-    MirAggregate_UninitSym _ -> MirAggregateRepr
     MirAggregate_Replicate _ _ _ _ -> MirAggregateRepr
     MirAggregate_Resize _ _ -> MirAggregateRepr
     MirAggregate_Get _ _ tp _ -> tp
@@ -1536,8 +1531,7 @@ instance PrettyApp MirStmt where
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
     MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
-    MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> viaShow sz
-    MirAggregate_UninitSym szSym -> "mirAggregate_uninit" <+> pp szSym
+    MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> pp sz
     MirAggregate_Replicate elemSz _ elemVal lenSym -> "mirAggregate_replicate" <+> viaShow elemSz <+> pp elemVal <+> pp lenSym
     MirAggregate_Resize ag szSym -> "mirAggregate_resize" <+> pp ag <+> pp szSym
     MirAggregate_Get off sz _ ag -> "mirAggregate_get" <+> viaShow off <+> viaShow sz <+> pp ag
@@ -2074,16 +2068,9 @@ mirVector_resizeIO bak _tpr mirVec newLenSym = do
 mirAggregate_uninitIO ::
     IsSymBackend sym bak =>
     bak ->
-    Word ->
-    IO (RegValue sym MirAggregateType)
-mirAggregate_uninitIO _bak sz = return $ MirAggregate sz mempty
-
-mirAggregate_uninitSymIO ::
-    IsSymBackend sym bak =>
-    bak ->
     RegValue sym UsizeType ->
     IO (RegValue sym MirAggregateType)
-mirAggregate_uninitSymIO bak szSym = do
+mirAggregate_uninitIO bak szSym = do
   sz <- case asBV szSym of
     Just x -> return (BV.asUnsigned x)
     Nothing -> addFailedAssertion bak $ Unsupported callStack $
@@ -2633,10 +2620,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirVector_Resize tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
             readOnly s $ mirVector_resizeIO bak tpr mirVec newLenSym
 
-       MirAggregate_Uninit sz -> do
+       MirAggregate_Uninit (regValue -> sz) -> do
             readOnly s $ mirAggregate_uninitIO bak sz
-       MirAggregate_UninitSym (regValue -> szSym) -> do
-            readOnly s $ mirAggregate_uninitSymIO bak szSym
        MirAggregate_Replicate elemSz elemTpr (regValue -> elemVal) (regValue -> lenSym) -> do
             readOnly s $ mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym
        MirAggregate_Resize (regValue -> ag) (regValue -> szSym) -> do

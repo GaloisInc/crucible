@@ -1274,7 +1274,7 @@ array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
                 -- output are aliases.
                 Some elemRepr <- tyToReprM elemTy
                 elemVal <- readMirRef elemRepr elemRef
-                ag <- mirAggregate_uninit 1
+                ag <- mirAggregate_uninit_constSize 1
                 ag' <- mirAggregate_set 0 1 elemRepr elemVal ag
                 agRef <- constMirRef MirAggregateRepr ag'
                 pure (MirExp MirReferenceRepr agRef)
@@ -1692,7 +1692,7 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             -- Create an uninitialized `MirVector_PartialVector` of length
             -- `len`, and return a pointer to its first element.
             Some tpr <- tyToReprM t
-            ag <- mirAggregate_uninitSym sz
+            ag <- mirAggregate_uninit sz
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
             -- `subindexRef` doesn't do a bounds check (those happen on deref
