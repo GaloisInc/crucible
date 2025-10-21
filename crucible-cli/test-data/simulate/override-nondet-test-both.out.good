@@ -29,8 +29,8 @@ Assuming:
      in not (and v7 v12 (not (and v7 v12)))
 * The branch in nondetBranchesTest from after branch 0 to second branch
     let -- test-data/simulate/override-nondet-test-both.cbl:10:5
-        v47 = and (not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))) (not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i)))
-     in not v47
+        v50 = and (not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))) (not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i)))
+     in not v50
 * The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to first branch
     let -- test-data/simulate/override-nondet-test-both.cbl:7:12
         v7 = eq 0 cw@0:i
@@ -55,8 +55,8 @@ Assuming:
      in not (and v7 v12 (not (and v7 v12)))
 * The branch in nondetBranchesTest from after branch 0 to second branch
     let -- test-data/simulate/override-nondet-test-both.cbl:10:5
-        v58 = and (not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))) (not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i)))
-     in not v58
+        v61 = and (not (and (eq 0 cw@0:i) (eq 0 cnondetBranchesZ@11:i))) (not (and (eq 1 cw@0:i) (eq 1 cnondetBranchesZ@11:i)))
+     in not v61
 * The branch in main from test-data/simulate/override-nondet-test-both.cbl:7:12 to first branch
     let -- test-data/simulate/override-nondet-test-both.cbl:7:12
         v7 = eq 0 cw@0:i

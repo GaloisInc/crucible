@@ -11,6 +11,9 @@
 * Add `FunctorF`, `FoldableF`, and `TraversableF` instances for `CrucibleEvent`,
   `CrucibleAssumption`, and `CrucibleAssumptions`.
 * Add `gcAddTopLevelAssume`, for making top-level assumptions.
+* Rename functions in `Lang.Crucible.Concretize` to match What4's conventions.
+  In particular, rename  `concRegValue` to `groundRegValue`, `concRegEntry` to
+  `groundRegEntry`, and `concRegMap` to `groundRegMap`.
 
 # 0.7.2 -- 2025-03-21
 

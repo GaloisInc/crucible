@@ -59,6 +59,7 @@ import Lang.Crucible.Syntax.Prog (doParseCheck, assertNoExterns, assertNoForward
 import Lang.Crucible.Syntax.SExpr
 
 import Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.Online as CBO
 import qualified Lang.Crucible.Backend.Prove as Prove
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
@@ -73,8 +74,10 @@ import What4.Interface (getConfiguration)
 import What4.Expr (ExprBuilder, newExprBuilder, EmptyExprBuilderState(..))
 import What4.FunctionName
 import What4.ProgramLoc
+import qualified What4.Protocol.Online as WPO
+import qualified What4.Protocol.SMTLib2 as SMT2
 import What4.Solver (defaultLogData)
-import What4.Solver.Z3 (z3Adapter, z3Options)
+import What4.Solver.Z3 (Z3, z3Adapter, z3Features, z3Options)
 
 -- | Personality (see
 -- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality')
@@ -102,8 +105,13 @@ data SimulateProgramHooks ext = SimulateProgramHooks
     --
     -- Used by the LLVM frontend to set up the LLVM global memory variable.
   , setupOverridesHook ::
-      forall p sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
-         sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
+      forall p solver sym bak t st fs.
+      ( IsSymBackend sym bak
+      , sym ~ ExprBuilder t st fs
+      , bak ~ CBO.OnlineBackend solver t st fs
+      , WPO.OnlineSolver solver
+      ) =>
+      bak -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
     -- ^ Action to set up overrides before parsing a program.
   , resolveExternsHook ::
       forall sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
@@ -153,7 +161,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks dbg dbgCmds
        Right v ->
          withIONonceGenerator $ \nonceGen ->
          do (sym :: ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE)) <- newExprBuilder FloatIEEERepr EmptyExprBuilderState nonceGen
-            bak <- newSimpleBackend sym
+            bak <- CBO.newOnlineBackend @(SMT2.Writer Z3) sym z3Features
             extendConfig opts (getConfiguration sym)
 
             let cExts = Debug.voidExts
@@ -179,7 +187,12 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks dbg dbgCmds
                   else dbgCtx_ { Debug.dbgState = Debug.Quit }
             let p = Personality @ext @(ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE)) dbgCtx
 
-            ovrs_ <- setupOverridesHook hooks @(Personality ext (ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE))) sym ha
+            ovrs_ <-
+              setupOverridesHook
+              hooks
+              @(Personality ext (ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE)))
+              bak
+              ha
             dbgOv <-
               FnBinding
               <$> mkHandle ha "debug"
