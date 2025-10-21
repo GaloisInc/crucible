@@ -76,9 +76,9 @@ testSimulator inFile outFile =
      IO.withFile outFile IO.WriteMode $ \outh -> do
        let hooks = 
              defaultSimulateProgramHooks
-               { setupOverridesHook =  \sym ha ->
-                   do os1 <- SyntaxOvrs.setupOverrides sym ha
-                      os2 <- TestOvrs.setupOverrides sym ha
+               { setupOverridesHook =  \bak ha ->
+                   do os1 <- SyntaxOvrs.setupOverrides bak ha
+                      os2 <- TestOvrs.setupOverrides bak ha
                       return $ concat [os1,os2]
                }
        simulateProgram inFile contents outh Nothing testOptions hooks False []

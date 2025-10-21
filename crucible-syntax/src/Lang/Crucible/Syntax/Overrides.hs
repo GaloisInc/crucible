@@ -43,19 +43,25 @@ import qualified Prettyprinter.Render.Text as PP
 
 
 setupOverrides ::
-  (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-  sym -> HandleAllocator -> IO [(FnBinding p sym ext, Position)]
-setupOverrides _ ha =
-  do f1 <- FnBinding <$> mkHandle ha "proveObligations"
-                     <*> pure (UseOverride (mkOverride "proveObligations" proveObligations))
+  ( IsSymBackend sym bak
+  , sym ~ ExprBuilder t st fs
+  ) =>
+  bak ->
+  HandleAllocator ->
+  IO [(FnBinding p sym ext, Position)]
+setupOverrides bak ha =
+  do let sym = backendGetSym bak
+     f1 <- FnBinding <$> mkHandle ha "proveObligations"
+                     <*> pure (UseOverride (mkOverride "proveObligations" (proveObligations (Just sym))))
      f2 <- FnBinding <$> mkHandle ha "crucible-print-assumption-state"
-                     <*> pure (UseOverride (mkOverride "crucible-print-assumption-state" printAssumptionState))
+                     <*> pure (UseOverride (mkOverride "crucible-print-assumption-state" (printAssumptionState (Just sym))))
      return [(f1, InternalPos), (f2, InternalPos)]
 
 
 proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+  proxy sym ->
   OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
-proveObligations =
+proveObligations _proxy =
   ovrWithBackend $ \bak ->
   do let sym = backendGetSym bak
      h <- printHandle <$> getContext
@@ -82,8 +88,9 @@ proveObligations =
 
 printAssumptionState ::
   IsSymInterface sym =>
+  proxy sym ->
   OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
-printAssumptionState = do
+printAssumptionState _proxy = do
   ctx <- State.gets (Lens.view stateContext)
   let hdl = printHandle ctx
   CS.ovrWithBackend $ \bak -> liftIO $ do
