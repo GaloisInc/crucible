@@ -1275,6 +1275,7 @@ array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
                 Some elemRepr <- tyToReprM elemTy
                 elemVal <- readMirRef elemRepr elemRef
                 ag <- mirAggregate_uninit_constSize 1
+                -- TODO: hardcoded size=1
                 ag' <- mirAggregate_set 0 1 elemRepr elemVal ag
                 agRef <- constMirRef MirAggregateRepr ag'
                 pure (MirExp MirReferenceRepr agRef)

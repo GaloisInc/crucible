@@ -178,6 +178,7 @@ transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     ag <- mirAggregate_uninit_constSize (fromIntegral $ length bytes)
+    -- TODO: hardcoded size=1
     ag' <- foldM
         (\ag' (i, b) -> mirAggregate_set i 1 knownRepr b ag')
         ag (zip [0..] bytes)
@@ -192,6 +193,7 @@ transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
             show tpr ++ ", got " ++ show tpr'
         pure e'
     ag <- mirAggregate_uninit_constSize (fromIntegral $ length arr')
+    -- TODO: hardcoded size=1
     ag' <- foldM
         (\ag' (i, x) -> mirAggregate_set i 1 tpr x ag')
         ag (zip [0..] arr')
@@ -702,6 +704,7 @@ buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     MirExp tpr e <- evalOperand op
     let n = fromInteger size
+    -- TODO: hardcoded size=1
     ag <- mirAggregate_uninit_constSize n
     ag' <- foldM
         (\ag' i -> mirAggregate_set i 1 tpr e ag')
