@@ -741,6 +741,16 @@ liftIteFnMaybe ::
 liftIteFnMaybe sym _tpr iteFn c x y =
   mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
 
+agNoValueAtOffsetSimError :: (Integral a, Show a) => a -> Word -> SimErrorReason
+agNoValueAtOffsetSimError off sz =
+  ReadBeforeWriteSimError $
+    "no value at offset " ++ show off ++ ", in aggregate of size " ++ show sz
+
+agNoValueAtSymbolicOffsetSimError :: Word -> SimErrorReason
+agNoValueAtSymbolicOffsetSimError sz =
+  ReadBeforeWriteSimError $
+    "no value at offset <symbolic>, in aggregate of size " ++ show sz
+
 readMirAggregateWithSymOffset ::
   forall sym bak tp.
   IsSymBackend sym bak =>
@@ -750,15 +760,13 @@ readMirAggregateWithSymOffset ::
   TypeRepr tp ->
   MirAggregate sym ->
   MuxLeafT sym IO (RegValue sym tp)
-readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate _ m)
-  | Just off' <- asBV off = do
-      case IntMap.lookup (fromIntegral $ BV.asUnsigned off') m of
-        Nothing -> leafAbort $ ReadBeforeWriteSimError $
-          "no value at offset " ++ show off'
+readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
+      case IntMap.lookup off' m of
+        Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
         Just (MirAggregateEntry _ tpr' rv)
           | Just Refl <- testEquality tpr tpr' ->
-              leafReadPartExpr bak rv $ ReadBeforeWriteSimError $
-                "no value at offset " ++ show off'
+              leafReadPartExpr bak rv $ agNoValueAtOffsetSimError off' totalSize
           | otherwise -> leafAbort $ GenericSimError $
               "wrong type at offset " ++ show off' ++ ": got " ++ show tpr'
                 ++ ", but the requested type is " ++ show tpr
@@ -784,8 +792,7 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate _ m)
               offsetEq <- bvEq sym off =<< offsetLit o
               iteFn' offsetEq rv acc)
             rv0 candidates'
-          leafReadPartExpr bak rv $ ReadBeforeWriteSimError $
-            "no value at offset <symbolic>"
+          leafReadPartExpr bak rv $ agNoValueAtSymbolicOffsetSimError totalSize
 
   where
     sym = backendGetSym bak
@@ -807,15 +814,13 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
         Just x -> return x
-        Nothing -> leafAbort $ ReadBeforeWriteSimError $
-          "no value at offset " ++ show off'
+        Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
       Refl <- case testEquality tpr tpr' of
         Just x -> return x
         Nothing -> leafAbort $ GenericSimError $
           "type mismatch at offset " ++ show off' ++ ": got " ++ show tpr'
             ++ ", but the requested type is " ++ show tpr
-      rv <- leafReadPartExpr bak rvPart $ ReadBeforeWriteSimError $
-        "no value at offset " ++ show off'
+      rv <- leafReadPartExpr bak rvPart $ agNoValueAtOffsetSimError off' totalSize
       rv' <- f rv
       let rvPart' = justPartExpr sym rv'
       let entry' = MirAggregateEntry sz tpr rvPart'
@@ -826,8 +831,7 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
       -- This handles the inner `MaybeType`s like `adjustMirVectorWithSymIndex`
       -- does.
       let f' rvPart = do
-            rv <- leafReadPartExpr bak rvPart $ ReadBeforeWriteSimError $
-                "no value at offset <symbolic>"
+            rv <- leafReadPartExpr bak rvPart $ agNoValueAtSymbolicOffsetSimError totalSize
             rv' <- f rv
             return $ justPartExpr sym rv'
 
