@@ -935,15 +935,16 @@ writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
   where
     sym = backendGetSym bak
 
+-- | Look up a value in a `MirAggregate`.  This returns @Right maybeVal@ if it
+-- finds a value at the requested offset, @Right Unassigned@ if the offset is
+-- valid but there's no entry there, and @Left errorMessage@ if offset is
+-- invalid (in the middle of some entry) or the type @tpr@ is incorrect.
 mirAggregate_lookup ::
   Word ->
   TypeRepr tp ->
   MirAggregate sym ->
   Either String (RegValue sym (MaybeType tp))
 mirAggregate_lookup off tpr (MirAggregate totalSize m) = do
-  -- We return @Right Unassigned@ if the offset is valid but there's no value
-  -- there, and @Left errorMessage@ if offset is invalid (in the middle of some
-  -- entry) or the type @tpr@ is incorrect.
   case IntMap.lookupLE (fromIntegral off) m of
     _ | off >= totalSize ->
       die $ "offset " ++ show off ++ " is out of range "
