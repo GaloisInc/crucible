@@ -4,7 +4,8 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Lang.Crucible.MIR.Debug
-  ( mirCommandExt
+  ( MIRCommand
+  , mirCommandExt
   , mirExtImpl
   ) where
 

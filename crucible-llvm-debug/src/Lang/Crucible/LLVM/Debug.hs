@@ -5,7 +5,8 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Lang.Crucible.LLVM.Debug
-  ( llvmCommandExt
+  ( LLVMCommand
+  , llvmCommandExt
   , llvmExtImpl
   ) where
 
