@@ -46,6 +46,9 @@ import           System.FilePath ( (-<.>), splitExtension, splitFileName )
 import qualified System.IO as IO
 import qualified System.Process as Proc
 
+
+import qualified What4.Internal as WInt
+
 -- Modules being tested
 import           Lang.Crucible.LLVM.Internal (assertionsEnabled)
 import           Lang.Crucible.LLVM.MemModel ( mkMemVar )
@@ -162,6 +165,10 @@ main = do
            testCase "assertions enabled" $ do
              assertsEnabled <- assertionsEnabled
              assertBool "assertions should be enabled" assertsEnabled
+         , -- See Note [Asserts] in what4
+           testCase "What4 assertions enabled" $ do
+             assertsEnabled <- WInt.assertionsEnabled
+             assertBool "What4 assertions should be enabled" assertsEnabled
          , functionTests
          , globalTests
          , memoryTests
