@@ -705,7 +705,7 @@ buildRepeat op size = do
     ag <- mirAggregate_uninit_constSize n
     ag' <- foldM
         (\ag' i -> mirAggregate_set i 1 tpr e ag')
-        ag [0 .. n - 1]
+        ag (init [0 .. n])
     return $ MirExp MirAggregateRepr ag'
 
 
@@ -3167,7 +3167,7 @@ aggregateCopy_constLen tpr ptr0 len size = do
        ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i)
        elt <- readMirRef tpr ptr
        mirAggregate_set (fromIntegral i * size) size tpr elt ag')
-    ag [0 .. len - 1]
+    ag (init [0 .. len])
   return ag'
 
 ptrCopy ::

@@ -68,7 +68,8 @@ import           Prettyprinter
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context hiding (init)
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 import qualified Data.Parameterized.Map as MapF
@@ -2099,7 +2100,7 @@ mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym = do
   let entries =
         [(fromIntegral i * fromIntegral elemSz,
           MirAggregateEntry elemSz elemTpr (justPartExpr sym elemVal))
-        | i <- [0 .. len]]
+        | i <- init [0 .. len]]
   return $ MirAggregate totalSize (IntMap.fromAscList entries)
 
 mirAggregate_resizeIO ::
