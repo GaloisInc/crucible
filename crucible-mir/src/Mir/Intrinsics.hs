@@ -68,7 +68,8 @@ import           Prettyprinter
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context hiding (init)
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 import qualified Data.Parameterized.Map as MapF
@@ -741,6 +742,16 @@ liftIteFnMaybe ::
 liftIteFnMaybe sym _tpr iteFn c x y =
   mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
 
+agNoValueAtOffsetSimError :: (Integral a, Show a) => a -> Word -> SimErrorReason
+agNoValueAtOffsetSimError off sz =
+  ReadBeforeWriteSimError $
+    "no value at offset " ++ show off ++ ", in aggregate of size " ++ show sz
+
+agNoValueAtSymbolicOffsetSimError :: Word -> SimErrorReason
+agNoValueAtSymbolicOffsetSimError sz =
+  ReadBeforeWriteSimError $
+    "no value at offset <symbolic>, in aggregate of size " ++ show sz
+
 readMirAggregateWithSymOffset ::
   forall sym bak tp.
   IsSymBackend sym bak =>
@@ -750,15 +761,13 @@ readMirAggregateWithSymOffset ::
   TypeRepr tp ->
   MirAggregate sym ->
   MuxLeafT sym IO (RegValue sym tp)
-readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate _ m)
-  | Just off' <- asBV off = do
-      case IntMap.lookup (fromIntegral $ BV.asUnsigned off') m of
-        Nothing -> leafAbort $ ReadBeforeWriteSimError $
-          "no value at offset " ++ show off'
+readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
+      case IntMap.lookup off' m of
+        Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
         Just (MirAggregateEntry _ tpr' rv)
           | Just Refl <- testEquality tpr tpr' ->
-              leafReadPartExpr bak rv $ ReadBeforeWriteSimError $
-                "no value at offset " ++ show off'
+              leafReadPartExpr bak rv $ agNoValueAtOffsetSimError off' totalSize
           | otherwise -> leafAbort $ GenericSimError $
               "wrong type at offset " ++ show off' ++ ": got " ++ show tpr'
                 ++ ", but the requested type is " ++ show tpr
@@ -784,8 +793,7 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate _ m)
               offsetEq <- bvEq sym off =<< offsetLit o
               iteFn' offsetEq rv acc)
             rv0 candidates'
-          leafReadPartExpr bak rv $ ReadBeforeWriteSimError $
-            "no value at offset <symbolic>"
+          leafReadPartExpr bak rv $ agNoValueAtSymbolicOffsetSimError totalSize
 
   where
     sym = backendGetSym bak
@@ -807,15 +815,13 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
         Just x -> return x
-        Nothing -> leafAbort $ ReadBeforeWriteSimError $
-          "no value at offset " ++ show off'
+        Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
       Refl <- case testEquality tpr tpr' of
         Just x -> return x
         Nothing -> leafAbort $ GenericSimError $
           "type mismatch at offset " ++ show off' ++ ": got " ++ show tpr'
             ++ ", but the requested type is " ++ show tpr
-      rv <- leafReadPartExpr bak rvPart $ ReadBeforeWriteSimError $
-        "no value at offset " ++ show off'
+      rv <- leafReadPartExpr bak rvPart $ agNoValueAtOffsetSimError off' totalSize
       rv' <- f rv
       let rvPart' = justPartExpr sym rv'
       let entry' = MirAggregateEntry sz tpr rvPart'
@@ -826,8 +832,7 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
       -- This handles the inner `MaybeType`s like `adjustMirVectorWithSymIndex`
       -- does.
       let f' rvPart = do
-            rv <- leafReadPartExpr bak rvPart $ ReadBeforeWriteSimError $
-                "no value at offset <symbolic>"
+            rv <- leafReadPartExpr bak rvPart $ agNoValueAtSymbolicOffsetSimError totalSize
             rv' <- f rv
             return $ justPartExpr sym rv'
 
@@ -862,6 +867,10 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
     candidates = mirAgTypedCandidates tpr ag
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
+
+mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym)]
+mirAggregate_entries _sym (MirAggregate _totalSize m) =
+  [(fromIntegral off, entry) | (off, entry) <- IntMap.toList m]
 
 mirAggregate_insert ::
   Word ->
@@ -927,6 +936,49 @@ writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
   where
     sym = backendGetSym bak
 
+-- | Look up a value in a `MirAggregate`.  This returns @Right maybeVal@ if it
+-- finds a value at the requested offset, @Right Unassigned@ if the offset is
+-- valid but there's no entry there, and @Left errorMessage@ if offset is
+-- invalid (in the middle of some entry) or the type @tpr@ is incorrect.
+mirAggregate_lookup ::
+  Word ->
+  TypeRepr tp ->
+  MirAggregate sym ->
+  Either String (RegValue sym (MaybeType tp))
+mirAggregate_lookup off tpr (MirAggregate totalSize m) = do
+  case IntMap.lookupLE (fromIntegral off) m of
+    _ | off >= totalSize ->
+      die $ "offset " ++ show off ++ " is out of range "
+        ++ "for aggregate total size " ++ show totalSize
+    Nothing -> Right Unassigned
+    Just (fromIntegral -> off', MirAggregateEntry sz' tpr' rv)
+      | off' == off -> do
+          case testEquality tpr tpr' of
+            Nothing -> die $ "type mismatch at offset " ++ show off ++ ": "
+              ++ show tpr ++ " != " ++ show tpr'
+            Just Refl -> Right rv
+      -- Existing entry's range comes entirely before the new one, so there is
+      -- no overlap (and no value at `off`).
+      | off' + sz' <= off -> Right Unassigned
+      | otherwise -> die $ "partial overlap: " ++ show off
+          ++ " vs " ++ show off' ++ ".." ++ show (off' + sz')
+  where
+    die msg = Left $ "bad MirAggregate lookup: " ++ msg
+
+-- | Resize a `MirAggregate`.  If the new size is larger, the extra space will
+-- be left uninitialized.  If the new size is smaller, any entries that extend
+-- past the new end point will be discarded.
+resizeMirAggregate ::
+  MirAggregate sym ->
+  Word ->
+  MirAggregate sym
+resizeMirAggregate (MirAggregate totalSize m) newSize
+  | newSize >= totalSize = MirAggregate newSize m
+  | otherwise = MirAggregate newSize m'
+  where
+    m' = IntMap.filterWithKey
+      (\off (MirAggregateEntry sz _ _) -> fromIntegral off + sz <= newSize)
+      m
 
 
 --------------------------------------------------------------
@@ -1333,9 +1385,26 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(f (MirVectorType tp)) ->
     !(f UsizeType) ->
     MirStmt f (MirVectorType tp)
-  -- | Create an empty `MirAggregate` of the given size.
+  -- | Create an empty `MirAggregate`, where the size is given as an expression
+  -- of `UsizeType`.  The size must still be a concrete expression at symbolic
+  -- execution time.
   MirAggregate_Uninit ::
+    !(f UsizeType) ->
+    MirStmt f MirAggregateType
+  -- | Create a `MirAggregate` by replicating a value @len@ times.  The total
+  -- size in bytes is @elemSz * len@.  The array stride is set equal to the
+  -- element size.
+  MirAggregate_Replicate ::
     !Word ->
+    !(TypeRepr tp) ->
+    !(f tp) ->
+    !(f UsizeType) ->
+    MirStmt f MirAggregateType
+  -- | Resize a `MirAggregate`.  As with `MirAggregate_Uninit`, the `UsizeType`
+  -- expression must be concrete.
+  MirAggregate_Resize ::
+    !(f MirAggregateType) ->
+    !(f UsizeType) ->
     MirStmt f MirAggregateType
   MirAggregate_Get ::
     -- | Offset
@@ -1428,6 +1497,8 @@ instance TypeApp MirStmt where
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
     MirVector_Resize tp _ _ -> MirVectorRepr tp
     MirAggregate_Uninit _ -> MirAggregateRepr
+    MirAggregate_Replicate _ _ _ _ -> MirAggregateRepr
+    MirAggregate_Resize _ _ -> MirAggregateRepr
     MirAggregate_Get _ _ tp _ -> tp
     MirAggregate_Set _ _ _ _ _ -> MirAggregateRepr
 
@@ -1466,7 +1537,9 @@ instance PrettyApp MirStmt where
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
     MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
-    MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> viaShow sz
+    MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> pp sz
+    MirAggregate_Replicate elemSz _ elemVal lenSym -> "mirAggregate_replicate" <+> viaShow elemSz <+> pp elemVal <+> pp lenSym
+    MirAggregate_Resize ag szSym -> "mirAggregate_resize" <+> pp ag <+> pp szSym
     MirAggregate_Get off sz _ ag -> "mirAggregate_get" <+> viaShow off <+> viaShow sz <+> pp ag
     MirAggregate_Set off sz _ rv ag -> "mirAggregate_set" <+> viaShow off <+> viaShow sz <+> pp rv <+> pp ag
 
@@ -1573,6 +1646,26 @@ typedLeafOp desc expectTpr (MirReference tpr root path) k
       desc ++ " requires a reference to " ++ show expectTpr
         ++ ", but got a reference to " ++ show tpr
 typedLeafOp desc _ (MirReference_Integer _) _ =
+    leafAbort $ GenericSimError $
+        "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
+
+-- | Like `typedLeafOp`, but accepts two different pointee types.
+typedLeafOp2 ::
+    Monad m =>
+    String ->
+    MirReference sym ->
+    TypeRepr tp1 ->
+    (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp1 -> MuxLeafT sym m a) ->
+    TypeRepr tp2 ->
+    (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp2 -> MuxLeafT sym m a) ->
+    MuxLeafT sym m a
+typedLeafOp2 desc (MirReference tpr root path) expectTpr1 k1 expectTpr2 k2
+  | Just Refl <- testEquality tpr expectTpr1 = k1 root path
+  | Just Refl <- testEquality tpr expectTpr2 = k2 root path
+  | otherwise = leafAbort $ GenericSimError $
+      desc ++ " requires a reference to " ++ show expectTpr1 ++ " or " ++ show expectTpr2
+        ++ ", but got a reference to " ++ show tpr
+typedLeafOp2 desc (MirReference_Integer _) _ _ _ _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
@@ -1734,8 +1827,12 @@ subindexMirRefLeaf ::
     RegValue sym UsizeType ->
     MuxLeafT sym IO (MirReference sym)
 subindexMirRefLeaf tpr ref idx =
-  typedLeafOp "subindex" (MirVectorRepr tpr) ref $ \root path -> do
-    return $ MirReference tpr root (Index_RefPath tpr path idx)
+  typedLeafOp2 "subindex" ref
+    (MirVectorRepr tpr) (\root path -> do
+      return $ MirReference tpr root (Index_RefPath tpr path idx))
+    MirAggregateRepr (\root path -> do
+      let sz = 1  -- TODO: hardcoded size=1
+      return $ MirReference tpr root (AgElem_RefPath idx sz tpr path))
 
 subjustMirRefLeaf ::
     TypeRepr tp ->
@@ -1940,16 +2037,24 @@ arrayZeroedIO sym idxs w = do
     zero <- bvZero sym w
     constantArray sym idxs zero
 
+concreteAllocSize :: 
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym UsizeType ->
+    IO Integer
+concreteAllocSize bak szSym =
+    case asBV szSym of
+        Just x -> return (BV.asUnsigned x)
+        Nothing -> addFailedAssertion bak $ Unsupported callStack $
+            "Attempted to create allocation of symbolic size"
+
 mirVector_uninitIO ::
     IsSymBackend sym bak =>
     bak ->
     RegValue sym UsizeType ->
     IO (MirVector sym tp)
 mirVector_uninitIO bak lenSym = do
-    len <- case asBV lenSym of
-        Just x -> return (BV.asUnsigned x)
-        Nothing -> addFailedAssertion bak $ Unsupported callStack $
-            "Attempted to allocate vector of symbolic length"
+    len <- concreteAllocSize bak lenSym
     let pv = V.replicate (fromInteger len) Unassigned
     return (MirVector_PartialVector pv)
 
@@ -1962,10 +2067,7 @@ mirVector_resizeIO ::
     IO (RegValue sym (MirVectorType tp))
 mirVector_resizeIO bak _tpr mirVec newLenSym = do
     let sym = backendGetSym bak
-    newLen <- case asBV newLenSym of
-        Just x -> return (BV.asUnsigned x)
-        Nothing -> addFailedAssertion bak $ Unsupported callStack $
-            "Attempted to resize vector to symbolic length"
+    newLen <- concreteAllocSize bak newLenSym
     getter <- case mirVec of
         MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
         MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
@@ -1973,6 +2075,43 @@ mirVector_resizeIO bak _tpr mirVec newLenSym = do
             "Attempted to resize MirVector backed by symbolic array"
     pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
 
+
+mirAggregate_uninitIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_uninitIO bak szSym = do
+  sz <- concreteAllocSize bak szSym
+  return $ MirAggregate (fromIntegral sz) mempty
+
+mirAggregate_replicateIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    Word ->
+    TypeRepr tp ->
+    RegValue sym tp ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym = do
+  let sym = backendGetSym bak
+  len <- concreteAllocSize bak lenSym
+  let totalSize = fromIntegral len * elemSz
+  let entries =
+        [(fromIntegral i * fromIntegral elemSz,
+          MirAggregateEntry elemSz elemTpr (justPartExpr sym elemVal))
+        | i <- init [0 .. len]]
+  return $ MirAggregate totalSize (IntMap.fromAscList entries)
+
+mirAggregate_resizeIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    RegValue sym MirAggregateType ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym MirAggregateType)
+mirAggregate_resizeIO bak ag szSym = do
+  sz <- concreteAllocSize bak szSym
+  return $ resizeMirAggregate ag (fromIntegral sz)
 
 mirAggregate_getIO ::
     IsSymBackend sym bak =>
@@ -2033,6 +2172,10 @@ data ReversedRefPath sym :: CrucibleType -> CrucibleType -> Type where
     ReversedRefPath sym tp' tp'' ->
     ReversedRefPath sym tp tp''
 
+instance IsSymInterface sym => Show (ReversedRefPath sym tp tp') where
+    show RrpNil = "RrpNil"
+    show (RrpCons rp rrp) = "(RrpCons " ++ show rp ++ " " ++ show rrp ++ ")"
+
 reverseRefPath :: forall sym tp tp'.
     MirReferencePath sym tp tp' ->
     ReversedRefPath sym tp tp'
@@ -2062,6 +2205,7 @@ reverseRefPath = go RrpNil
 -- return `path` unchanged.
 popIndex :: MirReferencePath sym tp tp' -> Some (MirReferencePath sym tp)
 popIndex (Index_RefPath _ p _) = Some p
+popIndex (AgElem_RefPath _ _ _ p) = Some p
 popIndex p = Some p
 
 
@@ -2209,6 +2353,11 @@ mirRef_offsetWrapLeaf bak (MirReference tpr root (Index_RefPath tpr' path idx)) 
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- liftIO $ bvAdd sym idx offset
     return $ MirReference tpr root $ Index_RefPath tpr' path idx'
+mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath idx sz tpr' path)) offset = do
+    let sym = backendGetSym bak
+    -- `wrapping_offset` puts no restrictions on the arithmetic performed.
+    idx' <- liftIO $ bvAdd sym idx offset
+    return $ MirReference tpr root $ AgElem_RefPath idx' sz tpr' path
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
@@ -2238,6 +2387,13 @@ mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 
             similar <- liftIO $ andPred sym rootEq pathEq
             -- TODO: implement overflow checks, similar to `offset`
             offset <- liftIO $ bvSub sym idx1 idx2
+            return $ mkPE similar offset
+        (AgElem_RefPath off1 _ _ path1', AgElem_RefPath off2 _ _ path2') -> do
+            pathEq <- refPathEq sym path1' path2'
+            similar <- liftIO $ andPred sym rootEq pathEq
+            -- TODO: divide by `sz`?  This implements `byte_offset_from`, which
+            -- is the same as `offset_from` only when size=1
+            offset <- liftIO $ bvSub sym off1 off2
             return $ mkPE similar offset
         _ -> do
             pathEq <- refPathEq sym path1 path2
@@ -2275,6 +2431,10 @@ mirRef_peelIndexLeaf ::
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
 mirRef_peelIndexLeaf sym (MirReference tpr root (Index_RefPath _tpr' path idx)) = do
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (MirVectorRepr tpr) root path
+    return $ Empty :> RV ref :> RV idx
+mirRef_peelIndexLeaf sym (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
+    -- TODO: assumes hardcoded size=1
+    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf _sym (MirReference _ _ _) =
     leafAbort $ Unsupported callStack $
@@ -2320,6 +2480,22 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (Index_RefPath _tpr'
         MirVector_Array _ -> leafAbort $ Unsupported callStack $
             "can't compute allocation length for MirVector_Array, which is unbounded"
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
+    return (idx, len)
+mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
+    let sym = backendGetSym bak
+    let parentTpr = MirAggregateRepr
+    let parent = MirReference parentTpr root path
+    parentAg <- readMirRefLeaf bak gs iTypes parentTpr parent
+    let MirAggregate totalSize _ = parentAg
+    -- TODO: hardcoded size=1 (implied in conversion of `totalSize` to `lenWord`)
+    let lenWord = totalSize
+    --when (totalSize `mod` sz /= 0) $
+    --    leafAbort $ Unsupported callStack $
+    --        "exepcted aggregate size (" ++ show totalSize ++ ") to be a multiple of "
+    --            ++ "element size (" ++ show sz ++ ")"
+    --let lenWord = totalSize `div` sz
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
+    -- TODO: also divide `idx` by `sz`, and assert that it's divisible
     return (idx, len)
 mirRef_indexAndLenLeaf bak _ _ (MirReference _ _ _) = do
     let sym = backendGetSym bak
@@ -2446,8 +2622,12 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirVector_Resize tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
             readOnly s $ mirVector_resizeIO bak tpr mirVec newLenSym
 
-       MirAggregate_Uninit sz -> do
-            return (MirAggregate sz mempty, s)
+       MirAggregate_Uninit (regValue -> sz) -> do
+            readOnly s $ mirAggregate_uninitIO bak sz
+       MirAggregate_Replicate elemSz elemTpr (regValue -> elemVal) (regValue -> lenSym) -> do
+            readOnly s $ mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym
+       MirAggregate_Resize (regValue -> ag) (regValue -> szSym) -> do
+            readOnly s $ mirAggregate_resizeIO bak ag szSym
        MirAggregate_Get off sz tpr (regValue -> ag) -> do
             readOnly s $ mirAggregate_getIO bak off sz tpr ag
        MirAggregate_Set off sz tpr (regValue -> rv) (regValue -> ag) -> do
@@ -2615,7 +2795,7 @@ mirRef_offsetSim :: IsSymInterface sym =>
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
 mirRef_offsetSim ref off =
     ovrWithBackend $ \bak ->
-      modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off) ref
+      modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off) ref
 
 mirRef_offsetIO ::
     IsSymBackend sym bak =>

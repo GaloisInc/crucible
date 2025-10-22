@@ -1,8 +1,8 @@
 test dump_rv/<DISAMB>::test[0]: a = {0..1 -> 0x7b:[32], 1..2 -> 0x1c8:[32], size 2}
 b = {0..1 -> cxy@7:bv, 1..2 -> cxy@8:bv, size 2}
 c = {cxy@7:bv, cxy@8:bv}
-d = [0x0:[8], 0x1:[8]]
-e = [0x0:[8], 0x1:[8], 0x2a:[8], 0x1b:[8], <uninit>]
+d = {0..1 -> 0x0:[8], 1..2 -> 0x1:[8], size 2}
+e = {0..1 -> 0x0:[8], 1..2 -> 0x1:[8], 2..3 -> 0x2a:[8], 3..4 -> 0x1b:[8], size 5}
 f = let -- test/symb_eval/debug/dump_rv.rs:30:19: 30:40
     v15 = constArray 0x0:[8]
  in arrayMap [BV 2::[64]] 0x2a:[8] [BV 3::[64]] 0x1b:[8] v15
