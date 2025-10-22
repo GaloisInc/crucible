@@ -10,6 +10,9 @@
   `loadBytes`.
 * Support simulating LLVM bitcode files whose data layout strings specify
   function pointer alignment.
+* Fix a bug that would cause the simuator to compute incorrect results for the
+  `llvm.is.fpclass` intrinsic. (Among other things, this is used to power the
+  `isnan` function in Clang 17 or later.)
 
 # 0.7.1 -- 2025-03-21
 

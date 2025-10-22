@@ -1933,8 +1933,8 @@ callIsFpclass ::
 callIsFpclass regOp@(regValue -> op) (regValue -> test) = do
   sym <- getSymInterface
   let w1 = knownNat @1
-  bv1 <- liftIO $ bvZero sym w1
-  bv0 <- liftIO $ bvOne sym w1
+  bv1 <- liftIO $ bvOne sym w1
+  bv0 <- liftIO $ bvZero sym w1
 
   let negative bit = liftIO $ do
         isNeg <- iFloatIsNeg @_ @fi sym op
