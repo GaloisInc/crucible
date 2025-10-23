@@ -4,7 +4,7 @@
 ==== Proof obligations ====
 
 Prove:
-  test-data/ub/025.cbl:7:12: error: in main
+  test-data/ub/025.cbl:9:12: error: in main
   Failed to load function handle
   Details:
     Expected function handle of type FunctionHandleRepr [] UnitRepr
