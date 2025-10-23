@@ -130,7 +130,11 @@ llvmType =
     C.SymbolicStructRepr{} -> Nothing
     C.UnitRepr -> Just (L.PrimType L.Void)
     C.VariantRepr{} -> Nothing
-    C.VectorRepr{} -> Nothing
+    -- HACK: It's not clear how to support other vector sizes, because Crucible
+    -- vectors don't have the length as part of the type. We arbitrarily choose
+    -- 4 here so that we can write tests for vectorized intrinsics of width 4
+    -- in crucible-llvm-cli.
+    C.VectorRepr t -> L.Vector 4 <$> llvmType t
     C.WordMapRepr{} -> Nothing
     CLLVM.LLVMPointerRepr w ->
       case C.testEquality w ?ptrWidth of
