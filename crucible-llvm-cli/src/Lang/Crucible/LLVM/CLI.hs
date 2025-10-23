@@ -13,6 +13,7 @@ import qualified Control.Lens as Lens
 import qualified Control.Monad as Monad
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.IntMap as IntMap
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 import Data.Type.Equality ((:~:)(Refl), testEquality)
@@ -105,18 +106,15 @@ withLlvmHooks k = do
               let ?memOpts = Mem.defaultMemOptions
               let ?intrinsicsOpts = defaultIntrinsicsOptions
 
-              let extraOvs =
-                    Map.fromList
-                    [ ("read-bytes", C.SomeTypedOverride (StrOv.readBytesOverride mvar))
-                    , ("read-c-string", C.SomeTypedOverride (StrOv.readCStringOverride mvar))
-                    , ("write-bytes", C.SomeTypedOverride (StrOv.writeBytesOverride mvar))
-                    , ("write-c-string", C.SomeTypedOverride (StrOv.writeCStringOverride mvar))
-                    ]
               Monad.forM_ (Map.toList fwdDecs) $ \(nm, C.SomeHandle hdl) -> do
-                case Map.lookup nm extraOvs of
-                  Just (C.SomeTypedOverride ov) -> tryBindTypedOverride hdl ov
+                case nm of
+                  "read-bytes" -> tryBindTypedOverride hdl (StrOv.readBytesOverride mvar)
+                  "read-c-string" -> tryBindTypedOverride hdl (StrOv.readCStringOverride mvar)
+                  "write-bytes" -> tryBindTypedOverride hdl (StrOv.writeBytesOverride mvar)
+                  "write-c-string" -> tryBindTypedOverride hdl (StrOv.writeCStringOverride mvar)
                   _ -> pure ()
-              let fwdDecs' = Map.filterWithKey (\nm _ -> nm `Map.notMember` extraOvs) fwdDecs
+              let otherOvs = ["read-bytes", "read-c-string", "write-bytes", "write-c-string"]
+              let fwdDecs' = Map.filterWithKey (\nm _ -> nm `List.notElem` otherOvs) fwdDecs
               _ <- registerLLVMOverrides bak llvmCtx fwdDecs'
               return ()
           , setupOverridesHook = setupOverrides
