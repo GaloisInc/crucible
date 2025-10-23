@@ -26,6 +26,7 @@ module Lang.Crucible.LLVM.Intrinsics
 , register_llvm_overrides
 , register_llvm_overrides_
 , llvmDeclToFunHandleRepr
+, declare_overrides
 
 , module Lang.Crucible.LLVM.Intrinsics.Common
 , module Lang.Crucible.LLVM.Intrinsics.Options
