@@ -106,6 +106,7 @@ withLlvmHooks k = do
               let ?memOpts = Mem.defaultMemOptions
               let ?intrinsicsOpts = defaultIntrinsicsOptions
 
+              -- TODO(#1594): Deduplicate these override names using a `Map`
               Monad.forM_ (Map.toList fwdDecs) $ \(nm, C.SomeHandle hdl) -> do
                 case nm of
                   "read-bytes" -> tryBindTypedOverride hdl (StrOv.readBytesOverride mvar)
