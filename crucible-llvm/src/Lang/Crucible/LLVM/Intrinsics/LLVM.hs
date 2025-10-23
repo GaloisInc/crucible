@@ -307,6 +307,23 @@ poly1_vec_llvm_overrides =
     , Poly1VecLLVMOverride $ \vecSz intSz ->
         SomeLLVMOverride (llvmVectorReduceUmin vecSz intSz)
     )
+
+  , ("llvm.smax"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmSmaxVector vecSz intSz)
+    )
+  , ("llvm.smin"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmSminVector vecSz intSz)
+    )
+  , ("llvm.umax"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmUmaxVector vecSz intSz)
+    )
+  , ("llvm.umin"
+    , Poly1VecLLVMOverride $ \vecSz intSz ->
+        SomeLLVMOverride (llvmUminVector vecSz intSz)
+    )
   ]
 
 ------------------------------------------------------------------------
@@ -1469,6 +1486,67 @@ llvmVectorReduceUmin ::
         (BVType intSz)
 llvmVectorReduceUmin = llvmVectorReduce "umin" callVectorReduceUmin
 
+-- | Build an 'LLVMOverride' for a vector map intrinsic.
+llvmVectorMap ::
+  (1 <= intSz) =>
+  -- | The name of the operation to map (@umin@, @smin@, etc.).
+  String ->
+  -- | The semantics of the override.
+  (forall r args ret.
+    IsSymInterface sym =>
+    RegEntry sym (VectorType (BVType intSz)) ->
+    RegEntry sym (VectorType (BVType intSz)) ->
+    OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))) ->
+  -- | The size of the vector type.
+  NatRepr vecSz ->
+  -- | The size of the integer type.
+  NatRepr intSz ->
+  LLVMOverride p sym ext
+    (EmptyCtx ::> VectorType (BVType intSz) ::> VectorType (BVType intSz))
+    (VectorType (BVType intSz))
+llvmVectorMap opName callMap vecSz intSz =
+  let nm = L.Symbol ("llvm." ++ opName ++
+                     ".v" ++ show (natValue vecSz) ++
+                     "i" ++ show (natValue intSz)) in
+    [llvmOvr| <#vecSz x #intSz> $nm( <#vecSz x #intSz>, <#vecSz x #intSz> ) |]
+    (\_memOps args -> Ctx.uncurryAssignment callMap args)
+
+llvmSmaxVector ::
+  (1 <= intSz) =>
+  NatRepr vecSz ->
+  NatRepr intSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> VectorType (BVType intSz) ::> VectorType (BVType intSz))
+     (VectorType (BVType intSz))
+llvmSmaxVector = llvmVectorMap "smax" callVectorMapSmax
+
+llvmSminVector ::
+  (1 <= intSz) =>
+  NatRepr vecSz ->
+  NatRepr intSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> VectorType (BVType intSz) ::> VectorType (BVType intSz))
+     (VectorType (BVType intSz))
+llvmSminVector = llvmVectorMap "smin" callVectorMapSmin
+
+llvmUmaxVector ::
+  (1 <= intSz) =>
+  NatRepr vecSz ->
+  NatRepr intSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> VectorType (BVType intSz) ::> VectorType (BVType intSz))
+     (VectorType (BVType intSz))
+llvmUmaxVector = llvmVectorMap "umax" callVectorMapUmax
+
+llvmUminVector ::
+  (1 <= intSz) =>
+  NatRepr vecSz ->
+  NatRepr intSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> VectorType (BVType intSz) ::> VectorType (BVType intSz))
+     (VectorType (BVType intSz))
+llvmUminVector = llvmVectorMap "umin" callVectorMapUmin
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -2140,3 +2218,52 @@ callVectorReduceUmin intSz vec = do
   sym <- getSymInterface
   umax <- liftIO $ maxUnsignedBV sym intSz
   callVectorReduce (bvUmin sym) umax vec
+
+-- | The semantics of an LLVM vector map intrinsic.
+callVectorMap ::
+  -- | The operation to apply when mapping (e.g., @umin@, @smin@, etc.)
+  (RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  -- | The first vector to map over.
+  RegEntry sym (VectorType tp) ->
+  -- | The second vector to map over.
+  RegEntry sym (VectorType tp) ->
+  -- | The result of mapping over the vectors.
+  OverrideSim p sym ext r args ret (V.Vector (RegValue sym tp))
+callVectorMap mapOp (regValue -> vec1) (regValue -> vec2) =
+  liftIO $ V.zipWithM mapOp vec1 vec2
+
+callVectorMapSmax ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  RegEntry sym (VectorType (BVType intSz)) ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+callVectorMapSmax vec1 vec2 = do
+  sym <- getSymInterface
+  callVectorMap (bvSmax sym) vec1 vec2
+
+callVectorMapSmin ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  RegEntry sym (VectorType (BVType intSz)) ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+callVectorMapSmin vec1 vec2 = do
+  sym <- getSymInterface
+  callVectorMap (bvSmin sym) vec1 vec2
+
+callVectorMapUmax ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  RegEntry sym (VectorType (BVType intSz)) ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+callVectorMapUmax vec1 vec2 = do
+  sym <- getSymInterface
+  callVectorMap (bvUmax sym) vec1 vec2
+
+callVectorMapUmin ::
+  (IsSymInterface sym, 1 <= intSz) =>
+  RegEntry sym (VectorType (BVType intSz)) ->
+  RegEntry sym (VectorType (BVType intSz)) ->
+  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+callVectorMapUmin vec1 vec2 = do
+  sym <- getSymInterface
+  callVectorMap (bvUmin sym) vec1 vec2
