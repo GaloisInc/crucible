@@ -65,6 +65,7 @@ import           Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.Simple as CBS
 import           Lang.Crucible.CFG.Extension
 import qualified Lang.Crucible.Debug as Debug
+import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator
 import           Lang.Crucible.Simulator.BoundedExec
 import           Lang.Crucible.Simulator.BoundedRecursion
@@ -443,20 +444,20 @@ withSelectedOnlineBackend' cruxOpts selectedSolver sym k =
          Nothing -> return ()
        withSTPOnlineBackend sym k
 
-data ProfData sym = ProfData
+data ProfData sym p = ProfData
   { inFrame          :: forall a. FunctionName -> IO a -> IO a
-  , profExecFeatures :: [GenericExecutionFeature sym]
+  , profExecFeatures :: [ExecFeatureWithPersonality sym p]
   , writeProf        :: IO ()
   }
 
-noProfiling :: ProfData sym
+noProfiling :: ProfData sym p
 noProfiling = ProfData
   { inFrame           = \_ x -> x
   , profExecFeatures  = []
   , writeProf         = pure ()
   }
 
-setupProfiling :: IsSymInterface sym => sym -> CruxOptions -> IO (ProfData sym)
+setupProfiling :: IsSymInterface sym => sym -> CruxOptions -> IO (ProfData sym p)
 setupProfiling sym cruxOpts =
   do tbl <- newProfilingTable
 
@@ -490,14 +491,14 @@ setupProfiling sym cruxOpts =
 
 execFeatureIf ::
   Bool ->
-  IO (GenericExecutionFeature sym) ->
-  IO [GenericExecutionFeature sym]
+  IO (ExecFeatureWithPersonality sym p) ->
+  IO [ExecFeatureWithPersonality sym p]
 execFeatureIf b m = if b then (:[]) <$> m else pure []
 
 execFeatureMaybe ::
   Maybe a ->
-  (a -> IO (GenericExecutionFeature sym)) ->
-  IO [GenericExecutionFeature sym]
+  (a -> IO (ExecFeatureWithPersonality sym p)) ->
+  IO [ExecFeatureWithPersonality sym p]
 execFeatureMaybe mb m =
   case mb of
     Nothing -> pure []
@@ -532,7 +533,7 @@ setupExecutionFeatures :: IsSymBackend sym bak
                        -> bak
                        -> Maybe (SomeOnlineSolver sym bak)
                        -> IO
-                       ([GenericExecutionFeature sym], ProfData sym)
+                       ([ExecFeatureWithPersonality p sym], ProfData sym p)
 setupExecutionFeatures cruxOpts bak maybeOnline = do
   let sym = backendGetSym bak
   -- Setup profiling
@@ -688,7 +689,7 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  forall sym bak r t st fs msgs.
+  forall sym bak r t st fs msgs p.
   sym ~ WE.ExprBuilder t st fs =>
   IsSymBackend sym bak =>
   Logs msgs =>
@@ -696,8 +697,8 @@ doSimWithResults ::
   CruxOptions ->
   SimulatorCallbacks msgs st r ->
   bak ->
-  [GenericExecutionFeature sym] ->
-  ProfData sym ->
+  [ExecFeatureWithPersonality sym p] ->
+  ProfData sym p ->
   Maybe (SomeOnlineSolver sym bak) ->
   ProverCallback sym
     {- ^ The function to use to prove goals; this is intended to be
@@ -733,11 +734,11 @@ doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProv
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts ++ debugger) initSt
+        do res <- executeCrucible (execFeatures ++ exts ++ debugger) initSt
            void $ resultCont compRef glsRef frm explainFailure (Result res)
       SplitAndExploreDepthFirst ->
         do (i,ws) <- executeCrucibleDFSPaths
-                         (map genericToExecutionFeature execFeatures ++ exts ++ debugger)
+                         (map execFeatureWithPersonalityToExecFeature execFeatures ++ exts ++ debugger)
                          initSt
                          (resultCont compRef glsRef frm explainFailure . Result)
            sayCrux (Log.TotalPathsExplored i)
