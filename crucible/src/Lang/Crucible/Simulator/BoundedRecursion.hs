@@ -90,18 +90,16 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
    (SimState p sym ext rtp f args -> ExecState p sym ext rtp) ->
    SimState p sym ext rtp f args ->
    IO (ExecutionFeatureResult p sym ext rtp)
- popFrame gvRef mkSt st =
-   do 
-    gv <- readIORef gvRef
-    case gv of 
-      Nothing -> panic "bounded recursion" ["gv not initialized"]
-      Just gv -> 
-        case lookupGlobal gv (st ^. stateGlobals) of
-          Nothing -> panic "bounded recursion" ["global not defined!"]
-          Just [] -> panic "bounded recursion" ["pop on empty stack!"]
-          Just (_:xs) -> do 
-            let st' = st & stateGlobals %~ insertGlobal gv xs
-            return (ExecutionFeatureModifiedState (mkSt st'))
+ popFrame gvRef mkSt st = do
+   currGv <- readIORef gvRef
+   let err = panic "bounded recursion" ["gv not initialized"]
+   let gv = fromMaybe err currGv
+   case lookupGlobal gv (st ^. stateGlobals) of
+     Nothing -> panic "bounded recursion" ["global not defined!"]
+     Just [] -> panic "bounded recursion" ["pop on empty stack!"]
+     Just (_ : xs) -> do
+       let st' = st & stateGlobals %~ insertGlobal gv xs
+       return (ExecutionFeatureModifiedState (mkSt st'))
 
  pushFrame ::
    IORef (Maybe BoundedRecursionGlobal) ->
