@@ -207,29 +207,28 @@ boundedExecFeature getLoopBounds generateSideConditions =
    BlockID blocks tgt_args ->
    SymGlobalState sym ->
    IO (SymGlobalState sym, Maybe Word64)
- checkBackedge gvRef (Some bid_curr) bid_tgt globals =
-   do 
-    gv <- readIORef gvRef
-    case gv of 
-      Just gv -> 
-        case fromMaybe [] (lookupGlobal gv globals) of
-          ( Right fbd : rest ) -> do 
-            let id_curr = Ctx.indexVal (blockIDIndex bid_curr)
-            let id_tgt  = Ctx.indexVal (blockIDIndex bid_tgt)
-            let m = frameWtoMap fbd
-            case (Map.lookup id_curr m, Map.lookup id_tgt m) of
-              (Just (cx, _cd), Just (tx, td)) | tx <= cx -> do 
-                let cs = frameBoundCounts fbd
-                let (cs', q) = incrementBoundCount cs td
-                let fbd'     = fbd{ frameBoundCounts = cs' }
-                let globals' = insertGlobal gv (Right fbd' : rest) globals
-                if q > frameBoundLimit fbd then
-                    return (globals', Just (frameBoundLimit fbd))
-                else
-                  return (globals', Nothing)
-              _ -> return (globals, Nothing)
-          _ -> return (globals, Nothing)          
-      Nothing -> panic "checkBackedge" ["Global not initialized"]
+ checkBackedge gvRef (Some bid_curr) bid_tgt globals = do
+   let err = panic "checkBackedge" ["Global not initialized"]
+   currGv <- readIORef gvRef
+   let gv = fromMaybe err currGv
+   case fromMaybe [] (lookupGlobal gv globals) of
+      (Right fbd : rest) -> do
+        let id_curr = Ctx.indexVal (blockIDIndex bid_curr)
+        let id_tgt = Ctx.indexVal (blockIDIndex bid_tgt)
+        let m = frameWtoMap fbd
+        case (Map.lookup id_curr m, Map.lookup id_tgt m) of
+          (Just (cx, _cd), Just (tx, td)) | tx <= cx -> do
+            let cs = frameBoundCounts fbd
+            let (cs', q) = incrementBoundCount cs td
+            let fbd' = fbd{frameBoundCounts = cs'}
+            let globals' = insertGlobal gv (Right fbd' : rest) globals
+            if q > frameBoundLimit fbd
+              then
+                return (globals', Just (frameBoundLimit fbd))
+              else
+                return (globals', Nothing)
+          _ -> return (globals, Nothing)
+      _ -> return (globals, Nothing)
 
  modifyStackState ::
    IORef (Maybe BoundedExecGlobal) ->
@@ -237,17 +236,15 @@ boundedExecFeature getLoopBounds generateSideConditions =
    SimState p sym ext rtp f args ->
    ([Either FunctionName FrameBoundData] -> [Either FunctionName FrameBoundData]) ->
    IO (ExecutionFeatureResult p sym ext rtp)
- modifyStackState gvRef mkSt st f =
-  do 
-    gv <- readIORef gvRef
-    case gv of 
-      Just gv -> do
-        let xs = case lookupGlobal gv (st ^. stateGlobals) of
-                  Nothing -> error "bounded execution global not defined!"
-                  Just v  -> v
-        let st' = st & stateGlobals %~ insertGlobal gv (f xs)
-        return (ExecutionFeatureModifiedState (mkSt st'))
-      Nothing -> panic "modifyStackState" ["Global variable not initialized"]
+ modifyStackState gvRef mkSt st f = do 
+    currGv <- readIORef gvRef
+    let err = panic "modifyStackState" ["Global variable not initialized"]
+    let gv = fromMaybe err currGv
+    let xs = case lookupGlobal gv (st ^. stateGlobals) of
+              Nothing -> error "bounded execution global not defined!"
+              Just v  -> v
+    let st' = st & stateGlobals %~ insertGlobal gv (f xs)
+    return (ExecutionFeatureModifiedState (mkSt st'))
 
  onTransition ::
    IORef (Maybe BoundedExecGlobal) ->
