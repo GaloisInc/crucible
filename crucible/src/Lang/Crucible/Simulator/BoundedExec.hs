@@ -183,7 +183,7 @@ boundedExecFeature ::
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
   IO (GenericExecutionFeature sym)
 boundedExecFeature getLoopBounds generateSideConditions =
-  do gvRef <- newIORef (error "Global variable for BoundedExecFrameData not initialized")
+  do gvRef <- newIORef Nothing
      return $ GenericExecutionFeature $ onStep gvRef
 
  where
@@ -202,48 +202,55 @@ boundedExecFeature getLoopBounds generateSideConditions =
                        }
 
  checkBackedge ::
-   IORef BoundedExecGlobal ->
+   IORef (Maybe BoundedExecGlobal) ->
    Some (BlockID blocks) ->
    BlockID blocks tgt_args ->
    SymGlobalState sym ->
    IO (SymGlobalState sym, Maybe Word64)
  checkBackedge gvRef (Some bid_curr) bid_tgt globals =
-   do gv <- readIORef gvRef
-      case fromMaybe [] (lookupGlobal gv globals) of
-        ( Right fbd : rest ) ->
-          do let id_curr = Ctx.indexVal (blockIDIndex bid_curr)
-             let id_tgt  = Ctx.indexVal (blockIDIndex bid_tgt)
-             let m = frameWtoMap fbd
-             case (Map.lookup id_curr m, Map.lookup id_tgt m) of
-               (Just (cx, _cd), Just (tx, td)) | tx <= cx ->
-                  do let cs       = frameBoundCounts fbd
-                     let (cs', q) = incrementBoundCount cs td
-                     let fbd'     = fbd{ frameBoundCounts = cs' }
-                     let globals' = insertGlobal gv (Right fbd' : rest) globals
-                     if q > frameBoundLimit fbd then
-                       return (globals', Just (frameBoundLimit fbd))
-                     else
-                       return (globals', Nothing)
-
-               _ -> return (globals, Nothing)
-        _ -> return (globals, Nothing)
+   do 
+    gv <- readIORef gvRef
+    case gv of 
+      Just gv -> 
+        case fromMaybe [] (lookupGlobal gv globals) of
+          ( Right fbd : rest ) -> do 
+            let id_curr = Ctx.indexVal (blockIDIndex bid_curr)
+            let id_tgt  = Ctx.indexVal (blockIDIndex bid_tgt)
+            let m = frameWtoMap fbd
+            case (Map.lookup id_curr m, Map.lookup id_tgt m) of
+              (Just (cx, _cd), Just (tx, td)) | tx <= cx -> do 
+                let cs = frameBoundCounts fbd
+                let (cs', q) = incrementBoundCount cs td
+                let fbd'     = fbd{ frameBoundCounts = cs' }
+                let globals' = insertGlobal gv (Right fbd' : rest) globals
+                if q > frameBoundLimit fbd then
+                    return (globals', Just (frameBoundLimit fbd))
+                else
+                  return (globals', Nothing)
+              _ -> return (globals, Nothing)
+          _ -> return (globals, Nothing)          
+      Nothing -> panic "checkBackedge" ["Global not initialized"]
 
  modifyStackState ::
-   IORef BoundedExecGlobal ->
+   IORef (Maybe BoundedExecGlobal) ->
    (SimState p sym ext rtp f args -> ExecState p sym ext rtp) ->
    SimState p sym ext rtp f args ->
    ([Either FunctionName FrameBoundData] -> [Either FunctionName FrameBoundData]) ->
    IO (ExecutionFeatureResult p sym ext rtp)
  modifyStackState gvRef mkSt st f =
-   do gv <- readIORef gvRef
-      let xs = case lookupGlobal gv (st ^. stateGlobals) of
-                 Nothing -> error "bounded execution global not defined!"
-                 Just v  -> v
-      let st' = st & stateGlobals %~ insertGlobal gv (f xs)
-      return (ExecutionFeatureModifiedState (mkSt st'))
+  do 
+    gv <- readIORef gvRef
+    case gv of 
+      Just gv -> do
+        let xs = case lookupGlobal gv (st ^. stateGlobals) of
+                  Nothing -> error "bounded execution global not defined!"
+                  Just v  -> v
+        let st' = st & stateGlobals %~ insertGlobal gv (f xs)
+        return (ExecutionFeatureModifiedState (mkSt st'))
+      Nothing -> panic "modifyStackState" ["Global variable not initialized"]
 
  onTransition ::
-   IORef BoundedExecGlobal ->
+   IORef (Maybe BoundedExecGlobal) ->
    BlockID blocks tgt_args ->
    ControlResumption p sym ext rtp (CrucibleLang blocks ret) ->
    SimState p sym ext rtp (CrucibleLang blocks ret) ('Just a) ->
@@ -264,16 +271,21 @@ boundedExecFeature getLoopBounds generateSideConditions =
        Nothing -> return (ExecutionFeatureModifiedState (ControlTransferState res st'))
 
  onStep ::
-   IORef BoundedExecGlobal ->
+   IORef (Maybe BoundedExecGlobal) ->
    ExecState p sym ext rtp ->
    IO (ExecutionFeatureResult p sym ext rtp)
 
  onStep gvRef = \case
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
-        gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
-        writeIORef gvRef gv
-        let globals' = insertGlobal gv [Left "_init"] globals
+        currGv <- readIORef gvRef
+        ngv <- case currGv of 
+          Nothing -> do 
+            gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
+            writeIORef gvRef (Just gv)
+            pure gv
+          Just gv -> pure gv
+        let globals' = insertGlobal ngv [Left "_init"] globals
         let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
         return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah ret cont))
 
