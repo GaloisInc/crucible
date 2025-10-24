@@ -11,8 +11,7 @@ Maintainer       : Langston Barrett <langston@galois.com>
 {-# LANGUAGE TypeApplications #-}
 
 module Lang.Crucible.Debug.Inputs
-  ( Inputs
-  , recv
+  ( Inputs(..)
   , fail
   , parseInputs
   , parseInputsWithRetry
