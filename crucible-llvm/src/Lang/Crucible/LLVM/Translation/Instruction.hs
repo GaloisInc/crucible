@@ -41,12 +41,14 @@ import           Prelude hiding (exp, pred)
 import           Control.Lens hiding (op, (:>) )
 import           Control.Monad (MonadPlus(..), forM, unless)
 import           Control.Monad.Except (MonadError(..), runExceptT)
-import           Control.Monad.State.Strict (MonadState(..))
+import           Control.Monad.State.Strict (MonadState(..), gets)
 import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (for_, toList)
 import           Data.Functor (void)
 import           Data.Int
+import           Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
@@ -2079,31 +2081,81 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
      | otherwise = callOrdinaryFunction (Just instr) tailCall_ fnTy fn args assign_f
 
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
+-- For more information on how these work, see
+-- <https://llvm.org/docs/SourceLevelDebugging.html>.
+
+-- This function assumes that each argument should either be a particular kind
+-- of metadata value or a reference that resolves to a particular kind of
+-- metadata value (see @resolveArg{1,2,3}@ below). If we encounter other types
+-- of LLVM metadata that breaks this assumption, then we will need to update
+-- this function's implementation accordingly.
 dbgArgs ::
   Set L.Ident {- ^ Set of usable identifiers -} ->
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs defSet args =
+dbgArgs defSet args = do
+    unnamedMd <- gets (llvmUnnamedMd . llvmContext)
     case args of
-      [valArg, lvArg, diArg] ->
-        case valArg of
-          L.Typed _ (L.ValMd (L.ValMdValue val)) ->
-            case lvArg of
-              L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
-                case diArg of
-                  L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) ->
-                    let unusableIdents = Set.difference (useTypedVal val) defSet
-                    in if Set.null unusableIdents then
-                         do v <- transTypedValue val
-                            pure (Right (v, lv, di))
-                       else
-                         do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
-                                       map (show . LPP.ppIdent) (Set.toList unusableIdents))
-                            pure (Left msg)
-                  _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
-              _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
-          _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
+      [valArg, lvArg, diArg] -> do
+        let resolveRes = do -- Either String
+              val <- resolveArg1 unnamedMd $ L.typedValue valArg
+              lv <- resolveArg2 unnamedMd $ L.typedValue lvArg
+              di <- resolveArg3 unnamedMd $ L.typedValue diArg
+              Right (val, lv, di)
+        case resolveRes of
+          Left err -> pure (Left err)
+          Right (val, lv, di) ->
+            let unusableIdents = Set.difference (useTypedVal val) defSet
+            in if Set.null unusableIdents then
+                 do v <- transTypedValue val
+                    pure (Right (v, lv, di))
+               else
+                 do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
+                               map (show . LPP.ppIdent) (Set.toList unusableIdents))
+                    pure (Left msg)
       _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
+  where
+    resolveArg1 ::
+      IntMap L.ValMd ->
+      L.Value ->
+      Either String (L.Typed L.Value)
+    resolveArg1 unnamedMd = go
+      where
+        go (L.ValMd (L.ValMdRef ref))
+          | Just valMd <- IntMap.lookup ref unnamedMd
+          = go (L.ValMd valMd)
+        go (L.ValMd (L.ValMdValue val)) =
+          Right val
+        go valArg =
+          Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg)
+
+    resolveArg2 ::
+      IntMap L.ValMd ->
+      L.Value ->
+      Either String L.DILocalVariable
+    resolveArg2 unnamedMd = go
+      where
+        go (L.ValMd (L.ValMdRef ref))
+          | Just valMd <- IntMap.lookup ref unnamedMd
+          = go (L.ValMd valMd)
+        go (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) =
+          Right lv
+        go lvArg =
+          Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg)
+
+    resolveArg3 ::
+      IntMap L.ValMd ->
+      L.Value ->
+      Either String L.DIExpression
+    resolveArg3 unnamedMd = go
+      where
+        go (L.ValMd (L.ValMdRef ref))
+          | Just valMd <- IntMap.lookup ref unnamedMd
+          = go (L.ValMd valMd)
+        go (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) =
+          Right di
+        go diArg =
+          Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg)
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->
