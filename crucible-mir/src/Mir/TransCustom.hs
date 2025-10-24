@@ -1230,7 +1230,7 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
             ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty tyLen) Immut]),
-              [MirExp MirSliceRepr e, _] ) -> do
+              [MirExp MirSliceRepr e] ) -> do
                 -- TODO: This should be implemented as a type cast, so the
                 -- input and output are aliases.  However, the input slice's
                 -- data pointer may point into a `MirVector` rather than a
