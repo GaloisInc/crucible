@@ -84,6 +84,7 @@ data ReplayState p sym ext rtp
     }
     -- ^ constructor intentionally not exported
 Lens.makeLenses ''ReplayState
+
 -- | Constructor for 'RecordState'
 mkRecordState ::
   C.HandleAllocator -> IO (RecordState p sym ext rtp)
