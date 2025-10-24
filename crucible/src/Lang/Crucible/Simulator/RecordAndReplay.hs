@@ -78,7 +78,10 @@ newtype RecordedTrace sym
 -- * @rtp@: type of the simulator return value
 type ReplayState :: Type -> Type -> Type -> Type -> Type
 data ReplayState p sym ext rtp
-  = ReplayState {_traceGlobal :: (C.GlobalVar TraceType), _initialTrace :: (RecordedTrace sym)}
+  = ReplayState
+    { _traceGlobal :: (C.GlobalVar TraceType)
+    , _initialTrace :: (RecordedTrace sym)
+    }
     -- ^ constructor intentionally not exported
 Lens.makeLenses ''ReplayState
 -- | Constructor for 'RecordState'
