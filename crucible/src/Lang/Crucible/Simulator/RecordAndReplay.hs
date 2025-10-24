@@ -136,8 +136,8 @@ locAsStr sym = do
   W4.stringLit sym (W4.UnicodeLiteral txtLoc)
 
 
-emptyReplayTrace :: sym -> IO (RecordedTrace sym)
-emptyReplayTrace sym =  RecordedTrace <$> CSSS.nilSymSequence sym
+emptyRecordedTrace :: sym -> IO (RecordedTrace sym)
+emptyRecordedTrace sym =  RecordedTrace <$> CSSS.nilSymSequence sym
    
 
 getRecordTrace ::
