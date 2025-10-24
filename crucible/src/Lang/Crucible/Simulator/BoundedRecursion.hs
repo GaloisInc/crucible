@@ -111,28 +111,28 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
  pushFrame gvRef rebuildStack h mkSt st = stateSolverProof st $
      do let sym = st^.stateSymInterface
         let simCtx = st^.stateContext
-        gv <- readIORef gvRef
-        case gv of 
-          Just gv -> 
-            case lookupGlobal gv (st ^. stateGlobals) of
-              Nothing -> panic "bounded recursion" ["global not defined!"]
-              Just [] -> panic "bounded recursion" ["empty stack!"]
-              Just (x:xs) -> do 
-                mb <- getRecursionBound h
-                let v = 1 + fromMaybe 0 (Map.lookup h x)
-                case mb of
-                  Just b | v > b -> do 
-                    loc <- getCurrentProgramLoc sym
-                    let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
-                    let err = SimError loc (ResourceExhausted msg)
-                    when generateSideConditions $ withBackend simCtx $ \bak ->
-                      addProofObligation bak (LabeledPred (falsePred sym) err)
-                    return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st))
-                  _ -> do 
-                    let x'  = Map.insert h v x
-                    let st' = st & stateGlobals %~ insertGlobal gv (rebuildStack x' x xs)
-                    x' `seq` return (ExecutionFeatureModifiedState (mkSt st'))
-          Nothing -> panic "pushFrame" ["Uninitialized global!"]
+        currGv <- readIORef gvRef
+        let err = panic "pushFrame" ["Uninitialized global!"]
+        let gv = fromMaybe err currGv
+        case lookupGlobal gv (st ^. stateGlobals) of
+          Nothing -> panic "bounded recursion" ["global not defined!"]
+          Just [] -> panic "bounded recursion" ["empty stack!"]
+          Just (x:xs) -> do 
+            mb <- getRecursionBound h
+            let v = 1 + fromMaybe 0 (Map.lookup h x)
+            case mb of
+              Just b | v > b -> do 
+                loc <- getCurrentProgramLoc sym
+                let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
+                let simerr = SimError loc (ResourceExhausted msg)
+                when generateSideConditions $ withBackend simCtx $ \bak ->
+                  addProofObligation bak (LabeledPred (falsePred sym) simerr)
+                return (ExecutionFeatureNewState (AbortState (AssertionFailure simerr) st))
+              _ -> do 
+                let x'  = Map.insert h v x
+                let st' = st & stateGlobals %~ insertGlobal gv (rebuildStack x' x xs)
+                x' `seq` return (ExecutionFeatureModifiedState (mkSt st'))
+
 
  onStep ::
    IORef (Maybe BoundedRecursionGlobal) ->
