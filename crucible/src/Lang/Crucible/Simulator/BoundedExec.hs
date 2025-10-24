@@ -241,7 +241,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
     let err = panic "modifyStackState" ["Global variable not initialized"]
     let gv = fromMaybe err currGv
     let xs = case lookupGlobal gv (st ^. stateGlobals) of
-              Nothing -> error "bounded execution global not defined!"
+              Nothing -> panic "modifyStackState"  ["Global variable not defined!"]
               Just v  -> v
     let st' = st & stateGlobals %~ insertGlobal gv (f xs)
     return (ExecutionFeatureModifiedState (mkSt st'))
