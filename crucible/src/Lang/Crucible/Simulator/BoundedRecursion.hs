@@ -81,26 +81,28 @@ boundedRecursionFeature ::
   IO (GenericExecutionFeature sym)
 
 boundedRecursionFeature getRecursionBound generateSideConditions =
-  do gvRef <- newIORef (error "Global variable for BoundedRecursionData not initialized")
+  do gvRef <- newIORef Nothing
      return $ GenericExecutionFeature $ onStep gvRef
 
  where
  popFrame ::
-   IORef BoundedRecursionGlobal ->
+   IORef (Maybe BoundedRecursionGlobal) ->
    (SimState p sym ext rtp f args -> ExecState p sym ext rtp) ->
    SimState p sym ext rtp f args ->
    IO (ExecutionFeatureResult p sym ext rtp)
- popFrame gvRef mkSt st =
-   do gv <- readIORef gvRef
-      case lookupGlobal gv (st ^. stateGlobals) of
-        Nothing -> panic "bounded recursion" ["global not defined!"]
-        Just [] -> panic "bounded recursion" ["pop on empty stack!"]
-        Just (_:xs) ->
-          do let st' = st & stateGlobals %~ insertGlobal gv xs
-             return (ExecutionFeatureModifiedState (mkSt st'))
+ popFrame gvRef mkSt st = do
+   currGv <- readIORef gvRef
+   let err = panic "bounded recursion" ["gv not initialized"]
+   let gv = fromMaybe err currGv
+   case lookupGlobal gv (st ^. stateGlobals) of
+     Nothing -> panic "bounded recursion" ["global not defined!"]
+     Just [] -> panic "bounded recursion" ["pop on empty stack!"]
+     Just (_ : xs) -> do
+       let st' = st & stateGlobals %~ insertGlobal gv xs
+       return (ExecutionFeatureModifiedState (mkSt st'))
 
  pushFrame ::
-   IORef BoundedRecursionGlobal ->
+   IORef (Maybe BoundedRecursionGlobal) ->
    (BoundedRecursionMap -> BoundedRecursionMap -> [BoundedRecursionMap] -> [BoundedRecursionMap]) ->
    SomeHandle ->
    (SimState p sym ext rtp f args -> ExecState p sym ext rtp) ->
@@ -109,28 +111,31 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
  pushFrame gvRef rebuildStack h mkSt st = stateSolverProof st $
      do let sym = st^.stateSymInterface
         let simCtx = st^.stateContext
-        gv <- readIORef gvRef
+        currGv <- readIORef gvRef
+        let err = panic "pushFrame" ["Uninitialized global!"]
+        let gv = fromMaybe err currGv
         case lookupGlobal gv (st ^. stateGlobals) of
           Nothing -> panic "bounded recursion" ["global not defined!"]
           Just [] -> panic "bounded recursion" ["empty stack!"]
-          Just (x:xs) ->
-            do mb <- getRecursionBound h
-               let v = 1 + fromMaybe 0 (Map.lookup h x)
-               case mb of
-                 Just b | v > b ->
-                   do loc <- getCurrentProgramLoc sym
-                      let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
-                      let err = SimError loc (ResourceExhausted msg)
-                      when generateSideConditions $ withBackend simCtx $ \bak ->
-                        addProofObligation bak (LabeledPred (falsePred sym) err)
-                      return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st))
-                 _ ->
-                   do let x'  = Map.insert h v x
-                      let st' = st & stateGlobals %~ insertGlobal gv (rebuildStack x' x xs)
-                      x' `seq` return (ExecutionFeatureModifiedState (mkSt st'))
+          Just (x:xs) -> do 
+            mb <- getRecursionBound h
+            let v = 1 + fromMaybe 0 (Map.lookup h x)
+            case mb of
+              Just b | v > b -> do 
+                loc <- getCurrentProgramLoc sym
+                let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
+                let simerr = SimError loc (ResourceExhausted msg)
+                when generateSideConditions $ withBackend simCtx $ \bak ->
+                  addProofObligation bak (LabeledPred (falsePred sym) simerr)
+                return (ExecutionFeatureNewState (AbortState (AssertionFailure simerr) st))
+              _ -> do 
+                let x'  = Map.insert h v x
+                let st' = st & stateGlobals %~ insertGlobal gv (rebuildStack x' x xs)
+                x' `seq` return (ExecutionFeatureModifiedState (mkSt st'))
+
 
  onStep ::
-   IORef BoundedRecursionGlobal ->
+   IORef (Maybe BoundedRecursionGlobal) ->
    ExecState p sym ext rtp ->
    IO (ExecutionFeatureResult p sym ext rtp)
 
@@ -138,8 +143,13 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
 
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
-        gv <- freshGlobalVar halloc (Text.pack "BoundedRecursionData") knownRepr
-        writeIORef gvRef gv
+        currGv <- readIORef gvRef 
+        gv <- case currGv of 
+          Just gv -> pure gv 
+          Nothing -> do
+            gv <- freshGlobalVar halloc (Text.pack "BoundedRecursionData") knownRepr
+            writeIORef gvRef (Just gv)
+            pure gv
         let simctx'  = simctx{ ctxIntrinsicTypes = MapF.insert
                                    (knownSymbol @"BoundedRecursionData")
                                    IntrinsicMuxFn
