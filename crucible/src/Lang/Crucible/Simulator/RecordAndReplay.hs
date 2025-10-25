@@ -22,6 +22,9 @@ module Lang.Crucible.Simulator.RecordAndReplay (
   getRecordedTrace,
   recordFeature,
   replayFeature,
+  initialTrace,
+  traceGlobal,
+  emptyRecordedTrace
 ) where
 
 import Control.Exception qualified as X
@@ -61,6 +64,12 @@ newtype RecordState p sym ext rtp
   = RecordState (C.GlobalVar TraceType)
     -- ^ constructor intentionally not exported
 
+{- | A trace from 'recordFeature', processed and ready for consumption by
+'replayFeature'.
+-}
+newtype RecordedTrace sym
+  = RecordedTrace (C.RegValue sym TraceType)
+
 -- | Type parameters:
 --
 -- * @p@: see 'C.cruciblePersonality'
@@ -68,9 +77,13 @@ newtype RecordState p sym ext rtp
 -- * @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 -- * @rtp@: type of the simulator return value
 type ReplayState :: Type -> Type -> Type -> Type -> Type
-newtype ReplayState p sym ext rtp
-  = ReplayState (C.GlobalVar TraceType)
+data ReplayState p sym ext rtp
+  = ReplayState
+    { _traceGlobal :: (C.GlobalVar TraceType)
+    , _initialTrace :: (RecordedTrace sym)
+    }
     -- ^ constructor intentionally not exported
+Lens.makeLenses ''ReplayState
 
 -- | Constructor for 'RecordState'
 mkRecordState ::
@@ -80,9 +93,9 @@ mkRecordState halloc =
 
 -- | Constructor for 'ReplayState'
 mkReplayState ::
-  C.HandleAllocator -> IO (ReplayState p sym ext rtp)
-mkReplayState halloc =
-  ReplayState <$> C.freshGlobalVar halloc "replayState" W4.knownRepr
+  C.HandleAllocator -> RecordedTrace sym  -> IO (ReplayState p sym ext rtp)
+mkReplayState halloc rt =
+  ReplayState <$> C.freshGlobalVar halloc "replayState" W4.knownRepr <*> pure rt
 
 -- | A class for Crucible personality types @p@ which contain a
 -- 'RecordState'. This execution feature is polymorphic over
@@ -122,6 +135,9 @@ locAsStr sym = do
   let txtLoc = Text.pack (show loc)
   W4.stringLit sym (W4.UnicodeLiteral txtLoc)
 
+emptyRecordedTrace :: sym -> IO (RecordedTrace sym)
+emptyRecordedTrace sym = RecordedTrace <$> CSSS.nilSymSequence sym
+
 getRecordTrace ::
   HasRecordState p p sym ext rtp =>
   C.SimState p sym ext rtp f args ->
@@ -149,7 +165,7 @@ getReplayTrace ::
   Maybe (C.RegValue sym TraceType)
 getReplayTrace simState = do
   let ctx = simState ^. C.stateContext
-  let ReplayState g = ctx ^. C.cruciblePersonality . replayState
+  let g = ctx ^. C.cruciblePersonality . replayState . traceGlobal
   C.lookupGlobal g (simState ^. C.stateGlobals)
 
 -- | Get the length of the trace being replayed
@@ -233,10 +249,7 @@ recordFeature =
       s' <- CSSS.consSymSequence sym v s
       pure (insertTrace st s')
 
--- | A trace from 'recordFeature', processed and ready for consumption by
--- 'replayFeature'.
-newtype RecordedTrace sym
-  = RecordedTrace (C.RegValue sym TraceType)
+
     -- ^ constructor intentionally not exported to keep 'TraceType' out of the
     -- API, but it could be exported in the future if necessary.
 
@@ -273,6 +286,19 @@ getRecordedTrace globals (RecordState g) sym evalBool = do
         Just (W4.UnicodeLiteral s') -> pure s'
         Nothing -> panic "getRecordedTrace" ["Non-literal trace element?"]
 
+{- | Inserts a recorded trace into the state's replay trace variable
+The replay feature will follow this trace if it is enabled
+-}
+insertReplayTrace ::
+  (HasReplayState p p sym ext rtp) =>
+  C.SimState p sym ext rtp f args ->
+  C.RegValue sym TraceType ->
+  C.SimState p sym ext rtp f args
+insertReplayTrace st v = do
+  let simCtx = st ^. C.stateContext
+  let g = simCtx ^. C.cruciblePersonality . replayState . traceGlobal
+  st & C.stateGlobals %~ C.insertGlobal g v
+
 -- | An 'C.ExecutionFeature' to replay traces recorded with 'recordFeature'.
 --
 -- Branches that deviate from the given trace will be aborted with
@@ -284,17 +310,18 @@ replayFeature ::
   ( HasReplayState p p sym ext rtp
   , W4.IsExprBuilder sym
   ) =>
-  RecordedTrace sym ->
   -- | Whether to stop at the end of the trace. If this is 'True' and execution
   -- has exhausted the trace, then any further execution will be aborted via
   -- 'C.InfeasibleBranch'.
   Bool ->
   C.ExecutionFeature p sym ext rtp
-replayFeature (RecordedTrace trace) stop =
+replayFeature stop =
   C.ExecutionFeature $
     \case
       C.InitialState simCtx globals abortHandler retTy cont -> do
-        let ReplayState g = simCtx ^. C.cruciblePersonality . replayState
+        let rstate = simCtx ^. C.cruciblePersonality . replayState
+        let g =  rstate ^. traceGlobal
+        let RecordedTrace trace = rstate ^. initialTrace
         let globals' = C.insertGlobal g trace globals
         let iState = C.InitialState simCtx globals' abortHandler retTy cont
         return $ C.ExecutionFeatureModifiedState iState
@@ -322,7 +349,7 @@ replayFeature (RecordedTrace trace) stop =
                 _ -> do
                   let msg' = "Execution deviated from trace"
                   CB.assert bak atExpectedLoc (C.AssertFailureSimError msg' "")
-                  let st' = insertTrace st rest
+                  let st' = insertReplayTrace st rest
                   let rState = C.RunningState runStateInfo st'
                   pure (C.ExecutionFeatureModifiedState rState)
 
@@ -336,13 +363,3 @@ replayFeature (RecordedTrace trace) stop =
       case getReplayTrace st of
         Nothing -> X.throw TraceGlobalNotDefined
         Just t -> pure t
-
-    insertTrace ::
-      HasReplayState p p sym ext rtp =>
-      C.SimState p sym ext rtp f args ->
-      C.RegValue sym TraceType ->
-      C.SimState p sym ext rtp f args
-    insertTrace st v = do
-      let simCtx = st ^. C.stateContext
-      let ReplayState g = simCtx ^. C.cruciblePersonality . replayState
-      st & C.stateGlobals %~ C.insertGlobal g v
