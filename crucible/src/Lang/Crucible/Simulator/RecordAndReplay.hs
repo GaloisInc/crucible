@@ -24,7 +24,7 @@ module Lang.Crucible.Simulator.RecordAndReplay (
   replayFeature,
   initialTrace,
   traceGlobal,
-  emptyReplayTrace
+  emptyRecordedTrace
 ) where
 
 import Control.Exception qualified as X
@@ -135,10 +135,8 @@ locAsStr sym = do
   let txtLoc = Text.pack (show loc)
   W4.stringLit sym (W4.UnicodeLiteral txtLoc)
 
-
 emptyRecordedTrace :: sym -> IO (RecordedTrace sym)
-emptyRecordedTrace sym =  RecordedTrace <$> CSSS.nilSymSequence sym
-   
+emptyRecordedTrace sym = RecordedTrace <$> CSSS.nilSymSequence sym
 
 getRecordTrace ::
   HasRecordState p p sym ext rtp =>
