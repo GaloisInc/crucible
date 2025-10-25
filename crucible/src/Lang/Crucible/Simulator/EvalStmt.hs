@@ -25,7 +25,10 @@ module Lang.Crucible.Simulator.EvalStmt
   , ExecutionFeature(..)
   , GenericExecutionFeature(..)
   , ExecutionFeatureResult(..)
+  , ExecFeatureWithPersonality(..)
   , genericToExecutionFeature
+  , execFeatureWithPersonalityToExecFeature
+  , genericToExecutionFeatureWithPersonality
   , timeoutFeature
 
     -- * Lower-level evaluation operations
@@ -629,6 +632,26 @@ newtype GenericExecutionFeature sym =
       (IsSymInterface sym, IsSyntaxExtension ext) =>
         ExecState p sym ext rtp -> IO (ExecutionFeatureResult p sym ext rtp)
   }
+
+
+-- | Similar to 'GenericExecutionFeature' but exposes the personality.
+newtype ExecFeatureWithPersonality sym p
+  = ExecFeatureWithPersonality
+  { runExecFeatureWithPersonality ::
+      forall ext rtp.
+      (IsSymInterface sym, IsSyntaxExtension ext) =>
+      ExecState p sym ext rtp ->
+      IO (ExecutionFeatureResult p sym ext rtp)
+  }
+
+execFeatureWithPersonalityToExecFeature ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  ExecFeatureWithPersonality sym p ->
+  ExecutionFeature p sym ext rtp
+execFeatureWithPersonalityToExecFeature (ExecFeatureWithPersonality f) = ExecutionFeature f
+
+genericToExecutionFeatureWithPersonality ::(IsSymInterface sym) => GenericExecutionFeature sym -> ExecFeatureWithPersonality sym p
+genericToExecutionFeatureWithPersonality (GenericExecutionFeature f) = ExecFeatureWithPersonality f
 
 genericToExecutionFeature ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>

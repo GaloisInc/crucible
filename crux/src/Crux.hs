@@ -9,6 +9,7 @@
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Crux
   ( runSimulator
@@ -65,6 +66,7 @@ import           Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.Simple as CBS
 import           Lang.Crucible.CFG.Extension
 import qualified Lang.Crucible.Debug as Debug
+import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator
 import           Lang.Crucible.Simulator.BoundedExec
 import           Lang.Crucible.Simulator.BoundedRecursion
@@ -100,24 +102,28 @@ import           Crux.Log -- for the export list
 import           Crux.Log as Log
 import           Crux.Report
 import           Crux.Types
+import Data.Kind (Type)
 
 pattern RunnableState ::
-  forall sym. () =>
-  forall ext personality.
+  forall sym personality. () =>
+  forall ext.
   ( IsSyntaxExtension ext
+  , HasBoundedExec (personality sym)
+  , HasBoundedRecursionVariable (personality sym)
   , Debug.HasContext (personality sym) Void sym ext UnitType
   ) =>
   ExecState (personality sym) sym ext (RegEntry sym UnitType) ->
-  RunnableState sym
+  RunnableState sym personality
 pattern RunnableState es = RunnableStateWithExtensions es []
 
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
-data RunnableState sym where
-  RunnableStateWithExtensions :: (IsSyntaxExtension ext, Debug.HasContext (personality sym) Void sym ext UnitType)
+type RunnableState :: Type -> (Type -> Type) -> Type
+data RunnableState sym personality where
+  RunnableStateWithExtensions :: (HasBoundedExec (personality sym), HasBoundedRecursionVariable (personality sym) ,IsSyntaxExtension ext, Debug.HasContext (personality sym) Void sym ext UnitType)
                               => ExecState (personality sym) sym ext (RegEntry sym UnitType)
                               -> [ExecutionFeature (personality sym) sym ext (RegEntry sym UnitType)]
-                              -> RunnableState sym
+                              -> RunnableState sym personality
 
 -- | Individual crux tools will generally call the @runSimulator@ combinator to
 --   handle the nitty-gritty of setting up and running the simulator. Tools
@@ -131,7 +137,7 @@ data RunnableState sym where
 --   * When simulation ends, regardless of the outcome, to interpret the results.
 --
 --   All of these callbacks have access to the symbolic backend.
-newtype SimulatorCallbacks msgs st r
+newtype SimulatorCallbacks msgs st r personality
   = SimulatorCallbacks
     { getSimulatorCallbacks ::
         forall sym bak t fs.
@@ -139,7 +145,7 @@ newtype SimulatorCallbacks msgs st r
           , Logs msgs
           , sym ~ WE.ExprBuilder t st fs
           ) =>
-          IO (SimulatorHooks sym bak t r)
+          IO (SimulatorHooks sym bak t r personality)
     }
 
 
@@ -152,9 +158,9 @@ data SomeOnlineSolver sym bak where
                       ) => bak -> SomeOnlineSolver sym bak
 
 -- | See 'SimulatorCallbacks'
-data SimulatorHooks sym bak t r =
+data SimulatorHooks sym bak t r personality =
   SimulatorHooks
-    { setupHook   :: bak -> Maybe (SomeOnlineSolver sym bak) -> IO (RunnableState sym)
+    { setupHook   ::  bak -> Maybe (SomeOnlineSolver sym bak) -> IO (RunnableState sym personality)
     , onErrorHook :: bak -> IO (Explainer sym t Void)
     , resultHook  :: bak -> CruxSimulationResult -> IO r
     }
@@ -443,20 +449,20 @@ withSelectedOnlineBackend' cruxOpts selectedSolver sym k =
          Nothing -> return ()
        withSTPOnlineBackend sym k
 
-data ProfData sym = ProfData
+data ProfData sym p = ProfData
   { inFrame          :: forall a. FunctionName -> IO a -> IO a
-  , profExecFeatures :: [GenericExecutionFeature sym]
+  , profExecFeatures :: [ExecFeatureWithPersonality sym p]
   , writeProf        :: IO ()
   }
 
-noProfiling :: ProfData sym
+noProfiling :: ProfData sym p
 noProfiling = ProfData
   { inFrame           = \_ x -> x
   , profExecFeatures  = []
   , writeProf         = pure ()
   }
 
-setupProfiling :: IsSymInterface sym => sym -> CruxOptions -> IO (ProfData sym)
+setupProfiling :: IsSymInterface sym => sym -> CruxOptions -> IO (ProfData sym p)
 setupProfiling sym cruxOpts =
   do tbl <- newProfilingTable
 
@@ -480,7 +486,7 @@ setupProfiling sym cruxOpts =
                       }
 
      pfs <- execFeatureIf (profileCrucibleFunctions cruxOpts || branchCoverage cruxOpts)
-                          (profilingFeature tbl profFilt (Just profOpts))
+                          (genericToExecutionFeatureWithPersonality <$> profilingFeature tbl profFilt (Just profOpts))
 
      pure ProfData
        { inFrame = \str -> inProfilingFrame tbl str Nothing
@@ -490,14 +496,14 @@ setupProfiling sym cruxOpts =
 
 execFeatureIf ::
   Bool ->
-  IO (GenericExecutionFeature sym) ->
-  IO [GenericExecutionFeature sym]
+  IO (ExecFeatureWithPersonality sym p) ->
+  IO [ExecFeatureWithPersonality sym p]
 execFeatureIf b m = if b then (:[]) <$> m else pure []
 
 execFeatureMaybe ::
   Maybe a ->
-  (a -> IO (GenericExecutionFeature sym)) ->
-  IO [GenericExecutionFeature sym]
+  (a -> IO (ExecFeatureWithPersonality sym p)) ->
+  IO [ExecFeatureWithPersonality sym p]
 execFeatureMaybe mb m =
   case mb of
     Nothing -> pure []
@@ -527,12 +533,12 @@ setupSolver cruxOpts mInteractionFile sym = do
 -- maximally reuse code, we pass in the necessary online constraints as an extra
 -- argument when we have them available (i.e., when we build an online solver)
 -- and elide them otherwise.
-setupExecutionFeatures :: IsSymBackend sym bak
+setupExecutionFeatures :: (HasBoundedExec p, HasBoundedRecursionVariable p) => IsSymBackend sym bak
                        => CruxOptions
                        -> bak
                        -> Maybe (SomeOnlineSolver sym bak)
                        -> IO
-                       ([GenericExecutionFeature sym], ProfData sym)
+                       ([ExecFeatureWithPersonality sym p], ProfData sym p)
 setupExecutionFeatures cruxOpts bak maybeOnline = do
   let sym = backendGetSym bak
   -- Setup profiling
@@ -541,7 +547,7 @@ setupExecutionFeatures cruxOpts bak maybeOnline = do
                            else pure noProfiling
 
   -- Global timeout
-  tfs <- execFeatureMaybe (globalTimeout cruxOpts) timeoutFeature
+  tfs <- execFeatureMaybe (globalTimeout cruxOpts) (\x -> genericToExecutionFeatureWithPersonality <$> timeoutFeature x)
 
   -- Loop bound
   bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
@@ -557,13 +563,13 @@ setupExecutionFeatures cruxOpts bak maybeOnline = do
       do enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
          _ <- setOpt enableOpt (checkPathSat cruxOpts)
          execFeatureIf (checkPathSat cruxOpts)
-           $ pathSatisfiabilityFeature sym (considerSatisfiability bak)
+           $ genericToExecutionFeatureWithPersonality <$> pathSatisfiabilityFeature sym (considerSatisfiability bak)
     Nothing -> return []
 
   -- Position tracking
   trackfs <- positionTrackingFeature sym
 
-  return (concat [tfs, profExecFeatures profInfo, bfs, rfs, psat_fs, [trackfs]], profInfo)
+  return (concat [tfs, profExecFeatures profInfo, bfs, rfs, psat_fs, [genericToExecutionFeatureWithPersonality trackfs]], profInfo)
 
 -- | Select the What4 solver adapter for the user's solver choice (used for
 -- offline solvers)
@@ -607,7 +613,7 @@ runSimulator ::
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallbacks msgs WE.EmptyExprBuilderState r ->
+  SimulatorCallbacks msgs WE.EmptyExprBuilderState r personality->
   IO r
 runSimulator = runSimulatorWithUserState noInitUserState
 
@@ -618,11 +624,12 @@ runSimulator = runSimulatorWithUserState noInitUserState
 -- minimize code duplication between the different verification paths (e.g.,
 -- online vs offline solving).
 runSimulatorWithUserState ::
+  
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   InitUserState st ->
   CruxOptions ->
-  SimulatorCallbacks msgs st r ->
+  SimulatorCallbacks msgs st r personality ->
   IO r
 runSimulatorWithUserState mkUser cruxOpts simCallback = do
   sayCrux (Log.Checking (inputFiles cruxOpts))
@@ -635,14 +642,12 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
-        doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOnline bak)
+        doSimWithResults cruxOpts simCallback bak monline (proveGoalsOnline bak)
 
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
         withSolverAdapter offSolver $ \adapter -> do
           -- We have to add the configuration options from the solver adapter,
           -- since they weren't included in the symbolic backend configuration
@@ -650,7 +655,7 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
           -- been a different solver)
           unless (CCS.sameSolver onSolver offSolver) $
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration (backendGetSym bak))
-          doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
+          doSimWithResults cruxOpts simCallback bak monline (proveGoalsOffline [adapter])
 
     Right (CCS.OnlyOfflineSolvers offSolvers) ->
       withFloatRepr userState cruxOpts offSolvers $ \floatRepr -> do
@@ -661,8 +666,7 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
           -- Since we have a bare SimpleBackend here, we have to initialize it
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options =<< adapters) (getConfiguration sym)
-          (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak Nothing
-          doSimWithResults cruxOpts simCallback bak execFeatures profInfo Nothing (proveGoalsOffline adapters)
+          doSimWithResults cruxOpts simCallback bak Nothing (proveGoalsOffline adapters)
 
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) ->
       -- This case is probably the most complicated because it needs two
@@ -671,9 +675,8 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
       withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing userState $ \pathSatBak -> do
         let sym = backendGetSym pathSatBak
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatBak (Just (SomeOnlineSolver pathSatBak))
         withSelectedOnlineBackend' cruxOpts goalSolver sym $ \goalBak -> do
-          doSimWithResults cruxOpts simCallback pathSatBak execFeatures profInfo (Just (SomeOnlineSolver pathSatBak)) (proveGoalsOnline goalBak)
+          doSimWithResults cruxOpts simCallback pathSatBak (Just (SomeOnlineSolver pathSatBak)) (proveGoalsOnline goalBak)
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
 
@@ -688,32 +691,30 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  forall sym bak r t st fs msgs.
-  sym ~ WE.ExprBuilder t st fs =>
+  forall sym bak r t st fs msgs p personality.
+  (sym ~ WE.ExprBuilder t st fs, p ~ personality sym) =>
+ 
   IsSymBackend sym bak =>
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallbacks msgs st r ->
+  SimulatorCallbacks msgs st r personality ->
   bak ->
-  [GenericExecutionFeature sym] ->
-  ProfData sym ->
   Maybe (SomeOnlineSolver sym bak) ->
   ProverCallback sym
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO r
-doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProver = do
-  compRef <- newIORef ProgramComplete
-  glsRef <- newIORef Seq.empty
-
-  frm <- pushAssumptionFrame bak
-
+doSimWithResults cruxOpts simCallback bak  monline goalProver = do
   SimulatorHooks setup onError interpretResult <-
     getSimulatorCallbacks simCallback
+  RunnableStateWithExtensions initSt exts <- setup bak monline
+  (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
+  compRef <- newIORef ProgramComplete
+  glsRef <- newIORef Seq.empty
+  frm <- pushAssumptionFrame bak
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
-    RunnableStateWithExtensions initSt exts <- setup bak monline
     explainFailure <- onError bak
 
     -- This can't be initialized with the rest of the execution features,
@@ -733,13 +734,13 @@ doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProv
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts ++ debugger) initSt
-           void $ resultCont compRef glsRef frm explainFailure (Result res)
+        do res <- executeCrucible (map execFeatureWithPersonalityToExecFeature execFeatures ++ exts ++ debugger) initSt
+           void $ resultCont compRef glsRef frm explainFailure profInfo (Result res)
       SplitAndExploreDepthFirst ->
         do (i,ws) <- executeCrucibleDFSPaths
-                         (map genericToExecutionFeature execFeatures ++ exts ++ debugger)
+                         (map execFeatureWithPersonalityToExecFeature execFeatures ++ exts ++ debugger)
                          initSt
-                         (resultCont compRef glsRef frm explainFailure . Result)
+                         (resultCont compRef glsRef frm explainFailure profInfo . Result)
            sayCrux (Log.TotalPathsExplored i)
            unless (null ws) $
              sayCrux (Log.PathsUnexplored (Seq.length ws))
@@ -757,9 +758,10 @@ doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProv
    -> IORef (Seq.Seq (ProcessedGoals, ProvedGoals))
    -> FrameIdentifier
    -> (Maybe (WE.GroundEvalFn t) -> LabeledPred (WE.Expr t BaseBoolType) SimError -> IO (Doc Void))
+   -> ProfData sym (personality sym)
    -> Result personality (WE.ExprBuilder t st fs)
    -> IO Bool
- resultCont compRef glsRef frm explainFailure (Result res) =
+ resultCont compRef glsRef frm explainFailure profInfo (Result res) =
    do timedOut <-
         case res of
           TimeoutResult {} ->

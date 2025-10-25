@@ -27,12 +27,13 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Lang.Crucible.Simulator.BoundedExec
-  ( boundedExecFeature
+  ( boundedExecFeature,
+    emptyBoundedExecVariable,
+    HasBoundedExec(..)
   ) where
 
 import           Control.Lens ( (^.), to, (&), (%~), (.~) )
 import           Control.Monad ( when )
-import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe)
@@ -59,6 +60,8 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.FunctionName
 import           What4.Interface
+import qualified Control.Lens as Lens
+import qualified Lang.Crucible.Simulator as C
 
 data FrameBoundData =
   forall args ret.
@@ -162,6 +165,11 @@ printStack (Right FrameBoundData{ frameBoundHandle = h } : xs) = show h : printS
 
 type BoundedExecGlobal = GlobalVar (IntrinsicType "BoundedExecFrameData" EmptyCtx)
 
+class HasBoundedExec p where
+  boundedExecVariable :: Lens.Lens' p BoundedExecGlobal
+
+emptyBoundedExecVariable :: BoundedExecGlobal
+emptyBoundedExecVariable = (error "Global variable for BoundedExecData not initialized")
 
 -- | This execution feature allows users to place a bound on the number
 --   of iterations that a loop will execute.  Each time a function is called,
@@ -177,14 +185,13 @@ type BoundedExecGlobal = GlobalVar (IntrinsicType "BoundedExecFrameData" EmptyCt
 --   Note that we compute a weak topological ordering on control flow graphs
 --   to determine loop heads and loop nesting structure.  Loop bounds for inner
 --   loops are reset on every iteration through an outer loop.
-boundedExecFeature ::
+boundedExecFeature :: HasBoundedExec p =>
   (SomeHandle -> IO (Maybe Word64))
     {- ^ Action for computing loop bounds for functions when they are called -} ->
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
-  IO (GenericExecutionFeature sym)
+  IO (ExecFeatureWithPersonality sym p)
 boundedExecFeature getLoopBounds generateSideConditions =
-  do gvRef <- newIORef (error "Global variable for BoundedExecFrameData not initialized")
-     return $ GenericExecutionFeature $ onStep gvRef
+     return $ ExecFeatureWithPersonality $ onStep
 
  where
  buildFrameData :: ResolvedCall p sym ext ret -> IO (Either FunctionName FrameBoundData)
@@ -202,13 +209,12 @@ boundedExecFeature getLoopBounds generateSideConditions =
                        }
 
  checkBackedge ::
-   IORef BoundedExecGlobal ->
+  BoundedExecGlobal ->
    Some (BlockID blocks) ->
    BlockID blocks tgt_args ->
    SymGlobalState sym ->
    IO (SymGlobalState sym, Maybe Word64)
- checkBackedge gvRef (Some bid_curr) bid_tgt globals =
-   do gv <- readIORef gvRef
+ checkBackedge gv (Some bid_curr) bid_tgt globals =
       case fromMaybe [] (lookupGlobal gv globals) of
         ( Right fbd : rest ) ->
           do let id_curr = Ctx.indexVal (blockIDIndex bid_curr)
@@ -228,30 +234,29 @@ boundedExecFeature getLoopBounds generateSideConditions =
                _ -> return (globals, Nothing)
         _ -> return (globals, Nothing)
 
- modifyStackState ::
-   IORef BoundedExecGlobal ->
+ modifyStackState :: HasBoundedExec p =>
    (SimState p sym ext rtp f args -> ExecState p sym ext rtp) ->
    SimState p sym ext rtp f args ->
    ([Either FunctionName FrameBoundData] -> [Either FunctionName FrameBoundData]) ->
    IO (ExecutionFeatureResult p sym ext rtp)
- modifyStackState gvRef mkSt st f =
-   do gv <- readIORef gvRef
-      let xs = case lookupGlobal gv (st ^. stateGlobals) of
+ modifyStackState mkSt st f =
+      let gv = st Lens.^. C.stateContext . C.cruciblePersonality . boundedExecVariable
+          xs = case lookupGlobal gv (st ^. stateGlobals) of
                  Nothing -> error "bounded execution global not defined!"
                  Just v  -> v
-      let st' = st & stateGlobals %~ insertGlobal gv (f xs)
+          st' = st & stateGlobals %~ insertGlobal gv (f xs) in
       return (ExecutionFeatureModifiedState (mkSt st'))
 
- onTransition ::
-   IORef BoundedExecGlobal ->
+ onTransition :: HasBoundedExec p =>
    BlockID blocks tgt_args ->
    ControlResumption p sym ext rtp (CrucibleLang blocks ret) ->
    SimState p sym ext rtp (CrucibleLang blocks ret) ('Just a) ->
    IO (ExecutionFeatureResult p sym ext rtp)
- onTransition gvRef tgt_id res st = stateSolverProof st $
+ onTransition tgt_id res st = stateSolverProof st $
   do let sym = st^.stateSymInterface
      let simCtx = st^.stateContext
-     (globals', overLimit) <- checkBackedge gvRef (st^.stateCrucibleFrame.frameBlockID) tgt_id (st^.stateGlobals)
+     let gv = st Lens.^. C.stateContext . C.cruciblePersonality . boundedExecVariable
+     (globals', overLimit) <- checkBackedge gv (st^.stateCrucibleFrame.frameBlockID) tgt_id (st^.stateGlobals)
      let st' = st & stateGlobals .~ globals'
      case overLimit of
        Just n ->
@@ -263,38 +268,36 @@ boundedExecFeature getLoopBounds generateSideConditions =
             return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st'))
        Nothing -> return (ExecutionFeatureModifiedState (ControlTransferState res st'))
 
- onStep ::
-   IORef BoundedExecGlobal ->
+ onStep :: HasBoundedExec p =>
    ExecState p sym ext rtp ->
    IO (ExecutionFeatureResult p sym ext rtp)
 
- onStep gvRef = \case
+ onStep = \case
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
         gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
-        writeIORef gvRef gv
         let globals' = insertGlobal gv [Left "_init"] globals
-        let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
+        let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) } & C.cruciblePersonality . boundedExecVariable Lens..~ gv
         return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah ret cont))
 
    CallState rh call st ->
      do boundData <- buildFrameData call
-        modifyStackState gvRef (CallState rh call) st (boundData:)
+        modifyStackState (CallState rh call) st (boundData:)
 
    TailCallState vfv call st ->
      do boundData <- buildFrameData call
-        modifyStackState gvRef (TailCallState vfv call) st ((boundData:) . drop 1)
+        modifyStackState (TailCallState vfv call) st ((boundData:) . drop 1)
 
    ReturnState nm vfv pr st ->
-        modifyStackState gvRef (ReturnState nm vfv pr) st (drop 1)
+        modifyStackState (ReturnState nm vfv pr) st (drop 1)
 
    UnwindCallState vfv ar st ->
-        modifyStackState gvRef (UnwindCallState vfv ar) st (drop 1)
+        modifyStackState (UnwindCallState vfv ar) st (drop 1)
 
    ControlTransferState res st ->
      case res of
-       ContinueResumption (ResolvedJump tgt_id _)  ->  onTransition gvRef tgt_id res st
-       CheckMergeResumption (ResolvedJump tgt_id _) -> onTransition gvRef tgt_id res st
+       ContinueResumption (ResolvedJump tgt_id _)  ->  onTransition tgt_id res st
+       CheckMergeResumption (ResolvedJump tgt_id _) -> onTransition tgt_id res st
        _ -> return ExecutionFeatureNoChange
 
    _ -> return ExecutionFeatureNoChange
