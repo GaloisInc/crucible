@@ -13,6 +13,9 @@
   attributes](https://releases.llvm.org/19.1.0/docs/LangRef.html#id237).
 * Support the `nneg` flag in `zext` and `uitofp` instructions. If `nneg` is
   set, then converting a negative argument will yield a poisoned result.
+* Support the `nuw` and `nsw` flags in `trunc` instructions. If `nuw` or `nsw`
+  is set, then performing a truncation that would result in unsigned or signed
+  integer overflow, respectively, will yield a poisoned result.
 
 # 0.8.0 -- 2025-11-09
 
