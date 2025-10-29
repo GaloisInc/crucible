@@ -11,8 +11,8 @@
   [debug records](https://llvm.org/docs/RemoveDIsDebugInfo.html) and
   [`getelementptr`
   attributes](https://releases.llvm.org/19.1.0/docs/LangRef.html#id237).
-* Support the `nneg` flag in `zext` instructions. If `nneg` is set, then
-  zero-extending a negative integer will yield a poisoned result.
+* Support the `nneg` flag in `zext` and `uitofp` instructions. If `nneg` is
+  set, then converting a negative argument will yield a poisoned result.
 
 # 0.8.0 -- 2025-11-09
 
