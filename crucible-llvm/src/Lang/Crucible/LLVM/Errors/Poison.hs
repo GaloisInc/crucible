@@ -133,6 +133,9 @@ data Poison (e :: CrucibleType -> Type) where
   ZExtNonNegative     :: (1 <= w)
                       => e (BVType w)
                       -> Poison e
+  UiToFpNonNegative   :: (1 <= w)
+                      => e (BVType w)
+                      -> Poison e
   deriving (Typeable)
 
 standard :: Poison e -> Standard
@@ -158,6 +161,7 @@ standard =
     LLVMAbsIntMin _         -> LLVMRef LLVM12
     GEPOutOfBounds _ _      -> LLVMRef LLVM8
     ZExtNonNegative _       -> LLVMRef LLVM18
+    UiToFpNonNegative _     -> LLVMRef LLVM19
 
 -- | Which section(s) of the document state that this is poison?
 cite :: Poison e -> Doc ann
@@ -183,6 +187,7 @@ cite =
     LLVMAbsIntMin _         -> "‘llvm.abs.*’ Intrinsic (Semantics)"
     GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
     ZExtNonNegative _       -> "‘zext’ Instruction (Semantics)"
+    UiToFpNonNegative _     -> "‘uitofp’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
 explain =
@@ -240,6 +245,8 @@ explain =
 
     ZExtNonNegative _ ->
       "A negative integer was zero-extended even though the `nneg` flag was set"
+    UiToFpNonNegative _ ->
+      "A negative integer was converted to a floating-point value even though the `nneg` flag was set"
 
 details :: forall sym ann.
   W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc ann]
@@ -268,6 +275,7 @@ details =
       , "Bitvector:" <+> W4I.printSymExpr bv
       ]
     ZExtNonNegative v -> args [v]
+    UiToFpNonNegative v -> args [v]
 
  where
  args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
@@ -345,6 +353,8 @@ concPoison sym conc poison =
       LLVMAbsIntMin <$> bv v
     ZExtNonNegative v ->
       ZExtNonNegative <$> bv v
+    UiToFpNonNegative v ->
+      UiToFpNonNegative <$> bv v
 
 
 -- -----------------------------------------------------------------------

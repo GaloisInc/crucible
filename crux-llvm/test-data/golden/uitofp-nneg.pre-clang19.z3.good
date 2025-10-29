@@ -1,0 +1,4 @@
+SKIP_TEST
+
+This test case uses nneg flags with uitofp instructions, which requires LLVM 19
+or later.

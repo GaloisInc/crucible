@@ -20,8 +20,8 @@
   ever contain a single size (`0`) in its `AlignInfo`, and the concept of
   "size" doesn't really apply to aggregate alignments in data layout strings,
   so this was simplified to just be an `Alignment` instead.
-* Support the `nneg` flag in `zext` instructions. If `nneg` is set, then
-  zero-extending a negative integer will yield a poisoned result.
+* Support the `nneg` flag in `zext` and `uitofp` instructions. If `nneg` is set,
+  then converting a negative argument will yield a poisoned result.
 
 # 0.7.1 -- 2025-03-21
 

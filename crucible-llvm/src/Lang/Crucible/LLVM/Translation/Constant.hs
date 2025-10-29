@@ -806,7 +806,9 @@ evalConv expr op mt x = case op of
       , DoubleConst d <- x
       -> return $ IntConst w (BV.mkBV w (truncate d))
 
-    L.UiToFp
+    -- NB: The `nneg` is ignored, as this flag is never enabled in constant
+    -- expressions, only in instructions.
+    L.UiToFp _nneg
       | FloatType <- mt
       , IntConst _w i <- x
       -> return $ FloatConst (fromInteger (BV.asUnsigned i) :: Float)
