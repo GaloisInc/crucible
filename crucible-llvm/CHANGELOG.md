@@ -11,6 +11,8 @@
   [debug records](https://llvm.org/docs/RemoveDIsDebugInfo.html) and
   [`getelementptr`
   attributes](https://releases.llvm.org/19.1.0/docs/LangRef.html#id237).
+* Support the `nneg` flag in `zext` instructions. If `nneg` is set, then
+  zero-extending a negative integer will yield a poisoned result.
 
 # 0.8.0 -- 2025-11-09
 
@@ -29,11 +31,6 @@
   `isnan` function in Clang 17 or later.)
 * Support vectorized versions of the `llvm.u{min,max}` and `llvm.s{min,max}`
   intrinsics.
-* Remove `aggInfo` in favor of `aggregateAlignment`, a lens that retrieves an
-  `Alignment` instead of a full `AlignInfo`. In practice, `aggInfo` would only
-  ever contain a single size (`0`) in its `AlignInfo`, and the concept of
-  "size" doesn't really apply to aggregate alignments in data layout strings,
-  so this was simplified to just be an `Alignment` instead.
 
 # 0.7.1 -- 2025-03-21
 

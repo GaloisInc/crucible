@@ -130,6 +130,9 @@ data Poison (e :: CrucibleType -> Type) where
   GEPOutOfBounds      :: (1 <= w, 1 <= wptr) => e (LLVMPointerType wptr)
                       -> e (BVType w)
                       -> Poison e
+  ZExtNonNegative     :: (1 <= w)
+                      => e (BVType w)
+                      -> Poison e
   deriving (Typeable)
 
 standard :: Poison e -> Standard
@@ -154,6 +157,7 @@ standard =
     InsertElementIndex _    -> LLVMRef LLVM8
     LLVMAbsIntMin _         -> LLVMRef LLVM12
     GEPOutOfBounds _ _      -> LLVMRef LLVM8
+    ZExtNonNegative _       -> LLVMRef LLVM18
 
 -- | Which section(s) of the document state that this is poison?
 cite :: Poison e -> Doc ann
@@ -178,6 +182,7 @@ cite =
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
     LLVMAbsIntMin _         -> "‘llvm.abs.*’ Intrinsic (Semantics)"
     GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
+    ZExtNonNegative _       -> "‘zext’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
 explain =
@@ -233,6 +238,9 @@ explain =
       , "treats all GEP instructions as if they had the `inbounds` attribute set."
       ]
 
+    ZExtNonNegative _ ->
+      "A negative integer was zero-extended even though the `nneg` flag was set"
+
 details :: forall sym ann.
   W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc ann]
 details =
@@ -259,6 +267,7 @@ details =
       [ "Pointer:" <+> ppPtr ptr
       , "Bitvector:" <+> W4I.printSymExpr bv
       ]
+    ZExtNonNegative v -> args [v]
 
  where
  args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
@@ -334,6 +343,8 @@ concPoison sym conc poison =
       GEPOutOfBounds <$> concPtr' sym conc p <*> bv v
     LLVMAbsIntMin v ->
       LLVMAbsIntMin <$> bv v
+    ZExtNonNegative v ->
+      ZExtNonNegative <$> bv v
 
 
 -- -----------------------------------------------------------------------
