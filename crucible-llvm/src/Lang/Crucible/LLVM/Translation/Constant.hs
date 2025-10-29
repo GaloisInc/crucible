@@ -835,7 +835,9 @@ evalConv expr op mt x = case op of
           NatCaseGT LeqProof ->
             throwError $ "Attempted to truncate " <> show w <> " bits to " <> show w'
 
-    L.ZExt
+    -- NB: The `nneg` is ignored, as this flag is never enabled in constant
+    -- expressions, only in instructions.
+    L.ZExt _nneg
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
