@@ -130,6 +130,10 @@ data Poison (e :: CrucibleType -> Type) where
   GEPOutOfBounds      :: (1 <= w, 1 <= wptr) => e (LLVMPointerType wptr)
                       -> e (BVType w)
                       -> Poison e
+  ICmpSameSign        :: (1 <= w)
+                      => e (BVType w)
+                      -> e (BVType w)
+                      -> Poison e
   deriving (Typeable)
 
 standard :: Poison e -> Standard
@@ -154,6 +158,7 @@ standard =
     InsertElementIndex _    -> LLVMRef LLVM8
     LLVMAbsIntMin _         -> LLVMRef LLVM12
     GEPOutOfBounds _ _      -> LLVMRef LLVM8
+    ICmpSameSign _ _        -> LLVMRef LLVM20
 
 -- | Which section(s) of the document state that this is poison?
 cite :: Poison e -> Doc ann
@@ -178,6 +183,7 @@ cite =
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
     LLVMAbsIntMin _         -> "‘llvm.abs.*’ Intrinsic (Semantics)"
     GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
+    ICmpSameSign _ _        -> "‘icmp’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
 explain =
@@ -233,6 +239,9 @@ explain =
       , "treats all GEP instructions as if they had the `inbounds` flag set."
       ]
 
+    ICmpSameSign _ _ ->
+      "Two integers with different signs were compared even though the `samesign` flag was set"
+
 details :: forall sym ann.
   W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc ann]
 details =
@@ -259,6 +268,7 @@ details =
       [ "Pointer:" <+> ppPtr ptr
       , "Bitvector:" <+> W4I.printSymExpr bv
       ]
+    ICmpSameSign v1 v2 -> args [v1, v2]
 
  where
  args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
@@ -334,6 +344,8 @@ concPoison sym conc poison =
       GEPOutOfBounds <$> concPtr' sym conc p <*> bv v
     LLVMAbsIntMin v ->
       LLVMAbsIntMin <$> bv v
+    ICmpSameSign v1 v2 ->
+      ICmpSameSign <$> bv v1 <*> bv v2
 
 
 -- -----------------------------------------------------------------------

@@ -1,0 +1,4 @@
+SKIP_TEST
+
+This test case uses samesign flags with icmp instructions, which requires LLVM
+20 or later.

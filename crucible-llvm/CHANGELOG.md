@@ -20,6 +20,8 @@
   ever contain a single size (`0`) in its `AlignInfo`, and the concept of
   "size" doesn't really apply to aggregate alignments in data layout strings,
   so this was simplified to just be an `Alignment` instead.
+* Support the `samesign` flag in `icmp` instructions. If `samesign` is set, then
+  comparing two integers of different signs will yield a poisoned result.
 
 # 0.7.1 -- 2025-03-21
 
