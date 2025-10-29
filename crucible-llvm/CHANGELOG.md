@@ -25,6 +25,8 @@
 * Support the `nuw` and `nsw` flags in `trunc` instructions. If `nuw` or `nsw`
   is set, then performing a truncation that would result in unsigned or signed
   integer overflow, respectively, will yield a poisoned result.
+* Support the `samesign` flag in `icmp` instructions. If `samesign` is set, then
+  comparing two integers of different signs will yield a poisoned result.
 
 # 0.7.1 -- 2025-03-21
 

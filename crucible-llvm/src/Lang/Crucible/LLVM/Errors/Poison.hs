@@ -142,6 +142,10 @@ data Poison (e :: CrucibleType -> Type) where
   TruncNoSignedWrap   :: (1 <= w)
                       => e (BVType w)
                       -> Poison e
+  ICmpSameSign        :: (1 <= w)
+                      => e (BVType w)
+                      -> e (BVType w)
+                      -> Poison e
   deriving (Typeable)
 
 standard :: Poison e -> Standard
@@ -170,6 +174,7 @@ standard =
     UiToFpNonNegative _     -> LLVMRef LLVM19
     TruncNoUnsignedWrap _   -> LLVMRef LLVM20
     TruncNoSignedWrap _     -> LLVMRef LLVM20
+    ICmpSameSign _ _        -> LLVMRef LLVM20
 
 -- | Which section(s) of the document state that this is poison?
 cite :: Poison e -> Doc ann
@@ -198,6 +203,7 @@ cite =
     UiToFpNonNegative _     -> "‘uitofp’ Instruction (Semantics)"
     TruncNoUnsignedWrap _   -> "‘trunc’ Instruction (Semantics)"
     TruncNoSignedWrap _     -> "‘trunc’ Instruction (Semantics)"
+    ICmpSameSign _ _        -> "‘icmp’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
 explain =
@@ -261,6 +267,8 @@ explain =
       "Unsigned truncation caused wrapping even though the `nuw` flag was set"
     TruncNoSignedWrap _ ->
       "Signed truncation caused wrapping even though the `nsw` flag was set"
+    ICmpSameSign _ _ ->
+      "Two integers with different signs were compared even though the `samesign` flag was set"
 
 details :: forall sym ann.
   W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc ann]
@@ -292,6 +300,7 @@ details =
     UiToFpNonNegative v -> args [v]
     TruncNoUnsignedWrap v -> args [v]
     TruncNoSignedWrap v -> args [v]
+    ICmpSameSign v1 v2 -> args [v1, v2]
 
  where
  args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
@@ -375,6 +384,8 @@ concPoison sym conc poison =
       TruncNoUnsignedWrap <$> bv v
     TruncNoSignedWrap v ->
       TruncNoSignedWrap <$> bv v
+    ICmpSameSign v1 v2 ->
+      ICmpSameSign <$> bv v1 <*> bv v2
 
 
 -- -----------------------------------------------------------------------

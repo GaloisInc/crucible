@@ -161,7 +161,7 @@ instrResultType instr =
     L.CallBr ty _ _ _ _ -> throwError $ unwords ["unexpected non-function type in callbr:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
     L.Load tp _ _ _ -> liftMemType tp
-    L.ICmp _op tv _ -> do
+    L.ICmp _samesign _op tv _ -> do
       inpType <- liftMemType (L.typedType tv)
       case inpType of
         VecType len _ -> return (VecType len (IntType 1))
@@ -1302,25 +1302,30 @@ floatcmp op a b =
 
 
 integerCompare ::
+  -- ^ If 'True', require that the arguments have the same sign.
+  Bool ->
   L.ICmpOp ->
   MemType ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
-integerCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
-  VecExpr (IntType 1) <$> sequence (Seq.zipWith (\x y -> integerCompare op tp x y) xs ys)
+integerCompare samesign op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (\x y -> integerCompare samesign op tp x y) xs ys)
 
-integerCompare op _ x y = do
-  b <- scalarIntegerCompare op x y
+integerCompare samesign op _ x y = do
+  b <- scalarIntegerCompare samesign op x y
   return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
                    (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
 
 scalarIntegerCompare ::
+  -- ^ If 'True', require that the arguments have the same sign.
+  Bool ->
   L.ICmpOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (Expr LLVM s BoolType)
-scalarIntegerCompare op x y =
+scalarIntegerCompare samesign op x y = do
+  mvar <- getMemVar
   case (asScalar x, asScalar y) of
     (Scalar _archProxy (LLVMPointerRepr w) x'', Scalar _archProxy' (LLVMPointerRepr w') y'')
        | Just Refl <- testEquality w w'
@@ -1329,7 +1334,14 @@ scalarIntegerCompare op x y =
        | Just Refl <- testEquality w w'
        -> do xbv <- pointerAsBitvectorExpr w x''
              ybv <- pointerAsBitvectorExpr w y''
-             return (intcmp w op xbv ybv)
+             result <- AtomExpr <$> mkAtom (intcmp w op xbv ybv)
+             let z = App $ BVLit w $ BV.zero w
+             sideConditionsA mvar BoolRepr result
+               [ ( samesign
+                 , pure $ App $ BoolEq (App (BVSlt w xbv z)) (App (BVSlt w ybv z))
+                 , UB.PoisonValueCreated $ Poison.ICmpSameSign xbv ybv
+                 )
+               ]
     _ -> fail $ unlines [ "arithmetic comparison on incompatible values"
                         , "Comparison: " ++ show op
                         , "Value 1: " ++ show x
@@ -1768,11 +1780,11 @@ generateInstr retType lab defSet instr assign_f k =
            assign_f cmp
            k
 
-    L.ICmp op x y -> do
+    L.ICmp samesign op x y -> do
            tp <- liftMemType' (L.typedType x)
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
-           cmp <- integerCompare op tp x' y'
+           cmp <- integerCompare samesign op tp x' y'
            assign_f cmp
            k
 
@@ -1837,7 +1849,7 @@ generateInstr retType lab defSet instr assign_f k =
 
               let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
               oldVal <- callLoad resTy expectTy ptr' a0
-              cmp <- scalarIntegerCompare L.Ieq oldVal cmpVal
+              cmp <- scalarIntegerCompare False L.Ieq oldVal cmpVal
               let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
                                   (BitvectorAsPointerExpr knownNat
                                      (App (BoolToBV knownNat cmp)))
