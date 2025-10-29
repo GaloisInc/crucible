@@ -237,7 +237,7 @@ instrUse from i bim = Set.unions $ case i of
   L.Fence{} -> []
   L.CmpXchg _weak _vol p v1 v2 _s _o1 _o2 -> map useTypedVal [p,v1,v2]
   L.AtomicRW _vol _op p v _s _o -> [useTypedVal p, useTypedVal v]
-  L.ICmp _op x y -> [useTypedVal x, useVal y]
+  L.ICmp _samesign _op x y -> [useTypedVal x, useVal y]
   L.FCmp _op x y -> [useTypedVal x, useVal y]
   L.GEP _ib _tp base args -> useTypedVal base : map useTypedVal args
   L.Select c x y -> [ useTypedVal c, useTypedVal x, useVal y ]
