@@ -22,6 +22,9 @@
   so this was simplified to just be an `Alignment` instead.
 * Support the `nneg` flag in `zext` and `uitofp` instructions. If `nneg` is set,
   then converting a negative argument will yield a poisoned result.
+* Support the `nuw` and `nsw` flags in `trunc` instructions. If `nuw` or `nsw`
+  is set, then performing a truncation that would result in unsigned or signed
+  integer overflow, respectively, will yield a poisoned result.
 
 # 0.7.1 -- 2025-03-21
 

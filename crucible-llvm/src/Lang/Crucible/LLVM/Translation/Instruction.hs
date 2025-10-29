@@ -580,6 +580,7 @@ translateConversion instr op (VecType n inty) (explodeVector n -> Just xs) (VecT
 translateConversion instr op _inty x outty = do
  mvar <- getMemVar
  let showI = showInstr instr
+ let noLaxArith = not (laxArith ?transOpts)
  case op of
     L.IntToPtr -> do
        llvmTypeAsRepr outty $ \outty' ->
@@ -602,15 +603,27 @@ translateConversion instr op _inty x outty = do
               , Just Refl <- testEquality w' PtrWidth -> return x
            _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
 
-    L.Trunc -> do
+    L.Trunc nuw nsw -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w'
              , Just LeqProof <- testLeq (incNat w') w ->
                  do x_bv <- pointerAsBitvectorExpr w x'
-                    let bv' = App (BVTrunc w' w x_bv)
-                    return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
+                    bv' <- AtomExpr <$> mkAtom (App (BVTrunc w' w x_bv))
+                    result <- sideConditionsA mvar (BVRepr w') bv'
+                      [ ( nuw && noLaxArith
+                        , fmap (App . BVEq w x_bv . AtomExpr)
+                               (mkAtom (App (BVZext w w' bv')))
+                        , UB.PoisonValueCreated $ Poison.TruncNoUnsignedWrap x_bv
+                        )
+                      , ( nsw && noLaxArith
+                        , fmap (App . BVEq w x_bv . AtomExpr)
+                               (mkAtom (App (BVSext w w' bv')))
+                        , UB.PoisonValueCreated $ Poison.TruncNoSignedWrap x_bv
+                        )
+                      ]
+                    return (BaseExpr outty' (BitvectorAsPointerExpr w' result))
            _ -> fail (unlines [unwords ["invalid truncation:", show x, show outty], showI])
 
     L.ZExt nneg -> do

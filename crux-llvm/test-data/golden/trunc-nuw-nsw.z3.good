@@ -1,0 +1,27 @@
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     Unsigned truncation caused wrapping even though the `nuw` flag was set
+[Crux]     Argument: 0xffff:[16]
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 20
+[Crux]       ‘trunc’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/20.1.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     Signed truncation caused wrapping even though the `nsw` flag was set
+[Crux]     Argument: 0xff:[16]
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 20
+[Crux]       ‘trunc’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/20.1.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Overall status: Invalid.
