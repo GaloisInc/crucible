@@ -826,7 +826,9 @@ evalConv expr op mt x = case op of
       , IntConst w i <- x
       -> return $ DoubleConst (fromInteger (BV.asSigned w i) :: Double)
 
-    L.Trunc
+    -- NB: The `nuw` and `nsw` flags are ignored, as these flags are never
+    -- enabled in constant expressions, only in instructions.
+    L.Trunc _nuw _nsw
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
