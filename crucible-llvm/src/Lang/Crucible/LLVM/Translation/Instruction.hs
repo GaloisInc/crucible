@@ -649,12 +649,21 @@ translateConversion instr op _inty x outty = do
     L.BitCast -> bitCast _inty x outty
 #endif
 
-    L.UiToFp -> do
+    L.UiToFp nneg -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x'
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi RNE bv
+             bvFp <- AtomExpr <$> mkAtom (App (FloatFromBV fi RNE bv))
+             let z = App $ BVLit w $ BV.zero w
+             result <-
+               sideConditionsA mvar outty' bvFp
+                 [ ( nneg
+                   , pure $ App $ BVSle w z bv
+                   , UB.PoisonValueCreated $ Poison.UiToFpNonNegative bv
+                   )
+                 ]
+             return $ BaseExpr (FloatRepr fi) result
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do
