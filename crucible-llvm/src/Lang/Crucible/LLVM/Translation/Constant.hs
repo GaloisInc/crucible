@@ -152,8 +152,7 @@ instance Traversable GEPResult where
 -- types, computing vectorization lanes, etc.
 --
 -- As a concrete example, consider a call to
--- @'translateGEP' inbounds baseTy basePtr elts@ with the following
--- instruction:
+-- @'translateGEP' attrs baseTy basePtr elts@ with the following instruction:
 --
 -- @
 -- getelementptr [12 x i8], ptr %aptr, i64 0, i32 1
@@ -161,8 +160,10 @@ instance Traversable GEPResult where
 --
 -- Here:
 --
--- * @inbounds@ is 'False', as the keyword of the same name is missing from
---   the instruction. (Currently, @crucible-llvm@ ignores this information.)
+-- * @attrs@ is @[]@, as there are no @inbounds@, @nusw@, @nuw@, or @inrange@
+--   attributes used in the instruction. (Currently, @crucible-llvm@ ignores
+--   attribute information. See
+--   <https://github.com/GaloisInc/crucible/issues/1605>.)
 --
 -- * @baseTy@ is @[12 x i8]@. This is the type used as the basis for
 --   subsequent calculations.
@@ -175,7 +176,7 @@ instance Traversable GEPResult where
 --   which of the elements of the aggregate object are indexed.
 translateGEP :: forall wptr m.
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
-  Bool              {- ^ inbounds flag -} ->
+  [L.GEPAttr]       {- ^ attributes -} ->
   L.Type            {- ^ base type for calculations -} ->
   L.Typed L.Value   {- ^ base pointer expression -} ->
   [L.Typed L.Value] {- ^ index arguments -} ->
@@ -184,7 +185,7 @@ translateGEP :: forall wptr m.
 translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
-translateGEP inbounds baseTy basePtr elts =
+translateGEP attrs baseTy basePtr elts =
   do baseMemType <- liftMemType baseTy
      mt <- liftMemType (L.typedType basePtr)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
@@ -209,7 +210,7 @@ translateGEP inbounds baseTy basePtr elts =
          -> badGEP
  where
  badGEP :: m a
- badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy basePtr elts) ]
+ badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP attrs baseTy basePtr elts) ]
 
  -- This auxilary function builds up the intermediate GEP mini-instructions that compute
  -- the overall GEP, as well as the resulting memory type of the final pointers and the
@@ -1085,8 +1086,8 @@ transConstantExpr :: forall m wptr.
   L.ConstExpr ->
   m LLVMConst
 transConstantExpr expr = case expr of
-  L.ConstGEP inbounds _inrange baseTy base exps -> -- TODO? pay attention to the inrange flag
-    do gep <- translateGEP inbounds baseTy base exps
+  L.ConstGEP attrs _inrange baseTy base exps -> -- TODO(#1605)? pay attention to the inrange flag
+    do gep <- translateGEP attrs baseTy base exps
        gep' <- traverse transConstant gep
        snd <$> evalConstGEP gep'
 

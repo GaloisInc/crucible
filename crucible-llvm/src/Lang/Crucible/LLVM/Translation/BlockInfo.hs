@@ -190,7 +190,7 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
   -- to registers: the return values can only be used in the "normal" successor
   -- block.
 
-  loop (L.Result nm i _md:ss) =
+  loop (L.Result nm i _dr _md:ss) =
     case i of
       L.Invoke _tp f args l_normal l_unwind ->
             -- the use sets from the function value, arguments, and unwind label
@@ -214,7 +214,7 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
       -- defined here
       _ -> Set.union (instrUse lab i bim) (Set.delete nm (loop ss))
 
-  loop (L.Effect i _md:ss) = Set.union (instrUse lab i bim) (loop ss)
+  loop (L.Effect i _dr _md:ss) = Set.union (instrUse lab i bim) (loop ss)
 
 instrUse :: L.BlockLabel -> L.Instr -> Map L.BlockLabel (LLVMBlockInfo s) -> Set L.Ident
 instrUse from i bim = Set.unions $ case i of
@@ -312,7 +312,7 @@ useVal v = Set.unions $ case v of
 -- compute the list of assignments that must be made for each predecessor block.
 buildPhiMap :: [L.Stmt] -> Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value))
 buildPhiMap ss = go ss Map.empty
- where go (L.Result ident (L.Phi tp xs) _ : stmts) m = go stmts (go' ident tp xs m)
+ where go (L.Result ident (L.Phi tp xs) _ _ : stmts) m = go stmts (go' ident tp xs m)
        go _ m = m
 
        f x mseq = Just (fromMaybe Seq.empty mseq Seq.|> x)

@@ -313,7 +313,7 @@ mkStructInfo :: DataLayout
              -> StructInfo
 mkStructInfo dl packed tps0 = go [] 0 a0 tps0
   where a0 | packed    = noAlignment
-           | otherwise = nextAlign noAlignment tps0 `max` aggregateAlignment dl
+           | otherwise = nextAlign noAlignment tps0 `max` (dl ^. aggregateAlignment)
         -- Padding after each field depends on the alignment of the
         -- type of the next field, if there is one. Padding after the
         -- last field depends on the alignment of the whole struct
