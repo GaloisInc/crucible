@@ -7,6 +7,10 @@
   ever contain a single size (`0`) in its `AlignInfo`, and the concept of
   "size" doesn't really apply to aggregate alignments in data layout strings,
   so this was simplified to just be an `Alignment` instead.
+* Support simulating bitcode that uses features from LLVM 19, including
+  [debug records](https://llvm.org/docs/RemoveDIsDebugInfo.html) and
+  [`getelementptr`
+  attributes](https://releases.llvm.org/19.1.0/docs/LangRef.html#id237).
 
 # 0.8.0 -- 2025-11-09
 
