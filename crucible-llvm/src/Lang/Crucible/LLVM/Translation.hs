@@ -206,8 +206,8 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
           , fromString msg
           ]
 
-    stmt m (L.Effect _ _) = return m
-    stmt m (L.Result ident instr _) = do
+    stmt m (L.Effect _ _ _) = return m
+    stmt m (L.Result ident instr _ _) = do
          ty <- either (err instr) return $ instrResultType instr
          ex <- typeToRegExpr ty
          case Map.lookup ident m of
@@ -231,15 +231,15 @@ generateStmts retType lab defSet0 stmts = go defSet0 (processDbgDeclare stmts)
        go defSet (x:xs) =
          case x of
            -- a result statement assigns the result of the instruction into a register
-           L.Result ident instr md ->
-              do setLocation md
+           L.Result ident instr dr md ->
+              do setLocation md dr
                  generateInstr retType lab defSet instr
                    (assignLLVMReg ident)
                    (go (Set.insert ident defSet) xs)
 
            -- an effect statement simply executes the instruction for its effects and discards the result
-           L.Effect instr md ->
-              do setLocation md
+           L.Effect instr dr md ->
+              do setLocation md dr
                  generateInstr retType lab defSet instr
                    (\_ -> return ())
                    (go defSet xs)
@@ -255,18 +255,18 @@ processDbgDeclare = snd . go
     go (stmt : stmts) =
       let (m, stmts') = go stmts in
       case stmt of
-        L.Result x instr@L.Alloca{} md ->
+        L.Result x instr@L.Alloca{} dr md ->
           case Map.lookup x m of
-            Just md' -> (m, L.Result x instr (md' ++ md) : stmts')
+            Just md' -> (m, L.Result x instr dr (md' ++ md) : stmts')
             Nothing -> (m, stmt : stmts')
               --error $ "Identifier not found: " ++ show x ++ "\nPossible identifiers: " ++ show (Map.keys m)
 
-        L.Result x (L.Conv L.BitCast (L.Typed _ (L.ValIdent y)) _) md ->
+        L.Result x (L.Conv L.BitCast (L.Typed _ (L.ValIdent y)) _) _dr md ->
           let md' = md ++ fromMaybe [] (Map.lookup x m)
               m'  = Map.alter (Just . maybe md' (md'++)) y m
            in (m', stmt:stmts)
 
-        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) md ->
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) _dr md ->
           (Map.insert x md m, stmt : stmts')
 
         -- This is needlessly fragile. Let's just ignore debug declarations we don't understand.
@@ -275,25 +275,67 @@ processDbgDeclare = snd . go
 
         _ -> (m, stmt : stmts')
 
-setLocation
-  :: [(String,L.ValMd)]
-  -> LLVMGenerator s arch ret ()
-setLocation [] = return ()
-setLocation (x:xs) =
-  case x of
-    ("dbg",L.ValMdLoc dl) ->
-      let ln   = fromIntegral $ L.dlLine dl
-          col  = fromIntegral $ L.dlCol dl
-          file = getFile $ L.dlScope dl
-       in setPosition (SourcePos file ln col)
-    ("dbg",L.ValMdDebugInfo (L.DebugInfoSubprogram subp))
-      | Just file' <- L.dispFile subp
-      -> let ln = fromIntegral $ L.dispLine subp
-             file = getFile file'
-          in setPosition (SourcePos file ln 0)
-    _ -> setLocation xs
-
+-- | Search for an instruction's nearest debug location that was attached as a
+-- metadata attribute using the @!dbg@ identifier, and then set the
+-- `LLVMGenerator`'s position using the location. If such a metadata attribute
+-- cannot be found, look at the debug records as a fallback. (In practice, LLVM
+-- will usually attach debug locations as metadata attributes, so it makes more
+-- sense to look through the metadata attributes first.)
+setLocation ::
+  forall s arch ret.
+  -- | The metadata attributes.
+  [(String,L.ValMd)] ->
+  -- | The debug records.
+  [L.DebugRecord] ->
+  LLVMGenerator s arch ret ()
+setLocation mds drs = setMetadataLocation mds
  where
+ setMetadataLocation :: [(String,L.ValMd)] -> LLVMGenerator s arch ret ()
+ setMetadataLocation [] =
+   -- If we can't find a @!dbg@ metadata location, fall back to searching the
+   -- debug records.
+   setDebugRecordLocation drs
+ setMetadataLocation (x:xs) =
+   case x of
+     ("dbg",md)
+       | Just posn <- valMdPosition md ->
+         setPosition posn
+     _ -> setMetadataLocation xs
+
+ setDebugRecordLocation :: [L.DebugRecord] -> LLVMGenerator s arch ret ()
+ setDebugRecordLocation [] = return ()
+ setDebugRecordLocation (x:xs) =
+   case x of
+     L.DebugRecordValue drv
+       | Just posn <- valMdPosition (L.drvLocation drv) ->
+         setPosition posn
+     L.DebugRecordValueSimple drvs
+       | Just posn <- valMdPosition (L.drvsLocation drvs) ->
+         setPosition posn
+     L.DebugRecordDeclare drd
+       | Just posn <- valMdPosition (L.drdLocation drd) ->
+         setPosition posn
+     L.DebugRecordAssign dra
+       | Just posn <- valMdPosition (L.draLocation dra) ->
+         setPosition posn
+     L.DebugRecordLabel drl
+       | Just posn <- valMdPosition (L.drlLocation drl) ->
+         setPosition posn
+     _ -> setDebugRecordLocation xs
+
+ valMdPosition :: L.ValMd -> Maybe Position
+ valMdPosition (L.ValMdLoc dl) =
+   let ln   = fromIntegral $ L.dlLine dl
+       col  = fromIntegral $ L.dlCol dl
+       file = getFile $ L.dlScope dl
+    in Just (SourcePos file ln col)
+ valMdPosition (L.ValMdDebugInfo (L.DebugInfoSubprogram subp))
+   | Just file' <- L.dispFile subp =
+     let ln = fromIntegral $ L.dispLine subp
+         file = getFile file'
+     in Just (SourcePos file ln 0)
+ valMdPosition _ = Nothing
+
  getFile = Text.pack . maybe "" filenm . findFile
 
  -- The typical values available here will be something like:
@@ -375,7 +417,7 @@ genDefn defn retType =
     ( L.BasicBlock{ L.bbLabel = Just entry_lab } : _ ) -> do
       let (L.Symbol nm) = L.defName defn
       callPushFrame $ Text.pack nm
-      setLocation $ Map.toList (L.defMetadata defn)
+      setLocation (Map.toList (L.defMetadata defn)) []
 
       bim <- buildBlockInfoMap defn
       blockInfoMap .= bim

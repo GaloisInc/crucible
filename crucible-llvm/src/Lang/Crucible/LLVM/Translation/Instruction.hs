@@ -173,8 +173,8 @@ instrResultType instr =
         _ -> return (IntType 1)
     L.Phi tp _   -> liftMemType tp
 
-    L.GEP inbounds baseTy basePtr elts ->
-       do gepRes <- runExceptT (translateGEP inbounds baseTy basePtr elts)
+    L.GEP attrs baseTy basePtr elts ->
+       do gepRes <- runExceptT (translateGEP attrs baseTy basePtr elts)
           case gepRes of
             Left err -> throwError err
             Right (GEPResult lanes tp _gep) ->
@@ -535,8 +535,8 @@ calcGEP_array typ base idx =
              in
                -- Multiplication overflow will result in a pointer which is not "in
                -- bounds" for the given allocation. We translate all GEP
-               -- instructions as if they had the `inbounds` flag set, so the
-               -- result would be a poison value.
+               -- instructions as if they had the `inbounds` attribute set, so
+               -- the result would be a poison value.
                poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
 
      -- Perform the pointer offset arithmetic
@@ -1671,11 +1671,14 @@ generateInstr retType lab defSet instr assign_f k =
       callStore vTp ptr' v' align'
       k
 
-    -- NB We treat every GEP as though it has the "inbounds" flag set;
+    -- NB We treat every GEP as though it has the "inbounds" attribute set;
     --    thus, the calculation of out-of-bounds pointers results in
     --    a runtime error.
-    L.GEP inbounds baseTy basePtr elts -> do
-      runExceptT (translateGEP inbounds baseTy basePtr elts) >>= \case
+    --
+    --    TODO(#1605): Don't error immediately if the "inbounds" attribute isn't
+    --    set.
+    L.GEP attrs baseTy basePtr elts -> do
+      runExceptT (translateGEP attrs baseTy basePtr elts) >>= \case
         Left err -> reportError $ fromString $ unlines ["Error translating GEP", err]
         Right gep ->
           do gep' <- traverse (\v -> transTypedValue v) gep
