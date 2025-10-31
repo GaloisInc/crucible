@@ -187,6 +187,8 @@ data CollectionState
       -- but with different hashes. Most of the time, however, this list will
       -- contain exactly one disambiguator per crate name.
       _crateHashesMap :: !(Map Text (NonEmpty Text)),
+      -- | Preallocated type IDs per instantiated type for dynamic casts
+      _tyIdMap        :: !(Map Ty Int),
       _collection     :: !Collection
       }
 
@@ -877,8 +879,12 @@ mirAggregate_set ::
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
 mirAggregate_set off sz tpr val ag = G.extensionStmt $ MirAggregate_Set off sz tpr val ag
 
-
-
+getTypeId :: Ty -> MirGenerator h s ret Int
+getTypeId ty = do
+    m <- use (cs . tyIdMap)
+    case Map.lookup ty m of
+      Just tyId -> pure tyId
+      Nothing -> mirFail "Ty not allocated a type id!"
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
 --  LocalWords:  vtblToStruct
