@@ -1,0 +1,14 @@
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A negative integer was converted to a floating-point value even though the `nneg` flag was set
+[Crux]     Argument: 0xffffffff:[32]
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 19
+[Crux]       ‘uitofp’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/19.1.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Overall status: Invalid.

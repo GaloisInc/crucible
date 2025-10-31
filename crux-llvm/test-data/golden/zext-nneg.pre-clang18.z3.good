@@ -1,0 +1,4 @@
+SKIP_TEST
+
+This test case uses nneg flags with zext instructions, which requires LLVM 18
+or later.
