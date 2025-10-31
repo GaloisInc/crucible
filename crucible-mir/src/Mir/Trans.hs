@@ -881,6 +881,12 @@ evalCast' ck ty1 e ty2  = do
           , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
+      -- trait object cast down to underlying object reference (forgetting vtable)
+      (M.Misc, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
+        | Right (Some MirReferenceRepr) <- tyToRepr col ty2
+        , MirExp DynRefRepr a <- e
+        -> pure (MirExp MirReferenceRepr (R.App (E.GetStruct a dynRefDataIndex MirReferenceRepr)))
+
       -- Unsized casts from references to sized structs to references to DSTs.
       -- We defer to the provided cast kind to determine what kind of unsizing
       -- cast we expect to perform, i.e. what kind of metadata to include in the
