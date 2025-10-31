@@ -881,7 +881,7 @@ evalCast' ck ty1 e ty2  = do
           , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
-      -- trait object cast down to underlying object reference (forgeting vtable)
+      -- trait object cast down to underlying object reference (forgetting vtable)
       (M.Misc, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
         | Right (Some MirReferenceRepr) <- tyToRepr col ty2
         , MirExp DynRefRepr a <- e
