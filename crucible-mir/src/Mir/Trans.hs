@@ -2976,6 +2976,10 @@ mkCrateHashesMap
     f m = map (\did -> (did ^. M.didCrate, did ^. M.didCrateDisambig :| []))
               (Map.keys m)
 
+-- | Generate a map assigning a unique integer to every type in the program
+mkTyIdMap :: M.Collection -> Map Ty Int
+mkTyIdMap col = Map.fromList (zip (Map.keys (col ^. layouts)) [1..])
+
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
@@ -3022,9 +3026,10 @@ transCollection col halloc = do
 
     let dm = mkDiscrMap col
     let chm = mkCrateHashesMap col
+    let tidm = mkTyIdMap col
 
     let colState :: CollectionState
-        colState = CollectionState hmap vm sm dm chm col
+        colState = CollectionState hmap vm sm dm chm tidm col
 
     -- translate all of the functions
     fnInfo <- Maybe.catMaybes <$>

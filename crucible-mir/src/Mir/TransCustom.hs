@@ -1116,12 +1116,14 @@ discriminant_value = (["core","intrinsics", "discriminant_value"],
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)
-type_id = (["core","intrinsics", "type_id"],
-  \ _substs -> Just $ CustomOp $ \ _opTys _ops ->
-    -- TODO: keep a map from Ty to Word128, assigning IDs on first use of each type
-    -- Rust `TypeId`s are represented with 128-bits since
-    -- https://github.com/rust-lang/rust/commit/9e5573a0d275c71dce59b715d981c6880d30703a
-    return $ MirExp knownRepr $ R.App (eBVLit (knownRepr :: NatRepr 128) 0))
+type_id = (["core","intrinsics", "type_id"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \ _opTys _ops -> do
+        -- Rust `TypeId`s are represented with 128-bits since
+        -- https://github.com/rust-lang/rust/commit/9e5573a0d275c71dce59b715d981c6880d30703a
+        tyId <- getTypeId t
+        return (MirExp knownRepr (R.App (eBVLit (knownRepr :: NatRepr 128) (toInteger tyId))))
+    _ -> Nothing
+    )
 
 size_of :: (ExplodedDefId, CustomRHS)
 size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
