@@ -1117,9 +1117,9 @@ discriminant_value = (["core","intrinsics", "discriminant_value"],
 
 type_id ::  (ExplodedDefId, CustomRHS)
 type_id = (["core","intrinsics", "type_id"],
-  \ _substs -> Just $ CustomOp $ \ _ _ ->
-    -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
-    return $ MirExp knownRepr $ R.App (eBVLit (knownRepr :: NatRepr 64) 0))
+  \ _substs -> Just $ CustomOp $ \ _opTys _ops ->
+    -- TODO: keep a map from Ty to Word128, assigning IDs on first use of each type
+    return $ MirExp knownRepr $ R.App (eBVLit (knownRepr :: NatRepr 128) 0))
 
 size_of :: (ExplodedDefId, CustomRHS)
 size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
