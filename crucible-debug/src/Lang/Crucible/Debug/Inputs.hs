@@ -156,9 +156,12 @@ defaultDebuggerInputs ::
   CommandExt cExt ->
   IO (Inputs (CompletionT cExt (StyleT cExt m)) (Statement cExt))
 defaultDebuggerInputs cExts = do
-  initIsocline
   pure $
     parseInputsWithRetry
       cExts
-      (Text.pack <$> lift readIsocline)
+      (do -- NB: We delay initializing Isocline until the first input is
+          -- requested. This ensures that a .crucible-debug file won't be
+          -- created unless a Crux user specifically requests the debugger.
+          liftIO initIsocline
+          Text.pack <$> lift readIsocline)
       (contramap renderParseError (Outs.lift (lift . liftIO) (Outs.hPutStrLn stdout)))
