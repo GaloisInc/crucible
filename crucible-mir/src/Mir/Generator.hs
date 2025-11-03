@@ -188,6 +188,8 @@ data CollectionState
       -- contain exactly one disambiguator per crate name.
       _crateHashesMap :: !(Map Text (NonEmpty Text)),
       -- | Preallocated type IDs per instantiated type for dynamic casts
+      -- which provides the answer for the @type_id@ operation. All types
+      -- in the program should be represented.
       _tyIdMap        :: !(Map Ty Int),
       _collection     :: !Collection
       }
@@ -884,7 +886,9 @@ getTypeId ty = do
     m <- use (cs . tyIdMap)
     case Map.lookup ty m of
       Just tyId -> pure tyId
-      Nothing -> mirFail "Ty not allocated a type id!"
+      Nothing -> P.panic
+            "getTypeId"
+            ["No type_id allocated for type: " ++ show ty]
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
 --  LocalWords:  vtblToStruct
