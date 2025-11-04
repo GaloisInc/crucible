@@ -89,6 +89,7 @@ customOpDefs = Map.fromList $ [
                          -- core::intrinsics
                          , discriminant_value
                          , type_id
+                         , needs_drop
                          , mem_swap
                          , add_with_overflow
                          , sub_with_overflow
@@ -1122,6 +1123,14 @@ type_id = (["core","intrinsics", "type_id"], \substs -> case substs of
         -- https://github.com/rust-lang/rust/commit/9e5573a0d275c71dce59b715d981c6880d30703a
         tyId <- getTypeId t
         return (MirExp knownRepr (R.App (eBVLit (knownRepr :: NatRepr 128) (toInteger tyId))))
+    _ -> Nothing
+    )
+
+needs_drop :: (ExplodedDefId, CustomRHS)
+needs_drop = (["core","intrinsics","needs_drop"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \ _opTys _ops -> do
+        needsDrop <- getNeedsDrop t
+        pure (MirExp C.BoolRepr (R.App (E.BoolLit needsDrop)))
     _ -> Nothing
     )
 

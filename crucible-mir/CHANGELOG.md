@@ -45,6 +45,7 @@ This release supports [version
   division has a nonzero remainder. This is implemented for both signed and
   unsigned integers and mirrors the semantics of Rust's
   `core::intrinsics::exact_div`.
+* Add an intrinsic for [`needs_drop`](https://doc.rust-lang.org/std/intrinsics/fn.needs_drop.html).
 
 # 0.4 -- 2025-03-21
 
