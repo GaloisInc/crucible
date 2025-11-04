@@ -14,6 +14,7 @@ module Mir.JSON where
 import Data.Aeson
 import qualified Data.Aeson.Types  as Aeson
 import qualified Data.Map.Strict   as Map
+import qualified Data.Set          as Set
 import qualified Data.Scientific   as Scientific
 
 import Data.Word (Word8)
@@ -111,6 +112,7 @@ instance FromJSON NamedTy where
         NamedTy <$> v .: "name"
                 <*> (getInlineTy <$> v .: "ty")
                 <*> v .:? "layout"
+                <*> v .: "needs_drop"
 
 instance FromJSON Layout where
     parseJSON = withObject "Layout" $ \v ->
@@ -230,8 +232,9 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x ^. sName) x m)     Map.empty statics')
         (foldr (\ x m -> Map.insert (x ^. vtName) x m)    Map.empty vtables')
         (foldr (\ x m -> Map.insert (x ^. intrName) x m)  Map.empty intrinsics')
-        (foldr (\ x m -> Map.insert (x ^. ntName) (x ^. ntTy, x ^. ntLayout) m) Map.empty tys')
+        (foldr (\ x m -> Map.insert (x ^. ntName) (TyInfo (x ^. ntTy) (x ^. ntLayout) (x ^. ntNeedsDrop)) m) Map.empty tys')
         Map.empty -- layouts map has Tys as keys, so it needs to be populated after uninterning
+        Set.empty -- need_drops is the same ^
         (foldr (\ x m -> Map.insert (x ^. liOrigDefId) (x ^. liLangItemDefId) m) Map.empty langItems')
         roots'
         tests'

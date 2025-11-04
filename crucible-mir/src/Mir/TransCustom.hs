@@ -89,6 +89,7 @@ customOpDefs = Map.fromList $ [
                          -- core::intrinsics
                          , discriminant_value
                          , type_id
+                         , needs_drop
                          , mem_swap
                          , add_with_overflow
                          , sub_with_overflow
@@ -110,6 +111,7 @@ customOpDefs = Map.fromList $ [
                          , rotate_left
                          , rotate_right
                          , size_of
+                         , size_of_val
                          , min_align_of
                          , intrinsics_assume
                          , assert_inhabited
@@ -1125,10 +1127,34 @@ type_id = (["core","intrinsics", "type_id"], \substs -> case substs of
     _ -> Nothing
     )
 
+needs_drop :: (ExplodedDefId, CustomRHS)
+needs_drop = (["core","intrinsics","needs_drop"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \ _opTys _ops -> do
+        needsDrop <- getNeedsDrop t
+        return (MirExp knownRepr (R.App (E.BoolLit needsDrop)))
+    _ -> Nothing
+    )
+
 size_of :: (ExplodedDefId, CustomRHS)
 size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ ->
         getLayoutFieldAsMirExp "size_of" laySize t
+    _ -> Nothing
+    )
+
+size_of_val :: (ExplodedDefId, CustomRHS)
+size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
+    Substs [TySlice t] -> Just $ CustomOp $ \_opTys op -> do
+        elSzExp <- getLayoutFieldAsMirExp "size_of_val" laySize t
+        case (elSzExp, op) of
+            (MirExp UsizeRepr elSz, [MirExp MirSliceRepr eRef]) ->
+                let len = getSliceLen eRef
+                in  pure (MirExp UsizeRepr (R.App (usizeMul elSz len)))
+            _ -> panic "size_of_val" ["Impossible arguments"]
+    Substs [TyDynamic _t] -> Just $ CustomOp $ \_opTys _op ->
+        mirFail "size_of_val not implemented for dynamic object"
+    Substs [t] -> Just $ CustomOp $ \_opTys _op ->
+        getLayoutFieldAsMirExp "size_of_val" laySize t
     _ -> Nothing
     )
 

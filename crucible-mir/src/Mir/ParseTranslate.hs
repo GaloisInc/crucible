@@ -20,6 +20,7 @@ import Control.Monad (unless, when)
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as M
+import qualified Data.Set as Set
 import Data.Word (Word64)
 
 import GHC.Stack
@@ -29,7 +30,7 @@ import Prettyprinter (Pretty(..))
 import qualified Lang.Crucible.FunctionHandle as C
 
 
-import Mir.Mir (Collection(..), namedTys, version)
+import Mir.Mir (Collection(..), namedTys, version, TyInfo(..))
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
@@ -74,7 +75,8 @@ uninternMir :: Collection -> Collection
 uninternMir col =
   (uninternTys unintern (col { _namedTys = mempty }))
     { -- the keys of the layouts map need to be uninterned
-      _layouts = M.fromList $ M.elems tyMap
+      _layouts = M.fromList [(_ttyDef x, _tlayout x) | x <- M.elems tyMap]
+    , _needDrops = Set.fromList [_ttyDef x | x <- M.elems tyMap, _tneedsDrop x]
     }
   where
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
@@ -83,7 +85,7 @@ uninternMir col =
     tyMap = fmap (uninternTys unintern) (col ^. namedTys)
     unintern name = case M.lookup name tyMap of
         Nothing -> error $ "missing " ++ show name ++ " in type map"
-        Just (ty, _) -> ty
+        Just tyInfo -> _ttyDef tyInfo
 
 
 -- | Translate a MIR collection to Crucible

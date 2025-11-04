@@ -24,6 +24,7 @@ module Mir.GenericOps where
 
 import qualified Data.ByteString as B
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
@@ -162,6 +163,7 @@ instance GenericOps NamedTy
 instance GenericOps Layout
 instance GenericOps LangItem
 instance GenericOps NonDivergingIntrinsic
+instance GenericOps TyInfo
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate
@@ -190,6 +192,9 @@ instance GenericOps B.ByteString where
 
 instance GenericOps b => GenericOps (Map.Map a b) where
    uninternTys f     = Map.map (uninternTys f)
+
+instance GenericOps (Set.Set a) where
+   uninternTys = const id
 
 instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)

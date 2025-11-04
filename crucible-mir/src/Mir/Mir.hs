@@ -32,6 +32,7 @@ module Mir.Mir where
 
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Word (Word64)
 
@@ -121,6 +122,7 @@ data NamedTy = NamedTy
   , _ntTy :: Ty
     -- | If 'Nothing' then the type is unsized.
   , _ntLayout :: Maybe Layout
+  , _ntNeedsDrop :: Bool
   }
   deriving (Eq, Ord, Show, Generic)
 
@@ -281,10 +283,12 @@ data Collection = Collection {
     -- after uninterning. The @TyName -> Ty@ mappings are used for uninterning
     -- the types in the rest of the 'Collection', and the uninterned @(Ty, Maybe
     -- Layout)@ pairs are saved into '_layouts'.
-    _namedTys  :: !(Map TyName (Ty, Maybe Layout)),
+    _namedTys  :: !(Map TyName TyInfo),
     -- | Layouts for known types. If the value is 'Nothing' then the type is
     -- unsized. This is not populated until uninterning.
     _layouts   :: !(Map Ty (Maybe Layout)),
+    -- | Types that need Drop
+    _needDrops :: !(Set Ty),
     -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
     -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
     _langItems :: !(Map DefId DefId),
@@ -294,6 +298,13 @@ data Collection = Collection {
     _tests     :: ![MethName]
 
 } deriving (Show, Eq, Ord, Generic)
+
+data TyInfo = TyInfo
+    { _ttyDef :: Ty
+    , _tlayout :: Maybe Layout
+    , _tneedsDrop :: Bool
+    }
+    deriving (Show, Eq, Ord, Generic)
 
 data Intrinsic = Intrinsic
     { _intrName :: IntrinsicName
