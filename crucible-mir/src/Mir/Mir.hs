@@ -32,6 +32,7 @@ module Mir.Mir where
 
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Word (Word64)
 
@@ -121,6 +122,8 @@ data NamedTy = NamedTy
   , _ntTy :: Ty
     -- | If 'Nothing' then the type is unsized.
   , _ntLayout :: Maybe Layout
+    -- | Whether the type needs drop glue
+  , _ntNeedsDrop :: Bool
   }
   deriving (Eq, Ord, Show, Generic)
 
@@ -283,10 +286,14 @@ data Collection = Collection {
     -- - A @TyName -> Ty@ mapping, which is used for uninterning the types in
     --   the rest of the 'Collection'
     -- - A @Ty -> Maybe Layout@ mapping, which is saved into '_layouts'
+    -- - A @Ty -> Bool@ mapping (indicating whether or not the type needs drop
+    --   glue), which is saved into `_needDrops`
     _namedTys  :: !(Map TyName TyInfo),
     -- | Layouts for known types. If the value is 'Nothing' then the type is
     -- unsized. This is not populated until uninterning.
     _layouts   :: !(Map Ty (Maybe Layout)),
+    -- | Types that need drop glue.
+    _needDrops :: !(Set Ty),
     -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
     -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
     _langItems :: !(Map DefId DefId),
@@ -301,6 +308,7 @@ data Collection = Collection {
 -- @mir-json@-generated JSON.
 data TyInfo = TyInfo
     { _tiLayout :: Maybe Layout
+    , _tiNeedsDrop :: Bool
     , _tiTy :: Ty
     }
     deriving (Show, Eq, Ord, Generic)

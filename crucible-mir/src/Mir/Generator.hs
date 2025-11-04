@@ -65,6 +65,7 @@ import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Char(isDigit)
@@ -889,6 +890,11 @@ getTypeId ty = do
       Nothing -> P.panic
             "getTypeId"
             ["No type_id allocated for type: " ++ show ty]
+
+getNeedsDrop :: Ty -> MirGenerator h s ret Bool
+getNeedsDrop ty = do
+    s <- use (cs . collection . needDrops)
+    pure (Set.member ty s)
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
 --  LocalWords:  vtblToStruct

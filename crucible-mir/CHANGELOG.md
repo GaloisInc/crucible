@@ -1,7 +1,7 @@
 # next -- TBA
 
 This release supports [version
-3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
+5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.86.

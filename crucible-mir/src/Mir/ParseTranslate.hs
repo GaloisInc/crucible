@@ -20,6 +20,7 @@ import Control.Monad (unless, when)
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as M
+import qualified Data.Set as Set
 import Data.Word (Word64)
 
 import GHC.Stack
@@ -43,7 +44,7 @@ import Debug.Trace
 -- If you update the supported mir-json schema version below, make sure to also
 -- update the crux-mir README accordingly.
 supportedSchemaVersion :: Word64
-supportedSchemaVersion = 4
+supportedSchemaVersion = 5
 
 parseMIR :: (HasCallStack, ?debug::Int) =>
             FilePath
@@ -75,6 +76,7 @@ uninternMir col =
   (uninternTys unintern (col { _namedTys = mempty }))
     { -- the keys of the layouts map need to be uninterned
       _layouts = M.fromList [(_tiTy x, _tiLayout x) | x <- M.elems tyMap]
+    , _needDrops = Set.fromList [_tiTy x | x <- M.elems tyMap, _tiNeedsDrop x]
     }
   where
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
