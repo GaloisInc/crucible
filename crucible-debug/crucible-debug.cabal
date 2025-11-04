@@ -119,6 +119,7 @@ library
     crucible,
     crucible-syntax,
     directory,
+    extra,
     filepath,
     isocline,
     lens,
