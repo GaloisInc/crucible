@@ -29,7 +29,7 @@ import Prettyprinter (Pretty(..))
 import qualified Lang.Crucible.FunctionHandle as C
 
 
-import Mir.Mir (Collection(..), namedTys, version)
+import Mir.Mir (Collection(..), TyInfo(..), namedTys, version)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
@@ -74,7 +74,7 @@ uninternMir :: Collection -> Collection
 uninternMir col =
   (uninternTys unintern (col { _namedTys = mempty }))
     { -- the keys of the layouts map need to be uninterned
-      _layouts = M.fromList $ M.elems tyMap
+      _layouts = M.fromList [(_tiTy x, _tiLayout x) | x <- M.elems tyMap]
     }
   where
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
@@ -83,7 +83,7 @@ uninternMir col =
     tyMap = fmap (uninternTys unintern) (col ^. namedTys)
     unintern name = case M.lookup name tyMap of
         Nothing -> error $ "missing " ++ show name ++ " in type map"
-        Just (ty, _) -> ty
+        Just tyInfo -> _tiTy tyInfo
 
 
 -- | Translate a MIR collection to Crucible

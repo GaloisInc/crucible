@@ -162,6 +162,7 @@ instance GenericOps NamedTy
 instance GenericOps Layout
 instance GenericOps LangItem
 instance GenericOps NonDivergingIntrinsic
+instance GenericOps TyInfo
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate
