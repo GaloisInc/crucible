@@ -20,6 +20,7 @@ module Lang.Crucible.Debug.Inputs
   , defaultDebuggerInputs
   ) where
 
+import Control.Concurrent.Extra (once)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad qualified as Monad
 import Control.Monad.Reader qualified as Reader
@@ -156,9 +157,15 @@ defaultDebuggerInputs ::
   CommandExt cExt ->
   IO (Inputs (CompletionT cExt (StyleT cExt m)) (Statement cExt))
 defaultDebuggerInputs cExts = do
-  initIsocline
+  -- NB: We delay initializing Isocline until the first input is requested, and
+  -- then use 'once' to ensure that initialization occurs at most once. The
+  -- benefit of doing it like this is that we ensure that a .crucible-debug
+  -- file won't be created unless a Crux user specifically requests the
+  -- debugger.
+  initialize <- once initIsocline
   pure $
     parseInputsWithRetry
       cExts
-      (Text.pack <$> lift readIsocline)
+      (do liftIO initialize
+          Text.pack <$> lift readIsocline)
       (contramap renderParseError (Outs.lift (lift . liftIO) (Outs.hPutStrLn stdout)))
