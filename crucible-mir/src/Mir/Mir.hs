@@ -684,6 +684,7 @@ makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
+makeLenses ''TyInfo
 makeLenses ''Layout
 makeLenses ''LangItem
 makeLenses ''Statement
