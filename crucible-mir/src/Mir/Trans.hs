@@ -881,6 +881,12 @@ evalCast' ck ty1 e ty2  = do
           , "  as: " <> show ty2
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
+      -- trait object cast down to underlying object reference (forgetting vtable)
+      (M.Misc, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
+        | Right (Some MirReferenceRepr) <- tyToRepr col ty2
+        , MirExp DynRefRepr a <- e
+        -> pure (MirExp MirReferenceRepr (R.App (E.GetStruct a dynRefDataIndex MirReferenceRepr)))
+
       -- Unsized casts from references to sized structs to references to DSTs.
       -- We defer to the provided cast kind to determine what kind of unsizing
       -- cast we expect to perform, i.e. what kind of metadata to include in the
@@ -2970,6 +2976,10 @@ mkCrateHashesMap
     f m = map (\did -> (did ^. M.didCrate, did ^. M.didCrateDisambig :| []))
               (Map.keys m)
 
+-- | Generate a map assigning a unique integer to every type in the program
+mkTyIdMap :: M.Collection -> Map Ty Int
+mkTyIdMap col = Map.fromList (zip (Map.keys (col ^. layouts)) [1..])
+
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
@@ -3016,9 +3026,10 @@ transCollection col halloc = do
 
     let dm = mkDiscrMap col
     let chm = mkCrateHashesMap col
+    let tidm = mkTyIdMap col
 
     let colState :: CollectionState
-        colState = CollectionState hmap vm sm dm chm col
+        colState = CollectionState hmap vm sm dm chm tidm col
 
     -- translate all of the functions
     fnInfo <- Maybe.catMaybes <$>
