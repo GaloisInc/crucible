@@ -50,6 +50,9 @@ This release supports [version
   used to instantiate a const generic parameter. This has no impact on the
   semantics of `crucible-mir` itself, but this can be used by tools that want
   to distinguish different instantiations of const generic functions.
+* Add an intrinsic for [`size_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.size_of_val.html),
+  which computes the size of a value in bytes. This works for all sized types
+  as well as a limited number of unsized types (currently, only slices).
 
 # 0.4 -- 2025-03-21
 

@@ -34,6 +34,7 @@ import           Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as V
+import qualified Prettyprinter as PP
 
 import Control.Monad
 import Control.Lens ((^.), at, use)
@@ -111,6 +112,7 @@ customOpDefs = Map.fromList $ [
                          , rotate_left
                          , rotate_right
                          , size_of
+                         , size_of_val
                          , min_align_of
                          , intrinsics_assume
                          , assert_inhabited
@@ -1140,6 +1142,68 @@ size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
         getLayoutFieldAsMirExp "size_of" laySize t
     _ -> Nothing
     )
+
+size_of_val :: (ExplodedDefId, CustomRHS)
+size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        -- We first check whether the underlying type is sized or not.
+        ([TyRawPtr ty _], [MirExp tpr e]) -> case tpr of
+            -- Slices (e.g., `&[u8]`, `&str`, and custom DSTs whose last field
+            -- contains a slice) are unsized. We currently support computing
+            -- the size of slice values that aren't embedded in a custom DST.
+            -- TODO(#1614): Lift this restriction.
+            MirSliceRepr -> case ty of
+                TySlice elemTy -> sizeOfSlice elemTy e
+                TyStr {} -> sizeOfSlice (TyUint B8) e
+                TyAdt {} -> unsupportedCustomDst ty
+                _ -> panic "size_of_val"
+                       ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
+
+            -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
+            -- field contains a trait object) are unsized. This override
+            -- currently does not support any kind of trait object, so all we
+            -- do here is make an effort to give a descriptive error message.
+            -- TODO(#1614): Support trait objects and custom DSTs here.
+            DynRefRepr -> case ty of
+                TyDynamic {} -> unsupportedTraitObject ty
+                TyAdt {} -> unsupportedCustomDst ty
+                _ -> panic "size_of_val"
+                       ["Unexpected DynRefRepr type", show (PP.pretty ty)]
+
+            -- All other cases should correspond to sized types. For these
+            -- cases, computing the value's size is equivalent to computing the
+            -- type's size.
+            MirReferenceRepr ->
+                getLayoutFieldAsMirExp "size_of_val" laySize ty
+            _ -> panic "size_of_val"
+                   ["Unexpected TypeRepr for *const", show tpr]
+        _ -> mirFail $ "bad arguments to size_of_val: " ++ show ops
+    _ -> Nothing
+    )
+  where
+    -- The size of a slice value is equal to the to the slice length multiplied
+    -- by the size of the element type. Note that slice element types are
+    -- always sized, so we do not need to call size_of_val recursively here.
+    sizeOfSlice ::
+      Ty -> R.Expr MIR s MirSlice -> MirGenerator h s ret (MirExp s)
+    sizeOfSlice ty e = do
+        let len = getSliceLen e
+        sz <- getLayoutFieldAsExpr "size_of_val" laySize ty
+        pure $ MirExp UsizeRepr $ R.App $ usizeMul len sz
+
+    unsupportedTraitObject :: Ty -> MirGenerator h s ret a
+    unsupportedTraitObject ty =
+        mirFail $ unlines
+            [ "size_of_val does not currently support trait objects"
+            , "In the type " ++ show (PP.pretty ty)
+            ]
+
+    unsupportedCustomDst :: Ty -> MirGenerator h s ret a
+    unsupportedCustomDst ty =
+        mirFail $ unlines
+            [ "size_of_val does not currently support custom DSTs"
+            , "In the type " ++ show (PP.pretty ty)
+            ]
 
 min_align_of :: (ExplodedDefId, CustomRHS)
 min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs of
