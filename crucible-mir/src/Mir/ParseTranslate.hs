@@ -20,6 +20,7 @@ import Control.Monad (unless, when)
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as M
+import qualified Data.Set as Set
 import Data.Word (Word64)
 
 import GHC.Stack
@@ -29,7 +30,7 @@ import Prettyprinter (Pretty(..))
 import qualified Lang.Crucible.FunctionHandle as C
 
 
-import Mir.Mir (Collection(..), namedTys, version)
+import Mir.Mir (Collection(..), namedTys, version, tiTy, tiNeedsDrop, tiLayout)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
@@ -43,7 +44,7 @@ import Debug.Trace
 -- If you update the supported mir-json schema version below, make sure to also
 -- update the crux-mir README accordingly.
 supportedSchemaVersion :: Word64
-supportedSchemaVersion = 4
+supportedSchemaVersion = 5
 
 parseMIR :: (HasCallStack, ?debug::Int) =>
             FilePath
@@ -74,7 +75,8 @@ uninternMir :: Collection -> Collection
 uninternMir col =
   (uninternTys unintern (col { _namedTys = mempty }))
     { -- the keys of the layouts map need to be uninterned
-      _layouts = M.fromList $ M.elems tyMap
+      _layouts = M.fromList [(x ^. tiTy, x ^. tiLayout) | x <- M.elems tyMap]
+    , _needDrops = Set.fromList [x ^. tiTy | x <- M.elems tyMap, x ^. tiNeedsDrop]
     }
   where
     -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
@@ -83,7 +85,7 @@ uninternMir col =
     tyMap = fmap (uninternTys unintern) (col ^. namedTys)
     unintern name = case M.lookup name tyMap of
         Nothing -> error $ "missing " ++ show name ++ " in type map"
-        Just (ty, _) -> ty
+        Just tyInfo -> tyInfo ^. tiTy
 
 
 -- | Translate a MIR collection to Crucible

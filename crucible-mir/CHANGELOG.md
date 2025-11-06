@@ -1,7 +1,7 @@
 # next -- TBA
 
 This release supports [version
-3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
+5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.86.
@@ -45,6 +45,7 @@ This release supports [version
   division has a nonzero remainder. This is implemented for both signed and
   unsigned integers and mirrors the semantics of Rust's
   `core::intrinsics::exact_div`.
+* Add an intrinsic for [`needs_drop`](https://doc.rust-lang.org/std/intrinsics/fn.needs_drop.html).
 
 # 0.4 -- 2025-03-21
 

@@ -2959,6 +2959,7 @@ mkCrateHashesMap
                 -- namedTys ranges over type names, which aren't full DefIds.
                 _namedTysM
                 _layoutsM
+                _needDropsM
                 langItemsM
                 -- The roots and tests are duplicates of other Maps' DefIds.
                 _rootsM _testsM) =
