@@ -1,6 +1,6 @@
 cabal-version: 2.2
 name: crucible-mir-debug
-version: 0.1.0.0.99
+version: 0.2.0.0
 author: Galois Inc.
 maintainer: langston@galois.com
 build-type: Simple

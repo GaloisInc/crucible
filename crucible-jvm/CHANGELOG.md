@@ -1,6 +1,6 @@
-# next
+# 0.2.1 -- 2025-11-09
 
-Nothing yet.
+* Store debugger state in the Crucible personality.
 
 # 0.2 -- 2024-02-05
 

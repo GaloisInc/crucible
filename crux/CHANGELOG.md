@@ -1,4 +1,4 @@
-# next
+# 0.8 -- 2025-11-09
 
 * We now support running simulations with custom users state.
   For this reason, some of the Crux types now have an additional `st`

@@ -1,8 +1,8 @@
-# next
-
-Nothing yet.
-
 # Revision history for crucible-symio
+
+## 0.2 -- 2025-11-09
+
+* Add support for GHC 9.10.1 and drop support for 9.4.8.
 
 ## 0.1.1 -- 2024-08-30
 
