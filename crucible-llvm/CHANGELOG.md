@@ -1,3 +1,5 @@
+# next
+
 # 0.8.0 -- 2025-11-09
 
 * `Lang.Crucible.LLVM.MemModel.{loadString,loadMaybeString,strLen}`

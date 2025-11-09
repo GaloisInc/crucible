@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible-mir-syntax
-Version:       0.2.0.0
+Version:       0.2.0.0.99
 Author:        Galois Inc.
 Maintainer:    rscott@galois.com
 Build-type:    Simple

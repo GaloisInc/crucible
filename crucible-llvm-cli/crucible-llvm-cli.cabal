@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible-llvm-cli
-Version:       0.2.0.0
+Version:       0.2.0.0.99
 Author:        Galois Inc.
 Maintainer:    langston@galois.com
 Build-type:    Simple
