@@ -1,5 +1,5 @@
 name:                crucible-go
-version:             0.2.0.0
+version:             0.2.0.0.99
 synopsis:            A Go frontend for Crucible
 license:             BSD3
 license-file:        LICENSE
