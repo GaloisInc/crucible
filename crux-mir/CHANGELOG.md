@@ -1,4 +1,6 @@
-# next -- TBA
+# next
+
+# 0.11 -- 2025-11-09
 
 This release supports [version
 3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of

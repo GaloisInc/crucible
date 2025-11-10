@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible-wasm
-Version:       0.2.0.0.99
+Version:       0.2.1.0.99
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc. 2020-2022
 Maintainer:    rdockins@galois.com

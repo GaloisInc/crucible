@@ -1,5 +1,7 @@
 # next
 
+# 0.8.0 -- 2025-11-09
+
 * Add `setExecResultContext`, `setExecStateContext`
 * Add `Lang.Crucible.Simulator.RecordAndReplay`, a module with two new execution
   features for recording and replaying control-flow traces.
