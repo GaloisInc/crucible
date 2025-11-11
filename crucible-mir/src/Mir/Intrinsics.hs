@@ -862,8 +862,9 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
 
       inBounds <- andPred sym afterBeginning beforeEnd
 
-      -- off `mod` tyWidth == 0
-      offModWidth <- bvUrem sym off =<< wordLit sym tyWidth
+      -- (off - rFrom) `mod` tyWidth == 0
+      relativeOff <- bvSub sym off =<< wordLit sym (rFrom run)
+      offModWidth <- bvUrem sym relativeOff =<< wordLit sym tyWidth
       atTyBoundary <- bvEq sym offModWidth =<< wordLit sym 0
 
       andPred sym inBounds atTyBoundary
