@@ -1,10 +1,19 @@
 # next
 
-# 0.5 -- 2025-11-09
-
 This release supports [version
 5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
 `mir-json`'s schema.
+
+* Add an intrinsic for [`needs_drop`](https://doc.rust-lang.org/std/intrinsics/fn.needs_drop.html).
+* `TyConst` now has a `ConstVal` field to indicate the value of the constant
+  used to instantiate a const generic parameter. This has no impact on the
+  semantics of `crucible-mir` itself, but this can be used by tools that want
+  to distinguish different instantiations of const generic functions.
+* Add an intrinsic for [`size_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.size_of_val.html),
+  which computes the size of a value in bytes. This works for all sized types
+  as well as a limited number of unsized types (currently, only slices).
+
+# 0.5 -- 2025-11-09
 
 * Support simulating Rust code up to version 1.86.
 * Split out the `StatementKind` and `TerminatorKind` data types from `Statement`
@@ -47,14 +56,6 @@ This release supports [version
   division has a nonzero remainder. This is implemented for both signed and
   unsigned integers and mirrors the semantics of Rust's
   `core::intrinsics::exact_div`.
-* Add an intrinsic for [`needs_drop`](https://doc.rust-lang.org/std/intrinsics/fn.needs_drop.html).
-* `TyConst` now has a `ConstVal` field to indicate the value of the constant
-  used to instantiate a const generic parameter. This has no impact on the
-  semantics of `crucible-mir` itself, but this can be used by tools that want
-  to distinguish different instantiations of const generic functions.
-* Add an intrinsic for [`size_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.size_of_val.html),
-  which computes the size of a value in bytes. This works for all sized types
-  as well as a limited number of unsized types (currently, only slices).
 
 # 0.4 -- 2025-03-21
 
