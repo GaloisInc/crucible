@@ -60,6 +60,7 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Maybe as Maybe
 import qualified Data.Vector as V
 import           Data.Word
@@ -782,9 +783,7 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
           -- entries that match `tpr`, we don't have a more precise answer.
           "no value or wrong type: the requested type is " ++ show tpr
         (o0, rv0) : candidates' -> do
-          offsetValid0 <- liftIO $ bvEq sym off =<< offsetLit o0
-          offsetValid <- liftIO $ foldM (orPred sym) offsetValid0
-            =<< mapM (\(o, _) -> bvEq sym off =<< offsetLit o) candidates'
+          offsetValid <- offsetIn (o0 :| map fst candidates')
           leafAssert bak offsetValid $ GenericSimError $
             "no value or wrong type: the requested type is " ++ show tpr
           rv <- liftIO $ foldM
@@ -800,6 +799,18 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
     candidates = mirAgTypedCandidates tpr ag
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
+
+    -- Given a list of valid offsets in this aggregate, create a predicate that
+    -- the provided offset appears among them.
+    offsetIn ::
+      NonEmpty Word ->
+      MuxLeafT sym IO (SymExpr sym BaseBoolType)
+    offsetIn (off0 :| offs) = liftIO $ do
+      -- Test the provided offset (`off`) for equality against any of the
+      -- candidate offsets.
+      offsetValid0 <- bvEq sym off =<< offsetLit off0
+      foldM (orPred sym) offsetValid0
+        =<< mapM (\o -> bvEq sym off =<< offsetLit o) offs
 
 adjustMirAggregateWithSymOffset ::
   forall sym bak tp.
