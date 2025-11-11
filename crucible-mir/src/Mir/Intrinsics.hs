@@ -862,9 +862,17 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
         _ -> do
           -- Entries appear at irregular intervals, so just test the provided
           -- offset (`off`) for equality against any of them.
-          offsetValid0 <- bvEq sym off =<< offsetLit off0
-          foldM (orPred sym) offsetValid0
-            =<< mapM (\o -> bvEq sym off =<< offsetLit o) offs
+          orPredBy (\o -> bvEq sym off =<< offsetLit o) (off0 : offs)
+
+    orPredBy :: (a -> IO (Pred sym)) -> [a] -> IO (Pred sym)
+    orPredBy f xs = do
+      case xs of
+        [] -> pure (falsePred sym)
+        (z : zs) -> do
+          zPred <- f z
+          zsPred <- mapM f zs
+          foldM (orPred sym) zPred zsPred
+
 
 adjustMirAggregateWithSymOffset ::
   forall sym bak tp.
