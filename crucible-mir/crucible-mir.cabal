@@ -115,7 +115,7 @@ library
   import: shared
 
   build-depends: base >= 4.11 && < 5,
-                 aeson < 2.3,
+                 aeson >= 2.0 && < 2.3,
                  bv-sized,
                  bytestring,
                  prettyprinter >= 1.7.0,
