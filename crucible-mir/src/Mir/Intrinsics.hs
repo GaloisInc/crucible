@@ -837,27 +837,11 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
             _ -> Nothing
 
       case (off0, uniqueStride) of
-        (0, Just tyWidth) -> do
+        (0, Just stride) -> do
           -- Entries appear at regular intervals between 0 and the end of the
           -- aggregate, so we can construct the simpler validity check for `off`
           -- described above.
-          --
-          -- Note that we're using the unique stride as a proxy for element type
-          -- width, since we currently hardcode all aggregate entries as having
-          -- width 1 (TODO: hardcoded size=1). Once we move beyond that
-          -- hardcoding, we should use real entry widths here, rather than a
-          -- proxy.
-          bvTyWidth <- wordLit sym tyWidth
-
-          -- off + tyWidth <= totalSize
-          offPlusWidth <- bvAdd sym off bvTyWidth
-          inBounds <- bvUle sym offPlusWidth =<< wordLit sym totalSize
-
-          -- off `mod` tyWidth == 0
-          offModWidth <- bvUrem sym off bvTyWidth
-          atTyBoundary <- bvEq sym offModWidth =<< wordLit sym 0
-
-          andPred sym inBounds atTyBoundary
+          runPred stride
 
         _ -> do
           -- Entries appear at irregular intervals, so just test the provided
@@ -872,6 +856,27 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
           zPred <- f z
           zsPred <- mapM f zs
           foldM (orPred sym) zPred zsPred
+
+    -- Whether `off` appears in the "run" of array elements `stride` bytes apart
+    -- from one another, assumes the run occupies the entire aggregate.
+    runPred :: Word -> IO (Pred sym)
+    runPred stride = do
+      -- Note that we're using the unique stride as a proxy for element type
+      -- width, since we currently hardcode all aggregate entries as having
+      -- width 1 (TODO: hardcoded size=1). Once we move beyond that hardcoding,
+      -- we should use real entry widths here, rather than a proxy.
+      let tyWidth = stride
+      bvTyWidth <- wordLit sym tyWidth
+
+      -- off + tyWidth <= totalSize
+      offPlusWidth <- bvAdd sym off bvTyWidth
+      inBounds <- bvUle sym offPlusWidth =<< wordLit sym totalSize
+
+      -- off `mod` tyWidth == 0
+      offModWidth <- bvUrem sym off bvTyWidth
+      atTyBoundary <- bvEq sym offModWidth =<< wordLit sym 0
+
+      andPred sym inBounds atTyBoundary
 
 
 adjustMirAggregateWithSymOffset ::
