@@ -57,9 +57,11 @@ import           Control.Monad.IO.Class
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
+import           Data.Containers.ListUtils (nubIntOn)
 import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Maybe as Maybe
 import qualified Data.Vector as V
@@ -783,6 +785,9 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
           -- entries that match `tpr`, we don't have a more precise answer.
           "no value or wrong type: the requested type is " ++ show tpr
         (o0, rv0) : candidates' -> do
+          -- The candidates come from `mirAgTypedCandidates`, which promises to
+          -- return offsets in ascending order, which satisfies
+          -- `offsetIn`'s precondition.
           offsetValid <- offsetIn (o0 :| map fst candidates')
           leafAssert bak offsetValid $ GenericSimError $
             "no value or wrong type: the requested type is " ++ show tpr
@@ -802,15 +807,64 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
 
     -- Given a list of valid offsets in this aggregate, create a predicate that
     -- the provided offset appears among them.
+    --
+    -- Precondition: the candidate offsets are sorted in ascending order.
     offsetIn ::
       NonEmpty Word ->
       MuxLeafT sym IO (SymExpr sym BaseBoolType)
     offsetIn (off0 :| offs) = liftIO $ do
-      -- Test the provided offset (`off`) for equality against any of the
-      -- candidate offsets.
-      offsetValid0 <- bvEq sym off =<< offsetLit off0
-      foldM (orPred sym) offsetValid0
-        =<< mapM (\o -> bvEq sym off =<< offsetLit o) offs
+      -- We want to construct a symbolic expression representing whether or not
+      -- `off` appears in this aggregate's candidate offsets. The most
+      -- straightforward way to do that is to test it for equality against each
+      -- of those offsets and `orPred` those tests into a single expression.
+      -- However, expressions like that can be expensive to simulate.
+      --
+      -- If the aggregate represents an array, then its entries will be evenly
+      -- spaced across the entirety of the aggregate. If this is the case, and
+      -- we know the array's bounds (which we do) and the spacing between its
+      -- elements (which we can compute concretely), we can construct a much
+      -- simpler expression to represent membership of the provided offset among
+      -- the candidates: is the provided offset a) within the array's bounds and
+      -- b) a multiple of the element spacing?
+      --
+      -- Start by checking to see whether the entries are evenly spaced,
+      -- including the spacing between the last entry and the end of the
+      -- aggregate - hence the addition of `totalSize` as a fake final offset to
+      -- this stride check:
+      let allStrides = List.zipWith (-) (offs <> [totalSize]) (off0 : offs)
+          uniqueStride = case nubIntOn fromIntegral allStrides of
+            [s] -> Just s
+            _ -> Nothing
+
+      case (off0, uniqueStride) of
+        (0, Just tyWidth) -> do
+          -- Entries appear at regular intervals between 0 and the end of the
+          -- aggregate, so we can construct the simpler validity check for `off`
+          -- described above.
+          --
+          -- Note that we're using the unique stride as a proxy for element type
+          -- width, since we currently hardcode all aggregate entries as having
+          -- width 1 (TODO: hardcoded size=1). Once we move beyond that
+          -- hardcoding, we should use real entry widths here, rather than a
+          -- proxy.
+          bvTyWidth <- wordLit sym tyWidth
+
+          -- off + tyWidth <= totalSize
+          offPlusWidth <- bvAdd sym off bvTyWidth
+          inBounds <- bvUle sym offPlusWidth =<< wordLit sym totalSize
+
+          -- off `mod` tyWidth == 0
+          offModWidth <- bvUrem sym off bvTyWidth
+          atTyBoundary <- bvEq sym offModWidth =<< wordLit sym 0
+
+          andPred sym inBounds atTyBoundary
+
+        _ -> do
+          -- Entries appear at irregular intervals, so just test the provided
+          -- offset (`off`) for equality against any of them.
+          offsetValid0 <- bvEq sym off =<< offsetLit off0
+          foldM (orPred sym) offsetValid0
+            =<< mapM (\o -> bvEq sym off =<< offsetLit o) offs
 
 adjustMirAggregateWithSymOffset ::
   forall sym bak tp.
