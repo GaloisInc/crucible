@@ -113,7 +113,7 @@ parseMIR path f = do
         fail $ unlines
           [ path ++ " uses an unsupported mir-json schema version: "
                  ++ show actualSchemaVersion
-          , "This crux-mir release only supports schema version "
+          , "This release only supports schema version "
             ++ show supportedSchemaVersion ++ "."
           , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
           , "for more details on what the schema version means.)"
