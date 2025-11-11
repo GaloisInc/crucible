@@ -57,7 +57,6 @@ import           Control.Monad.IO.Class
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
-import           Data.Containers.ListUtils (nubIntOn)
 import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -819,34 +818,23 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
       -- of those offsets and `orPred` those tests into a single expression.
       -- However, expressions like that can be expensive to simulate.
       --
-      -- If the aggregate represents an array, then its entries will be evenly
-      -- spaced across the entirety of the aggregate. If this is the case, and
-      -- we know the array's bounds (which we do) and the spacing between its
-      -- elements (which we can compute concretely), we can construct a much
-      -- simpler expression to represent membership of the provided offset among
-      -- the candidates: is the provided offset a) within the array's bounds and
-      -- b) a multiple of the element spacing?
+      -- If portions of the aggregate represent arrays, then those entries will
+      -- be evenly spaced a known stride apart from one another. If we can find
+      -- such contiguous "runs" of entries, we can construct much simpler
+      -- membership predicates for them: is the provided offset between the
+      -- beginning and the end of a run, and is the offset a multiple of the
+      -- stride of that run?
       --
-      -- Start by checking to see whether the entries are evenly spaced,
-      -- including the spacing between the last entry and the end of the
-      -- aggregate - hence the addition of `totalSize` as a fake final offset to
-      -- this stride check:
-      let allStrides = List.zipWith (-) (offs <> [totalSize]) (off0 : offs)
-          uniqueStride = case nubIntOn fromIntegral allStrides of
-            [s] -> Just s
-            _ -> Nothing
+      -- We partition the aggregate into contiguous runs and discrete elements
+      -- to take advantage of the more efficient predicate where possible, and
+      -- to fall back to the less efficient predicate where necessary.
+      let spans = List.zipWith (,) (off0 : offs) (offs <> [totalSize])
+          (offsets, runs) = foldRuns spans
 
-      case (off0, uniqueStride) of
-        (0, Just stride) -> do
-          -- Entries appear at regular intervals between 0 and the end of the
-          -- aggregate, so we can construct the simpler validity check for `off`
-          -- described above.
-          runPred stride
+      offsetsPred <- orPredBy (\o -> bvEq sym off =<< offsetLit o) offsets
+      runsPred <- orPredBy runPred runs
 
-        _ -> do
-          -- Entries appear at irregular intervals, so just test the provided
-          -- offset (`off`) for equality against any of them.
-          orPredBy (\o -> bvEq sym off =<< offsetLit o) (off0 : offs)
+      orPred sym runsPred offsetsPred
 
     orPredBy :: (a -> IO (Pred sym)) -> [a] -> IO (Pred sym)
     orPredBy f xs = do
@@ -857,23 +845,25 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
           zsPred <- mapM f zs
           foldM (orPred sym) zPred zsPred
 
-    -- Whether `off` appears in the "run" of array elements `stride` bytes apart
-    -- from one another, assumes the run occupies the entire aggregate.
-    runPred :: Word -> IO (Pred sym)
-    runPred stride = do
+    -- Whether `off` appears in the given `Run` of aggregate elements.
+    runPred :: Run -> IO (Pred sym)
+    runPred run = do
       -- Note that we're using the unique stride as a proxy for element type
       -- width, since we currently hardcode all aggregate entries as having
       -- width 1 (TODO: hardcoded size=1). Once we move beyond that hardcoding,
       -- we should use real entry widths here, rather than a proxy.
-      let tyWidth = stride
-      bvTyWidth <- wordLit sym tyWidth
+      let tyWidth = rStride run
 
-      -- off + tyWidth <= totalSize
-      offPlusWidth <- bvAdd sym off bvTyWidth
-      inBounds <- bvUle sym offPlusWidth =<< wordLit sym totalSize
+      -- off >= rFrom
+      afterBeginning <- bvUge sym off =<< wordLit sym (rFrom run)
+
+      -- off < rTo (not `<=` because `rTo` is exclusive)
+      beforeEnd <- bvUlt sym off =<< wordLit sym (rTo run)
+
+      inBounds <- andPred sym afterBeginning beforeEnd
 
       -- off `mod` tyWidth == 0
-      offModWidth <- bvUrem sym off bvTyWidth
+      offModWidth <- bvUrem sym off =<< wordLit sym tyWidth
       atTyBoundary <- bvEq sym offModWidth =<< wordLit sym 0
 
       andPred sym inBounds atTyBoundary
