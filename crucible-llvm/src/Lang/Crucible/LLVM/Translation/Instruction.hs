@@ -41,20 +41,16 @@ import           Prelude hiding (exp, pred)
 import           Control.Lens hiding (op, (:>) )
 import           Control.Monad (MonadPlus(..), forM, unless)
 import           Control.Monad.Except (MonadError(..), runExceptT)
-import           Control.Monad.State.Strict (MonadState(..), gets)
+import           Control.Monad.State.Strict (MonadState(..))
 import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (for_, toList)
 import           Data.Functor (void)
 import           Data.Int
-import           Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Set (Set)
-import qualified Data.Set as Set
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.String
@@ -83,7 +79,6 @@ import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -1514,7 +1509,6 @@ generateInstr :: forall s arch ret a.
    (?transOpts :: TranslationOptions) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
-   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr        {- ^ The instruction to translate -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
@@ -1523,7 +1517,7 @@ generateInstr :: forall s arch ret a.
           Straightline instructions should enter this continuation,
           but block-terminating instructions should not. -} ->
    LLVMGenerator s arch ret a
-generateInstr retType lab defSet instr assign_f k =
+generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
     L.Phi _ _ -> k
@@ -1692,14 +1686,14 @@ generateInstr retType lab defSet instr assign_f k =
          k
 
     L.Call tailcall fnTy fn args ->
-      callFunction defSet instr tailcall fnTy fn args assign_f >> k
+      callFunction instr tailcall fnTy fn args assign_f >> k
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
-      do callFunction defSet instr False fnTy fn args assign_f
+      do callFunction instr False fnTy fn args assign_f
          definePhiBlock lab normLabel
 
     L.CallBr fnTy fn args normLabel otherLabels -> do
-      do callFunction defSet instr False fnTy fn args assign_f
+      do callFunction instr False fnTy fn args assign_f
          for_ otherLabels $ \lab' -> void (definePhiBlock lab lab')
          definePhiBlock lab normLabel
 
@@ -2006,7 +2000,6 @@ callOrdinaryFunction instr _tailCall fnTy _fn _args _assign_f =
 -- for debugging intrinsics and breakpoint functions.
 callFunction :: forall s arch ret.
    (?transOpts :: TranslationOptions) =>
-   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr {- ^ Source instruction of the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
@@ -2014,42 +2007,8 @@ callFunction :: forall s arch ret.
    [L.Typed L.Value] {- ^ argument list -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret ()
-callFunction defSet instr tailCall_ fnTy fn args assign_f
-
-     -- Supports LLVM 4-12
-     | L.ValSymbol "llvm.dbg.declare" <- fn
-     , debugIntrinsics ?transOpts =
-       do mbArgs <- dbgArgs defSet args
-          case mbArgs of
-            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
-              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di))
-                 return ()
-            Left msg -> addWarning (Text.pack msg)
-            _ -> addWarning "Unexpected argument in llvm.dbg.declare"
-
-     -- Supports LLVM 6-12
-     | L.ValSymbol "llvm.dbg.addr" <- fn
-     , debugIntrinsics ?transOpts =
-       do mbArgs <- dbgArgs defSet args
-          case mbArgs of
-            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
-              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di))
-                 return ()
-            Left msg -> addWarning (Text.pack msg)
-            _ -> addWarning "Unexpected argument in llvm.dbg.addr"
-
-     -- Supports LLVM 6-12 (earlier versions had an extra argument)
-     | L.ValSymbol "llvm.dbg.value" <- fn
-     , debugIntrinsics ?transOpts =
-       do mbArgs <- dbgArgs defSet args
-          case mbArgs of
-            Right (asScalar -> Scalar _ repr val, lv, di) ->
-              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di))
-                 return ()
-            Left msg -> addWarning (Text.pack msg)
-            _ -> addWarning "Unexpected argument in llvm.dbg.value"
-
-     -- Skip calls to other debugging intrinsics.
+callFunction instr tailCall_ fnTy fn args assign_f
+     -- Skip calls to debugging intrinsics.
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.label"
                  , "llvm.dbg.declare"
@@ -2079,83 +2038,6 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
             addBreakpointStmt (Text.pack nm) val_args
 
      | otherwise = callOrdinaryFunction (Just instr) tailCall_ fnTy fn args assign_f
-
--- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
--- For more information on how these work, see
--- <https://llvm.org/docs/SourceLevelDebugging.html>.
-
--- This function assumes that each argument should either be a particular kind
--- of metadata value or a reference that resolves to a particular kind of
--- metadata value (see @resolveArg{1,2,3}@ below). If we encounter other types
--- of LLVM metadata that breaks this assumption, then we will need to update
--- this function's implementation accordingly.
-dbgArgs ::
-  Set L.Ident {- ^ Set of usable identifiers -} ->
-  [L.Typed L.Value] {- ^ debug call arguments -} ->
-  LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs defSet args = do
-    unnamedMd <- gets (llvmUnnamedMd . llvmContext)
-    case args of
-      [valArg, lvArg, diArg] -> do
-        let resolveRes = do -- Either String
-              val <- resolveArg1 unnamedMd $ L.typedValue valArg
-              lv <- resolveArg2 unnamedMd $ L.typedValue lvArg
-              di <- resolveArg3 unnamedMd $ L.typedValue diArg
-              Right (val, lv, di)
-        case resolveRes of
-          Left err -> pure (Left err)
-          Right (val, lv, di) ->
-            let unusableIdents = Set.difference (useTypedVal val) defSet
-            in if Set.null unusableIdents then
-                 do v <- transTypedValue val
-                    pure (Right (v, lv, di))
-               else
-                 do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
-                               map (show . LPP.ppIdent) (Set.toList unusableIdents))
-                    pure (Left msg)
-      _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
-  where
-    resolveArg1 ::
-      IntMap L.ValMd ->
-      L.Value ->
-      Either String (L.Typed L.Value)
-    resolveArg1 unnamedMd = go
-      where
-        go (L.ValMd (L.ValMdRef ref))
-          | Just valMd <- IntMap.lookup ref unnamedMd
-          = go (L.ValMd valMd)
-        go (L.ValMd (L.ValMdValue val)) =
-          Right val
-        go valArg =
-          Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg)
-
-    resolveArg2 ::
-      IntMap L.ValMd ->
-      L.Value ->
-      Either String L.DILocalVariable
-    resolveArg2 unnamedMd = go
-      where
-        go (L.ValMd (L.ValMdRef ref))
-          | Just valMd <- IntMap.lookup ref unnamedMd
-          = go (L.ValMd valMd)
-        go (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) =
-          Right lv
-        go lvArg =
-          Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg)
-
-    resolveArg3 ::
-      IntMap L.ValMd ->
-      L.Value ->
-      Either String L.DIExpression
-    resolveArg3 unnamedMd = go
-      where
-        go (L.ValMd (L.ValMdRef ref))
-          | Just valMd <- IntMap.lookup ref unnamedMd
-          = go (L.ValMd valMd)
-        go (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) =
-          Right di
-        go diArg =
-          Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg)
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->

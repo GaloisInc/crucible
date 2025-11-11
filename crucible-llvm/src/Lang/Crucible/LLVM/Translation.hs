@@ -97,7 +97,6 @@ import           Control.Monad (foldM)
 import           Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Maybe
 import           Data.String
@@ -223,26 +222,25 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 generateStmts :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
         -> L.BlockLabel
-        -> Set L.Ident {- ^ Set of usable identifiers -}
         -> [L.Stmt]
         -> LLVMGenerator s arch ret a
-generateStmts retType lab defSet0 stmts = go defSet0 (processDbgDeclare stmts)
- where go _ [] = fail "LLVM basic block ended without a terminating instruction"
-       go defSet (x:xs) =
+generateStmts retType lab stmts = go (processDbgDeclare stmts)
+ where go [] = fail "LLVM basic block ended without a terminating instruction"
+       go (x:xs) =
          case x of
            -- a result statement assigns the result of the instruction into a register
            L.Result ident instr md ->
               do setLocation md
-                 generateInstr retType lab defSet instr
+                 generateInstr retType lab instr
                    (assignLLVMReg ident)
-                   (go (Set.insert ident defSet) xs)
+                   (go xs)
 
            -- an effect statement simply executes the instruction for its effects and discards the result
            L.Effect instr md ->
               do setLocation md
-                 generateInstr retType lab defSet instr
+                 generateInstr retType lab instr
                    (\_ -> return ())
-                   (go defSet xs)
+                   (go xs)
 
 -- | Search for calls to intrinsic 'llvm.dbg.declare' and copy the
 -- metadata onto the corresponding 'alloca' statement.  Also copy
@@ -353,7 +351,7 @@ defineLLVMBlock
         -> LLVMGenerator s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
-    Just bi -> defineBlock (block_label bi) (generateStmts retType lab (block_use_set bi) stmts)
+    Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
     Nothing -> fail $ unwords ["LLVM basic block not found in block info map", show lab]
 
 defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"

@@ -1,5 +1,8 @@
 # next
 
+* The `LLVM_Debug` data constructor for `LLVMStmt`, as well as the related
+  `LLVM_Dbg` data type, have been removed.
+
 # 0.8.0 -- 2025-11-09
 
 * `Lang.Crucible.LLVM.MemModel.{loadString,loadMaybeString,strLen}`

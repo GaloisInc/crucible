@@ -533,8 +533,6 @@ evalStmt bak = eval
     do mem <- getMem mvar
        liftIO $ doPtrSubtract bak mem x y
 
-  eval LLVM_Debug{} = pure ()
-
 
 mkMemVar :: Text
          -> HandleAllocator

@@ -101,7 +101,6 @@ withLlvmHooks k = do
                     , _llvmTypeCtx = tyCtx
                     , llvmGlobalAliases = Map.empty
                     , llvmFunctionAliases = Map.empty
-                    , llvmUnnamedMd = IntMap.empty
                     }
               let ?lc = tyCtx
               let ?memOpts = Mem.defaultMemOptions
