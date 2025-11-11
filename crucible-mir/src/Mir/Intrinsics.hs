@@ -878,6 +878,55 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
 
       andPred sym inBounds atTyBoundary
 
+    -- Given a sorted list of element "spans", represented as @(fromOffset,
+    -- toOffset)@ pairs, find and return all contiguous sequences of two or more
+    -- elements of the same width, and the offsets all other elements.
+    foldRuns :: [(Word, Word)] -> ([Word], [Run])
+    foldRuns spans =
+      let (offsets, runs) = foldRuns' [] [] spans
+       in (reverse offsets, reverse runs)
+
+    foldRuns' :: [Word] -> [Run] -> [(Word, Word)] -> ([Word], [Run])
+    foldRuns' offsets runs spans =
+      case (runs, spans) of
+        -- Done
+        (_, []) ->
+          (offsets, runs)
+        -- Add to an existing run
+        (r : rs, s : ss)
+          | Just r' <- addToRun r s ->
+              foldRuns' offsets (r' : rs) ss
+        -- Add a new run
+        (_, s1 : s2 : ss)
+          | Just r <- mkRun s1 s2 ->
+              foldRuns' offsets (r : runs) ss
+        -- Add a new offset
+        (_, (sFrom, _) : ss) ->
+          foldRuns' (sFrom : offsets) runs ss
+
+    addToRun :: Run -> (Word, Word) -> Maybe Run
+    addToRun run (sFrom, sTo)
+      | rTo run == sFrom,
+        rStride run == sTo - sFrom =
+          Just (Run (rFrom run) sTo (rStride run))
+      | otherwise =
+          Nothing
+
+    mkRun :: (Word, Word) -> (Word, Word) -> Maybe Run
+    mkRun (s1From, s1To) s2 =
+      addToRun (Run s1From s1To (s1To - s1From)) s2
+
+-- | Represents a contiguous "run" of aggregate elements of the same width.
+-- Internal helper for `readMirAggregateWithSymOffset`.
+data Run = Run
+  { -- | Starting at (and inclusive of) this position
+    rFrom :: Word,
+    -- | Ending at (and exclusive of) this position
+    rTo :: Word,
+    -- | The spacing between the elements in this run
+    rStride :: Word
+  }
+  deriving (Show)
 
 adjustMirAggregateWithSymOffset ::
   forall sym bak tp.
