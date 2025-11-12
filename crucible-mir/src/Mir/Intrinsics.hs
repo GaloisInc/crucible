@@ -837,12 +837,8 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
 
     orPredBy :: (a -> IO (Pred sym)) -> [a] -> IO (Pred sym)
     orPredBy f xs = do
-      case xs of
-        [] -> pure (falsePred sym)
-        (z : zs) -> do
-          zPred <- f z
-          zsPred <- mapM f zs
-          foldM (orPred sym) zPred zsPred
+      xsPreds <- mapM f xs
+      foldM (orPred sym) (falsePred sym) xsPreds
 
     -- Whether `off` appears in the given `Run` of aggregate elements.
     runPred :: Run -> IO (Pred sym)
