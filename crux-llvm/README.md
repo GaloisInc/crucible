@@ -50,7 +50,7 @@ We have tested `crux-llvm` most heavily with GHC 9.4, GHC 9.6, GHC 9.8,
 and `cabal` version 3.10. We recommend Yices 2.6.x, and Z3
 4.8.x. Technically, only one of Yices or Z3 is required, and CVC4 is
 also supported. However, in practice, having both tends to be
-convenient. Finally, LLVM versions from 3.6 through 17 are likely to
+convenient. Finally, LLVM versions from 3.6 through 19 are likely to
 work well, and any failures with versions in that range should be
 [reported as bugs](https://github.com/GaloisInc/crucible/issues).
 
