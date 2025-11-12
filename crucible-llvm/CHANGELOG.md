@@ -2,6 +2,11 @@
 
 * The `LLVM_Debug` data constructor for `LLVMStmt`, as well as the related
   `LLVM_Dbg` data type, have been removed.
+* Remove `aggInfo` in favor of `aggregateAlignment`, a lens that retrieves an
+  `Alignment` instead of a full `AlignInfo`. In practice, `aggInfo` would only
+  ever contain a single size (`0`) in its `AlignInfo`, and the concept of
+  "size" doesn't really apply to aggregate alignments in data layout strings,
+  so this was simplified to just be an `Alignment` instead.
 
 # 0.8.0 -- 2025-11-09
 
