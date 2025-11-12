@@ -56,7 +56,7 @@ The expression language for `CFG.Core` is the type `App` in `CFG.Expr`.
 The state of a running simulator is described in `Simulator.ExecutionTree`:
   * `ExecState` is the current state of execution.
      We start with `InitialState`, and keep performing steps until we get
-     to a `ResultState`
+     to a `ResultState`.
   * As the simulator executes, it keeps track of its state in `SimState`.
   * `SimContext` is the part of the state that persists across branches
     (e.g, after we explore the `then` part of an `if` statement, we'll
