@@ -709,21 +709,21 @@ muxMirAggregate sym itefns c (MirAggregate sz1 m1) (MirAggregate sz2 m2) = do
     muxEntries off e1 e2 = muxMirAggregateEntry sym itefns off' c e1 e2
       where off' = fromIntegral off
 
--- | Return the @(offset, regValue)@ pair for each entry whose type is @tpr@.
--- When performing a typed access, these are all the entries that the access
--- could apply to.
+-- | Return the @(offset, byteWidth, regValue)@ tuple for each entry whose type
+-- is @tpr@. When performing a typed access, these are all the entries that the
+-- access could apply to.
 --
 -- Results are returned in ascending order by offset.
 mirAgTypedCandidates ::
   forall sym tp.
   TypeRepr tp ->
   MirAggregate sym ->
-  [(Word, RegValue sym (MaybeType tp))]
+  [(Word, Word, RegValue sym (MaybeType tp))]
 mirAgTypedCandidates tpr (MirAggregate _ m) =
   Maybe.mapMaybe
-    (\(o, MirAggregateEntry _ tpr' rv) ->
+    (\(o, MirAggregateEntry byteWidth tpr' rv) ->
       case testEquality tpr tpr' of
-        Just Refl -> Just (fromIntegral o, rv)
+        Just Refl -> Just (fromIntegral o, byteWidth, rv)
         Nothing -> Nothing)
     (IntMap.toAscList m)
 
@@ -783,15 +783,15 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
           -- This error is a bit vague, but since `candidates` only contains
           -- entries that match `tpr`, we don't have a more precise answer.
           "no value or wrong type: the requested type is " ++ show tpr
-        (o0, rv0) : candidates' -> do
+        (o0, _w0, rv0) : candidates' -> do
           -- The candidates come from `mirAgTypedCandidates`, which promises to
           -- return offsets in ascending order, which satisfies
           -- `offsetIn`'s precondition.
-          offsetValid <- offsetIn (o0 :| map fst candidates')
+          offsetValid <- offsetIn (o0 :| map (\(o, _, _) -> o) candidates')
           leafAssert bak offsetValid $ GenericSimError $
             "no value or wrong type: the requested type is " ++ show tpr
           rv <- liftIO $ foldM
-            (\acc (o, rv) -> do
+            (\acc (o, _w, rv) -> do
               -- If `off == o`, return `rv`, else `acc`
               offsetEq <- bvEq sym off =<< offsetLit o
               iteFn' offsetEq rv acc)
@@ -954,7 +954,7 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
             rv' <- f rv
             return $ justPartExpr sym rv'
 
-      xs <- forM candidates $ \(o, rvPart) -> do
+      xs <- forM candidates $ \(o, _w, rvPart) -> do
         hit <- liftIO $ bvEq sym off =<< offsetLit o
         mRvPart' <- subMuxLeafIO bak (f' rvPart) hit
         rvPart'' <- case mRvPart' of
