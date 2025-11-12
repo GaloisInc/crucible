@@ -802,6 +802,74 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
+adjustMirAggregateWithSymOffset ::
+  forall sym bak tp.
+  (IsSymBackend sym bak) =>
+  bak ->
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  RegValue sym UsizeType ->
+  TypeRepr tp ->
+  (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
+  MirAggregate sym ->
+  MuxLeafT sym IO (MirAggregate sym)
+adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
+      MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
+        Just x -> return x
+        Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
+      Refl <- case testEquality tpr tpr' of
+        Just x -> return x
+        Nothing -> leafAbort $ GenericSimError $
+          "type mismatch at offset " ++ show off' ++ ": got " ++ show tpr'
+            ++ ", but the requested type is " ++ show tpr
+      rv <- leafReadPartExpr bak rvPart $ agNoValueAtOffsetSimError off' totalSize
+      rv' <- f rv
+      let rvPart' = justPartExpr sym rv'
+      let entry' = MirAggregateEntry sz tpr rvPart'
+      let m' = IntMap.insert off' entry' m
+      return $ MirAggregate totalSize m'
+
+  | otherwise = do
+      -- This handles the inner `MaybeType`s like `adjustMirVectorWithSymIndex`
+      -- does.
+      let f' rvPart = do
+            rv <- leafReadPartExpr bak rvPart $ agNoValueAtSymbolicOffsetSimError totalSize
+            rv' <- f rv
+            return $ justPartExpr sym rv'
+
+      xs <- forM candidates $ \(o, _w, rvPart) -> do
+        hit <- liftIO $ bvEq sym off =<< offsetLit o
+        mRvPart' <- subMuxLeafIO bak (f' rvPart) hit
+        rvPart'' <- case mRvPart' of
+          Just rvPart' -> liftIO $ iteFn' hit rvPart' rvPart
+          Nothing -> return rvPart
+        return ((o, rvPart''), hit)
+
+      -- `off` must refer to some existing offset with type `tpr`.  Using
+      -- `adjust` to create new entries is not allowed.
+      hitAny <- offsetInSpans sym off (map (\(o, w, _) -> (o, o + w)) candidates)
+      leafAssert bak hitAny $ GenericSimError $
+        "no value or wrong type: the requested type is " ++ show tpr
+
+      let newEntryRvs = IntMap.fromAscList $ map (\((o, rv), _) -> (fromIntegral o, rv)) xs
+      let newEntries = IntMap.intersectionWith
+            (\(MirAggregateEntry sz tpr' _) rv ->
+              case testEquality tpr' tpr of
+                Just Refl -> MirAggregateEntry sz tpr rv
+                Nothing ->
+                  panic "adjustMirAggregateWithSymOffset"
+                    ["`candidates`/`xs` should only contain entries of type `tpr`"])
+            m newEntryRvs
+      let m' = IntMap.union newEntries m
+      return $ MirAggregate totalSize m'
+
+  where
+    sym = backendGetSym bak
+    candidates = mirAgTypedCandidates tpr ag
+    offsetLit = wordLit sym
+    iteFn' = liftIteFnMaybe sym tpr iteFn
+
+
 -- | Given a list of valid entry spans @(fromOffset, toOffset)@ in this
 -- aggregate, create a predicate that the provided offset appears among their
 -- @fromOffset@ values.
@@ -945,72 +1013,6 @@ data Run = Run
   }
   deriving (Show)
 
-adjustMirAggregateWithSymOffset ::
-  forall sym bak tp.
-  (IsSymBackend sym bak) =>
-  bak ->
-  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
-  RegValue sym UsizeType ->
-  TypeRepr tp ->
-  (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
-  MirAggregate sym ->
-  MuxLeafT sym IO (MirAggregate sym)
-adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m)
-  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
-      MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
-        Just x -> return x
-        Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
-      Refl <- case testEquality tpr tpr' of
-        Just x -> return x
-        Nothing -> leafAbort $ GenericSimError $
-          "type mismatch at offset " ++ show off' ++ ": got " ++ show tpr'
-            ++ ", but the requested type is " ++ show tpr
-      rv <- leafReadPartExpr bak rvPart $ agNoValueAtOffsetSimError off' totalSize
-      rv' <- f rv
-      let rvPart' = justPartExpr sym rv'
-      let entry' = MirAggregateEntry sz tpr rvPart'
-      let m' = IntMap.insert off' entry' m
-      return $ MirAggregate totalSize m'
-
-  | otherwise = do
-      -- This handles the inner `MaybeType`s like `adjustMirVectorWithSymIndex`
-      -- does.
-      let f' rvPart = do
-            rv <- leafReadPartExpr bak rvPart $ agNoValueAtSymbolicOffsetSimError totalSize
-            rv' <- f rv
-            return $ justPartExpr sym rv'
-
-      xs <- forM candidates $ \(o, _w, rvPart) -> do
-        hit <- liftIO $ bvEq sym off =<< offsetLit o
-        mRvPart' <- subMuxLeafIO bak (f' rvPart) hit
-        rvPart'' <- case mRvPart' of
-          Just rvPart' -> liftIO $ iteFn' hit rvPart' rvPart
-          Nothing -> return rvPart
-        return ((o, rvPart''), hit)
-
-      -- `off` must refer to some existing offset with type `tpr`.  Using
-      -- `adjust` to create new entries is not allowed.
-      hitAny <- offsetInSpans sym off (map (\(o, w, _) -> (o, o + w)) candidates)
-      leafAssert bak hitAny $ GenericSimError $
-        "no value or wrong type: the requested type is " ++ show tpr
-
-      let newEntryRvs = IntMap.fromAscList $ map (\((o, rv), _) -> (fromIntegral o, rv)) xs
-      let newEntries = IntMap.intersectionWith
-            (\(MirAggregateEntry sz tpr' _) rv ->
-              case testEquality tpr' tpr of
-                Just Refl -> MirAggregateEntry sz tpr rv
-                Nothing ->
-                  panic "adjustMirAggregateWithSymOffset"
-                    ["`candidates`/`xs` should only contain entries of type `tpr`"])
-            m newEntryRvs
-      let m' = IntMap.union newEntries m
-      return $ MirAggregate totalSize m'
-
-  where
-    sym = backendGetSym bak
-    candidates = mirAgTypedCandidates tpr ag
-    offsetLit = wordLit sym
-    iteFn' = liftIteFnMaybe sym tpr iteFn
 
 mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym)]
 mirAggregate_entries _sym (MirAggregate _totalSize m) =
