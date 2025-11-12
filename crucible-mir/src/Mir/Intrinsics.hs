@@ -955,9 +955,10 @@ offsetInSpans sym off spans = liftIO $ do
       andPred sym inBounds atTyBoundary
 
 -- | Given a sorted list of element "spans", represented as @(fromOffset,
--- toOffset)@ pairs, find and return all contiguous sequences of two or more
--- elements of the same width (the width being @toOffset - fromOffset@), and the
--- @fromOffset@s all other elements.
+-- toOffset)@ pairs (where an element's bytes occupy all offsets in the
+-- half-open range @[fromOffset, toOffset)@), find and return all contiguous
+-- sequences of two or more elements of the same width and the @fromOffset@s all
+-- other elements.
 --
 -- For example, @foldRuns [(0, 2), (4, 8), (8, 10), (10, 12), (12, 14)]@
 -- should yield @([0, 4], [Run {rFrom = 8, rTo = 14, rStride = 2}])@. The
