@@ -1,3 +1,11 @@
-test no_conc/<DISAMB>::crux_test[0]: returned (Symbolic BV, Symbolic BV), ok
+test no_conc/<DISAMB>::crux_test[0]: returned (Symbolic BV, Symbolic BV), [Crux] Attempting to prove verification conditions.
+ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 3
+[Crux]   Proved: 3
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Valid.

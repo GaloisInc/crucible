@@ -1,6 +1,14 @@
 test dump_what4/<DISAMB>::test[0]: a = 0x7b:[32]
 b = bvSum cx@1:bv 0x1:[32]
 c = eq 0x0:[32] cx@1:bv
+[Crux] Attempting to prove verification conditions.
 ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 1
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Valid.

@@ -3,4 +3,6 @@ foo
 bar
 ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
 [Crux] Overall status: Valid.

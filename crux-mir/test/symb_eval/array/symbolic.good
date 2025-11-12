@@ -1,3 +1,11 @@
-test symbolic/<DISAMB>::crux_test[0]: ok
+test symbolic/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 4
+[Crux]   Proved: 4
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Valid.

@@ -8,4 +8,6 @@ f = let -- test/symb_eval/debug/dump_rv.rs:30:19: 30:40
  in arrayMap [BV 2::[64]] 0x2a:[8] [BV 3::[64]] 0x1b:[8] v15
 ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
 [Crux] Overall status: Valid.

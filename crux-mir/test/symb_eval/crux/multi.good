@@ -1,6 +1,9 @@
-test multi/<DISAMB>::fail1[0]: FAILED
-test multi/<DISAMB>::fail2[0]: FAILED
-test multi/<DISAMB>::fail3[0]: FAILED
+test multi/<DISAMB>::fail1[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+test multi/<DISAMB>::fail2[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+test multi/<DISAMB>::fail3[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -24,4 +27,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 [Crux]   	x == 0
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 4
+[Crux]   Proved: 0
+[Crux]   Disproved: 4
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

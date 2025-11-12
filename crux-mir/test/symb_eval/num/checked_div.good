@@ -1,4 +1,5 @@
-test checked_div/<DISAMB>::crux_test[0]: returned 65, FAILED
+test checked_div/<DISAMB>::crux_test[0]: returned 65, [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -13,4 +14,11 @@ failures:
 [Crux]   test/symb_eval/num/checked_div.rs:8:5: 8:10: error: in checked_div/<DISAMB>::div_unsigned[0]
 [Crux]   attempt to divide `copy _1` by zero
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 3
+[Crux]   Proved: 0
+[Crux]   Disproved: 3
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

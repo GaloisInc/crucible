@@ -1,4 +1,5 @@
-test bad_symb2/<DISAMB>::crux_test[0]: FAILED
+test bad_symb2/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -7,4 +8,11 @@ failures:
 [Crux]   ./libs/crucible/symbolic.rs:28:50: 28:61 !./libs/crucible/symbolic.rs:34:1: 40:2: error: in crucible/<DISAMB>::symbolic[0]::{impl#3}[0]::symbolic[0]
 [Crux]   invalid symbolic variable name "\NUL:., /": Identifier must start with a letter.
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

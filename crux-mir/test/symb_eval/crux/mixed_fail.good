@@ -1,7 +1,11 @@
-test mixed_fail/<DISAMB>::fail1[0]: FAILED
-test mixed_fail/<DISAMB>::fail2[0]: FAILED
-test mixed_fail/<DISAMB>::pass1[0]: ok
-test mixed_fail/<DISAMB>::pass2[0]: ok
+test mixed_fail/<DISAMB>::fail1[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+test mixed_fail/<DISAMB>::fail2[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+test mixed_fail/<DISAMB>::pass1[0]: [Crux] Attempting to prove verification conditions.
+ok
+test mixed_fail/<DISAMB>::pass2[0]: [Crux] Attempting to prove verification conditions.
+ok
 
 failures:
 
@@ -23,4 +27,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:14:5:
 [Crux]   	x + 2 > x
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 6
+[Crux]   Proved: 2
+[Crux]   Disproved: 4
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

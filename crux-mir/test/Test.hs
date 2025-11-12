@@ -74,7 +74,7 @@ runCrux rustFile outHandle mode =
     -- The timeout is temporarily increased even further due to a performance
     -- regression (#627).  This keeps CI from breaking while we investigate.
     -- TODO: revert the timeout to 180 once performance is fixed
-    let quiet = True
+    let quiet = False
     let outOpts = (Crux.outputOptions defaultCruxOptions)
                     { Crux.simVerbose = 0
                     , Crux.quietMode = quiet

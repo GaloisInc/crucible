@@ -1,4 +1,5 @@
-test assert_refs/<DISAMB>::crux_test[0]: FAILED
+test assert_refs/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -8,4 +9,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/concretize/assert_refs.rs:12:5:
 [Crux]   	42 42 [42] [42]
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

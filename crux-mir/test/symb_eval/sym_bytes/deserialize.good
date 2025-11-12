@@ -1,4 +1,5 @@
-test deserialize/<DISAMB>::crux_test[0]: returned Symbolic BV, FAILED
+test deserialize/<DISAMB>::crux_test[0]: returned Symbolic BV, [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -7,4 +8,11 @@ failures:
 [Crux]   test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: error: in deserialize/<DISAMB>::deserialize[0]
 [Crux]   attempt to compute `copy _45 + move _60`, which would overflow
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 3
+[Crux]   Proved: 2
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
