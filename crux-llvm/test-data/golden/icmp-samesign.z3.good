@@ -1,0 +1,14 @@
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     Two integers with different signs were compared even though the `samesign` flag was set
+[Crux]     Arguments: 0xff:[8] 0x1:[8]
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 20
+[Crux]       ‘icmp’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/20.1.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Overall status: Invalid.

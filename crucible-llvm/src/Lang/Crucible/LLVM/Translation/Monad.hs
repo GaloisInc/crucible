@@ -53,8 +53,6 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.State.Strict (MonadState(..))
 import Data.IORef (IORef, modifyIORef)
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -97,9 +95,6 @@ data LLVMContext arch
      -- | For each function symbol, compute the set of
      --   aliases to that symbol
    , llvmFunctionAliases :: Map L.Symbol (Set L.GlobalAlias)
-     -- | Map the index of each piece of unnamed LLVM metadata to its value.
-     -- This information is used to resolve the arguments to debug intrinsics.
-   , llvmUnnamedMd :: IntMap L.ValMd
    }
 
 llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
@@ -113,8 +108,6 @@ mkLLVMContext mvar m = do
   unless (null errs) $
     malformedLLVMModule "Failed to construct LLVM type context" errs
   let dl = llvmDataLayout typeCtx
-  let unnamedMd =
-        IntMap.fromList [(L.umIndex um, L.umValues um) | um <- L.modUnnamedMd m]
 
   case mkNatRepr (ptrBitwidth dl) of
     Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
@@ -130,7 +123,6 @@ mkLLVMContext mvar m = do
                      , _llvmTypeCtx = typeCtx
                      , llvmGlobalAliases = mempty   -- these are computed later
                      , llvmFunctionAliases = mempty -- these are computed later
-                     , llvmUnnamedMd = unnamedMd
                      }
            return (Some ctx)
     _ ->

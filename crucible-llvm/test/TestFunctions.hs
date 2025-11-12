@@ -60,7 +60,8 @@ functionTests =
                           (L.PtrTo
                             (L.Alias (L.Ident "class.std::cls"))) Nothing (Just 8))
                         []
-                      , L.Effect L.RetVoid []
+                        []
+                      , L.Effect L.RetVoid [] []
                       ]
                   }
                 ]

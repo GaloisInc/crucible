@@ -1,4 +1,5 @@
-test out_of_bounds/<DISAMB>::crux_test[0]: FAILED
+test out_of_bounds/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -10,4 +11,11 @@ failures:
 [Crux]   test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/<DISAMB>::crux_test[0]
 [Crux]   attempted to read empty mux tree
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 0
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

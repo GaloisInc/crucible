@@ -1,3 +1,5 @@
 test from_to/<DISAMB>::crux_test[0]: ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
 [Crux] Overall status: Valid.
