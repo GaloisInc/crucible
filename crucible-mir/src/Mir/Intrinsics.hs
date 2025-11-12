@@ -934,11 +934,11 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
 -- Internal helper for `readMirAggregateWithSymOffset`.
 data Run = Run
   { -- | Starting at (and inclusive of) this position
-    rFrom :: Word,
+    rFrom :: !Word,
     -- | Ending at (and exclusive of) this position
-    rTo :: Word,
+    rTo :: !Word,
     -- | The spacing between the elements in this run
-    rStride :: Word
+    rStride :: !Word
   }
   deriving (Show)
 
