@@ -17,7 +17,7 @@ jobs:
         cabal: ["3.14.2.0"]
         ghc: ["9.6.7", "9.8.4", "9.10.1"]
         include:
-          - os: macos-14
+          - os: macos-15
             cabal: 3.14.2.0
             ghc: 9.10.1
           - os: windows-2022
@@ -47,7 +47,7 @@ jobs:
         cp "cabal.GHC-${{ matrix.ghc }}.config" cabal.project.freeze
       pre-test-hook: |
         env \
-          SOLVER_PKG_VERSION="snapshot-20250606" \
+          SOLVER_PKG_VERSION="snapshot-20251112" \
           BUILD_TARGET_OS="${{ matrix.os }}" \
           BUILD_TARGET_ARCH="${RUNNER_ARCH}" \
           "${GITHUB_WORKSPACE}/.github/ci.sh" \
