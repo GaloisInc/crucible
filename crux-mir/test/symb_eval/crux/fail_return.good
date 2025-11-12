@@ -1,5 +1,7 @@
-test fail_return/<DISAMB>::fail1[0]: returned Symbolic BV, FAILED
-test fail_return/<DISAMB>::fail2[0]: returned 123, FAILED
+test fail_return/<DISAMB>::fail1[0]: returned Symbolic BV, [Crux] Attempting to prove verification conditions.
+FAILED
+test fail_return/<DISAMB>::fail2[0]: returned 123, [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -21,4 +23,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/crux/fail_return.rs:15:5:
 [Crux]   	x + 1 > x
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 4
+[Crux]   Proved: 0
+[Crux]   Disproved: 4
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

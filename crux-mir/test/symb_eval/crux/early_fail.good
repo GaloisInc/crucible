@@ -1,5 +1,7 @@
-test early_fail/<DISAMB>::fail1[0]: FAILED
-test early_fail/<DISAMB>::fail2[0]: FAILED
+test early_fail/<DISAMB>::fail1[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+test early_fail/<DISAMB>::fail2[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -14,4 +16,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
 [Crux]   	x == 0
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 0
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

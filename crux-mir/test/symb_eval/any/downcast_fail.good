@@ -1,4 +1,5 @@
-test downcast_fail/<DISAMB>::crux_test[0]: FAILED
+test downcast_fail/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -7,4 +8,11 @@ failures:
 [Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:33: error: in downcast_fail/<DISAMB>::crux_test[0]
 [Crux]   failed to downcast Any as BVRepr 32
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

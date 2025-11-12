@@ -1,4 +1,5 @@
-test override2/<DISAMB>::f[0]: FAILED
+test override2/<DISAMB>::f[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -8,4 +9,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/overrides/override2.rs:9:5:
 [Crux]   	foo.wrapping_add(1) == foo
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

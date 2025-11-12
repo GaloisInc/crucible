@@ -1,4 +1,5 @@
-test put_overflow/<DISAMB>::f[0]: FAILED
+test put_overflow/<DISAMB>::f[0]: [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -7,4 +8,11 @@ failures:
 [Crux]   ./libs/core/src/panic.rs:107:9: 107:73 !./libs/bytes.rs:201:9: 202:49: error: in bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
 [Crux]   panicking::panic_fmt, called from bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
