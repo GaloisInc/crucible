@@ -72,8 +72,8 @@ is described by `evalApp` in `Simulator.Evaluation`.
 A lot of useful functionality relevant to the simulator can be accessed
 from module `Simulator`.
 
-The simulator supports global mutable references.  Our tools use one such
-reference to store a language specific memory model.  For example, our LLVM
-tools are in `crucible-llvm`, the memory model is in `LLVM.MemModel` (with
+The simulator supports mutable global variables.  Our tools use one such
+global to store a language specific memory model.  For example, our LLVM
+frontend is in `crucible-llvm`, the memory model is in `LLVM.MemModel` (with
 more modules in `LLVM.MemModel.*`), and the function that makes the global
 variable that contains the memory model is `LLVM.MemModel.mkMemVar`.
