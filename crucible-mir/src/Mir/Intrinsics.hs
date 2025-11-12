@@ -901,8 +901,7 @@ offsetInSpans sym off spans = liftIO $ do
   -- aggregate.
   --
   -- Suppose `tpr` is `u16`, and that the aggregate representing the struct
-  -- has been flattened (and that the aggregate elements appear in
-  -- declaration order). The type-correct offsets of `u16`s are those of `a`
+  -- has been flattened. The type-correct offsets of `u16`s are those of `a`
   -- (0), `c` (4), and each element of `e` (8, 10, and 12).
   --
   -- We start by partitioning these offsets into contiguous `runs` (of which
