@@ -483,7 +483,8 @@ buildLoadRelConstInitMap globalMap m = foldMap defineConstInits (L.modDefines m)
     foldLoadRelConstInitElem :: L.Global -> L.Value -> Maybe L.Value
     foldLoadRelConstInitElem global constInitElem
       | L.ValConstExpr
-          (L.ConstConv L.Trunc
+          (L.ConstConv
+            (L.Trunc False False)
             (L.Typed { L.typedValue =
               L.ValConstExpr
                 (L.ConstArith

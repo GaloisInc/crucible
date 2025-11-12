@@ -52,6 +52,7 @@ module Lang.Crucible.LLVM.Translation.Constant
   , testBreakpointFunction
   ) where
 
+import qualified Control.Exception as X
 import           Control.Lens( to, (^.) )
 import           Control.Monad
 import           Control.Monad.Except
@@ -806,14 +807,19 @@ evalConv expr op mt x = case op of
       , DoubleConst d <- x
       -> return $ IntConst w (BV.mkBV w (truncate d))
 
-    L.UiToFp
+    L.UiToFp nneg
       | FloatType <- mt
       , IntConst _w i <- x
-      -> return $ FloatConst (fromInteger (BV.asUnsigned i) :: Float)
+      -> -- LLVM does not currently enable the `nneg` flag in constant
+         -- expressions, only in instructions. As such, we don't use the flag
+         -- below except to assert that it's disabled.
+         X.assert (not nneg) $
+         return $ FloatConst (fromInteger (BV.asUnsigned i) :: Float)
 
       | DoubleType <- mt
       , IntConst _w i <- x
-      -> return $ DoubleConst (fromInteger (BV.asUnsigned i) :: Double)
+      -> X.assert (not nneg) $
+         return $ DoubleConst (fromInteger (BV.asUnsigned i) :: Double)
 
     L.SiToFp
       | FloatType <- mt
@@ -824,23 +830,32 @@ evalConv expr op mt x = case op of
       , IntConst w i <- x
       -> return $ DoubleConst (fromInteger (BV.asSigned w i) :: Double)
 
-    L.Trunc
+    L.Trunc nuw nsw
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      -> case testNatCases w' w of
+      -> -- LLVM does not currently enable the `nuw` or `nsw` flags in constant
+         -- expressions, only in instructions. As such, we don't use the flags
+         -- below except to assert that they're disabled.
+         X.assert (not nuw) $
+         X.assert (not nsw) $
+         case testNatCases w' w of
           NatCaseLT LeqProof -> return $ IntConst w' (BV.trunc w' i)
           NatCaseEQ -> return x
           NatCaseGT LeqProof ->
             throwError $ "Attempted to truncate " <> show w <> " bits to " <> show w'
 
-    L.ZExt
+    L.ZExt nneg
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      -> case testNatCases w w' of
+      -> -- LLVM does not currently enable the `nneg` flag in constant
+         -- expressions, only in instructions. As such, we don't use the flag
+         -- below except to assert that it's disabled.
+         X.assert (not nneg) $
+         case testNatCases w w' of
           NatCaseLT LeqProof -> return $ IntConst w' (BV.zext w' i)
           NatCaseEQ -> return x
           NatCaseGT LeqProof ->

@@ -572,8 +572,10 @@ translateConversion instr op (VecType n inty) (explodeVector n -> Just xs) (VecT
   | n == m = VecExpr outty <$> traverse (\x -> translateConversion instr op inty x outty) xs
 
 -- Otherwise, assume scalar values and do the basic conversions
-translateConversion instr op _inty x outty =
- let showI = showInstr instr in
+translateConversion instr op _inty x outty = do
+ mvar <- getMemVar
+ let showI = showInstr instr
+ let noLaxArith = not (laxArith ?transOpts)
  case op of
     L.IntToPtr -> do
        llvmTypeAsRepr outty $ \outty' ->
@@ -596,26 +598,46 @@ translateConversion instr op _inty x outty =
               , Just Refl <- testEquality w' PtrWidth -> return x
            _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
 
-    L.Trunc -> do
+    L.Trunc nuw nsw -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w'
              , Just LeqProof <- testLeq (incNat w') w ->
                  do x_bv <- pointerAsBitvectorExpr w x'
-                    let bv' = App (BVTrunc w' w x_bv)
-                    return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
+                    bv' <- AtomExpr <$> mkAtom (App (BVTrunc w' w x_bv))
+                    result <- sideConditionsA mvar (BVRepr w') bv'
+                      [ ( nuw && noLaxArith
+                        , fmap (App . BVEq w x_bv . AtomExpr)
+                               (mkAtom (App (BVZext w w' bv')))
+                        , UB.PoisonValueCreated $ Poison.TruncNoUnsignedWrap x_bv
+                        )
+                      , ( nsw && noLaxArith
+                        , fmap (App . BVEq w x_bv . AtomExpr)
+                               (mkAtom (App (BVSext w w' bv')))
+                        , UB.PoisonValueCreated $ Poison.TruncNoSignedWrap x_bv
+                        )
+                      ]
+                    return (BaseExpr outty' (BitvectorAsPointerExpr w' result))
            _ -> fail (unlines [unwords ["invalid truncation:", show x, show outty], showI])
 
-    L.ZExt -> do
+    L.ZExt nneg -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' ->
                  do x_bv <- pointerAsBitvectorExpr w x'
-                    let bv' = App (BVZext w' w x_bv)
-                    return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
+                    bv' <- AtomExpr <$> mkAtom (App (BVZext w' w x_bv))
+                    let z = App $ BVLit w $ BV.zero w
+                    result <-
+                      sideConditionsA mvar (BVRepr w') bv'
+                        [ ( nneg
+                          , pure $ App $ BVSle w z x_bv
+                          , UB.PoisonValueCreated $ Poison.ZExtNonNegative x_bv
+                          )
+                        ]
+                    return (BaseExpr outty' (BitvectorAsPointerExpr w' result))
            _ -> fail (unlines [unwords ["invalid zero extension:", show x, show outty], showI])
 
     L.SExt -> do
@@ -635,12 +657,21 @@ translateConversion instr op _inty x outty =
     L.BitCast -> bitCast _inty x outty
 #endif
 
-    L.UiToFp -> do
+    L.UiToFp nneg -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x'
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi RNE bv
+             bvFp <- AtomExpr <$> mkAtom (App (FloatFromBV fi RNE bv))
+             let z = App $ BVLit w $ BV.zero w
+             result <-
+               sideConditionsA mvar outty' bvFp
+                 [ ( nneg
+                   , pure $ App $ BVSle w z bv
+                   , UB.PoisonValueCreated $ Poison.UiToFpNonNegative bv
+                   )
+                 ]
+             return $ BaseExpr (FloatRepr fi) result
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do

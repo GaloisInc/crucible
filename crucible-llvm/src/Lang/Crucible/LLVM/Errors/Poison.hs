@@ -130,6 +130,18 @@ data Poison (e :: CrucibleType -> Type) where
   GEPOutOfBounds      :: (1 <= w, 1 <= wptr) => e (LLVMPointerType wptr)
                       -> e (BVType w)
                       -> Poison e
+  ZExtNonNegative     :: (1 <= w)
+                      => e (BVType w)
+                      -> Poison e
+  UiToFpNonNegative   :: (1 <= w)
+                      => e (BVType w)
+                      -> Poison e
+  TruncNoUnsignedWrap :: (1 <= w)
+                      => e (BVType w)
+                      -> Poison e
+  TruncNoSignedWrap   :: (1 <= w)
+                      => e (BVType w)
+                      -> Poison e
   deriving (Typeable)
 
 standard :: Poison e -> Standard
@@ -154,6 +166,10 @@ standard =
     InsertElementIndex _    -> LLVMRef LLVM8
     LLVMAbsIntMin _         -> LLVMRef LLVM12
     GEPOutOfBounds _ _      -> LLVMRef LLVM8
+    ZExtNonNegative _       -> LLVMRef LLVM18
+    UiToFpNonNegative _     -> LLVMRef LLVM19
+    TruncNoUnsignedWrap _   -> LLVMRef LLVM20
+    TruncNoSignedWrap _     -> LLVMRef LLVM20
 
 -- | Which section(s) of the document state that this is poison?
 cite :: Poison e -> Doc ann
@@ -178,6 +194,10 @@ cite =
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
     LLVMAbsIntMin _         -> "‘llvm.abs.*’ Intrinsic (Semantics)"
     GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
+    ZExtNonNegative _       -> "‘zext’ Instruction (Semantics)"
+    UiToFpNonNegative _     -> "‘uitofp’ Instruction (Semantics)"
+    TruncNoUnsignedWrap _   -> "‘trunc’ Instruction (Semantics)"
+    TruncNoSignedWrap _     -> "‘trunc’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
 explain =
@@ -233,6 +253,15 @@ explain =
       , "treats all GEP instructions as if they had the `inbounds` attribute set."
       ]
 
+    ZExtNonNegative _ ->
+      "A negative integer was zero-extended even though the `nneg` flag was set"
+    UiToFpNonNegative _ ->
+      "A negative integer was converted to a floating-point value even though the `nneg` flag was set"
+    TruncNoUnsignedWrap _ ->
+      "Unsigned truncation caused wrapping even though the `nuw` flag was set"
+    TruncNoSignedWrap _ ->
+      "Signed truncation caused wrapping even though the `nsw` flag was set"
+
 details :: forall sym ann.
   W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc ann]
 details =
@@ -259,6 +288,10 @@ details =
       [ "Pointer:" <+> ppPtr ptr
       , "Bitvector:" <+> W4I.printSymExpr bv
       ]
+    ZExtNonNegative v -> args [v]
+    UiToFpNonNegative v -> args [v]
+    TruncNoUnsignedWrap v -> args [v]
+    TruncNoSignedWrap v -> args [v]
 
  where
  args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
@@ -334,6 +367,14 @@ concPoison sym conc poison =
       GEPOutOfBounds <$> concPtr' sym conc p <*> bv v
     LLVMAbsIntMin v ->
       LLVMAbsIntMin <$> bv v
+    ZExtNonNegative v ->
+      ZExtNonNegative <$> bv v
+    UiToFpNonNegative v ->
+      UiToFpNonNegative <$> bv v
+    TruncNoUnsignedWrap v ->
+      TruncNoUnsignedWrap <$> bv v
+    TruncNoSignedWrap v ->
+      TruncNoSignedWrap <$> bv v
 
 
 -- -----------------------------------------------------------------------

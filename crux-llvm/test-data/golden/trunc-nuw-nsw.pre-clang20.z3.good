@@ -1,0 +1,4 @@
+SKIP_TEST
+
+This test case uses nuw/nsw flags with trunc instructions, which requires LLVM
+20 or later.
