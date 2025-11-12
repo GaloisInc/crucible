@@ -62,7 +62,7 @@ The state of a running simulator is described in `Simulator.ExecutionTree`:
     (e.g, after we explore the `then` part of an `if` statement, we'll
     roll back some of the state changes before simulating the `else` part,
     but the stuff in `SimContexts` persists).  An important part of the
-    `SymContext` is the simulator's backend (`Backend`), which is how the
+    `SimContext` is the simulator's backend (`Backend`), which is how the
     simulator communicates with a solver, and builds symbolic expressions.
 
 To evaluate a CFG (`CFG.Core`) we evaluate the statements as described in
