@@ -26,7 +26,7 @@ In practice, we only have one backend, namely `ExprBuidler` defined in `what4`,
 expressions.
 
 Also, in some cases we use `RegEntry` (`Simulator.RegMap`) which
-is just a pair of `RegValue` and it's associated `TypeRep`.
+is just a pair of `RegValue` and it's associated `TypeRepr`.
 
 There's also `BaseTerm` (`CFG.Expr`), which is similar to `RegEntry` but
 for base types---it contains a `BaseTypeRepr` and a value of the corresponding
