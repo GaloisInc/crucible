@@ -803,8 +803,8 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
     -- Given a list of valid entry spans @(fromOffset, toOffset)@ in this
-    -- aggregate, create a predicate that the provided offset appears among
-    -- their @fromOffset@ values.
+    -- aggregate, create a predicate that the offset provided to the enclosing
+    -- function, `off`, appears among their @fromOffset@ values.
     --
     -- Precondition: the candidate spans are sorted in ascending order by
     -- starting offset.
@@ -812,27 +812,46 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
       [(Word, Word)] ->
       MuxLeafT sym IO (SymExpr sym BaseBoolType)
     offsetInSpans spans = liftIO $ do
-      -- We want to construct a symbolic expression representing whether or not
-      -- `off` appears in this aggregate's candidate offsets. The most
-      -- straightforward way to do that is to test it for equality against each
-      -- of those offsets and `orPred` those tests into a single expression.
-      -- However, expressions like that can be expensive to simulate.
+      -- Consider this struct:
+      -- ```rs
+      -- #[repr(C)]
+      -- struct Foo {
+      --   a: u16,
+      --   b: [u8; 2],
+      --   c: u16,
+      --   d: [u8; 2],
+      --   e: [u16; 3],
+      -- }
+      -- ```
       --
-      -- If portions of the aggregate represent arrays, then those entries will
-      -- be evenly spaced a known stride apart from one another. If we can find
-      -- such contiguous "runs" of entries, we can construct much simpler
-      -- membership predicates for them: is the provided offset between the
-      -- beginning and the end of a run, and is the offset a multiple of the
-      -- stride of that run?
+      -- We have a symbolic offset (`off`) and a concrete type (`tpr`), and need
+      -- to determine whether an element of type `tpr` exists at `off` in the
+      -- aggregate.
       --
-      -- We partition the aggregate into contiguous runs and discrete elements
-      -- to take advantage of the more efficient predicate where possible, and
-      -- to fall back to the less efficient predicate where necessary.
+      -- Suppose `tpr` is `u16`, and that the aggregate representing the struct
+      -- has been flattened (and that the aggregate elements appear in
+      -- declaration order). The type-correct offsets of `u16`s are those of `a`
+      -- (0), `c` (4), and each element of `e` (8, 10, and 12).
+      --
+      -- We start by partitioning these offsets into contiguous `runs` (of which
+      -- there is one, from 8 to 14, exclusive of 14) and discrete `offsets` (of
+      -- which there are two, 0 and 4).
       let (offsets, runs) = foldRuns spans
 
+      -- For `offsets`, we construct a simplistic predicate: for each offset, is
+      -- `off` equal to it? For our example, this will yield the predicate
+      -- (`off` == 0 || `off` == 4).
       offsetsPred <- orPredBy (\o -> bvEq sym off =<< offsetLit o) offsets
+
+      -- For `runs`, we construct a more efficient predicate: for each run, is
+      -- `off` within the bounds of the run, and does the stride (i.e. the width
+      -- of a single `u16`) evenly divide it? For our example, this will yield
+      -- the predicate (`off` >= 8 && `off` < 14 && `off` % 2 == 0). See
+      -- `runPred`, below.
       runsPred <- orPredBy runPred runs
 
+      -- If either predicate holds, the offset is a valid index into this
+      -- aggregate.
       orPred sym runsPred offsetsPred
 
     orPredBy :: (a -> IO (Pred sym)) -> [a] -> IO (Pred sym)
@@ -865,7 +884,14 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
 
     -- Given a sorted list of element "spans", represented as @(fromOffset,
     -- toOffset)@ pairs, find and return all contiguous sequences of two or more
-    -- elements of the same width, and the offsets all other elements.
+    -- elements of the same width (the width being @toOffset - fromOffset@), and
+    -- the @fromOffset@s all other elements.
+    --
+    -- For example, @foldRuns [(0, 2), (4, 8), (8, 10), (10, 12), (12, 14)]@
+    -- should yield @([0, 4], [Run {rFrom = 8, rTo = 14, rStride = 2}])@. The
+    -- last three spans are adjacent to one another and are the same width, so
+    -- they are folded into a `Run` (to 14, exclusive of 14). The first two
+    -- spans are not contiguous, so they are returned as discrete offsets.
     foldRuns :: [(Word, Word)] -> ([Word], [Run])
     foldRuns spans =
       let (offsets, runs) = foldRuns' [] [] spans
@@ -889,6 +915,7 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
         (_, (sFrom, _) : ss) ->
           foldRuns' (sFrom : offsets) runs ss
 
+    -- Attempt to add the given span to the end of the given run.
     addToRun :: Run -> (Word, Word) -> Maybe Run
     addToRun run (sFrom, sTo)
       | rTo run == sFrom,
@@ -897,6 +924,8 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
       | otherwise =
           Nothing
 
+    -- Attempt to make a new run from two spans, yielding a run if they are the
+    -- same width and are adjacent.
     mkRun :: (Word, Word) -> (Word, Word) -> Maybe Run
     mkRun (s1From, s1To) s2 =
       addToRun (Run s1From s1To (s1To - s1From)) s2
