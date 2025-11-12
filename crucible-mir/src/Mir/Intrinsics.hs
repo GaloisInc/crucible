@@ -60,8 +60,6 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import qualified Data.List as List
-import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Maybe as Maybe
 import qualified Data.Vector as V
 import           Data.Word
@@ -783,11 +781,11 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
           -- This error is a bit vague, but since `candidates` only contains
           -- entries that match `tpr`, we don't have a more precise answer.
           "no value or wrong type: the requested type is " ++ show tpr
-        (o0, _w0, rv0) : candidates' -> do
+        (_o0, _w0, rv0) : candidates' -> do
           -- The candidates come from `mirAgTypedCandidates`, which promises to
-          -- return offsets in ascending order, which satisfies
-          -- `offsetIn`'s precondition.
-          offsetValid <- offsetIn (o0 :| map (\(o, _, _) -> o) candidates')
+          -- return elements in ascending order by offset, which satisfies
+          -- `offsetInSpan`'s precondition.
+          offsetValid <- offsetInSpans (map (\(o, w, _) -> (o, o + w)) candidates)
           leafAssert bak offsetValid $ GenericSimError $
             "no value or wrong type: the requested type is " ++ show tpr
           rv <- liftIO $ foldM
@@ -804,14 +802,16 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
-    -- Given a list of valid offsets in this aggregate, create a predicate that
-    -- the provided offset appears among them.
+    -- Given a list of valid entry spans @(fromOffset, toOffset)@ in this
+    -- aggregate, create a predicate that the provided offset appears among
+    -- their @fromOffset@ values.
     --
-    -- Precondition: the candidate offsets are sorted in ascending order.
-    offsetIn ::
-      NonEmpty Word ->
+    -- Precondition: the candidate spans are sorted in ascending order by
+    -- starting offset.
+    offsetInSpans ::
+      [(Word, Word)] ->
       MuxLeafT sym IO (SymExpr sym BaseBoolType)
-    offsetIn (off0 :| offs) = liftIO $ do
+    offsetInSpans spans = liftIO $ do
       -- We want to construct a symbolic expression representing whether or not
       -- `off` appears in this aggregate's candidate offsets. The most
       -- straightforward way to do that is to test it for equality against each
@@ -828,8 +828,7 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
       -- We partition the aggregate into contiguous runs and discrete elements
       -- to take advantage of the more efficient predicate where possible, and
       -- to fall back to the less efficient predicate where necessary.
-      let spans = List.zipWith (,) (off0 : offs) (offs <> [totalSize])
-          (offsets, runs) = foldRuns spans
+      let (offsets, runs) = foldRuns spans
 
       offsetsPred <- orPredBy (\o -> bvEq sym off =<< offsetLit o) offsets
       runsPred <- orPredBy runPred runs
@@ -848,10 +847,9 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
     -- Whether `off` appears in the given `Run` of aggregate elements.
     runPred :: Run -> IO (Pred sym)
     runPred run = do
-      -- Note that we're using the unique stride as a proxy for element type
-      -- width, since we currently hardcode all aggregate entries as having
-      -- width 1 (TODO: hardcoded size=1). Once we move beyond that hardcoding,
-      -- we should use real entry widths here, rather than a proxy.
+      -- Note that we're able to use the unique stride as a proxy for element
+      -- type width, since the widths of `Run` elements are exactly those of the
+      -- original aggregate entry widths.
       let tyWidth = rStride run
 
       -- off >= rFrom
