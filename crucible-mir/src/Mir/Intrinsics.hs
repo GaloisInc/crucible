@@ -990,7 +990,7 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
 
       -- `off` must refer to some existing offset with type `tpr`.  Using
       -- `adjust` to create new entries is not allowed.
-      hitAny <- liftIO $ foldM (orPred sym) (falsePred sym) (map snd xs)
+      hitAny <- offsetInSpans sym off (map (\(o, w, _) -> (o, o + w)) candidates)
       leafAssert bak hitAny $ GenericSimError $
         "no value or wrong type: the requested type is " ++ show tpr
 
