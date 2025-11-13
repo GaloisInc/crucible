@@ -66,7 +66,15 @@ RUN case ${TARGETPLATFORM} in \
         printf "Unsupported architecture: %s\n" "${TARGETPLATFORM}" >&2 \
         exit 1 ;; \
     esac && \
-    curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20250606/ubuntu-22.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
+    curl \
+      --fail \
+      --location \
+      --proto '=https' \
+      --show-error \
+      --silent \
+      --tlsv1.2 \
+      --output solvers.zip \
+      "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20251112/ubuntu-22.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 WORKDIR /crux-mir
@@ -80,7 +88,15 @@ RUN case ${TARGETPLATFORM} in \
         exit 1 ;; \
     esac && \
     mkdir -p /home/crux-mir/.local/bin && \
-    curl -L https://downloads.haskell.org/~ghcup/0.1.50.1/${GHCUP_ARCH}-linux-ghcup-0.1.50.1 -o /home/crux-mir/.local/bin/ghcup && \
+    curl \
+      --fail \
+      --location \
+      --proto '=https' \
+      --show-error \
+      --silent \
+      --tlsv1.2 \
+      --output /home/crux-mir/.local/bin/ghcup \
+      https://downloads.haskell.org/~ghcup/0.1.50.1/${GHCUP_ARCH}-linux-ghcup-0.1.50.1 && \
     chmod +x /home/crux-mir/.local/bin/ghcup
 RUN mkdir -p /home/crux-mir/.ghcup && \
     ghcup --version && \

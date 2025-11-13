@@ -83,7 +83,17 @@ install_llvm() {
 }
 
 install_solvers() {
-  (cd $BIN && curl -o bins.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/$SOLVER_PKG_VERSION/$BUILD_TARGET_OS-$BUILD_TARGET_ARCH-bin.zip" && unzip -o bins.zip && rm bins.zip)
+  (cd $BIN && \
+    curl \
+      --fail \
+      --location \
+      --proto '=https' \
+      --show-error \
+      --silent \
+      --tlsv1.2 \
+      --output bins.zip \
+      "https://github.com/GaloisInc/what4-solvers/releases/download/$SOLVER_PKG_VERSION/$BUILD_TARGET_OS-$BUILD_TARGET_ARCH-bin.zip" && \
+    unzip -o bins.zip && rm bins.zip)
   cp $BIN/yices_smt2$EXT $BIN/yices-smt2$EXT
   chmod +x $BIN/*
   export PATH=$BIN:$PATH
