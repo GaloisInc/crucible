@@ -41,9 +41,9 @@ We also have 'RegValue'' which is just a @newtype@ wrapper around 'RegValue',
 because in Haskell type families may not be partially applied but @newtype@s can.
 
 An important subset of the Crucible types are the base types (see 'BaseToType'),
-which is a backend specific type for the symbolic expression we can construct
+which is for the symbolic expression we can construct
 (see 'SymExpr' in [what4](https://github.com/Galoisinc/what4)).
-Only these types may contain variables. In practice, we always @what4@'s
+Only these types may contain variables. In practice, we always use @what4@'s
 'Expr' type to represent symbolic expressions.
 
 Also, in some cases we use 'RegEntry' which
