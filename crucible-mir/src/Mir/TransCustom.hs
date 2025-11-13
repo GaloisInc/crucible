@@ -121,6 +121,9 @@ customOpDefs = Map.fromList $ [
                          , volatile_load
                          , volatile_write
                          , exact_div
+                         , intrinsics_offset
+                         , intrinsics_arith_offset
+                         , intrinsics_ptr_offset_from
 
                          , mem_transmute
                          , mem_bswap
@@ -158,6 +161,7 @@ customOpDefs = Map.fromList $ [
                          , ptr_wrapping_offset_mut
                          , ptr_offset_from
                          , ptr_offset_from_mut
+                         , ptr_offset_from_unsigned
                          , sub_ptr
                          , sub_ptr_mut
                          , ptr_compare_usize
@@ -520,6 +524,30 @@ ptr_offset_from :: (ExplodedDefId, CustomRHS)
 ptr_offset_from = (["core", "ptr", "const_ptr", "{impl}", "offset_from"], ptr_offset_from_impl)
 ptr_offset_from_mut :: (ExplodedDefId, CustomRHS)
 ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset_from"], ptr_offset_from_impl)
+
+ptr_offset_from_unsigned_impl :: CustomRHS
+ptr_offset_from_unsigned_impl = \substs -> case substs of
+  Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp MirReferenceRepr ref1, MirExp MirReferenceRepr ref2] -> do
+      maybeOffset <- mirRef_tryOffsetFrom ref1 ref2
+      let errMsg = R.App $ E.StringLit $ fromString $
+            "ptr_offset_from_unsigned: pointers not in same allocation"
+      let signedOffset = R.App $ E.FromJustValue IsizeRepr maybeOffset errMsg
+      let zeroIsize = R.App $ E.BVLit (knownNat @SizeBits) (BV.mkBV (knownNat @SizeBits) 0)
+      let isNeg = R.App $ E.BVSlt (knownNat @SizeBits) signedOffset zeroIsize
+      G.assertExpr (R.App $ E.Not isNeg) $
+        S.litExpr "ptr_offset_from_unsigned: negative offset"
+      -- just reinterpret as unsigned:
+      let unsignedOffset = signedOffset
+      return $ MirExp UsizeRepr unsignedOffset
+    _ -> mirFail $ "bad arguments for ptr_offset_from_unsigned: " ++ show ops
+  _ -> Nothing
+
+ptr_offset_from_unsigned :: (ExplodedDefId, CustomRHS)
+ptr_offset_from_unsigned =
+  ( ["core", "intrinsics", "ptr_offset_from_unsigned"]
+  , ptr_offset_from_unsigned_impl
+  )
 
 sub_ptr :: (ExplodedDefId, CustomRHS)
 sub_ptr = (["core", "ptr", "const_ptr", "{impl}", "sub_ptr"], ptr_offset_from_impl)
@@ -1387,6 +1415,15 @@ slice_from_ref = slice_from Immut
 
 slice_from_mut ::  (ExplodedDefId, CustomRHS)
 slice_from_mut = slice_from Mut
+
+intrinsics_offset :: (ExplodedDefId, CustomRHS)
+intrinsics_offset = (["core", "intrinsics", "offset"], ptr_offset_impl)
+
+intrinsics_arith_offset :: (ExplodedDefId, CustomRHS)
+intrinsics_arith_offset = (["core", "intrinsics", "arith_offset"], ptr_wrapping_offset_impl)
+
+intrinsics_ptr_offset_from :: (ExplodedDefId, CustomRHS)
+intrinsics_ptr_offset_from = (["core", "intrinsics", "ptr_offset_from"], ptr_offset_from_impl)
 
 
 -------------------------------------------------------------------------------------------------------

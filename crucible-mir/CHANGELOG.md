@@ -12,6 +12,23 @@ This release supports [version
 * Add an intrinsic for [`size_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.size_of_val.html),
   which computes the size of a value in bytes. This works for all sized types
   as well as a limited number of unsized types (currently, only slices).
+* Add an intrinsic for [`offset`](https://doc.rust-lang.org/std/intrinsics/fn.offset.html),
+  which performs pointer offset arithmetic with bounds checking, mirroring the
+  semantics of Rust's `core::intrinsics::offset`.
+* Add an intrinsic for [`arith_offset`](https://doc.rust-lang.org/std/intrinsics/fn.arith_offset.html),
+  which performs wrapping pointer offset arithmetic (allowing arithmetic beyond
+  the end of objects without UB), matching the behavior of Rust's
+  `core::intrinsics::arith_offset`.
+* Add an intrinsic for [`ptr_offset_from`](https://doc.rust-lang.org/std/intrinsics/fn.ptr_offset_from.html),
+  which computes the offset (in elements) between two pointers, mirroring
+  Rust's `core::intrinsics::ptr_offset_from`.
+* Add an intrinsic for [`ptr_offset_from_unsigned`](https://doc.rust-lang.org/std/intrinsics/fn.ptr_offset_from_unsigned.html),
+  which computes the offset (in elements, as an unsigned integer) between two
+  pointers.  This intrinsic matches the semantics of Rust's
+  core::intrinsics::ptr_offset_from_unsigned, and requires that the first
+  pointer is greater than or equal to the second.  If the offset would be
+  negative (i.e., the first pointer is less than the second), this is undefined
+  behavior.
 
 # 0.5 -- 2025-11-09
 
