@@ -1,3 +1,14 @@
+SKIP_TEST
+
+This test is disabled because it takes an extraordinarily long time to complete
+with `cvc5-1.2.0` or later (as reported upstream in
+https://github.com/cvc5/cvc5/issues/12234).
+
+TODO(#1635): Re-enable this test once the upstream issue has been fixed and is
+available in a what4-solvers release.
+
+-----
+
 [Crux] Found counterexample for verification goal
 [Crux]   test-data/golden/abd-test-file-32.c:11:0: error: in main
 [Crux]   crucible_assert
