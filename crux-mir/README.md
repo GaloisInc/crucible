@@ -49,7 +49,7 @@ Next, navigate to the `crucible/dependencies/mir-json` directory. Install
 [the `mir-json` README][mir-json-readme].
 
 Currently, `crux-mir` supports [version
-4](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#4) of
+5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
 `mir-json`'s schema. Note that the schema versions produced by `mir-json` can
 change over time as dictated by internal requirements and upstream changes. To
 help smooth this over:
@@ -158,7 +158,7 @@ To compile and test a single Rust program:
      │
   43 │     assert!(a == b);
      │             ^^^^^^
-  
+
   ✅ 100% example_1/ffs_fast[0]: 10/10
   ✅ 100% example_1/ffs_ref[0]: 4/4
   🚧  50% example_1/test_ffs_correct[0]: 1/2

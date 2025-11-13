@@ -46,7 +46,6 @@ import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
-import qualified Data.Vector     as Vector
 import           Control.Lens ((^.), (^?), (^..), ix, each)
 import           GHC.Generics (Generic)
 
@@ -103,8 +102,8 @@ import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, SomeRustEnumRepr(..),
-                    pattern MirVectorRepr, MirVector(..),
-                    pattern MirAggregateRepr, MirAggregate(..), MirAggregateEntry(..))
+                    pattern MirAggregateRepr, MirAggregate(..), MirAggregateEntry(..),
+                    mirAggregate_lookup)
 import           Mir.Generator
 import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
@@ -604,9 +603,6 @@ showRegEntry col mty (C.RegEntry tp rv) =
     (TyBool, C.BoolRepr) -> return $ case W4.asConstantPred rv of
                      Just b -> if b then "true" else "false"
                      Nothing -> "Symbolic bool"
-    (TyStr, C.StringRepr W4.UnicodeRepr) -> return $ case W4.asString rv of
-                     Just s -> show s
-                     Nothing -> "Symbolic string"
 
     (TyChar, C.BVRepr _w) -> return $ case W4.asBV rv of
                      Just i  -> show (Char.chr (fromInteger (BV.asUnsigned i)))
@@ -699,72 +695,18 @@ showRegEntry col mty (C.RegEntry tp rv) =
                                 Nothing -> v) (var ^.. vfields . each . fName) strs
                         in return $ varName ++ " { " ++ List.intercalate ", " strs' ++ " }"
 
-{-
-            Enum -> do
-                C.Some enumCtx <- return $ enumVariants adt args
-                C.AnyValue anyTpr anyVal <- return rv
-                Refl <- case testEquality anyTpr (RustEnumRepr enumCtx) of
-                    Just refl -> return refl
-                    Nothing -> fail $ "bad ANY unpack for " ++ show mty ++ ": expected " ++
-                        show (RustEnumRepr enumCtx) ++ ", but got " ++ show anyTpr
-
-        case W4.asUnsignedBV (C.unRV $ anyVal Ctx.! Ctx.i1of2) of
-            Nothing -> return $ "Symbolic ADT: " ++ show name
-            Just discr -> do
-                let var = case adt ^? adtvariants . ix (fromIntegral discr) of
-                        Just x -> x
-                        Nothing -> error $ "variant index " ++ show discr ++ " out of range for " ++ show name
-                return $ show name ++ ", variant " ++ show (var ^. vname)
--}
-
-
-      {-
-      let rv' :: Ctx.Assignment (C.RegValue' sym) (Ctx.EmptyCtx Ctx.::> C.NatType Ctx.::> C.AnyType)
-          rv' = rv
-      let kv = rv'  Ctx.! Ctx.i1of2
-      case W4.asNat (C.unRV kv) of
-        Just k  -> do
-          let var = variants !! (fromInteger (toInteger k))
-          case rv'  Ctx.! Ctx.i2of2 of
-            (C.RV (C.AnyValue (C.StructRepr (ctxr :: C.CtxRepr ctx)) (av :: Ctx.Assignment (C.RegValue' sym) ctx))) -> do
-              let goField :: forall typ. Ctx.Index ctx typ -> C.RegValue' sym typ
-                          -> (C.OverrideSim p sym MIR rtp args ret (Const String typ))
-                  goField idx (C.RV elt) = do
-                    let (Field fName fty _fsubst) = (var^.vfields) !! (Ctx.indexVal idx)
-                        cty0   = ctxr Ctx.! idx
-                    str <- showRegEntry col fty (C.RegEntry cty0 elt)
-                    case parseFieldName fName of
-                      Just fn -> case Read.readMaybe (Text.unpack fn) of
-                                        Just (_x :: Int) -> return $ (Const $ str)
-                                        _  -> return $ (Const $ (Text.unpack fn) ++ ": " ++ str)
-                      _       -> return $ (Const str)
-              cstrs <- Ctx.traverseWithIndex goField av
-              let strs = Ctx.toListFC (\(Const str) -> str) cstrs
-              let body = List.intercalate ", " strs
-              if Char.isDigit (head body) then
-                return $ Text.unpack (cleanVariantName (var^.vname)) ++ "(" ++ body  ++ ")"
-              else
-                return $ Text.unpack (cleanVariantName (var^.vname)) ++ " { " ++ body ++ " }"
-            _ -> fail "invalide representation of ADT"
-        Nothing -> return $ "Symbolic ADT:" ++ show name
--}
-
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
-    (TyArray ty _sz, MirVectorRepr tyr) -> do
-      values <- case rv of
-        MirVector_Vector v -> forM (Vector.toList v) $ \val -> do
-            showRegEntry col ty $ C.RegEntry tyr val
-        MirVector_PartialVector pv -> forM (Vector.toList pv) $
-            \partVal -> goMaybe ty tyr partVal
-        MirVector_Array _ -> return ["<symbolic array...>"]
-      return $ "[" ++ List.intercalate ", " values ++ "]"
-
-    (TyStr, C.VectorRepr tyr) -> do
-      let entries = Vector.map (C.RegEntry tyr) rv
-      values <- Vector.mapM (showRegEntry col TyChar) entries
-      let strs = Vector.toList values
-      return $ concat strs
+    (TyArray ty len, MirAggregateRepr) -> do
+      case tyToRepr col ty of
+        Right (C.Some tpr) -> do
+          let size = 1  -- TODO: hardcoded size=1
+          values <- forM [0 .. len - 1] $ \i -> do
+            case mirAggregate_lookup (fromIntegral i * size) tpr rv of
+              Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
+              Right partVal -> goMaybe ty tpr partVal
+          return $ "[" ++ List.intercalate ", " values ++ "]"
+        Left e -> return $ "error handling type " ++ show (pretty ty) ++ ": " ++ e
 
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
 

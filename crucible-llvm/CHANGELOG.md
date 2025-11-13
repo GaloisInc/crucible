@@ -1,5 +1,26 @@
 # next
 
+* The `LLVM_Debug` data constructor for `LLVMStmt`, as well as the related
+  `LLVM_Dbg` data type, have been removed.
+* Remove `aggInfo` in favor of `aggregateAlignment`, a lens that retrieves an
+  `Alignment` instead of a full `AlignInfo`. In practice, `aggInfo` would only
+  ever contain a single size (`0`) in its `AlignInfo`, and the concept of
+  "size" doesn't really apply to aggregate alignments in data layout strings,
+  so this was simplified to just be an `Alignment` instead.
+* Support simulating bitcode that uses features from LLVM 19, including
+  [debug records](https://llvm.org/docs/RemoveDIsDebugInfo.html) and
+  [`getelementptr`
+  attributes](https://releases.llvm.org/19.1.0/docs/LangRef.html#id237).
+* Support the `nneg` flag in `zext` and `uitofp` instructions. If `nneg` is
+  set, then converting a negative argument will yield a poisoned result.
+* Support the `nuw` and `nsw` flags in `trunc` instructions. If `nuw` or `nsw`
+  is set, then performing a truncation that would result in unsigned or signed
+  integer overflow, respectively, will yield a poisoned result.
+* Support the `samesign` flag in `icmp` instructions. If `samesign` is set, then
+  comparing two integers of different signs will yield a poisoned result.
+
+# 0.8.0 -- 2025-11-09
+
 * `Lang.Crucible.LLVM.MemModel.{loadString,loadMaybeString,strLen}`
   should now be imported from `Lang.Crucible.LLVM.MemModel.Strings`.
 * Two new functions for loading C-style null-terminated strings from
@@ -10,6 +31,11 @@
   `loadBytes`.
 * Support simulating LLVM bitcode files whose data layout strings specify
   function pointer alignment.
+* Fix a bug that would cause the simuator to compute incorrect results for the
+  `llvm.is.fpclass` intrinsic. (Among other things, this is used to power the
+  `isnan` function in Clang 17 or later.)
+* Support vectorized versions of the `llvm.u{min,max}` and `llvm.s{min,max}`
+  intrinsics.
 
 # 0.7.1 -- 2025-03-21
 

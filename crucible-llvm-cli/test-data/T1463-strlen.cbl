@@ -13,10 +13,10 @@
 ; In point of fact, `strlen` was never subject to this bug, but this still
 ; serves as a regression test for it.
 
+(declare @strlen ((p (Ptr 64))) (Bitvector 64))
+
 (defun @main () Unit
   (start start:
-    (let g (resolve-global "strlen"))
-    (let h (load-handle (Ptr 64) ((Ptr 64)) g))
     (let bv0 (fresh (Bitvector 8)))
     (let byte0 (ptr 8 0 bv0))
 
@@ -33,5 +33,5 @@
     (store none i8 middle byte0)
     (jump end:))
   (defblock end:
-    (funcall h beginning)
+    (funcall @strlen beginning)
     (return ())))

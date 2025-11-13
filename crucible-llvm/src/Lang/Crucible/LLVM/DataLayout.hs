@@ -42,7 +42,6 @@ import Control.Lens
 import Control.Monad.State.Strict
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
 import Data.Word (Word32)
 import qualified Text.LLVM as L
 import Numeric.Natural
@@ -131,11 +130,6 @@ floatAlignment :: DataLayout -> Natural -> Maybe Alignment
 floatAlignment dl w = Map.lookup w t
   where AT t = dl^.floatInfo
 
--- | Get the basic alignment for aggregate types.
-aggregateAlignment :: DataLayout -> Alignment
-aggregateAlignment dl =
-  fromMaybe noAlignment (findExact 0 (dl^.aggInfo))
-
 -- | Return maximum alignment constraint stored in tree.
 maxAlignmentInTree :: AlignInfo -> Alignment
 maxAlignmentInTree (AT t) = foldrOf folded max noAlignment t
@@ -165,12 +159,12 @@ data DataLayout
    = DL { _intLayout :: EndianForm
         , _stackAlignment :: !Alignment
         , _functionPtrAlignment :: !Alignment
+        , _aggregateAlignment :: !Alignment
         , _ptrSize     :: !Bytes
         , _ptrAlign    :: !Alignment
         , _integerInfo :: !AlignInfo
         , _vectorInfo  :: !AlignInfo
         , _floatInfo   :: !AlignInfo
-        , _aggInfo     :: !AlignInfo
         , _stackInfo   :: !AlignInfo
         , _layoutWarnings :: [L.LayoutSpec]
         }
@@ -189,6 +183,10 @@ functionPtrAlignment :: Lens' DataLayout Alignment
 functionPtrAlignment =
   lens _functionPtrAlignment (\s v -> s { _functionPtrAlignment = v})
 
+aggregateAlignment :: Lens' DataLayout Alignment
+aggregateAlignment =
+  lens _aggregateAlignment (\s v -> s { _aggregateAlignment = v})
+
 -- | Size of pointers in bytes.
 ptrSize :: Lens' DataLayout Bytes
 ptrSize = lens _ptrSize (\s v -> s { _ptrSize = v})
@@ -205,10 +203,6 @@ vectorInfo = lens _vectorInfo (\s v -> s { _vectorInfo = v})
 
 floatInfo :: Lens' DataLayout AlignInfo
 floatInfo = lens _floatInfo (\s v -> s { _floatInfo = v})
-
--- | Information about aggregate size.
-aggInfo :: Lens' DataLayout AlignInfo
-aggInfo = lens _aggInfo (\s v -> s { _aggInfo = v})
 
 -- | Layout constraints on a stack object with the given size.
 stackInfo :: Lens' DataLayout AlignInfo
@@ -246,10 +240,10 @@ defaultDataLayout = execState defaults dl
                 , _functionPtrAlignment = noAlignment
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
                 , _ptrAlign = Alignment 3 -- 64 bit alignment: 2^3=8 byte boundaries
+                , _aggregateAlignment = noAlignment -- Aggregates are 1-byte aligned.
                 , _integerInfo = emptyAlignInfo
                 , _floatInfo   = emptyAlignInfo
                 , _vectorInfo  = emptyAlignInfo
-                , _aggInfo     = emptyAlignInfo
                 , _stackInfo   = emptyAlignInfo
                 , _layoutWarnings = []
                 }
@@ -268,8 +262,6 @@ defaultDataLayout = execState defaults dl
           -- Default vector alignments.
           setAt vectorInfo  64 (Alignment 3) -- 64-bit vector is 8 byte aligned.
           setAt vectorInfo 128 (Alignment 4) -- 128-bit vector is 16 byte aligned.
-          -- Default aggregate alignments.
-          setAt aggInfo  0 noAlignment  -- Aggregates are 1-byte aligned.
 
 -- | Maximum alignment for any type (used by malloc).
 maxAlignment :: DataLayout -> Alignment
@@ -277,10 +269,10 @@ maxAlignment dl =
   maximum [ dl^.stackAlignment
           , dl^.functionPtrAlignment
           , dl^.ptrAlign
+          , dl^.aggregateAlignment
           , maxAlignmentInTree (dl^.integerInfo)
           , maxAlignmentInTree (dl^.vectorInfo)
           , maxAlignmentInTree (dl^.floatInfo)
-          , maxAlignmentInTree (dl^.aggInfo)
           , maxAlignmentInTree (dl^.stackInfo)
           ]
 
@@ -289,14 +281,14 @@ fromSize i | i < 0 = error $ "Negative size given in data layout."
            | otherwise = fromIntegral i
 
 -- | Insert alignment into spec.
-setAtBits :: Lens' DataLayout AlignInfo -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
-setAtBits f spec sz a =
-  case fromBits a of
+setAtBits :: Lens' DataLayout AlignInfo -> L.LayoutSpec -> L.Storage -> State DataLayout ()
+setAtBits f spec st =
+  case fromBits (L.alignABI (L.storageAlignment st)) of
     Left{} -> layoutWarnings %= (spec:)
-    Right w -> f . at (fromSize sz) .= Just w
+    Right w -> f . at (fromSize (L.storageSize st)) .= Just w
 
 -- | Insert alignment into spec.
-setBits :: Lens' DataLayout Alignment -> L.LayoutSpec -> Int -> State DataLayout ()
+setBits :: Lens' DataLayout Alignment -> L.LayoutSpec -> L.NumBits -> State DataLayout ()
 setBits f spec a =
   case fromBits a of
     Left{} -> layoutWarnings %= (spec:)
@@ -309,24 +301,25 @@ addLayoutSpec ls =
     case ls of
       L.BigEndian    -> intLayout .= BigEndian
       L.LittleEndian -> intLayout .= LittleEndian
-      L.PointerSize n sz a _
+      L.PointerSize ps
            -- Currently, we assume that only default address space (0) is used.
            -- We use that address space as the sole arbiter of what pointer
            -- size to use, and we ignore all other PointerSize layout specs.
            -- See doc/limitations.md for more discussion.
-        |  n == 0
-        -> case fromBits a of
+        |  L.ptrAddrSpace ps == 0
+        -> case fromBits (L.alignABI (L.storageAlignment st)) of
              Right a' | r == 0 -> do ptrSize .= fromIntegral w
                                      ptrAlign .= a'
              _ -> layoutWarnings %= (ls:)
         |  otherwise
         -> return ()
-       where (w,r) = sz `divMod` 8
-      L.IntegerSize    sz a _ -> setAtBits integerInfo ls sz a
-      L.VectorSize     sz a _ -> setAtBits vectorInfo  ls sz a
-      L.FloatSize      sz a _ -> setAtBits floatInfo   ls sz a
-      L.AggregateSize  sz a _ -> setAtBits aggInfo     ls sz a
-      L.StackObjSize   sz a _ -> setAtBits stackInfo   ls sz a
+       where st = L.ptrStorage ps
+             (w,r) = L.storageSize st `divMod` 8
+      L.IntegerSize st -> setStorageAlignInfo integerInfo st
+      L.VectorSize st -> setStorageAlignInfo vectorInfo st
+      L.FloatSize st -> setStorageAlignInfo floatInfo st
+      L.StackObjSize st -> setStorageAlignInfo stackInfo st
+      L.AggregateSize _ a -> setBits aggregateAlignment ls (L.alignABI a)
       L.NativeIntSize _ -> return ()
       L.StackAlign a    -> setBits stackAlignment ls a
       -- TODO: For now, we ignore the FunctionPointerAlignType field. This tells
@@ -337,6 +330,17 @@ addLayoutSpec ls =
       -- should revisit this.
       L.FunctionPointerAlign _ a -> setBits functionPtrAlignment ls a
       L.Mangling _      -> return ()
+      -- Currently, we assume that only the default address space (0) is used,
+      -- and we ignore all other address space-related layout specs.
+      -- See doc/limitations.md for more discussion.
+      L.ProgramAddrSpace {} -> return ()
+      L.GlobalAddrSpace {} -> return ()
+      L.AllocaAddrSpace {} -> return ()
+      L.NonIntegralPointerSpaces {} -> return ()
+  where
+    setStorageAlignInfo ::
+      Lens' DataLayout AlignInfo -> L.Storage -> State DataLayout ()
+    setStorageAlignInfo info st = setAtBits info ls st
 
 -- | Create parsed data layout from layout spec AST.
 parseDataLayout :: L.DataLayout -> DataLayout

@@ -59,13 +59,12 @@ import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
     , mirRef_agElem_constOffset
-    , mirVector_fromVector, mirAggregate_uninit, mirAggregate_get, mirAggregate_set
-    , cs, collection, discrMap, findAdt, mirVector_uninit, arrayZeroed )
+    , mirAggregate_uninit_constSize, mirAggregate_get, mirAggregate_set
+    , cs, collection, discrMap, findAdt, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
-    , pattern MirVectorRepr
     , pattern MirAggregateRepr
-    , SizeBits, pattern UsizeRepr, pattern IsizeRepr
+    , SizeBits, pattern UsizeRepr, UsizeType, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
     , mkRustEnum, rustEnumVariant, rustEnumDiscriminant
@@ -202,9 +201,7 @@ tyToRepr col t0 = case t0 of
   -- Closures are just tuples with a fancy name
   M.TyClosure _ts -> Right (Some MirAggregateRepr)
 
-  M.TyArray t _sz -> do
-    Some rpr <- tyToRepr col t
-    Right (Some (MirVectorRepr rpr))
+  M.TyArray _t _sz -> Right (Some MirAggregateRepr)
 
   M.TyInt M.USize  -> Right (Some IsizeRepr)
   M.TyUint M.USize -> Right (Some UsizeRepr)
@@ -564,27 +561,24 @@ packAny ::  MirExp s -> (MirExp s)
 packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
 
--- array in haskell -> crucible array
+-- | Build a `MirAggregateRepr` from a list of `MirExp`s.
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildArrayLit trep exps = do
-    vec <- go exps V.empty
-    expr <- mirVector_fromVector trep $ S.app $ E.VectorLit trep vec
-    return $ MirExp (MirVectorRepr trep) expr
-  where go :: [MirExp s] -> V.Vector (R.Expr MIR s tp) -> MirGenerator h s ret (V.Vector (R.Expr MIR s tp))
-        go [] v = return v
-        go ((MirExp erepr e):es) v = do
-          case (testEquality erepr trep) of
-            Just Refl -> do
-                v' <- go es v
-                return $ V.cons e v'
-            Nothing -> mirFail "bad type in build array"
+buildArrayLit tpr exps = do
+    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length exps)
+    ag1 <- foldM
+        (\ag (i, MirExp tpr' e) -> do
+            Refl <- testEqualityOrFail tpr tpr' $
+                "buildArrayLit: expected elem to be " ++ show tpr ++ ", but got " ++ show tpr'
+            mirAggregate_set i 1 tpr e ag)
+        ag0 (zip [0 :: Word ..] exps)
+    return $ MirExp MirAggregateRepr ag1
 
 buildTupleM :: [M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildTupleM tys xs = buildTupleMaybeM tys (map Just xs)
 
 buildTupleMaybeM :: [M.Ty] -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
 buildTupleMaybeM tys xs = do
-    ag0 <- mirAggregate_uninit (fromIntegral $ length tys)
+    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length tys)
     ag1 <- foldM
         (\ag (i, mExp) -> do
             case mExp of
@@ -1236,7 +1230,7 @@ buildUnion unionAdt fieldIdx (MirExp actualFieldTpr fieldExpr) = do
         <> show actualFieldTpr
 
   -- See Note [union representation]
-  emptyAg <- mirAggregate_uninit unionSize
+  emptyAg <- mirAggregate_uninit_constSize unionSize
   fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
   pure (MirExp MirAggregateRepr fullAg)
 
@@ -1403,6 +1397,21 @@ expectEnumOrFail expectedDiscrTpr expectedVariantsCtx actualEnumTpr =
   where
     expectedEnumTpr = RustEnumRepr expectedDiscrTpr expectedVariantsCtx
 
+-- | Retrieve the specified kind of layout data for a given type and turn it
+-- into an 'R.Expr'.
+getLayoutFieldAsExpr ::
+     String -- ^ The name of the operation that is looking up the layout data
+            -- (only used for error messages)
+  -> Getter M.Layout Word64 -- ^ Which field of the layout data to retrieve
+  -> M.Ty -- ^ The type to look up layout data for
+  -> MirGenerator h s ret (R.Expr MIR s UsizeType)
+getLayoutFieldAsExpr opName layoutFieldLens ty = do
+  lays <- use (cs . collection . M.layouts)
+  case Map.lookup ty lays of
+    Just (Just lay) -> pure $
+      R.App $ usizeLit $ toInteger (lay ^. layoutFieldLens)
+    Just Nothing -> mirFail $ opName ++ " on unsized type " ++ show ty
+    Nothing -> mirFail $ opName ++ ": no layout info for " ++ show ty
 
 -- | Retrieve the specified kind of layout data for a given type and turn it
 -- into a 'MirExp'.
@@ -1412,13 +1421,8 @@ getLayoutFieldAsMirExp ::
   -> Getter M.Layout Word64 -- ^ Which field of the layout data to retrieve
   -> M.Ty -- ^ The type to look up layout data for
   -> MirGenerator h s ret (MirExp s)
-getLayoutFieldAsMirExp opName layoutFieldLens ty = do
-  lays <- use (cs . collection . M.layouts)
-  case Map.lookup ty lays of
-    Just (Just lay) -> pure $
-      MirExp UsizeRepr $ R.App $ usizeLit $ toInteger (lay ^. layoutFieldLens)
-    Just Nothing -> mirFail $ opName ++ " on unsized type " ++ show ty
-    Nothing -> mirFail $ opName ++ ": no layout info for " ++ show ty
+getLayoutFieldAsMirExp opName layoutFieldLens ty =
+  MirExp UsizeRepr <$> getLayoutFieldAsExpr opName layoutFieldLens ty
 
 
 -- Vtable handling
@@ -1481,19 +1485,17 @@ initialValue CTyMethodSpecBuilder = return Nothing
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) =
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral $ length tys)
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
 initialValue (M.TyClosure tys) = do
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit (fromIntegral $ length tys)
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
 initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
 initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
-initialValue (M.TyArray t size) = do
-    Some tpr <- tyToReprM t
-    mv <- mirVector_uninit tpr $ S.app $ eBVLit knownNat (fromIntegral size)
-    return $ Just $ MirExp (MirVectorRepr tpr) mv
+initialValue (M.TyArray _ size) = do
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral size)
 -- TODO: disabled to workaround for a bug with muxing null and non-null refs
 -- The problem is with
 --      if (*) {
@@ -1579,7 +1581,7 @@ initialValue (M.TyAdt nm _ _) = do
             -- appropriate size, like tuples. See Note [union representation]
             -- for details, including some regarding this choice of size.
             let unionSize = 1
-            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit unionSize
+            in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
 
 
 

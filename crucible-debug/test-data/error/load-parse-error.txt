@@ -1,10 +1,10 @@
 > load LICENSE
 
-LICENSE:1:30:
+LICENSE:4:50:
   |
-1 | Copyright (c) 2025 Galois Inc.
-  |                              ^
-unexpected '.'
+4 | Redistribution and use in source and binary forms, with or without
+  |                                                  ^
+unexpected ','
 expecting '"', '#', '$', '(', '+', '-', '0', '@', decimal digit, or end of input
 
 

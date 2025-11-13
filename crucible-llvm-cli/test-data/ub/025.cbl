@@ -1,6 +1,8 @@
 ; A pointer is used to call a function whose type is not compatible with the
 ; referenced type (6.3.2.3).
 
+(declare @malloc ((sz (Bitvector 64))) (Ptr 64))
+
 (defun @main () Unit
   (start start:
     (let g (resolve-global "malloc"))

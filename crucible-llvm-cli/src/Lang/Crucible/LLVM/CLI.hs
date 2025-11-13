@@ -13,6 +13,7 @@ import qualified Control.Lens as Lens
 import qualified Control.Monad as Monad
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.IntMap as IntMap
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 import Data.Type.Equality ((:~:)(Refl), testEquality)
@@ -78,7 +79,7 @@ withLlvmHooks k = do
   let ?parserHooks = llvmParserHooks (typeAliasParserHooks x86_64LinuxTypes) mvar
   let simulationHooks =
         defaultSimulateProgramHooks
-          { setupHook = \bak _ha fds -> do
+          { setupHook = \bak _ha fwdDecs -> do
               let addIntrinsicTypes types ctx =
                     ctx { C.ctxIntrinsicTypes = MapF.union (C.ctxIntrinsicTypes ctx) types }
               let iTypes = MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes
@@ -104,14 +105,18 @@ withLlvmHooks k = do
               let ?lc = tyCtx
               let ?memOpts = Mem.defaultMemOptions
               let ?intrinsicsOpts = defaultIntrinsicsOptions
-              _ <- registerLLVMOverrides bak llvmCtx
-              Monad.forM_ (Map.toList fds) $ \(nm, C.SomeHandle hdl) -> do
+
+              -- TODO(#1594): Deduplicate these override names using a `Map`
+              Monad.forM_ (Map.toList fwdDecs) $ \(nm, C.SomeHandle hdl) -> do
                 case nm of
                   "read-bytes" -> tryBindTypedOverride hdl (StrOv.readBytesOverride mvar)
                   "read-c-string" -> tryBindTypedOverride hdl (StrOv.readCStringOverride mvar)
                   "write-bytes" -> tryBindTypedOverride hdl (StrOv.writeBytesOverride mvar)
                   "write-c-string" -> tryBindTypedOverride hdl (StrOv.writeCStringOverride mvar)
                   _ -> pure ()
+              let otherOvs = ["read-bytes", "read-c-string", "write-bytes", "write-c-string"]
+              let fwdDecs' = Map.filterWithKey (\nm _ -> nm `List.notElem` otherOvs) fwdDecs
+              _ <- registerLLVMOverrides bak llvmCtx fwdDecs'
               return ()
           , setupOverridesHook = setupOverrides
           }

@@ -1,4 +1,5 @@
-test construct/<DISAMB>::crux_test[0]: returned Symbolic BV, FAILED
+test construct/<DISAMB>::crux_test[0]: returned Symbolic BV, [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -8,4 +9,11 @@ failures:
 [Crux]   MIR assertion at test/symb_eval/sym_bytes/construct.rs:13:5:
 [Crux]   	sym2[0] == 0
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

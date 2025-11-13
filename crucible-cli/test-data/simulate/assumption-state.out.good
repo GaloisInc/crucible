@@ -146,10 +146,10 @@ Assumptions:
              , in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
              casmp1@5:b ]
       , in main test-data/simulate/assumption-state.cbl:45:5: assumption #4: end
-      casmp4@13:b ]
+      casmp4@17:b ]
       Prove all:
         [ Labeled predicate:
-          cgoal5@14:b
+          cgoal5@18:b
           test-data/simulate/assumption-state.cbl:47:5: error: in main
           assertion #5: end ]
 
@@ -219,9 +219,9 @@ Assuming:
 * in main test-data/simulate/assumption-state.cbl:21:5: assumption #1: if branch
     not (and cb0@3:b (not casmp1@5:b))
 * in main test-data/simulate/assumption-state.cbl:45:5: assumption #4: end
-    casmp4@13:b
+    casmp4@17:b
 Prove:
   test-data/simulate/assumption-state.cbl:47:5: error: in main
   assertion #5: end
-  cgoal5@14:b
+  cgoal5@18:b
 COUNTEREXAMPLE

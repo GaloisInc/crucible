@@ -86,7 +86,11 @@ instance Pretty Ty where
     pretty (TyDowncast adt i)    = parens (pretty adt <+> pretty "as" <+> pretty i)
     pretty TyNever = pretty "never"
     pretty TyLifetime = pretty "lifetime"
-    pretty TyConst = pretty "const"
+    pretty (TyConst c) = braces (pretty c)
+      -- Using braces is redundant for constants like `2`, but it would be
+      -- somewhat annoying to implement the logic needed to check whether
+      -- braces are strictly required or not, so we err on the side of always
+      -- including braces.
     pretty TyForeign = pretty "foreign"
     pretty TyErased = pretty "erased"
     pretty (TyInterned s) = pretty s

@@ -1,3 +1,5 @@
+(declare @malloc ((sz (Bitvector 64))) (Ptr 64))
+
 (defun @main () Unit
   (start start:
     (let blk0 (the Nat 0))

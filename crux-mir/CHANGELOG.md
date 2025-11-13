@@ -1,4 +1,10 @@
-# next -- TBA
+# next
+
+This release supports [version
+5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
+`mir-json`'s schema.
+
+# 0.11 -- 2025-11-09
 
 This release supports [version
 3](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#3) of
@@ -27,7 +33,7 @@ This release supports [version
   when using the `bitwuzla`, `cvc4`, or `cvc5` solvers.
 * Allow calling `crucible::concretize` on `static` references.
 * Allow casting pointers to unsafe pointers, which at present should be OK,
-  as we don't track the safe/unsafe attribute of pointers anyway. 
+  as we don't track the safe/unsafe attribute of pointers anyway.
 
 # 0.10 -- 2025-03-21
 

@@ -53,6 +53,9 @@ cube = TS.mkCUBE { TS.inputDirs = ["test-data/golden"]
                                                            , "pre-clang14"
                                                            , "pre-clang15"
                                                            , "pre-clang16"
+                                                           , "pre-clang18"
+                                                           , "pre-clang19"
+                                                           , "pre-clang20"
                                                            ])
                                     ]
                  , TS.associatedNames = [ ("config",      "config")

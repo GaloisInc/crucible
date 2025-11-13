@@ -1,10 +1,18 @@
-test init_cond/<DISAMB>::foo[0]: returned 4660, FAILED
+test init_cond/<DISAMB>::foo[0]: returned 4660, [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
 ---- init_cond/<DISAMB>::foo[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/union/init_cond.rs:14:13: 18:6: error: in init_cond/<DISAMB>::foo[0]
-[Crux]   bad MirAggregate merge: offset 0: type mismatch: IntrinsicRepr MirVector [BVRepr 8] != BVRepr 16
+[Crux]   bad MirAggregate merge: offset 0: type mismatch: IntrinsicRepr MirAggregate [] != BVRepr 16
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

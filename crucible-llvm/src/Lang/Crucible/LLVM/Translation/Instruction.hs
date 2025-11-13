@@ -51,8 +51,6 @@ import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Set (Set)
-import qualified Data.Set as Set
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.String
@@ -81,7 +79,6 @@ import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.PrettyPrint as LPP
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -159,7 +156,7 @@ instrResultType instr =
     L.CallBr ty _ _ _ _ -> throwError $ unwords ["unexpected non-function type in callbr:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
     L.Load tp _ _ _ -> liftMemType tp
-    L.ICmp _op tv _ -> do
+    L.ICmp _samesign _op tv _ -> do
       inpType <- liftMemType (L.typedType tv)
       case inpType of
         VecType len _ -> return (VecType len (IntType 1))
@@ -171,8 +168,8 @@ instrResultType instr =
         _ -> return (IntType 1)
     L.Phi tp _   -> liftMemType tp
 
-    L.GEP inbounds baseTy basePtr elts ->
-       do gepRes <- runExceptT (translateGEP inbounds baseTy basePtr elts)
+    L.GEP attrs baseTy basePtr elts ->
+       do gepRes <- runExceptT (translateGEP attrs baseTy basePtr elts)
           case gepRes of
             Left err -> throwError err
             Right (GEPResult lanes tp _gep) ->
@@ -533,8 +530,8 @@ calcGEP_array typ base idx =
              in
                -- Multiplication overflow will result in a pointer which is not "in
                -- bounds" for the given allocation. We translate all GEP
-               -- instructions as if they had the `inbounds` flag set, so the
-               -- result would be a poison value.
+               -- instructions as if they had the `inbounds` attribute set, so
+               -- the result would be a poison value.
                poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
 
      -- Perform the pointer offset arithmetic
@@ -575,8 +572,10 @@ translateConversion instr op (VecType n inty) (explodeVector n -> Just xs) (VecT
   | n == m = VecExpr outty <$> traverse (\x -> translateConversion instr op inty x outty) xs
 
 -- Otherwise, assume scalar values and do the basic conversions
-translateConversion instr op _inty x outty =
- let showI = showInstr instr in
+translateConversion instr op _inty x outty = do
+ mvar <- getMemVar
+ let showI = showInstr instr
+ let noLaxArith = not (laxArith ?transOpts)
  case op of
     L.IntToPtr -> do
        llvmTypeAsRepr outty $ \outty' ->
@@ -599,26 +598,46 @@ translateConversion instr op _inty x outty =
               , Just Refl <- testEquality w' PtrWidth -> return x
            _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
 
-    L.Trunc -> do
+    L.Trunc nuw nsw -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w'
              , Just LeqProof <- testLeq (incNat w') w ->
                  do x_bv <- pointerAsBitvectorExpr w x'
-                    let bv' = App (BVTrunc w' w x_bv)
-                    return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
+                    bv' <- AtomExpr <$> mkAtom (App (BVTrunc w' w x_bv))
+                    result <- sideConditionsA mvar (BVRepr w') bv'
+                      [ ( nuw && noLaxArith
+                        , fmap (App . BVEq w x_bv . AtomExpr)
+                               (mkAtom (App (BVZext w w' bv')))
+                        , UB.PoisonValueCreated $ Poison.TruncNoUnsignedWrap x_bv
+                        )
+                      , ( nsw && noLaxArith
+                        , fmap (App . BVEq w x_bv . AtomExpr)
+                               (mkAtom (App (BVSext w w' bv')))
+                        , UB.PoisonValueCreated $ Poison.TruncNoSignedWrap x_bv
+                        )
+                      ]
+                    return (BaseExpr outty' (BitvectorAsPointerExpr w' result))
            _ -> fail (unlines [unwords ["invalid truncation:", show x, show outty], showI])
 
-    L.ZExt -> do
+    L.ZExt nneg -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' ->
                  do x_bv <- pointerAsBitvectorExpr w x'
-                    let bv' = App (BVZext w' w x_bv)
-                    return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
+                    bv' <- AtomExpr <$> mkAtom (App (BVZext w' w x_bv))
+                    let z = App $ BVLit w $ BV.zero w
+                    result <-
+                      sideConditionsA mvar (BVRepr w') bv'
+                        [ ( nneg
+                          , pure $ App $ BVSle w z x_bv
+                          , UB.PoisonValueCreated $ Poison.ZExtNonNegative x_bv
+                          )
+                        ]
+                    return (BaseExpr outty' (BitvectorAsPointerExpr w' result))
            _ -> fail (unlines [unwords ["invalid zero extension:", show x, show outty], showI])
 
     L.SExt -> do
@@ -638,12 +657,21 @@ translateConversion instr op _inty x outty =
     L.BitCast -> bitCast _inty x outty
 #endif
 
-    L.UiToFp -> do
+    L.UiToFp nneg -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
            (Scalar _archProxy (LLVMPointerRepr w) x', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x'
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi RNE bv
+             bvFp <- AtomExpr <$> mkAtom (App (FloatFromBV fi RNE bv))
+             let z = App $ BVLit w $ BV.zero w
+             result <-
+               sideConditionsA mvar outty' bvFp
+                 [ ( nneg
+                   , pure $ App $ BVSle w z bv
+                   , UB.PoisonValueCreated $ Poison.UiToFpNonNegative bv
+                   )
+                 ]
+             return $ BaseExpr (FloatRepr fi) result
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do
@@ -1269,25 +1297,30 @@ floatcmp op a b =
 
 
 integerCompare ::
+  -- ^ If 'True', require that the arguments have the same sign.
+  Bool ->
   L.ICmpOp ->
   MemType ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
-integerCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
-  VecExpr (IntType 1) <$> sequence (Seq.zipWith (\x y -> integerCompare op tp x y) xs ys)
+integerCompare samesign op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (\x y -> integerCompare samesign op tp x y) xs ys)
 
-integerCompare op _ x y = do
-  b <- scalarIntegerCompare op x y
+integerCompare samesign op _ x y = do
+  b <- scalarIntegerCompare samesign op x y
   return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
                    (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
 
 scalarIntegerCompare ::
+  -- ^ If 'True', require that the arguments have the same sign.
+  Bool ->
   L.ICmpOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
   LLVMGenerator s arch ret (Expr LLVM s BoolType)
-scalarIntegerCompare op x y =
+scalarIntegerCompare samesign op x y = do
+  mvar <- getMemVar
   case (asScalar x, asScalar y) of
     (Scalar _archProxy (LLVMPointerRepr w) x'', Scalar _archProxy' (LLVMPointerRepr w') y'')
        | Just Refl <- testEquality w w'
@@ -1296,7 +1329,14 @@ scalarIntegerCompare op x y =
        | Just Refl <- testEquality w w'
        -> do xbv <- pointerAsBitvectorExpr w x''
              ybv <- pointerAsBitvectorExpr w y''
-             return (intcmp w op xbv ybv)
+             result <- AtomExpr <$> mkAtom (intcmp w op xbv ybv)
+             let z = App $ BVLit w $ BV.zero w
+             sideConditionsA mvar BoolRepr result
+               [ ( samesign
+                 , pure $ App $ BoolEq (App (BVSlt w xbv z)) (App (BVSlt w ybv z))
+                 , UB.PoisonValueCreated $ Poison.ICmpSameSign xbv ybv
+                 )
+               ]
     _ -> fail $ unlines [ "arithmetic comparison on incompatible values"
                         , "Comparison: " ++ show op
                         , "Value 1: " ++ show x
@@ -1512,7 +1552,6 @@ generateInstr :: forall s arch ret a.
    (?transOpts :: TranslationOptions) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
-   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr        {- ^ The instruction to translate -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
@@ -1521,7 +1560,7 @@ generateInstr :: forall s arch ret a.
           Straightline instructions should enter this continuation,
           but block-terminating instructions should not. -} ->
    LLVMGenerator s arch ret a
-generateInstr retType lab defSet instr assign_f k =
+generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
     L.Phi _ _ -> k
@@ -1669,11 +1708,14 @@ generateInstr retType lab defSet instr assign_f k =
       callStore vTp ptr' v' align'
       k
 
-    -- NB We treat every GEP as though it has the "inbounds" flag set;
+    -- NB We treat every GEP as though it has the "inbounds" attribute set;
     --    thus, the calculation of out-of-bounds pointers results in
     --    a runtime error.
-    L.GEP inbounds baseTy basePtr elts -> do
-      runExceptT (translateGEP inbounds baseTy basePtr elts) >>= \case
+    --
+    --    TODO(#1605): Don't error immediately if the "inbounds" attribute isn't
+    --    set.
+    L.GEP attrs baseTy basePtr elts -> do
+      runExceptT (translateGEP attrs baseTy basePtr elts) >>= \case
         Left err -> reportError $ fromString $ unlines ["Error translating GEP", err]
         Right gep ->
           do gep' <- traverse (\v -> transTypedValue v) gep
@@ -1690,14 +1732,14 @@ generateInstr retType lab defSet instr assign_f k =
          k
 
     L.Call tailcall fnTy fn args ->
-      callFunction defSet instr tailcall fnTy fn args assign_f >> k
+      callFunction instr tailcall fnTy fn args assign_f >> k
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
-      do callFunction defSet instr False fnTy fn args assign_f
+      do callFunction instr False fnTy fn args assign_f
          definePhiBlock lab normLabel
 
     L.CallBr fnTy fn args normLabel otherLabels -> do
-      do callFunction defSet instr False fnTy fn args assign_f
+      do callFunction instr False fnTy fn args assign_f
          for_ otherLabels $ \lab' -> void (definePhiBlock lab lab')
          definePhiBlock lab normLabel
 
@@ -1732,11 +1774,11 @@ generateInstr retType lab defSet instr assign_f k =
            assign_f cmp
            k
 
-    L.ICmp op x y -> do
+    L.ICmp samesign op x y -> do
            tp <- liftMemType' (L.typedType x)
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
-           cmp <- integerCompare op tp x' y'
+           cmp <- integerCompare samesign op tp x' y'
            assign_f cmp
            k
 
@@ -1801,7 +1843,7 @@ generateInstr retType lab defSet instr assign_f k =
 
               let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
               oldVal <- callLoad resTy expectTy ptr' a0
-              cmp <- scalarIntegerCompare L.Ieq oldVal cmpVal
+              cmp <- scalarIntegerCompare False L.Ieq oldVal cmpVal
               let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
                                   (BitvectorAsPointerExpr knownNat
                                      (App (BoolToBV knownNat cmp)))
@@ -2004,7 +2046,6 @@ callOrdinaryFunction instr _tailCall fnTy _fn _args _assign_f =
 -- for debugging intrinsics and breakpoint functions.
 callFunction :: forall s arch ret.
    (?transOpts :: TranslationOptions) =>
-   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr {- ^ Source instruction of the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
@@ -2012,42 +2053,8 @@ callFunction :: forall s arch ret.
    [L.Typed L.Value] {- ^ argument list -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret ()
-callFunction defSet instr tailCall_ fnTy fn args assign_f
-
-     -- Supports LLVM 4-12
-     | L.ValSymbol "llvm.dbg.declare" <- fn
-     , debugIntrinsics ?transOpts =
-       do mbArgs <- dbgArgs defSet args
-          case mbArgs of
-            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
-              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di))
-                 return ()
-            Left msg -> addWarning (Text.pack msg)
-            _ -> addWarning "Unexpected argument in llvm.dbg.declare"
-
-     -- Supports LLVM 6-12
-     | L.ValSymbol "llvm.dbg.addr" <- fn
-     , debugIntrinsics ?transOpts =
-       do mbArgs <- dbgArgs defSet args
-          case mbArgs of
-            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
-              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di))
-                 return ()
-            Left msg -> addWarning (Text.pack msg)
-            _ -> addWarning "Unexpected argument in llvm.dbg.addr"
-
-     -- Supports LLVM 6-12 (earlier versions had an extra argument)
-     | L.ValSymbol "llvm.dbg.value" <- fn
-     , debugIntrinsics ?transOpts =
-       do mbArgs <- dbgArgs defSet args
-          case mbArgs of
-            Right (asScalar -> Scalar _ repr val, lv, di) ->
-              do _ <- extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di))
-                 return ()
-            Left msg -> addWarning (Text.pack msg)
-            _ -> addWarning "Unexpected argument in llvm.dbg.value"
-
-     -- Skip calls to other debugging intrinsics.
+callFunction instr tailCall_ fnTy fn args assign_f
+     -- Skip calls to debugging intrinsics.
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.label"
                  , "llvm.dbg.declare"
@@ -2077,33 +2084,6 @@ callFunction defSet instr tailCall_ fnTy fn args assign_f
             addBreakpointStmt (Text.pack nm) val_args
 
      | otherwise = callOrdinaryFunction (Just instr) tailCall_ fnTy fn args assign_f
-
--- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
-dbgArgs ::
-  Set L.Ident {- ^ Set of usable identifiers -} ->
-  [L.Typed L.Value] {- ^ debug call arguments -} ->
-  LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs defSet args =
-    case args of
-      [valArg, lvArg, diArg] ->
-        case valArg of
-          L.Typed _ (L.ValMd (L.ValMdValue val)) ->
-            case lvArg of
-              L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
-                case diArg of
-                  L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) ->
-                    let unusableIdents = Set.difference (useTypedVal val) defSet
-                    in if Set.null unusableIdents then
-                         do v <- transTypedValue val
-                            pure (Right (v, lv, di))
-                       else
-                         do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
-                                       map (show . LPP.ppIdent) (Set.toList unusableIdents))
-                            pure (Left msg)
-                  _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
-              _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
-          _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
-      _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->

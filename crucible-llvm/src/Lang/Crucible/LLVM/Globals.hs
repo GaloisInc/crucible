@@ -434,8 +434,8 @@ buildLoadRelConstInitMap globalMap m = foldMap defineConstInits (L.modDefines m)
     basicBlockConstInits bb = foldMap stmtConstInits (L.bbStmts bb)
 
     stmtConstInits :: L.Stmt -> LoadRelConstInitMap
-    stmtConstInits (L.Result _ instr _) = instrConstInits instr
-    stmtConstInits (L.Effect instr _)   = instrConstInits instr
+    stmtConstInits (L.Result _ instr _ _) = instrConstInits instr
+    stmtConstInits (L.Effect instr _ _)   = instrConstInits instr
 
     instrConstInits :: L.Instr -> LoadRelConstInitMap
     instrConstInits (L.Call _ _ (L.ValSymbol fun) [ptr, _offset])
@@ -483,7 +483,8 @@ buildLoadRelConstInitMap globalMap m = foldMap defineConstInits (L.modDefines m)
     foldLoadRelConstInitElem :: L.Global -> L.Value -> Maybe L.Value
     foldLoadRelConstInitElem global constInitElem
       | L.ValConstExpr
-          (L.ConstConv L.Trunc
+          (L.ConstConv
+            (L.Trunc False False)
             (L.Typed { L.typedValue =
               L.ValConstExpr
                 (L.ConstArith

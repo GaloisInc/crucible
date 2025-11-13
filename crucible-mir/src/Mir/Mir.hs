@@ -32,6 +32,7 @@ module Mir.Mir where
 
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Word (Word64)
 
@@ -99,8 +100,11 @@ data Ty =
       | TyNever
       | TyForeign       -- External types, of unknown size and alignment
 
+      | TyConst !ConstVal
+        -- ^ Represents constants in 'Substs'. This has no effect on the
+        -- semantics of @crucible-mir@, but it is used for looking up
+        -- instantiations of polymorphic functions or ADTs in SAW.
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
-      | TyConst         -- Placeholder for representing constants in `Substs`
 
       -- | The erased concrete type of a trait object.  This is never emitted
       -- by mir-json.  It's used in vtable shims, to replace the type of the
@@ -121,6 +125,8 @@ data NamedTy = NamedTy
   , _ntTy :: Ty
     -- | If 'Nothing' then the type is unsized.
   , _ntLayout :: Maybe Layout
+    -- | Whether the type needs drop glue
+  , _ntNeedsDrop :: Bool
   }
   deriving (Eq, Ord, Show, Generic)
 
@@ -278,13 +284,19 @@ data Collection = Collection {
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
     -- | This corresponds to the @tys@ table from @mir-json@ and is cleared
-    -- after uninterning. The @TyName -> Ty@ mappings are used for uninterning
-    -- the types in the rest of the 'Collection', and the uninterned @(Ty, Maybe
-    -- Layout)@ pairs are saved into '_layouts'.
-    _namedTys  :: !(Map TyName (Ty, Maybe Layout)),
+    -- after uninterning. 'TypeInfo' provides information that helps us fill out
+    -- several parts of the 'Collection':
+    -- - A @TyName -> Ty@ mapping, which is used for uninterning the types in
+    --   the rest of the 'Collection'
+    -- - A @Ty -> Maybe Layout@ mapping, which is saved into '_layouts'
+    -- - A @Ty -> Bool@ mapping (indicating whether or not the type needs drop
+    --   glue), which is saved into `_needDrops`
+    _namedTys  :: !(Map TyName TyInfo),
     -- | Layouts for known types. If the value is 'Nothing' then the type is
     -- unsized. This is not populated until uninterning.
     _layouts   :: !(Map Ty (Maybe Layout)),
+    -- | Types that need drop glue.
+    _needDrops :: !(Set Ty),
     -- | Map the original 'DefId's for lang items to their custom, @$lang@-based
     -- 'DefId's (e.g., map @core::option::Option@ to @$lang/Option@).
     _langItems :: !(Map DefId DefId),
@@ -294,6 +306,15 @@ data Collection = Collection {
     _tests     :: ![MethName]
 
 } deriving (Show, Eq, Ord, Generic)
+
+-- | Information about a type (minus its name), as seen in the @tys@ table in
+-- @mir-json@-generated JSON.
+data TyInfo = TyInfo
+    { _tiLayout :: Maybe Layout
+    , _tiNeedsDrop :: Bool
+    , _tiTy :: Ty
+    }
+    deriving (Show, Eq, Ord, Generic)
 
 data Intrinsic = Intrinsic
     { _intrName :: IntrinsicName
@@ -666,6 +687,7 @@ makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
+makeLenses ''TyInfo
 makeLenses ''Layout
 makeLenses ''LangItem
 makeLenses ''Statement

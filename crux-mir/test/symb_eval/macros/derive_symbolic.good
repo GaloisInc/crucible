@@ -1,4 +1,6 @@
 test derive_symbolic/<DISAMB>::empty[0]: ok
 test derive_symbolic/<DISAMB>::nonempty[0]: ok
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
 [Crux] Overall status: Valid.

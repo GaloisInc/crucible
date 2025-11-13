@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                crucible-mir
-version:             0.4.0.0.99
+version:             0.5.0.0.99
 -- synopsis:
 -- description:
 homepage:            https://github.com/GaloisInc/crucible/blob/master/crucible-mir/README.md
@@ -115,7 +115,7 @@ library
   import: shared
 
   build-depends: base >= 4.11 && < 5,
-                 aeson < 2.3,
+                 aeson >= 2.0 && < 2.3,
                  bv-sized,
                  bytestring,
                  prettyprinter >= 1.7.0,

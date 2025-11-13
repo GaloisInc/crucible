@@ -10,12 +10,17 @@ module Overrides where
 import Control.Monad.IO.Class
 
 import Data.Parameterized.Context hiding (view)
+import qualified Data.Parameterized.Map as MapF
 
+import qualified What4.Concretize as WC
 import What4.Expr.Builder
 import What4.Interface
 import What4.ProgramLoc
+import qualified What4.Protocol.Online as WPO
 
 import Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.Online as CBO
+import qualified Lang.Crucible.Concretize as Conc
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
@@ -23,16 +28,26 @@ import Lang.Crucible.Simulator
 
 -- Some overrides for testing purposes.
 setupOverrides ::
-  (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-  sym -> HandleAllocator -> IO [(FnBinding p sym ext, Position)]
-setupOverrides _ ha =
-  do f1 <- FnBinding <$> mkHandle ha "symbolicBranchTest"
+  ( IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st fs
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  HandleAllocator ->
+  IO [(FnBinding p sym ext, Position)]
+setupOverrides bak ha =
+  do let sym = backendGetSym bak
+     f1 <- FnBinding <$> mkHandle ha "symbolicBranchTest"
                      <*> pure (UseOverride (mkOverride "symbolicBranchTest" symbolicBranchTest))
      f2 <- FnBinding <$> mkHandle ha "symbolicBranchesTest"
                      <*> pure (UseOverride (mkOverride "symbolicBranchesTest" symbolicBranchesTest))
      f3 <- FnBinding <$> mkHandle ha "nondetBranchesTest"
-                     <*> pure (UseOverride (mkOverride "nondetBranchesTest" nondetBranchesTest))
-     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos)]
+                     <*> pure (UseOverride (mkOverride "nondetBranchesTest" (nondetBranchesTest (Just sym))))
+     f4 <- FnBinding <$> mkHandle ha "concBool"
+                     <*> pure (UseOverride (mkOverride "concBool" (concBool bak)))
+     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos),(f4,InternalPos)]
 
 
 -- Test the @symbolicBranch@ override operation.
@@ -49,6 +64,25 @@ symbolicBranchTest =
  thn = reg @1 <$> getOverrideArgs
  els = reg @2 <$> getOverrideArgs
 
+-- Test concretization of `Bool`
+concBool :: IsSymInterface sym =>
+  ( IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st fs
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  OverrideSim p sym ext r
+    (EmptyCtx ::> BoolType) BoolType (RegValue sym BoolType)
+concBool bak = do
+  let sym = backendGetSym bak
+  args <- getOverrideArgs
+  mb <- liftIO (Conc.concRegValue bak MapF.empty BoolRepr (reg @0 args))
+  case mb of
+    Left WC.SolverUnknown -> fail "Solver returned UNKNOWN"
+    Left WC.UnsatInitialAssumptions -> fail "Unsat assumptions"
+    Right b -> pure (if b then truePred sym else falsePred sym)
 
 -- Test the @symbolicBranches@ override operation.
 symbolicBranchesTest :: IsSymInterface sym =>
@@ -92,9 +126,10 @@ symbolicBranchesTest =
 -- returns the third argument. If it could be either, returns both (i.e.,
 -- nondeterministic choice). If it couldn't be either, errors out.
 nondetBranchesTest :: IsSymInterface sym =>
+  proxy sym ->
   OverrideSim p sym ext r
     (EmptyCtx ::> IntegerType ::> IntegerType ::> IntegerType) IntegerType (RegValue sym IntegerType)
-nondetBranchesTest =
+nondetBranchesTest _proxy =
   do sym <- getSymInterface
      args <- getOverrideArgs
      cond <- reg @0 <$> getOverrideArgs

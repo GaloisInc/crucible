@@ -1,8 +1,13 @@
-test unchecked_arith/<DISAMB>::add_test[0]: returned 44, FAILED
-test unchecked_arith/<DISAMB>::mul_test[0]: returned 32, FAILED
-test unchecked_arith/<DISAMB>::shl_test[0]: returned 0, FAILED
-test unchecked_arith/<DISAMB>::shr_test[0]: returned 0, FAILED
-test unchecked_arith/<DISAMB>::sub_test[0]: returned 156, FAILED
+test unchecked_arith/<DISAMB>::add_test[0]: returned 44, [Crux] Attempting to prove verification conditions.
+FAILED
+test unchecked_arith/<DISAMB>::mul_test[0]: returned 32, [Crux] Attempting to prove verification conditions.
+FAILED
+test unchecked_arith/<DISAMB>::shl_test[0]: returned 0, [Crux] Attempting to prove verification conditions.
+FAILED
+test unchecked_arith/<DISAMB>::shr_test[0]: returned 0, [Crux] Attempting to prove verification conditions.
+FAILED
+test unchecked_arith/<DISAMB>::sub_test[0]: returned 156, [Crux] Attempting to prove verification conditions.
+FAILED
 
 failures:
 
@@ -31,4 +36,11 @@ failures:
 [Crux]   ./libs/core/src/num/uint_macros.rs:762:17: 762:53 !./libs/core/src/num/mod.rs:436:5: 454:6: error: in core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_sub[0]
 [Crux]   Binary operation (-) would overflow
 
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 5
+[Crux]   Proved: 0
+[Crux]   Disproved: 5
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

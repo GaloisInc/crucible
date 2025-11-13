@@ -52,6 +52,7 @@ module Lang.Crucible.LLVM.Translation.Constant
   , testBreakpointFunction
   ) where
 
+import qualified Control.Exception as X
 import           Control.Lens( to, (^.) )
 import           Control.Monad
 import           Control.Monad.Except
@@ -152,8 +153,7 @@ instance Traversable GEPResult where
 -- types, computing vectorization lanes, etc.
 --
 -- As a concrete example, consider a call to
--- @'translateGEP' inbounds baseTy basePtr elts@ with the following
--- instruction:
+-- @'translateGEP' attrs baseTy basePtr elts@ with the following instruction:
 --
 -- @
 -- getelementptr [12 x i8], ptr %aptr, i64 0, i32 1
@@ -161,8 +161,10 @@ instance Traversable GEPResult where
 --
 -- Here:
 --
--- * @inbounds@ is 'False', as the keyword of the same name is missing from
---   the instruction. (Currently, @crucible-llvm@ ignores this information.)
+-- * @attrs@ is @[]@, as there are no @inbounds@, @nusw@, @nuw@, or @inrange@
+--   attributes used in the instruction. (Currently, @crucible-llvm@ ignores
+--   attribute information. See
+--   <https://github.com/GaloisInc/crucible/issues/1605>.)
 --
 -- * @baseTy@ is @[12 x i8]@. This is the type used as the basis for
 --   subsequent calculations.
@@ -175,7 +177,7 @@ instance Traversable GEPResult where
 --   which of the elements of the aggregate object are indexed.
 translateGEP :: forall wptr m.
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
-  Bool              {- ^ inbounds flag -} ->
+  [L.GEPAttr]       {- ^ attributes -} ->
   L.Type            {- ^ base type for calculations -} ->
   L.Typed L.Value   {- ^ base pointer expression -} ->
   [L.Typed L.Value] {- ^ index arguments -} ->
@@ -184,7 +186,7 @@ translateGEP :: forall wptr m.
 translateGEP _ _ _ [] =
   throwError "getelementpointer must have at least one index"
 
-translateGEP inbounds baseTy basePtr elts =
+translateGEP attrs baseTy basePtr elts =
   do baseMemType <- liftMemType baseTy
      mt <- liftMemType (L.typedType basePtr)
      -- Input value to a GEP must have a pointer type (or be a vector of pointer
@@ -209,7 +211,7 @@ translateGEP inbounds baseTy basePtr elts =
          -> badGEP
  where
  badGEP :: m a
- badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds baseTy basePtr elts) ]
+ badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP attrs baseTy basePtr elts) ]
 
  -- This auxilary function builds up the intermediate GEP mini-instructions that compute
  -- the overall GEP, as well as the resulting memory type of the final pointers and the
@@ -805,14 +807,19 @@ evalConv expr op mt x = case op of
       , DoubleConst d <- x
       -> return $ IntConst w (BV.mkBV w (truncate d))
 
-    L.UiToFp
+    L.UiToFp nneg
       | FloatType <- mt
       , IntConst _w i <- x
-      -> return $ FloatConst (fromInteger (BV.asUnsigned i) :: Float)
+      -> -- LLVM does not currently enable the `nneg` flag in constant
+         -- expressions, only in instructions. As such, we don't use the flag
+         -- below except to assert that it's disabled.
+         X.assert (not nneg) $
+         return $ FloatConst (fromInteger (BV.asUnsigned i) :: Float)
 
       | DoubleType <- mt
       , IntConst _w i <- x
-      -> return $ DoubleConst (fromInteger (BV.asUnsigned i) :: Double)
+      -> X.assert (not nneg) $
+         return $ DoubleConst (fromInteger (BV.asUnsigned i) :: Double)
 
     L.SiToFp
       | FloatType <- mt
@@ -823,23 +830,32 @@ evalConv expr op mt x = case op of
       , IntConst w i <- x
       -> return $ DoubleConst (fromInteger (BV.asSigned w i) :: Double)
 
-    L.Trunc
+    L.Trunc nuw nsw
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      -> case testNatCases w' w of
+      -> -- LLVM does not currently enable the `nuw` or `nsw` flags in constant
+         -- expressions, only in instructions. As such, we don't use the flags
+         -- below except to assert that they're disabled.
+         X.assert (not nuw) $
+         X.assert (not nsw) $
+         case testNatCases w' w of
           NatCaseLT LeqProof -> return $ IntConst w' (BV.trunc w' i)
           NatCaseEQ -> return x
           NatCaseGT LeqProof ->
             throwError $ "Attempted to truncate " <> show w <> " bits to " <> show w'
 
-    L.ZExt
+    L.ZExt nneg
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      -> case testNatCases w w' of
+      -> -- LLVM does not currently enable the `nneg` flag in constant
+         -- expressions, only in instructions. As such, we don't use the flag
+         -- below except to assert that it's disabled.
+         X.assert (not nneg) $
+         case testNatCases w w' of
           NatCaseLT LeqProof -> return $ IntConst w' (BV.zext w' i)
           NatCaseEQ -> return x
           NatCaseGT LeqProof ->
@@ -1085,8 +1101,8 @@ transConstantExpr :: forall m wptr.
   L.ConstExpr ->
   m LLVMConst
 transConstantExpr expr = case expr of
-  L.ConstGEP inbounds _inrange baseTy base exps -> -- TODO? pay attention to the inrange flag
-    do gep <- translateGEP inbounds baseTy base exps
+  L.ConstGEP attrs _inrange baseTy base exps -> -- TODO(#1605)? pay attention to the inrange flag
+    do gep <- translateGEP attrs baseTy base exps
        gep' <- traverse transConstant gep
        snd <$> evalConstGEP gep'
 

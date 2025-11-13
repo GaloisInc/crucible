@@ -8,8 +8,7 @@ Maintainer       : Langston Barrett <langston@galois.com>
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lang.Crucible.Debug.Outputs
-  ( Outputs
-  , send
+  ( Outputs(..)
   , lift
   , accumulate
   , hPutStrLn

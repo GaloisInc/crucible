@@ -65,6 +65,7 @@ import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Char(isDigit)
@@ -187,6 +188,10 @@ data CollectionState
       -- but with different hashes. Most of the time, however, this list will
       -- contain exactly one disambiguator per crate name.
       _crateHashesMap :: !(Map Text (NonEmpty Text)),
+      -- | Preallocated type IDs per instantiated type for dynamic casts
+      -- which provides the answer for the @type_id@ operation. All types
+      -- in the program should be represented.
+      _tyIdMap        :: !(Map Ty Int),
       _collection     :: !Collection
       }
 
@@ -835,9 +840,30 @@ mirVector_resize tpr vec len = G.extensionStmt $ MirVector_Resize tpr vec len
 
 
 mirAggregate_uninit ::
-  Word ->
+  R.Expr MIR s UsizeType ->
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
 mirAggregate_uninit sz = G.extensionStmt $ MirAggregate_Uninit sz
+
+mirAggregate_uninit_constSize ::
+  Word ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_uninit_constSize sz = mirAggregate_uninit (R.App $ usizeLit $ fromIntegral sz)
+
+mirAggregate_replicate ::
+  Word ->
+  C.TypeRepr tp ->
+  R.Expr MIR s tp ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_replicate elemSz elemTpr elemVal lenSym =
+  G.extensionStmt $ MirAggregate_Replicate elemSz elemTpr elemVal lenSym
+
+mirAggregate_resize ::
+  R.Expr MIR s MirAggregateType ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_resize ag sz =
+  G.extensionStmt $ MirAggregate_Resize ag sz
 
 mirAggregate_get ::
   Word ->
@@ -856,8 +882,19 @@ mirAggregate_set ::
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
 mirAggregate_set off sz tpr val ag = G.extensionStmt $ MirAggregate_Set off sz tpr val ag
 
+getTypeId :: Ty -> MirGenerator h s ret Int
+getTypeId ty = do
+    m <- use (cs . tyIdMap)
+    case Map.lookup ty m of
+      Just tyId -> pure tyId
+      Nothing -> P.panic
+            "getTypeId"
+            ["No type_id allocated for type: " ++ show ty]
 
-
+getNeedsDrop :: Ty -> MirGenerator h s ret Bool
+getNeedsDrop ty = do
+    s <- use (cs . collection . needDrops)
+    pure (Set.member ty s)
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
 --  LocalWords:  vtblToStruct
