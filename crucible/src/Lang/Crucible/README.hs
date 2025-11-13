@@ -1,7 +1,7 @@
 {- | This module is only for documentation purposes, and provides a high
 level overview of Crucible aimed at developers. -}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
-module Lang.Crucible.README () where
+module Lang.Crucible.README where
 
 import What4.Interface
 import What4.Expr.App
