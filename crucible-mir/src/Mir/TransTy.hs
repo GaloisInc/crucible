@@ -1032,7 +1032,8 @@ checkFieldKind True tpr tpr' desc = do
         "(at " ++ desc ++ ")"
     return $ FkMaybe tpr
 
-data Sizedness = Sized | Unsized
+-- | Whether a type is sized, including its size in bytes if so.
+data Sizedness = Sized Word | Unsized
 
 -- | Is this ADT sized or unsized?
 --
@@ -1041,11 +1042,11 @@ data Sizedness = Sized | Unsized
 adtSizedness :: M.Collection -> M.Adt -> Sizedness
 adtSizedness col adt =
   case adt ^. M.adtkind of
-    M.Enum _ -> Sized
-    M.Union -> Sized
+    M.Enum _ -> Sized (adt ^. M.adtSize)
+    M.Union -> Sized (adt ^. M.adtSize)
     M.Struct ->
       case M.onlyVariant adt ^. M.vfields of
-        [] -> Sized  -- size 0 is still sized
+        [] -> Sized 0  -- size 0 is still sized
         fields -> tySizedness col (last fields ^. M.fty)
 
 -- | Is this type sized or unsized?
@@ -1062,7 +1063,12 @@ tySizedness col ty =
       case col ^? M.adts . ix adtName of
         Nothing -> error $ "tySizedness: unknown ADT: " <> show adtName
         Just adt -> adtSizedness col adt
-    _ -> Sized
+    _ ->
+      -- TODO: can the whole function be implemented via this stanza?
+      case (col ^. M.layouts) Map.!? ty of
+        Nothing -> error $ "tySizedness: unknown type: " <> show ty
+        Just Nothing -> Unsized
+        Just (Just lay) -> Sized (fromIntegral (lay ^. M.laySize))
 
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
@@ -1076,7 +1082,7 @@ structInfo adt i = do
 
     col <- use $ cs . collection
     case adtSizedness col adt of
-      Sized -> do
+      Sized _ -> do
         Some ctx <- variantFieldsM var
         Some idx <- case Ctx.intIndex i (Ctx.size ctx) of
             Just x -> return x
@@ -1094,7 +1100,7 @@ structInfo adt i = do
       -- does (for `TyDynamic`) or should (for `TyStr` and `TySlice`) cause an
       -- error.
       Unsized -> case tySizedness col fldTy of
-        Sized -> do
+        Sized _ -> do
           Some (FieldRepr fieldKind) <- case tyToFieldRepr col fldTy of
             Left err -> mirFail ("structInfo: " ++ err)
             Right x -> return x
