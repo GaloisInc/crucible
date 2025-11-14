@@ -2664,8 +2664,11 @@ writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) x =
         gs
         ref
 
-subindexMirRefSim :: IsSymInterface sym =>
-    TypeRepr tp -> MirReferenceMux sym -> RegValue sym UsizeType ->
+subindexMirRefSim ::
+    IsSymInterface sym =>
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym UsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
 subindexMirRefSim tpr ref idx = do
     modifyRefMuxSim (\ref' -> subindexMirRefLeaf tpr ref' idx) ref
