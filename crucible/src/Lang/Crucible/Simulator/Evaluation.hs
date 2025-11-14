@@ -27,21 +27,16 @@ module Lang.Crucible.Simulator.Evaluation
   , indexSymbolic
   , integerAsChar
   , complexRealAsChar
-  , indexVectorWithSymNat
-  , adjustVectorWithSymNat
-  , updateVectorWithSymNat
   ) where
 
 import           Prelude hiding (pred)
 
-import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import qualified Data.Text as Text
-import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
@@ -60,6 +55,8 @@ import           What4.WordMap
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
+import           Lang.Crucible.Simulator.RegValue
+import           Lang.Crucible.Simulator.VecValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.SymSequence
@@ -125,22 +122,6 @@ indexSymbolic' bak iteFn f p ((l,h):nl) (si:il) = do
          muxRange predFn iteFn subIndex l h
 
 
-ensureInRange ::
-  IsSymBackend sym bak =>
-  bak ->
-  Natural ->
-  Natural ->
-  SymNat sym ->
-  String ->
-  IO ()
-ensureInRange bak l h si msg =
-  do let sym = backendGetSym bak
-     l_sym <- natLit sym l
-     h_sym <- natLit sym h
-     inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-     assert bak inRange (AssertFailureSimError msg details)
-  where details = unwords ["Range is", show (l, h)]
-
 
 
 -- | Lookup a value in an array that may be at a symbolic offset.
@@ -166,92 +147,9 @@ evalBase :: IsSymInterface sym =>
          -> IO (SymExpr sym vtp)
 evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 
--- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: IsSymBackend sym bak
-                      => bak
-                      -> (Pred sym -> a -> a -> IO a)
-                         -- ^ Ite function
-                      -> V.Vector a
-                      -> SymNat sym
-                      -> IO a
-indexVectorWithSymNat bak iteFn v si =
-  Ex.assert (n > 0) $
-  case asNat si of
-    Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
-           | otherwise -> addFailedAssertion bak (AssertFailureSimError msg details)
-    Nothing ->
-      do let sym = backendGetSym bak
-         let predFn i = natEq sym si =<< natLit sym i
-         let getElt i = return (v V.! fromIntegral i)
-         ensureInRange bak 0 (n - 1) si msg
-         muxRange predFn iteFn getElt 0 (n - 1)
-  where
-  n   = fromIntegral (V.length v)
-  msg = "Vector index out of range"
-  details = unwords ["Range is", show (0 :: Natural, n)]
 
 
 
--- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: IsSymBackend sym bak
-                       => bak
-                          -- ^ Symbolic backend
-                       -> (Pred sym -> a -> a -> IO a)
-                          -- ^ Ite function
-                       -> V.Vector a
-                          -- ^ Vector to update
-                       -> SymNat sym
-                          -- ^ Index to update
-                       -> a
-                          -- ^ New value to assign
-                       -> IO (V.Vector a)
-updateVectorWithSymNat bak iteFn v si new_val = do
-  adjustVectorWithSymNat bak iteFn v si (\_ -> return new_val)
-
--- | Update a vector at a given natural number index.
-adjustVectorWithSymNat :: IsSymBackend sym bak
-                       => bak
-                          -- ^ Symbolic backend
-                       -> (Pred sym -> a -> a -> IO a)
-                          -- ^ Ite function
-                       -> V.Vector a
-                          -- ^ Vector to update
-                       -> SymNat sym
-                          -- ^ Index to update
-                       -> (a -> IO a)
-                          -- ^ Adjustment function to apply
-                       -> IO (V.Vector a)
-adjustVectorWithSymNat bak iteFn v si adj =
-  case asNat si of
-    Just i
-
-      | i < fromIntegral n ->
-        do new_val <- adj (v V.! fromIntegral i)
-           return $ v V.// [(fromIntegral i, new_val)]
-
-      | otherwise ->
-        addFailedAssertion bak $ AssertFailureSimError msg (details i)
-
-    Nothing ->
-      do ensureInRange bak 0 (fromIntegral (n-1)) si msg
-         V.generateM n setFn
-      where
-      setFn j =
-        do  let sym = backendGetSym bak
-            -- Compare si and j.
-            c <- natEq sym si =<< natLit sym (fromIntegral j)
-            -- Select old value or new value
-            case asConstantPred c of
-              Just True  -> adj (v V.! j)
-              Just False -> return (v V.! j)
-              Nothing ->
-                do new_val <- adj (v V.! j)
-                   iteFn c new_val (v V.! j)
-
-  where
-  n = V.length v
-  msg = "Illegal vector index"
-  details i = "Illegal index " ++ show i ++ "given to updateVectorWithSymNat"
 
 type EvalAppFunc sym app = forall f.
   (forall tp. f tp -> IO (RegValue sym tp)) ->
@@ -441,7 +339,7 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Vector
 
-    VectorLit _ v -> traverse evalSub v
+    VectorLit _ v -> vecValLit <$> traverse (fmap RV . evalSub) v
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
       case asNat ne of
@@ -449,26 +347,29 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
                       Unsupported callStack "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
-          return $ V.replicate (fromIntegral n) e
-    VectorIsEmpty r -> do
-      v <- evalSub r
-      return $ backendPred sym (V.null v)
-    VectorSize v_expr -> do
-      v <- evalSub v_expr
-      natLit sym (fromIntegral (V.length v))
+          vecValReplicate sym n (RV e)
+
+    VectorIsEmpty r -> vecValIsEmpty sym =<< evalSub r
+
+    VectorSize v_expr -> vecValSize sym =<< evalSub v_expr
+
     VectorGetEntry rtp v_expr i_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
-      indexVectorWithSymNat bak (muxRegForType sym itefns rtp) v i
+      let ite p (RV x) (RV y) = RV <$> muxRegForType sym itefns rtp p x y
+      unRV <$> vecValGetEntry bak ite v i
+
     VectorSetEntry rtp v_expr i_expr n_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
       n <- evalSub n_expr
-      updateVectorWithSymNat bak (muxRegForType sym itefns rtp) v i n
+      let ite p (RV x) (RV y) = RV <$> muxRegForType sym itefns rtp p x y
+      vecValSetEntry bak ite v i (RV n)
+
     VectorCons _ e_expr v_expr -> do
       e <- evalSub e_expr
       v <- evalSub v_expr
-      return $ V.cons e v
+      vecValCons sym (RV e) v
 
     --------------------------------------------------------------------
     -- Sequence
