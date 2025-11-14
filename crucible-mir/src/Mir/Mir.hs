@@ -233,7 +233,7 @@ data Adt = Adt
     { _adtname :: DefId
     , _adtkind :: AdtKind
     , _adtvariants :: [Variant]
-    , _adtSize :: Int
+    , _adtSize :: Word
     , _adtReprTransparent :: Bool
     , _adtOrigDefId :: DefId
     , _adtOrigSubsts :: Substs
