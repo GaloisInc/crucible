@@ -180,10 +180,10 @@ transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     ag <- mirAggregate_uninit_constSize (fromIntegral $ length bytes)
-    -- TODO: hardcoded size=1
+    let tySize = 1
     ag' <- foldM
-        (\ag' (i, b) -> mirAggregate_set i 1 knownRepr b ag')
-        ag (zip [0..] bytes)
+        (\ag' (off, b) -> mirAggregate_set off tySize knownRepr b ag')
+        ag (zip [0, tySize ..] bytes)
     return $ MirExp MirAggregateRepr ag'
 
 transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
