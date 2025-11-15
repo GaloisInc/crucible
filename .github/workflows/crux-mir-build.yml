@@ -283,6 +283,7 @@ jobs:
         id: build
         with:
           context: .
+          file: ${{ matrix.file }}
           tags: ${{ matrix.image }}
           annotations: ${{ steps.meta.outputs.annotations }}
           labels: ${{ steps.meta.outputs.labels }}
