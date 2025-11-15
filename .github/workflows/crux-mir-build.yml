@@ -227,13 +227,14 @@ jobs:
           path: crux-mir-*.tar.gz*
           name: crux-mir-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.ghc }}
 
-  build-push-image:
-    runs-on: ubuntu-24.04
+  build-image:
+    runs-on: ${{ matrix.os }}
     needs: [config]
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true') && github.repository_owner == 'GaloisInc'
+    # if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.config.outputs.release == 'true') && github.repository_owner == 'GaloisInc'
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
         include:
           - file: .github/Dockerfile-crux-mir
             image: ghcr.io/galoisinc/crux-mir
@@ -251,7 +252,7 @@ jobs:
         run: |
           # The crux-mir Docker image is rather large (~1GB compressed), and
           # the mere act of building the image requires just over 14 GB of disk
-          # space, which the maximum provided by a GitHub Action CI runner. To
+          # space, which is the maximum provided by a GitHub Action CI runner. To
           # clear up some extra space, we delete ~10GB worth of pre-installed
           # GitHub Actions tools, none of which we make use of.
           sudo rm -rf /usr/share/dotnet
@@ -259,59 +260,44 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY" # Python installations
 
-      - uses: rlespinasse/github-slug-action@v3.x
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
 
-      - id: common-tag
-        run: |
-          echo "::set-output name=common-tag::$GITHUB_REF_SLUG"
-          echo "COMMON_TAG=$GITHUB_REF_SLUG" >> $GITHUB_ENV
-
-      - uses: docker/setup-buildx-action@v1
-
-      - uses: crazy-max/ghaction-docker-meta@v1
-        name: Labels
-        id: labels
+      - name: Docker metadata
+        uses: docker/metadata-action@v5
+        id: meta
         with:
           images: ${{ matrix.image }}
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,manifest-descriptor
 
-      - uses: docker/login-action@v1
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v2
+      - name: Build and push by digest
+        uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
-          tags: ${{ matrix.image }}:${{ steps.common-tag.outputs.common-tag }}
-          labels: ${{ steps.labels.outputs.labels }}
-          load: true
-          push: false
-          file: ${{ matrix.file }}
-          build-args: ${{ matrix.build-args }}
-          cache-from: |
-            type=registry,ref=${{ matrix.cache }}:${{ steps.prefix.outputs.prefix }}master
-            type=registry,ref=${{ matrix.cache }}:${{ steps.common-tag.outputs.common-tag }}
+          tags: ${{ matrix.image }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
 
-      - name: Cache image build
-        uses: docker/build-push-action@v2
-        continue-on-error: true  # Tolerate cache upload failures - this should be handled better
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
         with:
-          context: .
-          file: ${{ matrix.file }}
-          build-args: ${{ matrix.build-args }}
-          cache-to: type=registry,ref=${{ matrix.cache }}:${{ steps.common-tag.outputs.common-tag }},mode=max
-
-      - if: needs.config.outputs.event-schedule == 'true'
-        name: ${{ matrix.image }}:nightly
-        run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:nightly
-          docker push ${{ matrix.image }}:nightly
-
-      - if: needs.config.outputs.release == 'true'
-        name: ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
-        run: |
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
-          docker push ${{ matrix.image }}:${{ needs.config.outputs.crux-mir-version }}
-          docker tag ${{ matrix.image }}:$COMMON_TAG ${{ matrix.image }}:latest
-          docker push ${{ matrix.image }}:latest
+          name: digests-${{ runner.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
