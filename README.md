@@ -128,7 +128,7 @@ Notes on Freeze Files
 ---------------------
 
 We use the `cabal.GHC-*.config` files to constrain dependency versions in CI.
-We recommand using the following command for best results before building
+We recommend using the following command for best results before building
 locally:
 
 ```
