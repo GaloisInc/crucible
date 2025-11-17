@@ -1015,6 +1015,8 @@ data StructInfo where
   -- additionally requires index-projecting to their first element, and we
   -- include the element's `TypeRepr` because index projection requires it.
   UnsizedSliceField ::
+    -- | The size, in bytes, of the slice element type
+    Word ->
     C.TypeRepr tp ->
     StructInfo
 
@@ -1112,10 +1114,15 @@ structInfo adt i = do
             case fldTy of
               M.TySlice innerTy -> do
                 Some innerRepr <- tyToReprM innerTy
-                pure $ UnsizedSliceField innerRepr
+                innerSize <- case tySizedness col innerTy of
+                  Sized s -> pure s
+                  Unsized ->
+                    mirFail $ "structInfo: unsized slice element type"
+                pure $ UnsizedSliceField innerSize innerRepr
               M.TyStr -> do
                 Some innerRepr <- tyToReprM (M.TyUint M.B8)
-                pure $ UnsizedSliceField innerRepr
+                let innerSize = 1  -- because the element type is u8
+                pure $ UnsizedSliceField innerSize innerRepr
               _ -> pure UnsizedNonSliceField
 
   where
@@ -1133,7 +1140,7 @@ getStructField adt i (MirExp structTpr e0) = structInfo adt i >>= \case
     mirFail "getStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
     mirFail "getStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _innerRepr ->
+  UnsizedSliceField _elemSize _innerRepr ->
     mirFail "getStructField: unsized fields of unsized structs not yet supported"
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++
@@ -1151,7 +1158,7 @@ setStructField adt i (MirExp structTpr structExp) (MirExp fldTpr fldExp) = struc
     mirFail "setStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
     mirFail "setStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _innerRepr ->
+  UnsizedSliceField _elemSize _innerRepr ->
     mirFail "setStructField: unsized fields of unsized structs not yet supported"
   where
     errFieldType :: FieldKind tp tp' -> String
@@ -1186,7 +1193,7 @@ mapStructField adt i f (MirExp structTpr e) = structInfo adt i >>= \case
     mirFail "mapStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
     mirFail "mapStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _innerRepr ->
+  UnsizedSliceField _elemSize _innerRepr ->
     mirFail "mapStructField: unsized fields of unsized structs not yet supported"
 
 
@@ -1578,7 +1585,7 @@ structFieldRef adt i ref0 meta = structInfo adt i >>= \case
   UnsizedNonSliceField -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
     return $ MirPlace C.AnyRepr fieldRef meta
-  UnsizedSliceField innerRepr -> do
+  UnsizedSliceField _innerSize innerRepr -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
     elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0)
     case meta of
