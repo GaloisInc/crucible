@@ -820,15 +820,16 @@ packAny ::  MirExp s -> (MirExp s)
 packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
 
--- | Build a `MirAggregateRepr` from a list of `MirExp`s.
-buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildArrayLit tpr exps = do
+-- | Build a `MirAggregateRepr` from a list of `MirExp`s of the given type.
+buildArrayLit :: forall h s ret. M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildArrayLit elemTy exps = do
+    Some elemTpr <- tyToReprM elemTy
     ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length exps)
     ag1 <- foldM
-        (\ag (i, MirExp tpr' e) -> do
-            Refl <- testEqualityOrFail tpr tpr' $
-                "buildArrayLit: expected elem to be " ++ show tpr ++ ", but got " ++ show tpr'
-            mirAggregate_set i 1 tpr e ag)
+        (\ag (i, MirExp elemTpr' e) -> do
+            Refl <- testEqualityOrFail elemTpr elemTpr' $
+                "buildArrayLit: expected elem to be " ++ show elemTpr ++ ", but got " ++ show elemTpr'
+            mirAggregate_set i 1 elemTpr e ag)
         ag0 (zip [0 :: Word ..] exps)
     return $ MirExp MirAggregateRepr ag1
 
