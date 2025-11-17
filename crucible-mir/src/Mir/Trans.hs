@@ -1178,7 +1178,8 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
   case (argTy, retTy) of
     -- Splitting an integer into pieces (usually bytes)
     (C.BVRepr w1, MirAggregateRepr)
-      | TyArray (tyToRepr col -> Right (Some (C.BVRepr w2))) n <- destMirTy
+      | TyArray elemTy n <- destMirTy
+      , Right (Some (C.BVRepr w2)) <- tyToRepr col elemTy
       , natValue w1 == natValue w2 * fromIntegral n -> do
         pieces <- forM [0 .. n - 1] $ \i -> do
           Some i' <- return $ mkNatRepr $ fromIntegral i
@@ -1187,7 +1188,7 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
             Just x -> return x
             Nothing -> panic "transmute" ["impossible: (w1 / w2 - 1) * w2 + w2 > w1?"]
           return $ MirExp (C.BVRepr w2) $ R.App $ E.BVSelect offset w2 w1 argExpr
-        buildArrayLit (C.BVRepr w2) pieces
+        buildArrayLit elemTy pieces
 
     -- Reconstructing an integer from pieces (usually bytes)
     (MirAggregateRepr, C.BVRepr w2)
@@ -1325,8 +1326,7 @@ evalRval (M.Aggregate ak ops) =
             evalTupleRval ops
         M.AKArray ty -> do
             exps <- mapM evalOperand ops
-            Some repr <- tyToReprM ty
-            buildArrayLit repr exps
+            buildArrayLit ty exps
         M.AKClosure ->
             -- Closure environments have the same
             -- representation as tuples.
