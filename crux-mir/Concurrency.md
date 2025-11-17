@@ -2,7 +2,7 @@
 
 Crux-mir has experimental support for multithreaded programs. 
 
-This document explains (1) how to use crux-mir to simualte multithreaded programs, (2)
+This document explains (1) how to use crux-mir to simulate multithreaded programs, (2)
 what is currently supported, and (3) how to extend support for additional primitives.
 
 ## Setting up and running crux-mir with concurrency support

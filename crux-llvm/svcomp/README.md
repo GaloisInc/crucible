@@ -96,7 +96,7 @@ command:
 $ ./scripts/execute-runs/mkInstall.sh crux crux-path
 ```
 
-For whatever reason, the secon argument (ostensibly the path to extract to)
+For whatever reason, the second argument (ostensibly the path to extract to)
 doesn't seem to actually get used in practice, and the directory it will
 _actually_ be extracted to is the basename of the Crux `.zip` file itself.
 Navigate into this newly extracted directory and run the following:
