@@ -3,6 +3,8 @@ on:
   push:
     branches: [master, "release-**"]
   pull_request:
+    # Don't run on documentation-only changes
+    paths-ignore: ["**.md"]
   workflow_dispatch:
 
 jobs:
