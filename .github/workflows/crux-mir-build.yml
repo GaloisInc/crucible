@@ -214,7 +214,9 @@ jobs:
         # workflow, so it is safe to skip this step on forks. Note that it
         # isn't sufficient to test the pull request info because this job is
         # also scheduled. See notes in README.md.
-        if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
+        if: github.event.pull_request.head.repo.fork == false &&
+            github.repository_owner == 'GaloisInc' &&
+            github.actor != 'dependabot[bot]'
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
@@ -222,7 +224,9 @@ jobs:
           .github/ci.sh sign "${NAME}.tar.gz"
 
       - uses: actions/upload-artifact@v4
-        if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'GaloisInc'
+        if: github.event.pull_request.head.repo.fork == false &&
+            github.repository_owner == 'GaloisInc' &&
+            github.actor != 'dependabot[bot]'
         with:
           path: crux-mir-*.tar.gz*
           name: crux-mir-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.ghc }}
