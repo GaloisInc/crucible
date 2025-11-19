@@ -87,6 +87,7 @@ import qualified Lang.Crucible.Simulator.GlobalState   as C
 import qualified Lang.Crucible.Simulator.OverrideSim   as C
 import qualified Lang.Crucible.Simulator.RegValue      as C
 import qualified Lang.Crucible.Simulator.RegMap        as C
+import qualified Lang.Crucible.Simulator.VecValue      as C
 
 import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.Utils.MuxTree           as C
@@ -431,7 +432,7 @@ instance Concretize JVMArrayType where
   type Concrete JVMArrayType = Vector (Maybe CValue)
   concretize (C.RV x) = do
     let (C.RV vec) = x Ctx.! Ctx.i2of4
-    vm <- V.mapM (concretize @JVMValueType . C.RV) vec
+    vm <- V.mapM (concretize @JVMValueType) =<< liftIO (C.vecValToVec vec)
     return (Just vm)
 
 

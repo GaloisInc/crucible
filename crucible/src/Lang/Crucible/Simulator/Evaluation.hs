@@ -342,13 +342,9 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     VectorLit _ v -> vecValLit <$> traverse (fmap RV . evalSub) v
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
-      case asNat ne of
-        Nothing -> addFailedAssertion bak $
-                      Unsupported callStack "vectors with symbolic length"
-        Just n -> do
-          e <- evalSub e_expr
-          vecValReplicate sym n (RV e)
-
+      e  <- evalSub e_expr
+      vecValReplicate sym ne (RV e)
+      
     VectorIsEmpty r -> vecValIsEmpty sym =<< evalSub r
 
     VectorSize v_expr -> vecValSize sym =<< evalSub v_expr

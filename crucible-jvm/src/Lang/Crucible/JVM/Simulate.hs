@@ -7,6 +7,7 @@ Maintainer       : sweirich@galois.com
 Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -73,6 +74,7 @@ import qualified Lang.Crucible.Simulator.GlobalState as C
 import qualified Lang.Crucible.Simulator.RegMap as C (eqReference)
 import qualified Lang.Crucible.Simulator.CallFrame as C
 import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
+import qualified Lang.Crucible.Simulator.VecValue as C
 
 
 -- what4
@@ -93,6 +95,10 @@ import           Lang.Crucible.JVM.Translation.Class
 import           Lang.Crucible.JVM.Overrides
 
 import qualified Lang.JVM.Codebase as JCB
+
+
+-- | Constraints on the symbolic backends
+type IsJVMSymBackend sym bak = (IsSymBackend sym bak, C.VecSize sym (W4.SymExpr sym (BaseBVType 32)))
 
 
 {-
@@ -897,7 +903,7 @@ doArrayStore bak globals ref idx val =
      let msg2 = C.GenericSimError "Object is not an array"
      arr <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
      let vec = C.unRV (arr Ctx.! Ctx.i2of4)
-     let vec' = vec V.// [(idx, val)]
+     vec' <- C.vecValSetEntryConcrete bak vec idx (C.RV val)
      let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
@@ -956,10 +962,8 @@ doArrayLoad bak globals ref idx =
      let msg2 = C.GenericSimError "Array load: object is not an array"
      arr <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
      let vec = C.unRV (arr Ctx.! Ctx.i2of4)
-     let msg3 = C.GenericSimError $ "Array load: index out of bounds: " ++ show idx
-     case vec V.!? idx of
-       Just val -> return val
-       Nothing -> C.addFailedAssertion bak msg3
+     C.RV res <- C.vecValGetEntryConcrete bak vec idx
+     pure res
 
 -- | Allocate an instance of the given class in the global state. All
 -- of the fields are initialized to 'unassignedJVMValue'.
@@ -990,7 +994,7 @@ doAllocateObject bak halloc jc cname mut globals =
 -- | Allocate an array in the global state. All of the elements are
 -- initialized to 'unassignedJVMValue'.
 doAllocateArray ::
-  (IsSymBackend sym bak) =>
+  (IsJVMSymBackend sym bak) =>
   bak ->
   C.HandleAllocator ->
   JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
@@ -1000,9 +1004,9 @@ doAllocateArray ::
 doAllocateArray bak halloc jc len elemTy mut globals =
   do let sym = backendGetSym bak
      len' <- liftIO $ W4.bvLit sym w32 (BV.mkBV w32 (toInteger len))
-     let vec = V.replicate len unassignedJVMValue
+     vec <- C.vecValReplicate sym len' (C.RV unassignedJVMValue) -- XXX: it would be better to use vecValUninit here, but the types are slightly different
      rep <- makeJVMTypeRep sym globals jc elemTy
-     let ws = V.generate len (W4.backendPred sym . mut)
+     let ws = C.vecValLit (V.generate len (C.RV . W4.backendPred sym . mut))
      let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV ws Ctx.:> C.RV rep
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i2of2 arr)

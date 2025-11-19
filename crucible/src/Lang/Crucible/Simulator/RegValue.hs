@@ -26,6 +26,7 @@ module Lang.Crucible.Simulator.RegValue
   , CanMux(..)
   , RegValue'(..)
   , MuxFn
+  , liftITE
 
     -- * Register values
   , AnyValue(..)
@@ -61,6 +62,7 @@ import           Data.Proxy
 import qualified Data.Set as Set
 import           Data.Text (Text)
 import           Data.Word
+import           Data.Coerce(coerce)
 import           GHC.TypeNats (KnownNat)
 
 import qualified Data.Parameterized.Context as Ctx
@@ -105,6 +107,15 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
 newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
+
+instance IsExprBuilder sym => IsRegValue sym (RegValue' sym) where
+  partialToMaybe = coerce
+
+-- | Lift a muxing function 'RegValue' to one on `RegValue'`.
+liftITE :: (IsSymExprBuilder sym) =>
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  (Pred sym -> RegValue' sym tp -> RegValue' sym tp -> IO (RegValue' sym tp))
+liftITE ite p (RV x) (RV y) = coerce (ite p x y)
 
 
 --------------------------------------------------------------------------------
