@@ -4,6 +4,8 @@ on:
     tags: ["crux-v?[0-9]+.[0-9]+(.[0-9]+)?"]
     branches: [master, "release-**"]
   pull_request:
+    # Don't run on documentation-only changes
+    paths-ignore: ["**.md"]
   schedule:
     - cron: "0 10 * * *" # 10am UTC -> 2/3am PST
   workflow_dispatch:

@@ -104,7 +104,7 @@ somewhat inaccurately. LLVM's intended semantics for `freeze` state that
 if the argument is an `undef` or `poison` value, then `freeze` should return
 an arbitrary value; otherwise, it should return the argument unchanged. In
 `crucible-llvm`, however, a `freeze` instruction _always_ returns the argument
-unchanged. The issue is that `crucibe-llvm` currently does not have the ability
+unchanged. The issue is that `crucible-llvm` currently does not have the ability
 to reliably determine whether a given value is `undef` or `poison`.
 
 One can often get close to the intended LLVM semantics for `freeze` by enabling
