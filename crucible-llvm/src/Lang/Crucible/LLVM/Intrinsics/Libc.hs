@@ -53,6 +53,7 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.VecValue
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
@@ -672,7 +673,9 @@ callPrintf mvar
       case parseDirectives formatStr of
         Left err -> overrideError $ AssertFailureSimError "Format string parsing failed" err
         Right ds -> do
-          ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps bak valist) ds) mem
+          ((str, n), mem') <- liftIO $
+            do valist' <- vecValToVec valist
+               runStateT (executeDirectives (printfOps bak valist') ds) mem
           writeGlobal mvar mem'
           h <- printHandle <$> getContext
           liftIO $ BS.hPutStr h str
@@ -681,7 +684,7 @@ callPrintf mvar
 printfOps :: ( IsSymBackend sym bak, HasLLVMAnn sym, HasPtrWidth wptr
              , ?memOpts :: MemOptions )
           => bak
-          -> V.Vector (AnyValue sym)
+          -> V.Vector (RegValue' sym AnyType)
           -> PrintfOperations (StateT (MemImpl sym) IO)
 printfOps bak valist =
   let sym = backendGetSym bak in
@@ -691,7 +694,7 @@ printfOps bak valist =
 
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (LLVMPointerRepr w) p@(LLVMPointer _blk bv)) ->
+       Just (RV (AnyValue (LLVMPointerRepr w) p@(LLVMPointer _blk bv))) ->
          do isBv <- liftIO (Ptr.ptrIsBv sym p)
             liftIO $ assert bak isBv $
               AssertFailureSimError
@@ -701,7 +704,7 @@ printfOps bak valist =
               return $ BV.asSigned w <$> asBV bv
             else
               return $ BV.asUnsigned <$> asBV bv
-       Just (AnyValue tpr _) ->
+       Just (RV (AnyValue tpr _)) ->
          lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf"
@@ -714,10 +717,10 @@ printfOps bak valist =
 
   , printfGetFloat = \i _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (FloatRepr (_fi :: FloatInfoRepr fi)) x) ->
+       Just (RV (AnyValue (FloatRepr (_fi :: FloatInfoRepr fi)) x)) ->
          do xr <- liftIO (iFloatToReal @_ @fi sym x)
             return (asRational xr)
-       Just (AnyValue tpr _) ->
+       Just (RV (AnyValue tpr _)) ->
          lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
@@ -730,10 +733,10 @@ printfOps bak valist =
 
   , printfGetString  = \i numchars ->
      case valist V.!? (i-1) of
-       Just (AnyValue PtrRepr ptr) ->
+       Just (RV (AnyValue PtrRepr ptr)) ->
            do mem <- get
               liftIO $ CStr.loadString bak mem ptr numchars
-       Just (AnyValue tpr _) ->
+       Just (RV (AnyValue tpr _)) ->
          lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
@@ -746,9 +749,9 @@ printfOps bak valist =
 
   , printfGetPointer = \i ->
      case valist V.!? (i-1) of
-       Just (AnyValue PtrRepr ptr) ->
+       Just (RV (AnyValue PtrRepr ptr)) ->
          return $ show (G.ppPtr ptr)
-       Just (AnyValue tpr _) ->
+       Just (RV (AnyValue tpr _)) ->
          lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."
@@ -761,7 +764,7 @@ printfOps bak valist =
 
   , printfSetInteger = \i len v ->
      case valist V.!? (i-1) of
-       Just (AnyValue PtrRepr ptr) ->
+       Just (RV (AnyValue PtrRepr ptr)) ->
          do mem <- get
             case len of
               Len_Byte  -> do
@@ -793,7 +796,7 @@ printfOps bak valist =
                      $ Unsupported GHC.callStack
                      $ unwords ["Unsupported size modifier in %n conversion:", show len]
 
-       Just (AnyValue tpr _) ->
+       Just (RV (AnyValue tpr _)) ->
          lift $ addFailedAssertion bak
               $ AssertFailureSimError
                 "Type mismatch in printf."

@@ -19,6 +19,8 @@ module Lang.Crucible.Simulator.VecValue
   , vecValTake
   , vecValDrop
   , vecValAppend
+  , vecValMap
+  , vecValZipWith
 
     -- * Observers
   , vecValToVec
@@ -30,6 +32,7 @@ module Lang.Crucible.Simulator.VecValue
   , vecValGetEntryConcrete
   , vecValHead
   , vecValLast
+  , vecValFold
 
   
 
@@ -88,9 +91,10 @@ instance VecMonad sym IO where
   vecPre = pure . truePred
 
 -- | Type suitable for indexing into vectors, or getting the size of a vector.
--- We expect to have 2 instances for this class:
---  * one for natural numbers,
+-- Instances:
+--  * one for symbolic natural numbers,
 --  * one for bit-vector types (i.e., usize),
+-- * one for concrete natural numbers
 class IsExprBuilder sym => VecSize sym t where
   vecSizeIsConcrete :: sym -> t -> Maybe Int
   vecSizeLit        :: sym -> Natural -> IO t
@@ -118,6 +122,19 @@ instance (1 <= w, KnownNat w, IsExprBuilder sym, SymBV sym w ~ BVExpr s w) => Ve
   vecSizeLit sym n = bvLit sym knownNat (BV.mkBV knownNat (toInteger n))
   vecSizeEq        = bvEq
   vecSizeLeq       = bvUle
+
+instance IsExprBuilder sym => VecSize sym Natural where
+  vecSizeIsConcrete _ n = Just (fromIntegral n) -- assumes it fits
+  vecSizeLit _ = pure
+  vecSizeEq sym x y = pure (backendPred sym (x == y))
+  vecSizeLeq sym x y = pure (backendPred sym (x <= y))
+
+
+instance IsExprBuilder sym => VecSize sym Integer where
+  vecSizeIsConcrete _ n = Just (fromIntegral n) -- assumes it fits
+  vecSizeLit _ = pure . fromIntegral -- assumes it fits
+  vecSizeEq sym x y = pure (backendPred sym (x == y))
+  vecSizeLeq sym x y = pure (backendPred sym (x <= y))
 
 
 
@@ -150,6 +167,30 @@ vecValSize sym (VecVal xs) = vecSizeLit sym (fromIntegral (V.length xs))
 
 vecValSizeConcrete :: VecVal f tp -> Int
 vecValSizeConcrete (VecVal xs) = V.length xs
+
+vecValZipWith ::
+  (IsExprBuilder sym) =>
+  sym ->
+  (f a -> f b -> IO (f c)) ->
+  VecVal f a -> VecVal f b -> IO (VecVal f c)
+vecValZipWith _sym f (VecVal xs) (VecVal ys) = VecVal <$> V.zipWithM f xs ys
+
+vecValMap ::
+  (IsExprBuilder sym) =>
+  sym ->
+  (f a -> IO (f b)) ->
+  VecVal f a -> IO (VecVal f b)
+vecValMap _sym f (VecVal xs) = VecVal <$> mapM f xs
+  
+vecValFold ::
+  (IsExprBuilder sym) =>
+  sym ->
+  (a -> f tp -> IO a) ->
+  a ->
+  VecVal f tp ->
+  IO a
+vecValFold _sym f acc (VecVal xs) = V.foldM f acc xs
+  
 
 -- | Get the value at the given index.
 vecValGetEntry ::
