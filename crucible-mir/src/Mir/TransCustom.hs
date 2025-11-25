@@ -2135,17 +2135,7 @@ ctpop = (["core", "intrinsics", "ctpop"],
 cloneShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
 cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
-cloneShimDef (TyFnPtr _) parts
-  -- Function pointers do not have any fields, so implementing a clone shim for
-  -- a function pointer is as simple as dereferencing it.
-  | [] <- parts = CustomOp $ \opTys ops ->
-    case (opTys, ops) of
-      ([TyRef ty _], [eRef]) -> do
-        e <- derefExp ty eRef
-        readPlace e
-      _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (opTys, ops)
-  | otherwise = CustomOp $ \_ _ -> mirFail $
-    "expected no clone functions in function pointer clone shim, but got " ++ show parts
+cloneShimDef (TyFnPtr _) parts = cloneShimNoFields "function pointer" parts
 cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
@@ -2171,6 +2161,25 @@ cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     fieldRefOps <- zipWithM (\ty expr -> makeTempOperand (TyRef ty Immut) expr) tys fieldRefExps
     clonedExps <- zipWithM (\part op -> callExp part [op]) parts fieldRefOps
     buildTupleMaybeM tys (map Just clonedExps)
+
+-- | Create an 'IkCloneShim' implementation for a value that is expected not to
+-- have any fields. Implementing clone shims for such values is as simple as
+-- dereferencing them.
+cloneShimNoFields ::
+  -- | What type of value this is. This is only used for error messages.
+  String ->
+  -- | The value's fields, which is checked to be empty.
+  [M.DefId] ->
+  CustomOp
+cloneShimNoFields what parts
+  | [] <- parts = CustomOp $ \opTys ops ->
+    case (opTys, ops) of
+      ([TyRef ty _], [eRef]) -> do
+        e <- derefExp ty eRef
+        readPlace e
+      _ -> mirFail $ "cloneShimNoFields: expected exactly one argument, but got " ++ show (opTys, ops)
+  | otherwise = CustomOp $ \_ _ -> mirFail $
+    "expected no clone functions in " ++ what ++ " clone shim, but got " ++ show parts
 
 cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneFromShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
