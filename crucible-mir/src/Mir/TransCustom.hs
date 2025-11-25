@@ -2135,24 +2135,6 @@ ctpop = (["core", "intrinsics", "ctpop"],
 cloneShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
 cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
-cloneShimDef (TyArray ty len) parts
-  | [part] <- parts = CustomMirOp $ \ops -> do
-    lv <- case ops of
-        [Move lv] -> return lv
-        [Copy lv] -> return lv
-        [op] -> mirFail $ "cloneShimDef: expected lvalue operand, but got " ++ show op
-        _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (length ops)
-    -- The argument to the clone shim is `&[T; n]`.  The clone method for
-    -- elements requires `&T`, computed as `&arg[i]`.
-    let elementRefRvs = map (\i ->
-            Ref Shared (LProj (LProj lv Deref) (ConstantIndex i len False)) "_") [0 .. len - 1]
-    elementRefExps <- mapM evalRval elementRefRvs
-    elementRefOps <- mapM (\expr -> makeTempOperand (TyRef ty Immut) expr) elementRefExps
-    clonedExps <- mapM (\op -> callExp part [op]) elementRefOps
-    Some tpr <- tyToReprM ty
-    buildArrayLit tpr clonedExps
-  | otherwise = CustomOp $ \_ _ -> mirFail $
-    "expected exactly one clone function for in array clone shim, but got " ++ show parts
 cloneShimDef (TyFnPtr _) parts
   -- Function pointers do not have any fields, so implementing a clone shim for
   -- a function pointer is as simple as dereferencing it.
