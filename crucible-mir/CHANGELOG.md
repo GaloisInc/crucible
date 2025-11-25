@@ -30,6 +30,23 @@ This release supports [version
   pointer is greater than or equal to the second.  If the offset would be
   negative (i.e., the first pointer is less than the second), this is undefined
   behavior.
+* Replace the `MirVector` type with `MirAggregate`. As part of this change, the
+  following have been removed:
+
+  * `MirVectorSymbol`, `MirVectorType`, `MirVectorRepr`, `MirVectorFam`, and
+     `MirVector`
+  * `Index_RefPath`, `VectorAsMirVector_RefPath`, and `ArrayAsMirVector_RefPath`
+     (whose types all depend on MirVector)
+  * `MirRef_VectorAsMirVector` and `MirRef_ArrayAsMirVector` (for similar
+     reasons)
+  * `MirVector_Uninit`, `MirVector_FromVector`, `MirVector_FromArray`, and
+    `MirVector_Resize` (for similar reasons)
+
+  Where possible, these should be migrated to corresponding operations on
+  `MirAggregate`s. Note that indexing-related operations have been split up
+  into three separate operations (`VectorIndex_RefPath`, `ArrayIndex_RefPath`,
+  and `AgElem_RefPath`) that work on `Vector`s, `Array`s, and `MirAggregate`s,
+  respectively.
 
 # 0.5 -- 2025-11-09
 
