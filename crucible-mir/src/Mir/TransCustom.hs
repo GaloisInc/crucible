@@ -2136,6 +2136,7 @@ cloneShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
 cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
 cloneShimDef (TyFnPtr _) parts = cloneShimNoFields "function pointer" parts
+cloneShimDef (TyFnDef _) parts = cloneShimNoFields "function definition" parts
 cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
