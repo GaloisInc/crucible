@@ -141,10 +141,9 @@ mirPathName p =
     Empty_RefPath -> ""
     Field_RefPath _ p' idx -> mirPathName p' ++ "." ++ show (indexVal idx)
     Variant_RefPath _ _ p' idx -> mirPathName p' ++ "." ++ show (indexVal idx)
-    Index_RefPath _ p' _ -> mirPathName p'
     Just_RefPath _ p' -> mirPathName p'
-    VectorAsMirVector_RefPath _ p' -> mirPathName p'
-    ArrayAsMirVector_RefPath _ p' -> mirPathName p'
+    VectorIndex_RefPath _ p' _ -> mirPathName p'
+    ArrayIndex_RefPath _ p' _ -> mirPathName p'
     AgElem_RefPath _ _ _ p' -> mirPathName p'
 
 -- | Match a the name of a polymorphic method with a possible instance by

@@ -335,11 +335,10 @@ vector_as_slice_impl (Substs [t]) =
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
-            e' <- mirRef_vectorAsMirVector tpr e
-            e'' <- subindexRef tpr e' (R.App $ usizeLit 0)
+            e' <- subindexRef tpr e (R.App $ usizeLit 0)
             let tup = S.mkStruct
                     (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> e'' Ctx.:> end)
+                    (Ctx.Empty Ctx.:> e' Ctx.:> end)
             return $ MirExp MirSliceRepr tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
 vector_as_slice_impl _ = Nothing
@@ -432,12 +431,7 @@ array_as_slice_impl (Substs [t]) =
           MirExp UsizeRepr start,
           MirExp UsizeRepr len ] -> do
             Some tpr <- tyToReprM t
-            Some btpr <- case C.asBaseType tpr of
-                C.AsBaseType btpr -> return $ Some btpr
-                C.NotBaseType -> mirFail $ "expected Crucible base type, but got "
-                    ++ show t ++ ", " ++ show tpr
-            e' <- mirRef_arrayAsMirVector btpr e
-            ptr <- subindexRef tpr e' start
+            ptr <- subindexRef tpr e start
             return $ MirExp MirSliceRepr $ mkSlice ptr len
         _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing
@@ -1355,7 +1349,7 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
               [MirExp MirSliceRepr e] ) -> do
                 -- TODO: This should be implemented as a type cast, so the
                 -- input and output are aliases.  However, the input slice's
-                -- data pointer may point into a `MirVector` rather than a
+                -- data pointer may point into a `Vector`/`Array` rather than a
                 -- `MirAggregate`, whereas the output must always point to a
                 -- `MirAggregate`.  So for now, we use `aggregateCopy` to build
                 -- the output.  Once `MirAggregate` flattening is enabled, we
@@ -1414,7 +1408,7 @@ slice_from mut = (["core", "slice", "raw", Text.pack hookLoc, Text.pack hookName
                 | m == mut -> do
                 -- Unlike `array_from_ref` and `array_from_slice`, this _does_
                 -- alias the input and output. This is possible because while a
-                -- `&[T; N]` must point to a `MirVectorRepr`, which we must
+                -- `&[T; N]` must point to a `MirAggregateRepr`, which we must
                 -- create, a `&[T]` can point to any `T` - so we can reuse the
                 -- function's `&T` parameter.
                 let sliceRef = mkSlice elemRef (R.App $ usizeLit 1)
@@ -1821,8 +1815,8 @@ allocate :: (ExplodedDefId, CustomRHS)
 allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr sz] -> do
-            -- Create an uninitialized `MirVector_PartialVector` of length
-            -- `len`, and return a pointer to its first element.
+            -- Create an uninitialized `MirAggregate` of length `len`, and
+            -- return a pointer to its first element.
             Some tpr <- tyToReprM t
             ag <- mirAggregate_uninit sz
             ref <- newMirRef MirAggregateRepr
