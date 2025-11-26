@@ -19,6 +19,10 @@ import qualified Data.Parameterized.Map as MapF
 import qualified Numeric as N
 import           LibBF (BigFloat)
 import qualified LibBF as BF
+import qualified Prettyprinter as PP
+import           Prettyprinter (Doc)
+import           Prettyprinter.Render.Text (renderStrict)
+import qualified Data.Text as T
 
 import           Lang.Crucible.Types
 
@@ -112,3 +116,73 @@ valsJS ty (Vals xs) =
 modelJS :: ModelView -> IO JS
 modelJS m =
   jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
+
+-- Pretty-print all entries in a model for a given base type.
+valsDoc :: BaseTypeRepr ty -> Vals ty -> [Doc ann]
+valsDoc ty (Vals xs) =
+  let ppEnt = case ty of
+        BaseBVRepr n -> prettyBVEnt n
+
+        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
+          | Just Refl <- testEquality eb (knownNat @8)
+          , Just Refl <- testEquality sb (knownNat @24)
+          -> prettyEnt' showFloatLiteral
+
+        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
+          | Just Refl <- testEquality eb (knownNat @11)
+          , Just Refl <- testEquality sb (knownNat @53)
+          -> prettyEnt' showDoubleLiteral
+
+        BaseRealRepr ->
+          -- same semantics as valsJS: print reals via toDouble
+          prettyEnt' (show . toDouble)
+
+        _ ->
+          error ("Type not implemented: " ++ show ty)
+  in
+    map ppEnt xs
+
+-- Generic entry printer for "simple" values.
+prettyEnt' :: (a -> String) -> Entry a -> Doc ann
+prettyEnt' repr e =
+  PP.hsep
+    [ PP.pretty (entryName e)
+    , PP.pretty ("=" :: String)
+    , PP.pretty (repr (entryValue e))
+    ]
+
+-- Bitvector entries: signed, unsigned, decimal on a single line.
+prettyBVEnt :: (1 <= w) => NatRepr w -> Entry (BV w) -> Doc ann
+prettyBVEnt n e =
+  let v   = entryValue e
+      sg  = showBVLiteralSigned   n v
+      un  = showBVLiteralUnsigned n v
+      dec = showBVLiteralDecimal  n v
+  in
+    PP.hsep
+      [ PP.pretty (entryName e)
+      , PP.pretty ("=" :: String)
+      , PP.pretty sg
+      , PP.pretty ("(signed),"   :: String)
+      , PP.pretty un
+      , PP.pretty ("(unsigned)," :: String)
+      , PP.pretty dec
+      , PP.pretty ("(decimal)"   :: String)
+      ]
+
+-- Human-readable model as a Prettyprinter 'Doc'.
+modelDoc :: ModelView -> Doc ann
+modelDoc m =
+  PP.vsep
+    (MapF.foldrWithKey
+       (\ty vals docs -> valsDoc ty vals ++ docs)
+       []
+       (modelVals m)
+    )
+
+-- Convenience: render a model to 'String' for CLI output.
+renderModel :: ModelView -> String
+renderModel m =
+  let layout = PP.layoutPretty PP.defaultLayoutOptions
+  in T.unpack (renderStrict (layout (modelDoc m)))
+
