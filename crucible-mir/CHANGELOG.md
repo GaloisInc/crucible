@@ -1,9 +1,10 @@
 # next
 
 This release supports [version
-5](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#5) of
+6](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#6) of
 `mir-json`'s schema.
 
+* Support simulating Rust code up to version 1.91.
 * Add an intrinsic for [`needs_drop`](https://doc.rust-lang.org/std/intrinsics/fn.needs_drop.html).
 * `TyConst` now has a `ConstVal` field to indicate the value of the constant
   used to instantiate a const generic parameter. This has no impact on the

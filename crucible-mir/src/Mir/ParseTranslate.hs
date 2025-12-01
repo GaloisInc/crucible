@@ -48,7 +48,7 @@ import Debug.Trace
 -- If you update the supported mir-json schema version below, make sure to also
 -- update the crux-mir README accordingly.
 supportedSchemaVersion :: Word64
-supportedSchemaVersion = 5
+supportedSchemaVersion = 6
 
 -- | Parse a MIR JSON file to a 'Collection'. If parsing fails, attempt to give
 -- a more informative error message if the MIR JSON schema version is
