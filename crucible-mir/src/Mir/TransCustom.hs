@@ -179,6 +179,8 @@ customOpDefs = Map.fromList $ [
                          , intrinsics_copy
                          , intrinsics_copy_nonoverlapping
 
+                         , cell_swap_is_nonoverlapping
+
                          , exit
                          , abort
                          , panicking_begin_panic
@@ -760,6 +762,21 @@ intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"]
 
             _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
         _ -> Nothing)
+
+cell_swap_is_nonoverlapping :: (ExplodedDefId, CustomRHS)
+cell_swap_is_nonoverlapping =
+    ( ["core", "cell", "{impl}", "swap", "crucible_cell_swap_is_nonoverlapping_hook"]
+    , \case
+        Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp MirReferenceRepr src,
+             MirExp MirReferenceRepr dest] -> do
+                size <- getLayoutFieldAsExpr "crucible_cell_swap_is_nonoverlapping_hook" laySize ty
+                MirExp C.BoolRepr <$> isNonOverlapping src dest size
+            _ -> mirFail $
+                "bad arguments for Cell::swap::crucible_cell_swap_is_nonoverlapping_hook: "
+                ++ show ops
+        _ -> Nothing
+    )
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul
