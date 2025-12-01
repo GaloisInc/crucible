@@ -31,6 +31,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , evalOperand
                 , vectorCopy, aggregateCopy_constLen
                 , ptrCopy, copyNonOverlapping
+                , isNonOverlapping
                 , evalRval
                 , callExp
                 , callHandle
@@ -3212,9 +3213,6 @@ copyNonOverlapping ::
     R.Expr MIR s UsizeType ->
     MirGenerator h s ret (MirExp s)
 copyNonOverlapping tpr src dest count = do
-    -- Assert that the two regions really are nonoverlapping.
-    maybeOffset <- mirRef_tryOffsetFrom dest src
-
     -- `count` must not exceed isize::MAX, else the overlap check
     -- will misbehave.
     let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
@@ -3222,20 +3220,31 @@ copyNonOverlapping tpr src dest count = do
     let countOk = R.App $ usizeLt count maxCount
     G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
 
-    -- If `maybeOffset` is Nothing, then src and dest definitely
-    -- don't overlap, since they come from different allocations.
-    -- If it's Just, the value must be >= count or <= -count to put
-    -- the two regions far enough apart.
-    let count' = usizeToIsize R.App count
-    let destAbove = \offset -> R.App $ isizeLe count' offset
-    let destBelow = \offset -> R.App $ isizeLe offset (R.App $ isizeNeg count')
-    offsetOk <- G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
-        (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
-        (return $ R.App $ E.BoolLit True)
-    G.assertExpr offsetOk $ S.litExpr "src and dest overlap in copy_nonoverlapping"
+    nonOverlapping <- isNonOverlapping src dest count
+    G.assertExpr nonOverlapping $ S.litExpr "src and dest overlap in copy_nonoverlapping"
 
     ptrCopy tpr src dest count
     return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+
+-- | Check if two allocations of the given size are non-overlapping.
+-- Assumes @size <= isize::MAX@.
+isNonOverlapping ::
+    R.Expr MIR s MirReferenceType ->
+    R.Expr MIR s MirReferenceType ->
+    R.Expr MIR s UsizeType ->
+    MirGenerator h s ret (G.Expr MIR s C.BoolType)
+isNonOverlapping src dest size = do
+  maybeOffset <- mirRef_tryOffsetFrom dest src
+  -- If `maybeOffset` is Nothing, then src and dest definitely
+  -- don't overlap, since they come from different allocations.
+  -- If it's Just, the value must be >= size or <= -size to put
+  -- the two regions far enough apart.
+  let size' = usizeToIsize R.App size
+      destAbove offset = R.App $ isizeLe size' offset
+      destBelow offset = R.App $ isizeLe offset (R.App $ isizeNeg size')
+  G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
+    (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
+    (return $ R.App $ E.BoolLit True)
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
 --  LocalWords:  tovec fromelem tmethsubst MirExp initializer callExp
