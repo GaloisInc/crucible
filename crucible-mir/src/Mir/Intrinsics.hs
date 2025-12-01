@@ -504,7 +504,10 @@ muxRefRoot sym iTypes c root1 root2 = case (root1, root2) of
   (Const_RefRoot tpr v1, Const_RefRoot _tpr v2) -> do
     v' <- lift $ muxRegForType sym iTypes tpr c v1 v2
     return $ Const_RefRoot tpr v'
-  _ -> mzero
+
+  (RefCell_RefRoot {}, _) -> mzero
+  (GlobalVar_RefRoot {}, _) -> mzero
+  (Const_RefRoot {}, _) -> mzero
 
 muxRefPath ::
   IsSymInterface sym =>
@@ -543,7 +546,15 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
          do off' <- lift $ bvIte sym c off1 off2
             p' <- muxRefPath sym c p1 p2
             return (AgElem_RefPath off' sz tpr p')
-  _ -> mzero
+
+  (Empty_RefPath {}, _) -> mzero
+  (Field_RefPath {}, _) -> mzero
+  (Variant_RefPath {}, _) -> mzero
+  (Index_RefPath {}, _) -> mzero
+  (Just_RefPath {}, _) -> mzero
+  (VectorAsMirVector_RefPath {}, _) -> mzero
+  (ArrayAsMirVector_RefPath {}, _) -> mzero
+  (AgElem_RefPath {}, _) -> mzero
 
 muxRef' :: forall sym.
   IsSymInterface sym =>
