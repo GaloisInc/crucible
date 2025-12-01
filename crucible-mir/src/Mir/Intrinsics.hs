@@ -2183,7 +2183,7 @@ arrayZeroedIO sym idxs w = do
     zero <- bvZero sym w
     constantArray sym idxs zero
 
-concreteAllocSize :: 
+concreteAllocSize ::
     IsSymBackend sym bak =>
     bak ->
     RegValue sym UsizeType ->
