@@ -157,7 +157,6 @@ data FnSig = FnSig {
 data Abi
     = RustAbi
     | RustCall RustCallBodyInfo
-    | RustIntrinsic
     | OtherAbi
     deriving (Show, Eq, Ord, Generic)
 

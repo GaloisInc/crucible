@@ -266,7 +266,6 @@ instance FromJSON Fn where
 instance FromJSON Abi where
     parseJSON = withObject "Abi" $ \v -> case lookupKM "kind" v of
         Just (String "Rust") -> pure RustAbi
-        Just (String "RustIntrinsic") -> pure RustIntrinsic
         -- For `RustCall`, defaut to `RcNoBody`.  The spread_arg info will be
         -- added while parsing the `Fn`, if this `Abi` is part of a `Fn`'s
         -- signature.
