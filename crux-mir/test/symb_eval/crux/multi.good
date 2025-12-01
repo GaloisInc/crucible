@@ -18,7 +18,7 @@ failures:
 
 ---- multi/<DISAMB>::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/core/src/panic.rs:107:9: 107:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: error: in multi/<DISAMB>::fail2[0]
+[Crux]   ./libs/core/src/panic.rs:62:9: 62:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: error: in multi/<DISAMB>::fail2[0]
 [Crux]   panicking::panic_fmt, called from multi/<DISAMB>::fail2[0]
 
 ---- multi/<DISAMB>::fail3[0] counterexamples ----
