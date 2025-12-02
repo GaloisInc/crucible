@@ -2166,18 +2166,29 @@ cloneShimTuple [] [] = CustomMirOp $ \_ops ->
     pure $ MirExp C.UnitRepr $ R.App E.EmptyApp
 cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
+    -- The clone shim expects exactly one operand, with a reference type that
+    -- looks something `&(A, B, C)`. First, we dereference the argument to
+    -- obtain an lvalue `lv: (A, B, C)`.
     lv <- case ops of
-        [Move lv] -> return lv
-        [Copy lv] -> return lv
+        [Move lv] -> return (LProj lv Deref)
+        [Copy lv] -> return (LProj lv Deref)
+        -- Temp operands can be introduced when evaluating nested tuple clone
+        -- shims (e.g., ((1, 2), 3).clone()), as seen in the invocation of
+        -- `callExp` below. We manually dereference these by removing the inner
+        -- Ref rvalue.
+        [Temp (Ref _ lv _)] -> return lv
         [op] -> mirFail $ "cloneShimTuple: expected lvalue operand, but got " ++ show op
         _ -> mirFail $ "cloneShimTuple: expected exactly one argument, but got " ++ show (length ops)
-    -- The argument to the clone shim is `&(A, B, C)`.  The clone methods for
-    -- the individual parts require `&A`, `&B`, `&C`, computed as `&arg.0`.
+    -- Project out the tuple fields to pass to the individual clone methods.
+    -- These clone methods require `&A`, `&B`, `&C`, computed as `&lv.0`.
     let fieldRefRvs = zipWith (\ty i ->
-            Ref Shared (LProj (LProj lv Deref) (PField i ty)) "_") tys [0..]
-    fieldRefExps <- mapM evalRval fieldRefRvs
-    fieldRefOps <- zipWithM (\ty expr -> makeTempOperand (TyRef ty Immut) expr) tys fieldRefExps
-    clonedExps <- zipWithM (\part op -> callExp part [op]) parts fieldRefOps
+            Ref Shared (LProj lv (PField i ty)) "_") tys [0..]
+    -- Call the individual clone methods. Use Temp operands as a shortcut for
+    -- constructing operands to pass to the methods. (It's awkward to use Move
+    -- or Copy operand instead, as they require lvalues, but using Ref above
+    -- forces them to be rvalues.)
+    clonedExps <- zipWithM (\part rv -> callExp part [Temp rv]) parts fieldRefRvs
+    -- Finally, construct the result tuple using the cloned fields.
     buildTupleMaybeM tys (map Just clonedExps)
 
 -- | Create an 'IkCloneShim' implementation for a value that is expected not to

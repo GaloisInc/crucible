@@ -244,22 +244,23 @@ data StaticVar where
 ---------------------------------------------------------------------------
 -- *** VarMap
 
--- | The VarMap maps identifier names to registers (if the id
---   corresponds to a local variable) or an atom (if the id
---   corresponds to a function argument)
+-- | A 'VarMap' maps identifier names to registers.
 type VarMap s = Map Text.Text (Some (VarInfo s))
-data VarInfo s tp where
-  VarRegister  :: R.Reg s tp -> VarInfo s tp
-  VarReference :: C.TypeRepr tp -> R.Reg s MirReferenceType -> VarInfo s tp
-  VarAtom      :: R.Atom s tp -> VarInfo s tp
 
+-- | Information about an identifier's variable. Includes both the register for
+-- the reference that stores the variable's value ('varInfoReg') and the type
+-- of the value ('varInfoRepr').
+data VarInfo s tp =
+  VarInfo
+    { varInfoRepr :: C.TypeRepr tp
+    , varInfoReg :: R.Reg s MirReferenceType
+    }
+
+-- This is identical to what a derived Show instance would provide, except that
+-- 'varInfoRepr' is not shown to make the output more compact.
 instance Show (VarInfo s tp) where
-    showsPrec d (VarRegister r) = showParen (d > 10) $
-        showString "VarRegister " . showsPrec 11 r
-    showsPrec d (VarReference _ r) = showParen (d > 10) $
-        showString "VarReference " . showsPrec 11 r
-    showsPrec d (VarAtom a) = showParen (d > 10) $
-        showString "VarAtom " . showsPrec 11 a
+    showsPrec d (VarInfo _ r) = showParen (d > 10) $
+        showString "VarInfo " . showsPrec 11 r
 instance ShowF (VarInfo s)
 
 
@@ -414,11 +415,6 @@ expectFnContext = do
     c -> mirFail $ "expected function when translating " ++ describeFnContext c
 
 
-varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
-varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
-varInfoRepr (VarReference tp _) = tp
-varInfoRepr (VarAtom a) = R.typeOfAtom a
-
 findFn :: DefId -> MirGenerator h s ret Fn
 findFn name = do
     optFn <- use $ cs . collection . functions . at name
@@ -555,52 +551,6 @@ resolveCustom instDefId = do
                     Nothing -> return Nothing
                     Just f -> do
                         return $ f origSubsts
-
-
----------------------------------------------------------------------------------------------------
--- ** Adding new temporaries to the VarMap
-
-freshVarName :: Text -> Map Text a -> Text
-freshVarName base vm =
-  case varNamesInfList of
-    varName:_ -> varName
-    [] -> P.panic
-            "freshVarName"
-            ["Expected infinite list, but list was empty"]
-  where
-    varNamesInfList =
-      filter (\n -> not $ n `Map.member` vm) $
-      base : [base <> "_" <> Text.pack (show i) | i <- [0 :: Integer ..]]
-
--- Generate a fresh name of the form `_temp123`
-freshTempName :: Map Text a -> Text
-freshTempName vm = freshVarName ("_temp" <> Text.pack (show $ Map.size vm)) vm
-
-allocTempForAtom :: R.Atom s tp -> MirGenerator h s ret Text
-allocTempForAtom atom = do
-    name <- use $ varMap . to freshTempName
-    varMap %= Map.insert name (Some $ VarAtom atom)
-    return name
-
--- Store the value of an expression into a new temporary, and return the name
--- of that temporary.
-makeTemp :: MirExp s -> MirGenerator h s ret Text
-makeTemp (MirExp _ e) = do
-    atom <- G.mkAtom e
-    allocTempForAtom atom
-
-makeTempLvalue :: Ty -> MirExp s -> MirGenerator h s ret Lvalue
-makeTempLvalue ty expr = do
-    name <- makeTemp expr
-    -- varIsZST is used only for deciding whether to initialize the variable at
-    -- the start of the function, which is not relevant for temporaries created
-    -- mid-translation.
-    let var = Var name Immut ty {-varIsZST-} False
-    return $ LBase var
-
-makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
-makeTempOperand ty expr = do
-    Move <$> makeTempLvalue ty expr
 
 
 -----------------------------------------------------------------------

@@ -325,11 +325,7 @@ typedVarInfo name tpr = do
             return vi
 
 readVar :: C.TypeRepr tp -> VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s tp)
-readVar tpr vi = do
-    case vi of
-        VarRegister reg -> G.readReg reg
-        VarReference _ reg -> G.readReg reg >>= readMirRef tpr
-        VarAtom a -> return $ R.AtomExpr a
+readVar tpr vi = G.readReg (varInfoReg vi) >>= readMirRef tpr
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
 varExp (M.Var vname' _ vty _) = do
@@ -342,17 +338,7 @@ varPlace :: HasCallStack => M.Var -> MirGenerator h s ret (MirPlace s)
 varPlace (M.Var vname' _ vty _) = do
     Some tpr <- tyToReprM vty
     vi <- typedVarInfo vname' tpr
-    r <- case vi of
-        VarReference _ reg -> G.readReg reg
-        -- TODO: these cases won't be needed once immutable ref support is done
-        -- - make them report an error instead
-        VarRegister reg -> do
-            x <- G.readReg reg
-            r <- constMirRef tpr x
-            return r
-        VarAtom a -> do
-            r <- constMirRef tpr $ R.AtomExpr a
-            return r
+    r <- G.readReg (varInfoReg vi)
     return $ MirPlace tpr r NoMeta
 
 staticPlace :: HasCallStack => M.DefId -> MirGenerator h s ret (MirPlace s)
@@ -2148,31 +2134,20 @@ initLocals localVars = forM_ localVars $ \v -> do
                   ++ ", for " ++ show (pretty ty)
             return $ Just val
 
-    -- FIXME: temporary hack to put every local behind a MirReference, to work
-    -- around issues with `&fn()` variables.
-    varinfo <-
-      if True -- if Set.member name addrTaken
-        then do
-          ref <- newMirRef tpr
-          case optVal of
-              Nothing -> return ()
-              Just val -> writeMirRef tpr ref val
-          reg <- G.newReg ref
-          return $ Some $ VarReference tpr reg
-        else do
-          reg <- case optVal of
-              Nothing -> G.newUnassignedReg tpr
-              Just val -> G.newReg val
-          return $ Some $ VarRegister reg
+    ref <- newMirRef tpr
+    case optVal of
+        Nothing -> return ()
+        Just val -> writeMirRef tpr ref val
+    reg <- G.newReg ref
+    let varinfo = Some $ VarInfo tpr reg
     varMap %= Map.insert name varinfo
 
 -- | Deallocate RefCells for all locals in `varMap`.
 cleanupLocals :: MirGenerator h s ret ()
 cleanupLocals = do
     vm <- use varMap
-    forM_ (Map.elems vm) $ \(Some vi) -> case vi of
-        VarReference _ reg -> G.readReg reg >>= dropMirRef
-        _ -> return ()
+    forM_ vm $ \(Some vi) ->
+        G.readReg (varInfoReg vi) >>= dropMirRef
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks _) = Map.fromList <$> mapM buildLabel blocks
@@ -2290,18 +2265,14 @@ genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs
             ([], []) -> return ()
             (MirExp inputTpr inputExpr : inputs', var : vars') -> do
                 mvi <- use $ varMap . at (var ^. varname)
-                Some vi <- case mvi of
+                Some (VarInfo viTpr viReg) <- case mvi of
                     Just x -> return x
                     Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
-                Refl <- testEqualityOrFail inputTpr (varInfoRepr vi) $
+                Refl <- testEqualityOrFail inputTpr viTpr $
                     "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
-                        show inputTpr ++ " != " ++ show (varInfoRepr vi)
-                case vi of
-                    VarRegister reg -> G.assignReg reg inputExpr
-                    VarReference tpr refReg -> do
-                        ref <- G.readReg refReg
-                        writeMirRef tpr ref inputExpr
-                    VarAtom _ -> mirFail $ "unexpected VarAtom"
+                        show inputTpr ++ " != " ++ show viTpr
+                ref <- G.readReg viReg
+                writeMirRef viTpr ref inputExpr
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname'
 
