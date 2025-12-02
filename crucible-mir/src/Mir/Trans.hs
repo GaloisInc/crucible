@@ -328,7 +328,6 @@ readVar :: C.TypeRepr tp -> VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s t
 readVar tpr vi = do
     case vi of
         VarReference _ reg -> G.readReg reg >>= readMirRef tpr
-        VarAtom a -> return $ R.AtomExpr a
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
 varExp (M.Var vname' _ vty _) = do
@@ -343,11 +342,6 @@ varPlace (M.Var vname' _ vty _) = do
     vi <- typedVarInfo vname' tpr
     r <- case vi of
         VarReference _ reg -> G.readReg reg
-        -- TODO: these cases won't be needed once immutable ref support is done
-        -- - make them report an error instead
-        VarAtom a -> do
-            r <- constMirRef tpr $ R.AtomExpr a
-            return r
     return $ MirPlace tpr r NoMeta
 
 staticPlace :: HasCallStack => M.DefId -> MirGenerator h s ret (MirPlace s)
@@ -2157,7 +2151,6 @@ cleanupLocals = do
     vm <- use varMap
     forM_ (Map.elems vm) $ \(Some vi) -> case vi of
         VarReference _ reg -> G.readReg reg >>= dropMirRef
-        _ -> return ()
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks _) = Map.fromList <$> mapM buildLabel blocks
@@ -2285,7 +2278,6 @@ genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs
                     VarReference tpr refReg -> do
                         ref <- G.readReg refReg
                         writeMirRef tpr ref inputExpr
-                    VarAtom _ -> mirFail $ "unexpected VarAtom"
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname'
 
