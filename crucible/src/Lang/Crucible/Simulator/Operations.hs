@@ -106,6 +106,7 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.VecValue(vecValLit)
 
 ---------------------------------------------------------------------
 -- Intermediate state branching/merging
@@ -319,16 +320,16 @@ packVarargs ::
 packVarargs = go mempty
  where
  go ::
-  V.Vector (AnyValue sym) ->
+  V.Vector (RegValue' sym AnyType) ->
   CtxRepr addlArgs ->
   RegMap sym (args <+> addlArgs) ->
   RegMap sym (args ::> VectorType AnyType)
 
  go v (addl Ctx.:> tp) (unconsReg -> (args, x)) =
-   go (V.cons (AnyValue tp (regValue x)) v) addl args
+   go (V.cons (RV (AnyValue tp (regValue x))) v) addl args
 
  go v Ctx.Empty args =
-   assignReg knownRepr v args
+   assignReg knownRepr (vecValLit v) args
 
 -- | Given a set of function bindings, a function-
 --   value (which is possibly a closure) and a

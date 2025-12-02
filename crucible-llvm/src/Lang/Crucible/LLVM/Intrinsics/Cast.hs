@@ -41,6 +41,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator (SimErrorReason(AssertFailureSimError))
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
+import           Lang.Crucible.Simulator.VecValue
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.MemModel.Partial (ptrToBv)
@@ -120,7 +121,9 @@ castLLVMRet fnm bak (LLVMPointerRepr w) (BVRepr w')
     Right (ValCast (liftIO . ptrToBv bak err))
 castLLVMRet fnm bak (VectorRepr tp) (VectorRepr tp')
   = do ValCast f <- castLLVMRet fnm bak tp tp'
-       Right (ValCast (traverse f))
+       let
+          cvt g xs = vecValLit <$> (traverse (fmap RV . g . unRV) =<< liftIO (vecValToVec xs))
+       Right (ValCast (cvt f))
 castLLVMRet fnm bak (StructRepr ctx) (StructRepr ctx')
   = do ArgCast tf <- castLLVMArgs fnm bak ctx' ctx
        Right (ValCast (\vals ->

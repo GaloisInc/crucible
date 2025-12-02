@@ -234,6 +234,7 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.VecValue
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -1490,7 +1491,7 @@ unpackZero sym tp tpr =
     case tpr of
       VectorRepr tpr' ->
         do v <- unpackZero sym tp' tpr'
-           return $ V.replicate (fromIntegral n) v
+           vecValReplicate sym n (RV v)
       _ -> mismatch
 
   Struct flds ->
@@ -1540,7 +1541,7 @@ unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
        ctx
 
 unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
-  = traverse (unpackMemValue sym tpr) xs
+  = vecValLit <$> traverse (fmap RV . unpackMemValue sym tpr) xs
 
 -- LLVM string literals are syntactic shorthand for [<N> x i8] arrays, so we
 -- defer to the LLVMValArray case above.
@@ -1599,8 +1600,8 @@ packMemValue _sym (StorageType (Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPoi
        return $ LLVMValInt blk off
 
 packMemValue sym (StorageType (Array sz tp) _) (VectorRepr tpr) vec
-  | V.length vec == fromIntegral sz = do
-       vec' <- traverse (packMemValue sym tp tpr) vec
+  | vecValSizeConcrete vec == fromIntegral sz = do
+       vec' <- traverse (packMemValue sym tp tpr . unRV) =<< vecValToVec vec
        return $ LLVMValArray tp vec'
 
 packMemValue sym (StorageType (Struct fls) _) (StructRepr ctx) xs = do

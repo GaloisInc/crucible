@@ -50,6 +50,7 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError (SimErrorReason(AssertFailureSimError))
+import           Lang.Crucible.Simulator.VecValue
 
 import           Lang.Crucible.LLVM.Bytes (Bytes(..), bitsToBytes)
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
@@ -1496,7 +1497,7 @@ llvmVectorMap ::
     IsSymInterface sym =>
     RegEntry sym (VectorType (BVType intSz)) ->
     RegEntry sym (VectorType (BVType intSz)) ->
-    OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))) ->
+    OverrideSim p sym ext r args ret (RegValue sym (VectorType (BVType intSz)))) ->
   -- | The size of the vector type.
   NatRepr vecSz ->
   -- | The size of the integer type.
@@ -1562,33 +1563,39 @@ callX86_pclmulqdq _mvar
   (regValue -> ys)
   (regValue -> imm) =
     ovrWithBackend $ \bak -> do
-      unless (V.length xs == 2) $
+      let len_xs = vecValSizeConcrete xs
+      let len_ys = vecValSizeConcrete ys
+      unless (len_xs == 2) $
          liftIO $ addFailedAssertion bak $ AssertFailureSimError
           ("Vector length mismatch in llvm.x86.pclmulqdq intrinsic")
-          (unwords ["Expected <2 x i64>, but got vector of length", show (V.length xs)])
-      unless (V.length ys == 2) $
+          (unwords ["Expected <2 x i64>, but got vector of length", show len_xs])
+      unless (len_ys == 2) $
          liftIO $ addFailedAssertion bak $ AssertFailureSimError
           ("Vector length mismatch in llvm.x86.pclmulqdq intrinsic")
-          (unwords ["Expected <2 x i64>, but got vector of length", show (V.length ys)])
+          (unwords ["Expected <2 x i64>, but got vector of length", show len_ys])
       case BV.asUnsigned <$> asBV imm of
         Just byte ->
           do let xidx = if byte .&. 0x01 == 0 then 0 else 1
              let yidx = if byte .&. 0x10 == 0 then 0 else 1
              let sym = backendGetSym bak
-             liftIO $ doPcmul sym (xs V.! xidx) (ys V.! yidx)
+             liftIO $
+              do
+                x <- vecValGetEntryConcrete bak xs xidx
+                y <- vecValGetEntryConcrete bak ys yidx
+                doPcmul sym x y
         _ ->
             liftIO $ addFailedAssertion bak $ AssertFailureSimError
                ("Illegal selector argument to llvm.x86.pclmulqdq")
                (unwords ["Expected concrete value but got", show (printSymExpr imm)])
   where
 
-  doPcmul :: sym -> SymBV sym 64 -> SymBV sym 64 -> IO (V.Vector (SymBV sym 64))
-  doPcmul sym x y =
+  doPcmul :: sym -> RegValue' sym (BVType 64) -> RegValue' sym (BVType 64) -> IO (VecVal (RegValue' sym) (BVType 64))
+  doPcmul sym (RV x) (RV y) =
     do r <- carrylessMultiply sym x y
        lo <- bvTrunc sym (knownNat @64) r
        hi <- bvSelect sym (knownNat @64) (knownNat @64) r
        -- NB, little endian because X86
-       return $ V.fromList [ lo, hi ]
+       return $ vecValLit $ V.fromList [ RV lo, RV hi ]
 
 callStoreudq
   :: ( IsSymInterface sym
@@ -1604,10 +1611,11 @@ callStoreudq mvar
   (regValue -> vec) =
     ovrWithBackend $ \bak -> do
       mem <- readGlobal mvar
-      unless (V.length vec == 16) $
+      let len = vecValSizeConcrete vec
+      unless (len == 16) $
          liftIO $ addFailedAssertion bak $ AssertFailureSimError
           ("Vector length mismatch in stored_qu intrinsic.")
-          (unwords ["Expected <16 x i8>, but got vector of length", show (V.length vec)])
+          (unwords ["Expected <16 x i8>, but got vector of length", show len])
       mem' <- liftIO $ doStore
                 bak
                 mem
@@ -2116,6 +2124,8 @@ callLoadRelative mvar w (regValue -> ptr) (regValue -> offsetInWords32) = do
 
 -- | The semantics of an LLVM vector reduce intrinsic.
 callVectorReduce ::
+  forall sym tp p ext r args ret.
+  IsExprBuilder sym =>
   -- | The operation which performs the reduction (e.g., addition,
   -- multiplication, etc.)
   (RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
@@ -2126,7 +2136,11 @@ callVectorReduce ::
   RegEntry sym (VectorType tp) ->
   OverrideSim p sym ext r args ret (RegValue sym tp)
 callVectorReduce reduceOp identityVal (regValue -> vec) =
-  liftIO $ V.foldM reduceOp identityVal vec
+  getSymInterface >>= \sym ->
+  liftIO $ unRV <$> vecValFold sym reduceOp' (RV identityVal) vec
+  where
+  reduceOp' :: RegValue' sym tp -> RegValue' sym tp -> IO (RegValue' sym tp)
+  reduceOp' (RV x) (RV y) = RV <$> reduceOp x y
 
 callVectorReduceAdd ::
   (IsSymInterface sym, 1 <= intSz) =>
@@ -2221,6 +2235,7 @@ callVectorReduceUmin intSz vec = do
 
 -- | The semantics of an LLVM vector map intrinsic.
 callVectorMap ::
+  IsExprBuilder sym =>
   -- | The operation to apply when mapping (e.g., @umin@, @smin@, etc.)
   (RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   -- | The first vector to map over.
@@ -2228,15 +2243,18 @@ callVectorMap ::
   -- | The second vector to map over.
   RegEntry sym (VectorType tp) ->
   -- | The result of mapping over the vectors.
-  OverrideSim p sym ext r args ret (V.Vector (RegValue sym tp))
+  OverrideSim p sym ext r args ret (RegValue sym (VectorType tp))
 callVectorMap mapOp (regValue -> vec1) (regValue -> vec2) =
-  liftIO $ V.zipWithM mapOp vec1 vec2
+  getSymInterface >>= \sym ->
+  liftIO $ vecValZipWith sym mapOp' vec1 vec2
+  where
+  mapOp' (RV x) (RV y) = RV <$> mapOp x y
 
 callVectorMapSmax ::
   (IsSymInterface sym, 1 <= intSz) =>
   RegEntry sym (VectorType (BVType intSz)) ->
   RegEntry sym (VectorType (BVType intSz)) ->
-  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+  OverrideSim p sym ext r args ret (RegValue sym (VectorType (BVType intSz)))
 callVectorMapSmax vec1 vec2 = do
   sym <- getSymInterface
   callVectorMap (bvSmax sym) vec1 vec2
@@ -2245,7 +2263,7 @@ callVectorMapSmin ::
   (IsSymInterface sym, 1 <= intSz) =>
   RegEntry sym (VectorType (BVType intSz)) ->
   RegEntry sym (VectorType (BVType intSz)) ->
-  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+  OverrideSim p sym ext r args ret (RegValue sym (VectorType (BVType intSz)))
 callVectorMapSmin vec1 vec2 = do
   sym <- getSymInterface
   callVectorMap (bvSmin sym) vec1 vec2
@@ -2254,7 +2272,7 @@ callVectorMapUmax ::
   (IsSymInterface sym, 1 <= intSz) =>
   RegEntry sym (VectorType (BVType intSz)) ->
   RegEntry sym (VectorType (BVType intSz)) ->
-  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+  OverrideSim p sym ext r args ret (RegValue sym (VectorType (BVType intSz)))
 callVectorMapUmax vec1 vec2 = do
   sym <- getSymInterface
   callVectorMap (bvUmax sym) vec1 vec2
@@ -2263,7 +2281,7 @@ callVectorMapUmin ::
   (IsSymInterface sym, 1 <= intSz) =>
   RegEntry sym (VectorType (BVType intSz)) ->
   RegEntry sym (VectorType (BVType intSz)) ->
-  OverrideSim p sym ext r args ret (V.Vector (SymBV sym intSz))
+  OverrideSim p sym ext r args ret (RegValue sym (VectorType (BVType intSz)))
 callVectorMapUmin vec1 vec2 = do
   sym <- getSymInterface
   callVectorMap (bvUmin sym) vec1 vec2

@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
@@ -61,7 +62,6 @@ import           Data.Kind(Type)
 import           Data.IntMap.Strict(IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Maybe as Maybe
-import qualified Data.Vector as V
 import           Data.Word
 
 import           Prettyprinter
@@ -89,13 +89,18 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.VecValue
 
 import           What4.Interface
 import           What4.Partial
-    (PartExpr, pattern Unassigned, maybePartExpr, justPartExpr, joinMaybePE, mergePartial, mkPE)
+    (PartExpr, pattern Unassigned, justPartExpr, mergePartial, mkPE)
 
 import           Mir.FancyMuxTree
 
+
+-- Constraints on the symbolic backend
+type IsMirSymBackend sym bak = (IsSymBackend sym bak, IsMirSymInterface sym)
+type IsMirSymInterface sym = (IsSymInterface sym, VecSize sym (RegValue sym UsizeType))
 
 
 -- Rust enum representation
@@ -1191,18 +1196,18 @@ muxMirVector :: forall sym tp.
   IO (MirVector sym tp)
 -- Two total vectors of matching length can remain total.
 muxMirVector bak itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2)
-  | V.length v1 == V.length v2 =
+  | vecValSizeConcrete v1 == vecValSizeConcrete v2 =
     MirVector_Vector <$> muxRegForType bak itefns (VectorRepr tpr) c v1 v2
 -- All other combinations of total and partial vectors become partial.
 muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2) = do
-    pv1 <- toPartialVector sym tpr v1
-    pv2 <- toPartialVector sym tpr v2
+    pv1 <- vecValToPartial sym tpr v1
+    pv2 <- vecValToPartial sym tpr v2
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
 muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_Vector v2) = do
-    pv2 <- toPartialVector sym tpr v2
+    pv2 <- vecValToPartial sym tpr v2
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
 muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_PartialVector pv2) = do
-    pv1 <- toPartialVector sym tpr v1
+    pv1 <- vecValToPartial sym tpr v1
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
 muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_PartialVector pv2) = do
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
@@ -1213,131 +1218,65 @@ muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
 muxMirVector sym _ _ _ _ _ =
    throwUnsupported sym "Cannot merge dissimilar MirVectors."
 
-toPartialVector :: IsSymInterface sym =>
-    sym -> TypeRepr tp ->
-    RegValue sym (VectorType tp) -> IO (RegValue sym (VectorType (MaybeType tp)))
-toPartialVector sym _tpr v = return $ fmap (justPartExpr sym) v
-
 muxPartialVectors :: IsSymInterface sym =>
     sym -> IntrinsicTypes sym -> TypeRepr tp ->
     Pred sym ->
     RegValue sym (VectorType (MaybeType tp)) ->
     RegValue sym (VectorType (MaybeType tp)) ->
     IO (RegValue sym (VectorType (MaybeType tp)))
-muxPartialVectors sym itefns tpr c pv1 pv2 = do
-    let len = max (V.length pv1) (V.length pv2)
-    V.generateM len $ \i -> do
-        let x = getPE i pv1
-        let y = getPE i pv2
-        muxRegForType sym itefns (MaybeRepr tpr) c x y
+muxPartialVectors sym itefns tpr c pv1 pv2 = muxVector' unassigned muxEl c pv1 pv2
   where
-    getPE i pv = Maybe.fromMaybe Unassigned $ pv V.!? i
+  muxEl p (RV x) (RV y) = RV <$> muxRegForType sym itefns (MaybeRepr tpr) p x y
+  unassigned = RV Unassigned
 
-leafIndexVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
-    bak ->
-    (Pred sym -> a -> a -> IO a) ->
-    V.Vector a ->
-    RegValue sym UsizeType ->
-    MuxLeafT sym IO a
-leafIndexVectorWithSymIndex bak iteFn v i
-  | Just i' <- asBV i = case v V.!? fromIntegral (BV.asUnsigned i') of
-        Just x -> return x
-        Nothing -> leafAbort $ GenericSimError $
-            "vector index out of range: the length is " ++ show (V.length v) ++
-                " but the index is " ++ show i'
-  -- Normally the final "else" branch returns the last element.  But the empty
-  -- vector has no last element to return, so we have to special-case it.
-  | V.null v = leafAbort $ GenericSimError $
-        "vector index out of range: the length is " ++ show (V.length v)
-  | otherwise = do
-        let sym = backendGetSym bak
-        inRange <- liftIO $ bvUlt sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral $ V.length v))
-        leafAssert bak inRange $ GenericSimError $
-            "vector index out of range: the length is " ++ show (V.length v)
-        liftIO $ muxRange
-            (\j -> bvEq sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral j)))
-            iteFn
-            (\j -> return $ v V.! fromIntegral j)
-            0 (fromIntegral $ V.length v - 1)
-
-leafAdjustVectorWithSymIndex ::
-    forall sym bak a. (IsSymBackend sym bak) =>
-    bak ->
-    (Pred sym -> a -> a -> IO a) ->
-    V.Vector a ->
-    RegValue sym UsizeType ->
-    (a -> MuxLeafT sym IO a) ->
-    MuxLeafT sym IO (V.Vector a)
-leafAdjustVectorWithSymIndex bak iteFn v i adj
-  | Just (fromIntegral . BV.asUnsigned -> i') <- asBV i =
-    if i' < V.length v then do
-        x' <- adj $ v V.! i'
-        return $ v V.// [(i', x')]
-    else
-        leafAbort $ GenericSimError $
-            "vector index out of range: the length is " ++ show (V.length v) ++
-                " but the index is " ++ show i'
-  | otherwise = do
-        inRange <- liftIO $ bvUlt sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral $ V.length v))
-        leafAssert bak inRange $ GenericSimError $
-            "vector index out of range: the length is " ++ show (V.length v)
-        V.generateM (V.length v) go
-  where
-    sym = backendGetSym bak
-
-    go :: Int -> MuxLeafT sym IO a
-    go j = do
-        hit <- liftIO $ bvEq sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral j))
-        let x = v V.! j
-        -- NB: With this design, any assert generated by `adj` will be
-        -- replicated `N` times, in the form `assert (i == j -> p)`.  Currently
-        -- this seems okay because the number of asserts will be linear, except
-        -- in the case of nested arrays, which are uncommon.
-        mx' <- subMuxLeafIO bak (adj x) hit
-        case mx' of
-            Just x' -> liftIO $ iteFn hit x' x
-            Nothing -> return x
+instance VecMonad sym (MuxLeafT sym IO) where
+  vecAbort _ = leafAbort
+  vecPre _   = leafPredicate
 
 indexMirVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
     MirVector sym tp ->
     RegValue sym UsizeType ->
     MuxLeafT sym IO (RegValue sym tp)
-indexMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i = do
-    leafIndexVectorWithSymIndex bak iteFn v i
+indexMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i =
+  unRV <$> vecValGetEntry bak (liftITE iteFn) v i
+       
 indexMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i = do
     let sym = backendGetSym bak
     -- Lift iteFn from `RegValue sym tp` to `RegValue sym (MaybeType tp)`
     let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
-    maybeVal <- leafIndexVectorWithSymIndex bak iteFn' pv i
+    RV maybeVal <- vecValGetEntry bak (liftITE iteFn') pv i
     leafReadPartExpr bak maybeVal $ ReadBeforeWriteSimError $
         "Attempted to read uninitialized vector index"
+
 indexMirVectorWithSymIndex bak _ (MirVector_Array a) i =
     let sym = backendGetSym bak in
     liftIO $ arrayLookup sym a (Empty :> i)
 
 adjustMirVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
     MirVector sym tp ->
     RegValue sym UsizeType ->
     (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
     MuxLeafT sym IO (MirVector sym tp)
-adjustMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i adj = do
-    MirVector_Vector <$> leafAdjustVectorWithSymIndex bak iteFn v i adj
+adjustMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i adj =
+    MirVector_Vector <$> vecValAdjEntry bak (liftITE iteFn) v i adj'
+      where adj' (RV x) = RV <$> adj x
+
 adjustMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i adj = do
     let sym = backendGetSym bak
     let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
-    pv' <- leafAdjustVectorWithSymIndex bak iteFn' pv i $ \maybeVal -> do
+    pv' <- vecValAdjEntry bak (liftITE iteFn') pv i $ \(RV maybeVal) -> do
         val <- leafReadPartExpr bak maybeVal $ ReadBeforeWriteSimError $
             "Attempted to read uninitialized vector index"
         val' <- adj val
-        return $ justPartExpr sym val'
+        pure (RV (justPartExpr sym val'))
     return $ MirVector_PartialVector pv'
+
 adjustMirVectorWithSymIndex bak _ (MirVector_Array a) i adj = do
     let sym = backendGetSym bak
     x <- liftIO $ arrayLookup sym a (Empty :> i)
@@ -1347,24 +1286,26 @@ adjustMirVectorWithSymIndex bak _ (MirVector_Array a) i adj = do
 -- Write a new value.  Unlike `adjustMirVectorWithSymIndex`, this doesn't
 -- require a successful read from the given index.
 writeMirVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
     MirVector sym tp ->
     RegValue sym UsizeType ->
     RegValue sym tp ->
     MuxLeafT sym IO (MirVector sym tp)
-writeMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i val = do
-    MirVector_Vector <$> leafAdjustVectorWithSymIndex bak iteFn v i (\_ -> return val)
-writeMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i val = do
-    let sym = backendGetSym bak
-    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
-    pv' <- leafAdjustVectorWithSymIndex bak iteFn' pv i $ \_ -> return $ justPartExpr sym val
-    return $ MirVector_PartialVector pv'
-writeMirVectorWithSymIndex bak _ (MirVector_Array a) i val = do
-    let sym = backendGetSym bak
-    liftIO $ MirVector_Array <$> arrayUpdate sym a (Empty :> i) val
-
+writeMirVectorWithSymIndex bak iteFn vec i val =
+  case vec of
+    MirVector_Vector tv ->
+      MirVector_Vector <$> 
+        vecValSetEntry bak (liftITE iteFn) tv i (RV val)
+    MirVector_PartialVector pv ->    
+      let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
+      in MirVector_PartialVector <$>
+          vecValSetEntry bak (liftITE iteFn') pv i (RV (justPartExpr sym val))
+    MirVector_Array a ->
+      liftIO (MirVector_Array <$> arrayUpdate sym a (Empty :> i) val)
+  where
+  sym = backendGetSym bak  
 
 
 -- | Sigil type indicating the MIR syntax extension
@@ -1827,7 +1768,7 @@ typedLeafOp2 desc (MirReference_Integer _) _ _ _ _ =
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
 readMirRefLeaf ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
@@ -1841,7 +1782,7 @@ readMirRefLeaf bak gs iTypes tpr ref =
     return v'
 
 writeMirRefLeaf ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
@@ -2160,29 +2101,7 @@ mirRef_eqIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
     zipFancyMuxTrees' bak (mirRef_eqLeaf sym) (itePred sym) r1 r2
 
-vectorTakeIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    TypeRepr tp ->
-    V.Vector (RegValue sym tp) ->
-    RegValue sym NatType ->
-    IO (V.Vector (RegValue sym tp))
-vectorTakeIO bak _tp v idx = case asNat idx of
-    Just idx' -> return $ V.take (fromIntegral idx') v
-    Nothing -> addFailedAssertion bak $
-        GenericSimError "VectorTake index must be concrete"
 
-vectorDropIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    TypeRepr tp ->
-    V.Vector (RegValue sym tp) ->
-    RegValue sym NatType ->
-    IO (V.Vector (RegValue sym tp))
-vectorDropIO bak _tpr v idx = case asNat idx of
-    Just idx' -> return $ V.drop (fromIntegral idx') v
-    Nothing -> addFailedAssertion bak $
-        GenericSimError "VectorDrop index must be concrete"
 
 arrayZeroedIO ::
     (IsSymInterface sym, 1 <= w) =>
@@ -2205,18 +2124,18 @@ concreteAllocSize bak szSym =
         Nothing -> addFailedAssertion bak $ Unsupported callStack $
             "Attempted to create allocation of symbolic size"
 
+
 mirVector_uninitIO ::
-    IsSymBackend sym bak =>
+    IsMirSymBackend sym bak =>
     bak ->
     RegValue sym UsizeType ->
     IO (MirVector sym tp)
-mirVector_uninitIO bak lenSym = do
-    len <- concreteAllocSize bak lenSym
-    let pv = V.replicate (fromInteger len) Unassigned
-    return (MirVector_PartialVector pv)
+mirVector_uninitIO bak lenSym =
+  MirVector_PartialVector <$> vecValUninit (backendGetSym bak) lenSym
+  
 
 mirVector_resizeIO ::
-    IsSymBackend sym bak =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     TypeRepr tp ->
     RegValue sym (MirVectorType tp) ->
@@ -2224,13 +2143,12 @@ mirVector_resizeIO ::
     IO (RegValue sym (MirVectorType tp))
 mirVector_resizeIO bak _tpr mirVec newLenSym = do
     let sym = backendGetSym bak
-    newLen <- concreteAllocSize bak newLenSym
-    getter <- case mirVec of
-        MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
-        MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
+    vecVal <- case mirVec of
+        MirVector_PartialVector pv -> vecValResizePartial sym newLenSym pv
+        MirVector_Vector v -> vecValResize sym newLenSym v
         MirVector_Array _ -> addFailedAssertion bak $ Unsupported callStack $
             "Attempted to resize MirVector backed by symbolic array"
-    pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
+    pure (MirVector_PartialVector vecVal)
 
 
 mirAggregate_uninitIO ::
@@ -2620,7 +2538,7 @@ mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) =
 -- references (on which it returns `(0, 1)`) and also on `MirReference_Integer`
 -- (returning `(0, 0)`).
 mirRef_indexAndLenLeaf ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
@@ -2632,8 +2550,8 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (Index_RefPath _tpr'
     let parent = MirReference parentTpr root path
     parentVec <- readMirRefLeaf bak gs iTypes parentTpr parent
     lenInt <- case parentVec of
-        MirVector_Vector v -> return $ V.length v
-        MirVector_PartialVector pv -> return $ V.length pv
+        MirVector_Vector v -> return (vecValSizeConcrete v)
+        MirVector_PartialVector pv -> return (vecValSizeConcrete pv)
         MirVector_Array _ -> leafAbort $ Unsupported callStack $
             "can't compute allocation length for MirVector_Array, which is unbounded"
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
@@ -2667,7 +2585,7 @@ mirRef_indexAndLenLeaf bak _ _ (MirReference_Integer _) = do
     return (zero, zero)
 
 mirRef_indexAndLenIO ::
-    (IsSymBackend sym bak) =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
@@ -2684,7 +2602,7 @@ mirRef_indexAndLenIO bak gs iTypes (MirReferenceMux ref) = do
         ref
 
 mirRef_indexAndLenSim ::
-    IsSymInterface sym =>
+    IsMirSymInterface sym =>
     MirReferenceMux sym ->
     OverrideSim p sym MIR rtp args ret
         (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
@@ -2696,7 +2614,7 @@ mirRef_indexAndLenSim ref = do
        liftIO $ mirRef_indexAndLenIO bak gs iTypes ref
 
 
-execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
+execMirStmt :: forall p sym. (IsMirSymInterface sym) => EvalStmtFunc p sym MIR
 execMirStmt stmt s = withBackend ctx $ \bak ->
   case stmt of
        MirNewRef tp ->
@@ -2747,26 +2665,42 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
        MirRef_PeelIndex (regValue -> ref) -> do
          readOnly s $ mirRef_peelIndexIO bak iTypes ref
 
+
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
-            return (V.snoc vecValue elemValue, s)
-       VectorHead _tp (regValue -> vecValue) -> do
-            let val = maybePartExpr sym $
-                    if V.null vecValue then Nothing else Just $ V.head vecValue
-            return (val, s)
+          do
+            v1 <- vecValSnoc sym vecValue (RV elemValue)
+            pure (v1, s)
+            
+       VectorHead _tp (regValue -> vecValue) ->
+          do
+            RV val <- vecValHead sym vecValue
+            pure (val, s)
+
        VectorTail _tp (regValue -> vecValue) ->
-            return (if V.null vecValue then V.empty else V.tail vecValue, s)
+          do
+            val <- vecValTail sym vecValue
+            pure (val, s)
+
        VectorInit _tp (regValue -> vecValue) ->
-            return (if V.null vecValue then V.empty else V.init vecValue, s)
-       VectorLast _tp (regValue -> vecValue) -> do
-            let val = maybePartExpr sym $
-                    if V.null vecValue then Nothing else Just $ V.last vecValue
+          do
+            val <- vecValInit sym vecValue
+            pure (val, s)
+
+       VectorLast _tp (regValue -> vecValue) ->
+          do
+            RV val <- vecValLast sym vecValue
             return (val, s)
        VectorConcat _tp (regValue -> v1) (regValue -> v2) ->
-            return (v1 <> v2, s)
-       VectorTake tp (regValue -> v) (regValue -> idx) ->
-            readOnly s $ vectorTakeIO bak tp v idx
-       VectorDrop tp (regValue -> v) (regValue -> idx) ->
-            readOnly s $ vectorDropIO bak tp v idx
+          do
+            val <- vecValAppend sym v1 v2
+            pure (val, s)
+
+       VectorTake _tp (regValue -> v) (regValue -> idx) ->
+          readOnly s (vecValTake sym v idx)
+
+       VectorDrop _tp (regValue -> v) (regValue -> idx) ->
+          readOnly s (vecValDrop sym v idx)
+           
        ArrayZeroed idxs w ->
             readOnly s $ arrayZeroedIO sym idxs w
 
@@ -2879,7 +2813,7 @@ modifyRefMuxIO bak iTypes f (MirReferenceMux ref) = do
     let sym = backendGetSym bak
     MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
 
-readMirRefSim :: IsSymInterface sym =>
+readMirRefSim :: (IsMirSymInterface sym) =>
     TypeRepr tp -> MirReferenceMux sym ->
     OverrideSim m sym MIR rtp args ret (RegValue sym tp)
 readMirRefSim tpr ref =
@@ -2890,7 +2824,7 @@ readMirRefSim tpr ref =
       liftIO $ readMirRefIO bak gs iTypes tpr ref
 
 readMirRefIO ::
-    IsSymBackend sym bak =>
+    (IsMirSymBackend sym bak) =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
@@ -2901,7 +2835,7 @@ readMirRefIO bak gs iTypes tpr ref =
     readRefMuxIO bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr) ref
 
 writeMirRefSim ::
-    IsSymInterface sym =>
+    IsMirSymInterface sym =>
     TypeRepr tp ->
     MirReferenceMux sym ->
     RegValue sym tp ->
@@ -2915,7 +2849,7 @@ writeMirRefSim tpr ref x = do
       put $ s & stateTree.actFrame.gpGlobals .~ gs1
 
 writeMirRefIO ::
-    IsSymBackend sym bak =>
+    IsMirSymBackend sym bak =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
@@ -2983,7 +2917,7 @@ mirRef_offsetWrapIO bak iTypes ref off =
 
 
 writeRefPath ::
-  (IsSymBackend sym bak) =>
+  (IsMirSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
@@ -3014,7 +2948,7 @@ writeRefPath bak iTypes v path x =
   adjustRefPath bak iTypes v path (\_ -> return x)
 
 adjustRefPath ::
-  (IsSymBackend sym bak) =>
+  (IsMirSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
@@ -3060,7 +2994,7 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
           idx tpr adj v')
 
 readRefPath ::
-  (IsSymBackend sym bak) =>
+  (IsMirSymBackend sym bak) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
@@ -3093,7 +3027,7 @@ readRefPath bak iTypes v = \case
     readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off tpr ag
 
 
-mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
+mirExtImpl :: forall sym p. (IsMirSymInterface sym) => ExtensionImpl p sym MIR
 mirExtImpl = ExtensionImpl
              { extensionEval = \_sym _iTypes _log _f _state -> \case
              , extensionExec = execMirStmt

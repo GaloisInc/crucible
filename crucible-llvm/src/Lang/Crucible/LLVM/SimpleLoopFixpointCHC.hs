@@ -67,7 +67,6 @@ import           GHC.TypeLits (KnownNat)
 import           Numeric.Natural (Natural)
 import qualified System.IO
 
-import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF

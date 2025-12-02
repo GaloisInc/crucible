@@ -124,6 +124,7 @@ library
     Lang.Crucible.Simulator.RecordAndReplay
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
+    Lang.Crucible.Simulator.VecValue
     Lang.Crucible.Simulator.SimError
     Lang.Crucible.Simulator.SymSequence
     Lang.Crucible.Syntax

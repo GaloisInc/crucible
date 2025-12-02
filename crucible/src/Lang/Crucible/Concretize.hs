@@ -103,6 +103,7 @@ import           Lang.Crucible.Simulator.RegMap (RegEntry, RegMap)
 import qualified Lang.Crucible.Simulator.RegMap as RM
 import           Lang.Crucible.Simulator.RegValue (RegValue, FnVal)
 import qualified Lang.Crucible.Simulator.RegValue as RV
+import           Lang.Crucible.Simulator.VecValue
 import qualified Lang.Crucible.Simulator.SymSequence as SymSeq
 import qualified Lang.Crucible.Utils.MuxTree as MuxTree
 import           Lang.Crucible.Types
@@ -134,7 +135,7 @@ type family ConcRegValue sym tp where
   ConcRegValue sym CharType = Word16
   ConcRegValue sym (FunctionHandleType a r) = ConcFnVal sym a r
   ConcRegValue sym (MaybeType tp) = Maybe (ConcRegValue sym tp)
-  ConcRegValue sym (VectorType tp) = V.Vector (ConcRV' sym tp)
+  ConcRegValue sym (VectorType tp) = V.Vector (ConcRegValue sym tp)
   ConcRegValue sym (SequenceType tp) = Seq (ConcRV' sym tp)
   ConcRegValue sym (StructType ctx) = Ctx.Assignment (ConcRV' sym) ctx
   ConcRegValue sym (VariantType ctx) = Ctx.Assignment (ConcVariantBranch sym) ctx
@@ -459,7 +460,7 @@ groundRegValue ctx tp v =
     (StructRepr tps, _) ->
       Ctx.zipWithM (\tp' (RV.RV v') -> ConcRV' <$> groundRegValue ctx tp' v') tps v
     (VectorRepr tp', _) ->
-      traverse (fmap ConcRV' . groundRegValue ctx tp') v
+      traverse (groundRegValue ctx tp' . RV.unRV) =<< vecValToVec v
 
     -- Cases with helper functions
     (MaybeRepr tp', _) ->
@@ -838,7 +839,7 @@ concToSym sym iFns fm tp v =
     StructRepr tps ->
       Ctx.zipWithM (\tp' (ConcRV' v') -> RV.RV <$> concToSym sym iFns fm tp' v') tps v
     VectorRepr tp' ->
-      traverse (concToSym sym iFns fm tp' . unConcRV') v
+      vecValLit <$> traverse (fmap RV.RV . concToSym sym iFns fm tp') v
 
     -- Cases with helper functions
     AnyRepr -> concToSymAny sym iFns fm v

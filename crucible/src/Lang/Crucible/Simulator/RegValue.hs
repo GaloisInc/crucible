@@ -26,6 +26,7 @@ module Lang.Crucible.Simulator.RegValue
   , CanMux(..)
   , RegValue'(..)
   , MuxFn
+  , liftITE
 
     -- * Register values
   , AnyValue(..)
@@ -60,8 +61,8 @@ import qualified Data.Map.Strict as Map
 import           Data.Proxy
 import qualified Data.Set as Set
 import           Data.Text (Text)
-import qualified Data.Vector as V
 import           Data.Word
+import           Data.Coerce(coerce)
 import           GHC.TypeNats (KnownNat)
 
 import qualified Data.Parameterized.Context as Ctx
@@ -75,9 +76,11 @@ import           What4.WordMap
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SymSequence
+import           Lang.Crucible.Simulator.VecValue
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
+
 
 type MuxFn p v = p -> v -> v -> IO v
 
@@ -91,7 +94,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym CharType = Word16
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)
-  RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
+  RegValue sym (VectorType tp) = VecVal (RegValue' sym) tp
   RegValue sym (SequenceType tp) = SymSequence sym (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
   RegValue sym (VariantType ctx) = Ctx.Assignment (VariantBranch sym) ctx
@@ -104,6 +107,21 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
 newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
+
+instance IsExprBuilder sym => IsRegValue sym (RegValue' sym) where
+  partialToMaybe = coerce
+
+-- | Lift a muxing function 'RegValue' to one on `RegValue'`.
+liftITE :: (IsSymExprBuilder sym) =>
+  (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+  (Pred sym -> RegValue' sym tp -> RegValue' sym tp -> IO (RegValue' sym tp))
+liftITE ite p (RV x) (RV y) = coerce (ite p x y)
+
+
+--------------------------------------------------------------------------------
+-- VectorVal
+
+
 
 ------------------------------------------------------------------------
 -- FnVal
@@ -218,17 +236,12 @@ instance IsExprBuilder sym => CanMux sym (IEEEFloatType fpp) where
 ------------------------------------------------------------------------
 -- RegValue Vector instance
 
-{-# INLINE muxVector #-}
-muxVector :: IsExprBuilder sym =>
-             sym -> MuxFn p e -> MuxFn p (V.Vector e)
-muxVector sym f p x y
-  | V.length x == V.length y = V.zipWithM (f p) x y
-  | otherwise =
-      throwUnsupported sym "Cannot merge vectors with different dimensions."
 
 instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}
-  muxReg s _ = muxVector s (muxReg s (Proxy :: Proxy tp))
+  muxReg s _ = muxVector s muxReg'
+    where
+    muxReg' p (RV x) (RV y) = RV <$> muxReg s (Proxy :: Proxy tp) p x y
 
 ------------------------------------------------------------------------
 -- RegValue WordMap instance
