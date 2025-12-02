@@ -2146,7 +2146,7 @@ initLocals localVars = forM_ localVars $ \v -> do
 cleanupLocals :: MirGenerator h s ret ()
 cleanupLocals = do
     vm <- use varMap
-    forM_ (Map.elems vm) $ \(Some vi) ->
+    forM_ vm $ \(Some vi) ->
         G.readReg (varInfoReg vi) >>= dropMirRef
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
