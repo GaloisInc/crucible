@@ -244,7 +244,7 @@ jobs:
         run: |
           .github/ci.sh sign "${NAME}.tar.gz"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: github.event.pull_request.head.repo.fork == false &&
             github.repository_owner == 'GaloisInc' &&
             github.actor != 'dependabot[bot]'
