@@ -249,13 +249,10 @@ data StaticVar where
 --   corresponds to a function argument)
 type VarMap s = Map Text.Text (Some (VarInfo s))
 data VarInfo s tp where
-  VarRegister  :: R.Reg s tp -> VarInfo s tp
   VarReference :: C.TypeRepr tp -> R.Reg s MirReferenceType -> VarInfo s tp
   VarAtom      :: R.Atom s tp -> VarInfo s tp
 
 instance Show (VarInfo s tp) where
-    showsPrec d (VarRegister r) = showParen (d > 10) $
-        showString "VarRegister " . showsPrec 11 r
     showsPrec d (VarReference _ r) = showParen (d > 10) $
         showString "VarReference " . showsPrec 11 r
     showsPrec d (VarAtom a) = showParen (d > 10) $
@@ -415,7 +412,6 @@ expectFnContext = do
 
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
-varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
 varInfoRepr (VarReference tp _) = tp
 varInfoRepr (VarAtom a) = R.typeOfAtom a
 
