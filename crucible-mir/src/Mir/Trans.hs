@@ -325,9 +325,7 @@ typedVarInfo name tpr = do
             return vi
 
 readVar :: C.TypeRepr tp -> VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s tp)
-readVar tpr vi = do
-    case vi of
-        VarReference _ reg -> G.readReg reg >>= readMirRef tpr
+readVar tpr vi = G.readReg (varInfoReg vi) >>= readMirRef tpr
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
 varExp (M.Var vname' _ vty _) = do
@@ -340,8 +338,7 @@ varPlace :: HasCallStack => M.Var -> MirGenerator h s ret (MirPlace s)
 varPlace (M.Var vname' _ vty _) = do
     Some tpr <- tyToReprM vty
     vi <- typedVarInfo vname' tpr
-    r <- case vi of
-        VarReference _ reg -> G.readReg reg
+    r <- G.readReg (varInfoReg vi)
     return $ MirPlace tpr r NoMeta
 
 staticPlace :: HasCallStack => M.DefId -> MirGenerator h s ret (MirPlace s)
@@ -2142,15 +2139,15 @@ initLocals localVars = forM_ localVars $ \v -> do
         Nothing -> return ()
         Just val -> writeMirRef tpr ref val
     reg <- G.newReg ref
-    let varinfo = Some $ VarReference tpr reg
+    let varinfo = Some $ VarInfo tpr reg
     varMap %= Map.insert name varinfo
 
 -- | Deallocate RefCells for all locals in `varMap`.
 cleanupLocals :: MirGenerator h s ret ()
 cleanupLocals = do
     vm <- use varMap
-    forM_ (Map.elems vm) $ \(Some vi) -> case vi of
-        VarReference _ reg -> G.readReg reg >>= dropMirRef
+    forM_ (Map.elems vm) $ \(Some vi) ->
+        G.readReg (varInfoReg vi) >>= dropMirRef
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks _) = Map.fromList <$> mapM buildLabel blocks
@@ -2268,16 +2265,14 @@ genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs
             ([], []) -> return ()
             (MirExp inputTpr inputExpr : inputs', var : vars') -> do
                 mvi <- use $ varMap . at (var ^. varname)
-                Some vi <- case mvi of
+                Some (VarInfo viTpr viReg) <- case mvi of
                     Just x -> return x
                     Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
-                Refl <- testEqualityOrFail inputTpr (varInfoRepr vi) $
+                Refl <- testEqualityOrFail inputTpr viTpr $
                     "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
-                        show inputTpr ++ " != " ++ show (varInfoRepr vi)
-                case vi of
-                    VarReference tpr refReg -> do
-                        ref <- G.readReg refReg
-                        writeMirRef tpr ref inputExpr
+                        show inputTpr ++ " != " ++ show viTpr
+                ref <- G.readReg viReg
+                writeMirRef viTpr ref inputExpr
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname'
 

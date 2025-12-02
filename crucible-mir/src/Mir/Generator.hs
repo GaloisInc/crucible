@@ -246,12 +246,21 @@ data StaticVar where
 
 -- | A 'VarMap' maps identifier names to registers.
 type VarMap s = Map Text.Text (Some (VarInfo s))
-data VarInfo s tp where
-  VarReference :: C.TypeRepr tp -> R.Reg s MirReferenceType -> VarInfo s tp
 
+-- | Information about an identifier's variable. Includes both the register for
+-- the reference that stores the variable's value ('varInfoReg') and the type
+-- of the value ('varInfoRepr').
+data VarInfo s tp =
+  VarInfo
+    { varInfoRepr :: C.TypeRepr tp
+    , varInfoReg :: R.Reg s MirReferenceType
+    }
+
+-- This is identical to what a derived Show instance would provide, except that
+-- 'varInfoRepr' is not shown to make the output more compact.
 instance Show (VarInfo s tp) where
-    showsPrec d (VarReference _ r) = showParen (d > 10) $
-        showString "VarReference " . showsPrec 11 r
+    showsPrec d (VarInfo _ r) = showParen (d > 10) $
+        showString "VarInfo " . showsPrec 11 r
 instance ShowF (VarInfo s)
 
 
@@ -405,9 +414,6 @@ expectFnContext = do
     FnContext f -> pure f
     c -> mirFail $ "expected function when translating " ++ describeFnContext c
 
-
-varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
-varInfoRepr (VarReference tp _) = tp
 
 findFn :: DefId -> MirGenerator h s ret Fn
 findFn name = do
