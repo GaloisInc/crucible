@@ -34,7 +34,7 @@ import Prettyprinter (Pretty(..))
 import qualified Lang.Crucible.FunctionHandle as C
 
 
-import Mir.Mir (Collection(..), namedTys, tiTy, tiNeedsDrop, tiLayout)
+import Mir.Mir (Collection(..), namedTys, tiTy, tiNeedsDrop, tiLayout, version)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
@@ -62,6 +62,7 @@ parseMIR path f = do
       case J.eitherDecode @Collection f of
         Left msg -> fallback msg
         Right col -> pure col
+    checkSchemaVersion (col ^. version)
     when (?debug > 5) $ do
       traceM "--------------------------------------------------------------"
       traceM $ "Loaded module: " ++ path
