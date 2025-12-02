@@ -3,6 +3,7 @@
 //! `my_clone`, rather than e.g. `().clone()`, to ensure rustc doesn't optimize
 //! out the faulty clone shim.
 
+#[inline(never)]
 fn my_clone<T: Clone>(x: &T) -> T {
     x.clone()
 }
