@@ -280,7 +280,7 @@ jobs:
           echo "::set-output name=common-tag::$GITHUB_REF_SLUG"
           echo "COMMON_TAG=$GITHUB_REF_SLUG" >> $GITHUB_ENV
 
-      - uses: docker/setup-buildx-action@v1
+      - uses: docker/setup-buildx-action@v3
 
       - uses: crazy-max/ghaction-docker-meta@v1
         name: Labels
