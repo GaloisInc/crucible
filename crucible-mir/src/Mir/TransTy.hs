@@ -1522,14 +1522,23 @@ initialValue (M.TyAdt nm _ _) = do
             -- for details, including some regarding this choice of size.
             let unionSize = 1
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
-
-
-
-initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
 initialValue M.TyNever     = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
-initialValue (M.TyDynamic _) = return $ Nothing
-initialValue _ = return Nothing
+
+-- Remaining `Nothing` cases
+initialValue (M.TyRef {}) = return Nothing
+initialValue (M.TyRawPtr {}) = return Nothing
+initialValue (M.TyFnPtr {}) = return Nothing
+initialValue (M.TyDynamic {}) = return Nothing
+initialValue (M.TySlice {}) = return Nothing
+initialValue (M.TyStr {}) = return Nothing
+initialValue (M.TyFloat {}) = return Nothing
+initialValue (M.TyDowncast {}) = return Nothing
+initialValue (M.TyForeign {}) = return Nothing
+initialValue (M.TyConst {}) = return Nothing
+initialValue (M.TyLifetime {}) = return Nothing
+initialValue (M.TyErased {}) = return Nothing
+initialValue (M.TyInterned {}) = return Nothing
 
 initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
 initField (M.Field _name ty) = initialValue ty
