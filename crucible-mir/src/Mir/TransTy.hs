@@ -1496,66 +1496,6 @@ initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
 initialValue (M.TyArray _ size) = do
     Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral size)
--- TODO: disabled to workaround for a bug with muxing null and non-null refs
--- The problem is with
---      if (*) {
---          let x = &...;
---      }
--- `x` gets default-initialized at the start of the function, which (with these
--- cases uncommented) sets it to null (`MirReference_Integer 0`).  Then, if the
--- branch is taken, it's set to a valid `MirReference` value instead.  At the
--- end of the `if`, we try to mux together `MirReference_Integer` with a normal
--- `MirReference`, which currently fails.
---
---  * The short-term fix is to disable initialization of refs, so they never
---    get set to `null` in the first place.
---  * The medium-term fix is to support muxing the two MirReference variants,
---    using something like VariantType.
---  * The long-term fix is to remove default-initialization entirely, either by
---    writing an AdtAg pass for structs and tuples like we have for enums, or
---    by converting all locals to untyped allocations (allow writing each field
---    value independently, then materialize a fully-initialized struct the
---    first time it's read at struct type).
---
--- NB: When re-enabling this, also re-enable the TyRef case of `canInitialize`
-{-
-initialValue (M.TyRef (M.TySlice t) M.Immut) = do
-    tyToReprCont t $ \ tr -> do
-      let vec = R.App $ E.VectorLit tr V.empty
-      vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
-      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
-      return $ Just $ buildTuple [vec', i, i]
-initialValue (M.TyRef (M.TySlice t) M.Mut) = do
-    tyToReprCont t $ \ tr -> do
-      ref <- newMirRef (MirVectorRepr tr)
-      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
-      return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
-      -- fail ("don't know how to initialize slices for " ++ show t)
-initialValue (M.TyRef M.TyStr M.Immut) = do
-    let tr = C.BVRepr $ knownNat @8
-    let vec = R.App $ E.VectorLit tr V.empty
-    vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
-    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
-    return $ Just $ buildTuple [vec', i, i]
-initialValue (M.TyRef M.TyStr M.Mut) = do
-    let tr = C.BVRepr $ knownNat @8
-    ref <- newMirRef (MirVectorRepr tr)
-    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
-    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
-initialValue (M.TyRef (M.TyDynamic _) _) = do
-    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
-    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
-        Ctx.Empty Ctx.:> x Ctx.:> x
-initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
-    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
-    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
-        Ctx.Empty Ctx.:> x Ctx.:> x
-initialValue (M.TyRef t M.Immut) = initialValue t
-initialValue (M.TyRef t M.Mut)
-  | Some tpr <- tyToRepr t = do
-    r <- integerToMirRef tpr $ R.App $ usizeLit 0
-    return $ Just $ MirExp (MirReferenceRepr tpr) r
--}
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
