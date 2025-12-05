@@ -7,6 +7,7 @@
 {-# Language TypeApplications #-}
 {-# Language TypeOperators #-}
 {-# Language ScopedTypeVariables #-}
+{-# Language OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -21,8 +22,6 @@ import           LibBF (BigFloat)
 import qualified LibBF as BF
 import qualified Prettyprinter as PP
 import           Prettyprinter (Doc)
-import           Prettyprinter.Render.Text (renderStrict)
-import qualified Data.Text as T
 
 import           Lang.Crucible.Types
 
@@ -76,6 +75,7 @@ showDoubleLiteral x
 valsJS :: BaseTypeRepr ty -> Vals ty -> IO [JS]
 valsJS ty (Vals xs) =
   let showEnt = case ty of
+        -- NOTE: Keep these cases in sync with those in 'prettyVals'.
         BaseBVRepr n -> showBVEnt n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | Just Refl <- testEquality eb (knownNat @8)
@@ -118,9 +118,10 @@ modelJS m =
   jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
 
 -- Pretty-print all entries in a model for a given base type.
-valsDoc :: BaseTypeRepr ty -> Vals ty -> [Doc ann]
-valsDoc ty (Vals xs) =
+prettyVals :: BaseTypeRepr ty -> Vals ty -> [Doc ann]
+prettyVals ty (Vals xs) =
   let ppEnt = case ty of
+        -- NOTE: Keep these cases in sync with those in 'valsJS'.
         BaseBVRepr n -> prettyBVEnt n
 
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
@@ -147,7 +148,7 @@ prettyEnt' :: (a -> String) -> Entry a -> Doc ann
 prettyEnt' repr e =
   PP.hsep
     [ PP.pretty (entryName e)
-    , PP.pretty ("=" :: String)
+    , "="
     , PP.pretty (repr (entryValue e))
     ]
 
@@ -161,28 +162,21 @@ prettyBVEnt n e =
   in
     PP.hsep
       [ PP.pretty (entryName e)
-      , PP.pretty ("=" :: String)
+      , "="
       , PP.pretty sg
-      , PP.pretty ("(signed),"   :: String)
+      , "(signed),"
       , PP.pretty un
-      , PP.pretty ("(unsigned)," :: String)
+      , "(unsigned),"
       , PP.pretty dec
-      , PP.pretty ("(decimal)"   :: String)
+      , "(decimal)"
       ]
 
 -- Human-readable model as a Prettyprinter 'Doc'.
-modelDoc :: ModelView -> Doc ann
-modelDoc m =
+renderModel :: ModelView -> Doc ann
+renderModel m =
   PP.vsep
     (MapF.foldrWithKey
-       (\ty vals docs -> valsDoc ty vals ++ docs)
+       (\ty vals docs -> prettyVals ty vals ++ docs)
        []
        (modelVals m)
     )
-
--- Convenience: render a model to 'String' for CLI output.
-renderModel :: ModelView -> String
-renderModel m =
-  let layout = PP.layoutPretty PP.defaultLayoutOptions
-  in T.unpack (renderStrict (layout (modelDoc m)))
-

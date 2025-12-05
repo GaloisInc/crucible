@@ -436,7 +436,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                logGoal gs
                when (showModel mirOpts) $ do
                   outputLn "Model:"
-                  outputLn (Crux.renderModel m)
+                  outputLn (show (Crux.renderModel m))
 
     when anyFailed $ do
         outputLn ""
