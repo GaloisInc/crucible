@@ -16,6 +16,7 @@
 module Mir.Generate(generateMIR) where
 
 import Control.Monad (when)
+import Data.List (stripPrefix)
 
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString as BS
@@ -25,7 +26,7 @@ import System.FilePath
 import System.IO
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..))
-import           System.Directory (doesFileExist, removeFile, getModificationTime)
+import           System.Directory (doesFileExist, removeFile, getModificationTime, listDirectory)
 import           Data.Time.Clock (UTCTime)
 
 import GHC.Stack
@@ -69,6 +70,7 @@ compileMirJson cruxOpts keepRlib rustFile = do
     let outFile = rustFile -<.> "bin"
 
     rlibsDir <- getRlibsDir
+    rlibsFiles <- listDirectory rlibsDir
     -- rustc produces colorful error messages, so preserve the colors whenever
     -- possible when printing the error messages back out to the user.
     let colorOpts
@@ -81,10 +83,11 @@ compileMirJson cruxOpts keepRlib rustFile = do
           Proc.proc "mir-json" $
             [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2021"] ++
             concat
-              [ [ "--extern"
-                , lib ++ "=" ++ rlibsDir </> "lib" ++ lib <.> "rlib"
-                ]
-              | lib <- libDependencies ] ++
+              [ ["--extern", libName ++ "=" ++ rlibsDir </> file]
+              | file <- rlibsFiles
+              , (baseName, ".rlib") <- [splitExtension file]
+              , Just libName <- [stripPrefix "lib" baseName]
+              ] ++
             colorOpts ++
             [ "--cfg", "crux", "--cfg", "crux_top_level"
             , "-Z", "ub-checks=false"
@@ -144,42 +147,6 @@ maybeLinkJson jsonFiles cacheFile = do
     else
         B.readFile cacheFile
 
-libDependencies :: [FilePath]
-libDependencies =
-    -- std and its dependencies
-    [ "addr2line"
-    , "adler2"
-    , "alloc"
-    , "cfg_if"
-    , "compiler_builtins"
-    , "core"
-    , "crucible"
-    , "getopts"
-    , "gimli"
-    , "hashbrown"
-    , "libc"
-    , "memchr"
-    , "miniz_oxide"
-    , "object"
-    , "panic_abort"
-    , "panic_unwind"
-    , "proc_macro"
-    , "rustc_demangle"
-    , "rustc_std_workspace_alloc"
-    , "rustc_std_workspace_core"
-    , "rustc_std_workspace_std"
-    , "std_detect"
-    , "std"
-    , "test"
-    , "unicode_width"
-    , "unwind"
-    -- additional libs
-    , "crucible"
-    , "int512"
-    , "byteorder"
-    , "bytes"
-    ]
-
 
 -- | Run mir-json on the input, generating lib file on disk
 -- NOTE: If the rust file has not been modified since the
@@ -197,7 +164,8 @@ generateMIR cruxOpts inputFile keepRlib
     let rustFile = inputFile
     maybeCompileMirJson cruxOpts keepRlib rustFile
     rlibsDir <- getRlibsDir
-    let libJsonPaths = [rlibsDir </> "lib" ++ lib <.> "mir" | lib <- libDependencies]
+    rlibsFiles <- listDirectory rlibsDir
+    let libJsonPaths = [rlibsDir </> file | file <- rlibsFiles, takeExtension file == ".mir"]
     b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonPaths) (linkOutFile rustFile)
     parseMIR (linkOutFile rustFile) b
   | ext == ".json" = do

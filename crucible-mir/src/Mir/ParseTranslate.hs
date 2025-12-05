@@ -34,7 +34,7 @@ import Prettyprinter (Pretty(..))
 import qualified Lang.Crucible.FunctionHandle as C
 
 
-import Mir.Mir (Collection(..), namedTys, tiTy, tiNeedsDrop, tiLayout)
+import Mir.Mir (Collection(..), namedTys, tiTy, tiNeedsDrop, tiLayout, version)
 import Mir.JSON ()
 import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
@@ -48,7 +48,7 @@ import Debug.Trace
 -- If you update the supported mir-json schema version below, make sure to also
 -- update the crux-mir README accordingly.
 supportedSchemaVersion :: Word64
-supportedSchemaVersion = 5
+supportedSchemaVersion = 6
 
 -- | Parse a MIR JSON file to a 'Collection'. If parsing fails, attempt to give
 -- a more informative error message if the MIR JSON schema version is
@@ -62,6 +62,7 @@ parseMIR path f = do
       case J.eitherDecode @Collection f of
         Left msg -> fallback msg
         Right col -> pure col
+    checkSchemaVersion (col ^. version)
     when (?debug > 5) $ do
       traceM "--------------------------------------------------------------"
       traceM $ "Loaded module: " ++ path
@@ -69,6 +70,18 @@ parseMIR path f = do
       traceM "--------------------------------------------------------------"
     return $ uninternMir col
   where
+    checkSchemaVersion :: Word64 -> IO ()
+    checkSchemaVersion actualSchemaVersion =
+      unless (actualSchemaVersion == supportedSchemaVersion) $
+        fail $ unlines
+          [ path ++ " uses an unsupported mir-json schema version: "
+                 ++ show actualSchemaVersion
+          , "This release only supports schema version "
+            ++ show supportedSchemaVersion ++ "."
+          , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
+          , "for more details on what the schema version means.)"
+          ]
+
     -- If parsing fails, try to interpret the file as a raw JSON J.Value and
     -- see if the schema version number (if one exists) matches. If they are
     -- mismatched, then report this, as this is a pretty significant clue that
@@ -109,15 +122,7 @@ parseMIR path f = do
           J.Success actualSchemaVersion -> pure actualSchemaVersion
       -- As a sanity-check, ensure that the number which "version" maps to is a
       -- supported JSON schema version. If not, error out early.
-      unless (actualSchemaVersion == supportedSchemaVersion) $
-        fail $ unlines
-          [ path ++ " uses an unsupported mir-json schema version: "
-                 ++ show actualSchemaVersion
-          , "This release only supports schema version "
-            ++ show supportedSchemaVersion ++ "."
-          , "(See https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md"
-          , "for more details on what the schema version means.)"
-          ]
+      checkSchemaVersion actualSchemaVersion
       -- If we have reached this point, then we know that the JSON file failed
       -- to parse as a Collection despite the schema versions matching, so
       -- something has gone awry. Report a generic JSON parse error to the user

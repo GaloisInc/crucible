@@ -179,6 +179,8 @@ customOpDefs = Map.fromList $ [
                          , intrinsics_copy
                          , intrinsics_copy_nonoverlapping
 
+                         , cell_swap_is_nonoverlapping
+
                          , exit
                          , abort
                          , panicking_begin_panic
@@ -760,6 +762,21 @@ intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"]
 
             _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
         _ -> Nothing)
+
+cell_swap_is_nonoverlapping :: (ExplodedDefId, CustomRHS)
+cell_swap_is_nonoverlapping =
+    ( ["core", "cell", "{impl}", "swap", "crucible_cell_swap_is_nonoverlapping_hook"]
+    , \case
+        Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp MirReferenceRepr src,
+             MirExp MirReferenceRepr dest] -> do
+                size <- getLayoutFieldAsExpr "crucible_cell_swap_is_nonoverlapping_hook" laySize ty
+                MirExp C.BoolRepr <$> isNonOverlapping src dest size
+            _ -> mirFail $
+                "bad arguments for Cell::swap::crucible_cell_swap_is_nonoverlapping_hook: "
+                ++ show ops
+        _ -> Nothing
+    )
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul
@@ -2135,35 +2152,8 @@ ctpop = (["core", "intrinsics", "ctpop"],
 cloneShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
 cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
-cloneShimDef (TyArray ty len) parts
-  | [part] <- parts = CustomMirOp $ \ops -> do
-    lv <- case ops of
-        [Move lv] -> return lv
-        [Copy lv] -> return lv
-        [op] -> mirFail $ "cloneShimDef: expected lvalue operand, but got " ++ show op
-        _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (length ops)
-    -- The argument to the clone shim is `&[T; n]`.  The clone method for
-    -- elements requires `&T`, computed as `&arg[i]`.
-    let elementRefRvs = map (\i ->
-            Ref Shared (LProj (LProj lv Deref) (ConstantIndex i len False)) "_") [0 .. len - 1]
-    elementRefExps <- mapM evalRval elementRefRvs
-    elementRefOps <- mapM (\expr -> makeTempOperand (TyRef ty Immut) expr) elementRefExps
-    clonedExps <- mapM (\op -> callExp part [op]) elementRefOps
-    Some tpr <- tyToReprM ty
-    buildArrayLit tpr clonedExps
-  | otherwise = CustomOp $ \_ _ -> mirFail $
-    "expected exactly one clone function for in array clone shim, but got " ++ show parts
-cloneShimDef (TyFnPtr _) parts
-  -- Function pointers do not have any fields, so implementing a clone shim for
-  -- a function pointer is as simple as dereferencing it.
-  | [] <- parts = CustomOp $ \opTys ops ->
-    case (opTys, ops) of
-      ([TyRef ty _], [eRef]) -> do
-        e <- derefExp ty eRef
-        readPlace e
-      _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (opTys, ops)
-  | otherwise = CustomOp $ \_ _ -> mirFail $
-    "expected no clone functions in function pointer clone shim, but got " ++ show parts
+cloneShimDef (TyFnPtr _) parts = cloneShimNoFields "function pointer" parts
+cloneShimDef (TyFnDef _) parts = cloneShimNoFields "function definition" parts
 cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
@@ -2176,19 +2166,49 @@ cloneShimTuple [] [] = CustomMirOp $ \_ops ->
     pure $ MirExp C.UnitRepr $ R.App E.EmptyApp
 cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
+    -- The clone shim expects exactly one operand, with a reference type that
+    -- looks something `&(A, B, C)`. First, we dereference the argument to
+    -- obtain an lvalue `lv: (A, B, C)`.
     lv <- case ops of
-        [Move lv] -> return lv
-        [Copy lv] -> return lv
+        [Move lv] -> return (LProj lv Deref)
+        [Copy lv] -> return (LProj lv Deref)
+        -- Temp operands can be introduced when evaluating nested tuple clone
+        -- shims (e.g., ((1, 2), 3).clone()), as seen in the invocation of
+        -- `callExp` below. We manually dereference these by removing the inner
+        -- Ref rvalue.
+        [Temp (Ref _ lv _)] -> return lv
         [op] -> mirFail $ "cloneShimTuple: expected lvalue operand, but got " ++ show op
         _ -> mirFail $ "cloneShimTuple: expected exactly one argument, but got " ++ show (length ops)
-    -- The argument to the clone shim is `&(A, B, C)`.  The clone methods for
-    -- the individual parts require `&A`, `&B`, `&C`, computed as `&arg.0`.
+    -- Project out the tuple fields to pass to the individual clone methods.
+    -- These clone methods require `&A`, `&B`, `&C`, computed as `&lv.0`.
     let fieldRefRvs = zipWith (\ty i ->
-            Ref Shared (LProj (LProj lv Deref) (PField i ty)) "_") tys [0..]
-    fieldRefExps <- mapM evalRval fieldRefRvs
-    fieldRefOps <- zipWithM (\ty expr -> makeTempOperand (TyRef ty Immut) expr) tys fieldRefExps
-    clonedExps <- zipWithM (\part op -> callExp part [op]) parts fieldRefOps
+            Ref Shared (LProj lv (PField i ty)) "_") tys [0..]
+    -- Call the individual clone methods. Use Temp operands as a shortcut for
+    -- constructing operands to pass to the methods. (It's awkward to use Move
+    -- or Copy operand instead, as they require lvalues, but using Ref above
+    -- forces them to be rvalues.)
+    clonedExps <- zipWithM (\part rv -> callExp part [Temp rv]) parts fieldRefRvs
+    -- Finally, construct the result tuple using the cloned fields.
     buildTupleMaybeM tys (map Just clonedExps)
+
+-- | Create an 'IkCloneShim' implementation for a value that is expected not to
+-- have any fields. Implementing clone shims for such values is as simple as
+-- dereferencing them.
+cloneShimNoFields ::
+  -- | What type of value this is. This is only used for error messages.
+  String ->
+  -- | The value's fields, which is checked to be empty.
+  [M.DefId] ->
+  CustomOp
+cloneShimNoFields what parts
+  | [] <- parts = CustomOp $ \opTys ops ->
+    case (opTys, ops) of
+      ([TyRef ty _], [eRef]) -> do
+        e <- derefExp ty eRef
+        readPlace e
+      _ -> mirFail $ "cloneShimNoFields: expected exactly one argument, but got " ++ show (opTys, ops)
+  | otherwise = CustomOp $ \_ _ -> mirFail $
+    "expected no clone functions in " ++ what ++ " clone shim, but got " ++ show parts
 
 cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneFromShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
