@@ -154,8 +154,7 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 -- This code handles slice references, both for ordinary array slices
 -- and string slices. (These differ from ordinary references in having
 -- a length.)  It needs to look up the definition ID, and then:
---    * extract the type from the global variable it finds
---      (note that it'll be a MirVectorRepr that it needs to unwrap)
+--    * check that the type of the global variable it finds is MirAggregateType
 --    * construct a reference to the global variable
 --      (with globalMirRef rather than constMirRef, that's the point of
 --      all this)

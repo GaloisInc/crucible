@@ -30,7 +30,6 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
-import qualified Data.Vector as V
 
 import System.IO (hPutStrLn)
 
@@ -226,9 +225,16 @@ regEval bak baseEval = go
                     val <- readMirRefSim tpr ptr'
                     go tpr val
 
-                let vec = MirVector_Vector $ V.fromList vals
-                let vecRef = newConstMirRef sym (MirVectorRepr tpr) vec
-                ptr' <- subindexMirRefSim tpr vecRef =<< liftIO (bvZero sym knownRepr)
+                sz_sym <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat
+                                 $ toInteger @Int $ length vals
+                ag <- liftIO $ mirAggregate_uninitIO bak sz_sym
+                -- TODO: hardcoded size=1
+                ag' <-
+                  liftIO $ foldM
+                    (\ag' (i, v) -> mirAggregate_setIO bak i 1 tpr v ag')
+                    ag (zip [0..] vals)
+                let agRef = newConstMirRef sym MirAggregateRepr ag'
+                ptr' <- subindexMirRefSim tpr agRef =<< liftIO (bvZero sym knownRepr)
                 return $ Empty :> RV ptr' :> RV len'
             MirReference_Integer i -> do
                 i' <- go UsizeRepr i
@@ -260,14 +266,6 @@ regEval bak baseEval = go
             MirReference_Integer i ->
                 MirReference_Integer <$> go UsizeRepr i
         return $ MirReferenceMux $ toFancyMuxTree sym ref'
-    go (MirVectorRepr tpr') vec = case vec of
-        MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
-        MirVector_PartialVector pv ->
-            MirVector_PartialVector <$> go (VectorRepr (MaybeRepr tpr')) pv
-        MirVector_Array a
-          | AsBaseType btpr' <- asBaseType tpr' ->
-            MirVector_Array <$> go (UsizeArrayRepr btpr') a
-          | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
     go MirAggregateRepr (MirAggregate sz m) =
         MirAggregate sz <$> mapM goMirAggregateEntry m
     -- TODO: StringMapRepr
@@ -397,14 +395,12 @@ regEval bak baseEval = go
         Field_RefPath ctx <$> goMirReferencePath p <*> pure idx
     goMirReferencePath (Variant_RefPath discrTp ctx p idx) =
         Variant_RefPath discrTp ctx <$> goMirReferencePath p <*> pure idx
-    goMirReferencePath (Index_RefPath tpr p idx) =
-        Index_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
     goMirReferencePath (Just_RefPath tpr p) =
         Just_RefPath tpr <$> goMirReferencePath p
-    goMirReferencePath (VectorAsMirVector_RefPath tpr p) =
-        VectorAsMirVector_RefPath tpr <$> goMirReferencePath p
-    goMirReferencePath (ArrayAsMirVector_RefPath tpr p) =
-        ArrayAsMirVector_RefPath tpr <$> goMirReferencePath p
+    goMirReferencePath (VectorIndex_RefPath tpr p idx) =
+        VectorIndex_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
+    goMirReferencePath (ArrayIndex_RefPath btpr p idx) =
+        ArrayIndex_RefPath btpr <$> goMirReferencePath p <*> go UsizeRepr idx
     goMirReferencePath (AgElem_RefPath off sz tpr p) =
         AgElem_RefPath <$> go UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
 
@@ -632,28 +628,6 @@ mirAggregatePrettyFn = IntrinsicPrettyFn $ \tyCtx ag ->
     (_ Ctx.:> _, _) ->
       panic "mirAggregatePrettyFn" ["Unexpected type context", show tyCtx]
 
-mirVectorPrettyFn :: forall sym. IsSymInterface sym =>
-  IntrinsicPrettyFn sym MirVectorSymbol
-mirVectorPrettyFn = IntrinsicPrettyFn $ \tyCtx v ->
-  case tyCtx of
-    Ctx.Empty :> tpr ->
-      case v of
-        MirVector_Vector v' ->
-          PP.list (ppRV @sym tpr <$> V.toList v')
-        MirVector_PartialVector v' ->
-          PP.list (ppMaybeRV @sym tpr <$> V.toList v')
-        MirVector_Array arr
-          | AsBaseType btpr <- asBaseType tpr ->
-              ppRV @sym (UsizeArrayRepr btpr) arr
-          | otherwise ->
-              panic
-                "mirVectorPrettyFn"
-                [ "MirVector_Array element type is not a base type"
-                , show tpr
-                ]
-    _ ->
-      panic "mirVectorPrettyFn" ["Unexpected type context", show tyCtx]
-
 ppMaybeRV ::
   forall sym tpr ann.
   IsSymInterface sym =>
@@ -669,7 +643,6 @@ intrinsicPrinters :: forall sym. IsSymInterface sym => IntrinsicPrinters sym
 intrinsicPrinters = IntrinsicPrinters $
   MapF.insert knownRepr mirReferencePrettyFn $
   MapF.insert knownRepr mirAggregatePrettyFn $
-  MapF.insert knownRepr mirVectorPrettyFn $
   MapF.empty
 
 ppRV :: forall sym tp ann. IsSymInterface sym =>
