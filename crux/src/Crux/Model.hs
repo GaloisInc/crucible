@@ -1,13 +1,13 @@
 -- | This file is almost exactly the same as crucible-c/src/Model.hs
 
 {-# Language DataKinds #-}
+{-# Language OverloadedStrings #-}
 {-# Language PolyKinds #-}
 {-# Language Rank2Types #-}
 {-# Language TypeFamilies #-}
 {-# Language TypeApplications #-}
 {-# Language TypeOperators #-}
 {-# Language ScopedTypeVariables #-}
-{-# Language OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -172,8 +172,8 @@ prettyBVEnt n e =
       ]
 
 -- Human-readable model as a Prettyprinter 'Doc'.
-renderModel :: ModelView -> Doc ann
-renderModel m =
+prettyModel :: ModelView -> Doc ann
+prettyModel m =
   PP.vsep
     (MapF.foldrWithKey
        (\ty vals docs -> prettyVals ty vals ++ docs)
