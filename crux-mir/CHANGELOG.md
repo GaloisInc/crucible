@@ -5,6 +5,7 @@ This release supports [version
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.91.
+* Counterexample models are now pretty-printed instead of emitted as JSON.
 
 # 0.11 -- 2025-11-09
 

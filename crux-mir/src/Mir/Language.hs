@@ -84,7 +84,6 @@ import qualified Crux
 import qualified Crux.Config.Common as Crux
 import qualified Crux.Log as Log
 import qualified Crux.Model as Crux
-import qualified Crux.UI.JS as Crux
 
 import Crux.Types
 import Crux.Log
@@ -437,8 +436,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                logGoal gs
                when (showModel mirOpts) $ do
                   outputLn "Model:"
-                  mjs <- Crux.modelJS m
-                  outputLn (Crux.renderJS mjs)
+                  outputLn (show (Crux.prettyModel m))
 
     when anyFailed $ do
         outputLn ""

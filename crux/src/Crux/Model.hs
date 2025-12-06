@@ -1,6 +1,7 @@
 -- | This file is almost exactly the same as crucible-c/src/Model.hs
 
 {-# Language DataKinds #-}
+{-# Language OverloadedStrings #-}
 {-# Language PolyKinds #-}
 {-# Language Rank2Types #-}
 {-# Language TypeFamilies #-}
@@ -19,6 +20,8 @@ import qualified Data.Parameterized.Map as MapF
 import qualified Numeric as N
 import           LibBF (BigFloat)
 import qualified LibBF as BF
+import qualified Prettyprinter as PP
+import           Prettyprinter (Doc)
 
 import           Lang.Crucible.Types
 
@@ -72,6 +75,7 @@ showDoubleLiteral x
 valsJS :: BaseTypeRepr ty -> Vals ty -> IO [JS]
 valsJS ty (Vals xs) =
   let showEnt = case ty of
+        -- NOTE: Keep these cases in sync with those in 'prettyVals'.
         BaseBVRepr n -> showBVEnt n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | Just Refl <- testEquality eb (knownNat @8)
@@ -112,3 +116,67 @@ valsJS ty (Vals xs) =
 modelJS :: ModelView -> IO JS
 modelJS m =
   jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
+
+-- Pretty-print all entries in a model for a given base type.
+prettyVals :: BaseTypeRepr ty -> Vals ty -> [Doc ann]
+prettyVals ty (Vals xs) =
+  let ppEnt = case ty of
+        -- NOTE: Keep these cases in sync with those in 'valsJS'.
+        BaseBVRepr n -> prettyBVEnt n
+
+        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
+          | Just Refl <- testEquality eb (knownNat @8)
+          , Just Refl <- testEquality sb (knownNat @24)
+          -> prettyEnt' showFloatLiteral
+
+        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
+          | Just Refl <- testEquality eb (knownNat @11)
+          , Just Refl <- testEquality sb (knownNat @53)
+          -> prettyEnt' showDoubleLiteral
+
+        BaseRealRepr ->
+          -- same semantics as valsJS: print reals via toDouble
+          prettyEnt' (show . toDouble)
+
+        _ ->
+          error ("Type not implemented: " ++ show ty)
+  in
+    map ppEnt xs
+
+-- Generic entry printer for "simple" values.
+prettyEnt' :: (a -> String) -> Entry a -> Doc ann
+prettyEnt' repr e =
+  PP.hsep
+    [ PP.pretty (entryName e)
+    , "="
+    , PP.pretty (repr (entryValue e))
+    ]
+
+-- Bitvector entries: signed, unsigned, decimal on a single line.
+prettyBVEnt :: (1 <= w) => NatRepr w -> Entry (BV w) -> Doc ann
+prettyBVEnt n e =
+  let v   = entryValue e
+      sg  = showBVLiteralSigned   n v
+      un  = showBVLiteralUnsigned n v
+      dec = showBVLiteralDecimal  n v
+  in
+    PP.hsep
+      [ PP.pretty (entryName e)
+      , "="
+      , PP.pretty sg
+      , "(signed),"
+      , PP.pretty un
+      , "(unsigned),"
+      , PP.pretty dec
+      , "(decimal)"
+      ]
+
+-- Human-readable model as a Prettyprinter 'Doc'.
+prettyModel :: ModelView -> Doc ann
+prettyModel m =
+  PP.vsep
+    (MapF.foldrWithKey
+       (\ty vals docs -> prettyVals ty vals ++ docs)
+       []
+       (modelVals m)
+    )

@@ -290,15 +290,17 @@ When your test fails, it is often useful to get a concrete counterexample to bet
 ```
 $ cargo crux-test --lib -- -m
 ...
----- kinds_of_failure/c15b5012::overflow_quicksort[0]::crux_test[0]::midpoint_overflow[0] counterexamples ----
+---- example_5/3805a6ac::crux_test[0]::midpoint_overflow[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   src/overflow_quicksort.rs:31:27: 31:34: error: in kinds_of_failure/c15b5012::overflow_quicksort[0]::crux_test[0]::midpoint_overflow[0]
+[Crux]   src/lib.rs:5:12: 5:24: error: in example_5/3805a6ac::find_midpoint[0]
 [Crux]   attempt to compute `copy _1 + copy _2`, which would overflow
 Model:
-[{"name": "a","loc": null,"val": "-0x58cf1802","bits": "32"},{"name": "b","loc": null,"val": "0x58cf1803","bits": "32"}]
+a = -0x80000000 (signed), 0x80000000 (unsigned), -2147483648 (decimal)
+b = -0x80000000 (signed), 0x80000000 (unsigned), -2147483648 (decimal)
+
 ```
 
-The model shows the name of variable, as well as its concrete value.
+The model lists each symbolic variable and its concrete value in multiple interpretations (signed, unsigned, decimal).
 
 In addition to `-m` (which can be hard to interpret if you have multiple symbolic variables with the same name), you can use the `crucible_assert!()` macro. For example `crucible_assert!(x == y, "expected x == y, but got x = {} and y = {}", x, y);` will print some concrete values of `x` and `y`.
 
