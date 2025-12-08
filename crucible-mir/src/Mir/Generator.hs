@@ -639,18 +639,6 @@ subjustRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
-mirRef_vectorAsMirVector ::
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_vectorAsMirVector tpr ref = G.extensionStmt $ MirRef_VectorAsMirVector tpr ref
-
-mirRef_arrayAsMirVector ::
-  C.BaseTypeRepr btp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
-
 mirRef_agElem ::
   R.Expr MIR s UsizeType ->
   Word ->
@@ -761,32 +749,6 @@ arrayZeroed ::
   NatRepr w ->
   MirGenerator h s ret (R.Expr MIR s (C.SymbolicArrayType (idxs ::> idx) (C.BaseBVType w)))
 arrayZeroed idxs w = G.extensionStmt $ ArrayZeroed idxs w
-
-
-mirVector_uninit ::
-    C.TypeRepr tp ->
-    R.Expr MIR s UsizeType ->
-    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
-mirVector_uninit tpr len = G.extensionStmt $ MirVector_Uninit tpr len
-
-mirVector_fromVector ::
-    C.TypeRepr tp ->
-    R.Expr MIR s (C.VectorType tp) ->
-    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
-mirVector_fromVector tpr v = G.extensionStmt $ MirVector_FromVector tpr v
-
-mirVector_fromArray ::
-    C.BaseTypeRepr btp ->
-    R.Expr MIR s (UsizeArrayType btp) ->
-    MirGenerator h s ret (R.Expr MIR s (MirVectorType (C.BaseToType btp)))
-mirVector_fromArray tpr a = G.extensionStmt $ MirVector_FromArray tpr a
-
-mirVector_resize ::
-    C.TypeRepr tp ->
-    R.Expr MIR s (MirVectorType tp) ->
-    R.Expr MIR s UsizeType ->
-    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
-mirVector_resize tpr vec len = G.extensionStmt $ MirVector_Resize tpr vec len
 
 
 mirAggregate_uninit ::

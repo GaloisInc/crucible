@@ -130,7 +130,6 @@ library
                  parameterized-utils >= 1.0.8,
                  containers,
                  lens,
-                 vector,
                  mtl,
                  transformers,
                  filepath,

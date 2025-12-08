@@ -23,8 +23,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-{-# LANGUAGE AllowAmbiguousTypes #-}
-
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -92,7 +90,7 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.Interface
 import           What4.Partial
-    (PartExpr, pattern Unassigned, maybePartExpr, justPartExpr, joinMaybePE, mergePartial, mkPE)
+    (PartExpr, pattern Unassigned, maybePartExpr, justPartExpr, mergePartial, mkPE)
 
 import           Mir.FancyMuxTree
 
@@ -368,25 +366,22 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     !(MirReferencePath sym tp_base (RustEnumType discrTp variantsCtx)) ->
     !(Index variantsCtx tp) ->
     MirReferencePath sym tp_base tp
-  Index_RefPath ::
-    !(TypeRepr tp) ->
-    !(MirReferencePath sym tp_base (MirVectorType tp)) ->
-    !(RegValue sym UsizeType) ->
-    MirReferencePath sym tp_base tp
   Just_RefPath ::
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base (MaybeType tp)) ->
     MirReferencePath sym tp_base tp
-  -- | Present `&mut Vector` as `&mut MirVector`.
-  VectorAsMirVector_RefPath ::
+  -- | Access an entry in a @Vector@ (backed by a Crucible 'V.Vector').
+  VectorIndex_RefPath ::
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base (VectorType tp)) ->
-    MirReferencePath sym tp_base (MirVectorType tp)
-  -- | Present `&mut Array` as `&mut MirVector`.
-  ArrayAsMirVector_RefPath ::
+    !(RegValue sym UsizeType) ->
+    MirReferencePath sym tp_base tp
+  -- | Access an entry in an @Array@ (backed by an SMT array).
+  ArrayIndex_RefPath ::
     !(BaseTypeRepr btp) ->
     !(MirReferencePath sym tp_base (UsizeArrayType btp)) ->
-    MirReferencePath sym tp_base (MirVectorType (BaseToType btp))
+    !(RegValue sym UsizeType) ->
+    MirReferencePath sym tp_base (BaseToType btp)
   -- | Access an entry in a `MirAggregate`.
   AgElem_RefPath ::
     !(RegValue sym UsizeType) ->
@@ -420,10 +415,9 @@ instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
     show Empty_RefPath = "Empty_RefPath"
     show (Field_RefPath ctx p idx) = "(Field_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
     show (Variant_RefPath tp ctx p idx) = "(Variant_RefPath " ++ show tp ++ " " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
-    show (Index_RefPath tpr p idx) = "(Index_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
     show (Just_RefPath tpr p) = "(Just_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
-    show (VectorAsMirVector_RefPath tpr p) = "(VectorAsMirVector_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
-    show (ArrayAsMirVector_RefPath btpr p) = "(ArrayAsMirVector_RefPath " ++ show btpr ++ " " ++ show p ++ ")"
+    show (VectorIndex_RefPath tpr p idx) = "(VectorIndex_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
+    show (ArrayIndex_RefPath btpr p idx) = "(ArrayIndex_RefPath " ++ show btpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
     show (AgElem_RefPath off sz tpr p) = "(AgElem_RefPath " ++ show (printSymExpr off) ++ " " ++ show sz ++ " " ++ show tpr ++ " " ++ show p ++ ")"
 
 instance IsSymInterface sym => Show (MirReference sym) where
@@ -464,22 +458,18 @@ instance OrdSkel (MirReference sym) where
             compareSkelF2 ctx1 idx1 ctx2 idx2 <> cmpPath p1 p2
         cmpPath (Variant_RefPath _ _ _ _) _ = LT
         cmpPath _ (Variant_RefPath _ _ _ _) = GT
-        cmpPath (Index_RefPath tpr1 p1 _) (Index_RefPath tpr2 p2 _) =
-            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
-        cmpPath (Index_RefPath _ _ _) _ = LT
-        cmpPath _ (Index_RefPath _ _ _) = GT
         cmpPath (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2) =
             compareSkelF tpr1 tpr2 <> cmpPath p1 p2
         cmpPath (Just_RefPath _ _) _ = LT
         cmpPath _ (Just_RefPath _ _) = GT
-        cmpPath (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr2 p2) =
+        cmpPath (VectorIndex_RefPath tpr1 p1 _) (VectorIndex_RefPath tpr2 p2 _) =
             compareSkelF tpr1 tpr2 <> cmpPath p1 p2
-        cmpPath (VectorAsMirVector_RefPath _ _) _ = LT
-        cmpPath _ (VectorAsMirVector_RefPath _ _) = GT
-        cmpPath (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2) =
-            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
-        cmpPath (ArrayAsMirVector_RefPath _ _) _ = LT
-        cmpPath _ (ArrayAsMirVector_RefPath _ _) = GT
+        cmpPath (VectorIndex_RefPath _ _ _) _ = LT
+        cmpPath _ (VectorIndex_RefPath _ _ _) = GT
+        cmpPath (ArrayIndex_RefPath btpr1 p1 _) (ArrayIndex_RefPath btpr2 p2 _) =
+            compareSkelF btpr1 btpr2 <> cmpPath p1 p2
+        cmpPath (ArrayIndex_RefPath _ _ _) _ = LT
+        cmpPath _ (ArrayIndex_RefPath _ _ _) = GT
         cmpPath (AgElem_RefPath _off1 sz1 tpr1 p1) (AgElem_RefPath _off2 sz2 tpr2 p2) =
             compare sz1 sz2 <> compareSkelF tpr1 tpr2 <> cmpPath p1 p2
 
@@ -529,19 +519,17 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
     , Just Refl <- testEquality f1 f2 ->
          do p' <- muxRefPath sym c p1 p2
             return (Variant_RefPath tp1 ctx1 p' f1)
-  (Index_RefPath tp p1 i1, Index_RefPath _ p2 i2) ->
-         do p' <- muxRefPath sym c p1 p2
-            i' <- lift $ bvIte sym c i1 i2
-            return (Index_RefPath tp p' i')
   (Just_RefPath tp p1, Just_RefPath _ p2) ->
          do p' <- muxRefPath sym c p1 p2
             return (Just_RefPath tp p')
-  (VectorAsMirVector_RefPath tp p1, VectorAsMirVector_RefPath _ p2) ->
+  (VectorIndex_RefPath tp p1 i1, VectorIndex_RefPath _ p2 i2) ->
          do p' <- muxRefPath sym c p1 p2
-            return (VectorAsMirVector_RefPath tp p')
-  (ArrayAsMirVector_RefPath tp p1, ArrayAsMirVector_RefPath _ p2) ->
+            i' <- lift $ bvIte sym c i1 i2
+            return (VectorIndex_RefPath tp p' i')
+  (ArrayIndex_RefPath btp p1 i1, ArrayIndex_RefPath _ p2 i2) ->
          do p' <- muxRefPath sym c p1 p2
-            return (ArrayAsMirVector_RefPath tp p')
+            i' <- lift $ bvIte sym c i1 i2
+            return (ArrayIndex_RefPath btp p' i')
   (AgElem_RefPath off1 sz tpr p1, AgElem_RefPath off2 _ _ p2) ->
          do off' <- lift $ bvIte sym c off1 off2
             p' <- muxRefPath sym c p1 p2
@@ -550,10 +538,9 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
   (Empty_RefPath {}, _) -> mzero
   (Field_RefPath {}, _) -> mzero
   (Variant_RefPath {}, _) -> mzero
-  (Index_RefPath {}, _) -> mzero
   (Just_RefPath {}, _) -> mzero
-  (VectorAsMirVector_RefPath {}, _) -> mzero
-  (ArrayAsMirVector_RefPath {}, _) -> mzero
+  (VectorIndex_RefPath {}, _) -> mzero
+  (ArrayIndex_RefPath {}, _) -> mzero
   (AgElem_RefPath {}, _) -> mzero
 
 muxRef' :: forall sym.
@@ -841,8 +828,6 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
       return $ MirAggregate totalSize m'
 
   | otherwise = do
-      -- This handles the inner `MaybeType`s like `adjustMirVectorWithSymIndex`
-      -- does.
       let f' rvPart = do
             rv <- leafReadPartExpr bak rvPart $ agNoValueAtSymbolicOffsetSimError totalSize
             rv' <- f rv
@@ -1139,99 +1124,15 @@ resizeMirAggregate (MirAggregate totalSize m) newSize
 
 
 --------------------------------------------------------------
--- A MirVectorType is dynamically either a VectorType or a SymbolicArrayType.
--- We use this in `MirSlice` to allow taking slices of either
--- `crucible::vector::Vector` or `crucible::array::Array`.
 
--- Aliases for working with MIR arrays, which have a single usize index.
+-- Aliases for working with the custom Array type, which is backed by an SMT
+-- array at the Crucible level.
 type UsizeArrayType btp = SymbolicArrayType (EmptyCtx ::> BaseUsizeType) btp
 pattern UsizeArrayRepr :: () => tp' ~ UsizeArrayType btp => BaseTypeRepr btp -> TypeRepr tp'
 pattern UsizeArrayRepr btp <-
     SymbolicArrayRepr (testEquality (Empty :> BaseUsizeRepr) -> Just Refl) btp
   where UsizeArrayRepr btp = SymbolicArrayRepr (Empty :> BaseUsizeRepr) btp
 
-
-type MirVectorSymbol = "MirVector"
-type MirVectorType tp = IntrinsicType MirVectorSymbol (EmptyCtx ::> tp)
-
-pattern MirVectorRepr :: () => tp' ~ MirVectorType tp => TypeRepr tp -> TypeRepr tp'
-pattern MirVectorRepr tp <-
-     IntrinsicRepr (testEquality (knownSymbol @MirVectorSymbol) -> Just Refl) (Empty :> tp)
- where MirVectorRepr tp = IntrinsicRepr (knownSymbol @MirVectorSymbol) (Empty :> tp)
-
-type family MirVectorFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
-  MirVectorFam sym (EmptyCtx ::> tp) = MirVector sym tp
-  MirVectorFam sym ctx = TypeError ('Text "MirVector expects a single argument, but was given" :<>:
-                                       'ShowType ctx)
-instance IsSymInterface sym => IntrinsicClass sym MirVectorSymbol where
-  type Intrinsic sym MirVectorSymbol ctx = MirVectorFam sym ctx
-
-  muxIntrinsic sym tys _nm (Empty :> tpr) = muxMirVector sym tys tpr
-  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
-
-data MirVector sym (tp :: CrucibleType) where
-  MirVector_Vector ::
-    !(RegValue sym (VectorType tp)) ->
-    MirVector sym tp
-  MirVector_PartialVector ::
-    !(RegValue sym (VectorType (MaybeType tp))) ->
-    MirVector sym tp
-  MirVector_Array ::
-    !(RegValue sym (UsizeArrayType btp)) ->
-    MirVector sym (BaseToType btp)
-
-muxMirVector :: forall sym tp.
-  IsSymInterface sym =>
-  sym ->
-  IntrinsicTypes sym ->
-  TypeRepr tp ->
-  Pred sym ->
-  MirVector sym tp ->
-  MirVector sym tp ->
-  IO (MirVector sym tp)
--- Two total vectors of matching length can remain total.
-muxMirVector bak itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2)
-  | V.length v1 == V.length v2 =
-    MirVector_Vector <$> muxRegForType bak itefns (VectorRepr tpr) c v1 v2
--- All other combinations of total and partial vectors become partial.
-muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2) = do
-    pv1 <- toPartialVector sym tpr v1
-    pv2 <- toPartialVector sym tpr v2
-    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
-muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_Vector v2) = do
-    pv2 <- toPartialVector sym tpr v2
-    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
-muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_PartialVector pv2) = do
-    pv1 <- toPartialVector sym tpr v1
-    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
-muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_PartialVector pv2) = do
-    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
--- Arrays only merge with arrays.
-muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
-        (MirVector_Array a1) (MirVector_Array a2) =
-    MirVector_Array <$> muxRegForType sym itefns (UsizeArrayRepr btpr) c a1 a2
-muxMirVector sym _ _ _ _ _ =
-   throwUnsupported sym "Cannot merge dissimilar MirVectors."
-
-toPartialVector :: IsSymInterface sym =>
-    sym -> TypeRepr tp ->
-    RegValue sym (VectorType tp) -> IO (RegValue sym (VectorType (MaybeType tp)))
-toPartialVector sym _tpr v = return $ fmap (justPartExpr sym) v
-
-muxPartialVectors :: IsSymInterface sym =>
-    sym -> IntrinsicTypes sym -> TypeRepr tp ->
-    Pred sym ->
-    RegValue sym (VectorType (MaybeType tp)) ->
-    RegValue sym (VectorType (MaybeType tp)) ->
-    IO (RegValue sym (VectorType (MaybeType tp)))
-muxPartialVectors sym itefns tpr c pv1 pv2 = do
-    let len = max (V.length pv1) (V.length pv2)
-    V.generateM len $ \i -> do
-        let x = getPE i pv1
-        let y = getPE i pv2
-        muxRegForType sym itefns (MaybeRepr tpr) c x y
-  where
-    getPE i pv = Maybe.fromMaybe Unassigned $ pv V.!? i
 
 leafIndexVectorWithSymIndex ::
     (IsSymBackend sym bak) =>
@@ -1298,72 +1199,6 @@ leafAdjustVectorWithSymIndex bak iteFn v i adj
         case mx' of
             Just x' -> liftIO $ iteFn hit x' x
             Nothing -> return x
-
-indexMirVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
-    bak ->
-    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
-    MirVector sym tp ->
-    RegValue sym UsizeType ->
-    MuxLeafT sym IO (RegValue sym tp)
-indexMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i = do
-    leafIndexVectorWithSymIndex bak iteFn v i
-indexMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i = do
-    let sym = backendGetSym bak
-    -- Lift iteFn from `RegValue sym tp` to `RegValue sym (MaybeType tp)`
-    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
-    maybeVal <- leafIndexVectorWithSymIndex bak iteFn' pv i
-    leafReadPartExpr bak maybeVal $ ReadBeforeWriteSimError $
-        "Attempted to read uninitialized vector index"
-indexMirVectorWithSymIndex bak _ (MirVector_Array a) i =
-    let sym = backendGetSym bak in
-    liftIO $ arrayLookup sym a (Empty :> i)
-
-adjustMirVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
-    bak ->
-    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
-    MirVector sym tp ->
-    RegValue sym UsizeType ->
-    (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
-    MuxLeafT sym IO (MirVector sym tp)
-adjustMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i adj = do
-    MirVector_Vector <$> leafAdjustVectorWithSymIndex bak iteFn v i adj
-adjustMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i adj = do
-    let sym = backendGetSym bak
-    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
-    pv' <- leafAdjustVectorWithSymIndex bak iteFn' pv i $ \maybeVal -> do
-        val <- leafReadPartExpr bak maybeVal $ ReadBeforeWriteSimError $
-            "Attempted to read uninitialized vector index"
-        val' <- adj val
-        return $ justPartExpr sym val'
-    return $ MirVector_PartialVector pv'
-adjustMirVectorWithSymIndex bak _ (MirVector_Array a) i adj = do
-    let sym = backendGetSym bak
-    x <- liftIO $ arrayLookup sym a (Empty :> i)
-    x' <- adj x
-    liftIO $ MirVector_Array <$> arrayUpdate sym a (Empty :> i) x'
-
--- Write a new value.  Unlike `adjustMirVectorWithSymIndex`, this doesn't
--- require a successful read from the given index.
-writeMirVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
-    bak ->
-    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
-    MirVector sym tp ->
-    RegValue sym UsizeType ->
-    RegValue sym tp ->
-    MuxLeafT sym IO (MirVector sym tp)
-writeMirVectorWithSymIndex bak iteFn (MirVector_Vector v) i val = do
-    MirVector_Vector <$> leafAdjustVectorWithSymIndex bak iteFn v i (\_ -> return val)
-writeMirVectorWithSymIndex bak iteFn (MirVector_PartialVector pv) i val = do
-    let sym = backendGetSym bak
-    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
-    pv' <- leafAdjustVectorWithSymIndex bak iteFn' pv i $ \_ -> return $ justPartExpr sym val
-    return $ MirVector_PartialVector pv'
-writeMirVectorWithSymIndex bak _ (MirVector_Array a) i val = do
-    let sym = backendGetSym bak
-    liftIO $ MirVector_Array <$> arrayUpdate sym a (Empty :> i) val
 
 
 
@@ -1437,14 +1272,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      MirStmt f MirReferenceType
   MirSubjustRef ::
      !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
-  MirRef_VectorAsMirVector ::
-     !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
-  MirRef_ArrayAsMirVector ::
-     !(BaseTypeRepr btp) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
   MirRef_AgElem ::
@@ -1525,23 +1352,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(Assignment BaseTypeRepr (idxs ::> idx)) ->
      !(NatRepr w) ->
      MirStmt f (SymbolicArrayType (idxs ::> idx) (BaseBVType w))
-  MirVector_Uninit ::
-    !(TypeRepr tp) ->
-    !(f UsizeType) ->
-    MirStmt f (MirVectorType tp)
-  MirVector_FromVector ::
-    !(TypeRepr tp) ->
-    !(f (VectorType tp)) ->
-    MirStmt f (MirVectorType tp)
-  MirVector_FromArray ::
-    !(BaseTypeRepr btp) ->
-    !(f (UsizeArrayType btp)) ->
-    MirStmt f (MirVectorType (BaseToType btp))
-  MirVector_Resize ::
-    !(TypeRepr tp) ->
-    !(f (MirVectorType tp)) ->
-    !(f UsizeType) ->
-    MirStmt f (MirVectorType tp)
   -- | Create an empty `MirAggregate`, where the size is given as an expression
   -- of `UsizeType`.  The size must still be a concrete expression at symbolic
   -- execution time.
@@ -1632,8 +1442,6 @@ instance TypeApp MirStmt where
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubindexRef _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
-    MirRef_VectorAsMirVector _ _ -> MirReferenceRepr
-    MirRef_ArrayAsMirVector _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ -> MirReferenceRepr
@@ -1649,10 +1457,6 @@ instance TypeApp MirStmt where
     VectorTake tp _ _ -> VectorRepr tp
     VectorDrop tp _ _ -> VectorRepr tp
     ArrayZeroed idxs w -> SymbolicArrayRepr idxs (BaseBVRepr w)
-    MirVector_Uninit tp _ -> MirVectorRepr tp
-    MirVector_FromVector tp _ -> MirVectorRepr tp
-    MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
-    MirVector_Resize tp _ _ -> MirVectorRepr tp
     MirAggregate_Uninit _ -> MirAggregateRepr
     MirAggregate_Replicate _ _ _ _ -> MirAggregateRepr
     MirAggregate_Resize _ _ -> MirAggregateRepr
@@ -1673,8 +1477,6 @@ instance PrettyApp MirStmt where
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
-    MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
-    MirRef_ArrayAsMirVector _ a -> "mirRef_arrayAsMirVector" <+> pp a
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o -> "mirRef_offset" <+> pp p <+> pp o
@@ -1690,10 +1492,6 @@ instance PrettyApp MirStmt where
     VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
     VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
     ArrayZeroed idxs w -> "arrayZeroed" <+> viaShow idxs <+> viaShow w
-    MirVector_Uninit tp len -> "mirVector_uninit" <+> pretty tp <+> pp len
-    MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
-    MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
-    MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
     MirAggregate_Uninit sz -> "mirAggregate_uninit" <+> pp sz
     MirAggregate_Replicate elemSz _ elemVal lenSym -> "mirAggregate_replicate" <+> viaShow elemSz <+> pp elemVal <+> pp lenSym
     MirAggregate_Resize ag szSym -> "mirAggregate_resize" <+> pp ag <+> pp szSym
@@ -1803,26 +1601,6 @@ typedLeafOp desc expectTpr (MirReference tpr root path) k
       desc ++ " requires a reference to " ++ show expectTpr
         ++ ", but got a reference to " ++ show tpr
 typedLeafOp desc _ (MirReference_Integer _) _ =
-    leafAbort $ GenericSimError $
-        "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
-
--- | Like `typedLeafOp`, but accepts two different pointee types.
-typedLeafOp2 ::
-    Monad m =>
-    String ->
-    MirReference sym ->
-    TypeRepr tp1 ->
-    (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp1 -> MuxLeafT sym m a) ->
-    TypeRepr tp2 ->
-    (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp2 -> MuxLeafT sym m a) ->
-    MuxLeafT sym m a
-typedLeafOp2 desc (MirReference tpr root path) expectTpr1 k1 expectTpr2 k2
-  | Just Refl <- testEquality tpr expectTpr1 = k1 root path
-  | Just Refl <- testEquality tpr expectTpr2 = k2 root path
-  | otherwise = leafAbort $ GenericSimError $
-      desc ++ " requires a reference to " ++ show expectTpr1 ++ " or " ++ show expectTpr2
-        ++ ", but got a reference to " ++ show tpr
-typedLeafOp2 desc (MirReference_Integer _) _ _ _ _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
@@ -1983,13 +1761,22 @@ subindexMirRefLeaf ::
     MirReference sym ->
     RegValue sym UsizeType ->
     MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf tpr ref idx =
-  typedLeafOp2 "subindex" ref
-    (MirVectorRepr tpr) (\root path -> do
-      return $ MirReference tpr root (Index_RefPath tpr path idx))
-    MirAggregateRepr (\root path -> do
-      let sz = 1  -- TODO: hardcoded size=1
-      return $ MirReference tpr root (AgElem_RefPath idx sz tpr path))
+subindexMirRefLeaf elemTpr (MirReference tpr root path) idx
+  | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
+      return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
+  | AsBaseType btpr <- asBaseType elemTpr,
+    Just Refl <- testEquality tpr (UsizeArrayRepr btpr) =
+      return $ MirReference elemTpr root (ArrayIndex_RefPath btpr path idx)
+  | Just Refl <- testEquality tpr MirAggregateRepr =
+      let sz = 1 in -- TODO: hardcoded size=1
+      return $ MirReference elemTpr root (AgElem_RefPath idx sz elemTpr path)
+  | otherwise = leafAbort $ GenericSimError $
+      "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
+      "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
+      show tpr
+subindexMirRefLeaf _elemTpr (MirReference_Integer {}) _idx =
+    leafAbort $ GenericSimError $
+        "attempted subindex on the result of an integer-to-pointer cast"
 
 subjustMirRefLeaf ::
     TypeRepr tp ->
@@ -2008,43 +1795,6 @@ subjustMirRefIO ::
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
     modifyRefMuxIO bak iTypes (subjustMirRefLeaf tpr) ref
-
-mirRef_vectorAsMirVectorLeaf ::
-    TypeRepr tp ->
-    MirReference sym ->
-    MuxLeafT sym IO (MirReference sym)
-mirRef_vectorAsMirVectorLeaf tpr ref =
-  typedLeafOp "Vector->MirVector conversion" (VectorRepr tpr) ref $ \root path -> do
-    return $ MirReference (MirVectorRepr tpr) root (VectorAsMirVector_RefPath tpr path)
-
-mirRef_vectorAsMirVectorIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_vectorAsMirVectorIO bak iTypes tpr ref =
-    modifyRefMuxIO bak iTypes (mirRef_vectorAsMirVectorLeaf tpr) ref
-
-mirRef_arrayAsMirVectorLeaf ::
-    BaseTypeRepr btp ->
-    MirReference sym ->
-    MuxLeafT sym IO (MirReference sym)
-mirRef_arrayAsMirVectorLeaf btpr ref =
-  typedLeafOp "Array->MirVector conversion" (UsizeArrayRepr btpr) ref $ \root path -> do
-    let vectorTpr = MirVectorRepr (baseToType btpr)
-    return $ MirReference vectorTpr root (ArrayAsMirVector_RefPath btpr path)
-
-mirRef_arrayAsMirVectorIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    BaseTypeRepr btp ->
-    MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_arrayAsMirVectorIO bak iTypes btpr ref =
-    modifyRefMuxIO bak iTypes (mirRef_arrayAsMirVectorLeaf btpr) ref
 
 mirRef_agElemLeaf ::
     RegValue sym UsizeType ->
@@ -2099,17 +1849,18 @@ refPathEq sym (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2)
 refPathEq sym (Variant_RefPath _ ctx1 p1 idx1) (Variant_RefPath _ ctx2 p2 idx2)
   | Just Refl <- testEquality ctx1 ctx2
   , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
-refPathEq sym (Index_RefPath tpr1 p1 idx1) (Index_RefPath tpr2 p2 idx2)
+refPathEq sym (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (VectorIndex_RefPath tpr1 p1 idx1) (VectorIndex_RefPath tpr2 p2 idx2)
   | Just Refl <- testEquality tpr1 tpr2 = do
     pEq <- refPathEq sym p1 p2
     idxEq <- liftIO $ bvEq sym idx1 idx2
     liftIO $ andPred sym pEq idxEq
-refPathEq sym (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2)
-  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
-refPathEq sym (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr2 p2)
-  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
-refPathEq sym (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2)
-  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (ArrayIndex_RefPath btpr1 p1 idx1) (ArrayIndex_RefPath btpr2 p2 idx2)
+  | Just Refl <- testEquality btpr1 btpr2 = do
+    pEq <- refPathEq sym p1 p2
+    idxEq <- liftIO $ bvEq sym idx1 idx2
+    liftIO $ andPred sym pEq idxEq
 refPathEq sym (AgElem_RefPath off1 _sz1 _tpr1 p1) (AgElem_RefPath off2 _sz2 _tpr2 p2) = do
     offEq <- liftIO $ bvEq sym off1 off2
     -- NB: Don't check the following for equality:
@@ -2128,10 +1879,9 @@ refPathEq sym (AgElem_RefPath off1 _sz1 _tpr1 p1) (AgElem_RefPath off2 _sz2 _tpr
 refPathEq sym Empty_RefPath _ = return $ falsePred sym
 refPathEq sym (Field_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (Variant_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (Index_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (Just_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (VectorAsMirVector_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (ArrayAsMirVector_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (VectorIndex_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (ArrayIndex_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (AgElem_RefPath {}) _ = return $ falsePred sym
 
 mirRef_eqLeaf ::
@@ -2204,33 +1954,6 @@ concreteAllocSize bak szSym =
         Just x -> return (BV.asUnsigned x)
         Nothing -> addFailedAssertion bak $ Unsupported callStack $
             "Attempted to create allocation of symbolic size"
-
-mirVector_uninitIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    RegValue sym UsizeType ->
-    IO (MirVector sym tp)
-mirVector_uninitIO bak lenSym = do
-    len <- concreteAllocSize bak lenSym
-    let pv = V.replicate (fromInteger len) Unassigned
-    return (MirVector_PartialVector pv)
-
-mirVector_resizeIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    TypeRepr tp ->
-    RegValue sym (MirVectorType tp) ->
-    RegValue sym UsizeType ->
-    IO (RegValue sym (MirVectorType tp))
-mirVector_resizeIO bak _tpr mirVec newLenSym = do
-    let sym = backendGetSym bak
-    newLen <- concreteAllocSize bak newLenSym
-    getter <- case mirVec of
-        MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
-        MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
-        MirVector_Array _ -> addFailedAssertion bak $ Unsupported callStack $
-            "Attempted to resize MirVector backed by symbolic array"
-    pure $ MirVector_PartialVector $ V.generate (fromInteger newLen) getter
 
 
 mirAggregate_uninitIO ::
@@ -2347,21 +2070,20 @@ reverseRefPath = go RrpNil
         go (Field_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
     go acc (Variant_RefPath tp ctx rp idx) =
         go (Variant_RefPath tp ctx Empty_RefPath idx `RrpCons` acc) rp
-    go acc (Index_RefPath tpr rp idx) =
-        go (Index_RefPath tpr Empty_RefPath idx `RrpCons` acc) rp
     go acc (Just_RefPath tpr rp) =
         go (Just_RefPath tpr Empty_RefPath `RrpCons` acc) rp
-    go acc (VectorAsMirVector_RefPath tpr rp) =
-        go (VectorAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
-    go acc (ArrayAsMirVector_RefPath tpr rp) =
-        go (ArrayAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (VectorIndex_RefPath tpr rp idx) =
+        go (VectorIndex_RefPath tpr Empty_RefPath idx `RrpCons` acc) rp
+    go acc (ArrayIndex_RefPath btpr rp idx) =
+        go (ArrayIndex_RefPath btpr Empty_RefPath idx `RrpCons` acc) rp
     go acc (AgElem_RefPath off sz tpr rp) =
         go (AgElem_RefPath off sz tpr Empty_RefPath `RrpCons` acc) rp
 
--- | If the final step of `path` is an `Index_RefPath`, remove it.  Otherwise,
--- return `path` unchanged.
+-- | If the final step of `path` is an indexing-related `RefPath`, remove it.
+-- Otherwise, return `path` unchanged.
 popIndex :: MirReferencePath sym tp tp' -> Some (MirReferencePath sym tp)
-popIndex (Index_RefPath _ p _) = Some p
+popIndex (VectorIndex_RefPath _ p _) = Some p
+popIndex (ArrayIndex_RefPath _ p _) = Some p
 popIndex (AgElem_RefPath _ _ _ p) = Some p
 popIndex p = Some p
 
@@ -2413,19 +2135,18 @@ refPathOverlaps sym path1 path2 = do
     go (Variant_RefPath _ ctx1 _ idx1 `RrpCons` rrp1) (Variant_RefPath _ ctx2 _ idx2 `RrpCons` rrp2)
       | Just Refl <- testEquality ctx1 ctx2
       , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
-    go (Index_RefPath tpr1 _ idx1 `RrpCons` rrp1) (Index_RefPath tpr2 _ idx2 `RrpCons` rrp2)
+    go (Just_RefPath tpr1 _ `RrpCons` rrp1) (Just_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (VectorIndex_RefPath tpr1 _ idx1 `RrpCons` rrp1) (VectorIndex_RefPath tpr2 _ idx2 `RrpCons` rrp2)
       | Just Refl <- testEquality tpr1 tpr2 = do
         rrpEq <- go rrp1 rrp2
         idxEq <- liftIO $ bvEq sym idx1 idx2
         liftIO $ andPred sym rrpEq idxEq
-    go (Just_RefPath tpr1 _ `RrpCons` rrp1) (Just_RefPath tpr2 _ `RrpCons` rrp2)
-      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
-    go (VectorAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
-        (VectorAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
-      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
-    go (ArrayAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
-        (ArrayAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
-      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (ArrayIndex_RefPath btpr1 _ idx1 `RrpCons` rrp1) (ArrayIndex_RefPath btpr2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality btpr1 btpr2 = do
+        rrpEq <- go rrp1 rrp2
+        idxEq <- liftIO $ bvEq sym idx1 idx2
+        liftIO $ andPred sym rrpEq idxEq
     go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` rrp1)
         (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2) = do
         let sizeWidth = knownNat @SizeBits
@@ -2450,10 +2171,9 @@ refPathOverlaps sym path1 path2 = do
 
     go (Field_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (Variant_RefPath {} `RrpCons` _) _ = return $ falsePred sym
-    go (Index_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (Just_RefPath {} `RrpCons` _) _ = return $ falsePred sym
-    go (VectorAsMirVector_RefPath {} `RrpCons` _) _ = return $ falsePred sym
-    go (ArrayAsMirVector_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (VectorIndex_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (ArrayIndex_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (AgElem_RefPath {} `RrpCons` _) _ = return $ falsePred sym
 
 -- | Check whether the memory accessible through `ref1` overlaps the memory
@@ -2505,11 +2225,16 @@ mirRef_offsetWrapLeaf ::
     MirReference sym ->
     RegValue sym IsizeType ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_offsetWrapLeaf bak (MirReference tpr root (Index_RefPath tpr' path idx)) offset = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (VectorIndex_RefPath tpr' path idx)) offset = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- liftIO $ bvAdd sym idx offset
-    return $ MirReference tpr root $ Index_RefPath tpr' path idx'
+    return $ MirReference tpr root $ VectorIndex_RefPath tpr' path idx'
+mirRef_offsetWrapLeaf bak (MirReference tpr root (ArrayIndex_RefPath btpr path idx)) offset = do
+    let sym = backendGetSym bak
+    -- `wrapping_offset` puts no restrictions on the arithmetic performed.
+    idx' <- liftIO $ bvAdd sym idx offset
+    return $ MirReference tpr root $ ArrayIndex_RefPath btpr path idx'
 mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath idx sz tpr' path)) offset = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
@@ -2539,7 +2264,13 @@ mirRef_tryOffsetFromLeaf ::
 mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 path2) = do
     rootEq <- refRootEq sym root1 root2
     case (path1, path2) of
-        (Index_RefPath _ path1' idx1, Index_RefPath _ path2' idx2) -> do
+        (VectorIndex_RefPath _ path1' idx1, VectorIndex_RefPath _ path2' idx2) -> do
+            pathEq <- refPathEq sym path1' path2'
+            similar <- liftIO $ andPred sym rootEq pathEq
+            -- TODO: implement overflow checks, similar to `offset`
+            offset <- liftIO $ bvSub sym idx1 idx2
+            return $ mkPE similar offset
+        (ArrayIndex_RefPath _ path1' idx1, ArrayIndex_RefPath _ path2' idx2) -> do
             pathEq <- refPathEq sym path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             -- TODO: implement overflow checks, similar to `offset`
@@ -2586,8 +2317,11 @@ mirRef_peelIndexLeaf ::
     MirReference sym ->
     MuxLeafT sym IO
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexLeaf sym (MirReference tpr root (Index_RefPath _tpr' path idx)) = do
-    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (MirVectorRepr tpr) root path
+mirRef_peelIndexLeaf sym (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
+    return $ Empty :> RV ref :> RV idx
+mirRef_peelIndexLeaf sym (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
+    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf sym (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
     -- TODO: assumes hardcoded size=1
@@ -2616,9 +2350,13 @@ mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) =
 -- the length of that allocation.  This is useful for determining the amount of
 -- memory accessible through all valid offsets of `ref`.
 --
--- Unlike `peelIndex`, this operation is valid on non-`Index_RefPath`
--- references (on which it returns `(0, 1)`) and also on `MirReference_Integer`
--- (returning `(0, 0)`).
+-- Note that unlike `peelIndex`:
+--
+-- * This operation is /not/ valid on `ArrayIndex_RefPath`s, as SMT arrays do
+--   not have a finite length.
+--
+-- * This operation is valid on other `MirReference` references (on which it
+--   returns @(0, 1)@) and also on `MirReference_Integer` (returning @(0, 0)@).
 mirRef_indexAndLenLeaf ::
     (IsSymBackend sym bak) =>
     bak ->
@@ -2626,18 +2364,17 @@ mirRef_indexAndLenLeaf ::
     IntrinsicTypes sym ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym UsizeType, RegValue sym UsizeType)
-mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (Index_RefPath _tpr' path idx)) = do
+mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
     let sym = backendGetSym bak
-    let parentTpr = MirVectorRepr tpr
+    let parentTpr = VectorRepr tpr
     let parent = MirReference parentTpr root path
     parentVec <- readMirRefLeaf bak gs iTypes parentTpr parent
-    lenInt <- case parentVec of
-        MirVector_Vector v -> return $ V.length v
-        MirVector_PartialVector pv -> return $ V.length pv
-        MirVector_Array _ -> leafAbort $ Unsupported callStack $
-            "can't compute allocation length for MirVector_Array, which is unbounded"
-    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
+    let lenInteger = toInteger $ V.length parentVec
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat lenInteger
     return (idx, len)
+mirRef_indexAndLenLeaf _bak _gs _iTypes (MirReference _tpr _root (ArrayIndex_RefPath {})) =
+    leafAbort $ Unsupported callStack
+        "can't compute allocation length for Array, which is unbounded"
 mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
@@ -2730,10 +2467,6 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ subindexMirRefIO bak iTypes tpr ref idx
        MirSubjustRef tpr (regValue -> ref) ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
-       MirRef_VectorAsMirVector tpr (regValue -> ref) ->
-         readOnly s $ mirRef_vectorAsMirVectorIO bak iTypes tpr ref
-       MirRef_ArrayAsMirVector tpr (regValue -> ref) ->
-         readOnly s $ mirRef_arrayAsMirVectorIO bak iTypes tpr ref
        MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
          readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
@@ -2769,15 +2502,6 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
             readOnly s $ vectorDropIO bak tp v idx
        ArrayZeroed idxs w ->
             readOnly s $ arrayZeroedIO sym idxs w
-
-       MirVector_Uninit _tp (regValue -> lenSym) -> do
-            readOnly s $ mirVector_uninitIO bak lenSym
-       MirVector_FromVector _tp (regValue -> v) ->
-            return (MirVector_Vector v, s)
-       MirVector_FromArray _tp (regValue -> a) ->
-            return (MirVector_Array a, s)
-       MirVector_Resize tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
-            readOnly s $ mirVector_resizeIO bak tpr mirVec newLenSym
 
        MirAggregate_Uninit (regValue -> sz) -> do
             readOnly s $ mirAggregate_uninitIO bak sz
@@ -2999,11 +2723,13 @@ writeRefPath ::
 -- which allows writing to an uninitialized MirReferenceRoot.
 writeRefPath bak iTypes v (Just_RefPath _tp path) x =
   adjustRefPath bak iTypes v path (\_ -> return $ justPartExpr (backendGetSym bak) x)
--- Similar case for writing to MirVectors.  Uninitialized entries of a
--- MirVector_PartialVector can be initialized by a write.
-writeRefPath bak iTypes v (Index_RefPath tp path idx) x = do
+writeRefPath bak iTypes v (VectorIndex_RefPath tp path idx) x = do
   adjustRefPath bak iTypes v path (\vec ->
-    writeMirVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx x)
+    leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx (\_ ->
+      return x))
+writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) x = do
+  adjustRefPath bak iTypes v path (\arr ->
+    liftIO $ arrayUpdate (backendGetSym bak) arr (Empty :> idx) x)
 -- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
 -- entry into the aggregate.
 writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) x = do
@@ -3030,9 +2756,6 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
       -- TODO: report an error if variant `fld` is not selected
       adjustRefPath bak iTypes v path (field @1 (\(RV x) ->
         RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
-  Index_RefPath tp path idx ->
-      adjustRefPath bak iTypes v path (\v' -> do
-        adjustMirVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx adj)
   Just_RefPath tp path ->
       adjustRefPath bak iTypes v path $ \v' -> do
           let msg = ReadBeforeWriteSimError $
@@ -3040,20 +2763,16 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
           v'' <- leafReadPartExpr bak v' msg
           mv <- adj v''
           return $ justPartExpr (backendGetSym bak) mv
-  VectorAsMirVector_RefPath _ path -> do
-    adjustRefPath bak iTypes v path $ \v' -> do
-        mv <- adj $ MirVector_Vector v'
-        case mv of
-            MirVector_Vector v'' -> return v''
-            _ -> leafAbort $ Unsupported callStack $
-                "tried to change underlying type of MirVector ref"
-  ArrayAsMirVector_RefPath _ path -> do
-    adjustRefPath bak iTypes v path $ \v' -> do
-        mv <- adj $ MirVector_Array v'
-        case mv of
-            MirVector_Array v'' -> return v''
-            _ -> leafAbort $ Unsupported callStack $
-                "tried to change underlying type of MirVector ref"
+  VectorIndex_RefPath tp path idx ->
+      adjustRefPath bak iTypes v path (\v' ->
+        leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx adj)
+  ArrayIndex_RefPath _btp path idx ->
+      adjustRefPath bak iTypes v path (\arr -> do
+        let sym = backendGetSym bak
+        let arrIdx = Empty :> idx
+        x <- liftIO $ arrayLookup sym arr arrIdx
+        x' <- adj x
+        liftIO $ arrayUpdate sym arr arrIdx x')
   AgElem_RefPath idx _sz tpr path ->
       adjustRefPath bak iTypes v path (\v' -> do
         adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
@@ -3076,18 +2795,17 @@ readRefPath bak iTypes v = \case
        let msg = GenericSimError $
                "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
        leafReadPartExpr bak (unVB $ variant ! fld) msg
-  Index_RefPath tp path idx ->
-    do v' <- readRefPath bak iTypes v path
-       indexMirVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx
   Just_RefPath tp path ->
     do v' <- readRefPath bak iTypes v path
        let msg = ReadBeforeWriteSimError $
                "attempted to read from uninitialized Maybe of type " ++ show tp
        leafReadPartExpr bak v' msg
-  VectorAsMirVector_RefPath _ path -> do
-    MirVector_Vector <$> readRefPath bak iTypes v path
-  ArrayAsMirVector_RefPath _ path -> do
-    MirVector_Array <$> readRefPath bak iTypes v path
+  VectorIndex_RefPath tp path idx ->
+    do v' <- readRefPath bak iTypes v path
+       leafIndexVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx
+  ArrayIndex_RefPath _btp path idx ->
+    do arr <- readRefPath bak iTypes v path
+       liftIO $ arrayLookup (backendGetSym bak) arr (Empty :> idx)
   AgElem_RefPath off _sz tpr path -> do
     ag <- readRefPath bak iTypes v path
     readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off tpr ag
@@ -3230,7 +2948,6 @@ instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
 mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 mirIntrinsicTypes =
    MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
-   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
    MapF.insert (knownSymbol @MirAggregateSymbol) IntrinsicMuxFn $
    MapF.insert (knownSymbol @MethodSpecSymbol) IntrinsicMuxFn $
    MapF.insert (knownSymbol @MethodSpecBuilderSymbol) IntrinsicMuxFn $
