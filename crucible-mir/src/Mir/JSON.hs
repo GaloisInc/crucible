@@ -97,6 +97,8 @@ instance FromJSON InlineTy where
       Just (String "FnDef") -> TyFnDef <$> v .: "defid"
       Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "args"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
+      Just (String "Coroutine") -> pure TyCoroutine
+      Just (String "CoroutineClosure") -> TyCoroutineClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
       Just (String "Dynamic") -> TyDynamic <$> v .: "trait_id"
@@ -602,6 +604,9 @@ instance FromJSON ConstVal where
         Just (String "closure") ->
             ConstClosure <$> v .: "upvars"
 
+        Just (String "coroutine_closure") ->
+            ConstCoroutineClosure <$> v .: "upvars"
+
         Just (String "fn_ptr") ->
             ConstFnPtr <$> v .: "def_id"
 
@@ -624,6 +629,8 @@ instance FromJSON AggregateKind where
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> pure AKClosure
+                                                     Just (String "Coroutine") -> pure AKCoroutine
+                                                     Just (String "CoroutineClosure") -> pure AKCoroutineClosure
                                                      Just (String "RawPtr") -> AKRawPtr <$> v .: "ty" <*> v .: "mutbl"
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)

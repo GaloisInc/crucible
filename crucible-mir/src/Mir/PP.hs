@@ -77,6 +77,8 @@ instance Pretty Ty where
     pretty (TyAdt _ origDefId tys)    = pr_id origDefId <> pretty tys
     pretty (TyFnDef defId)       = pretty "fnDef" <+> pr_id defId
     pretty (TyClosure tys)       = pretty "closure" <+> pretty tys
+    pretty TyCoroutine = pretty "coroutine"
+    pretty (TyCoroutineClosure tys) = pretty "coroutine_closure" <+> pretty tys
     pretty TyStr                 = pretty "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig
     pretty (TyDynamic trait)     = pretty "dynamic" <+> pretty trait
@@ -365,6 +367,7 @@ instance Pretty ConstVal where
     pretty (ConstVariant i) = pr_id i
     pretty (ConstTuple cs)  = tupled (map pretty cs)
     pretty (ConstClosure us)   = pretty "closure" <> list (map pretty us)
+    pretty (ConstCoroutineClosure us) = pretty "coroutine_closure" <> list (map pretty us)
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> pretty i)
     pretty (ConstFunction a)   = pr_id a
@@ -390,6 +393,8 @@ instance Pretty AggregateKind where
     pretty AKTuple = pretty "tup"
     pretty AKClosure = pretty "closure"
     pretty (AKRawPtr t mutbl) = brackets (pretty (TyRawPtr t mutbl))
+    pretty AKCoroutine = pretty "coroutine"
+    pretty AKCoroutineClosure = pretty "coroutine_closure"
 
 instance Pretty FnSig where
   pretty fs =

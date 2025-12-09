@@ -1,7 +1,7 @@
 # next
 
 This release supports [version
-6](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#6) of
+7](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#7) of
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.91.

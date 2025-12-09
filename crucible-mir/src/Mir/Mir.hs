@@ -91,6 +91,12 @@ data Ty =
       | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
       | TyFnDef !DefId
       | TyClosure [Ty]      -- the Tys are the types of the upvars
+      | TyCoroutine
+        -- ^ @crucible-mir@ does not support coroutines (#1369), but we
+        -- nevertheless include this as a 'Ty' so that we can successfully
+        -- translate code that mentions it. Provided that that code is never
+        -- simulated, this should work out.
+      | TyCoroutineClosure [Ty]     -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
       | TyDynamic !TraitName        -- trait object (defid is trait name)
@@ -609,6 +615,7 @@ data ConstVal =
   | ConstFunction DefId
   | ConstTuple [ConstVal]
   | ConstClosure [ConstVal]
+  | ConstCoroutineClosure [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
   | ConstInitializer DefId
@@ -626,6 +633,8 @@ data AggregateKind =
         AKArray Ty
       | AKTuple
       | AKClosure
+      | AKCoroutine
+      | AKCoroutineClosure
       | AKRawPtr Ty Mutability
       deriving (Show,Eq, Ord, Generic)
 
@@ -839,6 +848,8 @@ instance TypeOf Rvalue where
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (Aggregate (AKRawPtr ty mutbl) _ops) = TyRawPtr ty mutbl
+  typeOf (Aggregate AKCoroutine _ops) = TyCoroutine
+  typeOf (Aggregate AKCoroutineClosure ops) = TyCoroutineClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
   typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv
