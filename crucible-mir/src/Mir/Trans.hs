@@ -1404,7 +1404,7 @@ evalTupleRval :: HasCallStack => [Operand] -> MirGenerator h s ret (MirExp s)
 evalTupleRval ops = do
   let tys = map typeOf ops
   exps <- mapM evalOperand ops
-  buildTupleMaybeM tys (map Just exps)
+  buildTupleM tys exps
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
