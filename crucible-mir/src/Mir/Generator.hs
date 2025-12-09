@@ -626,18 +626,25 @@ subvariantRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subvariantRef tp ctx ref idx = G.extensionStmt (MirSubvariantRef tp ctx ref idx)
 
-subindexRef ::
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  R.Expr MIR s UsizeType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
-
 subjustRef ::
   C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
+
+mirRef_vecElem ::
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_vecElem tp ref idx = G.extensionStmt (MirRef_VecElem tp ref idx)
+
+mirRef_arrElem ::
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_arrElem tp ref idx = G.extensionStmt (MirRef_ArrElem tp ref idx)
 
 mirRef_agElem ::
   R.Expr MIR s UsizeType ->
