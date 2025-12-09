@@ -169,12 +169,11 @@ transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
 -- does the last two.
 --
 transConstVal (M.TyRef (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
-    Some tpr <- tyToReprM ty
-    place <- staticSlicePlace len (Some tpr) defid
+    place <- staticSlicePlace len ty defid
     addrOfPlace place
 transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
-    let tpr = C.BVRepr $ knownNat @8
-    place <- staticSlicePlace len (Some tpr) defid
+    let ty = M.TyUint M.B8
+    place <- staticSlicePlace len ty defid
     addrOfPlace place
 
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
@@ -351,14 +350,15 @@ staticPlace did = do
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
 
 -- variant of staticPlace for slices
--- tpr is the element type; len is the length
+-- ty is the element type; len is the length
 staticSlicePlace ::
     HasCallStack =>
     Int ->
-    Some C.TypeRepr ->
+    M.Ty ->
     M.DefId ->
     MirGenerator h s ret (MirPlace s)
-staticSlicePlace len (Some tpr) did = do
+staticSlicePlace len ty did = do
+    Some tpr <- tyToReprM ty
     sm <- use $ cs.staticMap
     case Map.lookup did sm of
         Just (StaticVar gv) -> do
