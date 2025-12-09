@@ -1551,6 +1551,7 @@ initialValue (M.TyInterned {}) = return Nothing
 initialTupleValue ::
   HasCallStack => [M.Ty] -> MirGenerator h s ret (Maybe (MirExp s))
 initialTupleValue tys =
+  -- TODO: hardcoded size=1
   Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
 
 initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
