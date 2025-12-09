@@ -562,6 +562,7 @@ bindFn _symOnline _cs fn cfg =
                     liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat 1)
                     return v
+               , (["crucible", "symbolic", "symbolic_bool"], SomeTypedOverride (makeSymbolicVar BaseBoolRepr))
                , symb_bv ["crucible", "symbolic", "symbolic_u8"]  (knownNat @8)
                , symb_bv ["crucible", "symbolic", "symbolic_u16"] (knownNat @16)
                , symb_bv ["crucible", "symbolic", "symbolic_u32"] (knownNat @32)
