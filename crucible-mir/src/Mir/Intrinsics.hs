@@ -1265,14 +1265,19 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f MirReferenceType) ->
      !(Index variantsCtx tp) ->
      MirStmt f MirReferenceType
-  MirSubindexRef ::
+  MirSubjustRef ::
+     !(TypeRepr tp) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
+  MirRef_VecElem ::
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
      !(f UsizeType) ->
      MirStmt f MirReferenceType
-  MirSubjustRef ::
+  MirRef_ArrElem ::
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
+     !(f UsizeType) ->
      MirStmt f MirReferenceType
   MirRef_AgElem ::
      !(f UsizeType) ->
@@ -1440,8 +1445,9 @@ instance TypeApp MirStmt where
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubfieldRef_Untyped _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
-    MirSubindexRef _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
+    MirRef_VecElem _ _ _ -> MirReferenceRepr
+    MirRef_ArrElem _ _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ -> MirReferenceRepr
@@ -1475,8 +1481,9 @@ instance PrettyApp MirStmt where
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubfieldRef_Untyped x fieldNum expectedTy -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum <+> viaShow expectedTy
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
-    MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
+    MirRef_VecElem _ x idx -> "mirRef_vecElem" <+> pp x <+> pp idx
+    MirRef_ArrElem _ x idx -> "mirRef_arrElem" <+> pp x <+> pp idx
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o -> "mirRef_offset" <+> pp p <+> pp o
@@ -1756,27 +1763,36 @@ subvariantMirRefIO ::
 subvariantMirRefIO bak iTypes tp ctx ref idx =
     modifyRefMuxIO bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
 
-subindexMirRefLeaf ::
+mirRef_vecElemLeaf ::
     TypeRepr tp ->
     MirReference sym ->
     RegValue sym UsizeType ->
     MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf elemTpr (MirReference tpr root path) idx
+mirRef_vecElemLeaf elemTpr (MirReference tpr root path) idx
   | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
       return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
+  | otherwise = leafAbort $ GenericSimError $
+      "index required a reference to a VectorRepr, but got a reference to " ++
+      show tpr
+mirRef_vecElemLeaf _elemTpr (MirReference_Integer {}) _idx =
+  leafAbort $ GenericSimError $
+    "attempted vector index on the result of an integer-to-pointer cast"
+
+mirRef_arrElemLeaf ::
+    TypeRepr tp ->
+    MirReference sym ->
+    RegValue sym UsizeType ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_arrElemLeaf elemTpr (MirReference tpr root path) idx
   | AsBaseType btpr <- asBaseType elemTpr,
     Just Refl <- testEquality tpr (UsizeArrayRepr btpr) =
       return $ MirReference elemTpr root (ArrayIndex_RefPath btpr path idx)
-  | Just Refl <- testEquality tpr MirAggregateRepr =
-      let sz = 1 in -- TODO: hardcoded size=1
-      return $ MirReference elemTpr root (AgElem_RefPath idx sz elemTpr path)
   | otherwise = leafAbort $ GenericSimError $
-      "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
-      "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
-      show tpr
-subindexMirRefLeaf _elemTpr (MirReference_Integer {}) _idx =
-    leafAbort $ GenericSimError $
-        "attempted subindex on the result of an integer-to-pointer cast"
+      "index required a reference to a UsizeArrayRepr of a Crucible " ++
+      "base type, but got a reference to " ++ show tpr
+mirRef_arrElemLeaf _elemTpr (MirReference_Integer {}) _idx =
+  leafAbort $ GenericSimError $
+    "attempted array index on the result of an integer-to-pointer cast"
 
 subjustMirRefLeaf ::
     TypeRepr tp ->
@@ -1805,6 +1821,18 @@ mirRef_agElemLeaf ::
 mirRef_agElemLeaf off sz tpr ref =
   typedLeafOp "MirAggregate element projection" MirAggregateRepr ref $ \root path -> do
     return $ MirReference tpr root (AgElem_RefPath off sz tpr path)
+
+mirRef_agElemSim ::
+    IsSymInterface sym =>
+    -- | Element offset, in bytes
+    RegValue sym UsizeType ->
+    -- | Element size, in bytes
+    Word ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+mirRef_agElemSim off sz tpr ref = do
+    modifyRefMuxSim (mirRef_agElemLeaf off sz tpr) ref
 
 mirRef_agElemIO ::
     IsSymBackend sym bak =>
@@ -2473,10 +2501,12 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx expectedTy
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
-       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
-         readOnly s $ subindexMirRefIO bak iTypes tpr ref idx
        MirSubjustRef tpr (regValue -> ref) ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
+       MirRef_VecElem tpr (regValue -> ref) (regValue -> idx) ->
+         readOnly s $ mirRef_vecElemIO bak iTypes tpr ref idx
+       MirRef_ArrElem tpr (regValue -> ref) (regValue -> idx) ->
+         readOnly s $ mirRef_arrElemIO bak iTypes tpr ref idx
        MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
          readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
@@ -2664,16 +2694,25 @@ writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) x =
         gs
         ref
 
-subindexMirRefSim ::
+mirRef_vecElemSim ::
     IsSymInterface sym =>
     TypeRepr tp ->
     MirReferenceMux sym ->
     RegValue sym UsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-subindexMirRefSim tpr ref idx = do
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf tpr ref' idx) ref
+mirRef_vecElemSim tpr ref idx = do
+    modifyRefMuxSim (\ref' -> mirRef_vecElemLeaf tpr ref' idx) ref
 
-subindexMirRefIO ::
+mirRef_arrElemSim ::
+    IsSymInterface sym =>
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym UsizeType ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+mirRef_arrElemSim tpr ref idx = do
+    modifyRefMuxSim (\ref' -> mirRef_arrElemLeaf tpr ref' idx) ref
+
+mirRef_vecElemIO ::
     IsSymBackend sym bak =>
     bak ->
     IntrinsicTypes sym ->
@@ -2681,8 +2720,19 @@ subindexMirRefIO ::
     MirReferenceMux sym ->
     RegValue sym UsizeType ->
     IO (MirReferenceMux sym)
-subindexMirRefIO bak iTypes tpr ref x =
-    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf tpr ref' x) ref
+mirRef_vecElemIO bak iTypes tpr ref x =
+    modifyRefMuxIO bak iTypes (\ref' -> mirRef_vecElemLeaf tpr ref' x) ref
+
+mirRef_arrElemIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym UsizeType ->
+    IO (MirReferenceMux sym)
+mirRef_arrElemIO bak iTypes tpr ref x =
+    modifyRefMuxIO bak iTypes (\ref' -> mirRef_arrElemLeaf tpr ref' x) ref
 
 mirRef_offsetSim :: IsSymInterface sym =>
     MirReferenceMux sym -> RegValue sym IsizeType ->

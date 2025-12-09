@@ -337,7 +337,7 @@ vector_as_slice_impl (Substs [t]) =
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
-            e' <- subindexRef tpr e (R.App $ usizeLit 0)
+            e' <- mirRef_vecElem tpr e (R.App $ usizeLit 0)
             let tup = S.mkStruct
                     (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
                     (Ctx.Empty Ctx.:> e' Ctx.:> end)
@@ -433,7 +433,7 @@ array_as_slice_impl (Substs [t]) =
           MirExp UsizeRepr start,
           MirExp UsizeRepr len ] -> do
             Some tpr <- tyToReprM t
-            ptr <- subindexRef tpr e start
+            ptr <- mirRef_arrElem tpr e start
             return $ MirExp MirSliceRepr $ mkSlice ptr len
         _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing
@@ -738,7 +738,8 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             (srcAg, srcIdx) <- mirRef_peelIndex src
             srcSnapAg <- readMirRef MirAggregateRepr srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
-            srcSnap <- subindexRef tpr srcSnapRoot srcIdx
+            let elemSize = 1 -- TODO: hardcoded size=1
+            srcSnap <- mirRef_agElem srcIdx elemSize tpr srcSnapRoot
 
             ptrCopy tpr srcSnap dest count
             MirExp MirAggregateRepr <$> mirAggregate_zst
@@ -1830,9 +1831,10 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             ag <- mirAggregate_uninit sz
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
-            -- `subindexRef` doesn't do a bounds check (those happen on deref
+            -- `mirRef_agElem` doesn't do a bounds check (those happen on deref
             -- instead), so this works even when len is 0.
-            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            let elemSize = 1 -- TODO: hardcoded size=1
+            ptr <- mirRef_agElem (R.App $ usizeLit 0) elemSize tpr ref
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
@@ -1848,7 +1850,7 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
 
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
-            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            ptr <- mirRef_agElem (R.App $ usizeLit 0) sz tpr ref
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)

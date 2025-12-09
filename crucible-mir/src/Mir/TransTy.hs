@@ -59,8 +59,8 @@ import qualified Mir.Mir as M
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
-    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
-    , mirRef_agElem_constOffset, mirAggregate_uninit_constSize
+    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef
+    , mirRef_agElem, mirRef_agElem_constOffset, mirAggregate_uninit_constSize
     , mirAggregate_zst, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
 import           Mir.Intrinsics
@@ -1588,7 +1588,15 @@ structFieldRef adt i ref0 meta = structInfo adt i >>= \case
     return $ MirPlace C.AnyRepr fieldRef meta
   UnsizedSliceField _innerSize innerRepr -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
-    elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0)
+    let innerSize = 1 -- TODO: hardcoded size=1
+    -- In principle, it's possible for this field to be represented as something
+    -- other than a `MirAggregate` (the other options being a Crucible `Vector`
+    -- or `Array`). However, in practice, those types' Rust equivalents lack the
+    -- necessary trait implementations to support unsizing casts (see
+    -- https://doc.rust-lang.org/reference/type-coercions.html#unsized-coercions);
+    -- only Rust arrays can be used in such casts, and arrays are represented as
+    -- `MirAggregate`s.
+    elemRef <- mirRef_agElem (R.App $ usizeLit 0) innerSize innerRepr fieldRef
     case meta of
       NoMeta ->
         mirFail "expected slice metadata for slice field access, but found no metadata"

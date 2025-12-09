@@ -325,7 +325,9 @@ regEval bak baseEval col ty = go (Just ty)
               (\ag' (i, v) -> mirAggregate_setIO bak i 1 elemTpr v ag')
               ag (zip [0..] vals)
           let agRef = newConstMirRef sym MirAggregateRepr ag'
-          ptr' <- subindexMirRefSim elemTpr agRef =<< liftIO (bvZero sym knownRepr)
+          elemOff <- liftIO $ bvZero sym knownRepr
+          let elemSize = 1 -- TODO: hardcoded size=1
+          ptr' <- mirRef_agElemSim elemOff elemSize elemTpr agRef
           return $ Empty :> RV ptr' :> RV len'
         MirReference_Integer i -> do
           i' <- go (Just usizeTy) UsizeRepr i
