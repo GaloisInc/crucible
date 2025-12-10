@@ -200,6 +200,7 @@ tyToRepr col t0 = case t0 of
   M.TyTuple _ts -> Right (Some MirAggregateRepr)
   -- Closures are just tuples with a fancy name
   M.TyClosure _ts -> Right (Some MirAggregateRepr)
+  M.TyCoroutineClosure _ts -> Right (Some MirAggregateRepr)
 
   M.TyArray _t _sz -> Right (Some MirAggregateRepr)
 
@@ -263,6 +264,11 @@ tyToRepr col t0 = case t0 of
   M.TyFnDef _def -> Right (Some C.UnitRepr)
   M.TyNever -> Right (Some C.UnitRepr)
 
+  -- We don't currently support coroutines (#1369), so pick an arbitrary
+  -- Crucible type representation for now. If we actually attempt to construct
+  -- a value of this type (i.e., using AKCoroutine), then emit an error.
+  M.TyCoroutine -> Right (Some C.AnyRepr)
+
   M.TyLifetime -> Right (Some C.AnyRepr)
   M.TyForeign -> Right (Some C.AnyRepr)
   M.TyErased -> Right (Some C.AnyRepr)
@@ -323,6 +329,7 @@ canInitialize col ty = case ty of
     -- ADTs and related data structures
     M.TyTuple _ -> True
     M.TyClosure _ -> True
+    M.TyCoroutineClosure _ -> True
     M.TyAdt _ _ _
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
       | otherwise -> True
@@ -346,6 +353,7 @@ isZeroSized col = go
     go ty = case ty of
       M.TyTuple tys -> all go tys
       M.TyClosure tys -> all go tys
+      M.TyCoroutineClosure tys -> all go tys
       M.TyArray elemTy n -> n == 0 || go elemTy
       M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
       M.TyNever -> True
@@ -1484,10 +1492,9 @@ initialValue CTyMethodSpecBuilder = return Nothing
 
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
-initialValue (M.TyTuple tys) =
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
-initialValue (M.TyClosure tys) = do
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
+initialValue (M.TyTuple tys) = initialTupleValue tys
+initialValue (M.TyClosure tys) = initialTupleValue tys
+initialValue (M.TyCoroutineClosure tys) = initialTupleValue tys
 initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
@@ -1537,8 +1544,15 @@ initialValue (M.TyDowncast {}) = return Nothing
 initialValue (M.TyForeign {}) = return Nothing
 initialValue (M.TyConst {}) = return Nothing
 initialValue (M.TyLifetime {}) = return Nothing
+initialValue (M.TyCoroutine {}) = return Nothing
 initialValue (M.TyErased {}) = return Nothing
 initialValue (M.TyInterned {}) = return Nothing
+
+initialTupleValue ::
+  HasCallStack => [M.Ty] -> MirGenerator h s ret (Maybe (MirExp s))
+initialTupleValue tys =
+  -- TODO: hardcoded size=1
+  Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
 
 initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
 initField (M.Field _name ty) = initialValue ty

@@ -210,6 +210,8 @@ transConstVal (M.TyTuple tys) (Some MirAggregateRepr) (M.ConstTuple vals) =
     transConstTuple tys vals
 transConstVal (M.TyClosure upvar_tys) (Some MirAggregateRepr) (M.ConstClosure upvar_vals) =
     transConstTuple upvar_tys upvar_vals
+transConstVal (M.TyCoroutineClosure upvar_tys) (Some MirAggregateRepr) (M.ConstCoroutineClosure upvar_vals) =
+    transConstTuple upvar_tys upvar_vals
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -1303,20 +1305,23 @@ evalRval (M.Discriminant lv _discrTy) = do
 
 evalRval (M.Aggregate ak ops) =
     case ak of
-        M.AKTuple ->  do
-            let tys = map typeOf ops
-            exps <- mapM evalOperand ops
-            buildTupleMaybeM tys (map Just exps)
+        M.AKTuple ->
+            evalTupleRval ops
         M.AKArray ty -> do
             exps <- mapM evalOperand ops
             Some repr <- tyToReprM ty
             buildArrayLit repr exps
-        M.AKClosure -> do
+        M.AKClosure ->
             -- Closure environments have the same
             -- representation as tuples.
-            let tys = map typeOf ops
-            exps <- mapM evalOperand ops
-            buildTupleMaybeM tys (map Just exps)
+            evalTupleRval ops
+        M.AKCoroutine ->
+            -- See #1369
+            mirFail "Coroutines not yet supported"
+        M.AKCoroutineClosure ->
+            -- Closure environments have the same
+            -- representation as tuples.
+            evalTupleRval ops
         M.AKRawPtr ty _mutbl -> do
             args <- mapM evalOperand ops
             (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
@@ -1394,6 +1399,12 @@ evalRval (M.CopyForDeref lv) = evalLvalue lv
 
 evalRval (M.ShallowInitBox {}) = mirFail
     "evalRval: ShallowInitBox not supported"
+
+evalTupleRval :: HasCallStack => [Operand] -> MirGenerator h s ret (MirExp s)
+evalTupleRval ops = do
+  let tys = map typeOf ops
+  exps <- mapM evalOperand ops
+  buildTupleM tys exps
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
@@ -1579,6 +1590,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
 
     M.TyTuple ts -> tupleFieldRef ts idx tpr ref
     M.TyClosure ts -> tupleFieldRef ts idx tpr ref
+    M.TyCoroutineClosure ts -> tupleFieldRef ts idx tpr ref
     _ -> mirFail $
         "tried to get field " ++ show idx ++ " of unsupported type " ++ show ty
   where

@@ -2140,12 +2140,14 @@ ctpop = (["core", "intrinsics", "ctpop"],
 
 --------------------------------------------------------------------------------------------------------------------------
 -- Implementations for `IkCloneShim`.  Clone shims are auto-generated `clone`
--- and `clone_from` implementations for tuples and arrays.  They dispatch to
--- the `clone`/`clone_from` methods of the individual fields or array elements.
+-- and `clone_from` implementations for tuples, closures, coroutine closures,
+-- function pointers, and function definitions. They dispatch to the
+-- `clone`/`clone_from` methods of the individual fields or array elements.
 
 cloneShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
 cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
+cloneShimDef (TyCoroutineClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
 cloneShimDef (TyFnPtr _) parts = cloneShimNoFields "function pointer" parts
 cloneShimDef (TyFnDef _) parts = cloneShimNoFields "function definition" parts
 cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
