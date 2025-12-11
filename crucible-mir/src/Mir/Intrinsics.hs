@@ -2239,23 +2239,25 @@ mirRef_offsetWrapLeaf ::
     (IsSymBackend sym bak) =>
     bak ->
     MirReference sym ->
+    -- | The number of elements by which to offset
     RegValue sym IsizeType ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_offsetWrapLeaf bak (MirReference tpr root (VectorIndex_RefPath tpr' path idx)) offset = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (VectorIndex_RefPath tpr' path idx)) numElems = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
-    idx' <- liftIO $ bvAdd sym idx offset
+    idx' <- liftIO $ bvAdd sym idx numElems
     return $ MirReference tpr root $ VectorIndex_RefPath tpr' path idx'
-mirRef_offsetWrapLeaf bak (MirReference tpr root (ArrayIndex_RefPath btpr path idx)) offset = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (ArrayIndex_RefPath btpr path idx)) numElems = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
-    idx' <- liftIO $ bvAdd sym idx offset
+    idx' <- liftIO $ bvAdd sym idx numElems
     return $ MirReference tpr root $ ArrayIndex_RefPath btpr path idx'
-mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath idx sz tpr' path)) offset = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath elemOff elemSize tpr' path)) numElems = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
-    idx' <- liftIO $ bvAdd sym idx offset
-    return $ MirReference tpr root $ AgElem_RefPath idx' sz tpr' path
+    -- TODO: hardcoded size=1 (by treating `numElems` as a byte offset)
+    elemOff' <- liftIO $ bvAdd sym elemOff numElems
+    return $ MirReference tpr root $ AgElem_RefPath elemOff' elemSize tpr' path
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
