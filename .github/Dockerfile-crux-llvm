@@ -17,10 +17,11 @@ RUN apt-get update && \
       libnuma1 \
       # Crux dependencies \
       pkg-config zlib1g-dev \
-      # LLVM toolchain
-      clang-${LLVM_VER} llvm-${LLVM_VER}-tools \
       # Miscellaneous
       unzip wget
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh ${LLVM_VER}
 
 ARG CRUX_BUILD_DIR=/crux-llvm/build
 RUN mkdir -p ${CRUX_BUILD_DIR}
@@ -115,7 +116,10 @@ ARG LLVM_VER
 
 RUN apt-get update && \
     apt-get install -y \
-      libgmp10 zlib1g clang-${LLVM_VER} llvm-${LLVM_VER}-tools unzip
+      libgmp10 zlib1g unzip wget
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh ${LLVM_VER}
 
 COPY --from=build /crux-llvm/rootfs /
 WORKDIR /crux-llvm
