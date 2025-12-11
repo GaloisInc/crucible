@@ -72,6 +72,9 @@ showDoubleLiteral x
                                                -- NB, 53 bits of precision for double
    | otherwise        = BF.bfToString 16 (BF.showFree (Just 53) <> BF.addPrefix) x
 
+showBoolLiteral :: Bool -> String
+showBoolLiteral b = if b then "true" else "false"
+
 valsJS :: BaseTypeRepr ty -> Vals ty -> IO [JS]
 valsJS ty (Vals xs) =
   let showEnt = case ty of
@@ -86,6 +89,7 @@ valsJS ty (Vals xs) =
           , Just Refl <- testEquality sb (knownNat @53)
           -> showEnt' showDoubleLiteral (64 :: Int)
         BaseRealRepr -> showEnt' (show . toDouble) (knownNat @64)
+        BaseBoolRepr -> showBoolEnt
         _ -> error ("Type not implemented: " ++ show ty)
 
   in mapM showEnt xs
@@ -113,6 +117,15 @@ valsJS ty (Vals xs) =
       , "bits"         ~> jsStr (show n)
       ]
 
+  showBoolEnt :: Entry Bool -> IO JS
+  showBoolEnt e = do
+    do l <- fromMaybe jsNull <$> jsLoc (entryLoc e)
+       pure $ jsObj
+         [ "name" ~> jsStr (entryName e)
+         , "loc"  ~> l
+         , "val"  ~> jsStr (showBoolLiteral (entryValue e))
+         ]
+
 modelJS :: ModelView -> IO JS
 modelJS m =
   jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
@@ -137,6 +150,9 @@ prettyVals ty (Vals xs) =
         BaseRealRepr ->
           -- same semantics as valsJS: print reals via toDouble
           prettyEnt' (show . toDouble)
+
+        BaseBoolRepr ->
+          prettyEnt' showBoolLiteral
 
         _ ->
           error ("Type not implemented: " ++ show ty)
