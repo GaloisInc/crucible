@@ -160,6 +160,22 @@ basic_llvm_overrides =
   , SomeLLVMOverride llvmSinOverride_F64
   , SomeLLVMOverride llvmCosOverride_F32
   , SomeLLVMOverride llvmCosOverride_F64
+  , SomeLLVMOverride llvmTanOverride_F32
+  , SomeLLVMOverride llvmTanOverride_F64
+  , SomeLLVMOverride llvmAsinOverride_F32
+  , SomeLLVMOverride llvmAsinOverride_F64
+  , SomeLLVMOverride llvmAcosOverride_F32
+  , SomeLLVMOverride llvmAcosOverride_F64
+  , SomeLLVMOverride llvmAtanOverride_F32
+  , SomeLLVMOverride llvmAtanOverride_F64
+  , SomeLLVMOverride llvmAtan2Override_F32
+  , SomeLLVMOverride llvmAtan2Override_F64
+  , SomeLLVMOverride llvmSinhOverride_F32
+  , SomeLLVMOverride llvmSinhOverride_F64
+  , SomeLLVMOverride llvmCoshOverride_F32
+  , SomeLLVMOverride llvmCoshOverride_F64
+  , SomeLLVMOverride llvmTanhOverride_F32
+  , SomeLLVMOverride llvmTanhOverride_F64
   , SomeLLVMOverride llvmPowOverride_F32
   , SomeLLVMOverride llvmPowOverride_F64
   , SomeLLVMOverride llvmExpOverride_F32
@@ -1175,6 +1191,150 @@ llvmCosOverride_F64 ::
 llvmCosOverride_F64 =
   [llvmOvr| double @llvm.cos.f64( double ) |]
   (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Cos) args)
+
+llvmTanOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmTanOverride_F32 =
+  [llvmOvr| float @llvm.tan.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Tan) args)
+
+llvmTanOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmTanOverride_F64 =
+  [llvmOvr| double @llvm.tan.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Tan) args)
+
+llvmAsinOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAsinOverride_F32 =
+  [llvmOvr| float @llvm.asin.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Arcsin) args)
+
+llvmAsinOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAsinOverride_F64 =
+  [llvmOvr| double @llvm.asin.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Arcsin) args)
+
+llvmAcosOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAcosOverride_F32 =
+  [llvmOvr| float @llvm.acos.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Arccos) args)
+
+llvmAcosOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAcosOverride_F64 =
+  [llvmOvr| double @llvm.acos.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Arccos) args)
+
+llvmAtanOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAtanOverride_F32 =
+  [llvmOvr| float @llvm.atan.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Arctan) args)
+
+llvmAtanOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAtanOverride_F64 =
+  [llvmOvr| double @llvm.atan.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Arctan) args)
+
+llvmSinhOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmSinhOverride_F32 =
+  [llvmOvr| float @llvm.sinh.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Sinh) args)
+
+llvmSinhOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmSinhOverride_F64 =
+  [llvmOvr| double @llvm.sinh.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Sinh) args)
+
+llvmCoshOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCoshOverride_F32 =
+  [llvmOvr| float @llvm.cosh.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Cosh) args)
+
+llvmCoshOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCoshOverride_F64 =
+  [llvmOvr| double @llvm.cosh.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Cosh) args)
+
+llvmTanhOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmTanhOverride_F32 =
+  [llvmOvr| float @llvm.tanh.f32( float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Tanh) args)
+
+llvmTanhOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmTanhOverride_F64 =
+  [llvmOvr| double @llvm.tanh.f64( double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 W4.Tanh) args)
+
+llvmAtan2Override_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmAtan2Override_F32 =
+  [llvmOvr| float @llvm.atan2.f32( float, float ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction2 W4.Arctan2) args)
+
+llvmAtan2Override_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym ext
+     (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmAtan2Override_F64 =
+  [llvmOvr| double @llvm.atan2.f64( double, double ) |]
+  (\_memOps args -> Ctx.uncurryAssignment (Libc.callSpecialFunction2 W4.Arctan2) args)
 
 llvmPowOverride_F32 ::
   IsSymInterface sym =>

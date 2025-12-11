@@ -18,6 +18,8 @@
   integer overflow, respectively, will yield a poisoned result.
 * Support the `samesign` flag in `icmp` instructions. If `samesign` is set, then
   comparing two integers of different signs will yield a poisoned result.
+* Support the `llvm.tan`, `llvm.a{sin,cos,tan}`, `llvm.{sin,cos,tan}h`, and
+  `llvm.atan2` floating-point intrinsics.
 
 # 0.8.0 -- 2025-11-09
 
