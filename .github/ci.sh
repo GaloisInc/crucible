@@ -53,7 +53,7 @@ test() {
 
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
-    LINUX_LLVM_VER=14
+    LINUX_LLVM_VER=20
     wget https://apt.llvm.org/llvm.sh
     chmod +x llvm.sh
     sudo ./llvm.sh "$LINUX_LLVM_VER"
@@ -61,7 +61,7 @@ install_llvm() {
     echo "LLVM_AS=llvm-as-$LINUX_LLVM_VER" >> "$GITHUB_ENV"
     echo "CLANG=clang-$LINUX_LLVM_VER" >> "$GITHUB_ENV"
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
-    MACOS_LLVM_VER=14
+    MACOS_LLVM_VER=20
     brew install "llvm@$MACOS_LLVM_VER"
     echo "$(brew --prefix)/opt/llvm@$MACOS_LLVM_VER/bin" >> "$GITHUB_PATH"
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
