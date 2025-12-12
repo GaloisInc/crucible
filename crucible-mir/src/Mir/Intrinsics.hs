@@ -88,6 +88,7 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           What4.Concrete (fromConcreteBV)
 import           What4.Interface
 import           What4.Partial
     (PartExpr, pattern Unassigned, maybePartExpr, justPartExpr, mergePartial, mkPE)
@@ -944,8 +945,26 @@ offsetInSpans sym off spans = liftIO $ do
 
       -- (off - rFrom) `mod` tyWidth == 0
       relativeOff <- bvSub sym off =<< wordLit sym (rFrom run)
-      offModWidth <- bvUrem sym relativeOff =<< wordLit sym tyWidth
-      atTyBoundary <- bvEq sym offModWidth =<< wordLit sym 0
+      atTyBoundary <- case asAffineVar relativeOff of
+        -- When `asAffineVar relativeOff` is `Just (c, r, o)`, then we know that
+        -- `relativeOff == c * r + o`, with `c` and `o` being concrete. Putting
+        -- `relativeOff` in this form lets us try to check divisibility
+        -- concretely: if `c % tyWidth == 0` and `o % tyWidth == 0`, then
+        -- `(c * r + o) % tyWidth == 0`.
+        --
+        -- Since we often generate indexing expressions by multiplying an index
+        -- by an element size, this optimization applies often enough to be
+        -- useful.
+        Just (fromConcreteBV -> c, _r, fromConcreteBV -> o)
+          | let tyWidthBV = BV.mkBV knownRepr (toInteger tyWidth),
+            BV.BV 0 <- BV.urem c tyWidthBV,
+            BV.BV 0 <- BV.urem o tyWidthBV ->
+              pure $ truePred sym
+        -- If the expression wasn't in an affine form, resort to a symbolic
+        -- divisibility check instead.
+        _ -> do
+          offModWidth <- bvUrem sym relativeOff =<< wordLit sym tyWidth
+          bvEq sym offModWidth =<< wordLit sym 0
 
       andPred sym inBounds atTyBoundary
 
