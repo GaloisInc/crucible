@@ -1767,15 +1767,15 @@ subindexMirRefLeaf ::
     -- | Size of the element, in bytes
     Word ->
     MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf _sym elemTpr (MirReference tpr root path) idx _elemSize
+subindexMirRefLeaf sym elemTpr (MirReference tpr root path) idx elemSize
   | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
       return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
   | AsBaseType btpr <- asBaseType elemTpr,
     Just Refl <- testEquality tpr (UsizeArrayRepr btpr) =
       return $ MirReference elemTpr root (ArrayIndex_RefPath btpr path idx)
-  | Just Refl <- testEquality tpr MirAggregateRepr =
-      let sz = 1 in -- TODO: hardcoded size=1
-      return $ MirReference elemTpr root (AgElem_RefPath idx sz elemTpr path)
+  | Just Refl <- testEquality tpr MirAggregateRepr = do
+      offset <- liftIO $ bvMul sym idx =<< wordLit sym elemSize
+      return $ MirReference elemTpr root (AgElem_RefPath offset elemSize elemTpr path)
   | otherwise = leafAbort $ GenericSimError $
       "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
       "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
@@ -2255,8 +2255,8 @@ mirRef_offsetWrapLeaf bak (MirReference tpr root (ArrayIndex_RefPath btpr path i
 mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath elemOff elemSize tpr' path)) numElems = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
-    -- TODO: hardcoded size=1 (by treating `numElems` as a byte offset)
-    elemOff' <- liftIO $ bvAdd sym elemOff numElems
+    extraOff <- liftIO $ bvMul sym numElems =<< bvLit sym knownRepr (BV.mkBV knownRepr (toInteger elemSize))
+    elemOff' <- liftIO $ bvAdd sym elemOff extraOff
     return $ MirReference tpr root $ AgElem_RefPath elemOff' elemSize tpr' path
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset = do
     let sym = backendGetSym bak
@@ -2294,13 +2294,12 @@ mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 
             -- TODO: implement overflow checks, similar to `offset`
             offset <- liftIO $ bvSub sym idx1 idx2
             return $ mkPE similar offset
-        (AgElem_RefPath off1 _ _ path1', AgElem_RefPath off2 _ _ path2') -> do
+        (AgElem_RefPath off1 elemSz _ path1', AgElem_RefPath off2 _ _ path2') -> do
             pathEq <- refPathEq sym path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
-            -- TODO: divide by `sz`?  This implements `byte_offset_from`, which
-            -- is the same as `offset_from` only when size=1
-            offset <- liftIO $ bvSub sym off1 off2
-            return $ mkPE similar offset
+            byteOffset <- liftIO $ bvSub sym off1 off2
+            elemOffset <- liftIO $ bvSdiv sym byteOffset =<< wordLit sym elemSz
+            return $ mkPE similar elemOffset
         _ -> do
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
@@ -2341,8 +2340,8 @@ mirRef_peelIndexLeaf sym (MirReference tpr root (VectorIndex_RefPath _tpr' path 
 mirRef_peelIndexLeaf sym (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf sym (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
-    -- TODO: assumes hardcoded size=1
+mirRef_peelIndexLeaf sym (MirReference _tpr root (AgElem_RefPath off sz _tpr' path)) = do
+    idx <- liftIO $ bvUdiv sym off =<< wordLit sym sz
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf _sym (MirReference _ _ _) =
@@ -2393,22 +2392,27 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (VectorIndex_RefPath
 mirRef_indexAndLenLeaf _bak _gs _iTypes (MirReference _tpr _root (ArrayIndex_RefPath {})) =
     leafAbort $ Unsupported callStack
         "can't compute allocation length for Array, which is unbounded"
-mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath idx _sz _tpr' path)) = do
+mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath elemOff elemSize _tpr' path)) = do
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
     let parent = MirReference parentTpr root path
     parentAg <- readMirRefLeaf bak gs iTypes parentTpr parent
     let MirAggregate totalSize _ = parentAg
-    -- TODO: hardcoded size=1 (implied in conversion of `totalSize` to `lenWord`)
-    let lenWord = totalSize
-    --when (totalSize `mod` sz /= 0) $
-    --    leafAbort $ Unsupported callStack $
-    --        "exepcted aggregate size (" ++ show totalSize ++ ") to be a multiple of "
-    --            ++ "element size (" ++ show sz ++ ")"
-    --let lenWord = totalSize `div` sz
+    when (totalSize `mod` elemSize /= 0) $
+       leafAbort $ Unsupported callStack $
+           "expected aggregate size (" ++ show totalSize ++ ") to be a multiple of "
+               ++ "element size (" ++ show elemSize ++ ")"
+    let lenWord = totalSize `div` elemSize
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
-    -- TODO: also divide `idx` by `sz`, and assert that it's divisible
-    return (idx, len)
+
+    elemSizeBV <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral elemSize
+    offModSz <- liftIO $ bvUrem sym elemSizeBV elemOff
+    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
+    leafAssert bak offModSzIsZero $ Unsupported callStack $
+        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
+
+    offDivSz <- liftIO $ bvUdiv sym elemSizeBV elemOff
+    return (offDivSz, len)
 mirRef_indexAndLenLeaf bak _ _ (MirReference _ _ _) = do
     let sym = backendGetSym bak
     idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
