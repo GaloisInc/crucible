@@ -842,6 +842,7 @@ buildTupleMaybeM tys xs = do
     ag1 <- foldM
         (\ag (i, mExp) -> do
             case mExp of
+                -- TODO: hardcoded size=1
                 Just (MirExp tpr rv) -> mirAggregate_set i 1 tpr rv ag
                 Nothing -> return ag)
         ag0 (zip [0..] xs)
