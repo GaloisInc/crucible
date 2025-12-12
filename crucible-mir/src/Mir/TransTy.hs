@@ -356,6 +356,7 @@ isZeroSized col = go
       M.TyCoroutineClosure tys -> all go tys
       M.TyArray elemTy n -> n == 0 || go elemTy
       M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
+      M.TyFnDef {} -> True
       M.TyNever -> True
       _ -> False
 
