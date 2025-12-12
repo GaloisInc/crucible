@@ -243,7 +243,6 @@ regEval bak baseEval = go
                 return $ Empty :> RV ptr' :> RV len'
     go (FloatRepr _fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
-    go UnitRepr () = pure ()
     go CharRepr c = pure c
     go (FunctionHandleRepr args ret) v = goFnVal args ret v
     go (MaybeRepr tpr) pe = goPartExpr tpr pe
@@ -465,43 +464,48 @@ bindFn symOnline cs name cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
 
   | hasInstPrefix ["crucible", "override_"] explodedName
-  , Empty :> UnitRepr :> UnitRepr <- cfgArgTypes cfg
-  , UnitRepr <- cfgReturnType cfg
+  , Empty :> MirAggregateRepr :> MirAggregateRepr <- cfgArgTypes cfg
+  , MirAggregateRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
+    mkOverride' "crucible_override_" MirAggregateRepr $ do
+        overrideRust cs name
+        mirAggregate_zstSim
 
   | ["crucible", "print_str"] == explodedName
   , Empty :> MirSliceRepr <- cfgArgTypes cfg
-  , UnitRepr <- cfgReturnType cfg
+  , MirAggregateRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "print_str" UnitRepr $ do
+    mkOverride' "print_str" MirAggregateRepr $ do
         RegMap (Empty :> RegEntry _ strRef) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just str -> return str
             Nothing -> fail "print_str: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str
+        mirAggregate_zstSim
 
   | hasInstPrefix ["crucible", "dump_what4"] explodedName
   , Empty :> MirSliceRepr :> (asBaseType -> AsBaseType _btpr) <- cfgArgTypes cfg
-  , UnitRepr <- cfgReturnType cfg
+  , MirAggregateRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "dump_what4" UnitRepr $ do
+    mkOverride' "dump_what4" MirAggregateRepr $ do
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just str -> return str
             Nothing -> fail $ "dump_what4: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+        mirAggregate_zstSim
 
   | hasInstPrefix ["crucible", "dump_rv"] explodedName
   , Empty :> MirSliceRepr :> tpr <- cfgArgTypes cfg
-  , UnitRepr <- cfgReturnType cfg
+  , MirAggregateRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "dump_rv" UnitRepr $ do
+    mkOverride' "dump_rv" MirAggregateRepr $ do
         RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
         str <- getString strRef >>= \x -> case x of
             Just str -> return str
             Nothing -> fail "dump_rv: desc string must be concrete"
         liftIO $ outputLn $ Text.unpack str ++ " = " ++ showRV @sym tpr expr
+        mirAggregate_zstSim
 
   where
     explodedName = textIdKey name
@@ -574,7 +578,7 @@ bindFn _symOnline _cs fn cfg =
                , symb_bv ["crucible", "bitvector", "make_symbolic_512"] (knownNat @512)
 
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
-                 in override ["crucible", "crucible_assert_impl"] argTys UnitRepr $
+                 in override ["crucible", "crucible_assert_impl"] argTys MirAggregateRepr $
                     \(Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) -> do
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
@@ -587,9 +591,9 @@ bindFn _symOnline _cs fn cfg =
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src) ""
                        liftIO $ assert bak (unRV c) reason
-                       return ()
+                       mirAggregate_zstSim
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
-                 in override ["crucible", "crucible_assume_impl"] argTys UnitRepr $
+                 in override ["crucible", "crucible_assume_impl"] argTys MirAggregateRepr $
                     \(Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) -> do
                        loc <- liftIO $ getCurrentProgramLoc sym
                        src <- maybe (fail "not a constant src string")
@@ -603,7 +607,7 @@ bindFn _symOnline _cs fn cfg =
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = GenericAssumption loc ("Assumption \n\t" <> src <> "\nfrom " <> locStr) (unRV c)
                        liftIO $ addAssumption bak reason
-                       return ()
+                       mirAggregate_zstSim
                ]
 
 

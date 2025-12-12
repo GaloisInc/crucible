@@ -1,8 +1,8 @@
 use std::array;
 
 #[cfg_attr(crux, crux::test)]
-pub fn crux_test() -> [usize; 3] {
-    array::from_fn(|i| i)
+pub fn crux_test() -> ([usize; 0], [usize; 3]) {
+    (array::from_fn(|i| i), array::from_fn(|i| i))
 }
 
 pub fn main() {

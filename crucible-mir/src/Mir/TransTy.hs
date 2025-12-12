@@ -58,8 +58,8 @@ import qualified Mir.Mir as M
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
-    , mirRef_agElem_constOffset
-    , mirAggregate_uninit_constSize, mirAggregate_get, mirAggregate_set
+    , mirRef_agElem_constOffset, mirAggregate_uninit_constSize
+    , mirAggregate_zst, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
@@ -195,7 +195,6 @@ tyToRepr col t0 = case t0 of
   -- CMaybeUninit is handled by the normal repr(transparent) TyAdt case.
 
   M.TyBool -> Right (Some C.BoolRepr)
-  M.TyTuple [] -> Right (Some C.UnitRepr)
 
   M.TyTuple _ts -> Right (Some MirAggregateRepr)
   -- Closures are just tuples with a fancy name
@@ -259,10 +258,10 @@ tyToRepr col t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _trait -> Left (unwords ["standalone use of `dyn` is not supported:", show t0])
 
-  -- Values of these types are zero-sized, which we represent as a unit value on
-  -- the Crucible side.
-  M.TyFnDef _def -> Right (Some C.UnitRepr)
-  M.TyNever -> Right (Some C.UnitRepr)
+  -- Values of these types are zero-sized, which we represent as a MirAggregate
+  -- value on the Crucible side.
+  M.TyFnDef _def -> Right (Some MirAggregateRepr)
+  M.TyNever -> Right (Some MirAggregateRepr)
 
   -- We don't currently support coroutines (#1369), so pick an arbitrary
   -- Crucible type representation for now. If we actually attempt to construct
@@ -1496,7 +1495,6 @@ initialValue CTyMethodSpec = return Nothing
 initialValue CTyMethodSpecBuilder = return Nothing
 
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
-initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = initialTupleValue tys
 initialValue (M.TyClosure tys) = initialTupleValue tys
 initialValue (M.TyCoroutineClosure tys) = initialTupleValue tys
@@ -1534,8 +1532,8 @@ initialValue (M.TyAdt nm _ _) = do
             -- for details, including some regarding this choice of size.
             let unionSize = 1
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
-initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
-initialValue M.TyNever     = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
+initialValue (M.TyFnDef _) = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
+initialValue M.TyNever     = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
 
 -- Remaining `Nothing` cases
 initialValue (M.TyRef {}) = return Nothing

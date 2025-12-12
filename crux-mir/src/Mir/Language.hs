@@ -621,8 +621,6 @@ showRegEntry col mty (C.RegEntry tp rv) =
                      Just f -> show f
                      Nothing -> "Symbolic real"
 
-    (TyTuple [], C.UnitRepr) -> return "()"
-
     (TyTuple tys, MirAggregateRepr) -> do
       let MirAggregate _ m = rv
       strs <- forM (zip [0..] tys) $ \(off, ty) -> do
