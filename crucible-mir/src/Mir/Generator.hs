@@ -761,6 +761,12 @@ mirAggregate_uninit_constSize ::
   MirGenerator h s ret (R.Expr MIR s MirAggregateType)
 mirAggregate_uninit_constSize sz = mirAggregate_uninit (R.App $ usizeLit $ fromIntegral sz)
 
+-- | Construct a 'MirAggregate' value representing a zero-sized type (ZST) such
+-- as an empty tuple or array.
+mirAggregate_zst ::
+  MirGenerator h s ret (R.Expr MIR s MirAggregateType)
+mirAggregate_zst = mirAggregate_uninit_constSize 0
+
 mirAggregate_replicate ::
   Word ->
   C.TypeRepr tp ->

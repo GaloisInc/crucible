@@ -625,7 +625,7 @@ ptr_write_impl what substs =
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
             writeMirRef tpr ptr val
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+            MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
     _ -> Nothing
 
@@ -638,7 +638,7 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
             x2 <- readMirRef tpr ptr2
             writeMirRef tpr ptr1 x2
             writeMirRef tpr ptr2 x1
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+            MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
     _ -> Nothing)
 
@@ -677,7 +677,7 @@ drop_in_place_dyn =
                 col <- use $ cs . collection
                 let argTys = Ctx.empty
                 let argExprs = Ctx.empty
-                let retTy = C.UnitRepr
+                let retTy = MirAggregateRepr
 
                 -- We expect `mir-json` to have placed this trait object's drop
                 -- method at index 0, unless the trait object lacks a principal
@@ -739,7 +739,7 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             srcSnap <- subindexRef tpr srcSnapRoot srcIdx
 
             ptrCopy tpr srcSnap dest count
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+            MirExp MirAggregateRepr <$> mirAggregate_zst
 
         _ -> mirFail $ "bad arguments for intrinsics::copy: " ++ show ops
     _ -> Nothing)
@@ -1265,7 +1265,7 @@ mem_swap = (["core","mem", "swap"], \substs ->
             val2 <- readMirRef tpr e2
             writeMirRef tpr e1 val2
             writeMirRef tpr e2 val1
-            return $ MirExp knownRepr $ R.App E.EmptyApp
+            MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
     _ -> Nothing)
 
@@ -1331,14 +1331,14 @@ intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
         [MirExp C.BoolRepr cond] -> do
             G.assertExpr cond $
                 S.litExpr "undefined behavior: core::intrinsics::assume(false)"
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+            MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "BUG: invalid arguments to core::intrinsics::assume: " ++ show ops
     )
 
 -- TODO: needs layout info from mir-json
 assert_inhabited :: (ExplodedDefId, CustomRHS)
 assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
-    Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
+    Just $ CustomOp $ \_ _ -> MirExp MirAggregateRepr <$> mirAggregate_zst)
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
 array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_slice_hook"],
@@ -1862,7 +1862,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
             oldAg <- readMirRef MirAggregateRepr agPtr
             newAg <- mirAggregate_resize oldAg newSz
             writeMirRef MirAggregateRepr agPtr newAg
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+            MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
 
@@ -1890,7 +1890,7 @@ atomic_store_impl :: CustomRHS
 atomic_store_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp MirReferenceRepr ref, MirExp tpr val] -> do
         writeMirRef tpr ref val
-        return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        MirExp MirAggregateRepr <$> mirAggregate_zst
     _ -> mirFail $ "BUG: invalid arguments to atomic_store: " ++ show ops
 
 atomic_load_impl :: CustomRHS
@@ -1915,7 +1915,7 @@ atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops
 
 atomic_fence_impl :: CustomRHS
 atomic_fence_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [] -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    [] -> MirExp MirAggregateRepr <$> mirAggregate_zst
     _ -> mirFail $ "BUG: invalid arguments to atomic_fence: " ++ show ops
 
 -- Common implementation for all atomic read-modify-write operations.  These
@@ -2154,12 +2154,6 @@ cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemen
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
 cloneShimTuple :: [Ty] -> [M.DefId] -> CustomOp
-cloneShimTuple [] [] = CustomMirOp $ \_ops ->
-    -- We're cloning unit, i.e. `()`. Without this case, deferring to
-    -- `buildTupleMaybeM` to construct `()` results in a struct-like expression
-    -- with an empty `StructRepr`. In this particular case, that's wrong - what
-    -- we need to produce is a `UnitRepr` expression.
-    pure $ MirExp C.UnitRepr $ R.App E.EmptyApp
 cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
     -- The clone shim expects exactly one operand, with a reference type that
