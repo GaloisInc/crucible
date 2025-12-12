@@ -824,13 +824,18 @@ packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 buildArrayLit :: forall h s ret. M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildArrayLit elemTy exps = do
     Some elemTpr <- tyToReprM elemTy
-    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length exps)
+    col <- use $ cs . collection
+    elemSize <- case tySizedness col elemTy of
+        Sized s -> pure s
+        Unsized -> mirFail $ "buildArrayLit: unsized array element type: " <> show elemTy
+    let agSize = elemSize * fromIntegral (length exps)
+    ag0 <- mirAggregate_uninit_constSize agSize
     ag1 <- foldM
-        (\ag (i, MirExp elemTpr' e) -> do
+        (\ag (off, MirExp elemTpr' e) -> do
             Refl <- testEqualityOrFail elemTpr elemTpr' $
                 "buildArrayLit: expected elem to be " ++ show elemTpr ++ ", but got " ++ show elemTpr'
-            mirAggregate_set i 1 elemTpr e ag)
-        ag0 (zip [0 :: Word ..] exps)
+            mirAggregate_set off elemSize elemTpr e ag)
+        ag0 (zip [0, elemSize ..] exps)
     return $ MirExp MirAggregateRepr ag1
 
 buildTupleM :: [M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
@@ -1587,9 +1592,8 @@ structFieldRef adt i ref0 meta = structInfo adt i >>= \case
   UnsizedNonSliceField -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
     return $ MirPlace C.AnyRepr fieldRef meta
-  UnsizedSliceField _innerSize innerRepr -> do
+  UnsizedSliceField innerSize innerRepr -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
-    let innerSize = 1 -- TODO: hardcoded size=1
     -- In principle, it's possible for this field to be represented as something
     -- other than a `MirAggregate` (the other options being a Crucible `Vector`
     -- or `Array`). However, in practice, those types' Rust equivalents lack the
@@ -1778,8 +1782,13 @@ initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
 initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
-initialValue (M.TyArray _ size) = do
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral size)
+initialValue (M.TyArray elemTy arrLen) = do
+    col <- use $ cs . collection
+    elemSize <- case tySizedness col elemTy of
+      Sized s -> pure s
+      Unsized -> mirFail $ "initialValue: unsized array element type: " <> show elemTy
+    let agSize = elemSize * fromIntegral arrLen
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize agSize
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
