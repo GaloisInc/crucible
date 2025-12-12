@@ -47,6 +47,12 @@ This release supports [version
   into three separate operations (`VectorIndex_RefPath`, `ArrayIndex_RefPath`,
   and `AgElem_RefPath`) that work on `Vector`s, `Array`s, and `MirAggregate`s,
   respectively.
+* The `()` type, the `!` type, and anonymous function definition types are now
+  represented using `MirAggregateType` instead of `UnitType`. As part of this
+  change, you may need to change some overrides that implicitly returned `()`
+  values to instead return `MirAggregate` values explicitly. The
+  `mirAggregate_zst`, `mirAggregate_zstIO`, and `mirAggregate_zstSim` functions
+  have been introduced to make this process easier.
 
 # 0.5 -- 2025-11-09
 
