@@ -33,6 +33,7 @@ import GHC.Stack
 
 import Lang.Crucible.Panic (panic)
 
+import Mir.Defaults (defaultRustEditionFlag)
 import Mir.Mir
 import Mir.ParseTranslate (parseMIR)
 import Mir.PP()
@@ -81,7 +82,7 @@ compileMirJson cruxOpts keepRlib rustFile = do
     -- TODO: don't hardcode -L library path
     let cp =
           Proc.proc "mir-json" $
-            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2021"] ++
+            [rustFile, "-L", rlibsDir, "--crate-type=rlib", defaultRustEditionFlag] ++
             concat
               [ ["--extern", libName ++ "=" ++ rlibsDir </> file]
               | file <- rlibsFiles
