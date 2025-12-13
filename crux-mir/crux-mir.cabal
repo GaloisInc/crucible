@@ -146,6 +146,7 @@ library
                    Mir.Log
                    Mir.Concurrency
                    Mir.Overrides
+                   Mir.Defaults
   other-modules: Paths_crux_mir
   autogen-modules: Paths_crux_mir
 

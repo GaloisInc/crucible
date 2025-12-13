@@ -6,6 +6,9 @@ This release supports [version
 
 * Support simulating Rust code up to version 1.91.
 * Counterexample models are now pretty-printed instead of emitted as JSON.
+* Align the Rust language edition used by the test suite’s `rustc` invocation
+  with `mir-json` (now defaults to Rust 2021), enabling tests that rely on
+  post-2015 language features.
 
 # 0.11 -- 2025-11-09
 
