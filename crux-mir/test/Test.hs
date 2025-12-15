@@ -27,6 +27,7 @@ import           Test.Tasty.ExpectedFailure (expectFailBecause)
 import           Text.Regex.Base ( makeRegex, matchM )
 import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 
+import           Mir.Defaults (defaultRustEditionFlag)
 import qualified Mir.Language as Mir
 
 import qualified Crux as Crux
@@ -249,7 +250,7 @@ suite = do
 compileAndRun :: FilePath -> String -> IO (Maybe String)
 compileAndRun dir name = do
   (ec, _, err) <- Proc.readProcessWithExitCode "rustc"
-    [dir </> name <.> "rs", "--cfg", "with_main"
+    [dir </> name <.> "rs", defaultRustEditionFlag, "--cfg", "with_main"
     , "--extern", "byteorder=rlibs_native/libbyteorder.rlib"
     , "--extern", "bytes=rlibs_native/libbytes.rlib"] ""
   case ec of
