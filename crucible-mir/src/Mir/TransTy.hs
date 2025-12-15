@@ -1074,9 +1074,13 @@ buildStructAssign' ctx0 es0 = go ctx0 $ reverse es0
     go ctx (optExp : rest) = case Ctx.viewAssign ctx of
         Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
             (FieldRepr (FkInit tpr), Nothing) ->
-                case tpr of
-                    C.UnitRepr -> continue ctx' rest tpr (R.App $ E.NothingValue tpr)
-                    _ -> Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
+                -- This case should be unreachable. In order for it to be
+                -- reachable, you'd need to have a MIR type for which
+                -- (1) `canInitialize` and `isZeroSized` return `True`, but
+                -- (2) `initialValue` returns `Nothing`. Currently, this is
+                -- only possible for uninhabited enums, but you can't construct
+                -- a value of an uninhabited enum type anyway.
+                Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
             (FieldRepr (FkInit tpr), Just (Some e)) ->
                 continue ctx' rest tpr e
             (FieldRepr (FkMaybe tpr), Nothing) ->
