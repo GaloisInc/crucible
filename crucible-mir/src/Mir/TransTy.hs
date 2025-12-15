@@ -316,24 +316,24 @@ tyToReprM ty = do
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
     -- Custom types
-    CTyAny -> False
-    CTyMethodSpec -> False
-    CTyMethodSpecBuilder -> False
+    CTyAny {} -> False
+    CTyMethodSpec {} -> False
+    CTyMethodSpecBuilder {} -> False
 
     -- Primitives
-    M.TyBool -> True
-    M.TyChar -> True
-    M.TyInt _ -> True
-    M.TyUint _ -> True
+    M.TyBool {} -> True
+    M.TyChar {} -> True
+    M.TyInt {} -> True
+    M.TyUint {} -> True
     -- ADTs and related data structures
-    M.TyTuple _ -> True
-    M.TyClosure _ -> True
-    M.TyCoroutineClosure _ -> True
-    M.TyAdt _ _ _
+    M.TyTuple {} -> True
+    M.TyClosure {} -> True
+    M.TyCoroutineClosure {} -> True
+    M.TyAdt {}
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
       | otherwise -> True
     -- Others
-    M.TyArray _ _ -> True
+    M.TyArray {} -> True
     -- TODO: workaround for a ref init bug - see initialValue for details
     --M.TyRef ty' _ -> canInitialize col ty'
     _ -> False
