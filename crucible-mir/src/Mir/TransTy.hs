@@ -45,6 +45,7 @@ import Data.Parameterized.Some
 
 
 -- crucible
+import qualified Lang.Crucible.Panic as P
 import qualified Lang.Crucible.Types as C
 
 import qualified Lang.Crucible.CFG.Expr as E
@@ -334,9 +335,23 @@ canInitialize col ty = case ty of
       | otherwise -> True
     -- Others
     M.TyArray {} -> True
-    -- TODO: workaround for a ref init bug - see initialValue for details
-    --M.TyRef ty' _ -> canInitialize col ty'
-    _ -> False
+
+    M.TyFnDef {} -> False
+    M.TyNever {} -> False
+    M.TyRef {} -> False
+    M.TyRawPtr {} -> False
+    M.TyFnPtr {} -> False
+    M.TyDynamic {} -> False
+    M.TySlice {} -> False
+    M.TyStr {} -> False
+    M.TyFloat {} -> False
+    M.TyDowncast {} -> False
+    M.TyForeign {} -> False
+    M.TyConst {} -> False
+    M.TyLifetime {} -> False
+    M.TyCoroutine {} -> False
+    M.TyErased {} -> False
+    M.TyInterned {} -> False
 
 isUnsized :: M.Ty -> Bool
 isUnsized ty = case ty of
@@ -354,10 +369,30 @@ isZeroSized col = go
       M.TyClosure tys -> all go tys
       M.TyCoroutineClosure tys -> all go tys
       M.TyArray elemTy n -> n == 0 || go elemTy
-      M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
+      M.TyAdt name _ _
+        | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
+        | otherwise -> P.panic "isZeroSized" ["unknown ADT", show name]
       M.TyFnDef {} -> True
       M.TyNever -> True
-      _ -> False
+
+      M.TyBool {} -> False
+      M.TyChar {} -> False
+      M.TyInt {} -> False
+      M.TyUint {} -> False
+      M.TyRef {} -> False
+      M.TyRawPtr {} -> False
+      M.TyFnPtr {} -> False
+      M.TyDynamic {} -> False
+      M.TySlice {} -> False
+      M.TyStr {} -> False
+      M.TyFloat {} -> False
+      M.TyDowncast {} -> False
+      M.TyForeign {} -> False
+      M.TyConst {} -> False
+      M.TyLifetime {} -> False
+      M.TyCoroutine {} -> False
+      M.TyErased {} -> False
+      M.TyInterned {} -> False
 
 
 -- | Get the "ABI-level" function arguments for @sig@, which determines the
