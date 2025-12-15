@@ -27,7 +27,7 @@ import           Test.Tasty.ExpectedFailure (expectFailBecause)
 import           Text.Regex.Base ( makeRegex, matchM )
 import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 
-import Mir.Defaults (defaultRustEditionFlag)
+import           Mir.Defaults (defaultRustEditionFlag)
 import qualified Mir.Language as Mir
 
 import qualified Crux as Crux
