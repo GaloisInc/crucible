@@ -267,7 +267,7 @@ tyToRepr col t0 = case t0 of
   -- We don't currently support coroutines (#1369), so pick an arbitrary
   -- Crucible type representation for now. If we actually attempt to construct
   -- a value of this type (i.e., using AKCoroutine), then emit an error.
-  M.TyCoroutine -> Right (Some C.AnyRepr)
+  M.TyCoroutine _ca -> Right (Some C.AnyRepr)
 
   M.TyLifetime -> Right (Some C.AnyRepr)
   M.TyForeign -> Right (Some C.AnyRepr)

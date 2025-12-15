@@ -77,7 +77,7 @@ instance Pretty Ty where
     pretty (TyAdt _ origDefId tys)    = pr_id origDefId <> pretty tys
     pretty (TyFnDef defId)       = pretty "fnDef" <+> pr_id defId
     pretty (TyClosure tys)       = pretty "closure" <+> pretty tys
-    pretty TyCoroutine = pretty "coroutine"
+    pretty (TyCoroutine ca) = pretty "coroutine" <+> viaShow ca
     pretty (TyCoroutineClosure tys) = pretty "coroutine_closure" <+> pretty tys
     pretty TyStr                 = pretty "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig

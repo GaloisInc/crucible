@@ -91,11 +91,7 @@ data Ty =
       | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
       | TyFnDef !DefId
       | TyClosure [Ty]      -- the Tys are the types of the upvars
-      | TyCoroutine
-        -- ^ @crucible-mir@ does not support coroutines (#1369), but we
-        -- nevertheless include this as a 'Ty' so that we can successfully
-        -- translate code that mentions it. Provided that that code is never
-        -- simulated, this should work out.
+      | TyCoroutine CoroutineArgs
       | TyCoroutineClosure [Ty]     -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
@@ -125,6 +121,14 @@ data Ty =
       -- which runs just after JSON decoding is done.
       | TyInterned TyName
       deriving (Eq, Ord, Show, Generic)
+
+data CoroutineArgs = CoroutineArgs
+  { _caDiscrTy :: !Ty
+  , _caUpvarTys :: ![Ty]
+  , _caSavedTys :: ![Ty]
+  , _caFieldMap :: !(Map (Int, Int) Int)
+  }
+  deriving (Eq, Ord, Show, Generic)
 
 data NamedTy = NamedTy
   { _ntName :: Text
@@ -848,7 +852,7 @@ instance TypeOf Rvalue where
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (Aggregate (AKRawPtr ty mutbl) _ops) = TyRawPtr ty mutbl
-  typeOf (Aggregate AKCoroutine _ops) = TyCoroutine
+  typeOf (Aggregate AKCoroutine _ops) = TyCoroutine undefined -- FIXME
   typeOf (Aggregate AKCoroutineClosure ops) = TyCoroutineClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
   typeOf (ShallowInitBox _ ty) = ty
