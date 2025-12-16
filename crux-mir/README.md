@@ -128,6 +128,20 @@ To compile and test a single Rust program:
 
 (Should print 2.)
 
+#### Passing extra arguments to `mir-json`
+
+When running on a standalone `.rs` file, you can pass additional flags to
+`mir-json` with `--mir-json-arg` (repeatable). For example:
+
+```bash
+$ crux-mir test/conc_eval/prim/add1.rs \
+    --mir-json-arg="--edition=2015" \
+    --mir-json-arg="-Copt-level=3"
+```
+
+If any `--mir-json-arg` supplies an `--edition` flag, `crux-mir` will not add
+its default `--edition` flag.
+
 ### Code coverage
 
 `crux-mir` has a code coverage tool that reports branches where only one side or the other was explored during symbolic execution. Note that due to how `mir-json` works, this will only report issues in functions that are called at least once from a `#[crux::test]` entrypoint. If you have dead code (i.e., functions that are never called by any entrypoint), then `mir-json` will discard the dead functions, which means that they won't be mentioned at all in the coverage output. Code coverage currently does not report the percentage of the coverage, only lists the paths that are not covered.

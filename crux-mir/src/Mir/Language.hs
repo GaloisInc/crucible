@@ -247,7 +247,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                 ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
 
     -- Load the MIR collection
-    col <- generateMIR cruxOpts filename False
+    col <- generateMIR cruxOpts (mirJsonArgs mirOpts) filename False
 
     when (onlyPP mirOpts) $ do
       -- TODO: make this exit more gracefully somehow
@@ -515,6 +515,7 @@ data MIROptions = MIROptions
     -- library, if `$CRUX_RUST_LIBRARY_PATH` is unset.  This option exists for
     -- the purposes of the `crux-mir-comp` test suite; there's no user-facing
     -- flag to set it.
+    , mirJsonArgs     :: [String]
     }
 
 defaultMirOptions :: MIROptions
@@ -529,6 +530,7 @@ defaultMirOptions = MIROptions
     , testSkipFilter = Nothing
     , cargoTestFile = Nothing
     , defaultRlibsDir = "rlibs"
+    , mirJsonArgs = []
     }
 
 mirConfig :: Crux.Config MIROptions
@@ -571,6 +573,11 @@ mirConfig = Crux.Config
         , GetOpt.Option []  ["cargo-test-file"]
             "treat trailing args as --test-filter instead of FILES, like `cargo test`; load program from this file instead (used by `cargo crux test`)"
             (GetOpt.ReqArg "file" (\v opts -> Right opts { cargoTestFile = Just v }))
+
+        , GetOpt.Option [] ["mir-json-arg"]
+            "pass an argument to mir-json (can be repeated)"
+            (GetOpt.ReqArg "ARG" $ \v opts ->
+                Right opts { mirJsonArgs = mirJsonArgs opts ++ [v] })
         ]
     }
 

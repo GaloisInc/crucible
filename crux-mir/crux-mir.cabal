@@ -148,6 +148,7 @@ library
                    Mir.Overrides
                    Mir.Defaults
   other-modules: Paths_crux_mir
+                 Mir.MirJsonArgs
   autogen-modules: Paths_crux_mir
 
 executable crux-mir
