@@ -35,12 +35,15 @@ module Lang.Crucible.LLVM.Translation.Expr
   , pattern PointerExpr
   , pattern BitvectorAsPointerExpr
   , pointerAsBitvectorExpr
+  , poisonBvExpr
+  , poisonFloatExpr
 
   , unpackOne
   , unpackVec
   , unpackArgs
   , zeroExpand
   , undefExpand
+  , poisonExpand
   , explodeVector
 
   , constToLLVMVal
@@ -121,6 +124,7 @@ data LLVMExpr s (arch :: LLVMArch) where
    BaseExpr   :: TypeRepr tp -> Expr LLVM s tp -> LLVMExpr s arch
    ZeroExpr   :: MemType -> LLVMExpr s arch
    UndefExpr  :: MemType -> LLVMExpr s arch
+   PoisonExpr :: MemType -> LLVMExpr s arch
    VecExpr    :: MemType -> Seq (LLVMExpr s arch) -> LLVMExpr s arch
    StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
 
@@ -128,6 +132,7 @@ instance Show (LLVMExpr s arch) where
   show (BaseExpr ty x)  = C.showF x ++ " : " ++ show ty
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
+  show (PoisonExpr mt)  = "<poison :" ++ show mt ++ ">"
   show (VecExpr _mt xs) = "[" ++ List.intercalate ", " (map show (toList xs)) ++ "]"
   show (StructExpr xs)  = "{" ++ List.intercalate ", " (map f (toList xs)) ++ "}"
     where f (_mt,x) = show x
@@ -150,6 +155,9 @@ asScalar (ZeroExpr llvmtp)
 asScalar (UndefExpr llvmtp)
   = let ?err = error
      in undefExpand proxy# llvmtp $ \archProxy tpr ex -> Scalar archProxy tpr ex
+asScalar (PoisonExpr llvmtp)
+  = let ?err = error
+     in poisonExpand proxy# llvmtp $ \archProxy tpr ex -> Scalar archProxy tpr ex
 asScalar _ = NotScalar
 
 -- | Turn the expression into an explicit vector.
@@ -158,6 +166,7 @@ asVectorWithType v =
   case v of
     ZeroExpr (VecType n t)  -> Just (t, Seq.replicate (fromIntegral n) (ZeroExpr t))
     UndefExpr (VecType n t) -> Just (t, Seq.replicate (fromIntegral n) (UndefExpr t))
+    PoisonExpr (VecType n t) -> Just (t, Seq.replicate (fromIntegral n) (PoisonExpr t))
     VecExpr t s             -> Just (t, s)
     _                       -> Nothing
 
@@ -198,6 +207,16 @@ pointerAsBitvectorExpr w ex =
                 (litExpr "Expected bitvector, but found pointer")
      return off
 
+poisonBvExpr ::
+  (1 <= w) =>
+  NatRepr w ->
+  Expr LLVM s (BVType w)
+poisonBvExpr w = App (ExtensionApp (LLVM_PoisonBV w))
+
+poisonFloatExpr ::
+  FloatInfoRepr fi ->
+  Expr LLVM s (FloatType fi)
+poisonFloatExpr fi = App (ExtensionApp (LLVM_PoisonFloat fi))
 
 
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
@@ -225,6 +244,7 @@ unpackOne
    -> a
 unpackOne (BaseExpr tyr ex) k = k proxy# tyr ex
 unpackOne (UndefExpr tp) k = undefExpand proxy# tp k
+unpackOne (PoisonExpr tp) k = poisonExpand proxy# tp k
 unpackOne (ZeroExpr tp) k = zeroExpand proxy# tp k
 unpackOne (StructExpr vs) k =
   unpackArgs (map snd $ toList vs) $ \archProxy struct_ctx struct_asgn ->
@@ -311,9 +331,44 @@ undefExpand _archProxy X86_FP80Type k =
   k proxy# (FloatRepr X86_80FloatRepr) (App (FloatUndef X86_80FloatRepr))
 undefExpand _archPrxy tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 
+poisonExpand :: ( ?err :: String -> a
+                , HasPtrWidth (ArchWidth arch)
+                )
+             => Proxy# arch
+             -> MemType
+             -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> a)
+             -> a
+poisonExpand _archProxy (IntType w) k =
+  case mkNatRepr w of
+    Some w' | Just LeqProof <- isPosNat w' ->
+      k proxy# (LLVMPointerRepr w') $
+         BitvectorAsPointerExpr w' $
+         poisonBvExpr w'
+
+    _ -> ?err $ unwords ["illegal integer size", show w]
+poisonExpand _archProxy (PtrType _tp) k =
+   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
+poisonExpand _archProxy PtrOpaqueType k =
+   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
+poisonExpand _archProxy (StructType si) k =
+   unpackArgs (map PoisonExpr tps) $ \archProxy ctx asgn -> k archProxy (StructRepr ctx) (mkStruct ctx asgn)
+ where tps = map fiType $ toList $ siFields si
+poisonExpand archProxy (ArrayType n tp) k =
+  llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (PoisonExpr tp)) $ k proxy# (VectorRepr tpr)
+poisonExpand archProxy (VecType n tp) k =
+  llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (PoisonExpr tp)) $ k proxy# (VectorRepr tpr)
+poisonExpand _archProxy FloatType k =
+  k proxy# (FloatRepr SingleFloatRepr) (poisonFloatExpr SingleFloatRepr)
+poisonExpand _archProxy DoubleType k =
+  k proxy# (FloatRepr DoubleFloatRepr) (poisonFloatExpr DoubleFloatRepr)
+poisonExpand _archProxy X86_FP80Type k =
+  k proxy# (FloatRepr X86_80FloatRepr) (poisonFloatExpr X86_80FloatRepr)
+poisonExpand _archPrxy tp _ = ?err $ unwords ["cannot poison expand type:", show tp]
+
 
 explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
 explodeVector n (UndefExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (UndefExpr tp))
+explodeVector n (PoisonExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (PoisonExpr tp))
 explodeVector n (ZeroExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (ZeroExpr tp))
 explodeVector n (VecExpr _tp xs)
   | n == fromIntegral (length xs) = return xs
@@ -335,6 +390,8 @@ liftConstant c = case c of
     return $ ZeroExpr mt
   UndefConst mt ->
     return $ UndefExpr mt
+  PoisonConst mt ->
+    return $ PoisonExpr mt
   IntConst w i ->
     return $ BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w (App (BVLit w i)))
   FloatConst f ->
@@ -395,6 +452,9 @@ transValue :: forall s arch ret.
 
 transValue ty L.ValUndef =
   return $ UndefExpr ty
+
+transValue ty L.ValPoison =
+  return $ PoisonExpr ty
 
 transValue ty L.ValZeroInit =
   return $ ZeroExpr ty

@@ -351,6 +351,8 @@ llvmConstSyntacticEq (SymbolConst s1 x1) (SymbolConst s2 x2) =
   s1 == s2 && x1 == x2
 llvmConstSyntacticEq (UndefConst tp1) (UndefConst tp2) =
   tp1 == tp2
+llvmConstSyntacticEq (PoisonConst tp1) (PoisonConst tp2) =
+  tp1 == tp2
 
 llvmConstSyntacticEq (ZeroConst {}) _ =
   False
@@ -373,6 +375,8 @@ llvmConstSyntacticEq (StructConst {}) _ =
 llvmConstSyntacticEq (SymbolConst {}) _ =
   False
 llvmConstSyntacticEq (UndefConst {}) _ =
+  False
+llvmConstSyntacticEq (PoisonConst {}) _ =
   False
 
 -- | Helper, not exported

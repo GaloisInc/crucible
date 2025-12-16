@@ -98,6 +98,17 @@ data LLVMExtensionExpr :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
     !(f BoolType) -> !(f (LLVMPointerType w)) -> !(f (LLVMPointerType w)) ->
     LLVMExtensionExpr f (LLVMPointerType w)
 
+  -- | A @poison@ bitvector value. The semantics of this construct are still
+  -- under discussion, see crucible#366.
+  LLVM_PoisonBV ::
+    (1 <= w) => !(NatRepr w) ->
+    LLVMExtensionExpr f (BVType w)
+
+  -- | A @poison@ float value. The semantics of this construct are still under
+  -- discussion, see crucible#366.
+  LLVM_PoisonFloat ::
+    !(FloatInfoRepr fi) ->
+    LLVMExtensionExpr f (FloatType fi)
 
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
@@ -241,6 +252,8 @@ instance TypeApp LLVMExtensionExpr where
       LLVM_PointerBlock _ _  -> NatRepr
       LLVM_PointerOffset w _ -> BVRepr w
       LLVM_PointerIte w _ _ _ -> LLVMPointerRepr w
+      LLVM_PoisonBV w -> BVRepr w
+      LLVM_PoisonFloat fi -> FloatRepr fi
 
 instance PrettyApp LLVMExtensionExpr where
   ppApp pp e =
@@ -256,11 +269,16 @@ instance PrettyApp LLVMExtensionExpr where
         pretty "pointerOffset" <+> pp ptr
       LLVM_PointerIte _ cond x y ->
         pretty "pointerIte" <+> pp cond <+> pp x <+> pp y
+      LLVM_PoisonBV _ ->
+        pretty "poisonBV"
+      LLVM_PoisonFloat _ ->
+        pretty "poisonFloat"
 
 instance TestEqualityFC LLVMExtensionExpr where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
        [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
+       , (U.ConType [t|FloatInfoRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
@@ -274,6 +292,7 @@ instance OrdFC LLVMExtensionExpr where
   compareFC testSubterm =
     $(U.structuralTypeOrd [t|LLVMExtensionExpr|]
        [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
+       , (U.ConType [t|FloatInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])

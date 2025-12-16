@@ -677,6 +677,8 @@ concLLVMVal _ _ v@LLVMValString{} = pure v
 concLLVMVal _ _ v@LLVMValZero{} = pure v
 concLLVMVal _ _ (LLVMValUndef st) =
   pure (LLVMValUndef st)
+concLLVMVal _ _ (LLVMValPoison st) =
+  pure (LLVMValPoison st)
 
 
 concWriteSource ::

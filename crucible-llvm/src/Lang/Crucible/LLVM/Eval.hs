@@ -23,6 +23,7 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Types (TypeRepr(..))
 import           Lang.Crucible.Panic (panic)
 
 import qualified Lang.Crucible.LLVM.Arch.X86 as X86
@@ -99,3 +100,14 @@ llvmExtensionEval bak _iTypes _logFn state eval e =
          blk <- natIte sym cond xblk yblk
          off <- bvIte sym cond xoff yoff
          return (LLVMPointer blk off)
+
+    -- These are not necessarily considered correct, see crucible#366
+    LLVM_PoisonBV w -> poisonPanic (BVRepr w)
+    LLVM_PoisonFloat fi -> poisonPanic (FloatRepr fi)
+  where
+    poisonPanic tpr =
+      panic
+        "llvmExtensionEval"
+        [ "Attempting to evaluate poison value"
+        , "Type: " ++ show tpr
+        ]

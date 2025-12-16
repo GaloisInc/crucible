@@ -1562,6 +1562,13 @@ unpackMemValue _ tpr v@(LLVMValUndef _) =
     , "*** Undef value: " ++ show v
     ]
 
+unpackMemValue _ tpr v@(LLVMValPoison _) =
+  panic "MemModel.unpackMemValue"
+    [ "Cannot unpack a `poison` value"
+    , "*** Crucible type: " ++ show tpr
+    , "*** Poison value: " ++ show v
+    ]
+
 unpackMemValue _ tpr v =
   panic "MemModel.unpackMemValue"
     [ "Crucible type mismatch when unpacking LLVM value"
@@ -1774,6 +1781,8 @@ constToLLVMValP _sym _look (ZeroConst memty) = liftIO $
   LLVMValZero <$> toStorableType memty
 constToLLVMValP _sym _look (UndefConst memty) = liftIO $
   LLVMValUndef <$> toStorableType memty
+constToLLVMValP _sym _look (PoisonConst memty) = liftIO $
+  LLVMValPoison <$> toStorableType memty
 
 
 -- | Translate a constant into an LLVM runtime value. Assumes all necessary
