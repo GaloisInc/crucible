@@ -234,10 +234,14 @@ extractElt
     -> LLVMGenerator s arch ret (LLVMExpr s arch)
 extractElt _instr ty _n (UndefExpr _) _i =
    return $ UndefExpr ty
+extractElt _instr ty _n (PoisonExpr _) _i =
+   return $ PoisonExpr ty
 extractElt _instr ty _n (ZeroExpr _) _i =
    return $ ZeroExpr ty
 extractElt _ ty _ _ (UndefExpr _) =
    return $ UndefExpr ty
+extractElt _ ty _ _ (PoisonExpr _) =
+   return $ PoisonExpr ty
 extractElt instr ty n v (ZeroExpr zty) =
    let ?err = fail in
    zeroExpand (proxy# :: Proxy# arch) zty $ \_archProxy tyr ex -> extractElt instr ty n v (BaseExpr tyr ex)
@@ -290,12 +294,16 @@ insertElt :: forall s arch ret.
     -> LLVMGenerator s arch ret (LLVMExpr s arch)
 insertElt _ ty _ _ _ (UndefExpr _) = do
    return $ UndefExpr ty
+insertElt _ ty _ _ _ (PoisonExpr _) = do
+   return $ PoisonExpr ty
 insertElt instr ty n v a (ZeroExpr zty) = do
    let ?err = fail
    zeroExpand (proxy# :: Proxy# arch) zty $ \_archProxy tyr ex -> insertElt instr ty n v a (BaseExpr tyr ex)
 
 insertElt instr ty n (UndefExpr _) a i  = do
   insertElt instr ty n (VecExpr ty (Seq.replicate (fromInteger n) (UndefExpr ty))) a i
+insertElt instr ty n (PoisonExpr _) a i  = do
+  insertElt instr ty n (VecExpr ty (Seq.replicate (fromInteger n) (PoisonExpr ty))) a i
 insertElt instr ty n (ZeroExpr _) a i   = do
   insertElt instr ty n (VecExpr ty (Seq.replicate (fromInteger n) (ZeroExpr ty))) a i
 
@@ -354,6 +362,11 @@ extractValue (UndefExpr (StructType si)) is =
  where tps = map fiType $ toList $ siFields si
 extractValue (UndefExpr (ArrayType n tp)) is =
    extractValue (VecExpr tp $ Seq.replicate (fromIntegral n) (UndefExpr tp)) is
+extractValue (PoisonExpr (StructType si)) is =
+   extractValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, PoisonExpr tp)) tps) is
+ where tps = map fiType $ toList $ siFields si
+extractValue (PoisonExpr (ArrayType n tp)) is =
+   extractValue (VecExpr tp $ Seq.replicate (fromIntegral n) (PoisonExpr tp)) is
 extractValue (ZeroExpr (StructType si)) is =
    extractValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, ZeroExpr tp)) tps) is
  where tps = map fiType $ toList $ siFields si
@@ -387,6 +400,11 @@ insertValue (UndefExpr (StructType si)) v is =
  where tps = map fiType $ toList $ siFields si
 insertValue (UndefExpr (ArrayType n tp)) v is =
    insertValue (VecExpr tp $ Seq.replicate (fromIntegral n) (UndefExpr tp)) v is
+insertValue (PoisonExpr (StructType si)) v is =
+   insertValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, PoisonExpr tp)) tps) v is
+ where tps = map fiType $ toList $ siFields si
+insertValue (PoisonExpr (ArrayType n tp)) v is =
+   insertValue (VecExpr tp $ Seq.replicate (fromIntegral n) (PoisonExpr tp)) v is
 insertValue (ZeroExpr (StructType si)) v is =
    insertValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, ZeroExpr tp)) tps) v is
  where tps = map fiType $ toList $ siFields si
@@ -726,6 +744,8 @@ bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
 bitCast _ (ZeroExpr _) tgtT = return (ZeroExpr tgtT)
 
 bitCast _ (UndefExpr _) tgtT = return (UndefExpr tgtT)
+
+bitCast _ (PoisonExpr _) tgtT = return (PoisonExpr tgtT)
 
 -- pointer casts always succeed
 bitCast (PtrType _) expr (PtrType _) = return expr
@@ -1628,6 +1648,7 @@ generateInstr retType lab instr assign_f k =
                  do let getV x =
                           case x of
                             UndefExpr _ -> return $ UndefExpr elTy
+                            PoisonExpr _ -> return $ PoisonExpr elTy
                             ZeroExpr _  -> return $ Seq.index v1 0
                             BaseExpr (LLVMPointerRepr _) (BitvectorAsPointerExpr _ (App (BVLit _ i)))
                               | BV.asUnsigned i < inL -> return $ Seq.index v1 (fromIntegral (BV.asUnsigned i))
@@ -2193,6 +2214,12 @@ doAssign (Some r) (UndefExpr tp) = do
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
       Nothing -> reportError $ fromString $ "type mismatch when assigning undef value"
+doAssign (Some r) (PoisonExpr tp) = do
+  let ?err = fail
+  poisonExpand (proxy# :: Proxy# arch) tp $ \_archProxy (tpr :: TypeRepr t) (ex :: Expr LLVM s t) ->
+    case testEquality (typeOfReg r) tpr of
+      Just Refl -> assignReg r ex
+      Nothing -> reportError $ fromString $ "type mismatch when assigning poison value"
 doAssign (Some r) (VecExpr tp vs) = do
   let ?err = fail
   llvmTypeAsRepr tp $ \tpr ->

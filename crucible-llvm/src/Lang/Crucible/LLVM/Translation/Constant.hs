@@ -339,6 +339,9 @@ data LLVMConst where
   -- | The @undef@ value is quite strange. See: The LLVM Language Reference,
   -- § Undefined Values.
   UndefConst    :: !MemType -> LLVMConst
+  -- | The @poison@ value is quite strange. See: The LLVM Language Reference,
+  -- § Poison Values.
+  PoisonConst   :: !MemType -> LLVMConst
 
 
 -- | This also can't be derived, but is completely uninteresting.
@@ -355,6 +358,7 @@ instance Show LLVMConst where
       (StructConst si a)  -> ["StructConst", show si, show a]
       (SymbolConst s x)   -> ["SymbolConst", show s, show x]
       (UndefConst mem)    -> ["UndefConst", show mem]
+      (PoisonConst mem)   -> ["PoisonConst", show mem]
       (StringConst bs)    -> ["StringConst", show bs]
 
 -- | Create an LLVM constant value from a boolean.
@@ -404,6 +408,8 @@ transConstant' ::
   m LLVMConst
 transConstant' tp (L.ValUndef) =
   return (UndefConst tp)
+transConstant' tp (L.ValPoison) =
+  return (PoisonConst tp)
 transConstant' (IntType n) (L.ValInteger x) =
   intConst n x
 transConstant' (IntType 1) (L.ValBool b) =
