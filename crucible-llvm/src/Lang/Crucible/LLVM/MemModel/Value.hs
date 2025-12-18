@@ -107,6 +107,9 @@ data LLVMVal sym where
   -- | The @undef@ value exists at all storage types.
   LLVMValUndef :: StorageType -> LLVMVal sym
 
+  -- | The @poison@ value exists at all storage types.
+  LLVMValPoison :: StorageType -> LLVMVal sym
+
 
 llvmValStorableType :: IsExpr (SymExpr sym) => LLVMVal sym -> StorageType
 llvmValStorableType v =
@@ -120,6 +123,7 @@ llvmValStorableType v =
     LLVMValString bs -> arrayType (fromIntegral (BS.length bs)) (bitvectorType (Bytes 1))
     LLVMValZero tp -> tp
     LLVMValUndef tp -> tp
+    LLVMValPoison tp -> tp
 
 -- | Create a fresh 'LLVMVal' of the given type.
 freshLLVMVal :: IsSymInterface sym =>
@@ -145,6 +149,7 @@ ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValZero _tp -> pretty "0"
     LLVMValUndef tp -> pretty "<undef : " <> viaShow tp <> pretty ">"
+    LLVMValPoison tp -> pretty "<poison : " <> viaShow tp <> pretty ">"
     LLVMValString bs -> viaShow bs
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValFloat _ v -> printSymExpr v
@@ -191,6 +196,7 @@ ppLLVMVal ppInt =
     \case
       (LLVMValZero tp) -> pure $ angles (typed "zero" tp)
       (LLVMValUndef tp) -> pure $ angles (typed "undef" tp)
+      (LLVMValPoison tp) -> pure $ angles (typed "poison" tp)
       (LLVMValString bs) -> pure $ viaShow bs
       (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
         where
@@ -257,6 +263,7 @@ instance IsExpr (SymExpr sym) => Pretty (LLVMVal sym) where
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"
   show (LLVMValUndef tp) = "<undef : " ++ show tp ++ ">"
+  show (LLVMValPoison tp) = "<poison : " ++ show tp ++ ">"
   show (LLVMValString  _) = "<string>"
   show (LLVMValInt blk w)
     | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
@@ -333,9 +340,9 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
 --
 -- Should be faster than using 'testEqual' with 'zeroExpandLLVMVal' for compound
 -- values, because we 'traverse' subcomponents of vectors and structs, quitting
--- early on a constantly false answer or 'LLVMValUndef'.
+-- early on a constantly false answer or 'LLVMValUndef' or 'LLVMValPoison'.
 --
--- Returns 'Nothing' for 'LLVMValUndef'.
+-- Returns 'Nothing' for 'LLVMValUndef' or 'LLVMValPoison'.
 isZero :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
        => sym -> LLVMVal sym -> IO (Maybe (Pred sym))
 isZero sym v =
@@ -345,6 +352,7 @@ isZero sym v =
     LLVMValString bs  -> pure $ Just $ backendPred sym $ not $ isJust $ BS.find (/= 0) bs
     LLVMValZero _     -> pure (Just $ truePred sym)
     LLVMValUndef _    -> pure Nothing
+    LLVMValPoison _   -> pure Nothing
     _                 ->
       -- For atomic types, we simply expand and compare.
       testEqual sym v =<< zeroExpandLLVMVal sym (llvmValStorableType v)
@@ -358,7 +366,8 @@ isZero sym v =
 
 -- | A predicate denoting the equality of two LLVMVals.
 --
--- Returns 'Nothing' in the event that one of the values contains 'LLVMValUndef'.
+-- Returns 'Nothing' in the event that one of the values contains 'LLVMValUndef'
+-- or 'LLVMValPoison'.
 testEqual :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
           => sym -> LLVMVal sym -> LLVMVal sym -> IO (Maybe (Pred sym))
 testEqual sym v1 v2 =
@@ -394,6 +403,8 @@ testEqual sym v1 v2 =
     (other, LLVMValZero tp) -> compareZero tp other
     (LLVMValUndef _, _) -> pure Nothing
     (_, LLVMValUndef _) -> pure Nothing
+    (LLVMValPoison _, _) -> pure Nothing
+    (_, LLVMValPoison _) -> pure Nothing
     (_, _) -> false -- type mismatch
 
   where true = pure (Just $ truePred sym)
