@@ -311,6 +311,33 @@ tyToReprM ty = do
     Right repr -> return repr
     Left err -> mirFail ("tyToRepr: " ++ err)
 
+{-
+Note [coroutine representation]
+----------------------------------------
+
+`TyCoroutine` is represented as a struct with several fields:
+* A discriminant.  This is a bitvector that indicates the current state of the
+  coroutine's state machine.
+* Upvars.  These are ordinary struct fields, meaning they're wrapped in
+  `MaybeType` only if the field type is not default-initializable according to
+  `canInitialize`.
+* Saved locals.  These fields are all possibly uninitialized, depending on the
+  current state/discriminant, so they're always wrapped in `MaybeType`
+  regardless of `canInitialize`.
+
+Field access on `TyCoroutine` is a bit unusual.  Types like structs, tuples,
+and closures only support direct field access (downcasting to a variant is
+forbidden); enums only support accessing fields of specific variants
+(downcasting is required).  `TyCoroutine` supports access with or without a
+downcast, and the two kinds of accesses have different effects.  Field access
+without a downcast accesses an upvar; for example, `co.0` accesses the first
+upvar.  Field access with a downcast accesses a saved local, with an
+indirection through a table that maps each (variant index, field index) pair to
+an index into the saved locals.  This mapping is not necessarily a bijection,
+so `(co as variant#1).2` and `(co as variant#3).4` could both refer to the
+sixth saved local.
+-}
+
 coroutineFields ::
   TransTyConstraint =>
   M.Collection ->
