@@ -206,7 +206,50 @@ regEval bak baseEval _col = go
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go MirSliceRepr (Empty :> RV ptr :> RV len) = do
+    go MirSliceRepr (Empty :> RV ptr :> RV len) = goSlice ptr len
+
+    go (FloatRepr _fi) v = pure v
+    go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
+    go CharRepr c = pure c
+    go (FunctionHandleRepr args ret) v = goFnVal args ret v
+    go (MaybeRepr tpr) pe = goPartExpr tpr pe
+    go (VectorRepr tpr) vec = traverse (go tpr) vec
+    go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
+    go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
+    go tpr@(ReferenceRepr _tpr) v = do
+      -- Can't use `collapseMuxTree` here since it's in the IO monad, not
+      -- OverrideSim.
+      rc <- goMuxTreeEntries tpr (viewMuxTree v)
+      rc' <- goRefCell rc
+      return $ toMuxTree sym rc'
+    -- TODO: WordMapRepr
+    -- TODO: RecursiveRepr
+    go MirReferenceRepr (MirReferenceMux mux) = do
+      ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
+      ref' <- case ref of
+        MirReference tpr root path ->
+          MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
+        MirReference_Integer i ->
+          MirReference_Integer <$> go UsizeRepr i
+      return $ MirReferenceMux $ toFancyMuxTree sym ref'
+    go MirAggregateRepr (MirAggregate sz m) =
+      MirAggregate sz <$> mapM goMirAggregateEntry m
+    -- TODO: StringMapRepr
+    go tpr _v = throwUnsupported sym $
+      "evaluation of " ++ show tpr ++ " is not yet implemented"
+
+    go' ::
+      forall tp'.
+      TypeRepr tp' ->
+      RegValue' sym tp' ->
+      OverrideSim p sym MIR rtp args ret (RegValue' sym tp')
+    go' tpr (RV v) = RV <$> go tpr v
+
+    goSlice ::
+      RegValue sym MirReferenceType ->
+      RegValue sym UsizeType ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym MirSlice)
+    goSlice ptr len = do
       let MirReferenceMux mux = ptr
       ref <- goMuxTreeEntries MirSliceRepr (viewFancyMuxTree mux)
       case ref of
@@ -248,42 +291,6 @@ regEval bak baseEval _col = go
           let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
           len' <- go UsizeRepr len
           return $ Empty :> RV ptr' :> RV len'
-    go (FloatRepr _fi) v = pure v
-    go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
-    go CharRepr c = pure c
-    go (FunctionHandleRepr args ret) v = goFnVal args ret v
-    go (MaybeRepr tpr) pe = goPartExpr tpr pe
-    go (VectorRepr tpr) vec = traverse (go tpr) vec
-    go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
-    go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
-    go tpr@(ReferenceRepr _tpr) v = do
-      -- Can't use `collapseMuxTree` here since it's in the IO monad, not
-      -- OverrideSim.
-      rc <- goMuxTreeEntries tpr (viewMuxTree v)
-      rc' <- goRefCell rc
-      return $ toMuxTree sym rc'
-    -- TODO: WordMapRepr
-    -- TODO: RecursiveRepr
-    go MirReferenceRepr (MirReferenceMux mux) = do
-      ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
-      ref' <- case ref of
-        MirReference tpr root path ->
-          MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
-        MirReference_Integer i ->
-          MirReference_Integer <$> go UsizeRepr i
-      return $ MirReferenceMux $ toFancyMuxTree sym ref'
-    go MirAggregateRepr (MirAggregate sz m) =
-      MirAggregate sz <$> mapM goMirAggregateEntry m
-    -- TODO: StringMapRepr
-    go tpr _v = throwUnsupported sym $
-      "evaluation of " ++ show tpr ++ " is not yet implemented"
-
-    go' ::
-      forall tp'.
-      TypeRepr tp' ->
-      RegValue' sym tp' ->
-      OverrideSim p sym MIR rtp args ret (RegValue' sym tp')
-    go' tpr (RV v) = RV <$> go tpr v
 
     goFnVal ::
       forall args' ret'.
