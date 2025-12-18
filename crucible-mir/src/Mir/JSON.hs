@@ -639,7 +639,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> pure AKClosure
-                                                     Just (String "Coroutine") -> pure AKCoroutine
+                                                     Just (String "Coroutine") -> AKCoroutine <$> parseJSON (Object v)
                                                      Just (String "CoroutineClosure") -> pure AKCoroutineClosure
                                                      Just (String "RawPtr") -> AKRawPtr <$> v .: "ty" <*> v .: "mutbl"
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk

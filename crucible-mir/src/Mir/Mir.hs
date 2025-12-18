@@ -637,7 +637,7 @@ data AggregateKind =
         AKArray Ty
       | AKTuple
       | AKClosure
-      | AKCoroutine
+      | AKCoroutine CoroutineArgs
       | AKCoroutineClosure
       | AKRawPtr Ty Mutability
       deriving (Show,Eq, Ord, Generic)
@@ -852,7 +852,7 @@ instance TypeOf Rvalue where
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
   typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (Aggregate (AKRawPtr ty mutbl) _ops) = TyRawPtr ty mutbl
-  typeOf (Aggregate AKCoroutine _ops) = TyCoroutine undefined -- FIXME
+  typeOf (Aggregate (AKCoroutine ca) _ops) = TyCoroutine ca
   typeOf (Aggregate AKCoroutineClosure ops) = TyCoroutineClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
   typeOf (ShallowInitBox _ ty) = ty

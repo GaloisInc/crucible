@@ -1313,7 +1313,7 @@ evalRval (M.Aggregate ak ops) =
             -- Closure environments have the same
             -- representation as tuples.
             evalTupleRval ops
-        M.AKCoroutine ->
+        M.AKCoroutine _ca ->
             -- See #1369
             mirFail "Coroutines not yet supported"
         M.AKCoroutineClosure ->

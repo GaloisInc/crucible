@@ -393,7 +393,7 @@ instance Pretty AggregateKind where
     pretty AKTuple = pretty "tup"
     pretty AKClosure = pretty "closure"
     pretty (AKRawPtr t mutbl) = brackets (pretty (TyRawPtr t mutbl))
-    pretty AKCoroutine = pretty "coroutine"
+    pretty (AKCoroutine ca) = pretty "coroutine" <+> viaShow ca
     pretty AKCoroutineClosure = pretty "coroutine_closure"
 
 instance Pretty FnSig where
