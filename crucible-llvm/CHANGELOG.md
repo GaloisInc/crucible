@@ -20,6 +20,9 @@
   comparing two integers of different signs will yield a poisoned result.
 * Support the `llvm.tan`, `llvm.a{sin,cos,tan}`, `llvm.{sin,cos,tan}h`, and
   `llvm.atan2` floating-point intrinsics.
+* Remove the `Eq LLVMConst` instance. This instance was inherently unreliable
+  because it cannot easily compute a simple `True`-or-`False` answer in the
+  presence of `undef` or `poison` values.
 
 # 0.8.0 -- 2025-11-09
 
