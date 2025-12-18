@@ -362,7 +362,7 @@ coroutineFieldsM ::
 coroutineFieldsM ca = do
   col <- use $ cs . collection
   case coroutineFields col ca of
-    Left err -> mirFail ("coroutineFields: " ++ err)
+    Left err -> mirFail ("coroutineFieldsM: " ++ err)
     Right x -> return x
 
 coroutineFieldTypes ::
