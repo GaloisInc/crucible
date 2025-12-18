@@ -14,7 +14,7 @@
 
 module Mir.Overrides (bindFn, getString) where
 
-import Control.Lens ((^?), (.=), use, ix, _Wrapped)
+import Control.Lens ((^?), (.=), (^.), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans (lift)
@@ -125,8 +125,9 @@ concretize ::
   forall sym bak rtp tp p .
   (IsSymInterface sym) =>
   Maybe (SomeOnlineSolver sym bak) ->
+  M.Collection ->
   OverrideSim p sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
-concretize (Just (SomeOnlineSolver bak)) = do
+concretize (Just (SomeOnlineSolver bak)) col = do
     let sym = backendGetSym bak
 
     -- remember if online solving was enabled
@@ -156,7 +157,7 @@ concretize (Just (SomeOnlineSolver bak)) = do
           let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
               evalBase btr v = evalGround v >>= groundToSym sym btr
 
-          regEval bak (\btpr expr -> liftIO $ evalBase btpr expr) tpr val
+          regEval bak (\btpr expr -> liftIO $ evalBase btpr expr) col tpr val
 
         -- If the current path condition is not satisfiable, then return the
         -- original argument unchanged. This is fine to do since the path will
@@ -177,7 +178,7 @@ concretize (Just (SomeOnlineSolver bak)) = do
 
     pure res
 
-concretize Nothing = fail "`concretize` requires an online solver backend"
+concretize Nothing _ = fail "`concretize` requires an online solver backend"
 
 regEval ::
   forall sym bak tp rtp args ret p.
@@ -187,10 +188,11 @@ regEval ::
     BaseTypeRepr bt ->
     SymExpr sym bt ->
     OverrideSim p sym MIR rtp args ret (SymExpr sym bt) ) ->
+  M.Collection ->
   TypeRepr tp ->
   RegValue sym tp ->
   OverrideSim p sym MIR rtp args ret (RegValue sym tp)
-regEval bak baseEval = go
+regEval bak baseEval _col = go
   where
     sym = backendGetSym bak
 
@@ -482,7 +484,7 @@ bindFn symOnline cs name cfg
   | hasInstPrefix ["crucible", "concretize"] explodedName
   , Empty :> tpr <- cfgArgTypes cfg
   , Just Refl <- testEquality tpr (cfgReturnType cfg)
-  = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline (cs ^. collection)
 
   | hasInstPrefix ["crucible", "override_"] explodedName
   , Empty :> MirAggregateRepr :> MirAggregateRepr <- cfgArgTypes cfg
