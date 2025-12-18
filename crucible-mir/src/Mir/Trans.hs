@@ -403,6 +403,18 @@ readPlace (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
         ++ " (type " ++ show tpr ++ ")"
 
+-- | Write a `MirExp` value into a `MirPlace`.  Calls `mirFail` if the types of
+-- the `MirExp` and `MirPlace` don't match; in this case, the @String@ is
+-- included in the message.
+writePlace :: HasCallStack => MirPlace s -> MirExp s -> String -> MirGenerator h s ret ()
+writePlace (MirPlace tpr ref NoMeta) (MirExp tpr' val) desc = do
+    Refl <- testEqualityOrFail tpr tpr' $
+        "ill-typed assignment of " ++ show tpr' ++ " to " ++ show tpr ++ " " ++ desc
+    writeMirRef tpr ref val
+writePlace (MirPlace tpr _ meta) _ desc =
+    mirFail $ "don't know how to write to place with metadata " ++ show meta
+        ++ " (type " ++ show tpr ++ ") " ++ desc
+
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace _tpr r NoMeta) = return $ MirExp MirReferenceRepr r
 addrOfPlace (MirPlace _tpr r (SliceMeta len)) =
@@ -1704,14 +1716,9 @@ doAssignCoerce lv ty expr =
     doAssign lv =<< evalCoerce ty (M.typeOf lv) expr
 
 doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
-doAssign lv (MirExp tpr val) = do
-    place <- evalPlace lv
-    case place of
-        MirPlace tpr' ref _ -> do
-            Refl <- testEqualityOrFail tpr tpr' $
-                "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
-                    ++ " (" ++ show (M.typeOf lv) ++ ") " ++ show lv
-            writeMirRef tpr ref val
+doAssign lv val = do
+    pl <- evalPlace lv
+    writePlace pl val $ "(" ++ show (M.typeOf lv) ++ ") " ++ show lv
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
