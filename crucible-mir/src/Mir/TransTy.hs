@@ -396,7 +396,6 @@ coroutineUpvarInfo ca i = do
 
 coroutineSavedInfo :: M.CoroutineArgs -> Int -> Int -> MirGenerator h s ret CoroutineInfo
 coroutineSavedInfo ca i j = do
-  col <- use $ cs . collection
   -- Map variant/field index `i`/`j` to an index within `caSavedTys`.
   savedIdx <- case ca ^? M.caFieldMap . ix (i, j) of
     Just ty -> return ty
@@ -416,7 +415,9 @@ coroutineSavedInfo ca i j = do
       ["saved index", show savedIdx, "is in range for saved vars, but not for ctx?"]
   let tpr' = ctx Ctx.! idx
   Some tpr <- tyToReprM savedTy
-  kind <- checkFieldKind (not $ canInitialize col savedTy) tpr tpr' $
+  -- Pass `True` to indicate that we expect a `MaybeType` wrapper on every
+  -- saved local, regardless of the result of `canInitialize`.
+  kind <- checkFieldKind True tpr tpr' $
       "saved var " ++ show savedIdx ++ " of coroutine " ++ show ca
   return $ CoroutineInfo ctx idx kind
 
