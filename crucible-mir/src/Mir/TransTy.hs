@@ -382,9 +382,13 @@ coroutineFieldTypesM ca = do
   Some fieldCtx <- coroutineFieldsM ca
   return $ Some (fieldCtxType fieldCtx)
 
+-- | Describes a field of a coroutine, similar to `StructInfo`.
 data CoroutineInfo = forall ctx tp' tp. CoroutineInfo
+  -- | The fields of the coroutine's `StructType`.
   (C.CtxRepr ctx)
+  -- | The `Ctx.Index` of the requested field of the coroutine.
   (Ctx.Index ctx tp')
+  -- | Indicates whether the requested field is wrapped in `MaybeType` or not.
   (FieldKind tp tp')
 
 coroutineDiscrInfo :: M.CoroutineArgs -> MirGenerator h s ret CoroutineInfo

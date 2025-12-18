@@ -122,10 +122,20 @@ data Ty =
       | TyInterned TyName
       deriving (Eq, Ord, Show, Generic)
 
+-- | Details about a coroutine type.  See Note [coroutine representation] in
+-- @Mir.TransTy@ for how these correspond to the `TypeRepr` for the coroutine
+-- type.
 data CoroutineArgs = CoroutineArgs
-  { _caDiscrTy :: !Ty
+  { -- | The discriminant type for this coroutine.  This is often `u32`, but
+    -- can theoretically vary.
+    _caDiscrTy :: !Ty
+    -- | The types of the upvar fields.
   , _caUpvarTys :: ![Ty]
+    -- | The types of the fields for storing saved locals.
   , _caSavedTys :: ![Ty]
+    -- | Maps (variant index, field index) to an index into `_caSavedTys`.
+    -- This is used to determine which field is accessed by downcast field
+    -- projections, e.g. `(co as variant#1).2`.
   , _caFieldMap :: !(Map (Int, Int) Int)
   }
   deriving (Eq, Ord, Show, Generic)
