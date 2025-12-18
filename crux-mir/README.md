@@ -139,8 +139,9 @@ $ crux-mir test/conc_eval/prim/add1.rs \
     --mir-json-arg="-Copt-level=3"
 ```
 
-If any `--mir-json-arg` supplies an `--edition` flag, `crux-mir` will not add
-its default `--edition` flag.
+By default, `crux-mir` passes `--edition=2021` to `mir-json` for standalone
+`.rs` files. If you supply an explicit `--edition` via `--mir-json-arg`, that
+default `--edition` flag is omitted and only your requested edition is used.
 
 ### Code coverage
 
