@@ -704,6 +704,7 @@ makeLenses ''Layout
 makeLenses ''LangItem
 makeLenses ''Statement
 makeLenses ''Terminator
+makeLenses ''CoroutineArgs
 makeWrapped ''Substs
 
 --------------------------------------------------------------------------------------

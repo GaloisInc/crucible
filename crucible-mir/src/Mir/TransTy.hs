@@ -51,6 +51,7 @@ import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Reg as R
+import Lang.Crucible.Panic (panic)
 import qualified Lang.Crucible.Syntax as S
 
 import qualified Mir.DefId as M
@@ -264,10 +265,9 @@ tyToRepr col t0 = case t0 of
   M.TyFnDef _def -> Right (Some MirAggregateRepr)
   M.TyNever -> Right (Some MirAggregateRepr)
 
-  -- We don't currently support coroutines (#1369), so pick an arbitrary
-  -- Crucible type representation for now. If we actually attempt to construct
-  -- a value of this type (i.e., using AKCoroutine), then emit an error.
-  M.TyCoroutine _ca -> Right (Some C.AnyRepr)
+  M.TyCoroutine ca -> do
+    Some ctx <- coroutineFieldTypes col ca
+    Right (Some (C.StructRepr ctx))
 
   M.TyLifetime -> Right (Some C.AnyRepr)
   M.TyForeign -> Right (Some C.AnyRepr)
@@ -310,6 +310,190 @@ tyToReprM ty = do
   case tyToRepr col ty of
     Right repr -> return repr
     Left err -> mirFail ("tyToRepr: " ++ err)
+
+coroutineFields ::
+  TransTyConstraint =>
+  M.Collection ->
+  M.CoroutineArgs ->
+  Either String (Some FieldCtxRepr)
+coroutineFields col ca = do
+  -- The discriminant and upvars work like normal struct fields: they are
+  -- always initialized, so they get a `MaybeType` wrapper only when the field
+  -- type is not `canInitialize`.
+  discrField <- tyToFieldRepr col (ca ^. M.caDiscrTy)
+  upvarFields <- mapM (tyToFieldRepr col) (ca ^. M.caUpvarTys)
+  -- Saved fields are always wrapped in `MaybeRepr`
+  savedTprs <- mapM (tyToRepr col) (ca ^. M.caSavedTys)
+  let savedFields = map (\(Some tpr) -> Some (FieldRepr (FkMaybe tpr))) savedTprs
+  Some fieldCtx <- return $ Ctx.fromList (discrField : upvarFields ++ savedFields)
+  return $ Some fieldCtx
+
+coroutineFieldsM ::
+  TransTyConstraint =>
+  M.CoroutineArgs ->
+  MirGenerator h s ret (Some FieldCtxRepr)
+coroutineFieldsM ca = do
+  col <- use $ cs . collection
+  case coroutineFields col ca of
+    Left err -> mirFail ("coroutineFields: " ++ err)
+    Right x -> return x
+
+coroutineFieldTypes ::
+  TransTyConstraint =>
+  M.Collection ->
+  M.CoroutineArgs ->
+  Either String (Some C.CtxRepr)
+coroutineFieldTypes col ca = do
+  Some fieldCtx <- coroutineFields col ca
+  return $ Some (fieldCtxType fieldCtx)
+
+coroutineFieldTypesM ::
+  TransTyConstraint =>
+  M.CoroutineArgs ->
+  MirGenerator h s ret (Some C.CtxRepr)
+coroutineFieldTypesM ca = do
+  Some fieldCtx <- coroutineFieldsM ca
+  return $ Some (fieldCtxType fieldCtx)
+
+data CoroutineInfo = forall ctx tp' tp. CoroutineInfo
+  (C.CtxRepr ctx)
+  (Ctx.Index ctx tp')
+  (FieldKind tp tp')
+
+coroutineDiscrInfo :: M.CoroutineArgs -> MirGenerator h s ret CoroutineInfo
+coroutineDiscrInfo ca = do
+  col <- use $ cs . collection
+  let discrTy = ca ^. M.caDiscrTy
+  Some ctx <- coroutineFieldTypesM ca
+  Some idx <- case Ctx.intIndex 0 (Ctx.size ctx) of
+    Just x -> return x
+    Nothing -> panic "coroutineDiscrInfo" ["discr index 0 is not in range for ctx?"]
+  let tpr' = ctx Ctx.! idx
+  Some tpr <- tyToReprM discrTy
+  kind <- checkFieldKind (not $ canInitialize col discrTy) tpr tpr' $
+      "discr of coroutine " ++ show ca
+  return $ CoroutineInfo ctx idx kind
+
+coroutineUpvarInfo :: M.CoroutineArgs -> Int -> MirGenerator h s ret CoroutineInfo
+coroutineUpvarInfo ca i = do
+  col <- use $ cs . collection
+  upvarTy <- case ca ^? M.caUpvarTys . ix i of
+    Just ty -> return ty
+    Nothing -> mirFail $ "upvar index " ++ show i
+      ++ " is out of range for coroutine " ++ show ca
+  -- At this point, we know `i` is in range `0 <= i < length caUpvarTys`.
+
+  Some ctx <- coroutineFieldTypesM ca
+  Some idx <- case Ctx.intIndex (1 + i) (Ctx.size ctx) of
+    Just x -> return x
+    Nothing -> panic "coroutineUpvarInfo"
+      ["upvar index", show i, "is in range for upvars, but not for ctx?"]
+  let tpr' = ctx Ctx.! idx
+  Some tpr <- tyToReprM upvarTy
+  kind <- checkFieldKind (not $ canInitialize col upvarTy) tpr tpr' $
+      "upvar " ++ show i ++ " of coroutine " ++ show ca
+  return $ CoroutineInfo ctx idx kind
+
+coroutineSavedInfo :: M.CoroutineArgs -> Int -> Int -> MirGenerator h s ret CoroutineInfo
+coroutineSavedInfo ca i j = do
+  col <- use $ cs . collection
+  -- Map variant/field index `i`/`j` to an index within `caSavedTys`.
+  savedIdx <- case ca ^? M.caFieldMap . ix (i, j) of
+    Just ty -> return ty
+    Nothing -> mirFail $ "saved var index " ++ show (i, j)
+      ++ " is out of range for coroutine " ++ show ca
+  savedTy <- case ca ^? M.caSavedTys . ix savedIdx of
+    Just ty -> return ty
+    Nothing -> mirFail $ "internal error: saved var index " ++ show (i, j)
+      ++ " mapped to " ++ show savedIdx ++ ", which is out of range"
+      ++ " for coroutine " ++ show ca
+  -- At this point, we know `savedIdx` is in range `0 <= savedIdx <= length caSavedTys`.
+
+  Some ctx <- coroutineFieldTypesM ca
+  Some idx <- case Ctx.intIndex (1 + length (ca ^. M.caUpvarTys) + savedIdx) (Ctx.size ctx) of
+    Just x -> return x
+    Nothing -> panic "coroutineSavedInfo"
+      ["saved index", show savedIdx, "is in range for saved vars, but not for ctx?"]
+  let tpr' = ctx Ctx.! idx
+  Some tpr <- tyToReprM savedTy
+  kind <- checkFieldKind (not $ canInitialize col savedTy) tpr tpr' $
+      "saved var " ++ show savedIdx ++ " of coroutine " ++ show ca
+  return $ CoroutineInfo ctx idx kind
+
+coroutineInfoRef ::
+  R.Expr MIR s MirReferenceType ->
+  CoroutineInfo ->
+  MirGenerator h s ret (MirPlace s)
+coroutineInfoRef ref0 (CoroutineInfo ctx idx fld) = do
+  ref1 <- subfieldRef ctx ref0 idx
+  ref2 <- fieldDataRef fld ref1
+  return $ MirPlace (fieldDataType fld) ref2 NoMeta
+
+coroutineDiscrRef ::
+  M.CoroutineArgs ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (MirPlace s)
+coroutineDiscrRef ca ref0 = coroutineDiscrInfo ca >>= coroutineInfoRef ref0
+
+coroutineUpvarRef ::
+  M.CoroutineArgs ->
+  Int ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (MirPlace s)
+coroutineUpvarRef ca i ref0 = coroutineUpvarInfo ca i >>= coroutineInfoRef ref0
+
+coroutineSavedRef ::
+  M.CoroutineArgs ->
+  Int ->
+  Int ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (MirPlace s)
+coroutineSavedRef ca i j ref0 = coroutineSavedInfo ca i j >>= coroutineInfoRef ref0
+
+-- | Build a coroutine value.  The provided `MirExp`s should include only the
+-- upvars; the discriminant is always set to zero, and the saved locals are
+-- always uninitialized.
+buildCoroutine ::
+  M.CoroutineArgs ->
+  [MirExp s] ->
+  MirGenerator h s ret (MirExp s)
+buildCoroutine ca upvarExps = do
+  MirExp _ discrExp <- buildCoroutineDiscriminant ca 0
+  let discrExp' = Just (Some discrExp)
+  let upvarExps' = map (\(MirExp _tpr e) -> Just (Some e)) upvarExps
+  let savedExps = replicate (length (ca ^. M.caSavedTys)) Nothing
+  Some fieldCtx <- coroutineFieldsM ca
+  asn <- case buildStructAssign' fieldCtx (discrExp' : upvarExps' ++ savedExps) of
+    Left err -> mirFail $ "error building coroutine " ++ show ca ++ ": " ++ err
+    Right x -> return x
+  let ctx = fieldCtxType fieldCtx
+  return $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
+
+-- | Helper for building a `MirExp` containing a constant discriminant value.
+buildCoroutineDiscriminant ::
+  M.CoroutineArgs ->
+  Int ->
+  MirGenerator h s ret (MirExp s)
+buildCoroutineDiscriminant ca i = do
+  Some discrTpr <- tyToReprM (ca ^. M.caDiscrTy)
+  case discrTpr of
+    C.BVRepr w -> do
+      let e = R.App $ E.BVLit w $ BV.mkBV w $ fromIntegral i
+      return $ MirExp discrTpr e
+    _ -> mirFail $ "buildCoroutineDiscriminant: expected discriminant to be a bitvector, "
+      ++ "but got " ++ show (discrTpr, ca ^. M.caDiscrTy)
+
+coroutineDiscrPlace ::
+  M.CoroutineArgs ->
+  MirPlace s ->
+  MirGenerator h s ret (MirPlace s)
+coroutineDiscrPlace ca pl = do
+  ref <- case pl of
+    MirPlace _ ref NoMeta -> return ref
+    MirPlace _ _ m -> mirFail $ "coroutineDiscrPlace: expected NoMeta, but got " ++ show m
+  coroutineDiscrRef ca ref
+
+
 
 -- | Checks whether a type can be default-initialized.  Any time this returns
 -- `True`, `initialValue` must also return `Just`.  Non-initializable ADT
