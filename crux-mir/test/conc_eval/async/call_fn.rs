@@ -2,7 +2,13 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
-async fn f() -> u32 { 42 }
+async fn f() -> u32 {
+    let a = g(1).await;
+    let b = g(2).await;
+    a + b
+}
+
+async fn g(x: u32) -> u32 { x + 1 }
 
 fn block_on<F: Future>(mut fut: F) -> F::Output {
     let mut cx = Context::from_waker(Waker::noop());
