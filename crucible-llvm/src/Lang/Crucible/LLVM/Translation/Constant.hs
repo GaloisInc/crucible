@@ -74,7 +74,6 @@ import qualified Data.BitVector.Sized as BV
 import qualified Data.BitVector.Sized.Overflow as BV
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
-import           Data.Parameterized.DecidableEq (decEq)
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout( intLayout, EndianForm(..) )
@@ -356,27 +355,6 @@ instance Show LLVMConst where
       (SymbolConst s x)   -> ["SymbolConst", show s, show x]
       (UndefConst mem)    -> ["UndefConst", show mem]
       (StringConst bs)    -> ["StringConst", show bs]
-
--- | The interesting cases here are:
---  * @IntConst@: GHC can't derive this because @IntConst@ existentially
---    quantifies the integer's width. We say that two integers are equal when
---    they have the same width *and* the same value.
---  * @UndefConst@: Two @undef@ values aren't necessarily the same...
-instance Eq LLVMConst where
-  (ZeroConst mem1)      == (ZeroConst mem2)      = mem1 == mem2
-  (IntConst w1 x1)      == (IntConst w2 x2)      =
-    case decEq w1 w2 of
-      Left Refl -> x1 == x2
-      Right _   -> False
-  (FloatConst f1)       == (FloatConst f2)       = f1 == f2
-  (DoubleConst d1)      == (DoubleConst d2)      = d1 == d2
-  (LongDoubleConst ld1) == (LongDoubleConst ld2) = ld1 == ld2
-  (ArrayConst mem1 a1)  == (ArrayConst mem2 a2)  = mem1 == mem2 && a1 == a2
-  (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
-  (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
-  (SymbolConst s1 x1)   == (SymbolConst s2 x2)   = s1 == s2     && x1 == x2
-  (UndefConst  _)       == (UndefConst _)        = False
-  _                     == _                     = False
 
 -- | Create an LLVM constant value from a boolean.
 boolConst :: Bool -> LLVMConst
