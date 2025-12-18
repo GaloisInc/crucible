@@ -16,8 +16,10 @@
 module Mir.Generate(generateMIR) where
 
 import Control.Monad (when)
-import Data.List (stripPrefix)
 
+import Data.List (stripPrefix, isPrefixOf)
+
+import qualified Data.Foldable as Foldable
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString as BS
 
@@ -33,8 +35,9 @@ import GHC.Stack
 
 import Lang.Crucible.Panic (panic)
 
-import Mir.Defaults (defaultRustEditionFlag)
 import Mir.Mir
+import Mir.Options (MIROptions(..))
+import Mir.Defaults (defaultRustEditionFlag)
 import Mir.ParseTranslate (parseMIR)
 import Mir.PP()
 
@@ -66,8 +69,23 @@ mirJsonOutFile rustFile = rustFile -<.> "mir"
 getRlibsDir :: (?defaultRlibsDir :: FilePath) => IO FilePath
 getRlibsDir = maybe ?defaultRlibsDir id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
 
-compileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> Bool -> FilePath -> IO ()
-compileMirJson cruxOpts keepRlib rustFile = do
+buildMirJsonArgs :: [String]   -- ^ base/default args (no edition)
+                 -> [String]   -- ^ extra args (from MIROptions.mirJsonArgs)
+                 -> [String]
+buildMirJsonArgs base extras =
+  let hasEdition  = any isEditionArg extras
+      -- rustc rejects multiple --edition flags, so if the user supplies
+      -- an explicit --edition via --mir-json-arg, we must *not* also add
+      -- the default --edition flag here.
+      editionPart = if hasEdition then [] else [defaultRustEditionFlag]
+  in base ++ editionPart ++ extras
+
+isEditionArg :: String -> Bool
+isEditionArg s =
+  s == "--edition" || "--edition=" `isPrefixOf` s
+
+compileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> MIROptions -> Bool -> FilePath -> IO ()
+compileMirJson cruxOpts mirOpts keepRlib rustFile = do
     let outFile = rustFile -<.> "bin"
 
     rlibsDir <- getRlibsDir
@@ -80,19 +98,35 @@ compileMirJson cruxOpts keepRlib rustFile = do
           | otherwise
           = ["--color=always"]
     -- TODO: don't hardcode -L library path
-    let cp =
-          Proc.proc "mir-json" $
-            [rustFile, "-L", rlibsDir, "--crate-type=rlib", defaultRustEditionFlag] ++
-            concat
-              [ ["--extern", libName ++ "=" ++ rlibsDir </> file]
-              | file <- rlibsFiles
-              , (baseName, ".rlib") <- [splitExtension file]
-              , Just libName <- [stripPrefix "lib" baseName]
-              ] ++
-            colorOpts ++
-            [ "--cfg", "crux", "--cfg", "crux_top_level"
-            , "-Z", "ub-checks=false"
-            , "-o", outFile]
+    let baseArgs =
+          [ rustFile
+          , "-L", rlibsDir
+          , "--crate-type=rlib"
+          ]
+          ++ concat
+               [ ["--extern", libName ++ "=" ++ rlibsDir </> file]
+               | file <- rlibsFiles
+               , (baseName, ".rlib") <- [splitExtension file]
+               , Just libName <- [stripPrefix "lib" baseName]
+               ]
+          ++ colorOpts
+          ++ [ "--cfg", "crux", "--cfg", "crux_top_level"
+             , "-Z", "ub-checks=false"
+             , "-o", outFile
+             ]
+
+    let extraMirArgs = Foldable.toList (mirJsonArgs mirOpts)
+
+    -- Add default edition if needed, then append extraMirArgs
+    let finalArgs = buildMirJsonArgs baseArgs extraMirArgs
+
+    -- If verbosity is enabled (e.g., via -v), print the mir-json command
+    let verbosity = Crux.simVerbose (Crux.outputOptions cruxOpts)
+    when (verbosity > 1) $
+      hPutStrLn stderr $
+        "[crux-mir] mir-json " ++ unwords finalArgs
+
+    let cp = Proc.proc "mir-json" finalArgs
     (ec, _sout, serr) <- Proc.readCreateProcessWithExitCode cp ""
     case ec of
         ExitFailure cd -> do
@@ -105,10 +139,10 @@ compileMirJson cruxOpts keepRlib rustFile = do
             True  -> removeFile outFile
             False -> return ()
 
-maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> Bool -> FilePath -> IO ()
-maybeCompileMirJson cruxOpts keepRlib rustFile = do
+maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> MIROptions -> Bool -> FilePath -> IO ()
+maybeCompileMirJson cruxOpts mirOpts keepRlib rustFile = do
     build <- needsRebuild (mirJsonOutFile rustFile) [rustFile]
-    when build $ compileMirJson cruxOpts keepRlib rustFile
+    when build $ compileMirJson cruxOpts mirOpts keepRlib rustFile
 
 
 linkJson :: [FilePath] -> IO B.ByteString
@@ -155,15 +189,16 @@ maybeLinkJson jsonFiles cacheFile = do
 -- This function uses 'failIO' if any error occurs
 generateMIR :: (HasCallStack, ?debug::Int, ?defaultRlibsDir :: FilePath) =>
                Crux.CruxOptions
+            -> MIROptions
             -> FilePath          -- ^ location of input file
             -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection
-generateMIR cruxOpts inputFile keepRlib
+generateMIR cruxOpts mirOpts inputFile keepRlib
   | ext == ".rs" = do
     when (?debug > 2) $
         traceM $ "Generating " ++ stem <.> "mir"
     let rustFile = inputFile
-    maybeCompileMirJson cruxOpts keepRlib rustFile
+    maybeCompileMirJson cruxOpts mirOpts keepRlib rustFile
     rlibsDir <- getRlibsDir
     rlibsFiles <- listDirectory rlibsDir
     let libJsonPaths = [rlibsDir </> file | file <- rlibsFiles, takeExtension file == ".mir"]

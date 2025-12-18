@@ -9,6 +9,7 @@ This release supports [version
 * Align the Rust language edition used by the test suite’s `rustc` invocation
   with `mir-json` (now defaults to Rust 2021), enabling tests that rely on
   post-2015 language features.
+* Add a `--mir-json-arg` option for passing extra arguments to `mir-json`.
 
 # 0.11 -- 2025-11-09
 
