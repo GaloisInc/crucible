@@ -2,10 +2,8 @@ module Mir.Options
   ( MIROptions(..)
   , defaultMirOptions
   , mirConfig
-  , mirJsonArgsList
   ) where
 
-import qualified Data.Foldable as Foldable
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
@@ -99,6 +97,3 @@ mirConfig = Config
                 Right opts { mirJsonArgs = mirJsonArgs opts Seq.|> v })
         ]
     }
-
-mirJsonArgsList :: MIROptions -> [String]
-mirJsonArgsList = Foldable.toList . mirJsonArgs

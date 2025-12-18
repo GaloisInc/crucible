@@ -16,8 +16,10 @@
 module Mir.Generate(generateMIR) where
 
 import Control.Monad (when)
+
 import Data.List (stripPrefix, isPrefixOf)
 
+import qualified Data.Foldable as Foldable
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString as BS
 
@@ -34,7 +36,7 @@ import GHC.Stack
 import Lang.Crucible.Panic (panic)
 
 import Mir.Mir
-import Mir.Options (MIROptions(..), mirJsonArgsList)
+import Mir.Options (MIROptions(..))
 import Mir.Defaults (defaultRustEditionFlag)
 import Mir.ParseTranslate (parseMIR)
 import Mir.PP()
@@ -72,6 +74,9 @@ buildMirJsonArgs :: [String]   -- ^ base/default args (no edition)
                  -> [String]
 buildMirJsonArgs base extras =
   let hasEdition  = any isEditionArg extras
+      -- rustc rejects multiple --edition flags, so if the user supplies
+      -- an explicit --edition via --mir-json-arg, we must *not* also add
+      -- the default --edition flag here.
       editionPart = if hasEdition then [] else [defaultRustEditionFlag]
   in base ++ editionPart ++ extras
 
@@ -110,7 +115,7 @@ compileMirJson cruxOpts mirOpts keepRlib rustFile = do
              , "-o", outFile
              ]
 
-    let extraMirArgs = mirJsonArgsList mirOpts
+    let extraMirArgs = Foldable.toList (mirJsonArgs mirOpts)
 
     -- Add default edition if needed, then append extraMirArgs
     let finalArgs = buildMirJsonArgs baseArgs extraMirArgs
