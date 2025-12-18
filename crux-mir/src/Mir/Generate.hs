@@ -34,7 +34,7 @@ import GHC.Stack
 import Lang.Crucible.Panic (panic)
 
 import Mir.Mir
-import Mir.Options (MIROptions(..))
+import Mir.Options (MIROptions(..), mirJsonArgsList)
 import Mir.Defaults (defaultRustEditionFlag)
 import Mir.ParseTranslate (parseMIR)
 import Mir.PP()
@@ -110,7 +110,7 @@ compileMirJson cruxOpts mirOpts keepRlib rustFile = do
              , "-o", outFile
              ]
 
-    let extraMirArgs = mirJsonArgs mirOpts
+    let extraMirArgs = mirJsonArgsList mirOpts
 
     -- Add default edition if needed, then append extraMirArgs
     let finalArgs = buildMirJsonArgs baseArgs extraMirArgs

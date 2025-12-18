@@ -2,8 +2,12 @@ module Mir.Options
   ( MIROptions(..)
   , defaultMirOptions
   , mirConfig
+  , mirJsonArgsList
   ) where
 
+import qualified Data.Foldable as Foldable
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Text (Text)
 import qualified SimpleGetOpt as GetOpt
@@ -30,7 +34,7 @@ data MIROptions = MIROptions
     -- library, if `$CRUX_RUST_LIBRARY_PATH` is unset.  This option exists for
     -- the purposes of the `crux-mir-comp` test suite; there's no user-facing
     -- flag to set it.
-    , mirJsonArgs     :: [String]
+    , mirJsonArgs     :: Seq String
     }
 
 defaultMirOptions :: MIROptions
@@ -45,7 +49,7 @@ defaultMirOptions = MIROptions
     , testSkipFilter = Nothing
     , cargoTestFile = Nothing
     , defaultRlibsDir = "rlibs"
-    , mirJsonArgs = []
+    , mirJsonArgs = Seq.empty
     }
 
 mirConfig :: Config MIROptions
@@ -92,6 +96,9 @@ mirConfig = Config
         , GetOpt.Option [] ["mir-json-arg"]
             "pass an argument to mir-json (can be repeated)"
             (GetOpt.ReqArg "ARG" $ \v opts ->
-                Right opts { mirJsonArgs = mirJsonArgs opts ++ [v] })
+                Right opts { mirJsonArgs = mirJsonArgs opts Seq.|> v })
         ]
     }
+
+mirJsonArgsList :: MIROptions -> [String]
+mirJsonArgsList = Foldable.toList . mirJsonArgs
