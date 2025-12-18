@@ -29,6 +29,7 @@ import           Text.Regex.Posix.ByteString.Lazy ( Regex )
 
 import           Mir.Defaults (defaultRustEditionFlag)
 import qualified Mir.Language as Mir
+import qualified Mir.Options as MirOpts
 
 import qualified Crux as Crux
 import qualified Crux.Config.Common as Crux
@@ -90,7 +91,7 @@ runCrux rustFile outHandle mode =
                                             RcmCoverage -> getOutputDir rustFile
                                             _ -> "",
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
-                   Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
+                   MirOpts.defaultMirOptions { MirOpts.printResultOnly = (mode == RcmConcrete) })
     let ?outputConfig = Crux.mkOutputConfig (outHandle, False) (outHandle, False) Mir.mirLoggingToSayWhat $
                         Just (Crux.outputOptions (fst options))
     _exitCode <- Mir.runTests options
