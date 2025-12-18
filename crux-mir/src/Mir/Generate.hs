@@ -16,7 +16,7 @@
 module Mir.Generate(generateMIR) where
 
 import Control.Monad (when)
-import Data.List (stripPrefix)
+import Data.List (stripPrefix, isPrefixOf)
 
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString as BS
@@ -34,7 +34,7 @@ import GHC.Stack
 import Lang.Crucible.Panic (panic)
 
 import Mir.Mir
-import Mir.MirJsonArgs (buildMirJsonArgs)
+import Mir.Defaults (defaultRustEditionFlag)
 import Mir.ParseTranslate (parseMIR)
 import Mir.PP()
 
@@ -65,6 +65,18 @@ mirJsonOutFile rustFile = rustFile -<.> "mir"
 
 getRlibsDir :: (?defaultRlibsDir :: FilePath) => IO FilePath
 getRlibsDir = maybe ?defaultRlibsDir id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
+
+buildMirJsonArgs :: [String]   -- ^ base/default args (no edition)
+                 -> [String]   -- ^ extra args (from MIROptions.mirJsonArgs)
+                 -> [String]
+buildMirJsonArgs base extras =
+  let hasEdition  = any isEditionArg extras
+      editionPart = if hasEdition then [] else [defaultRustEditionFlag]
+  in base ++ editionPart ++ extras
+
+isEditionArg :: String -> Bool
+isEditionArg s =
+  s == "--edition" || "--edition=" `isPrefixOf` s
 
 compileMirJson :: (?defaultRlibsDir :: FilePath) => Crux.CruxOptions -> [String] -> Bool -> FilePath -> IO ()
 compileMirJson cruxOpts extraMirArgs keepRlib rustFile = do
