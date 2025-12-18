@@ -1965,6 +1965,16 @@ mirAggregate_uninitIO bak szSym = do
   sz <- concreteAllocSize bak szSym
   return $ MirAggregate (fromIntegral sz) mempty
 
+-- | Construct a 'MirAggregate' value representing a zero-sized type (ZST) such
+-- as an empty tuple or array.
+mirAggregate_zstSim :: OverrideSim p sym MIR rtp args ret (MirAggregate sym)
+mirAggregate_zstSim = liftIO mirAggregate_zstIO
+
+-- | Construct a 'MirAggregate' value representing a zero-sized type (ZST) such
+-- as an empty tuple or array.
+mirAggregate_zstIO :: IO (MirAggregate sym)
+mirAggregate_zstIO = pure $ MirAggregate 0 mempty
+
 mirAggregate_replicateIO ::
     IsSymBackend sym bak =>
     bak ->

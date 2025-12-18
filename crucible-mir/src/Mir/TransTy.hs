@@ -45,6 +45,7 @@ import Data.Parameterized.Some
 
 
 -- crucible
+import qualified Lang.Crucible.Panic as P
 import qualified Lang.Crucible.Types as C
 
 import qualified Lang.Crucible.CFG.Expr as E
@@ -58,8 +59,8 @@ import qualified Mir.Mir as M
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
-    , mirRef_agElem_constOffset
-    , mirAggregate_uninit_constSize, mirAggregate_get, mirAggregate_set
+    , mirRef_agElem_constOffset, mirAggregate_uninit_constSize
+    , mirAggregate_zst, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
@@ -195,7 +196,6 @@ tyToRepr col t0 = case t0 of
   -- CMaybeUninit is handled by the normal repr(transparent) TyAdt case.
 
   M.TyBool -> Right (Some C.BoolRepr)
-  M.TyTuple [] -> Right (Some C.UnitRepr)
 
   M.TyTuple _ts -> Right (Some MirAggregateRepr)
   -- Closures are just tuples with a fancy name
@@ -259,10 +259,10 @@ tyToRepr col t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _trait -> Left (unwords ["standalone use of `dyn` is not supported:", show t0])
 
-  -- Values of these types are zero-sized, which we represent as a unit value on
-  -- the Crucible side.
-  M.TyFnDef _def -> Right (Some C.UnitRepr)
-  M.TyNever -> Right (Some C.UnitRepr)
+  -- Values of these types are zero-sized, which we represent as a MirAggregate
+  -- value on the Crucible side.
+  M.TyFnDef _def -> Right (Some MirAggregateRepr)
+  M.TyNever -> Right (Some MirAggregateRepr)
 
   -- We don't currently support coroutines (#1369), so pick an arbitrary
   -- Crucible type representation for now. If we actually attempt to construct
@@ -317,27 +317,41 @@ tyToReprM ty = do
 canInitialize :: M.Collection -> M.Ty -> Bool
 canInitialize col ty = case ty of
     -- Custom types
-    CTyAny -> False
-    CTyMethodSpec -> False
-    CTyMethodSpecBuilder -> False
+    CTyAny {} -> False
+    CTyMethodSpec {} -> False
+    CTyMethodSpecBuilder {} -> False
 
     -- Primitives
-    M.TyBool -> True
-    M.TyChar -> True
-    M.TyInt _ -> True
-    M.TyUint _ -> True
+    M.TyBool {} -> True
+    M.TyChar {} -> True
+    M.TyInt {} -> True
+    M.TyUint {} -> True
     -- ADTs and related data structures
-    M.TyTuple _ -> True
-    M.TyClosure _ -> True
-    M.TyCoroutineClosure _ -> True
-    M.TyAdt _ _ _
+    M.TyTuple {} -> True
+    M.TyClosure {} -> True
+    M.TyCoroutineClosure {} -> True
+    M.TyAdt {}
       | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
       | otherwise -> True
     -- Others
-    M.TyArray _ _ -> True
-    -- TODO: workaround for a ref init bug - see initialValue for details
-    --M.TyRef ty' _ -> canInitialize col ty'
-    _ -> False
+    M.TyArray {} -> True
+
+    M.TyFnDef {} -> False
+    M.TyNever {} -> False
+    M.TyRef {} -> False
+    M.TyRawPtr {} -> False
+    M.TyFnPtr {} -> False
+    M.TyDynamic {} -> False
+    M.TySlice {} -> False
+    M.TyStr {} -> False
+    M.TyFloat {} -> False
+    M.TyDowncast {} -> False
+    M.TyForeign {} -> False
+    M.TyConst {} -> False
+    M.TyLifetime {} -> False
+    M.TyCoroutine {} -> False
+    M.TyErased {} -> False
+    M.TyInterned {} -> False
 
 isUnsized :: M.Ty -> Bool
 isUnsized ty = case ty of
@@ -355,9 +369,30 @@ isZeroSized col = go
       M.TyClosure tys -> all go tys
       M.TyCoroutineClosure tys -> all go tys
       M.TyArray elemTy n -> n == 0 || go elemTy
-      M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
+      M.TyAdt name _ _
+        | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
+        | otherwise -> P.panic "isZeroSized" ["unknown ADT", show name]
+      M.TyFnDef {} -> True
       M.TyNever -> True
-      _ -> False
+
+      M.TyBool {} -> False
+      M.TyChar {} -> False
+      M.TyInt {} -> False
+      M.TyUint {} -> False
+      M.TyRef {} -> False
+      M.TyRawPtr {} -> False
+      M.TyFnPtr {} -> False
+      M.TyDynamic {} -> False
+      M.TySlice {} -> False
+      M.TyStr {} -> False
+      M.TyFloat {} -> False
+      M.TyDowncast {} -> False
+      M.TyForeign {} -> False
+      M.TyConst {} -> False
+      M.TyLifetime {} -> False
+      M.TyCoroutine {} -> False
+      M.TyErased {} -> False
+      M.TyInterned {} -> False
 
 
 -- | Get the "ABI-level" function arguments for @sig@, which determines the
@@ -1074,9 +1109,13 @@ buildStructAssign' ctx0 es0 = go ctx0 $ reverse es0
     go ctx (optExp : rest) = case Ctx.viewAssign ctx of
         Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
             (FieldRepr (FkInit tpr), Nothing) ->
-                case tpr of
-                    C.UnitRepr -> continue ctx' rest tpr (R.App $ E.NothingValue tpr)
-                    _ -> Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
+                -- This case should be unreachable. In order for it to be
+                -- reachable, you'd need to have a MIR type for which
+                -- (1) `canInitialize` and `isZeroSized` return `True`, but
+                -- (2) `initialValue` returns `Nothing`. Currently, this is
+                -- only possible for uninhabited enums, but you can't construct
+                -- a value of an uninhabited enum type anyway.
+                Left $ "got Nothing for mandatory field " ++ show (length rest) ++ " type:" ++ show tpr
             (FieldRepr (FkInit tpr), Just (Some e)) ->
                 continue ctx' rest tpr e
             (FieldRepr (FkMaybe tpr), Nothing) ->
@@ -1491,7 +1530,6 @@ initialValue CTyMethodSpec = return Nothing
 initialValue CTyMethodSpecBuilder = return Nothing
 
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
-initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = initialTupleValue tys
 initialValue (M.TyClosure tys) = initialTupleValue tys
 initialValue (M.TyCoroutineClosure tys) = initialTupleValue tys
@@ -1529,8 +1567,8 @@ initialValue (M.TyAdt nm _ _) = do
             -- for details, including some regarding this choice of size.
             let unionSize = 1
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
-initialValue (M.TyFnDef _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
-initialValue M.TyNever     = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
+initialValue (M.TyFnDef _) = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
+initialValue M.TyNever     = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
 
 -- Remaining `Nothing` cases
 initialValue (M.TyRef {}) = return Nothing

@@ -202,10 +202,8 @@ transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ eBVLit w i)
-transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did) =
-    return $ MirExp C.UnitRepr $ S.app E.EmptyApp
-transConstVal _ty (Some C.UnitRepr) (M.ConstTuple []) =
-    return $ MirExp C.UnitRepr $ S.app E.EmptyApp
+transConstVal _ty (Some MirAggregateRepr) (M.ConstFunction _did) =
+    MirExp MirAggregateRepr <$> mirAggregate_zst
 transConstVal (M.TyTuple tys) (Some MirAggregateRepr) (M.ConstTuple vals) =
     transConstTuple tys vals
 transConstVal (M.TyClosure upvar_tys) (Some MirAggregateRepr) (M.ConstClosure upvar_vals) =
@@ -1983,10 +1981,6 @@ callHandle e abi cargs
     exps <- mapM evalOperand cargs
     exps' <- case abi of
       RustCall _
-        -- Empty tuples use UnitRepr instead of StructRepr
-        | [selfExp, MirExp C.UnitRepr _] <- exps -> do
-          return [selfExp]
-
         | [selfExp, tupleExp@(MirExp MirAggregateRepr _)] <- exps
         , [_, M.TyTuple tupleTys] <- tys -> do
           tupleParts <- mapM (\(i, ty) -> getTupleElemTyped tupleExp i ty) (zip [0..] tupleTys)
@@ -2240,9 +2234,7 @@ genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs
         [M.TyTuple tys] -> return tys
         _ -> mirFail $ "expected tuple at position " ++ show splitIndex
           ++ ", but got " ++ show argvars
-      tupleExp <- case tupleFieldTys of
-        [] -> return $ MirExp C.UnitRepr (R.App E.EmptyApp)
-        _ -> buildTupleMaybeM tupleFieldTys (map Just tupleFieldExps)
+      tupleExp <- buildTupleMaybeM tupleFieldTys (map Just tupleFieldExps)
       return $ selfExps ++ [tupleExp]
     _ -> return inputExps
   initArgs inputExps' argvars
@@ -3206,7 +3198,7 @@ copyNonOverlapping tpr src dest count = do
     G.assertExpr nonOverlapping $ S.litExpr "src and dest overlap in copy_nonoverlapping"
 
     ptrCopy tpr src dest count
-    return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    MirExp MirAggregateRepr <$> mirAggregate_zst
 
 -- | Check if two allocations of the given size are non-overlapping.
 -- Assumes @size <= isize::MAX@.
