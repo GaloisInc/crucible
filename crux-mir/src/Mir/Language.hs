@@ -515,7 +515,7 @@ showRegEntry :: forall sym arg p rtp args ret
   -> Ty
   -> C.RegEntry sym arg
   -> C.OverrideSim p sym MIR rtp args ret String
-showRegEntry col mty (C.RegEntry tp rv) =
+showRegEntry col mty entry@(C.RegEntry tp rv) =
   case (mty,tp) of
     (TyBool, C.BoolRepr) -> return $ case W4.asConstantPred rv of
                      Just b -> if b then "true" else "false"
@@ -552,6 +552,30 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, _)
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts)
+      , adt ^. adtReprTransparent -> do
+        let variant = onlyVariant adt
+        let fieldTys = variant ^.. vfields . each . fty
+        let nonZSFieldIdxs = List.findIndices (not . isZeroSized col) fieldTys
+        transFieldIdxM <- case nonZSFieldIdxs of
+          [] -> pure Nothing
+          [idx] -> pure (Just idx)
+          _ -> fail "showRegEntry: multiple non-zero-sized fields?"
+
+        -- If this `repr(transparent)` struct has a non-trivial field, then our
+        -- `RegEntry` represents that field, and can be shown with a normal
+        -- recursive call. All other fields lack `RegEntry`s - but because they
+        -- must be zero-sized, we know what their values look like, and can
+        -- render them directly.
+        let showField fIdx fTy
+              | Just transFieldIdx <- transFieldIdxM
+              , fIdx == transFieldIdx =
+                showRegEntry col fTy entry
+              | otherwise =
+                showZSTValue fTy
+        fieldStrs <- zipWithM showField [0..] fieldTys
+        showVariant' variant fieldStrs
+
       | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts) -> do
         optParts <- case adt ^. adtkind of
             Struct -> do
@@ -643,26 +667,56 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     showVariant ::
       Variant ->
+      -- | Field values, matching the order in the provided `Variant`
       [C.Some (C.RegEntry sym)] ->
       C.OverrideSim p sym MIR rtp args ret String
     showVariant variant fields = do
-      strs <-
+      fieldStrs <-
         zipWithM
-          (\ty (C.Some entry) -> showRegEntry col ty entry)
+          (\fieldTy (C.Some fieldEntry) -> showRegEntry col fieldTy fieldEntry)
           (variant ^.. vfields . each . fty)
           fields
+      showVariant' variant fieldStrs
+
+    showVariant' ::
+      Variant ->
+      -- | Serialized field values, matching the order in the provided `Variant`
+      [String] ->
+      C.OverrideSim p sym MIR rtp args ret String
+    showVariant' variant fieldStrs = do
       let varName = Text.unpack $ cleanVariantName (variant ^. vname)
       case variant ^. vctorkind of
         Just FnKind ->
-          return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
+          return $ varName ++ "(" ++ List.intercalate ", " fieldStrs ++ ")"
         Just ConstKind ->
           return varName
         Nothing ->
           let showField fn v = case parseFieldName fn of
                 Just x -> Text.unpack x ++ ": " ++ v
                 Nothing -> v
-              strs' = zipWith showField (variant ^.. vfields . each . fName) strs
-           in return $ varName ++ " { " ++ List.intercalate ", " strs' ++ " }"
+              fieldStrs' = zipWith showField (variant ^.. vfields . each . fName) fieldStrs
+           in return $ varName ++ " { " ++ List.intercalate ", " fieldStrs' ++ " }"
+
+    -- Render the value that would inhabit the given zero-sized type, failing if
+    -- the type is not zero-sized.
+    showZSTValue :: Ty -> C.OverrideSim p sym MIR rtp args ret String
+    showZSTValue ty =
+      case ty of
+        TyArray _ 0 ->
+          pure "[]"
+        TyTuple ts -> do
+          vs <- mapM showZSTValue ts
+          pure $ "(" <> List.intercalate ", " vs <> ")"
+        TyAdt monoName _ _
+          | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> monoName == n) (col ^. adts) -> do
+              let variant = onlyVariant adt
+              let fieldTys = variant ^.. vfields . each . fty
+              fieldStrs <- mapM showZSTValue fieldTys
+              showVariant' variant fieldStrs
+          | otherwise ->
+              fail $ "showZSTValue: unknown ADT"
+        _ ->
+          fail $ "showZSTValue: not a ZST: " <> show ty
 
 
 data FoundVariant sym ctx tp where

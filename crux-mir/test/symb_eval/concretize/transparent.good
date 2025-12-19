@@ -1,0 +1,5 @@
+test transparent/<DISAMB>::crux_test[0]: returned (STup(1, ZST3(ZST0, (ZST1(()), ZST2(ZST0, [])), PhantomData)), SFld { x: 1, zs: ZST3(ZST0, (ZST1(()), ZST2(ZST0, [])), PhantomData) }, X(ZST3(ZST0, (ZST1(()), ZST2(ZST0, [])), PhantomData), 1), X { zs: ZST3(ZST0, (ZST1(()), ZST2(ZST0, [])), PhantomData), x: 1 }, ZST3(ZST0, (ZST1(()), ZST2(ZST0, [])), PhantomData)), ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.
