@@ -253,8 +253,22 @@ regEval bak baseEval col ty = go (Just ty)
     -- TODO: RecursiveRepr
     go _tyM MirReferenceRepr (MirReferenceMux mux) =
       goMirRef mux
+
+    go (Just (M.TyArray elemTy _len)) MirAggregateRepr (MirAggregate sz m) =
+      MirAggregate sz <$> mapM (goMirAggregateEntry (Just elemTy)) m
+    go (Just (M.TyTuple tys)) MirAggregateRepr (MirAggregate sz m) = do
+      -- This relies on our particular approach to tuple layout, in which we put
+      -- tuple elements in declaration order in the aggregates we use to
+      -- represent them. Rust doesn't necessarily do this; see #1666.
+      let agEntries = IntMap.toAscList m
+      agEntries' <- sequence $ IntMap.fromAscList
+        [ (offset, goMirAggregateEntry (Just entryTy) entry)
+        | ((offset, entry), entryTy) <- zip agEntries tys
+        ]
+      pure $ MirAggregate sz agEntries'
     go _tyM MirAggregateRepr (MirAggregate sz m) =
       MirAggregate sz <$> mapM (goMirAggregateEntry Nothing) m
+
     -- TODO: StringMapRepr
     go _tyM tpr _v = throwUnsupported sym $
       "evaluation of " ++ show tpr ++ " is not yet implemented"
