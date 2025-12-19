@@ -106,6 +106,7 @@ instance GenericOps Ty where
   uninternTys f (TyInterned name) = f name
   uninternTys f ty = to (uninternTys' f (from ty))
 
+instance GenericOps CoroutineArgs where
 
 
 -- special case for Vars

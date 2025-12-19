@@ -97,7 +97,7 @@ instance FromJSON InlineTy where
       Just (String "FnDef") -> TyFnDef <$> v .: "defid"
       Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "args"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
-      Just (String "Coroutine") -> pure TyCoroutine
+      Just (String "Coroutine") -> TyCoroutine <$> parseJSON (Object v)
       Just (String "CoroutineClosure") -> TyCoroutineClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
@@ -115,6 +115,16 @@ instance FromJSON NamedTy where
                 <*> (getInlineTy <$> v .: "ty")
                 <*> v .:? "layout"
                 <*> v .: "needs_drop"
+
+instance FromJSON CoroutineArgs where
+    parseJSON = withObject "CoroutineArgs" $ \v -> do
+        fm <- v .: "field_map"
+        let fm' = Map.fromList [((i, j), k) | (i, fs) <- zip [0..] fm, (j, k) <- zip [0..] fs]
+        CoroutineArgs
+            <$> v .: "discr_ty"
+            <*> v .: "upvar_tys"
+            <*> v .: "saved_tys"
+            <*> pure fm'
 
 instance FromJSON Layout where
     parseJSON = withObject "Layout" $ \v ->
@@ -629,7 +639,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> pure AKClosure
-                                                     Just (String "Coroutine") -> pure AKCoroutine
+                                                     Just (String "Coroutine") -> AKCoroutine <$> parseJSON (Object v)
                                                      Just (String "CoroutineClosure") -> pure AKCoroutineClosure
                                                      Just (String "RawPtr") -> AKRawPtr <$> v .: "ty" <*> v .: "mutbl"
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk

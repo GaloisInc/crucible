@@ -403,6 +403,18 @@ readPlace (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
         ++ " (type " ++ show tpr ++ ")"
 
+-- | Write a `MirExp` value into a `MirPlace`.  Calls `mirFail` if the types of
+-- the `MirExp` and `MirPlace` don't match; in this case, the @String@ is
+-- included in the message.
+writePlace :: HasCallStack => MirPlace s -> MirExp s -> String -> MirGenerator h s ret ()
+writePlace (MirPlace tpr ref NoMeta) (MirExp tpr' val) desc = do
+    Refl <- testEqualityOrFail tpr tpr' $
+        "ill-typed assignment of " ++ show tpr' ++ " to " ++ show tpr ++ " " ++ desc
+    writeMirRef tpr ref val
+writePlace (MirPlace tpr _ meta) _ desc =
+    mirFail $ "don't know how to write to place with metadata " ++ show meta
+        ++ " (type " ++ show tpr ++ ") " ++ desc
+
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace _tpr r NoMeta) = return $ MirExp MirReferenceRepr r
 addrOfPlace (MirPlace _tpr r (SliceMeta len)) =
@@ -1293,12 +1305,16 @@ evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
 evalRval (M.Discriminant lv _discrTy) = do
-    e <- evalLvalue lv
     let enumTy = typeOf lv
     case enumTy of
       TyAdt aname _ _ -> do
+        e <- evalLvalue lv
         adt <- findAdt aname
         enumDiscriminant adt e
+      TyCoroutine ca -> do
+        pl <- evalPlace lv
+        pl' <- coroutineDiscrPlace ca pl
+        readPlace pl'
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show enumTy
 
 evalRval (M.Aggregate ak ops) =
@@ -1313,9 +1329,9 @@ evalRval (M.Aggregate ak ops) =
             -- Closure environments have the same
             -- representation as tuples.
             evalTupleRval ops
-        M.AKCoroutine ->
-            -- See #1369
-            mirFail "Coroutines not yet supported"
+        M.AKCoroutine ca -> do
+            exps <- mapM evalOperand ops
+            buildCoroutine ca exps
         M.AKCoroutineClosure ->
             -- Closure environments have the same
             -- representation as tuples.
@@ -1589,6 +1605,14 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
     M.TyTuple ts -> tupleFieldRef ts idx tpr ref
     M.TyClosure ts -> tupleFieldRef ts idx tpr ref
     M.TyCoroutineClosure ts -> tupleFieldRef ts idx tpr ref
+
+    -- Applying a field projection directly to a coroutine gives access to the
+    -- coroutine's upvars.
+    M.TyCoroutine ca -> coroutineUpvarRef ca idx ref
+    -- Downcasting a coroutine and then applying a field projection gives
+    -- access to the coroutine's saved locals.
+    M.TyDowncast (M.TyCoroutine ca) i -> coroutineSavedRef ca (fromInteger i) idx ref
+
     _ -> mirFail $
         "tried to get field " ++ show idx ++ " of unsupported type " ++ show ty
   where
@@ -1704,14 +1728,9 @@ doAssignCoerce lv ty expr =
     doAssign lv =<< evalCoerce ty (M.typeOf lv) expr
 
 doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
-doAssign lv (MirExp tpr val) = do
-    place <- evalPlace lv
-    case place of
-        MirPlace tpr' ref _ -> do
-            Refl <- testEqualityOrFail tpr tpr' $
-                "ill-typed assignment of " ++ show tpr ++ " to " ++ show tpr'
-                    ++ " (" ++ show (M.typeOf lv) ++ ") " ++ show lv
-            writeMirRef tpr ref val
+doAssign lv val = do
+    pl <- evalPlace lv
+    writePlace pl val $ "(" ++ show (M.typeOf lv) ++ ") " ++ show lv
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
@@ -1728,9 +1747,14 @@ transStatementKind (M.Assign lv rv) = do
     doAssignCoerce lv (M.typeOf rv) rve
 transStatementKind (M.StorageLive _lv) = return ()
 transStatementKind (M.StorageDead _lv) = return ()
-transStatementKind (M.SetDiscriminant lv _i) = do
+transStatementKind (M.SetDiscriminant lv i) = do
   case M.typeOf lv of
-    -- Currently we require that all uses of `SetDiscriminant` get bundled up
+    M.TyCoroutine ca -> do
+      discrExp <- buildCoroutineDiscriminant ca i
+      pl <- evalPlace lv
+      pl' <- coroutineDiscrPlace ca pl
+      writePlace pl' discrExp $ "(writing discriminant of " ++ show ca ++ ")"
+    -- Currently we require that all uses of `SetDiscriminant` on enums get bundled up
     -- with related field writes into an `RAdtAg` assignment during the
     -- AllocateEnum pass.  Ideally this transformation would not be mandatory,
     -- but the problem is, rustc emits the `SetDiscriminant` statement *after*

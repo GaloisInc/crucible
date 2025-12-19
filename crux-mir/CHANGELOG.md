@@ -1,7 +1,7 @@
 # next
 
 This release supports [version
-7](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#7) of
+8](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#8) of
 `mir-json`'s schema.
 
 * Support simulating Rust code up to version 1.91.
@@ -10,6 +10,7 @@ This release supports [version
   with `mir-json` (now defaults to Rust 2021), enabling tests that rely on
   post-2015 language features.
 * Add a `--mir-json-arg` option for passing extra arguments to `mir-json`.
+* Support using `async fn` and `#[coroutine]`.
 
 # 0.11 -- 2025-11-09
 
