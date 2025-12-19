@@ -35,6 +35,7 @@ import System.IO (hPutStrLn)
 
 import qualified Prettyprinter as PP
 
+import Data.Parameterized (Some(..))
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
@@ -77,6 +78,7 @@ import Mir.FancyMuxTree
 import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
+import Mir.TransTy (tyToRepr)
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
@@ -194,7 +196,7 @@ regEval ::
   TypeRepr tp ->
   RegValue sym tp ->
   OverrideSim p sym MIR rtp args ret (RegValue sym tp)
-regEval bak baseEval _col ty = go (Just ty)
+regEval bak baseEval col ty = go (Just ty)
   where
     sym = backendGetSym bak
 
@@ -217,7 +219,18 @@ regEval bak baseEval _col ty = go (Just ty)
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go _tyM MirSliceRepr (Empty :> RV ptr :> RV len) = goSlice ptr len
+    go (Just (M.TyRef (M.TySlice elemTy) _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice elemTy ptr len
+    go (Just (M.TyRef M.TyStr _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice (M.TyUint M.B8) ptr len
+    go (Just (M.TyRawPtr (M.TySlice elemTy) _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice elemTy ptr len
+    go (Just (M.TyRawPtr M.TyStr _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice (M.TyUint M.B8) ptr len
+    go (Just t) MirSliceRepr _ =
+      throwUnsupported sym $ "slice-like value of non-slice MIR type: " <> show t
+    go Nothing MirSliceRepr _ =
+      throwUnsupported sym "slice-like value of unknown MIR type"
 
     go _tyM (FloatRepr _fi) v = pure v
     go tyM AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tyM tpr v
@@ -252,34 +265,31 @@ regEval bak baseEval _col ty = go (Just ty)
     go' tyM tpr (RV v) = RV <$> go tyM tpr v
 
     goSlice ::
+      M.Ty ->
       RegValue sym MirReferenceType ->
       RegValue sym UsizeType ->
       OverrideSim p sym MIR rtp args ret (RegValue sym MirSlice)
-    goSlice ptr len = do
+    goSlice elemTy ptr len = do
       let MirReferenceMux mux = ptr
       ref <- goMuxTreeEntries MirSliceRepr (viewFancyMuxTree mux)
       case ref of
-        MirReference tpr _ _ -> do
+        MirReference _ _ _ -> do
           len' <- go (Just usizeTy) UsizeRepr len
           let lenBV = BV.asUnsigned $
                       fromMaybe (error "regEval produced non-concrete BV") $
                       asBV len'
 
-          -- TODO: This logic is incorrect if `ptr` has been cast to a
-          -- different type.  For example, if the slice being inspected
-          -- is the result of interpreting `&[u32; 3]` as `&[u8]` (which
-          -- increases the length by a factor of 4), we'll end up with a
-          -- pointee type `tpr` of `BVType 32`, but a `len` of 12, even
-          -- though there are only 3 `u32`s in the actual array.  The
-          -- correct way to go about this would be to pass in the
-          -- `Mir.Ty` (for the example, `u8`), and use that together with
-          -- the `len`.  But threading the right `Ty` through to this
-          -- location would need a more invasive refactor.
+          Some elemTpr <- case tyToRepr col elemTy of
+            Right tpr -> pure tpr
+            Left err ->
+              liftIO $ addFailedAssertion bak $ GenericSimError $
+                "goSlice: unable to determine element type representation: " <> err
+
           vals <- forM [0 .. lenBV - 1] $ \i -> do
             i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
             ptr' <- mirRef_offsetSim ptr i'
-            val <- readMirRefSim tpr ptr'
-            go Nothing tpr val
+            val <- readMirRefSim elemTpr ptr'
+            go (Just elemTy) elemTpr val
 
           sz_sym <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat
                             $ toInteger @Int $ length vals
@@ -287,10 +297,10 @@ regEval bak baseEval _col ty = go (Just ty)
           -- TODO: hardcoded size=1
           ag' <-
             liftIO $ foldM
-              (\ag' (i, v) -> mirAggregate_setIO bak i 1 tpr v ag')
+              (\ag' (i, v) -> mirAggregate_setIO bak i 1 elemTpr v ag')
               ag (zip [0..] vals)
           let agRef = newConstMirRef sym MirAggregateRepr ag'
-          ptr' <- subindexMirRefSim tpr agRef =<< liftIO (bvZero sym knownRepr)
+          ptr' <- subindexMirRefSim elemTpr agRef =<< liftIO (bvZero sym knownRepr)
           return $ Empty :> RV ptr' :> RV len'
         MirReference_Integer i -> do
           i' <- go (Just usizeTy) UsizeRepr i

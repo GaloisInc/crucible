@@ -1,0 +1,21 @@
+test slice_cast/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+
+failures:
+
+---- slice_cast/<DISAMB>::crux_test[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/concretize/slice_cast.rs:16:20: 16:33: error: in slice_cast/<DISAMB>::crux_test[0]
+[Crux]   read requires a reference to BVRepr 8, but got a reference to BVRepr 32
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/concretize/slice_cast.rs:16:20: 16:33: error: in slice_cast/<DISAMB>::crux_test[0]
+[Crux]   attempted to read empty mux tree
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 0
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
