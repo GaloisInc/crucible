@@ -224,14 +224,8 @@ regEval bak baseEval _col = go
       return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
-    go MirReferenceRepr (MirReferenceMux mux) = do
-      ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
-      ref' <- case ref of
-        MirReference tpr root path ->
-          MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
-        MirReference_Integer i ->
-          MirReference_Integer <$> go UsizeRepr i
-      return $ MirReferenceMux $ toFancyMuxTree sym ref'
+    go MirReferenceRepr (MirReferenceMux mux) =
+      goMirRef mux
     go MirAggregateRepr (MirAggregate sz m) =
       MirAggregate sz <$> mapM goMirAggregateEntry m
     -- TODO: StringMapRepr
@@ -291,6 +285,18 @@ regEval bak baseEval _col = go
           let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
           len' <- go UsizeRepr len
           return $ Empty :> RV ptr' :> RV len'
+
+    goMirRef ::
+      FancyMuxTree sym (MirReference sym) ->
+      OverrideSim p sym MIR rtp args ret (MirReferenceMux sym)
+    goMirRef mux = do
+      ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
+      ref' <- case ref of
+        MirReference tpr root path ->
+          MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
+        MirReference_Integer i ->
+          MirReference_Integer <$> go UsizeRepr i
+      return $ MirReferenceMux $ toFancyMuxTree sym ref'
 
     goFnVal ::
       forall args' ret'.
