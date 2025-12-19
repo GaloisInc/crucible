@@ -78,7 +78,7 @@ import Mir.FancyMuxTree
 import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
-import Mir.TransTy (tyToRepr)
+import Mir.TransTy (tyToRepr, pattern CTyVector)
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
@@ -237,7 +237,12 @@ regEval bak baseEval col ty = go (Just ty)
     go _tyM CharRepr c = pure c
     go _tyM (FunctionHandleRepr args ret) v = goFnVal args ret v
     go tyM (MaybeRepr tpr) pe = goPartExpr tyM tpr pe
-    go _tyM (VectorRepr tpr) vec = traverse (go Nothing tpr) vec
+
+    go (Just (CTyVector elemTy)) (VectorRepr tpr) vec =
+      traverse (go (Just elemTy) tpr) vec
+    go Nothing (VectorRepr tpr) vec =
+      traverse (go Nothing tpr) vec
+
     go _tyM (StructRepr ctx) v = Ctx.zipWithM (go' Nothing) ctx v
     go _tyM (VariantRepr ctx) v = Ctx.zipWithM (goVariantBranch Nothing) ctx v
     go tyM tpr@(ReferenceRepr _tpr) v = do
