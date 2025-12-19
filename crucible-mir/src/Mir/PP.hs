@@ -77,7 +77,7 @@ instance Pretty Ty where
     pretty (TyAdt _ origDefId tys)    = pr_id origDefId <> pretty tys
     pretty (TyFnDef defId)       = pretty "fnDef" <+> pr_id defId
     pretty (TyClosure tys)       = pretty "closure" <+> pretty tys
-    pretty (TyCoroutine ca) = pretty "coroutine" <+> viaShow ca
+    pretty (TyCoroutine ca) = pretty "coroutine" <+> pretty ca
     pretty (TyCoroutineClosure tys) = pretty "coroutine_closure" <+> pretty tys
     pretty TyStr                 = pretty "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig
@@ -109,6 +109,13 @@ instance Pretty AdtKind where
 instance Pretty VariantDiscr where
   pretty (Explicit a) = pretty_fn1 "Explicit" a
   pretty (Relative a) = pretty_fn1 "Relative" a
+
+instance Pretty CoroutineArgs where
+  pretty (CoroutineArgs discrTy upvarTys savedTys fieldMap) =
+    pretty discrTy
+    <+> list (map pretty upvarTys)
+    <+> list (map pretty savedTys)
+    <+> list (map viaShow $ Map.toList fieldMap)
 
 
 instance Pretty CtorKind where
@@ -393,7 +400,7 @@ instance Pretty AggregateKind where
     pretty AKTuple = pretty "tup"
     pretty AKClosure = pretty "closure"
     pretty (AKRawPtr t mutbl) = brackets (pretty (TyRawPtr t mutbl))
-    pretty (AKCoroutine ca) = pretty "coroutine" <+> viaShow ca
+    pretty (AKCoroutine ca) = pretty "coroutine" <+> pretty ca
     pretty AKCoroutineClosure = pretty "coroutine_closure"
 
 instance Pretty FnSig where
