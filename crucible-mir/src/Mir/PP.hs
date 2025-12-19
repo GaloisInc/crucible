@@ -113,9 +113,9 @@ instance Pretty VariantDiscr where
 instance Pretty CoroutineArgs where
   pretty (CoroutineArgs discrTy upvarTys savedTys fieldMap) =
     pretty discrTy
-    <+> list (map pretty upvarTys)
-    <+> list (map pretty savedTys)
-    <+> list (map viaShow $ Map.toList fieldMap)
+    <+> pretty upvarTys
+    <+> pretty savedTys
+    <+> pretty (Map.toList fieldMap)
 
 
 instance Pretty CtorKind where
