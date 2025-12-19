@@ -80,7 +80,9 @@ import Mir.Intrinsics
 import qualified Mir.Mir as M
 import Mir.TransTy
   ( reprTransparentFieldTy,
+    tySizedness,
     tyToRepr,
+    Sizedness(..),
     pattern CTyVector
   )
 
@@ -310,6 +312,12 @@ regEval bak baseEval col ty = go (Just ty)
               liftIO $ addFailedAssertion bak $ GenericSimError $
                 "goSlice: unable to determine element type representation: " <> err
 
+          elemSize <- case tySizedness col elemTy of
+            Sized s -> pure s
+            Unsized ->
+              liftIO $ addFailedAssertion bak $ GenericSimError $
+                "goSlice: unable to determine element type size"
+
           vals <- forM [0 .. lenBV - 1] $ \i -> do
             i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
             ptr' <- mirRef_offsetSim ptr i'
@@ -317,16 +325,14 @@ regEval bak baseEval col ty = go (Just ty)
             go (Just elemTy) elemTpr val
 
           sz_sym <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat
-                            $ toInteger @Int $ length vals
+                            $ toInteger @Int $ length vals * fromIntegral elemSize
           ag <- liftIO $ mirAggregate_uninitIO bak sz_sym
-          -- TODO: hardcoded size=1
           ag' <-
             liftIO $ foldM
-              (\ag' (i, v) -> mirAggregate_setIO bak i 1 elemTpr v ag')
-              ag (zip [0..] vals)
+              (\ag' (i, v) -> mirAggregate_setIO bak i elemSize elemTpr v ag')
+              ag (zip [0, elemSize ..] vals)
           let agRef = newConstMirRef sym MirAggregateRepr ag'
           elemOff <- liftIO $ bvZero sym knownRepr
-          let elemSize = 1 -- TODO: hardcoded size=1
           ptr' <- mirRef_agElemSim elemOff elemSize elemTpr agRef
           return $ Empty :> RV ptr' :> RV len'
         MirReference_Integer i -> do
