@@ -78,7 +78,11 @@ import Mir.FancyMuxTree
 import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
-import Mir.TransTy (tyToRepr, pattern CTyVector)
+import Mir.TransTy
+  ( reprTransparentFieldTy,
+    tyToRepr,
+    pattern CTyVector
+  )
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
@@ -243,7 +247,9 @@ regEval bak baseEval col ty = go (Just ty)
     go Nothing (VectorRepr tpr) vec =
       traverse (go Nothing tpr) vec
 
-    go _tyM (StructRepr ctx) v = Ctx.zipWithM (go' Nothing) ctx v
+    go (Just (M.TyAdt adtName _ _)) tpr v = goAdt adtName tpr v
+    go Nothing (StructRepr ctx) v = Ctx.zipWithM (go' Nothing) ctx v
+
     go _tyM (VariantRepr ctx) v = Ctx.zipWithM (goVariantBranch Nothing) ctx v
     go tyM tpr@(ReferenceRepr _tpr) v = do
       -- Can't use `collapseMuxTree` here since it's in the IO monad, not
@@ -366,6 +372,68 @@ regEval bak baseEval col ty = go (Just ty)
       VariantBranch sym tp' ->
       OverrideSim p sym MIR rtp args ret (VariantBranch sym tp')
     goVariantBranch tyM tpr (VB pe) = VB <$> goPartExpr tyM tpr pe
+
+    goAdt ::
+      forall tp'.
+      DefId ->
+      TypeRepr tp' ->
+      RegValue sym tp' ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym tp')
+    goAdt adtName tpr v = do
+      let adt = (col ^. M.adts) Map.! adtName
+      case (adt ^. M.adtkind, tpr) of
+        _ | Just tty <- reprTransparentFieldTy col adt ->
+          go (Just tty) tpr v
+
+        (M.Struct, StructRepr ctx) -> do
+          goVariant (M.onlyVariant adt) ctx v
+
+        (M.Enum discrTy, RustEnumRepr discrTpr variantsCtx) -> do
+          let Empty :> RV discrVal :> RV variantVals = v
+          discr <- go (Just discrTy) discrTpr discrVal
+          variants <- Ctx.generateM (Ctx.size variantsCtx) $ \i -> do
+            let variant = (adt ^. M.adtvariants) !! (Ctx.indexVal i)
+            let variantTpr = variantsCtx Ctx.! i
+            let VB variantValP = variantVals Ctx.! i
+            case variantTpr of
+              StructRepr fieldsCtx -> do
+                VB <$> goVariant' variant fieldsCtx variantValP
+              _ ->
+                liftIO $ addFailedAssertion bak $ GenericSimError $
+                  "goAdt: non-`StructRepr` enum variant?"
+          pure (Empty :> RV discr :> RV variants)
+
+        (M.Union, MirAggregateRepr) ->
+          let MirAggregate sz m = v
+           in MirAggregate sz <$> mapM (goMirAggregateEntry Nothing) m
+
+        _ ->
+          throwUnsupported sym $
+            "unable to evaluate ADT " ++ show adtName ++ " (" ++ show tpr ++ ")"
+
+    goVariant ::
+      forall ctx.
+      M.Variant ->
+      CtxRepr ctx ->
+      RegValue sym (StructType ctx) ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym (StructType ctx))
+    goVariant variant fieldsCtx v = do
+      let fields = variant ^. M.vfields
+       in Ctx.generateM (Ctx.size fieldsCtx) $ \fieldIdx ->
+          let fieldTy = (fields !! Ctx.indexVal fieldIdx) ^. M.fty
+              fieldTpr = fieldsCtx Ctx.! fieldIdx
+              RV fieldVal = v Ctx.! fieldIdx
+            in RV <$> go (Just fieldTy) fieldTpr fieldVal
+
+    goVariant' ::
+      forall ctx.
+      M.Variant ->
+      CtxRepr ctx ->
+      PartExpr (Pred sym) (RegValue sym (StructType ctx)) ->
+      OverrideSim p sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym (StructType ctx)))
+    goVariant' variant fieldsCtx vP = case vP of
+      Unassigned -> pure Unassigned
+      PE p v -> PE <$> baseEval BaseBoolRepr p <*> goVariant variant fieldsCtx v
 
     goMuxTreeEntries ::
       forall tp' a.
