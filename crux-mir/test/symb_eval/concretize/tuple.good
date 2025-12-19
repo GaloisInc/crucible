@@ -1,0 +1,5 @@
+test tuple/<DISAMB>::crux_test[0]: returned (42, 42, 42), ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

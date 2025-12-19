@@ -1,0 +1,11 @@
+test struct/<DISAMB>::crux_test[0]: returned S { s1: 1, s2: 1 }, [Crux] Attempting to prove verification conditions.
+ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 1
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.
