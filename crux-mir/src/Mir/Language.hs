@@ -552,6 +552,9 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, _)
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts)
+      , Just ty <- reprTransparentFieldTy col adt ->
+        showRegEntry col ty (C.RegEntry tp rv)
       | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts) -> do
         optParts <- case adt ^. adtkind of
             Struct -> do
