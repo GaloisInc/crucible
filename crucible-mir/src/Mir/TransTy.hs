@@ -1643,7 +1643,7 @@ expectStructOrFail ::
   MirGenerator h s ret (C.StructType expectedStructCtx :~: actualStructTp)
 expectStructOrFail expectedStructCtx actualStructTpr =
   testEqualityOrFail expectedStructTpr actualStructTpr $
-    "expected struct to have type" ++ show expectedStructTpr ++
+    "expected struct to have type " ++ show expectedStructTpr ++
     ", but got " ++ show actualStructTpr
   where
     expectedStructTpr = C.StructRepr expectedStructCtx
@@ -1655,7 +1655,7 @@ expectEnumOrFail ::
   MirGenerator h s ret (RustEnumType expectedDiscrTp expectedVariantsCtx :~: actualEnumTp)
 expectEnumOrFail expectedDiscrTpr expectedVariantsCtx actualEnumTpr =
   testEqualityOrFail expectedEnumTpr actualEnumTpr $
-    "expected enum to have type" ++ show expectedEnumTpr ++
+    "expected enum to have type " ++ show expectedEnumTpr ++
     ", but got " ++ show actualEnumTpr
   where
     expectedEnumTpr = RustEnumRepr expectedDiscrTpr expectedVariantsCtx
