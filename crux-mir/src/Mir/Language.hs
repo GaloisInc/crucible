@@ -565,7 +565,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                   case testEquality expectedStructTpr tp of
                     Just r -> pure r
                     Nothing -> fail $
-                      "expected struct to have type" ++ show expectedStructTpr ++
+                      "expected struct to have type " ++ show expectedStructTpr ++
                       ", but got " ++ show tp
                 return $ Right (var, readFields fctx rv)
             Enum _ -> do
@@ -577,7 +577,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                   case testEquality expectedEnumTpr tp of
                     Just r -> pure r
                     Nothing -> fail $
-                      "expected enum to have type" ++ show expectedEnumTpr ++
+                      "expected enum to have type " ++ show expectedEnumTpr ++
                       ", but got " ++ show tp
                 -- Note we don't look at the discriminant here, because mapping
                 -- a discriminant value to a variant index is somewhat complex.
