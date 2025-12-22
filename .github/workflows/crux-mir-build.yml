@@ -108,7 +108,7 @@ jobs:
           override: true
           components: rustc-dev, rust-src
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         name: Restore cabal store cache
         id: cache
         env:
@@ -169,7 +169,7 @@ jobs:
       - run: .github/ci.sh test crucible-mir-cli
       - run: .github/ci.sh test crux-mir
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         name: Save cabal store cache
         if: always()
         with:

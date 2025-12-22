@@ -101,7 +101,7 @@ jobs:
           cabal user-config update -a "extra-include-dirs: \"\""
           cabal user-config update -a "extra-lib-dirs: \"\""
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         name: Restore cabal store cache
         id: cache
         env:
@@ -186,7 +186,7 @@ jobs:
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux' || runner.os == 'macOS'
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         name: Save cabal store cache
         if: always()
         with:
