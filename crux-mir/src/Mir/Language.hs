@@ -597,18 +597,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
             Union -> return $ Left "union printing is not yet implemented"
         case optParts of
             Left err -> return err
-            Right (var, vals) -> do
-                strs <- zipWithM (\ty (C.Some entry) -> showRegEntry col ty entry)
-                    (var ^.. vfields . each . fty) vals
-                let varName = Text.unpack $ cleanVariantName (var ^. vname)
-                case var ^. vctorkind of
-                    Just FnKind -> return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
-                    Just ConstKind -> return varName
-                    Nothing ->
-                        let strs' = zipWith (\fn v -> case parseFieldName fn of
-                                Just x -> Text.unpack x ++ ": " ++ v
-                                Nothing -> v) (var ^.. vfields . each . fName) strs
-                        in return $ varName ++ " { " ++ List.intercalate ", " strs' ++ " }"
+            Right (variant, fields) -> showVariant variant fields
 
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
@@ -651,6 +640,29 @@ showRegEntry col mty (C.RegEntry tp rv) =
         W4.PE p rv'
           | Just True <- W4.asConstantPred p -> showRegEntry col ty $ C.RegEntry tpr rv'
           | otherwise ->return "<possibly uninitialized>"
+
+    showVariant ::
+      Variant ->
+      [C.Some (C.RegEntry sym)] ->
+      C.OverrideSim p sym MIR rtp args ret String
+    showVariant variant fields = do
+      strs <-
+        zipWithM
+          (\ty (C.Some entry) -> showRegEntry col ty entry)
+          (variant ^.. vfields . each . fty)
+          fields
+      let varName = Text.unpack $ cleanVariantName (variant ^. vname)
+      case variant ^. vctorkind of
+        Just FnKind ->
+          return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
+        Just ConstKind ->
+          return varName
+        Nothing ->
+          let showField fn v = case parseFieldName fn of
+                Just x -> Text.unpack x ++ ": " ++ v
+                Nothing -> v
+              strs' = zipWith showField (variant ^.. vfields . each . fName) strs
+           in return $ varName ++ " { " ++ List.intercalate ", " strs' ++ " }"
 
 
 data FoundVariant sym ctx tp where
