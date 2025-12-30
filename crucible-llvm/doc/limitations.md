@@ -125,8 +125,44 @@ assertions whenever such poison values are returned. For instance, LLVM's
 `crucible-llvm` is able to detect and simulate by throwing an appropriate
 assertion failure.
 
-There are other ways to create and propagate poison that `crucible-llvm` is
-unable to track, however. There is no support for LLVM's `poison` constant
-values, and `crucible-llvm` will throw an error if it encounters such a
-`poison` constant. LLVM also permits values where only certain bits of the
-value are poison, but `crucible-llvm` is unable to reason about this.
+There are other ways to create and propagate poison that `crucible-llvm` cannot
+track as well, however. In particular, LLVM features `poison` constant values
+that can take on values of any type, which means that they can be propagated to
+any part of a program. `crucible-llvm` has extremely limited support for
+representing `poison` constant values, but only in circumstances where `poison`
+values are not simulated directly. As an example of what "simulated directly"
+means, consider the following example:
+
+```llvm
+define i32 @main() {
+  %v = insertelement <2 x i32> <i32 poison, i32 1>, i32 0, i64 0
+  %r = extractelement <2 x i32> %v, i32 0
+  ret i32 %r
+}
+```
+
+Note that `poison` appears as the first element of the vector passed to the
+`insertelement` instruction. `crucible-llvm` is able to simulate this program,
+however. This is because the `insertelement` instruction will replace the
+`poison` element with `0`, which means that by the time this instruction makes
+it to Crucible's simulator, the value that gets simulated will be a vector
+containing `0` and `1`.
+
+This is not to say that intermediate `poison` values will always be translated
+away, however. For instance, `crucible-llvm` does not support the following
+variation of the program above:
+
+```llvm
+define i32 @main() {
+  %v1 = insertelement <2 x i32> <i32 42, i32 1>, i32 poison, i64 0
+  %v2 = insertelement <2 x i32> %v1, i32 0, i64 0
+  %r = extractelement <2 x i32> %v2, i32 0
+  ret i32 %r
+}
+```
+
+This is because the `%v1` register contains a `poison` value in the first
+element of its vector, and when attempting to translate `%v1` to a simulator
+value, `crucible-llvm` gives up when it encounters `poison`. As a general rule,
+`poison` values are permitted provided that they do not end up stored in
+registers or in memory.
