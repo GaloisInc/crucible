@@ -304,44 +304,48 @@ undefExpand :: ( ?err :: String -> a
             -> MemType
             -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> a)
             -> a
-undefExpand _archProxy (IntType w) k =
-  case mkNatRepr w of
-    Some w' | Just LeqProof <- isPosNat w' ->
-      k proxy# (LLVMPointerRepr w') $
-         BitvectorAsPointerExpr w' $
-         App $ BVUndef w'
+undefExpand archProxy t k =
+  case t of
+    IntType w ->
+      case mkNatRepr w of
+        Some w' | Just LeqProof <- isPosNat w' ->
+          k proxy# (LLVMPointerRepr w') $
+             BitvectorAsPointerExpr w' $
+             App $ BVUndef w'
 
-    _ -> ?err $ unwords ["illegal integer size", show w]
-undefExpand _archProxy (PtrType _tp) k =
-   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
-undefExpand _archProxy PtrOpaqueType k =
-   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
-undefExpand _archProxy (StructType si) k =
-   unpackArgs (map UndefExpr tps) $ \archProxy ctx asgn ->
-     k archProxy (StructRepr ctx) (mkStruct ctx asgn)
- where tps = map fiType $ toList $ siFields si
-undefExpand archProxy (ArrayType n tp) k =
-  llvmTypeAsRepr tp $ \tpr ->
-    unpackVec
-      archProxy
-      tpr
-      (replicate (fromIntegral n) (UndefExpr tp))
-      (k proxy# (VectorRepr tpr))
-undefExpand archProxy (VecType n tp) k =
-  llvmTypeAsRepr tp $ \tpr ->
-    unpackVec
-      archProxy
-      tpr
-      (replicate (fromIntegral n) (UndefExpr tp))
-      (k proxy# (VectorRepr tpr))
-undefExpand _archProxy FloatType k =
-  k proxy# (FloatRepr SingleFloatRepr) (App (FloatUndef SingleFloatRepr))
-undefExpand _archProxy DoubleType k =
-  k proxy# (FloatRepr DoubleFloatRepr) (App (FloatUndef DoubleFloatRepr))
-undefExpand _archProxy X86_FP80Type k =
-  k proxy# (FloatRepr X86_80FloatRepr) (App (FloatUndef X86_80FloatRepr))
-undefExpand _archPrxy MetadataType _ =
-  ?err $ unwords ["cannot undef expand metadata type"]
+        _ -> ?err $ unwords ["illegal integer size", show w]
+    PtrType _tp ->
+      k proxy# PtrRepr $
+        BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
+    PtrOpaqueType ->
+      k proxy# PtrRepr $
+        BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
+    StructType si ->
+      unpackArgs (map UndefExpr tps) $ \structArchProxy ctx asgn ->
+        k structArchProxy (StructRepr ctx) (mkStruct ctx asgn)
+      where tps = map fiType $ toList $ siFields si
+    ArrayType n tp ->
+      llvmTypeAsRepr tp $ \tpr ->
+        unpackVec
+          archProxy
+          tpr
+          (replicate (fromIntegral n) (UndefExpr tp))
+          (k proxy# (VectorRepr tpr))
+    VecType n tp ->
+      llvmTypeAsRepr tp $ \tpr ->
+        unpackVec
+          archProxy
+          tpr
+          (replicate (fromIntegral n) (UndefExpr tp))
+          (k proxy# (VectorRepr tpr))
+    FloatType ->
+      k proxy# (FloatRepr SingleFloatRepr) (App (FloatUndef SingleFloatRepr))
+    DoubleType ->
+      k proxy# (FloatRepr DoubleFloatRepr) (App (FloatUndef DoubleFloatRepr))
+    X86_FP80Type ->
+      k proxy# (FloatRepr X86_80FloatRepr) (App (FloatUndef X86_80FloatRepr))
+    MetadataType ->
+      ?err $ unwords ["cannot undef expand metadata type"]
 
 poisonExpand :: ( ?err :: String -> a
                 , HasPtrWidth (ArchWidth arch)
@@ -350,44 +354,48 @@ poisonExpand :: ( ?err :: String -> a
              -> MemType
              -> (forall tp. Proxy# arch -> TypeRepr tp -> Expr LLVM s tp -> a)
              -> a
-poisonExpand _archProxy (IntType w) k =
-  case mkNatRepr w of
-    Some w' | Just LeqProof <- isPosNat w' ->
-      k proxy# (LLVMPointerRepr w') $
-         BitvectorAsPointerExpr w' $
-         poisonBvExpr w'
+poisonExpand archProxy t k =
+  case t of
+    IntType w ->
+      case mkNatRepr w of
+        Some w' | Just LeqProof <- isPosNat w' ->
+          k proxy# (LLVMPointerRepr w') $
+             BitvectorAsPointerExpr w' $
+             poisonBvExpr w'
 
-    _ -> ?err $ unwords ["illegal integer size", show w]
-poisonExpand _archProxy (PtrType _tp) k =
-   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
-poisonExpand _archProxy PtrOpaqueType k =
-   k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
-poisonExpand _archProxy (StructType si) k =
-   unpackArgs (map PoisonExpr tps) $ \archProxy ctx asgn ->
-     k archProxy (StructRepr ctx) (mkStruct ctx asgn)
- where tps = map fiType $ toList $ siFields si
-poisonExpand archProxy (ArrayType n tp) k =
-  llvmTypeAsRepr tp $ \tpr ->
-    unpackVec
-      archProxy
-      tpr
-      (replicate (fromIntegral n) (PoisonExpr tp))
-      (k proxy# (VectorRepr tpr))
-poisonExpand archProxy (VecType n tp) k =
-  llvmTypeAsRepr tp $ \tpr ->
-    unpackVec
-      archProxy
-      tpr
-      (replicate (fromIntegral n) (PoisonExpr tp))
-      (k proxy# (VectorRepr tpr))
-poisonExpand _archProxy FloatType k =
-  k proxy# (FloatRepr SingleFloatRepr) (poisonFloatExpr SingleFloatRepr)
-poisonExpand _archProxy DoubleType k =
-  k proxy# (FloatRepr DoubleFloatRepr) (poisonFloatExpr DoubleFloatRepr)
-poisonExpand _archProxy X86_FP80Type k =
-  k proxy# (FloatRepr X86_80FloatRepr) (poisonFloatExpr X86_80FloatRepr)
-poisonExpand _archPrxy MetadataType _ =
-  ?err $ unwords ["cannot poison expand metadata type"]
+        _ -> ?err $ unwords ["illegal integer size", show w]
+    PtrType _tp ->
+      k proxy# PtrRepr $
+        BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
+    PtrOpaqueType ->
+      k proxy# PtrRepr $
+        BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
+    StructType si ->
+      unpackArgs (map PoisonExpr tps) $ \structArchProxy ctx asgn ->
+        k structArchProxy (StructRepr ctx) (mkStruct ctx asgn)
+      where tps = map fiType $ toList $ siFields si
+    ArrayType n tp ->
+      llvmTypeAsRepr tp $ \tpr ->
+        unpackVec
+          archProxy
+          tpr
+          (replicate (fromIntegral n) (PoisonExpr tp))
+          (k proxy# (VectorRepr tpr))
+    VecType n tp ->
+      llvmTypeAsRepr tp $ \tpr ->
+        unpackVec
+          archProxy
+          tpr
+          (replicate (fromIntegral n) (PoisonExpr tp))
+          (k proxy# (VectorRepr tpr))
+    FloatType ->
+      k proxy# (FloatRepr SingleFloatRepr) (poisonFloatExpr SingleFloatRepr)
+    DoubleType ->
+      k proxy# (FloatRepr DoubleFloatRepr) (poisonFloatExpr DoubleFloatRepr)
+    X86_FP80Type ->
+      k proxy# (FloatRepr X86_80FloatRepr) (poisonFloatExpr X86_80FloatRepr)
+    MetadataType ->
+      ?err $ unwords ["cannot poison expand metadata type"]
 
 
 explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
