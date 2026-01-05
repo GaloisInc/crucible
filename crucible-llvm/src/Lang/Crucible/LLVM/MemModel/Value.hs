@@ -353,9 +353,8 @@ isZero sym v =
     LLVMValZero _     -> pure (Just $ truePred sym)
     LLVMValUndef _    -> pure Nothing
     LLVMValPoison _   -> pure Nothing
-    _                 ->
-      -- For atomic types, we simply expand and compare.
-      testEqual sym v =<< zeroExpandLLVMVal sym (llvmValStorableType v)
+    LLVMValInt {}     -> compareToZeroExpansion
+    LLVMValFloat {}   -> compareToZeroExpansion
   where
     areZero :: Traversable t => t (LLVMVal sym) -> IO (Maybe (t (Pred sym)))
     areZero = fmap sequence . traverse (isZero sym)
@@ -363,6 +362,11 @@ isZero sym v =
     areZero' vs =
       -- This could probably be simplified with a well-placed =<<...
       join $ fmap commuteMaybe $ fmap (fmap (allOf sym . toList)) $ areZero vs
+
+    -- Check if a value is equal to itself after zero-expansion. This is
+    -- suitable for checking atomic types (e.g., integers and floats).
+    compareToZeroExpansion =
+      testEqual sym v =<< zeroExpandLLVMVal sym (llvmValStorableType v)
 
 -- | A predicate denoting the equality of two LLVMVals.
 --
