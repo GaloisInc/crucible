@@ -340,7 +340,8 @@ undefExpand _archProxy DoubleType k =
   k proxy# (FloatRepr DoubleFloatRepr) (App (FloatUndef DoubleFloatRepr))
 undefExpand _archProxy X86_FP80Type k =
   k proxy# (FloatRepr X86_80FloatRepr) (App (FloatUndef X86_80FloatRepr))
-undefExpand _archPrxy tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
+undefExpand _archPrxy MetadataType _ =
+  ?err $ unwords ["cannot undef expand metadata type"]
 
 poisonExpand :: ( ?err :: String -> a
                 , HasPtrWidth (ArchWidth arch)
@@ -385,7 +386,8 @@ poisonExpand _archProxy DoubleType k =
   k proxy# (FloatRepr DoubleFloatRepr) (poisonFloatExpr DoubleFloatRepr)
 poisonExpand _archProxy X86_FP80Type k =
   k proxy# (FloatRepr X86_80FloatRepr) (poisonFloatExpr X86_80FloatRepr)
-poisonExpand _archPrxy tp _ = ?err $ unwords ["cannot poison expand type:", show tp]
+poisonExpand _archPrxy MetadataType _ =
+  ?err $ unwords ["cannot poison expand metadata type"]
 
 
 explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
