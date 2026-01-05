@@ -317,12 +317,23 @@ undefExpand _archProxy (PtrType _tp) k =
 undefExpand _archProxy PtrOpaqueType k =
    k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ App $ BVUndef PtrWidth
 undefExpand _archProxy (StructType si) k =
-   unpackArgs (map UndefExpr tps) $ \archProxy ctx asgn -> k archProxy (StructRepr ctx) (mkStruct ctx asgn)
+   unpackArgs (map UndefExpr tps) $ \archProxy ctx asgn ->
+     k archProxy (StructRepr ctx) (mkStruct ctx asgn)
  where tps = map fiType $ toList $ siFields si
 undefExpand archProxy (ArrayType n tp) k =
-  llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (UndefExpr tp)) $ k proxy# (VectorRepr tpr)
+  llvmTypeAsRepr tp $ \tpr ->
+    unpackVec
+      archProxy
+      tpr
+      (replicate (fromIntegral n) (UndefExpr tp))
+      (k proxy# (VectorRepr tpr))
 undefExpand archProxy (VecType n tp) k =
-  llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (UndefExpr tp)) $ k proxy# (VectorRepr tpr)
+  llvmTypeAsRepr tp $ \tpr ->
+    unpackVec
+      archProxy
+      tpr
+      (replicate (fromIntegral n) (UndefExpr tp))
+      (k proxy# (VectorRepr tpr))
 undefExpand _archProxy FloatType k =
   k proxy# (FloatRepr SingleFloatRepr) (App (FloatUndef SingleFloatRepr))
 undefExpand _archProxy DoubleType k =
@@ -351,12 +362,23 @@ poisonExpand _archProxy (PtrType _tp) k =
 poisonExpand _archProxy PtrOpaqueType k =
    k proxy# PtrRepr $ BitvectorAsPointerExpr PtrWidth $ poisonBvExpr PtrWidth
 poisonExpand _archProxy (StructType si) k =
-   unpackArgs (map PoisonExpr tps) $ \archProxy ctx asgn -> k archProxy (StructRepr ctx) (mkStruct ctx asgn)
+   unpackArgs (map PoisonExpr tps) $ \archProxy ctx asgn ->
+     k archProxy (StructRepr ctx) (mkStruct ctx asgn)
  where tps = map fiType $ toList $ siFields si
 poisonExpand archProxy (ArrayType n tp) k =
-  llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (PoisonExpr tp)) $ k proxy# (VectorRepr tpr)
+  llvmTypeAsRepr tp $ \tpr ->
+    unpackVec
+      archProxy
+      tpr
+      (replicate (fromIntegral n) (PoisonExpr tp))
+      (k proxy# (VectorRepr tpr))
 poisonExpand archProxy (VecType n tp) k =
-  llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (PoisonExpr tp)) $ k proxy# (VectorRepr tpr)
+  llvmTypeAsRepr tp $ \tpr ->
+    unpackVec
+      archProxy
+      tpr
+      (replicate (fromIntegral n) (PoisonExpr tp))
+      (k proxy# (VectorRepr tpr))
 poisonExpand _archProxy FloatType k =
   k proxy# (FloatRepr SingleFloatRepr) (poisonFloatExpr SingleFloatRepr)
 poisonExpand _archProxy DoubleType k =
