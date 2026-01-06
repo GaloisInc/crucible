@@ -1,6 +1,6 @@
 # If you update this version number, make sure to update the value of
 # LINUX_LLVM_VER in .github/ci.sh (in the install_llvm() function).
-ARG LLVM_VER=20
+ARG LLVM_VER=21
 
 # Note that we intentionally do not use ubuntu:24.04 or later pending a
 # resolution to https://github.com/coder/coder/issues/17316.
@@ -18,10 +18,9 @@ RUN apt-get update && \
       # Crux dependencies \
       pkg-config zlib1g-dev \
       # Miscellaneous
-      unzip wget
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh ${LLVM_VER}
+      gnupg lsb-release software-properties-common unzip wget
+ADD .github/llvm.sh /llvm.sh
+RUN /llvm.sh ${LLVM_VER}
 
 ARG CRUX_BUILD_DIR=/crux-llvm/build
 RUN mkdir -p ${CRUX_BUILD_DIR}
@@ -116,10 +115,9 @@ ARG LLVM_VER
 
 RUN apt-get update && \
     apt-get install -y \
-      libgmp10 zlib1g unzip wget
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh ${LLVM_VER}
+      gnupg libgmp10 lsb-release software-properties-common zlib1g unzip wget
+ADD .github/llvm.sh /llvm.sh
+RUN /llvm.sh ${LLVM_VER}
 
 COPY --from=build /crux-llvm/rootfs /
 WORKDIR /crux-llvm
