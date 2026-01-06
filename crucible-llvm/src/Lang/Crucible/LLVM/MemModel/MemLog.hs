@@ -676,7 +676,9 @@ concLLVMVal sym conc (LLVMValArray st vs) =
 concLLVMVal _ _ v@LLVMValString{} = pure v
 concLLVMVal _ _ v@LLVMValZero{} = pure v
 concLLVMVal _ _ (LLVMValUndef st) =
-  pure (LLVMValZero st) -- ??? does it make sense to turn Undef into Zero?
+  pure (LLVMValUndef st)
+concLLVMVal _ _ (LLVMValPoison st) =
+  pure (LLVMValPoison st)
 
 
 concWriteSource ::

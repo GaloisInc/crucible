@@ -20,6 +20,20 @@
   comparing two integers of different signs will yield a poisoned result.
 * Support the `llvm.tan`, `llvm.a{sin,cos,tan}`, `llvm.{sin,cos,tan}h`, and
   `llvm.atan2` floating-point intrinsics.
+* Add extremely limited support for representing `poison` constants. For more
+  details on the extent to which `crucible-llvm` can reason about `poison`, see
+  `doc/limitations.md`.
+
+  As part of these changes:
+
+  * `LLVMVal` now features an additional `LLVMValPoison` data constructor.
+  * `LLVMExpr` now features an additional `PoisonExpr` data constructor.
+  * `LLVMConst` now features an addition `PoisonConst` data constructor.
+  * `LLVMExtensionExpr` now features `LLVM_Poison{BV,Float}` data constructors,
+    which represent primitive `poison` values.
+* Remove the `Eq LLVMConst` instance. This instance was inherently unreliable
+  because it cannot easily compute a simple `True`-or-`False` answer in the
+  presence of `undef` or `poison` values.
 
 # 0.8.0 -- 2025-11-09
 

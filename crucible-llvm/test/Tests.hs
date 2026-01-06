@@ -15,6 +15,7 @@ module Main (main) where
 import           Lang.Crucible.FunctionHandle ( newHandleAllocator )
 
 import qualified Data.BitVector.Sized as BV
+import           Data.Parameterized.DecidableEq ( decEq )
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.SymbolRepr ( SomeSym(SomeSym) )
@@ -35,6 +36,8 @@ import qualified Test.Tasty.Sugar as TS
 import           Control.Lens (view)
 import           Control.Monad
 import           Data.Either ( fromRight )
+import           Data.Functor.Classes ( Eq1(liftEq) )
+import           Data.Functor.Identity ( Identity(..) )
 import           Data.Maybe ( catMaybes )
 import           GHC.TypeLits
 import qualified Data.Map.Strict as Map
@@ -264,31 +267,133 @@ transCheck getTrans = \case
   "extern_int" ->
     testCase "valid global extern variable reference" $ do
     Some t <- getTrans
-    Map.singleton (L.Symbol "extern_int") (Right (i32, Nothing)) @=?
-      Map.map snd (view globalInitMap t)
+    case snd <$> Map.lookup (L.Symbol "extern_int") (view globalInitMap t) of
+      Just (Right (actualTy, actualMbConst)) -> do
+        let expectedTy = i32
+        let expectedMbConst = Nothing
+        expectedTy @=? actualTy
+        assertLiftEq llvmConstSyntacticEq expectedMbConst actualMbConst
+      _ -> assertFailure "Could not look up extern_int"
 
   "x=42" ->
     testCase "valid global integer symbol reference" $ do
     Some t <- getTrans
-    Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
-      Map.map snd (view globalInitMap t)
+    case snd <$> Map.lookup (L.Symbol "x") (view globalInitMap t) of
+      Just (Right (actualTy, actualMbConst)) -> do
+        let expectedTy = i32
+        let expectedMbConst = Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42)
+        expectedTy @=? actualTy
+        assertLiftEq llvmConstSyntacticEq expectedMbConst actualMbConst
+      _ -> assertFailure "Could not look up x"
 
   "z.xx=17" ->
     testCase "valid global struct field symbol reference" $ do
     Some t <- getTrans
-    IntConst (knownNat @32) (BV.mkBV knownNat 17) @=?
-      case snd <$> Map.lookup (L.Symbol "z") (view globalInitMap t) of
-        Just (Right (_, Just (StructConst _ (x : _)))) -> x
-        _ -> IntConst (knownNat @1) (BV.zero knownNat)
+    case snd <$> Map.lookup (L.Symbol "z") (view globalInitMap t) of
+      Just (Right (_, actualMbConst)) ->
+        case actualMbConst of
+          Just (StructConst _ (actualXField : _)) -> do
+            let expectedXField = IntConst (knownNat @32) (BV.mkBV knownNat 17)
+            assertLiftEq
+              llvmConstSyntacticEq
+              (Identity expectedXField)
+              (Identity actualXField)
+          _ -> assertFailure $
+            "Expected x to be a struct with at least one field, " ++
+            "but it was actually " ++ show actualMbConst
+      _ -> assertFailure "Could not look up z"
 
   "x uninitialized" ->
     testCase "valid global unitialized variable reference" $ do
     Some t <- getTrans
-    Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
-      Map.map snd (view globalInitMap t)
+    case snd <$> Map.lookup (L.Symbol "x") (view globalInitMap t) of
+      Just (Right (actualTy, actualMbConst)) -> do
+        let expectedTy = i32
+        let expectedMbConst = Just $ ZeroConst i32
+        expectedTy @=? actualTy
+        assertLiftEq llvmConstSyntacticEq expectedMbConst actualMbConst
+      _ -> assertFailure "Could not look up x"
 
   -- We're really just checking that the translation succeeds without
   -- exceptions.
   "" -> testCase "no additional checks" $ return ()
 
   other -> testCase other $ assertFailure $ "Unknown check: " <> other
+
+-- | Helper, not exported
+--
+-- Compare two 'LLVMConst's for syntactic equality. This should not be confused
+-- with the semantic notion of equality that LLVM typically uses. For instance,
+-- this function considers two 'UndefConst's values to be syntactically equal,
+-- but LLVM's semantic equality could deem two @undef@ values to be not equal.
+llvmConstSyntacticEq :: LLVMConst -> LLVMConst -> Bool
+llvmConstSyntacticEq (ZeroConst mem1) (ZeroConst mem2) =
+  mem1 == mem2
+llvmConstSyntacticEq (IntConst w1 x1) (IntConst w2 x2) =
+  case decEq w1 w2 of
+    Left Refl -> x1 == x2
+    Right _   -> False
+llvmConstSyntacticEq (FloatConst f1) (FloatConst f2) =
+  f1 == f2
+llvmConstSyntacticEq (DoubleConst d1) (DoubleConst d2) =
+  d1 == d2
+llvmConstSyntacticEq (LongDoubleConst ld1) (LongDoubleConst ld2) =
+  ld1 == ld2
+llvmConstSyntacticEq (StringConst s1) (StringConst s2) =
+  s1 == s2
+llvmConstSyntacticEq (ArrayConst mem1 a1) (ArrayConst mem2 a2) =
+  mem1 == mem2 && liftEq llvmConstSyntacticEq a1 a2
+llvmConstSyntacticEq (VectorConst mem1 v1) (VectorConst mem2 v2) =
+  mem1 == mem2 && liftEq llvmConstSyntacticEq v1 v2
+llvmConstSyntacticEq (StructConst si1 a1) (StructConst si2 a2) =
+  si1 == si2 && liftEq llvmConstSyntacticEq a1 a2
+llvmConstSyntacticEq (SymbolConst s1 x1) (SymbolConst s2 x2) =
+  s1 == s2 && x1 == x2
+llvmConstSyntacticEq (UndefConst tp1) (UndefConst tp2) =
+  tp1 == tp2
+llvmConstSyntacticEq (PoisonConst tp1) (PoisonConst tp2) =
+  tp1 == tp2
+
+llvmConstSyntacticEq (ZeroConst {}) _ =
+  False
+llvmConstSyntacticEq (IntConst {}) _ =
+  False
+llvmConstSyntacticEq (FloatConst {}) _ =
+  False
+llvmConstSyntacticEq (DoubleConst {}) _ =
+  False
+llvmConstSyntacticEq (LongDoubleConst {}) _ =
+  False
+llvmConstSyntacticEq (StringConst {}) _ =
+  False
+llvmConstSyntacticEq (ArrayConst {}) _ =
+  False
+llvmConstSyntacticEq (VectorConst {}) _ =
+  False
+llvmConstSyntacticEq (StructConst {}) _ =
+  False
+llvmConstSyntacticEq (SymbolConst {}) _ =
+  False
+llvmConstSyntacticEq (UndefConst {}) _ =
+  False
+llvmConstSyntacticEq (PoisonConst {}) _ =
+  False
+
+-- | Helper, not exported
+--
+-- Like 'assertEqual', but lifted to work over an 'Eq1' instance instead of an
+-- 'Eq' instance. In addition, this allows the user to customize how to check
+-- the underlying values (of type @expected@ and @actual@) for equality.
+assertLiftEq ::
+  (Eq1 f, Show (f expected), Show (f actual), HasCallStack) =>
+  -- | How to check the underlying values for equality
+  (expected -> actual -> Bool) ->
+  -- | The expected value
+  f expected ->
+  -- | The actual value
+  f actual ->
+  Assertion
+assertLiftEq eq expected actual =
+  unless (liftEq eq expected actual) (assertFailure msg)
+  where
+    msg = "expected: " ++ show expected ++ "\n but got: " ++ show actual

@@ -1,0 +1,4 @@
+SKIP_TEST
+
+This test case requires the use of `poison` constant values, which were first
+introduced in LLVM 12.

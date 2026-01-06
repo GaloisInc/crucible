@@ -381,6 +381,9 @@ floatToBV ::
 floatToBV _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 4)))
 
+floatToBV _ _ (NoErr p (LLVMValPoison (StorageType Float _))) =
+  return (NoErr p (LLVMValPoison (Type.bitvectorType 4)))
+
 floatToBV sym _ (NoErr p (LLVMValZero (StorageType Float _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvZero sym (knownNat @32)
@@ -407,6 +410,9 @@ doubleToBV ::
 doubleToBV _ _ (NoErr p (LLVMValUndef (StorageType Double _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 8)))
 
+doubleToBV _ _ (NoErr p (LLVMValPoison (StorageType Double _))) =
+  return (NoErr p (LLVMValPoison (Type.bitvectorType 8)))
+
 doubleToBV sym _ (NoErr p (LLVMValZero (StorageType Double _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvZero sym (knownNat @64)
@@ -432,6 +438,9 @@ fp80ToBV ::
   IO (PartLLVMVal sym)
 fp80ToBV _ _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 10)))
+
+fp80ToBV _ _ (NoErr p (LLVMValPoison (StorageType X86_FP80 _))) =
+  return (NoErr p (LLVMValPoison (Type.bitvectorType 10)))
 
 fp80ToBV sym _ (NoErr p (LLVMValZero (StorageType X86_FP80 _))) =
   do nz <- W4I.natLit sym 0
@@ -937,6 +946,12 @@ muxLLVMVal sym = merge sym muxval
                                           , "Undef type: " ++ show tpu
                                           ]
 
+      LLVMValPoison tpp ->
+        -- TODO: Is this the right behavior?
+        panic "Cannot mux zero and poison" [ "Zero type: " ++ show tpz
+                                           , "Poison type: " ++ show tpp
+                                           ]
+
       LLVMValString bs -> muxzero cond tpz =<< Value.explodeStringValue sym bs
 
       LLVMValInt base off ->
@@ -1007,6 +1022,9 @@ muxLLVMVal sym = merge sym muxval
           LLVMValArray tp1 <$> V.zipWithM (muxval cond) v1 v2
 
     muxval _ v1@(LLVMValUndef tp1) (LLVMValUndef tp2)
+      | tp1 == tp2 = pure v1
+
+    muxval _ v1@(LLVMValPoison tp1) (LLVMValPoison tp2)
       | tp1 == tp2 = pure v1
 
     muxval _ v1 v2 =
