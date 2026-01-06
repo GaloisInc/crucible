@@ -134,7 +134,9 @@ basic_llvm_overrides =
   , SomeLLVMOverride llvmPrefetchOverride_preLLVM10
 
   , SomeLLVMOverride llvmStacksave
+  , SomeLLVMOverride llvmStacksave_preLLVM18
   , SomeLLVMOverride llvmStackrestore
+  , SomeLLVMOverride llvmStackrestore_preLLVM18
 
   , SomeLLVMOverride (llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
   , SomeLLVMOverride (llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
@@ -500,17 +502,47 @@ llvmUBSanTrapOverride =
     ovrWithBackend $ \bak ->
       liftIO $ addFailedAssertion bak $ AssertFailureSimError "llvm.ubsantrap() called" "")
 
+-- | TODO(#130): This override ought to impose proof obligations related to
+-- proper block scoping.
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => LLVMOverride p sym ext EmptyCtx (LLVMPointerType wptr)
 llvmStacksave =
+  [llvmOvr| i8* @llvm.stacksave.p0() |]
+  (\_memOps _args -> mkNull)
+
+-- | TODO(#130): This override ought to impose proof obligations related to
+-- proper block scoping.
+--
+-- See also 'llvmStacksave'. This version exists for compatibility with
+-- pre-18 versions of LLVM, where @llvm.stacksave@ always assumed that the
+-- returned pointer value resides in address space 0.
+llvmStacksave_preLLVM18
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym ext EmptyCtx (LLVMPointerType wptr)
+llvmStacksave_preLLVM18 =
   [llvmOvr| i8* @llvm.stacksave() |]
   (\_memOps _args -> mkNull)
 
+-- | TODO(#130): This override ought to impose proof obligations related to
+-- proper block scoping.
 llvmStackrestore
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) UnitType
 llvmStackrestore =
+  [llvmOvr| void @llvm.stackrestore.p0( i8* ) |]
+  (\_memOps _args -> return ())
+
+-- | TODO(#130): This override ought to impose proof obligations related to
+-- proper block scoping.
+--
+-- See also 'llvmStackrestore'. This version exists for compatibility with
+-- pre-18 versions of LLVM, where @llvm.stackrestore@ always assumed that the
+-- pointer argument resides in address space 0.
+llvmStackrestore_preLLVM18
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) UnitType
+llvmStackrestore_preLLVM18 =
   [llvmOvr| void @llvm.stackrestore( i8* ) |]
   (\_memOps _args -> return ())
 
