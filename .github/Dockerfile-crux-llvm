@@ -1,6 +1,6 @@
 # If you update this version number, make sure to update the value of
 # LINUX_LLVM_VER in .github/ci.sh (in the install_llvm() function).
-ARG LLVM_VER=20
+ARG LLVM_VER=21
 
 # Note that we intentionally do not use ubuntu:24.04 or later pending a
 # resolution to https://github.com/coder/coder/issues/17316.
