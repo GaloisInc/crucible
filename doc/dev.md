@@ -38,3 +38,34 @@ When adding support for the new GHC version to Crucible itself, complete the fol
 - [ ] Remove the old version's `cabal.GHC-X.Y.Z.config` file
 - [ ] Remove outdated CPP `ifdef`s that refer to the dropped version
 - [ ] Remove outdated `if` stanzas in the Cabal files
+
+## LLVM versions
+
+The `crux-llvm` CI currently runs the against one fixed, recent version of
+LLVM. We should aim to update this LLVM version from time to time as new
+versions of LLVM are released.
+
+When updating the version of LLVM that the `crux-llvm` CI uses, complete the
+following steps:
+
+- [ ] Bump the `llvm-pretty` and `llvm-pretty-bc-parser` submodule commits to
+      versions that support the desired version of LLVM.
+- [ ] Ensure that the `crucible-llvm-*` and `crux-llvm` packages build against
+      the new versions of `llvm-pretty` and `llvm-pretty-bc-parser`. If not,
+      update the code as needed.
+- [ ] Ensure that the `crux-llvm` test suite passes with the desired version of
+      LLVM. If not, investigate why specific test cases fail. There is no
+      one-size-fits-all-formula for fixing these sorts of test failures, but
+      often times this will require changes to `llvm-pretty`,
+      `llvm-pretty-bc-parser`, `crucible-llvm`, or a combination thereof.
+- [ ] Update `crux-llvm/README.md` to mention that a newer LLVM version is now
+      supported (near the sentence "... LLVMs versions from X to Y are likely
+      to work well ...").
+- [ ] Go to the vendored-in `.github/llvm.sh` script and check to see if there
+      have been any changes to the script upstream (follow the URL in the
+      comments near the top of the script). If there have been changes, then
+      copy over the changes to the vendored-in script and commit them.
+- [ ] In `.github/ci.sh`, update `LINUX_LLVM_VER` and `MACOS_LLVM_VER` to the
+      desired LLVM version.
+- [ ] In `.github/Dockerfile-crux-llvm`, update `LLVM_VER` to the desired LLVM
+      version.
