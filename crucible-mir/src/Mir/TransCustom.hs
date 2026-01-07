@@ -1040,7 +1040,7 @@ ctlz_impl name optFixedWidth _substs = Just $ CustomOp $ \_optys ops -> case ops
         Just (Some w')
           | Just LeqProof <- isPosNat w' ->
             return $ MirExp (C.BVRepr w') $ S.app $ buildMux w w w' v
-          | otherwise -> error $ "bad output width " ++ show w' ++ " for ctlz_impl"
+          | otherwise -> error $ Text.unpack name ++ ": bad output width " ++ show w'
     _ -> mirFail $ "BUG: invalid arguments to " ++ Text.unpack name ++ ": " ++ show ops
   where
     getBit :: (1 <= w, i + 1 <= w) =>
