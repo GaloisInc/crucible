@@ -109,6 +109,8 @@ customOpDefs = Map.fromList $ [
                          , unchecked_shr
                          , ctlz
                          , ctlz_nonzero
+                         , cttz
+                         , cttz_nonzero
                          , rotate_left
                          , rotate_right
                          , size_of
@@ -1028,59 +1030,55 @@ exact_div =
   , makeExactDiv
   )
 
--- Build a "count leading zeros" implementation.  The function will be
--- polymorphic, accepting bitvectors of any width.  The `NatRepr` is the width
--- of the output, or `Nothing` to return a bitvector of the same width as the
--- input.
-ctlz_impl :: Text -> Maybe (Some NatRepr) -> CustomRHS
-ctlz_impl name optFixedWidth _substs = Just $ CustomOp $ \_optys ops -> case ops of
-    [MirExp (C.BVRepr w) v] -> case optFixedWidth of
-        Nothing ->
-            return $ MirExp (C.BVRepr w) $ S.app $ buildMux w w w v
-        Just (Some w')
-          | Just LeqProof <- isPosNat w' ->
-            return $ MirExp (C.BVRepr w') $ S.app $ buildMux w w w' v
-          | otherwise -> error $ "bad output width " ++ show w' ++ " for ctlz_impl"
+-- Build a \"count leading zeros\" implementation. The function will be
+-- polymorphic, accepting bitvectors of any width. The function will return
+-- a width-32 bitvector, as everything that makes use of this functionality
+-- hardcodes this width.
+ctlz_impl :: Text -> CustomRHS
+ctlz_impl name _substs = Just $ CustomOp $ \_optys ops -> case ops of
+    [MirExp (C.BVRepr w) v] -> do
+        let leadingZeros = S.app $ E.BVCountLeadingZeros w v
+        let w32 = knownNat @32
+        -- Because BVCountLeadingZeros returns a bitvector with the same width
+        -- as the input, we may need to extend or truncate it to make it have a
+        -- width of 32. There is no risk of information loss here due to
+        -- truncation, as 32 bits is more than enough to represent the number
+        -- of digits for all supported primitive integer and Bv types.
+        return $ MirExp (C.BVRepr w32) $ bv_convert_impl w leadingZeros w32
     _ -> mirFail $ "BUG: invalid arguments to " ++ Text.unpack name ++ ": " ++ show ops
-  where
-    getBit :: (1 <= w, i + 1 <= w) =>
-        NatRepr w -> NatRepr i ->
-        R.Expr MIR s (C.BVType w) ->
-        E.App MIR (R.Expr MIR s) C.BoolType
-    getBit w i bv =
-        E.BVNonzero knownRepr $ R.App $
-        E.BVSelect i (knownNat @1) w $ bv
-
-    -- Build a mux tree that computes the number of leading zeros in `bv`,
-    -- assuming that all bits at positions >= i are already known to be zero.
-    -- The result is returned as a bitvector of width `w'`.
-    buildMux :: (1 <= w, i <= w, 1 <= w') =>
-        NatRepr w -> NatRepr i -> NatRepr w' ->
-        R.Expr MIR s (C.BVType w) ->
-        E.App MIR (R.Expr MIR s) (C.BVType w')
-    buildMux w i w' bv = case isZeroNat i of
-        ZeroNat ->
-            -- Bits 0..w are all known to be zero.  There are `w` leading
-            -- zeros.
-            eBVLit w' $ intValue w
-        NonZeroNat
-          | i' <- predNat i
-          , LeqProof <- addIsLeq i' (knownNat @1)
-          , LeqProof <- leqTrans (leqProof i' i) (leqProof i w)
-          -- Bits i..w are known to be zero, so inspect bit `i-1` next.
-          -> E.BVIte (R.App $ getBit w i' bv) w'
-                (R.App $ eBVLit w' $ intValue w - intValue i)
-                (R.App $ buildMux w i' w' bv)
 
 ctlz :: (ExplodedDefId, CustomRHS)
 ctlz =
-    ( ["core","intrinsics", "ctlz"]
-    , ctlz_impl "ctlz" (Just $ Some $ knownNat @32) )
+    (["core", "intrinsics", "ctlz"], ctlz_impl "ctlz")
 
 ctlz_nonzero :: (ExplodedDefId, CustomRHS)
 ctlz_nonzero =
-    ( ["core","intrinsics", "ctlz_nonzero"]
-    , ctlz_impl "ctlz_nonzero" (Just $ Some $ knownNat @32) )
+    (["core", "intrinsics", "ctlz_nonzero"], ctlz_impl "ctlz_nonzero")
+
+-- Build a \"count trailing zeros\" implementation. The function will be
+-- polymorphic, accepting bitvectors of any width. The function will return
+-- a width-32 bitvector, as everything that makes use of this functionality
+-- hardcodes this width.
+cttz_impl :: Text -> CustomRHS
+cttz_impl name _substs = Just $ CustomOp $ \_optys ops -> case ops of
+    [MirExp (C.BVRepr w) v] -> do
+        let trailingZeros = S.app $ E.BVCountTrailingZeros w v
+        let w32 = knownNat @32
+        -- Because BVCountTrailingZeros returns a bitvector with the same width
+        -- as the input, we may need to extend or truncate it to make it have a
+        -- width of 32. There is no risk of information loss here due to
+        -- truncation, as 32 bits is more than enough to represent the number
+        -- of digits for all supported primitive integer and Bv types.
+        return $ MirExp (C.BVRepr w32) $ bv_convert_impl w trailingZeros w32
+    _ -> mirFail $ "BUG: invalid arguments to " ++ Text.unpack name ++ ": " ++ show ops
+
+cttz :: (ExplodedDefId, CustomRHS)
+cttz =
+    (["core", "intrinsics", "cttz"], cttz_impl "cttz")
+
+cttz_nonzero :: (ExplodedDefId, CustomRHS)
+cttz_nonzero =
+    (["core", "intrinsics", "cttz_nonzero"], cttz_impl "cttz_nonzero")
 
 rotate_left :: (ExplodedDefId, CustomRHS)
 rotate_left = ( ["core","intrinsics", "rotate_left"],
@@ -1686,14 +1684,25 @@ bv_convert = (["crucible", "bitvector", "convert"], \substs -> case substs of
         Some r <- tyToReprM u
         case r of
             C.BVRepr w2 ->
-                case compareNat w1 w2 of
-                    NatLT _ -> return $ MirExp (C.BVRepr w2) $
-                        S.app $ E.BVZext w2 w1 v
-                    NatGT _ -> return $ MirExp (C.BVRepr w2) $
-                        S.app $ E.BVTrunc w2 w1 v
-                    NatEQ -> return $ MirExp (C.BVRepr w2) v
+                return $ MirExp (C.BVRepr w2) $ bv_convert_impl w1 v w2
             _ -> mirFail ("BUG: invalid arguments to bv_convert: " ++ show ops)
       | otherwise = mirFail ("BUG: invalid arguments to bv_convert: " ++ show ops)
+
+-- | Convert a bitvector to a different bit width. This may zero-extend or
+-- truncate the bitvector if the input width differs from the output width.
+-- Because this function may truncate the bitvector, be aware that calling this
+-- function may result in a loss of bit information.
+bv_convert_impl ::
+  (1 <= inputW, 1 <= outputW) =>
+  NatRepr inputW ->
+  R.Expr MIR s (C.BVType inputW) ->
+  NatRepr outputW ->
+  R.Expr MIR s (C.BVType outputW)
+bv_convert_impl w1 v w2 =
+  case compareNat w1 w2 of
+      NatLT _ -> S.app $ E.BVZext w2 w1 v
+      NatGT _ -> S.app $ E.BVTrunc w2 w1 v
+      NatEQ -> v
 
 bv_funcs :: [(ExplodedDefId, CustomRHS)]
 bv_funcs =
@@ -1803,7 +1812,7 @@ bv_literal name op = (["crucible", "bitvector", "{impl}", name], \substs -> case
 bv_leading_zeros :: (ExplodedDefId, CustomRHS)
 bv_leading_zeros =
     ( ["crucible", "bitvector", "{impl}", "leading_zeros"]
-    , ctlz_impl "bv_leading_zeros" (Just $ Some $ knownNat @32) )
+    , ctlz_impl "bv_leading_zeros" )
 
 
 
