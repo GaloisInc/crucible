@@ -698,7 +698,9 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
            in return $ varName ++ " { " ++ List.intercalate ", " fieldStrs' ++ " }"
 
     -- Render the value that would inhabit the given zero-sized type, failing if
-    -- the type is not zero-sized.
+    -- the type is not zero-sized, or if the type is uninhabitable. As such,
+    -- note that this only succeeds on a subset of the types that satisfy
+    -- `isZeroSized`.
     showZSTValue :: Ty -> C.OverrideSim p sym MIR rtp args ret String
     showZSTValue ty =
       case ty of
