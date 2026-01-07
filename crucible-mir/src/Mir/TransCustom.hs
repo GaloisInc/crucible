@@ -109,6 +109,8 @@ customOpDefs = Map.fromList $ [
                          , unchecked_shr
                          , ctlz
                          , ctlz_nonzero
+                         , cttz
+                         , cttz_nonzero
                          , rotate_left
                          , rotate_right
                          , size_of
@@ -1052,6 +1054,31 @@ ctlz =
 ctlz_nonzero :: (ExplodedDefId, CustomRHS)
 ctlz_nonzero =
     (["core", "intrinsics", "ctlz_nonzero"], ctlz_impl "ctlz_nonzero")
+
+-- Build a \"count trailing zeros\" implementation. The function will be
+-- polymorphic, accepting bitvectors of any width. The function will return
+-- a width-32 bitvector, as everything that makes use of this functionality
+-- hardcodes this width.
+cttz_impl :: Text -> CustomRHS
+cttz_impl name _substs = Just $ CustomOp $ \_optys ops -> case ops of
+    [MirExp (C.BVRepr w) v] -> do
+        let trailingZeros = S.app $ E.BVCountTrailingZeros w v
+        let w32 = knownNat @32
+        -- Because BVCountTrailingZeros returns a bitvector with the same width
+        -- as the input, we may need to extend or truncate it to make it have a
+        -- width of 32. There is no risk of information loss here due to
+        -- truncation, as 32 bits is more than enough to represent the number
+        -- of digits for all supported primitive integer and Bv types.
+        return $ MirExp (C.BVRepr w32) $ bv_convert_impl w trailingZeros w32
+    _ -> mirFail $ "BUG: invalid arguments to " ++ Text.unpack name ++ ": " ++ show ops
+
+cttz :: (ExplodedDefId, CustomRHS)
+cttz =
+    (["core", "intrinsics", "cttz"], cttz_impl "cttz")
+
+cttz_nonzero :: (ExplodedDefId, CustomRHS)
+cttz_nonzero =
+    (["core", "intrinsics", "cttz_nonzero"], cttz_impl "cttz_nonzero")
 
 rotate_left :: (ExplodedDefId, CustomRHS)
 rotate_left = ( ["core","intrinsics", "rotate_left"],

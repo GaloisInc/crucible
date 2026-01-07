@@ -30,6 +30,10 @@ This release supports [version
   pointer is greater than or equal to the second.  If the offset would be
   negative (i.e., the first pointer is less than the second), this is undefined
   behavior.
+* Add intrinsics for
+  [`cttz`](https://doc.rust-lang.org/std/intrinsics/fn.cttz.html) and
+  [`cttz_nonzero`](https://doc.rust-lang.org/std/intrinsics/fn.cttz_nonzero.html),
+  which compute the number of trailing zeros in an integer value.
 * Replace the `MirVector` type with `MirAggregate`. As part of this change, the
   following have been removed:
 
