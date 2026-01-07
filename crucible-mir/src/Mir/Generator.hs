@@ -422,12 +422,17 @@ findFn name = do
         Just x -> return x
         Nothing -> mirFail $ "unknown Fn " ++ show name
 
+-- | Look up an ADT by its monomorphized name, failing if it isn't found.
 findAdt :: DefId -> MirGenerator h s ret Adt
 findAdt name = do
-    optAdt <- use $ cs . collection . adts . at name
-    case optAdt of
+    col <- use $ cs . collection
+    case findAdt' col name of
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show name
+
+-- | Look up an ADT by its monomorphized name.
+findAdt' :: Collection -> DefId -> Maybe Adt
+findAdt' col name = col ^. adts . at name
 
 -- Find the ADT definition that is monomorphized from `origName` with `substs`.
 -- This should only be used on types that are known to be present in the crate
