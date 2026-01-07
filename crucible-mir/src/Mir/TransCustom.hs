@@ -1686,14 +1686,25 @@ bv_convert = (["crucible", "bitvector", "convert"], \substs -> case substs of
         Some r <- tyToReprM u
         case r of
             C.BVRepr w2 ->
-                case compareNat w1 w2 of
-                    NatLT _ -> return $ MirExp (C.BVRepr w2) $
-                        S.app $ E.BVZext w2 w1 v
-                    NatGT _ -> return $ MirExp (C.BVRepr w2) $
-                        S.app $ E.BVTrunc w2 w1 v
-                    NatEQ -> return $ MirExp (C.BVRepr w2) v
+                return $ MirExp (C.BVRepr w2) $ bv_convert_impl w1 v w2
             _ -> mirFail ("BUG: invalid arguments to bv_convert: " ++ show ops)
       | otherwise = mirFail ("BUG: invalid arguments to bv_convert: " ++ show ops)
+
+-- | Convert a bitvector to a different bit width. This may zero-extend or
+-- truncate the bitvector if the input width differs from the output width.
+-- Because this function may truncate the bitvector, be aware that calling this
+-- function may result in a loss of bit information.
+bv_convert_impl ::
+  (1 <= inputW, 1 <= outputW) =>
+  NatRepr inputW ->
+  R.Expr MIR s (C.BVType inputW) ->
+  NatRepr outputW ->
+  R.Expr MIR s (C.BVType outputW)
+bv_convert_impl w1 v w2 =
+  case compareNat w1 w2 of
+      NatLT _ -> S.app $ E.BVZext w2 w1 v
+      NatGT _ -> S.app $ E.BVTrunc w2 w1 v
+      NatEQ -> v
 
 bv_funcs :: [(ExplodedDefId, CustomRHS)]
 bv_funcs =
