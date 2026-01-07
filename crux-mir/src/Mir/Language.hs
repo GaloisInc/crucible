@@ -552,7 +552,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, _)
-      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts)
+      | Just adt <- findAdt' col name
       , adt ^. adtReprTransparent -> do
         let variant = onlyVariant adt
         let fieldTys = variant ^.. vfields . each . fty
@@ -576,7 +576,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
         fieldStrs <- zipWithM showField [0..] fieldTys
         showVariant' variant fieldStrs
 
-      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col ^. adts) -> do
+      | Just adt <- findAdt' col name -> do
         optParts <- case adt ^. adtkind of
             Struct -> do
                 let var = onlyVariant adt
@@ -708,7 +708,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
           vs <- mapM showZSTValue ts
           pure $ "(" <> List.intercalate ", " vs <> ")"
         TyAdt monoName _ _
-          | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> monoName == n) (col ^. adts) -> do
+          | Just adt <- findAdt' col monoName -> do
               let variant = onlyVariant adt
               let fieldTys = variant ^.. vfields . each . fty
               fieldStrs <- mapM showZSTValue fieldTys
