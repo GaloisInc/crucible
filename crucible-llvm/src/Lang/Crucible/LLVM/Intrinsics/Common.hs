@@ -44,6 +44,7 @@ import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
 import           Numeric (readDec)
 import qualified System.Info as Info
@@ -72,6 +73,7 @@ import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
 import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 -- | This type represents an implementation of an LLVM intrinsic function in
 -- Crucible.
@@ -81,9 +83,9 @@ import           Lang.Crucible.LLVM.Translation.Types
 -- LLVM memory model, such as Macaw.
 data LLVMOverride p sym ext args ret =
   LLVMOverride
-  { llvmOverride_declare :: L.Declare    -- ^ An LLVM name and signature for this intrinsic
-  , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
-  , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
+  { llvmOverride_name :: L.Symbol
+  , llvmOverride_args :: CtxRepr args -- ^ A representation of the argument types
+  , llvmOverride_ret :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
       IsSymInterface sym =>
       GlobalVar Mem ->
@@ -258,8 +260,7 @@ basic_llvm_override :: forall p args ret sym ext arch wptr.
   OverrideTemplate p sym ext arch
 basic_llvm_override ovr = OverrideTemplate matcher regOvr
   where
-    ovrDecl = llvmOverride_declare ovr
-    L.Symbol ovrNm = L.decName ovrDecl
+    L.Symbol ovrNm = llvmOverride_name ovr
     isDarwin = Info.os == "darwin"
 
     matcher :: Match.TemplateMatcher
@@ -277,8 +278,7 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
         -- do this.
         let ovr' | isDarwin
                  , ovrNm == Match.stripDarwinAliases requestedNm
-                 = ovr { llvmOverride_declare =
-                           ovrDecl { L.decName = L.Symbol requestedNm }}
+                 = ovr { llvmOverride_name = L.Symbol requestedNm }
 
                  | otherwise
                  = ovr
@@ -291,21 +291,20 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
 -- that we do not have to define quite so many overrides with different
 -- combinations of pointer types.
 isMatchingDeclaration ::
+  (?lc :: TypeContext) =>
+  HasPtrWidth wptr =>
+  MonadFail m =>
   L.Declare {- ^ Requested declaration -} ->
-  L.Declare {- ^ Provided declaration for intrinsic -} ->
-  Bool
-isMatchingDeclaration requested provided = and
-  [ L.decName requested == L.decName provided
-  , matchingArgList (L.decArgs requested) (L.decArgs provided)
-  , L.decRetType requested `L.eqTypeModuloOpaquePtrs` L.decRetType provided
-  -- TODO? do we need to pay attention to various attributes?
-  ]
-
- where
- matchingArgList [] [] = True
- matchingArgList [] _  = L.decVarArgs requested
- matchingArgList _  [] = L.decVarArgs provided
- matchingArgList (x:xs) (y:ys) = x `L.eqTypeModuloOpaquePtrs` y && matchingArgList xs ys
+  LLVMOverride p sym ext args ret ->
+  m Bool
+isMatchingDeclaration requested provided =
+  llvmDeclToFunHandleRepr' requested $ \args ret ->
+    pure $
+      and
+      [ L.decName requested == llvmOverride_name provided
+      , Maybe.isJust (testEquality args (llvmOverride_args provided))
+      , Maybe.isJust (testEquality ret (llvmOverride_ret provided))
+      ]
 
 register_llvm_override :: forall p args ret sym ext arch wptr rtp l a.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
@@ -314,14 +313,15 @@ register_llvm_override :: forall p args ret sym ext arch wptr rtp l a.
   LLVMContext arch ->
   OverrideSim p sym ext rtp l a ()
 register_llvm_override llvmOverride requestedDecl llvmctx = do
-  let decl = llvmOverride_declare llvmOverride
-  if not (isMatchingDeclaration requestedDecl decl) then
-    do when (L.decName requestedDecl == L.decName decl) $
+  let ?lc = llvmctx^.llvmTypeCtx
+  match <- isMatchingDeclaration requestedDecl llvmOverride
+  if not match then
+    do when (L.decName requestedDecl == llvmOverride_name llvmOverride) $
          do logFn <- getLogFunction
             liftIO $ logFn 3 $ unlines
               [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
-              , " *** found: "     ++ show decl
+              , " *** found: "     ++ show (llvmOverride_args llvmOverride)
               , ""
               ]
   else do_register_llvm_override llvmctx llvmOverride
@@ -342,20 +342,18 @@ do_register_llvm_override :: forall p args ret sym ext arch wptr l a rtp.
   LLVMOverride p sym ext args ret ->
   OverrideSim p sym ext rtp l a ()
 do_register_llvm_override llvmctx llvmOverride = do
-  let decl = llvmOverride_declare llvmOverride
-  let (L.Symbol str_nm) = L.decName decl
+  let nm@(L.Symbol str_nm) = llvmOverride_name llvmOverride
   let fnm  = functionNameFromText (Text.pack str_nm)
 
   let mvar = llvmMemVar llvmctx
-  let overrideArgs = llvmOverride_args llvmOverride
-  let overrideRet  = llvmOverride_ret llvmOverride
+  let args = llvmOverride_args llvmOverride
+  let ret = llvmOverride_ret llvmOverride
 
   let ?lc = llvmctx^.llvmTypeCtx
 
-  llvmDeclToFunHandleRepr' decl $ \args ret -> do
-    o <- build_llvm_override fnm overrideArgs overrideRet args ret
-           (\asgn -> llvmOverride_def llvmOverride mvar asgn)
-    bindLLVMFunc mvar (L.decName decl) args ret (UseOverride o)
+  o <- build_llvm_override fnm args ret args ret
+         (\asgn -> llvmOverride_def llvmOverride mvar asgn)
+  bindLLVMFunc mvar nm args ret (UseOverride o)
 
 -- | Create an allocation for an override and register it.
 --
@@ -374,7 +372,7 @@ alloc_and_register_override ::
   [L.Symbol] ->
   OverrideSim p sym LLVM rtp l a ()
 alloc_and_register_override bak llvmctx llvmOverride aliases = do
-  let L.Declare { L.decName = symb@(L.Symbol nm) } = llvmOverride_declare llvmOverride
+  let symb@(L.Symbol nm) = llvmOverride_name llvmOverride
   let mvar = llvmMemVar llvmctx
   mem <- readGlobal mvar
   (_ptr, mem') <- liftIO (registerFunPtr bak mem nm symb aliases)

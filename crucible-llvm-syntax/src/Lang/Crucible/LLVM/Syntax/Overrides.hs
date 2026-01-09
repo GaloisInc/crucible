@@ -77,7 +77,7 @@ registerLLVMOverrides bak llvmCtx fwdDecs = do
 
   -- Forward all of the `declare`d handles to the actual override
   F.forM_ ovs $ \(CLLVM.SomeLLVMOverride llOv) -> do
-    let L.Symbol nm = L.decName (CLLVM.llvmOverride_declare llOv)
+    let L.Symbol nm = CLLVM.llvmOverride_name llOv
     let fnm = WFN.functionNameFromText (Text.pack nm)
     case Map.lookup fnm fwdDecs of
       Nothing -> pure ()
