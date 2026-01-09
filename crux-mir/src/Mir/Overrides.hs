@@ -54,8 +54,7 @@ import Lang.Crucible.Backend
     , backendGetSym, throwUnsupported, LabeledPred(..), addProofObligation )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core
-    ( CFG, GlobalVar(..), cfgArgTypes, cfgHandle, cfgReturnType
-    , freshGlobalVar )
+    ( CFG, GlobalVar(..), cfgArgTypes, cfgHandle, cfgReturnType )
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
 import Lang.Crucible.Pretty
@@ -338,19 +337,24 @@ regEval bak baseEval = go
 
         return rc'
 
+    -- Why does this produce a `RefCell` and not a `GlobalVar`? Producing a
+    -- `GlobalVar` makes it challenging to run this conditionally, since we
+    -- might end up merging a branch where a `GlobalVar` was created with one
+    -- where it wasn't, which causes a panic. Producing a `RefCell` avoids this
+    -- problem, because we support merging branches with divergent `RefCell`s.
     goGlobalVar :: forall tp'.
         GlobalVar tp' ->
-        OverrideSim p sym MIR rtp args ret (GlobalVar tp')
+        OverrideSim p sym MIR rtp args ret (RefCell tp')
     goGlobalVar gv = do
         let nm = globalName gv
         let tpr = globalType gv
-        -- Generate a new global variable to store the evaluated copy. We don't
+        -- Generate a new refcell to store the evaluated copy. We don't
         -- want to mutate anything in-place, since `concretize` is meant to be
         -- side-effect-free.
-        -- TODO: deduplicate global variables, so structures with sharing don't
+        -- TODO: deduplicate refcells, so structures with sharing don't
         -- become exponentially large
         halloc <- simHandleAllocator <$> use stateContext
-        gv' <- liftIO $ freshGlobalVar halloc nm tpr
+        rc <- liftIO $ freshRefCell halloc tpr
 
         -- Retrieve the current global state, use it to look up the pointee
         -- value (if it exists), and concretize the pointee value.
@@ -371,18 +375,21 @@ regEval bak baseEval = go
         -- we have a reference to another reference).
         globalState1 <- use $ stateTree.actFrame.gpGlobals
 
-        -- Update the global state with the new global variable pointing to the
+        -- Update the global state with the new refcell pointing to the
         -- concretized pointee value.
-        let globalState2 = insertGlobal gv' e' globalState1
+        let globalState2 = insertRef sym rc e' globalState1
         stateTree.actFrame.gpGlobals .= globalState2
 
-        return gv'
+        return rc
 
     goMirReferenceRoot :: forall tp' .
         MirReferenceRoot sym tp' ->
         OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
     goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
-    goMirReferenceRoot (GlobalVar_RefRoot gv) = GlobalVar_RefRoot <$> goGlobalVar gv
+    goMirReferenceRoot (GlobalVar_RefRoot gv) =
+        -- See `goGlobalVar` for why this returns a `RefCell_RefRoot` instead of
+        -- a `GlobalVar_RefRoot`.
+        RefCell_RefRoot <$> goGlobalVar gv
     goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
 
     goMirReferencePath :: forall tp_base tp' .
