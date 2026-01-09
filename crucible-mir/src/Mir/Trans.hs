@@ -2407,8 +2407,10 @@ transInstance colState (M.Intrinsic defId (M.Instance kind origDefId _substs))
   -- For some `kind`s, we have special logic for generating a body.
   | M.IkVirtual dynTraitName methodIndex <- kind = do
       let methodId = origDefId
-      (name, cfg) <- transVirtCall colState defId methodId dynTraitName methodIndex
-      return $ Just (name, cfg, Nothing)
+      optNameCfg <- transVirtCall colState defId methodId dynTraitName methodIndex
+      case optNameCfg of
+        Just (name, cfg) -> return $ Just (name, cfg, Nothing)
+        Nothing -> return Nothing
   | M.IkClosureFnPointerShim <- kind = do
       (name, cfg, fti) <- transCommon colState defId ShimContext
         (genClosureFnPointerShim origDefId)
@@ -2674,7 +2676,7 @@ traitMethodSig trait methName = case matchedMethSigs of
             _ -> Nothing) (trait ^. M.traitItems)
 
 -- Generate method handles for all generated shims used in the current crate.
-mkShimHandleMap :: (HasCallStack) =>
+mkShimHandleMap :: (HasCallStack, ?debug::Int) =>
     Collection -> FH.HandleAllocator -> IO HandleMap
 mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
   where
@@ -2687,15 +2689,26 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
             methSig = traitMethodSig trait methName
 
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
-        in liftM (Map.singleton name) $ do
-            Some argctx <- case tyListToCtx col (abiFnArgs methSig) (Right . Some) of
-              Left err -> fail ("mkShimHandleMap: " ++ err)
-              Right x -> return x
-            Some retrepr <- case tyToRepr col (methSig ^. M.fsreturn_ty) of
-              Left err -> fail ("mkShimHandleMap: " ++ err)
-              Right x -> return x
-            h <- FH.mkHandle' halloc handleName argctx retrepr
-            return $ MirHandle (intr ^. M.intrName) methSig h
+            sigReprs = do
+              someArgCtx <- tyListToCtx col (abiFnArgs methSig) (Right . Some)
+              someRetRepr <- tyToRepr col (methSig ^. M.fsreturn_ty)
+              return (someArgCtx, someRetRepr)
+        in case sigReprs of
+            Left err -> do
+              -- If the signature is not representable, we skip generating a
+              -- `MethodHandle` for this shim.  This will also cause
+              -- `transInstance` to skip generating code for it.  This will
+              -- result in a "don't know how to call" error if the shim is ever
+              -- used.
+              --
+              -- This notably occurs for `FnOnce::call_once` shims, which take
+              -- `dyn FnOnce` by value (using `#[feature(unsized_fn_params)]`).
+              when (?debug > 0) $ do
+                traceM $ "mkShimHandleMap: error translating " ++ show intr ++ ": " ++ err
+              return mempty
+            Right (Some argctx, Some retrepr) -> do
+              h <- FH.mkHandle' halloc handleName argctx retrepr
+              return $ Map.singleton name $ MirHandle (intr ^. M.intrName) methSig h
       | IkClosureFnPointerShim <- intr ^. M.intrInst . M.inKind = do
         let callMutId = intr ^. M.intrInst . M.inDefId
         callMutFn <- case col ^. M.functions . at callMutId of
@@ -2861,17 +2874,24 @@ doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = 
   G.call fnHandle args
 
 
--- | Translate a virtual call. The logic for looking up the right method in the
--- vtable is implemented in 'mkVirtCall'.
+-- | Generate Crucible code for an `IkVirtual` virtual-call shim. The logic for
+-- looking up the right method in the vtable is implemented in 'mkVirtCall'.
+--
+-- This will return `Nothing` for `IkVirtual` shims that were skipped by
+-- `mkShimHandleMap` and thus `have no `MethodHandle` available.  This is
+-- notably the case for `FnOnce::call_once`, which is skipped because it takes
+-- accesses `self` by value (and thus would require support for the unstable
+-- `unsized_fn_params` feature).
 transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
   => CollectionState
   -> M.IntrinsicName
   -> M.MethName
   -> M.TraitName
   -> Integer
-  -> ST h (Text, Core.AnyCFG MIR)
+  -> ST h (Maybe (Text, Core.AnyCFG MIR))
 transVirtCall colState intrName' methName dynTraitName methIndex
-  | MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH =
+  | Just methMH <- Map.lookup intrName' (colState ^. handleMap)
+  , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH =
     -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
     elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
         $ \Refl recvTy argTys ->
@@ -2898,17 +2918,14 @@ transVirtCall colState intrName' methName dynTraitName methIndex
       in  do
             R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
             case SSA.toSSA g of
-                Core.SomeCFG g_ssa -> return (M.idText intrName', Core.AnyCFG g_ssa)
+                Core.SomeCFG g_ssa -> return $ Just (M.idText intrName', Core.AnyCFG g_ssa)
+  | otherwise = return Nothing
 
   where
     die :: [String] -> a
     die words' = error $ unwords
         (["failed to generate virtual-call shim for", show methName,
             "(intrinsic", show intrName', "):"] ++ words')
-
-    methMH = case Map.lookup intrName' (colState ^. handleMap) of
-        Just x -> x
-        Nothing -> die ["failed to find method handle for", show intrName']
 
 withSome :: Some f -> (forall tp. f tp -> r) -> r
 withSome s k = viewSome k s
