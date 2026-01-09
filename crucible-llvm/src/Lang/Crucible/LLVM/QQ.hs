@@ -15,7 +15,6 @@
 
 module Lang.Crucible.LLVM.QQ
  ( llvmType
- , llvmDecl
  , llvmOvr
  ) where
 
@@ -253,19 +252,8 @@ liftQQType tp =
     QQOpaque -> [| L.Opaque |]
     QQFunTy ret args varargs -> [| L.FunTy $(liftQQType ret) $(listE (map liftQQType args)) $(lift varargs) |]
 
-liftQQDecl :: QQDeclare -> Q Exp
-liftQQDecl (QQDeclare ret nm args varargs) =
-   [| L.Declare
-      { L.decLinkage    = Nothing
-      , L.decVisibility = Nothing
-      , L.decRetType    = $(liftQQType ret)
-      , L.decName       = $(f nm)
-      , L.decArgs       = $(listE (map liftQQType args))
-      , L.decVarArgs    = $(lift varargs)
-      , L.decAttrs      = []
-      , L.decComdat     = Nothing
-      }
-    |]
+liftName :: Either String L.Symbol -> Q Exp
+liftName nm = f nm
   where
   f (Left v)    = varE (mkName v)
   f (Right sym) = lift sym
@@ -318,8 +306,8 @@ liftArgs = go [| Ctx.Empty |]
 
 
 liftQQDeclToOverride :: QQDeclare -> Q Exp
-liftQQDeclToOverride qqd@(QQDeclare ret _nm args varargs) =
-  [| IC.LLVMOverride $(liftQQDecl qqd) $(liftArgs args varargs) $(liftTypeRepr ret) |]
+liftQQDeclToOverride (QQDeclare ret nm args varargs) =
+  [| IC.LLVMOverride $(liftName nm) $(liftArgs args varargs) $(liftTypeRepr ret) |]
 
 -- | This quasiquoter parses values in LLVM type syntax, extended
 --   with metavariables, and builds values of @Text.LLVM.AST.Type@.
@@ -341,31 +329,6 @@ llvmType =
   , quotePat = error "llvmType cannot quasiquote a pattern"
   , quoteType = error "llvmType cannot quasiquote a Haskell type"
   , quoteDec = error "llvmType cannot quasiquote a declaration"
-  }
-
--- | This quasiquoter parses values in LLVM function declaration syntax,
---   extended with metavariables, and builds values of @Text.LLVM.AST.Declare@.
---
---   Type metavariables start with a @$@ and splice in the named
---   program variable, which is expected to have type @Type@.
---
---   Numeric metavariables start with @#@ and splice in an integer
---   type whose width is given by the named program variable, which
---   is expected to be a @NatRepr@.
---
---   The name of the declaration may also be a @$@ metavariable, in which
---   case the named variable is expeted to be a @Symbol@.
-llvmDecl :: QuasiQuoter
-llvmDecl =
-  QuasiQuoter
-  { quoteExp = \str ->
-       do case AT.parseOnly parseDeclare (T.pack str) of
-            Left msg -> error msg
-            Right x  -> liftQQDecl x
-
-  , quotePat = error "llvmDecl cannot quasiquote a pattern"
-  , quoteType = error "llvmDecl cannot quasiquote a Haskell type"
-  , quoteDec = error "llvmDecl cannot quasiquote a declaration"
   }
 
 -- | This quasiquoter parses values in LLVM function declaration syntax,
