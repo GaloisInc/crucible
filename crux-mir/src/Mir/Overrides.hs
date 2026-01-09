@@ -209,16 +209,16 @@ regEval bak baseEval = go
     go (VectorRepr tpr) vec = traverse (go tpr) vec
     go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
     go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
-    go tpr@(ReferenceRepr _tpr) v = do
+    go (ReferenceRepr _tpr) v = do
         -- Can't use `collapseMuxTree` here since it's in the IO monad, not
         -- OverrideSim.
-        rc <- goMuxTreeEntries tpr (viewMuxTree v)
+        rc <- goMuxTreeEntries (viewMuxTree v)
         rc' <- goRefCell rc
         return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
     go MirReferenceRepr (MirReferenceMux mux) = do
-        ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
+        ref <- goMuxTreeEntries (viewFancyMuxTree mux)
         ref' <- case ref of
             MirReference tpr root path ->
                 MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
@@ -254,16 +254,16 @@ regEval bak baseEval = go
         OverrideSim p sym MIR rtp args ret (VariantBranch sym tp')
     goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
 
-    goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
+    goMuxTreeEntries :: forall a .
         [(a, Pred sym)] ->
         OverrideSim p sym MIR rtp args ret a
-    goMuxTreeEntries _tpr [] = liftIO $ addFailedAssertion bak $ GenericSimError $
+    goMuxTreeEntries [] = liftIO $ addFailedAssertion bak $ GenericSimError $
         "empty or incomplete mux tree?"
-    goMuxTreeEntries tpr ((x, p) : xs) = do
+    goMuxTreeEntries ((x, p) : xs) = do
         p' <- baseEval BaseBoolRepr p
         case asConstantPred p' of
             Just True -> return x
-            Just False -> goMuxTreeEntries tpr xs
+            Just False -> goMuxTreeEntries xs
             Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
                 "baseEval returned a non-constant predicate?"
 
