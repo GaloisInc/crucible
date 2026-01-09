@@ -143,8 +143,9 @@ voidOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              -> SomeCPPOverride p sym arch
 voidOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
+      let nm = L.decName decl in
       case retTy of
-        UnitRepr -> SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _args -> pure ()
+        UnitRepr -> SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \_mem _args -> pure ()
         _ -> panic_ "voidOverride" decl argTys retTy
 
 -- | Make an override for a function of (LLVM) type @a -> a@, for any @a@.
@@ -156,10 +157,11 @@ identityOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
                  -> SomeCPPOverride p sym arch
 identityOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
+    let nm = L.decName decl in
     case argTys of
       (Ctx.Empty Ctx.:> argTy)
         | Just Refl <- testEquality argTy retTy ->
-            SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem args ->
+            SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \_mem args ->
               -- Just return the input
               pure (Ctx.uncurryAssignment regValue args)
 
@@ -174,10 +176,11 @@ constOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
               -> SomeCPPOverride p sym arch
 constOverride substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
+    let nm = L.decName decl in
     case argTys of
       (Ctx.Empty Ctx.:> fstTy Ctx.:> _)
         | Just Refl <- testEquality fstTy retTy ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem args ->
+        SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \_mem args ->
           pure (Ctx.uncurryAssignment (const . regValue) args)
 
       _ -> panic_ "constOverride" decl argTys retTy
@@ -191,9 +194,10 @@ fixedOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
               -> SomeCPPOverride p sym arch
 fixedOverride ty regval substrings =
   mkOverride substrings $ \decl argTys retTy -> Just $
+    let nm = L.decName decl in
     case testEquality retTy ty of
       Just Refl ->
-        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem _args -> do
+        SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \mem _args -> do
           sym <- getSymInterface
           liftIO (regval mem sym)
 

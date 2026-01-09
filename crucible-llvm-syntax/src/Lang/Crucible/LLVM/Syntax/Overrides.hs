@@ -77,18 +77,29 @@ registerLLVMOverrides bak llvmCtx fwdDecs = do
 
   -- Forward all of the `declare`d handles to the actual override
   F.forM_ ovs $ \(CLLVM.SomeLLVMOverride llOv) -> do
-    let L.Symbol nm = L.decName (CLLVM.llvmOverride_declare llOv)
+    let symb@(L.Symbol nm) = CLLVM.llvmOverride_name llOv
     let fnm = WFN.functionNameFromText (Text.pack nm)
     case Map.lookup fnm fwdDecs of
       Nothing -> pure ()
       Just (C.SomeHandle hdl) -> do
-        let llArgs = CLLVM.llvmOverride_args llOv
-        let llRet = CLLVM.llvmOverride_ret llOv
         let hdlArgs = C.handleArgTypes hdl
         let hdlRet = C.handleReturnType hdl
-        o <- CLLVM.build_llvm_override fnm llArgs llRet hdlArgs hdlRet
-               (\asgn -> CLLVM.llvmOverride_def llOv mvar asgn)
-        C.registerFnBinding (C.FnBinding hdl (C.UseOverride o))
+        let llArgs = CLLVM.llvmOverride_args llOv
+        let llRet = CLLVM.llvmOverride_ret llOv
+        case (C.testEquality llArgs hdlArgs, C.testEquality llRet hdlRet) of
+          (Just C.Refl, Just C.Refl) -> do
+            let typedOv = CLLVM.llvmOverrideToTypedOverride mvar llOv
+            let ov = C.runTypedOverride fnm typedOv
+            CLLVM.bindLLVMHandle mvar symb hdl (C.UseOverride ov)
+          _ -> do
+            fail $ unlines $
+              [ "Bad signature in `declare`"
+              , " *** `declare` args: " ++ show hdlArgs
+              , " *** override args:  " ++ show llArgs
+              , " *** `declare` ret:  " ++ show hdlRet
+              , " *** override ret:   " ++ show llRet
+              , ""
+              ]
 
   pure ovs
 

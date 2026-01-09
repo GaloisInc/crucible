@@ -1,7 +1,7 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.Intrinsics.Common
 -- Description      : Types used in override definitions
--- Copyright        : (c) Galois, Inc 2015-2019
+-- Copyright        : (c) Galois, Inc 2015-2026
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -30,7 +30,8 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , polymorphic1_llvm_override
   , polymorphic1_vec_llvm_override
 
-  , build_llvm_override
+  , llvmOverrideToTypedOverride
+  , lower_llvm_override
   , register_llvm_override
   , register_1arg_polymorphic_override
   , register_1arg_vec_polymorphic_override
@@ -44,6 +45,7 @@ import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
 import           Numeric (readDec)
 import qualified System.Info as Info
@@ -55,7 +57,6 @@ import           Data.Parameterized.Some (Some(..))
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
-import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Utils.MonadVerbosity (getLogFunction)
 import           Lang.Crucible.Simulator.RegMap
@@ -72,6 +73,7 @@ import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
 import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 -- | This type represents an implementation of an LLVM intrinsic function in
 -- Crucible.
@@ -81,9 +83,9 @@ import           Lang.Crucible.LLVM.Translation.Types
 -- LLVM memory model, such as Macaw.
 data LLVMOverride p sym ext args ret =
   LLVMOverride
-  { llvmOverride_declare :: L.Declare    -- ^ An LLVM name and signature for this intrinsic
-  , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
-  , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
+  { llvmOverride_name :: L.Symbol
+  , llvmOverride_args :: CtxRepr args -- ^ A representation of the argument types
+  , llvmOverride_ret :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
       IsSymInterface sym =>
       GlobalVar Mem ->
@@ -138,39 +140,64 @@ callStackFromMemVar' mvar = use (to (flip callStackFromMemVar mvar))
 ------------------------------------------------------------------------
 -- ** register_llvm_override
 
--- | Do some pipe-fitting to match a Crucible override function into the shape
---   expected by the LLVM calling convention.  This basically just coerces
---   between values of @BVType w@ and values of @LLVMPointerType w@.
-build_llvm_override ::
+
+llvmOverrideToTypedOverride ::
+  IsSymInterface sym =>
   HasLLVMAnn sym =>
-  FunctionName ->
-  CtxRepr args ->
-  TypeRepr ret ->
-  CtxRepr args' ->
-  TypeRepr ret' ->
-  (forall rtp' l' a'. IsSymInterface sym =>
-   Ctx.Assignment (RegEntry sym) args ->
-   OverrideSim p sym ext rtp' l' a' (RegValue sym ret)) ->
-  OverrideSim p sym ext rtp l a (Override p sym ext args' ret')
-build_llvm_override fnm args ret args' ret' llvmOverride =
-  ovrWithBackend $ \bak ->
-  do fargs <-
-       case Cast.castLLVMArgs fnm bak args args' of
-         Left err ->
-           panic "Intrinsics.build_llvm_override"
-             (Cast.printValCastError err ++
-               [ "in function: " ++ Text.unpack (functionName fnm) ])
-         Right f -> pure f
-     fret <-
-       case Cast.castLLVMRet fnm bak ret ret' of
-         Left err ->
-           panic "Intrinsics.build_llvm_override"
-             (Cast.printValCastError err ++
-               [ "in function: " ++ Text.unpack (functionName fnm) ])
-         Right f -> pure f
-     return $ mkOverride' fnm ret' $
-            do RegMap xs <- getOverrideArgs
-               Cast.applyValCast fret =<< llvmOverride =<< Cast.applyArgCast fargs xs
+  GlobalVar Mem ->
+  LLVMOverride p sym ext args ret ->
+  TypedOverride p sym ext args ret
+llvmOverrideToTypedOverride mvar ov =
+  TypedOverride
+  { typedOverrideArgs = llvmOverride_args ov
+  , typedOverrideRet = llvmOverride_ret ov
+  , typedOverrideHandler =
+      \args -> do
+        let argEntries =
+              Ctx.zipWith
+                (\t (RV v) -> RegEntry t v)
+                (llvmOverride_args ov)
+                args
+        llvmOverride_def ov mvar argEntries
+  }
+
+lower_llvm_override ::
+  forall p sym ext args ret.
+  HasLLVMAnn sym =>
+  GlobalVar Mem ->
+  LLVMOverride p sym ext args ret ->
+  SomeTypedOverride p sym ext
+lower_llvm_override mvar ov =
+  SomeTypedOverride $
+    TypedOverride
+    { typedOverrideArgs = argTys'
+    , typedOverrideRet = retTy'
+    , typedOverrideHandler =
+      \args ->
+        ovrWithBackend $ \bak -> do
+          let argEntries = Ctx.zipWith (\t (RV v) -> RegEntry @sym t v) argTys' args
+          args' <- liftIO (castArgs bak argEntries)
+          ret <- llvmOverride_def ov mvar args'
+          liftIO (Cast.regValueToLLVM (backendGetSym bak) retTy ret)
+    }
+  where
+    argTys = llvmOverride_args ov
+    argTys' = Cast.ctxToLLVMType argTys
+    retTy = llvmOverride_ret ov
+    retTy' = Cast.toLLVMType retTy
+
+    L.Symbol nm = llvmOverride_name ov
+    fNm  = functionNameFromText (Text.pack nm)
+
+    castArgs ::
+      IsSymBackend sym bak =>
+      bak ->
+      Ctx.Assignment (RegEntry sym) (Cast.CtxToLLVMType args) ->
+      IO (Ctx.Assignment (RegEntry sym) args)
+    castArgs =
+      case Cast.regEntriesFromLLVM fNm argTys argTys' of
+        Left err -> error "TODO"
+        Right cast -> cast
 
 polymorphic1_llvm_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
@@ -258,8 +285,7 @@ basic_llvm_override :: forall p args ret sym ext arch wptr.
   OverrideTemplate p sym ext arch
 basic_llvm_override ovr = OverrideTemplate matcher regOvr
   where
-    ovrDecl = llvmOverride_declare ovr
-    L.Symbol ovrNm = L.decName ovrDecl
+    L.Symbol ovrNm = llvmOverride_name ovr
     isDarwin = Info.os == "darwin"
 
     matcher :: Match.TemplateMatcher
@@ -277,8 +303,7 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
         -- do this.
         let ovr' | isDarwin
                  , ovrNm == Match.stripDarwinAliases requestedNm
-                 = ovr { llvmOverride_declare =
-                           ovrDecl { L.decName = L.Symbol requestedNm }}
+                 = ovr { llvmOverride_name = L.Symbol requestedNm }
 
                  | otherwise
                  = ovr
@@ -291,21 +316,34 @@ basic_llvm_override ovr = OverrideTemplate matcher regOvr
 -- that we do not have to define quite so many overrides with different
 -- combinations of pointer types.
 isMatchingDeclaration ::
+  (?lc :: TypeContext) =>
+  HasPtrWidth wptr =>
+  MonadFail m =>
   L.Declare {- ^ Requested declaration -} ->
-  L.Declare {- ^ Provided declaration for intrinsic -} ->
-  Bool
-isMatchingDeclaration requested provided = and
-  [ L.decName requested == L.decName provided
-  , matchingArgList (L.decArgs requested) (L.decArgs provided)
-  , L.decRetType requested `L.eqTypeModuloOpaquePtrs` L.decRetType provided
-  -- TODO? do we need to pay attention to various attributes?
-  ]
+  LLVMOverride p sym ext args ret ->
+  m Bool
+isMatchingDeclaration requested provided =
+  llvmDeclToFunHandleRepr' requested $ \args ret ->
+    pure $
+      and
+      [ L.decName requested == llvmOverride_name provided
+      , matchingArgList args (Cast.ctxToLLVMType (llvmOverride_args provided))
+      , Maybe.isJust (testEquality ret (Cast.toLLVMType (llvmOverride_ret provided)))
+      ]
 
- where
- matchingArgList [] [] = True
- matchingArgList [] _  = L.decVarArgs requested
- matchingArgList _  [] = L.decVarArgs provided
- matchingArgList (x:xs) (y:ys) = x `L.eqTypeModuloOpaquePtrs` y && matchingArgList xs ys
+  where
+  matchingArgList ::
+    Ctx.Assignment TypeRepr ctx1 ->
+    Ctx.Assignment TypeRepr ctx2 ->
+    Bool
+  -- Ignore varargs as long as the rest of the arguments match
+  matchingArgList (rest Ctx.:> VectorRepr AnyRepr) ys = matchingArgList rest ys
+  matchingArgList xs (rest Ctx.:> VectorRepr AnyRepr) = matchingArgList xs rest
+  matchingArgList Ctx.Empty Ctx.Empty = True
+  matchingArgList Ctx.Empty _ = False
+  matchingArgList _ Ctx.Empty = False
+  matchingArgList (xs Ctx.:> x) (ys Ctx.:> y) =
+    Maybe.isJust (testEquality x y) && matchingArgList xs ys
 
 register_llvm_override :: forall p args ret sym ext arch wptr rtp l a.
   (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
@@ -314,21 +352,28 @@ register_llvm_override :: forall p args ret sym ext arch wptr rtp l a.
   LLVMContext arch ->
   OverrideSim p sym ext rtp l a ()
 register_llvm_override llvmOverride requestedDecl llvmctx = do
-  let decl = llvmOverride_declare llvmOverride
-  if not (isMatchingDeclaration requestedDecl decl) then
-    do when (L.decName requestedDecl == L.decName decl) $
+  let ?lc = llvmctx^.llvmTypeCtx
+  match <- liftIO (isMatchingDeclaration requestedDecl llvmOverride)
+  if not match then
+    do when (L.decName requestedDecl == llvmOverride_name llvmOverride) $
          do logFn <- getLogFunction
             liftIO $ logFn 3 $ unlines
               [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
-              , " *** found: "     ++ show decl
+              , " *** found args: " ++ show (llvmOverride_args llvmOverride)
+              , " *** found ret: " ++ show (llvmOverride_ret llvmOverride)
+              ]
+            liftIO $ putStrLn $ unlines
+              [ "Mismatched declaration signatures"
+              , " *** requested: " ++ show requestedDecl
+              , " *** found: "     ++ show (llvmOverride_args llvmOverride)
               , ""
               ]
   else do_register_llvm_override llvmctx llvmOverride
 
 -- | Low-level function to register LLVM overrides.
 --
--- Type-checks the LLVM override against the 'L.Declare' it contains, adapting
+-- TODO Type-checks the LLVM override against the 'L.Declare' it contains, adapting
 -- its arguments and return values as necessary. Then creates and binds
 -- a function handle, and also binds the function to the global function
 -- allocation in the LLVM memory.
@@ -342,20 +387,17 @@ do_register_llvm_override :: forall p args ret sym ext arch wptr l a rtp.
   LLVMOverride p sym ext args ret ->
   OverrideSim p sym ext rtp l a ()
 do_register_llvm_override llvmctx llvmOverride = do
-  let decl = llvmOverride_declare llvmOverride
-  let (L.Symbol str_nm) = L.decName decl
+  let nm@(L.Symbol str_nm) = llvmOverride_name llvmOverride
   let fnm  = functionNameFromText (Text.pack str_nm)
 
   let mvar = llvmMemVar llvmctx
-  let overrideArgs = llvmOverride_args llvmOverride
-  let overrideRet  = llvmOverride_ret llvmOverride
-
   let ?lc = llvmctx^.llvmTypeCtx
 
-  llvmDeclToFunHandleRepr' decl $ \args ret -> do
-    o <- build_llvm_override fnm overrideArgs overrideRet args ret
-           (\asgn -> llvmOverride_def llvmOverride mvar asgn)
-    bindLLVMFunc mvar (L.decName decl) args ret (UseOverride o)
+  SomeTypedOverride typedOv <- pure (lower_llvm_override mvar llvmOverride)
+  let o = runTypedOverride fnm typedOv
+  let args = typedOverrideArgs typedOv
+  let ret = typedOverrideRet typedOv
+  bindLLVMFunc mvar nm args ret (UseOverride o)
 
 -- | Create an allocation for an override and register it.
 --
@@ -374,7 +416,7 @@ alloc_and_register_override ::
   [L.Symbol] ->
   OverrideSim p sym LLVM rtp l a ()
 alloc_and_register_override bak llvmctx llvmOverride aliases = do
-  let L.Declare { L.decName = symb@(L.Symbol nm) } = llvmOverride_declare llvmOverride
+  let symb@(L.Symbol nm) = llvmOverride_name llvmOverride
   let mvar = llvmMemVar llvmctx
   mem <- readGlobal mvar
   (_ptr, mem') <- liftIO (registerFunPtr bak mem nm symb aliases)
