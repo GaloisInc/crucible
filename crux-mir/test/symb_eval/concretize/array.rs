@@ -14,8 +14,10 @@ fn crux_test() -> (i32, i32, i32) {
     }
     crucible_assume!(s[0] + s[1] + s[2] == 6);
 
-    let s = concretize(s);
-    (s[0], s[1], s[2])
+    let s0 = concretize(s[0]);
+    let s1 = concretize(s[1]);
+    let s2 = concretize(s[2]);
+    (s0, s1, s2)
 }
 
 pub fn main() {
