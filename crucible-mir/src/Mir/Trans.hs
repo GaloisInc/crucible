@@ -58,6 +58,7 @@ import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
+import Data.Kind (Type)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.STRef
@@ -2614,6 +2615,28 @@ type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
 (<:) :: forall f tp ctx. f tp -> Ctx.Assignment f ctx -> Ctx.Assignment f (tp :<: ctx)
 x <: xs = Ctx.singleton x Ctx.<++> xs
 
+data AssignUncons (f :: k -> Type) :: Ctx.Ctx k -> Type where
+  AssignUncons :: f x -> Ctx.Assignment f y -> AssignUncons f (Ctx.SingleCtx x Ctx.<+> y)
+
+assignUncons :: Ctx.Assignment f ctx -> Maybe (AssignUncons f ctx)
+assignUncons Ctx.Empty = Nothing
+assignUncons (Ctx.Empty Ctx.:> x) = Just $ AssignUncons x Ctx.Empty
+assignUncons (xs Ctx.:> x) =
+  case assignUncons xs of
+    Just (AssignUncons y ys) -> Just $ AssignUncons y (ys Ctx.:> x)
+    Nothing -> panic "assignUncons"
+      ["impossible: assignUncons returned Nothing for nonempty assignment?"]
+
+data AsFunctionHandleRepr :: C.CrucibleType -> Type where
+  AsFunctionHandleRepr ::
+    C.CtxRepr args ->
+    C.TypeRepr ret ->
+    AsFunctionHandleRepr (C.FunctionHandleType args ret)
+
+asFunctionHandleRepr :: C.TypeRepr tp -> Maybe (AsFunctionHandleRepr tp)
+asFunctionHandleRepr (C.FunctionHandleRepr args ret) = Just $ AsFunctionHandleRepr args ret
+asFunctionHandleRepr _ = Nothing
+
 elimAssignmentLeft :: forall k f (ctx :: Ctx.Ctx k) r.
     Ctx.Assignment f ctx ->
     (Ctx.EmptyCtx :~: ctx -> r) ->
@@ -2758,37 +2781,47 @@ mkVirtCall
   -> G.Generator MIR s t ret (ST h)
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
-mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
-    checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
-        $ \Refl ->
+mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
+    Refl <- case testEquality recvTy DynRefRepr of
+      Just x -> return x
+      Nothing -> die ["method receiver is not `&dyn`/`&mut dyn`"]
 
     -- Unpack vtable type
-    withSome vtableType $ \vtableStructTy ->
-    elimStructType vtableStructTy (die ["vtable type is not a struct"])
-        $ \Refl vtableTys ->
+    dynTrait <- case col ^. M.traits . at dynTraitName of
+      Just x -> return x
+      Nothing -> die ["undefined trait " ++ show dynTraitName]
+    Some vtableStructTy <- case traitVtableType col dynTrait of
+      Left err -> die ["traitVtableType: " ++ err]
+      Right x -> return x
+    Some vtableTys <- case vtableStructTy of
+      C.StructRepr ctx -> return $ Some ctx
+      _ -> die ["vtable type is not a struct"]
 
-    let someVtableIdx = case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
-            Just x -> x
-            Nothing -> die ["method index out of range for vtable:",
-                "method =", show methIndex, "; size =", show (Ctx.size vtableTys)] in
-    withSome someVtableIdx $ \vtableIdx ->
+    Some vtableIdx <- case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
+      Just x -> return x
+      Nothing -> die ["method index out of range for vtable:",
+        "method =", show methIndex, "; size =", show (Ctx.size vtableTys)]
 
     -- Check that the vtable entry has the correct signature.
-    elimFunctionHandleType (vtableTys Ctx.! vtableIdx) (die ["vtable entry is not a function"])
-        $ \Refl vtsArgTys vtsRetTy ->
-    elimAssignmentLeft vtsArgTys (die ["vtable shim has no arguments"])
-        $ \Refl vtsRecvTy vtsArgTys' ->
+    AsFunctionHandleRepr vtsArgTys vtsRetTy <-
+      case asFunctionHandleRepr (vtableTys Ctx.! vtableIdx) of
+        Just x -> return x
+        _ -> die ["vtable entry is not a function"]
+    AssignUncons vtsRecvTy vtsArgTys' <- case assignUncons vtsArgTys of
+      Just x -> return x
+      Nothing -> die ["vtable shim has no arguments"]
 
-    checkEq vtsRecvTy C.AnyRepr (die ["vtable shim receiver is not Any"])
-        $ \Refl ->
-    checkEq vtsArgTys' argTys
-        (die ["vtable shim arguments don't match method; vtable shim =",
-            show vtsArgTys', "; method =", show argTys])
-        $ \Refl ->
-    checkEq vtsRetTy retTy
-        (die ["vtable shim return type doesn't match method; vtable shim =",
-            show vtsRetTy, "; method =", show retTy])
-        $ \Refl -> do
+    Refl <- case testEquality vtsRecvTy C.AnyRepr of
+      Just x -> return x
+      Nothing -> die ["vtable shim receiver is not Any"]
+    Refl <- case testEquality vtsArgTys' argTys of
+      Just x -> return x
+      Nothing -> die ["vtable shim arguments don't match method; vtable shim =",
+        show vtsArgTys', "; method =", show argTys]
+    Refl <- case testEquality vtsRetTy retTy of
+      Just x -> return x
+      Nothing -> die ["vtable shim return type doesn't match method; vtable shim =",
+        show vtsRetTy, "; method =", show retTy]
 
     let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
     let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
@@ -2816,17 +2849,6 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     die words' = error $ unwords
         (["failed to generate virtual-call shim for method", show methIndex,
             "of trait", show dynTraitName] ++ words')
-
-    dynTrait = case col ^. M.traits . at dynTraitName of
-        Just x -> x
-        Nothing -> die ["undefined trait " ++ show dynTraitName]
-
-    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
-    -- substs only, omitting the Self type.
-    vtableType :: Some C.TypeRepr
-    vtableType = case traitVtableType col dynTrait of
-      Left err -> die ["vtableType: " ++ err]
-      Right x -> x
 
 
 -- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
@@ -2926,36 +2948,6 @@ transVirtCall colState intrName' methName dynTraitName methIndex
     die words' = error $ unwords
         (["failed to generate virtual-call shim for", show methName,
             "(intrinsic", show intrName', "):"] ++ words')
-
-withSome :: Some f -> (forall tp. f tp -> r) -> r
-withSome s k = viewSome k s
-
-elimStructType ::
-    C.TypeRepr ty ->
-    (r) ->
-    (forall ctx. ty :~: C.StructType ctx -> C.CtxRepr ctx -> r) ->
-    r
-elimStructType ty kOther kStruct
-  | C.StructRepr ctx <- ty = kStruct Refl ctx
-  | otherwise = kOther
-
-elimFunctionHandleType ::
-    C.TypeRepr ty ->
-    (r) ->
-    (forall argTys retTy.
-        ty :~: C.FunctionHandleType argTys retTy ->
-        C.CtxRepr argTys -> C.TypeRepr retTy -> r) ->
-    r
-elimFunctionHandleType ty kOther kFH
-  | C.FunctionHandleRepr argTys retTy <- ty = kFH Refl argTys retTy
-  | otherwise = kOther
-
-checkEq :: TestEquality f => f a -> f b ->
-    r -> (a :~: b -> r) -> r
-checkEq a b kNe kEq
-  | Just pf <- testEquality a b = kEq pf
-  | otherwise = kNe
-
 
 
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
