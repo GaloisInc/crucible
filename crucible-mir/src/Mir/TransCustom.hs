@@ -2262,7 +2262,8 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
               return (e :: R.Expr MIR s tpr)
         in itraverseFC (\idx tpr -> go argTys argTupleExp idx tpr) argCtx
 
-      -- Unpack vtable type
+      -- Look up `methodIdx` return type.
+      -- This unfortunately duplicates some of the logic from `mkVirtCall`.
       dynTrait <- case col ^. traits . at dynTraitName of
         Just x -> return x
         Nothing -> mirFail $ "callOnceVirtShimDef: undefined trait " ++ show dynTraitName
@@ -2272,10 +2273,6 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
       Some vtableCtx <- case vtableStructTpr of
         C.StructRepr ctx -> return $ Some ctx
         _ -> mirFail $ "callOnceVirtShimDef: vtable type is not a struct"
-      Refl <- testEqualityOrFail vtableStructTpr (C.StructRepr vtableCtx) $
-        "impossible: vtableStructTpr != StructRepr vtableCtx ?"
-
-      -- Look up `methodIdx`
       Some vtableMethodIdx <- case Ctx.intIndex (fromInteger methodIdx) (Ctx.size vtableCtx) of
         Just x -> return x
         Nothing -> mirFail $ "callOnceVirtShimDef: method index out of range for vtable: "
@@ -2285,32 +2282,17 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         C.FunctionHandleRepr _ retTpr -> return $ Some retTpr
         tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodIdx
           ++ " of " ++ show dynTraitName ++ " to have FunctionHandleRepr, but got " ++ show tpr
-      let expectVtableMethodTpr = C.FunctionHandleRepr
-            (Ctx.singleton C.AnyRepr Ctx.<++> argCtx)
-            retTpr
-      Refl <- testEqualityOrFail vtableMethodTpr expectVtableMethodTpr $
-        "callOnceVirtShimDef: expected method to have " ++ show expectVtableMethodTpr
-          ++ ", but got " ++ show vtableMethodTpr
 
-      let recvData = R.App $ E.GetStruct recv dynRefDataIndex MirReferenceRepr
-      let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
+      MirExp retTpr <$> doVirtCall
+        col
+        dynTraitName
+        methodIdx
+        recvTpr
+        recv
+        argCtx
+        argExprs
+        retTpr
 
-      -- Downcast the vtable to its proper struct type
-      errBlk <- G.newLabel
-      G.defineBlock errBlk $ do
-          G.reportError $ R.App $ E.StringLit $ fromString $
-              unwords ["bad vtable downcast:", show dynTraitName,
-                  "to", show vtableCtx]
-
-      okBlk <- G.newLambdaLabel' vtableStructTpr
-      vtable <- G.continueLambda okBlk $ do
-          G.branchMaybe (R.App $ E.UnpackAny vtableStructTpr recvVtable) okBlk errBlk
-
-      -- Extract the function handle from the vtable
-      let vtsFH = R.App $ E.GetStruct vtable vtableMethodIdx vtableMethodTpr
-
-      MirExp retTpr <$> G.call vtsFH
-        (Ctx.singleton (R.App (E.PackAny MirReferenceRepr recvData)) Ctx.<++> argExprs)
     _ -> mirFail $ "callOnceVirtShimDef: expected 2 arguments, but got " ++ show ops
 
 
