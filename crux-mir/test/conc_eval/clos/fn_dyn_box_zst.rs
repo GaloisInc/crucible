@@ -1,4 +1,3 @@
-// FAIL: standalone use of `dyn` in the receiver of `call_once`
 fn call_closure_box(f: Box<dyn FnOnce(i32, i32) -> i32>) -> i32 {
     f(1, 2)
 }

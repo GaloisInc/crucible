@@ -2582,7 +2582,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
       | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | M.idKey defName == ["core", "ops", "function", "FnOnce", "call_once"] =
-          buildShimForByValue recvTy argTys implFH
+          buildShimForByValue recvMirTy recvTy argTys implFH
       | otherwise = \_argsA -> (\x -> (fnState, x)) $ do
         mirFail $ dieMsg ["unsupported MIR receiver type", show recvMirTy]
 
@@ -2606,16 +2606,24 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     -- future).  The shim expects a `MirReference` wrapped in `AnyRepr`; it
     -- downcasts, reads from the reference, and then dispatches to @implFH@.
     buildShimForByValue :: forall recvTy argTys retTy .
+        M.Ty ->
         C.TypeRepr recvTy ->
         C.CtxRepr argTys ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
-    buildShimForByValue recvTy argTys implFH = \argsA -> (\x -> (fnState, x)) $ do
+    buildShimForByValue recvMirTy recvTy argTys implFH = \argsA -> (\x -> (fnState, x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
-        recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny MirReferenceRepr recv)
-            (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
-        recvDeref <- readMirRef recvTy recvDowncast
-        G.tailCall (R.App $ E.HandleLit implFH) (recvDeref <: args)
+        recvValue <- if isZeroSized (colState ^. collection) recvMirTy
+            then do
+                Refl <- testEqualityOrFail recvTy MirAggregateRepr $
+                    "transVtableShim: expected receiver type to have MirAggregateRepr, "
+                      ++ "but got " ++ show recvTy
+                mirAggregate_uninit_constSize 0
+            else do
+                recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny MirReferenceRepr recv)
+                    (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
+                readMirRef recvTy recvDowncast
+        G.tailCall (R.App $ E.HandleLit implFH) (recvValue <: args)
 
 splitMethodArgs :: forall recvTy argTys s.
     Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->
