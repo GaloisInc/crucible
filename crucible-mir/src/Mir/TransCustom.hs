@@ -46,6 +46,7 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
+import Data.Parameterized.TraversableFC.WithIndex
 import Data.Parameterized.Utils.Endian (Endian(..))
 import qualified Data.Parameterized.Vector as PV
 
@@ -2219,8 +2220,98 @@ cloneFromShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not 
 
 
 callOnceVirtShimDef :: Integer -> CustomOp
-callOnceVirtShimDef _methodIdx = CustomMirOp $ \_ops ->
-  mirFail "callOnceVirtShimDef not yet implemented"
+callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
+  case ops of
+    [opRecv, opArgs] -> do
+      col <- use $ cs . collection
+
+      -- Process receiver
+      dynTraitName <- case typeOf opRecv of
+        TyDynamic tn -> return tn
+        ty -> mirFail $ "callOnceVirtShimDef: expected first arg to be TyDynamic, "
+          ++ "but got " ++ show ty
+      lvRecvPtr <- case opRecv of
+        Move (LProj lv Deref) -> return lv
+        Copy (LProj lv Deref) -> return lv
+        _ -> mirFail $ "callOnceVirtShimDef: expected first arg to be Move/Copy of Deref, "
+          ++ "but got " ++ show opRecv
+      MirExp recvTpr recv <- evalLvalue lvRecvPtr
+      Refl <- testEqualityOrFail recvTpr DynRefRepr $
+        "callOnceVirtShimDef: expected receiver pointer to have DynRefRepr, "
+          ++ "but got " ++ show recvTpr
+
+      -- Process args tuple
+      argTys <- case typeOf opArgs of
+        TyTuple tys -> return tys
+        ty -> mirFail $ "callOnceVirtShimDef: expected second arg to be TyTuple, "
+          ++ "but got " ++ show ty
+      Some argCtx <- case tyListToCtx col argTys (\x -> Right $ Some x) of
+        Left err -> mirFail $ "callOnceVirtShimDef: error converting arg tys: " ++ show err
+        Right x -> return x
+      argTupleExp <- evalOperand opArgs
+      argExprs <-
+        let go :: forall h s ret tpr ctx.
+              [Ty] -> MirExp s -> Ctx.Index ctx tpr -> C.TypeRepr tpr ->
+              MirGenerator h s ret (R.Expr MIR s tpr)
+            go tupleTys tupleExp idx tpr = do
+              let i = Ctx.indexVal idx
+              MirExp tpr' e <- getTupleElem tupleTys tupleExp i
+              Refl <- testEqualityOrFail tpr tpr' $
+                "callOnceVirtShimDef: expected arg " ++ show idx ++ " to have repr "
+                  ++ show tpr ++ ", but got " ++ show tpr'
+              return (e :: R.Expr MIR s tpr)
+        in itraverseFC (\idx tpr -> go argTys argTupleExp idx tpr) argCtx
+
+      -- Unpack vtable type
+      dynTrait <- case col ^. traits . at dynTraitName of
+        Just x -> return x
+        Nothing -> mirFail $ "callOnceVirtShimDef: undefined trait " ++ show dynTraitName
+      Some vtableStructTpr <- case traitVtableType col dynTrait of
+        Left err -> mirFail $ "callOnceVirtShimDef: traitVtableType: " ++ err
+        Right x -> return x
+      Some vtableCtx <- case vtableStructTpr of
+        C.StructRepr ctx -> return $ Some ctx
+        _ -> mirFail $ "callOnceVirtShimDef: vtable type is not a struct"
+      Refl <- testEqualityOrFail vtableStructTpr (C.StructRepr vtableCtx) $
+        "impossible: vtableStructTpr != StructRepr vtableCtx ?"
+
+      -- Look up `methodIdx`
+      Some vtableMethodIdx <- case Ctx.intIndex (fromInteger methodIdx) (Ctx.size vtableCtx) of
+        Just x -> return x
+        Nothing -> mirFail $ "callOnceVirtShimDef: method index out of range for vtable: "
+          ++ "method = " ++ show methodIdx ++ "; size = " ++ show (Ctx.size vtableCtx)
+      let vtableMethodTpr = vtableCtx Ctx.! vtableMethodIdx
+      Some retTpr <- case vtableMethodTpr of
+        C.FunctionHandleRepr _ retTpr -> return $ Some retTpr
+        tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodIdx
+          ++ " of " ++ show dynTraitName ++ " to have FunctionHandleRepr, but got " ++ show tpr
+      let expectVtableMethodTpr = C.FunctionHandleRepr
+            (Ctx.singleton C.AnyRepr Ctx.<++> argCtx)
+            retTpr
+      Refl <- testEqualityOrFail vtableMethodTpr expectVtableMethodTpr $
+        "callOnceVirtShimDef: expected method to have " ++ show expectVtableMethodTpr
+          ++ ", but got " ++ show vtableMethodTpr
+
+      let recvData = R.App $ E.GetStruct recv dynRefDataIndex MirReferenceRepr
+      let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
+
+      -- Downcast the vtable to its proper struct type
+      errBlk <- G.newLabel
+      G.defineBlock errBlk $ do
+          G.reportError $ R.App $ E.StringLit $ fromString $
+              unwords ["bad vtable downcast:", show dynTraitName,
+                  "to", show vtableCtx]
+
+      okBlk <- G.newLambdaLabel' vtableStructTpr
+      vtable <- G.continueLambda okBlk $ do
+          G.branchMaybe (R.App $ E.UnpackAny vtableStructTpr recvVtable) okBlk errBlk
+
+      -- Extract the function handle from the vtable
+      let vtsFH = R.App $ E.GetStruct vtable vtableMethodIdx vtableMethodTpr
+
+      MirExp retTpr <$> G.call vtsFH
+        (Ctx.singleton (R.App (E.PackAny MirReferenceRepr recvData)) Ctx.<++> argExprs)
+    _ -> mirFail $ "callOnceVirtShimDef: expected 2 arguments, but got " ++ show ops
 
 
 
