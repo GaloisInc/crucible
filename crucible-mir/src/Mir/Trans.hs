@@ -2508,43 +2508,46 @@ transVtableShim :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap
   -> MirHandle
   -> ST h (Text, Core.AnyCFG MIR)
 transVtableShim colState vtableName (VtableItem fnName defName)
-        (MirHandle _hname _hsig (shimFH :: FH.FnHandle args ret)) =
+        (MirHandle _hname _hsig (shimFH :: FH.FnHandle args ret)) = do
     -- Unpack shim signature
-    let shimArgs = FH.handleArgTypes shimFH in
-    let shimRet = FH.handleReturnType shimFH in
+    let shimArgs = FH.handleArgTypes shimFH
+    let shimRet = FH.handleReturnType shimFH
 
     -- Retrieve impl Fn and FnHandle; unpack impl signature
-    (\k -> case Map.lookup fnName (colState ^. collection.functions) of
-            Just fn -> k fn
-            Nothing -> die ["failed to look up implementation", show fnName])
-        $ \implFn ->
-    withMethodHandle fnName (die ["failed to look up implementation", show fnName])
-        $ \implFH ->
+    implFn <- case Map.lookup fnName (colState ^. collection.functions) of
+        Just fn -> return fn
+        Nothing -> die ["failed to look up implementation", show fnName]
+    MirHandle _ _ implFH <- case Map.lookup fnName (colState ^. handleMap) of
+        Just x -> return x
+        Nothing -> die ["failed to look up implementation", show fnName]
     let implMirArg0 = case implFn ^. M.fsig . M.fsarg_tys of
                         arg_ty:_ -> arg_ty
-                        [] -> die ["shim has no argument types"] in
-    let implArgs = FH.handleArgTypes implFH in
-    let implRet = FH.handleReturnType implFH in
+                        [] -> die ["shim has no argument types"]
+    let implArgs = FH.handleArgTypes implFH
+    let implRet = FH.handleReturnType implFH
 
     -- Peel off receiver from shim and impl arg lists
     -- NB: assignments built by `tyListToCtx` are constructed in reverse order
-    elimAssignmentLeft shimArgs (die ["shim has no arguments"])
-        $ \Refl shimArg0 shimArgs' ->
-    elimAssignmentLeft implArgs (die ["impl has no arguments"])
-        $ \Refl implArg0 implArgs' ->
+    AssignUncons shimArg0 shimArgs' <- case assignUncons shimArgs of
+      Just x -> return x
+      Nothing -> die ["shim has no arguments"]
+    AssignUncons implArg0 implArgs' <- case assignUncons implArgs of
+      Just x -> return x
+      Nothing -> die ["impl has no arguments"]
 
     -- Check equalities over Crucible (translated) types:
     --  * Non-receiver arg types of impl and shim are equal
-    (\k -> case testEquality implArgs' shimArgs' of { Just x -> k x;
-        Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs] })
-        $ \Refl ->
+    Refl <- case testEquality implArgs' shimArgs' of
+        Just x -> return x
+        Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs]
     --  * Return types of impl and shim are equal
-    (\k -> case testEquality implRet shimRet of { Just x -> k x;
-        Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet] })
-        $ \Refl ->
+    Refl <- case testEquality implRet shimRet of
+        Just x -> return x
+        Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet]
     --  * Shim receiver type is ANY
-    (\k -> case testEquality shimArg0 C.AnyRepr of { Just x -> k x;
-        Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \Refl ->
+    Refl <- case testEquality shimArg0 C.AnyRepr of
+        Just x -> return x
+        Nothing -> die ["shim receiver is not ANY:", show shimArg0]
 
     -- Construct the shim and return it
     withBuildShim implMirArg0 implArg0 implArgs' implRet implFH $ \shimDef -> do
@@ -2558,16 +2561,6 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     dieMsg :: [String] -> String
     dieMsg xs = unwords (["failed to generate vtable shim for", show vtableName,
             "entry", show defName, "(instance", show fnName, "):"] ++ xs)
-
-    withMethodHandle :: forall r.
-        MethName ->
-        (r) ->
-        (forall args' ret'. FH.FnHandle args' ret' -> r) ->
-        r
-    withMethodHandle name kNothing kJust =
-        case Map.lookup name (colState ^. handleMap) of
-            Just (MirHandle _ _ fh) -> kJust fh
-            Nothing -> kNothing
 
     withBuildShim :: forall r recvTy argTys retTy.
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
