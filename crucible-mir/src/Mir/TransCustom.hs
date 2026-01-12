@@ -2218,14 +2218,78 @@ cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneFromShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
 
 
+{- | Replacement for an `IkVirtual` shim for `FnOnce::call_once`.
 
+To understand the design, first, consider the case of `Box<dyn Fn>`.  Suppose
+we have a closure type `F`, which has been boxed up and converted to `Box<dyn
+Fn>`.  Here is the control flow from calling the `Box<dyn Fn>` to the closure
+implementation `F::call`:
+
+1. `<Box<dyn Fn> as Fn>::call`.  Signature: `fn(&Box<dyn Fn>, (A, B)) -> C`
+2. Virtual-call (`IkVirtual`) shim for `Fn::call`.  Signature: `fn(&dyn Fn, (A,
+   B)) -> C`
+3. Vtable shim for `<F as Fn>::call`.  Signature: `fn(AnyRepr, A, B) -> C`.
+   The `AnyRepr` here wraps `&F`.
+4. `<F as Fn>::call`.  Signature: `fn(&F, A, B) -> C`
+
+Now consider `Box<dyn FnOnce>`:
+
+1. `<Box<dyn FnOnce> as FnOnce>::call_once`.  Signature: `fn(Box<dyn FnOnce>,
+   (A, B)) -> C`
+2. Virtual-call (`IkVirtual`) shim for `FnOnce::call_once`.  Signature: `fn(dyn
+   FnOnce, (A, B)) -> C`
+3. Vtable shim for `<F as FnOnce>::call_once`.  Signature: `fn(AnyRepr, A, B)
+   -> C`
+4. `<F as FnOnce>::call_once`.  Signature: `fn(F, A, B) -> C`
+
+There are two issues here that aren't present in the `Box<dyn Fn>` case.
+First, the `IkVirtual` shim takes `dyn FnOnce` by value, which requires
+`#[feature(unsized_fn_params)]`.  Second, the vtable shim for `F::call_once`
+would normally expect an `AnyRepr` that wraps a value of type `F`, but the
+`IkVirtual` shim doesn't know the concrete type `F`, so it can't load an `F`
+from memory to wrap in the `AnyRepr`.
+
+The solution to both issues is to add a level of indirection to the receivers
+of both the `IkVirtual` shim and the vtable shim.  For the `IkVirtual` shim, we
+add a `TransCustom` override, which can inspect the MIR syntax of the call that
+`Box::call_once` makes to the `IkVirtual` shim.  This override looks for the
+pattern `shim(*ptr, args)` and works with `ptr` (of type `*const dyn FnOnce`)
+directly, instead of evaluating `*ptr` (which produces an unsupported unsized
+rvalue of type `dyn FnOnce`).  The override then behaves like a normal
+`IkVirtual` shim, but with a `*const dyn FnOnce` receiver instead of by-value
+`dyn FnOnce`.  For the vtable shim, we modify shim generation for
+implementations of `call_once` to expect `*const F` rather than `F` inside the
+`AnyRepr`, and to dereference that pointer before passing the result to
+`F::call_once`.
+
+The implementation is spread across several places:
+
+1. In `Mir.Trans.mkShimHandleMap`, we skip generating a Crucible `FnHandle` for
+   the `call_once` `IkVirtual` shim.  Actually, we skip generating `FnHandle`s
+   for any `IkVirtual` shim whose signature produces an error from `tyToRepr`,
+   which includes `call_once` due to the use of `TyDynamic` at top level
+   ("standalone use of `dyn`").
+2. In `Mir.Trans.transInstance`, when translating an `IkVirtual` shim, if there
+   is no `FnHandle` for that shim, we skip generating a function definition for
+   it.  It's okay for the shim to remain undefined because the `TransCustom`
+   override will replace all calls to it with alternate code.
+3. `Mir.TransCustom.callOnceVirtShimDef` is the main implementation of the
+   `call_once` `IkVirtual` shim.  This extracts the pointer from the `*ptr`
+   argument, then otherwise works like the normal `IkVirtual` shim produced by
+   `transVirtCall`.
+4. In `Mir.Trans.transVtableShim`, we add a special case for building the
+   `call_once` vtable shim.  This allows the receiver type to be `F` by value,
+   rather than a pointer like `&F` or `*const F`, and it passes `*p` rather
+   than `p` to the implementation function `F::call_once`.
+-}
 callOnceVirtShimDef :: Integer -> CustomOp
 callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
   case ops of
     [opRecv, opArgs] -> do
       col <- use $ cs . collection
 
-      -- Process receiver
+      -- Process receiver.  We expect the receiver argument to have the form
+      -- `*ptr`, and we extract the `ptr` to work with directly.
       dynTraitName <- case typeOf opRecv of
         TyDynamic tn -> return tn
         ty -> mirFail $ "callOnceVirtShimDef: expected first arg to be TyDynamic, "
