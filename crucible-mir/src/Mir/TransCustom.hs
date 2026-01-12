@@ -75,7 +75,11 @@ import           Mir.Trans
 
 
 customOps :: CustomOpMap
-customOps = CustomOpMap customOpDefs cloneShimDef cloneFromShimDef
+customOps = CustomOpMap
+    customOpDefs
+    cloneShimDef
+    cloneFromShimDef
+    callOnceVirtShimDef
 
 customOpDefs :: Map ExplodedDefId CustomRHS
 customOpDefs = Map.fromList $ [
@@ -2211,6 +2215,12 @@ cloneShimNoFields what parts
 
 cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
 cloneFromShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
+
+
+
+callOnceVirtShimDef :: Integer -> CustomOp
+callOnceVirtShimDef _methodIdx = CustomMirOp $ \_ops ->
+  mirFail "callOnceVirtShimDef not yet implemented"
 
 
 

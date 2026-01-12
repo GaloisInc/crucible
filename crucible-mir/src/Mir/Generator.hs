@@ -203,6 +203,10 @@ data CustomOpMap = CustomOpMap
     { _opDefs :: Map ExplodedDefId CustomRHS
     , _cloneShimOp :: Ty -> [DefId] -> CustomOp
     , _cloneFromShimOp :: Ty -> [DefId] -> CustomOp
+    , _callOnceVirtShimOp :: Integer -> CustomOp
+    -- ^ Implementation of the `IkVirtual` shim for @FnOnce::call_once@.  See
+    -- the definition in @TransCustom.hs@ for more details.  The `Integer` is
+    -- the index in the vtable of the `call_once` method.
     }
 
 data CustomOp      =
@@ -538,6 +542,10 @@ resolveCustom instDefId = do
               | otherwise -> mirFail $
                     "don't know how to generate CloneShim for unknown method " ++
                     show (intr ^. intrInst . inDefId)
+            IkVirtual _traitDefId idx
+              | idKey (intr ^. intrInst . inDefId) == ["core", "ops", "function", "FnOnce", "call_once"] -> do
+                f <- use $ customOps . callOnceVirtShimOp
+                return $ Just $ f idx
             _ -> do
                 let origDefId = intr ^. intrInst . inDefId
                     origSubsts = intr ^. intrInst . inSubsts
