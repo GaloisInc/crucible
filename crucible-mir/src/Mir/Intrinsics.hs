@@ -2720,8 +2720,10 @@ subindexMirRefIO ::
 subindexMirRefIO bak iTypes tpr ref x elemSize =
     modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
 
-mirRef_offsetSim :: IsSymInterface sym =>
-    MirReferenceMux sym -> RegValue sym IsizeType ->
+mirRef_offsetSim ::
+    IsSymInterface sym =>
+    MirReferenceMux sym ->
+    RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
 mirRef_offsetSim ref off =
     ovrWithBackend $ \bak ->
@@ -2737,8 +2739,10 @@ mirRef_offsetIO ::
 mirRef_offsetIO bak iTypes ref off =
     modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off) ref
 
-mirRef_offsetWrapSim :: IsSymInterface sym =>
-    MirReferenceMux sym -> RegValue sym IsizeType ->
+mirRef_offsetWrapSim ::
+    IsSymInterface sym =>
+    MirReferenceMux sym ->
+    RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
 mirRef_offsetWrapSim ref off = do
     ovrWithBackend $ \bak ->
