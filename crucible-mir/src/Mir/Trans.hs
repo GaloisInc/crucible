@@ -2530,11 +2530,11 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     -- Peel off receiver from shim and impl arg lists
     -- NB: assignments built by `tyListToCtx` are constructed in reverse order
     AssignUncons shimArg0 shimArgs' <- case assignUncons shimArgs of
-      Just x -> return x
-      Nothing -> die ["shim has no arguments"]
+      Right x -> return x
+      Left _ -> die ["shim has no arguments"]
     AssignUncons implArg0 implArgs' <- case assignUncons implArgs of
-      Just x -> return x
-      Nothing -> die ["impl has no arguments"]
+      Right x -> return x
+      Left _ -> die ["impl has no arguments"]
 
     -- Check equalities over Crucible (translated) types:
     --  * Non-receiver arg types of impl and shim are equal
@@ -2642,14 +2642,19 @@ x <: xs = Ctx.singleton x Ctx.<++> xs
 data AssignUncons (f :: k -> Type) :: Ctx.Ctx k -> Type where
   AssignUncons :: f x -> Ctx.Assignment f y -> AssignUncons f (Ctx.SingleCtx x Ctx.<+> y)
 
-assignUncons :: Ctx.Assignment f ctx -> Maybe (AssignUncons f ctx)
-assignUncons Ctx.Empty = Nothing
-assignUncons (Ctx.Empty Ctx.:> x) = Just $ AssignUncons x Ctx.Empty
+-- | Un-cons an element from an assignment.  Returns the first (leftmost)
+-- element and the remaining elements, bundled into a GADT to establish that
+-- @ctx ~ (Ctx.SingleCtx first Ctx.<+> rest)@.  Returns `Nothing` if the input
+-- is empty.
+--
+-- Since `Ctx.Assignment` is a snoc-list rather than a cons-list, this is an
+-- O(n) operation.
+assignUncons :: Ctx.Assignment f ctx -> Either (ctx :~: Ctx.EmptyCtx) (AssignUncons f ctx)
+assignUncons Ctx.Empty = Left Refl
 assignUncons (xs Ctx.:> x) =
   case assignUncons xs of
-    Just (AssignUncons y ys) -> Just $ AssignUncons y (ys Ctx.:> x)
-    Nothing -> panic "assignUncons"
-      ["impossible: assignUncons returned Nothing for nonempty assignment?"]
+    Right (AssignUncons y ys) -> Right $ AssignUncons y (ys Ctx.:> x)
+    Left Refl -> Right $ AssignUncons x Ctx.Empty
 
 data AsFunctionHandleRepr :: C.CrucibleType -> Type where
   AsFunctionHandleRepr ::
@@ -2832,8 +2837,8 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
         Just x -> return x
         _ -> die ["vtable entry is not a function"]
     AssignUncons vtsRecvTy vtsArgTys' <- case assignUncons vtsArgTys of
-      Just x -> return x
-      Nothing -> die ["vtable shim has no arguments"]
+      Right x -> return x
+      Left _ -> die ["vtable shim has no arguments"]
 
     Refl <- case testEquality vtsRecvTy C.AnyRepr of
       Just x -> return x
