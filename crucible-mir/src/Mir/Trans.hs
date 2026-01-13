@@ -33,6 +33,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , ptrCopy, copyNonOverlapping
                 , isNonOverlapping
                 , evalRval
+                , evalLvalue
                 , callExp
                 , callHandle
                 , doVirtCall
@@ -58,6 +59,7 @@ import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
+import Data.Kind (Type)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.STRef
@@ -2407,8 +2409,10 @@ transInstance colState (M.Intrinsic defId (M.Instance kind origDefId _substs))
   -- For some `kind`s, we have special logic for generating a body.
   | M.IkVirtual dynTraitName methodIndex <- kind = do
       let methodId = origDefId
-      (name, cfg) <- transVirtCall colState defId methodId dynTraitName methodIndex
-      return $ Just (name, cfg, Nothing)
+      optNameCfg <- transVirtCall colState defId methodId dynTraitName methodIndex
+      case optNameCfg of
+        Just (name, cfg) -> return $ Just (name, cfg, Nothing)
+        Nothing -> return Nothing
   | M.IkClosureFnPointerShim <- kind = do
       (name, cfg, fti) <- transCommon colState defId ShimContext
         (genClosureFnPointerShim origDefId)
@@ -2505,43 +2509,46 @@ transVtableShim :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap
   -> MirHandle
   -> ST h (Text, Core.AnyCFG MIR)
 transVtableShim colState vtableName (VtableItem fnName defName)
-        (MirHandle _hname _hsig (shimFH :: FH.FnHandle args ret)) =
+        (MirHandle _hname _hsig (shimFH :: FH.FnHandle args ret)) = do
     -- Unpack shim signature
-    let shimArgs = FH.handleArgTypes shimFH in
-    let shimRet = FH.handleReturnType shimFH in
+    let shimArgs = FH.handleArgTypes shimFH
+    let shimRet = FH.handleReturnType shimFH
 
     -- Retrieve impl Fn and FnHandle; unpack impl signature
-    (\k -> case Map.lookup fnName (colState ^. collection.functions) of
-            Just fn -> k fn
-            Nothing -> die ["failed to look up implementation", show fnName])
-        $ \implFn ->
-    withMethodHandle fnName (die ["failed to look up implementation", show fnName])
-        $ \implFH ->
+    implFn <- case Map.lookup fnName (colState ^. collection.functions) of
+        Just fn -> return fn
+        Nothing -> die ["failed to look up implementation", show fnName]
+    MirHandle _ _ implFH <- case Map.lookup fnName (colState ^. handleMap) of
+        Just x -> return x
+        Nothing -> die ["failed to look up implementation", show fnName]
     let implMirArg0 = case implFn ^. M.fsig . M.fsarg_tys of
                         arg_ty:_ -> arg_ty
-                        [] -> die ["shim has no argument types"] in
-    let implArgs = FH.handleArgTypes implFH in
-    let implRet = FH.handleReturnType implFH in
+                        [] -> die ["shim has no argument types"]
+    let implArgs = FH.handleArgTypes implFH
+    let implRet = FH.handleReturnType implFH
 
     -- Peel off receiver from shim and impl arg lists
     -- NB: assignments built by `tyListToCtx` are constructed in reverse order
-    elimAssignmentLeft shimArgs (die ["shim has no arguments"])
-        $ \Refl shimArg0 shimArgs' ->
-    elimAssignmentLeft implArgs (die ["impl has no arguments"])
-        $ \Refl implArg0 implArgs' ->
+    AssignUncons shimArg0 shimArgs' <- case assignUncons shimArgs of
+      Right x -> return x
+      Left _ -> die ["shim has no arguments"]
+    AssignUncons implArg0 implArgs' <- case assignUncons implArgs of
+      Right x -> return x
+      Left _ -> die ["impl has no arguments"]
 
     -- Check equalities over Crucible (translated) types:
     --  * Non-receiver arg types of impl and shim are equal
-    (\k -> case testEquality implArgs' shimArgs' of { Just x -> k x;
-        Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs] })
-        $ \Refl ->
+    Refl <- case testEquality implArgs' shimArgs' of
+        Just x -> return x
+        Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs]
     --  * Return types of impl and shim are equal
-    (\k -> case testEquality implRet shimRet of { Just x -> k x;
-        Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet] })
-        $ \Refl ->
+    Refl <- case testEquality implRet shimRet of
+        Just x -> return x
+        Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet]
     --  * Shim receiver type is ANY
-    (\k -> case testEquality shimArg0 C.AnyRepr of { Just x -> k x;
-        Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \Refl ->
+    Refl <- case testEquality shimArg0 C.AnyRepr of
+        Just x -> return x
+        Nothing -> die ["shim receiver is not ANY:", show shimArg0]
 
     -- Construct the shim and return it
     withBuildShim implMirArg0 implArg0 implArgs' implRet implFH $ \shimDef -> do
@@ -2555,16 +2562,6 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     dieMsg :: [String] -> String
     dieMsg xs = unwords (["failed to generate vtable shim for", show vtableName,
             "entry", show defName, "(instance", show fnName, "):"] ++ xs)
-
-    withMethodHandle :: forall r.
-        MethName ->
-        (r) ->
-        (forall args' ret'. FH.FnHandle args' ret' -> r) ->
-        r
-    withMethodHandle name kNothing kJust =
-        case Map.lookup name (colState ^. handleMap) of
-            Just (MirHandle _ _ fh) -> kJust fh
-            Nothing -> kNothing
 
     withBuildShim :: forall r recvTy argTys retTy.
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
@@ -2584,9 +2581,16 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     buildShim recvMirTy recvTy argTys _retTy implFH
       | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
+      -- Special case for @FnOnce::call_once@.  See `Mir.TransCustom.callOnceVirtShimDef`
+      -- for details.
+      | M.idKey defName == ["core", "ops", "function", "FnOnce", "call_once"] =
+          buildShimForByValue recvMirTy recvTy argTys implFH
       | otherwise = \_argsA -> (\x -> (fnState, x)) $ do
         mirFail $ dieMsg ["unsupported MIR receiver type", show recvMirTy]
 
+    -- | Build a shim for a vtable method.  The shim expects `C.AnyRepr`
+    -- followed by the non-receiver arguments; it downcasts the `C.AnyRepr` to
+    -- @recvTy@ and then dispatches to the implementation method @implFH@.
     buildShimForRef :: forall recvTy argTys retTy .
         C.TypeRepr recvTy ->
         C.CtxRepr argTys ->
@@ -2597,6 +2601,31 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
             (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
         G.tailCall (R.App $ E.HandleLit implFH) (recvDowncast <: args)
+
+    -- | Build a shim for a method that takes the receiver by value.  This is a
+    -- special case for `FnOnce::call_once` (though it could be generalized if
+    -- we want to add support for `#[feature(unsized_fn_params)]` in the
+    -- future).  The shim expects a `MirReference` wrapped in `AnyRepr`; it
+    -- downcasts, reads from the reference, and then dispatches to @implFH@.
+    buildShimForByValue :: forall recvTy argTys retTy .
+        M.Ty ->
+        C.TypeRepr recvTy ->
+        C.CtxRepr argTys ->
+        FH.FnHandle (recvTy :<: argTys) retTy ->
+        G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
+    buildShimForByValue recvMirTy recvTy argTys implFH = \argsA -> (\x -> (fnState, x)) $ do
+        let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
+        recvValue <- if isZeroSized (colState ^. collection) recvMirTy
+            then do
+                Refl <- testEqualityOrFail recvTy MirAggregateRepr $
+                    "transVtableShim: expected receiver type to have MirAggregateRepr, "
+                      ++ "but got " ++ show recvTy
+                mirAggregate_uninit_constSize 0
+            else do
+                recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny MirReferenceRepr recv)
+                    (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
+                readMirRef recvTy recvDowncast
+        G.tailCall (R.App $ E.HandleLit implFH) (recvValue <: args)
 
 splitMethodArgs :: forall recvTy argTys s.
     Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->
@@ -2611,6 +2640,33 @@ type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
 
 (<:) :: forall f tp ctx. f tp -> Ctx.Assignment f ctx -> Ctx.Assignment f (tp :<: ctx)
 x <: xs = Ctx.singleton x Ctx.<++> xs
+
+data AssignUncons (f :: k -> Type) :: Ctx.Ctx k -> Type where
+  AssignUncons :: f x -> Ctx.Assignment f y -> AssignUncons f (Ctx.SingleCtx x Ctx.<+> y)
+
+-- | Un-cons an element from an assignment.  Returns the first (leftmost)
+-- element and the remaining elements, bundled into a GADT to establish that
+-- @ctx ~ (Ctx.SingleCtx first Ctx.<+> rest)@.  Returns `Left Refl` if the
+-- input is empty.
+--
+-- Since `Ctx.Assignment` is a snoc-list rather than a cons-list, this is an
+-- O(n) operation.
+assignUncons :: Ctx.Assignment f ctx -> Either (ctx :~: Ctx.EmptyCtx) (AssignUncons f ctx)
+assignUncons Ctx.Empty = Left Refl
+assignUncons (xs Ctx.:> x) =
+  case assignUncons xs of
+    Right (AssignUncons y ys) -> Right $ AssignUncons y (ys Ctx.:> x)
+    Left Refl -> Right $ AssignUncons x Ctx.Empty
+
+data AsFunctionHandleRepr :: C.CrucibleType -> Type where
+  AsFunctionHandleRepr ::
+    C.CtxRepr args ->
+    C.TypeRepr ret ->
+    AsFunctionHandleRepr (C.FunctionHandleType args ret)
+
+asFunctionHandleRepr :: C.TypeRepr tp -> Maybe (AsFunctionHandleRepr tp)
+asFunctionHandleRepr (C.FunctionHandleRepr args ret) = Just $ AsFunctionHandleRepr args ret
+asFunctionHandleRepr _ = Nothing
 
 elimAssignmentLeft :: forall k f (ctx :: Ctx.Ctx k) r.
     Ctx.Assignment f ctx ->
@@ -2674,7 +2730,7 @@ traitMethodSig trait methName = case matchedMethSigs of
             _ -> Nothing) (trait ^. M.traitItems)
 
 -- Generate method handles for all generated shims used in the current crate.
-mkShimHandleMap :: (HasCallStack) =>
+mkShimHandleMap :: (HasCallStack, ?debug::Int) =>
     Collection -> FH.HandleAllocator -> IO HandleMap
 mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
   where
@@ -2687,15 +2743,26 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
             methSig = traitMethodSig trait methName
 
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
-        in liftM (Map.singleton name) $ do
-            Some argctx <- case tyListToCtx col (abiFnArgs methSig) (Right . Some) of
-              Left err -> fail ("mkShimHandleMap: " ++ err)
-              Right x -> return x
-            Some retrepr <- case tyToRepr col (methSig ^. M.fsreturn_ty) of
-              Left err -> fail ("mkShimHandleMap: " ++ err)
-              Right x -> return x
-            h <- FH.mkHandle' halloc handleName argctx retrepr
-            return $ MirHandle (intr ^. M.intrName) methSig h
+            sigReprs = do
+              someArgCtx <- tyListToCtx col (abiFnArgs methSig) (Right . Some)
+              someRetRepr <- tyToRepr col (methSig ^. M.fsreturn_ty)
+              return (someArgCtx, someRetRepr)
+        in case sigReprs of
+            Left err -> do
+              -- If the signature is not representable, we skip generating a
+              -- `MethodHandle` for this shim.  This will also cause
+              -- `transInstance` to skip generating code for it.  This will
+              -- result in a "don't know how to call" error if the shim is ever
+              -- used.
+              --
+              -- This notably occurs for `FnOnce::call_once` shims, which take
+              -- `dyn FnOnce` by value (using `#[feature(unsized_fn_params)]`).
+              when (?debug > 2) $ do
+                traceM $ "mkShimHandleMap: error translating " ++ show intr ++ ": " ++ err
+              return mempty
+            Right (Some argctx, Some retrepr) -> do
+              h <- FH.mkHandle' halloc handleName argctx retrepr
+              return $ Map.singleton name $ MirHandle (intr ^. M.intrName) methSig h
       | IkClosureFnPointerShim <- intr ^. M.intrInst . M.inKind = do
         let callMutId = intr ^. M.intrInst . M.inDefId
         callMutFn <- case col ^. M.functions . at callMutId of
@@ -2745,37 +2812,47 @@ mkVirtCall
   -> G.Generator MIR s t ret (ST h)
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
-mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
-    checkEq recvTy DynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
-        $ \Refl ->
+mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
+    Refl <- case testEquality recvTy DynRefRepr of
+      Just x -> return x
+      Nothing -> die ["method receiver is not `&dyn`/`&mut dyn`"]
 
     -- Unpack vtable type
-    withSome vtableType $ \vtableStructTy ->
-    elimStructType vtableStructTy (die ["vtable type is not a struct"])
-        $ \Refl vtableTys ->
+    dynTrait <- case col ^. M.traits . at dynTraitName of
+      Just x -> return x
+      Nothing -> die ["undefined trait " ++ show dynTraitName]
+    Some vtableStructTy <- case traitVtableType col dynTrait of
+      Left err -> die ["traitVtableType: " ++ err]
+      Right x -> return x
+    Some vtableTys <- case vtableStructTy of
+      C.StructRepr ctx -> return $ Some ctx
+      _ -> die ["vtable type is not a struct"]
 
-    let someVtableIdx = case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
-            Just x -> x
-            Nothing -> die ["method index out of range for vtable:",
-                "method =", show methIndex, "; size =", show (Ctx.size vtableTys)] in
-    withSome someVtableIdx $ \vtableIdx ->
+    Some vtableIdx <- case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
+      Just x -> return x
+      Nothing -> die ["method index out of range for vtable:",
+        "method =", show methIndex, "; size =", show (Ctx.size vtableTys)]
 
     -- Check that the vtable entry has the correct signature.
-    elimFunctionHandleType (vtableTys Ctx.! vtableIdx) (die ["vtable entry is not a function"])
-        $ \Refl vtsArgTys vtsRetTy ->
-    elimAssignmentLeft vtsArgTys (die ["vtable shim has no arguments"])
-        $ \Refl vtsRecvTy vtsArgTys' ->
+    AsFunctionHandleRepr vtsArgTys vtsRetTy <-
+      case asFunctionHandleRepr (vtableTys Ctx.! vtableIdx) of
+        Just x -> return x
+        _ -> die ["vtable entry is not a function"]
+    AssignUncons vtsRecvTy vtsArgTys' <- case assignUncons vtsArgTys of
+      Right x -> return x
+      Left _ -> die ["vtable shim has no arguments"]
 
-    checkEq vtsRecvTy C.AnyRepr (die ["vtable shim receiver is not Any"])
-        $ \Refl ->
-    checkEq vtsArgTys' argTys
-        (die ["vtable shim arguments don't match method; vtable shim =",
-            show vtsArgTys', "; method =", show argTys])
-        $ \Refl ->
-    checkEq vtsRetTy retTy
-        (die ["vtable shim return type doesn't match method; vtable shim =",
-            show vtsRetTy, "; method =", show retTy])
-        $ \Refl -> do
+    Refl <- case testEquality vtsRecvTy C.AnyRepr of
+      Just x -> return x
+      Nothing -> die ["vtable shim receiver is not Any"]
+    Refl <- case testEquality vtsArgTys' argTys of
+      Just x -> return x
+      Nothing -> die ["vtable shim arguments don't match method; vtable shim =",
+        show vtsArgTys', "; method =", show argTys]
+    Refl <- case testEquality vtsRetTy retTy of
+      Just x -> return x
+      Nothing -> die ["vtable shim return type doesn't match method; vtable shim =",
+        show vtsRetTy, "; method =", show retTy]
 
     let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
     let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
@@ -2803,17 +2880,6 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy =
     die words' = error $ unwords
         (["failed to generate virtual-call shim for method", show methIndex,
             "of trait", show dynTraitName] ++ words')
-
-    dynTrait = case col ^. M.traits . at dynTraitName of
-        Just x -> x
-        Nothing -> die ["undefined trait " ++ show dynTraitName]
-
-    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
-    -- substs only, omitting the Self type.
-    vtableType :: Some C.TypeRepr
-    vtableType = case traitVtableType col dynTrait of
-      Left err -> die ["vtableType: " ++ err]
-      Right x -> x
 
 
 -- | Use 'mkVirtCall' to create virtual-call function and argument expressions,
@@ -2861,17 +2927,24 @@ doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = 
   G.call fnHandle args
 
 
--- | Translate a virtual call. The logic for looking up the right method in the
--- vtable is implemented in 'mkVirtCall'.
+-- | Generate Crucible code for an `IkVirtual` virtual-call shim. The logic for
+-- looking up the right method in the vtable is implemented in 'mkVirtCall'.
+--
+-- This will return `Nothing` for `IkVirtual` shims that were skipped by
+-- `mkShimHandleMap` and thus `have no `MethodHandle` available.  This is
+-- notably the case for @FnOnce::call_once@, which is skipped because it takes
+-- accesses @self@ by value (and thus would require support for the unstable
+-- @unsized_fn_params@ feature).
 transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
   => CollectionState
   -> M.IntrinsicName
   -> M.MethName
   -> M.TraitName
   -> Integer
-  -> ST h (Text, Core.AnyCFG MIR)
+  -> ST h (Maybe (Text, Core.AnyCFG MIR))
 transVirtCall colState intrName' methName dynTraitName methIndex
-  | MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH =
+  | Just methMH <- Map.lookup intrName' (colState ^. handleMap)
+  , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH =
     -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
     elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
         $ \Refl recvTy argTys ->
@@ -2898,47 +2971,14 @@ transVirtCall colState intrName' methName dynTraitName methIndex
       in  do
             R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
             case SSA.toSSA g of
-                Core.SomeCFG g_ssa -> return (M.idText intrName', Core.AnyCFG g_ssa)
+                Core.SomeCFG g_ssa -> return $ Just (M.idText intrName', Core.AnyCFG g_ssa)
+  | otherwise = return Nothing
 
   where
     die :: [String] -> a
     die words' = error $ unwords
         (["failed to generate virtual-call shim for", show methName,
             "(intrinsic", show intrName', "):"] ++ words')
-
-    methMH = case Map.lookup intrName' (colState ^. handleMap) of
-        Just x -> x
-        Nothing -> die ["failed to find method handle for", show intrName']
-
-withSome :: Some f -> (forall tp. f tp -> r) -> r
-withSome s k = viewSome k s
-
-elimStructType ::
-    C.TypeRepr ty ->
-    (r) ->
-    (forall ctx. ty :~: C.StructType ctx -> C.CtxRepr ctx -> r) ->
-    r
-elimStructType ty kOther kStruct
-  | C.StructRepr ctx <- ty = kStruct Refl ctx
-  | otherwise = kOther
-
-elimFunctionHandleType ::
-    C.TypeRepr ty ->
-    (r) ->
-    (forall argTys retTy.
-        ty :~: C.FunctionHandleType argTys retTy ->
-        C.CtxRepr argTys -> C.TypeRepr retTy -> r) ->
-    r
-elimFunctionHandleType ty kOther kFH
-  | C.FunctionHandleRepr argTys retTy <- ty = kFH Refl argTys retTy
-  | otherwise = kOther
-
-checkEq :: TestEquality f => f a -> f b ->
-    r -> (a :~: b -> r) -> r
-checkEq a b kNe kEq
-  | Just pf <- testEquality a b = kEq pf
-  | otherwise = kNe
-
 
 
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]

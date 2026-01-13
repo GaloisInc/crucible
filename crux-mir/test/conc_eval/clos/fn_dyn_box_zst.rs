@@ -4,8 +4,7 @@ fn call_closure_box(f: Box<dyn FnOnce(i32, i32) -> i32>) -> i32 {
 
 #[cfg_attr(crux, crux::test)]
 fn crux_test() -> i32 {
-    let z = 3_i32;
-    call_closure_box(Box::new(move |x, y| x + y + z))
+    call_closure_box(Box::new(|x, y| x + y))
 }
 
 pub fn main() {
