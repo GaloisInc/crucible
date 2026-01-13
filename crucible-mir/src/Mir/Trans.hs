@@ -2755,7 +2755,7 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
               --
               -- This notably occurs for `FnOnce::call_once` shims, which take
               -- `dyn FnOnce` by value (using `#[feature(unsized_fn_params)]`).
-              when (?debug > 0) $ do
+              when (?debug > 2) $ do
                 traceM $ "mkShimHandleMap: error translating " ++ show intr ++ ": " ++ err
               return mempty
             Right (Some argctx, Some retrepr) -> do
