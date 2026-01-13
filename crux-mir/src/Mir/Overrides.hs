@@ -14,7 +14,7 @@
 
 module Mir.Overrides (bindFn, getString) where
 
-import Control.Lens ((^?), (.=), use, ix, _Wrapped)
+import Control.Lens ((^?), (.=), (^.), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans (lift)
@@ -35,6 +35,7 @@ import System.IO (hPutStrLn)
 
 import qualified Prettyprinter as PP
 
+import Data.Parameterized (Some(..))
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
@@ -77,6 +78,11 @@ import Mir.FancyMuxTree
 import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
+import Mir.TransTy
+  ( reprTransparentFieldTy,
+    tyToRepr,
+    pattern CTyVector
+  )
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
@@ -125,8 +131,10 @@ concretize ::
   forall sym bak rtp tp p .
   (IsSymInterface sym) =>
   Maybe (SomeOnlineSolver sym bak) ->
+  M.Collection ->
+  M.Ty ->
   OverrideSim p sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
-concretize (Just (SomeOnlineSolver bak)) = do
+concretize (Just (SomeOnlineSolver bak)) col ty = do
     let sym = backendGetSym bak
 
     -- remember if online solving was enabled
@@ -156,7 +164,7 @@ concretize (Just (SomeOnlineSolver bak)) = do
           let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
               evalBase btr v = evalGround v >>= groundToSym sym btr
 
-          regEval bak (\btpr expr -> liftIO $ evalBase btpr expr) tpr val
+          regEval bak (\btpr expr -> liftIO $ evalBase btpr expr) col ty tpr val
 
         -- If the current path condition is not satisfiable, then return the
         -- original argument unchanged. This is fine to do since the path will
@@ -177,239 +185,384 @@ concretize (Just (SomeOnlineSolver bak)) = do
 
     pure res
 
-concretize Nothing = fail "`concretize` requires an online solver backend"
+concretize Nothing _ _ = fail "`concretize` requires an online solver backend"
 
 regEval ::
-    forall sym bak tp rtp args ret p .
-    (IsSymBackend sym bak) =>
-    bak ->
-    (forall bt. BaseTypeRepr bt -> SymExpr sym bt ->
-        OverrideSim p sym MIR rtp args ret (SymExpr sym bt)) ->
-    TypeRepr tp ->
-    RegValue sym tp ->
-    OverrideSim p sym MIR rtp args ret (RegValue sym tp)
-regEval bak baseEval = go
+  forall sym bak tp rtp args ret p.
+  (IsSymBackend sym bak) =>
+  bak ->
+  ( forall bt.
+    BaseTypeRepr bt ->
+    SymExpr sym bt ->
+    OverrideSim p sym MIR rtp args ret (SymExpr sym bt) ) ->
+  M.Collection ->
+  M.Ty ->
+  TypeRepr tp ->
+  RegValue sym tp ->
+  OverrideSim p sym MIR rtp args ret (RegValue sym tp)
+regEval bak baseEval col ty = go (Just ty)
   where
     sym = backendGetSym bak
 
-    go :: forall tp' . TypeRepr tp' -> RegValue sym tp' ->
-        OverrideSim p sym MIR rtp args ret (RegValue sym tp')
-    go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
+    -- Note: the `Maybe M.Ty` arguments here, and in the various recursors
+    -- below, represent the original MIR type of the value being
+    -- evaluated/concretized, if it's known/applicable. In other words, if a
+    -- function is provided `Just ty` and a `tpr`, then `tyToRepr ty` should
+    -- produce that same `tpr`. The type is in `Maybe` because there are cases
+    -- in which it's unknowable/inapplicable - for instance, in `goMirRef`, we
+    -- can't recover the `M.Ty` of the reference's `RefRoot`, only its
+    -- `TypeRepr`.
+    go ::
+      forall tp'.
+      Maybe M.Ty ->
+      TypeRepr tp' ->
+      RegValue sym tp' ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym tp')
+    go _tyM tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
 
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go MirSliceRepr (Empty :> RV ptr :> RV len) = do
-        let MirReferenceMux mux = ptr
-        ref <- goMuxTreeEntries MirSliceRepr (viewFancyMuxTree mux)
-        case ref of
-            MirReference tpr _ _ -> do
-                len' <- go UsizeRepr len
-                let lenBV = BV.asUnsigned $
-                            fromMaybe (error "regEval produced non-concrete BV") $
-                            asBV len'
+    go (Just (M.TyRef (M.TySlice elemTy) _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice elemTy ptr len
+    go (Just (M.TyRef M.TyStr _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice (M.TyUint M.B8) ptr len
+    go (Just (M.TyRawPtr (M.TySlice elemTy) _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice elemTy ptr len
+    go (Just (M.TyRawPtr M.TyStr _mut)) MirSliceRepr (Empty :> RV ptr :> RV len) =
+      goSlice (M.TyUint M.B8) ptr len
+    go (Just t) MirSliceRepr _ =
+      throwUnsupported sym $ "slice-like value of non-slice MIR type: " <> show t
+    go Nothing MirSliceRepr _ =
+      throwUnsupported sym "slice-like value of unknown MIR type"
 
-                -- TODO: This logic is incorrect if `ptr` has been cast to a
-                -- different type.  For example, if the slice being inspected
-                -- is the result of interpreting `&[u32; 3]` as `&[u8]` (which
-                -- increases the length by a factor of 4), we'll end up with a
-                -- pointee type `tpr` of `BVType 32`, but a `len` of 12, even
-                -- though there are only 3 `u32`s in the actual array.  The
-                -- correct way to go about this would be to pass in the
-                -- `Mir.Ty` (for the example, `u8`), and use that together with
-                -- the `len`.  But threading the right `Ty` through to this
-                -- location would need a more invasive refactor.
-                vals <- forM [0 .. lenBV - 1] $ \i -> do
-                    i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
-                    ptr' <- mirRef_offsetSim ptr i'
-                    val <- readMirRefSim tpr ptr'
-                    go tpr val
+    go _tyM (FloatRepr _fi) v = pure v
+    go tyM AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tyM tpr v
+    go _tyM CharRepr c = pure c
+    go _tyM (FunctionHandleRepr args ret) v = goFnVal args ret v
+    go tyM (MaybeRepr tpr) pe = goPartExpr tyM tpr pe
 
-                sz_sym <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat
-                                 $ toInteger @Int $ length vals
-                ag <- liftIO $ mirAggregate_uninitIO bak sz_sym
-                -- TODO: hardcoded size=1
-                ag' <-
-                  liftIO $ foldM
-                    (\ag' (i, v) -> mirAggregate_setIO bak i 1 tpr v ag')
-                    ag (zip [0..] vals)
-                let agRef = newConstMirRef sym MirAggregateRepr ag'
-                ptr' <- subindexMirRefSim tpr agRef =<< liftIO (bvZero sym knownRepr)
-                return $ Empty :> RV ptr' :> RV len'
-            MirReference_Integer i -> do
-                i' <- go UsizeRepr i
-                let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
-                len' <- go UsizeRepr len
-                return $ Empty :> RV ptr' :> RV len'
-    go (FloatRepr _fi) v = pure v
-    go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
-    go CharRepr c = pure c
-    go (FunctionHandleRepr args ret) v = goFnVal args ret v
-    go (MaybeRepr tpr) pe = goPartExpr tpr pe
-    go (VectorRepr tpr) vec = traverse (go tpr) vec
-    go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
-    go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
-    go tpr@(ReferenceRepr _tpr) v = do
-        -- Can't use `collapseMuxTree` here since it's in the IO monad, not
-        -- OverrideSim.
-        rc <- goMuxTreeEntries tpr (viewMuxTree v)
-        rc' <- goRefCell rc
-        return $ toMuxTree sym rc'
+    go (Just (CTyVector elemTy)) (VectorRepr tpr) vec =
+      traverse (go (Just elemTy) tpr) vec
+    go Nothing (VectorRepr tpr) vec =
+      traverse (go Nothing tpr) vec
+
+    go (Just (M.TyAdt adtName _ _)) tpr v = goAdt adtName tpr v
+    go Nothing (StructRepr ctx) v = Ctx.zipWithM (go' Nothing) ctx v
+
+    go _tyM (VariantRepr ctx) v = Ctx.zipWithM (goVariantBranch Nothing) ctx v
+    go tyM tpr@(ReferenceRepr _tpr) v = do
+      -- Can't use `collapseMuxTree` here since it's in the IO monad, not
+      -- OverrideSim.
+      rc <- goMuxTreeEntries tpr (viewMuxTree v)
+      rc' <- goRefCell tyM rc
+      return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
-    go MirReferenceRepr (MirReferenceMux mux) = do
-        ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
-        ref' <- case ref of
-            MirReference tpr root path ->
-                MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
-            MirReference_Integer i ->
-                MirReference_Integer <$> go UsizeRepr i
-        return $ MirReferenceMux $ toFancyMuxTree sym ref'
-    go MirAggregateRepr (MirAggregate sz m) =
-        MirAggregate sz <$> mapM goMirAggregateEntry m
+    go _tyM MirReferenceRepr (MirReferenceMux mux) =
+      goMirRef mux
+
+    go (Just (M.TyArray elemTy _len)) MirAggregateRepr (MirAggregate sz m) =
+      MirAggregate sz <$> mapM (goMirAggregateEntry (Just elemTy)) m
+    go (Just (M.TyTuple tys)) MirAggregateRepr (MirAggregate sz m) = do
+      -- TODO, kinda: this assumes that tuple elements appear in the backing
+      -- aggregate in declaration order. This is the case now, but may not be in
+      -- the future. See #1666.
+      let agEntries = IntMap.toAscList m
+      agEntries' <- sequence $ IntMap.fromAscList
+        [ (offset, goMirAggregateEntry (Just entryTy) entry)
+        | ((offset, entry), entryTy) <- zip agEntries tys
+        ]
+      pure $ MirAggregate sz agEntries'
+    go _tyM MirAggregateRepr (MirAggregate sz m) =
+      MirAggregate sz <$> mapM (goMirAggregateEntry Nothing) m
+
     -- TODO: StringMapRepr
-    go tpr _v = throwUnsupported sym $
-          "evaluation of " ++ show tpr ++ " is not yet implemented"
+    go _tyM tpr _v = throwUnsupported sym $
+      "evaluation of " ++ show tpr ++ " is not yet implemented"
 
-    go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' ->
-        OverrideSim p sym MIR rtp args ret (RegValue' sym tp')
-    go' tpr (RV v) = RV <$> go tpr v
+    go' ::
+      forall tp'.
+      Maybe M.Ty ->
+      TypeRepr tp' ->
+      RegValue' sym tp' ->
+      OverrideSim p sym MIR rtp args ret (RegValue' sym tp')
+    go' tyM tpr (RV v) = RV <$> go tyM tpr v
 
-    goFnVal :: forall args' ret' .
-        CtxRepr args' -> TypeRepr ret' -> FnVal sym args' ret' ->
-        OverrideSim p sym MIR rtp args ret (FnVal sym args' ret')
+    goSlice ::
+      M.Ty ->
+      RegValue sym MirReferenceType ->
+      RegValue sym UsizeType ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym MirSlice)
+    goSlice elemTy ptr len = do
+      let MirReferenceMux mux = ptr
+      ref <- goMuxTreeEntries MirSliceRepr (viewFancyMuxTree mux)
+      case ref of
+        MirReference _ _ _ -> do
+          len' <- go (Just usizeTy) UsizeRepr len
+          let lenBV = BV.asUnsigned $
+                      fromMaybe (error "regEval produced non-concrete BV") $
+                      asBV len'
+
+          Some elemTpr <- case tyToRepr col elemTy of
+            Right tpr -> pure tpr
+            Left err ->
+              liftIO $ addFailedAssertion bak $ GenericSimError $
+                "goSlice: unable to determine element type representation: " <> err
+
+          vals <- forM [0 .. lenBV - 1] $ \i -> do
+            i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
+            ptr' <- mirRef_offsetSim ptr i'
+            val <- readMirRefSim elemTpr ptr'
+            go (Just elemTy) elemTpr val
+
+          sz_sym <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat
+                            $ toInteger @Int $ length vals
+          ag <- liftIO $ mirAggregate_uninitIO bak sz_sym
+          -- TODO: hardcoded size=1
+          ag' <-
+            liftIO $ foldM
+              (\ag' (i, v) -> mirAggregate_setIO bak i 1 elemTpr v ag')
+              ag (zip [0..] vals)
+          let agRef = newConstMirRef sym MirAggregateRepr ag'
+          ptr' <- subindexMirRefSim elemTpr agRef =<< liftIO (bvZero sym knownRepr)
+          return $ Empty :> RV ptr' :> RV len'
+        MirReference_Integer i -> do
+          i' <- go (Just usizeTy) UsizeRepr i
+          let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
+          len' <- go (Just usizeTy) UsizeRepr len
+          return $ Empty :> RV ptr' :> RV len'
+
+    goMirRef ::
+      FancyMuxTree sym (MirReference sym) ->
+      OverrideSim p sym MIR rtp args ret (MirReferenceMux sym)
+    goMirRef mux = do
+      ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
+      ref' <- case ref of
+        MirReference tpr root path ->
+          MirReference tpr <$> goMirReferenceRoot Nothing root <*> goMirReferencePath path
+        MirReference_Integer i ->
+          MirReference_Integer <$> go (Just usizeTy) UsizeRepr i
+      return $ MirReferenceMux $ toFancyMuxTree sym ref'
+
+    goFnVal ::
+      forall args' ret'.
+      CtxRepr args' ->
+      TypeRepr ret' ->
+      FnVal sym args' ret' ->
+      OverrideSim p sym MIR rtp args ret (FnVal sym args' ret')
     goFnVal args ret (ClosureFnVal fv tpr v) =
-        ClosureFnVal <$> goFnVal (args :> tpr) ret fv <*> pure tpr <*> go tpr v
+      ClosureFnVal <$> goFnVal (args :> tpr) ret fv <*> pure tpr <*> go Nothing tpr v
     goFnVal _ _ (HandleFnVal fh) = pure $ HandleFnVal fh
     goFnVal _ _ (VarargsFnVal fh addlArgs) = pure $ VarargsFnVal fh addlArgs
 
-    goPartExpr :: forall tp' . TypeRepr tp' ->
-        PartExpr (Pred sym) (RegValue sym tp') ->
-        OverrideSim p sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym tp'))
-    goPartExpr _tpr Unassigned = pure Unassigned
-    goPartExpr tpr (PE p v) = PE <$> baseEval BaseBoolRepr p <*> go tpr v
+    goPartExpr ::
+      forall tp'.
+      Maybe M.Ty ->
+      TypeRepr tp' ->
+      PartExpr (Pred sym) (RegValue sym tp') ->
+      OverrideSim p sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym tp'))
+    goPartExpr _tyM _tpr Unassigned = pure Unassigned
+    goPartExpr tyM tpr (PE p v) = PE <$> baseEval BaseBoolRepr p <*> go tyM tpr v
 
-    goVariantBranch :: forall tp' . TypeRepr tp' ->
-        VariantBranch sym tp' ->
-        OverrideSim p sym MIR rtp args ret (VariantBranch sym tp')
-    goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
+    goVariantBranch ::
+      forall tp'.
+      Maybe M.Ty ->
+      TypeRepr tp' ->
+      VariantBranch sym tp' ->
+      OverrideSim p sym MIR rtp args ret (VariantBranch sym tp')
+    goVariantBranch tyM tpr (VB pe) = VB <$> goPartExpr tyM tpr pe
 
-    goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
-        [(a, Pred sym)] ->
-        OverrideSim p sym MIR rtp args ret a
+    goAdt ::
+      forall tp'.
+      DefId ->
+      TypeRepr tp' ->
+      RegValue sym tp' ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym tp')
+    goAdt adtName tpr v = do
+      let adt = (col ^. M.adts) Map.! adtName
+      case (adt ^. M.adtkind, tpr) of
+        _ | Just tty <- reprTransparentFieldTy col adt ->
+          go (Just tty) tpr v
+
+        (M.Struct, StructRepr ctx) -> do
+          goVariant (M.onlyVariant adt) ctx v
+
+        (M.Enum discrTy, RustEnumRepr discrTpr variantsCtx) -> do
+          let Empty :> RV discrVal :> RV variantVals = v
+          discr <- go (Just discrTy) discrTpr discrVal
+          variants <- Ctx.generateM (Ctx.size variantsCtx) $ \i -> do
+            let variant = (adt ^. M.adtvariants) !! (Ctx.indexVal i)
+            let variantTpr = variantsCtx Ctx.! i
+            let VB variantValP = variantVals Ctx.! i
+            case variantTpr of
+              StructRepr fieldsCtx -> do
+                VB <$> goVariant' variant fieldsCtx variantValP
+              _ ->
+                liftIO $ addFailedAssertion bak $ GenericSimError $
+                  "goAdt: non-`StructRepr` enum variant?"
+          pure (Empty :> RV discr :> RV variants)
+
+        (M.Union, MirAggregateRepr) ->
+          let MirAggregate sz m = v
+           in MirAggregate sz <$> mapM (goMirAggregateEntry Nothing) m
+
+        _ ->
+          throwUnsupported sym $
+            "unable to evaluate ADT " ++ show adtName ++ " (" ++ show tpr ++ ")"
+
+    goVariant ::
+      forall ctx.
+      M.Variant ->
+      CtxRepr ctx ->
+      RegValue sym (StructType ctx) ->
+      OverrideSim p sym MIR rtp args ret (RegValue sym (StructType ctx))
+    goVariant variant fieldsCtx v = do
+      let fields = variant ^. M.vfields
+       in Ctx.generateM (Ctx.size fieldsCtx) $ \fieldIdx ->
+          let fieldTy = (fields !! Ctx.indexVal fieldIdx) ^. M.fty
+              fieldTpr = fieldsCtx Ctx.! fieldIdx
+              RV fieldVal = v Ctx.! fieldIdx
+            in RV <$> go (Just fieldTy) fieldTpr fieldVal
+
+    goVariant' ::
+      forall ctx.
+      M.Variant ->
+      CtxRepr ctx ->
+      PartExpr (Pred sym) (RegValue sym (StructType ctx)) ->
+      OverrideSim p sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym (StructType ctx)))
+    goVariant' variant fieldsCtx vP = case vP of
+      Unassigned -> pure Unassigned
+      PE p v -> PE <$> baseEval BaseBoolRepr p <*> goVariant variant fieldsCtx v
+
+    goMuxTreeEntries ::
+      forall tp' a.
+      TypeRepr tp' ->
+      [(a, Pred sym)] ->
+      OverrideSim p sym MIR rtp args ret a
     goMuxTreeEntries _tpr [] = liftIO $ addFailedAssertion bak $ GenericSimError $
-        "empty or incomplete mux tree?"
+      "empty or incomplete mux tree?"
     goMuxTreeEntries tpr ((x, p) : xs) = do
-        p' <- baseEval BaseBoolRepr p
-        case asConstantPred p' of
-            Just True -> return x
-            Just False -> goMuxTreeEntries tpr xs
-            Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
-                "baseEval returned a non-constant predicate?"
+      p' <- baseEval BaseBoolRepr p
+      case asConstantPred p' of
+        Just True -> return x
+        Just False -> goMuxTreeEntries tpr xs
+        Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
+          "baseEval returned a non-constant predicate?"
 
-    goRefCell :: forall tp' .
-        RefCell tp' ->
-        OverrideSim p sym MIR rtp args ret (RefCell tp')
-    goRefCell rc = do
-        let tpr = refType rc
-        -- Generate a new refcell to store the evaluated copy.  We don't want
-        -- to mutate anything in-place, since `concretize` is meant to be
-        -- side-effect-free.
-        -- TODO: deduplicate refcells, so structures with sharing don't become
-        -- exponentially large
-        halloc <- simHandleAllocator <$> use stateContext
-        rc' <- liftIO $ freshRefCell halloc tpr
+    goRefCell ::
+      forall tp'.
+      Maybe M.Ty ->
+      RefCell tp' ->
+      OverrideSim p sym MIR rtp args ret (RefCell tp')
+    goRefCell tyM rc = do
+      let tpr = refType rc
+      -- Generate a new refcell to store the evaluated copy.  We don't want
+      -- to mutate anything in-place, since `concretize` is meant to be
+      -- side-effect-free.
+      -- TODO: deduplicate refcells, so structures with sharing don't become
+      -- exponentially large
+      halloc <- simHandleAllocator <$> use stateContext
+      rc' <- liftIO $ freshRefCell halloc tpr
 
-        -- Retrieve the current global state, use it to look up the pointee
-        -- value (if it exists), and concretize the pointee value.
-        globalState0 <- use $ stateTree.actFrame.gpGlobals
-        let pe = lookupRef rc globalState0
-        pe' <- goPartExpr tpr pe
+      -- Retrieve the current global state, use it to look up the pointee
+      -- value (if it exists), and concretize the pointee value.
+      globalState0 <- use $ stateTree.actFrame.gpGlobals
+      let pe = lookupRef rc globalState0
+      pe' <- goPartExpr tyM tpr pe
 
-        -- Retrieve the current global state again. We must do this in case the
-        -- call to goPartExpr above changed the global state further (e.g., in
-        -- case we have a reference to another reference).
-        globalState1 <- use $ stateTree.actFrame.gpGlobals
+      -- Retrieve the current global state again. We must do this in case the
+      -- call to goPartExpr above changed the global state further (e.g., in
+      -- case we have a reference to another reference).
+      globalState1 <- use $ stateTree.actFrame.gpGlobals
 
-        -- Update the global state with the new refcell pointing to the
-        -- concretized pointee value.
-        let globalState2 = updateRef rc' pe' globalState1
-        stateTree.actFrame.gpGlobals .= globalState2
+      -- Update the global state with the new refcell pointing to the
+      -- concretized pointee value.
+      let globalState2 = updateRef rc' pe' globalState1
+      stateTree.actFrame.gpGlobals .= globalState2
 
-        return rc'
+      return rc'
 
-    goGlobalVar :: forall tp'.
-        GlobalVar tp' ->
-        OverrideSim p sym MIR rtp args ret (GlobalVar tp')
-    goGlobalVar gv = do
-        let nm = globalName gv
-        let tpr = globalType gv
-        -- Generate a new global variable to store the evaluated copy. We don't
-        -- want to mutate anything in-place, since `concretize` is meant to be
-        -- side-effect-free.
-        -- TODO: deduplicate global variables, so structures with sharing don't
-        -- become exponentially large
-        halloc <- simHandleAllocator <$> use stateContext
-        gv' <- liftIO $ freshGlobalVar halloc nm tpr
+    goGlobalVar ::
+      forall tp'.
+      Maybe M.Ty ->
+      GlobalVar tp' ->
+      OverrideSim p sym MIR rtp args ret (GlobalVar tp')
+    goGlobalVar tyM gv = do
+      let nm = globalName gv
+      let tpr = globalType gv
+      -- Generate a new global variable to store the evaluated copy. We don't
+      -- want to mutate anything in-place, since `concretize` is meant to be
+      -- side-effect-free.
+      -- TODO: deduplicate global variables, so structures with sharing don't
+      -- become exponentially large
+      halloc <- simHandleAllocator <$> use stateContext
+      gv' <- liftIO $ freshGlobalVar halloc nm tpr
 
-        -- Retrieve the current global state, use it to look up the pointee
-        -- value (if it exists), and concretize the pointee value.
-        globalState0 <- use $ stateTree.actFrame.gpGlobals
-        e <-
-          case lookupGlobal gv globalState0 of
-            Just e -> pure e
-            Nothing ->
-              panic
-                "regEval"
-                [ "GlobalVar with no SymGlobalState entry"
-                , Text.unpack nm
-                ]
-        e' <- go tpr e
+      -- Retrieve the current global state, use it to look up the pointee
+      -- value (if it exists), and concretize the pointee value.
+      globalState0 <- use $ stateTree.actFrame.gpGlobals
+      e <-
+        case lookupGlobal gv globalState0 of
+          Just e -> pure e
+          Nothing ->
+            panic
+              "regEval"
+              [ "GlobalVar with no SymGlobalState entry"
+              , Text.unpack nm
+              ]
+      e' <- go tyM tpr e
 
-        -- Retrieve the current global state again. We must do this in case the
-        -- call to `go` above changed the global state further (e.g., in case
-        -- we have a reference to another reference).
-        globalState1 <- use $ stateTree.actFrame.gpGlobals
+      -- Retrieve the current global state again. We must do this in case the
+      -- call to `go` above changed the global state further (e.g., in case
+      -- we have a reference to another reference).
+      globalState1 <- use $ stateTree.actFrame.gpGlobals
 
-        -- Update the global state with the new global variable pointing to the
-        -- concretized pointee value.
-        let globalState2 = insertGlobal gv' e' globalState1
-        stateTree.actFrame.gpGlobals .= globalState2
+      -- Update the global state with the new global variable pointing to the
+      -- concretized pointee value.
+      let globalState2 = insertGlobal gv' e' globalState1
+      stateTree.actFrame.gpGlobals .= globalState2
 
-        return gv'
+      return gv'
 
-    goMirReferenceRoot :: forall tp' .
-        MirReferenceRoot sym tp' ->
-        OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
-    goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
-    goMirReferenceRoot (GlobalVar_RefRoot gv) = GlobalVar_RefRoot <$> goGlobalVar gv
-    goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
+    goMirReferenceRoot ::
+      forall tp'.
+      Maybe M.Ty ->
+      MirReferenceRoot sym tp' ->
+      OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
+    goMirReferenceRoot tyM (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell tyM rc
+    goMirReferenceRoot tyM (GlobalVar_RefRoot gv) = GlobalVar_RefRoot <$> goGlobalVar tyM gv
+    goMirReferenceRoot tyM (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tyM tpr v
 
-    goMirReferencePath :: forall tp_base tp' .
-        MirReferencePath sym tp_base tp' ->
-        OverrideSim p sym MIR rtp args ret (MirReferencePath sym tp_base tp')
+    goMirReferencePath ::
+      forall tp_base tp'.
+      MirReferencePath sym tp_base tp' ->
+      OverrideSim p sym MIR rtp args ret (MirReferencePath sym tp_base tp')
     goMirReferencePath Empty_RefPath =
-        pure Empty_RefPath
+      pure Empty_RefPath
     goMirReferencePath (Field_RefPath ctx p idx) =
-        Field_RefPath ctx <$> goMirReferencePath p <*> pure idx
+      Field_RefPath ctx <$> goMirReferencePath p <*> pure idx
     goMirReferencePath (Variant_RefPath discrTp ctx p idx) =
-        Variant_RefPath discrTp ctx <$> goMirReferencePath p <*> pure idx
+      Variant_RefPath discrTp ctx <$> goMirReferencePath p <*> pure idx
     goMirReferencePath (Just_RefPath tpr p) =
-        Just_RefPath tpr <$> goMirReferencePath p
+      Just_RefPath tpr <$> goMirReferencePath p
     goMirReferencePath (VectorIndex_RefPath tpr p idx) =
-        VectorIndex_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
+      VectorIndex_RefPath tpr <$> goMirReferencePath p <*> go (Just usizeTy) UsizeRepr idx
     goMirReferencePath (ArrayIndex_RefPath btpr p idx) =
-        ArrayIndex_RefPath btpr <$> goMirReferencePath p <*> go UsizeRepr idx
+      ArrayIndex_RefPath btpr <$> goMirReferencePath p <*> go (Just usizeTy) UsizeRepr idx
     goMirReferencePath (AgElem_RefPath off sz tpr p) =
-        AgElem_RefPath <$> go UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
+      AgElem_RefPath <$> go (Just usizeTy) UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
 
     goMirAggregateEntry ::
-        MirAggregateEntry sym ->
-        OverrideSim p sym MIR rtp args ret (MirAggregateEntry sym)
-    goMirAggregateEntry (MirAggregateEntry sz tpr' rvPart) = do
-        rvPart' <- goPartExpr tpr' rvPart
-        return $ MirAggregateEntry sz tpr' rvPart'
+      Maybe M.Ty ->
+      MirAggregateEntry sym ->
+      OverrideSim p sym MIR rtp args ret (MirAggregateEntry sym)
+    goMirAggregateEntry tyM (MirAggregateEntry sz tpr' rvPart) = do
+      rvPart' <- goPartExpr tyM tpr' rvPart
+      return $ MirAggregateEntry sz tpr' rvPart'
 
+    usizeTy :: M.Ty
+    usizeTy = M.TyUint M.USize
 
 -- | Override one Rust function with another.
 overrideRust ::
@@ -461,7 +614,10 @@ bindFn symOnline cs name cfg
   | hasInstPrefix ["crucible", "concretize"] explodedName
   , Empty :> tpr <- cfgArgTypes cfg
   , Just Refl <- testEquality tpr (cfgReturnType cfg)
-  = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
+  = let fns = cs ^. collection . M.functions
+        fn = fns Map.! textId name
+        ty = fn ^. M.fsig . M.fsreturn_ty  -- the type being concretized
+     in bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline (cs ^. collection) ty
 
   | hasInstPrefix ["crucible", "override_"] explodedName
   , Empty :> MirAggregateRepr :> MirAggregateRepr <- cfgArgTypes cfg
