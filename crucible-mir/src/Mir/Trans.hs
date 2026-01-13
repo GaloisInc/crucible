@@ -2646,8 +2646,8 @@ data AssignUncons (f :: k -> Type) :: Ctx.Ctx k -> Type where
 
 -- | Un-cons an element from an assignment.  Returns the first (leftmost)
 -- element and the remaining elements, bundled into a GADT to establish that
--- @ctx ~ (Ctx.SingleCtx first Ctx.<+> rest)@.  Returns `Nothing` if the input
--- is empty.
+-- @ctx ~ (Ctx.SingleCtx first Ctx.<+> rest)@.  Returns `Left Refl` if the
+-- input is empty.
 --
 -- Since `Ctx.Assignment` is a snoc-list rather than a cons-list, this is an
 -- O(n) operation.
