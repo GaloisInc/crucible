@@ -342,7 +342,8 @@ vector_as_slice_impl (Substs [t]) =
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
-            e' <- subindexRef tpr e (R.App $ usizeLit 0)
+            let elemSize = 1 -- TODO: hardcoded size=1
+            e' <- subindexRef tpr e (R.App $ usizeLit 0) elemSize
             let tup = S.mkStruct
                     (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
                     (Ctx.Empty Ctx.:> e' Ctx.:> end)
@@ -386,7 +387,12 @@ vector_copy_from_slice = ( ["crucible","vector","{impl}", "copy_from_slice"], ) 
             Some tpr <- tyToReprM t
             let ptr = getSlicePtr e
             let len = getSliceLen e
-            v <- vectorCopy tpr ptr len
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col t of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "vector_copy_from_slice: unsized element type: " <> show t
+            v <- vectorCopy tpr ptr len elemSize
             return $ MirExp (C.VectorRepr tpr) v
         _ -> mirFail $ "bad arguments for Vector::copy_from_slice: " ++ show ops
     _ -> Nothing
@@ -438,7 +444,8 @@ array_as_slice_impl (Substs [t]) =
           MirExp UsizeRepr start,
           MirExp UsizeRepr len ] -> do
             Some tpr <- tyToReprM t
-            ptr <- subindexRef tpr e start
+            let elemSize = 1 -- TODO: hardcoded size=1
+            ptr <- subindexRef tpr e start elemSize
             return $ MirExp MirSliceRepr $ mkSlice ptr len
         _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing
@@ -485,9 +492,14 @@ any_downcast = ( ["core", "crucible", "any", "{impl}", "downcast"], \substs -> c
 
 ptr_offset_impl :: CustomRHS
 ptr_offset_impl = \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] ->
-            MirExp MirReferenceRepr <$> mirRef_offset ref offset
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "ptr_offset_impl: unsized element type: " <> show elemTy
+            MirExp MirReferenceRepr <$> mirRef_offset ref offset elemSize
         _ -> mirFail $ "bad arguments for ptr::offset: " ++ show ops
     _ -> Nothing
 
@@ -498,9 +510,14 @@ ptr_offset_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset"], ptr_offset_imp
 
 ptr_wrapping_offset_impl :: CustomRHS
 ptr_wrapping_offset_impl = \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] ->
-            MirExp MirReferenceRepr <$> mirRef_offsetWrap ref offset
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "ptr_wrapping_offset_impl: unsized element type: " <> show elemTy
+            MirExp MirReferenceRepr <$> mirRef_offsetWrap ref offset elemSize
         _ -> mirFail $ "bad arguments for ptr::wrapping_offset: " ++ show ops
     _ -> Nothing
 
@@ -728,11 +745,16 @@ drop_in_place_dyn =
 
 intrinsics_copy :: (ExplodedDefId, CustomRHS)
 intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
-    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr src,
          MirExp MirReferenceRepr dest,
          MirExp UsizeRepr count] -> do
-            Some tpr <- tyToReprM ty
+            Some elemTpr <- tyToReprM elemTy
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "intrinsics_copy: unsized array element type: " <> show elemTy
             -- `copy` (as opposed to `copy_nonoverlapping`) must work
             -- atomically even when the source and dest overlap.  We do this by
             -- taking a snapshot of the source, then copying the snapshot into
@@ -743,9 +765,9 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             (srcAg, srcIdx) <- mirRef_peelIndex src
             srcSnapAg <- readMirRef MirAggregateRepr srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
-            srcSnap <- subindexRef tpr srcSnapRoot srcIdx
+            srcSnap <- subindexRef elemTpr srcSnapRoot srcIdx elemSize
 
-            ptrCopy tpr srcSnap dest count
+            ptrCopy elemTpr srcSnap dest count elemSize
             MirExp MirAggregateRepr <$> mirAggregate_zst
 
         _ -> mirFail $ "bad arguments for intrinsics::copy: " ++ show ops
@@ -758,8 +780,13 @@ intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"]
             [MirExp MirReferenceRepr src,
              MirExp MirReferenceRepr dest,
              MirExp UsizeRepr count] -> do
+                col <- use $ cs . collection
+                elemSize <- case tySizedness col ty of
+                    Sized s -> pure s
+                    Unsized ->
+                        mirFail $ "intrinsics_copy_nonoverlapping: unsized element type: " <> show ty
                 Some tpr <- tyToReprM ty
-                copyNonOverlapping tpr src dest count
+                copyNonOverlapping tpr src dest count elemSize
 
             _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
         _ -> Nothing)
@@ -1348,7 +1375,7 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
     \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
-            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty tyLen) Immut]),
+            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray elemTy tyLen) Immut]),
               [MirExp MirSliceRepr e] ) -> do
                 -- TODO: This should be implemented as a type cast, so the
                 -- input and output are aliases.  However, the input slice's
@@ -1366,9 +1393,14 @@ array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_
                 SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
                 let expectedEnumTpr = RustEnumRepr discrTpr variantsCtx
 
-                Some tpr <- tyToReprM ty
+                Some elemTpr <- tyToReprM elemTy
+                col <- use $ cs . collection
+                elemSize <- case tySizedness col elemTy of
+                    Sized s -> pure s
+                    Unsized ->
+                        mirFail $ "array_from_slice: unsized array element type: " <> show elemTy
                 MirExp expectedEnumTpr <$> G.ifte' expectedEnumTpr lenOk
-                    (do ag <- aggregateCopy_constLen tpr ptr tyLen 1  -- TODO: hardcoded size=1
+                    (do ag <- aggregateCopy_constLen elemTpr ptr tyLen elemSize
                         ref <- constMirRef MirAggregateRepr ag
                         let refMir = MirExp MirReferenceRepr ref
                         MirExp enumTpr enum <- buildEnum adt optionDiscrSome [refMir]
@@ -1393,9 +1425,13 @@ array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
                 -- output are aliases.
                 Some elemRepr <- tyToReprM elemTy
                 elemVal <- readMirRef elemRepr elemRef
-                ag <- mirAggregate_uninit_constSize 1
-                -- TODO: hardcoded size=1
-                ag' <- mirAggregate_set 0 1 elemRepr elemVal ag
+                col <- use $ cs . collection
+                elemSize <- case tySizedness col elemTy of
+                    Sized s -> pure s
+                    Unsized ->
+                        mirFail $ "array_from_ref: unsized array element type: " <> show elemTy
+                ag <- mirAggregate_uninit_constSize elemSize
+                ag' <- mirAggregate_set 0 elemSize elemRepr elemVal ag
                 agRef <- constMirRef MirAggregateRepr ag'
                 pure (MirExp MirReferenceRepr agRef)
             _ -> mirFail $ "bad monomorphization of crucible_array_from_ref_hook: " ++
@@ -1475,11 +1511,16 @@ slice_len_impl _ = Nothing
 -- the impl for Range.
 
 slice_index_usize_get_unchecked_impl :: CustomRHS
-slice_index_usize_get_unchecked_impl (Substs [_elTy]) =
+slice_index_usize_get_unchecked_impl (Substs [elTy]) =
     Just $ CustomOp $ \ _ ops -> case ops of
         [MirExp UsizeRepr ind, MirExp MirSliceRepr slice] -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "slice_index_usize_get_unchecked_impl: unsized slice element type: " <> show elTy
             let ptr = getSlicePtr slice
-            ptr' <- mirRef_offset ptr ind
+            ptr' <- mirRef_offset ptr ind elemSize
             return $ (MirExp MirReferenceRepr ptr')
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
 slice_index_usize_get_unchecked_impl _ = Nothing
@@ -1495,14 +1536,19 @@ slice_index_usize_get_unchecked_mut =
     , slice_index_usize_get_unchecked_impl )
 
 slice_index_range_get_unchecked_impl :: CustomRHS
-slice_index_range_get_unchecked_impl (Substs [_elTy]) =
+slice_index_range_get_unchecked_impl (Substs [elTy]) =
     Just $ CustomOp $ \ _ ops -> case ops of
         [ MirExp tr1 start, MirExp tr2 end, MirExp MirSliceRepr slice]
           | Just Refl <- testEquality tr1 UsizeRepr
           , Just Refl <- testEquality tr2 UsizeRepr
           -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "slice_index_range_get_unchecked_impl: unsized slice element type: " <> show elTy
             let ptr = getSlicePtr slice
-            ptr' <- mirRef_offset ptr start
+            ptr' <- mirRef_offset ptr start elemSize
             let len' = S.app $ usizeSub end start
             return $ MirExp MirSliceRepr $ mkSlice ptr' len'
 
@@ -1827,33 +1873,43 @@ bv_leading_zeros =
 -- fn allocate<T>(len: usize) -> *mut T
 allocate :: (ExplodedDefId, CustomRHS)
 allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirAggregate` of length `len`, and
             -- return a pointer to its first element.
-            Some tpr <- tyToReprM t
-            ag <- mirAggregate_uninit sz
+            Some elemTpr <- tyToReprM elemTy
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "allocate: unsized array element type: " <> show elemTy
+            let agSize = R.App (usizeMul sz (R.App (usizeLit (fromIntegral elemSize))))
+            ag <- mirAggregate_uninit agSize
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
             -- `subindexRef` doesn't do a bounds check (those happen on deref
             -- instead), so this works even when len is 0.
-            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            ptr <- subindexRef elemTpr ref (R.App $ usizeLit 0) elemSize
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 
 allocate_zeroed :: (ExplodedDefId, CustomRHS)
 allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr len] -> do
-            Some tpr <- tyToReprM t
-            zero <- mkZero tpr
-            let sz = 1  -- TODO: hardcoded size=1
-            ag <- mirAggregate_replicate sz tpr zero len
+            Some elemTpr <- tyToReprM elemTy
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "allocate: unsized array element type: " <> show elemTy
+            zero <- mkZero elemTpr
+            ag <- mirAggregate_replicate elemSize elemTpr zero len
 
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
-            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            ptr <- subindexRef elemTpr ref (R.App $ usizeLit 0) elemSize
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
@@ -1865,8 +1921,8 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
 reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
-    Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newSz ] -> do
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             (agPtr, idx) <- mirRef_peelIndex ptr
 
             let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
@@ -1874,7 +1930,14 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
                 S.litExpr "bad pointer in reallocate: not the start of an allocation"
 
             oldAg <- readMirRef MirAggregateRepr agPtr
-            newAg <- mirAggregate_resize oldAg newSz
+
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "reallocate: unsized array element type: " <> show elemTy
+            let newSize = R.App (usizeMul newLen (R.App (usizeLit (fromIntegral elemSize))))
+            newAg <- mirAggregate_resize oldAg newSize
             writeMirRef MirAggregateRepr agPtr newAg
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops

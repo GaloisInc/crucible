@@ -6,7 +6,7 @@ failures:
 ---- out_of_bounds/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/<DISAMB>::crux_test[0]
-[Crux]   no value at offset 12, in aggregate of size 10
+[Crux]   no value at offset 48, in aggregate of size 40
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/alloc/out_of_bounds.rs:12:9: 12:24: error: in out_of_bounds/<DISAMB>::crux_test[0]
 [Crux]   attempted to read empty mux tree
