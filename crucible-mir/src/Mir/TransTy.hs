@@ -1588,7 +1588,8 @@ structFieldRef adt i ref0 meta = structInfo adt i >>= \case
     return $ MirPlace C.AnyRepr fieldRef meta
   UnsizedSliceField _innerSize innerRepr -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
-    elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0)
+    let elemSize = 1 -- TODO: hardcoded size=1
+    elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0) elemSize
     case meta of
       NoMeta ->
         mirFail "expected slice metadata for slice field access, but found no metadata"
