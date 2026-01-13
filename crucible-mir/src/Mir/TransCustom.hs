@@ -391,7 +391,12 @@ vector_copy_from_slice = ( ["crucible","vector","{impl}", "copy_from_slice"], ) 
             Some tpr <- tyToReprM t
             let ptr = getSlicePtr e
             let len = getSliceLen e
-            v <- vectorCopy tpr ptr len
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col t of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "vector_copy_from_slice: unsized element type: " <> show t
+            v <- vectorCopy tpr ptr len elemSize
             return $ MirExp (C.VectorRepr tpr) v
         _ -> mirFail $ "bad arguments for Vector::copy_from_slice: " ++ show ops
     _ -> Nothing
@@ -495,9 +500,14 @@ any_downcast = ( ["core", "crucible", "any", "{impl}", "downcast"], \substs -> c
 
 ptr_offset_impl :: CustomRHS
 ptr_offset_impl = \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] ->
-            MirExp MirReferenceRepr <$> mirRef_offset ref offset
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "ptr_offset_impl: unsized element type: " <> show elemTy
+            MirExp MirReferenceRepr <$> mirRef_offset ref offset elemSize
         _ -> mirFail $ "bad arguments for ptr::offset: " ++ show ops
     _ -> Nothing
 
@@ -508,9 +518,14 @@ ptr_offset_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset"], ptr_offset_imp
 
 ptr_wrapping_offset_impl :: CustomRHS
 ptr_wrapping_offset_impl = \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] ->
-            MirExp MirReferenceRepr <$> mirRef_offsetWrap ref offset
+    Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp MirReferenceRepr ref, MirExp IsizeRepr offset] -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "ptr_wrapping_offset_impl: unsized element type: " <> show elemTy
+            MirExp MirReferenceRepr <$> mirRef_offsetWrap ref offset elemSize
         _ -> mirFail $ "bad arguments for ptr::wrapping_offset: " ++ show ops
     _ -> Nothing
 
@@ -760,7 +775,7 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
             srcSnap <- subindexRef elemTpr srcSnapRoot srcIdx elemSize
 
-            ptrCopy elemTpr srcSnap dest count
+            ptrCopy elemTpr srcSnap dest count elemSize
             MirExp MirAggregateRepr <$> mirAggregate_zst
 
         _ -> mirFail $ "bad arguments for intrinsics::copy: " ++ show ops
@@ -773,8 +788,13 @@ intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"]
             [MirExp MirReferenceRepr src,
              MirExp MirReferenceRepr dest,
              MirExp UsizeRepr count] -> do
+                col <- use $ cs . collection
+                elemSize <- case tySizedness col ty of
+                    Sized s -> pure s
+                    Unsized ->
+                        mirFail $ "intrinsics_copy_nonoverlapping: unsized element type: " <> show ty
                 Some tpr <- tyToReprM ty
-                copyNonOverlapping tpr src dest count
+                copyNonOverlapping tpr src dest count elemSize
 
             _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
         _ -> Nothing)
@@ -1499,11 +1519,16 @@ slice_len_impl _ = Nothing
 -- the impl for Range.
 
 slice_index_usize_get_unchecked_impl :: CustomRHS
-slice_index_usize_get_unchecked_impl (Substs [_elTy]) =
+slice_index_usize_get_unchecked_impl (Substs [elTy]) =
     Just $ CustomOp $ \ _ ops -> case ops of
         [MirExp UsizeRepr ind, MirExp MirSliceRepr slice] -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "slice_index_usize_get_unchecked_impl: unsized slice element type: " <> show elTy
             let ptr = getSlicePtr slice
-            ptr' <- mirRef_offset ptr ind
+            ptr' <- mirRef_offset ptr ind elemSize
             return $ (MirExp MirReferenceRepr ptr')
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
 slice_index_usize_get_unchecked_impl _ = Nothing
@@ -1519,14 +1544,19 @@ slice_index_usize_get_unchecked_mut =
     , slice_index_usize_get_unchecked_impl )
 
 slice_index_range_get_unchecked_impl :: CustomRHS
-slice_index_range_get_unchecked_impl (Substs [_elTy]) =
+slice_index_range_get_unchecked_impl (Substs [elTy]) =
     Just $ CustomOp $ \ _ ops -> case ops of
         [ MirExp tr1 start, MirExp tr2 end, MirExp MirSliceRepr slice]
           | Just Refl <- testEquality tr1 UsizeRepr
           , Just Refl <- testEquality tr2 UsizeRepr
           -> do
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "slice_index_range_get_unchecked_impl: unsized slice element type: " <> show elTy
             let ptr = getSlicePtr slice
-            ptr' <- mirRef_offset ptr start
+            ptr' <- mirRef_offset ptr start elemSize
             let len' = S.app $ usizeSub end start
             return $ MirExp MirSliceRepr $ mkSlice ptr' len'
 

@@ -485,7 +485,15 @@ transBinOp bop op1 op2 = do
         Offset
           | MirExp MirReferenceRepr e1 <- me1
           , MirExp UsizeRepr e2 <- me2 -> do
-            newRef <- mirRef_offsetWrap e1 e2
+            elemTy <- case typeOf op1 of
+                (TyRef ty _mut) -> pure ty
+                (TyRawPtr ty _mut) -> pure ty
+                t -> mirFail $ "`MirReferenceRepr` expression had type " <> show t
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized -> mirFail "transBinOp: unsized element type"
+            newRef <- mirRef_offsetWrap e1 e2 elemSize
             pure $ MirExp MirReferenceRepr newRef
         _ -> fst <$> evalBinOp bop mat me1 me2
 
@@ -1656,11 +1664,16 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
           Unsized -> mirFail $ "evalPlaceProj: array of unsized type: " <> show elemTy
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
 
-    (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
+    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset ref idx <*> pure NoMeta
+        col <- use $ cs . collection
+        elemSize <- case tySizedness col elemTy of
+          Sized s -> pure s
+          Unsized ->
+            mirFail $ "evalPlaceProj: unsized slice element type: " <> show elemTy
+        MirPlace elemTpr <$> mirRef_offset ref idx elemSize <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -1681,11 +1694,16 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
           Unsized -> mirFail $ "evalPlaceProj: array of unsized type: " <> show elemTy
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
 
-    (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
+    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd
         G.assertExpr (R.App $ usizeLt idx' len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset ref idx' <*> pure NoMeta
+        col <- use $ cs . collection
+        elemSize <- case tySizedness col elemTy of
+          Sized s -> pure s
+          Unsized ->
+            mirFail $ "evalPlaceProj: unsized slice element type: " <> show elemTy
+        MirPlace elemTpr <$> mirRef_offset ref idx' elemSize <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -1703,11 +1721,16 @@ evalPlaceProj _ pl (M.Subtype _ty) = return pl
 -- for details on the semantics of `fromIndex` and `toIndex`.
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) =
   case (ty, ref, tpr, meta) of
-    (M.TySlice _elemTy, headRef, elemTpr, SliceMeta len) ->
+    (M.TySlice elemTy, headRef, elemTpr, SliceMeta len) -> do
       let lastIndex = mkLastIndex len
           newLen = R.App (lastIndex `usizeSub` firstIndex)
           newMeta = SliceMeta newLen
-      in MirPlace elemTpr <$> mirRef_offset headRef firstIndex <*> pure newMeta
+      col <- use $ cs . collection
+      elemSize <- case tySizedness col elemTy of
+        Sized s -> pure s
+        Unsized ->
+          mirFail $ "evalPlaceProj: unsized slice element type: " <> show elemTy
+      MirPlace elemTpr <$> mirRef_offset headRef firstIndex elemSize <*> pure newMeta
 
     -- TODO: https://github.com/GaloisInc/crucible/issues/1494
     --
@@ -1815,12 +1838,17 @@ transStatementKind (M.StmtIntrinsic ndi) =
             destExp <- evalOperand destOp
             countExp <- evalOperand countOp
             let elemTy = M.typeOfProj M.Deref $ M.typeOf srcOp
+            col <- use $ cs . collection
+            elemSize <- case tySizedness col elemTy of
+                Sized s -> pure s
+                Unsized ->
+                    mirFail $ "transStatementKind: unsized element type: " <> show elemTy
             Some tpr <- tyToReprM elemTy
             case (srcExp, destExp, countExp) of
                 ( MirExp MirReferenceRepr src,
                   MirExp MirReferenceRepr dest,
                   MirExp UsizeRepr count )
-                    -> void $ copyNonOverlapping tpr src dest count
+                    -> void $ copyNonOverlapping tpr src dest count elemSize
                 _   -> mirFail $ unlines
                          [ "bad arguments for intrinsics::copy_nonoverlapping: "
                          , show srcExp
@@ -3206,8 +3234,10 @@ transStatics colState halloc = do
 vectorCopy :: C.TypeRepr tp ->
               G.Expr MIR s MirReferenceType ->
               G.Expr MIR s UsizeType ->
+              -- | The size of the element, in bytes
+              Word ->
               MirGenerator h s ret (G.Expr MIR s (C.VectorType tp))
-vectorCopy tpr ptr0 len = do
+vectorCopy tpr ptr0 len elemSize = do
   let cond = S.app $ usizeEq len $ S.app $ usizeLit 0
   c_id <- G.newLambdaLabel' (C.VectorRepr tpr)
   -- Then branch
@@ -3228,7 +3258,7 @@ vectorCopy tpr ptr0 len = do
                      out1 <- G.readRef outRef
                      elt <- readMirRef tpr ptr
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
-                     ptr' <- mirRef_offset ptr (S.app $ usizeLit 1)
+                     ptr' <- mirRef_offset ptr (S.app $ usizeLit 1) elemSize
                      let out2 = S.app $ vectorSetUsize tpr R.App out1 i elt
                      G.writeRef iRef i'
                      G.writeRef ptrRef ptr'
@@ -3250,7 +3280,7 @@ aggregateCopy_constLen tpr ptr0 len size = do
   ag <- mirAggregate_uninit_constSize (fromIntegral len * size)
   ag' <- foldM
     (\ag' i -> do
-       ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i)
+       ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i) size
        elt <- readMirRef tpr ptr
        mirAggregate_set (fromIntegral i * size) size tpr elt ag')
     ag (init [0 .. len])
@@ -3261,15 +3291,17 @@ ptrCopy ::
     G.Expr MIR s MirReferenceType ->
     G.Expr MIR s MirReferenceType ->
     G.Expr MIR s UsizeType ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     MirGenerator h s ret ()
-ptrCopy tpr src dest len = do
+ptrCopy tpr src dest len elemSize = do
     iRef <- G.newRef $ S.app $ usizeLit 0
     let pos = PL.InternalPos
     G.while (pos, do i <- G.readRef iRef
                      return (G.App $ usizeLt i len))
             (pos, do i <- G.readRef iRef
-                     src' <- mirRef_offset src i
-                     dest' <- mirRef_offset dest i
+                     src' <- mirRef_offset src i elemSize
+                     dest' <- mirRef_offset dest i elemSize
                      val <- readMirRef tpr src'
                      writeMirRef tpr dest' val
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
@@ -3281,8 +3313,10 @@ copyNonOverlapping ::
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s UsizeType ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     MirGenerator h s ret (MirExp s)
-copyNonOverlapping tpr src dest count = do
+copyNonOverlapping tpr src dest count elemSize = do
     -- `count` must not exceed isize::MAX, else the overlap check
     -- will misbehave.
     let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
@@ -3293,7 +3327,7 @@ copyNonOverlapping tpr src dest count = do
     nonOverlapping <- isNonOverlapping src dest count
     G.assertExpr nonOverlapping $ S.litExpr "src and dest overlap in copy_nonoverlapping"
 
-    ptrCopy tpr src dest count
+    ptrCopy tpr src dest count elemSize
     MirExp MirAggregateRepr <$> mirAggregate_zst
 
 -- | Check if two allocations of the given size are non-overlapping.

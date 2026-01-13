@@ -86,7 +86,8 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
     len <- readBV lenExpr
     bytes <- forM [0 .. len - 1] $ \i -> do
         iExpr <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat i)
-        elemPtr <- lift $ mirRef_offsetWrapSim mirPtr iExpr
+        let elemSize = 1 -- `&str`s are comprised of `u8`s
+        elemPtr <- lift $ mirRef_offsetWrapSim mirPtr iExpr elemSize
         bExpr <- lift $ readMirRefSim (BVRepr w) elemPtr
         b <- readBV bExpr
         return $ fromIntegral b
