@@ -680,15 +680,21 @@ mirRef_eq r1 r2 = G.extensionStmt $ MirRef_Eq r1 r2
 
 mirRef_offset ::
   R.Expr MIR s MirReferenceType ->
+  -- | The number of elements by which to offset
   R.Expr MIR s IsizeType ->
+  -- | The size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_offset ref offset = G.extensionStmt $ MirRef_Offset ref offset
+mirRef_offset ref offset elemSize = G.extensionStmt $ MirRef_Offset ref offset elemSize
 
 mirRef_offsetWrap ::
   R.Expr MIR s MirReferenceType ->
+  -- | The number of elements by which to offset
   R.Expr MIR s IsizeType ->
+  -- | The size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_offsetWrap ref offset = G.extensionStmt $ MirRef_OffsetWrap ref offset
+mirRef_offsetWrap ref offset elemSize = G.extensionStmt $ MirRef_OffsetWrap ref offset elemSize
 
 mirRef_tryOffsetFrom ::
   R.Expr MIR s MirReferenceType ->

@@ -1309,13 +1309,19 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   -- must not overflow and the resulting pointer must be in bounds.
   MirRef_Offset ::
      !(f MirReferenceType) ->
+     -- | The number of elements by which to offset
      !(f IsizeType) ->
+     -- | The size of each element, i.e. @size_of::<T>@
+     !Word ->
      MirStmt f MirReferenceType
   -- Rust `ptr::wrapping_offset`.  Steps by `count` units of `size_of::<T>`,
   -- with no additional restrictions.
   MirRef_OffsetWrap ::
      !(f MirReferenceType) ->
+     -- | The number of elements by which to offset
      !(f IsizeType) ->
+     -- | The size of each element, i.e. @size_of::<T>@
+     !Word ->
      MirStmt f MirReferenceType
   -- | Try to subtract two references, as in `pointer::offset_from`.  If both
   -- point into the same array, return their difference; otherwise, return
@@ -1465,8 +1471,8 @@ instance TypeApp MirStmt where
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
-    MirRef_Offset _ _ -> MirReferenceRepr
-    MirRef_OffsetWrap _ _ -> MirReferenceRepr
+    MirRef_Offset _ _ _ -> MirReferenceRepr
+    MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
     MirRef_PeelIndex _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
     VectorSnoc tp _ _ -> VectorRepr tp
@@ -1500,8 +1506,8 @@ instance PrettyApp MirStmt where
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
-    MirRef_Offset p o -> "mirRef_offset" <+> pp p <+> pp o
-    MirRef_OffsetWrap p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
+    MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
+    MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
     MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
     MirRef_PeelIndex p -> "mirRef_peelIndex" <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
@@ -2246,7 +2252,10 @@ mirRef_offsetLeaf ::
     (IsSymBackend sym bak) =>
     bak ->
     MirReference sym ->
+    -- | The number of elements by which to offset
     RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
     MuxLeafT sym IO (MirReference sym)
 -- TODO: `offset` has a number of preconditions that we should check here:
 -- * addition must not overflow
@@ -2260,30 +2269,39 @@ mirRef_offsetWrapLeaf ::
     MirReference sym ->
     -- | The number of elements by which to offset
     RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_offsetWrapLeaf bak (MirReference tpr root (VectorIndex_RefPath tpr' path idx)) numElems = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (VectorIndex_RefPath tpr' path idx)) numElems  _elemSize = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- liftIO $ bvAdd sym idx numElems
     return $ MirReference tpr root $ VectorIndex_RefPath tpr' path idx'
-mirRef_offsetWrapLeaf bak (MirReference tpr root (ArrayIndex_RefPath btpr path idx)) numElems = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (ArrayIndex_RefPath btpr path idx)) numElems _elemSize = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- liftIO $ bvAdd sym idx numElems
     return $ MirReference tpr root $ ArrayIndex_RefPath btpr path idx'
-mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath elemOff elemSize tpr' path)) numElems = do
+mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath elemOff _elemSize tpr' path)) numElems elemSize = do
+    -- Note that we ignore the element size associated with the `AgElem_RefPath`
+    -- we're processing in favor of the one we're given as a parameter. This
+    -- accommodates patterns like casting `*const u32` to `*const u8`, using
+    -- `offset` on the latter, then casting back to the former. The cast isn't
+    -- (currently) implemented to change the element size in the
+    -- `AgElem_RefPath`, so to use that size in that case would have us
+    -- improperly offset by 4 bytes (i.e. the size of a `u32`) at a time.
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     extraOff <- liftIO $ bvMul sym numElems =<< bvLit sym knownRepr (BV.mkBV knownRepr (toInteger elemSize))
     elemOff' <- liftIO $ bvAdd sym elemOff extraOff
     return $ MirReference tpr root $ AgElem_RefPath elemOff' elemSize tpr' path
-mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset = do
+mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset _elemSize = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
     leafAssert bak isZero $ Unsupported callStack $
         "pointer arithmetic outside arrays is not yet implemented"
     return ref
-mirRef_offsetWrapLeaf bak ref@(MirReference_Integer _) offset = do
+mirRef_offsetWrapLeaf bak ref@(MirReference_Integer _) offset _elemSize = do
     let sym = backendGetSym bak
     -- Offsetting by zero is a no-op, and is always allowed, even on invalid
     -- pointers.  In particular, this permits `(&[])[0..]`.
@@ -2512,10 +2530,10 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
-       MirRef_Offset (regValue -> ref) (regValue -> off) ->
-         readOnly s $ mirRef_offsetIO bak iTypes ref off
-       MirRef_OffsetWrap (regValue -> ref) (regValue -> off) ->
-         readOnly s $ mirRef_offsetWrapIO bak iTypes ref off
+       MirRef_Offset (regValue -> ref) (regValue -> off) elemSize ->
+         readOnly s $ mirRef_offsetIO bak iTypes ref off elemSize
+       MirRef_OffsetWrap (regValue -> ref) (regValue -> off) elemSize ->
+         readOnly s $ mirRef_offsetWrapIO bak iTypes ref off elemSize
        MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes r1 r2
        MirRef_PeelIndex (regValue -> ref) -> do
@@ -2723,40 +2741,52 @@ subindexMirRefIO bak iTypes tpr ref x elemSize =
 mirRef_offsetSim ::
     IsSymInterface sym =>
     MirReferenceMux sym ->
+    -- | The number of elements by which to offset
     RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-mirRef_offsetSim ref off =
+mirRef_offsetSim ref off elemSize =
     ovrWithBackend $ \bak ->
-      modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off) ref
+      modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
 
 mirRef_offsetIO ::
     IsSymBackend sym bak =>
     bak ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
+    -- | The number of elements by which to offset
     RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
     IO (MirReferenceMux sym)
-mirRef_offsetIO bak iTypes ref off =
-    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off) ref
+mirRef_offsetIO bak iTypes ref off elemSize =
+    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
 
 mirRef_offsetWrapSim ::
     IsSymInterface sym =>
     MirReferenceMux sym ->
+    -- | The number of elements by which to offset
     RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-mirRef_offsetWrapSim ref off = do
+mirRef_offsetWrapSim ref off elemSize = do
     ovrWithBackend $ \bak ->
-      modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off) ref
+      modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
 
 mirRef_offsetWrapIO ::
     IsSymBackend sym bak =>
     bak ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
+    -- | The number of elements by which to offset
     RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
     IO (MirReferenceMux sym)
-mirRef_offsetWrapIO bak iTypes ref off =
-    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak ref' off) ref
+mirRef_offsetWrapIO bak iTypes ref off elemSize =
+    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
 
 
 writeRefPath ::
