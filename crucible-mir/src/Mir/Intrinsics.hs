@@ -1269,6 +1269,8 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
      !(f UsizeType) ->
+     -- | Size of the element, in bytes
+     !Word ->
      MirStmt f MirReferenceType
   MirSubjustRef ::
      !(TypeRepr tp) ->
@@ -1440,7 +1442,7 @@ instance TypeApp MirStmt where
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubfieldRef_Untyped _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
-    MirSubindexRef _ _ _ -> MirReferenceRepr
+    MirSubindexRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
@@ -1475,7 +1477,7 @@ instance PrettyApp MirStmt where
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubfieldRef_Untyped x fieldNum expectedTy -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum <+> viaShow expectedTy
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
-    MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
+    MirSubindexRef _ x idx sz -> "subindexRef" <+> pp x <+> pp idx <+> viaShow sz
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
@@ -1760,8 +1762,10 @@ subindexMirRefLeaf ::
     TypeRepr tp ->
     MirReference sym ->
     RegValue sym UsizeType ->
+    -- | Size of the element, in bytes
+    Word ->
     MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf elemTpr (MirReference tpr root path) idx
+subindexMirRefLeaf elemTpr (MirReference tpr root path) idx _elemSize
   | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
       return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
   | AsBaseType btpr <- asBaseType elemTpr,
@@ -1774,7 +1778,7 @@ subindexMirRefLeaf elemTpr (MirReference tpr root path) idx
       "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
       "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
       show tpr
-subindexMirRefLeaf _elemTpr (MirReference_Integer {}) _idx =
+subindexMirRefLeaf _elemTpr (MirReference_Integer {}) _idx _elemSize =
     leafAbort $ GenericSimError $
         "attempted subindex on the result of an integer-to-pointer cast"
 
@@ -2473,8 +2477,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx expectedTy
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
-       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
-         readOnly s $ subindexMirRefIO bak iTypes tpr ref idx
+       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) elemSize ->
+         readOnly s $ subindexMirRefIO bak iTypes tpr ref idx elemSize
        MirSubjustRef tpr (regValue -> ref) ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
        MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
@@ -2669,9 +2673,11 @@ subindexMirRefSim ::
     TypeRepr tp ->
     MirReferenceMux sym ->
     RegValue sym UsizeType ->
+    -- | Size of the element, in bytes
+    Word ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-subindexMirRefSim tpr ref idx = do
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf tpr ref' idx) ref
+subindexMirRefSim tpr ref idx elemSize = do
+    modifyRefMuxSim (\ref' -> subindexMirRefLeaf tpr ref' idx elemSize) ref
 
 subindexMirRefIO ::
     IsSymBackend sym bak =>
@@ -2680,9 +2686,11 @@ subindexMirRefIO ::
     TypeRepr tp ->
     MirReferenceMux sym ->
     RegValue sym UsizeType ->
+    -- | Size of the element, in bytes
+    Word ->
     IO (MirReferenceMux sym)
-subindexMirRefIO bak iTypes tpr ref x =
-    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf tpr ref' x) ref
+subindexMirRefIO bak iTypes tpr ref x elemSize =
+    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf tpr ref' x elemSize) ref
 
 mirRef_offsetSim :: IsSymInterface sym =>
     MirReferenceMux sym -> RegValue sym IsizeType ->

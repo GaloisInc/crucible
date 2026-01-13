@@ -644,8 +644,10 @@ subindexRef ::
   C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s UsizeType ->
+  -- | Size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
+subindexRef tp ref idx elemSize = G.extensionStmt (MirSubindexRef tp ref idx elemSize)
 
 subjustRef ::
   C.TypeRepr tp ->
