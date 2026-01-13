@@ -1759,13 +1759,15 @@ subvariantMirRefIO bak iTypes tp ctx ref idx =
     modifyRefMuxIO bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
 
 subindexMirRefLeaf ::
+    IsSymInterface sym =>
+    sym ->
     TypeRepr tp ->
     MirReference sym ->
     RegValue sym UsizeType ->
     -- | Size of the element, in bytes
     Word ->
     MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf elemTpr (MirReference tpr root path) idx _elemSize
+subindexMirRefLeaf _sym elemTpr (MirReference tpr root path) idx _elemSize
   | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
       return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
   | AsBaseType btpr <- asBaseType elemTpr,
@@ -1778,7 +1780,7 @@ subindexMirRefLeaf elemTpr (MirReference tpr root path) idx _elemSize
       "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
       "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
       show tpr
-subindexMirRefLeaf _elemTpr (MirReference_Integer {}) _idx _elemSize =
+subindexMirRefLeaf _sym _elemTpr (MirReference_Integer {}) _idx _elemSize =
     leafAbort $ GenericSimError $
         "attempted subindex on the result of an integer-to-pointer cast"
 
@@ -2670,14 +2672,15 @@ writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) x =
 
 subindexMirRefSim ::
     IsSymInterface sym =>
+    sym ->
     TypeRepr tp ->
     MirReferenceMux sym ->
     RegValue sym UsizeType ->
     -- | Size of the element, in bytes
     Word ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-subindexMirRefSim tpr ref idx elemSize = do
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf tpr ref' idx elemSize) ref
+subindexMirRefSim sym tpr ref idx elemSize = do
+    modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx elemSize) ref
 
 subindexMirRefIO ::
     IsSymBackend sym bak =>
@@ -2690,7 +2693,7 @@ subindexMirRefIO ::
     Word ->
     IO (MirReferenceMux sym)
 subindexMirRefIO bak iTypes tpr ref x elemSize =
-    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf tpr ref' x elemSize) ref
+    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
 
 mirRef_offsetSim :: IsSymInterface sym =>
     MirReferenceMux sym -> RegValue sym IsizeType ->
