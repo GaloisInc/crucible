@@ -2581,6 +2581,8 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     buildShim recvMirTy recvTy argTys _retTy implFH
       | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
+      -- Special case for @FnOnce::call_once@.  See `Mir.TransCustom.callOnceVirtShimDef`
+      -- for details.
       | M.idKey defName == ["core", "ops", "function", "FnOnce", "call_once"] =
           buildShimForByValue recvMirTy recvTy argTys implFH
       | otherwise = \_argsA -> (\x -> (fnState, x)) $ do
@@ -2930,9 +2932,9 @@ doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = 
 --
 -- This will return `Nothing` for `IkVirtual` shims that were skipped by
 -- `mkShimHandleMap` and thus `have no `MethodHandle` available.  This is
--- notably the case for `FnOnce::call_once`, which is skipped because it takes
--- accesses `self` by value (and thus would require support for the unstable
--- `unsized_fn_params` feature).
+-- notably the case for @FnOnce::call_once@, which is skipped because it takes
+-- accesses @self@ by value (and thus would require support for the unstable
+-- @unsized_fn_params@ feature).
 transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
   => CollectionState
   -> M.IntrinsicName

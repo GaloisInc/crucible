@@ -205,8 +205,9 @@ data CustomOpMap = CustomOpMap
     , _cloneFromShimOp :: Ty -> [DefId] -> CustomOp
     , _callOnceVirtShimOp :: Integer -> CustomOp
     -- ^ Implementation of the `IkVirtual` shim for @FnOnce::call_once@.  See
-    -- the definition in @TransCustom.hs@ for more details.  The `Integer` is
-    -- the index in the vtable of the `call_once` method.
+    -- the implementation `Mir.TransCustom.callOnceVirtShimDef` for more
+    -- details.  The `Integer` is the index in the vtable of the @call_once@
+    -- method.
     }
 
 data CustomOp      =

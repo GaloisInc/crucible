@@ -1,5 +1,5 @@
 // Test that calling `Box<dyn FnOnce>` works even when the erased type is not a closure but
-// something else (in this case, `Box<F>`).
+// something else (in this case, `Box<F>` where `F` is a closure type).
 fn call_closure_box(f: Box<dyn FnOnce(i32, i32) -> i32>) -> i32 {
     f(1, 2)
 }
