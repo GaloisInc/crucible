@@ -482,6 +482,11 @@ transBinOp bop op1 op2 = do
         WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
             buildTupleM [typeOf op1, TyBool] [res, MirExp C.BoolRepr overflow]
+        Offset
+          | MirExp MirReferenceRepr e1 <- me1
+          , MirExp UsizeRepr e2 <- me2 -> do
+            newRef <- mirRef_offsetWrap e1 e2
+            pure $ MirExp MirReferenceRepr newRef
         _ -> fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
@@ -611,10 +616,6 @@ evalBinOp bop mat me1 me2 =
                 eq <- mirRef_eq e1 e2
                 return (MirExp C.BoolRepr $ S.app $ E.Not eq, noOverflow)
             _ -> mirFail $ "No translation for pointer binop: " ++ fmt bop
-
-      (MirExp MirReferenceRepr e1, MirExp UsizeRepr e2) -> do
-          newRef <- mirRef_offsetWrap e1 e2
-          return (MirExp MirReferenceRepr newRef, noOverflow)
 
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
