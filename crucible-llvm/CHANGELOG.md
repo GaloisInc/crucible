@@ -1,3 +1,7 @@
+# TODO RGS (Where should I put this?)
+
+* Support the `llvm.scmp.*` and `llvm.ucmp.*` three-way comparison intrinsics.
+
 # next
 
 * The `LLVM_Debug` data constructor for `LLVMStmt`, as well as the related
