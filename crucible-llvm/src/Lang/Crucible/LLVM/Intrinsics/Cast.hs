@@ -33,12 +33,8 @@ module Lang.Crucible.LLVM.Intrinsics.Cast
   , regValuesToLLVM
   , regValueToLLVM
     -- * Back again
-  , ValCastError(..)
-  , printValCastError
   , regValuesFromLLVM
   , regValueFromLLVM
-  , regValuesFromLLVM'
-  , regValueFromLLVM'
   , regEntriesFromLLVM
   , regMapFromLLVM
   ) where
@@ -48,12 +44,12 @@ import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Some (Some(Some))
 import qualified Data.Parameterized.TraversableFC as TFC
 
 import qualified What4.FunctionName as WFN
 
 import qualified Lang.Crucible.Backend as CB
+import           Lang.Crucible.Panic (panic)
 import qualified Lang.Crucible.Simulator.RegMap as CRM
 import qualified Lang.Crucible.Simulator.RegValue as CRV
 import qualified Lang.Crucible.Simulator.SimError as CSE
@@ -77,6 +73,10 @@ type ToLLVMType :: CT.CrucibleType -> CT.CrucibleType
 type family ToLLVMType t where
   ToLLVMType (CT.BVType w) = LLVMPointerType w
 
+  -- recursive cases
+  ToLLVMType (CT.VectorType tp) = CT.VectorType (ToLLVMType tp)
+  ToLLVMType (CT.StructType ctx) = CT.StructType (CtxToLLVMType ctx)
+
   -- no-ops
   ToLLVMType CT.AnyType = CT.AnyType
   ToLLVMType CT.UnitType = CT.UnitType
@@ -90,10 +90,6 @@ type family ToLLVMType t where
   ToLLVMType (CT.StringType si) = CT.StringType si
   ToLLVMType (CT.ComplexRealType) = CT.ComplexRealType
   ToLLVMType (CT.IntrinsicType nm ctx) = CT.IntrinsicType nm ctx
-
-  -- recursive cases
-  ToLLVMType (CT.VectorType tp) = CT.VectorType (ToLLVMType tp)
-  ToLLVMType (CT.StructType ctx) = CT.StructType (CtxToLLVMType ctx)
 
   -- these shouldn't appear in override signaures, so don't worry about them
   ToLLVMType (CT.FunctionHandleType ctx ret) = CT.FunctionHandleType ctx ret
@@ -124,7 +120,11 @@ toLLVMType =
   \case
     CT.BVRepr w -> Ptr.LLVMPointerRepr w
 
-   -- no-ops
+    -- recursive cases
+    CT.VectorRepr tp -> CT.VectorRepr (toLLVMType tp)
+    CT.StructRepr ctx -> CT.StructRepr (ctxToLLVMType ctx)
+
+    -- no-ops
     CT.AnyRepr -> CT.AnyRepr
     CT.UnitRepr -> CT.UnitRepr
     CT.BoolRepr -> CT.BoolRepr
@@ -137,10 +137,6 @@ toLLVMType =
     CT.StringRepr si -> CT.StringRepr si
     CT.ComplexRealRepr -> CT.ComplexRealRepr
     CT.IntrinsicRepr nm ctx -> CT.IntrinsicRepr nm ctx
-
-    -- recursive cases
-    CT.VectorRepr tp -> CT.VectorRepr (toLLVMType tp)
-    CT.StructRepr ctx -> CT.StructRepr (ctxToLLVMType ctx)
 
     -- these shouldn't appear in override signaures, so don't worry about them
     t@CT.FunctionHandleRepr {} -> t
@@ -181,6 +177,10 @@ regValueToLLVM sym ty val =
   case ty of
     CT.BVRepr {} -> Ptr.llvmPointer_bv sym val
 
+    -- recursive cases
+    CT.VectorRepr elemTy -> traverse (regValueToLLVM sym elemTy) val
+    CT.StructRepr fieldTys -> regValuesToLLVM sym fieldTys val
+
     -- no-ops
     CT.AnyRepr -> pure val
     CT.UnitRepr -> pure val
@@ -194,10 +194,6 @@ regValueToLLVM sym ty val =
     CT.StringRepr {} -> pure val
     CT.ComplexRealRepr -> pure val
     CT.IntrinsicRepr {} -> pure val
-
-    -- recursive cases
-    CT.VectorRepr elemTy -> traverse (regValueToLLVM sym elemTy) val
-    CT.StructRepr fieldTys -> regValuesToLLVM sym fieldTys val
 
     -- these shouldn't appear in override signaures, so don't worry about them
     CT.FunctionHandleRepr {} -> pure val
@@ -214,164 +210,8 @@ regValueToLLVM sym ty val =
 ---------------------------------------------------------------------
 -- * Back again
 
-data ValCastError
-  = -- | Mismatched number of arguments ('castLLVMArgs') or struct fields
-    -- ('castLLVMRet').
-    MismatchedShape
-    -- | Can\'t cast between these types
-  | ValCastError (Some CT.TypeRepr) (Some CT.TypeRepr)
-
--- | Turn a 'ValCastError' into a human-readable message (lines).
-printValCastError :: ValCastError -> [String]
-printValCastError =
-  \case
-    MismatchedShape -> ["argument shape mismatch"]
-    ValCastError (Some ret) (Some ret') ->
-      [ "Cannot cast types"
-      , "*** Source type: " ++ show ret
-      , "*** Target type: " ++ show ret'
-      ]
-
 -- | Map 'regValueFromLLVM' over an 'Ctx.Assignment'.
 regValuesFromLLVM ::
-  CB.IsSymBackend sym bak =>
-  -- | Only used in error messages
-  WFN.FunctionName ->
-  Ctx.Assignment CT.TypeRepr tys' ->
-  Ctx.Assignment CT.TypeRepr tys ->
-  Either
-    ValCastError
-    (bak ->
-      Ctx.Assignment (CRV.RegValue' sym) tys ->
-      IO (Ctx.Assignment (CRV.RegValue' sym) tys'))
-regValuesFromLLVM fNm wanteds tys =
-  case (wanteds, tys) of
-    (Ctx.Empty, Ctx.Empty) -> Right (\_bak -> pure)
-    (Ctx.Empty, _) -> Left MismatchedShape
-    (_, Ctx.Empty) -> Left MismatchedShape
-    (restWanted Ctx.:> w, restTys Ctx.:> t) -> do
-      castRest <- regValuesFromLLVM fNm restWanted restTys
-      cast <- regValueFromLLVM fNm w t
-      Right $
-        \bak ->
-          \case
-            rest Ctx.:> CRV.RV val -> do
-              rest' <- castRest bak rest
-              val' <- cast bak val
-              pure (rest' Ctx.:> CRV.RV val')
-
--- | Convert a 'CRV.RegValue' from its corresponding LLVM type (LLVM pointers
--- with bitvectors where wanted).
---
--- If this function returns 'Right', then @ToLLVMType ty' ~ ty@ (though this
--- guarantee is not reflected in the type system).
-regValueFromLLVM ::
-  forall sym bak ty' ty.
-  CB.IsSymBackend sym bak =>
-  -- | Only used in error messages
-  WFN.FunctionName ->
-  CT.TypeRepr ty' ->
-  CT.TypeRepr ty ->
-  Either
-    ValCastError
-    (bak -> CRV.RegValue sym ty -> IO (CRV.RegValue sym ty'))
-regValueFromLLVM fNm wanted ty = do
-  let badCast w t = Left (ValCastError (Some w) (Some t))
-  let noop ::
-        Either
-          ValCastError
-          (bak -> CRV.RegValue sym ty -> IO (CRV.RegValue sym ty'))
-      noop =
-        case testEquality wanted ty of
-          Just Refl -> Right (\_bak -> pure)
-          Nothing -> badCast wanted ty
-  case (wanted, ty) of
-    (CT.BVRepr w, Ptr.LLVMPointerRepr w')
-      | Just Refl <- testEquality w w' ->
-      Right $ \bak val -> do
-        let err = 
-              CSE.AssertFailureSimError
-               "Found a pointer where a bitvector was expected"
-               ("In the arguments or return value of "
-                ++ Text.unpack (WFN.functionName fNm))
-        ptrToBv bak err val
-    (CT.BVRepr {}, _) -> badCast wanted ty
-
-    -- no-ops
-
-    (CT.AnyRepr, _) -> noop
-    (CT.UnitRepr, _) -> noop
-    (CT.BoolRepr, _) -> noop
-    (CT.NatRepr, _) -> noop
-    (CT.IntegerRepr, _) -> noop
-    (CT.RealValRepr, _) -> noop
-    (CT.CharRepr, _) -> noop
-    (CT.ComplexRealRepr, _) -> noop
-    (CT.FloatRepr {}, _) -> noop
-    (CT.IEEEFloatRepr {}, _) -> noop
-    (CT.StringRepr {}, _) -> noop
-    (CT.IntrinsicRepr {}, _) -> noop
-
-    -- recursive cases
-
-    (CT.VectorRepr wantedElemTy, CT.VectorRepr elemTy) -> do
-      cast <- regValueFromLLVM fNm wantedElemTy elemTy
-      Right (\bak -> (traverse (cast bak)))
-    (CT.VectorRepr {}, _) -> badCast wanted ty
-
-    (CT.StructRepr wantedFieldTys, CT.StructRepr fieldTys) ->
-      regValuesFromLLVM fNm wantedFieldTys fieldTys
-    (CT.StructRepr {}, _) -> badCast wanted ty
-
-    -- these shouldn't appear in override signaures, so don't worry about them
-
-    (CT.FunctionHandleRepr {}, _) -> noop
-    (CT.MaybeRepr {}, _) -> noop
-    (CT.SequenceRepr {}, _) -> noop
-    (CT.RecursiveRepr {}, _) -> noop
-    (CT.ReferenceRepr {}, _) -> noop
-    (CT.VariantRepr {}, _) -> noop
-    (CT.WordMapRepr {}, _) -> noop
-    (CT.StringMapRepr {}, _) -> noop
-    (CT.SymbolicArrayRepr {}, _) -> noop
-    (CT.SymbolicStructRepr {}, _) -> noop
-
--- | Map 'regValueFromLLVM' over an 'Ctx.Assignment' of 'CRM.RegEntry's.
-regEntriesFromLLVM ::
-  CB.IsSymBackend sym bak =>
-  -- | Only used in error messages
-  WFN.FunctionName ->
-  Ctx.Assignment CT.TypeRepr tys' ->
-  Ctx.Assignment CT.TypeRepr tys ->
-  Either
-    ValCastError
-    (bak ->
-      Ctx.Assignment (CRM.RegEntry sym) tys ->
-      IO (Ctx.Assignment (CRM.RegEntry sym) tys'))
-regEntriesFromLLVM fNm wanteds tys = do
-  cast <- regValuesFromLLVM fNm wanteds tys
-  Right $ \bak vals ->
-    Ctx.zipWith (\ty (CRV.RV v) -> CRM.RegEntry ty v) wanteds
-      <$> cast bak (TFC.fmapFC (\(CRM.RegEntry _ty v) -> CRM.RV v) vals)
-
--- | Map 'regValueFromLLVM' over a 'CRM.RegMap'.
-regMapFromLLVM ::
-  forall sym bak tys' tys.
-  CB.IsSymBackend sym bak =>
-  -- | Only used in error messages
-  WFN.FunctionName ->
-  Ctx.Assignment CT.TypeRepr tys' ->
-  Ctx.Assignment CT.TypeRepr tys ->
-  Either
-    ValCastError
-    (bak -> CRM.RegMap sym tys -> IO (CRM.RegMap sym tys'))
-regMapFromLLVM fNm wanteds tys = do
-  cast <- regEntriesFromLLVM fNm wanteds tys
-  Right $ \bak -> coerce (cast bak)
-
-
--- | Map 'regValueFromLLVM' over an 'Ctx.Assignment'.
-regValuesFromLLVM' ::
   CB.IsSymBackend sym bak =>
   -- | Only used in error messages
   WFN.FunctionName ->
@@ -380,24 +220,19 @@ regValuesFromLLVM' ::
   bak ->
   Ctx.Assignment (CRV.RegValue' sym) (CtxToLLVMType tys) ->
   IO (Ctx.Assignment (CRV.RegValue' sym) tys)
-regValuesFromLLVM' fNm wanteds tys bak vals =
+regValuesFromLLVM fNm wanteds tys bak vals =
   case (wanteds, tys) of
     (Ctx.Empty, Ctx.Empty) -> pure vals
     (restWanted Ctx.:> w, restTys Ctx.:> t) -> do
-      let castRest = regValuesFromLLVM' fNm restWanted restTys bak
-      let cast = regValueFromLLVM' fNm w t bak
       case vals of
         rest Ctx.:> CRV.RV val -> do
-          rest' <- castRest rest
-          val' <- cast val
+          rest' <- regValuesFromLLVM fNm restWanted restTys bak rest
+          val' <- regValueFromLLVM fNm w t bak val
           pure (rest' Ctx.:> CRV.RV val')
 
 -- | Convert a 'CRV.RegValue' from its corresponding LLVM type (LLVM pointers
 -- with bitvectors where wanted).
---
--- If this function returns 'Right', then @ToLLVMType ty' ~ ty@ (though this
--- guarantee is not reflected in the type system).
-regValueFromLLVM' ::
+regValueFromLLVM ::
   forall sym bak ty.
   CB.IsSymBackend sym bak =>
   -- | Only used in error messages
@@ -407,8 +242,7 @@ regValueFromLLVM' ::
   bak ->
   CRV.RegValue sym (ToLLVMType ty) ->
   IO (CRV.RegValue sym ty)
-regValueFromLLVM' fNm wanted ty bak val = do
-  let badCast w t = Left (ValCastError (Some w) (Some t))
+regValueFromLLVM fNm wanted ty bak val = do
   case (wanted, ty) of
     (CT.BVRepr w, Ptr.LLVMPointerRepr w')
       | Just Refl <- testEquality w w' -> do
@@ -418,30 +252,35 @@ regValueFromLLVM' fNm wanted ty bak val = do
                ("In the arguments or return value of "
                 ++ Text.unpack (WFN.functionName fNm))
         ptrToBv bak err val
-    (CT.BVRepr {}, _) -> error "TODO"
-
-    -- no-ops
-
-    (CT.AnyRepr, CT.AnyRepr) -> pure val
-    (CT.UnitRepr, CT.UnitRepr) ->  pure val
-    (CT.BoolRepr, CT.BoolRepr) ->  pure val
-    (CT.NatRepr, CT.NatRepr) -> pure val
-    (CT.IntegerRepr, CT.IntegerRepr) -> pure val
-    (CT.RealValRepr, CT.RealValRepr) -> pure val
-    (CT.CharRepr, CT.CharRepr) -> pure val
-    (CT.ComplexRealRepr, CT.ComplexRealRepr) -> pure val
-    (CT.FloatRepr {}, CT.FloatRepr {}) -> pure val
-    (CT.IEEEFloatRepr {}, CT.IEEEFloatRepr {}) -> pure val
-    (CT.StringRepr {}, CT.StringRepr {}) -> pure val
-    (CT.IntrinsicRepr {}, CT.IntrinsicRepr {}) -> pure val
+    (CT.BVRepr {}, _) ->
+      panic
+        "regValueFromLLVM"
+        [ "Pointer and bitvector of different sizes related by ToLLVMType!"
+        , "This is impossible by the definition of ToLLVMType."
+        ]
 
     -- recursive cases
 
     (CT.VectorRepr wantedElemTy, CT.VectorRepr elemTy) ->
-      traverse (regValueFromLLVM' fNm wantedElemTy elemTy bak) val
+      traverse (regValueFromLLVM fNm wantedElemTy elemTy bak) val
 
     (CT.StructRepr wantedFieldTys, CT.StructRepr fieldTys) ->
-      regValuesFromLLVM' fNm wantedFieldTys fieldTys bak val
+      regValuesFromLLVM fNm wantedFieldTys fieldTys bak val
+
+    -- no-ops
+
+    (CT.AnyRepr, _) -> pure val
+    (CT.UnitRepr, _) ->  pure val
+    (CT.BoolRepr, _) ->  pure val
+    (CT.NatRepr, _) -> pure val
+    (CT.IntegerRepr, _) -> pure val
+    (CT.RealValRepr, _) -> pure val
+    (CT.CharRepr, _) -> pure val
+    (CT.ComplexRealRepr, _) -> pure val
+    (CT.FloatRepr {}, _) -> pure val
+    (CT.IEEEFloatRepr {}, _) -> pure val
+    (CT.StringRepr {}, _) -> pure val
+    (CT.IntrinsicRepr {}, _) -> pure val
 
     -- -- these shouldn't appear in override signaures, so don't worry about them
 
@@ -455,3 +294,33 @@ regValueFromLLVM' fNm wanted ty bak val = do
     (CT.StringMapRepr {}, _) -> pure val
     (CT.SymbolicArrayRepr {}, _) -> pure val
     (CT.SymbolicStructRepr {}, _) -> pure val
+
+-- | Map 'regValueFromLLVM' over an 'Ctx.Assignment' of 'CRM.RegEntry's.
+regEntriesFromLLVM ::
+  CB.IsSymBackend sym bak =>
+  -- | Only used in error messages
+  WFN.FunctionName ->
+  Ctx.Assignment CT.TypeRepr tys ->
+  Ctx.Assignment CT.TypeRepr (CtxToLLVMType tys) ->
+  bak ->
+  Ctx.Assignment (CRM.RegEntry sym) (CtxToLLVMType tys) ->
+  IO (Ctx.Assignment (CRM.RegEntry sym) tys)
+regEntriesFromLLVM fNm wanteds tys bak vals = do
+  let cast = regValuesFromLLVM fNm wanteds tys bak
+  Ctx.zipWith (\ty (CRV.RV v) -> CRM.RegEntry ty v) wanteds
+    <$> cast (TFC.fmapFC (\(CRM.RegEntry _ty v) -> CRM.RV v) vals)
+
+-- | Map 'regValueFromLLVM' over a 'CRM.RegMap'.
+regMapFromLLVM ::
+  forall sym bak tys.
+  CB.IsSymBackend sym bak =>
+  -- | Only used in error messages
+  WFN.FunctionName ->
+  Ctx.Assignment CT.TypeRepr tys ->
+  Ctx.Assignment CT.TypeRepr (CtxToLLVMType tys) ->
+  bak ->
+  CRM.RegMap sym (CtxToLLVMType tys) ->
+  IO (CRM.RegMap sym tys)
+regMapFromLLVM fNm wanteds tys bak =
+  coerce (regEntriesFromLLVM fNm wanteds tys bak)
+

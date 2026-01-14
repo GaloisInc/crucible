@@ -166,20 +166,19 @@ lower_llvm_override ::
   HasLLVMAnn sym =>
   GlobalVar Mem ->
   LLVMOverride p sym ext args ret ->
-  SomeTypedOverride p sym ext
+  TypedOverride p sym ext (Cast.CtxToLLVMType args) (Cast.ToLLVMType ret)
 lower_llvm_override mvar ov =
-  SomeTypedOverride $
-    TypedOverride
-    { typedOverrideArgs = argTys'
-    , typedOverrideRet = retTy'
-    , typedOverrideHandler =
-      \args ->
-        ovrWithBackend $ \bak -> do
-          let argEntries = Ctx.zipWith (\t (RV v) -> RegEntry @sym t v) argTys' args
-          args' <- liftIO (castArgs bak argEntries)
-          ret <- llvmOverride_def ov mvar args'
-          liftIO (Cast.regValueToLLVM (backendGetSym bak) retTy ret)
-    }
+  TypedOverride
+  { typedOverrideArgs = argTys'
+  , typedOverrideRet = retTy'
+  , typedOverrideHandler =
+    \args ->
+      ovrWithBackend $ \bak -> do
+        let argEntries = Ctx.zipWith (\t (RV v) -> RegEntry @sym t v) argTys' args
+        args' <- liftIO (Cast.regEntriesFromLLVM fNm argTys argTys' bak argEntries)
+        ret <- llvmOverride_def ov mvar args'
+        liftIO (Cast.regValueToLLVM (backendGetSym bak) retTy ret)
+  }
   where
     argTys = llvmOverride_args ov
     argTys' = Cast.ctxToLLVMType argTys
@@ -188,16 +187,6 @@ lower_llvm_override mvar ov =
 
     L.Symbol nm = llvmOverride_name ov
     fNm  = functionNameFromText (Text.pack nm)
-
-    castArgs ::
-      IsSymBackend sym bak =>
-      bak ->
-      Ctx.Assignment (RegEntry sym) (Cast.CtxToLLVMType args) ->
-      IO (Ctx.Assignment (RegEntry sym) args)
-    castArgs =
-      case Cast.regEntriesFromLLVM fNm argTys argTys' of
-        Left err -> error "TODO"
-        Right cast -> cast
 
 polymorphic1_llvm_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
@@ -363,12 +352,6 @@ register_llvm_override llvmOverride requestedDecl llvmctx = do
               , " *** found args: " ++ show (llvmOverride_args llvmOverride)
               , " *** found ret: " ++ show (llvmOverride_ret llvmOverride)
               ]
-            liftIO $ putStrLn $ unlines
-              [ "Mismatched declaration signatures"
-              , " *** requested: " ++ show requestedDecl
-              , " *** found: "     ++ show (llvmOverride_args llvmOverride)
-              , ""
-              ]
   else do_register_llvm_override llvmctx llvmOverride
 
 -- | Low-level function to register LLVM overrides.
@@ -393,7 +376,7 @@ do_register_llvm_override llvmctx llvmOverride = do
   let mvar = llvmMemVar llvmctx
   let ?lc = llvmctx^.llvmTypeCtx
 
-  SomeTypedOverride typedOv <- pure (lower_llvm_override mvar llvmOverride)
+  let typedOv = lower_llvm_override mvar llvmOverride
   let o = runTypedOverride fnm typedOv
   let args = typedOverrideArgs typedOv
   let ret = typedOverrideRet typedOv
