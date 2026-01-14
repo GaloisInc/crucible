@@ -2443,12 +2443,12 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath ele
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
 
     elemSizeBV <- liftIO $ wordLit sym elemSize
-    offModSz <- liftIO $ bvUrem sym elemSizeBV elemOff
+    offModSz <- liftIO $ bvUrem sym elemOff elemSizeBV
     offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
     leafAssert bak offModSzIsZero $ Unsupported callStack $
         "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
 
-    offDivSz <- liftIO $ bvUdiv sym elemSizeBV elemOff
+    offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
     return (offDivSz, len)
 mirRef_indexAndLenLeaf bak _ _ (MirReference _ _ _) = do
     let sym = backendGetSym bak
