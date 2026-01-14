@@ -17,6 +17,7 @@
     * Replace `llvmOverride_name` with `llvmOvSymbol`
     * Replace `llvmOverride_args` with `llvmOvArgs`
     * Replace `llvmOverride_ret` with `llvmOvRet`
+* Support the `llvm.scmp.*` and `llvm.ucmp.*` three-way comparison intrinsics.
 
 # 0.9 -- 2026-01-29
 

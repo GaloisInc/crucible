@@ -344,6 +344,35 @@ poly1_vec_llvm_overrides =
     )
   ]
 
+-- | An LLVM override for the @llvm.{s,u}cmp.*@ family of intrinsics. These
+-- overrides have a unique shape in that:
+--
+-- 1. Both their argument and result types are polymorphic integer types (which
+--    are allowed to be different), and
+--
+-- 2. The result integer type must have a size of at least 2 bits.
+newtype PolyCmpLLVMOverride p sym ext
+  = PolyCmpLLVMOverride
+      (forall argSz resSz
+         . (1 <= argSz, 2 <= resSz)
+        => NatRepr argSz
+        -> NatRepr resSz
+        -> SomeLLVMOverride p sym ext)
+
+poly_cmp_llvm_overrides ::
+  IsSymInterface sym =>
+  [(String, PolyCmpLLVMOverride p sym ext)]
+poly_cmp_llvm_overrides =
+  [ ("llvm.scmp"
+    , PolyCmpLLVMOverride $ \argSz resSz ->
+        SomeLLVMOverride (llvmScmp argSz resSz)
+    )
+  , ("llvm.ucmp"
+    , PolyCmpLLVMOverride $ \argSz resSz ->
+        SomeLLVMOverride (llvmUcmp argSz resSz)
+    )
+  ]
+
 ------------------------------------------------------------------------
 -- ** Declarations
 
@@ -1739,6 +1768,54 @@ llvmUminVector ::
      (VectorType (BVType intSz))
 llvmUminVector = llvmVectorMap "umin" callVectorMapUmin
 
+-- | Build an 'LLVMOverride' for an @llvm.{s,u}cmp.*@ intrinsic.
+llvmCmp ::
+  forall argSz resSz p sym ext.
+  (1 <= argSz, 2 <= resSz) =>
+  -- | The name of the operation (@scmp@ or @ucmp@).
+  String ->
+  -- | The semantics of the override.
+  (forall r args ret.
+    IsSymInterface sym =>
+    RegEntry sym (BVType argSz) ->
+    RegEntry sym (BVType argSz) ->
+    OverrideSim p sym ext r args ret (SymBV sym resSz)) ->
+  -- | The size of the argument type.
+  NatRepr argSz ->
+  -- | The size of the result type.
+  NatRepr resSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> BVType argSz ::> BVType argSz)
+     (BVType resSz)
+llvmCmp cmpOpName cmpOp argSz resSz
+  | (LeqProof :: LeqProof 1 resSz) <-
+      leqTrans (LeqProof @1 @2) (LeqProof @2 @resSz)
+  = let nm = L.Symbol ("llvm." ++ cmpOpName ++
+                       ".i" ++ show (natValue resSz) ++
+                       ".i" ++ show (natValue argSz)) in
+      [llvmOvr| #resSz $nm( #argSz, #argSz ) |]
+      (\_memOps args -> Ctx.uncurryAssignment cmpOp args)
+
+llvmScmp ::
+  forall argSz resSz p sym ext.
+  (1 <= argSz, 2 <= resSz) =>
+  NatRepr argSz ->
+  NatRepr resSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> BVType argSz ::> BVType argSz)
+     (BVType resSz)
+llvmScmp argSz resSz = llvmCmp "scmp" (callScmp resSz) argSz resSz
+
+llvmUcmp ::
+  forall argSz resSz p sym ext.
+  (1 <= argSz, 2 <= resSz) =>
+  NatRepr argSz ->
+  NatRepr resSz ->
+  LLVMOverride p sym ext
+     (EmptyCtx ::> BVType argSz ::> BVType argSz)
+     (BVType resSz)
+llvmUcmp argSz resSz = llvmCmp "ucmp" (callUcmp resSz) argSz resSz
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -2459,3 +2536,46 @@ callVectorMapUmin ::
 callVectorMapUmin vec1 vec2 = do
   sym <- getSymInterface
   callVectorMap (bvUmin sym) vec1 vec2
+
+-- | The semantics of an @llvm.{s,u}cmp.*@ intrinsic.
+callCmp ::
+  forall argSz resSz p sym ext r args ret.
+  (IsSymInterface sym, 1 <= argSz, 2 <= resSz) =>
+  -- | The semantics of a bitvector less-than operation (either signed or
+  -- unsigned).
+  (sym -> SymBV sym argSz -> SymBV sym argSz -> IO (Pred sym)) ->
+  -- | The size of the result type.
+  NatRepr resSz ->
+  RegEntry sym (BVType argSz) ->
+  RegEntry sym (BVType argSz) ->
+  OverrideSim p sym ext r args ret (SymBV sym resSz)
+callCmp bvLtOp resSz (regValue -> x) (regValue -> y)
+  | (LeqProof :: LeqProof 1 resSz) <-
+      leqTrans (LeqProof @1 @2) (LeqProof @2 @resSz)
+  = do sym <- getSymInterface
+       liftIO $
+         do xLtY <- bvLtOp sym x y
+            xEqY <- bvEq sym x y
+            zero <- bvZero sym resSz
+            one <- bvOne sym resSz
+            negOne <- bvNeg sym one
+            -- If x < y, return -1. If x == y, return 0. If x > y, return 1.
+            bvIte sym xLtY negOne =<< bvIte sym xEqY zero one
+
+callScmp ::
+  forall argSz resSz p sym ext r args ret.
+  (IsSymInterface sym, 1 <= argSz, 2 <= resSz) =>
+  NatRepr resSz ->
+  RegEntry sym (BVType argSz) ->
+  RegEntry sym (BVType argSz) ->
+  OverrideSim p sym ext r args ret (SymBV sym resSz)
+callScmp = callCmp bvSlt
+
+callUcmp ::
+  forall argSz resSz p sym ext r args ret.
+  (IsSymInterface sym, 1 <= argSz, 2 <= resSz) =>
+  NatRepr resSz ->
+  RegEntry sym (BVType argSz) ->
+  RegEntry sym (BVType argSz) ->
+  OverrideSim p sym ext r args ret (SymBV sym resSz)
+callUcmp = callCmp bvUlt
