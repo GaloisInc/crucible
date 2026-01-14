@@ -2292,7 +2292,7 @@ mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath elemOff _elemSi
     -- improperly offset by 4 bytes (i.e. the size of a `u32`) at a time.
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
-    extraOff <- liftIO $ bvMul sym numElems =<< bvLit sym knownRepr (BV.mkBV knownRepr (toInteger elemSize))
+    extraOff <- liftIO $ bvMul sym numElems =<< wordLit sym elemSize
     elemOff' <- liftIO $ bvAdd sym elemOff extraOff
     return $ MirReference tpr root $ AgElem_RefPath elemOff' elemSize tpr' path
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset _elemSize = do
@@ -2442,7 +2442,7 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath ele
     let lenWord = totalSize `div` elemSize
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
 
-    elemSizeBV <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral elemSize
+    elemSizeBV <- liftIO $ wordLit sym elemSize
     offModSz <- liftIO $ bvUrem sym elemSizeBV elemOff
     offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
     leafAssert bak offModSzIsZero $ Unsupported callStack $
