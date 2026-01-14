@@ -128,7 +128,7 @@ instance FromJSON CoroutineArgs where
 
 instance FromJSON Layout where
     parseJSON = withObject "Layout" $ \v ->
-        Layout <$> v .: "align" <*> v .: "size"
+        Layout <$> v .: "align" <*> v .: "size" <*> v .:? "field_offsets"
 
 instance FromJSON LangItem where
     parseJSON = withObject "LangItem" $ \v ->
