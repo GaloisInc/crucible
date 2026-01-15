@@ -166,6 +166,7 @@ library
     Lang.Crucible.LLVM.Internal
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.Intrinsics.Cast
+    Lang.Crucible.LLVM.Intrinsics.Declare
     Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MalformedLLVMModule

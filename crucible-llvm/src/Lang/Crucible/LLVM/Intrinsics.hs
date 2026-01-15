@@ -53,6 +53,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import qualified Lang.Crucible.LLVM.Intrinsics.Declare as Decl
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
@@ -91,10 +92,11 @@ register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
 -- and the structure of C++ demangled names to extract more information.
 filterTemplates ::
   [OverrideTemplate p sym ext arch] ->
-  L.Declare ->
+  Decl.SomeDeclare ->
   [OverrideTemplate p sym ext arch]
-filterTemplates ts decl = filter (matches nm . overrideTemplateMatcher) ts
- where L.Symbol nm = L.decName decl
+filterTemplates ts (Decl.SomeDeclare decl) =
+  filter (matches nm . overrideTemplateMatcher) ts
+  where L.Symbol nm = Decl.decName decl
 
 -- | Match a set of 'OverrideTemplate's against a single 'L.Declare',
 -- registering all the overrides that apply and returning them as a list.
@@ -104,16 +106,17 @@ match_llvm_overrides ::
   -- | Overrides to attempt to match against this declaration
   [OverrideTemplate p sym ext arch] ->
   -- | Declaration of the function that might get overridden
-  L.Declare ->
+  Decl.SomeDeclare ->
   OverrideSim p sym ext rtp l a [SomeLLVMOverride p sym ext]
-match_llvm_overrides llvmctx acts decl =
+match_llvm_overrides llvmctx acts someDecl =
   llvmPtrWidth llvmctx $ \wptr -> withPtrWidth wptr $ do
-    let acts' = filterTemplates acts decl
-    let L.Symbol nm = L.decName decl
+    let acts' = filterTemplates acts someDecl
+    Decl.SomeDeclare decl <- pure someDecl
+    let L.Symbol nm = Decl.decName decl
     let declnm = either (const Nothing) Just $ ABI.demangleName nm
     mbOvs <-
       forM (map overrideTemplateAction acts') $ \(MakeOverride act) ->
-        case act decl declnm llvmctx of
+        case act someDecl declnm llvmctx of
           Nothing -> pure Nothing
           Just sov@(SomeLLVMOverride ov) -> do
             register_llvm_override ov decl llvmctx
@@ -128,7 +131,7 @@ register_llvm_overrides_ ::
   -- | Overrides to attempt to match against these declarations
   [OverrideTemplate p sym ext arch] ->
   -- | Declarations of the functions that might get overridden
-  [L.Declare] ->
+  [Decl.SomeDeclare] ->
   OverrideSim p sym ext rtp l a [SomeLLVMOverride p sym ext]
 register_llvm_overrides_ llvmctx acts decls =
   concat <$> forM decls (\decl -> match_llvm_overrides llvmctx acts decl)
@@ -146,10 +149,10 @@ register_llvm_define_overrides ::
   [OverrideTemplate p sym LLVM arch] ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a [SomeLLVMOverride p sym LLVM]
-register_llvm_define_overrides llvmModule addlOvrs llvmctx =
-  let ?lc = llvmctx^.llvmTypeCtx in
-  register_llvm_overrides_ llvmctx (addlOvrs ++ define_overrides) $
-     (allModuleDeclares llvmModule)
+register_llvm_define_overrides llvmModule addlOvrs llvmctx = do
+  let ?lc = llvmctx^.llvmTypeCtx
+  decls <- Decl.fromLLVMWithWarnings (allModuleDeclares llvmModule)
+  register_llvm_overrides_ llvmctx (addlOvrs ++ define_overrides) decls
 
 -- | Match a set of 'OverrideTemplate's against all the @declare@s in a
 -- 'L.Module', registering all the overrides that apply and returning them as
@@ -165,10 +168,10 @@ register_llvm_declare_overrides ::
   [OverrideTemplate p sym LLVM arch] ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a [SomeLLVMOverride p sym LLVM]
-register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
+register_llvm_declare_overrides llvmModule addlOvrs llvmctx = do
   let ?lc = llvmctx^.llvmTypeCtx
-  in register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) $
-       L.modDeclares llvmModule
+  decls <- Decl.fromLLVMWithWarnings (L.modDeclares llvmModule)
+  register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) decls
 
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::

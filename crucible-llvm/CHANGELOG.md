@@ -46,6 +46,12 @@
   and `strndup`, supported by new APIs in `Lang.Crucible.LLVM.MemModel.Strings`.
 * Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
 
+  * Add `Lang.Crucible.LLVM.Intrinsics.Declare` module.
+  * Change functions in `Lang.Crucible.LLVM.Intrinsics` to work
+    with `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s. To
+    migrate, use `Lang.Crucible.LLVM.Intrinsics.Declare.fromLLVM`
+    to translate `Text.LLVM.AST.Declare`s into
+    `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s
   * Replace `build_llvm_override` with `lower_llvm_override`.
   * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
 
