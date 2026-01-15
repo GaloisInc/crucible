@@ -175,21 +175,23 @@ llvmOverrideToTypedOverride mvar ov =
         llvmOverride_def ov mvar argEntries
   }
 
+-- | Lower an override to use the Crucible-LLVM ABI.
+--
+-- See "Lang.Crucible.LLVM.Intrinsics.Cast" for more details.
 lower_llvm_override ::
   forall p sym ext args ret.
   HasLLVMAnn sym =>
-  GlobalVar Mem ->
   LLVMOverride p sym ext args ret ->
-  TypedOverride p sym ext (Cast.CtxToLLVMType args) (Cast.ToLLVMType ret)
-lower_llvm_override mvar ov =
-  TypedOverride
-  { typedOverrideArgs = argTys'
-  , typedOverrideRet = retTy'
-  , typedOverrideHandler =
-    \args ->
+  LLVMOverride p sym ext (Cast.CtxToLLVMType args) (Cast.ToLLVMType ret)
+lower_llvm_override ov =
+  LLVMOverride
+  { llvmOverride_name = llvmOverride_name ov
+  , llvmOverride_args = argTys'
+  , llvmOverride_ret = retTy'
+  , llvmOverride_def =
+    \mvar args ->
       ovrWithBackend $ \bak -> do
-        let argEntries = Ctx.zipWith (\t (RV v) -> RegEntry @sym t v) argTys' args
-        args' <- liftIO (Cast.regEntriesFromLLVM fNm argTys argTys' bak argEntries)
+        args' <- liftIO (Cast.regEntriesFromLLVM fNm argTys argTys' bak args)
         ret <- llvmOverride_def ov mvar args'
         liftIO (Cast.regValueToLLVM (backendGetSym bak) retTy ret)
   }
@@ -363,14 +365,12 @@ register_llvm_override llvmOverride requestedDecl llvmctx = do
               , " *** found args: " ++ show (llvmOverride_args llvmOverride)
               , " *** found ret: " ++ show (llvmOverride_ret llvmOverride)
               ]
-  else do_register_llvm_override llvmctx llvmOverride
+  else do_register_llvm_override llvmctx (lower_llvm_override llvmOverride)
 
 -- | Low-level function to register LLVM overrides.
 --
--- TODO Type-checks the LLVM override against the 'L.Declare' it contains, adapting
--- its arguments and return values as necessary. Then creates and binds
--- a function handle, and also binds the function to the global function
--- allocation in the LLVM memory.
+-- Creates and binds a function handle, and also binds the function to the
+-- global function allocation in the LLVM memory.
 --
 -- Useful when you don\'t have access to a full LLVM AST, e.g., when parsing
 -- Crucible CFGs written in crucible-syntax. For more usual cases, use
@@ -387,7 +387,7 @@ do_register_llvm_override llvmctx llvmOverride = do
   let mvar = llvmMemVar llvmctx
   let ?lc = llvmctx^.llvmTypeCtx
 
-  let typedOv = lower_llvm_override mvar llvmOverride
+  let typedOv = llvmOverrideToTypedOverride mvar llvmOverride
   let o = runTypedOverride fnm typedOv
   let args = typedOverrideArgs typedOv
   let ret = typedOverrideRet typedOv
