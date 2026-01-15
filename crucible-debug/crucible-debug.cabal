@@ -114,7 +114,7 @@ library
   import: shared
 
   build-depends:
-    base >= 4.13 && < 4.21,
+    base >= 4.13 && < 4.22,
     containers,
     crucible,
     crucible-syntax,
