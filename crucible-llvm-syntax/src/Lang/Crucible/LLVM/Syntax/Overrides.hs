@@ -91,7 +91,7 @@ registerLLVMOverrides bak llvmCtx fwdDecs = do
             let typedOv = CLLVM.llvmOverrideToTypedOverride mvar llOv
             let ov = C.runTypedOverride fnm typedOv
             CLLVM.bindLLVMHandle mvar symb hdl (C.UseOverride ov)
-          _ -> do
+          _ ->
             fail $ unlines $
               [ "Bad signature in `declare`"
               , " *** `declare` args: " ++ show hdlArgs

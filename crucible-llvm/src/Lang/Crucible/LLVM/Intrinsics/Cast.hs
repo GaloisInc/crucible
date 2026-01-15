@@ -230,8 +230,8 @@ regValuesFromLLVM fNm wanteds tys bak vals =
           val' <- regValueFromLLVM fNm w t bak val
           pure (rest' Ctx.:> CRV.RV val')
 
--- | Convert a 'CRV.RegValue' from its corresponding LLVM type (LLVM pointers
--- with bitvectors where wanted).
+-- | Convert a 'CRV.RegValue' from its corresponding LLVM type (replacing LLVM
+-- pointers with bitvectors where needed).
 regValueFromLLVM ::
   forall sym bak ty.
   CB.IsSymBackend sym bak =>
@@ -249,7 +249,7 @@ regValueFromLLVM fNm wanted ty bak val = do
         let err = 
               CSE.AssertFailureSimError
                "Found a pointer where a bitvector was expected"
-               ("In the arguments or return value of "
+               ("In the arguments of "
                 ++ Text.unpack (WFN.functionName fNm))
         ptrToBv bak err val
     (CT.BVRepr {}, _) ->
@@ -282,7 +282,7 @@ regValueFromLLVM fNm wanted ty bak val = do
     (CT.StringRepr {}, _) -> pure val
     (CT.IntrinsicRepr {}, _) -> pure val
 
-    -- -- these shouldn't appear in override signaures, so don't worry about them
+    -- these shouldn't appear in override signaures, so don't worry about them
 
     (CT.FunctionHandleRepr {}, _) -> pure val
     (CT.MaybeRepr {}, _) -> pure val
