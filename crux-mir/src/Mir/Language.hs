@@ -44,7 +44,7 @@ import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
-import           Control.Lens ((^.), (^?), (^..), ix, each)
+import           Control.Lens ((^.), (^?), (^..), ix, each, _Just)
 import           GHC.Generics (Generic)
 
 import System.Console.ANSI
@@ -540,13 +540,19 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
                      Just f -> show f
                      Nothing -> "Symbolic real"
 
-    (TyTuple tys, MirAggregateRepr) -> do
+    (tupleTy@(TyTuple tys), MirAggregateRepr) -> do
       let MirAggregate _ m = rv
-      strs <- forM (zip [0..] tys) $ \(off, ty) -> do
-        case IntMap.lookup off m of
-          Just (MirAggregateEntry _ elemTpr elemRvPart) ->
-            goMaybe ty elemTpr elemRvPart
-          Nothing -> return "<uninit>"
+      fieldOffsets <- case col ^? layouts . ix tupleTy . _Just . layFieldOffsets . _Just of
+        Just x -> return x
+        Nothing -> fail $ "missing field offsets for " ++ show tupleTy
+      strs <- forM (zip fieldOffsets tys) $ \(off, ty) -> do
+        case col ^? layouts . ix ty . _Just . laySize of
+          Just 0 -> showZSTValue ty
+          _ -> do
+            case IntMap.lookup (fromIntegral off) m of
+              Just (MirAggregateEntry _ elemTpr elemRvPart) ->
+                goMaybe ty elemTpr elemRvPart
+              Nothing -> return "<uninit>"
 
       return $ "(" ++ List.intercalate ", " strs ++ ")"
 
@@ -638,7 +644,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
           return $ "[" ++ List.intercalate ", " values ++ "]"
         Left e -> return $ "error handling type " ++ show (pretty ty) ++ ": " ++ e
 
-    _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
+    _ -> return $ "I don't know how to print result of type " ++ show (pretty mty, tp)
 
 
   where
