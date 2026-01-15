@@ -152,7 +152,8 @@ register_llvm_define_overrides ::
 register_llvm_define_overrides llvmModule addlOvrs llvmctx = do
   let ?lc = llvmctx^.llvmTypeCtx
   decls <- Decl.fromLLVMWithWarnings (allModuleDeclares llvmModule)
-  register_llvm_overrides_ llvmctx (addlOvrs ++ define_overrides) decls
+  let ovs = map lowerOverrideTemplate (addlOvrs ++ define_overrides)
+  register_llvm_overrides_ llvmctx ovs decls
 
 -- | Match a set of 'OverrideTemplate's against all the @declare@s in a
 -- 'L.Module', registering all the overrides that apply and returning them as
@@ -171,7 +172,8 @@ register_llvm_declare_overrides ::
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx = do
   let ?lc = llvmctx^.llvmTypeCtx
   decls <- Decl.fromLLVMWithWarnings (L.modDeclares llvmModule)
-  register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) decls
+  let ovs = map lowerOverrideTemplate (addlOvrs ++ declare_overrides)
+  register_llvm_overrides_ llvmctx ovs decls
 
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
