@@ -20,6 +20,8 @@
 module Lang.Crucible.LLVM.Intrinsics.Common
   ( LLVMOverride(..)
   , SomeLLVMOverride(..)
+  , llvmOverrideDeclare
+  , someLlvmOverrideDeclare
   , MakeOverride(..)
   , llvmSizeT
   , llvmSSizeT
@@ -97,6 +99,19 @@ data LLVMOverride p sym ext args ret =
 
 data SomeLLVMOverride p sym ext =
   forall args ret. SomeLLVMOverride (LLVMOverride p sym ext args ret)
+
+llvmOverrideDeclare :: LLVMOverride p sym ext args ret -> Decl.Declare args ret
+llvmOverrideDeclare ov =
+  Decl.Declare
+  { Decl.decName = llvmOverride_name ov
+  , Decl.decArgs = llvmOverride_args ov
+  , Decl.decRet = llvmOverride_ret ov
+  }
+
+-- | Map 'llvmOverrideDeclare' inside a 'SomeLLVMOverride'.
+someLlvmOverrideDeclare :: SomeLLVMOverride p sym ext -> Decl.SomeDeclare
+someLlvmOverrideDeclare (SomeLLVMOverride ov) =
+  Decl.SomeDeclare (llvmOverrideDeclare ov)
 
 -- | Convenient LLVM representation of the @size_t@ type.
 llvmSizeT :: HasPtrWidth wptr => L.Type
