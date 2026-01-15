@@ -23,9 +23,11 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , llvmOverrideDeclare
   , someLlvmOverrideDeclare
   , MakeOverride(..)
+  , lowerMakeOverride
   , llvmSizeT
   , llvmSSizeT
   , OverrideTemplate(..)
+  , lowerOverrideTemplate
   , callStackFromMemVar'
     -- ** register_llvm_override
   , basic_llvm_override
@@ -133,6 +135,16 @@ newtype MakeOverride p sym ext arch =
         Maybe (SomeLLVMOverride p sym ext)
     }
 
+-- | Postcompose 'lower_llvm_override' with a 'MakeOverride'
+lowerMakeOverride ::
+  HasLLVMAnn sym =>
+  MakeOverride p sym ext arch ->
+  MakeOverride p sym ext arch
+lowerMakeOverride (MakeOverride f) =
+  MakeOverride $ \decl nm ctx -> do
+    SomeLLVMOverride ov <- f decl nm ctx
+    Just (SomeLLVMOverride (lower_llvm_override ov))
+
 -- | Checking if an override applies to a given declaration happens in two
 -- \"phases\", corresponding to the fields of this struct.
 data OverrideTemplate p sym ext arch =
@@ -144,6 +156,18 @@ data OverrideTemplate p sym ext arch =
     -- 'MakeOverride' performs additional checks and potentially constructs
     -- a 'SomeLLVMOverride'.
   , overrideTemplateAction :: MakeOverride p sym ext arch
+  }
+
+-- | Call 'lower_llvm_override' on the override in a 'OverrideTemplate'
+lowerOverrideTemplate ::
+  HasLLVMAnn sym =>
+  OverrideTemplate p sym ext arch ->
+  OverrideTemplate p sym ext arch
+lowerOverrideTemplate t =
+  OverrideTemplate
+  { overrideTemplateMatcher = overrideTemplateMatcher t
+  , overrideTemplateAction =
+      lowerMakeOverride (overrideTemplateAction t)
   }
 
 callStackFromMemVar' ::
@@ -329,8 +353,8 @@ isMatchingDeclaration requested provided =
   let ret = Decl.decRet requested in
   and
   [ Decl.decName requested == llvmOverride_name provided
-  , matchingArgList args (Cast.ctxToLLVMType (llvmOverride_args provided))
-  , Maybe.isJust (testEquality ret (Cast.toLLVMType (llvmOverride_ret provided)))
+  , matchingArgList args (llvmOverride_args provided)
+  , Maybe.isJust (testEquality ret (llvmOverride_ret provided))
   ]
 
   where
@@ -365,7 +389,7 @@ register_llvm_override llvmOverride requestedDecl llvmctx = do
               , " *** found args: " ++ show (llvmOverride_args llvmOverride)
               , " *** found ret: " ++ show (llvmOverride_ret llvmOverride)
               ]
-  else do_register_llvm_override llvmctx (lower_llvm_override llvmOverride)
+  else do_register_llvm_override llvmctx llvmOverride
 
 -- | Low-level function to register LLVM overrides.
 --

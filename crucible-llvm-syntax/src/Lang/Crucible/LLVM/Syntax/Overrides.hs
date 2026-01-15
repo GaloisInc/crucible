@@ -81,6 +81,7 @@ registerLLVMOverrides bak llvmCtx fwdDecs = do
           _ ->
             fail $ unlines $
               [ "Bad signature in `declare`"
+              , " *** name: " ++ nm
               , " *** `declare` args: " ++ show hdlArgs
               , " *** override args:  " ++ show llArgs
               , " *** `declare` ret:  " ++ show hdlRet
