@@ -34,6 +34,10 @@
 * Remove the `Eq LLVMConst` instance. This instance was inherently unreliable
   because it cannot easily compute a simple `True`-or-`False` answer in the
   presence of `undef` or `poison` values.
+* Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
+
+  * Replace `build_llvm_override` with `lower_llvm_override`.
+  * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
 
 # 0.8.0 -- 2025-11-09
 
