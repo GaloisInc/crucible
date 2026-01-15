@@ -44,6 +44,10 @@
   * `Lang.Crucible.LLVM.MemModel.Pointer.ppLLVMPointerIntrinsicType`
 * Overrides for `memcmp`, `strcmp`, `strncmp`, `strnlen`, `strcpy`, `strdup`,
   and `strndup`, supported by new APIs in `Lang.Crucible.LLVM.MemModel.Strings`.
+* Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
+
+  * Replace `build_llvm_override` with `lower_llvm_override`.
+  * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
 
 # 0.8.0 -- 2025-11-09
 
