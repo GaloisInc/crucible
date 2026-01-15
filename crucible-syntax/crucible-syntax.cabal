@@ -112,7 +112,7 @@ common shared
 library
   import: shared
   build-depends:
-    base >= 4.9 && < 4.21,
+    base >= 4.9 && < 4.22,
     bv-sized >= 1.0.0,
     containers >= 0.6.0.1,
     crucible >= 0.1,

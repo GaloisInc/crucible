@@ -21,7 +21,7 @@ source-repository head
   subdir:   crucible-symio
 
 common shared
-  build-depends:       base >=4.12 && <4.21,
+  build-depends:       base >=4.12 && <4.22,
                        aeson,
                        bv-sized,
                        bytestring,
@@ -63,7 +63,7 @@ test-suite crucible-symio-tests
   main-is: TestMain.hs
   hs-source-dirs: tests, src
   ghc-options: -Wall -Wcompat
-  build-depends: base >=4.12 && <4.21,
+  build-depends: base >=4.12 && <4.22,
                  what4,
                  crucible,
                  crucible-symio,
