@@ -38,7 +38,6 @@ import           Prelude hiding (pred)
 
 import           Data.Text (Text)
 import qualified Text.LLVM.AST as L
-import           Type.Reflection (SomeTypeRep(SomeTypeRep))
 import           Prettyprinter
 
 import           What4.Interface
@@ -100,7 +99,6 @@ data FuncLookupError
   = SymbolicPointer
   | RawBitvector
   | NoOverride
-  | Uncallable SomeTypeRep
   deriving (Eq, Ord)
 
 ppFuncLookupError :: FuncLookupError -> Doc ann
@@ -109,10 +107,6 @@ ppFuncLookupError =
     SymbolicPointer -> "Cannot resolve a symbolic pointer to a function handle"
     RawBitvector -> "Cannot treat raw bitvector as function pointer"
     NoOverride -> "No implementation or override found for pointer"
-    Uncallable (SomeTypeRep typeRep) ->
-      vsep [ "Data associated with the pointer found, but was not a callable function:"
-           , hang 2 (viaShow typeRep)
-           ]
 
 type MemErrContext sym w = MemoryOp sym w
 
