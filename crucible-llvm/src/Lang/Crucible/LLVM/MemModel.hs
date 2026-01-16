@@ -46,6 +46,8 @@ module Lang.Crucible.LLVM.MemModel
   , IndeterminateLoadBehavior(..)
   , defaultMemOptions
   , laxPointerMemOptions
+  , ppLLVMMemIntrinsicType
+  , ppLLVMIntrinsicTypes
 
   -- * Pointers
   , LLVMPointerType
@@ -208,6 +210,7 @@ import           Data.Text (Text)
 import           Data.Word
 import qualified GHC.Stack as GHC
 import           Numeric.Natural (Natural)
+import qualified Prettyprinter as PP
 import           System.IO (Handle, hPutStrLn)
 
 import qualified Data.BitVector.Sized as BV
@@ -357,6 +360,34 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
      do let MemImpl nxt gMap sMap hMap m = mem
         --putStrLn "MEM ABORT BRANCH"
         return $ MemImpl nxt gMap sMap hMap $ G.branchAbortMem m
+
+-- | An intrinsic-printing function for 'MemImpl' for use with
+-- 'Lang.Crucible.Types.ppTypeRepr'.
+ppLLVMMemIntrinsicType ::
+  Applicative f =>
+  -- | Fallback for other instrinsics, can be
+  -- 'Lang.Crucible.Types.ppIntrinsicDefault'.
+  (forall s ctx'. SymbolRepr s -> CtxRepr ctx' -> f (PP.Doc ann)) ->
+  SymbolRepr symb ->
+  CtxRepr ctx ->
+  f (PP.Doc ann)
+ppLLVMMemIntrinsicType fallback symbRepr tyCtx =
+  case testEquality symbRepr (knownSymbol @"LLVM_memory") of
+    Nothing -> fallback symbRepr tyCtx
+    Just Refl -> pure "LLVMMemory"
+
+-- | An intrinsic-printing function for the LLVM intrinsic types for use with
+-- 'Lang.Crucible.Types.ppTypeRepr'.
+ppLLVMIntrinsicTypes ::
+  Applicative f =>
+  -- | Fallback for other instrinsics, can be
+  -- 'Lang.Crucible.Types.ppIntrinsicDefault'.
+  (forall s ctx'. SymbolRepr s -> CtxRepr ctx' -> f (PP.Doc ann)) ->
+  SymbolRepr symb ->
+  CtxRepr ctx ->
+  f (PP.Doc ann)
+ppLLVMIntrinsicTypes fallback =
+  ppLLVMMemIntrinsicType (ppLLVMPointerIntrinsicType fallback)
 
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
