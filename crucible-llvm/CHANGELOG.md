@@ -53,8 +53,9 @@
     to translate `Text.LLVM.AST.Declare`s into
     `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s
   * `do_register_llvm_override` no longer does any mapping nor adaptation of
-    types, use `lower_llvm_override` for that.
-  * Replace `build_llvm_override` with `lower_llvm_override`.
+    types, use `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride` for that.
+  * Replace `build_llvm_override` with
+    `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride`.
   * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
 
 # 0.8.0 -- 2025-11-09

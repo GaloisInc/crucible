@@ -53,6 +53,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
 import qualified Lang.Crucible.LLVM.Intrinsics.Declare as Decl
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
@@ -152,7 +153,7 @@ register_llvm_define_overrides ::
 register_llvm_define_overrides llvmModule addlOvrs llvmctx = do
   let ?lc = llvmctx^.llvmTypeCtx
   decls <- Decl.fromLLVMWithWarnings (allModuleDeclares llvmModule)
-  let ovs = map lowerOverrideTemplate (addlOvrs ++ define_overrides)
+  let ovs = map Cast.lowerOverrideTemplate (addlOvrs ++ define_overrides)
   register_llvm_overrides_ llvmctx ovs decls
 
 -- | Match a set of 'OverrideTemplate's against all the @declare@s in a
@@ -172,7 +173,7 @@ register_llvm_declare_overrides ::
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx = do
   let ?lc = llvmctx^.llvmTypeCtx
   decls <- Decl.fromLLVMWithWarnings (L.modDeclares llvmModule)
-  let ovs = map lowerOverrideTemplate (addlOvrs ++ declare_overrides)
+  let ovs = map Cast.lowerOverrideTemplate (addlOvrs ++ declare_overrides)
   register_llvm_overrides_ llvmctx ovs decls
 
 -- | Register overrides for declared-but-not-defined functions
