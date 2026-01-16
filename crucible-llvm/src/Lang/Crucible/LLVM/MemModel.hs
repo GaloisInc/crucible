@@ -200,7 +200,6 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans (lift)
 import           Control.Monad.Trans.State
-import           Data.Dynamic
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -276,7 +275,7 @@ data MemImpl sym =
   { memImplBlockSource :: BlockSource
   , memImplGlobalMap   :: GlobalMap sym
   , memImplSymbolMap   :: Map Natural L.Symbol -- inverse mapping to 'memImplGlobalMap'
-  , memImplHandleMap   :: Map Natural Dynamic
+  , memImplHandleMap   :: Map Natural SomeFnHandle
   , memImplHeap        :: G.Mem sym
   }
 
@@ -717,16 +716,16 @@ doMallocSize sz bak allocType mut loc mem alignment = do
 --
 -- See also "Lang.Crucible.LLVM.Functions".
 doInstallHandle
-  :: (Typeable a, IsSymBackend sym bak)
+  :: IsSymBackend sym bak
   => bak
   -> LLVMPtr sym wptr
-  -> a {- ^ handle -}
+  -> SomeFnHandle
   -> MemImpl sym
   -> IO (MemImpl sym)
-doInstallHandle _bak ptr x mem =
+doInstallHandle _bak ptr hdl mem =
   case asNat (llvmPointerBlock ptr) of
     Just blkNum ->
-      do let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
+      do let hMap' = Map.insert blkNum hdl (memImplHandleMap mem)
          return mem{ memImplHandleMap = hMap' }
     Nothing ->
       panic "MemModel.doInstallHandle"
@@ -736,11 +735,11 @@ doInstallHandle _bak ptr x mem =
 
 -- | Look up the handle associated with the given pointer, if any.
 doLookupHandle
-  :: (Typeable a, IsSymInterface sym)
+  :: IsSymInterface sym
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr
-  -> IO (Either ME.FuncLookupError a)
+  -> IO (Either ME.FuncLookupError SomeFnHandle)
 doLookupHandle _sym mem ptr = do
   let LLVMPointer blk _ = ptr
   case asNat blk of
@@ -750,10 +749,7 @@ doLookupHandle _sym mem ptr = do
       | otherwise ->
           case Map.lookup i (memImplHandleMap mem) of
             Nothing -> return (Left ME.NoOverride)
-            Just x ->
-              case fromDynamic x of
-                Nothing -> return (Left (ME.Uncallable (dynTypeRep x)))
-                Just a  -> return (Right a)
+            Just hdl -> return (Right hdl)
 
 -- | Free the memory region pointed to by the given pointer.
 --
