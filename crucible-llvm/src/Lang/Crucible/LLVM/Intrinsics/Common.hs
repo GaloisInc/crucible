@@ -23,11 +23,9 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , llvmOverrideDeclare
   , someLlvmOverrideDeclare
   , MakeOverride(..)
-  , lowerMakeOverride
   , llvmSizeT
   , llvmSSizeT
   , OverrideTemplate(..)
-  , lowerOverrideTemplate
   , callStackFromMemVar'
     -- ** register_llvm_override
   , basic_llvm_override
@@ -35,7 +33,6 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , polymorphic1_vec_llvm_override
 
   , llvmOverrideToTypedOverride
-  , lower_llvm_override
   , register_llvm_override
   , register_1arg_polymorphic_override
   , register_1arg_vec_polymorphic_override
@@ -73,7 +70,6 @@ import           Lang.Crucible.LLVM.Eval (callStackFromMemVar)
 import           Lang.Crucible.LLVM.Functions (registerFunPtr, bindLLVMFunc)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemModel.CallStack (CallStack)
-import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
 import qualified Lang.Crucible.LLVM.Intrinsics.Declare as Decl
 import qualified Lang.Crucible.LLVM.Intrinsics.Match as Match
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -135,16 +131,6 @@ newtype MakeOverride p sym ext arch =
         Maybe (SomeLLVMOverride p sym ext)
     }
 
--- | Postcompose 'lower_llvm_override' with a 'MakeOverride'
-lowerMakeOverride ::
-  HasLLVMAnn sym =>
-  MakeOverride p sym ext arch ->
-  MakeOverride p sym ext arch
-lowerMakeOverride (MakeOverride f) =
-  MakeOverride $ \decl nm ctx -> do
-    SomeLLVMOverride ov <- f decl nm ctx
-    Just (SomeLLVMOverride (lower_llvm_override ov))
-
 -- | Checking if an override applies to a given declaration happens in two
 -- \"phases\", corresponding to the fields of this struct.
 data OverrideTemplate p sym ext arch =
@@ -156,18 +142,6 @@ data OverrideTemplate p sym ext arch =
     -- 'MakeOverride' performs additional checks and potentially constructs
     -- a 'SomeLLVMOverride'.
   , overrideTemplateAction :: MakeOverride p sym ext arch
-  }
-
--- | Call 'lower_llvm_override' on the override in a 'OverrideTemplate'
-lowerOverrideTemplate ::
-  HasLLVMAnn sym =>
-  OverrideTemplate p sym ext arch ->
-  OverrideTemplate p sym ext arch
-lowerOverrideTemplate t =
-  OverrideTemplate
-  { overrideTemplateMatcher = overrideTemplateMatcher t
-  , overrideTemplateAction =
-      lowerMakeOverride (overrideTemplateAction t)
   }
 
 callStackFromMemVar' ::
@@ -198,35 +172,6 @@ llvmOverrideToTypedOverride mvar ov =
                 args
         llvmOverride_def ov mvar argEntries
   }
-
--- | Lower an override to use the Crucible-LLVM ABI.
---
--- See "Lang.Crucible.LLVM.Intrinsics.Cast" for more details.
-lower_llvm_override ::
-  forall p sym ext args ret.
-  HasLLVMAnn sym =>
-  LLVMOverride p sym ext args ret ->
-  LLVMOverride p sym ext (Cast.CtxToLLVMType args) (Cast.ToLLVMType ret)
-lower_llvm_override ov =
-  LLVMOverride
-  { llvmOverride_name = llvmOverride_name ov
-  , llvmOverride_args = argTys'
-  , llvmOverride_ret = retTy'
-  , llvmOverride_def =
-    \mvar args ->
-      ovrWithBackend $ \bak -> do
-        args' <- liftIO (Cast.regEntriesFromLLVM fNm argTys argTys' bak args)
-        ret <- llvmOverride_def ov mvar args'
-        liftIO (Cast.regValueToLLVM (backendGetSym bak) retTy ret)
-  }
-  where
-    argTys = llvmOverride_args ov
-    argTys' = Cast.ctxToLLVMType argTys
-    retTy = llvmOverride_ret ov
-    retTy' = Cast.toLLVMType retTy
-
-    L.Symbol nm = llvmOverride_name ov
-    fNm  = functionNameFromText (Text.pack nm)
 
 polymorphic1_llvm_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>

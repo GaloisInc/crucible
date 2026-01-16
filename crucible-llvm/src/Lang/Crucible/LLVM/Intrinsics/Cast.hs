@@ -37,11 +37,18 @@ module Lang.Crucible.LLVM.Intrinsics.Cast
   , regValueFromLLVM
   , regEntriesFromLLVM
   , regMapFromLLVM
+    -- * Lowering overrides
+  , lowerLLVMOverride
+  , lowerMakeOverride
+  , lowerOverrideTemplate
   ) where
 
+import           Control.Monad.IO.Class (liftIO)
 import           Data.Coerce (coerce)
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
+
+import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TraversableFC as TFC
@@ -50,12 +57,14 @@ import qualified What4.FunctionName as WFN
 
 import qualified Lang.Crucible.Backend as CB
 import           Lang.Crucible.Panic (panic)
+import qualified Lang.Crucible.Simulator.OverrideSim as CSO
 import qualified Lang.Crucible.Simulator.RegMap as CRM
 import qualified Lang.Crucible.Simulator.RegValue as CRV
 import qualified Lang.Crucible.Simulator.SimError as CSE
 import qualified Lang.Crucible.Types as CT
 
-import           Lang.Crucible.LLVM.MemModel.Partial (ptrToBv)
+import qualified Lang.Crucible.LLVM.Intrinsics.Common as IC
+import           Lang.Crucible.LLVM.MemModel.Partial (HasLLVMAnn, ptrToBv)
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPointerType)
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as Ptr
 
@@ -324,3 +333,55 @@ regMapFromLLVM ::
 regMapFromLLVM fNm wanteds tys bak =
   coerce (regEntriesFromLLVM fNm wanteds tys bak)
 
+---------------------------------------------------------------------
+-- * Lowering overrides
+
+-- | Lower an override to use the Crucible-LLVM ABI.
+--
+-- See "Lang.Crucible.LLVM.Intrinsics.Cast" for more details.
+lowerLLVMOverride ::
+  forall p sym ext args ret.
+  HasLLVMAnn sym =>
+  IC.LLVMOverride p sym ext args ret ->
+  IC.LLVMOverride p sym ext (CtxToLLVMType args) (ToLLVMType ret)
+lowerLLVMOverride ov =
+  IC.LLVMOverride
+  { IC.llvmOverride_name = IC.llvmOverride_name ov
+  , IC.llvmOverride_args = argTys'
+  , IC.llvmOverride_ret = retTy'
+  , IC.llvmOverride_def =
+    \mvar args ->
+      CSO.ovrWithBackend $ \bak -> do
+        args' <- liftIO (regEntriesFromLLVM fNm argTys argTys' bak args)
+        ret <- IC.llvmOverride_def ov mvar args'
+        liftIO (regValueToLLVM (CB.backendGetSym bak) retTy ret)
+  }
+  where
+    argTys = IC.llvmOverride_args ov
+    argTys' = ctxToLLVMType argTys
+    retTy = IC.llvmOverride_ret ov
+    retTy' = toLLVMType retTy
+
+    L.Symbol nm = IC.llvmOverride_name ov
+    fNm  = WFN.functionNameFromText (Text.pack nm)
+
+-- | Postcompose 'lowerLLVMOverride' with a 'IC.MakeOverride'
+lowerMakeOverride ::
+  HasLLVMAnn sym =>
+  IC.MakeOverride p sym ext arch ->
+  IC.MakeOverride p sym ext arch
+lowerMakeOverride (IC.MakeOverride f) =
+  IC.MakeOverride $ \decl nm ctx -> do
+    IC.SomeLLVMOverride ov <- f decl nm ctx
+    Just (IC.SomeLLVMOverride (lowerLLVMOverride ov))
+
+-- | Call 'lowerLLVMOverride' on the override in a 'OverrideTemplate'
+lowerOverrideTemplate ::
+  HasLLVMAnn sym =>
+  IC.OverrideTemplate p sym ext arch ->
+  IC.OverrideTemplate p sym ext arch
+lowerOverrideTemplate t =
+  IC.OverrideTemplate
+  { IC.overrideTemplateMatcher = IC.overrideTemplateMatcher t
+  , IC.overrideTemplateAction = lowerMakeOverride (IC.overrideTemplateAction t)
+  }
