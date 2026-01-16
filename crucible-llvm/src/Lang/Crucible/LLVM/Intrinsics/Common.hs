@@ -307,14 +307,9 @@ isMatchingDeclaration requested provided =
     Ctx.Assignment TypeRepr ctx1 ->
     Ctx.Assignment TypeRepr ctx2 ->
     Bool
-  -- Ignore varargs as long as the rest of the arguments match
   matchingArgList (rest Ctx.:> VectorRepr AnyRepr) ys = matchingArgList rest ys
   matchingArgList xs (rest Ctx.:> VectorRepr AnyRepr) = matchingArgList xs rest
-  matchingArgList Ctx.Empty Ctx.Empty = True
-  matchingArgList Ctx.Empty _ = False
-  matchingArgList _ Ctx.Empty = False
-  matchingArgList (xs Ctx.:> x) (ys Ctx.:> y) =
-    Maybe.isJust (testEquality x y) && matchingArgList xs ys
+  matchingArgList xs ys = Maybe.isJust (testEquality xs ys)
 
 register_llvm_override ::
   forall p args ret args' ret' sym ext arch wptr rtp l a.
