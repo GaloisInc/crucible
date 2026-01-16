@@ -337,8 +337,6 @@ regMapFromLLVM fNm wanteds tys bak =
 -- * Lowering overrides
 
 -- | Lower an override to use the Crucible-LLVM ABI.
---
--- See "Lang.Crucible.LLVM.Intrinsics.Cast" for more details.
 lowerLLVMOverride ::
   forall p sym ext args ret.
   HasLLVMAnn sym =>
