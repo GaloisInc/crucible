@@ -34,6 +34,8 @@
 * Remove the `Eq LLVMConst` instance. This instance was inherently unreliable
   because it cannot easily compute a simple `True`-or-`False` answer in the
   presence of `undef` or `poison` values.
+* Replace `Data.Dynamic.Dynamic` with `SomeFnHandle` in
+  `MemModel.{doInstallHandle,doLookupHandle}`.
 
 # 0.8.0 -- 2025-11-09
 
