@@ -943,6 +943,11 @@ evalCast' ck ty1 e ty2  = do
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
+      (M.Misc, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
+        | Just adt1 <- findAdt' col an1
+        , Just fieldTy1 <- reprTransparentFieldTy col adt1
+        -> evalCast' M.Misc (M.TyRawPtr fieldTy1 m1) e ty2
+
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
       -- and destination types have the same Crucible representation.  This is
       -- similar to calling `transmute`.
