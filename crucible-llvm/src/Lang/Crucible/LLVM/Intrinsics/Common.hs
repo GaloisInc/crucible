@@ -307,6 +307,8 @@ isMatchingDeclaration requested provided =
     Ctx.Assignment TypeRepr ctx1 ->
     Ctx.Assignment TypeRepr ctx2 ->
     Bool
+  -- Ignore varargs as long as the rest of the arguments match (VectorRepr
+  -- AnyRepr is how Crucible-LLVM represents varargs).
   matchingArgList (rest Ctx.:> VectorRepr AnyRepr) ys = matchingArgList rest ys
   matchingArgList xs (rest Ctx.:> VectorRepr AnyRepr) = matchingArgList xs rest
   matchingArgList xs ys = Maybe.isJust (testEquality xs ys)
