@@ -23,6 +23,7 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , loadProvablyNullTerminatedString
   -- * String length
   , Mem.strLen
+  , strnlen
   , strlenConcreteString
   , strlenConcretelyNullTerminatedString
   , strlenProvablyNullTerminatedString
@@ -46,7 +47,7 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , loadBytes
   ) where
 
-import           Data.Bifunctor (Bifunctor(bimap, first))
+import           Data.Bifunctor (Bifunctor(bimap))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.State.Strict as State
 import qualified Data.BitVector.Sized as BV
@@ -162,6 +163,32 @@ loadProvablyNullTerminatedString bak mem ptr limit =
 
 ---------------------------------------------------------------------
 -- * String length
+
+-- | Implementation of libc @strnlen@.
+strnlen ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Pointer to null-terminated string
+  Mem.LLVMPtr sym wptr ->
+  -- | Size
+  --
+  -- If this is not concrete, this will generate an assertion failure.
+  WI.SymBV sym wptr ->
+  IO (WI.SymBV sym wptr)
+strnlen bak mem ptr bound = do
+  case BV.asUnsigned <$> WI.asBV bound of
+    Nothing ->
+      let err = LCS.AssertFailureSimError "`strnlen` called with symbolic max length" "" in
+      LCB.addFailedAssertion bak err
+    Just b ->
+      let bound' = Just (fromIntegral b) in
+      strlenConcretelyNullTerminatedString bak mem ptr bound'
  
 -- | @strlen@ of a concrete string.
 --
@@ -186,6 +213,7 @@ strlenConcreteString bak mem ptr limit = do
   let loader = llvmByteLoader mem
   case limit of
     Nothing -> loadBytes bak mem 0 ptr loader fullyConcreteNullTerminatedStringLength
+    Just 0 -> pure 0
     Just l -> do
       let byteChecker = withMaxChars l pure fullyConcreteNullTerminatedStringLength
       loadBytes bak mem (0, 0) ptr loader byteChecker
@@ -219,6 +247,7 @@ strlenConcretelyNullTerminatedString bak mem ptr limit = do
   flip State.evalStateT (WI.truePred sym) $
     case limit of
       Nothing -> loadBytes bak mem z ptr loader concretelyNullTerminatedStringLength
+      Just 0 -> liftIO (WI.bvZero (LCB.backendGetSym bak) ?ptrWidth)
       Just l -> do
         let byteChecker = withMaxChars l pure concretelyNullTerminatedStringLength
         loadBytes bak mem (z, 0) ptr loader byteChecker
@@ -253,6 +282,7 @@ strlenProvablyNullTerminatedString bak mem ptr limit = do
   flip State.evalStateT (WI.truePred sym) $
     case limit of
       Nothing -> loadBytes bak mem z ptr loader provablyNullTerminatedStringLength
+      Just 0 -> liftIO (WI.bvZero (LCB.backendGetSym bak) ?ptrWidth)
       Just l -> do
         let byteChecker = withMaxChars l pure provablyNullTerminatedStringLength
         loadBytes bak mem (z, 0) ptr loader byteChecker
@@ -306,6 +336,7 @@ ptrToBv8 bak bytePtr = do
 
 -- | 'ByteChecker' for adding a maximum character length.
 withMaxChars ::
+  MonadIO m =>
   GHC.HasCallStack =>
   LCB.IsSymBackend sym bak =>
   Functor m =>
@@ -317,9 +348,13 @@ withMaxChars ::
   ByteChecker m sym bak (a, Int) b
 withMaxChars limit done checker =
   ByteChecker $ \bak (acc, i) bytePtr ->
-    if i > limit
-    then Break <$> done acc
-    else first (, i + 1) <$> runByteChecker checker bak acc bytePtr
+    runByteChecker checker bak acc bytePtr >>=
+      \case
+        Break r -> pure (Break r)
+        Continue r ->
+          if i + 1 >= limit
+          then Break <$> done r
+          else pure (Continue (r, i + 1))
 
 ---------------------------------------------------------------------
 -- *** For loading strings
