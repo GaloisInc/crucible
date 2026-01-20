@@ -222,21 +222,21 @@ regValueToLLVM sym ty val =
 -- | Map 'regValueFromLLVM' over an 'Ctx.Assignment'.
 regValuesFromLLVM ::
   CB.IsSymBackend sym bak =>
+  bak ->
   -- | Only used in error messages
   WFN.FunctionName ->
   Ctx.Assignment CT.TypeRepr tys ->
   Ctx.Assignment CT.TypeRepr (CtxToLLVMType tys) ->
-  bak ->
   Ctx.Assignment (CRV.RegValue' sym) (CtxToLLVMType tys) ->
   IO (Ctx.Assignment (CRV.RegValue' sym) tys)
-regValuesFromLLVM fNm wanteds tys bak vals =
+regValuesFromLLVM bak fNm wanteds tys vals =
   case (wanteds, tys) of
     (Ctx.Empty, Ctx.Empty) -> pure vals
     (restWanted Ctx.:> w, restTys Ctx.:> t) -> do
       case vals of
         rest Ctx.:> CRV.RV val -> do
-          rest' <- regValuesFromLLVM fNm restWanted restTys bak rest
-          val' <- regValueFromLLVM fNm w t bak val
+          rest' <- regValuesFromLLVM bak fNm restWanted restTys rest
+          val' <- regValueFromLLVM bak fNm w t val
           pure (rest' Ctx.:> CRV.RV val')
 
 -- | Convert a 'CRV.RegValue' from its corresponding LLVM type (replacing LLVM
@@ -244,14 +244,14 @@ regValuesFromLLVM fNm wanteds tys bak vals =
 regValueFromLLVM ::
   forall sym bak ty.
   CB.IsSymBackend sym bak =>
+  bak ->
   -- | Only used in error messages
   WFN.FunctionName ->
   CT.TypeRepr ty ->
   CT.TypeRepr (ToLLVMType ty) ->
-  bak ->
   CRV.RegValue sym (ToLLVMType ty) ->
   IO (CRV.RegValue sym ty)
-regValueFromLLVM fNm wanted ty bak val = do
+regValueFromLLVM bak fNm wanted ty val = do
   case (wanted, ty) of
     (CT.BVRepr w, Ptr.LLVMPointerRepr w')
       | Just Refl <- testEquality w w' -> do
@@ -271,10 +271,10 @@ regValueFromLLVM fNm wanted ty bak val = do
     -- recursive cases
 
     (CT.VectorRepr wantedElemTy, CT.VectorRepr elemTy) ->
-      traverse (regValueFromLLVM fNm wantedElemTy elemTy bak) val
+      traverse (regValueFromLLVM bak fNm wantedElemTy elemTy) val
 
     (CT.StructRepr wantedFieldTys, CT.StructRepr fieldTys) ->
-      regValuesFromLLVM fNm wantedFieldTys fieldTys bak val
+      regValuesFromLLVM bak fNm wantedFieldTys fieldTys val
 
     -- no-ops
 
@@ -307,15 +307,15 @@ regValueFromLLVM fNm wanted ty bak val = do
 -- | Map 'regValueFromLLVM' over an 'Ctx.Assignment' of 'CRM.RegEntry's.
 regEntriesFromLLVM ::
   CB.IsSymBackend sym bak =>
+  bak ->
   -- | Only used in error messages
   WFN.FunctionName ->
   Ctx.Assignment CT.TypeRepr tys ->
   Ctx.Assignment CT.TypeRepr (CtxToLLVMType tys) ->
-  bak ->
   Ctx.Assignment (CRM.RegEntry sym) (CtxToLLVMType tys) ->
   IO (Ctx.Assignment (CRM.RegEntry sym) tys)
-regEntriesFromLLVM fNm wanteds tys bak vals = do
-  let cast = regValuesFromLLVM fNm wanteds tys bak
+regEntriesFromLLVM bak fNm wanteds tys vals = do
+  let cast = regValuesFromLLVM bak fNm wanteds tys
   Ctx.zipWith (\ty (CRV.RV v) -> CRM.RegEntry ty v) wanteds
     <$> cast (TFC.fmapFC (\(CRM.RegEntry _ty v) -> CRM.RV v) vals)
 
@@ -323,15 +323,15 @@ regEntriesFromLLVM fNm wanteds tys bak vals = do
 regMapFromLLVM ::
   forall sym bak tys.
   CB.IsSymBackend sym bak =>
+  bak ->
   -- | Only used in error messages
   WFN.FunctionName ->
   Ctx.Assignment CT.TypeRepr tys ->
   Ctx.Assignment CT.TypeRepr (CtxToLLVMType tys) ->
-  bak ->
   CRM.RegMap sym (CtxToLLVMType tys) ->
   IO (CRM.RegMap sym tys)
-regMapFromLLVM fNm wanteds tys bak =
-  coerce (regEntriesFromLLVM fNm wanteds tys bak)
+regMapFromLLVM bak fNm wanteds tys =
+  coerce (regEntriesFromLLVM bak fNm wanteds tys)
 
 ---------------------------------------------------------------------
 -- * Lowering overrides
@@ -350,7 +350,7 @@ lowerLLVMOverride ov =
   , IC.llvmOverride_def =
     \mvar args ->
       CSO.ovrWithBackend $ \bak -> do
-        args' <- liftIO (regEntriesFromLLVM fNm argTys argTys' bak args)
+        args' <- liftIO (regEntriesFromLLVM bak fNm argTys argTys' args)
         ret <- IC.llvmOverride_def ov mvar args'
         liftIO (regValueToLLVM (CB.backendGetSym bak) retTy ret)
   }
