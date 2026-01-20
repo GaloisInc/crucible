@@ -8,6 +8,8 @@ This release supports [version
 * Add an intrinsic for [`align_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.align_of_val.html),
   which computes the alignment of a value in bytes. This works for all sized types
   as well as a limited number of unsized types (currently, only slices).
+* Extend the override for the `atomic_xchg` intrinsic to support storing
+  pointer values in addition to integer values.
 
 # 0.6 -- 2026-01-29
 
