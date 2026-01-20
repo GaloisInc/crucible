@@ -36,6 +36,10 @@
   presence of `undef` or `poison` values.
 * Replace `Data.Dynamic.Dynamic` with `SomeFnHandle` in
   `MemModel.{doInstallHandle,doLookupHandle}`.
+* Add pretty-printing functions for use with `Lang.Crucible.Types.ppTypeRepr`
+  * `Lang.Crucible.LLVM.MemModel.ppLLVMIntrinsicTypes`
+  * `Lang.Crucible.LLVM.MemModel.ppLLVMMemIntrinsicType`
+  * `Lang.Crucible.LLVM.MemModel.Pointer.ppLLVMPointerIntrinsicType`
 
 # 0.8.0 -- 2025-11-09
 
