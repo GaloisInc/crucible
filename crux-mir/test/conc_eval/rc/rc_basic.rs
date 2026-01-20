@@ -1,4 +1,3 @@
-// FAIL: `Rc` uses `mem::align_of_val`
 use std::rc::Rc;
 
 #[cfg_attr(crux, crux::test)]
