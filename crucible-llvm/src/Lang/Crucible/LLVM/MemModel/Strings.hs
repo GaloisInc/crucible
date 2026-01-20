@@ -27,6 +27,10 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , strlenConcreteString
   , strlenConcretelyNullTerminatedString
   , strlenProvablyNullTerminatedString
+  -- * String copying
+  , copyConcreteString
+  , copyConcretelyNullTerminatedString
+  , copyProvablyNullTerminatedString
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
@@ -286,6 +290,83 @@ strlenProvablyNullTerminatedString bak mem ptr limit = do
       Just l -> do
         let byteChecker = withMaxChars l pure provablyNullTerminatedStringLength
         loadBytes bak mem (z, 0) ptr loader byteChecker
+
+---------------------------------------------------------------------
+-- * String copying
+
+-- | @strcpy@ of a concrete string.
+--
+-- Uses 'Mem.loadString' to load the string, see that function for details.
+copyConcreteString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Destination pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  IO (Mem.MemImpl sym)
+copyConcreteString bak mem dst src = do
+  bytes <- Mem.loadString bak mem src Nothing
+  let sym = LCB.backendGetSym bak
+  symBytes <- mapM (WI.bvLit sym WI.knownRepr . BV.word8) bytes
+  storeString bak mem dst (Vec.fromList symBytes)
+
+-- | @strcpy@ of a concretely null-terminated string.
+--
+-- Uses 'loadConcretelyNullTerminatedString' to load the string, see that
+-- function for details.
+copyConcretelyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Destination pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO (Mem.MemImpl sym)
+copyConcretelyNullTerminatedString bak mem dst src bounds = do
+  bytes <- loadConcretelyNullTerminatedString bak mem src bounds
+  storeString bak mem dst (Vec.fromList bytes)
+
+-- | @strcpy@ of a concrete string.
+--
+-- Uses 'loadProvablyNullTerminatedString' to load the string, see that
+-- function for details.
+copyProvablyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , sym ~ WEB.ExprBuilder scope st fs
+  , bak ~ LCBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Destination pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  IO (Mem.MemImpl sym)
+copyProvablyNullTerminatedString bak mem dst src bounds = do
+  bytes <- loadProvablyNullTerminatedString bak mem src bounds
+  storeString bak mem dst (Vec.fromList bytes)
 
 ---------------------------------------------------------------------
 -- * Low-level string loading primitives
