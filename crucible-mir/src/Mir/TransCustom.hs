@@ -121,6 +121,7 @@ customOpDefs = Map.fromList $ [
                          , size_of
                          , size_of_val
                          , min_align_of
+                         , align_of_val
                          , intrinsics_assume
                          , assert_inhabited
                          , unlikely
@@ -1253,6 +1254,64 @@ min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs o
         getLayoutFieldAsMirExp "min_align_of" layAlign t
     _ -> Nothing
     )
+
+align_of_val :: (ExplodedDefId, CustomRHS)
+align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        -- We first check whether the underlying type is sized or not.
+        ([TyRawPtr ty _], [MirExp tpr _]) -> case tpr of
+            -- Slices (e.g., `&[u8]`, `&str`, and custom DSTs whose last field
+            -- contains a slice) are unsized. We currently support computing
+            -- the alignment of slice values that aren't embedded in a custom
+            -- DST. TODO(#1614): Lift this restriction.
+            --
+            -- The alignment of a slice value is equal to the to the type's
+            -- alignment. Note that slice element types are always sized, so we
+            -- do not need to call align_of_val recursively here.
+            MirSliceRepr -> case ty of
+                TySlice elemTy ->
+                    getLayoutFieldAsMirExp "align_of_val" layAlign elemTy
+                TyStr {} ->
+                    getLayoutFieldAsMirExp "align_of_val" layAlign (TyUint B8)
+                TyAdt {} -> unsupportedCustomDst ty
+                _ -> panic "align_of_val"
+                       ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
+
+            -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
+            -- field contains a trait object) are unsized. This override
+            -- currently does not support any kind of trait object, so all we
+            -- do here is make an effort to give a descriptive error message.
+            -- TODO(#1614): Support trait objects and custom DSTs here.
+            DynRefRepr -> case ty of
+                TyDynamic {} -> unsupportedTraitObject ty
+                TyAdt {} -> unsupportedCustomDst ty
+                _ -> panic "align_of_val"
+                       ["Unexpected DynRefRepr type", show (PP.pretty ty)]
+
+            -- All other cases should correspond to sized types. For these
+            -- cases, computing the value's alignment is equivalent to
+            -- computing the type's alignment.
+            MirReferenceRepr ->
+                getLayoutFieldAsMirExp "align_of_val" layAlign ty
+            _ -> panic "align_of_val"
+                   ["Unexpected TypeRepr for *const", show tpr]
+        _ -> mirFail $ "bad arguments to align_of_val: " ++ show ops
+    _ -> Nothing
+    )
+  where
+    unsupportedTraitObject :: Ty -> MirGenerator h s ret a
+    unsupportedTraitObject ty =
+        mirFail $ unlines
+            [ "align_of_val does not currently support trait objects"
+            , "In the type " ++ show (PP.pretty ty)
+            ]
+
+    unsupportedCustomDst :: Ty -> MirGenerator h s ret a
+    unsupportedCustomDst ty =
+        mirFail $ unlines
+            [ "align_of_val does not currently support custom DSTs"
+            , "In the type " ++ show (PP.pretty ty)
+            ]
 
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
 -- has a nasty unsafe implementation, with lots of raw pointers and

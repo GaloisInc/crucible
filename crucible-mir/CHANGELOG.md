@@ -57,6 +57,9 @@ This release supports [version
   values to instead return `MirAggregate` values explicitly. The
   `mirAggregate_zst`, `mirAggregate_zstIO`, and `mirAggregate_zstSim` functions
   have been introduced to make this process easier.
+* Add an intrinsic for [`align_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.align_of_val.html),
+  which computes the alignment of a value in bytes. This works for all sized types
+  as well as a limited number of unsized types (currently, only slices).
 
 # 0.5 -- 2025-11-09
 
