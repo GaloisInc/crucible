@@ -33,6 +33,7 @@ import Language.Haskell.TH.Quote
 import qualified Data.Parameterized.Context as Ctx
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Intrinsics.Common as IC
+import qualified Lang.Crucible.LLVM.Intrinsics.Declare as Decl
 import           Lang.Crucible.LLVM.Types
 
 -- | This type closely mirrors the type syntax from llvm-pretty,
@@ -307,7 +308,7 @@ liftArgs = go [| Ctx.Empty |]
 
 liftQQDeclToOverride :: QQDeclare -> Q Exp
 liftQQDeclToOverride (QQDeclare ret nm args varargs) =
-  [| IC.LLVMOverride $(liftName nm) $(liftArgs args varargs) $(liftTypeRepr ret) |]
+  [| IC.LLVMOverride (Decl.Declare $(liftName nm) $(liftArgs args varargs) $(liftTypeRepr ret)) |]
 
 -- | This quasiquoter parses values in LLVM type syntax, extended
 --   with metavariables, and builds values of @Text.LLVM.AST.Type@.

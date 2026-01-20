@@ -57,6 +57,10 @@
   * Replace `build_llvm_override` with
     `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride`.
   * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
+  * Replace various fields of `LLVMOverride` with a `Declare`. To migrate:
+    * Replace `llvmOverride_name` with `llvmOvSymbol`
+    * Replace `llvmOverride_args` with `llvmOvArgs`
+    * Replace `llvmOverride_ret` with `llvmOvRet`
 
 # 0.8.0 -- 2025-11-09
 
