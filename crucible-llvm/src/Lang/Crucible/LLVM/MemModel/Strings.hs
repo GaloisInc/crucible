@@ -51,6 +51,7 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , loadBytes
   ) where
 
+import           Control.Lens ((^.), to)
 import           Data.Bifunctor (Bifunctor(bimap))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.State.Strict as State
@@ -64,6 +65,7 @@ import qualified Lang.Crucible.Backend as LCB
 import qualified Lang.Crucible.Backend.Online as LCBO
 import qualified Lang.Crucible.Simulator as LCS
 import qualified Lang.Crucible.LLVM.DataLayout as CLD
+import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemErr
 import qualified Lang.Crucible.LLVM.MemModel as LCLM
 import qualified Lang.Crucible.LLVM.MemModel as Mem
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
@@ -294,9 +296,37 @@ strlenProvablyNullTerminatedString bak mem ptr limit = do
 ---------------------------------------------------------------------
 -- * String copying
 
+-- | Helper, not exported
+strcpyAssertDisjoint ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Loaded bytes
+  Vec.Vector (WI.SymBV sym 8) ->
+  -- | Destination pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  IO ()
+strcpyAssertDisjoint bak mem bytes dst src = do
+  let sym = LCB.backendGetSym bak
+  let len = fromIntegral (Vec.length bytes)
+  sz <- WI.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth len)
+  let heap = mem ^. to Mem.memImplHeap
+  let memOp =
+        MemErr.MemCopyOp (Just "strcpy dst", dst) (Just "strcpy src", src) sz heap
+  Mem.assertDisjointRegions bak memOp ?ptrWidth dst sz src sz
+
 -- | @strcpy@ of a concrete string.
 --
 -- Uses 'Mem.loadString' to load the string, see that function for details.
+--
+-- Asserts that the regions are disjoint.
 copyConcreteString ::
   ( LCB.IsSymBackend sym bak
   , Mem.HasPtrWidth wptr
@@ -315,6 +345,8 @@ copyConcreteString bak mem dst src = do
   bytes <- Mem.loadString bak mem src Nothing
   let sym = LCB.backendGetSym bak
   symBytes <- mapM (WI.bvLit sym WI.knownRepr . BV.word8) bytes
+  let bytesVec = Vec.fromList symBytes
+  strcpyAssertDisjoint bak mem bytesVec dst src
   storeString bak mem dst (Vec.fromList symBytes)
 
 -- | @strcpy@ of a concretely null-terminated string.
@@ -339,7 +371,9 @@ copyConcretelyNullTerminatedString ::
   IO (Mem.MemImpl sym)
 copyConcretelyNullTerminatedString bak mem dst src bounds = do
   bytes <- loadConcretelyNullTerminatedString bak mem src bounds
-  storeString bak mem dst (Vec.fromList bytes)
+  let bytesVec = Vec.fromList bytes
+  strcpyAssertDisjoint bak mem bytesVec dst src
+  storeString bak mem dst bytesVec
 
 -- | @strcpy@ of a concrete string.
 --
@@ -366,7 +400,9 @@ copyProvablyNullTerminatedString ::
   IO (Mem.MemImpl sym)
 copyProvablyNullTerminatedString bak mem dst src bounds = do
   bytes <- loadProvablyNullTerminatedString bak mem src bounds
-  storeString bak mem dst (Vec.fromList bytes)
+  let bytesVec = Vec.fromList bytes
+  strcpyAssertDisjoint bak mem bytesVec dst src
+  storeString bak mem dst bytesVec
 
 ---------------------------------------------------------------------
 -- * Low-level string loading primitives

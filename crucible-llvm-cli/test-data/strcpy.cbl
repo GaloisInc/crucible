@@ -35,4 +35,9 @@
     (assert! (equal? d1-0-off (bv 8 97)) "dst[0] == 'a' after strcpy")
     (assert! (equal? d1-1-off (bv 8 0)) "dst[1] == 0 after strcpy")
 
+    ;; src -> "a"
+    ;; dst = src
+    ;; (undefined behavior)
+    (funcall @strcpy src1 src1)
+
     (return ())))
