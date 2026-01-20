@@ -48,8 +48,8 @@ import           What4.Interface (bvLit, natLit)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
-import           Lang.Crucible.Simulator.OverrideSim (getSymInterface)
-import           Lang.Crucible.Simulator.RegMap (RegValue, regValue)
+import           Lang.Crucible.Simulator.OverrideSim (OverrideSim, getSymInterface)
+import           Lang.Crucible.Simulator.RegMap (RegEntry, RegValue, regValue)
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Types (TypeRepr(UnitRepr))
 
@@ -131,6 +131,19 @@ mkOverride substrings ov filt =
 ------------------------------------------------------------------------
 -- *** No-op override builders
 
+someOv ::
+  L.Symbol ->
+  Ctx.Assignment TypeRepr args ->
+  TypeRepr ret ->
+  (IsSymInterface sym =>
+    GlobalVar Mem ->
+    Ctx.Assignment (RegEntry sym) args ->
+    forall rtp args' ret'.
+    OverrideSim p sym ext rtp args' ret' (RegValue sym ret)) ->
+  SomeLLVMOverride p sym ext
+someOv nm argTys retTy def =
+  SomeLLVMOverride (LLVMOverride (Decl.Declare nm argTys retTy) def)
+
 -- | Make an override for a function which doesn't return anything.
 voidOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              => [String]
@@ -146,7 +159,7 @@ voidOverride substrings =
           })) ->
       Just $
         case retTy of
-          UnitRepr -> SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \_mem _args -> pure ()
+          UnitRepr -> someOv nm argTys retTy $ \_mem _args -> pure ()
           _ -> panic_ "voidOverride" sd
 
 -- | Make an override for a function of (LLVM) type @a -> a@, for any @a@.
@@ -168,7 +181,7 @@ identityOverride substrings =
         case argTys of
           (Ctx.Empty Ctx.:> argTy)
             | Just Refl <- testEquality argTy retTy ->
-                SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \_mem args ->
+                someOv nm argTys retTy $ \_mem args ->
                   -- Just return the input
                   pure (Ctx.uncurryAssignment regValue args)
 
@@ -193,7 +206,7 @@ constOverride substrings =
         case argTys of
           (Ctx.Empty Ctx.:> fstTy Ctx.:> _)
             | Just Refl <- testEquality fstTy retTy ->
-            SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \_mem args ->
+            someOv nm argTys retTy $ \_mem args ->
               pure (Ctx.uncurryAssignment (const . regValue) args)
 
           _ -> panic_ "constOverride" sd
@@ -216,7 +229,7 @@ fixedOverride ty regval substrings =
       Just $
         case testEquality retTy ty of
           Just Refl ->
-            SomeLLVMOverride $ LLVMOverride nm argTys retTy $ \mem _args -> do
+            someOv nm argTys retTy $ \mem _args -> do
               sym <- getSymInterface
               liftIO (regval mem sym)
 

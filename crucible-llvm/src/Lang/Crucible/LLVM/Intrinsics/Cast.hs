@@ -48,8 +48,6 @@ import           Data.Coerce (coerce)
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
-import qualified Text.LLVM.AST as L
-
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TraversableFC as TFC
 
@@ -64,6 +62,7 @@ import qualified Lang.Crucible.Simulator.SimError as CSE
 import qualified Lang.Crucible.Types as CT
 
 import qualified Lang.Crucible.LLVM.Intrinsics.Common as IC
+import qualified Lang.Crucible.LLVM.Intrinsics.Declare as Decl
 import           Lang.Crucible.LLVM.MemModel.Partial (HasLLVMAnn, ptrToBv)
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPointerType)
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as Ptr
@@ -344,24 +343,25 @@ lowerLLVMOverride ::
   IC.LLVMOverride p sym ext (CtxToLLVMType args) (ToLLVMType ret)
 lowerLLVMOverride ov =
   IC.LLVMOverride
-  { IC.llvmOverride_name = IC.llvmOverride_name ov
-  , IC.llvmOverride_args = argTys'
-  , IC.llvmOverride_ret = retTy'
-  , IC.llvmOverride_def =
+  { IC.llvmOvDecl =
+      Decl.Declare
+      { Decl.decName = IC.llvmOvSymbol ov 
+      , Decl.decArgs = argTys'
+      , Decl.decRet = retTy'
+      }
+  , IC.llvmOvDefn =
     \mvar args ->
       CSO.ovrWithBackend $ \bak -> do
+        let fNm = IC.llvmOvName ov
         args' <- liftIO (regEntriesFromLLVM bak fNm argTys argTys' args)
-        ret <- IC.llvmOverride_def ov mvar args'
+        ret <- IC.llvmOvDefn ov mvar args'
         liftIO (regValueToLLVM (CB.backendGetSym bak) retTy ret)
   }
   where
-    argTys = IC.llvmOverride_args ov
+    argTys = IC.llvmOvArgs ov
     argTys' = ctxToLLVMType argTys
-    retTy = IC.llvmOverride_ret ov
+    retTy = IC.llvmOvRet ov
     retTy' = toLLVMType retTy
-
-    L.Symbol nm = IC.llvmOverride_name ov
-    fNm  = WFN.functionNameFromText (Text.pack nm)
 
 -- | Postcompose 'lowerLLVMOverride' with a 'IC.MakeOverride'
 lowerMakeOverride ::

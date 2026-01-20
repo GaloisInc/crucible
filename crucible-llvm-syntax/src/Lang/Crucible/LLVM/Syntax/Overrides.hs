@@ -64,15 +64,15 @@ registerLLVMOverrides bak llvmCtx fwdDecs = do
 
   -- Forward all of the `declare`d handles to the actual override
   F.forM_ ovs $ \(CLLVM.SomeLLVMOverride llOv) -> do
-    let symb@(L.Symbol nm) = CLLVM.llvmOverride_name llOv
+    let symb@(L.Symbol nm) = CLLVM.llvmOvSymbol llOv
     let fnm = WFN.functionNameFromText (Text.pack nm)
     case Map.lookup fnm fwdDecs of
       Nothing -> pure ()
       Just (C.SomeHandle hdl) -> do
         let hdlArgs = C.handleArgTypes hdl
         let hdlRet = C.handleReturnType hdl
-        let llArgs = CLLVM.llvmOverride_args llOv
-        let llRet = CLLVM.llvmOverride_ret llOv
+        let llArgs = CLLVM.llvmOvArgs llOv
+        let llRet = CLLVM.llvmOvRet llOv
         case (C.testEquality llArgs hdlArgs, C.testEquality llRet hdlRet) of
           (Just C.Refl, Just C.Refl) -> do
             let typedOv = CLLVM.llvmOverrideToTypedOverride mvar llOv
