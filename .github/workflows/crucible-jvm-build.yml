@@ -49,7 +49,7 @@ jobs:
         cp "cabal.GHC-${{ matrix.ghc }}.config" cabal.project.freeze
       pre-test-hook: |
         env \
-          SOLVER_PKG_VERSION="snapshot-20251112" \
+          SOLVER_PKG_VERSION="snapshot-20260119" \
           BUILD_TARGET_OS="${{ matrix.os }}" \
           BUILD_TARGET_ARCH="${RUNNER_ARCH}" \
           "${GITHUB_WORKSPACE}/.github/ci.sh" \

@@ -132,7 +132,7 @@ jobs:
 
       - run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20251112"
+          SOLVER_PKG_VERSION: "snapshot-20260119"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 
