@@ -3,12 +3,12 @@
 ==== Finish Simulation ====
 ==== Proof obligations ====
 Assuming:
-* The branch in main at test-data/strnlen.cbl:34:14
-    not (eq 0x0:[8] cf@32:bv)
-* in main test-data/strnlen.cbl:45:5: g != 0
-    not (eq 0x0:[8] cg@77:bv)
+* The branch in main at test-data/strnlen.cbl:33:14
+    not (eq 0x0:[8] cf@26:bv)
+* in main test-data/strnlen.cbl:39:5: g != 0
+    not (eq 0x0:[8] cg@63:bv)
 Prove:
-  test-data/strnlen.cbl:51:5: error: in main
+  test-data/strnlen.cbl:46:5: error: in main
   strnlen(..., 3) when first 3 bytes non-null is 3
-  not (eq 0x0:[8] cg@77:bv)
+  not (eq 0x0:[8] cg@63:bv)
 PROVED

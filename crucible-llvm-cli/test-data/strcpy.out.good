@@ -4,7 +4,7 @@
 ==== Proof obligations ====
 
 Prove:
-  test-data/strcpy.cbl:41:5: error: in main
+  test-data/strcpy.cbl:34:5: error: in main
   Memory regions not disjoint
-  annotation Nonce {indexValue = 76} false
+  annotation Nonce {indexValue = 66} false
 COUNTEREXAMPLE

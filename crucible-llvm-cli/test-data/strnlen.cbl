@@ -1,4 +1,6 @@
 (declare @strnlen ((s (Ptr 64)) (l (Bitvector 64))) (Bitvector 64))
+(declare @read-c-string ((x Pointer)) (String Unicode))
+(declare @write-c-string ((dst Pointer) (src (String Unicode))) Unit)
 
 (defun @main () Unit
   (start start:
@@ -12,10 +14,7 @@
     (assert! (equal? l0b (bv 64 0)) "strnlen('', 10) = 0")
 
     (let q0 (alloca none (bv 64 2)))
-    (let a (ptr 8 0 (bv 8 97))) ; 'a'
-    (store none i8 q0 a)
-    (let q1 (ptr-add-offset q0 (bv 64 1)))
-    (store none i8 q1 z)
+    (funcall @write-c-string q0 "a")
     (let l1 (funcall @strnlen q0 (bv 64 1)))
     (assert! (equal? l1 (bv 64 1)) "strnlen('a', 1) = 1")
     (let l1b (funcall @strnlen q0 (bv 64 2)))
@@ -35,15 +34,11 @@
     (assert! (<= l2b (bv 64 1)) "strnlen(..., 2) of (<=1)-length string is <=1")
 
     (let s0 (alloca none (bv 64 3)))
-    (let x1 (ptr 8 0 (bv 8 65))) ; 'A'
-    (let x2 (ptr 8 0 (bv 8 66))) ; 'B'
-    (store none i8 s0 x1)
-    (let s1 (ptr-add-offset s0 (bv 64 1)))
-    (store none i8 s1 x2)
-    (let s2 (ptr-add-offset s0 (bv 64 2)))
+    (funcall @write-c-string s0 "ab")
     (let g (fresh (Bitvector 8)))
     (assume! (not (equal? g (bv 8 0))) "g != 0")
     (let gptr (ptr 8 0 g))
+    (let s2 (ptr-add-offset s0 (bv 64 2)))
     (store none i8 s2 gptr)
     (let l3 (funcall @strnlen s0 (bv 64 2)))
     (assert! (equal? l3 (bv 64 2)) "strnlen(..., 2) when first 2 bytes non-null is 2")

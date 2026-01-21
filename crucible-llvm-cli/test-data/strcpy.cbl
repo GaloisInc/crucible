@@ -1,4 +1,6 @@
 (declare @strcpy ((dst (Ptr 64)) (src (Ptr 64))) (Ptr 64))
+(declare @read-c-string ((x Pointer)) (String Unicode))
+(declare @write-c-string ((dst Pointer) (src (String Unicode))) Unit)
 
 (defun @main () Unit
   (start start:
@@ -19,21 +21,12 @@
     ;; src -> "a"
     ;; dst -> "b"
     (let src1 (alloca none (bv 64 2)))
-    (store none i8 src1 a)
-    (let src1-1 (ptr-add-offset src1 (bv 64 1)))
-    (store none i8 src1-1 z)
+    (funcall @write-c-string src1 "a")
     (let dst1 (alloca none (bv 64 2)))
-    (let b (ptr 8 0 (bv 8 98))) ; 'b'
-    (store none i8 dst1 b)
-    (let dst1-1 (ptr-add-offset dst1 (bv 64 1)))
-    (store none i8 dst1-1 b)
+    (funcall @write-c-string dst1 "b")
     (let r1 (funcall @strcpy dst1 src1))
-    (let d1-0 (load none i8 dst1))
-    (let d1-1 (load none i8 dst1-1))
-    (let d1-0-off (ptr-offset 8 d1-0))
-    (let d1-1-off (ptr-offset 8 d1-1))
-    (assert! (equal? d1-0-off (bv 8 97)) "dst[0] == 'a' after strcpy")
-    (assert! (equal? d1-1-off (bv 8 0)) "dst[1] == 0 after strcpy")
+    (let d1 (funcall @read-c-string dst1))
+    (assert! (equal? d1 "a") "dst == 'a' after strcpy")
 
     ;; src -> "a"
     ;; dst = src
