@@ -353,6 +353,8 @@ copyConcreteString bak mem dst src = do
 --
 -- Uses 'loadConcretelyNullTerminatedString' to load the string, see that
 -- function for details.
+--
+-- Asserts that the regions are disjoint.
 copyConcretelyNullTerminatedString ::
   ( LCB.IsSymBackend sym bak
   , Mem.HasPtrWidth wptr
@@ -379,6 +381,8 @@ copyConcretelyNullTerminatedString bak mem dst src bounds = do
 --
 -- Uses 'loadProvablyNullTerminatedString' to load the string, see that
 -- function for details.
+--
+-- Asserts that the regions are disjoint.
 copyProvablyNullTerminatedString ::
   ( LCB.IsSymBackend sym bak
   , sym ~ WEB.ExprBuilder scope st fs
