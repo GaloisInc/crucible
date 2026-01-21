@@ -40,6 +40,8 @@
   * `Lang.Crucible.LLVM.MemModel.ppLLVMIntrinsicTypes`
   * `Lang.Crucible.LLVM.MemModel.ppLLVMMemIntrinsicType`
   * `Lang.Crucible.LLVM.MemModel.Pointer.ppLLVMPointerIntrinsicType`
+* Overrides for `strnlen` and `strcpy`, supported by new APIs in
+  `Lang.Crucible.LLVM.MemModel.Strings`.
 
 # 0.8.0 -- 2025-11-09
 
@@ -47,7 +49,7 @@
   should now be imported from `Lang.Crucible.LLVM.MemModel.Strings`.
 * Two new functions for loading C-style null-terminated strings from
   LLVM memory were added to `Lang.Crucible.LLVM.MemModel.Strings`:
-  `loadConcretelyNullTerminatedString` and `loadSymbolicString`.
+  `loadConcretelyNullTerminatedString` and `loadProvablyNullTerminatedString`.
 * Add a new "low-level" API for loading strings to
   `Lang.Crucible.LLVM.MemModel.Strings`: `ByteLoader`, `ByteChecker`, and
   `loadBytes`.

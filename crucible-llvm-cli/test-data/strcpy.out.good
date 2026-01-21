@@ -1,0 +1,10 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/strcpy.cbl:34:5: error: in main
+  Memory regions not disjoint
+  annotation Nonce {indexValue = 66} false
+COUNTEREXAMPLE
