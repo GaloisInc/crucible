@@ -950,8 +950,9 @@ evalCast' ck ty1 e ty2  = do
         -> evalCast' M.Misc (M.TyRawPtr fieldTy1 m1) e ty2
 
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
-      -- and destination types have the same Crucible representation.  This is
-      -- similar to calling `transmute`.
+      -- and destination *pointer* types have the same Crucible representation
+      -- (i.e. both MirReferenceRepr, or both MirSliceRepr, or both DynRefRepr).
+      -- This is similar to calling `transmute`.
       (M.Misc, M.TyRawPtr _ _, M.TyRawPtr _ _)
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
