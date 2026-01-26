@@ -193,10 +193,7 @@ transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
             "transConstVal (ConstArray): returned wrong type: expected " ++
             show tpr ++ ", got " ++ show tpr'
         pure e'
-    col <- use $ cs . collection
-    tySize <- case tySizedness col ty of
-        Sized s -> pure s
-        Unsized -> mirFail $ "transConstVal: array of unsized type: " <> show ty
+    tySize <- tySizeM "transConstVal (TyArray)" ty
     let agSize = tySize * fromIntegral (length arr')
     ag <- mirAggregate_uninit_constSize agSize
     ag' <- foldM
@@ -373,10 +370,7 @@ staticSlicePlace len ty did = do
                 _ -> mirFail $
                     "staticSlicePlace: wrong type: expected vector, found " ++ show tpr_found
             ref <- globalMirRef gv
-            col <- use $ cs . collection
-            elemSize <- case tySizedness col ty of
-                Sized s -> pure s
-                Unsized -> mirFail $ "staticSlicePlace: slice of unsized type: " <> show ty
+            elemSize <- tySizeM "staticSlicePlace" ty
             ref' <- subindexRef tpr ref (R.App $ usizeLit 0) elemSize
             let len' = R.App $ usizeLit $ fromIntegral len
             return $ MirPlace tpr ref' (SliceMeta len')
@@ -489,10 +483,7 @@ transBinOp bop op1 op2 = do
                 (TyRef ty _mut) -> pure ty
                 (TyRawPtr ty _mut) -> pure ty
                 t -> mirFail $ "`MirReferenceRepr` expression had type " <> show t
-            col <- use $ cs . collection
-            elemSize <- case tySizedness col elemTy of
-                Sized s -> pure s
-                Unsized -> mirFail "transBinOp: unsized element type"
+            elemSize <- tySizeM "transBinOp" elemTy
             newRef <- mirRef_offsetWrap e1 e2 elemSize
             pure $ MirExp MirReferenceRepr newRef
         _ -> fst <$> evalBinOp bop mat me1 me2
@@ -720,10 +711,7 @@ transUnaryOp uop op = do
 buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     let ty = M.typeOf op
-    col <- use $ cs . collection
-    elemSize <- case tySizedness col ty of
-      Sized s -> pure s
-      Unsized -> mirFail $ "buildRepeat: array of unsized type: " <> show ty
+    elemSize <- tySizeM "buildRepeat" ty
     MirExp tpr e <- evalOperand op
     let nElems = fromIntegral size
     let agSize = elemSize * nElems
@@ -957,9 +945,7 @@ evalCast' ck ty1 e ty2  = do
         | t1 == t2, m1 == m2, MirExp MirReferenceRepr e' <- e
         -> do
           Some tpr <- tyToReprM t1
-          elemSize <- case tySizedness col t1 of
-            Sized s -> pure s
-            Unsized -> mirFail $ "evalCast': array of unsized type: " <> show t1
+          elemSize <- tySizeM "evalCast (*const [T; N] -> *const T)" t1
           MirExp MirReferenceRepr <$> subindexRef tpr e' (R.App $ usizeLit 0) elemSize
 
       --  *const [u8] <-> *const str (no-ops)
@@ -1128,10 +1114,7 @@ evalCast' ck ty1 e ty2  = do
       = do
         Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
-        col <- use $ cs . collection
-        elemSize <- case tySizedness col ty of
-          Sized s -> pure s
-          Unsized -> mirFail $ "unsizeArray: array of unsized type: " <> show ty
+        elemSize <- tySizeM "unsizeArray" ty
         ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0) elemSize
         let tup   = S.mkStruct mirSliceCtxRepr
                         (Ctx.Empty Ctx.:> ref' Ctx.:> len)
@@ -1224,9 +1207,7 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
       | TyArray elemTy n <- srcMirTy
       , Right (Some (C.BVRepr w1)) <- tyToRepr col elemTy
       , natValue w1 * fromIntegral n == natValue w2 -> do
-        pieceSize <- case tySizedness col elemTy of
-          Sized s -> pure s
-          Unsized -> mirFail $ "transmuteExp: array of unsized type: " <> show elemTy
+        pieceSize <- tySizeM "transmuteExp" elemTy
         pieces <- forM (init [0 .. n]) $ \(fromIntegral -> i) -> do
           let off = pieceSize * i
           mirAggregate_get off pieceSize (C.BVRepr w1) argExpr
@@ -1658,21 +1639,14 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
     (M.TyArray elemTy _sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idxVar
         Some elemTpr <- tyToReprM elemTy
-        col <- use $ cs . collection
-        elemSize <- case tySizedness col elemTy of
-          Sized s -> pure s
-          Unsized -> mirFail $ "evalPlaceProj: array of unsized type: " <> show elemTy
+        elemSize <- tySizeM "evalPlaceProj (TyArray Index)" elemTy
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        col <- use $ cs . collection
-        elemSize <- case tySizedness col elemTy of
-          Sized s -> pure s
-          Unsized ->
-            mirFail $ "evalPlaceProj: unsized slice element type: " <> show elemTy
+        elemSize <- tySizeM "evalPlaceProj (TySlice Index)" elemTy
         MirPlace elemTpr <$> mirRef_offset ref idx elemSize <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
@@ -1688,21 +1662,14 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
     (M.TyArray elemTy sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         Some elemTpr <- tyToReprM elemTy
-        col <- use $ cs . collection
-        elemSize <- case tySizedness col elemTy of
-          Sized s -> pure s
-          Unsized -> mirFail $ "evalPlaceProj: array of unsized type: " <> show elemTy
+        elemSize <- tySizeM "evalPlaceProj (TyArray ConstantIndex)" elemTy
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd
         G.assertExpr (R.App $ usizeLt idx' len)
             (S.litExpr "Index out of range for access to slice")
-        col <- use $ cs . collection
-        elemSize <- case tySizedness col elemTy of
-          Sized s -> pure s
-          Unsized ->
-            mirFail $ "evalPlaceProj: unsized slice element type: " <> show elemTy
+        elemSize <- tySizeM "evalPlaceProj (TySlice ConstantIndex)" elemTy
         MirPlace elemTpr <$> mirRef_offset ref idx' elemSize <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
@@ -1725,11 +1692,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) 
       let lastIndex = mkLastIndex len
           newLen = R.App (lastIndex `usizeSub` firstIndex)
           newMeta = SliceMeta newLen
-      col <- use $ cs . collection
-      elemSize <- case tySizedness col elemTy of
-        Sized s -> pure s
-        Unsized ->
-          mirFail $ "evalPlaceProj: unsized slice element type: " <> show elemTy
+      elemSize <- tySizeM "evalPlaceProj (Subslice)" elemTy
       MirPlace elemTpr <$> mirRef_offset headRef firstIndex elemSize <*> pure newMeta
 
     -- TODO: https://github.com/GaloisInc/crucible/issues/1494
@@ -1838,11 +1801,7 @@ transStatementKind (M.StmtIntrinsic ndi) =
             destExp <- evalOperand destOp
             countExp <- evalOperand countOp
             let elemTy = M.typeOfProj M.Deref $ M.typeOf srcOp
-            col <- use $ cs . collection
-            elemSize <- case tySizedness col elemTy of
-                Sized s -> pure s
-                Unsized ->
-                    mirFail $ "transStatementKind: unsized element type: " <> show elemTy
+            elemSize <- tySizeM "transStatementKind (copy_nonoverlapping)" elemTy
             Some tpr <- tyToReprM elemTy
             case (srcExp, destExp, countExp) of
                 ( MirExp MirReferenceRepr src,

@@ -824,10 +824,7 @@ packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 buildArrayLit :: forall h s ret. M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildArrayLit elemTy exps = do
     Some elemTpr <- tyToReprM elemTy
-    col <- use $ cs . collection
-    elemSize <- case tySizedness col elemTy of
-        Sized s -> pure s
-        Unsized -> mirFail $ "buildArrayLit: unsized array element type: " <> show elemTy
+    elemSize <- tySizeM "buildArrayLit" elemTy
     let agSize = elemSize * fromIntegral (length exps)
     ag0 <- mirAggregate_uninit_constSize agSize
     ag1 <- foldM
@@ -1079,6 +1076,14 @@ tySizedness col ty =
         Just Nothing -> Unsized
         Just (Just lay) -> Sized (fromIntegral (lay ^. M.laySize))
 
+-- | Get a type's size, failing (via `mirFail`) if it's unsized.
+tySizeM :: HasCallStack => String -> M.Ty -> MirGenerator h s ret Word
+tySizeM site ty = do
+  col <- use $ cs . collection
+  case tySizedness col ty of
+    Sized s -> pure s
+    Unsized -> mirFail $ site <> ": unsized type: " <> show ty
+
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
     when (adt ^. M.adtkind /= M.Struct) $ mirFail $
@@ -1121,10 +1126,7 @@ structInfo adt i = do
             case fldTy of
               M.TySlice innerTy -> do
                 Some innerRepr <- tyToReprM innerTy
-                innerSize <- case tySizedness col innerTy of
-                  Sized s -> pure s
-                  Unsized ->
-                    mirFail $ "structInfo: unsized slice element type"
+                innerSize <- tySizeM "structInfo" innerTy
                 pure $ UnsizedSliceField innerSize innerRepr
               M.TyStr -> do
                 Some innerRepr <- tyToReprM (M.TyUint M.B8)
@@ -1776,10 +1778,7 @@ initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usiz
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
 initialValue (M.TyArray elemTy arrLen) = do
-    col <- use $ cs . collection
-    elemSize <- case tySizedness col elemTy of
-        Sized s -> pure s
-        Unsized -> mirFail $ "initialValue: unsized array element type: " <> show elemTy
+    elemSize <- tySizeM "initialValue (TyArray)" elemTy
     let agSize = elemSize * fromIntegral arrLen
     Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize agSize
 initialValue M.TyChar = do
