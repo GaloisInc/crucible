@@ -2416,9 +2416,11 @@ mirRef_indexAndLenLeaf ::
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym UsizeType, RegValue sym UsizeType)
-mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+mirRef_indexAndLenLeaf bak gs iTypes _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
     let sym = backendGetSym bak
     let parentTpr = VectorRepr tpr
     let parent = MirReference parentTpr root path
@@ -2426,10 +2428,14 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference tpr root (VectorIndex_RefPath
     let lenInteger = toInteger $ V.length parentVec
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat lenInteger
     return (idx, len)
-mirRef_indexAndLenLeaf _bak _gs _iTypes (MirReference _tpr _root (ArrayIndex_RefPath {})) =
+mirRef_indexAndLenLeaf _bak _gs _iTypes _elemSize (MirReference _tpr _root (ArrayIndex_RefPath {})) =
     leafAbort $ Unsupported callStack
         "can't compute allocation length for Array, which is unbounded"
-mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath elemOff elemSize _tpr' path)) = do
+mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgElem_RefPath elemOff _elemSize _tpr' path)) = do
+    -- Use an `elemSize` parameter instead of the element size stored in the
+    -- reference path to avoid using a type-incorrect size when operating on a
+    -- reference that's been cast to a type that doesn't match its original
+    -- representation. (Same rationale as described in `mirRef_offsetWrapLeaf`.)
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
     let parent = MirReference parentTpr root path
@@ -2450,12 +2456,12 @@ mirRef_indexAndLenLeaf bak gs iTypes (MirReference _tpr root (AgElem_RefPath ele
 
     offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
     return (offDivSz, len)
-mirRef_indexAndLenLeaf bak _ _ (MirReference _ _ _) = do
+mirRef_indexAndLenLeaf bak _ _ _elemSize (MirReference _ _ _) = do
     let sym = backendGetSym bak
     idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 1
     return (idx, len)
-mirRef_indexAndLenLeaf bak _ _ (MirReference_Integer _) = do
+mirRef_indexAndLenLeaf bak _ _ _elemSize (MirReference_Integer _) = do
     let sym = backendGetSym bak
     -- No offset of `MirReference_Integer` is dereferenceable, so `len` is
     -- zero.
@@ -2468,11 +2474,13 @@ mirRef_indexAndLenIO ::
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     IO (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
-mirRef_indexAndLenIO bak gs iTypes (MirReferenceMux ref) = do
+mirRef_indexAndLenIO bak gs iTypes (MirReferenceMux ref) elemSize = do
     let sym = backendGetSym bak
     readPartialFancyMuxTree bak
-        (mirRef_indexAndLenLeaf bak gs iTypes)
+        (mirRef_indexAndLenLeaf bak gs iTypes elemSize)
         (\c (tIdx, tLen) (eIdx, eLen) -> do
             idx <- baseTypeIte sym c tIdx eIdx
             len <- baseTypeIte sym c tLen eLen
@@ -2482,14 +2490,16 @@ mirRef_indexAndLenIO bak gs iTypes (MirReferenceMux ref) = do
 mirRef_indexAndLenSim ::
     IsSymInterface sym =>
     MirReferenceMux sym ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     OverrideSim p sym MIR rtp args ret
         (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
-mirRef_indexAndLenSim ref = do
+mirRef_indexAndLenSim ref elemSize = do
   ovrWithBackend $ \bak ->
     do s <- get
        let gs = s ^. stateTree.actFrame.gpGlobals
        let iTypes = ctxIntrinsicTypes $ s ^. stateContext
-       liftIO $ mirRef_indexAndLenIO bak gs iTypes ref
+       liftIO $ mirRef_indexAndLenIO bak gs iTypes ref elemSize
 
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
