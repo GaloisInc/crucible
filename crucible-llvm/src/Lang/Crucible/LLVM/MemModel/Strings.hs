@@ -31,6 +31,10 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , copyConcreteString
   , copyConcretelyNullTerminatedString
   , copyProvablyNullTerminatedString
+  -- * String duplication
+  , dupConcreteString
+  , dupConcretelyNullTerminatedString
+  , dupProvablyNullTerminatedString
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
@@ -68,11 +72,36 @@ import qualified Lang.Crucible.LLVM.DataLayout as CLD
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemErr
 import qualified Lang.Crucible.LLVM.MemModel as LCLM
 import qualified Lang.Crucible.LLVM.MemModel as Mem
+import qualified Lang.Crucible.LLVM.MemModel.Generic as Mem.G
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import qualified What4.Expr.Builder as WEB
 import qualified What4.Interface as WI
 import qualified What4.Protocol.Online as WPO
 import qualified What4.SatResult as WS
+
+-- | Store a null-terminated string to memory.
+storeNullTerminatedString ::
+  forall sym bak w.
+  ( LCB.IsSymBackend sym bak
+  , WI.IsExpr (WI.SymExpr sym)
+  , LCLM.HasPtrWidth w
+  , LCLM.HasLLVMAnn sym
+  , ?memOpts :: LCLM.MemOptions
+  ) =>
+  bak ->
+  LCLM.MemImpl sym ->
+  -- | Pointer to write string to
+  LCLM.LLVMPtr sym w ->
+  -- | The bytes of the string to write (null terminator included)
+  Vec.Vector (WI.SymBV sym 8) ->
+  IO (LCLM.MemImpl sym)
+storeNullTerminatedString bak mem ptr bytesBvs = do
+  let sym = LCB.backendGetSym bak
+  zeroNat <- WI.natLit sym 0
+  let bytes = Vec.map (Mem.LLVMValInt zeroNat) bytesBvs
+  let val = Mem.LLVMValArray (Mem.bitvectorType 1) bytes
+  let storTy = Mem.llvmValStorableType @sym val
+  Mem.storeRaw bak mem ptr storTy CLD.noAlignment val
 
 -- | Store a string to memory, adding a null terminator at the end.
 storeString ::
@@ -92,13 +121,9 @@ storeString ::
   IO (LCLM.MemImpl sym)
 storeString bak mem ptr bytesBvs = do
   let sym = LCB.backendGetSym bak
-  zeroNat <- WI.natLit sym 0
-  let bytes = Vec.map (Mem.LLVMValInt zeroNat) bytesBvs
-  zeroByte <- Mem.LLVMValInt zeroNat <$> WI.bvZero sym (DPN.knownNat @8)
-  let nullTerminatedBytes = Vec.snoc bytes zeroByte
-  let val = Mem.LLVMValArray (Mem.bitvectorType 1) nullTerminatedBytes
-  let storTy = Mem.llvmValStorableType @sym val
-  Mem.storeRaw bak mem ptr storTy CLD.noAlignment val
+  zeroByte <- WI.bvZero sym (DPN.knownNat @8)
+  let nullTerminatedBytes = Vec.snoc bytesBvs zeroByte
+  storeNullTerminatedString bak mem ptr nullTerminatedBytes
 
 ---------------------------------------------------------------------
 -- * Loading strings
@@ -407,6 +432,120 @@ copyProvablyNullTerminatedString bak mem dst src bounds = do
   let bytesVec = Vec.fromList bytes
   strcpyAssertDisjoint bak mem bytesVec dst src
   storeString bak mem dst bytesVec
+
+---------------------------------------------------------------------
+-- * String duplication
+
+-- | Helper function: allocate memory and store bytes for string duplication.
+--
+-- Takes a vector of bytes (NOT including null terminator) and:
+-- 1. Allocates memory of the appropriate size (length + 1 for null terminator)
+-- 2. Stores the bytes with null terminator to the allocated memory
+-- 3. Returns the new pointer and updated memory
+dupFromLoadedBytes ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Vec.Vector (WI.SymBV sym 8) ->
+  String ->
+  CLD.Alignment ->
+  IO (Mem.LLVMPtr sym wptr, Mem.MemImpl sym)
+dupFromLoadedBytes bak mem bytesVec displayString alignment = do
+  let len = fromIntegral (Vec.length bytesVec) + 1  -- +1 for null terminator
+  let sym = LCB.backendGetSym bak
+  sz <- WI.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth len)
+  (dst, mem') <- Mem.doMalloc bak Mem.G.HeapAlloc Mem.G.Mutable displayString mem sz alignment
+  mem'' <- storeString bak mem' dst bytesVec
+  pure (dst, mem'')
+
+-- | @strdup@ of a concrete string.
+--
+-- Uses 'Mem.loadString' to load the string, see that function for details.
+--
+-- Allocates memory and copies the string to it, returning the new pointer.
+dupConcreteString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Display string for allocation
+  String ->
+  -- | Alignment
+  CLD.Alignment ->
+  IO (Mem.LLVMPtr sym wptr, Mem.MemImpl sym)
+dupConcreteString bak mem src displayString alignment = do
+  bytes <- Mem.loadString bak mem src Nothing
+  let sym = LCB.backendGetSym bak
+  symBytes <- mapM (WI.bvLit sym WI.knownRepr . BV.word8) bytes
+  dupFromLoadedBytes bak mem (Vec.fromList symBytes) displayString alignment
+
+-- | @strdup@ of a concretely null-terminated string.
+--
+-- Uses 'loadConcretelyNullTerminatedString' to load the string, see that
+-- function for details.
+--
+-- Allocates memory and copies the string to it, returning the new pointer.
+dupConcretelyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  -- | Display string for allocation
+  String ->
+  CLD.Alignment ->
+  IO (Mem.LLVMPtr sym wptr, Mem.MemImpl sym)
+dupConcretelyNullTerminatedString bak mem src bounds displayString alignment = do
+  bytes <- loadConcretelyNullTerminatedString bak mem src bounds
+  dupFromLoadedBytes bak mem (Vec.fromList bytes) displayString alignment
+
+-- | @strdup@ of a provably null-terminated string.
+--
+-- Uses 'loadProvablyNullTerminatedString' to load the string, see that
+-- function for details.
+--
+-- Allocates memory and copies the string to it, returning the new pointer.
+dupProvablyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , sym ~ WEB.ExprBuilder scope st fs
+  , bak ~ LCBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Source pointer
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to read
+  Maybe Int ->
+  -- | Display string for allocation
+  String ->
+  CLD.Alignment ->
+  IO (Mem.LLVMPtr sym wptr, Mem.MemImpl sym)
+dupProvablyNullTerminatedString bak mem src bounds displayString alignment = do
+  bytes <- loadProvablyNullTerminatedString bak mem src bounds
+  dupFromLoadedBytes bak mem (Vec.fromList bytes) displayString alignment
 
 ---------------------------------------------------------------------
 -- * Low-level string loading primitives

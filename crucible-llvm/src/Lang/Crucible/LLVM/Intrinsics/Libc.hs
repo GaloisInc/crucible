@@ -97,6 +97,7 @@ libc_overrides =
   , SomeLLVMOverride llvmStrlenOverride
   , SomeLLVMOverride llvmStrnlenOverride
   , SomeLLVMOverride llvmStrcpyOverride
+  , SomeLLVMOverride llvmStrdupOverride
   , SomeLLVMOverride llvmPrintfOverride
   , SomeLLVMOverride llvmPrintfChkOverride
   , SomeLLVMOverride llvmPutsOverride
@@ -410,6 +411,14 @@ llvmStrcpyOverride =
   [llvmOvr| i8* @strcpy( i8*, i8* ) |]
   (\memOps args -> Ctx.uncurryAssignment (callStrcpy memOps) args)
 
+llvmStrdupOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (LLVMPointerType wptr)
+llvmStrdupOverride =
+  [llvmOvr| i8* @strdup( i8* ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrdup memOps) args)
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -656,6 +665,20 @@ callStrcpy mvar (regValue -> dst) (regValue -> src) =
     modifyGlobal mvar $ \mem -> do
       mem' <- liftIO $ CStr.copyConcretelyNullTerminatedString bak mem dst src Nothing
       pure (dst, mem')
+
+callStrdup
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
+callStrdup mvar (regValue -> src) =
+  ovrWithBackend $ \bak ->
+    modifyGlobal mvar $ \mem -> liftIO $ do
+      let sym = backendGetSym bak
+      loc <- plSourceLoc <$> getCurrentProgramLoc sym
+      let loc' = "<stdup> " ++ show loc
+      CStr.dupConcretelyNullTerminatedString bak mem src Nothing loc' noAlignment
 
 callAssert
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym

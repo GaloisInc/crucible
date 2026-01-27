@@ -40,7 +40,7 @@
   * `Lang.Crucible.LLVM.MemModel.ppLLVMIntrinsicTypes`
   * `Lang.Crucible.LLVM.MemModel.ppLLVMMemIntrinsicType`
   * `Lang.Crucible.LLVM.MemModel.Pointer.ppLLVMPointerIntrinsicType`
-* Overrides for `strnlen` and `strcpy`, supported by new APIs in
+* Overrides for `strnlen`, `strcpy`, and `strdup`, supported by new APIs in
   `Lang.Crucible.LLVM.MemModel.Strings`.
 
 # 0.8.0 -- 2025-11-09
