@@ -98,6 +98,7 @@ libc_overrides =
   , SomeLLVMOverride llvmStrnlenOverride
   , SomeLLVMOverride llvmStrcpyOverride
   , SomeLLVMOverride llvmStrdupOverride
+  , SomeLLVMOverride llvmStrndupOverride
   , SomeLLVMOverride llvmPrintfOverride
   , SomeLLVMOverride llvmPrintfChkOverride
   , SomeLLVMOverride llvmPutsOverride
@@ -419,6 +420,14 @@ llvmStrdupOverride =
   [llvmOvr| i8* @strdup( i8* ) |]
   (\memOps args -> Ctx.uncurryAssignment (callStrdup memOps) args)
 
+llvmStrndupOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr) (LLVMPointerType wptr)
+llvmStrndupOverride =
+  [llvmOvr| i8* @strndup( i8*, size_t ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrndup memOps) args)
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -677,8 +686,29 @@ callStrdup mvar (regValue -> src) =
     modifyGlobal mvar $ \mem -> liftIO $ do
       let sym = backendGetSym bak
       loc <- plSourceLoc <$> getCurrentProgramLoc sym
-      let loc' = "<stdup> " ++ show loc
+      let loc' = "<strdup> " ++ show loc
       CStr.dupConcretelyNullTerminatedString bak mem src Nothing loc' noAlignment
+
+callStrndup
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
+callStrndup mvar (regValue -> src) (regValue -> bound) =
+  ovrWithBackend $ \bak ->
+    modifyGlobal mvar $ \mem -> liftIO $ do
+      let sym = backendGetSym bak
+      loc <- plSourceLoc <$> getCurrentProgramLoc sym
+      let loc' = "<strndup> " ++ show loc
+      case BV.asUnsigned <$> asBV bound of
+        Nothing -> do
+          let err = AssertFailureSimError "`strndup` called with symbolic max length" ""
+          addFailedAssertion bak err
+        Just b ->
+          let bound' = Just (fromIntegral b) in
+          CStr.dupConcretelyNullTerminatedString bak mem src bound' loc' noAlignment
 
 callAssert
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
