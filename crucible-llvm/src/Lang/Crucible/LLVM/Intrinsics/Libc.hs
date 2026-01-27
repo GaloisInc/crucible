@@ -97,6 +97,8 @@ libc_overrides =
   , SomeLLVMOverride llvmStrlenOverride
   , SomeLLVMOverride llvmStrnlenOverride
   , SomeLLVMOverride llvmStrcpyOverride
+  , SomeLLVMOverride llvmStrdupOverride
+  , SomeLLVMOverride llvmStrndupOverride
   , SomeLLVMOverride llvmPrintfOverride
   , SomeLLVMOverride llvmPrintfChkOverride
   , SomeLLVMOverride llvmPutsOverride
@@ -410,6 +412,22 @@ llvmStrcpyOverride =
   [llvmOvr| i8* @strcpy( i8*, i8* ) |]
   (\memOps args -> Ctx.uncurryAssignment (callStrcpy memOps) args)
 
+llvmStrdupOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (LLVMPointerType wptr)
+llvmStrdupOverride =
+  [llvmOvr| i8* @strdup( i8* ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrdup memOps) args)
+
+llvmStrndupOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr) (LLVMPointerType wptr)
+llvmStrndupOverride =
+  [llvmOvr| i8* @strndup( i8*, size_t ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrndup memOps) args)
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -656,6 +674,41 @@ callStrcpy mvar (regValue -> dst) (regValue -> src) =
     modifyGlobal mvar $ \mem -> do
       mem' <- liftIO $ CStr.copyConcretelyNullTerminatedString bak mem dst src Nothing
       pure (dst, mem')
+
+callStrdup
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
+callStrdup mvar (regValue -> src) =
+  ovrWithBackend $ \bak ->
+    modifyGlobal mvar $ \mem -> liftIO $ do
+      let sym = backendGetSym bak
+      loc <- plSourceLoc <$> getCurrentProgramLoc sym
+      let loc' = "<strdup> " ++ show loc
+      CStr.dupConcretelyNullTerminatedString bak mem src Nothing loc' noAlignment
+
+callStrndup
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
+callStrndup mvar (regValue -> src) (regValue -> bound) =
+  ovrWithBackend $ \bak ->
+    modifyGlobal mvar $ \mem -> liftIO $ do
+      let sym = backendGetSym bak
+      loc <- plSourceLoc <$> getCurrentProgramLoc sym
+      let loc' = "<strndup> " ++ show loc
+      case BV.asUnsigned <$> asBV bound of
+        Nothing -> do
+          let err = AssertFailureSimError "`strndup` called with symbolic max length" ""
+          addFailedAssertion bak err
+        Just b ->
+          let bound' = Just (fromIntegral b) in
+          CStr.dupConcretelyNullTerminatedString bak mem src bound' loc' noAlignment
 
 callAssert
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
