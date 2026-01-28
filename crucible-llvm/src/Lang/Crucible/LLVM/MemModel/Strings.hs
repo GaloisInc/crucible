@@ -38,6 +38,8 @@ module Lang.Crucible.LLVM.MemModel.Strings
   -- * Memory comparison
   , memcmp
   , memcmpConcreteLen
+  -- * String comparison
+  , strcmp
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
@@ -54,8 +56,23 @@ module Lang.Crucible.LLVM.MemModel.Strings
   -- ** 'ByteLoader'
   , ByteLoader(..)
   , llvmByteLoader
-  -- ** 'loadBytes'
+  -- * 'loadBytes'
   , loadBytes
+  -- * Loading and checking two byte streams
+  -- ** 'BytesLoader'
+  , BytesLoader(..)
+  , llvmBytesLoader
+  , llvmStringsLoader
+  -- ** 'BytesChecker'
+  , BytesChecker(..)
+  -- ** 'loadTwoBytes'
+  , loadTwoBytes
+  -- ** 'BytesChecker's for string comparison
+  , fullyConcreteNullTerminatedStrings
+  , concretelyNullTerminatedStrings
+  , provablyNullTerminatedStrings
+  -- ** 'BytesChecker's for length-bounded comparison
+  , lengthBoundedByteComparison
   ) where
 
 import           Control.Lens ((^.), to)
@@ -551,6 +568,35 @@ dupProvablyNullTerminatedString bak mem src bounds displayString alignment = do
   dupFromLoadedBytes bak mem (Vec.fromList bytes) displayString alignment
 
 ---------------------------------------------------------------------
+-- * String comparison
+
+-- | @strcmp@ - compare two null-terminated strings.
+--
+-- Returns:
+-- * 0 if the strings are equal
+-- * A negative value if the first differing byte in s1 is less than in s2
+-- * A positive value if the first differing byte in s1 is greater than in s2
+--
+-- Requires that both strings have concrete null terminators.
+strcmp ::
+  forall sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  IO (WI.SymBV sym 32)
+strcmp bak mem ptr1 ptr2 = do
+  let sym = LCB.backendGetSym bak
+  zero <- WI.bvZero sym (DPN.knownNat @32)
+  loadTwoBytes bak mem zero ptr1 ptr2 (llvmStringsLoader mem) concretelyNullTerminatedStrings
+
+---------------------------------------------------------------------
 -- * Memory comparison
 
 -- | @memcmp@.
@@ -599,41 +645,12 @@ memcmpConcreteLen ::
   Mem.LLVMPtr sym wptr ->
   Integer ->
   IO (WI.SymBV sym 32)
-memcmpConcreteLen bak mem ptr1 ptr2 n = go 0 n
-  where
-    go :: Integer -> Integer -> IO (WI.SymBV sym 32)
-    go idx maxIdx
-      | idx >= maxIdx = do
-          let sym = LCB.backendGetSym bak
-          WI.bvZero sym (DPN.knownNat @32)
-      | otherwise = do
-          let sym = LCB.backendGetSym bak
-
-          idxBv <- WI.bvLit sym Mem.PtrWidth (BV.mkBV Mem.PtrWidth idx)
-          p1 <- Mem.ptrAdd sym Mem.PtrWidth ptr1 idxBv
-          p2 <- Mem.ptrAdd sym Mem.PtrWidth ptr2 idxBv
-
-          let byteTy = Mem.bitvectorType 1
-          let i8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
-          v1 <- Mem.doLoad bak mem p1 byteTy i8 CLD.noAlignment
-          v2 <- Mem.doLoad bak mem p2 byteTy i8 CLD.noAlignment
-
-          let err = LCS.AssertFailureSimError "Found pointer instead of byte in memcmp" ""
-          byte1 <- Partial.ptrToBv bak err v1
-          byte2 <- Partial.ptrToBv bak err v2
-
-          eq <- WI.bvEq sym byte1 byte2
-          lt <- WI.bvUlt sym byte1 byte2
-
-          let i32 = DPN.knownNat @32
-          negOne <- WI.bvLit sym i32 (BV.mkBV i32 (- 1))
-          one <- WI.bvOne sym i32
-          case WI.asConstantPred eq of
-            Just False -> WI.bvIte sym lt negOne one
-            _ -> do
-              restResult <- go (idx + 1) maxIdx
-              tmp <- WI.bvIte sym eq restResult one
-              WI.bvIte sym lt negOne tmp
+memcmpConcreteLen bak mem ptr1 ptr2 n
+  | n == 0 = do
+      let sym = LCB.backendGetSym bak
+      WI.bvZero sym (DPN.knownNat @32)
+  | otherwise =
+      loadTwoBytes bak mem 0 ptr1 ptr2 (llvmBytesLoader mem) (lengthBoundedByteComparison n)
 
 ---------------------------------------------------------------------
 -- * Low-level string loading primitives
@@ -952,3 +969,319 @@ loadBytes bak mem = go
 
           ptr' <- liftIO (Mem.doPtrAddOffset bak mem ptr =<< WI.bvOne sym Mem.PtrWidth)
           go acc' ptr' loader checker
+
+---------------------------------------------------------------------
+-- * Loading and checking two byte streams
+
+-- ** 'BytesLoader'
+
+-- | Load a byte from each of two memory locations.
+--
+-- The loader can optionally add assumptions after loading bytes when iteration
+-- continues. This is used for null-terminated string operations where we need
+-- to assume loaded bytes are non-null for termination proofs.
+data BytesLoader m sym bak wptr
+  = BytesLoader
+      { runBytesLoader :: bak -> Mem.LLVMPtr sym wptr -> Mem.LLVMPtr sym wptr -> m (Mem.LLVMPtr sym 8, Mem.LLVMPtr sym 8)
+      -- | Called when the checker returns 'Continue', allowing the loader to
+      -- add assumptions about the loaded bytes (e.g., that they are non-null).
+      , onContinue :: bak -> Mem.LLVMPtr sym 8 -> Mem.LLVMPtr sym 8 -> m ()
+      }
+
+-- | A 'BytesLoader' for LLVM memory based on 'Mem.doLoad'.
+--
+-- This version does not add any assumptions about loaded bytes.
+-- Use this for length-bounded operations like @memcmp@ that need to handle
+-- null bytes in the middle of the data.
+llvmBytesLoader ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  , MonadIO m
+  ) =>
+  Mem.MemImpl sym ->
+  BytesLoader m sym bak wptr
+llvmBytesLoader mem =
+  BytesLoader
+    { runBytesLoader = \bak ptr1 ptr2 -> do
+        let i1 = Mem.bitvectorType 1
+        let p8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
+        byte1 <- liftIO (Mem.doLoad bak mem ptr1 i1 p8 CLD.noAlignment)
+        byte2 <- liftIO (Mem.doLoad bak mem ptr2 i1 p8 CLD.noAlignment)
+        pure (byte1, byte2)
+    , onContinue = \_ _ _ -> pure ()
+    }
+
+-- | A 'BytesLoader' for LLVM memory that adds non-null assumptions.
+--
+-- This version adds assumptions that loaded bytes are non-null when iteration
+-- continues. Use this for null-terminated string operations like @strcmp@
+-- where these assumptions help the solver prove termination.
+llvmStringsLoader ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  , MonadIO m
+  ) =>
+  Mem.MemImpl sym ->
+  BytesLoader m sym bak wptr
+llvmStringsLoader mem =
+  BytesLoader
+    { runBytesLoader = \bak ptr1 ptr2 -> do
+        let i1 = Mem.bitvectorType 1
+        let p8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
+        byte1 <- liftIO (Mem.doLoad bak mem ptr1 i1 p8 CLD.noAlignment)
+        byte2 <- liftIO (Mem.doLoad bak mem ptr2 i1 p8 CLD.noAlignment)
+        pure (byte1, byte2)
+    , onContinue = \bak byte1 byte2 -> liftIO $ do
+        let sym = LCB.backendGetSym bak
+        -- Add assumptions that both bytes were nonzero
+        prevByte1WasNonNull <- WI.notPred sym =<< Mem.ptrIsNull sym (WI.knownNat @8) byte1
+        prevByte2WasNonNull <- WI.notPred sym =<< Mem.ptrIsNull sym (WI.knownNat @8) byte2
+        loc <- WI.getCurrentProgramLoc sym
+        let assump1 = LCB.BranchCondition loc Nothing prevByte1WasNonNull
+        let assump2 = LCB.BranchCondition loc Nothing prevByte2WasNonNull
+        LCB.addAssumption bak assump1
+        LCB.addAssumption bak assump2
+    }
+
+---------------------------------------------------------------------
+-- ** 'BytesChecker'
+
+-- | Compute a result from two symbolic bytes, and check if loading should
+-- continue to the next pair of bytes.
+--
+-- Used to compare two byte streams simultaneously, e.g., for 'strcmp'.
+newtype BytesChecker m sym bak a b
+  = BytesChecker
+      { runBytesChecker :: bak -> a -> Mem.LLVMPtr sym 8 -> Mem.LLVMPtr sym 8 -> m (ControlFlow a b) }
+
+-- ** 'loadTwoBytes'
+
+-- | Load sequences of bytes from two pointers simultaneously.
+--
+-- Used to implement 'strcmp'. Similar to 'loadBytes' but operates on two byte streams.
+loadTwoBytes ::
+  forall m a b sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Mem.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  , MonadIO m
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  -- | Initial accumulator
+  a ->
+  -- | First pointer to load from
+  Mem.LLVMPtr sym wptr ->
+  -- | Second pointer to load from
+  Mem.LLVMPtr sym wptr ->
+  -- | How to load a byte from each memory location
+  BytesLoader m sym bak wptr ->
+  -- | How to check if we should continue loading the next bytes
+  BytesChecker m sym bak a b ->
+  m b
+loadTwoBytes bak mem = go
+ where
+  sym = LCB.backendGetSym bak
+  go ::
+    a ->
+    Mem.LLVMPtr sym wptr ->
+    Mem.LLVMPtr sym wptr ->
+    BytesLoader m sym bak wptr ->
+    BytesChecker m sym bak a b ->
+    m b
+  go acc ptr1 ptr2 loader checker = do
+    (byte1, byte2) <- runBytesLoader loader bak ptr1 ptr2
+    runBytesChecker checker bak acc byte1 byte2 >>=
+      \case
+        Break result -> pure result
+        Continue acc' -> do
+          -- Let the loader add any assumptions it needs (e.g., non-null for strcmp)
+          onContinue loader bak byte1 byte2
+
+          ptr1' <- liftIO (Mem.doPtrAddOffset bak mem ptr1 =<< WI.bvOne sym Mem.PtrWidth)
+          ptr2' <- liftIO (Mem.doPtrAddOffset bak mem ptr2 =<< WI.bvOne sym Mem.PtrWidth)
+          go acc' ptr1' ptr2' loader checker
+
+---------------------------------------------------------------------
+-- ** BytesCheckers for string comparison
+
+-- Helper, not exported
+-- Common logic for comparing two bytes after null-terminator checking.
+-- Returns Nothing if bytes are equal (should continue), or Just result if different.
+compareBytesForStrings ::
+  MonadIO m =>
+  LCB.IsSymBackend sym bak =>
+  bak ->
+  WI.SymBV sym 8 ->
+  WI.SymBV sym 8 ->
+  m (Maybe (WI.SymBV sym 32))
+compareBytesForStrings bak byte1 byte2 = do
+  let sym = LCB.backendGetSym bak
+  let i32 = DPN.knownNat @32
+  eq <- liftIO (WI.bvEq sym byte1 byte2)
+  case WI.asConstantPred eq of
+    Just False -> do
+      lt <- liftIO (WI.bvUlt sym byte1 byte2)
+      negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+      one <- liftIO (WI.bvOne sym i32)
+      result <- liftIO (WI.bvIte sym lt negOne one)
+      pure (Just result)
+    _ -> pure Nothing
+
+-- Helper, not exported
+-- Common logic for handling null terminator cases in string comparison.
+handleNullTerminators ::
+  MonadIO m =>
+  LCB.IsSymBackend sym bak =>
+  bak ->
+  WI.SymBV sym 32 ->
+  Bool ->
+  Bool ->
+  m (Maybe (WI.SymBV sym 32))
+handleNullTerminators bak acc isNull1 isNull2 = do
+  let sym = LCB.backendGetSym bak
+  let i32 = DPN.knownNat @32
+  case (isNull1, isNull2) of
+    (True, True) -> pure (Just acc)
+    (True, False) -> do
+      negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+      pure (Just negOne)
+    (False, True) -> do
+      one <- liftIO (WI.bvOne sym i32)
+      pure (Just one)
+    (False, False) -> pure Nothing
+
+-- | 'BytesChecker' for comparing concrete strings.
+--
+-- Stops when either string has a concrete null terminator.
+fullyConcreteNullTerminatedStrings ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  BytesChecker m sym bak (WI.SymBV sym 32) (WI.SymBV sym 32)
+fullyConcreteNullTerminatedStrings =
+  BytesChecker $ \bak acc byte1Ptr byte2Ptr -> do
+    byte1 <- liftIO (ptrToBv8 bak byte1Ptr)
+    byte2 <- liftIO (ptrToBv8 bak byte2Ptr)
+    let sym = LCB.backendGetSym bak
+    let i32 = DPN.knownNat @32
+
+    case (BV.asUnsigned <$> WI.asBV byte1, BV.asUnsigned <$> WI.asBV byte2) of
+      (Just 0, Just 0) -> pure (Break acc)
+      (Just 0, Just _) -> do
+        negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+        pure (Break negOne)
+      (Just _, Just 0) -> do
+        one <- liftIO (WI.bvOne sym i32)
+        pure (Break one)
+      (Just c1, Just c2) | c1 == c2 -> pure (Continue acc)
+      (Just c1, Just c2) -> do
+        if c1 < c2
+          then do
+            negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+            pure (Break negOne)
+          else do
+            one <- liftIO (WI.bvOne sym i32)
+            pure (Break one)
+      _ -> do
+        let msg = "Symbolic value encountered when comparing strings"
+        liftIO (LCB.addFailedAssertion bak (LCS.Unsupported GHC.callStack msg))
+
+-- | 'BytesChecker' for comparing strings with concrete null terminators.
+--
+-- Stops when either string has a concrete null terminator.
+concretelyNullTerminatedStrings ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  BytesChecker m sym bak (WI.SymBV sym 32) (WI.SymBV sym 32)
+concretelyNullTerminatedStrings =
+  BytesChecker $ \bak acc byte1Ptr byte2Ptr -> do
+    byte1 <- liftIO (ptrToBv8 bak byte1Ptr)
+    byte2 <- liftIO (ptrToBv8 bak byte2Ptr)
+
+    let isNull1 = case BV.asUnsigned <$> WI.asBV byte1 of { Just 0 -> True; _ -> False }
+    let isNull2 = case BV.asUnsigned <$> WI.asBV byte2 of { Just 0 -> True; _ -> False }
+
+    handleNullTerminators bak acc isNull1 isNull2 >>= \case
+      Just result -> pure (Break result)
+      Nothing ->
+        compareBytesForStrings bak byte1 byte2 >>= \case
+          Just result -> pure (Break result)
+          Nothing -> pure (Continue acc)
+
+-- | 'BytesChecker' for comparing strings with provably null terminators.
+--
+-- Stops when either string is provably null-terminated.
+provablyNullTerminatedStrings ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  sym ~ WEB.ExprBuilder scope st fs =>
+  bak ~ LCBO.OnlineBackend solver scope st fs =>
+  WPO.OnlineSolver solver =>
+  BytesChecker m sym bak (WI.SymBV sym 32) (WI.SymBV sym 32)
+provablyNullTerminatedStrings =
+  BytesChecker $ \bak acc byte1Ptr byte2Ptr -> liftIO $ do
+    byte1 <- ptrToBv8 bak byte1Ptr
+    byte2 <- ptrToBv8 bak byte2Ptr
+    let sym = LCB.backendGetSym bak
+
+    isNull1 <- isProvablyNullTerminator bak sym byte1
+    isNull2 <- isProvablyNullTerminator bak sym byte2
+
+    handleNullTerminators bak acc isNull1 isNull2 >>= \case
+      Just result -> pure (Break result)
+      Nothing ->
+        compareBytesForStrings bak byte1 byte2 >>= \case
+          Just result -> pure (Break result)
+          Nothing -> pure (Continue acc)
+
+---------------------------------------------------------------------
+-- ** BytesCheckers for length-bounded comparison
+
+-- | 'BytesChecker' for comparing memory regions with a concrete length bound.
+--
+-- The accumulator is the current index. Stops when the index reaches the
+-- maximum length, or when bytes differ.
+--
+-- Returns:
+-- * 0 if all bytes up to the length are equal
+-- * A negative value if the first differing byte in the first region is less
+-- * A positive value if the first differing byte in the first region is greater
+lengthBoundedByteComparison ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  -- | Maximum length
+  Integer ->
+  BytesChecker m sym bak Integer (WI.SymBV sym 32)
+lengthBoundedByteComparison maxLen =
+  BytesChecker $ \bak idx byte1Ptr byte2Ptr -> do
+    byte1 <- liftIO (ptrToBv8 bak byte1Ptr)
+    byte2 <- liftIO (ptrToBv8 bak byte2Ptr)
+    let sym = LCB.backendGetSym bak
+
+    eq <- liftIO (WI.bvEq sym byte1 byte2)
+    case WI.asConstantPred eq of
+      Just False -> do
+        lt <- liftIO (WI.bvUlt sym byte1 byte2)
+        let i32 = DPN.knownNat @32
+        negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+        one <- liftIO (WI.bvOne sym i32)
+        result <- liftIO (WI.bvIte sym lt negOne one)
+        pure (Break result)
+      _ ->
+        if idx + 1 >= maxLen
+          then do
+            zero <- liftIO (WI.bvZero sym (DPN.knownNat @32))
+            pure (Break zero)
+          else pure (Continue (idx + 1))

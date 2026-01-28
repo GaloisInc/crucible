@@ -63,4 +63,38 @@
     (let r8 (funcall @memcmp b3 a5 (bv 64 1)))
     (assert! (<$ (bv 32 0) r8) "memcmp('b', 'a', 1) > 0")
 
+    ;; memcmp with null bytes in the middle - equal
+    ;; This tests that memcmp compares the full length, not stopping at null
+    (let buf1 (alloca none (bv 64 3)))
+    (let buf2 (alloca none (bv 64 3)))
+    ;; Store "a\0b" in buf1
+    (let byte-a (ptr 8 0 (bv 8 97)))   ; 'a'
+    (let byte-0 (ptr 8 0 (bv 8 0)))    ; '\0'
+    (let byte-b (ptr 8 0 (bv 8 98)))   ; 'b'
+    (store none i8 buf1 byte-a)
+    (let buf1-plus-1 (ptr-add-offset buf1 (bv 64 1)))
+    (store none i8 buf1-plus-1 byte-0)
+    (let buf1-plus-2 (ptr-add-offset buf1 (bv 64 2)))
+    (store none i8 buf1-plus-2 byte-b)
+    ;; Store "a\0b" in buf2
+    (store none i8 buf2 byte-a)
+    (let buf2-plus-1 (ptr-add-offset buf2 (bv 64 1)))
+    (store none i8 buf2-plus-1 byte-0)
+    (let buf2-plus-2 (ptr-add-offset buf2 (bv 64 2)))
+    (store none i8 buf2-plus-2 byte-b)
+    (let r9 (funcall @memcmp buf1 buf2 (bv 64 3)))
+    (assert! (equal? r9 (bv 32 0)) "memcmp('a\\0b', 'a\\0b', 3) == 0")
+
+    ;; memcmp with null bytes in the middle - different
+    ;; Compare "a\0b" with "a\0c" - should differ at the third byte
+    (let buf3 (alloca none (bv 64 3)))
+    (let byte-c (ptr 8 0 (bv 8 99)))   ; 'c'
+    (store none i8 buf3 byte-a)
+    (let buf3-plus-1 (ptr-add-offset buf3 (bv 64 1)))
+    (store none i8 buf3-plus-1 byte-0)
+    (let buf3-plus-2 (ptr-add-offset buf3 (bv 64 2)))
+    (store none i8 buf3-plus-2 byte-c)
+    (let r10 (funcall @memcmp buf1 buf3 (bv 64 3)))
+    (assert! (<$ r10 (bv 32 0)) "memcmp('a\\0b', 'a\\0c', 3) < 0")
+
     (return ())))

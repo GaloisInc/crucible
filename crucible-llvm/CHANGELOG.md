@@ -45,6 +45,7 @@
 * Overrides for `strnlen`, `strcpy`, `strdup`, and `strndup`, supported by new
   APIs in `Lang.Crucible.LLVM.MemModel.Strings`.
 * Override for `memcmp`.
+* Override for `strcmp`.
 
 # 0.8.0 -- 2025-11-09
 
