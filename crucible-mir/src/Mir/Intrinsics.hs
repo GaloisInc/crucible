@@ -2345,7 +2345,16 @@ mirRef_tryOffsetFromLeaf bak elemSize (MirReference _ root1 path1) (MirReference
             pathEq <- refPathEq sym path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             byteOffset <- liftIO $ bvSub sym off1 off2
-            elemOffset <- liftIO $ bvSdiv sym byteOffset =<< wordLit sym elemSize
+            elemSize' <- liftIO $ wordLit sym elemSize
+            elemOffset <- liftIO $ bvSdiv sym byteOffset elemSize'
+
+            when (elemSize > 1) $ do
+              byteOffset' <- liftIO $ bvMul sym elemOffset elemSize'
+              byteOffsetIsSizeMultiple <- liftIO $ bvEq sym byteOffset byteOffset'
+              leafAssert bak byteOffsetIsSizeMultiple $
+                GenericSimError $
+                  "offset_from: byte offset not a multiple of `size_of::<T>` (" <> show elemSize <> ")"
+
             return $ mkPE similar elemOffset
         _ -> do
             pathEq <- refPathEq sym path1 path2
