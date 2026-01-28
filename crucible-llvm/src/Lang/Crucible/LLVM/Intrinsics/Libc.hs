@@ -101,6 +101,7 @@ libc_overrides =
   , SomeLLVMOverride llvmStrndupOverride
   , SomeLLVMOverride llvmMemcmpOverride
   , SomeLLVMOverride llvmStrcmpOverride
+  , SomeLLVMOverride llvmStrncmpOverride
   , SomeLLVMOverride llvmPrintfOverride
   , SomeLLVMOverride llvmPrintfChkOverride
   , SomeLLVMOverride llvmPutsOverride
@@ -446,6 +447,14 @@ llvmStrcmpOverride =
   [llvmOvr| i32 @strcmp( i8*, i8* ) |]
   (\memOps args -> Ctx.uncurryAssignment (callStrcmp memOps) args)
 
+llvmStrncmpOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> BVType wptr) (BVType 32)
+llvmStrncmpOverride =
+  [llvmOvr| i32 @strncmp( i8*, i8*, size_t ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrncmp memOps) args)
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -752,6 +761,19 @@ callStrcmp mvar (regValue -> ptr1) (regValue -> ptr2) =
   ovrWithBackend $ \bak -> do
     mem <- readGlobal mvar
     liftIO $ CStr.strcmp bak mem ptr1 ptr2
+
+callStrncmp
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
+callStrncmp mvar (regValue -> ptr1) (regValue -> ptr2) (regValue -> len) =
+  ovrWithBackend $ \bak -> do
+    mem <- readGlobal mvar
+    liftIO $ CStr.strncmp bak mem ptr1 ptr2 len
 
 callAssert
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym

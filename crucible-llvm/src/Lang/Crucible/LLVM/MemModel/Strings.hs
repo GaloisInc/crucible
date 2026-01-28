@@ -40,6 +40,8 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , memcmpConcreteLen
   -- * String comparison
   , strcmp
+  , strncmp
+  , strncmpConcreteLen
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
@@ -65,13 +67,16 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , llvmStringsLoader
   -- ** 'BytesChecker'
   , BytesChecker(..)
+  , withMaxBytes
   -- ** 'loadTwoBytes'
   , loadTwoBytes
   -- ** 'BytesChecker's for string comparison
   , fullyConcreteNullTerminatedStrings
   , concretelyNullTerminatedStrings
   , provablyNullTerminatedStrings
+  , lengthBoundedStringComparison
   -- ** 'BytesChecker's for length-bounded comparison
+  , simpleByteComparison
   , lengthBoundedByteComparison
   ) where
 
@@ -596,6 +601,63 @@ strcmp bak mem ptr1 ptr2 = do
   zero <- WI.bvZero sym (DPN.knownNat @32)
   loadTwoBytes bak mem zero ptr1 ptr2 (llvmStringsLoader mem) concretelyNullTerminatedStrings
 
+-- | @strncmp@ - compare two null-terminated strings up to n characters.
+--
+-- See 'strncmpConcreteLen' for the return value.
+--
+-- Asserts that the length is concrete (non-symbolic).
+strncmp ::
+  forall sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  WI.SymBV sym wptr ->
+  IO (WI.SymBV sym 32)
+strncmp bak mem ptr1 ptr2 len =
+  case BV.asUnsigned <$> WI.asBV len of
+    Just n -> strncmpConcreteLen bak mem ptr1 ptr2 (fromIntegral n)
+    Nothing -> do
+      let err = LCS.AssertFailureSimError "`strncmp` called with symbolic length" ""
+      LCB.addFailedAssertion bak err
+
+-- | Compare two null-terminated strings up to n characters with a concrete length.
+--
+-- Returns:
+-- * 0 if the strings are equal (up to n characters or null terminator)
+-- * A negative value if the first differing byte in s1 is less than in s2
+-- * A positive value if the first differing byte in s1 is greater than in s2
+--
+-- Requires that both strings have concrete null terminators.
+strncmpConcreteLen ::
+  forall sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  Integer ->
+  IO (WI.SymBV sym 32)
+strncmpConcreteLen bak mem ptr1 ptr2 n
+  | n == 0 = do
+      let sym = LCB.backendGetSym bak
+      WI.bvZero sym (DPN.knownNat @32)
+  | otherwise = do
+      let sym = LCB.backendGetSym bak
+      zero <- WI.bvZero sym (DPN.knownNat @32)
+      loadTwoBytes bak mem (zero, 0) ptr1 ptr2 (llvmStringsLoader mem) (lengthBoundedStringComparison n)
+
 ---------------------------------------------------------------------
 -- * Memory comparison
 
@@ -650,7 +712,7 @@ memcmpConcreteLen bak mem ptr1 ptr2 n
       let sym = LCB.backendGetSym bak
       WI.bvZero sym (DPN.knownNat @32)
   | otherwise =
-      loadTwoBytes bak mem 0 ptr1 ptr2 (llvmBytesLoader mem) (lengthBoundedByteComparison n)
+      loadTwoBytes bak mem ((), 0) ptr1 ptr2 (llvmBytesLoader mem) (lengthBoundedByteComparison n)
 
 ---------------------------------------------------------------------
 -- * Low-level string loading primitives
@@ -1060,6 +1122,28 @@ newtype BytesChecker m sym bak a b
   = BytesChecker
       { runBytesChecker :: bak -> a -> Mem.LLVMPtr sym 8 -> Mem.LLVMPtr sym 8 -> m (ControlFlow a b) }
 
+-- | 'BytesChecker' for adding a maximum byte length.
+withMaxBytes ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  Functor m =>
+  -- | Maximum number of bytes to compare
+  Integer ->
+  -- | What to do when the maximum is reached
+  (bak -> a -> m b) ->
+  BytesChecker m sym bak a b ->
+  BytesChecker m sym bak (a, Integer) b
+withMaxBytes limit done checker =
+  BytesChecker $ \bak (acc, i) byte1Ptr byte2Ptr ->
+    runBytesChecker checker bak acc byte1Ptr byte2Ptr >>=
+      \case
+        Break r -> pure (Break r)
+        Continue r ->
+          if i + 1 >= limit
+          then Break <$> done bak r
+          else pure (Continue (r, i + 1))
+
 -- ** 'loadTwoBytes'
 
 -- | Load sequences of bytes from two pointers simultaneously.
@@ -1138,6 +1222,7 @@ compareBytesForStrings bak byte1 byte2 = do
 
 -- Helper, not exported
 -- Common logic for handling null terminator cases in string comparison.
+-- Returns Nothing if bytes are equal (should continue), or Just result if different or at null terminator.
 handleNullTerminators ::
   MonadIO m =>
   LCB.IsSymBackend sym bak =>
@@ -1145,19 +1230,21 @@ handleNullTerminators ::
   WI.SymBV sym 32 ->
   Bool ->
   Bool ->
+  WI.SymBV sym 8 ->
+  WI.SymBV sym 8 ->
   m (Maybe (WI.SymBV sym 32))
-handleNullTerminators bak acc isNull1 isNull2 = do
+handleNullTerminators bak bothNullResult isNull1 isNull2 byte1 byte2 = do
   let sym = LCB.backendGetSym bak
   let i32 = DPN.knownNat @32
   case (isNull1, isNull2) of
-    (True, True) -> pure (Just acc)
+    (True, True) -> pure (Just bothNullResult)
     (True, False) -> do
       negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
       pure (Just negOne)
     (False, True) -> do
       one <- liftIO (WI.bvOne sym i32)
       pure (Just one)
-    (False, False) -> pure Nothing
+    (False, False) -> compareBytesForStrings bak byte1 byte2
 
 -- | 'BytesChecker' for comparing concrete strings.
 --
@@ -1211,12 +1298,9 @@ concretelyNullTerminatedStrings =
     let isNull1 = case BV.asUnsigned <$> WI.asBV byte1 of { Just 0 -> True; _ -> False }
     let isNull2 = case BV.asUnsigned <$> WI.asBV byte2 of { Just 0 -> True; _ -> False }
 
-    handleNullTerminators bak acc isNull1 isNull2 >>= \case
+    handleNullTerminators bak acc isNull1 isNull2 byte1 byte2 >>= \case
       Just result -> pure (Break result)
-      Nothing ->
-        compareBytesForStrings bak byte1 byte2 >>= \case
-          Just result -> pure (Break result)
-          Nothing -> pure (Continue acc)
+      Nothing -> pure (Continue acc)
 
 -- | 'BytesChecker' for comparing strings with provably null terminators.
 --
@@ -1238,19 +1322,49 @@ provablyNullTerminatedStrings =
     isNull1 <- isProvablyNullTerminator bak sym byte1
     isNull2 <- isProvablyNullTerminator bak sym byte2
 
-    handleNullTerminators bak acc isNull1 isNull2 >>= \case
+    handleNullTerminators bak acc isNull1 isNull2 byte1 byte2 >>= \case
       Just result -> pure (Break result)
-      Nothing ->
-        compareBytesForStrings bak byte1 byte2 >>= \case
-          Just result -> pure (Break result)
-          Nothing -> pure (Continue acc)
+      Nothing -> pure (Continue acc)
+
+-- | 'BytesChecker' for comparing strings with concrete null terminators
+-- up to a maximum length.
+--
+-- Combines null-terminator checking (like strcmp) with length bounding
+-- (like memcmp). Used for strncmp.
+--
+-- The accumulator is a pair of the comparison result so far and the current index.
+lengthBoundedStringComparison ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  Integer ->
+  BytesChecker m sym bak (WI.SymBV sym 32, Integer) (WI.SymBV sym 32)
+lengthBoundedStringComparison maxLen =
+  let onMaxBytes _bak zero = pure zero
+  in withMaxBytes maxLen onMaxBytes concretelyNullTerminatedStrings
 
 ---------------------------------------------------------------------
 -- ** BytesCheckers for length-bounded comparison
 
+-- | 'BytesChecker' for comparing two bytes without length bounds.
+--
+-- Stops when bytes differ, otherwise continues indefinitely.
+simpleByteComparison ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  BytesChecker m sym bak () (WI.SymBV sym 32)
+simpleByteComparison =
+  BytesChecker $ \bak () byte1Ptr byte2Ptr -> do
+    byte1 <- liftIO (ptrToBv8 bak byte1Ptr)
+    byte2 <- liftIO (ptrToBv8 bak byte2Ptr)
+    compareBytesForStrings bak byte1 byte2 >>= \case
+      Just result -> pure (Break result)
+      Nothing -> pure (Continue ())
+
 -- | 'BytesChecker' for comparing memory regions with a concrete length bound.
 --
--- The accumulator is the current index. Stops when the index reaches the
+-- The accumulator is a pair of unit and the current index. Stops when the index reaches the
 -- maximum length, or when bytes differ.
 --
 -- Returns:
@@ -1263,25 +1377,7 @@ lengthBoundedByteComparison ::
   LCB.IsSymBackend sym bak =>
   -- | Maximum length
   Integer ->
-  BytesChecker m sym bak Integer (WI.SymBV sym 32)
+  BytesChecker m sym bak ((), Integer) (WI.SymBV sym 32)
 lengthBoundedByteComparison maxLen =
-  BytesChecker $ \bak idx byte1Ptr byte2Ptr -> do
-    byte1 <- liftIO (ptrToBv8 bak byte1Ptr)
-    byte2 <- liftIO (ptrToBv8 bak byte2Ptr)
-    let sym = LCB.backendGetSym bak
-
-    eq <- liftIO (WI.bvEq sym byte1 byte2)
-    case WI.asConstantPred eq of
-      Just False -> do
-        lt <- liftIO (WI.bvUlt sym byte1 byte2)
-        let i32 = DPN.knownNat @32
-        negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
-        one <- liftIO (WI.bvOne sym i32)
-        result <- liftIO (WI.bvIte sym lt negOne one)
-        pure (Break result)
-      _ ->
-        if idx + 1 >= maxLen
-          then do
-            zero <- liftIO (WI.bvZero sym (DPN.knownNat @32))
-            pure (Break zero)
-          else pure (Continue (idx + 1))
+  let onMaxBytes bak () = liftIO (WI.bvZero (LCB.backendGetSym bak) (DPN.knownNat @32))
+  in withMaxBytes maxLen onMaxBytes simpleByteComparison
