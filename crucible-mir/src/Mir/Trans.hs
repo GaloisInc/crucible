@@ -3289,22 +3289,24 @@ copyNonOverlapping tpr src dest count elemSize = do
     ptrCopy tpr src dest count elemSize
     MirExp MirAggregateRepr <$> mirAggregate_zst
 
--- | Check if two allocations of the given size are non-overlapping.
--- Assumes @size <= isize::MAX@.
+-- | Check if two allocations with the given number of elements (assumed to be
+-- of size 1 - TODO: hardcoded size=1) are non-overlapping. Assumes @count <=
+-- isize::MAX@.
 isNonOverlapping ::
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s MirReferenceType ->
+    -- | The number of elements in each allocation
     R.Expr MIR s UsizeType ->
     MirGenerator h s ret (G.Expr MIR s C.BoolType)
-isNonOverlapping src dest size = do
+isNonOverlapping src dest count = do
   maybeOffset <- mirRef_tryOffsetFrom dest src
   -- If `maybeOffset` is Nothing, then src and dest definitely
   -- don't overlap, since they come from different allocations.
-  -- If it's Just, the value must be >= size or <= -size to put
+  -- If it's Just, the value must be >= count or <= -count to put
   -- the two regions far enough apart.
-  let size' = usizeToIsize R.App size
-      destAbove offset = R.App $ isizeLe size' offset
-      destBelow offset = R.App $ isizeLe offset (R.App $ isizeNeg size')
+  let count' = usizeToIsize R.App count
+      destAbove offset = R.App $ isizeLe count' offset
+      destBelow offset = R.App $ isizeLe offset (R.App $ isizeNeg count')
   G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
     (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
     (return $ R.App $ E.BoolLit True)
