@@ -1330,6 +1330,8 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirRef_TryOffsetFrom ::
      !(f MirReferenceType) ->
      !(f MirReferenceType) ->
+     -- | The size of the pointee, i.e. @size_of::<T>@
+     !Word ->
      MirStmt f (MaybeType IsizeType)
   -- | Peel off an outermost `Index_RefPath`.  Given a pointer to an element of
   -- a vector, this produces a pointer to the parent vector and the index of
@@ -1473,7 +1475,7 @@ instance TypeApp MirStmt where
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
-    MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
+    MirRef_TryOffsetFrom _ _ _ -> MaybeRepr IsizeRepr
     MirRef_PeelIndex _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
@@ -1508,7 +1510,7 @@ instance PrettyApp MirStmt where
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
-    MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
+    MirRef_TryOffsetFrom p o s -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o <+> viaShow s
     MirRef_PeelIndex p -> "mirRef_peelIndex" <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
@@ -2313,10 +2315,12 @@ mirRef_offsetWrapLeaf bak ref@(MirReference_Integer _) offset _elemSize = do
 mirRef_tryOffsetFromLeaf ::
     IsSymInterface sym =>
     sym ->
+    -- | The size of the pointee type, in bytes
+    Word ->
     MirReference sym ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym (MaybeType IsizeType))
-mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 path2) = do
+mirRef_tryOffsetFromLeaf sym elemSize (MirReference _ root1 path1) (MirReference _ root2 path2) = do
     rootEq <- refRootEq sym root1 root2
     case (path1, path2) of
         (VectorIndex_RefPath _ path1' idx1, VectorIndex_RefPath _ path2' idx2) -> do
@@ -2331,24 +2335,29 @@ mirRef_tryOffsetFromLeaf sym (MirReference _ root1 path1) (MirReference _ root2 
             -- TODO: implement overflow checks, similar to `offset`
             offset <- liftIO $ bvSub sym idx1 idx2
             return $ mkPE similar offset
-        (AgElem_RefPath off1 elemSz _ path1', AgElem_RefPath off2 _ _ path2') -> do
+        (AgElem_RefPath off1 _ _ path1', AgElem_RefPath off2 _ _ path2') -> do
+            -- Use the `elemSize` parameter instead of the element size stored in the
+            -- reference path to avoid using a type-incorrect size when
+            -- operating on a reference that's been cast to a type that doesn't
+            -- match its original representation. (Same rationale as described
+            -- in `mirRef_offsetWrapLeaf`.)
             pathEq <- refPathEq sym path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             byteOffset <- liftIO $ bvSub sym off1 off2
-            elemOffset <- liftIO $ bvSdiv sym byteOffset =<< wordLit sym elemSz
+            elemOffset <- liftIO $ bvSdiv sym byteOffset =<< wordLit sym elemSize
             return $ mkPE similar elemOffset
         _ -> do
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
             liftIO $ mkPE similar <$> bvZero sym knownNat
-mirRef_tryOffsetFromLeaf sym (MirReference_Integer i1) (MirReference_Integer i2) = do
+mirRef_tryOffsetFromLeaf sym _elemSize (MirReference_Integer i1) (MirReference_Integer i2) = do
     -- Return zero if `i1 == i2`; otherwise, return `Unassigned`.
     --
     -- For more interesting cases, we would need to know the element size to
     -- use in converting the byte offset `i1 - i2` into an element count.
     eq <- liftIO $ bvEq sym i1 i2
     liftIO $ mkPE eq <$> bvZero sym knownNat
-mirRef_tryOffsetFromLeaf _ _ _ = do
+mirRef_tryOffsetFromLeaf _ _ _ _ = do
     -- MirReference_Integer pointers are always disjoint from all MirReference
     -- pointers, so we report them as being in different objects.
     return Unassigned
@@ -2357,12 +2366,14 @@ mirRef_tryOffsetFromIO ::
     IsSymBackend sym bak =>
     bak ->
     IntrinsicTypes sym ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     MirReferenceMux sym ->
     MirReferenceMux sym ->
     IO (RegValue sym (MaybeType IsizeType))
-mirRef_tryOffsetFromIO bak iTypes (MirReferenceMux r1) (MirReferenceMux r2) =
+mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
-    zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf sym)
+    zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf sym elemSize)
             (muxRegForType sym iTypes (MaybeRepr IsizeRepr)) r1 r2
 
 mirRef_peelIndexLeaf ::
@@ -2544,8 +2555,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ mirRef_offsetIO bak iTypes ref off elemSize
        MirRef_OffsetWrap (regValue -> ref) (regValue -> off) elemSize ->
          readOnly s $ mirRef_offsetWrapIO bak iTypes ref off elemSize
-       MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) ->
-         readOnly s $ mirRef_tryOffsetFromIO bak iTypes r1 r2
+       MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) elemSize ->
+         readOnly s $ mirRef_tryOffsetFromIO bak iTypes elemSize r1 r2
        MirRef_PeelIndex (regValue -> ref) -> do
          readOnly s $ mirRef_peelIndexIO bak iTypes ref
 

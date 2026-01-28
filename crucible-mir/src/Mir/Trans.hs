@@ -3283,23 +3283,24 @@ copyNonOverlapping tpr src dest count elemSize = do
     let countOk = R.App $ usizeLt count maxCount
     G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
 
-    nonOverlapping <- isNonOverlapping src dest count
+    nonOverlapping <- isNonOverlapping src dest count elemSize
     G.assertExpr nonOverlapping $ S.litExpr "src and dest overlap in copy_nonoverlapping"
 
     ptrCopy tpr src dest count elemSize
     MirExp MirAggregateRepr <$> mirAggregate_zst
 
--- | Check if two allocations with the given number of elements (assumed to be
--- of size 1 - TODO: hardcoded size=1) are non-overlapping. Assumes @count <=
--- isize::MAX@.
+-- | Check if two allocations with the given number of elements, each of the
+-- given size, are non-overlapping. Assumes @count <= isize::MAX@.
 isNonOverlapping ::
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s MirReferenceType ->
     -- | The number of elements in each allocation
     R.Expr MIR s UsizeType ->
+    -- | The size of each element
+    Word ->
     MirGenerator h s ret (G.Expr MIR s C.BoolType)
-isNonOverlapping src dest count = do
-  maybeOffset <- mirRef_tryOffsetFrom dest src
+isNonOverlapping src dest count elemSize = do
+  maybeOffset <- mirRef_tryOffsetFrom dest src elemSize
   -- If `maybeOffset` is Nothing, then src and dest definitely
   -- don't overlap, since they come from different allocations.
   -- If it's Just, the value must be >= count or <= -count to put

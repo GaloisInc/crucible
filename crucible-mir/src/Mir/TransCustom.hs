@@ -518,9 +518,10 @@ ptr_wrapping_offset_mut =
 
 ptr_offset_from_impl :: CustomRHS
 ptr_offset_from_impl = \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ref1, MirExp MirReferenceRepr ref2] -> do
-            maybeOffset <- mirRef_tryOffsetFrom ref1 ref2
+            elemSize <- tySizeM "ptr_offset_from_impl" ty
+            maybeOffset <- mirRef_tryOffsetFrom ref1 ref2 elemSize
             let errMsg = R.App $ E.StringLit $ fromString $
                     "tried to subtract pointers into different arrays"
             let val = R.App $ E.FromJustValue IsizeRepr maybeOffset errMsg
@@ -535,9 +536,10 @@ ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{impl}", "offset_from"], ptr_
 
 ptr_offset_from_unsigned_impl :: CustomRHS
 ptr_offset_from_unsigned_impl = \substs -> case substs of
-  Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+  Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp MirReferenceRepr ref1, MirExp MirReferenceRepr ref2] -> do
-      maybeOffset <- mirRef_tryOffsetFrom ref1 ref2
+      elemSize <- tySizeM "ptr_offset_from_unsigned_impl" ty
+      maybeOffset <- mirRef_tryOffsetFrom ref1 ref2 elemSize
       let errMsg = R.App $ E.StringLit $ fromString $
             "ptr_offset_from_unsigned: pointers not in same allocation"
       let signedOffset = R.App $ E.FromJustValue IsizeRepr maybeOffset errMsg
@@ -778,8 +780,9 @@ cell_swap_is_nonoverlapping =
         Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
             [MirExp MirReferenceRepr src,
              MirExp MirReferenceRepr dest] -> do
-                size <- getLayoutFieldAsExpr "crucible_cell_swap_is_nonoverlapping_hook" laySize ty
-                MirExp C.BoolRepr <$> isNonOverlapping src dest size
+                elemSize <- tySizeM "cell_swap_is_nonoverlapping" ty
+                let count = R.App $ usizeLit 1
+                MirExp C.BoolRepr <$> isNonOverlapping src dest count elemSize
             _ -> mirFail $
                 "bad arguments for Cell::swap::crucible_cell_swap_is_nonoverlapping_hook: "
                 ++ show ops

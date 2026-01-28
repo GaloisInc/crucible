@@ -699,8 +699,10 @@ mirRef_offsetWrap ref offset elemSize = G.extensionStmt $ MirRef_OffsetWrap ref 
 mirRef_tryOffsetFrom ::
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s MirReferenceType ->
+  -- | The size of the pointee, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s (C.MaybeType IsizeType))
-mirRef_tryOffsetFrom r1 r2 = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2
+mirRef_tryOffsetFrom r1 r2 elemSize = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2 elemSize
 
 mirRef_peelIndex ::
   R.Expr MIR s MirReferenceType ->
