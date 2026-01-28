@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NegativeLiterals #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -1118,11 +1119,15 @@ loadBytes bak mem = go
 -- The loader can optionally add assumptions after loading bytes when iteration
 -- continues. This is used for null-terminated string operations where we need
 -- to assume loaded bytes are non-null.
+--
+-- Like 'ByteLoader', but for two bytes (usually from different strings) at
+-- once.
 data BytesLoader m sym bak wptr
   = BytesLoader
       { runBytesLoader :: bak -> Mem.LLVMPtr sym wptr -> Mem.LLVMPtr sym wptr -> m (Mem.LLVMPtr sym 8, Mem.LLVMPtr sym 8)
-      -- | Called when the checker returns 'Continue', allowing the loader to
-      -- add assumptions about the loaded bytes (e.g., that they are non-null).
+      -- | Called when the 'BytesChecker' returns 'Continue', allowing the
+      -- loader to add assumptions about the loaded bytes (e.g., that they are
+      -- non-null).
       , onContinue :: bak -> Mem.LLVMPtr sym 8 -> Mem.LLVMPtr sym 8 -> m ()
       }
 
@@ -1193,6 +1198,9 @@ llvmStringsLoader mem =
 -- continue to the next pair of bytes.
 --
 -- Used to compare two byte streams simultaneously, e.g., for 'strcmp'.
+--
+-- Like 'ByteChecker', but for two bytes (usually from different strings) at
+-- once.
 newtype BytesChecker m sym bak a b
   = BytesChecker
       { runBytesChecker :: bak -> a -> Mem.LLVMPtr sym 8 -> Mem.LLVMPtr sym 8 -> m (ControlFlow a b) }
@@ -1289,7 +1297,7 @@ compareBytesForStrings bak byte1 byte2 = do
   case WI.asConstantPred eq of
     Just False -> do
       lt <- liftIO (WI.bvUlt sym byte1 byte2)
-      negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+      negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 -1))
       one <- liftIO (WI.bvOne sym i32)
       result <- liftIO (WI.bvIte sym lt negOne one)
       pure (Just result)
@@ -1314,7 +1322,7 @@ handleNullTerminators bak bothNullResult isNull1 isNull2 byte1 byte2 = do
   case (isNull1, isNull2) of
     (True, True) -> pure (Just bothNullResult)
     (True, False) -> do
-      negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+      negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 -1))
       pure (Just negOne)
     (False, True) -> do
       one <- liftIO (WI.bvOne sym i32)
@@ -1339,7 +1347,7 @@ fullyConcreteNullTerminatedStrings =
     case (BV.asUnsigned <$> WI.asBV byte1, BV.asUnsigned <$> WI.asBV byte2) of
       (Just 0, Just 0) -> pure (Break acc)
       (Just 0, Just _) -> do
-        negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+        negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 -1))
         pure (Break negOne)
       (Just _, Just 0) -> do
         one <- liftIO (WI.bvOne sym i32)
@@ -1348,7 +1356,7 @@ fullyConcreteNullTerminatedStrings =
       (Just c1, Just c2) -> do
         if c1 < c2
           then do
-            negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 (- 1)))
+            negOne <- liftIO (WI.bvLit sym i32 (BV.mkBV i32 -1))
             pure (Break negOne)
           else do
             one <- liftIO (WI.bvOne sym i32)
@@ -1370,8 +1378,8 @@ concretelyNullTerminatedStrings =
     byte1 <- liftIO (ptrToBv8 bak byte1Ptr)
     byte2 <- liftIO (ptrToBv8 bak byte2Ptr)
 
-    let isNull1 = case BV.asUnsigned <$> WI.asBV byte1 of { Just 0 -> True; _ -> False }
-    let isNull2 = case BV.asUnsigned <$> WI.asBV byte2 of { Just 0 -> True; _ -> False }
+    let isNull1 = (BV.asUnsigned <$> WI.asBV byte1) == Just 0
+    let isNull2 = (BV.asUnsigned <$> WI.asBV byte2) == Just 0
 
     handleNullTerminators bak acc isNull1 isNull2 byte1 byte2 >>= \case
       Just result -> pure (Break result)
