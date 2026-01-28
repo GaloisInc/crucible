@@ -748,7 +748,7 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             --
             -- TODO: check for overlap and copy in reverse order if needed.
             -- This will let us avoid the temporary `constMirRef`.
-            (srcAg, srcIdx) <- mirRef_peelIndex src
+            (srcAg, srcIdx) <- mirRef_peelIndex src elemSize
             srcSnapAg <- readMirRef MirAggregateRepr srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
             srcSnap <- subindexRef elemTpr srcSnapRoot srcIdx elemSize
@@ -1882,15 +1882,15 @@ reallocate :: (ExplodedDefId, CustomRHS)
 reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
-            (agPtr, idx) <- mirRef_peelIndex ptr
+            elemSize <- tySizeM "reallocate" elemTy
+
+            (agPtr, idx) <- mirRef_peelIndex ptr elemSize
 
             let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
             G.assertExpr isZero $
                 S.litExpr "bad pointer in reallocate: not the start of an allocation"
 
             oldAg <- readMirRef MirAggregateRepr agPtr
-
-            elemSize <- tySizeM "reallocate" elemTy
             let newSize = R.App (usizeMul newLen (R.App (usizeLit (fromIntegral elemSize))))
             newAg <- mirAggregate_resize oldAg newSize
             writeMirRef MirAggregateRepr agPtr newAg

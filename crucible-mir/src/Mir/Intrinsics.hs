@@ -1339,6 +1339,8 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   -- operation raises an error.
   MirRef_PeelIndex ::
      !(f MirReferenceType) ->
+     -- | The size of the element, in bytes
+     !Word ->
      MirStmt f (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType))
   VectorSnoc ::
      !(TypeRepr tp) ->
@@ -1476,7 +1478,7 @@ instance TypeApp MirStmt where
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ _ -> MaybeRepr IsizeRepr
-    MirRef_PeelIndex _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
+    MirRef_PeelIndex _ _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -1511,7 +1513,7 @@ instance PrettyApp MirStmt where
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
     MirRef_TryOffsetFrom p o s -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o <+> viaShow s
-    MirRef_PeelIndex p -> "mirRef_peelIndex" <+> pp p
+    MirRef_PeelIndex p s -> "mirRef_peelIndex" <+> pp p <+> viaShow s
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -2390,23 +2392,25 @@ mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux
 mirRef_peelIndexLeaf ::
     IsSymInterface sym =>
     sym ->
+    -- | The size of the element, in bytes
+    Word ->
     MirReference sym ->
     MuxLeafT sym IO
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexLeaf sym (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+mirRef_peelIndexLeaf sym _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf sym (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
+mirRef_peelIndexLeaf sym _elemSize (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf sym (MirReference _tpr root (AgElem_RefPath off sz _tpr' path)) = do
-    idx <- liftIO $ bvUdiv sym off =<< wordLit sym sz
+mirRef_peelIndexLeaf sym elemSize (MirReference _tpr root (AgElem_RefPath off _sz _tpr' path)) = do
+    idx <- liftIO $ bvUdiv sym off =<< wordLit sym elemSize
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf _sym (MirReference _ _ _) =
+mirRef_peelIndexLeaf _elemSize _sym (MirReference _ _ _) =
     leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
-mirRef_peelIndexLeaf _sym _ = do
+mirRef_peelIndexLeaf _elemSize _sym _ = do
     leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
 
@@ -2415,11 +2419,13 @@ mirRef_peelIndexIO ::
     bak ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
+    -- | The size of the element, in bytes
+    Word ->
     IO (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) =
+mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) elemSize =
     let sym = backendGetSym bak
         tpr' = StructRepr (Empty :> MirReferenceRepr :> IsizeRepr) in
-    readFancyMuxTree' bak (mirRef_peelIndexLeaf sym)
+    readFancyMuxTree' bak (mirRef_peelIndexLeaf sym elemSize)
         (muxRegForType sym iTypes tpr') ref
 
 -- | Compute the index of `ref` within its containing allocation, along with
@@ -2568,8 +2574,8 @@ execMirStmt stmt s = withBackend ctx $ \bak ->
          readOnly s $ mirRef_offsetWrapIO bak iTypes ref off elemSize
        MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) elemSize ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes elemSize r1 r2
-       MirRef_PeelIndex (regValue -> ref) -> do
-         readOnly s $ mirRef_peelIndexIO bak iTypes ref
+       MirRef_PeelIndex (regValue -> ref) elemSize -> do
+         readOnly s $ mirRef_peelIndexIO bak iTypes ref elemSize
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
