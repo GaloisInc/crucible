@@ -1117,7 +1117,7 @@ loadBytes bak mem = go
 --
 -- The loader can optionally add assumptions after loading bytes when iteration
 -- continues. This is used for null-terminated string operations where we need
--- to assume loaded bytes are non-null for termination proofs.
+-- to assume loaded bytes are non-null.
 data BytesLoader m sym bak wptr
   = BytesLoader
       { runBytesLoader :: bak -> Mem.LLVMPtr sym wptr -> Mem.LLVMPtr sym wptr -> m (Mem.LLVMPtr sym 8, Mem.LLVMPtr sym 8)
@@ -1155,8 +1155,7 @@ llvmBytesLoader mem =
 -- | A 'BytesLoader' for LLVM memory that adds non-null assumptions.
 --
 -- This version adds assumptions that loaded bytes are non-null when iteration
--- continues. Use this for null-terminated string operations like @strcmp@
--- where these assumptions help the solver prove termination.
+-- continues. Use this for null-terminated string operations like @strcmp@.
 llvmStringsLoader ::
   ( LCB.IsSymBackend sym bak
   , Mem.HasPtrWidth wptr
