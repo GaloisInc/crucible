@@ -9,6 +9,7 @@
 module MemSetup
   (
     withInitializedMemory
+  , withTranslatedModule
   )
   where
 
@@ -45,24 +46,26 @@ withInitializedMemory :: forall a. L.Module
                           -> IO a)
                       -> IO a
 withInitializedMemory mod' action =
-  withLLVMCtx mod' $ \(ctx :: LLVMTr.LLVMContext arch) sym ->
+  withTranslatedModule mod' $ \_ (ctx :: LLVMTr.LLVMContext arch) _ sym ->
     action @(LLVME.ArchWidth arch) =<< LLVMG.initializeAllMemory sym ctx mod'
 
 
--- | Create an LLVM context from a module and make some assertions about it.
-withLLVMCtx :: forall a. L.Module
-            -> (forall arch sym bak.
-                   ( ?lc :: TypeContext
-                   , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
-                   , CB.IsSymBackend sym bak
-                   , LLVMMem.HasLLVMAnn sym
-                   , ?memOpts :: LLVMMem.MemOptions
-                   )
-                => LLVMTr.LLVMContext arch
-                -> bak
-                -> IO a)
-            -> IO a
-withLLVMCtx mod' action =
+-- | Translate an LLVM module and provide the translation, context, handle allocator, and backend.
+withTranslatedModule :: forall a. L.Module
+                     -> (forall arch sym bak.
+                            ( ?lc :: TypeContext
+                            , LLVMM.HasPtrWidth (LLVME.ArchWidth arch)
+                            , CB.IsSymBackend sym bak
+                            , LLVMMem.HasLLVMAnn sym
+                            , ?memOpts :: LLVMMem.MemOptions
+                            )
+                         => LLVMTr.ModuleTranslation arch
+                         -> LLVMTr.LLVMContext arch
+                         -> HandleAllocator
+                         -> bak
+                         -> IO a)
+                     -> IO a
+withTranslatedModule mod' action =
   let -- This is a separate function because we need to use the scoped type variable
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
@@ -80,7 +83,7 @@ withLLVMCtx mod' action =
           let ?ptrWidth = width
           let ?lc = LLVMTr._llvmTypeCtx ctx
           let ?recordLLVMAnnotation = \_ _ _ -> pure ()
-          action ctx bak
+          action mtrans ctx halloc bak
         }}}
   in withIONonceGenerator $ \nonceGen ->
      withHandleAllocator  $ \halloc   -> with nonceGen halloc
