@@ -2313,14 +2313,15 @@ mirRef_offsetWrapLeaf bak ref@(MirReference_Integer _) offset _elemSize = do
     return ref
 
 mirRef_tryOffsetFromLeaf ::
-    IsSymInterface sym =>
-    sym ->
+    IsSymBackend sym bak =>
+    bak ->
     -- | The size of the pointee type, in bytes
     Word ->
     MirReference sym ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym (MaybeType IsizeType))
-mirRef_tryOffsetFromLeaf sym elemSize (MirReference _ root1 path1) (MirReference _ root2 path2) = do
+mirRef_tryOffsetFromLeaf bak elemSize (MirReference _ root1 path1) (MirReference _ root2 path2) = do
+    let sym = backendGetSym bak
     rootEq <- refRootEq sym root1 root2
     case (path1, path2) of
         (VectorIndex_RefPath _ path1' idx1, VectorIndex_RefPath _ path2' idx2) -> do
@@ -2350,11 +2351,12 @@ mirRef_tryOffsetFromLeaf sym elemSize (MirReference _ root1 path1) (MirReference
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
             liftIO $ mkPE similar <$> bvZero sym knownNat
-mirRef_tryOffsetFromLeaf sym _elemSize (MirReference_Integer i1) (MirReference_Integer i2) = do
+mirRef_tryOffsetFromLeaf bak _elemSize (MirReference_Integer i1) (MirReference_Integer i2) = do
     -- Return zero if `i1 == i2`; otherwise, return `Unassigned`.
     --
     -- For more interesting cases, we would need to know the element size to
     -- use in converting the byte offset `i1 - i2` into an element count.
+    let sym = backendGetSym bak
     eq <- liftIO $ bvEq sym i1 i2
     liftIO $ mkPE eq <$> bvZero sym knownNat
 mirRef_tryOffsetFromLeaf _ _ _ _ = do
@@ -2373,7 +2375,7 @@ mirRef_tryOffsetFromIO ::
     IO (RegValue sym (MaybeType IsizeType))
 mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
-    zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf sym elemSize)
+    zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf bak elemSize)
             (muxRegForType sym iTypes (MaybeRepr IsizeRepr)) r1 r2
 
 mirRef_peelIndexLeaf ::
