@@ -39,9 +39,11 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , memcmp
   , memcmpConcreteLen
   -- * String comparison
-  , strcmp
   , strncmp
   , strncmpConcreteLen
+  , cmpConcreteString
+  , cmpConcretelyNullTerminatedString
+  , cmpProvablyNullTerminatedString
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
@@ -75,6 +77,7 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , concretelyNullTerminatedStrings
   , provablyNullTerminatedStrings
   , lengthBoundedStringComparison
+  , lengthBoundedProvablyNullTerminatedStringComparison
   -- ** 'BytesChecker's for length-bounded comparison
   , simpleByteComparison
   , lengthBoundedByteComparison
@@ -575,15 +578,16 @@ dupProvablyNullTerminatedString bak mem src bounds displayString alignment = do
 ---------------------------------------------------------------------
 -- * String comparison
 
--- | @strcmp@ - compare two null-terminated strings.
+-- | Compare two concrete strings.
+--
+-- Uses 'fullyConcreteNullTerminatedStrings' checker. Both strings must be
+-- fully concrete (no symbolic bytes).
 --
 -- Returns:
 -- * 0 if the strings are equal
 -- * A negative value if the first differing byte in s1 is less than in s2
 -- * A positive value if the first differing byte in s1 is greater than in s2
---
--- Requires that both strings have concrete null terminators.
-strcmp ::
+cmpConcreteString ::
   forall sym bak wptr.
   ( LCB.IsSymBackend sym bak
   , Mem.HasPtrWidth wptr
@@ -596,10 +600,88 @@ strcmp ::
   Mem.LLVMPtr sym wptr ->
   Mem.LLVMPtr sym wptr ->
   IO (WI.SymBV sym 32)
-strcmp bak mem ptr1 ptr2 = do
+cmpConcreteString bak mem ptr1 ptr2 = do
   let sym = LCB.backendGetSym bak
   zero <- WI.bvZero sym (DPN.knownNat @32)
-  loadTwoBytes bak mem zero ptr1 ptr2 (llvmStringsLoader mem) concretelyNullTerminatedStrings
+  loadTwoBytes bak mem zero ptr1 ptr2 (llvmStringsLoader mem) fullyConcreteNullTerminatedStrings
+
+-- | Compare two strings with concrete null terminators.
+--
+-- Uses 'concretelyNullTerminatedStrings' checker. The strings must have
+-- concrete null terminators, but may contain symbolic bytes before the terminator.
+--
+-- If a maximum length is provided, comparison stops at that length even if
+-- no null terminator is encountered.
+--
+-- Returns:
+-- * 0 if the strings are equal
+-- * A negative value if the first differing byte in s1 is less than in s2
+-- * A positive value if the first differing byte in s1 is greater than in s2
+cmpConcretelyNullTerminatedString ::
+  forall sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to compare
+  Maybe Int ->
+  IO (WI.SymBV sym 32)
+cmpConcretelyNullTerminatedString bak mem ptr1 ptr2 maxLen = do
+  let sym = LCB.backendGetSym bak
+  zero <- WI.bvZero sym (DPN.knownNat @32)
+  case maxLen of
+    Nothing ->
+      loadTwoBytes bak mem zero ptr1 ptr2 (llvmStringsLoader mem) concretelyNullTerminatedStrings
+    Just 0 ->
+      WI.bvZero sym (DPN.knownNat @32)
+    Just n ->
+      loadTwoBytes bak mem (zero, 0) ptr1 ptr2 (llvmStringsLoader mem) (lengthBoundedStringComparison (fromIntegral n))
+
+-- | Compare two strings with provably null terminators.
+--
+-- Uses 'provablyNullTerminatedStrings' checker. Consults an SMT solver to
+-- check if bytes are provably null terminators.
+--
+-- If a maximum length is provided, comparison stops at that length even if
+-- no null terminator is encountered.
+--
+-- Returns:
+-- * 0 if the strings are equal
+-- * A negative value if the first differing byte in s1 is less than in s2
+-- * A positive value if the first differing byte in s1 is greater than in s2
+cmpProvablyNullTerminatedString ::
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  , sym ~ WEB.ExprBuilder scope st fs
+  , bak ~ LCBO.OnlineBackend solver scope st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  -- | Maximum number of characters to compare
+  Maybe Int ->
+  IO (WI.SymBV sym 32)
+cmpProvablyNullTerminatedString bak mem ptr1 ptr2 maxLen = do
+  let sym = LCB.backendGetSym bak
+  zero <- WI.bvZero sym (DPN.knownNat @32)
+  case maxLen of
+    Nothing ->
+      loadTwoBytes bak mem zero ptr1 ptr2 (llvmStringsLoader mem) provablyNullTerminatedStrings
+    Just 0 ->
+      WI.bvZero sym (DPN.knownNat @32)
+    Just n ->
+      loadTwoBytes bak mem (zero, 0) ptr1 ptr2 (llvmStringsLoader mem) (lengthBoundedProvablyNullTerminatedStringComparison (fromIntegral n))
 
 -- | @strncmp@ - compare two null-terminated strings up to n characters.
 --
@@ -649,14 +731,8 @@ strncmpConcreteLen ::
   Mem.LLVMPtr sym wptr ->
   Integer ->
   IO (WI.SymBV sym 32)
-strncmpConcreteLen bak mem ptr1 ptr2 n
-  | n == 0 = do
-      let sym = LCB.backendGetSym bak
-      WI.bvZero sym (DPN.knownNat @32)
-  | otherwise = do
-      let sym = LCB.backendGetSym bak
-      zero <- WI.bvZero sym (DPN.knownNat @32)
-      loadTwoBytes bak mem (zero, 0) ptr1 ptr2 (llvmStringsLoader mem) (lengthBoundedStringComparison n)
+strncmpConcreteLen bak mem ptr1 ptr2 n =
+  cmpConcretelyNullTerminatedString bak mem ptr1 ptr2 (Just (fromIntegral n))
 
 ---------------------------------------------------------------------
 -- * Memory comparison
@@ -1342,6 +1418,25 @@ lengthBoundedStringComparison ::
 lengthBoundedStringComparison maxLen =
   let onMaxBytes _bak zero = pure zero
   in withMaxBytes maxLen onMaxBytes concretelyNullTerminatedStrings
+
+-- | 'BytesChecker' for comparing strings with provably null terminators
+-- up to a maximum length.
+--
+-- Combines provably null-terminator checking with length bounding.
+--
+-- The accumulator is a pair of the comparison result so far and the current index.
+lengthBoundedProvablyNullTerminatedStringComparison ::
+  MonadIO m =>
+  GHC.HasCallStack =>
+  LCB.IsSymBackend sym bak =>
+  sym ~ WEB.ExprBuilder scope st fs =>
+  bak ~ LCBO.OnlineBackend solver scope st fs =>
+  WPO.OnlineSolver solver =>
+  Integer ->
+  BytesChecker m sym bak (WI.SymBV sym 32, Integer) (WI.SymBV sym 32)
+lengthBoundedProvablyNullTerminatedStringComparison maxLen =
+  let onMaxBytes _bak zero = pure zero
+  in withMaxBytes maxLen onMaxBytes provablyNullTerminatedStrings
 
 ---------------------------------------------------------------------
 -- ** BytesCheckers for length-bounded comparison

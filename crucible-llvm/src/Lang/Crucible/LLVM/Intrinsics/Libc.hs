@@ -760,7 +760,7 @@ callStrcmp
 callStrcmp mvar (regValue -> ptr1) (regValue -> ptr2) =
   ovrWithBackend $ \bak -> do
     mem <- readGlobal mvar
-    liftIO $ CStr.strcmp bak mem ptr1 ptr2
+    liftIO $ CStr.cmpConcretelyNullTerminatedString bak mem ptr1 ptr2 Nothing
 
 callStrncmp
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
