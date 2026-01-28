@@ -186,3 +186,8 @@ Crucible-LLVM is missing overrides for many of the functions from `string.h`,
 see issue [#1713] for an up-to-date list and status updates.
 
 [#1713]: https://github.com/GaloisInc/crucible/issues/1713
+
+Limitations of overrides
+========================
+
+- `memcmp` requires a concrete length.

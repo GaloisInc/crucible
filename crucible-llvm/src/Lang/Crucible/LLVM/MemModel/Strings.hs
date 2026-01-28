@@ -35,6 +35,9 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , dupConcreteString
   , dupConcretelyNullTerminatedString
   , dupProvablyNullTerminatedString
+  -- * Memory comparison
+  , memcmp
+  , memcmpConcreteLen
   -- * Low-level string loading primitives
   -- ** 'ByteChecker'
   , ControlFlow(..)
@@ -548,6 +551,91 @@ dupProvablyNullTerminatedString bak mem src bounds displayString alignment = do
   dupFromLoadedBytes bak mem (Vec.fromList bytes) displayString alignment
 
 ---------------------------------------------------------------------
+-- * Memory comparison
+
+-- | @memcmp@.
+--
+-- See 'memcmpConcreteLen' for the return value.
+--
+-- Asserts that the length is concrete (non-symbolic).
+memcmp ::
+  forall sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  WI.SymBV sym wptr ->
+  IO (WI.SymBV sym 32)
+memcmp bak mem ptr1 ptr2 len =
+  case BV.asUnsigned <$> WI.asBV len of
+    Just n -> memcmpConcreteLen bak mem ptr1 ptr2 (fromIntegral n)
+    Nothing -> do
+      let err = LCS.AssertFailureSimError "`memcmp` called with symbolic length" ""
+      LCB.addFailedAssertion bak err
+
+-- | Compare two memory regions byte-by-byte with a concrete length.
+--
+-- Returns:
+-- * 0 if the regions are equal
+-- * A negative value if the first differing byte in s1 is less than in s2
+-- * A positive value if the first differing byte in s1 is greater than in s2
+memcmpConcreteLen ::
+  forall sym bak wptr.
+  ( LCB.IsSymBackend sym bak
+  , Mem.HasPtrWidth wptr
+  , Partial.HasLLVMAnn sym
+  , ?memOpts :: Mem.MemOptions
+  , GHC.HasCallStack
+  ) =>
+  bak ->
+  Mem.MemImpl sym ->
+  Mem.LLVMPtr sym wptr ->
+  Mem.LLVMPtr sym wptr ->
+  Integer ->
+  IO (WI.SymBV sym 32)
+memcmpConcreteLen bak mem ptr1 ptr2 n = go 0 n
+  where
+    go :: Integer -> Integer -> IO (WI.SymBV sym 32)
+    go idx maxIdx
+      | idx >= maxIdx = do
+          let sym = LCB.backendGetSym bak
+          WI.bvZero sym (DPN.knownNat @32)
+      | otherwise = do
+          let sym = LCB.backendGetSym bak
+
+          idxBv <- WI.bvLit sym Mem.PtrWidth (BV.mkBV Mem.PtrWidth idx)
+          p1 <- Mem.ptrAdd sym Mem.PtrWidth ptr1 idxBv
+          p2 <- Mem.ptrAdd sym Mem.PtrWidth ptr2 idxBv
+
+          let byteTy = Mem.bitvectorType 1
+          let i8 = Mem.LLVMPointerRepr (DPN.knownNat @8)
+          v1 <- Mem.doLoad bak mem p1 byteTy i8 CLD.noAlignment
+          v2 <- Mem.doLoad bak mem p2 byteTy i8 CLD.noAlignment
+
+          let err = LCS.AssertFailureSimError "Found pointer instead of byte in memcmp" ""
+          byte1 <- Partial.ptrToBv bak err v1
+          byte2 <- Partial.ptrToBv bak err v2
+
+          eq <- WI.bvEq sym byte1 byte2
+          lt <- WI.bvUlt sym byte1 byte2
+
+          let i32 = DPN.knownNat @32
+          negOne <- WI.bvLit sym i32 (BV.mkBV i32 (- 1))
+          one <- WI.bvOne sym i32
+          case WI.asConstantPred eq of
+            Just False -> WI.bvIte sym lt negOne one
+            _ -> do
+              restResult <- go (idx + 1) maxIdx
+              tmp <- WI.bvIte sym eq restResult one
+              WI.bvIte sym lt negOne tmp
+
+---------------------------------------------------------------------
 -- * Low-level string loading primitives
 
 ---------------------------------------------------------------------
@@ -863,4 +951,4 @@ loadBytes bak mem = go
           liftIO (LCB.addAssumption bak assump)
 
           ptr' <- liftIO (Mem.doPtrAddOffset bak mem ptr =<< WI.bvOne sym Mem.PtrWidth)
-          go acc' ptr' loader checker 
+          go acc' ptr' loader checker
