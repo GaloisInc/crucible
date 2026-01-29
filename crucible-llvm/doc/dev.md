@@ -13,9 +13,12 @@ To add an override to Crucible-LLVM:
 - Add the declaration to the appropriate list, e.g., `libc_overrides` if it
   appears in libc or `basic_llvm_overrides` if it is an LLVM override (usually
   starting with `@llvm.*`).
-- Add a test in `crucible-cli/test-data/simulate`. See `strdup.cbl` for an
-  example. If the override can exhibit undefined behavior, that should be
-  covered by the test.
+- Add tests.
+  - Consider adding a test in `crucible-llvm/test/behavior`. See the README
+    there for further discussion.
+  - Consider adding a test in `crucible-llvm-cli/test-data/simulate`. See
+    `strdup.cbl` for an example. If the override can exhibit undefined behavior,
+    that should be covered by the test.
 - Try running the test manually with: `cd crucible-cli && cabal run -- simulate
   test-data/simulate/TEST.cbl`. Ensure that the output is what you expect.
 - Create the golden output file at `test-data/simulate/TEST.out` with `cd
