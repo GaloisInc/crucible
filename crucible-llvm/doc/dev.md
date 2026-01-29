@@ -15,10 +15,12 @@ To add an override to Crucible-LLVM:
   starting with `@llvm.*`).
 - Add tests.
   - Consider adding a test in `crucible-llvm/test/behavior`. See the README
-    there for further discussion.
+    there for further discussion. These tests should generally be preferred
+    for testing non-UB functionality, as they confirm that the override behaves
+    faithfully to a real implementation.
   - Consider adding a test in `crucible-llvm-cli/test-data/simulate`. See
     `strdup.cbl` for an example. If the override can exhibit undefined behavior,
-    that should be covered by the test.
+    that should be covered by a test here.
 - Try running the test manually with: `cd crucible-cli && cabal run -- simulate
   test-data/simulate/TEST.cbl`. Ensure that the output is what you expect.
 - Create the golden output file at `test-data/simulate/TEST.out` with `cd
