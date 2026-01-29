@@ -2407,10 +2407,10 @@ mirRef_peelIndexLeaf sym elemSize (MirReference _tpr root (AgElem_RefPath off _s
     idx <- liftIO $ bvUdiv sym off =<< wordLit sym elemSize
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf _elemSize _sym (MirReference _ _ _) =
+mirRef_peelIndexLeaf _sym _elemSize (MirReference _ _ _) =
     leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
-mirRef_peelIndexLeaf _elemSize _sym _ = do
+mirRef_peelIndexLeaf _sym _elemSize _ = do
     leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
 
