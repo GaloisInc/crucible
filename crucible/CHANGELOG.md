@@ -1,5 +1,7 @@
 # next
 
+# 0.9 -- 2026-01-29
+
 # 0.8.0 -- 2025-11-09
 
 * Add `setExecResultContext`, `setExecStateContext`
