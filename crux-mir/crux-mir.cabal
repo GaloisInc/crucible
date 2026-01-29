@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                crux-mir
-version:             0.11.0.0.99
+version:             0.12
 -- synopsis:
 -- description:
 homepage:            https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md

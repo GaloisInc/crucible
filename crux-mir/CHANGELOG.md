@@ -1,4 +1,4 @@
-# next
+# 0.12 -- 2026-01-29
 
 This release supports [version
 8](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#8) of
