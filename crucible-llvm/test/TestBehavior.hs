@@ -109,8 +109,9 @@ compileFile outputExt cFile additionalArgs = do
     fail $ unlines $
       [ "Compilation failed!"
       , "clang " ++ unwords args
-      , "Output:"
+      , "stdout:"
       , stdout
+      , "stderr:"
       , stderr
       ]
   return outPath
@@ -130,8 +131,9 @@ runExe exePath = do
     fail $ unlines $
       [ "Native execution failed!"
       , exePath
-      , "Output:"
+      , "stdout:"
       , stdout
+      , "stderr:"
       , stderr
       ]
   return stdout
