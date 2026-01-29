@@ -820,16 +820,19 @@ packAny ::  MirExp s -> (MirExp s)
 packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
 
--- | Build a `MirAggregateRepr` from a list of `MirExp`s.
-buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildArrayLit tpr exps = do
-    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length exps)
+-- | Build a `MirAggregateRepr` from a list of `MirExp`s of the given type.
+buildArrayLit :: forall h s ret. M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildArrayLit elemTy exps = do
+    Some elemTpr <- tyToReprM elemTy
+    elemSize <- tySizeM elemTy
+    let agSize = elemSize * fromIntegral (length exps)
+    ag0 <- mirAggregate_uninit_constSize agSize
     ag1 <- foldM
-        (\ag (i, MirExp tpr' e) -> do
-            Refl <- testEqualityOrFail tpr tpr' $
-                "buildArrayLit: expected elem to be " ++ show tpr ++ ", but got " ++ show tpr'
-            mirAggregate_set i 1 tpr e ag)
-        ag0 (zip [0 :: Word ..] exps)
+        (\ag (off, MirExp elemTpr' e) -> do
+            Refl <- testEqualityOrFail elemTpr elemTpr' $
+                "buildArrayLit: expected elem to be " ++ show elemTpr ++ ", but got " ++ show elemTpr'
+            mirAggregate_set off elemSize elemTpr e ag)
+        ag0 (zip [0, elemSize ..] exps)
     return $ MirExp MirAggregateRepr ag1
 
 buildTupleM :: [M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
@@ -841,6 +844,7 @@ buildTupleMaybeM tys xs = do
     ag1 <- foldM
         (\ag (i, mExp) -> do
             case mExp of
+                -- TODO: hardcoded size=1
                 Just (MirExp tpr rv) -> mirAggregate_set i 1 tpr rv ag
                 Nothing -> return ag)
         ag0 (zip [0..] xs)
@@ -1015,6 +1019,8 @@ data StructInfo where
   -- additionally requires index-projecting to their first element, and we
   -- include the element's `TypeRepr` because index projection requires it.
   UnsizedSliceField ::
+    -- | The size, in bytes, of the slice element type
+    Word ->
     C.TypeRepr tp ->
     StructInfo
 
@@ -1032,7 +1038,8 @@ checkFieldKind True tpr tpr' desc = do
         "(at " ++ desc ++ ")"
     return $ FkMaybe tpr
 
-data Sizedness = Sized | Unsized
+-- | Whether a type is sized, including its size in bytes if so.
+data Sizedness = Sized Word | Unsized
 
 -- | Is this ADT sized or unsized?
 --
@@ -1041,11 +1048,11 @@ data Sizedness = Sized | Unsized
 adtSizedness :: M.Collection -> M.Adt -> Sizedness
 adtSizedness col adt =
   case adt ^. M.adtkind of
-    M.Enum _ -> Sized
-    M.Union -> Sized
+    M.Enum _ -> Sized (adt ^. M.adtSize)
+    M.Union -> Sized (adt ^. M.adtSize)
     M.Struct ->
       case M.onlyVariant adt ^. M.vfields of
-        [] -> Sized  -- size 0 is still sized
+        [] -> Sized 0  -- size 0 is still sized
         fields -> tySizedness col (last fields ^. M.fty)
 
 -- | Is this type sized or unsized?
@@ -1062,7 +1069,28 @@ tySizedness col ty =
       case col ^? M.adts . ix adtName of
         Nothing -> error $ "tySizedness: unknown ADT: " <> show adtName
         Just adt -> adtSizedness col adt
-    _ -> Sized
+    _ ->
+      -- This stanza on its own would be sufficient to implement `tySizedness`,
+      -- but a version so implemented would fail on types that didn't actually
+      -- appear in the crate/dependency tree used to generate this `Collection`.
+      -- Discriminating on shape first means that we can correctly say that
+      -- `[T]` is unsized, even if `[T]` isn't actually evinced in the MIR.
+      case (col ^. M.layouts) Map.!? ty of
+        Nothing -> error $ "tySizedness: unknown type: " <> show ty
+        Just Nothing -> Unsized
+        Just (Just lay) -> Sized (fromIntegral (lay ^. M.laySize))
+
+-- | Get a type's size, failing (via `mirFail`) if it's unsized.
+tySizeM :: HasCallStack => M.Ty -> MirGenerator h s ret Word
+tySizeM ty = do
+  col <- use $ cs . collection
+  case tySizedness col ty of
+    Sized s -> pure s
+    Unsized ->
+      let caller = case getCallStack callStack of
+            [] -> "<unknown>"
+            ((_, loc):_) -> prettySrcLoc loc
+       in mirFail $ "tySizeM (called at " <> caller <> "): unsized type: " <> show ty
 
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
@@ -1076,7 +1104,7 @@ structInfo adt i = do
 
     col <- use $ cs . collection
     case adtSizedness col adt of
-      Sized -> do
+      Sized _ -> do
         Some ctx <- variantFieldsM var
         Some idx <- case Ctx.intIndex i (Ctx.size ctx) of
             Just x -> return x
@@ -1094,7 +1122,7 @@ structInfo adt i = do
       -- does (for `TyDynamic`) or should (for `TyStr` and `TySlice`) cause an
       -- error.
       Unsized -> case tySizedness col fldTy of
-        Sized -> do
+        Sized _ -> do
           Some (FieldRepr fieldKind) <- case tyToFieldRepr col fldTy of
             Left err -> mirFail ("structInfo: " ++ err)
             Right x -> return x
@@ -1106,10 +1134,12 @@ structInfo adt i = do
             case fldTy of
               M.TySlice innerTy -> do
                 Some innerRepr <- tyToReprM innerTy
-                pure $ UnsizedSliceField innerRepr
+                innerSize <- tySizeM innerTy
+                pure $ UnsizedSliceField innerSize innerRepr
               M.TyStr -> do
                 Some innerRepr <- tyToReprM (M.TyUint M.B8)
-                pure $ UnsizedSliceField innerRepr
+                let innerSize = 1  -- because the element type is u8
+                pure $ UnsizedSliceField innerSize innerRepr
               _ -> pure UnsizedNonSliceField
 
   where
@@ -1127,7 +1157,7 @@ getStructField adt i (MirExp structTpr e0) = structInfo adt i >>= \case
     mirFail "getStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
     mirFail "getStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _innerRepr ->
+  UnsizedSliceField _elemSize _innerRepr ->
     mirFail "getStructField: unsized fields of unsized structs not yet supported"
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++
@@ -1145,7 +1175,7 @@ setStructField adt i (MirExp structTpr structExp) (MirExp fldTpr fldExp) = struc
     mirFail "setStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
     mirFail "setStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _innerRepr ->
+  UnsizedSliceField _elemSize _innerRepr ->
     mirFail "setStructField: unsized fields of unsized structs not yet supported"
   where
     errFieldType :: FieldKind tp tp' -> String
@@ -1180,7 +1210,7 @@ mapStructField adt i f (MirExp structTpr e) = structInfo adt i >>= \case
     mirFail "mapStructField: sized fields of unsized structs not yet supported"
   UnsizedNonSliceField ->
     mirFail "mapStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _innerRepr ->
+  UnsizedSliceField _elemSize _innerRepr ->
     mirFail "mapStructField: unsized fields of unsized structs not yet supported"
 
 
@@ -1572,9 +1602,9 @@ structFieldRef adt i ref0 meta = structInfo adt i >>= \case
   UnsizedNonSliceField -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
     return $ MirPlace C.AnyRepr fieldRef meta
-  UnsizedSliceField innerRepr -> do
+  UnsizedSliceField innerSize innerRepr -> do
     fieldRef <- subfieldRef_Untyped ref0 i Nothing
-    elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0)
+    elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0) innerSize
     case meta of
       NoMeta ->
         mirFail "expected slice metadata for slice field access, but found no metadata"
@@ -1755,8 +1785,10 @@ initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
 initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
-initialValue (M.TyArray _ size) = do
-    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral size)
+initialValue (M.TyArray elemTy arrLen) = do
+    elemSize <- tySizeM elemTy
+    let agSize = elemSize * fromIntegral arrLen
+    Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize agSize
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
