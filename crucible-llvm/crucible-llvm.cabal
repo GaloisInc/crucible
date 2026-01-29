@@ -240,6 +240,7 @@ test-suite crucible-llvm-tests
     lens,
     parameterized-utils,
     process,
+    time,
     what4,
     tasty,
     tasty-quickcheck,

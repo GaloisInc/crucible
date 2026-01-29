@@ -15,12 +15,14 @@ import           Control.Lens ( (^.) )
 import           Control.Monad ( void, when )
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Context ( pattern Empty, pattern (:>) )
-import           System.Directory ( removeFile, listDirectory )
+import qualified Data.Vector as V
+import           System.Directory ( listDirectory )
 import           System.Exit ( ExitCode(..) )
 import           System.FilePath ( (-<.>), takeFileName, takeExtension, (</>) )
 import qualified Data.List as List
 import qualified System.IO as IO
 import qualified System.Process as Proc
+import           Data.Time.Clock ( NominalDiffTime )
 
 import qualified Test.Tasty as T
 import           Test.Tasty.HUnit ( testCase, (@=?) )
@@ -31,7 +33,9 @@ import           Data.LLVM.BitCode ( parseBitCodeFromFileWithWarnings )
 
 -- Crucible
 import           Lang.Crucible.Backend ( backendGetSym, getProofObligations )
+import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.Simulator as CS
+import           Lang.Crucible.Simulator ( timeoutFeature, genericToExecutionFeature )
 import           Lang.Crucible.Simulator.ExecutionTree ( ExecResult(..) )
 import qualified Lang.Crucible.CFG.Core as CC
 
@@ -55,7 +59,16 @@ behaviorTests = do
   files <- listDirectory behaviorDir
   let cFiles = List.sort $ filter (\f -> takeExtension f == ".c") files
   let testTrees = map (\f -> testBehaviorFile (behaviorDir </> f)) cFiles
-  return $ T.testGroup "Behavior Tests" testTrees
+
+  let gccDir = "test/behavior/gcc-c-torture"
+  extFiles <- listDirectory gccDir
+  let cExtFiles = List.sort $ filter (\f -> takeExtension f == ".c") extFiles
+  let gccTests = map (\f -> testBehaviorFileExternal (gccDir </> f)) cExtFiles
+
+  return $ T.testGroup "Behavior tests"
+    [ T.testGroup "Manual tests" testTrees
+    , T.testGroup "GCC tests" gccTests
+    ]
 
 
 testBehaviorFile :: FilePath -> T.TestTree
@@ -67,45 +80,44 @@ testBehaviorFile cFile = testCase (takeFileName cFile) $ do
   nativeOut <- runNative exePath
   symbolicOut <- runSymbolic bcPath
 
-  let outPath = bcPath -<.> ".out"
-  removeFile exePath
-  removeFile bcPath
-  removeFile outPath
-
   nativeOut @=? symbolicOut
   nativeOut @=? expectedOut
   symbolicOut @=? expectedOut
 
 
--- | Compile a C file to a native executable
+-- | Test external test files that don't have expected output comments
+-- Just verify that both native and symbolic execution succeed
+testBehaviorFileExternal :: FilePath -> T.TestTree
+testBehaviorFileExternal cFile = testCase (takeFileName cFile) $ do
+  exePath <- compileToExecutable cFile
+  bcPath <- compileToBitcode cFile
+  _ <- runNative exePath
+  _ <- runSymbolic bcPath
+  return ()
+
+cflags :: [String]
+cflags = ["-O1", "-Wno-implicit-function-declaration", "-Wno-implicit-int"]
+
+compileFile :: String -> FilePath -> [String] -> IO FilePath
+compileFile outputExt cFile additionalArgs = do
+  let outPath = cFile -<.> outputExt
+  let args = cflags ++ additionalArgs ++ ["-o", outPath, cFile]
+  (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode "clang" args ""
+  when (exitCode /= ExitSuccess) $ do
+    putStrLn $ "Failed to compile " ++ cFile
+    putStrLn stdout
+    putStrLn stderr
+    fail $ ("Compilation failed: clang" ++ unwords args)
+  return outPath
+
 compileToExecutable :: FilePath -> IO FilePath
-compileToExecutable cFile = do
-  let exePath = cFile -<.> ".exe"
-  (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode "clang"
-    ["-O1", "-fsanitize=undefined", "-o", exePath, cFile] ""
-  when (exitCode /= ExitSuccess) $ do
-    putStrLn $ "Failed to compile " ++ cFile ++ " to executable"
-    putStrLn stdout
-    putStrLn stderr
-    fail "Compilation to executable failed"
-  return exePath
+compileToExecutable cFile =
+  compileFile ".exe" cFile ["-fsanitize=undefined"]
 
-
--- | Compile a C file to LLVM bitcode
 compileToBitcode :: FilePath -> IO FilePath
-compileToBitcode cFile = do
-  let bcPath = cFile -<.> ".bc"
-  (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode "clang"
-    ["-O1", "-emit-llvm", "-fno-discard-value-names", "-c", "-o", bcPath, cFile] ""
-  when (exitCode /= ExitSuccess) $ do
-    putStrLn $ "Failed to compile " ++ cFile ++ " to bitcode"
-    putStrLn stdout
-    putStrLn stderr
-    fail "Compilation to bitcode failed"
-  return bcPath
+compileToBitcode cFile =
+  compileFile ".bc" cFile ["-emit-llvm", "-fno-discard-value-names", "-c"]
 
-
--- | Run a native executable and capture stdout
 runNative :: FilePath -> IO String
 runNative exePath = do
   (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode exePath [] ""
@@ -135,6 +147,13 @@ extractExpectedOutput cFile = do
              else extractComments rest
       | otherwise = extractComments rest
 
+
+-- | Format an aborted result for display
+showAbortedResult :: CS.AbortedResult sym ext -> String
+showAbortedResult ar = case ar of
+  CS.AbortedExec reason _ -> show reason
+  CS.AbortedExit code _ -> "exit " ++ show code
+  CS.AbortedBranch _ _ res1 res2 -> "BRANCH: " ++ showAbortedResult res1 ++ " | " ++ showAbortedResult res2
 
 -- | Parse an LLVM bitcode file
 parseLLVM :: FilePath -> IO L.Module
@@ -171,6 +190,7 @@ runSymbolic bcPath = do
     let simCtx = CS.initSimContext bak intrinsicTypes halloc outHandle fns impl ()
 
     (mainArgs, mainGlobSt) <- case CC.cfgArgTypes mainCfg of
+      -- main(int argc, char** argv)
       (Empty :> LLVMMem.LLVMPointerRepr w :> LLVMMem.PtrRepr) -> do
         let sym = backendGetSym bak
 
@@ -180,6 +200,15 @@ runSymbolic bcPath = do
         let args = CS.assignReg LLVMMem.PtrRepr argv $
                    CS.assignReg (LLVMMem.LLVMPointerRepr w) argc CS.emptyRegMap
 
+        return (args, globSt)
+
+      -- main(void)
+      Empty -> return (CS.emptyRegMap, globSt)
+
+      -- main() - technically varargs
+      (Empty :> CC.VectorRepr elemTy) -> do
+        let emptyVec = V.empty
+        let args = CS.assignReg (CC.VectorRepr elemTy) emptyVec CS.emptyRegMap
         return (args, globSt)
 
       _ -> fail "Unsupported main function signature"
@@ -192,14 +221,25 @@ runSymbolic bcPath = do
                     registerLazyModule (\_ -> return ()) trans
                     CS.regValue <$> CS.callCFG mainCfg mainArgs
 
-    execResult <- CS.executeCrucible [] simSt
+    timeoutFeat <- timeoutFeature (5 :: NominalDiffTime)
+    let features = [genericToExecutionFeature timeoutFeat]
+
+    execResult <- CS.executeCrucible features simSt
     case execResult of
       FinishedResult {} -> do
         obligations <- getProofObligations bak
         case obligations of
           Nothing -> return ()
           Just _ -> fail "Symbolic execution finished with pending proof obligations"
-      AbortedResult _ _ -> fail "Symbolic execution aborted"
+      AbortedResult _ abortResult -> do
+        case abortResult of
+          CS.AbortedExit ExitSuccess _ -> return ()
+          CS.AbortedExit (ExitFailure code) _ -> fail $ "Symbolic execution exited with code " ++ show code
+          CS.AbortedExec (CB.EarlyExit _) _ -> return ()  -- exit()
+          CS.AbortedExec reason _ -> fail $ "Symbolic execution aborted: " ++ show reason
+          CS.AbortedBranch _ _ res1 res2 -> fail $ "Symbolic execution aborted on branch:\n" ++
+                                                     "  Branch 1: " ++ showAbortedResult res1 ++ "\n" ++
+                                                     "  Branch 2: " ++ showAbortedResult res2
       TimeoutResult {} -> fail "Symbolic execution timed out"
 
   IO.hFlush outHandle
