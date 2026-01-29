@@ -46,8 +46,10 @@ starting with `/// `. Generally speaking, these comments closely follow the
 `printf` invocation that produces the output.
 
 **WARNING**: The tests should use `argc` to ensure that the compiler can't
-compile away calls to any overrides under test. Use `llvm-dis` to disassemble
-the bitcode to ensure it has the structure you want.
+compile away calls to any overrides under test. The test harness guarantees that
+`argc` is always 1. Use `llvm-dis` to disassemble the bitcode to ensure it has
+the structure you want. See the example below (or the existing tests) for how to
+do this.
 
 The tests have a timeout of 5s, but they should generally complete in under 1s
 for the sake of a reasonably snappy test-suite and CI.
