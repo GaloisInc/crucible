@@ -2407,7 +2407,14 @@ mirRef_peelIndexLeaf bak _elemSize (MirReference _tpr root (ArrayIndex_RefPath b
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgElem_RefPath off _sz _tpr' path)) = do
     let sym = backendGetSym bak
-    idx <- liftIO $ bvUdiv sym off =<< wordLit sym elemSize
+    elemSizeBV <- liftIO $ wordLit sym elemSize
+
+    offModSz <- liftIO $ bvUrem sym off elemSizeBV
+    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
+    leafAssert bak offModSzIsZero $ Unsupported callStack $
+        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
+
+    idx <- liftIO $ bvUdiv sym off elemSizeBV
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf _bak _elemSize (MirReference _ _ _) =
