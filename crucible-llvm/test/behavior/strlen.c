@@ -1,16 +1,18 @@
 #include <string.h>
 #include <stdio.h>
 
-void do_strlen(char *s) {
-    printf("strlen(%s) = %zu\n", s, strlen(s));
+void do_strlen(char *s, int offset) {
+    printf("strlen(%s) = %zu\n", s + offset, strlen(s + offset));
 }
 
-int main(int argc, char** argv) {
-    do_strlen("");
-    do_strlen("a");
-    do_strlen("test");
+int main(int one, char** argv) {
+    int zero = one - 1;
+
+    do_strlen("", zero);
+    do_strlen("a", zero);
+    do_strlen("test", zero);
     /// strlen() = 0
     /// strlen(a) = 1
     /// strlen(test) = 4
-    return 0;
+    return zero;
 }
