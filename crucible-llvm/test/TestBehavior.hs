@@ -1,3 +1,5 @@
+-- | See @test/behavior/README.md@
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
