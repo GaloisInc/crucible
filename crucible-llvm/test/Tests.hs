@@ -58,6 +58,7 @@ import           Lang.Crucible.LLVM.MemModel ( mkMemVar )
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
 
+import           TestBehavior (behaviorTests)
 import           TestFunctions
 import           TestGlobals
 import           TestMemory
@@ -162,6 +163,8 @@ main = do
                testBuildTranslation (TS.rootFile sweets) $
                (\getTrans -> testGroup "checks" $ map (transCheck getTrans) checklist)
 
+       behaviorTestTree <- behaviorTests
+
        defaultMainWithIngredients llvmTestIngredients $
          testGroup "Tests"
          [ -- See Note [Asserts] in crucible-llvm
@@ -172,6 +175,7 @@ main = do
            testCase "What4 assertions enabled" $ do
              assertsEnabled <- WInt.assertionsEnabled
              assertBool "What4 assertions should be enabled" assertsEnabled
+         , behaviorTestTree
          , functionTests
          , globalTests
          , memoryTests

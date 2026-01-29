@@ -221,6 +221,7 @@ test-suite crucible-llvm-tests
   main-is: Tests.hs
   hs-source-dirs: test
   other-modules: MemSetup
+               , TestBehavior
                , TestFunctions
                , TestGlobals
                , TestMemory
@@ -239,6 +240,7 @@ test-suite crucible-llvm-tests
     lens,
     parameterized-utils,
     process,
+    time,
     what4,
     tasty,
     tasty-quickcheck,
