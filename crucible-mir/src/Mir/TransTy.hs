@@ -1070,7 +1070,11 @@ tySizedness col ty =
         Nothing -> error $ "tySizedness: unknown ADT: " <> show adtName
         Just adt -> adtSizedness col adt
     _ ->
-      -- TODO: can the whole function be implemented via this stanza?
+      -- This stanza on its own would be sufficient to implement `tySizedness`,
+      -- but a version so implemented would fail on types that didn't actually
+      -- appear in the crate/dependency tree used to generate this `Collection`.
+      -- Discriminating on shape first means that we can correctly say that
+      -- `[T]` is unsized, even if `[T]` isn't actually evinced in the MIR.
       case (col ^. M.layouts) Map.!? ty of
         Nothing -> error $ "tySizedness: unknown type: " <> show ty
         Just Nothing -> Unsized
