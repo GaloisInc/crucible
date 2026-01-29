@@ -2390,27 +2390,30 @@ mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux
             (muxRegForType sym iTypes (MaybeRepr IsizeRepr)) r1 r2
 
 mirRef_peelIndexLeaf ::
-    IsSymInterface sym =>
-    sym ->
+    IsSymBackend sym bak =>
+    bak ->
     -- | The size of the element, in bytes
     Word ->
     MirReference sym ->
     MuxLeafT sym IO
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexLeaf sym _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+mirRef_peelIndexLeaf bak _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+    let sym = backendGetSym bak
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf sym _elemSize (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
+mirRef_peelIndexLeaf bak _elemSize (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
+    let sym = backendGetSym bak
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf sym elemSize (MirReference _tpr root (AgElem_RefPath off _sz _tpr' path)) = do
+mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgElem_RefPath off _sz _tpr' path)) = do
+    let sym = backendGetSym bak
     idx <- liftIO $ bvUdiv sym off =<< wordLit sym elemSize
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf _sym _elemSize (MirReference _ _ _) =
+mirRef_peelIndexLeaf _bak _elemSize (MirReference _ _ _) =
     leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
-mirRef_peelIndexLeaf _sym _elemSize _ = do
+mirRef_peelIndexLeaf _bak _elemSize _ = do
     leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
 
@@ -2425,7 +2428,7 @@ mirRef_peelIndexIO ::
 mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) elemSize =
     let sym = backendGetSym bak
         tpr' = StructRepr (Empty :> MirReferenceRepr :> IsizeRepr) in
-    readFancyMuxTree' bak (mirRef_peelIndexLeaf sym elemSize)
+    readFancyMuxTree' bak (mirRef_peelIndexLeaf bak elemSize)
         (muxRegForType sym iTypes tpr') ref
 
 -- | Compute the index of `ref` within its containing allocation, along with
