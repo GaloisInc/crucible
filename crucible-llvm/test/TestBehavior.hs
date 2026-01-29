@@ -73,26 +73,26 @@ behaviorTests = do
 
 testBehaviorFile :: FilePath -> T.TestTree
 testBehaviorFile cFile = testCase (takeFileName cFile) $ do
-  exePath <- compileToExecutable cFile
-  bcPath <- compileToBitcode cFile
+  exePath <- compileExe cFile
+  bcPath <- cimpileBc cFile
 
   expectedOut <- extractExpectedOutput cFile
-  nativeOut <- runNative exePath
-  symbolicOut <- runSymbolic bcPath
+  nativeOut <- runExe exePath
+  symbolicOut <- runBc bcPath
 
   nativeOut @=? symbolicOut
   nativeOut @=? expectedOut
-  symbolicOut @=? expectedOut
+  -- by transitivity we have symbolicOut == expectedOut
 
 
 -- | Test external test files that don't have expected output comments
 -- Just verify that both native and symbolic execution succeed
 testBehaviorFileExternal :: FilePath -> T.TestTree
 testBehaviorFileExternal cFile = testCase (takeFileName cFile) $ do
-  exePath <- compileToExecutable cFile
-  bcPath <- compileToBitcode cFile
-  _ <- runNative exePath
-  _ <- runSymbolic bcPath
+  exePath <- compileExe cFile
+  bcPath <- cimpileBc cFile
+  _ <- runExe exePath
+  _ <- runBc bcPath
   return ()
 
 cflags :: [String]
@@ -103,29 +103,35 @@ compileFile outputExt cFile additionalArgs = do
   let outPath = cFile -<.> outputExt
   let args = cflags ++ additionalArgs ++ ["-o", outPath, cFile]
   (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode "clang" args ""
-  when (exitCode /= ExitSuccess) $ do
-    putStrLn $ "Failed to compile " ++ cFile
-    putStrLn stdout
-    putStrLn stderr
-    fail $ ("Compilation failed: clang" ++ unwords args)
+  when (exitCode /= ExitSuccess) $
+    fail $ unlines $
+      [ "Compilation failed!"
+      , "clang " ++ unwords args
+      , "Output:"
+      , stdout
+      , stderr
+      ]
   return outPath
 
-compileToExecutable :: FilePath -> IO FilePath
-compileToExecutable cFile =
+compileExe :: FilePath -> IO FilePath
+compileExe cFile =
   compileFile ".exe" cFile ["-fsanitize=undefined"]
 
-compileToBitcode :: FilePath -> IO FilePath
-compileToBitcode cFile =
+cimpileBc :: FilePath -> IO FilePath
+cimpileBc cFile =
   compileFile ".bc" cFile ["-emit-llvm", "-fno-discard-value-names", "-c"]
 
-runNative :: FilePath -> IO String
-runNative exePath = do
+runExe :: FilePath -> IO String
+runExe exePath = do
   (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode exePath [] ""
-  when (exitCode /= ExitSuccess) $ do
-    putStrLn $ "Failed to execute " ++ exePath
-    putStrLn stdout
-    putStrLn stderr
-    fail "Native execution failed"
+  when (exitCode /= ExitSuccess) $
+    fail $ unlines $
+      [ "Native execution failed!"
+      , exePath
+      , "Output:"
+      , stdout
+      , stderr
+      ]
   return stdout
 
 
@@ -134,39 +140,41 @@ runNative exePath = do
 extractExpectedOutput :: FilePath -> IO String
 extractExpectedOutput cFile = do
   content <- readFile cFile
-  let linesInput = lines content
-  let expectedLines = extractComments linesInput
+  let expectedLines = extractComments (lines content)
   return $ unlines expectedLines
   where
     extractComments [] = []
     extractComments (line:rest)
-      | "///" `List.isInfixOf` line =
+      | "/// " `List.isInfixOf` line =
           let stripped = dropWhile (/= '/') line
-          in if take 3 stripped == "///"
-             then unwords (words (drop 3 stripped)) : extractComments rest
+          in if take 4 stripped == "/// "
+             then drop 4 stripped : extractComments rest
              else extractComments rest
       | otherwise = extractComments rest
 
 
--- | Format an aborted result for display
-showAbortedResult :: CS.AbortedResult sym ext -> String
-showAbortedResult ar = case ar of
-  CS.AbortedExec reason _ -> show reason
+ppAbortedResult :: CS.AbortedResult sym ext -> String
+ppAbortedResult ar = case ar of
+  CS.AbortedExec reason _ -> show (CB.ppAbortExecReason reason)
   CS.AbortedExit code _ -> "exit " ++ show code
-  CS.AbortedBranch _ _ res1 res2 -> "BRANCH: " ++ showAbortedResult res1 ++ " | " ++ showAbortedResult res2
+  CS.AbortedBranch _ _ res1 res2 ->
+    unlines
+    [ "branch:"
+    , ppAbortedResult res1
+    , ppAbortedResult res2
+    ]
 
--- | Parse an LLVM bitcode file
-parseLLVM :: FilePath -> IO L.Module
-parseLLVM file =
+parseBc :: FilePath -> IO L.Module
+parseBc file =
   parseBitCodeFromFileWithWarnings file >>= \case
     Left err -> fail $ "Couldn't parse LLVM bitcode from file " ++ file ++ "\n" ++ show err
     Right (m, _warnings) -> return m
 
 
 -- | Symbolically execute an LLVM bitcode file and capture stdout
-runSymbolic :: FilePath -> IO String
-runSymbolic bcPath = do
-  llvmMod <- parseLLVM bcPath
+runBc :: FilePath -> IO String
+runBc bcPath = do
+  llvmMod <- parseBc bcPath
 
   let outPath = bcPath -<.> ".out"
   outHandle <- IO.openFile outPath IO.WriteMode
@@ -175,47 +183,45 @@ runSymbolic bcPath = do
   withTranslatedModule @() llvmMod $ \trans ctx halloc bak -> do
     let memVar = Trans.llvmMemVar ctx
 
-    mbMainCfg <- Trans.getTranslatedCFG trans "main"
-    (_, CC.AnyCFG mainCfg, _warns) <- case mbMainCfg of
-      Nothing -> fail "Could not find 'main' function in module"
-      Just result -> return result
+    CC.AnyCFG mainCfg <-
+      Trans.getTranslatedCFG trans "main" >>=
+        \case
+          Nothing -> fail "Could not find 'main' function in module"
+          Just (_, cfg, _warns) -> return cfg
 
     mem <- LLVMG.initializeAllMemory bak ctx llvmMod
     mem' <- LLVMG.populateAllGlobals bak (trans ^. Trans.globalInitMap) mem
-    let globSt = CL.llvmGlobals memVar mem'
 
     let intrinsicTypes = MapF.union Intrinsics.llvmIntrinsicTypes SymIO.llvmSymIOIntrinsicTypes
     let fns = CS.fnBindingsFromList []
     let impl = CL.llvmExtensionImpl ?memOpts
     let simCtx = CS.initSimContext bak intrinsicTypes halloc outHandle fns impl ()
 
-    (mainArgs, mainGlobSt) <- case CC.cfgArgTypes mainCfg of
-      -- main(int argc, char** argv)
-      (Empty :> LLVMMem.LLVMPointerRepr w :> LLVMMem.PtrRepr) -> do
-        let sym = backendGetSym bak
+    mainArgs <-
+      case CC.cfgArgTypes mainCfg of
+        -- main(int argc, char** argv)
+        (Empty :> LLVMMem.LLVMPointerRepr w :> LLVMMem.PtrRepr) -> do
+          let sym = backendGetSym bak
+          argc_ <- LLVMMem.llvmPointer_bv sym =<< bvZero sym w
+          argv_ <- LLVMMem.mkNullPointer sym LLVMMem.PtrWidth
+          let argc = CS.RegEntry (LLVMMem.LLVMPointerRepr w) argc_
+          let argv = CS.RegEntry LLVMMem.PtrRepr argv_
+          return (CS.RegMap (Empty :> argc :> argv))
 
-        argc <- LLVMMem.llvmPointer_bv sym =<< bvZero sym w
-        argv <- LLVMMem.mkNullPointer sym LLVMMem.PtrWidth
+        -- main(void)
+        Empty -> return CS.emptyRegMap
 
-        let args = CS.assignReg LLVMMem.PtrRepr argv $
-                   CS.assignReg (LLVMMem.LLVMPointerRepr w) argc CS.emptyRegMap
+        -- main() - technically varargs
+        (Empty :> CC.VectorRepr elemTy) -> do
+          let v = CS.RegEntry (CC.VectorRepr elemTy) V.empty
+          return (CS.RegMap (Empty :> v))
 
-        return (args, globSt)
-
-      -- main(void)
-      Empty -> return (CS.emptyRegMap, globSt)
-
-      -- main() - technically varargs
-      (Empty :> CC.VectorRepr elemTy) -> do
-        let emptyVec = V.empty
-        let args = CS.assignReg (CC.VectorRepr elemTy) emptyVec CS.emptyRegMap
-        return (args, globSt)
-
-      _ -> fail "Unsupported main function signature"
+        _ -> fail "Unsupported main function signature"
 
     let ?intrinsicsOpts = Intrinsics.defaultIntrinsicsOptions
     let retType = CC.cfgReturnType mainCfg
-    let simSt = CS.InitialState simCtx mainGlobSt CS.defaultAbortHandler retType $
+    let globSt = CL.llvmGlobals memVar mem'
+    let simSt = CS.InitialState simCtx globSt CS.defaultAbortHandler retType $
                   CS.runOverrideSim retType $ do
                     void $ Intrinsics.register_llvm_overrides llvmMod [] [] ctx
                     registerLazyModule (\_ -> return ()) trans
@@ -234,15 +240,10 @@ runSymbolic bcPath = do
       AbortedResult _ abortResult -> do
         case abortResult of
           CS.AbortedExit ExitSuccess _ -> return ()
-          CS.AbortedExit (ExitFailure code) _ -> fail $ "Symbolic execution exited with code " ++ show code
           CS.AbortedExec (CB.EarlyExit _) _ -> return ()  -- exit()
-          CS.AbortedExec reason _ -> fail $ "Symbolic execution aborted: " ++ show reason
-          CS.AbortedBranch _ _ res1 res2 -> fail $ "Symbolic execution aborted on branch:\n" ++
-                                                     "  Branch 1: " ++ showAbortedResult res1 ++ "\n" ++
-                                                     "  Branch 2: " ++ showAbortedResult res2
+          _ -> fail (ppAbortedResult abortResult)
       TimeoutResult {} -> fail "Symbolic execution timed out"
 
   IO.hFlush outHandle
   IO.hClose outHandle
-
   readFile outPath
