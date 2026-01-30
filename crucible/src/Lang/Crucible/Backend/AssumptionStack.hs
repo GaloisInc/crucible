@@ -176,7 +176,7 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
     case gcPop gc of
       Left (ident', _assumes, mg, gc1)
         | ident == ident' -> (gc',n)
-        | otherwise -> go (n+1) gc'
+        | otherwise -> go (n + 1) gc'
        where gc' = case mg of
                      Nothing -> gc1
                      Just g  -> gcAddGoals g gc1

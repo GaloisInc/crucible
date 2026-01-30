@@ -383,9 +383,9 @@ data TypeRepr (tp::CrucibleType) where
 
    StringMapRepr :: !(TypeRepr tp) -> TypeRepr (StringMapType tp)
 
-   SymbolicArrayRepr :: !(Ctx.Assignment BaseTypeRepr (idx::>tp))
+   SymbolicArrayRepr :: !(Ctx.Assignment BaseTypeRepr (idx ::> tp))
                      -> !(BaseTypeRepr t)
-                     -> TypeRepr (SymbolicArrayType (idx::>tp) t)
+                     -> TypeRepr (SymbolicArrayType (idx ::> tp) t)
 
    -- A reference to a symbolic struct.
    SymbolicStructRepr :: Ctx.Assignment BaseTypeRepr ctx

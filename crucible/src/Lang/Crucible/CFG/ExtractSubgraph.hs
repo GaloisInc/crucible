@@ -194,7 +194,7 @@ mkRetBlock mapF bm ident =
 cloneBlock :: MapF (BlockID old) (BlockID new)
            -> BlockID new ctx -> Block ext old ret ctx -> Maybe (Block ext new ret ctx)
 cloneBlock mapF newID b = do
-  stmts' <- cloneStmtSeq mapF (b^.blockStmts)
+  stmts' <- cloneStmtSeq mapF (b ^. blockStmts)
   return Block{ blockID       = newID
               , blockInputs   = blockInputs b
               , _blockStmts   = stmts'

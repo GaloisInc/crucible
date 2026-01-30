@@ -496,7 +496,7 @@ ppProofObligation sym (AS.ProofGoal asmps gl) =
 
  ppGl =
    PP.indent 2 $
-   PP.vsep [ppSimError (gl^.labeledPredMsg), printSymExpr (gl^.labeledPred)]
+   PP.vsep [ppSimError (gl ^. labeledPredMsg), printSymExpr (gl ^. labeledPred)]
 
 -- | Pretty-printer for 'AssumptionState'.
 ppAssumptionState ::
