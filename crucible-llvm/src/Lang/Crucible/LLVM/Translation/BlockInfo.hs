@@ -286,9 +286,13 @@ useVal :: L.Value -> Set L.Ident
 useVal v = Set.unions $ case v of
   L.ValInteger{} ->  []
   L.ValBool{} -> []
+  L.ValHalf{} -> []
+  L.ValBFloat{} -> []
   L.ValFloat{} -> []
   L.ValDouble{} -> []
   L.ValFP80{} -> []
+  L.ValFP128{} -> []
+  L.ValFP128_PPC{} -> []
   L.ValIdent i -> [Set.singleton i]
   L.ValSymbol _s -> []
   L.ValNull -> []

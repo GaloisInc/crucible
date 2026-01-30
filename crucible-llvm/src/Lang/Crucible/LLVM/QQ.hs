@@ -301,6 +301,7 @@ liftTypeRepr t = case t of
   liftFloatType ft = case ft of
     L.Half      -> [| HalfFloatRepr |]
     L.Float     -> [| SingleFloatRepr |]
+    L.BFloat    -> fail "No support for Brain floats / bfloats yet"
     L.Double    -> [| DoubleFloatRepr |]
     L.Fp128     -> [| QuadFloatRepr |]
     L.X86_fp80  -> [| X86_80FloatRepr |]
