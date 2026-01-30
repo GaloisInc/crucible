@@ -9,6 +9,7 @@ import           Control.Applicative ( Alternative(..) )
 import           Control.Exception ( Exception, displayException, throwIO )
 import           Control.Monad ( guard )
 import           Control.Monad.State ( liftIO, MonadIO )
+import           Data.List (intercalate)
 import qualified Data.Text as Text
 import           System.Directory ( doesDirectoryExist )
 import           System.Environment ( getExecutablePath )
@@ -46,7 +47,7 @@ ppCError :: CError -> String
 ppCError err = case err of
     NoFiles                -> "crux-llvm requires at least one input file."
     EnvError msg           -> msg
-    BadFun fnName isMain   -> unlines $
+    BadFun fnName isMain   -> ofLines $
                                 [ "The '" ++ fnName ++ "' function should have no arguments"] ++
                                 [ "Enable `supply-main-arguments` to relax this restriction"
                                 | isMain
@@ -54,14 +55,16 @@ ppCError err = case err of
     MissingFun x           -> "Cannot find code for " ++ show x
     LLVMParseError e       -> LLVM.formatError e
     ClangError n sout serr ->
-      unlines $ [ "`clang` compilation failed."
+      ofLines $ [ "`clang` compilation failed."
                 , "*** Exit code: " ++ show n
                 , "*** Standard out:"
                 ] ++
                 [ "   " ++ l | l <- lines sout ] ++
                 [ "*** Standard error:" ] ++
                 [ "   " ++ l | l <- lines serr ]
-
+  where
+    -- Contrast with `Prelude.unlines`, which appends a trailing newline
+    ofLines = intercalate "\n"
 
 throwCError :: MonadIO m => CError -> m b
 throwCError e = liftIO (throwIO e)
