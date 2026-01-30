@@ -29,18 +29,24 @@ module Lang.Crucible.LLVM.Intrinsics.Libc.String
   , llvmMemmoveOverride
   , llvmMemsetOverride
   , llvmMemsetChkOverride
+  , llvmMemcmpOverride
   , llvmStrlenOverride
   , llvmStrnlenOverride
   , llvmStrcpyOverride
+  , llvmStrcmpOverride
+  , llvmStrncmpOverride
   , llvmStrdupOverride
   , llvmStrndupOverride
     -- * Implementation functions
   , callMemcpy
   , callMemmove
   , callMemset
+  , callMemcmp
   , callStrlen
   , callStrnlen
   , callStrcpy
+  , callStrcmp
+  , callStrncmp
   , callStrdup
   , callStrndup
   ) where
@@ -80,9 +86,12 @@ string_overrides =
   , SomeLLVMOverride llvmMemmoveOverride
   , SomeLLVMOverride llvmMemsetOverride
   , SomeLLVMOverride llvmMemsetChkOverride
+  , SomeLLVMOverride llvmMemcmpOverride
   , SomeLLVMOverride llvmStrlenOverride
   , SomeLLVMOverride llvmStrnlenOverride
   , SomeLLVMOverride llvmStrcpyOverride
+  , SomeLLVMOverride llvmStrcmpOverride
+  , SomeLLVMOverride llvmStrncmpOverride
   , SomeLLVMOverride llvmStrdupOverride
   , SomeLLVMOverride llvmStrndupOverride
   ]
@@ -230,6 +239,30 @@ llvmStrndupOverride =
   [llvmOvr| i8* @strndup( i8*, size_t ) |]
   (\memOps args -> Ctx.uncurryAssignment (callStrndup memOps) args)
 
+llvmMemcmpOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> BVType wptr) (BVType 32)
+llvmMemcmpOverride =
+  [llvmOvr| i32 @memcmp( i8*, i8*, size_t ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callMemcmp memOps) args)
+
+llvmStrcmpOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr) (BVType 32)
+llvmStrcmpOverride =
+  [llvmOvr| i32 @strcmp( i8*, i8* ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrcmp memOps) args)
+
+llvmStrncmpOverride
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
+  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> BVType wptr) (BVType 32)
+llvmStrncmpOverride =
+  [llvmOvr| i32 @strncmp( i8*, i8*, size_t ) |]
+  (\memOps args -> Ctx.uncurryAssignment (callStrncmp memOps) args)
+
 ------------------------------------------------------------------------
 -- ** Implementations
 
@@ -370,3 +403,41 @@ callStrndup mvar (regValue -> src) (regValue -> bound) =
         Just b ->
           let bound' = Just (fromIntegral b) in
           CStr.dupConcretelyNullTerminatedString bak mem src bound' loc' noAlignment
+
+callMemcmp
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
+callMemcmp mvar (regValue -> ptr1) (regValue -> ptr2) (regValue -> len) =
+  ovrWithBackend $ \bak -> do
+    mem <- readGlobal mvar
+    liftIO $ CStr.memcmp bak mem ptr1 ptr2 len
+
+callStrcmp
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
+callStrcmp mvar (regValue -> ptr1) (regValue -> ptr2) =
+  ovrWithBackend $ \bak -> do
+    mem <- readGlobal mvar
+    liftIO $ CStr.cmpConcretelyNullTerminatedString bak mem ptr1 ptr2 Nothing
+
+callStrncmp
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
+  => GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
+callStrncmp mvar (regValue -> ptr1) (regValue -> ptr2) (regValue -> len) =
+  ovrWithBackend $ \bak -> do
+    mem <- readGlobal mvar
+    liftIO $ CStr.strncmp bak mem ptr1 ptr2 len
