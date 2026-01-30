@@ -194,6 +194,10 @@ library
     Lang.Crucible.LLVM.Extension.Arch
     Lang.Crucible.LLVM.Extension.Syntax
     Lang.Crucible.LLVM.Intrinsics.Common
+    Lang.Crucible.LLVM.Intrinsics.Libc.Math
+    Lang.Crucible.LLVM.Intrinsics.Libc.Stdio
+    Lang.Crucible.LLVM.Intrinsics.Libc.Stdlib
+    Lang.Crucible.LLVM.Intrinsics.Libc.String
     Lang.Crucible.LLVM.Intrinsics.Libcxx
     Lang.Crucible.LLVM.Intrinsics.Match
     Lang.Crucible.LLVM.Intrinsics.Options
