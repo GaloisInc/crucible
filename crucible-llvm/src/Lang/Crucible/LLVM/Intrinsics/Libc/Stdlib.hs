@@ -21,7 +21,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.Stdlib
-  ( -- * stdlib.h overrides
+  ( -- * @stdlib.h@ overrides
     stdlibOverrides
     -- * Override declarations
   , llvmMallocOverride
@@ -82,7 +82,7 @@ import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import           Lang.Crucible.LLVM.Intrinsics.Options
 
--- | All stdlib.h overrides
+-- | All @stdlib.h@ overrides
 stdlibOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
   , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>

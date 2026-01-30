@@ -21,7 +21,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.Stdio
-  ( -- * stdio.h overrides
+  ( -- * @stdio.h@ overrides
     stdioOverrides
     -- * Override declarations
   , llvmPrintfOverride
@@ -69,7 +69,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
--- | All stdio.h overrides
+-- | All @stdio.h@ overrides
 stdioOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
   , ?memOpts :: MemOptions ) =>

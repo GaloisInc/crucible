@@ -21,7 +21,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.String
-  ( -- * string.h overrides
+  ( -- * @string.h@ overrides
     stringOverrides
     -- * Override declarations
   , llvmMemcpyOverride
@@ -75,7 +75,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
--- | All string.h overrides
+-- | All @string.h@ overrides
 stringOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
   , ?memOpts :: MemOptions ) =>

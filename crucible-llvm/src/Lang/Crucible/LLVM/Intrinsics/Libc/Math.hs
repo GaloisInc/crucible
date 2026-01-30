@@ -21,7 +21,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.Math
-  ( -- * math.h overrides
+  ( -- * @math.h@ overrides
     mathOverrides
     -- * Override declarations
   , llvmCeilOverride
@@ -115,7 +115,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
--- | All math.h overrides
+-- | All @math.h@ overrides
 mathOverrides ::
   IsSymInterface sym =>
   [SomeLLVMOverride p sym ext]
