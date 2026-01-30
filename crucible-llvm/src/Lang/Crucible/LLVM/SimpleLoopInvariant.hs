@@ -462,9 +462,9 @@ applySubstitutionRegEntry sym substitution entry = case C.regType entry of
           Ctx.generate (Ctx.size field_types) $
           \i -> C.RegEntry (field_types Ctx.! i) $ C.unRV $ (C.regValue entry) Ctx.! i
       }
-  _ -> error $ unlines [ "SimpleLoopInvariant.applySubstitutionRegEntry"
-                       , "unsupported type: " ++ show (C.regType entry)
-                       ]
+  _ -> C.panic "applySubstitutionRegEntry"
+       [ "unsupported type: " ++ show (C.regType entry)
+       ]
 
 
 loadMemJoinVariables ::
