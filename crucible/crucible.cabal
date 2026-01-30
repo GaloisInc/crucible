@@ -34,6 +34,25 @@ flag unsafe-operations
   Default: True
 
 common bldflags
+  -- Note [Export lists]
+  -- -------------------
+  --
+  -- We don't allow modules without export lists.
+  --
+  -- From the GHC docs:
+  --
+  --     Declaring an explicit export list [...] enables GHC dead code analysis,
+  --     prevents accidental export of names and can ease optimizations like
+  --     inlining.
+  --
+  -- It also makes it easier to organize the Haddocks using section headers, and
+  -- allows for internal/hidden definitions and constructors.
+  --
+  -- We can't use -Werror=missing-export-lists here because it interferes with
+  -- ghcid. However, we enable it in CI, see ../cabal.project.ci.
+  ghc-options:
+    -Wmissing-export-lists
+
   ghc-options: -Wall
                -Werror=incomplete-patterns
                -Werror=missing-methods
