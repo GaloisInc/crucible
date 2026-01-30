@@ -81,7 +81,6 @@ library
 
   exposed-modules:
     Lang.Crucible.Analysis.DFS
-    Lang.Crucible.Analysis.ForwardDataflow
     Lang.Crucible.Analysis.Fixpoint
     Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
