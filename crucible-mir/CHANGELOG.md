@@ -65,6 +65,8 @@ This release supports [version
   values to instead return `MirAggregate` values explicitly. The
   `mirAggregate_zst`, `mirAggregate_zstIO`, and `mirAggregate_zstSim` functions
   have been introduced to make this process easier.
+* Extend the override for the `atomic_xchg` intrinsic to support storing
+  pointer values in addition to integer values.
 
 # 0.5 -- 2025-11-09
 
