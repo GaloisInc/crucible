@@ -25,9 +25,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Lang.Crucible.LLVM.Intrinsics.Libc where
+module Lang.Crucible.LLVM.Intrinsics.Libc
+  ( module Lang.Crucible.LLVM.Intrinsics.Libc
+  , module Lang.Crucible.LLVM.Intrinsics.Libc.String
+  ) where
 
-import           Control.Lens ((^.), _1, _2, _3)
+import           Control.Lens ((^.))
 import qualified Codec.Binary.UTF8.Generic as UTF8
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (MonadIO(..))
@@ -71,6 +74,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import           Lang.Crucible.LLVM.Intrinsics.Libc.String
 import           Lang.Crucible.LLVM.Intrinsics.Options
 
 -- | All libc overrides.
@@ -85,20 +89,10 @@ libc_overrides =
   [ SomeLLVMOverride llvmAbortOverride
   , SomeLLVMOverride llvmAssertRtnOverride
   , SomeLLVMOverride llvmAssertFailOverride
-  , SomeLLVMOverride llvmMemcpyOverride
-  , SomeLLVMOverride llvmMemcpyChkOverride
-  , SomeLLVMOverride llvmMemmoveOverride
-  , SomeLLVMOverride llvmMemsetOverride
-  , SomeLLVMOverride llvmMemsetChkOverride
   , SomeLLVMOverride llvmMallocOverride
   , SomeLLVMOverride llvmCallocOverride
   , SomeLLVMOverride llvmFreeOverride
   , SomeLLVMOverride llvmReallocOverride
-  , SomeLLVMOverride llvmStrlenOverride
-  , SomeLLVMOverride llvmStrnlenOverride
-  , SomeLLVMOverride llvmStrcpyOverride
-  , SomeLLVMOverride llvmStrdupOverride
-  , SomeLLVMOverride llvmStrndupOverride
   , SomeLLVMOverride llvmMemcmpOverride
   , SomeLLVMOverride llvmStrcmpOverride
   , SomeLLVMOverride llvmStrncmpOverride
@@ -184,110 +178,10 @@ libc_overrides =
   , SomeLLVMOverride cxa_atexitOverride
   , SomeLLVMOverride posixMemalignOverride
   ]
+  ++ string_overrides
 
 ------------------------------------------------------------------------
 -- ** Declarations
-
-
-llvmMemcpyOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext
-           (EmptyCtx ::> LLVMPointerType wptr
-                     ::> LLVMPointerType wptr
-                     ::> BVType wptr)
-           (LLVMPointerType wptr)
-llvmMemcpyOverride =
-  [llvmOvr| i8* @memcpy( i8*, i8*, size_t ) |]
-  (\memOps args ->
-       do sym <- getSymInterface
-          volatile <- liftIO $ RegEntry knownRepr <$> bvZero sym knownNat
-          Ctx.uncurryAssignment (callMemcpy memOps)
-                                (args :> volatile)
-          return $ regValue $ args^._1 -- return first argument
-    )
-
-
-llvmMemcpyChkOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> LLVMPointerType wptr
-                   ::> BVType wptr
-                   ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemcpyChkOverride =
-  [llvmOvr| i8* @__memcpy_chk ( i8*, i8*, size_t, size_t ) |]
-  (\memOps args ->
-      do let args' = Empty :> (args^._1) :> (args^._2) :> (args^._3)
-         sym <- getSymInterface
-         volatile <- liftIO $ RegEntry knownRepr <$> bvZero sym knownNat
-         Ctx.uncurryAssignment (callMemcpy memOps)
-                               (args' :> volatile)
-         return $ regValue $ args^._1 -- return first argument
-    )
-
-llvmMemmoveOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext
-         (EmptyCtx ::> (LLVMPointerType wptr)
-                   ::> (LLVMPointerType wptr)
-                   ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemmoveOverride =
-  [llvmOvr| i8* @memmove( i8*, i8*, size_t ) |]
-  (\memOps args ->
-      do sym <- getSymInterface
-         volatile <- liftIO (RegEntry knownRepr <$> bvZero sym knownNat)
-         Ctx.uncurryAssignment (callMemmove memOps)
-                               (args :> volatile)
-         return $ regValue $ args^._1 -- return first argument
-    )
-
-llvmMemsetOverride :: forall p sym ext wptr.
-     (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym ext
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> BVType 32
-                   ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemsetOverride =
-  [llvmOvr| i8* @memset( i8*, i32, size_t ) |]
-  (\memOps args ->
-      do sym <- getSymInterface
-         LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)
-         let dest = args^._1
-         val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
-         let len = args^._3
-         volatile <- liftIO
-            (RegEntry knownRepr <$> bvZero sym knownNat)
-         callMemset memOps dest val len volatile
-         return (regValue dest)
-    )
-
-llvmMemsetChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => LLVMOverride p sym ext
-         (EmptyCtx ::> LLVMPointerType wptr
-                 ::> BVType 32
-                 ::> BVType wptr
-                 ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemsetChkOverride =
-  [llvmOvr| i8* @__memset_chk( i8*, i32, size_t, size_t ) |]
-  (\memOps args ->
-      do sym <- getSymInterface
-         let dest = args^._1
-         val <- liftIO
-              (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
-         let len = args^._3
-         volatile <- liftIO
-            (RegEntry knownRepr <$> bvZero sym knownNat)
-         callMemset memOps dest val len volatile
-         return (regValue dest)
-    )
 
 ------------------------------------------------------------------------
 -- *** Allocation
@@ -390,46 +284,6 @@ llvmPutsOverride
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
   (\memOps args -> Ctx.uncurryAssignment (callPuts memOps) args)
-
-llvmStrlenOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
-llvmStrlenOverride =
-  [llvmOvr| size_t @strlen( i8* ) |]
-  (\memOps args -> Ctx.uncurryAssignment (callStrlen memOps) args)
-
-llvmStrnlenOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr) (BVType wptr)
-llvmStrnlenOverride =
-  [llvmOvr| size_t @strnlen( i8*, size_t ) |]
-  (\memOps args -> Ctx.uncurryAssignment (callStrnlen memOps) args)
-
-llvmStrcpyOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr) (LLVMPointerType wptr)
-llvmStrcpyOverride =
-  [llvmOvr| i8* @strcpy( i8*, i8* ) |]
-  (\memOps args -> Ctx.uncurryAssignment (callStrcpy memOps) args)
-
-llvmStrdupOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr) (LLVMPointerType wptr)
-llvmStrdupOverride =
-  [llvmOvr| i8* @strdup( i8* ) |]
-  (\memOps args -> Ctx.uncurryAssignment (callStrdup memOps) args)
-
-llvmStrndupOverride
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => LLVMOverride p sym ext (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr) (LLVMPointerType wptr)
-llvmStrndupOverride =
-  [llvmOvr| i8* @strndup( i8*, size_t ) |]
-  (\memOps args -> Ctx.uncurryAssignment (callStrndup memOps) args)
 
 llvmMemcmpOverride
   :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
@@ -572,70 +426,6 @@ callFree mvar
          return ((), mem')
 
 ------------------------------------------------------------------------
--- *** Memory manipulation
-
-callMemcpy
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym ext r args ret ()
-callMemcpy mvar
-           (regValue -> dest)
-           (regValue -> src)
-           (RegEntry (BVRepr w) len)
-           _volatile =
-  ovrWithBackend $ \bak ->
-    modifyGlobal mvar $ \mem -> liftIO $
-      do mem' <- doMemcpy bak w mem True dest src len
-         return ((), mem')
-
--- NB the only difference between memcpy and memove
--- is that memmove does not assert that the memory
--- ranges are disjoint.  The underlying operation
--- works correctly in both cases.
-callMemmove
-  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym ext r args ret ()
-callMemmove mvar
-           (regValue -> dest)
-           (regValue -> src)
-           (RegEntry (BVRepr w) len)
-           _volatile =
-  -- FIXME? add assertions about alignment
-  ovrWithBackend $ \bak ->
-    modifyGlobal mvar $ \mem -> liftIO $
-      do mem' <- doMemcpy bak w mem False dest src len
-         return ((), mem')
-
-callMemset
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType 8)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym ext r args ret ()
-callMemset mvar
-           (regValue -> dest)
-           (regValue -> val)
-           (RegEntry (BVRepr w) len)
-           _volatile =
-  ovrWithBackend $ \bak ->
-    modifyGlobal mvar $ \mem -> liftIO $
-      do mem' <- doMemset bak w mem dest val len
-         return ((), mem')
-
-------------------------------------------------------------------------
 -- *** Strings and I/O
 
 callPutChar
@@ -665,77 +455,6 @@ callPuts mvar
       liftIO $ hPutStrLn h (UTF8.toString str)
       -- return non-negative value on success
       liftIO $ bvLit (backendGetSym bak) knownNat (BV.one knownNat)
-
-callStrlen
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym ext r args ret (RegValue sym (BVType wptr))
-callStrlen mvar (regValue -> strPtr) =
-  ovrWithBackend $ \bak -> do
-    mem <- readGlobal mvar
-    liftIO $ strLen bak mem strPtr
-
-callStrnlen
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym ext r args ret (RegValue sym (BVType wptr))
-callStrnlen mvar (regValue -> strPtr) (regValue -> bound) =
-  ovrWithBackend $ \bak -> do
-    mem <- readGlobal mvar
-    liftIO $ CStr.strnlen bak mem strPtr bound
-
-callStrcpy
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callStrcpy mvar (regValue -> dst) (regValue -> src) =
-  ovrWithBackend $ \bak ->
-    modifyGlobal mvar $ \mem -> do
-      mem' <- liftIO $ CStr.copyConcretelyNullTerminatedString bak mem dst src Nothing
-      pure (dst, mem')
-
-callStrdup
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callStrdup mvar (regValue -> src) =
-  ovrWithBackend $ \bak ->
-    modifyGlobal mvar $ \mem -> liftIO $ do
-      let sym = backendGetSym bak
-      loc <- plSourceLoc <$> getCurrentProgramLoc sym
-      let loc' = "<strdup> " ++ show loc
-      CStr.dupConcretelyNullTerminatedString bak mem src Nothing loc' noAlignment
-
-callStrndup
-  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
-  => GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
-callStrndup mvar (regValue -> src) (regValue -> bound) =
-  ovrWithBackend $ \bak ->
-    modifyGlobal mvar $ \mem -> liftIO $ do
-      let sym = backendGetSym bak
-      loc <- plSourceLoc <$> getCurrentProgramLoc sym
-      let loc' = "<strndup> " ++ show loc
-      case BV.asUnsigned <$> asBV bound of
-        Nothing -> do
-          let err = AssertFailureSimError "`strndup` called with symbolic max length" ""
-          addFailedAssertion bak err
-        Just b ->
-          let bound' = Just (fromIntegral b) in
-          CStr.dupConcretelyNullTerminatedString bak mem src bound' loc' noAlignment
 
 callMemcmp
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
@@ -1771,7 +1490,7 @@ llvmAbortOverride
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
   (\_ _args ->
-     ovrWithBackend $ \bak -> liftIO $ do 
+     ovrWithBackend $ \bak -> liftIO $ do
        let sym = backendGetSym bak
        when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
            let err = AssertFailureSimError "Call to abort" "" in
