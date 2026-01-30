@@ -45,6 +45,12 @@ doc](../../doc/limitations.md)). The tests embed the expected output in comments
 starting with `/// `. Generally speaking, these comments closely follow the
 `printf` invocation that produces the output.
 
+**WARNING**: The tests should use `argc` to ensure that the compiler can't
+compile away calls to any overrides under test. The test harness guarantees that
+`argc` is always 1. Use `llvm-dis` to disassemble the bitcode to ensure it has
+the structure you want. See the example below (or the existing tests) for how to
+do this.
+
 The tests have a timeout of 5s, but they should generally complete in under 1s
 for the sake of a reasonably snappy test-suite and CI.
 
@@ -54,16 +60,17 @@ for the sake of a reasonably snappy test-suite and CI.
 #include <string.h>
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int one, char** argv) {
+    int zero = argc - 1;
     char src[6] = "hello";
     char dst[6] = "XXXXX";
 
-    memcpy(dst, src, 0);
-    printf("memcpy zero-length: %c\n", dst[0]);
+    memcpy(&dst[zero], &src[zero], zero);
+    printf("memcpy zero-length: %c\n", dst[zero]);
     /// memcpy zero-length: X
 
-    memcpy(dst, src, 1);
-    printf("memcpy single byte: %c\n", dst[0]);
+    memcpy(&dst[zero], &src[zero], one);
+    printf("memcpy single byte: %c\n", dst[zero]);
     /// memcpy single byte: h
 }
 ```

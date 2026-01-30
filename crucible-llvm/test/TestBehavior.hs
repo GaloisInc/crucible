@@ -49,7 +49,7 @@ import qualified Lang.Crucible.LLVM.Intrinsics as Intrinsics
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.SymIO as SymIO
 import qualified Lang.Crucible.LLVM.Translation as Trans
-import           What4.Interface ( bvZero )
+import           What4.Interface ( bvOne )
 
 -- Reuse from existing tests
 import           MemSetup ( withTranslatedModule )
@@ -206,7 +206,7 @@ runBc bcPath = do
         -- main(int argc, char** argv)
         (Empty :> LLVMMem.LLVMPointerRepr w :> LLVMMem.PtrRepr) -> do
           let sym = backendGetSym bak
-          argc_ <- LLVMMem.llvmPointer_bv sym =<< bvZero sym w
+          argc_ <- LLVMMem.llvmPointer_bv sym =<< bvOne sym w
           argv_ <- LLVMMem.mkNullPointer sym LLVMMem.PtrWidth
           let argc = CS.RegEntry (LLVMMem.LLVMPointerRepr w) argc_
           let argv = CS.RegEntry LLVMMem.PtrRepr argv_
