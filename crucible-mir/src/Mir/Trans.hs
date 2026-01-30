@@ -152,9 +152,15 @@ transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
 transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
 
+-- Slice references
 transConstVal (M.TyRef (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
     transConstSliceRef ty defid len
 transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
+    transConstSliceRef (M.TyUint M.B8) defid len
+-- Slice raw pointers
+transConstVal (M.TyRawPtr (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
+    transConstSliceRef ty defid len
+transConstVal (M.TyRawPtr M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
     transConstSliceRef (M.TyUint M.B8) defid len
 
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
@@ -263,8 +269,8 @@ transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 
 --
--- This code handles slice references, both for ordinary array slices
--- and string slices. (These differ from ordinary references in having
+-- This code handles slice references and pointers, both for ordinary array
+-- slices and string slices. (These differ from ordinary references in having
 -- a length.)  It needs to look up the definition ID, and then:
 --    * check that the type of the global variable it finds is MirAggregateType
 --    * construct a reference to the global variable
@@ -279,7 +285,7 @@ transConstVal ty tp cv = mirFail $
 -- does the last two.
 --
 
--- | Translate a reference to a constant slice value.
+-- | Translate a reference or pointer to a constant slice value.
 transConstSliceRef ::
   HasCallStack =>
   -- | The type of the slice's elements.
