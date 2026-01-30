@@ -229,10 +229,10 @@ terminateBlock ::
   GeneratorState ext s t ret m ->
   EndState ext s t ret m
 terminateBlock term gs =
-  do let p = gs^.gsPosition
-     let cbs = gs^.gsCurrent
+  do let p = gs ^. gsPosition
+     let cbs = gs ^. gsCurrent
      -- Define block
-     let b = mkBlock (cbsBlockID cbs) (cbsInputValues cbs) (cbs^.cbsStmts) (Posd p term)
+     let b = mkBlock (cbsBlockID cbs) (cbsInputValues cbs) (cbs ^. cbsStmts) (Posd p term)
      -- Store block
      let gs' = gs & gsCurrent .~ ()
                   & gsBlocks  %~ (Seq.|> b)
@@ -565,8 +565,8 @@ defineSomeBlock l next =
   do let gs1 = startBlock l (gs0 & gsCurrent .~ ())
      gs2 <- runGenerator next gs1
      -- Reset current block and state.
-     let gs3 = gs2 & gsPosition .~ gs0^.gsPosition
-                   & gsCurrent .~ gs0^.gsCurrent
+     let gs3 = gs2 & gsPosition .~ gs0 ^. gsPosition
+                   & gsCurrent .~ gs0 ^. gsCurrent
      cont () gs3
 
 -- | Define a block with an ordinary label.
@@ -891,8 +891,8 @@ cfgFromGenerator :: FnHandle init ret
                  -> CFG ext s init ret
 cfgFromGenerator h s =
   CFG { cfgHandle = h
-      , cfgEntryLabel = s^.gsEntryLabel
-      , cfgBlocks = Fold.toList (s^.gsBlocks)
+      , cfgEntryLabel = s ^. gsEntryLabel
+      , cfgBlocks = Fold.toList (s ^. gsBlocks)
       }
 
 -- | Given the arguments, this returns the initial state, and an action for
@@ -953,4 +953,4 @@ defineFunctionOpt p sng h f optPass = seq h $ do
               }
   ts' <- runGenerator (action >>= returnFromFunction) $! ts
   g   <- optPass ng (cfgFromGenerator h ts')
-  return (SomeCFG g, ts'^.seenFunctions)
+  return (SomeCFG g, ts' ^. seenFunctions)

@@ -330,7 +330,7 @@ closure :: ( IsExpr e
            , KnownRepr TypeRepr ret
            , KnownCtx  TypeRepr args
            )
-        => e (FunctionHandleType (args::>tp) ret)
+        => e (FunctionHandleType (args ::> tp) ret)
         -> e tp
         -> e (FunctionHandleType args ret)
 closure h a = app (Closure knownRepr knownRepr h knownRepr a)
@@ -448,7 +448,7 @@ concatExprs w (a:as) = go a as
           -> a
        go x0 [] k     = k w x0
        go x0 (x:xs) k = go x xs (\(w'::NatRepr w') z ->
-            withLeqProof (leqAdd LeqProof w' :: LeqProof 1 (w+w'))
+            withLeqProof (leqAdd LeqProof w' :: LeqProof 1 (w + w'))
               (k (addNat w w') (app $ BVConcat w w' x0 z)))
 
 bigEndianLoad

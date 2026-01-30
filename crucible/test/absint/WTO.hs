@@ -97,7 +97,7 @@ instance QC.Arbitrary RandomGraph where
 --
 -- The graphs are not all connected.
 mkRandomGraph :: Int -> QC.Gen RandomGraph
-mkRandomGraph ((+1) -> sz) = do
+mkRandomGraph ((+ 1) -> sz) = do
   nEdges <- QC.choose (2, 2*sz)
   srcs <- replicateM nEdges (QC.choose (0, sz))
   dsts <- replicateM nEdges (QC.choose (0, sz))

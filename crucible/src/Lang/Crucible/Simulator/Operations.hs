@@ -116,8 +116,8 @@ mergeGlobalPair ::
   MuxFn p (SymGlobalState sym) ->
   MuxFn p (GlobalPair sym v)
 mergeGlobalPair merge_fn global_fn c x y =
-  GlobalPair <$> merge_fn  c (x^.gpValue) (y^.gpValue)
-             <*> global_fn c (x^.gpGlobals) (y^.gpGlobals)
+  GlobalPair <$> merge_fn  c (x ^. gpValue) (y ^. gpValue)
+             <*> global_fn c (x ^. gpGlobals) (y ^. gpGlobals)
 
 mergeAbortedResult ::
   ProgramLoc {- ^ Program location of control-flow branching -} ->
@@ -156,12 +156,12 @@ mergeCrucibleFrame sym muxFns tgt p x0 y0 =
     BlockTarget _b_id -> do
       let x = fromCallFrame x0
       let y = fromCallFrame y0
-      z <- mergeRegs sym muxFns p (x^.frameRegs) (y^.frameRegs)
+      z <- mergeRegs sym muxFns p (x ^. frameRegs) (y ^. frameRegs)
       pure $! MF (x & frameRegs .~ z)
     ReturnTarget -> do
       let x = fromReturnFrame x0
       let y = fromReturnFrame y0
-      RF (x0^.frameFunctionName) <$> muxRegEntry sym muxFns p x y
+      RF (x0 ^. frameFunctionName) <$> muxRegEntry sym muxFns p x y
 
 
 mergePartialResult ::
@@ -170,8 +170,8 @@ mergePartialResult ::
   CrucibleBranchTarget f args ->
   MuxFn (Pred sym) (PartialResultFrame sym ext f args)
 mergePartialResult s tgt pred x y =
-  let sym       = s^.stateSymInterface
-      iteFns    = s^.stateIntrinsicTypes
+  let sym       = s ^. stateSymInterface
+      iteFns    = s ^. stateIntrinsicTypes
       merge_val = mergeCrucibleFrame sym iteFns tgt
       merge_fn  = mergeGlobalPair merge_val (globalMuxFn sym iteFns)
   in
@@ -254,7 +254,7 @@ abortCrucibleFrame ::
   SimFrame sym ext f a' ->
   IO (SimFrame sym ext f a')
 abortCrucibleFrame sym intrinsicFns (BlockTarget _) (MF x') =
-  do r' <- abortBranchRegs sym intrinsicFns (x'^.frameRegs)
+  do r' <- abortBranchRegs sym intrinsicFns (x' ^. frameRegs)
      return $! MF (x' & frameRegs .~ r')
 
 abortCrucibleFrame sym intrinsicFns ReturnTarget (RF nm x') =
@@ -268,8 +268,8 @@ abortPartialResult ::
   PartialResultFrame sym ext f a' ->
   IO (PartialResultFrame sym ext f a')
 abortPartialResult s tgt pr =
-  let sym                    = s^.stateSymInterface
-      muxFns                 = s^.stateIntrinsicTypes
+  let sym                    = s ^. stateSymInterface
+      muxFns                 = s ^. stateIntrinsicTypes
       abtGp (GlobalPair v g) = GlobalPair <$> abortCrucibleFrame sym muxFns tgt v
                                           <*> globalAbortBranch sym muxFns g
   in partialValue abtGp pr
@@ -367,7 +367,7 @@ resolveCall bindings c0 args loc callStack =
 
 
 resolvedCallName :: ResolvedCall p sym ext ret -> FunctionName
-resolvedCallName (OverrideCall _ f) = f^.override
+resolvedCallName (OverrideCall _ f) = f ^. override
 resolvedCallName (CrucibleCall _ f) = case frameHandle f of SomeHandle h -> handleName h
 
 ---------------------------------------------------------------------
@@ -404,8 +404,8 @@ runErrorHandler ::
   SimState p sym ext rtp f args {- ^ Simulator state prior to the abort -} ->
   IO (ExecState p sym ext rtp)
 runErrorHandler msg st =
-  let ctx = st^.stateContext
-      sym = ctx^.ctxSymInterface
+  let ctx = st ^. stateContext
+      sym = ctx ^. ctxSymInterface
    in withBackend ctx $ \bak ->
       do loc <- getCurrentProgramLoc sym
          let err = SimError loc msg
@@ -464,7 +464,7 @@ conditionalBranch ::
   ExecCont p sym ext rtp (CrucibleLang blocks ret) ('Just ctx)
 conditionalBranch p xjmp yjmp = do
   top_frame <- view (stateTree.actFrame)
-  Some pd <- return (top_frame^.crucibleTopFrame.framePostdom)
+  Some pd <- return (top_frame ^. crucibleTopFrame.framePostdom)
 
   x_frame <- cruciblePausedFrame xjmp top_frame pd
   y_frame <- cruciblePausedFrame yjmp top_frame pd
@@ -495,7 +495,7 @@ variantCases [] =
 
 variantCases ((p,jmp) : cs) =
   do top_frame <- view (stateTree.actFrame)
-     Some pd <- return (top_frame^.crucibleTopFrame.framePostdom)
+     Some pd <- return (top_frame ^. crucibleTopFrame.framePostdom)
 
      x_frame <- cruciblePausedFrame jmp top_frame pd
      let y_frame = PausedFrame (TotalRes top_frame) (SwitchResumption cs) Nothing
@@ -639,9 +639,9 @@ performIntraFrameMerge tgt = do
                continue (RunPostBranchMerge bid)
              ReturnTarget ->
                handleSimReturn
-                 (er^.partialValue.gpValue.frameFunctionName)
+                 (er ^. partialValue.gpValue.frameFunctionName)
                  (returnContext ctx0)
-                 (er^.partialValue.gpValue.to fromReturnFrame)
+                 (er ^. partialValue.gpValue.to fromReturnFrame)
 
 ---------------------------------------------------------------------
 -- Abort handling
@@ -862,7 +862,7 @@ overrideSymbolicBranch ::
   ExecCont p sym ext rtp (OverrideLang r) ('Just args)
 overrideSymbolicBranch p thn_args thn thn_pos els_args els els_pos =
   do top_frm <- view (stateTree.actFrame)
-     let fnm     = top_frm^.gpValue.overrideSimFrame.override
+     let fnm     = top_frm ^. gpValue.overrideSimFrame.override
      let thn_loc = mkProgramLoc fnm <$> thn_pos
      let els_loc = mkProgramLoc fnm <$> els_pos
      let thn_frm = PausedFrame (TotalRes top_frm) (OverrideResumption thn thn_args) thn_loc
@@ -1090,8 +1090,8 @@ extractCurrentPath ::
   ActiveTree p sym ext ret f args ->
   ActiveTree p sym ext ret f args
 extractCurrentPath t =
-  ActiveTree (vffSingleContext (t^.actContext))
-             (TotalRes (t^.actFrame))
+  ActiveTree (vffSingleContext (t ^. actContext))
+             (TotalRes (t ^. actFrame))
 
 vffSingleContext ::
   ValueFromFrame p sym ext ret f ->
@@ -1118,9 +1118,9 @@ vfvSingleContext ctx0 =
 -- -- | Return all branch conditions along path to this node.
 -- branchConditions :: ActiveTree ctx sym ext ret f args -> [Pred sym]
 -- branchConditions t =
---   case t^.actResult of
---     TotalRes _ -> vffBranchConditions (t^.actContext)
---     PartialRes p _ _ -> p : vffBranchConditions (t^.actContext)
+--   case t ^. actResult of
+--     TotalRes _ -> vffBranchConditions (t ^. actContext)
+--     PartialRes p _ _ -> p : vffBranchConditions (t ^. actContext)
 
 -- vffBranchConditions :: ValueFromFrame p sym ext ret f
 --                     -> [Pred sym]

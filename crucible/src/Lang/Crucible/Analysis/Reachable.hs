@@ -98,7 +98,7 @@ exploreReachable' :: BlockMap ext blocks ret
 exploreReachable' _ [] r = r
 exploreReachable' m (Some h:l) r =
   case Map.lookup (Some h) r of
-    Just c -> exploreReachable' m l (Map.insert (Some h) (c+1) r)
+    Just c -> exploreReachable' m l (Map.insert (Some h) (c + 1) r)
     Nothing -> do
       let b = getBlock h m
       exploreReachable' m (nextBlocks b ++ l) (Map.insert (Some h) 1 r)

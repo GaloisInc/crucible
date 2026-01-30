@@ -102,6 +102,6 @@ splitVecBV :: (IsExpr f, 1 <= i, 1 <= w) =>
   Endian ->
   NatRepr i {- ^ Split bit-vectors in this many parts -} ->
   NatRepr w {- ^ Length of bit-vectors in the result -} ->
-  Vector n (f (BVType (i * w))) -> Vector (n*i) (f (BVType w))
+  Vector n (f (BVType (i * w))) -> Vector (n * i) (f (BVType w))
 splitVecBV e i w xs = join i (fromBV e i w <$> xs)
 {-# Inline splitVecBV #-}

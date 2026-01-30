@@ -28,7 +28,6 @@ import GHC.Stack (CallStack)
 
 import Control.Exception
 import Data.String
-import Data.Typeable
 import Prettyprinter
 
 import What4.ProgramLoc
@@ -49,14 +48,12 @@ data SimErrorReason
    | ResourceExhausted String
       -- ^ A loop iteration count, or similar resource limit,
       --   was exceeded.
- deriving (Typeable)
 
 data SimError
    = SimError
    { simErrorLoc :: !ProgramLoc
    , simErrorReason :: !SimErrorReason
    }
- deriving (Typeable)
 
 simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
