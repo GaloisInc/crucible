@@ -22,7 +22,7 @@
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.Stdio
   ( -- * stdio.h overrides
-    stdio_overrides
+    stdioOverrides
     -- * Override declarations
   , llvmPrintfOverride
   , llvmPrintfChkOverride
@@ -70,11 +70,11 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
 -- | All stdio.h overrides
-stdio_overrides ::
+stdioOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
   , ?memOpts :: MemOptions ) =>
   [SomeLLVMOverride p sym ext]
-stdio_overrides =
+stdioOverrides =
   [ SomeLLVMOverride llvmPrintfOverride
   , SomeLLVMOverride llvmPrintfChkOverride
   , SomeLLVMOverride llvmPutsOverride

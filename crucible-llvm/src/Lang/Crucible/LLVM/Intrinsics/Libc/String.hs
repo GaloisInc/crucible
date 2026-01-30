@@ -22,7 +22,7 @@
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.String
   ( -- * string.h overrides
-    string_overrides
+    stringOverrides
     -- * Override declarations
   , llvmMemcpyOverride
   , llvmMemcpyChkOverride
@@ -76,11 +76,11 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
 -- | All string.h overrides
-string_overrides ::
+stringOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
   , ?memOpts :: MemOptions ) =>
   [SomeLLVMOverride p sym ext]
-string_overrides =
+stringOverrides =
   [ SomeLLVMOverride llvmMemcpyOverride
   , SomeLLVMOverride llvmMemcpyChkOverride
   , SomeLLVMOverride llvmMemmoveOverride

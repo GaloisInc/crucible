@@ -22,7 +22,7 @@
 
 module Lang.Crucible.LLVM.Intrinsics.Libc.Math
   ( -- * math.h overrides
-    math_overrides
+    mathOverrides
     -- * Override declarations
   , llvmCeilOverride
   , llvmCeilfOverride
@@ -116,10 +116,10 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
 -- | All math.h overrides
-math_overrides ::
+mathOverrides ::
   IsSymInterface sym =>
   [SomeLLVMOverride p sym ext]
-math_overrides =
+mathOverrides =
   [ SomeLLVMOverride llvmCeilOverride
   , SomeLLVMOverride llvmCeilfOverride
   , SomeLLVMOverride llvmFloorOverride
