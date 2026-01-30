@@ -943,7 +943,13 @@ evalCast' ck ty1 e ty2  = do
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
-      -- repr(transparent) pointer-to-pointer cast
+      -- repr(transparent) pointer-to-pointer cast. Some of the
+      -- pointer-to-pointer cases above match on the specific Ty inside the
+      -- TyRawPtr. We want this to also work when the inside Ty is wrapped in a
+      -- repr(transparent) newtype, so we check for that here and recurse with
+      -- the unwrapped type. It's important that this case comes before the
+      -- general pointer-to-pointer case, which would just leave the pointer
+      -- unmodified.
       (M.Misc, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
         | Just adt1 <- findAdt' col an1
         , Just fieldTy1 <- reprTransparentFieldTy col adt1
