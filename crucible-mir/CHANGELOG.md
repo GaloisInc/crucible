@@ -1,5 +1,11 @@
 # next
 
+This release supports [version
+9](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#9) of
+`mir-json`'s schema.
+
+* Support translating constant trait object values.
+
 # 0.6 -- 2026-01-29
 
 This release supports [version

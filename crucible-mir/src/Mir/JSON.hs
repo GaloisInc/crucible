@@ -620,6 +620,12 @@ instance FromJSON ConstVal where
         Just (String "fn_ptr") ->
             ConstFnPtr <$> v .: "def_id"
 
+        Just (String "trait_object") ->
+            ConstTraitObject
+              <$> v .: "def_id"
+              <*> v .: "trait_id"
+              <*> v .: "vtable"
+
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
 

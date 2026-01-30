@@ -394,6 +394,8 @@ instance Pretty ConstVal where
     pretty ConstUnion = pretty "union"
     pretty (ConstSliceRef a _len) = pretty "&" <> pr_id a
     pretty (ConstFnPtr i)   = pretty "fn_ptr" <> brackets (pretty i)
+    pretty (ConstTraitObject a trait vtable) =
+      pretty "&trait_object" <> list (map pr_id [a, trait, vtable])
 
 instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)
