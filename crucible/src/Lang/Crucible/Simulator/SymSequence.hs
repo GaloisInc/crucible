@@ -458,7 +458,7 @@ computeOccMap ::
 computeOccMap = loop
   where
     visit n k m
-      | Just i <- Map.lookup n m = Map.insert n (i+1) m
+      | Just i <- Map.lookup n m = Map.insert n (i + 1) m
       | otherwise = k (Map.insert n 1 m)
 
     loop SymSequenceNil = id

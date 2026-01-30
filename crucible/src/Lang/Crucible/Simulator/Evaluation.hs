@@ -80,7 +80,7 @@ selectedIndices l = catMaybes $ Prelude.zipWith selectIndex l [1..]
 -- Coercion functions
 
 integerAsChar :: Integer -> Word16
-integerAsChar i = fromInteger ((i `max` 0) `min` (2^(16::Int)-1))
+integerAsChar i = fromInteger ((i `max` 0) `min` (2 ^ (16::Int)-1))
 
 complexRealAsChar :: (MonadFail m, IsExpr val)
                   => val BaseComplexType

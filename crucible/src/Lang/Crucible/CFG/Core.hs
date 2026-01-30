@@ -678,14 +678,14 @@ blockStmts = lens _blockStmts (\b s -> b { _blockStmts = s })
 
 -- | Return location of start of block.
 blockLoc :: Block ext blocks ret ctx -> ProgramLoc
-blockLoc b = firstStmtLoc (b^.blockStmts)
+blockLoc b = firstStmtLoc (b ^. blockStmts)
 
 -- | Get the terminal statement of a basic block.  This is implemented
 -- in a CPS style due to the block context.
 withBlockTermStmt :: Block ext blocks ret args
                   -> (forall ctx . ProgramLoc -> TermStmt blocks ret ctx -> r)
                   -> r
-withBlockTermStmt b f = getConst (stmtSeqTermStmt (Const . uncurry f) (b^.blockStmts))
+withBlockTermStmt b f = getConst (stmtSeqTermStmt (Const . uncurry f) (b ^. blockStmts))
 
 nextBlocks :: Block ext b r a -> [Some (BlockID b)]
 nextBlocks b =
@@ -709,7 +709,7 @@ ppBlock :: PrettyExt ext
            -- ^ Block to print.
         -> Doc ann
 ppBlock ppLineNumbers ppBlockArgs mPda b = do
-  let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
+  let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b ^. blockStmts)
   let mPostdom = flip fmap mPda $ \ pda ->
         let Const pd = pda ! blockIDIndex (blockID b)
         in if Prelude.null pd

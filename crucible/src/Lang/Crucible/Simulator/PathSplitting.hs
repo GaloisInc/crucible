@@ -117,7 +117,7 @@ pathSplittingFeature ::
   ExecutionFeature p sym ext rtp
 pathSplittingFeature wl = ExecutionFeature $ \case
   SymbolicBranchState p trueFrame falseFrame _bt st ->
-    withBackend (st^.stateContext) $ \bak ->
+    withBackend (st ^. stateContext) $ \bak ->
     do let sym = st ^. stateSymInterface
        pnot <- notPred sym p
        assumes <- saveAssumptionState bak
