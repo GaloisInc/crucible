@@ -213,6 +213,10 @@ transConstVal ty _ ConstZST = initialValue ty >>= \case
     Just x -> return x
     Nothing -> mirFail $
         "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
+transConstVal _ty (Some DynRefRepr) (ConstTraitObject defId traitId vtableId) = do
+  traitObjectPlace <- staticPlace defId
+  traitObjectAddr <- addrOfPlace traitObjectPlace
+  mkTraitObject traitId vtableId traitObjectAddr
 transConstVal _ty (Some MirReferenceRepr) (ConstRawPtr i) =
     MirExp MirReferenceRepr <$> integerToMirRef (R.App $ usizeLit i)
 transConstVal ty@(M.TyAdt aname _ _) tpr (ConstStruct fields) = do
