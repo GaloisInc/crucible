@@ -23,6 +23,7 @@ import Prettyprinter (brackets)
 import Data.Parameterized.TH.GADT
 import Data.Parameterized.TraversableFC
 
+import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Utils.PrettyPrint (ppFn, commas)
 
 ------------------------------------------------------------------------
@@ -52,7 +53,7 @@ matchPretty matchPat pp con = do
   let vars = varE <$> nms
   let nm' = case nameBase nm of
               c:r -> toLower c : r
-              [] -> error "matchPretty given constructor with empty name."
+              [] -> panic "matchPretty" ["given constructor with empty name"]
   let mkPP0 v tp = do
         me <- matchPat tp
         case me of

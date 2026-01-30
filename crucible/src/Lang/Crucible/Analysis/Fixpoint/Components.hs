@@ -40,6 +40,7 @@ import Prelude
 import           Data.Parameterized.Some (Some(Some))
 import           Lang.Crucible.CFG.Core (CFG, BlockID)
 import qualified Lang.Crucible.CFG.Core as CFG
+import           Lang.Crucible.Panic (panic)
 
 -- | Compute a weak topological ordering over a control flow graph.
 --
@@ -109,7 +110,7 @@ visit v = do
                   -- Otherwise, unwind the stack and add a full component
                 unwindStack elt v
                 makeComponent v
-        Nothing -> error "Pop attempted on empty stack (Components:visit)"
+        Nothing -> panic "visit" ["Pop attempted on empty stack"]
   -- We return the least label in the strongly-connected component
   -- containing this vertex, which is used if we have to unwind back
   -- to the SCC head vertex.

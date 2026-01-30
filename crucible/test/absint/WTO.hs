@@ -18,6 +18,7 @@ import qualified Test.Tasty as T
 import qualified Test.Tasty.QuickCheck as T
 
 import Lang.Crucible.Analysis.Fixpoint.Components
+import Lang.Crucible.Panic (panic)
 
 wtoTests :: T.TestTree
 wtoTests = T.testGroup "WeakTopologicalOrdering" [
@@ -161,7 +162,7 @@ unique = S.toList . S.fromList
 --
 -- Not defined for empty graphs
 toCFG :: RandomGraph -> (Int, (Int -> [Int]))
-toCFG (RG []) = error "Empty graph"
+toCFG (RG []) = panic "toCFG" ["Empty graph"]
 toCFG (RG edges@((s0, _) : _)) =
   (s0, \n -> [ dst | (src, dst) <- edges, n == src])
 

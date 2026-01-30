@@ -137,7 +137,7 @@ $([d| {- New TH Scope -} |])
 
 -- This is going to go away
 instance ShowFC ExtX86 where
-  showFC _ _ = error "[ShowFC ExtX86] Not implmented."
+  showFC _ _ = panic "ExtX86.showFC" ["Not implemented"]
 
 instance TestEqualityFC ExtX86 where
   testEqualityFC testSubterm =
@@ -155,7 +155,7 @@ instance OrdFC ExtX86 where
 
 -- This is going away
 instance HashableFC ExtX86 where
-  hashWithSaltFC _hash _s _x = error "[HashableFC ExtX86] Not implmented."
+  hashWithSaltFC _hash _s _x = panic "ExtX86.hashWithSaltFC" ["Not implemented"]
 
 instance FunctorFC ExtX86 where
   fmapFC = fmapFCDefault
@@ -167,7 +167,7 @@ instance TraversableFC ExtX86 where
   traverseFC = $(U.structuralTraversal [t|ExtX86|] [])
 
 instance PrettyApp ExtX86 where
-  ppApp _pp _x = error "[PrettyApp ExtX86] XXX"
+  ppApp _pp _x = panic "ExtX86.ppApp" ["Not implemented"]
 
 instance TypeApp ExtX86 where
   appType x =

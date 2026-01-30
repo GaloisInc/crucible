@@ -48,6 +48,7 @@ import Numeric.Natural
 
 import What4.Utils.Arithmetic
 import Lang.Crucible.LLVM.Bytes
+import Lang.Crucible.Panic (panic)
 
 
 ------------------------------------------------------------------------
@@ -277,7 +278,7 @@ maxAlignment dl =
           ]
 
 fromSize :: Int -> Natural
-fromSize i | i < 0 = error $ "Negative size given in data layout."
+fromSize i | i < 0 = panic "fromSize" ["Negative size given in data layout."]
            | otherwise = fromIntegral i
 
 -- | Insert alignment into spec.

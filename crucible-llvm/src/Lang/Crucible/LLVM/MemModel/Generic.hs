@@ -1578,7 +1578,7 @@ popStackFrameMem m = m & memState %~ popf
           BranchFrame (sizeMemAllocs (fst c)) wc c $ popf s
           where c = (popMemAllocs a, w)
 
-        popf EmptyMem{} = error "popStackFrameMem given unexpected memory"
+        popf EmptyMem{} = panic "popStackFrameMem" ["given unexpected memory"]
 
 
 -- | Free a heap-allocated block of memory.
@@ -1625,7 +1625,7 @@ branchMem = memState %~ \s ->
 branchAbortMem :: Mem sym -> Mem sym
 branchAbortMem = memState %~ popf
   where popf (BranchFrame _ _ c s) = s & memStateAddChanges c
-        popf _ = error "branchAbortMem given unexpected memory"
+        popf _ = panic "branchAbortMem" ["given unexpected memory"]
 
 -- | Merge memory that was previously prepared via 'branchMem'.
 --
@@ -1644,7 +1644,7 @@ mergeMem c x y =
       X.assert (allocsEq && writesEq) $
         let s' = s & memStateAddChanges (muxChanges c a b)
         in x & memState .~ s'
-    _ -> error "mergeMem given unexpected memories"
+    _ -> panic "mergeMem" ["given unexpected memories"]
 
 --------------------------------------------------------------------------------
 -- Finding allocations

@@ -454,9 +454,9 @@ loadBitvector :: Addr -> Bytes -> Addr -> ValueView -> ValueCtor (ValueLoad Addr
 loadBitvector lo lw so v = do
   let le = lo + lw
   let ltp = bitvectorType lw
-  let stp = fromMaybe (error ("loadBitvector given bad view " ++ show v)) (viewType v)
+  let stp = fromMaybe (panic "loadBitvector" ["given bad view", show v]) (viewType v)
   let retValue eo v' = (sz', valueLoad lo' (bitvectorType sz') eo v')
-        where etp = fromMaybe (error ("Bad view " ++ show v')) (viewType v')
+        where etp = fromMaybe (panic "loadBitvector.retValue" ["bad view", show v']) (viewType v')
               esz = storageTypeSize etp
               lo' = max lo eo
               sz' = min le (eo+esz) - lo'
@@ -535,7 +535,7 @@ valueLoad lo ltp so v
       Struct lflds ->
         let val f = (f, valueLoad (lo+fieldOffset f) (f^.fieldVal) so v)
          in MkStruct (val <$> lflds)
- where stp = fromMaybe (error ("Coerce value given bad view " ++ show v)) (viewType v)
+ where stp = fromMaybe (panic "coerceValue" ["given bad view", show v]) (viewType v)
        le = typeEnd lo ltp
        se = so + storageTypeSize stp
        nonZeroLoad = le - lo > 0

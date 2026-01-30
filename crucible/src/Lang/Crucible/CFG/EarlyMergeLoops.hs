@@ -56,7 +56,7 @@ import           What4.ProgramLoc (Position(..), Posd(..))
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Reg
-import           Lang.Crucible.Panic
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Types
 
 --------------------------
@@ -758,7 +758,7 @@ routePaths ng (BlockSwitchInfo ctx sz idxMap) outs =
           | Just Refl <- testEquality (lambdaId ll) (lambdaId l1) -> Output l1 (lambdaAtom l2)
         (_, _:rest) -> bidToTerm origOut rest
         _ ->
-          error "Output blocks mismatched in routePaths"
+          panic "routePaths" ["Output blocks mismatched"]
   
     mkMapping = Ctx.generateM sz $ \idx ->
       do n <- freshNonce ng

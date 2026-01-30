@@ -280,7 +280,7 @@ lookupSwitchInfo l (SwitchInfoMap m) =
       Just (SomeSwitchInfo tr si) -> Just $
          case testEquality tr (typeOfAtom (lambdaAtom l)) of
              Just Refl -> si
-             Nothing   -> error "Lang.Crucible.SSAConversion.lookupSwitchInfo: type mismatch!"
+             Nothing   -> panic "lookupSwitchInfo" ["type mismatch!"]
 
 -- | Extend switch target
 extSwitchInfo :: SwitchInfo s blocks tp -> SwitchInfo s (blocks::>args) tp
@@ -621,7 +621,7 @@ resolveJumpTarget :: BlockInfo ext s ret blocks
                   -> C.JumpTarget blocks ctx
 resolveJumpTarget bi reg_map next_lbl = do
   case lookupJumpInfo next_lbl (biJumpInfo bi) of
-    Nothing -> error "Could not find label in resolveJumpTarget"
+    Nothing -> panic "resolveJumpTarget" ["Could not find label"]
     Just (JumpInfo next_id types inputs) -> do
       let args = fmapFC (resolveReg reg_map) inputs
       C.JumpTarget next_id types args
@@ -634,7 +634,7 @@ resolveLambdaAsJump :: BlockInfo ext s ret blocks
                     -> C.JumpTarget blocks ctx
 resolveLambdaAsJump bi reg_map next_lbl output =
   case lookupSwitchInfo next_lbl (biSwitchInfo bi) of
-    Nothing -> error "Could not find label in resolveLambdaAsJump"
+    Nothing -> panic "resolveLambdaAsJump" ["Could not find label"]
     Just (SwitchInfo block_id types inputs) -> do
       let types' = types :> typeOfAtom (lambdaAtom next_lbl)
       let args = fmapFC (resolveReg reg_map) inputs
@@ -648,7 +648,7 @@ resolveLambdaAsSwitch :: BlockInfo ext s ret blocks
                       -> C.SwitchTarget blocks ctx tp
 resolveLambdaAsSwitch bi reg_map next_lbl =
   case lookupSwitchInfo next_lbl (biSwitchInfo bi) of
-    Nothing -> error "Could not find label in resolveLambdaAsSwitch"
+    Nothing -> panic "resolveLambdaAsSwitch" ["Could not find label"]
     Just (SwitchInfo block_id types inputs) -> do
       let args = fmapFC (resolveReg reg_map) inputs
       C.SwitchTarget block_id types args
@@ -746,7 +746,7 @@ appRegMap_lookup app m =
      Nothing -> Nothing
      Just (SomeReg tp r)
         | Just Refl <- testEquality tp (C.appType app) -> Just r
-     _ -> error "appRegMap_lookup: impossible!"
+     _ -> panic "appRegMap_lookup" ["impossible!"]
 
 
 appRegMap_empty :: AppRegMap ext ctx
@@ -950,7 +950,7 @@ resolveBlockMap nm entry blocks = do
   case inferBlockInfo blocks of
     Some bi ->
       case lookupJumpInfo entry (biJumpInfo bi) of
-        Nothing -> error "Missing initial block."
+        Nothing -> panic "resolveBlockMap" ["Missing initial block."]
         Just (JumpInfo (C.BlockID idx) _ _) ->
           SomeBlockMap idx (biBreakpoints bi) $
             fmapFC (resolveBlock bi) (biBlocks bi)

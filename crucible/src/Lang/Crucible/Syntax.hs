@@ -97,6 +97,7 @@ import           Numeric.Natural
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Types
 
 import           What4.Utils.StringLiteral
@@ -408,7 +409,7 @@ bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
                   (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (BV.mkBV addrWidth (toInteger (n-1)))))
                   (app $ BVSelect idx cellWidth valWidth v)
                   (go (n-1))
-        go _ = error "bad size parameters in bigEndianStore!"
+        go _ = panic "bigEndianStore" ["bad size parameters!"]
 
 littleEndianStore
    :: (IsExpr expr, 1 <= addrWidth, 1 <= valWidth, 1 <= cellWidth)
@@ -429,7 +430,7 @@ littleEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
                   (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (BV.mkBV addrWidth (toInteger (n-1)))))
                   (app $ BVSelect idx cellWidth valWidth v)
                   (go (n-1))
-        go _ = error "bad size parameters in littleEndianStore!"
+        go _ = panic "littleEndianStore" ["bad size parameters!"]
 
 concatExprs :: forall w a expr
             .  (IsExpr expr, 1 <= w)
@@ -438,7 +439,7 @@ concatExprs :: forall w a expr
             -> (forall w'. (1 <= w') => NatRepr w' -> expr (BVType w') -> a)
             -> a
 
-concatExprs _ [] = \_ -> error "Cannot concatenate 0 elements together"
+concatExprs _ [] = \_ -> panic "concatExprs" ["Cannot concatenate 0 elements together"]
 concatExprs w (a:as) = go a as
 
  where go :: (1 <= w)
@@ -470,7 +471,7 @@ bigEndianLoad addrWidth cellWidth valWidth num basePtr wordMap =
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
               Just Refl -> x
-              Nothing -> error "bad size parameters in bigEndianLoad!"
+              Nothing -> panic "bigEndianLoad" ["bad size parameters!"]
 
 
 bigEndianLoadDef
@@ -494,7 +495,7 @@ bigEndianLoadDef addrWidth cellWidth valWidth num basePtr wordMap defVal =
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
               Just Refl -> x
-              Nothing -> error "bad size parameters in bigEndianLoadDef!"
+              Nothing -> panic "bigEndianLoadDef" ["bad size parameters!"]
 
 littleEndianLoad
    :: (IsExpr expr, 1 <= addrWidth, 1 <= valWidth, 1 <= cellWidth)
@@ -515,7 +516,7 @@ littleEndianLoad addrWidth cellWidth valWidth num basePtr wordMap =
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
               Just Refl -> x
-              Nothing -> error "bad size parameters in littleEndianLoad!"
+              Nothing -> panic "littleEndianLoad" ["bad size parameters!"]
 
 littleEndianLoadDef
    :: (IsExpr expr, 1 <= addrWidth, 1 <= valWidth, 1 <= cellWidth)
@@ -538,4 +539,4 @@ littleEndianLoadDef addrWidth cellWidth valWidth num basePtr wordMap defVal =
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
               Just Refl -> x
-              Nothing -> error "bad size parameters in littleEndianLoadDef!"
+              Nothing -> panic "littleEndianLoadDef" ["bad size parameters!"]
