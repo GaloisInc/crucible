@@ -1,5 +1,11 @@
 # next
 
+This release supports [version
+8](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#8) of
+`mir-json`'s schema.
+
+* Fix a translation error when translating constant slice raw pointers.
+
 # 0.6 -- 2026-01-29
 
 This release supports [version
