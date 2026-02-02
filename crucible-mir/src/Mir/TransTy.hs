@@ -835,30 +835,94 @@ buildArrayLit elemTy exps = do
         ag0 (zip [0, elemSize ..] exps)
     return $ MirExp MirAggregateRepr ag1
 
-buildTupleM :: [M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildTupleM tys xs = buildTupleMaybeM tys (map Just xs)
+-- | Get the fields of a tuple-like type.
+tupleLikeFieldTys :: M.Ty -> Maybe [M.Ty]
+tupleLikeFieldTys ty =
+    case ty of
+        M.TyTuple tys -> Just tys
+        M.TyClosure tys -> Just tys
+        M.TyCoroutineClosure tys -> Just tys
+        _ -> Nothing
 
-buildTupleMaybeM :: [M.Ty] -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
-buildTupleMaybeM tys xs = do
-    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ length tys)
+tupleLikeFieldTysM :: M.Ty -> MirGenerator h s ret [M.Ty]
+tupleLikeFieldTysM ty =
+    case tupleLikeFieldTys ty of
+        Just x -> return x
+        Nothing -> mirFail $ "tupleLikeFieldTysM: expected tuple-like type, but got " ++ show ty
+
+{-
+Note [present]
+----------------------------------------
+
+Many operations in this module require that a certain type be "present in the
+`M.Collection`" so that the operation can look up information such as the size
+and layout of that type.  This means the type in question must be mentioned
+somewhere in the JSON input, such as in an argument type, return type, local
+variable type, or field type.  Callers should avoid synthesizing new types and
+passing them to these operations, unless there's reason to believe that the
+synthesized type is also present in the `M.Collection` somewhere.  For example,
+as a general rule, an override that gets a generic parameter @tyT@ can't assume
+that @TySlice tyT@ is present.  However, if the Rust signature of the function
+being overridden includes an argument of type `&[T]`, then @TySlice tyT@ will
+be present, and it can be safely passed to these operations.
+
+Types obtained by calling `typeOf` on a piece of MIR code, such as an `Operand`
+or an `Rvalue`, can be assumed to be present.  The vast majority of code in
+crucible-mir doesn't need to construct its own MIR; any code that does
+construct MIR must be very careful to ensure that the type of that MIR is
+present.
+-}
+
+-- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.
+--
+-- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
+-- [present].
+buildTupleM :: M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildTupleM tupleTy xs = buildTupleMaybeM tupleTy (map Just xs)
+
+-- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.  If
+-- an entry in @xs@ is `Nothing`, that field will be left uninitialized.
+--
+-- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
+-- [present].
+buildTupleMaybeM :: M.Ty -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
+buildTupleMaybeM tupleTy xs = do
+    fieldTys <- tupleLikeFieldTysM tupleTy
+    layout <- tyLayoutM tupleTy
+    let fieldOffsets = case layout ^. M.layFieldOffsets of
+            Just x -> x
+            -- Should be impossible; all struct-like types should have field info.
+            Nothing -> panic "buildTupleMaybeM"
+                ["missing field_offsets in layout for", show tupleTy]
+    ag0 <- mirAggregate_uninit_constSize (fromIntegral $ layout ^. M.laySize)
     ag1 <- foldM
-        (\ag (i, mExp) -> do
+        (\ag (ty, off, mExp) -> do
+            sz <- tySizeM ty
             case mExp of
-                -- TODO: hardcoded size=1
-                Just (MirExp tpr rv) -> mirAggregate_set i 1 tpr rv ag
+                Just (MirExp tpr rv)
+                  -- Omit zero-sized elements.  Rustc doesn't generate loads or
+                  -- stores for ZSTs when building MIR, so these elements will
+                  -- never be accessed.  A ZST field can have the same offset
+                  -- as another field; omitting the ZST field prevents one from
+                  -- overwriting the other.
+                  | sz /= 0 -> mirAggregate_set (fromIntegral off) sz tpr rv ag
+                  | otherwise -> return ag
                 Nothing -> return ag)
-        ag0 (zip [0..] xs)
+        ag0 (zip3 fieldTys fieldOffsets xs)
     return $ MirExp MirAggregateRepr ag1
 
-getTupleElem :: HasCallStack => [M.Ty] -> MirExp s -> Int -> MirGenerator h s ret (MirExp s)
-getTupleElem elemTys tupleExp i = do
-    elemTy <- case elemTys ^? ix i of
-        Just elemTy -> return elemTy
-        Nothing -> mirFail $ "getTupleElem: index " ++ show i ++ " out of range for " ++ show elemTys
-    getTupleElemTyped tupleExp i elemTy
+getTupleElem :: HasCallStack => M.Ty -> MirExp s -> Int -> MirGenerator h s ret (MirExp s)
+getTupleElem tupleTy tupleExp i = do
+    fields <- tyFieldsM tupleTy
+    (off, ty) <- case fields ^? ix i of
+        Just x -> return x
+        Nothing -> mirFail $ "getTupleElem: field index " ++ show i ++
+            " is out of range for tuple " ++ show tupleTy
+    getTupleElemTyped tupleExp off ty
 
-getTupleElemTyped :: HasCallStack => MirExp s -> Int -> M.Ty -> MirGenerator h s ret (MirExp s)
-getTupleElemTyped (MirExp tpr ag) i elemTy = do
+
+getTupleElemTyped :: HasCallStack => MirExp s -> Word -> M.Ty -> MirGenerator h s ret (MirExp s)
+getTupleElemTyped (MirExp tpr ag) off elemTy = do
     col <- use $ cs . collection
     case isZeroSized col elemTy of
         False -> do
@@ -866,31 +930,19 @@ getTupleElemTyped (MirExp tpr ag) i elemTy = do
             Refl <- testEqualityOrFail tpr tpr' $
                 "getTupleElemTyped: expected tuple to be " ++ show tpr' ++ ", but got " ++ show tpr
             Some elemTpr <- tyToReprM elemTy
-            MirExp elemTpr <$> mirAggregate_get (fromIntegral i) 1 elemTpr ag
+            sz <- tySizeM elemTy
+            MirExp elemTpr <$> mirAggregate_get off sz elemTpr ag
         True -> do
             mVal <- initialValue elemTy
             case mVal of
                 Just x -> return x
                 Nothing -> mirFail "zero-sized type with no initialValue?"
 
-modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
-                      MirExp s -> -- thing to insert
-                      Int -> -- index
-                      MirGenerator h s ret (MirExp s)
-modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
-  | Just (Some idx) <- Ctx.intIndex i (Ctx.size agctx) = do
-      let tpr = agctx Ctx.! idx
-      case tpr of
-         C.MaybeRepr tpr' ->
-            case (testEquality tpr' instr) of
-                Just Refl -> do
-                    let ins' = R.App (E.JustValue tpr' ins)
-                    return $ MirExp (C.StructRepr agctx) (S.setStruct agctx ag idx ins')
-                _ -> mirFail "bad modify"
-         _ -> mirFail "modifyAggregateIdxMaybe: expecting maybe type for struct component"
-  | otherwise = mirFail ("modifyAggregateIdxMaybe: Index " ++ show i ++ " out of range for struct")
-modifyAggregateIdxMaybe (MirExp ty _) _ _ =
-  do mirFail ("modifyAggregateIdxMaybe: Expected Crucible structure type, but got:" ++ show ty)
+-- | Extract every element from a tuple.
+unpackTupleElems :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret [MirExp s]
+unpackTupleElems tupleTy tupleExp = do
+    fields <- tyFieldsM tupleTy
+    forM fields $ \(off, ty) -> getTupleElemTyped tupleExp off ty
 
 
 readEnumVariant :: C.CtxRepr variantsCtx -> Ctx.Index variantsCtx tp ->
@@ -1078,10 +1130,8 @@ tySizedness col ty =
         Just adt -> adtSizedness col adt
     _ ->
       -- This stanza on its own would be sufficient to implement `tySizedness`,
-      -- but a version so implemented would fail on types that didn't actually
-      -- appear in the crate/dependency tree used to generate this `Collection`.
-      -- Discriminating on shape first means that we can correctly say that
-      -- `[T]` is unsized, even if `[T]` isn't actually evinced in the MIR.
+      -- but a version so implemented would fail on types that aren't present
+      -- in the `Collection` (see Note [present]).
       case (col ^. M.layouts) Map.!? ty of
         Nothing -> error $ "tySizedness: unknown type: " <> show ty
         Just Nothing -> Unsized
@@ -1098,6 +1148,40 @@ tySizeM ty = do
             [] -> "<unknown>"
             ((_, loc):_) -> prettySrcLoc loc
        in mirFail $ "tySizeM (called at " <> caller <> "): unsized type: " <> show ty
+
+-- | Get a type's `M.Layout`.  Returns `Nothing` if the type is not present in
+-- the `M.Collection` (as described in Note [present]).
+tyLayout :: M.Collection -> M.Ty -> Maybe M.Layout
+tyLayout col ty = join $ Map.lookup ty (col ^. M.layouts)
+
+-- | Get a type's `M.Layout`.  The type must be present in the `M.Collection`,
+-- as described in Note [present], or this will `mirFail`.
+tyLayoutM :: M.Ty -> MirGenerator h s ret M.Layout
+tyLayoutM ty = do
+    col <- use $ cs . collection
+    case tyLayout col ty of
+        Just x -> pure x
+        Nothing -> mirFail $ "tyLayoutM: layout not found for type: " <> show ty
+
+-- | Get the offset and type of each field of a type.  The type must be present
+-- in the `M.Collection`, as described in Note [present], or this will
+-- `mirFail`.
+tyFieldsM :: M.Ty -> MirGenerator h s ret [(Word, M.Ty)]
+tyFieldsM ty = do
+    tys <- case ty of
+        M.TyTuple tys -> return tys
+        M.TyClosure tys -> return tys
+        M.TyCoroutineClosure tys -> return tys
+        M.TyAdt {} -> mirFail "TODO: tyFieldsM struct case"
+        _ -> mirFail $ "tyFieldsM: unsupported type: " ++ show ty
+    layout <- tyLayoutM ty
+    offsets <- case layout ^. M.layFieldOffsets of
+        Just x -> return x
+        Nothing -> mirFail $ "tyFieldsM: missing field offsets for type " ++ show ty
+    when (length tys /= length offsets) $
+        panic "tyFieldsM" ["field count vs offset count mismatch",
+            show ty, show tys, show offsets]
+    return $ zip (map fromIntegral offsets) tys
 
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
@@ -1641,19 +1725,21 @@ enumDiscriminant adt (MirExp enumTpr v) = do
     return $ MirExp discrTpr $ R.App $ rustEnumDiscriminant discrTpr v
 
 tupleFieldRef ::
-    [M.Ty] -> Int ->
+    M.Ty -> Int ->
     C.TypeRepr tp -> R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
-tupleFieldRef tys i tpr ref = do
+tupleFieldRef tupleTy i tpr ref = do
     let tpr' = MirAggregateRepr
     Refl <- testEqualityOrFail tpr tpr' $ "bad representation " ++ show tpr ++
-        " for tuple type " ++ show tys ++ ": expected " ++ show tpr'
-    ty <- case drop i tys of
-        x : _ -> return x
-        [] -> mirFail $ "field index " ++ show i ++
-            " is out of range for tuple " ++ show tys
+        " for tuple type " ++ show tupleTy ++ ": expected " ++ show tpr'
+    fields <- tyFieldsM tupleTy
+    (off, ty) <- case fields ^? ix i of
+        Just x -> return x
+        Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
+            " is out of range for tuple " ++ show tupleTy
     Some valTpr <- tyToReprM ty
-    ref' <- mirRef_agElem_constOffset (fromIntegral i) 1 valTpr ref
+    sz <- tySizeM ty
+    ref' <- mirRef_agElem_constOffset off sz valTpr ref
     return $ MirPlace valTpr ref' NoMeta
 
 -- | Provided a reference to a union, acquire a reference to the union field
@@ -1783,9 +1869,9 @@ initialValue CTyMethodSpec = return Nothing
 initialValue CTyMethodSpecBuilder = return Nothing
 
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
-initialValue (M.TyTuple tys) = initialTupleValue tys
-initialValue (M.TyClosure tys) = initialTupleValue tys
-initialValue (M.TyCoroutineClosure tys) = initialTupleValue tys
+initialValue ty@(M.TyTuple _) = initialTupleValue ty
+initialValue ty@(M.TyClosure _) = initialTupleValue ty
+initialValue ty@(M.TyCoroutineClosure _) = initialTupleValue ty
 initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (eBVLit w 0))
@@ -1842,10 +1928,10 @@ initialValue (M.TyErased {}) = return Nothing
 initialValue (M.TyInterned {}) = return Nothing
 
 initialTupleValue ::
-  HasCallStack => [M.Ty] -> MirGenerator h s ret (Maybe (MirExp s))
-initialTupleValue tys =
-  -- TODO: hardcoded size=1
-  Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize (fromIntegral $ length tys)
+  HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
+initialTupleValue tupleTy = do
+  sz <- tySizeM tupleTy
+  Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize sz
 
 initField :: M.Field -> MirGenerator h s ret (Maybe (MirExp s))
 initField (M.Field _name ty) = initialValue ty

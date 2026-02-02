@@ -318,7 +318,10 @@ vector_pop = ( ["crucible","vector","{impl}", "pop"], ) $ \substs -> case substs
             meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
             vectorTy <- findExplodedAdtTy vectorExplodedDefId (Substs [t])
             optionTy <- findExplodedAdtTy optionExplodedDefId (Substs [t])
-            buildTupleMaybeM [vectorTy, optionTy] [Just meInit, Just meLast]
+            -- This `TyTuple` type must exist somewhere in the `Collection` (as
+            -- required by `buildTupleMaybeM`) because it's the return type of
+            -- the function being overridden.
+            buildTupleMaybeM (TyTuple [vectorTy, optionTy]) [Just meInit, Just meLast]
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
     _ -> Nothing
 
@@ -331,7 +334,7 @@ vector_pop_front = ( ["crucible","vector","{impl}", "pop_front"], ) $ \substs ->
             meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
             optionTy <- findExplodedAdtTy optionExplodedDefId (Substs [t])
             vectorTy <- findExplodedAdtTy vectorExplodedDefId (Substs [t])
-            buildTupleMaybeM [optionTy, vectorTy] [Just meHead, Just meTail]
+            buildTupleMaybeM (TyTuple [optionTy, vectorTy]) [Just meHead, Just meTail]
         _ -> mirFail $ "bad arguments for Vector::pop_front: " ++ show ops
     _ -> Nothing
 
@@ -377,7 +380,7 @@ vector_split_at = ( ["crucible","vector","{impl}", "split_at"], ) $ \substs -> c
             mePre <- MirExp (C.VectorRepr tpr) <$> vectorTake tpr eVec eIdxNat
             meSuf <- MirExp (C.VectorRepr tpr) <$> vectorDrop tpr eVec eIdxNat
             vectorTy <- findExplodedAdtTy vectorExplodedDefId (Substs [t])
-            buildTupleMaybeM [vectorTy, vectorTy] [Just mePre, Just meSuf]
+            buildTupleMaybeM (TyTuple [vectorTy, vectorTy]) [Just mePre, Just meSuf]
         _ -> mirFail $ "bad arguments for Vector::split_at: " ++ show ops
     _ -> Nothing
 
@@ -833,7 +836,10 @@ overflowResult ::
     R.Expr MIR s C.BoolType ->
     MirGenerator h s ret (MirExp s)
 overflowResult valTy tpr value over =
-  buildTupleM [valTy, TyBool] [MirExp tpr value, MirExp C.BoolRepr over]
+  -- This `TyTuple` type must exist somewhere in the `Collection` (as required
+  -- by `buildTupleM`) because it's the return type of the function being
+  -- overridden
+  buildTupleM (TyTuple [valTy, TyBool]) [MirExp tpr value, MirExp C.BoolRepr over]
 
 makeArithWithOverflow :: String -> Maybe Bool -> BinOp -> CustomRHS
 makeArithWithOverflow name isSignedOverride bop = \substs ->
@@ -2005,7 +2011,10 @@ atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops
         let eq = R.App $ E.BVEq w old expect
         let new = R.App $ E.BVIte eq w val old
         writeMirRef tpr ref new
-        buildTupleMaybeM [ty, TyBool] $
+        -- This `TyTuple` type must exist somewhere in the `Collection` (as
+        -- required by `buildTupleM`) because it's the return type of the
+        -- function being overridden.
+        buildTupleMaybeM (TyTuple [ty, TyBool]) $
             [Just $ MirExp tpr old, Just $ MirExp C.BoolRepr eq]
       -- TODO(#1710): Implement pointer support.
       | MirReferenceRepr <- tpr ->
@@ -2285,16 +2294,17 @@ ctpop = (["core", "intrinsics", "ctpop"],
 -- `clone`/`clone_from` methods of the individual fields or array elements.
 
 cloneShimDef :: Ty -> [M.DefId] -> CustomOp
-cloneShimDef (TyTuple tys) parts = cloneShimTuple tys parts
-cloneShimDef (TyClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
-cloneShimDef (TyCoroutineClosure upvar_tys) parts = cloneShimTuple upvar_tys parts
+cloneShimDef ty@(TyTuple _) parts = cloneShimTuple ty parts
+cloneShimDef ty@(TyClosure _) parts = cloneShimTuple ty parts
+cloneShimDef ty@(TyCoroutineClosure _) parts = cloneShimTuple ty parts
 cloneShimDef (TyFnPtr _) parts = cloneShimNoFields "function pointer" parts
 cloneShimDef (TyFnDef _) parts = cloneShimNoFields "function definition" parts
 cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
-cloneShimTuple :: [Ty] -> [M.DefId] -> CustomOp
-cloneShimTuple tys parts = CustomMirOp $ \ops -> do
+cloneShimTuple :: Ty -> [M.DefId] -> CustomOp
+cloneShimTuple tupleTy parts = CustomMirOp $ \ops -> do
+    tys <- tupleLikeFieldTysM tupleTy
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
     -- The clone shim expects exactly one operand, with a reference type that
     -- looks something `&(A, B, C)`. First, we dereference the argument to
@@ -2319,7 +2329,7 @@ cloneShimTuple tys parts = CustomMirOp $ \ops -> do
     -- forces them to be rvalues.)
     clonedExps <- zipWithM (\part rv -> callExp part [Temp rv]) parts fieldRefRvs
     -- Finally, construct the result tuple using the cloned fields.
-    buildTupleMaybeM tys (map Just clonedExps)
+    buildTupleMaybeM tupleTy (map Just clonedExps)
 
 -- | Create an 'IkCloneShim' implementation for a value that is expected not to
 -- have any fields. Implementing clone shims for such values is as simple as
@@ -2431,7 +2441,8 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
           ++ "but got " ++ show recvTpr
 
       -- Process args tuple
-      argTys <- case typeOf opArgs of
+      let argTupleTy = typeOf opArgs
+      argTys <- case argTupleTy of
         TyTuple tys -> return tys
         ty -> mirFail $ "callOnceVirtShimDef: expected second arg to be TyTuple, "
           ++ "but got " ++ show ty
@@ -2441,16 +2452,16 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
       argTupleExp <- evalOperand opArgs
       argExprs <-
         let go :: forall h s ret tpr ctx.
-              [Ty] -> MirExp s -> Ctx.Index ctx tpr -> C.TypeRepr tpr ->
+              Ty -> MirExp s -> Ctx.Index ctx tpr -> C.TypeRepr tpr ->
               MirGenerator h s ret (R.Expr MIR s tpr)
-            go tupleTys tupleExp idx tpr = do
+            go tupleTy tupleExp idx tpr = do
               let i = Ctx.indexVal idx
-              MirExp tpr' e <- getTupleElem tupleTys tupleExp i
+              MirExp tpr' e <- getTupleElem tupleTy tupleExp i
               Refl <- testEqualityOrFail tpr tpr' $
                 "callOnceVirtShimDef: expected arg " ++ show idx ++ " to have repr "
                   ++ show tpr ++ ", but got " ++ show tpr'
               return (e :: R.Expr MIR s tpr)
-        in itraverseFC (\idx tpr -> go argTys argTupleExp idx tpr) argCtx
+        in itraverseFC (\idx tpr -> go argTupleTy argTupleExp idx tpr) argCtx
 
       -- Look up `methodIdx` return type.
       -- This unfortunately duplicates some of the logic from `mkVirtCall`.
