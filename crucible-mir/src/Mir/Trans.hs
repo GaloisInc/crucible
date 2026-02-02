@@ -193,12 +193,12 @@ transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
        return $ MirExp (C.BVRepr w) (S.app $ eBVLit w i)
 transConstVal _ty (Some MirAggregateRepr) (M.ConstFunction _did) =
     MirExp MirAggregateRepr <$> mirAggregate_zst
-transConstVal (M.TyTuple tys) (Some MirAggregateRepr) (M.ConstTuple vals) =
-    transConstTuple tys vals
-transConstVal (M.TyClosure upvar_tys) (Some MirAggregateRepr) (M.ConstClosure upvar_vals) =
-    transConstTuple upvar_tys upvar_vals
-transConstVal (M.TyCoroutineClosure upvar_tys) (Some MirAggregateRepr) (M.ConstCoroutineClosure upvar_vals) =
-    transConstTuple upvar_tys upvar_vals
+transConstVal tupleTy@(M.TyTuple _) (Some MirAggregateRepr) (M.ConstTuple vals) =
+    transConstTuple tupleTy vals
+transConstVal tupleTy@(M.TyClosure _) (Some MirAggregateRepr) (M.ConstClosure upvar_vals) =
+    transConstTuple tupleTy upvar_vals
+transConstVal tupleTy@(M.TyCoroutineClosure _) (Some MirAggregateRepr) (M.ConstCoroutineClosure upvar_vals) =
+    transConstTuple tupleTy upvar_vals
 
 transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -305,12 +305,13 @@ transConstSliceRef ty defid len = do
     addrOfPlace place
 
 -- Translate a constant (non-empty) tuple or constant closure value.
-transConstTuple :: [M.Ty] -> [ConstVal] -> MirGenerator h s ret (MirExp s)
-transConstTuple tys vals = do
+transConstTuple :: M.Ty -> [ConstVal] -> MirGenerator h s ret (MirExp s)
+transConstTuple tupleTy vals = do
+    tys <- tupleLikeFieldTysM tupleTy
     exps <- forM (zip tys vals) $ \(ty, val) -> do
         Some tpr <- tyToReprM ty
         transConstVal ty (Some tpr) val
-    buildTupleMaybeM tys (map Just exps)
+    buildTupleMaybeM tupleTy (map Just exps)
 
 -- Translate a struct or enum marked with repr(transparent).
 transTransparentVal ::
@@ -497,7 +498,11 @@ transBinOp bop op1 op2 = do
             pure res
         WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
-            buildTupleM [typeOf op1, TyBool] [res, MirExp C.BoolRepr overflow]
+            -- This `TyTuple` type must exist somewhere in the `Collection` (as
+            -- required by `buildTupleM`) because the result of the current
+            -- `BinaryOp` `Rvalue` will be stored into an `Lvalue` of that
+            -- type.
+            buildTupleM (TyTuple [typeOf op1, TyBool]) [res, MirExp C.BoolRepr overflow]
         Offset
           | MirExp MirReferenceRepr e1 <- me1
           , MirExp UsizeRepr e2 <- me2 -> do
@@ -1355,24 +1360,27 @@ evalRval (M.Discriminant lv _discrTy) = do
         readPlace pl'
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show enumTy
 
-evalRval (M.Aggregate ak ops) =
+evalRval rv@(M.Aggregate ak ops) =
     case ak of
         M.AKTuple ->
-            evalTupleRval ops
+            -- The type `typeOf rv` must exist somewhere in the `M.Collection`
+            -- (as required by `buildTupleM`) because the current `Rvalue` will
+            -- be assigned to an `Lvalue` of that type.
+            evalTupleRval (typeOf rv) ops
         M.AKArray ty -> do
             exps <- mapM evalOperand ops
             buildArrayLit ty exps
         M.AKClosure ->
             -- Closure environments have the same
             -- representation as tuples.
-            evalTupleRval ops
+            evalTupleRval (typeOf rv) ops
         M.AKCoroutine ca -> do
             exps <- mapM evalOperand ops
             buildCoroutine ca exps
         M.AKCoroutineClosure ->
             -- Closure environments have the same
             -- representation as tuples.
-            evalTupleRval ops
+            evalTupleRval (typeOf rv) ops
         M.AKRawPtr ty _mutbl -> do
             args <- mapM evalOperand ops
             (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
@@ -1451,11 +1459,10 @@ evalRval (M.CopyForDeref lv) = evalLvalue lv
 evalRval (M.ShallowInitBox {}) = mirFail
     "evalRval: ShallowInitBox not supported"
 
-evalTupleRval :: HasCallStack => [Operand] -> MirGenerator h s ret (MirExp s)
-evalTupleRval ops = do
-  let tys = map typeOf ops
+evalTupleRval :: HasCallStack => Ty -> [Operand] -> MirGenerator h s ret (MirExp s)
+evalTupleRval tupleTy ops = do
   exps <- mapM evalOperand ops
-  buildTupleM tys exps
+  buildTupleM tupleTy exps
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue lv = evalPlace lv >>= readPlace
@@ -1639,9 +1646,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
         adt <- findAdt nm
         enumFieldRef adt (fromInteger i) idx ref
 
-    M.TyTuple ts -> tupleFieldRef ts idx tpr ref
-    M.TyClosure ts -> tupleFieldRef ts idx tpr ref
-    M.TyCoroutineClosure ts -> tupleFieldRef ts idx tpr ref
+    M.TyTuple _ -> tupleFieldRef ty idx tpr ref
+    M.TyClosure _ -> tupleFieldRef ty idx tpr ref
+    M.TyCoroutineClosure _ -> tupleFieldRef ty idx tpr ref
 
     -- Applying a field projection directly to a coroutine gives access to the
     -- coroutine's upvars.
@@ -2049,8 +2056,8 @@ callHandle e abi cargs
     exps' <- case abi of
       RustCall _
         | [selfExp, tupleExp@(MirExp MirAggregateRepr _)] <- exps
-        , [_, M.TyTuple tupleTys] <- tys -> do
-          tupleParts <- mapM (\(i, ty) -> getTupleElemTyped tupleExp i ty) (zip [0..] tupleTys)
+        , [_, tupleTy@(M.TyTuple _)] <- tys -> do
+          tupleParts <- unpackTupleElems tupleTy tupleExp
           return $ selfExp : tupleParts
 
         -- Some code in rustc_codegen_cranelift suggests that there may be
@@ -2297,11 +2304,11 @@ genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs
           ++ show (fmapFC R.typeOfAtom inputs)
       let selfExps = take splitIndex inputExps
       let tupleFieldExps = drop splitIndex inputExps
-      tupleFieldTys <- case map typeOf $ drop splitIndex argvars of
-        [M.TyTuple tys] -> return tys
+      tupleTy <- case map typeOf $ drop splitIndex argvars of
+        [ty@(M.TyTuple _)] -> return ty
         _ -> mirFail $ "expected tuple at position " ++ show splitIndex
           ++ ", but got " ++ show argvars
-      tupleExp <- buildTupleMaybeM tupleFieldTys (map Just tupleFieldExps)
+      tupleExp <- buildTupleMaybeM tupleTy (map Just tupleFieldExps)
       return $ selfExps ++ [tupleExp]
     _ -> return inputExps
   initArgs inputExps' argvars
