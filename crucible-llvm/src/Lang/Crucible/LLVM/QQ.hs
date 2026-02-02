@@ -85,6 +85,7 @@ parseSymbol = L.Symbol <$> (AT.char '@' *>
 parseFloatType :: AT.Parser L.FloatType
 parseFloatType = AT.choice
   [ pure L.Half      <* AT.string "half"
+  , pure L.BFloat    <* AT.string "bfloat"
   , pure L.Float     <* AT.string "float"
   , pure L.Double    <* AT.string "double"
   , pure L.Fp128     <* AT.string "fp128"
