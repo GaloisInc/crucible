@@ -268,6 +268,8 @@ roundingMode = describe "rounding mode" $
 
 fpinfo :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
 fpinfo = asum [ kw Half_         $> Some HalfFloatRepr
+              -- XXX not yet: need to add BrainFloatRepr in what4 first
+              -- , kw BFloat_       $> Some BrainFloatRepr
               , kw Float_        $> Some SingleFloatRepr
               , kw Double_       $> Some DoubleFloatRepr
               , kw Quad_         $> Some QuadFloatRepr

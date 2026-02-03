@@ -152,6 +152,8 @@ keywords =
 
     -- floating-point variants
   , ("Half", Half_)
+  -- XXX: not yet, need to add BrainFloatRepr to what4 first
+  --, ("BFloat", BFloat_)
   , ("Float", Float_)
   , ("Double", Double_)
   , ("Quad", Quad_)
