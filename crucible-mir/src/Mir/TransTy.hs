@@ -1053,7 +1053,14 @@ adtSizedness col adt =
     M.Struct ->
       case M.onlyVariant adt ^. M.vfields of
         [] -> Sized 0  -- size 0 is still sized
-        fields -> tySizedness col (last fields ^. M.fty)
+        fields ->
+          case tySizedness col (last fields ^. M.fty) of
+            Unsized -> Unsized
+            Sized _ ->
+              -- If we wanted to be pedantic, we could ensure that all fields
+              -- are `Sized` and take their sum, but this ought to suffice for
+              -- well-formed Rust.
+              Sized (adt ^. M.adtSize)
 
 -- | Is this type sized or unsized?
 --
