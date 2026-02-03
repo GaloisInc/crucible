@@ -965,9 +965,22 @@ evalCast' ck ty1 e ty2  = do
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
+      -- repr(transparent) pointer-to-pointer cast. Some of the
+      -- pointer-to-pointer cases above match on the specific Ty inside the
+      -- TyRawPtr. We want this to also work when the inside Ty is wrapped in a
+      -- repr(transparent) newtype, so we check for that here and recurse with
+      -- the unwrapped type. It's important that this case comes before the
+      -- general pointer-to-pointer case, which would just leave the pointer
+      -- unmodified.
+      (M.Misc, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
+        | Just adt1 <- findAdt' col an1
+        , Just fieldTy1 <- reprTransparentFieldTy col adt1
+        -> evalCast' M.Misc (M.TyRawPtr fieldTy1 m1) e ty2
+
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
-      -- and destination types have the same Crucible representation.  This is
-      -- similar to calling `transmute`.
+      -- and destination *pointer* types have the same Crucible representation
+      -- (i.e. both MirReferenceRepr, or both MirSliceRepr, or both DynRefRepr).
+      -- This is similar to calling `transmute`.
       (M.Misc, M.TyRawPtr _ _, M.TyRawPtr _ _)
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
