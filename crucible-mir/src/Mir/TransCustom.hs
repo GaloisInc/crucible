@@ -838,8 +838,13 @@ overflowResult valTy tpr value over =
 makeArithWithOverflow :: String -> Maybe Bool -> BinOp -> CustomRHS
 makeArithWithOverflow name isSignedOverride bop = \substs ->
   case substs of
-    Substs [t] -> Just $ CustomOp $ \_opTys ops -> case ops of
-        [e1, e2] -> do
+    -- We look at @opTys@ rather than the `Substs` here because this is used
+    -- both for built-in integer types, where the generic argument is the type
+    -- itself, and for `crucible::bitvector::Bv`, where the generic argument is
+    -- a zero-sized marker indicating the bit width.  In all cases, `opTys`
+    -- contains the type being manipulated.
+    Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([t, _], [e1, e2]) -> do
             let arithType' = fmap (\s -> if s then Signed else Unsigned) $ isSigned t
             (result, overflow) <- evalBinOp bop arithType' e1 e2
             case result of
@@ -847,7 +852,7 @@ makeArithWithOverflow name isSignedOverride bop = \substs ->
                     overflowResult t (C.BVRepr w) result' overflow
                 MirExp tpr _ -> mirFail $
                     "bad return values from evalBinOp " ++ show bop ++ ": " ++ show tpr
-        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (t, ops)
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
     _ -> Nothing
   where
     isSigned _ | Just s <- isSignedOverride = Just s
