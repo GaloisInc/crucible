@@ -156,6 +156,10 @@ data Layout = Layout
     _layAlign :: Word64
     -- | Size in bytes
   , _laySize :: Word64
+    -- | Offset in bytes of each field.  This is always `Just` for struct-like
+    -- types, such as `TyTuple`, `TyClosure`, and `TyAdt` with kind `Struct`.
+    -- It may be `Nothing` for other types.
+  , _layFieldOffsets :: Maybe [Word64]
   }
   deriving (Eq, Ord, Show, Generic)
 
