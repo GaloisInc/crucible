@@ -100,7 +100,7 @@ evalLogFn ::
   String ->
   IO ()
 evalLogFn verb s n msg = do
-  let h = s^.stateContext.to printHandle
+  let h = s ^. stateContext.to printHandle
   if verb >= n then
       do hPutStr h msg
          hFlush h
@@ -114,12 +114,12 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r.
   Expr ext ctx tp ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) IO (RegValue sym tp)
 evalExpr verb (App a) = ReaderT $ \s ->
-  do let iteFns = s^.stateIntrinsicTypes
-     let simCtx = s^.stateContext
+  do let iteFns = s ^. stateIntrinsicTypes
+     let simCtx = s ^. stateContext
      let logFn = evalLogFn verb s
      r <- withBackend simCtx $ \bak ->
             evalApp bak iteFns logFn
-              (extensionEval (extensionImpl (s^.stateContext)) bak iteFns logFn s)
+              (extensionEval (extensionImpl (s ^. stateContext)) bak iteFns logFn s)
               (\r -> runReaderT (evalReg r) s)
               a
      return $! r
@@ -138,7 +138,7 @@ evalArgs ::
   Monad m =>
   Ctx.Assignment (Reg ctx) args ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (RegMap sym args)
-evalArgs args = ReaderT $ \s -> return $! evalArgs' (s^.stateCrucibleFrame.frameRegs) args
+evalArgs args = ReaderT $ \s -> return $! evalArgs' (s ^. stateCrucibleFrame.frameRegs) args
 {-# INLINE evalArgs #-}
 
 -- | Resolve the arguments for a jump.
@@ -208,7 +208,7 @@ stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepStmt verb stmt rest =
   do ctx <- view stateContext
-     let sym = ctx^.ctxSymInterface
+     let sym = ctx ^. ctxSymInterface
      let iTypes = ctxIntrinsicTypes ctx
      globals <- view (stateTree.actFrame.gpGlobals)
 
@@ -421,9 +421,9 @@ checkConsTerm ::
 checkConsTerm verb =
      do cf <- view stateCrucibleFrame
 
-        case cf^.frameStmts of
+        case cf ^. frameStmts of
           ConsStmt _ _ _ -> stepBasicBlock verb
-          TermStmt _ _ -> continue (RunBlockEnd (cf^.frameBlockID))
+          TermStmt _ _ -> continue (RunBlockEnd (cf ^. frameBlockID))
 
 -- | Main evaluation operation for running a single step of
 --   basic block evaluation.
@@ -435,15 +435,15 @@ stepBasicBlock ::
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepBasicBlock verb =
   do ctx <- view stateContext
-     let sym = ctx^.ctxSymInterface
+     let sym = ctx ^. ctxSymInterface
      let h = printHandle ctx
      cf <- view stateCrucibleFrame
 
-     case cf^.frameStmts of
+     case cf ^. frameStmts of
        ConsStmt pl stmt rest ->
          do liftIO $
               do setCurrentProgramLoc sym pl
-                 let sz = regMapSize (cf^.frameRegs)
+                 let sz = regMapSize (cf ^. frameRegs)
                  when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
             stepStmt verb stmt rest
 
@@ -495,7 +495,7 @@ dispatchExecState getVerb exst kresult k =
          k cont st
 
     AbortState rsn st ->
-      let (AH handler) = st^.abortHandler in
+      let (AH handler) = st ^. abortHandler in
       k (handler rsn) st
 
     OverrideState ovr st ->

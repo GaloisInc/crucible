@@ -577,7 +577,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Create a closure that captures the last argument.
   Closure :: !(CtxRepr args)
           -> !(TypeRepr ret)
-          -> !(f (FunctionHandleType (args::>tp) ret))
+          -> !(f (FunctionHandleType (args ::> tp) ret))
           -> !(TypeRepr tp)
           -> !(f tp)
           -> App ext f (FunctionHandleType args ret)
@@ -628,12 +628,12 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   BVLit :: (1 <= w) => NatRepr w -> BV.BV w -> App ext f (BVType w)
 
   -- concatenate two bitvectors
-  BVConcat :: (1 <= u, 1 <= v, 1 <= u+v)
+  BVConcat :: (1 <= u, 1 <= v, 1 <= u + v)
            => !(NatRepr u)
            -> !(NatRepr v)
            -> !(f (BVType u))       -- Most significant bits
            -> !(f (BVType v))       -- Least significant bits
-           -> App ext f (BVType (u+v))
+           -> App ext f (BVType (u + v))
 
   -- BVSelect idx n bv chooses bits [idx, .. , idx+n-1] from bitvector bv.
   -- The resulting bitvector will have width n.
@@ -645,19 +645,19 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
            -> !(f (BVType w))
            -> App ext f (BVType len)
 
-  BVTrunc :: (1 <= r, r+1 <= w)
+  BVTrunc :: (1 <= r, r + 1 <= w)
           => !(NatRepr r)
           -> !(NatRepr w)
           -> !(f (BVType w))
           -> App ext f (BVType r)
 
-  BVZext :: (1 <= w, 1 <= r, w+1 <= r)
+  BVZext :: (1 <= w, 1 <= r, w + 1 <= r)
          => !(NatRepr r)
          -> !(NatRepr w)
          -> !(f (BVType w))
          -> App ext f (BVType r)
 
-  BVSext :: (1 <= w, 1 <= r, w+1 <= r)
+  BVSext :: (1 <= w, 1 <= r, w + 1 <= r)
          => !(NatRepr r)
          -> !(NatRepr w)
          -> !(f (BVType w))

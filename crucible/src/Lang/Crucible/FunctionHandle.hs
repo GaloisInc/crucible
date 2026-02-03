@@ -195,7 +195,7 @@ instance Ord (RefCell tp) where
 -- FnHandleMap
 
 data HandleElt (f :: Ctx CrucibleType -> CrucibleType -> Type) ctx where
-  HandleElt :: FnHandle args ret -> f args ret -> HandleElt f (args::>ret)
+  HandleElt :: FnHandle args ret -> f args ret -> HandleElt f (args ::> ret)
 
 newtype FnHandleMap f = FnHandleMap (MapF (Nonce GlobalNonceGenerator) (HandleElt f))
 

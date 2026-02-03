@@ -32,7 +32,7 @@ type Max' = Pointed Max
 maxDom :: Domain Max'
 maxDom = d
   where
-    d = pointed j (==) (WTOWidening (>10) w)
+    d = pointed j (==) (WTOWidening (> 10) w)
     j (Max i1) (Max i2) = Pointed (Max (max i1 i2))
     w _ _ = Top
 

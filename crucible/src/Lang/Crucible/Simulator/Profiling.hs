@@ -210,7 +210,7 @@ callGraphJSON now m evs = JSObject $ toJSObject
 symProUIString :: String -> String -> ProfilingTable -> IO String
 symProUIString nm source tbl =
   do js <- symProUIJSON nm source tbl
-     return ("data.receiveData("++ encode js ++ ");")
+     return ("data.receiveData(" ++ encode js ++ ");")
 
 
 symProUIJSON :: String -> String -> ProfilingTable -> IO JSValue
@@ -348,7 +348,7 @@ startRecordingSolverEvents sym tbl =
 nextEventID :: ProfilingTable -> IO Integer
 nextEventID tbl =
   do i <- readIORef (eventIDRef tbl)
-     writeIORef (eventIDRef tbl) $! (i+1)
+     writeIORef (eventIDRef tbl) $! (i + 1)
      return i
 
 dedupEvent :: ProfilingTable -> EventDedup -> IO () -> IO ()
@@ -456,18 +456,18 @@ updateProfilingTable tbl filt exst = do
       InitialState _ _ _ _ _ ->
         enterEvent tbl startFunctionName Nothing
       CallState _rh call st ->
-        enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+        enterEvent tbl (resolvedCallName call) (st ^. stateLocation)
       ReturnState nm _ _ _ ->
         exitEvent tbl nm
       TailCallState _ call st ->
-        do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-           enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+        do exitEvent tbl (st ^. stateTree.actFrame.gpValue.frameFunctionName)
+           enterEvent tbl (resolvedCallName call) (st ^. stateLocation)
       SymbolicBranchState{} ->
         modifyIORef' (metricSplits (metrics tbl)) succ
       AbortState{} ->
         modifyIORef' (metricAborts (metrics tbl)) succ
       UnwindCallState _ _ st ->
-        exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+        exitEvent tbl (st ^. stateTree.actFrame.gpValue.frameFunctionName)
       BranchMergeState tgt st ->
         when (isMergeState tgt st)
              (modifyIORef' (metricMerges (metrics tbl)) succ)
@@ -476,16 +476,16 @@ updateProfilingTable tbl filt exst = do
   when (recordCoverage filt) $
     case exst of
       ControlTransferState res st ->
-        let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+        let funcName = st ^. stateTree.actFrame.gpValue.frameFunctionName in
         case res of
           ContinueResumption (ResolvedJump blk _) ->
-            blockEvent tbl funcName (st^.stateLocation) (Some blk)
+            blockEvent tbl funcName (st ^. stateLocation) (Some blk)
           CheckMergeResumption (ResolvedJump blk _) ->
-            blockEvent tbl funcName (st^.stateLocation) (Some blk)
+            blockEvent tbl funcName (st ^. stateLocation) (Some blk)
           _ -> return ()
       RunningState (RunBlockEnd _) st ->
-        let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
-        case st^.stateTree.actFrame.gpValue.crucibleSimFrame.frameStmts of
+        let funcName = st ^. stateTree.actFrame.gpValue.frameFunctionName in
+        case st ^. stateTree.actFrame.gpValue.crucibleSimFrame.frameStmts of
           TermStmt loc term
             | Just blocks <- termStmtNextBlocks term,
               length blocks >= 2 ->
@@ -498,7 +498,7 @@ isMergeState ::
   SimState p sym ext root f args ->
   Bool
 isMergeState tgt st =
-  case st^.stateTree.actContext of
+  case st ^. stateTree.actContext of
     VFFBranch _ctx _assume_frame _loc _p other_branch tgt'
       | Just Refl <- testEquality tgt tgt' ->
           case other_branch of

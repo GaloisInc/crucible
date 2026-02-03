@@ -109,8 +109,8 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
    SimState p sym ext rtp f args ->
    IO (ExecutionFeatureResult p sym ext rtp)
  pushFrame gvRef rebuildStack h mkSt st = stateSolverProof st $
-     do let sym = st^.stateSymInterface
-        let simCtx = st^.stateContext
+     do let sym = st ^. stateSymInterface
+        let simCtx = st ^. stateContext
         currGv <- readIORef gvRef
         let err = panic "pushFrame" ["Uninitialized global!"]
         let gv = fromMaybe err currGv

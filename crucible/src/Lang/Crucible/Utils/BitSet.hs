@@ -47,7 +47,7 @@ empty :: BitSet a
 empty = BitSet zeroBits
 
 null :: BitSet a -> Bool
-null = (0==) . getBits
+null = (0 ==) . getBits
 
 singleton :: Enum a => a -> BitSet a
 singleton a = BitSet (bit (fromEnum a))
@@ -81,19 +81,19 @@ toList (BitSet bs) = go bs 0
   where go :: Enum a => Integer -> Int -> [a]
         go 0 _ = []
         go x i
-           | y .&. 0xffffffff == 0 = go (shiftR x 32) $! (i+32)
-           | y .&. 0x0000ffff == 0 = go (shiftR x 16) $! (i+16)
-           | y .&. 0x000000ff == 0 = go (shiftR x  8) $! (i+ 8)
+           | y .&. 0xffffffff == 0 = go (shiftR x 32) $! (i + 32)
+           | y .&. 0x0000ffff == 0 = go (shiftR x 16) $! (i + 16)
+           | y .&. 0x000000ff == 0 = go (shiftR x  8) $! (i + 8)
            | otherwise = concat
-               [ if testBit y 0 then [toEnum (i+0)] else []
-               , if testBit y 1 then [toEnum (i+1)] else []
-               , if testBit y 2 then [toEnum (i+2)] else []
-               , if testBit y 3 then [toEnum (i+3)] else []
-               , if testBit y 4 then [toEnum (i+4)] else []
-               , if testBit y 5 then [toEnum (i+5)] else []
-               , if testBit y 6 then [toEnum (i+6)] else []
-               , if testBit y 7 then [toEnum (i+7)] else []
-               , go (shiftR x 8) $! (i+8)
+               [ if testBit y 0 then [toEnum (i + 0)] else []
+               , if testBit y 1 then [toEnum (i + 1)] else []
+               , if testBit y 2 then [toEnum (i + 2)] else []
+               , if testBit y 3 then [toEnum (i + 3)] else []
+               , if testBit y 4 then [toEnum (i + 4)] else []
+               , if testBit y 5 then [toEnum (i + 5)] else []
+               , if testBit y 6 then [toEnum (i + 6)] else []
+               , if testBit y 7 then [toEnum (i + 7)] else []
+               , go (shiftR x 8) $! (i + 8)
                ]
 
           where y :: Word32
