@@ -30,6 +30,7 @@ import           What4.ProgramLoc
 
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic (panic)
 
 -- | Given a CFG @cfg@, a set of blocks @cuts@ that take the return type as their sole
 -- argument, and a block @bi@ that takes the CFG's init type as its sole argument,
@@ -95,7 +96,7 @@ extractSubgraph' orig cuts mapF initMap sz bi ident f =
             visitChildNode orig cuts bi1 sgi1
               $ \sgi2 -> visitChildNode orig cuts bi2 sgi2 f
           Return _ -> f
-          _ -> error "extractSubgraph': unexpected case!")
+          _ -> panic "extractSubgraph'" ["unexpected case!"])
                 (SubgraphIntermediate
                   (MapF.insert bi (BlockID $ nextIndex sz) (MapF.map extendBlockID mapF))
                   (MapF.map extendBlockID initMap)
@@ -126,7 +127,7 @@ extractSubgraphFirst orig cuts mapF sz bi f =
             visitChildNode orig cuts bi1 sgi1
               $ \sgi2 -> visitChildNode orig cuts bi2 sgi2 f
           Return _ -> f
-          _ -> error "extractSubgraphFirst: unexpected case!")
+          _ -> panic "extractSubgraphFirst" ["unexpected case!"])
                 (SubgraphIntermediate
                   (if case S.minView cuts of
                       Just (bi', _) -> case testEquality (blockInputs block) (blockInputs $ orig Ctx.! blockIDIndex bi') of
@@ -215,7 +216,7 @@ cloneTerm mapF (Br reg jt1 jt2) = do
   jt2' <- cloneJumpTarget mapF jt2
   return $ Br reg jt1' jt2'
 cloneTerm _mapF (Return reg) = Just $ Return reg
-cloneTerm _ _ = error "cloneTerm: unexpected case!"
+cloneTerm _ _ = panic "cloneTerm" ["unexpected case!"]
 
 cloneJumpTarget :: MapF (BlockID blocks1) (BlockID blocks2)
                 -> JumpTarget blocks1 t

@@ -115,7 +115,7 @@ reverseAliasesTwoSorted laba labb aliasOf_ seqa seqb =
         -- Call "error" if an a has been tagged as an alias
         go (Left k, s) = Just (k, Set.map errLeft s)
         -- TODO: Should this throw an exception?
-        errLeft (Left _)  = error "Internal error: unexpected Left value"
+        errLeft (Left _)  = panic "reverseAliasesTwoSorted" ["unexpected Left value"]
         errLeft (Right v) = v
 
 -- | What does this alias point to?
