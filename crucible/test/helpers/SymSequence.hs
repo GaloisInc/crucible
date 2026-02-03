@@ -23,6 +23,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Lang.Crucible.Backend (SomeBackend(SomeBackend), backendGetSym)
 import Lang.Crucible.Backend.Simple (newSimpleBackend)
+import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator.SymSequence (SymSequence)
 import Lang.Crucible.Simulator.SymSequence qualified as S
 import Test.Tasty qualified as TT
@@ -77,7 +78,7 @@ asConstPred _proxy p =
   case WI.asConstantPred p of
     Just True -> True
     Just False -> False
-    Nothing -> error "non-constant predicate?"
+    Nothing -> panic "asConstPred" ["non-constant predicate"]
 
 ---------------------------------------------------------------------
 -- Op
@@ -297,4 +298,4 @@ opSeq sym =
       l <- S.lengthSymSequence sym =<< opSeq sym s
       case WI.asInteger (WI.natToIntegerPure l) of
         Just l' -> pure l'
-        Nothing -> error "SymSequence: symbolic length"
+        Nothing -> panic "opSeq" ["SymSequence: symbolic length"]

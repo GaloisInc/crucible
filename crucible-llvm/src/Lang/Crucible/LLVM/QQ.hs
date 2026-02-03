@@ -85,6 +85,7 @@ parseSymbol = L.Symbol <$> (AT.char '@' *>
 parseFloatType :: AT.Parser L.FloatType
 parseFloatType = AT.choice
   [ pure L.Half      <* AT.string "half"
+  , pure L.BFloat    <* AT.string "bfloat"
   , pure L.Float     <* AT.string "float"
   , pure L.Double    <* AT.string "double"
   , pure L.Fp128     <* AT.string "fp128"
@@ -301,6 +302,7 @@ liftTypeRepr t = case t of
   liftFloatType ft = case ft of
     L.Half      -> [| HalfFloatRepr |]
     L.Float     -> [| SingleFloatRepr |]
+    L.BFloat    -> fail "No support for Brain floats / bfloats yet"
     L.Double    -> [| DoubleFloatRepr |]
     L.Fp128     -> [| QuadFloatRepr |]
     L.X86_fp80  -> [| X86_80FloatRepr |]

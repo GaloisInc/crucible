@@ -68,6 +68,7 @@ import qualified Data.Parameterized.TraversableFC as PU
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Analysis.Fixpoint.Components
+import           Lang.Crucible.Panic (panic)
 
 -- | A wrapper around widening strategies
 data WideningStrategy = WideningStrategy (Int -> Bool)
@@ -472,14 +473,14 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
           let assignment' = interpWriteGlobal interp gv reg assignment
           in maybe assignment (joinPointAbstractions dom assignment) assignment'
 
-        FreshConstant{} -> error "transferStmt: FreshConstant not supported"
-        FreshFloat{} -> error "transferStmt: FreshFloat not supported"
-        FreshNat{} -> error "transferStmt: FreshNat not supported"
-        NewEmptyRefCell{} -> error "transferStmt: NewEmptyRefCell not supported"
-        NewRefCell {} -> error "transferStmt: NewRefCell not supported"
-        ReadRefCell {} -> error "transferStmt: ReadRefCell not supported"
-        WriteRefCell {} -> error "transferStmt: WriteRefCell not supported"
-        DropRefCell {} -> error "transferStmt: DropRefCell not supported"
+        FreshConstant{} -> panic "transferStmt" ["FreshConstant not supported"]
+        FreshFloat{} -> panic "transferStmt" ["FreshFloat not supported"]
+        FreshNat{} -> panic "transferStmt" ["FreshNat not supported"]
+        NewEmptyRefCell{} -> panic "transferStmt" ["NewEmptyRefCell not supported"]
+        NewRefCell {} -> panic "transferStmt" ["NewRefCell not supported"]
+        ReadRefCell {} -> panic "transferStmt" ["ReadRefCell not supported"]
+        WriteRefCell {} -> panic "transferStmt" ["WriteRefCell not supported"]
+        DropRefCell {} -> panic "transferStmt" ["DropRefCell not supported"]
 
     -- Transfer a block terminator statement.
     transferTerm :: forall ctx'
@@ -528,7 +529,7 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
           isRetAbstr %= domJoin dom absVal
           return S.empty
 
-        VariantElim {} -> error "transferTerm: VariantElim terminator not supported"
+        VariantElim {} -> panic "transferTerm" ["VariantElim terminator not supported"]
 
 
     transferJump :: forall ctx'

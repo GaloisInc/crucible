@@ -1,3 +1,7 @@
+-- See Note [Export lists] in crucible.cabal
+package crucible
+  ghc-options: -Werror=missing-export-lists
+
 -- See Note [Asserts] in crucible-llvm
 package crucible-llvm
   ghc-options: -fno-ignore-asserts

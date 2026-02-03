@@ -121,6 +121,7 @@ customOpDefs = Map.fromList $ [
                          , size_of
                          , size_of_val
                          , min_align_of
+                         , align_of_val
                          , intrinsics_assume
                          , assert_inhabited
                          , unlikely
@@ -1264,6 +1265,64 @@ min_align_of = (["core", "intrinsics", "min_align_of"], \substs -> case substs o
     _ -> Nothing
     )
 
+align_of_val :: (ExplodedDefId, CustomRHS)
+align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        -- We first check whether the underlying type is sized or not.
+        ([TyRawPtr ty _], [MirExp tpr _]) -> case tpr of
+            -- Slices (e.g., `&[u8]`, `&str`, and custom DSTs whose last field
+            -- contains a slice) are unsized. We currently support computing
+            -- the alignment of slice values that aren't embedded in a custom
+            -- DST. TODO(#1614): Lift this restriction.
+            --
+            -- The alignment of a slice value is equal to the to the type's
+            -- alignment. Note that slice element types are always sized, so we
+            -- do not need to call align_of_val recursively here.
+            MirSliceRepr -> case ty of
+                TySlice elemTy ->
+                    getLayoutFieldAsMirExp "align_of_val" layAlign elemTy
+                TyStr {} ->
+                    getLayoutFieldAsMirExp "align_of_val" layAlign (TyUint B8)
+                TyAdt {} -> unsupportedCustomDst ty
+                _ -> panic "align_of_val"
+                       ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
+
+            -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
+            -- field contains a trait object) are unsized. This override
+            -- currently does not support any kind of trait object, so all we
+            -- do here is make an effort to give a descriptive error message.
+            -- TODO(#1614): Support trait objects and custom DSTs here.
+            DynRefRepr -> case ty of
+                TyDynamic {} -> unsupportedTraitObject ty
+                TyAdt {} -> unsupportedCustomDst ty
+                _ -> panic "align_of_val"
+                       ["Unexpected DynRefRepr type", show (PP.pretty ty)]
+
+            -- All other cases should correspond to sized types. For these
+            -- cases, computing the value's alignment is equivalent to
+            -- computing the type's alignment.
+            MirReferenceRepr ->
+                getLayoutFieldAsMirExp "align_of_val" layAlign ty
+            _ -> panic "align_of_val"
+                   ["Unexpected TypeRepr for *const", show tpr]
+        _ -> mirFail $ "bad arguments to align_of_val: " ++ show ops
+    _ -> Nothing
+    )
+  where
+    unsupportedTraitObject :: Ty -> MirGenerator h s ret a
+    unsupportedTraitObject ty =
+        mirFail $ unlines
+            [ "align_of_val does not currently support trait objects"
+            , "In the type " ++ show (PP.pretty ty)
+            ]
+
+    unsupportedCustomDst :: Ty -> MirGenerator h s ret a
+    unsupportedCustomDst ty =
+        mirFail $ unlines
+            [ "align_of_val does not currently support custom DSTs"
+            , "In the type " ++ show (PP.pretty ty)
+            ]
+
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
 -- has a nasty unsafe implementation, with lots of raw pointers and
 -- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
@@ -1943,6 +2002,9 @@ atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops
         writeMirRef tpr ref new
         buildTupleMaybeM [ty, TyBool] $
             [Just $ MirExp tpr old, Just $ MirExp C.BoolRepr eq]
+      -- TODO(#1710): Implement pointer support.
+      | MirReferenceRepr <- tpr ->
+        mirFail "atomic_cxchg does not support pointer types"
     _ -> mirFail $ "BUG: invalid arguments to atomic_cxchg: " ++ show ops
 
 atomic_fence_impl :: CustomRHS
@@ -1952,7 +2014,9 @@ atomic_fence_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
 
 -- Common implementation for all atomic read-modify-write operations.  These
 -- all read the value, apply some operation, write the result back, and return
--- the old value.
+-- the old value. This is parameterized by two callback functions. The first is
+-- called when the value has an integer type, and the second is called when the
+-- value has a pointer type.
 atomic_rmw_impl ::
     String ->
     (forall w h s ret. (1 <= w) =>
@@ -1960,12 +2024,21 @@ atomic_rmw_impl ::
         R.Expr MIR s (C.BVType w) ->
         R.Expr MIR s (C.BVType w) ->
         MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    (forall h s ret.
+        R.Expr MIR s MirReferenceType ->
+        R.Expr MIR s MirReferenceType ->
+        MirGenerator h s ret (R.Expr MIR s MirReferenceType)) ->
     CustomRHS
-atomic_rmw_impl name rmw = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+atomic_rmw_impl name rmwBv rmwPtr = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
     [MirExp MirReferenceRepr ref, MirExp tpr val]
       | C.BVRepr w <- tpr -> do
         old <- readMirRef tpr ref
-        new <- rmw w old val
+        new <- rmwBv w old val
+        writeMirRef tpr ref new
+        return $ MirExp tpr old
+      | MirReferenceRepr <- tpr -> do
+        old <- readMirRef tpr ref
+        new <- rmwPtr old val
         writeMirRef tpr ref new
         return $ MirExp tpr old
     _ -> mirFail $ "BUG: invalid arguments to atomic_" ++ name ++ ": " ++ show ops
@@ -1977,10 +2050,33 @@ makeAtomicRMW ::
         R.Expr MIR s (C.BVType w) ->
         R.Expr MIR s (C.BVType w) ->
         MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    (forall h s ret.
+        R.Expr MIR s MirReferenceType ->
+        R.Expr MIR s MirReferenceType ->
+        MirGenerator h s ret (R.Expr MIR s MirReferenceType)) ->
     [(ExplodedDefId, CustomRHS)]
-makeAtomicRMW name rmw =
+makeAtomicRMW name rmwBv rmwPtr =
     makeAtomicIntrinsics (Text.pack name) allAtomicOrderings $
-        atomic_rmw_impl name rmw
+        atomic_rmw_impl name rmwBv rmwPtr
+
+-- | A specialized version of 'makeAtomicRMW' that always fails if the second
+-- argument has a pointer type.
+makeAtomicRMWNoPtrs ::
+    String ->
+    (forall w h s ret. (1 <= w) =>
+        C.NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    [(ExplodedDefId, CustomRHS)]
+makeAtomicRMWNoPtrs name rmwBv = makeAtomicRMW name rmwBv rmwPtr
+  where
+    rmwPtr ::
+      forall h s ret.
+      R.Expr MIR s MirReferenceType ->
+      R.Expr MIR s MirReferenceType ->
+      MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+    rmwPtr _ _ = mirFail $ "BUG: atomic_" ++ name ++ " does not support pointer types"
 
 -- These names are taken from
 -- https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3039-L3043
@@ -1996,18 +2092,25 @@ atomic_funcs =
     makeAtomicIntrinsics "fence" fenceVariants atomic_fence_impl ++
     makeAtomicIntrinsics "singlethreadfence" fenceVariants atomic_fence_impl ++
     concat [
-        makeAtomicRMW "xchg" $ \_w _old val -> return val,
-        makeAtomicRMW "xadd" $ \w old val -> return $ R.App $ E.BVAdd w old val,
-        makeAtomicRMW "xsub" $ \w old val -> return $ R.App $ E.BVSub w old val,
-        makeAtomicRMW "and" $ \w old val -> return $ R.App $ E.BVAnd w old val,
-        makeAtomicRMW "or" $ \w old val -> return $ R.App $ E.BVOr w old val,
-        makeAtomicRMW "xor" $ \w old val -> return $ R.App $ E.BVXor w old val,
-        makeAtomicRMW "nand" $ \w old val ->
-            return $ R.App $ E.BVNot w $ R.App $ E.BVAnd w old val,
-        makeAtomicRMW "max" $ \w old val -> return $ R.App $ E.BVSMax w old val,
-        makeAtomicRMW "min" $ \w old val -> return $ R.App $ E.BVSMin w old val,
-        makeAtomicRMW "umax" $ \w old val -> return $ R.App $ E.BVUMax w old val,
-        makeAtomicRMW "umin" $ \w old val -> return $ R.App $ E.BVUMin w old val
+        -- Intrinsics that only support integer arguments.
+        makeAtomicRMWNoPtrs "max" $ \w old val -> return $ R.App $ E.BVSMax w old val,
+        makeAtomicRMWNoPtrs "min" $ \w old val -> return $ R.App $ E.BVSMin w old val,
+        makeAtomicRMWNoPtrs "umax" $ \w old val -> return $ R.App $ E.BVUMax w old val,
+        makeAtomicRMWNoPtrs "umin" $ \w old val -> return $ R.App $ E.BVUMin w old val,
+
+        -- Intrinsics that support both integer and pointer arguments. Note
+        -- that we only implement pointer support for a subset of these
+        -- intrinsics at present.
+        -- TODO(#1710): Implement pointer support for the remaining ones.
+        makeAtomicRMW "xchg"
+            (\_w _old val -> return val) (\_old val -> return val),
+        makeAtomicRMWNoPtrs "xadd" $ \w old val -> return $ R.App $ E.BVAdd w old val,
+        makeAtomicRMWNoPtrs "xsub" $ \w old val -> return $ R.App $ E.BVSub w old val,
+        makeAtomicRMWNoPtrs "and" $ \w old val -> return $ R.App $ E.BVAnd w old val,
+        makeAtomicRMWNoPtrs "or" $ \w old val -> return $ R.App $ E.BVOr w old val,
+        makeAtomicRMWNoPtrs "xor" $ \w old val -> return $ R.App $ E.BVXor w old val,
+        makeAtomicRMWNoPtrs "nand" $ \w old val ->
+            return $ R.App $ E.BVNot w $ R.App $ E.BVAnd w old val
     ]
   where
     -- See https://github.com/rust-lang/rust/blob/22b4c688956de0925f7a10a79cb0e1ca35f55425/library/core/src/sync/atomic.rs#L3008-L3012

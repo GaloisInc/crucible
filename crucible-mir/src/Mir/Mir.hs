@@ -641,6 +641,11 @@ data ConstVal =
   | ConstEnum Int [ConstVal]
   | ConstUnion
   | ConstFnPtr DefId
+  -- | A reference to a trait object (e.g., @&dyn Trait@). The 'DefId' is the
+  -- allocation backing the reference, the 'TraitName' is the name of the
+  -- trait object's principal trait, and the 'VtableName' is the name of the
+  -- trait object's vtable.
+  | ConstTraitObject DefId TraitName VtableName
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =

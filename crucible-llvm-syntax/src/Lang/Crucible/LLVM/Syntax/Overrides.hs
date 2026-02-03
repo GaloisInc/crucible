@@ -105,11 +105,13 @@ llvmType =
     C.BVRepr w -> Just (intType w)
     C.ComplexRealRepr{} -> Nothing
     C.FloatRepr C.HalfFloatRepr -> Just (L.PrimType (L.FloatType L.Half))
+    -- XXX not yet: BrainFloatRepr needs to be added in what4
+    --C.FloatRepr C.BrainFloatRepr -> Just (L.PrimType (L.FloatType L.BFloat))
     C.FloatRepr C.SingleFloatRepr -> Just (L.PrimType (L.FloatType L.Float))
     C.FloatRepr C.DoubleFloatRepr -> Just (L.PrimType (L.FloatType L.Double))
     C.FloatRepr C.X86_80FloatRepr -> Just (L.PrimType (L.FloatType L.X86_fp80))
-    C.FloatRepr C.DoubleDoubleFloatRepr -> Nothing
-    C.FloatRepr C.QuadFloatRepr -> Nothing
+    C.FloatRepr C.DoubleDoubleFloatRepr -> Just (L.PrimType (L.FloatType L.PPC_fp128))
+    C.FloatRepr C.QuadFloatRepr -> Just (L.PrimType (L.FloatType L.Fp128))
     C.FunctionHandleRepr{} -> Nothing
     C.IEEEFloatRepr{} -> Nothing -- TODO?
     C.IntegerRepr{} -> Nothing

@@ -165,7 +165,7 @@ exitExecution ec = do
           TotalRes e -> e
           PartialRes _loc _pred ex _ar1 -> ex
   Sim $ StateContT $ \_c s ->
-    return $ ResultState $ AbortedResult (s^.stateContext) (AbortedExit ec gp)
+    return $ ResultState $ AbortedResult (s ^. stateContext) (AbortedExit ec gp)
 
 bindOverrideSim ::
   OverrideSim p sym ext rtp args r a ->
@@ -230,7 +230,7 @@ ovrWithBackend k =
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity =
     do ctx <- getContext
-       let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
+       let cfg = ctxSolverProof ctx (getConfiguration (ctx ^. ctxSymInterface))
        v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
        return (fromInteger v)
 
@@ -580,7 +580,7 @@ symbolicBranches new_args xs0 =
            go !i ((p,m,mpos):xs) =
              let msg = T.pack ("after branch " ++ show i)
                  m'  = ReaderT (runStateContT (unSim m) c')
-              in overrideSymbolicBranch p all_args m' mpos old_args (go (i+1) xs) (Just (OtherPos msg))
+              in overrideSymbolicBranch p all_args m' mpos old_args (go (i + 1) xs) (Just (OtherPos msg))
        go (0::Integer) xs0
 
 -- | Non-deterministically choose among several feasible branches.

@@ -82,13 +82,13 @@ buildWTOMap :: [WTOComponent (Some (BlockID blocks))] -> Map Int (Int,Int)
 buildWTOMap = snd . go 0 0 Map.empty
  where
  go :: Int -> Int -> Map Int (Int,Int) -> [WTOComponent (Some (BlockID blocks))] -> (Int, Map Int (Int,Int))
- go !x !_ m [] = (x,m)
- go !x !d m (Vertex (Some bid) : cs) =
+ go !x !_ !m [] = (x,m)
+ go x d m (Vertex (Some bid) : cs) =
     let m' = Map.insert (Ctx.indexVal (blockIDIndex bid)) (x,d) m
-     in go (x+1) d m' cs
- go !x !d m (SCC scc : cs) =
-    let m'  = viewSome (\hd -> Map.insert (Ctx.indexVal (blockIDIndex hd)) (x,d+1) m) (wtoHead scc)
-        (x',m'') = go (x+1) (d+1) m' $ wtoComps scc
+     in go (x + 1) d m' cs
+ go x d m (SCC scc : cs) =
+    let m'  = viewSome (\hd -> Map.insert (Ctx.indexVal (blockIDIndex hd)) (x,d + 1) m) (wtoHead scc)
+        (x',m'') = go (x + 1) (d + 1) m' $ wtoComps scc
      in go x' d m'' cs
 
 
@@ -100,8 +100,8 @@ incrementBoundCount :: Seq Word64 -> Int -> (Seq Word64, Word64)
 incrementBoundCount cs depth =
   case Seq.lookup depth cs of
      Just n ->
-       do let n' = n+1
-          let cs' = Seq.update depth n' $ Seq.take (depth+1) cs
+       do let n' = n + 1
+          let cs' = Seq.update depth n' $ Seq.take (depth + 1) cs
           n' `seq` cs' `seq` (cs', n')
      Nothing ->
        do let cs' = cs <> Seq.replicate (depth - Seq.length cs) 0 <> Seq.singleton 1
@@ -253,14 +253,14 @@ boundedExecFeature getLoopBounds generateSideConditions =
    SimState p sym ext rtp (CrucibleLang blocks ret) ('Just a) ->
    IO (ExecutionFeatureResult p sym ext rtp)
  onTransition gvRef tgt_id res st = stateSolverProof st $
-  do let sym = st^.stateSymInterface
-     let simCtx = st^.stateContext
-     (globals', overLimit) <- checkBackedge gvRef (st^.stateCrucibleFrame.frameBlockID) tgt_id (st^.stateGlobals)
+  do let sym = st ^. stateSymInterface
+     let simCtx = st ^. stateContext
+     (globals', overLimit) <- checkBackedge gvRef (st ^. stateCrucibleFrame.frameBlockID) tgt_id (st ^. stateGlobals)
      let st' = st & stateGlobals .~ globals'
      case overLimit of
        Just n ->
          do let msg = "reached maximum number of loop iterations (" ++ show n ++ ")"
-            let loc = st^.stateCrucibleFrame.to frameProgramLoc
+            let loc = st ^. stateCrucibleFrame.to frameProgramLoc
             let err = SimError loc (ResourceExhausted msg)
             when generateSideConditions $ withBackend simCtx $ \bak ->
               addProofObligation bak (LabeledPred (falsePred sym) err)

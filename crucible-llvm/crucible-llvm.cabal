@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crucible-llvm
-Version:       0.8.0.0.99
+Version:       0.9.0.0.99
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc 2014-2022
 Maintainer:    rscott@galois.com, kquick@galois.com, langston@galois.com
@@ -134,7 +134,7 @@ library
     extra,
     lens,
     itanium-abi >= 0.1.1.1 && < 0.2,
-    llvm-pretty >= 0.12.1 && < 0.14,
+    llvm-pretty >= 0.12.1 && < 0.15,
     mtl,
     parameterized-utils >= 2.1.5 && < 2.2,
     pretty,
@@ -194,6 +194,10 @@ library
     Lang.Crucible.LLVM.Extension.Arch
     Lang.Crucible.LLVM.Extension.Syntax
     Lang.Crucible.LLVM.Intrinsics.Common
+    Lang.Crucible.LLVM.Intrinsics.Libc.Math
+    Lang.Crucible.LLVM.Intrinsics.Libc.Stdio
+    Lang.Crucible.LLVM.Intrinsics.Libc.Stdlib
+    Lang.Crucible.LLVM.Intrinsics.Libc.String
     Lang.Crucible.LLVM.Intrinsics.Libcxx
     Lang.Crucible.LLVM.Intrinsics.Match
     Lang.Crucible.LLVM.Intrinsics.Options
@@ -221,6 +225,7 @@ test-suite crucible-llvm-tests
   main-is: Tests.hs
   hs-source-dirs: test
   other-modules: MemSetup
+               , TestBehavior
                , TestFunctions
                , TestGlobals
                , TestMemory
@@ -239,6 +244,7 @@ test-suite crucible-llvm-tests
     lens,
     parameterized-utils,
     process,
+    time,
     what4,
     tasty,
     tasty-quickcheck,
