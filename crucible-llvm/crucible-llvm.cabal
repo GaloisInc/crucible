@@ -234,6 +234,7 @@ test-suite crucible-llvm-tests
   build-depends:
     base,
     bv-sized,
+    bytestring,
     containers,
     crucible,
     crucible-llvm,
@@ -243,8 +244,10 @@ test-suite crucible-llvm-tests
     llvm-pretty,
     llvm-pretty-bc-parser,
     lens,
+    oughta >= 0.3 && < 0.4,
     parameterized-utils,
     process,
+    text,
     time,
     what4,
     tasty,
