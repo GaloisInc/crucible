@@ -14,17 +14,21 @@
 module TestBehavior (behaviorTests) where
 
 import           Control.Lens ( (^.) )
-import           Control.Monad ( void, when )
-import qualified Data.Parameterized.Map as MapF
+import           Control.Monad ( void, when, unless )
+import qualified Data.ByteString.Char8 as BS
 import           Data.Parameterized.Context ( pattern Empty, pattern (:>) )
+import qualified Data.Parameterized.Map as MapF
+import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
 import qualified Data.Vector as V
+import           Data.Time.Clock ( NominalDiffTime )
+import qualified Data.List as List
+import qualified Oughta
 import           System.Directory ( listDirectory )
 import           System.Exit ( ExitCode(..) )
 import           System.FilePath ( (-<.>), takeFileName, takeExtension, (</>) )
-import qualified Data.List as List
 import qualified System.IO as IO
 import qualified System.Process as Proc
-import           Data.Time.Clock ( NominalDiffTime )
 
 import qualified Test.Tasty as T
 import           Test.Tasty.HUnit ( testCase, (@=?) )
@@ -75,27 +79,32 @@ behaviorTests = do
 
 testBehaviorFile :: FilePath -> T.TestTree
 testBehaviorFile cFile = testCase (takeFileName cFile) $ do
+  (outputLuaProg, llvmLuaProg) <- extractLuaProgs cFile
+
   exePath <- compileExe cFile
   bcPath <- cimpileBc cFile
 
-  expectedOut <- extractExpectedOutput cFile
   nativeOut <- runExe exePath
   symbolicOut <- runBc bcPath
 
   nativeOut @=? symbolicOut
-  nativeOut @=? expectedOut
-  -- by transitivity we have symbolicOut == expectedOut
+  Oughta.check' Oughta.defaultHooks outputLuaProg (Oughta.Output $ BS.pack nativeOut)
+
+  llPath <- compileLl cFile
+  llvmIr <- BS.readFile llPath
+  Oughta.check' Oughta.defaultHooks llvmLuaProg (Oughta.Output llvmIr)
 
 
 -- | Test external test files that don't have expected output comments
 -- Just verify that both native and symbolic execution succeed
+-- These tests use abort() on failure rather than output checks
 testBehaviorFileExternal :: FilePath -> T.TestTree
 testBehaviorFileExternal cFile = testCase (takeFileName cFile) $ do
   exePath <- compileExe cFile
   bcPath <- cimpileBc cFile
-  _ <- runExe exePath
-  _ <- runBc bcPath
-  return ()
+  nativeOut <- runExe exePath
+  symbolicOut <- runBc bcPath
+  nativeOut @=? symbolicOut
 
 cflags :: [String]
 cflags = ["-O1", "-Wno-implicit-function-declaration", "-Wno-implicit-int"]
@@ -124,6 +133,10 @@ cimpileBc :: FilePath -> IO FilePath
 cimpileBc cFile =
   compileFile ".bc" cFile ["-emit-llvm", "-fno-discard-value-names", "-c"]
 
+compileLl :: FilePath -> IO FilePath
+compileLl cFile =
+  compileFile ".ll" cFile ["-emit-llvm", "-fno-discard-value-names", "-S"]
+
 runExe :: FilePath -> IO String
 runExe exePath = do
   (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode exePath [] ""
@@ -138,23 +151,23 @@ runExe exePath = do
       ]
   return stdout
 
+-- | @(outputLuaProg, llvmLuaProg)@
+extractLuaProgs :: FilePath -> IO (Oughta.LuaProgram, Oughta.LuaProgram)
+extractLuaProgs cFile = do
+  content <- TextIO.readFile cFile
+  let contentLines = lines (Text.unpack content)
+      hasOutputChecks = any ("/// " `List.isInfixOf`) contentLines
+      hasLlvmChecks = any ("//- " `List.isInfixOf`) contentLines
 
--- | Extract expected output from /// comments in the C file
--- All lines starting with /// are concatenated to form expected output
-extractExpectedOutput :: FilePath -> IO String
-extractExpectedOutput cFile = do
-  content <- readFile cFile
-  let expectedLines = extractComments (lines content)
-  return $ unlines expectedLines
-  where
-    extractComments [] = []
-    extractComments (line:rest)
-      | "/// " `List.isInfixOf` line =
-          let stripped = dropWhile (/= '/') line
-          in if take 4 stripped == "/// "
-             then drop 4 stripped : extractComments rest
-             else extractComments rest
-      | otherwise = extractComments rest
+  unless hasOutputChecks $
+    fail $ "Test file " ++ cFile ++ " must have output checks (/// comments)"
+  unless hasLlvmChecks $
+    fail $ "Test file " ++ cFile ++ " must have LLVM IR checks (//- comments)"
+
+  let outputLuaProg = Oughta.fromLineComments cFile "/// " content
+      llvmLuaProg = Oughta.fromLineComments cFile "//- " content
+
+  return (outputLuaProg, llvmLuaProg)
 
 
 ppAbortedResult :: CS.AbortedResult sym ext -> String
