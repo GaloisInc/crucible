@@ -1,5 +1,23 @@
 # next
 
+* Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
+
+  * Add `Lang.Crucible.LLVM.Intrinsics.Declare` module.
+  * Change functions in `Lang.Crucible.LLVM.Intrinsics` to work
+    with `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s. To
+    migrate, use `Lang.Crucible.LLVM.Intrinsics.Declare.fromLLVM`
+    to translate `Text.LLVM.AST.Declare`s into
+    `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s
+  * `do_register_llvm_override` no longer does any mapping nor adaptation of
+    types, use `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride` for that.
+  * Replace `build_llvm_override` with
+    `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride`.
+  * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
+  * Replace various fields of `LLVMOverride` with a `Declare`. To migrate:
+    * Replace `llvmOverride_name` with `llvmOvSymbol`
+    * Replace `llvmOverride_args` with `llvmOvArgs`
+    * Replace `llvmOverride_ret` with `llvmOvRet`
+
 # 0.9 -- 2026-01-29
 
 * The `LLVM_Debug` data constructor for `LLVMStmt`, as well as the related
@@ -44,23 +62,6 @@
   * `Lang.Crucible.LLVM.MemModel.Pointer.ppLLVMPointerIntrinsicType`
 * Overrides for `memcmp`, `strcmp`, `strncmp`, `strnlen`, `strcpy`, `strdup`,
   and `strndup`, supported by new APIs in `Lang.Crucible.LLVM.MemModel.Strings`.
-* Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
-
-  * Add `Lang.Crucible.LLVM.Intrinsics.Declare` module.
-  * Change functions in `Lang.Crucible.LLVM.Intrinsics` to work
-    with `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s. To
-    migrate, use `Lang.Crucible.LLVM.Intrinsics.Declare.fromLLVM`
-    to translate `Text.LLVM.AST.Declare`s into
-    `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s
-  * `do_register_llvm_override` no longer does any mapping nor adaptation of
-    types, use `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride` for that.
-  * Replace `build_llvm_override` with
-    `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride`.
-  * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
-  * Replace various fields of `LLVMOverride` with a `Declare`. To migrate:
-    * Replace `llvmOverride_name` with `llvmOvSymbol`
-    * Replace `llvmOverride_args` with `llvmOvArgs`
-    * Replace `llvmOverride_ret` with `llvmOvRet`
 
 # 0.8.0 -- 2025-11-09
 
