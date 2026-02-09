@@ -82,10 +82,9 @@ module Lang.Crucible.Backend
   , backendOptions
   , assertThenAssumeConfigOption
   , ppAssumptionState
-  , withExceptionContext
   ) where
 
-import           Control.Exception(Exception(..), throwIO, finally)
+import           Control.Exception(Exception(..), throwIO)
 import           Control.Lens ((^.))
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -113,7 +112,6 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend.ProofGoals (ppGoalCollector)
-import Lang.Crucible.Simulator.SimError (ProgramStack, mkSimError)
 
 type Assertion sym = LabeledPred (Pred sym) SimError
 type ProofObligation sym = AS.ProofGoal (Assumptions sym) (Assertion sym)

@@ -114,7 +114,6 @@ import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Simulator.SimError (ProgramStack(..))
 
 --------------------------------------------------------------------------------
 -- Configuration options

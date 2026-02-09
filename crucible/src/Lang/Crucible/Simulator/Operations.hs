@@ -106,7 +106,6 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import Lang.Crucible.Simulator.SimError (SimError(SimErrorWithContext))
 
 ---------------------------------------------------------------------
 -- Intermediate state branching/merging
