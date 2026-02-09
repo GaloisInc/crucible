@@ -156,6 +156,10 @@ data Layout = Layout
     _layAlign :: Word64
     -- | Size in bytes
   , _laySize :: Word64
+    -- | Offset in bytes of each field in declaration order.  This is always
+    -- `Just` for struct-like types, such as `TyTuple`, `TyClosure`, and
+    -- `TyAdt` with kind `Struct`.  It may be `Nothing` for other types.
+  , _layFieldOffsets :: Maybe [Word64]
   }
   deriving (Eq, Ord, Show, Generic)
 
@@ -264,6 +268,8 @@ data CtorKind
 data Variant = Variant {
   _vname :: DefId,
   _vdiscr :: VariantDiscr,
+  -- | Fields of the variant.  For structs/variants with named fields, these go
+  -- in declaration order.
   _vfields :: [Field],
   _vctorkind :: Maybe CtorKind,
   _discrval :: Maybe Integer,
@@ -457,6 +463,8 @@ data Rvalue =
 data AdtAg = AdtAg {
     _agadt :: Adt,
     _avgariant :: Integer,
+    -- | Operands to use to initialize the field values.  For structs with
+    -- named fields, these go in declaration order.
     _aops :: [Operand],
     _adtagty :: Ty,
     -- | For union aggregates, there's only operand in `_aops`, and `_afield`
