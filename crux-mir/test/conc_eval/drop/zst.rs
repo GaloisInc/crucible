@@ -10,14 +10,12 @@ impl Drop for S {
     }
 }
 
-fn f<T>(x: T) {}
-
 #[cfg_attr(crux, crux::test)]
 fn crux_test() -> usize {
     {
         let s = S;
         let s2 = (S,);
-        f(s2);
+        drop(s2);
     }
     DROPPED.load(Ordering::Relaxed)
 }
