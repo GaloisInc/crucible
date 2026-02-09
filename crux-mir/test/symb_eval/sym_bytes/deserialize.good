@@ -7,6 +7,10 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: error: in deserialize/<DISAMB>::deserialize[0]
 [Crux]   attempt to compute `copy _45 + move _60`, which would overflow
+[Crux]   Context:
+[Crux]     test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: deserialize/<DISAMB>::deserialize[0]
+[Crux]     test/symb_eval/sym_bytes/deserialize.rs:31:18: 31:35: deserialize/<DISAMB>::crux_test[0]
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

@@ -8,6 +8,8 @@ failures:
 [Crux]   ./libs/crucible/lib.rs:45:9: 45:79 !test/symb_eval/overrides/override5.rs:10:5: 10:47: error: in override5/<DISAMB>::f[0]
 [Crux]   MIR assertion at test/symb_eval/overrides/override5.rs:10:5:
 [Crux]   	foo.wrapping_add(1) != 0
+[Crux]   Context:
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

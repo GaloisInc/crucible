@@ -7,9 +7,15 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: error: in uninit_read/<DISAMB>::crux_test[0]
 [Crux]   no value at offset 3, in aggregate of size 10
+[Crux]   Context:
+[Crux]     test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: uninit_read/<DISAMB>::crux_test[0]
+[Crux]     internal: _start
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: error: in uninit_read/<DISAMB>::crux_test[0]
 [Crux]   attempted to read empty mux tree
+[Crux]   Context:
+[Crux]     test/symb_eval/alloc/uninit_read.rs:9:9: 9:23: uninit_read/<DISAMB>::crux_test[0]
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

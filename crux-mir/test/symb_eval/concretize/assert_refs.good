@@ -8,6 +8,8 @@ failures:
 [Crux]   ./libs/crucible/lib.rs:49:13: 56:14 !test/symb_eval/concretize/assert_refs.rs:12:5: 12:67: error: in assert_refs/<DISAMB>::crux_test[0]
 [Crux]   MIR assertion at test/symb_eval/concretize/assert_refs.rs:12:5:
 [Crux]   	42 42 [42] [42]
+[Crux]   Context:
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

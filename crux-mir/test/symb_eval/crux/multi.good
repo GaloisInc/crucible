@@ -11,10 +11,15 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/crux/multi.rs:8:22: 8:27: error: in multi/<DISAMB>::fail1[0]
 [Crux]   attempt to compute `copy _1 + const 1_u8`, which would overflow
+[Crux]   Context:
+[Crux]     test/symb_eval/crux/multi.rs:8:22: 8:27: multi/<DISAMB>::fail1[0]
+[Crux]     internal: _start
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/crucible/lib.rs:45:9: 45:79 !test/symb_eval/crux/multi.rs:8:5: 8:32: error: in multi/<DISAMB>::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:8:5:
 [Crux]   	x + 1 > x
+[Crux]   Context:
+[Crux]     internal: _start
 
 ---- multi/<DISAMB>::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
@@ -26,6 +31,8 @@ failures:
 [Crux]   ./libs/crucible/lib.rs:45:9: 45:79 !test/symb_eval/crux/multi.rs:20:5: 20:29: error: in multi/<DISAMB>::assert_zero[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 [Crux]   	x == 0
+[Crux]   Context:
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

@@ -7,6 +7,11 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/crucible/symbolic.rs:29:50: 29:61 !./libs/crucible/symbolic.rs:35:1: 42:2: error: in crucible/<DISAMB>::symbolic[0]::{impl#5}[0]::symbolic[0]
 [Crux]   invalid symbolic variable name "\NUL:., /": Identifier must start with a letter.
+[Crux]   Context:
+[Crux]     internal: crucible/<DISAMB>::symbolic[0]::symbolic_u8[0]
+[Crux]     ./libs/crucible/symbolic.rs:29:50: 29:61 !./libs/crucible/symbolic.rs:35:1: 42:2: crucible/<DISAMB>::symbolic[0]::{impl#5}[0]::symbolic[0]
+[Crux]     test/symb_eval/overrides/bad_symb2.rs:6:13: 6:36: bad_symb2/<DISAMB>::crux_test[0]
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

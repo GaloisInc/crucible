@@ -15,26 +15,46 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/core/src/num/uint_macros.rs:717:17: 717:53 !./libs/core/src/num/mod.rs:447:5: 468:6: error: in core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_add[0]
 [Crux]   Binary operation (+) would overflow
+[Crux]   Context:
+[Crux]     ./libs/core/src/num/uint_macros.rs:717:17: 717:53 !./libs/core/src/num/mod.rs:447:5: 468:6: core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_add[0]
+[Crux]     test/symb_eval/num/unchecked_arith.rs:5:14: 5:38: unchecked_arith/<DISAMB>::add_test[0]
+[Crux]     internal: _start
 
 ---- unchecked_arith/<DISAMB>::mul_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/core/src/num/uint_macros.rs:1105:17: 1105:53 !./libs/core/src/num/mod.rs:447:5: 468:6: error: in core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_mul[0]
 [Crux]   Binary operation (*) would overflow
+[Crux]   Context:
+[Crux]     ./libs/core/src/num/uint_macros.rs:1105:17: 1105:53 !./libs/core/src/num/mod.rs:447:5: 468:6: core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_mul[0]
+[Crux]     test/symb_eval/num/unchecked_arith.rs:15:14: 15:38: unchecked_arith/<DISAMB>::mul_test[0]
+[Crux]     internal: _start
 
 ---- unchecked_arith/<DISAMB>::shl_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/core/src/num/uint_macros.rs:1794:17: 1794:53 !./libs/core/src/num/mod.rs:447:5: 468:6: error: in core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_shl[0]
 [Crux]   Binary operation (<<) would overflow
+[Crux]   Context:
+[Crux]     ./libs/core/src/num/uint_macros.rs:1794:17: 1794:53 !./libs/core/src/num/mod.rs:447:5: 468:6: core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_shl[0]
+[Crux]     test/symb_eval/num/unchecked_arith.rs:20:14: 20:38: unchecked_arith/<DISAMB>::shl_test[0]
+[Crux]     internal: _start
 
 ---- unchecked_arith/<DISAMB>::shr_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/core/src/num/uint_macros.rs:1966:17: 1966:53 !./libs/core/src/num/mod.rs:447:5: 468:6: error: in core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_shr[0]
 [Crux]   Binary operation (>>) would overflow
+[Crux]   Context:
+[Crux]     ./libs/core/src/num/uint_macros.rs:1966:17: 1966:53 !./libs/core/src/num/mod.rs:447:5: 468:6: core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_shr[0]
+[Crux]     test/symb_eval/num/unchecked_arith.rs:25:14: 25:38: unchecked_arith/<DISAMB>::shr_test[0]
+[Crux]     internal: _start
 
 ---- unchecked_arith/<DISAMB>::sub_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/core/src/num/uint_macros.rs:896:17: 896:53 !./libs/core/src/num/mod.rs:447:5: 468:6: error: in core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_sub[0]
 [Crux]   Binary operation (-) would overflow
+[Crux]   Context:
+[Crux]     ./libs/core/src/num/uint_macros.rs:896:17: 896:53 !./libs/core/src/num/mod.rs:447:5: 468:6: core/<DISAMB>::num[0]::{impl#6}[0]::unchecked_sub[0]
+[Crux]     test/symb_eval/num/unchecked_arith.rs:10:14: 10:38: unchecked_arith/<DISAMB>::sub_test[0]
+[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:
