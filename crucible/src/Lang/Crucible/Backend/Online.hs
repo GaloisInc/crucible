@@ -115,6 +115,7 @@ import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.SimError (ProgramStack(..))
 
 --------------------------------------------------------------------------------
 -- Configuration options
@@ -184,6 +185,8 @@ data OnlineBackend solver scope st fs = OnlineBackendState
     -- ^ action for checking if online features are currently enabled
 
   , onlineExprBuilder :: B.ExprBuilder scope st fs
+
+  , onlineExceptionContext :: !(Maybe ProgramStack)
   }
 
 newOnlineBackend ::
@@ -209,6 +212,7 @@ newOnlineBackend sym feats =
                    , currentFeatures = featref
                    , onlineEnabled = getOpt enableOpt
                    , onlineExprBuilder = sym
+                   , onlineExceptionContext = Nothing
                    }
 
 -- | Do something with an online backend.
@@ -432,6 +436,9 @@ instance (IsSymInterface (B.ExprBuilder scope st fs), OnlineSolver solver) =>
        AS.restoreAssumptionStack gc (assumptionStack bak)
 
   getBackendState bak = readIORef (AS.proofObligations (assumptionStack bak))
+
+  getExceptionContext = onlineExceptionContext
+  withExceptionContext bak ec = bak { onlineExceptionContext = Just ec }
 
 --------------------------------------------------------------------------------
 -- Branch satisfiability

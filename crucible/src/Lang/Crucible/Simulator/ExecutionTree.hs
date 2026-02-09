@@ -118,6 +118,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , Metric(..)
   , initSimContext
   , withBackend
+  , withBackend'
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
@@ -143,11 +144,13 @@ module Lang.Crucible.Simulator.ExecutionTree
   , stateOverrideFrame
   , stateGlobals
   , stateConfiguration
+  , stateProgramStack
   ) where
 
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Kind
+import           Data.Maybe(maybeToList)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Parameterized.Ctx
@@ -174,6 +177,7 @@ import           Lang.Crucible.Simulator.Evaluation (EvalAppFunc)
 import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.RegMap (RegMap, emptyRegMap, RegValue, RegEntry)
+import           Lang.Crucible.Simulator.SimError(ProgramStack(..))
 import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------
@@ -1321,6 +1325,16 @@ withBackend ::
   a
 withBackend ctx f = case _ctxBackend ctx of SomeBackend bak -> f bak
 
+-- | Get a backend from a SimState and populate the error context
+-- from the current simulation state.
+withBackend' ::
+  SimState p sym ext rtp f args ->
+    (forall bak. IsSymBackend sym bak => bak -> a) -> a
+withBackend' st f = 
+  let ec = stateProgramStack st
+  in withBackend (st ^. stateContext) $ \bak ->
+      f (withExceptionContext bak (ProgramStack ec))
+    
 -- | Access the symbolic backend inside a 'SimContext'.
 ctxSymInterface :: Getter (SimContext p sym ext) sym
 ctxSymInterface = to (\ctx ->
@@ -1501,3 +1515,11 @@ stateConfiguration = to (\s -> stateSolverProof s (getConfiguration (s^.stateSym
 -- | Provide the 'IsSymInterface' typeclass dictionary from a 'SimState'
 stateSolverProof :: SimState p sym ext r f args -> (forall a . IsSymInterfaceProof sym a)
 stateSolverProof s = ctxSolverProof (s^.stateContext)
+
+-- | Get the program stack from a SimState
+stateProgramStack :: SimState p sym ext r f args -> [ProgramLoc]
+stateProgramStack st = 
+  [ loc | SomeFrame sf <- activeFrames (st ^. stateTree) 
+        , loc <- maybeToList (frameStackLoc sf)
+        ]
+    

@@ -224,8 +224,9 @@ ovrWithBackend ::
   (forall bak. IsSymBackend sym bak => bak -> OverrideSim p sym ext rtp args ret a) ->
   OverrideSim p sym ext rtp args ret a
 ovrWithBackend k =
-  do simCtx <- use stateContext
-     ctxSolverProof simCtx (withBackend simCtx k)
+  do simSt <- get
+     simCtx <- use stateContext
+     ctxSolverProof simCtx (withBackend' simSt k)
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity =

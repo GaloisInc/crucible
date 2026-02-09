@@ -106,6 +106,7 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import Lang.Crucible.Simulator.SimError (SimError(SimErrorWithContext))
 
 ---------------------------------------------------------------------
 -- Intermediate state branching/merging
@@ -408,7 +409,8 @@ runErrorHandler msg st =
       sym = ctx^.ctxSymInterface
    in withBackend ctx $ \bak ->
       do loc <- getCurrentProgramLoc sym
-         let err = SimError loc msg
+         let stk = ProgramStack (stateProgramStack st)
+         let err = SimErrorWithContext loc msg stk
          addProofObligation bak (LabeledPred (falsePred sym) err)
          return (AbortState (AssertionFailure err) st)
 

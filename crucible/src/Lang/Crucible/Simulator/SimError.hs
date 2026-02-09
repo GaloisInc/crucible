@@ -19,9 +19,15 @@
 module Lang.Crucible.Simulator.SimError (
     SimErrorReason(..)
   , SimError(..)
+  , ProgramStack(..)
+  , mkSimError
+  , simErrorReason
+  , simErrorLoc
+  , simErrorContext
   , simErrorReasonMsg
   , simErrorDetailsMsg
   , ppSimError
+  , ppProgramStack
   ) where
 
 import GHC.Stack (CallStack)
@@ -32,6 +38,7 @@ import Data.Typeable
 import Prettyprinter
 
 import What4.ProgramLoc
+
 
 ------------------------------------------------------------------------
 -- SimError
@@ -51,12 +58,25 @@ data SimErrorReason
       --   was exceeded.
  deriving (Typeable)
 
-data SimError
-   = SimError
-   { simErrorLoc :: !ProgramLoc
-   , simErrorReason :: !SimErrorReason
-   }
+data SimError 
+   = SimError !ProgramLoc !SimErrorReason
+   -- This constructor exists for SimErrors that have a dynamic stack trace associated with them
+   | SimErrorWithContext !ProgramLoc !SimErrorReason !ProgramStack
  deriving (Typeable)
+
+newtype ProgramStack = ProgramStack [ProgramLoc]
+
+simErrorLoc :: SimError -> ProgramLoc
+simErrorLoc (SimError l _) = l
+simErrorLoc (SimErrorWithContext l _ _) = l
+
+simErrorReason :: SimError -> SimErrorReason
+simErrorReason (SimError _ r) = r
+simErrorReason (SimErrorWithContext _ r _) = r
+
+simErrorContext :: SimError -> Maybe ProgramStack
+simErrorContext (SimError _ _) = Nothing
+simErrorContext (SimErrorWithContext _ _ c) = Just c
 
 simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
@@ -69,6 +89,12 @@ simErrorDetailsMsg :: SimErrorReason -> String
 simErrorDetailsMsg (AssertFailureSimError _ msg) = msg
 simErrorDetailsMsg (Unsupported stk _) = show stk
 simErrorDetailsMsg _ = ""
+
+mkSimError :: ProgramLoc -> SimErrorReason -> Maybe ProgramStack -> SimError
+mkSimError loc reason mbCtx =
+  case mbCtx of
+    Nothing -> SimError loc reason 
+    Just ctx -> SimErrorWithContext loc reason ctx
 
 instance IsString SimErrorReason where
   fromString = GenericSimError
@@ -83,13 +109,24 @@ ppSimError :: SimError -> Doc ann
 ppSimError er =
   vcat $ [ pretty (plSourceLoc loc) <> pretty ": error: in" <+> pretty (plFunction loc)
          , pretty (simErrorReasonMsg rsn)
-         ] ++ if null details
-              then []
-              else [ pretty "Details:"
-                   , indent 2 (vcat (pretty <$> lines details))
-                   ]
+         ] ++ (if null details
+               then []
+               else [ pretty "Detail:"
+                    , indent 2 (vcat (pretty <$> lines details))
+                    ])
+          ++ (case simErrorContext er of
+                Nothing -> []
+                Just ctx -> [ pretty "Context:"
+                            , indent 2 (ppProgramStack ctx)
+                            ])
  where loc = simErrorLoc er
        details = simErrorDetailsMsg rsn
-       rsn = simErrorReason er
+       rsn = simErrorReason er          
+
+ppProgramStack :: ProgramStack -> Doc ann
+ppProgramStack (ProgramStack frames) = vcat (ppLoc <$> frames)
+  where
+    ppLoc l = pretty (plSourceLoc l) <> pretty ":" <+> pretty (plFunction l)
 
 instance Exception SimError
+
