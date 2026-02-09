@@ -1,5 +1,25 @@
 # next
 
+* Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
+
+  * Add `Lang.Crucible.LLVM.Intrinsics.Declare` module.
+  * Change functions in `Lang.Crucible.LLVM.Intrinsics` to work
+    with `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s. To
+    migrate, use `Lang.Crucible.LLVM.Intrinsics.Declare.fromLLVM`
+    to translate `Text.LLVM.AST.Declare`s into
+    `Lang.Crucible.LLVM.Intrinsics.Declare.Declare`s
+  * `do_register_llvm_override` no longer does any mapping nor adaptation of
+    types, use `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride` for that.
+  * Replace `build_llvm_override` with
+    `Lang.Crucible.LLVM.Intrinsics.Cast.lowerLLVMOverride`.
+  * Overhaul the API of `Lang.Crucible.LLVM.Intrinsics.Cast`.
+  * Replace various fields of `LLVMOverride` with a `Declare`. To migrate:
+    * Replace `llvmOverride_name` with `llvmOvSymbol`
+    * Replace `llvmOverride_args` with `llvmOvArgs`
+    * Replace `llvmOverride_ret` with `llvmOvRet`
+
+# 0.9 -- 2026-01-29
+
 * The `LLVM_Debug` data constructor for `LLVMStmt`, as well as the related
   `LLVM_Dbg` data type, have been removed.
 * Remove `aggInfo` in favor of `aggregateAlignment`, a lens that retrieves an
@@ -34,6 +54,14 @@
 * Remove the `Eq LLVMConst` instance. This instance was inherently unreliable
   because it cannot easily compute a simple `True`-or-`False` answer in the
   presence of `undef` or `poison` values.
+* Replace `Data.Dynamic.Dynamic` with `SomeFnHandle` in
+  `MemModel.{doInstallHandle,doLookupHandle}`.
+* Add pretty-printing functions for use with `Lang.Crucible.Types.ppTypeRepr`
+  * `Lang.Crucible.LLVM.MemModel.ppLLVMIntrinsicTypes`
+  * `Lang.Crucible.LLVM.MemModel.ppLLVMMemIntrinsicType`
+  * `Lang.Crucible.LLVM.MemModel.Pointer.ppLLVMPointerIntrinsicType`
+* Overrides for `memcmp`, `strcmp`, `strncmp`, `strnlen`, `strcpy`, `strdup`,
+  and `strndup`, supported by new APIs in `Lang.Crucible.LLVM.MemModel.Strings`.
 
 # 0.8.0 -- 2025-11-09
 
@@ -41,7 +69,7 @@
   should now be imported from `Lang.Crucible.LLVM.MemModel.Strings`.
 * Two new functions for loading C-style null-terminated strings from
   LLVM memory were added to `Lang.Crucible.LLVM.MemModel.Strings`:
-  `loadConcretelyNullTerminatedString` and `loadSymbolicString`.
+  `loadConcretelyNullTerminatedString` and `loadProvablyNullTerminatedString`.
 * Add a new "low-level" API for loading strings to
   `Lang.Crucible.LLVM.MemModel.Strings`: `ByteLoader`, `ByteChecker`, and
   `loadBytes`.

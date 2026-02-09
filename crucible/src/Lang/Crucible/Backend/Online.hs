@@ -87,7 +87,6 @@ import           Data.Bits
 import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
-import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           System.IO
 import qualified Data.Text as Text
@@ -457,7 +456,7 @@ data BranchResult
      -- | The context before considering the given predicate was already
      --   unsatisfiable.
    | UnsatisfiableContext
-   deriving (Data, Eq, Generic, Ord, Typeable)
+   deriving (Data, Eq, Generic, Ord)
 
 considerSatisfiability ::
   OnlineSolver solver =>

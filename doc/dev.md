@@ -53,11 +53,13 @@ following steps:
 - [ ] Ensure that the `crucible-llvm-*` and `crux-llvm` packages build against
       the new versions of `llvm-pretty` and `llvm-pretty-bc-parser`. If not,
       update the code as needed.
-- [ ] Ensure that the `crux-llvm` test suite passes with the desired version of
-      LLVM. If not, investigate why specific test cases fail. There is no
-      one-size-fits-all-formula for fixing these sorts of test failures, but
-      often times this will require changes to `llvm-pretty`,
+- [ ] Ensure that the `crucible-llvm` test suite passes with the desired
+      version of LLVM. If not, investigate why specific test cases fail.
+      There is no one-size-fits-all-formula for fixing these sorts of test
+      failures, but often times this will require changes to `llvm-pretty`,
       `llvm-pretty-bc-parser`, `crucible-llvm`, or a combination thereof.
+- [ ] Ensure that the `crux-llvm` test suite passes with the desired version of
+      LLVM. If not, investigate why specific test cases fail.
 - [ ] Update `crux-llvm/README.md` to mention that a newer LLVM version is now
       supported (near the sentence "... LLVMs versions from X to Y are likely
       to work well ...").

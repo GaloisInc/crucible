@@ -1,4 +1,3 @@
-// FAIL: `Rc` uses standard (untyped) allocation functions
 use std::rc::Rc;
 
 fn call_closure_rc(mut f: Rc<dyn Fn(i32, i32) -> i32>) -> i32 {

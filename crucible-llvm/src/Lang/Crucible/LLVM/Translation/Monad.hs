@@ -258,11 +258,11 @@ packBase ctp ctx0 asgn k =
   case ctx0 of
     ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
-        Nothing -> error $ unwords ["crucible type mismatch",show ctp,show ctp']
+        Nothing -> panic "packBase" ["crucible type mismatch", show ctp, show ctp']
         Just Refl ->
           let asgn' = Ctx.init asgn
               idx   = Ctx.nextIndex (Ctx.size asgn')
            in k (Some (asgn Ctx.! idx))
                 ctx'
                 asgn'
-    _ -> error "packType: ran out of actual arguments!"
+    _ -> panic "packBase" ["ran out of actual arguments"]

@@ -1,5 +1,7 @@
 # next
 
+# 0.9 -- 2026-01-29
+
 # 0.8 -- 2025-11-09
 
 * We now support running simulations with custom users state.

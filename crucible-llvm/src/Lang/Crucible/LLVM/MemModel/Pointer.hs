@@ -78,6 +78,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 
     -- * Pretty printing
   , ppPtr
+  , ppLLVMPointerIntrinsicType
 
     -- * Annotation
   , annotatePointerBlock
@@ -89,6 +90,7 @@ import           Data.Map (Map)
 import qualified Data.Map as Map (lookup)
 import           Numeric.Natural
 import           Prettyprinter
+import qualified Prettyprinter as PP
 
 import           GHC.TypeLits (TypeError, ErrorMessage(..))
 import           GHC.TypeNats
@@ -250,10 +252,14 @@ concPtrFn = Conc.IntrinsicConcFn $ \ctx tyCtx ptr ->
        panic "LLVM.MemModel.Pointer.concPtrFn"
          [ "Impossible: LLVMPointerType ill-formed context" ]
 
+-- | Helper, not exported
+ptrSymb :: SymbolRepr "LLVM_pointer"
+ptrSymb = knownSymbol
+
 -- | A singleton map suitable for use in a 'Conc.ConcCtx' if LLVM pointers are
 -- the only intrinsic type in use
 concPtrFnMap :: MapF.MapF SymbolRepr (Conc.IntrinsicConcFn t)
-concPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concPtrFn
+concPtrFnMap = MapF.singleton ptrSymb concPtrFn
 
 -- | A 'Conc.IntrinsicConcToSymFn' for LLVM pointers
 concToSymPtrFn :: Conc.IntrinsicConcToSymFn "LLVM_pointer"
@@ -272,7 +278,7 @@ concToSymPtrFn = Conc.IntrinsicConcToSymFn $ \sym tyCtx ptr ->
 -- | A singleton map suitable for use in 'Crucible.Concretize.concToSym' if LLVM
 -- pointers are the only intrinsic type in use
 concToSymPtrFnMap :: MapF.MapF SymbolRepr Conc.IntrinsicConcToSymFn
-concToSymPtrFnMap = MapF.singleton (knownSymbol @"LLVM_pointer") concToSymPtrFn
+concToSymPtrFnMap = MapF.singleton ptrSymb concToSymPtrFn
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
@@ -424,6 +430,33 @@ ppPtr (llvmPointerView -> (blk, bv))
      let blk_doc = printSymNat blk
          off_doc = printSymExpr bv
       in pretty "(" <> blk_doc <> pretty "," <+> off_doc <> pretty ")"
+
+-- | An intrinsic-printing function for use with
+-- 'Lang.Crucible.Types.ppTypeRepr'.
+ppLLVMPointerIntrinsicType ::
+  Applicative f =>
+  -- | Fallback for other instrinsics, can be
+  -- 'Lang.Crucible.Types.ppIntrinsicDefault'.
+  (forall s ctx'. SymbolRepr s -> CtxRepr ctx' -> f (PP.Doc ann)) ->
+  SymbolRepr symb ->
+  CtxRepr ctx ->
+  f (PP.Doc ann)
+ppLLVMPointerIntrinsicType fallback symbRepr tyCtx =
+  case testEquality symbRepr ptrSymb of
+    Nothing -> fallback symbRepr tyCtx
+    Just Refl ->
+      case Ctx.viewAssign tyCtx of
+        Ctx.AssignExtend (Ctx.viewAssign -> Ctx.AssignEmpty) (BVRepr w) ->
+          pure (PP.pretty "(Ptr" PP.<+> PP.viaShow w <> PP.pretty ")")
+        -- These are impossible by the definition of LLVMPointerImpl
+        Ctx.AssignEmpty ->
+          panic
+          "ppLLVMPointerIntrinsicType"
+          ["Impossible: LLVMPointerType empty context"]
+        Ctx.AssignExtend _ _ ->
+          panic
+          "ppLLVMPointerIntrinsicType"
+          ["Impossible: LLVMPointerType ill-formed context"]
 
 -- | Look up a pointer in the 'memImplGlobalMap' to see if it's a global.
 --

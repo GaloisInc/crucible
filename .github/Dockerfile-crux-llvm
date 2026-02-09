@@ -69,7 +69,7 @@ RUN case ${TARGETPLATFORM} in \
       --silent \
       --tlsv1.2 \
       --output solvers.zip \
-      "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20251112/ubuntu-22.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
+      "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20260119/ubuntu-22.04-${WHAT4_SOLVERS_ARCH}-bin.zip"
 RUN unzip solvers.zip && rm solvers.zip && chmod +x *
 
 WORKDIR /crux-llvm

@@ -292,10 +292,10 @@ filterCrucibleFrames _ = Nothing
 arFrames :: Simple Traversal (AbortedResult sym ext) (SomeFrame (SimFrame sym ext))
 arFrames h (AbortedExec e p) =
   (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
-     <$> h (SomeFrame (p^.gpValue))
+     <$> h (SomeFrame (p ^. gpValue))
 arFrames h (AbortedExit ec p) =
   (\(SomeFrame f') -> AbortedExit ec (p & gpValue .~ f'))
-     <$> h (SomeFrame (p^.gpValue))
+     <$> h (SomeFrame (p ^. gpValue))
 arFrames h (AbortedBranch predicate loc r s) =
   AbortedBranch predicate loc <$> arFrames h r
                               <*> arFrames h s
@@ -307,7 +307,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
  where
    pp :: SomeFrame (SimFrame sym ext) -> PP.Doc ann
    pp (SomeFrame (OF f)) =
-      PP.pretty "When calling" PP.<+> PP.viaShow (f^.override)
+      PP.pretty "When calling" PP.<+> PP.viaShow (f ^. override)
    pp (SomeFrame (MF f)) =
       PP.pretty "In" PP.<+> PP.viaShow (frameHandle f) PP.<+>
       PP.pretty "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
@@ -428,16 +428,16 @@ setExecResultContext ctx =
 execStateContext :: ExecState p sym ext r -> SimContext p sym ext
 execStateContext = \case
   ResultState res        -> execResultContext res
-  AbortState _ st        -> st^.stateContext
-  UnwindCallState _ _ st -> st^.stateContext
-  CallState _ _ st       -> st^.stateContext
-  TailCallState _ _ st   -> st^.stateContext
-  ReturnState _ _ _ st   -> st^.stateContext
-  ControlTransferState _ st -> st^.stateContext
-  RunningState _ st      -> st^.stateContext
-  SymbolicBranchState _ _ _ _ st -> st^.stateContext
-  OverrideState _ st -> st^.stateContext
-  BranchMergeState _ st -> st^.stateContext
+  AbortState _ st        -> st ^. stateContext
+  UnwindCallState _ _ st -> st ^. stateContext
+  CallState _ _ st       -> st ^. stateContext
+  TailCallState _ _ st   -> st ^. stateContext
+  ReturnState _ _ _ st   -> st ^. stateContext
+  ControlTransferState _ st -> st ^. stateContext
+  RunningState _ st      -> st ^. stateContext
+  SymbolicBranchState _ _ _ _ st -> st ^. stateContext
+  OverrideState _ st -> st ^. stateContext
+  BranchMergeState _ st -> st ^. stateContext
   InitialState stctx _ _ _ _ -> stctx
 
 setExecStateContext ::
@@ -1157,7 +1157,7 @@ actFrame = actResult . partialValue
 activeFrames :: ActiveTree ctx sym ext root a args ->
                 [SomeFrame (SimFrame sym ext)]
 activeFrames (ActiveTree ctx ar) =
-  SomeFrame (ar^.partialValue^.gpValue) : parentFrames ctx
+  SomeFrame (ar ^. partialValue ^. gpValue) : parentFrames ctx
 
 
 ------------------------------------------------------------------------
@@ -1454,7 +1454,7 @@ stateLocation :: Getter (SimState p sym ext r f a) (Maybe ProgramLoc)
 stateLocation = to f
  where
  f :: SimState p sym ext r f a -> Maybe ProgramLoc
- f st = case st^.stateTree . actFrame . gpValue of
+ f st = case st ^. stateTree . actFrame . gpValue of
           MF cf -> Just $! (frameProgramLoc cf)
           OF _ -> Nothing
           RF _ _ -> Nothing
@@ -1510,11 +1510,11 @@ stateIntrinsicTypes = stateContext . to ctxIntrinsicTypes
 
 -- | Get the configuration object out of a 'SimState'
 stateConfiguration :: Getter (SimState p sym ext r f args) Config
-stateConfiguration = to (\s -> stateSolverProof s (getConfiguration (s^.stateSymInterface)))
+stateConfiguration = to (\s -> stateSolverProof s (getConfiguration (s ^. stateSymInterface)))
 
 -- | Provide the 'IsSymInterface' typeclass dictionary from a 'SimState'
 stateSolverProof :: SimState p sym ext r f args -> (forall a . IsSymInterfaceProof sym a)
-stateSolverProof s = ctxSolverProof (s^.stateContext)
+stateSolverProof s = ctxSolverProof (s ^. stateContext)
 
 -- | Get the program stack from a SimState
 stateProgramStack :: SimState p sym ext r f args -> [ProgramLoc]
@@ -1522,4 +1522,3 @@ stateProgramStack st =
   [ loc | SomeFrame sf <- activeFrames (st ^. stateTree) 
         , loc <- maybeToList (frameStackLoc sf)
         ]
-    

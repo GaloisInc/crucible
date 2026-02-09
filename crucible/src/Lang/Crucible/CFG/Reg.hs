@@ -922,7 +922,7 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
 cfgEntryBlock :: CFG ext s init ret -> Block ext s ret
 cfgEntryBlock g =
   fromMaybe
-    (error "Missing entry block")
+    (panic "cfgEntryBlock" ["Missing entry block"])
     (Fold.find (\b -> blockID b == LabelID (cfgEntryLabel g)) (cfgBlocks g))
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init

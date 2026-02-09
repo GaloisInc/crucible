@@ -1,6 +1,20 @@
 # next
 
 This release supports [version
+9](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#9) of
+`mir-json`'s schema.
+
+* Fix a translation error when translating constant slice raw pointers.
+* Add an intrinsic for [`align_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.align_of_val.html),
+  which computes the alignment of a value in bytes. This works for all sized types
+  as well as a limited number of unsized types (currently, only slices).
+* Extend the override for the `atomic_xchg` intrinsic to support storing
+  pointer values in addition to integer values.
+* Support translating constant trait object values.
+
+# 0.6 -- 2026-01-29
+
+This release supports [version
 6](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#6) of
 `mir-json`'s schema.
 

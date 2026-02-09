@@ -166,3 +166,23 @@ element of its vector, and when attempting to translate `%v1` to a simulator
 value, `crucible-llvm` gives up when it encounters `poison`. As a general rule,
 `poison` values are permitted provided that they do not end up stored in
 registers or in memory.
+
+String handling
+===============
+
+Crucible-LLVM provides built-in overrides for C standard library functions that
+manipulate null-terminated strings, such as `strcpy` and `strlen`. Handling
+symbolic null-terminated strings in full generality is quite challenging, so
+these overrides have certain limitations.
+
+For the sake of termination,
+
+- `strcpy` requires that the source string have a concrete null terminator.
+- `strlen`, `strnlen`, `strdup`, and `strndup` require that the input have a
+  concrete null terminator.
+- `memcmp`, `strnlen` and `strndup` require a concrete maximum size.
+
+Crucible-LLVM is missing overrides for many of the functions from `string.h`,
+see issue [#1713] for an up-to-date list and status updates.
+
+[#1713]: https://github.com/GaloisInc/crucible/issues/1713

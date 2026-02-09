@@ -1,7 +1,9 @@
 name: crux-mir
 on:
   push:
-    tags: ["crux-v?[0-9]+.[0-9]+(.[0-9]+)?"]
+    tags:
+      - "crux-v?[0-9]+.[0-9]+"
+      - "crux-v?[0-9]+.[0-9]+.[0-9]+"
     branches: [master, "release-**"]
   pull_request:
     # Don't run on documentation-only changes
@@ -132,7 +134,7 @@ jobs:
 
       - run: .github/ci.sh install_system_deps
         env:
-          SOLVER_PKG_VERSION: "snapshot-20251112"
+          SOLVER_PKG_VERSION: "snapshot-20260119"
           BUILD_TARGET_OS: ${{ matrix.os }}
           BUILD_TARGET_ARCH: ${{ runner.arch }}
 

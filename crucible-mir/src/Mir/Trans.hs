@@ -152,30 +152,16 @@ transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
 transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
 
---
--- This code handles slice references, both for ordinary array slices
--- and string slices. (These differ from ordinary references in having
--- a length.)  It needs to look up the definition ID, and then:
---    * check that the type of the global variable it finds is MirAggregateType
---    * construct a reference to the global variable
---      (with globalMirRef rather than constMirRef, that's the point of
---      all this)
---    * apply subindexRef as above
---    * cons up the length
---    * call mkStruct
---    * cons up the final MirExp
---
--- staticSlicePlace does the first four of these actions; addrOfPlace
--- does the last two.
---
-transConstVal (M.TyRef (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
-    Some tpr <- tyToReprM ty
-    place <- staticSlicePlace len (Some tpr) defid
-    addrOfPlace place
-transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) = do
-    let tpr = C.BVRepr $ knownNat @8
-    place <- staticSlicePlace len (Some tpr) defid
-    addrOfPlace place
+-- Slice references
+transConstVal (M.TyRef (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
+    transConstSliceRef ty defid len
+transConstVal (M.TyRef M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
+    transConstSliceRef (M.TyUint M.B8) defid len
+-- Slice raw pointers
+transConstVal (M.TyRawPtr (M.TySlice ty) _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
+    transConstSliceRef ty defid len
+transConstVal (M.TyRawPtr M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid len) =
+    transConstSliceRef (M.TyUint M.B8) defid len
 
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
@@ -227,6 +213,10 @@ transConstVal ty _ ConstZST = initialValue ty >>= \case
     Just x -> return x
     Nothing -> mirFail $
         "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
+transConstVal _ty (Some DynRefRepr) (ConstTraitObject defId traitId vtableId) = do
+  traitObjectPlace <- staticPlace defId
+  traitObjectAddr <- addrOfPlace traitObjectPlace
+  mkTraitObject traitId vtableId traitObjectAddr
 transConstVal _ty (Some MirReferenceRepr) (ConstRawPtr i) =
     MirExp MirReferenceRepr <$> integerToMirRef (R.App $ usizeLit i)
 transConstVal ty@(M.TyAdt aname _ _) tpr (ConstStruct fields) = do
@@ -281,6 +271,38 @@ transConstVal _ty (Some tpr@(C.FunctionHandleRepr argTys retTy)) (ConstFnPtr did
             "transConstVal (ConstFnPtr): Couldn't resolve function " ++ show did
 transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
+
+--
+-- This code handles slice references and pointers, both for ordinary array
+-- slices and string slices. (These differ from ordinary references in having
+-- a length.)  It needs to look up the definition ID, and then:
+--    * check that the type of the global variable it finds is MirAggregateType
+--    * construct a reference to the global variable
+--      (with globalMirRef rather than constMirRef, that's the point of
+--      all this)
+--    * apply subindexRef as above
+--    * cons up the length
+--    * call mkStruct
+--    * cons up the final MirExp
+--
+-- staticSlicePlace does the first four of these actions; addrOfPlace
+-- does the last two.
+--
+
+-- | Translate a reference or pointer to a constant slice value.
+transConstSliceRef ::
+  HasCallStack =>
+  -- | The type of the slice's elements.
+  M.Ty ->
+  -- | The constant value backing the slice.
+  M.DefId ->
+  -- | The slice's length.
+  Int ->
+  MirGenerator h s ret (MirExp s)
+transConstSliceRef ty defid len = do
+    Some tpr <- tyToReprM ty
+    place <- staticSlicePlace len (Some tpr) defid
+    addrOfPlace place
 
 -- Translate a constant (non-empty) tuple or constant closure value.
 transConstTuple :: [M.Ty] -> [ConstVal] -> MirGenerator h s ret (MirExp s)
@@ -943,9 +965,22 @@ evalCast' ck ty1 e ty2  = do
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
+      -- repr(transparent) pointer-to-pointer cast. Some of the
+      -- pointer-to-pointer cases above match on the specific Ty inside the
+      -- TyRawPtr. We want this to also work when the inside Ty is wrapped in a
+      -- repr(transparent) newtype, so we check for that here and recurse with
+      -- the unwrapped type. It's important that this case comes before the
+      -- general pointer-to-pointer case, which would just leave the pointer
+      -- unmodified.
+      (M.Misc, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
+        | Just adt1 <- findAdt' col an1
+        , Just fieldTy1 <- reprTransparentFieldTy col adt1
+        -> evalCast' M.Misc (M.TyRawPtr fieldTy1 m1) e ty2
+
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
-      -- and destination types have the same Crucible representation.  This is
-      -- similar to calling `transmute`.
+      -- and destination *pointer* types have the same Crucible representation
+      -- (i.e. both MirReferenceRepr, or both MirSliceRepr, or both DynRefRepr).
+      -- This is similar to calling `transmute`.
       (M.Misc, M.TyRawPtr _ _, M.TyRawPtr _ _)
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e

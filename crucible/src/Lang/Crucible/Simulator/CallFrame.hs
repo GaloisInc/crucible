@@ -172,7 +172,7 @@ mkBlockFrame g bid@(BlockID block_id) pdInfo args = do
             , _framePostdomMap = pdInfo
             , _frameBlockID  = Some bid
             , _frameRegs     = args
-            , _frameStmts    = b^.blockStmts
+            , _frameStmts    = b ^. blockStmts
             , _framePostdom  = mkFramePostdom pds
             }
 
@@ -183,7 +183,7 @@ mkFramePostdom (Some i:_) = Some (BlockTarget i)
 
 -- | Return program location associated with frame.
 frameProgramLoc :: CallFrame sym ext blocks ret ctx -> ProgramLoc
-frameProgramLoc cf = firstStmtLoc (cf^.frameStmts)
+frameProgramLoc cf = firstStmtLoc (cf ^. frameStmts)
 
 setFrameBlock :: BlockID blocks args
               -> RegMap sym args
@@ -191,10 +191,10 @@ setFrameBlock :: BlockID blocks args
               -> CallFrame sym ext blocks ret args
 setFrameBlock bid@(BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
-          pds = getConst $ (f^.framePostdomMap.ixF block_id)
+          pds = getConst $ (f ^. framePostdomMap.ixF block_id)
           f' = f { _frameBlockID = Some bid
                  , _frameRegs =  args
-                 , _frameStmts = b^.blockStmts
+                 , _frameStmts = b ^. blockStmts
                  , _framePostdom = mkFramePostdom pds
                  }
 
@@ -326,7 +326,7 @@ fromReturnFrame (RF _ x) = x
 
 frameFunctionName :: Getter (SimFrame sym ext f a) FunctionName
 frameFunctionName = to $ \case
-  OF f -> f^.override
+  OF f -> f ^. override
   MF f -> case frameHandle f of SomeHandle h -> handleName h
   RF n _ -> n
 
