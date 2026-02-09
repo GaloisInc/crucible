@@ -894,6 +894,9 @@ buildTupleMaybeM tupleTy xs = do
             -- Should be impossible; all struct-like types should have field info.
             Nothing -> panic "buildTupleMaybeM"
                 ["missing field_offsets in layout for", show tupleTy]
+    when (length fieldTys /= length fieldOffsets || length fieldTys /= length xs) $
+        mirFail $ "buildTupleMaybeM: length mismatch:\n  fieldTys = " ++ show fieldTys
+            ++ "\n  fieldOffsets = " ++ show fieldOffsets ++ "\n  xs = " ++ show xs
     ag0 <- mirAggregate_uninit_constSize (fromIntegral $ layout ^. M.laySize)
     ag1 <- foldM
         (\ag (ty, off, mExp) -> do
@@ -1172,12 +1175,12 @@ tyFieldsM ty = do
         M.TyTuple tys -> return tys
         M.TyClosure tys -> return tys
         M.TyCoroutineClosure tys -> return tys
-        M.TyAdt {} -> mirFail "TODO: tyFieldsM struct case"
+        M.TyAdt {} -> mirFail "TODO: tyFieldsM struct case"  -- For now, we only call this on tuples
         _ -> mirFail $ "tyFieldsM: unsupported type: " ++ show ty
     layout <- tyLayoutM ty
     offsets <- case layout ^. M.layFieldOffsets of
         Just x -> return x
-        Nothing -> mirFail $ "tyFieldsM: missing field offsets for type " ++ show ty
+        Nothing -> panic "tyFieldsM" ["missing field offsets for type", show ty]
     when (length tys /= length offsets) $
         panic "tyFieldsM" ["field count vs offset count mismatch",
             show ty, show tys, show offsets]

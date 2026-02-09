@@ -542,17 +542,23 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
 
     (tupleTy@(TyTuple tys), MirAggregateRepr) -> do
       let MirAggregate _ m = rv
-      fieldOffsets <- case col ^? layouts . ix tupleTy . _Just . layFieldOffsets . _Just of
+      layout <- case Map.lookup tupleTy (col ^. layouts) of
+        Just (Just x) -> return x
+        Nothing -> fail $ "missing layout for tuple type " ++ show tupleTy
+        Just Nothing -> fail $ "unsupported: unsized tuple type " ++ show tupleTy
+      fieldOffsets <- case layout ^. layFieldOffsets of
         Just x -> return x
         Nothing -> fail $ "missing field offsets for " ++ show tupleTy
       strs <- forM (zip fieldOffsets tys) $ \(off, ty) -> do
         case col ^? layouts . ix ty . _Just . laySize of
           Just 0 -> showZSTValue ty
-          _ -> do
+          Just _ -> do
             case IntMap.lookup (fromIntegral off) m of
               Just (MirAggregateEntry _ elemTpr elemRvPart) ->
                 goMaybe ty elemTpr elemRvPart
               Nothing -> return "<uninit>"
+          Nothing -> fail $ "impossible: got field offsets for tuple " ++ show tupleTy
+            ++ ", but no layout for element " ++ show ty ++ "?"
 
       return $ "(" ++ List.intercalate ", " strs ++ ")"
 
