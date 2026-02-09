@@ -1165,7 +1165,7 @@ tyLayoutM ty = do
 
 -- | Get the offset and type of each field of a type.  The type must be present
 -- in the `M.Collection`, as described in Note [present], or this will
--- `mirFail`.
+-- `mirFail`.  Results are given in declaration order.
 tyFieldsM :: M.Ty -> MirGenerator h s ret [(Word, M.Ty)]
 tyFieldsM ty = do
     tys <- case ty of
