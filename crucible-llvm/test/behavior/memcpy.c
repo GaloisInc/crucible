@@ -9,22 +9,26 @@ int main(int one, char** argv) {
 
     memset(dst, 'X', one * 20);
     memcpy(dst, src, zero);
+    //- check "call ptr @__memcpy"
     printf("memcpy zero-length: %c\n", dst[zero]);
-    /// memcpy zero-length: X
+    /// checkln "memcpy zero-length: X"
 
     memset(dst, zero, one * 20);
     memcpy(dst, src, one * 1);
+    //- check "call ptr @__memcpy"
     printf("memcpy single byte: %c\n", dst[zero]);
-    /// memcpy single byte: h
+    /// checkln "memcpy single byte: h"
 
     memset(dst, zero, one * 20);
     memcpy(dst, src, one * 6);
+    //- check "call ptr @__memcpy"
     printf("memcpy full string: %s\n", dst);
-    /// memcpy full string: hello
+    /// checkln "memcpy full string: hello"
 
     memcpy(dst + one * 6, src, one * 6);
+    //- check "call ptr @__memcpy"
     printf("memcpy append: %s\n", dst);
-    /// memcpy append: hello
+    /// checkln "memcpy append: hello"
 
     return zero;
 }
