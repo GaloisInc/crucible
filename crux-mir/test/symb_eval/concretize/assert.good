@@ -8,8 +8,6 @@ failures:
 [Crux]   ./libs/crucible/lib.rs:49:13: 56:14 !test/symb_eval/concretize/assert.rs:10:5: 10:81: error: in assert/<DISAMB>::crux_test[0]
 [Crux]   MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
 [Crux]   	100 + 157 == 1
-[Crux]   Context:
-[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

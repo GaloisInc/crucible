@@ -408,7 +408,7 @@ runErrorHandler msg st =
       sym = ctx ^. ctxSymInterface
    in withBackend ctx $ \bak ->
       do loc <- getCurrentProgramLoc sym
-         let stk = ProgramStack (stateProgramStack st)
+         let stk = stateProgramStack st
          let err = SimErrorWithContext loc msg stk
          addProofObligation bak (LabeledPred (falsePred sym) err)
          return (AbortState (AssertionFailure err) st)

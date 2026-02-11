@@ -62,8 +62,6 @@ data SimError
    | SimErrorWithContext !ProgramLoc !SimErrorReason !ProgramStack
  
 
-newtype ProgramStack = ProgramStack [ProgramLoc]
-
 simErrorLoc :: SimError -> ProgramLoc
 simErrorLoc (SimError l _) = l
 simErrorLoc (SimErrorWithContext l _ _) = l
@@ -114,6 +112,7 @@ ppSimError er =
                     ])
           ++ (case simErrorContext er of
                 Nothing -> []
+                Just (ProgramStack _ []) -> []
                 Just ctx -> [ pretty "Context:"
                             , indent 2 (ppProgramStack ctx)
                             ])
@@ -121,9 +120,18 @@ ppSimError er =
        details = simErrorDetailsMsg rsn
        rsn = simErrorReason er          
 
+data ProgramStack = ProgramStack 
+  { psFrameOmitCount :: Int
+  , psFrames :: [ProgramLoc]
+  }
+
 ppProgramStack :: ProgramStack -> Doc ann
-ppProgramStack (ProgramStack frames) = vcat (ppLoc <$> frames)
+ppProgramStack (ProgramStack omittedCount frames) = vcat (omitLine ++ (ppLoc <$> frames))
   where
+    omitLine =
+      if omittedCount <= 0
+        then []
+        else [ pretty "..."  <+> pretty omittedCount <+> pretty "calling frames omitted" ]
     ppLoc l = pretty (plSourceLoc l) <> pretty ":" <+> pretty (plFunction l)
 
 instance Exception SimError

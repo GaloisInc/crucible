@@ -15,13 +15,10 @@ failures:
 [Crux]   attempt to compute `copy _1 + const 1_u8`, which would overflow
 [Crux]   Context:
 [Crux]     test/symb_eval/crux/mixed_fail.rs:8:22: 8:27: mixed_fail/<DISAMB>::fail1[0]
-[Crux]     internal: _start
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/crucible/lib.rs:45:9: 45:79 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:32: error: in mixed_fail/<DISAMB>::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:8:5:
 [Crux]   	x + 1 > x
-[Crux]   Context:
-[Crux]     internal: _start
 
 ---- mixed_fail/<DISAMB>::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
@@ -29,13 +26,10 @@ failures:
 [Crux]   attempt to compute `copy _1 + const 2_u8`, which would overflow
 [Crux]   Context:
 [Crux]     test/symb_eval/crux/mixed_fail.rs:14:22: 14:27: mixed_fail/<DISAMB>::fail2[0]
-[Crux]     internal: _start
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/crucible/lib.rs:45:9: 45:79 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:32: error: in mixed_fail/<DISAMB>::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:14:5:
 [Crux]   	x + 2 > x
-[Crux]   Context:
-[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

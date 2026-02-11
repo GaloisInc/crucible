@@ -9,7 +9,6 @@ failures:
 [Crux]   attempt to compute `const 100_u8 + move _1`, which would overflow
 [Crux]   Context:
 [Crux]     test/symb_eval/num/checked_add.rs:6:5: 6:12: checked_add/<DISAMB>::crux_test[0]
-[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

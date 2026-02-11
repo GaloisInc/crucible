@@ -9,7 +9,6 @@ failures:
 [Crux]   bad MirAggregate merge: offset 0: type mismatch: IntrinsicRepr MirAggregate [] != BVRepr 16
 [Crux]   Context:
 [Crux]     test/symb_eval/union/init_cond.rs:20:2: 20:2: init_cond/<DISAMB>::foo[0]
-[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

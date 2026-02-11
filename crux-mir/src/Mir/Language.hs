@@ -44,7 +44,7 @@ import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
-import           Control.Lens ((^.), (^?), (^..), ix, each)
+import           Control.Lens ((^.), (^?), (^..), (.~), (&), ix, each)
 import           GHC.Generics (Generic)
 
 import System.Console.ANSI
@@ -374,7 +374,8 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                           let sym = C.backendGetSym bak
                           setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
                           let simCtx = C.initSimContext bak mirIntrinsicTypes halloc outH
-                                  (C.FnBindings C.emptyHandleMap) mirExtImpl personality
+                                      (C.FnBindings C.emptyHandleMap) mirExtImpl personality
+                                      & C.exceptionContextConfig .~ C.exceptionContextConfigLimited
                           return (Crux.RunnableStateWithExtensions
                                   (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
                                    C.runOverrideSim C.UnitRepr $ testFn) features

@@ -11,7 +11,6 @@ failures:
 [Crux]     internal: crucible/<DISAMB>::symbolic[0]::symbolic_u8[0]
 [Crux]     ./libs/crucible/symbolic.rs:29:50: 29:61 !./libs/crucible/symbolic.rs:35:1: 42:2: crucible/<DISAMB>::symbolic[0]::{impl#5}[0]::symbolic[0]
 [Crux]     test/symb_eval/overrides/bad_symb1.rs:7:13: 7:28: bad_symb1/<DISAMB>::crux_test[0]
-[Crux]     internal: _start
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

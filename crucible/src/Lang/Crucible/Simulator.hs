@@ -92,6 +92,10 @@ module Lang.Crucible.Simulator
   , functionBindings
   , cruciblePersonality
   , profilingMetrics
+  , exceptionContextConfig
+  , exceptionContextConfigNone
+  , exceptionContextConfigLimited
+  , exceptionContextConfigUnlimited
 
     -- * SimState
   , SimState

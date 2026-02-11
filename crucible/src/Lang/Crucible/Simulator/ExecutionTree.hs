@@ -116,6 +116,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , IsSymInterfaceProof
   , SimContext(..)
   , Metric(..)
+  , ExceptionContextConfig(..)
   , initSimContext
   , withBackend
   , withBackend'
@@ -123,6 +124,10 @@ module Lang.Crucible.Simulator.ExecutionTree
   , functionBindings
   , cruciblePersonality
   , profilingMetrics
+  , exceptionContextConfig
+  , exceptionContextConfigNone
+  , exceptionContextConfigLimited
+  , exceptionContextConfigUnlimited
 
     -- * SimState
   , SimState(..)
@@ -1269,6 +1274,30 @@ newtype Metric p sym ext =
     runMetric :: forall rtp f args. SimState p sym ext rtp f args -> IO Integer
   }
 
+data ExceptionContextConfig = ExceptionContextConfig 
+  { eccFrameLimit :: Maybe Int -- ^ maximum number of frames of context, 
+                               -- or `Nothing` if unlimited, 0 means do not track/output
+                               -- context at all
+  }
+
+-- | Do not include context with errors
+exceptionContextConfigNone :: ExceptionContextConfig
+exceptionContextConfigNone = ExceptionContextConfig
+  { eccFrameLimit = Just 0
+  }
+
+-- | Include some context with errors
+exceptionContextConfigLimited :: ExceptionContextConfig
+exceptionContextConfigLimited = ExceptionContextConfig
+  { eccFrameLimit = Just 10
+  }
+
+-- | Include all context with errors
+exceptionContextConfigUnlimited :: ExceptionContextConfig
+exceptionContextConfigUnlimited = ExceptionContextConfig
+  { eccFrameLimit = Nothing
+  }
+
 -- | Top-level state record for the simulator.  The state contained in this record
 --   remains persistent across all symbolic simulator actions.  In particular, it
 --   is not rolled back when the simulator returns previous program points to
@@ -1281,19 +1310,20 @@ newtype Metric p sym ext =
 --   - @ext@: language extension, see "Lang.Crucible.CFG.Extension"
 type SimContext :: Type -> Type -> Type -> Type
 data SimContext p sym ext
-   = SimContext { _ctxBackend            :: !(SomeBackend sym)
+   = SimContext { _ctxBackend                :: !(SomeBackend sym)
                   -- | Class dictionary for @'IsSymInterface' sym@
-                , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
-                , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
+                , ctxSolverProof             :: !(forall a . IsSymInterfaceProof sym a)
+                , ctxIntrinsicTypes          :: !(IntrinsicTypes sym)
                   -- | Allocator for function handles
-                , simHandleAllocator     :: !(HandleAllocator)
+                , simHandleAllocator         :: !(HandleAllocator)
                   -- | Handle to write messages to.
-                , printHandle            :: !Handle
-                , extensionImpl          :: ExtensionImpl p sym ext
-                , _functionBindings      :: !(FunctionBindings p sym ext)
+                , printHandle                :: !Handle
+                , extensionImpl              :: ExtensionImpl p sym ext
+                , _functionBindings          :: !(FunctionBindings p sym ext)
                   -- | See 'cruciblePersonality'.
-                , _cruciblePersonality   :: !p
-                , _profilingMetrics      :: !(Map Text (Metric p sym ext))
+                , _cruciblePersonality       :: !p
+                , _profilingMetrics          :: !(Map Text (Metric p sym ext))
+                , _exceptionContextConfig    :: ExceptionContextConfig
                 }
 
 -- | Create a new 'SimContext' with the given bindings.
@@ -1308,15 +1338,16 @@ initSimContext ::
   personality {- ^ Initial value for custom user state -} ->
   SimContext personality sym ext
 initSimContext bak muxFns halloc h bindings extImpl personality =
-  SimContext { _ctxBackend          = SomeBackend bak
-             , ctxSolverProof       = \a -> a
-             , ctxIntrinsicTypes    = muxFns
-             , simHandleAllocator   = halloc
-             , printHandle          = h
-             , extensionImpl        = extImpl
-             , _functionBindings    = bindings
-             , _cruciblePersonality = personality
-             , _profilingMetrics    = Map.empty
+  SimContext { _ctxBackend               = SomeBackend bak
+             , ctxSolverProof            = \a -> a
+             , ctxIntrinsicTypes         = muxFns
+             , simHandleAllocator        = halloc
+             , printHandle               = h
+             , extensionImpl             = extImpl
+             , _functionBindings         = bindings
+             , _cruciblePersonality      = personality
+             , _profilingMetrics         = Map.empty
+             , _exceptionContextConfig   = exceptionContextConfigNone
              }
 
 withBackend ::
@@ -1333,7 +1364,7 @@ withBackend' ::
 withBackend' st f = 
   let ec = stateProgramStack st
   in withBackend (st ^. stateContext) $ \bak ->
-      f (withExceptionContext bak (ProgramStack ec))
+      f (withExceptionContext bak ec)
     
 -- | Access the symbolic backend inside a 'SimContext'.
 ctxSymInterface :: Getter (SimContext p sym ext) sym
@@ -1374,6 +1405,9 @@ cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality
 
 profilingMetrics :: Lens' (SimContext p sym ext) (Map Text (Metric p sym ext))
 profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
+
+exceptionContextConfig :: Lens' (SimContext p sym ext) ExceptionContextConfig
+exceptionContextConfig = lens _exceptionContextConfig (\s v -> s { _exceptionContextConfig = v })
 
 ------------------------------------------------------------------------
 -- SimState
@@ -1517,8 +1551,27 @@ stateSolverProof :: SimState p sym ext r f args -> (forall a . IsSymInterfacePro
 stateSolverProof s = ctxSolverProof (s ^. stateContext)
 
 -- | Get the program stack from a SimState
-stateProgramStack :: SimState p sym ext r f args -> [ProgramLoc]
+stateProgramStack :: SimState p sym ext r f args -> ProgramStack
 stateProgramStack st = 
-  [ loc | SomeFrame sf <- activeFrames (st ^. stateTree) 
+  ProgramStack
+    { psFrameOmitCount = length omitted
+    , psFrames = relevantFrames
+    }
+  where
+         
+    (relevantFrames, omitted) = 
+      case eccFrameLimit eccConfig of
+        Nothing -> (rawFrames, [])
+        Just limit -> splitAt limit rawFrames
+    eccConfig = st ^. stateContext . exceptionContextConfig
+
+    isStartFrame (SomeFrame (OF frm)) = (frm ^. override) == startFunctionName 
+    isStartFrame _ = False
+    removeStartFrame [] = []
+    removeStartFrame [f] | isStartFrame f = []
+    removeStartFrame (h:t) = h:removeStartFrame t
+
+    rawFrames = 
+        [ loc | SomeFrame sf <- removeStartFrame $ activeFrames (st ^. stateTree) 
         , loc <- maybeToList (frameStackLoc sf)
         ]
