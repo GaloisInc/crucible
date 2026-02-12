@@ -128,6 +128,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , exceptionContextConfigNone
   , exceptionContextConfigLimited
   , exceptionContextConfigUnlimited
+  , parseExceptionContextConfigMaybe
 
     -- * SimState
   , SimState(..)
@@ -163,6 +164,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Text (Text)
 import           System.Exit (ExitCode)
 import           System.IO
+import           Text.Read(readMaybe)
 import qualified Prettyprinter as PP
 
 import           What4.Config (Config)
@@ -1298,6 +1300,16 @@ exceptionContextConfigUnlimited = ExceptionContextConfig
   { eccFrameLimit = Nothing
   }
 
+parseExceptionContextConfigMaybe :: String -> Maybe ExceptionContextConfig
+parseExceptionContextConfigMaybe s = 
+  case s of
+    "nolimit" -> Just exceptionContextConfigUnlimited
+    "none" -> Just exceptionContextConfigNone
+    _ | Just limit <- readMaybe s, limit > 0 -> 
+      Just (ExceptionContextConfig (Just limit))
+    _ -> Nothing
+
+
 -- | Top-level state record for the simulator.  The state contained in this record
 --   remains persistent across all symbolic simulator actions.  In particular, it
 --   is not rolled back when the simulator returns previous program points to
@@ -1362,9 +1374,17 @@ withBackend' ::
   SimState p sym ext rtp f args ->
     (forall bak. IsSymBackend sym bak => bak -> a) -> a
 withBackend' st f = 
-  let ec = stateProgramStack st
-  in withBackend (st ^. stateContext) $ \bak ->
-      f (withExceptionContext bak ec)
+  if shouldHaveContext then 
+    let ec = stateProgramStack st
+    in withBackend (st ^. stateContext) $ \bak ->
+        f (withExceptionContext bak ec)
+  else 
+    withBackend (st ^. stateContext) f
+  where
+    shouldHaveContext = 
+      case eccFrameLimit (st ^. stateContext . exceptionContextConfig) of
+        Nothing -> True
+        Just n -> n > 0
     
 -- | Access the symbolic backend inside a 'SimContext'.
 ctxSymInterface :: Getter (SimContext p sym ext) sym
