@@ -107,7 +107,7 @@ ppSimError er =
          , pretty (simErrorReasonMsg rsn)
          ] ++ (if null details
                then []
-               else [ pretty "Detail:"
+               else [ pretty "Details:"
                     , indent 2 (vcat (pretty <$> lines details))
                     ])
           ++ (case simErrorContext er of
