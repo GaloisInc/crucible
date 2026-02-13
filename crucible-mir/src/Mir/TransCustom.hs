@@ -569,7 +569,7 @@ ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
                 let ptr = getSlicePtr slice
                 valAsPtr <- integerToMirRef val
                 MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
-            [MirExp DynRefRepr dynRef, MirExp UsizeRepr val] -> do
+            [MirExp (DynRefRepr _) dynRef, MirExp UsizeRepr val] -> do
                 let ptr = S.getStruct dynRefDataIndex dynRef
                 valAsPtr <- integerToMirRef val
                 MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
@@ -1207,7 +1207,7 @@ size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
             -- currently does not support any kind of trait object, so all we
             -- do here is make an effort to give a descriptive error message.
             -- TODO(#1614): Support trait objects and custom DSTs here.
-            DynRefRepr -> case ty of
+            DynRefRepr {} -> case ty of
                 TyDynamic {} -> unsupportedTraitObject ty
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "size_of_val"
@@ -1282,7 +1282,7 @@ align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs o
             -- currently does not support any kind of trait object, so all we
             -- do here is make an effort to give a descriptive error message.
             -- TODO(#1614): Support trait objects and custom DSTs here.
-            DynRefRepr -> case ty of
+            DynRefRepr {} -> case ty of
                 TyDynamic {} -> unsupportedTraitObject ty
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "align_of_val"
@@ -2403,9 +2403,6 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         _ -> mirFail $ "callOnceVirtShimDef: expected first arg to be Move/Copy of Deref, "
           ++ "but got " ++ show opRecv
       MirExp recvTpr recv <- evalLvalue lvRecvPtr
-      Refl <- testEqualityOrFail recvTpr DynRefRepr $
-        "callOnceVirtShimDef: expected receiver pointer to have DynRefRepr, "
-          ++ "but got " ++ show recvTpr
 
       -- Process args tuple
       argTys <- case typeOf opArgs of
@@ -2434,12 +2431,15 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
       dynTrait <- case col ^. traits . at dynTraitName of
         Just x -> return x
         Nothing -> mirFail $ "callOnceVirtShimDef: undefined trait " ++ show dynTraitName
-      Some vtableStructTpr <- case traitVtableType col dynTrait of
-        Left err -> mirFail $ "callOnceVirtShimDef: traitVtableType: " ++ err
+      Some vtableCtx <- case traitVtableTypes col dynTrait of
+        Left err -> mirFail $ "callOnceVirtShimDef: traitVtableTypes: " ++ err
         Right x -> return x
-      Some vtableCtx <- case vtableStructTpr of
-        C.StructRepr ctx -> return $ Some ctx
-        _ -> mirFail $ "callOnceVirtShimDef: vtable type is not a struct"
+      Refl <- testEqualityOrFail recvTpr (DynRefRepr vtableCtx) $
+        unlines
+          [ "callOnceVirtShimDef: uexpected receiver type"
+          , "Expected: " ++ show (DynRefRepr vtableCtx)
+          , "Actual:   " ++ show recvTpr
+          ]
       Some vtableMethodIdx <- case Ctx.intIndex (fromInteger methodIdx) (Ctx.size vtableCtx) of
         Just x -> return x
         Nothing -> mirFail $ "callOnceVirtShimDef: method index out of range for vtable: "

@@ -11,6 +11,8 @@ This release supports [version
 * Extend the override for the `atomic_xchg` intrinsic to support storing
   pointer values in addition to integer values.
 * Support translating constant trait object values.
+* Change `DynRefType` and `DynRefRepr` to store the types of vtable fields
+  directly instead of erasing their types using Crucible's `Any` type.
 
 # 0.6 -- 2026-01-29
 

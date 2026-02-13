@@ -213,7 +213,7 @@ transConstVal ty _ ConstZST = initialValue ty >>= \case
     Just x -> return x
     Nothing -> mirFail $
         "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
-transConstVal _ty (Some DynRefRepr) (ConstTraitObject defId traitId vtableId) = do
+transConstVal _ty (Some (DynRefRepr _)) (ConstTraitObject defId traitId vtableId) = do
   traitObjectPlace <- staticPlace defId
   traitObjectAddr <- addrOfPlace traitObjectPlace
   mkTraitObject traitId vtableId traitObjectAddr
@@ -443,9 +443,9 @@ addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace _tpr r NoMeta) = return $ MirExp MirReferenceRepr r
 addrOfPlace (MirPlace _tpr r (SliceMeta len)) =
     return $ MirExp MirSliceRepr $ mkSlice r len
-addrOfPlace (MirPlace _tpr r (DynMeta vtable)) =
-    return $ MirExp DynRefRepr $
-      R.App $ E.MkStruct DynRefCtx $
+addrOfPlace (MirPlace _tpr r (DynMeta vtableCtx vtable)) =
+    return $ MirExp (DynRefRepr vtableCtx) $
+      R.App $ E.MkStruct (DynRefCtx vtableCtx) $
       Ctx.Empty Ctx.:> r Ctx.:> vtable
 
 
@@ -906,7 +906,7 @@ evalCast' ck ty1 e ty2  = do
       -- trait object cast down to underlying object reference (forgetting vtable)
       (M.Misc, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
         | Right (Some MirReferenceRepr) <- tyToRepr col ty2
-        , MirExp DynRefRepr a <- e
+        , MirExp (DynRefRepr _) a <- e
         -> pure (MirExp MirReferenceRepr (R.App (E.GetStruct a dynRefDataIndex MirReferenceRepr)))
 
       -- Unsized casts from references to sized structs to references to DSTs.
@@ -1287,19 +1287,18 @@ mkTraitObject traitName' vtableName e = do
     trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName') <$>
         use (cs . collection . M.traits . at traitName')
     col <- use $ cs . collection
-    Some vtableTy' <- case traitVtableType col trait of
-                        Left err -> error ("mkTraitObject: " ++ err)
-                        Right x -> return x
+    Some vtableCtx' <-
+      case traitVtableTypes col trait of
+        Left err -> error ("mkTraitObject: " ++ err)
+        Right x -> return x
+    let vtableTy' = C.StructRepr vtableCtx'
     case testEquality vtableTy vtableTy' of
         Just _ -> return ()
         Nothing -> error $ unwords
             ["vtable signature mismatch for vtable", show vtableName,
                 "of trait", show traitName', ":", show vtableTy, "!=", show vtableTy']
 
-    return $ mkStructExp
-        [ e
-        , packAny vtable
-        ]
+    return $ mkStructExp [e, vtable]
 
     where
         -- | `E.MkStruct`, but lifted to work on `MirExp`s.  We use this for
@@ -1498,10 +1497,10 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
     doRef :: M.Ty -> MirGenerator h s ret (MirPlace s)
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
-    doRef (M.TyDynamic _) | DynRefRepr <- tpr = doDyn ref
+    doRef (M.TyDynamic _) | DynRefRepr vtableCtx <- tpr = doDyn vtableCtx ref
     doRef (M.TyAdt _ _ _)
       | MirSliceRepr <- tpr = doSliceAdt ref
-      | DynRefRepr <- tpr = doDynAdt ref
+      | DynRefRepr vtableCtx <- tpr = doDynAdt vtableCtx ref
     doRef ty' | MirReferenceRepr <- tpr = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
@@ -1544,12 +1543,15 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
     -- is no way to directly access `data` (e.g., you can't access (*x).field if
     -- `x: &dyn Trait`). As such, it is acceptable to fill it in with a dummy
     -- type like AnyType.
-    doDyn :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
-    doDyn ref' = do
-        dynRef <- readMirRef DynRefRepr ref'
+    doDyn ::
+      C.CtxRepr vtableCtx ->
+      R.Expr MIR s MirReferenceType ->
+      MirGenerator h s ret (MirPlace s)
+    doDyn vtableCtx ref' = do
+        dynRef <- readMirRef (DynRefRepr vtableCtx) ref'
         let dynRefData = S.getStruct dynRefDataIndex dynRef
         let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
-        return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
+        return $ MirPlace C.AnyRepr dynRefData (DynMeta vtableCtx dynRefVtable)
 
     -- For (dynamically-sized) ADTs wrapping slices, with MirPlace input of the
     -- form:
@@ -1593,8 +1595,11 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
     --   MirPlace AnyRepr <expr: *S<Concrete> (DynMeta vtable)
     --
     -- Where `vtable` is the vtable for `Trait` at `Concrete`.
-    doDynAdt :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
-    doDynAdt ref' =
+    doDynAdt ::
+      C.CtxRepr vtableCtx ->
+      R.Expr MIR s MirReferenceType ->
+      MirGenerator h s ret (MirPlace s)
+    doDynAdt vtableCtx ref' =
       do
         -- Normally we'd use `tyToReprM` to get the ADT's representation,
         -- but that would involve computing its trait object field's
@@ -1602,10 +1607,10 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         -- value, we don't expect to check/use this type directly elsewhere, so
         -- we can get away with an `AnyRepr` placeholder.
         let adtRepr = C.AnyRepr
-        dynRef <- readMirRef DynRefRepr ref'
+        dynRef <- readMirRef (DynRefRepr vtableCtx) ref'
         let adtPtr = S.getStruct dynRefDataIndex dynRef
         let vtable = S.getStruct dynRefVtableIndex dynRef
-        return $ MirPlace adtRepr adtPtr (DynMeta vtable)
+        return $ MirPlace adtRepr adtPtr (DynMeta vtableCtx vtable)
 
 evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
   col <- use $ cs . collection
@@ -2848,20 +2853,20 @@ mkVirtCall
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
 mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
-    Refl <- case testEquality recvTy DynRefRepr of
-      Just x -> return x
-      Nothing -> die ["method receiver is not `&dyn`/`&mut dyn`"]
-
     -- Unpack vtable type
     dynTrait <- case col ^. M.traits . at dynTraitName of
       Just x -> return x
       Nothing -> die ["undefined trait " ++ show dynTraitName]
-    Some vtableStructTy <- case traitVtableType col dynTrait of
-      Left err -> die ["traitVtableType: " ++ err]
+    Some vtableTys <- case traitVtableTypes col dynTrait of
+      Left err -> die ["traitVtableTypes: " ++ err]
       Right x -> return x
-    Some vtableTys <- case vtableStructTy of
-      C.StructRepr ctx -> return $ Some ctx
-      _ -> die ["vtable type is not a struct"]
+
+    Refl <- case testEquality recvTy (DynRefRepr vtableTys) of
+      Just x -> return x
+      Nothing -> die [ "unexpected method receiver type"
+                     , "Expected: " ++ show (DynRefRepr vtableTys)
+                     , "Actual:   " ++ show recvTy
+                     ]
 
     Some vtableIdx <- case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
       Just x -> return x
@@ -2890,7 +2895,7 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
         show vtsRetTy, "; method =", show retTy]
 
     let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
-    let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
+    let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex (C.StructRepr vtableTys)
 
     -- Downcast the vtable to its proper struct type
     errBlk <- G.newLabel
@@ -2899,13 +2904,8 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
             unwords ["bad vtable downcast:", show dynTraitName,
                 "to", show vtableTys]
 
-    let vtableStructTy' = C.StructRepr vtableTys
-    okBlk <- G.newLambdaLabel' vtableStructTy'
-    vtable <- G.continueLambda okBlk $ do
-        G.branchMaybe (R.App $ E.UnpackAny vtableStructTy' recvVtable) okBlk errBlk
-
     -- Extract the function handle from the vtable
-    let vtsFH = R.App $ E.GetStruct vtable vtableIdx
+    let vtsFH = R.App $ E.GetStruct recvVtable vtableIdx
             (C.FunctionHandleRepr (C.AnyRepr <: argTys) vtsRetTy)
 
     pure (vtsFH, (R.App (E.PackAny MirReferenceRepr recvData) <: argExprs))

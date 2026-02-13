@@ -1208,13 +1208,13 @@ type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
 
 -- | The 'MirReferenceType' is the data pointer - either an immutable or mutable
--- reference. The 'AnyType' is the vtable.
-type DynRefType = StructType (EmptyCtx ::> MirReferenceType ::> AnyType)
+-- reference. @vtableCtx@ consists of the types of the vtable fields.
+type DynRefType vtableCtx = StructType (EmptyCtx ::> MirReferenceType ::> StructType vtableCtx)
 
-dynRefDataIndex :: Index (EmptyCtx ::> MirReferenceType ::> AnyType) MirReferenceType
+dynRefDataIndex :: Index (EmptyCtx ::> MirReferenceType ::> StructType vtableCtx) MirReferenceType
 dynRefDataIndex = skipIndex baseIndex
 
-dynRefVtableIndex :: Index (EmptyCtx ::> MirReferenceType ::> AnyType) AnyType
+dynRefVtableIndex :: Index (EmptyCtx ::> MirReferenceType ::> StructType vtableCtx) (StructType vtableCtx)
 dynRefVtableIndex = lastIndex (incSize $ incSize zeroSize)
 
 

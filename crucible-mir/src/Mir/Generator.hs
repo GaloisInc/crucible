@@ -12,6 +12,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -133,11 +134,19 @@ data MirPlace s where
 --
 -- rustc also supports "unsized rvalues".  Currently we don't support them, but
 -- we may need to add `PtrMetadata` to `MirExp`s at some point as well.
-data PtrMetadata s =
-      NoMeta
-    | SliceMeta (R.Expr MIR s UsizeType) -- ^ The slice length
-    | DynMeta (R.Expr MIR s C.AnyType) -- ^ The trait object's vtable
-  deriving Show
+data PtrMetadata s where
+    NoMeta :: PtrMetadata s
+    SliceMeta ::
+      -- | The slice length
+      R.Expr MIR s UsizeType ->
+      PtrMetadata s
+    DynMeta ::
+      -- | The types of the trait object's vtable fields
+      C.CtxRepr vtableCtx ->
+      -- | The trait object's vtable
+      R.Expr MIR s (C.StructType vtableCtx) ->
+      PtrMetadata s
+deriving instance Show (PtrMetadata s)
 
 ---------------------------------------------------------------------------------
 

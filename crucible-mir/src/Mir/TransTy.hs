@@ -283,7 +283,11 @@ tyToUnsizedRefRepr col ty =
     M.TySlice _ -> Just (Some MirSliceRepr)
     M.TyStr -> Just (Some MirSliceRepr)
 
-    M.TyDynamic _ -> Just (Some DynRefRepr)
+    M.TyDynamic traitName -> do
+      trait <- col ^. M.traits . at traitName
+      case traitVtableTypes col trait of
+        Left _ -> Nothing
+        Right (Some vtableCtx) -> Just (Some (DynRefRepr vtableCtx))
 
     -- A structure whose last field is dynamically-sized is itself
     -- dynamically-sized, and needs a fat pointer representation. See
@@ -294,14 +298,22 @@ tyToUnsizedRefRepr col ty =
 
     _ -> Nothing
 
-pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
-pattern DynRefCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
+pattern DynRefCtx ::
+  () =>
+  forall vtableCtx. (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.StructType vtableCtx)) =>
+  C.CtxRepr vtableCtx ->
+  Ctx.Assignment C.TypeRepr ctx
+pattern DynRefCtx vtableCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.StructRepr vtableCtx
 
 -- | The representation for a @&dyn Tr@/@&mut dyn Tr@. Both use the same
 -- representation: a pair of a data value (which is either @&Ty@ or @&mut Ty@)
--- and a vtable. The vtable is type-erased (`AnyRepr`). See `DynRefCtx`.
-pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
-pattern DynRefRepr = C.StructRepr DynRefCtx
+-- and a vtable. See `DynRefCtx`.
+pattern DynRefRepr ::
+  () =>
+  forall vtableCtx. (tp ~ DynRefType vtableCtx) =>
+  C.CtxRepr vtableCtx ->
+  C.TypeRepr tp
+pattern DynRefRepr vtableCtx = C.StructRepr (DynRefCtx vtableCtx)
 
 
 tyToReprM :: M.Ty -> MirGenerator h s ret (Some C.TypeRepr)
@@ -814,10 +826,6 @@ exp_to_assgn_Maybe col =
                 tyToReprCont col ty $ \tyr ->
                    go (ctx Ctx.:> C.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.NothingValue tyr)) tys vs k
               go _ _ _ _ _ = error "BUG in crux-mir: exp_to_assgn_Maybe"
-
-
-packAny ::  MirExp s -> (MirExp s)
-packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
 
 -- | Build a `MirAggregateRepr` from a list of `MirExp`s.
@@ -1578,7 +1586,7 @@ structFieldRef adt i ref0 meta = structInfo adt i >>= \case
     case meta of
       NoMeta ->
         mirFail "expected slice metadata for slice field access, but found no metadata"
-      DynMeta _vtable ->
+      DynMeta {} ->
         mirFail "expected slice metadata for slice field access, but found vtable"
       SliceMeta _len ->
         return $ MirPlace innerRepr elemRef meta
@@ -1692,17 +1700,17 @@ getLayoutFieldAsMirExp opName layoutFieldLens ty =
 
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
-traitVtableType :: (HasCallStack) =>
-    M.Collection -> M.Trait -> Either String (Some C.TypeRepr)
-traitVtableType col trait = vtableTy
+traitVtableTypes :: (HasCallStack) =>
+    M.Collection -> M.Trait -> Either String (Some C.CtxRepr)
+traitVtableTypes col trait = vtableCtx
   where
     convertShimSig sig = eraseSigReceiver sig
 
     methodSigs = map (\(M.TraitMethod _name sig) -> sig) (trait ^. M.traitItems)
     shimSigs = map convertShimSig methodSigs
 
-    vtableTy = tyListToCtx col (map M.TyFnPtr shimSigs) $ \ctx ->
-        Right (Some (C.StructRepr ctx))
+    vtableCtx = tyListToCtx col (map M.TyFnPtr shimSigs) $ \ctx ->
+        Right (Some ctx)
 
 eraseSigReceiver :: M.FnSig -> M.FnSig
 eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
