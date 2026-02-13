@@ -126,7 +126,7 @@ data ProgramStack = ProgramStack
   }
 
 ppProgramStack :: ProgramStack -> Doc ann
-ppProgramStack (ProgramStack omittedCount frames) = vcat (omitLine ++ (ppLoc <$> frames))
+ppProgramStack (ProgramStack omittedCount frames) = vcat ((ppLoc <$> frames) ++ omitLine)
   where
     omitLine =
       if omittedCount <= 0

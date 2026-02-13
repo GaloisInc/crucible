@@ -125,10 +125,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , cruciblePersonality
   , profilingMetrics
   , exceptionContextConfig
-  , exceptionContextConfigNone
-  , exceptionContextConfigLimited
-  , exceptionContextConfigUnlimited
-  , parseExceptionContextConfigMaybe
+  , parseExceptionContextConfig
 
     -- * SimState
   , SimState(..)
@@ -1276,38 +1273,22 @@ newtype Metric p sym ext =
     runMetric :: forall rtp f args. SimState p sym ext rtp f args -> IO Integer
   }
 
-data ExceptionContextConfig = ExceptionContextConfig 
-  { eccFrameLimit :: Maybe Int -- ^ maximum number of frames of context, 
-                               -- or `Nothing` if unlimited, 0 means do not track/output
-                               -- context at all
-  }
+data ExceptionContextConfig = 
+    ECCNone -- ^ do not include exceptions with context 
+  | ECCLimited Int
+  | ECCNoLimit
+  deriving(Eq, Ord, Show, Read)
 
--- | Do not include context with errors
-exceptionContextConfigNone :: ExceptionContextConfig
-exceptionContextConfigNone = ExceptionContextConfig
-  { eccFrameLimit = Just 0
-  }
-
--- | Include some context with errors
-exceptionContextConfigLimited :: ExceptionContextConfig
-exceptionContextConfigLimited = ExceptionContextConfig
-  { eccFrameLimit = Just 10
-  }
-
--- | Include all context with errors
-exceptionContextConfigUnlimited :: ExceptionContextConfig
-exceptionContextConfigUnlimited = ExceptionContextConfig
-  { eccFrameLimit = Nothing
-  }
-
-parseExceptionContextConfigMaybe :: String -> Maybe ExceptionContextConfig
-parseExceptionContextConfigMaybe s = 
+parseExceptionContextConfig :: String -> Either String ExceptionContextConfig
+parseExceptionContextConfig s =
   case s of
-    "nolimit" -> Just exceptionContextConfigUnlimited
-    "none" -> Just exceptionContextConfigNone
-    _ | Just limit <- readMaybe s, limit > 0 -> 
-      Just (ExceptionContextConfig (Just limit))
-    _ -> Nothing
+    "none" -> Right ECCNone
+    "nolimit" -> Right ECCNoLimit
+    _ | Just limit <- readMaybe s ->
+      if limit > 0 
+        then Right (ECCLimited limit)
+        else Left "exception context frame limit cannot be 0 or less"
+    _ -> Left "invalid exception context config - valid inputs are `none`, `nolimit`, and integers greater than 0"
 
 
 -- | Top-level state record for the simulator.  The state contained in this record
@@ -1359,7 +1340,7 @@ initSimContext bak muxFns halloc h bindings extImpl personality =
              , _functionBindings         = bindings
              , _cruciblePersonality      = personality
              , _profilingMetrics         = Map.empty
-             , _exceptionContextConfig   = exceptionContextConfigNone
+             , _exceptionContextConfig   = ECCNone
              }
 
 withBackend ::
@@ -1382,9 +1363,7 @@ withBackend' st f =
     withBackend (st ^. stateContext) f
   where
     shouldHaveContext = 
-      case eccFrameLimit (st ^. stateContext . exceptionContextConfig) of
-        Nothing -> True
-        Just n -> n > 0
+      st ^. stateContext . exceptionContextConfig /= ECCNone
     
 -- | Access the symbolic backend inside a 'SimContext'.
 ctxSymInterface :: Getter (SimContext p sym ext) sym
@@ -1580,9 +1559,11 @@ stateProgramStack st =
   where
          
     (relevantFrames, omitted) = 
-      case eccFrameLimit eccConfig of
-        Nothing -> (rawFrames, [])
-        Just limit -> splitAt limit rawFrames
+      case eccConfig of
+        ECCNoLimit -> (rawFrames, [])
+        ECCLimited limit -> splitAt limit rawFrames
+        ECCNone -> ([],[])
+
     eccConfig = st ^. stateContext . exceptionContextConfig
 
     isStartFrame (SomeFrame (OF frm)) = (frm ^. override) == startFunctionName 

@@ -215,6 +215,12 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     let ?defaultRlibsDir    = defaultRlibsDir mirOpts
     let ?customOps          = TransCustom.customOps
 
+    let contextConfig       =
+          case C.parseExceptionContextConfig <$> Text.unpack <$> (contextLimit mirOpts) of
+            Nothing -> C.ECCLimited 10
+            Just (Left err) -> error err
+            Just (Right config) -> config
+            
     let (filename, nameFilter) = case cargoTestFile mirOpts of
             -- This case is terrible a hack.  The goal is to mimic the behavior
             -- of the test binaries produced by `cargo test`, which take a test
@@ -375,7 +381,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
                           setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
                           let simCtx = C.initSimContext bak mirIntrinsicTypes halloc outH
                                       (C.FnBindings C.emptyHandleMap) mirExtImpl personality
-                                      & C.exceptionContextConfig .~ C.exceptionContextConfigLimited
+                                      & C.exceptionContextConfig .~ contextConfig
                           return (Crux.RunnableStateWithExtensions
                                   (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
                                    C.runOverrideSim C.UnitRepr $ testFn) features
