@@ -2444,7 +2444,7 @@ mirRef_indexAndLenSim ref = do
 
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
-execMirStmt stmt s = withBackend' s $ \bak ->
+execMirStmt stmt s = withStateBackend s $ \bak ->
   case stmt of
        MirNewRef tp ->
             readOnly s $ newMirRefIO sym halloc tp

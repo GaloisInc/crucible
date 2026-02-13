@@ -219,7 +219,7 @@ stepStmt verb stmt rest =
            ExecCont p sym ext rtp' f a
          continueWith f = withReaderT f (checkConsTerm verb)
 
-     withBackend' st $ \bak ->
+     withStateBackend st $ \bak ->
        case stmt of
          NewRefCell tpr x ->
            do let halloc = simHandleAllocator ctx

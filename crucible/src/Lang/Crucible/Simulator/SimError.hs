@@ -120,8 +120,12 @@ ppSimError er =
        details = simErrorDetailsMsg rsn
        rsn = simErrorReason er          
 
+-- | Representation of the program stack for providing dynamic
+-- context for SimErrors
 data ProgramStack = ProgramStack 
-  { psFrameOmitCount :: Int
+  { -- | Number of calling frames omitted in the stack trace
+    psFrameOmitCount :: Int
+    -- | The visible part of the stack strace
   , psFrames :: [ProgramLoc]
   }
 

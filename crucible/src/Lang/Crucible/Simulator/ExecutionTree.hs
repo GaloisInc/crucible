@@ -119,7 +119,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ExceptionContextConfig(..)
   , initSimContext
   , withBackend
-  , withBackend'
+  , withStateBackend
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
@@ -1350,11 +1350,14 @@ withBackend ::
 withBackend ctx f = case _ctxBackend ctx of SomeBackend bak -> f bak
 
 -- | Get a backend from a SimState and populate the error context
--- from the current simulation state.
-withBackend' ::
+-- from the current simulation state.  This differs from `withBackend`
+-- because it can use the dynamic state of the simulator for things
+-- like getting stack traces for exceptions and should be preferred
+-- to `withBackend` where it is possible to use.
+withStateBackend ::
   SimState p sym ext rtp f args ->
     (forall bak. IsSymBackend sym bak => bak -> a) -> a
-withBackend' st f = 
+withStateBackend st f = 
   if shouldHaveContext then 
     let ec = stateProgramStack st
     in withBackend (st ^. stateContext) $ \bak ->

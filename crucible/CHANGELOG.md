@@ -1,5 +1,8 @@
 # next
 
+* Add `withStateBackend` and additional infrastructure for including stack 
+  traces in `SimError` and `IsSymBackend`
+
 # 0.9 -- 2026-01-29
 
 # 0.8.0 -- 2025-11-09
