@@ -16,9 +16,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Lang.Crucible.Simulator.SimError (
     SimErrorReason(..)
-  , SimError(..)
+  , SimError(.., SimError)
   , ProgramStack(..)
   , mkSimError
   , simErrorReason
@@ -57,22 +58,14 @@ data SimErrorReason
       --   was exceeded.
 
 data SimError 
-   = SimError !ProgramLoc !SimErrorReason
-   -- This constructor exists for SimErrors that have a dynamic stack trace associated with them
-   | SimErrorWithContext !ProgramLoc !SimErrorReason !ProgramStack
+   = SimErrorWithContext !ProgramLoc !SimErrorReason !(Maybe ProgramStack)
  
-
-simErrorLoc :: SimError -> ProgramLoc
-simErrorLoc (SimError l _) = l
-simErrorLoc (SimErrorWithContext l _ _) = l
-
-simErrorReason :: SimError -> SimErrorReason
-simErrorReason (SimError _ r) = r
-simErrorReason (SimErrorWithContext _ r _) = r
+pattern SimError :: ProgramLoc -> SimErrorReason -> SimError
+pattern SimError { simErrorLoc, simErrorReason } <- SimErrorWithContext simErrorLoc simErrorReason _
+  where SimError loc reason = SimErrorWithContext loc reason Nothing
 
 simErrorContext :: SimError -> Maybe ProgramStack
-simErrorContext (SimError _ _) = Nothing
-simErrorContext (SimErrorWithContext _ _ c) = Just c
+simErrorContext (SimErrorWithContext _ _ c) = c
 
 simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
@@ -87,10 +80,7 @@ simErrorDetailsMsg (Unsupported stk _) = show stk
 simErrorDetailsMsg _ = ""
 
 mkSimError :: ProgramLoc -> SimErrorReason -> Maybe ProgramStack -> SimError
-mkSimError loc reason mbCtx =
-  case mbCtx of
-    Nothing -> SimError loc reason 
-    Just ctx -> SimErrorWithContext loc reason ctx
+mkSimError loc reason mbCtx = SimErrorWithContext loc reason mbCtx
 
 instance IsString SimErrorReason where
   fromString = GenericSimError
