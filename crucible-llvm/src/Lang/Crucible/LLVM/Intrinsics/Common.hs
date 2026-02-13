@@ -34,6 +34,7 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , basic_llvm_override
   , polymorphic1_llvm_override
   , polymorphic1_vec_llvm_override
+  , polymorphic_cmp_llvm_override
 
   , llvmOverrideToTypedOverride
   , register_llvm_override
@@ -212,6 +213,29 @@ polymorphic1_vec_llvm_override :: forall p sym ext arch wptr.
 polymorphic1_vec_llvm_override prefix fn =
   OverrideTemplate (Match.PrefixMatch prefix) (register_1arg_vec_polymorphic_override prefix fn)
 
+-- | Create an 'OverrideTemplate' for an intrinsic in the @llvm.{s,u}cmp.*@
+-- family. These can be instantiated at multiple types, including:
+--
+-- * @i2 \@llvm.scmp.i2.i32(i32, i32)@
+
+-- * @i8 \@llvm.scmp.i8.i8(i8, i8)@
+--
+-- * etc.
+--
+-- Note that the argument and result types are allowed to be different, so the
+-- @fn@ argument is parameterized by two separate 'NatRepr's.
+polymorphic_cmp_llvm_override :: forall p sym ext arch wptr.
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  String ->
+  (forall argSz resSz.
+    (1 <= argSz, 2 <= resSz) =>
+    NatRepr argSz ->
+    NatRepr resSz ->
+    SomeLLVMOverride p sym ext) ->
+  OverrideTemplate p sym ext arch
+polymorphic_cmp_llvm_override prefix fn =
+  OverrideTemplate (Match.PrefixMatch prefix) (register_cmp_polymorphic_override prefix fn)
+
 register_1arg_polymorphic_override :: forall p sym ext arch wptr.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
@@ -255,6 +279,36 @@ register_1arg_vec_polymorphic_override prefix overrideFn =
         , Some intSzRepr <- mkNatRepr intSzNat
         , Just LeqProof <- isPosNat intSzRepr
         -> Just (overrideFn vecSzRepr intSzRepr)
+      _ -> Nothing
+
+-- | Register an override for an intrinsic in the @llvm.{s,u}cmp.*@ family.
+-- (See the Haddocks for 'polymorphic_cmp_llvm_override' for details on what
+-- this means.) This function is responsible for parsing the suffixes in the
+-- intrinsic's name, which encodes the sizes of the argument and result types.
+-- As some examples:
+--
+-- * @.i2.i32@ (argument size @32@, result size @2@)
+--
+-- * @.i8.i64@ (argument size @64@, result size @8@)
+register_cmp_polymorphic_override :: forall p sym ext arch wptr.
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  String ->
+  (forall argSz resSz.
+    (1 <= argSz, 2 <= resSz) =>
+    NatRepr argSz ->
+    NatRepr resSz ->
+    SomeLLVMOverride p sym ext) ->
+  MakeOverride p sym ext arch
+register_cmp_polymorphic_override prefix overrideFn =
+  MakeOverride $ \(Decl.SomeDeclare (Decl.Declare{ Decl.decName = L.Symbol nm })) _ _ ->
+    case List.stripPrefix prefix nm of
+      Just ('.':'i': (readDec -> (resSz,rest):_))
+        | '.':'i': (readDec -> (argSz,[]):_) <- rest
+        , Some argW <- mkNatRepr argSz
+        , Some resW <- mkNatRepr resSz
+        , Just LeqProof <- testLeq (knownNat @1) argW
+        , Just LeqProof <- testLeq (knownNat @2) resW
+        -> Just (overrideFn argW resW)
       _ -> Nothing
 
 basic_llvm_override :: forall p args ret sym ext arch wptr.
