@@ -2411,6 +2411,21 @@ transCommon colState name context gen = do
         case Map.lookup name (colState ^. handleMap) of
             Nothing -> error "bad handle!!"
             Just mh -> return mh
+    transCommon' colState name context handle gen
+
+transCommon' :: forall h args ret.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool)
+  => CollectionState
+  -> M.DefId
+  -> FnTransContext
+  -> FH.FnHandle args ret
+  -> (forall s.
+    C.TypeRepr ret
+    -> Ctx.Assignment (R.Atom s) args
+    -> MirGenerator h s ret (G.Label s))
+  -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
+transCommon' colState name context handle gen = do
     ftiRef <- newSTRef mempty
     let rettype  = FH.handleReturnType handle
     let def :: G.FunctionDef MIR FnState args ret (ST h)
@@ -2833,7 +2848,7 @@ mkVirtCall
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
-  -> G.Generator MIR s t ret (ST h)
+  -> MirGenerator h s ret
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
 mkVirtCall col dynTraitName methIndex _recvTy recvTpr recvExpr argTprs argExprs retTpr = do
@@ -2921,7 +2936,7 @@ doVirtTailCall
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
-  -> G.Generator MIR s t retTy (ST h) (R.Expr MIR s retTy)
+  -> MirGenerator h s retTy a
 doVirtTailCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
   (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex
     recvTy recvTpr recvExpr argTprs argExprs retTpr
@@ -2950,7 +2965,7 @@ doVirtCall
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
-  -> G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
+  -> MirGenerator h s anyRetTy (R.Expr MIR s retTy)
 doVirtCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
   (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex
     recvTy recvTpr recvExpr argTprs argExprs retTpr
@@ -2965,7 +2980,9 @@ doVirtCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs
 -- notably the case for @FnOnce::call_once@, which is skipped because it takes
 -- accesses @self@ by value (and thus would require support for the unstable
 -- @unsized_fn_params@ feature).
-transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+transVirtCall :: forall h.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool)
   => CollectionState
   -> M.IntrinsicName
   -> M.MethName
@@ -2991,28 +3008,22 @@ transVirtCall colState intrName' methName dynTraitName methIndex
         Just x -> return x
         Nothing -> die ["method", show methIndex, "of trait", show dynTraitName, "has no arguments"]
 
-      -- | This is actually a 'G.FunctionDef', but that synonym hides some
-      -- types we apparently need to write out in this signature.
-      let withArgs ::
-            Ctx.Assignment (R.Atom s) args ->
-            ([s], G.Generator MIR s [] ret (ST h) (R.Expr MIR s ret))
-          withArgs argsAssn =
-            let (recvExpr, argExprs) = splitMethodArgs argsAssn (Ctx.size argTprs)
-                callExpr =
-                  doVirtTailCall
-                    (colState ^. collection)
-                    dynTraitName
-                    methIndex
-                    recvTy
-                    recvTpr
-                    recvExpr
-                    argTprs
-                    argExprs
-                    retTpr
-            in  ([], callExpr)
-      R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
-      case SSA.toSSA g of
-        Core.SomeCFG g_ssa -> return $ Just (M.idText intrName', Core.AnyCFG g_ssa)
+      (name, cfg, _info) <- transCommon' colState intrName' ShimContext methFH $ \_ argsAssn -> do
+        let (recvExpr, argExprs) = splitMethodArgs argsAssn (Ctx.size argTprs)
+        label <- G.newLabel
+        G.defineBlock label $
+          doVirtTailCall
+            (colState ^. collection)
+            dynTraitName
+            methIndex
+            recvTy
+            recvTpr
+            recvExpr
+            argTprs
+            argExprs
+            retTpr
+        return label
+      return (Just (name, cfg))
   | otherwise = return Nothing
 
   where
