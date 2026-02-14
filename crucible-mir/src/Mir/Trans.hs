@@ -45,6 +45,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
 import Control.Monad
 import Control.Monad.ST
 import Control.Monad.Trans.Class
+import Control.Monad.Writer
 
 import Control.Lens hiding (op,(|>))
 import qualified Control.Lens.Extras as Lens (is)
@@ -2832,6 +2833,76 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
       where
 
 
+-- | Given a @dyn Trait@ receiver value, find the inner @&dyn Trait@ or similar
+-- pointer and strip off the vtable part.  Returns the receiver value with the
+-- vtable removed, along with the vtable itself.  This implements the logic of
+-- Rust's `DispatchFromDyn` trait; it's roughly the inverse of `corceUnsized`.
+dispatchFromDyn :: forall h s ret.
+  HasCallStack =>
+  M.TraitName ->
+  M.Ty ->
+  MirExp s ->
+  (forall a. [String] -> MirGenerator h s ret a) ->
+  MirGenerator h s ret (MirExp s, R.Expr MIR s C.AnyType)
+dispatchFromDyn dynTraitName recvTy recvExp die = do
+  (recvWithoutDyn, foundVtables) <- runWriterT $ go recvTy recvExp
+  case foundVtables of
+    [x] -> return (recvWithoutDyn, x)
+    [] -> die ["failed to find dyn pointer to trait", show dynTraitName,
+      "in", show recvTy]
+    -- TODO: distinguish the main type parameter from other `dyn Trait` ptrs.
+    -- For example, in `Box<dyn Tr, &dyn Tr>` (where `&dyn Tr` is the allocator
+    -- type), only the first `dyn Tr` is affected by `DispatchFromDyn` /
+    -- `CoerceUnsized`.  However, at this point we only have the monomorphized
+    -- struct definition, with fields of type `*const dyn Tr` and `&dyn Tr`,
+    -- and no way to tell which field is related to which type parameter.  If
+    -- we need to support this obscure corner case, we'll need to have mir-json
+    -- emit some extra information, such as having it record a receiver type of
+    -- `Box<Self>` (or some other marker type) instead of `Box<dyn Tr>` in
+    -- `M.traits`, or having it record the sequence of field accesses to reach
+    -- the correct pointer field.
+    _ -> die ["found multiple dyn pointers to trait", show dynTraitName,
+      "in", show recvTy]
+  where
+    go :: M.Ty -> MirExp s -> WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
+    go ty@(M.TyRawPtr (M.TyDynamic dynTraitName') _) mirExp = goDynPtr ty dynTraitName' mirExp
+    go ty@(M.TyRef (M.TyDynamic dynTraitName') _) mirExp = goDynPtr ty dynTraitName' mirExp
+    -- TODO: also handle pointers to custom DSTs with `dyn Trait` tail
+    go (M.TyAdt aname _ _) mirExp = do
+      adt <- lift $ findAdt aname
+      col <- use $ cs . collection
+      case adt ^. adtkind of
+        Struct ->
+          case reprTransparentFieldTy col adt of
+            Just ty' ->
+              -- As in `coerceUnsized`, we know the one non-ZST field must be the
+              -- one being coerced (if any field is being coerced).
+              go ty' mirExp
+            Nothing -> do
+              let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
+              fieldExps' <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
+                fieldExp <- lift $ getStructField adt i mirExp
+                go (f ^. fty) fieldExp
+              -- It's safe to use `buildStructAdjusted` here because the only
+              -- adjustment is `*const dyn Trait` to `*const T` or similar, and
+              -- `M.TyRef`/`M.TyRawPtr` all use the same `FieldKind`s
+              -- regardless of pointee type.
+              lift $ buildStructAdjusted adt fieldExps'
+        _ -> return mirExp
+    -- rustc only recurses into struct types to find the coerced field.  All
+    -- other types are ignored.
+    go _ mirExp = return mirExp
+
+    goDynPtr :: M.Ty -> M.TraitName -> MirExp s ->
+      WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
+    goDynPtr ty dynTraitName' mirExp@(MirExp tpr e)
+      | dynTraitName' /= dynTraitName = return mirExp
+      | otherwise = do
+          Refl <- lift $ testEqualityOrFail tpr DynRefRepr $
+            "expected " ++ show ty ++ " to have DynRefRepr, but got " ++ show tpr
+          tell [S.getStruct dynRefVtableIndex e]
+          return $ MirExp MirReferenceRepr (S.getStruct dynRefDataIndex e)
+
 -- | Provided a @&dyn@ receiver and appropriate arguments, generate a pair of
 -- @(function, arguments)@ expressions representing a virtual-call shim that
 -- will look up and call the right concrete method and provide it those
@@ -2851,11 +2922,7 @@ mkVirtCall
   -> MirGenerator h s ret
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
-mkVirtCall col dynTraitName methIndex _recvTy recvTpr recvExpr argTprs argExprs retTpr = do
-    Refl <- case testEquality recvTpr DynRefRepr of
-      Just x -> return x
-      Nothing -> die ["method receiver is not `&dyn`/`&mut dyn`"]
-
+mkVirtCall col dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
     -- Unpack vtable type
     dynTrait <- case col ^. M.traits . at dynTraitName of
       Just x -> return x
@@ -2893,8 +2960,8 @@ mkVirtCall col dynTraitName methIndex _recvTy recvTpr recvExpr argTprs argExprs 
       Nothing -> die ["vtable shim return type doesn't match method; vtable shim =",
         show vtsRetTpr, "; method =", show retTpr]
 
-    let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
-    let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
+    (MirExp recvTpr' recvExpr', recvVtable) <-
+      dispatchFromDyn dynTraitName recvTy (MirExp recvTpr recvExpr) die
 
     -- Downcast the vtable to its proper struct type
     errBlk <- G.newLabel
@@ -2914,7 +2981,7 @@ mkVirtCall col dynTraitName methIndex _recvTy recvTpr recvExpr argTprs argExprs 
     let vtsFH = R.App $ E.GetStruct vtable vtableIdx
             (C.FunctionHandleRepr (C.AnyRepr <: argTprs) vtsRetTpr)
 
-    pure (vtsFH, (R.App (E.PackAny MirReferenceRepr recvData) <: argExprs))
+    pure (vtsFH, (R.App (E.PackAny recvTpr' recvExpr') <: argExprs))
 
   where
     die :: [String] -> a

@@ -556,6 +556,8 @@ canInitialize col ty = case ty of
 
     M.TyFnDef {} -> False
     M.TyNever {} -> False
+    -- Note: `Mir.Trans.dispatchFromDyn` relies on `TyRef` and `TyRawPtr`
+    -- returning the same values here regardless of pointee type.
     M.TyRef {} -> False
     M.TyRawPtr {} -> False
     M.TyFnPtr {} -> False

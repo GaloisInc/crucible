@@ -2456,7 +2456,7 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         col
         dynTraitName
         methodIdx
-        recvTy
+        (TyRawPtr recvTy Immut)
         recvTpr
         recv
         argCtx
