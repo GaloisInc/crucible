@@ -200,8 +200,8 @@ instance Pretty Lvalue where
     pretty (LProj lv Deref) = pretty "*" <> pretty lv
     pretty (LProj lv (PField i _ty)) = pretty lv <> dot <> pretty i
     pretty (LProj lv (Index op))    = pretty lv <> brackets (pretty op)
-    pretty (LProj lv (ConstantIndex co _cl ce)) =
-      pretty lv <> brackets (if ce then mempty else pretty "-" <> pretty co)
+    pretty (LProj lv (ConstantIndex co _cl fromEnd)) =
+      pretty lv <> brackets (if fromEnd then pretty "-" else mempty <> pretty co)
     pretty (LProj lv (Subslice f t False)) =
       pretty lv <> brackets (pretty f <> dot <> dot <> pretty t)
     pretty (LProj lv (Subslice f t True)) =

@@ -182,6 +182,8 @@ instance GenericOps Char    where
    uninternTys = const id
 instance GenericOps Bool    where
    uninternTys = const id
+instance GenericOps Word    where
+   uninternTys = const id
 instance GenericOps Word64  where
    uninternTys = const id
 

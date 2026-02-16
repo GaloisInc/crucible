@@ -166,10 +166,10 @@ transConstVal (M.TyRawPtr M.TyStr _) (Some MirSliceRepr) (M.ConstSliceRef defid 
 transConstVal _ty (Some MirAggregateRepr) (M.ConstStrBody bs) = do
     let bytes = map (\b -> R.App (eBVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     ag <- mirAggregate_uninit_constSize (fromIntegral $ length bytes)
-    -- TODO: hardcoded size=1
+    let tySize = 1
     ag' <- foldM
-        (\ag' (i, b) -> mirAggregate_set i 1 knownRepr b ag')
-        ag (zip [0..] bytes)
+        (\ag' (off, b) -> mirAggregate_set off tySize knownRepr b ag')
+        ag (zip [0, tySize ..] bytes)
     return $ MirExp MirAggregateRepr ag'
 
 transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
@@ -180,11 +180,12 @@ transConstVal (M.TyArray ty _sz) (Some MirAggregateRepr) (M.ConstArray arr) = do
             "transConstVal (ConstArray): returned wrong type: expected " ++
             show tpr ++ ", got " ++ show tpr'
         pure e'
-    ag <- mirAggregate_uninit_constSize (fromIntegral $ length arr')
-    -- TODO: hardcoded size=1
+    tySize <- tySizeM ty
+    let agSize = tySize * fromIntegral (length arr')
+    ag <- mirAggregate_uninit_constSize agSize
     ag' <- foldM
-        (\ag' (i, x) -> mirAggregate_set i 1 tpr x ag')
-        ag (zip [0..] arr')
+        (\ag' (off, x) -> mirAggregate_set off tySize tpr x ag')
+        ag (zip [0, tySize ..] arr')
     return $ MirExp MirAggregateRepr ag'
 
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
@@ -300,8 +301,7 @@ transConstSliceRef ::
   Int ->
   MirGenerator h s ret (MirExp s)
 transConstSliceRef ty defid len = do
-    Some tpr <- tyToReprM ty
-    place <- staticSlicePlace len (Some tpr) defid
+    place <- staticSlicePlace len ty defid
     addrOfPlace place
 
 -- Translate a constant (non-empty) tuple or constant closure value.
@@ -373,14 +373,15 @@ staticPlace did = do
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
 
 -- variant of staticPlace for slices
--- tpr is the element type; len is the length
+-- ty is the element type; len is the length
 staticSlicePlace ::
     HasCallStack =>
     Int ->
-    Some C.TypeRepr ->
+    M.Ty ->
     M.DefId ->
     MirGenerator h s ret (MirPlace s)
-staticSlicePlace len (Some tpr) did = do
+staticSlicePlace len ty did = do
+    Some tpr <- tyToReprM ty
     sm <- use $ cs.staticMap
     case Map.lookup did sm of
         Just (StaticVar gv) -> do
@@ -391,7 +392,8 @@ staticSlicePlace len (Some tpr) did = do
                 _ -> mirFail $
                     "staticSlicePlace: wrong type: expected vector, found " ++ show tpr_found
             ref <- globalMirRef gv
-            ref' <- subindexRef tpr ref (R.App $ usizeLit 0)
+            elemSize <- tySizeM ty
+            ref' <- subindexRef tpr ref (R.App $ usizeLit 0) elemSize
             let len' = R.App $ usizeLit $ fromIntegral len
             return $ MirPlace tpr ref' (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
@@ -496,6 +498,16 @@ transBinOp bop op1 op2 = do
         WithOverflow bop' -> do
             (res, overflow) <- evalBinOp bop' mat me1 me2
             buildTupleM [typeOf op1, TyBool] [res, MirExp C.BoolRepr overflow]
+        Offset
+          | MirExp MirReferenceRepr e1 <- me1
+          , MirExp UsizeRepr e2 <- me2 -> do
+            elemTy <- case typeOf op1 of
+                (TyRef ty _mut) -> pure ty
+                (TyRawPtr ty _mut) -> pure ty
+                t -> mirFail $ "`MirReferenceRepr` expression had type " <> show t
+            elemSize <- tySizeM elemTy
+            newRef <- mirRef_offsetWrap e1 e2 elemSize
+            pure $ MirExp MirReferenceRepr newRef
         _ -> fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
@@ -626,10 +638,6 @@ evalBinOp bop mat me1 me2 =
                 return (MirExp C.BoolRepr $ S.app $ E.Not eq, noOverflow)
             _ -> mirFail $ "No translation for pointer binop: " ++ fmt bop
 
-      (MirExp MirReferenceRepr e1, MirExp UsizeRepr e2) -> do
-          newRef <- mirRef_offsetWrap e1 e2
-          return (MirExp MirReferenceRepr newRef, noOverflow)
-
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
   where
@@ -724,13 +732,15 @@ transUnaryOp uop op = do
 -- a -> u -> [a;u]
 buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
+    let ty = M.typeOf op
+    elemSize <- tySizeM ty
     MirExp tpr e <- evalOperand op
-    let n = fromInteger size
-    -- TODO: hardcoded size=1
-    ag <- mirAggregate_uninit_constSize n
+    let nElems = fromIntegral size
+    let agSize = elemSize * nElems
+    ag <- mirAggregate_uninit_constSize agSize
     ag' <- foldM
-        (\ag' i -> mirAggregate_set i 1 tpr e ag')
-        ag (init [0 .. n])
+        (\ag' idx -> mirAggregate_set (idx * elemSize) elemSize tpr e ag')
+        ag (init [0 .. nElems])
     return $ MirExp MirAggregateRepr ag'
 
 
@@ -957,7 +967,8 @@ evalCast' ck ty1 e ty2  = do
         | t1 == t2, m1 == m2, MirExp MirReferenceRepr e' <- e
         -> do
           Some tpr <- tyToReprM t1
-          MirExp MirReferenceRepr <$> subindexRef tpr e' (R.App $ usizeLit 0)
+          elemSize <- tySizeM t1
+          MirExp MirReferenceRepr <$> subindexRef tpr e' (R.App $ usizeLit 0) elemSize
 
       --  *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
@@ -1138,7 +1149,8 @@ evalCast' ck ty1 e ty2  = do
       = do
         Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
-        ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
+        elemSize <- tySizeM ty
+        ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0) elemSize
         let tup   = S.mkStruct mirSliceCtxRepr
                         (Ctx.Empty Ctx.:> ref' Ctx.:> len)
         return $ MirExp MirSliceRepr tup
@@ -1213,7 +1225,8 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
   case (argTy, retTy) of
     -- Splitting an integer into pieces (usually bytes)
     (C.BVRepr w1, MirAggregateRepr)
-      | TyArray (tyToRepr col -> Right (Some (C.BVRepr w2))) n <- destMirTy
+      | TyArray elemTy n <- destMirTy
+      , Right (Some (C.BVRepr w2)) <- tyToRepr col elemTy
       , natValue w1 == natValue w2 * fromIntegral n -> do
         pieces <- forM [0 .. n - 1] $ \i -> do
           Some i' <- return $ mkNatRepr $ fromIntegral i
@@ -1222,14 +1235,15 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
             Just x -> return x
             Nothing -> panic "transmute" ["impossible: (w1 / w2 - 1) * w2 + w2 > w1?"]
           return $ MirExp (C.BVRepr w2) $ R.App $ E.BVSelect offset w2 w1 argExpr
-        buildArrayLit (C.BVRepr w2) pieces
+        buildArrayLit elemTy pieces
 
     -- Reconstructing an integer from pieces (usually bytes)
     (MirAggregateRepr, C.BVRepr w2)
-      | TyArray (tyToRepr col -> Right (Some (C.BVRepr w1))) n <- srcMirTy
+      | TyArray elemTy n <- srcMirTy
+      , Right (Some (C.BVRepr w1)) <- tyToRepr col elemTy
       , natValue w1 * fromIntegral n == natValue w2 -> do
-        let pieceSize = 1   -- TODO: hardcoded size=1
-        pieces <- forM [0 .. n - 1] $ \(fromIntegral -> i) -> do
+        pieceSize <- tySizeM elemTy
+        pieces <- forM (init [0 .. n]) $ \(fromIntegral -> i) -> do
           let off = pieceSize * i
           mirAggregate_get off pieceSize (C.BVRepr w1) argExpr
         let go :: (1 <= wp) =>
@@ -1360,8 +1374,7 @@ evalRval (M.Aggregate ak ops) =
             evalTupleRval ops
         M.AKArray ty -> do
             exps <- mapM evalOperand ops
-            Some repr <- tyToReprM ty
-            buildArrayLit repr exps
+            buildArrayLit ty exps
         M.AKClosure ->
             -- Closure environments have the same
             -- representation as tuples.
@@ -1661,13 +1674,15 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
     (M.TyArray elemTy _sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idxVar
         Some elemTpr <- tyToReprM elemTy
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
+        elemSize <- tySizeM elemTy
+        MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
 
-    (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
+    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset ref idx <*> pure NoMeta
+        elemSize <- tySizeM elemTy
+        MirPlace elemTpr <$> mirRef_offset ref idx elemSize <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -1682,13 +1697,15 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
     (M.TyArray elemTy sz, MirAggregateRepr, NoMeta) -> do
         idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         Some elemTpr <- tyToReprM elemTy
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
+        elemSize <- tySizeM elemTy
+        MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
 
-    (M.TySlice _elemTy, elemTpr, SliceMeta len) -> do
+    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd
         G.assertExpr (R.App $ usizeLt idx' len)
             (S.litExpr "Index out of range for access to slice")
-        MirPlace elemTpr <$> mirRef_offset ref idx' <*> pure NoMeta
+        elemSize <- tySizeM elemTy
+        MirPlace elemTpr <$> mirRef_offset ref idx' elemSize <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -1706,11 +1723,12 @@ evalPlaceProj _ pl (M.Subtype _ty) = return pl
 -- for details on the semantics of `fromIndex` and `toIndex`.
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) =
   case (ty, ref, tpr, meta) of
-    (M.TySlice _elemTy, headRef, elemTpr, SliceMeta len) ->
+    (M.TySlice elemTy, headRef, elemTpr, SliceMeta len) -> do
       let lastIndex = mkLastIndex len
           newLen = R.App (lastIndex `usizeSub` firstIndex)
           newMeta = SliceMeta newLen
-      in MirPlace elemTpr <$> mirRef_offset headRef firstIndex <*> pure newMeta
+      elemSize <- tySizeM elemTy
+      MirPlace elemTpr <$> mirRef_offset headRef firstIndex elemSize <*> pure newMeta
 
     -- TODO: https://github.com/GaloisInc/crucible/issues/1494
     --
@@ -1818,12 +1836,13 @@ transStatementKind (M.StmtIntrinsic ndi) =
             destExp <- evalOperand destOp
             countExp <- evalOperand countOp
             let elemTy = M.typeOfProj M.Deref $ M.typeOf srcOp
+            elemSize <- tySizeM elemTy
             Some tpr <- tyToReprM elemTy
             case (srcExp, destExp, countExp) of
                 ( MirExp MirReferenceRepr src,
                   MirExp MirReferenceRepr dest,
                   MirExp UsizeRepr count )
-                    -> void $ copyNonOverlapping tpr src dest count
+                    -> void $ copyNonOverlapping tpr src dest count elemSize
                 _   -> mirFail $ unlines
                          [ "bad arguments for intrinsics::copy_nonoverlapping: "
                          , show srcExp
@@ -3211,8 +3230,10 @@ transStatics colState halloc = do
 vectorCopy :: C.TypeRepr tp ->
               G.Expr MIR s MirReferenceType ->
               G.Expr MIR s UsizeType ->
+              -- | The size of the element, in bytes
+              Word ->
               MirGenerator h s ret (G.Expr MIR s (C.VectorType tp))
-vectorCopy tpr ptr0 len = do
+vectorCopy tpr ptr0 len elemSize = do
   let cond = S.app $ usizeEq len $ S.app $ usizeLit 0
   c_id <- G.newLambdaLabel' (C.VectorRepr tpr)
   -- Then branch
@@ -3233,7 +3254,7 @@ vectorCopy tpr ptr0 len = do
                      out1 <- G.readRef outRef
                      elt <- readMirRef tpr ptr
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
-                     ptr' <- mirRef_offset ptr (S.app $ usizeLit 1)
+                     ptr' <- mirRef_offset ptr (S.app $ usizeLit 1) elemSize
                      let out2 = S.app $ vectorSetUsize tpr R.App out1 i elt
                      G.writeRef iRef i'
                      G.writeRef ptrRef ptr'
@@ -3255,7 +3276,7 @@ aggregateCopy_constLen tpr ptr0 len size = do
   ag <- mirAggregate_uninit_constSize (fromIntegral len * size)
   ag' <- foldM
     (\ag' i -> do
-       ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i)
+       ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i) size
        elt <- readMirRef tpr ptr
        mirAggregate_set (fromIntegral i * size) size tpr elt ag')
     ag (init [0 .. len])
@@ -3266,15 +3287,17 @@ ptrCopy ::
     G.Expr MIR s MirReferenceType ->
     G.Expr MIR s MirReferenceType ->
     G.Expr MIR s UsizeType ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     MirGenerator h s ret ()
-ptrCopy tpr src dest len = do
+ptrCopy tpr src dest len elemSize = do
     iRef <- G.newRef $ S.app $ usizeLit 0
     let pos = PL.InternalPos
     G.while (pos, do i <- G.readRef iRef
                      return (G.App $ usizeLt i len))
             (pos, do i <- G.readRef iRef
-                     src' <- mirRef_offset src i
-                     dest' <- mirRef_offset dest i
+                     src' <- mirRef_offset src i elemSize
+                     dest' <- mirRef_offset dest i elemSize
                      val <- readMirRef tpr src'
                      writeMirRef tpr dest' val
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
@@ -3286,8 +3309,10 @@ copyNonOverlapping ::
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s UsizeType ->
+    -- | The size of the pointee element, in bytes
+    Word ->
     MirGenerator h s ret (MirExp s)
-copyNonOverlapping tpr src dest count = do
+copyNonOverlapping tpr src dest count elemSize = do
     -- `count` must not exceed isize::MAX, else the overlap check
     -- will misbehave.
     let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
@@ -3295,28 +3320,31 @@ copyNonOverlapping tpr src dest count = do
     let countOk = R.App $ usizeLt count maxCount
     G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
 
-    nonOverlapping <- isNonOverlapping src dest count
+    nonOverlapping <- isNonOverlapping src dest count elemSize
     G.assertExpr nonOverlapping $ S.litExpr "src and dest overlap in copy_nonoverlapping"
 
-    ptrCopy tpr src dest count
+    ptrCopy tpr src dest count elemSize
     MirExp MirAggregateRepr <$> mirAggregate_zst
 
--- | Check if two allocations of the given size are non-overlapping.
--- Assumes @size <= isize::MAX@.
+-- | Check if two allocations with the given number of elements, each of the
+-- given size, are non-overlapping. Assumes @count <= isize::MAX@.
 isNonOverlapping ::
     R.Expr MIR s MirReferenceType ->
     R.Expr MIR s MirReferenceType ->
+    -- | The number of elements in each allocation
     R.Expr MIR s UsizeType ->
+    -- | The size of each element
+    Word ->
     MirGenerator h s ret (G.Expr MIR s C.BoolType)
-isNonOverlapping src dest size = do
-  maybeOffset <- mirRef_tryOffsetFrom dest src
+isNonOverlapping src dest count elemSize = do
+  maybeOffset <- mirRef_tryOffsetFrom dest src elemSize
   -- If `maybeOffset` is Nothing, then src and dest definitely
   -- don't overlap, since they come from different allocations.
-  -- If it's Just, the value must be >= size or <= -size to put
+  -- If it's Just, the value must be >= count or <= -count to put
   -- the two regions far enough apart.
-  let size' = usizeToIsize R.App size
-      destAbove offset = R.App $ isizeLe size' offset
-      destBelow offset = R.App $ isizeLe offset (R.App $ isizeNeg size')
+  let count' = usizeToIsize R.App count
+      destAbove offset = R.App $ isizeLe count' offset
+      destBelow offset = R.App $ isizeLe offset (R.App $ isizeNeg count')
   G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
     (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
     (return $ R.App $ E.BoolLit True)

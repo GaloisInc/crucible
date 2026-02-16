@@ -644,8 +644,10 @@ subindexRef ::
   C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s UsizeType ->
+  -- | Size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
+subindexRef tp ref idx elemSize = G.extensionStmt (MirSubindexRef tp ref idx elemSize)
 
 subjustRef ::
   C.TypeRepr tp ->
@@ -678,27 +680,37 @@ mirRef_eq r1 r2 = G.extensionStmt $ MirRef_Eq r1 r2
 
 mirRef_offset ::
   R.Expr MIR s MirReferenceType ->
+  -- | The number of elements by which to offset
   R.Expr MIR s IsizeType ->
+  -- | The size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_offset ref offset = G.extensionStmt $ MirRef_Offset ref offset
+mirRef_offset ref offset elemSize = G.extensionStmt $ MirRef_Offset ref offset elemSize
 
 mirRef_offsetWrap ::
   R.Expr MIR s MirReferenceType ->
+  -- | The number of elements by which to offset
   R.Expr MIR s IsizeType ->
+  -- | The size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_offsetWrap ref offset = G.extensionStmt $ MirRef_OffsetWrap ref offset
+mirRef_offsetWrap ref offset elemSize = G.extensionStmt $ MirRef_OffsetWrap ref offset elemSize
 
 mirRef_tryOffsetFrom ::
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s MirReferenceType ->
+  -- | The size of the pointee, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s (C.MaybeType IsizeType))
-mirRef_tryOffsetFrom r1 r2 = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2
+mirRef_tryOffsetFrom r1 r2 elemSize = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2 elemSize
 
 mirRef_peelIndex ::
   R.Expr MIR s MirReferenceType ->
+  -- | The size of the element, in bytes
+  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType, R.Expr MIR s UsizeType)
-mirRef_peelIndex ref = do
-    pair <- G.extensionStmt $ MirRef_PeelIndex ref
+mirRef_peelIndex ref elemSize = do
+    pair <- G.extensionStmt $ MirRef_PeelIndex ref elemSize
     return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
 
 -----------------------------------------------------------------------

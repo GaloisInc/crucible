@@ -628,9 +628,11 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
     (TyArray ty len, MirAggregateRepr) -> do
       case tyToRepr col ty of
         Right (C.Some tpr) -> do
-          let size = 1  -- TODO: hardcoded size=1
-          values <- forM [0 .. len - 1] $ \i -> do
-            case mirAggregate_lookup (fromIntegral i * size) tpr rv of
+          tySize <- case tySizedness col ty of
+            Sized s -> pure s
+            Unsized -> fail $ "showRegEntry: array of unsized type: " <> show ty
+          values <- forM (init [0 .. len]) $ \i -> do
+            case mirAggregate_lookup (fromIntegral i * tySize) tpr rv of
               Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
               Right partVal -> goMaybe ty tpr partVal
           return $ "[" ++ List.intercalate ", " values ++ "]"

@@ -26,7 +26,6 @@ import qualified Data.IntMap as IntMap
 import Data.List.Extra (unsnoc)
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -54,8 +53,7 @@ import Lang.Crucible.Backend
     , backendGetSym, throwUnsupported, LabeledPred(..), addProofObligation )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core
-    ( CFG, GlobalVar(..), cfgArgTypes, cfgHandle, cfgReturnType
-    , freshGlobalVar )
+    ( CFG, GlobalVar(..), cfgArgTypes, cfgHandle, cfgReturnType )
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
 import Lang.Crucible.Pretty
@@ -88,7 +86,8 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
     len <- readBV lenExpr
     bytes <- forM [0 .. len - 1] $ \i -> do
         iExpr <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat i)
-        elemPtr <- lift $ mirRef_offsetWrapSim mirPtr iExpr
+        let elemSize = 1 -- `&str`s are comprised of `u8`s
+        elemPtr <- lift $ mirRef_offsetWrapSim mirPtr iExpr elemSize
         bExpr <- lift $ readMirRefSim (BVRepr w) elemPtr
         b <- readBV bExpr
         return $ fromIntegral b
@@ -194,53 +193,15 @@ regEval bak baseEval = go
 
     go :: forall tp' . TypeRepr tp' -> RegValue sym tp' ->
         OverrideSim p sym MIR rtp args ret (RegValue sym tp')
+    go (SymbolicArrayRepr {}) _ =
+        liftIO $ addFailedAssertion bak $ GenericSimError "can't evaluate a symbolic array"
+
     go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
 
-    -- Special case for slices.  The issue here is that we can't evaluate
-    -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
-    -- evaluating lookups at every index inside the slice bounds.
     go MirSliceRepr (Empty :> RV ptr :> RV len) = do
-        let MirReferenceMux mux = ptr
-        ref <- goMuxTreeEntries MirSliceRepr (viewFancyMuxTree mux)
-        case ref of
-            MirReference tpr _ _ -> do
-                len' <- go UsizeRepr len
-                let lenBV = BV.asUnsigned $
-                            fromMaybe (error "regEval produced non-concrete BV") $
-                            asBV len'
-
-                -- TODO: This logic is incorrect if `ptr` has been cast to a
-                -- different type.  For example, if the slice being inspected
-                -- is the result of interpreting `&[u32; 3]` as `&[u8]` (which
-                -- increases the length by a factor of 4), we'll end up with a
-                -- pointee type `tpr` of `BVType 32`, but a `len` of 12, even
-                -- though there are only 3 `u32`s in the actual array.  The
-                -- correct way to go about this would be to pass in the
-                -- `Mir.Ty` (for the example, `u8`), and use that together with
-                -- the `len`.  But threading the right `Ty` through to this
-                -- location would need a more invasive refactor.
-                vals <- forM [0 .. lenBV - 1] $ \i -> do
-                    i' <- liftIO $ bvLit sym knownRepr (BV.mkBV knownRepr i)
-                    ptr' <- mirRef_offsetSim ptr i'
-                    val <- readMirRefSim tpr ptr'
-                    go tpr val
-
-                sz_sym <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat
-                                 $ toInteger @Int $ length vals
-                ag <- liftIO $ mirAggregate_uninitIO bak sz_sym
-                -- TODO: hardcoded size=1
-                ag' <-
-                  liftIO $ foldM
-                    (\ag' (i, v) -> mirAggregate_setIO bak i 1 tpr v ag')
-                    ag (zip [0..] vals)
-                let agRef = newConstMirRef sym MirAggregateRepr ag'
-                ptr' <- subindexMirRefSim tpr agRef =<< liftIO (bvZero sym knownRepr)
-                return $ Empty :> RV ptr' :> RV len'
-            MirReference_Integer i -> do
-                i' <- go UsizeRepr i
-                let ptr' = MirReferenceMux $ toFancyMuxTree sym $ MirReference_Integer i'
-                len' <- go UsizeRepr len
-                return $ Empty :> RV ptr' :> RV len'
+        ptr' <- go MirReferenceRepr ptr
+        len' <- go UsizeRepr len
+        pure $ Empty :> RV ptr' :> RV len'
     go (FloatRepr _fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
     go CharRepr c = pure c
@@ -249,16 +210,16 @@ regEval bak baseEval = go
     go (VectorRepr tpr) vec = traverse (go tpr) vec
     go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
     go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
-    go tpr@(ReferenceRepr _tpr) v = do
+    go (ReferenceRepr _tpr) v = do
         -- Can't use `collapseMuxTree` here since it's in the IO monad, not
         -- OverrideSim.
-        rc <- goMuxTreeEntries tpr (viewMuxTree v)
+        rc <- goMuxTreeEntries (viewMuxTree v)
         rc' <- goRefCell rc
         return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
     go MirReferenceRepr (MirReferenceMux mux) = do
-        ref <- goMuxTreeEntries MirReferenceRepr (viewFancyMuxTree mux)
+        ref <- goMuxTreeEntries (viewFancyMuxTree mux)
         ref' <- case ref of
             MirReference tpr root path ->
                 MirReference tpr <$> goMirReferenceRoot root <*> goMirReferencePath path
@@ -294,16 +255,16 @@ regEval bak baseEval = go
         OverrideSim p sym MIR rtp args ret (VariantBranch sym tp')
     goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
 
-    goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
+    goMuxTreeEntries :: forall a .
         [(a, Pred sym)] ->
         OverrideSim p sym MIR rtp args ret a
-    goMuxTreeEntries _tpr [] = liftIO $ addFailedAssertion bak $ GenericSimError $
+    goMuxTreeEntries [] = liftIO $ addFailedAssertion bak $ GenericSimError $
         "empty or incomplete mux tree?"
-    goMuxTreeEntries tpr ((x, p) : xs) = do
+    goMuxTreeEntries ((x, p) : xs) = do
         p' <- baseEval BaseBoolRepr p
         case asConstantPred p' of
             Just True -> return x
-            Just False -> goMuxTreeEntries tpr xs
+            Just False -> goMuxTreeEntries xs
             Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
                 "baseEval returned a non-constant predicate?"
 
@@ -338,19 +299,24 @@ regEval bak baseEval = go
 
         return rc'
 
+    -- Why does this produce a `RefCell` and not a `GlobalVar`? Producing a
+    -- `GlobalVar` makes it challenging to run this conditionally, since we
+    -- might end up merging a branch where a `GlobalVar` was created with one
+    -- where it wasn't, which causes a panic. Producing a `RefCell` avoids this
+    -- problem, because we support merging branches with divergent `RefCell`s.
     goGlobalVar :: forall tp'.
         GlobalVar tp' ->
-        OverrideSim p sym MIR rtp args ret (GlobalVar tp')
+        OverrideSim p sym MIR rtp args ret (RefCell tp')
     goGlobalVar gv = do
         let nm = globalName gv
         let tpr = globalType gv
-        -- Generate a new global variable to store the evaluated copy. We don't
+        -- Generate a new refcell to store the evaluated copy. We don't
         -- want to mutate anything in-place, since `concretize` is meant to be
         -- side-effect-free.
-        -- TODO: deduplicate global variables, so structures with sharing don't
+        -- TODO: deduplicate refcells, so structures with sharing don't
         -- become exponentially large
         halloc <- simHandleAllocator <$> use stateContext
-        gv' <- liftIO $ freshGlobalVar halloc nm tpr
+        rc <- liftIO $ freshRefCell halloc tpr
 
         -- Retrieve the current global state, use it to look up the pointee
         -- value (if it exists), and concretize the pointee value.
@@ -371,18 +337,21 @@ regEval bak baseEval = go
         -- we have a reference to another reference).
         globalState1 <- use $ stateTree.actFrame.gpGlobals
 
-        -- Update the global state with the new global variable pointing to the
+        -- Update the global state with the new refcell pointing to the
         -- concretized pointee value.
-        let globalState2 = insertGlobal gv' e' globalState1
+        let globalState2 = insertRef sym rc e' globalState1
         stateTree.actFrame.gpGlobals .= globalState2
 
-        return gv'
+        return rc
 
     goMirReferenceRoot :: forall tp' .
         MirReferenceRoot sym tp' ->
         OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
     goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
-    goMirReferenceRoot (GlobalVar_RefRoot gv) = GlobalVar_RefRoot <$> goGlobalVar gv
+    goMirReferenceRoot (GlobalVar_RefRoot gv) =
+        -- See `goGlobalVar` for why this returns a `RefCell_RefRoot` instead of
+        -- a `GlobalVar_RefRoot`.
+        RefCell_RefRoot <$> goGlobalVar gv
     goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
 
     goMirReferencePath :: forall tp_base tp' .
