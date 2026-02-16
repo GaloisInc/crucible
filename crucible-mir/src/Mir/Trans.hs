@@ -2839,7 +2839,7 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
 -- | Given a @dyn Trait@ receiver value, find the inner @&dyn Trait@ or similar
 -- pointer and strip off the vtable part.  Returns the receiver value with the
 -- vtable removed, along with the vtable itself.  This implements the logic of
--- Rust's `DispatchFromDyn` trait; it's roughly the inverse of `corceUnsized`.
+-- Rust's @DispatchFromDyn@ trait; it's roughly the inverse of `coerceUnsized`.
 dispatchFromDyn :: forall h s ret.
   HasCallStack =>
   M.TraitName ->
@@ -2923,8 +2923,8 @@ mkVirtCall
   -> M.TraitName
   -> Integer -- ^ The method index
   -> M.Ty -- ^ The MIR type of the method receiver
-  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver (should be @&dyn Trait@)
-  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
+  -> R.Expr MIR s recvTy -- ^ The method receiver
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
@@ -3007,8 +3007,8 @@ doVirtTailCall
   -> M.TraitName
   -> Integer -- ^ The method index
   -> M.Ty -- ^ The MIR type of the method receiver
-  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver (should be @&dyn Trait@)
-  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
+  -> R.Expr MIR s recvTy -- ^ The method receiver
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
@@ -3036,8 +3036,8 @@ doVirtCall
   -> M.TraitName
   -> Integer -- ^ The method index
   -> M.Ty -- ^ The MIR type of the method receiver
-  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver (should be @&dyn Trait@)
-  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
+  -> R.Expr MIR s recvTy -- ^ The method receiver
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
