@@ -1298,7 +1298,7 @@ mkTraitObject traitName' vtableName e = do
 
     return $ mkStructExp
         [ e
-        , packAny vtable
+        , packAny vtable -- See Note [Erase vtable types] in Mir.Intrinsics
         ]
 
     where
@@ -2901,6 +2901,8 @@ mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
 
     let vtableStructTy' = C.StructRepr vtableTys
     okBlk <- G.newLambdaLabel' vtableStructTy'
+    -- See Note [Erase vtable types] in Mir.Intrinsics for why we need to
+    -- unpack an Any type here.
     vtable <- G.continueLambda okBlk $ do
         G.branchMaybe (R.App $ E.UnpackAny vtableStructTy' recvVtable) okBlk errBlk
 
