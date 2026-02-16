@@ -686,6 +686,25 @@ findLastFieldRec col adtName = do
           Just _ -> findLastFieldRec col innerName
       _ -> Just lastField
 
+-- | If the input `M.Ty` is unsized, this returns its innermost unsized tail
+-- type, which is always a primitive unsized type (`M.TySlice`, `M.TyStr`, or
+-- `M.TyDynamic`).  If the input type is sized, this returns `Nothing`.
+findUnsizedTail :: M.Collection -> M.Ty -> Maybe M.Ty
+findUnsizedTail col ty = do
+  case ty of
+    M.TySlice _ -> Just ty
+    M.TyStr -> Just ty
+    M.TyDynamic _ -> Just ty
+    M.TyAdt adtName _ _ -> do
+      lastField <- findLastField col adtName
+      findUnsizedTail col (lastField ^. M.fty)
+    _ -> Nothing
+
+findUnsizedTailM :: M.Ty -> MirGenerator h s ret (Maybe M.Ty)
+findUnsizedTailM ty = do
+    col <- use $ cs . collection
+    return $ findUnsizedTail col ty
+
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Either String (Some C.CtxRepr)
 variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) = do
     frs <- traverse (\field -> mapSome fieldType <$> tyToFieldRepr col (field ^. M.fty)) vfs

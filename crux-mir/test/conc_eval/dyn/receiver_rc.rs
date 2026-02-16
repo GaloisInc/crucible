@@ -1,4 +1,3 @@
-// FAIL: requires custom DST support in mkVirtCall / dispatchFromDyn
 use std::rc::Rc;
 
 trait TRc {

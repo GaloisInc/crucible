@@ -2868,9 +2868,8 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
       "in", show recvTy]
   where
     go :: M.Ty -> MirExp s -> WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
-    go ty@(M.TyRawPtr (M.TyDynamic dynTraitName') _) mirExp = goDynPtr ty dynTraitName' mirExp
-    go ty@(M.TyRef (M.TyDynamic dynTraitName') _) mirExp = goDynPtr ty dynTraitName' mirExp
-    -- TODO: also handle pointers to custom DSTs with `dyn Trait` tail
+    go ty@(M.TyRawPtr pointeeTy _) mirExp = goPtr ty pointeeTy mirExp
+    go ty@(M.TyRef pointeeTy _) mirExp = goPtr ty pointeeTy mirExp
     go (M.TyAdt aname _ _) mirExp = do
       adt <- lift $ findAdt aname
       col <- use $ cs . collection
@@ -2895,6 +2894,13 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
     -- rustc only recurses into struct types to find the coerced field.  All
     -- other types are ignored.
     go _ mirExp = return mirExp
+
+    goPtr :: M.Ty -> M.Ty -> MirExp s ->
+      WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
+    goPtr ty pointeeTy mirExp = do
+      lift (findUnsizedTailM pointeeTy) >>= \case
+        Just (M.TyDynamic dynTraitName') -> goDynPtr ty dynTraitName' mirExp
+        _ -> return mirExp
 
     goDynPtr :: M.Ty -> M.TraitName -> MirExp s ->
       WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
