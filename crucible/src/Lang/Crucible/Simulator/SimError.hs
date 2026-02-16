@@ -60,6 +60,12 @@ data SimErrorReason
 data SimError 
    = SimErrorWithContext !ProgramLoc !SimErrorReason !(Maybe ProgramStack)
  
+-- | This pattern synonym constructs SimErrors without a program stack context when used 
+-- as an expression and ignores the program stack when used as a pattern.  It exists
+-- because SimError did not used to have a `ProgramStack`, and there are many usages
+-- in the code of the previous constructor which is approximated by this pattern.
+--
+-- Using SimErrorWithContext should be preferred.
 pattern SimError :: ProgramLoc -> SimErrorReason -> SimError
 pattern SimError { simErrorLoc, simErrorReason } <- SimErrorWithContext simErrorLoc simErrorReason _
   where SimError loc reason = SimErrorWithContext loc reason Nothing
