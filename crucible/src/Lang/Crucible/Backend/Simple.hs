@@ -56,7 +56,9 @@ data SimpleBackend t st fs =
   SimpleBackend
   { sbAssumptionStack :: AS t
   , sbExprBuilder :: B.ExprBuilder t st fs
+  , sbExceptionContext :: Maybe ProgramStack
   }
+
 
 newSimpleBackend ::
   B.ExprBuilder t st fs ->
@@ -67,6 +69,7 @@ newSimpleBackend sym =
      return SimpleBackend
             { sbAssumptionStack = as
             , sbExprBuilder = sym
+            , sbExceptionContext = Nothing
             }
 
 instance HasSymInterface (B.ExprBuilder t st fs) (SimpleBackend t st fs) where
@@ -114,3 +117,6 @@ instance IsSymInterface (B.ExprBuilder t st fs) =>
     AS.restoreAssumptionStack newstk (sbAssumptionStack bak)
 
   getBackendState bak = readIORef (AS.proofObligations (sbAssumptionStack bak))
+
+  withExceptionContext bak ec = bak { sbExceptionContext = Just ec }
+  getExceptionContext = sbExceptionContext

@@ -318,6 +318,12 @@ class (IsSymInterface sym, HasSymInterface sym bak) => IsSymBackend sym bak | ba
   -- In contrast to 'saveAssumptionState', this also includes the goals.
   getBackendState :: bak -> IO (AssumptionState sym)
 
+  -- | An additional exception context for more detailed SimErrors
+  getExceptionContext :: bak -> Maybe ProgramStack
+
+  -- | Make a backend just like this but with a different error context
+  withExceptionContext :: bak -> ProgramStack -> bak 
+
 assertThenAssumeConfigOption :: ConfigOption BaseBoolType
 assertThenAssumeConfigOption = configOption knownRepr "assertThenAssume"
 
@@ -375,7 +381,8 @@ assert ::
 assert bak p msg =
   do let sym = backendGetSym bak
      loc <- getCurrentProgramLoc sym
-     addAssertion bak (LabeledPred p (SimError loc msg))
+     let ctx = getExceptionContext bak
+     addAssertion bak (LabeledPred p (mkSimError loc msg ctx))
 
 -- | Add a proof obligation for False. This always aborts execution
 -- of the current path, because after asserting false, we get to assume it,
@@ -385,7 +392,8 @@ addFailedAssertion :: IsSymBackend sym bak => bak -> SimErrorReason -> IO a
 addFailedAssertion bak msg =
   do let sym = backendGetSym bak
      loc <- getCurrentProgramLoc sym
-     let err = SimError loc msg
+     let ctx = getExceptionContext bak
+     let err = mkSimError loc msg ctx
      addProofObligation bak (LabeledPred (falsePred sym) err)
      abortExecBecause (AssertionFailure err)
 
@@ -424,7 +432,8 @@ readPartExpr bak Unassigned msg = do
 readPartExpr bak (PE p v) msg = do
   let sym = backendGetSym bak
   loc <- getCurrentProgramLoc sym
-  addAssertion bak (LabeledPred p (SimError loc msg))
+  let ctx = getExceptionContext bak
+  addAssertion bak (LabeledPred p (mkSimError loc msg ctx))
   return v
 
 

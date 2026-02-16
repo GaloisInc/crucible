@@ -48,7 +48,7 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad (foldM, when)
 import           Control.Monad.IO.Class (MonadIO(..))
-import           Control.Monad.Reader (ReaderT(..), withReaderT)
+import           Control.Monad.Reader (ReaderT(..), withReaderT, ask)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
@@ -207,7 +207,9 @@ stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   StmtSeq ext blocks r ctx' {- ^ Remaining statements in the block -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepStmt verb stmt rest =
-  do ctx <- view stateContext
+
+  do st <- ask
+     ctx <- view stateContext
      let sym = ctx ^. ctxSymInterface
      let iTypes = ctxIntrinsicTypes ctx
      globals <- view (stateTree.actFrame.gpGlobals)
@@ -217,7 +219,7 @@ stepStmt verb stmt rest =
            ExecCont p sym ext rtp' f a
          continueWith f = withReaderT f (checkConsTerm verb)
 
-     withBackend ctx $ \bak ->
+     withStateBackend st $ \bak ->
        case stmt of
          NewRefCell tpr x ->
            do let halloc = simHandleAllocator ctx

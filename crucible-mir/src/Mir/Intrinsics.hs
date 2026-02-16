@@ -2476,7 +2476,7 @@ mirRef_indexAndLenSim ref = do
 
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
-execMirStmt stmt s = withBackend ctx $ \bak ->
+execMirStmt stmt s = withStateBackend s $ \bak ->
   case stmt of
        MirNewRef tp ->
             readOnly s $ newMirRefIO sym halloc tp
@@ -2649,7 +2649,7 @@ readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym ->
     OverrideSim m sym MIR rtp args ret (RegValue sym tp)
 readMirRefSim tpr ref =
-   ovrWithBackend $ \bak ->
+  ovrWithBackend $ \bak ->
    do s <- get
       let gs = s ^. stateTree.actFrame.gpGlobals
       let iTypes = ctxIntrinsicTypes $ s ^. stateContext

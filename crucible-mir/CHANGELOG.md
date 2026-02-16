@@ -4,6 +4,8 @@ This release supports [version
 9](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#9) of
 `mir-json`'s schema.
 
+* Stack traces are now included in many failure/errors - the maximum number of
+  such errors is configurable
 * Fix a translation error when translating constant slice raw pointers.
 * Add an intrinsic for [`align_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.align_of_val.html),
   which computes the alignment of a value in bytes. This works for all sized types
