@@ -2630,14 +2630,17 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys _retTy implFH
-      | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
-      | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       -- Special case for @FnOnce::call_once@.  See `Mir.TransCustom.callOnceVirtShimDef`
       -- for details.
       | M.idKey defName == ["core", "ops", "function", "FnOnce", "call_once"] =
           buildShimForByValue recvMirTy recvTy argTys implFH
-      | otherwise = \_argsA -> (\x -> (fnState, x)) $ do
-        mirFail $ dieMsg ["unsupported MIR receiver type", show recvMirTy]
+      -- Common case for pointer-like receiver types.  This covers `&`/`&mut`,
+      -- `*const`/`*mut`, `Box`/`Rc`/`Arc`, etc.  This includes types with
+      -- additional fields like `Box<Self, CustomAllocator>`.  The virtual-call
+      -- shim applies `dispatchFromDyn` to remove the vtable pointer from the
+      -- receiver, wraps the result in `AnyRepr`, and passes it to the vtable
+      -- shim we're constructing here.
+      | otherwise = buildShimForRef recvTy argTys implFH
 
     -- | Build a shim for a vtable method.  The shim expects `C.AnyRepr`
     -- followed by the non-receiver arguments; it downcasts the `C.AnyRepr` to
@@ -2984,7 +2987,7 @@ mkVirtCall col dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs r
     pure (vtsFH, (R.App (E.PackAny recvTpr' recvExpr') <: argExprs))
 
   where
-    die :: [String] -> a
+    die :: HasCallStack => [String] -> a
     die words' = error $ unwords
         (["failed to generate virtual-call shim for method", show methIndex,
             "of trait", show dynTraitName] ++ words')
