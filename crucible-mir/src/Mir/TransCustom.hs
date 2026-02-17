@@ -680,12 +680,12 @@ drop_in_place_dyn =
     ( ["core", "ptr", "drop_in_place"],
       \case
         Substs [TyDynamic traitName'] ->
-            Just $ CustomOp $ \_argTys args -> case args of
-              [MirExp selfTy selfExpr] -> do
+            Just $ CustomOp $ \argTys args -> case (argTys, args) of
+              ([selfTy], [MirExp selfTpr selfExpr]) -> do
                 col <- use $ cs . collection
-                let argTys = Ctx.empty
+                let argTprs = Ctx.empty
                 let argExprs = Ctx.empty
-                let retTy = MirAggregateRepr
+                let retTpr = MirAggregateRepr
 
                 -- We expect `mir-json` to have placed this trait object's drop
                 -- method at index 0, unless the trait object lacks a principal
@@ -710,11 +710,12 @@ drop_in_place_dyn =
                         traitName'
                         dropMethodIndex
                         selfTy
+                        selfTpr
                         selfExpr
-                        argTys
+                        argTprs
                         argExprs
-                        retTy
-                pure (MirExp retTy callExpr)
+                        retTpr
+                pure (MirExp retTpr callExpr)
               _ -> mirFail $ "bad arguments for core::ptr::drop_in_place: " ++ show args
         Substs [_] ->
             -- We weren't provided a `dyn`/`TyDynamic`, so we don't provide an
@@ -2393,7 +2394,8 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
 
       -- Process receiver.  We expect the receiver argument to have the form
       -- `*ptr`, and we extract the `ptr` to work with directly.
-      dynTraitName <- case typeOf opRecv of
+      let recvTy = typeOf opRecv
+      dynTraitName <- case recvTy of
         TyDynamic tn -> return tn
         ty -> mirFail $ "callOnceVirtShimDef: expected first arg to be TyDynamic, "
           ++ "but got " ++ show ty
@@ -2454,6 +2456,7 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         col
         dynTraitName
         methodIdx
+        (TyRawPtr recvTy Immut)
         recvTpr
         recv
         argCtx

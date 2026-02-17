@@ -45,6 +45,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
 import Control.Monad
 import Control.Monad.ST
 import Control.Monad.Trans.Class
+import Control.Monad.Writer
 
 import Control.Lens hiding (op,(|>))
 import qualified Control.Lens.Extras as Lens (is)
@@ -2411,6 +2412,21 @@ transCommon colState name context gen = do
         case Map.lookup name (colState ^. handleMap) of
             Nothing -> error "bad handle!!"
             Just mh -> return mh
+    transCommon' colState name context handle gen
+
+transCommon' :: forall h args ret.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool)
+  => CollectionState
+  -> M.DefId
+  -> FnTransContext
+  -> FH.FnHandle args ret
+  -> (forall s.
+    C.TypeRepr ret
+    -> Ctx.Assignment (R.Atom s) args
+    -> MirGenerator h s ret (G.Label s))
+  -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
+transCommon' colState name context handle gen = do
     ftiRef <- newSTRef mempty
     let rettype  = FH.handleReturnType handle
     let def :: G.FunctionDef MIR FnState args ret (ST h)
@@ -2614,14 +2630,17 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys _retTy implFH
-      | M.TyRef    _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
-      | M.TyRawPtr _recvMirTy' _ <- recvMirTy = buildShimForRef recvTy argTys implFH
       -- Special case for @FnOnce::call_once@.  See `Mir.TransCustom.callOnceVirtShimDef`
       -- for details.
       | M.idKey defName == ["core", "ops", "function", "FnOnce", "call_once"] =
           buildShimForByValue recvMirTy recvTy argTys implFH
-      | otherwise = \_argsA -> (\x -> (fnState, x)) $ do
-        mirFail $ dieMsg ["unsupported MIR receiver type", show recvMirTy]
+      -- Common case for pointer-like receiver types.  This covers `&`/`&mut`,
+      -- `*const`/`*mut`, `Box`/`Rc`/`Arc`, etc.  This includes types with
+      -- additional fields like `Box<Self, CustomAllocator>`.  The virtual-call
+      -- shim applies `dispatchFromDyn` to remove the vtable pointer from the
+      -- receiver, wraps the result in `AnyRepr`, and passes it to the vtable
+      -- shim we're constructing here.
+      | otherwise = buildShimForRef recvTy argTys implFH
 
     -- | Build a shim for a vtable method.  The shim expects `C.AnyRepr`
     -- followed by the non-receiver arguments; it downcasts the `C.AnyRepr` to
@@ -2702,18 +2721,6 @@ data AsFunctionHandleRepr :: C.CrucibleType -> Type where
 asFunctionHandleRepr :: C.TypeRepr tp -> Maybe (AsFunctionHandleRepr tp)
 asFunctionHandleRepr (C.FunctionHandleRepr args ret) = Just $ AsFunctionHandleRepr args ret
 asFunctionHandleRepr _ = Nothing
-
-elimAssignmentLeft :: forall k f (ctx :: Ctx.Ctx k) r.
-    Ctx.Assignment f ctx ->
-    (Ctx.EmptyCtx :~: ctx -> r) ->
-    (forall (tp :: k) (ctx' :: Ctx.Ctx k).
-        tp :<: ctx' :~: ctx -> f tp -> Ctx.Assignment f ctx' -> r) ->
-    r
-elimAssignmentLeft xs kNil kCons = case Ctx.viewAssign xs of
-    Ctx.AssignEmpty -> kNil Refl
-    Ctx.AssignExtend xs' x' -> elimAssignmentLeft xs'
-        (\Refl -> kCons Refl x' Ctx.empty)
-        (\Refl x'' xs'' -> kCons Refl x'' (xs'' Ctx.:> x'))
 
 unappendAssignment :: forall k f (xs :: Ctx.Ctx k) (ys :: Ctx.Ctx k).
     Ctx.Size ys ->
@@ -2829,6 +2836,82 @@ mkShimHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.in
       where
 
 
+-- | Given a @dyn Trait@ receiver value, find the inner @&dyn Trait@ or similar
+-- pointer and strip off the vtable part.  Returns the receiver value with the
+-- vtable removed, along with the vtable itself.  This implements the logic of
+-- Rust's @DispatchFromDyn@ trait; it's roughly the inverse of `coerceUnsized`.
+dispatchFromDyn :: forall h s ret.
+  HasCallStack =>
+  M.TraitName ->
+  M.Ty ->
+  MirExp s ->
+  (forall a. [String] -> MirGenerator h s ret a) ->
+  MirGenerator h s ret (MirExp s, R.Expr MIR s C.AnyType)
+dispatchFromDyn dynTraitName recvTy recvExp die = do
+  (recvWithoutDyn, foundVtables) <- runWriterT $ go recvTy recvExp
+  case foundVtables of
+    [x] -> return (recvWithoutDyn, x)
+    [] -> die ["failed to find dyn pointer to trait", show dynTraitName,
+      "in", show recvTy]
+    -- TODO: distinguish the main type parameter from other `dyn Trait` ptrs.
+    -- For example, in `Box<dyn Tr, &dyn Tr>` (where `&dyn Tr` is the allocator
+    -- type), only the first `dyn Tr` is affected by `DispatchFromDyn` /
+    -- `CoerceUnsized`.  However, at this point we only have the monomorphized
+    -- struct definition, with fields of type `*const dyn Tr` and `&dyn Tr`,
+    -- and no way to tell which field is related to which type parameter.  If
+    -- we need to support this obscure corner case, we'll need to have mir-json
+    -- emit some extra information, such as having it record a receiver type of
+    -- `Box<Self>` (or some other marker type) instead of `Box<dyn Tr>` in
+    -- `M.traits`, or having it record the sequence of field accesses to reach
+    -- the correct pointer field.
+    _ -> die ["found multiple dyn pointers to trait", show dynTraitName,
+      "in", show recvTy]
+  where
+    go :: M.Ty -> MirExp s -> WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
+    go ty@(M.TyRawPtr pointeeTy _) mirExp = goPtr ty pointeeTy mirExp
+    go ty@(M.TyRef pointeeTy _) mirExp = goPtr ty pointeeTy mirExp
+    go (M.TyAdt aname _ _) mirExp = do
+      adt <- lift $ findAdt aname
+      col <- use $ cs . collection
+      case adt ^. adtkind of
+        Struct ->
+          case reprTransparentFieldTy col adt of
+            Just ty' ->
+              -- As in `coerceUnsized`, we know the one non-ZST field must be the
+              -- one being coerced (if any field is being coerced).
+              go ty' mirExp
+            Nothing -> do
+              let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
+              fieldExps' <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
+                fieldExp <- lift $ getStructField adt i mirExp
+                go (f ^. fty) fieldExp
+              -- It's safe to use `buildStructAdjusted` here because the only
+              -- adjustment is `*const dyn Trait` to `*const T` or similar, and
+              -- `M.TyRef`/`M.TyRawPtr` all use the same `FieldKind`s
+              -- regardless of pointee type.
+              lift $ buildStructAdjusted adt fieldExps'
+        _ -> return mirExp
+    -- rustc only recurses into struct types to find the coerced field.  All
+    -- other types are ignored.
+    go _ mirExp = return mirExp
+
+    goPtr :: M.Ty -> M.Ty -> MirExp s ->
+      WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
+    goPtr ty pointeeTy mirExp = do
+      lift (findUnsizedTailM pointeeTy) >>= \case
+        Just (M.TyDynamic dynTraitName') -> goDynPtr ty dynTraitName' mirExp
+        _ -> return mirExp
+
+    goDynPtr :: M.Ty -> M.TraitName -> MirExp s ->
+      WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
+    goDynPtr ty dynTraitName' mirExp@(MirExp tpr e)
+      | dynTraitName' /= dynTraitName = return mirExp
+      | otherwise = do
+          Refl <- lift $ testEqualityOrFail tpr DynRefRepr $
+            "expected " ++ show ty ++ " to have DynRefRepr, but got " ++ show tpr
+          tell [S.getStruct dynRefVtableIndex e]
+          return $ MirExp MirReferenceRepr (S.getStruct dynRefDataIndex e)
+
 -- | Provided a @&dyn@ receiver and appropriate arguments, generate a pair of
 -- @(function, arguments)@ expressions representing a virtual-call shim that
 -- will look up and call the right concrete method and provide it those
@@ -2839,81 +2922,78 @@ mkVirtCall
   => M.Collection
   -> M.TraitName
   -> Integer -- ^ The method index
-  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
-  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> M.Ty -- ^ The MIR type of the method receiver
+  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
+  -> R.Expr MIR s recvTy -- ^ The method receiver
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
-  -> G.Generator MIR s t ret (ST h)
+  -> MirGenerator h s ret
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
-mkVirtCall col dynTraitName methIndex recvTy recvExpr argTys argExprs retTy = do
-    Refl <- case testEquality recvTy DynRefRepr of
-      Just x -> return x
-      Nothing -> die ["method receiver is not `&dyn`/`&mut dyn`"]
-
+mkVirtCall col dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
     -- Unpack vtable type
     dynTrait <- case col ^. M.traits . at dynTraitName of
       Just x -> return x
       Nothing -> die ["undefined trait " ++ show dynTraitName]
-    Some vtableStructTy <- case traitVtableType col dynTrait of
+    Some vtableStructTpr <- case traitVtableType col dynTrait of
       Left err -> die ["traitVtableType: " ++ err]
       Right x -> return x
-    Some vtableTys <- case vtableStructTy of
+    Some vtableTprs <- case vtableStructTpr of
       C.StructRepr ctx -> return $ Some ctx
       _ -> die ["vtable type is not a struct"]
 
-    Some vtableIdx <- case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
+    Some vtableIdx <- case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTprs) of
       Just x -> return x
       Nothing -> die ["method index out of range for vtable:",
-        "method =", show methIndex, "; size =", show (Ctx.size vtableTys)]
+        "method =", show methIndex, "; size =", show (Ctx.size vtableTprs)]
 
     -- Check that the vtable entry has the correct signature.
-    AsFunctionHandleRepr vtsArgTys vtsRetTy <-
-      case asFunctionHandleRepr (vtableTys Ctx.! vtableIdx) of
+    AsFunctionHandleRepr vtsArgTprs vtsRetTpr <-
+      case asFunctionHandleRepr (vtableTprs Ctx.! vtableIdx) of
         Just x -> return x
         _ -> die ["vtable entry is not a function"]
-    AssignUncons vtsRecvTy vtsArgTys' <- case assignUncons vtsArgTys of
+    AssignUncons vtsRecvTpr vtsArgTprs' <- case assignUncons vtsArgTprs of
       Right x -> return x
       Left _ -> die ["vtable shim has no arguments"]
 
-    Refl <- case testEquality vtsRecvTy C.AnyRepr of
+    Refl <- case testEquality vtsRecvTpr C.AnyRepr of
       Just x -> return x
       Nothing -> die ["vtable shim receiver is not Any"]
-    Refl <- case testEquality vtsArgTys' argTys of
+    Refl <- case testEquality vtsArgTprs' argTprs of
       Just x -> return x
       Nothing -> die ["vtable shim arguments don't match method; vtable shim =",
-        show vtsArgTys', "; method =", show argTys]
-    Refl <- case testEquality vtsRetTy retTy of
+        show vtsArgTprs', "; method =", show argTprs]
+    Refl <- case testEquality vtsRetTpr retTpr of
       Just x -> return x
       Nothing -> die ["vtable shim return type doesn't match method; vtable shim =",
-        show vtsRetTy, "; method =", show retTy]
+        show vtsRetTpr, "; method =", show retTpr]
 
-    let recvData = R.App $ E.GetStruct recvExpr dynRefDataIndex MirReferenceRepr
-    let recvVtable = R.App $ E.GetStruct recvExpr dynRefVtableIndex C.AnyRepr
+    (MirExp recvTpr' recvExpr', recvVtable) <-
+      dispatchFromDyn dynTraitName recvTy (MirExp recvTpr recvExpr) die
 
     -- Downcast the vtable to its proper struct type
     errBlk <- G.newLabel
     G.defineBlock errBlk $ do
         G.reportError $ R.App $ E.StringLit $ fromString $
             unwords ["bad vtable downcast:", show dynTraitName,
-                "to", show vtableTys]
+                "to", show vtableTprs]
 
-    let vtableStructTy' = C.StructRepr vtableTys
-    okBlk <- G.newLambdaLabel' vtableStructTy'
+    let vtableStructTpr' = C.StructRepr vtableTprs
+    okBlk <- G.newLambdaLabel' vtableStructTpr'
     -- See Note [Erase vtable types] in Mir.Intrinsics for why we need to
     -- unpack an Any type here.
     vtable <- G.continueLambda okBlk $ do
-        G.branchMaybe (R.App $ E.UnpackAny vtableStructTy' recvVtable) okBlk errBlk
+        G.branchMaybe (R.App $ E.UnpackAny vtableStructTpr' recvVtable) okBlk errBlk
 
     -- Extract the function handle from the vtable
     let vtsFH = R.App $ E.GetStruct vtable vtableIdx
-            (C.FunctionHandleRepr (C.AnyRepr <: argTys) vtsRetTy)
+            (C.FunctionHandleRepr (C.AnyRepr <: argTprs) vtsRetTpr)
 
-    pure (vtsFH, (R.App (E.PackAny MirReferenceRepr recvData) <: argExprs))
+    pure (vtsFH, (R.App (E.PackAny recvTpr' recvExpr') <: argExprs))
 
   where
-    die :: [String] -> a
+    die :: HasCallStack => [String] -> a
     die words' = error $ unwords
         (["failed to generate virtual-call shim for method", show methIndex,
             "of trait", show dynTraitName] ++ words')
@@ -2926,14 +3006,16 @@ doVirtTailCall
   => M.Collection
   -> M.TraitName
   -> Integer -- ^ The method index
-  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
-  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> M.Ty -- ^ The MIR type of the method receiver
+  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
+  -> R.Expr MIR s recvTy -- ^ The method receiver
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
-  -> G.Generator MIR s t retTy (ST h) (R.Expr MIR s retTy)
-doVirtTailCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = do
-  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy
+  -> MirGenerator h s retTy a
+doVirtTailCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
+  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex
+    recvTy recvTpr recvExpr argTprs argExprs retTpr
   G.tailCall fnHandle args
 
 
@@ -2943,24 +3025,26 @@ doVirtTailCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retT
 -- Note the extra quantified variable in the return type in this vs.
 -- 'doVirtTailCall', which makes this function slightly less restrictive:
 --
--- > G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
+-- > G.Generator MIR s t anyRetTpr (ST h) (R.Expr MIR s retTpr)
 --
 -- vs
 --
--- > G.Generator MIR s t retTy    (ST h) (R.Expr MIR s retTy)
+-- > G.Generator MIR s t retTpr    (ST h) (R.Expr MIR s retTpr)
 doVirtCall
   :: HasCallStack
   => M.Collection
   -> M.TraitName
   -> Integer -- ^ The method index
-  -> C.TypeRepr recvTy -- ^ The type of the method receiver (should be @&dyn Trait@)
-  -> R.Expr MIR s recvTy -- ^ The method receiver (should be @&dyn Trait@)
+  -> M.Ty -- ^ The MIR type of the method receiver
+  -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
+  -> R.Expr MIR s recvTy -- ^ The method receiver
   -> C.CtxRepr argTys -- ^ The types of the arguments (excluding the receiver)
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
-  -> G.Generator MIR s t anyRetTy (ST h) (R.Expr MIR s retTy)
-doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = do
-  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy
+  -> MirGenerator h s anyRetTy (R.Expr MIR s retTy)
+doVirtCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
+  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex
+    recvTy recvTpr recvExpr argTprs argExprs retTpr
   G.call fnHandle args
 
 
@@ -2972,7 +3056,9 @@ doVirtCall col dynTraitName methodIndex recvTy recvExpr argTys argExprs retTy = 
 -- notably the case for @FnOnce::call_once@, which is skipped because it takes
 -- accesses @self@ by value (and thus would require support for the unstable
 -- @unsized_fn_params@ feature).
-transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+transVirtCall :: forall h.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool)
   => CollectionState
   -> M.IntrinsicName
   -> M.MethName
@@ -2981,34 +3067,39 @@ transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, 
   -> ST h (Maybe (Text, Core.AnyCFG MIR))
 transVirtCall colState intrName' methName dynTraitName methIndex
   | Just methMH <- Map.lookup intrName' (colState ^. handleMap)
-  , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH =
-    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
-    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
-        $ \Refl recvTy argTys ->
-    let retTy = FH.handleReturnType methFH
+  , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH = do
+      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of 
+        Right x -> return x
+        Left _ -> die ["method handle has no arguments"]
+      let retTpr = FH.handleReturnType methFH
 
-        -- | This is actually a 'G.FunctionDef', but that synonym hides some
-        -- types we apparently need to write out in this signature.
-        withArgs ::
-          Ctx.Assignment (R.Atom s) args ->
-          ([s], G.Generator MIR s [] ret (ST h) (R.Expr MIR s ret))
-        withArgs argsAssn =
-          let (recvExpr, argExprs) = splitMethodArgs argsAssn (Ctx.size argTys)
-              callExpr =
-                doVirtTailCall
-                  (colState ^. collection)
-                  dynTraitName
-                  (fromInteger methIndex)
-                  recvTy
-                  recvExpr
-                  argTys
-                  argExprs
-                  retTy
-          in  ([], callExpr)
-      in  do
-            R.SomeCFG g <- defineFunctionNoAuxs methFH withArgs
-            case SSA.toSSA g of
-                Core.SomeCFG g_ssa -> return $ Just (M.idText intrName', Core.AnyCFG g_ssa)
+      dynTrait <- case colState ^. collection . M.traits . at dynTraitName of
+        Just x -> return x
+        Nothing -> die ["undefined trait", show dynTraitName]
+      methSig <- case dynTrait ^? traitItems . ix (fromInteger methIndex) of
+        Just (M.TraitMethod _ sig) -> return sig
+        Nothing -> die ["method index", show methIndex,
+          "out of range for trait", show dynTraitName]
+      recvTy <- case methSig ^? M.fsarg_tys . ix 0 of
+        Just x -> return x
+        Nothing -> die ["method", show methIndex, "of trait", show dynTraitName, "has no arguments"]
+
+      (name, cfg, _info) <- transCommon' colState intrName' ShimContext methFH $ \_ argsAssn -> do
+        let (recvExpr, argExprs) = splitMethodArgs argsAssn (Ctx.size argTprs)
+        label <- G.newLabel
+        G.defineBlock label $
+          doVirtTailCall
+            (colState ^. collection)
+            dynTraitName
+            methIndex
+            recvTy
+            recvTpr
+            recvExpr
+            argTprs
+            argExprs
+            retTpr
+        return label
+      return (Just (name, cfg))
   | otherwise = return Nothing
 
   where

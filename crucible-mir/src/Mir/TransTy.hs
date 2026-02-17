@@ -41,6 +41,7 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
+import Data.Parameterized.Pair
 import Data.Parameterized.Some
 
 
@@ -496,7 +497,7 @@ buildCoroutine ca upvarExps = do
   let upvarExps' = map (\(MirExp _tpr e) -> Just (Some e)) upvarExps
   let savedExps = replicate (length (ca ^. M.caSavedTys)) Nothing
   Some fieldCtx <- coroutineFieldsM ca
-  asn <- case buildStructAssign' fieldCtx (discrExp' : upvarExps' ++ savedExps) of
+  asn <- case buildStructAssign fieldCtx (discrExp' : upvarExps' ++ savedExps) of
     Left err -> mirFail $ "error building coroutine " ++ show ca ++ ": " ++ err
     Right x -> return x
   let ctx = fieldCtxType fieldCtx
@@ -555,6 +556,8 @@ canInitialize col ty = case ty of
 
     M.TyFnDef {} -> False
     M.TyNever {} -> False
+    -- Note: `Mir.Trans.dispatchFromDyn` relies on `TyRef` and `TyRawPtr`
+    -- returning the same values here regardless of pointee type.
     M.TyRef {} -> False
     M.TyRawPtr {} -> False
     M.TyFnPtr {} -> False
@@ -682,6 +685,25 @@ findLastFieldRec col adtName = do
           Nothing -> Just lastField
           Just _ -> findLastFieldRec col innerName
       _ -> Just lastField
+
+-- | If the input `M.Ty` is unsized, this returns its innermost unsized tail
+-- type, which is always a primitive unsized type (`M.TySlice`, `M.TyStr`, or
+-- `M.TyDynamic`).  If the input type is sized, this returns `Nothing`.
+findUnsizedTail :: M.Collection -> M.Ty -> Maybe M.Ty
+findUnsizedTail col ty = do
+  case ty of
+    M.TySlice _ -> Just ty
+    M.TyStr -> Just ty
+    M.TyDynamic _ -> Just ty
+    M.TyAdt adtName _ _ -> do
+      lastField <- findLastField col adtName
+      findUnsizedTail col (lastField ^. M.fty)
+    _ -> Nothing
+
+findUnsizedTailM :: M.Ty -> MirGenerator h s ret (Maybe M.Ty)
+findUnsizedTailM ty = do
+    col <- use $ cs . collection
+    return $ findUnsizedTail col ty
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Either String (Some C.CtxRepr)
 variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) = do
@@ -1314,9 +1336,11 @@ unionInfo unionAdt fieldIdx = do
         "unionInfo: " <> show (unionAdt ^. M.adtname) <> ": " <> s
 
 
-buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
+-- | Convert a list of `R.Expr`s into a `Ctx.Assignment` suitable for building
+-- a `C.StructRepr` value.
+buildStructAssign :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
-buildStructAssign' ctx0 es0 = go ctx0 $ reverse es0
+buildStructAssign ctx0 es0 = go ctx0 $ reverse es0
   where
     go :: forall ctx s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
         Either String (Ctx.Assignment (R.Expr MIR s) ctx)
@@ -1350,6 +1374,29 @@ buildStructAssign' ctx0 es0 = go ctx0 $ reverse es0
         Nothing -> Left $ "type mismatch: expected " ++ show tpr ++ " but got " ++
             show (R.exprType e) ++ " in field " ++ show (length rest) ++ ": " ++ show (ctx0, es0)
 
+-- | Like `buildStructAssign`, but only the `FieldKind`s of the `FieldCtxRepr`
+-- are used; the actual types are ignored in favor of the types of the
+-- `R.Expr`s.
+buildStructAssignAdjusted :: HasCallStack => FieldCtxRepr ctx -> [Some (R.Expr MIR s)] ->
+    Either String (Pair FieldCtxRepr (Ctx.Assignment (R.Expr MIR s)))
+buildStructAssignAdjusted ctx0 es0 = do
+  Some ctx0' <- adjust ctx0 $ reverse es0
+  asn <- buildStructAssign ctx0' (map Just es0)
+  return $ Pair ctx0' asn
+  where
+    adjust :: forall ctx s. FieldCtxRepr ctx -> [Some (R.Expr MIR s)] ->
+      Either String (Some FieldCtxRepr)
+    adjust Ctx.Empty [] = return $ Some Ctx.empty
+    adjust _ [] = Left "adjust: not enough expressions"
+    adjust Ctx.Empty _ = Left "adjust: too many expressions"
+    adjust (ctx Ctx.:> fr) (Some e : es) = do
+      let tpr = R.exprType e
+      Some fr' <- case fr of
+        FieldRepr (FkInit _) -> return $ Some $ FieldRepr (FkInit tpr)
+        FieldRepr (FkMaybe _) -> return $ Some $ FieldRepr (FkMaybe tpr)
+      Some ctx' <- adjust ctx es
+      return $ Some (ctx' Ctx.:> fr')
+
 buildStruct' :: HasCallStack => M.Adt -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
 buildStruct' adt es = do
@@ -1357,7 +1404,7 @@ buildStruct' adt es = do
         "expected struct, but got adt " ++ show (adt ^. M.adtname)
     let var = M.onlyVariant adt
     Some fctx <- variantFieldsM' var
-    asn <- case buildStructAssign' fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
+    asn <- case buildStructAssign fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
         Left err -> mirFail $ "error building struct " ++ show (var ^. M.vname) ++ ": " ++ err
         Right x -> return x
     let ctx = fieldCtxType fctx
@@ -1367,6 +1414,30 @@ buildStruct :: HasCallStack => M.Adt -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
 buildStruct adt es =
     buildStruct' adt (map Just es)
+
+-- | Like `buildStruct`, but only the `FieldKind`s of the ADT are used; its
+-- actual field types are ignored in favor of the types of the provided
+-- `MirExp`s.
+--
+-- Warning: this makes it easy to create a value whose `C.TypeRepr` doesn't
+-- match its `M.Ty`!  This can be hard to debug since the error may show up far
+-- downstream of the bad `buildStructAdjusted` call.  Don't use this unless
+-- you're really sure that the `FieldKind`s will match up with the `M.Ty`s of
+-- the exprs.  In almost all cases, it's better to use the non-adjusted
+-- version.
+buildStructAdjusted :: HasCallStack => M.Adt -> [MirExp s] ->
+    MirGenerator h s ret (MirExp s)
+buildStructAdjusted adt es = do
+    when (adt ^. M.adtkind /= M.Struct) $ mirFail $
+        "expected struct, but got adt " ++ show (adt ^. M.adtname)
+    let var = M.onlyVariant adt
+    Some fctx <- variantFieldsM' var
+    Pair fctx' asn <- case buildStructAssignAdjusted fctx $ map (\(MirExp _ e) -> Some e) es of
+        Left err -> mirFail $
+          "error building adjusted struct " ++ show (var ^. M.vname) ++ ": " ++ err
+        Right x -> return x
+    let ctx' = fieldCtxType fctx'
+    pure $ MirExp (C.StructRepr ctx') $ R.App $ E.MkStruct ctx' asn
 
 
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
@@ -1394,7 +1465,7 @@ buildEnum' adt i es = do
     Some fctx' <- variantFieldsM' var
     let ftys = map (^. M.fty) (var ^. M.vfields)
     es' <- inferElidedVariantFields ftys es
-    asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es' of
+    asn <- case buildStructAssign fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es' of
         Left err ->
             mirFail $ "error building variant " ++ show (var ^. M.vname) ++ ": " ++ err ++ " -- " ++ show es'
         Right x -> return x

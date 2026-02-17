@@ -13,6 +13,8 @@ This release supports [version
 * Extend the override for the `atomic_xchg` intrinsic to support storing
   pointer values in addition to integer values.
 * Support translating constant trait object values.
+* Support calling `dyn Trait` methods that have `Box`, `Rc`, `Arc`, or `Pin`
+  receivers, plus most uses of `#[feature(arbitrary_self_types)]`.
 
 # 0.6 -- 2026-01-29
 
