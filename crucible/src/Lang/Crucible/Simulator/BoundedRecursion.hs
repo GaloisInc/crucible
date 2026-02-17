@@ -110,7 +110,6 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
  pushFrame gvRef rebuildStack h mkSt st = stateSolverProof st $
      do let sym = st ^. stateSymInterface
-        let simCtx = st ^. stateContext
         currGv <- readIORef gvRef
         let err = panic "pushFrame" ["Uninitialized global!"]
         let gv = fromMaybe err currGv
@@ -125,7 +124,7 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
                 loc <- getCurrentProgramLoc sym
                 let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
                 let simerr = SimError loc (ResourceExhausted msg)
-                when generateSideConditions $ withBackend simCtx $ \bak ->
+                when generateSideConditions $ withStateBackend st $ \bak ->
                   addProofObligation bak (LabeledPred (falsePred sym) simerr)
                 return (ExecutionFeatureNewState (AbortState (AssertionFailure simerr) st))
               _ -> do

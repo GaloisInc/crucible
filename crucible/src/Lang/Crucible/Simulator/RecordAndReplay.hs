@@ -338,7 +338,7 @@ replayFeature stop =
             | stop -> badPath
             | otherwise -> pure C.ExecutionFeatureNoChange
           W4P.PE valid (expectedLoc, rest) ->
-            C.withBackend (st ^. C.stateContext) $ \bak -> do
+            C.withStateBackend st $ \bak -> do
               let msg = "Trace must be valid"
               CB.assert bak valid (C.AssertFailureSimError msg "")
 

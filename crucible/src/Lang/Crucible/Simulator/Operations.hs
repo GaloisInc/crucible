@@ -79,7 +79,7 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad (when, void)
 import           Control.Monad.IO.Class (MonadIO(..))
-import           Control.Monad.Reader (ReaderT(..), withReaderT)
+import           Control.Monad.Reader (ReaderT(..), ask, withReaderT)
 import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Data.Maybe (fromMaybe)
 import           Data.List (isPrefixOf)
@@ -406,7 +406,7 @@ runErrorHandler ::
 runErrorHandler msg st =
   let ctx = st ^. stateContext
       sym = ctx ^. ctxSymInterface
-   in withBackend ctx $ \bak ->
+   in withStateBackend st $ \bak ->
       do loc <- getCurrentProgramLoc sym
          let stk = stateProgramStack st
          let err = mkSimError loc msg (Just stk)
@@ -582,9 +582,9 @@ performIntraFrameMerge ::
 
 performIntraFrameMerge tgt = do
   ActiveTree ctx0 er <- view stateTree
-  simCtx <- view stateContext
+  st <- ask
   sym <- view stateSymInterface
-  withBackend simCtx $ \bak ->
+  withStateBackend st $ \bak ->
     case ctx0 of
       VFFBranch ctx assume_frame loc pred other_branch tgt'
 
@@ -702,9 +702,9 @@ resumeValueFromFrameAbort ::
   AbortedResult sym ext {- ^ The execution that is being aborted. -} ->
   ExecCont p sym ext r g args
 resumeValueFromFrameAbort ctx0 ar0 = do
-  simCtx <- view stateContext
+  st <- ask
   sym <- view stateSymInterface
-  withBackend simCtx $ \bak ->
+  withStateBackend st $ \bak ->
     case ctx0 of
 
       -- This is the first abort.
@@ -911,9 +911,9 @@ intra_branch ::
 
 intra_branch p t_label f_label tgt = do
   ctx <- asContFrame <$> view stateTree
-  simCtx <- view stateContext
+  st <- ask
   sym <- view stateSymInterface
-  withBackend simCtx $ \bak ->
+  withStateBackend st $ \bak ->
     case asConstantPred p of
       Nothing ->
         ReaderT $ return . SymbolicBranchState p t_label f_label tgt
@@ -944,13 +944,13 @@ performIntraFrameSplit ::
   ExecCont p sym ext rtp f ('Just dc_args)
 performIntraFrameSplit p a_frame o_frame tgt =
   do ctx <- asContFrame <$> view stateTree
-     simCtx <- view stateContext
+     st <- ask
      sym <- view stateSymInterface
      loc <- liftIO $ getCurrentProgramLoc sym
      a_frame' <- pushPausedFrame a_frame
      o_frame' <- pushPausedFrame o_frame
 
-     assume_frame <- withBackend simCtx $ \bak ->
+     assume_frame <- withStateBackend st $ \bak ->
        liftIO $ assumeInNewFrame bak (BranchCondition loc (pausedLoc a_frame') p)
 
      -- Create context for paused frame.
