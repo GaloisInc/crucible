@@ -236,7 +236,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
    SimState p sym ext rtp f args ->
    ([Either FunctionName FrameBoundData] -> [Either FunctionName FrameBoundData]) ->
    IO (ExecutionFeatureResult p sym ext rtp)
- modifyStackState gvRef mkSt st f = do 
+ modifyStackState gvRef mkSt st f = do
     currGv <- readIORef gvRef
     let err = panic "modifyStackState" ["Global variable not initialized"]
     let gv = fromMaybe err currGv
@@ -276,8 +276,8 @@ boundedExecFeature getLoopBounds generateSideConditions =
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
         currGv <- readIORef gvRef
-        ngv <- case currGv of 
-          Nothing -> do 
+        ngv <- case currGv of
+          Nothing -> do
             gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
             writeIORef gvRef (Just gv)
             pure gv
