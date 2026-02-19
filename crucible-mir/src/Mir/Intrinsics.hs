@@ -2388,6 +2388,89 @@ mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) =
     readFancyMuxTree' bak (mirRef_peelIndexLeaf sym)
         (muxRegForType sym iTypes tpr') ref
 
+-- | Peel off an outermost 'Field_RefPath'. Given a pointer to a field of a
+-- struct, this produces a pointer to the containing struct.
+--
+-- This function takes in the expected struct type (in the form of the field
+-- 'TypeRepr's) and the expected index of the field within the struct. If the
+-- 'Field_RefPath' is actually for a different field type or a different index,
+-- it will raise an error.
+--
+-- If the outermost path segment isn't 'Field_RefPath', this operation raises an
+-- error. This means that for non-initializable fields which are wrapped in a
+-- 'MaybeRepr', you will need to peel off the 'Just_RefPath' first with the
+-- @mirRef_peelJust@ family of functions.
+mirRef_peelFieldLeaf ::
+    IsSymInterface sym =>
+    sym ->
+    CtxRepr ctx {-^ The expected struct type -} ->
+    Index ctx tp {-^ The expected field index -} ->
+    MirReference sym {-^ The field pointer -} ->
+    MuxLeafT sym IO (MirReferenceMux sym)
+mirRef_peelFieldLeaf sym fieldReprs idx (MirReference _tpr root path) =
+    case path of
+      Field_RefPath fieldReprs' path' idx'
+        | Just Refl <- testEquality fieldReprs fieldReprs'
+        , Just Refl <- testEquality idx idx' ->
+          return $ MirReferenceMux $
+            toFancyMuxTree sym $ MirReference (StructRepr fieldReprs) root path'
+        | otherwise ->
+          leafAbort $ Unsupported callStack $
+            "peelField type/index mismatch; expected " ++ show (fieldReprs, idx)
+            ++ ", but got " ++ show (fieldReprs', idx')
+      _ ->
+        leafAbort $ Unsupported callStack $
+          "peelField not implemented for this RefPath kind"
+mirRef_peelFieldLeaf _ _ _ _ =
+    leafAbort $ Unsupported callStack $
+      "cannot perform peelField on invalid pointer"
+
+mirRef_peelFieldIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    CtxRepr ctx ->
+    Index ctx tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_peelFieldIO bak iTypes fieldReprs idx (MirReferenceMux ref) =
+    let sym = backendGetSym bak in
+    readFancyMuxTree' bak (mirRef_peelFieldLeaf sym fieldReprs idx)
+        (muxRegForType sym iTypes MirReferenceRepr) ref
+
+-- | Peel off an outermost 'Just_RefPath'. Given a pointer to a @tp@, this
+-- produces a pointer to the containing @MaybeType tp@.
+--
+-- If the outermost path segment isn't 'Just_RefPath', this operation raises an
+-- error.
+mirRef_peelJustLeaf ::
+    IsSymInterface sym =>
+    sym ->
+    TypeRepr tp {-^ The type inside the @MaybeType@ -} ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReferenceMux sym)
+mirRef_peelJustLeaf sym tpr ref =
+  typedLeafOp "peelJust" tpr ref $ \root path ->
+    case path of
+      Just_RefPath _ path' ->
+        return $ MirReferenceMux $
+          toFancyMuxTree sym $ MirReference (MaybeRepr tpr) root path'
+      _ ->
+        leafAbort $ Unsupported callStack $
+          "peelJust not implemented for this RefPath kind"
+
+mirRef_peelJustIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_peelJustIO bak iTypes tpr (MirReferenceMux ref) =
+    let sym = backendGetSym bak in
+    readFancyMuxTree' bak (mirRef_peelJustLeaf sym tpr)
+        (muxRegForType sym iTypes MirReferenceRepr) ref
+
 -- | Compute the index of `ref` within its containing allocation, along with
 -- the length of that allocation.  This is useful for determining the amount of
 -- memory accessible through all valid offsets of `ref`.
