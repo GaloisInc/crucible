@@ -88,7 +88,7 @@ pathSatisfiabilityFeature sym considerSatisfiability =
           considerSatisfiability ploc p >>= \case
                IndeterminateBranchResult ->
                  return ExecutionFeatureNoChange
-               NoBranch chosen_branch -> withBackend (st ^. stateContext) $ \bak ->
+               NoBranch chosen_branch -> withStateBackend st $ \bak ->
                  do p' <- if chosen_branch then return p else notPred sym p
                     let frm = if chosen_branch then tp else fp
                     addAssumption bak (BranchCondition loc (pausedLoc frm) p')

@@ -115,9 +115,8 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r.
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) IO (RegValue sym tp)
 evalExpr verb (App a) = ReaderT $ \s ->
   do let iteFns = s ^. stateIntrinsicTypes
-     let simCtx = s ^. stateContext
      let logFn = evalLogFn verb s
-     r <- withBackend simCtx $ \bak ->
+     r <- withStateBackend s $ \bak ->
             evalApp bak iteFns logFn
               (extensionEval (extensionImpl (s ^. stateContext)) bak iteFns logFn s)
               (\r -> runReaderT (evalReg r) s)
@@ -404,8 +403,8 @@ stepTerm _ (TailCall fnExpr _types arg_exprs) =
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
-     simCtx <- view stateContext
-     withBackend simCtx $ \bak -> liftIO $
+     st <- ask
+     withStateBackend st $ \bak -> liftIO $
        case asString msg' of
          Just (UnicodeLiteral txt) ->
                      addFailedAssertion bak

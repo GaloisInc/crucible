@@ -110,25 +110,24 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
  pushFrame gvRef rebuildStack h mkSt st = stateSolverProof st $
      do let sym = st ^. stateSymInterface
-        let simCtx = st ^. stateContext
         currGv <- readIORef gvRef
         let err = panic "pushFrame" ["Uninitialized global!"]
         let gv = fromMaybe err currGv
         case lookupGlobal gv (st ^. stateGlobals) of
           Nothing -> panic "bounded recursion" ["global not defined!"]
           Just [] -> panic "bounded recursion" ["empty stack!"]
-          Just (x:xs) -> do 
+          Just (x:xs) -> do
             mb <- getRecursionBound h
             let v = 1 + fromMaybe 0 (Map.lookup h x)
             case mb of
-              Just b | v > b -> do 
+              Just b | v > b -> do
                 loc <- getCurrentProgramLoc sym
                 let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
                 let simerr = SimError loc (ResourceExhausted msg)
-                when generateSideConditions $ withBackend simCtx $ \bak ->
+                when generateSideConditions $ withStateBackend st $ \bak ->
                   addProofObligation bak (LabeledPred (falsePred sym) simerr)
                 return (ExecutionFeatureNewState (AbortState (AssertionFailure simerr) st))
-              _ -> do 
+              _ -> do
                 let x'  = Map.insert h v x
                 let st' = st & stateGlobals %~ insertGlobal gv (rebuildStack x' x xs)
                 x' `seq` return (ExecutionFeatureModifiedState (mkSt st'))
@@ -143,9 +142,9 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
 
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
-        currGv <- readIORef gvRef 
-        gv <- case currGv of 
-          Just gv -> pure gv 
+        currGv <- readIORef gvRef
+        gv <- case currGv of
+          Just gv -> pure gv
           Nothing -> do
             gv <- freshGlobalVar halloc (Text.pack "BoundedRecursionData") knownRepr
             writeIORef gvRef (Just gv)

@@ -44,8 +44,7 @@ positionTrackingFeature _sym = return $ GenericExecutionFeature onStep
      IO (ExecutionFeatureResult p sym ext rtp)
    onStep exst@(RunningState (RunBlockStart _bid) st) =
      do let loc = st ^. (stateCrucibleFrame.to frameProgramLoc)
-        let simCtx = st ^. stateContext
-        liftIO $ withBackend simCtx $ \bak ->
+        liftIO $ withStateBackend st $ \bak ->
           addAssumptions bak (singleEvent (LocationReachedEvent loc))
         return (ExecutionFeatureModifiedState exst)
 

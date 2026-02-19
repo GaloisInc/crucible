@@ -97,8 +97,7 @@ restoreWorkItem ::
   IO (ExecState p sym ext rtp)
 restoreWorkItem (WorkItem branchPred loc frm st assumes) =
   do let sym = st ^. stateSymInterface
-     let simCtx = st ^. stateContext
-     withBackend simCtx $ \bak ->
+     withStateBackend st $ \bak ->
       do setCurrentProgramLoc sym loc
          restoreAssumptionState bak assumes
          addAssumption bak (BranchCondition loc (pausedLoc frm) branchPred)
@@ -117,7 +116,7 @@ pathSplittingFeature ::
   ExecutionFeature p sym ext rtp
 pathSplittingFeature wl = ExecutionFeature $ \case
   SymbolicBranchState p trueFrame falseFrame _bt st ->
-    withBackend (st ^. stateContext) $ \bak ->
+    withStateBackend st $ \bak ->
     do let sym = st ^. stateSymInterface
        pnot <- notPred sym p
        assumes <- saveAssumptionState bak
