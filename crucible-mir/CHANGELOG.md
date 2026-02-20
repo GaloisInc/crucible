@@ -15,6 +15,8 @@ This release supports [version
 * Support translating constant trait object values.
 * Support calling `dyn Trait` methods that have `Box`, `Rc`, `Arc`, or `Pin`
   receivers, plus most uses of `#[feature(arbitrary_self_types)]`.
+* Add the `mirRef_peelFieldIO` and `mirRef_peelJustIO` functions in
+  `Mir.Intrinsics`. These are only used by SAW at the moment.
 
 # 0.6 -- 2026-01-29
 
