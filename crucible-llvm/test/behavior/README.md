@@ -8,7 +8,7 @@ This test suite contains standalone C programs. The test harness:
 - asserts that the output from both the binary and the simulator match,
 - and uses [Oughta] to verify both program output and LLVM assembly structure.
 
-[Oughta]: (https://github.com/GaloisInc/oughta)
+[Oughta]: https://github.com/GaloisInc/oughta
 
 These tests should be used when you want to test the fidelity of Crucible-LLVM's
 concrete semantics against an oracle (i.e., concrete execution). This is
