@@ -1,0 +1,3 @@
+(defun @foo () Unit (start block:))
+
+At test-data/ux/empty-block.cbl:2:1, expected bad syntax but got ((start block:))
