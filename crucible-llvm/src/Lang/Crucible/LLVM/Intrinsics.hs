@@ -24,7 +24,7 @@ module Lang.Crucible.LLVM.Intrinsics
 , LLVMOverride(..)
 
 , register_llvm_overrides
-, register_llvm_overrides'
+, register_specific_llvm_overrides
 , register_llvm_overrides_
 , llvmDeclToFunHandleRepr
 , declare_overrides
@@ -108,7 +108,7 @@ register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
 -- functionality here is largely the same as 'register_llvm_overrides' except the
 -- list of declares and defines are provided manually by the caller instead of
 -- being extracted from the LLVM @Module@.
-register_llvm_overrides' ::
+register_specific_llvm_overrides ::
   IsSymInterface sym =>
   HasLLVMAnn sym =>
   HasPtrWidth wptr =>
