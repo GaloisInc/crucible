@@ -1,0 +1,3 @@
+(defun @test () Unit (start block: (jump unknown-label)))
+
+At test-data/ux/undefined-label.cbl:4:11, expected label name but got unknown-label
