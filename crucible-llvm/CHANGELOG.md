@@ -18,6 +18,9 @@
     * Replace `llvmOverride_args` with `llvmOvArgs`
     * Replace `llvmOverride_ret` with `llvmOvRet`
 * Support the `llvm.scmp.*` and `llvm.ucmp.*` three-way comparison intrinsics.
+* Added `register_specific_llvm_overrides` to register overrides for a provided
+  list of declarations and definitions rather than extracting them from a
+  provided LLVM module.
 
 # 0.9 -- 2026-01-29
 
