@@ -64,17 +64,17 @@
 test-float
 %0
   % 5:14
-  $0 = fresh-float SingleFloatRepr a_f
+  $0 = fresh-float Float a_f
   % 6:14
-  $1 = fresh-float DoubleFloatRepr b_d
+  $1 = fresh-float Double b_d
   % 7:14
-  $2 = fresh-float HalfFloatRepr c_h
+  $2 = fresh-float Half c_h
   % 8:14
-  $3 = fresh-float QuadFloatRepr d_q
+  $3 = fresh-float Quad d_q
   % 9:15
-  $4 = fresh-float DoubleDoubleFloatRepr e_dd
+  $4 = fresh-float DoubleDouble e_dd
   % 10:16
-  $5 = fresh-float X86_80FloatRepr f_x87
+  $5 = fresh-float X86_80 f_x87
   % 12:13
   $6 = fresh BaseRealRepr r1
   % 13:13
