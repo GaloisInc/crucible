@@ -123,7 +123,7 @@ register_specific_llvm_overrides ::
   OverrideSim p sym LLVM rtp l a ( [SomeLLVMOverride p sym LLVM] -- ^ def overrides
                                  , [SomeLLVMOverride p sym LLVM] -- ^ decl overrides
                                  )
-register_llvm_overrides' defs decls addlDefOvrs addlDeclOvrs llvmctx =
+register_specific_llvm_overrides defs decls addlDefOvrs addlDeclOvrs llvmctx =
   (,)
   <$> register_overrides (declareFromDefine <$> defs) addlDefOvrs llvmctx
   <*> register_overrides decls addlDeclOvrs llvmctx
