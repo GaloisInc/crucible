@@ -1,0 +1,3 @@
+(defun @foo () Unit (start block: (return x)))
+
+At test-data/ux/undefined-var.cbl:4:13, expected Boolean literal or function name literal or integer literal or known atom or name of global variable or rational number literal or register name or string literal but got x
