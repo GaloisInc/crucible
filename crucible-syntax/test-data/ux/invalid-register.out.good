@@ -1,0 +1,8 @@
+(defun @foo () Unit
+   (registers (notaregister Integer))
+   (start block: (return ())))
+
+Expected a register specification at test-data/ux/invalid-register.cbl:4:5
+Register specifications must be of the form `($name Type)`
+where $name starts with a $ character, but got:
+  (notaregister Integer)
