@@ -74,11 +74,11 @@ llvmIntrinsicTypes =
 -- as well as any additional overrides supplied by the user (internal overrides
 -- will supercede user overrides).
 --
--- The "define" overrides are applied to *both* the define and declares found
--- within a module.
+-- The "define" overrides are applied to *both* the @Define@s and @Declare@s
+-- elements found within a module.
 --
--- The "declare" overrides are applied only to the declares found within a
--- module.  The intent is that these overrides should only apply to declares,
+-- The "declare" overrides are applied only to the @Declare@s found within a
+-- module.  The intent is that these overrides should only apply to @Declare@s,
 -- whereas the "define" overrides should apply to any matching symbol in the LLVM
 -- @Module@.
 --
