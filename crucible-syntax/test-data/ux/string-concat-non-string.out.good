@@ -1,0 +1,4 @@
+(defun @test () (String Unicode)
+   (start block: (return (string-concat "hello" #t))))
+
+At test-data/ux/string-concat-non-string.cbl:4:13, expected an atom or matching types (StringRepr UnicodeRepr /= BoolRepr) but got (string-concat "hello" #t)

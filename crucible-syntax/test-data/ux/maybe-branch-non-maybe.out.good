@@ -1,0 +1,8 @@
+(defun @test () Integer
+   (start block:
+      (let x (the Integer 42))
+      (maybe-branch x block-just: block-nothing:))
+   (defblock (block-just: y Integer) (return y))
+   (defblock block-nothing: (return 0)))
+
+At test-data/ux/maybe-branch-non-maybe.cbl:5:5, expected valid arguments to maybe-branch but got (x block-just: block-nothing:)

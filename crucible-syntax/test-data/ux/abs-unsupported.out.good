@@ -1,0 +1,3 @@
+(defun @test () Nat (start block: (return (abs 1))))
+
+At test-data/ux/abs-unsupported.cbl:4:13, expected an atom or operation at type NatRepr but got (abs 1)

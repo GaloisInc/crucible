@@ -1,0 +1,7 @@
+(defun @test () Bool
+   (start block:
+      (let x (to-any #t))
+      (let y (to-any #f))
+      (return (equal? x y))))
+
+At test-data/ux/equal-invalid-type.cbl:6:13, expected a base type or floating point type or reference type (got AnyRepr) or an atom but got (equal? x y)

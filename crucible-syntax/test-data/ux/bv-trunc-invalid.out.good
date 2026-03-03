@@ -1,0 +1,4 @@
+(defun @test () (Bitvector 16)
+   (start block: (let x (bv 8 42)) (return (bv-trunc 16 x))))
+
+At test-data/ux/bv-trunc-invalid.cbl:5:13, expected an atom or valid bitvector truncation but got (bv-trunc 16 x)

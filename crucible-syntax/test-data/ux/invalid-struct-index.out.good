@@ -1,0 +1,6 @@
+(defun @test () Integer
+   (start block:
+      (let x (struct (the Integer 42) #t))
+      (return (get-field 5 x))))
+
+At test-data/ux/invalid-struct-index.cbl:5:13, expected 5 is an invalid index into [IntegerRepr, BoolRepr] but got ()

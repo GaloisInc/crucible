@@ -1,0 +1,4 @@
+(defun @test () Integer
+   (start block: (let x (the Integer 42)) (return (proj 0 x))))
+
+At test-data/ux/proj-non-variant.cbl:5:13, expected an atom but got (proj 0 x)
