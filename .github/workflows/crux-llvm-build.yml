@@ -159,6 +159,9 @@ jobs:
       - name: Test crucible
         run: .github/ci.sh test crucible
 
+      - name: Test crucible-syntax
+        run: .github/ci.sh test crucible-syntax
+
       - name: Test crucible-cli
         run: .github/ci.sh test crucible-cli
 
