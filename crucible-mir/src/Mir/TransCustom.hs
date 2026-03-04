@@ -1152,7 +1152,7 @@ discriminant_value = (["core","intrinsics", "discriminant_value"],
       case (opTys,ops) of
         ([TyRef ty@(TyAdt nm _ _) Immut], [eRef]) -> do
             adt <- findAdt nm
-            e <- derefExp ty eRef >>= readPlace
+            e <- derefExp ty eRef >>= readPlace ty
             MirExp tp' e' <- enumDiscriminant adt e
             case testEquality tp' IsizeRepr of
               Just Refl ->
@@ -2313,7 +2313,7 @@ cloneShimNoFields what parts
     case (opTys, ops) of
       ([TyRef ty _], [eRef]) -> do
         e <- derefExp ty eRef
-        readPlace e
+        readPlace ty e
       _ -> mirFail $ "cloneShimNoFields: expected exactly one argument, but got " ++ show (opTys, ops)
   | otherwise = CustomOp $ \_ _ -> mirFail $
     "expected no clone functions in " ++ what ++ " clone shim, but got " ++ show parts

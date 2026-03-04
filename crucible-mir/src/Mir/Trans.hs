@@ -407,8 +407,8 @@ getReturnExp tpr = do
 -- ** Expressions: Operations and Aggregates
 
 evalOperand :: HasCallStack => M.Operand -> MirGenerator h s ret (MirExp s)
-evalOperand (M.Copy lv) = evalPlace lv >>= readPlace
-evalOperand (M.Move lv) = evalPlace lv >>= readPlace
+evalOperand (M.Copy lv) = evalPlace lv >>= readPlace (M.typeOf lv)
+evalOperand (M.Move lv) = evalPlace lv >>= readPlace (M.typeOf lv)
 evalOperand (M.OpConstant (M.Constant conty constval)) = do
     Some tpr <- tyToReprM conty
     transConstVal conty (Some tpr) constval
@@ -422,23 +422,24 @@ derefExp pointeeTy (MirExp MirReferenceRepr e) = do
     return $ MirPlace tpr e NoMeta
 derefExp _pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
-readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
-readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
-readPlace (MirPlace tpr _ meta) =
+readPlace :: HasCallStack => M.Ty -> MirPlace s -> MirGenerator h s ret (MirExp s)
+readPlace _ty (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
+readPlace ty (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
-        ++ " (type " ++ show tpr ++ ")"
+        ++ " (type " ++ show ty ++ ", repr " ++ show tpr ++ ")"
 
 -- | Write a `MirExp` value into a `MirPlace`.  Calls `mirFail` if the types of
 -- the `MirExp` and `MirPlace` don't match; in this case, the @String@ is
 -- included in the message.
-writePlace :: HasCallStack => MirPlace s -> MirExp s -> String -> MirGenerator h s ret ()
-writePlace (MirPlace tpr ref NoMeta) (MirExp tpr' val) desc = do
+writePlace :: HasCallStack => M.Ty -> MirPlace s -> MirExp s -> String -> MirGenerator h s ret ()
+writePlace ty (MirPlace tpr ref NoMeta) (MirExp tpr' val) desc = do
     Refl <- testEqualityOrFail tpr tpr' $
-        "ill-typed assignment of " ++ show tpr' ++ " to " ++ show tpr ++ " " ++ desc
+        "ill-typed assignment of " ++ show tpr' ++ " (" ++ show ty
+            ++ ") to " ++ show tpr ++ " " ++ desc
     writeMirRef tpr ref val
-writePlace (MirPlace tpr _ meta) _ desc =
+writePlace ty (MirPlace tpr _ meta) _ desc =
     mirFail $ "don't know how to write to place with metadata " ++ show meta
-        ++ " (type " ++ show tpr ++ ") " ++ desc
+        ++ " (type " ++ show ty ++ ", repr " ++ show tpr ++ ") " ++ desc
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace _tpr r NoMeta) = return $ MirExp MirReferenceRepr r
@@ -1342,7 +1343,7 @@ evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
-evalRval (M.Discriminant lv _discrTy) = do
+evalRval (M.Discriminant lv discrTy) = do
     let enumTy = typeOf lv
     case enumTy of
       TyAdt aname _ _ -> do
@@ -1352,7 +1353,7 @@ evalRval (M.Discriminant lv _discrTy) = do
       TyCoroutine ca -> do
         pl <- evalPlace lv
         pl' <- coroutineDiscrPlace ca pl
-        readPlace pl'
+        readPlace discrTy pl'
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show enumTy
 
 evalRval (M.Aggregate ak ops) =
@@ -1459,7 +1460,7 @@ evalTupleRval ops = do
   buildTupleM tys exps
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
-evalLvalue lv = evalPlace lv >>= readPlace
+evalLvalue lv = evalPlace lv >>= readPlace (M.typeOf lv)
 
 
 evalPlace :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirPlace s)
@@ -1768,7 +1769,7 @@ doAssignCoerce lv ty expr =
 doAssign :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 doAssign lv val = do
     pl <- evalPlace lv
-    writePlace pl val $ "(" ++ show (M.typeOf lv) ++ ") " ++ show lv
+    writePlace (M.typeOf lv) pl val $ "(" ++ show (M.typeOf lv) ++ ") " ++ show lv
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
@@ -1791,7 +1792,8 @@ transStatementKind (M.SetDiscriminant lv i) = do
       discrExp <- buildCoroutineDiscriminant ca i
       pl <- evalPlace lv
       pl' <- coroutineDiscrPlace ca pl
-      writePlace pl' discrExp $ "(writing discriminant of " ++ show ca ++ ")"
+      writePlace (ca ^. M.caDiscrTy) pl' discrExp $
+        "(writing discriminant of " ++ show ca ++ ")"
     -- Currently we require that all uses of `SetDiscriminant` on enums get bundled up
     -- with related field writes into an `RAdtAg` assignment during the
     -- AllocateEnum pass.  Ideally this transformation would not be mandatory,
