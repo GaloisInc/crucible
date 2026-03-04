@@ -1,0 +1,3 @@
+(defun @test () Integer (start block: (return #t)))
+
+At test-data/ux/wrong-return-type.cbl:4:13, expected a IntegerRepr rather than a BoolRepr but got #t

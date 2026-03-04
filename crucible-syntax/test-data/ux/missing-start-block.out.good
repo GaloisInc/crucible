@@ -1,0 +1,3 @@
+(defun @test () Unit (defblock block1: (return ())))
+
+At test-data/ux/missing-start-block.cbl:3:4, expected start but got defblock

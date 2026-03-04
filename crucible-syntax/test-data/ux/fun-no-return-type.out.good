@@ -1,0 +1,4 @@
+(defun @test () Unit
+   (start block: (let x (Fun) @test) (return ())))
+
+At test-data/ux/fun-no-return-type.cbl:4:12, expected an atom but got (Fun)

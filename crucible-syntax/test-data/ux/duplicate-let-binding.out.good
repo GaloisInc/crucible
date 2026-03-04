@@ -1,0 +1,7 @@
+(defun @test () Integer
+   (start block:
+      (let x (the Integer 42))
+      (let x (the Integer 10))
+      (return x)))
+
+At test-data/ux/duplicate-let-binding.cbl:5:10, expected unique Crucible atom but got x

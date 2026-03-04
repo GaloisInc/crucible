@@ -1,0 +1,3 @@
+(defun @test () Bool (start block: (return (equal? 1 2))))
+
+At test-data/ux/equal-needs-annotation.cbl:4:13, expected an atom or type annotation required to disambiguate types but got (equal? 1 2)

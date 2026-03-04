@@ -1,0 +1,4 @@
+(defun @test () Unit
+   (start block: (let x (vector-lit)) (return ())))
+
+At test-data/ux/vector-lit-no-type.cbl:4:12, expected an atom but got (vector-lit)

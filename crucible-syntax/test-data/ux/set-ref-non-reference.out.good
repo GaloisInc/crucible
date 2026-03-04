@@ -1,0 +1,7 @@
+(defun @test () Unit
+   (start block:
+      (let x (the Integer 42))
+      (set-ref! x 10)
+      (return ())))
+
+At test-data/ux/set-ref-non-reference.cbl:5:15, expected expression with reference type but got x

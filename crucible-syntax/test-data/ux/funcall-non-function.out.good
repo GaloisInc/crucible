@@ -1,0 +1,4 @@
+(defun @main () Unit
+   (start block: (let x (funcall #t)) (return ())))
+
+At test-data/ux/funcall-non-function.cbl:4:21, expected a function but got #t

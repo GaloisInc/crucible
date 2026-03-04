@@ -1,0 +1,6 @@
+(defun @test () Integer
+   (start block: (let x (the Integer 42)) (case x block0: block1:))
+   (defblock (block0: y Integer) (return y))
+   (defblock (block1: z Integer) (return z)))
+
+At test-data/ux/case-non-variant.cbl:5:5, expected cases for variant type IntegerRepr but got (block0: block1:)

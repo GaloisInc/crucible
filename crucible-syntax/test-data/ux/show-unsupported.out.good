@@ -1,0 +1,6 @@
+(defun @test () (String Unicode)
+   (start block:
+      (let x (the (Vector Integer) (vector)))
+      (return (show x))))
+
+At test-data/ux/show-unsupported.cbl:5:13, expected an atom or base or floating point type, but got VectorRepr IntegerRepr but got (show x)

@@ -1,0 +1,4 @@
+(defun @main () Unit
+   (start block: (let x (fresh (Vector Bool))) (return ())))
+
+At test-data/ux/fresh-non-base.cbl:4:12, expected an atom but got (fresh (Vector Bool))

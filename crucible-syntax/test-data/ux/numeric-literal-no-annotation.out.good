@@ -1,0 +1,3 @@
+(defun @test () Unit (start block: (let x 42) (return ())))
+
+At test-data/ux/numeric-literal-no-annotation.cbl:4:12, expected unambiguous numeric literal (add type annotation to disambiguate) but got 42

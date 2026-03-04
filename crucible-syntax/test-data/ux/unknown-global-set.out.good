@@ -1,0 +1,4 @@
+(defun @main () Unit
+   (start block: (set-global! $$g #t) (return ())))
+
+At test-data/ux/unknown-global-set.cbl:4:18, expected known global variable name but got $$g

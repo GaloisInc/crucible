@@ -1,0 +1,4 @@
+(defun @test () (Bitvector 8)
+   (start block: (let x (bv 8 42)) (return (bv-select 5 8 x))))
+
+At test-data/ux/bv-select-out-of-bounds.cbl:5:13, expected an atom or valid bitvector select but got (bv-select 5 8 x)

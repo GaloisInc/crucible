@@ -1,0 +1,3 @@
+(defun @test () Bool (start block: (return (bv-carry #t #f))))
+
+At test-data/ux/bv-carry-non-bv.cbl:4:13, expected a bitvector type (got BoolRepr) or an atom but got (bv-carry #t #f)

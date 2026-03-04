@@ -1,0 +1,3 @@
+(defun @test () Real (start block: (return (fp-to-real #t))))
+
+At test-data/ux/fp-to-real-non-fp.cbl:4:25, expected floating-point value but got #t
