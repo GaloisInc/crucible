@@ -152,6 +152,7 @@ data ExprErr s where
   EmptyBlock :: Position -> ExprErr s
   NotGlobal :: Position -> AST s -> ExprErr s
   InvalidRegister :: Position -> AST s -> ExprErr s
+  UnknownTopLevel :: Position -> AST s -> ExprErr s
   SyntaxParseError :: SP.SyntaxError Atomic -> ExprErr s
 
 deriving instance Show (ExprErr s)
@@ -177,8 +178,19 @@ instance PP.Pretty (ExprErr s) where
         "Empty block at" PP.<+> PP.viaShow p
       NotGlobal p _ast ->
         "Expected a global at" PP.<+> PP.viaShow p
-      InvalidRegister p _ast ->
-        "Expected a register at" PP.<+> PP.viaShow p
+      InvalidRegister p ast ->
+        PP.vcat
+          [ "Expected a register specification at" PP.<+> PP.viaShow p
+          , "Register specifications must be of the form" PP.<+> backticks "($name Type)"
+          , "where $name starts with a $ character, but got:"
+          , PP.indent 2 (PP.pretty (printExpr ast))
+          ]
+      UnknownTopLevel p ast ->
+        PP.vcat
+          [ "Unknown top-level form at" PP.<+> PP.viaShow p
+          , "Expected one of: defun, declare, defglobal, extern, but got:"
+          , PP.indent 2 (PP.pretty (printExpr ast))
+          ]
       SyntaxParseError err ->
         PP.pretty (printSyntaxError err)
     where backticks = PP.enclose "`" "`"
@@ -2083,7 +2095,7 @@ topLevel ast =
     L (A (Kw Extern):_) -> extern ast $> Nothing
     _ -> do
      loc <- liftSyntaxParse position ast
-     throwError (TrivialErr loc)
+     throwError (UnknownTopLevel loc ast)
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
 argTypes  = fmapFC (\(Arg _ _ t) -> t)

@@ -29,6 +29,7 @@ import           Lang.Crucible.Backend (CrucibleEvent(..))
 import qualified Lang.Crucible.Simulator.SimError as CSE
 
 import           Crux.Types
+import Lang.Crucible.Simulator.SimError (ppProgramStack, simErrorContext)
 
 sayWhatResultStatus :: CruxSimulationResult -> SayWhat
 sayWhatResultStatus (CruxSimulationResult cmpl gls) =
@@ -76,8 +77,12 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                -- n.b. prefer the prepared pretty explanation, but
                -- if not available, use the NotProved information.
                -- Don't show both: they tend to be duplications.
-               , if null (show ex) then PP.viaShow err else ex
-               ] -- if `showVars` is set, print the sequence of symbolic
+               ] ++ case (show ex, simErrorContext err) of
+                      ([], _) ->  [  PP.viaShow err ] 
+                      (_, Nothing) -> [ex]
+                      (_, Just ctx) ->
+                        [ex, "Context:", PP.indent 2 (ppProgramStack ctx)]
+                 -- if `showVars` is set, print the sequence of symbolic
                  -- variable events that led to this failure
                  ++ if showVars then
                       ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]

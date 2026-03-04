@@ -1,0 +1,4 @@
+(defun @test () Integer
+   (start block: (return (from-just #t "not a maybe"))))
+
+At test-data/ux/from-just-non-maybe.cbl:4:27, expected nothing but got "not a maybe"

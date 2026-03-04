@@ -236,7 +236,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
    SimState p sym ext rtp f args ->
    ([Either FunctionName FrameBoundData] -> [Either FunctionName FrameBoundData]) ->
    IO (ExecutionFeatureResult p sym ext rtp)
- modifyStackState gvRef mkSt st f = do 
+ modifyStackState gvRef mkSt st f = do
     currGv <- readIORef gvRef
     let err = panic "modifyStackState" ["Global variable not initialized"]
     let gv = fromMaybe err currGv
@@ -254,7 +254,6 @@ boundedExecFeature getLoopBounds generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
  onTransition gvRef tgt_id res st = stateSolverProof st $
   do let sym = st ^. stateSymInterface
-     let simCtx = st ^. stateContext
      (globals', overLimit) <- checkBackedge gvRef (st ^. stateCrucibleFrame.frameBlockID) tgt_id (st ^. stateGlobals)
      let st' = st & stateGlobals .~ globals'
      case overLimit of
@@ -262,7 +261,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
          do let msg = "reached maximum number of loop iterations (" ++ show n ++ ")"
             let loc = st ^. stateCrucibleFrame.to frameProgramLoc
             let err = SimError loc (ResourceExhausted msg)
-            when generateSideConditions $ withBackend simCtx $ \bak ->
+            when generateSideConditions $ withStateBackend st $ \bak ->
               addProofObligation bak (LabeledPred (falsePred sym) err)
             return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st'))
        Nothing -> return (ExecutionFeatureModifiedState (ControlTransferState res st'))
@@ -276,8 +275,8 @@ boundedExecFeature getLoopBounds generateSideConditions =
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
         currGv <- readIORef gvRef
-        ngv <- case currGv of 
-          Nothing -> do 
+        ngv <- case currGv of
+          Nothing -> do
             gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
             writeIORef gvRef (Just gv)
             pure gv

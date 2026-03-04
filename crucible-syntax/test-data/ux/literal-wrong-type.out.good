@@ -1,0 +1,4 @@
+(defun @test () Integer
+   (start block: (return (the Integer "hello"))))
+
+At test-data/ux/literal-wrong-type.cbl:4:26, expected a IntegerRepr rather than a StringRepr UnicodeRepr but got "hello"

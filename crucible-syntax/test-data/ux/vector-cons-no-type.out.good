@@ -1,0 +1,6 @@
+(defun @test () Unit
+   (start block:
+      (let y (vector-cons #t (vector-lit)))
+      (return ())))
+
+At test-data/ux/vector-cons-no-type.cbl:4:28, expected an atom but got (vector-lit)

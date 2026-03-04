@@ -1227,7 +1227,7 @@ type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
 
 -- | The 'MirReferenceType' is the data pointer - either an immutable or mutable
--- reference. The 'AnyType' is the vtable.
+-- reference. The 'AnyType' is the vtable. See @Note [Erase vtable types]@.
 type DynRefType = StructType (EmptyCtx ::> MirReferenceType ::> AnyType)
 
 dynRefDataIndex :: Index (EmptyCtx ::> MirReferenceType ::> AnyType) MirReferenceType
@@ -1236,6 +1236,38 @@ dynRefDataIndex = skipIndex baseIndex
 dynRefVtableIndex :: Index (EmptyCtx ::> MirReferenceType ::> AnyType) AnyType
 dynRefVtableIndex = lastIndex (incSize $ incSize zeroSize)
 
+{-
+Note [Erase vtable types]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+DynRefType erases the type of a trait object's vtable using Crucible's Any
+type. Note that the vtable type is known statically, which makes the choice to
+use Any here somewhat unusual. The main reason why we need Any is because
+vtable types can potentially be recursive. For instance, consider the
+std::error::Error trait:
+
+  trait Error {
+      fn cause(&self) -> Option<&dyn Error>;
+  }
+
+Now suppose that we want to translate the type `&dyn Error` to Crucible. The
+vtable for a trait object of this type will have a field for the `cause`
+method, and this field's type will recursively mention `&dyn Error`. We have to
+be careful when translating this, because we might run this risk of infinitely
+recursing.
+
+Using the Any type is one way to break the recursion. Rather than translating
+all of a vtable's field types upfront, we instead just represent the entire
+vtable type as Any. Later, when making a virtual call, we check dynamically (at
+simulation time) that the Any's underlying type actually matches the expected
+vtable type, which allows us to unfold the vtable type definition once (and
+only once, to avoid infinitely recursing).
+
+An alternative approach would be to use Crucible's RecursiveType instead of
+Any. It is unclear if this is worth the effort, however, as we would have to
+invent a new symbol for each vtable type. Moreover, the amount of machinery
+needed to roll/unroll recursive types is similar to the machinery needed to
+pack/unpack Any types.
+-}
 
 data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirNewRef ::
@@ -2438,6 +2470,89 @@ mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) elemSize =
     readFancyMuxTree' bak (mirRef_peelIndexLeaf bak elemSize)
         (muxRegForType sym iTypes tpr') ref
 
+-- | Peel off an outermost 'Field_RefPath'. Given a pointer to a field of a
+-- struct, this produces a pointer to the containing struct.
+--
+-- This function takes in the expected struct type (in the form of the field
+-- 'TypeRepr's) and the expected index of the field within the struct. If the
+-- 'Field_RefPath' is actually for a different field type or a different index,
+-- it will raise an error.
+--
+-- If the outermost path segment isn't 'Field_RefPath', this operation raises an
+-- error. This means that for non-initializable fields which are wrapped in a
+-- 'MaybeRepr', you will need to peel off the 'Just_RefPath' first with the
+-- @mirRef_peelJust@ family of functions.
+mirRef_peelFieldLeaf ::
+    IsSymInterface sym =>
+    sym ->
+    CtxRepr ctx {-^ The expected struct type -} ->
+    Index ctx tp {-^ The expected field index -} ->
+    MirReference sym {-^ The field pointer -} ->
+    MuxLeafT sym IO (MirReferenceMux sym)
+mirRef_peelFieldLeaf sym fieldReprs idx (MirReference _tpr root path) =
+    case path of
+      Field_RefPath fieldReprs' path' idx'
+        | Just Refl <- testEquality fieldReprs fieldReprs'
+        , Just Refl <- testEquality idx idx' ->
+          return $ MirReferenceMux $
+            toFancyMuxTree sym $ MirReference (StructRepr fieldReprs) root path'
+        | otherwise ->
+          leafAbort $ Unsupported callStack $
+            "peelField type/index mismatch; expected " ++ show (fieldReprs, idx)
+            ++ ", but got " ++ show (fieldReprs', idx')
+      _ ->
+        leafAbort $ Unsupported callStack $
+          "peelField not implemented for this RefPath kind"
+mirRef_peelFieldLeaf _ _ _ _ =
+    leafAbort $ Unsupported callStack $
+      "cannot perform peelField on invalid pointer"
+
+mirRef_peelFieldIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    CtxRepr ctx ->
+    Index ctx tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_peelFieldIO bak iTypes fieldReprs idx (MirReferenceMux ref) =
+    let sym = backendGetSym bak in
+    readFancyMuxTree' bak (mirRef_peelFieldLeaf sym fieldReprs idx)
+        (muxRegForType sym iTypes MirReferenceRepr) ref
+
+-- | Peel off an outermost 'Just_RefPath'. Given a pointer to a @tp@, this
+-- produces a pointer to the containing @MaybeType tp@.
+--
+-- If the outermost path segment isn't 'Just_RefPath', this operation raises an
+-- error.
+mirRef_peelJustLeaf ::
+    IsSymInterface sym =>
+    sym ->
+    TypeRepr tp {-^ The type inside the @MaybeType@ -} ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReferenceMux sym)
+mirRef_peelJustLeaf sym tpr ref =
+  typedLeafOp "peelJust" tpr ref $ \root path ->
+    case path of
+      Just_RefPath _ path' ->
+        return $ MirReferenceMux $
+          toFancyMuxTree sym $ MirReference (MaybeRepr tpr) root path'
+      _ ->
+        leafAbort $ Unsupported callStack $
+          "peelJust not implemented for this RefPath kind"
+
+mirRef_peelJustIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_peelJustIO bak iTypes tpr (MirReferenceMux ref) =
+    let sym = backendGetSym bak in
+    readFancyMuxTree' bak (mirRef_peelJustLeaf sym tpr)
+        (muxRegForType sym iTypes MirReferenceRepr) ref
+
 -- | Compute the index of `ref` within its containing allocation, along with
 -- the length of that allocation.  This is useful for determining the amount of
 -- memory accessible through all valid offsets of `ref`.
@@ -2541,7 +2656,7 @@ mirRef_indexAndLenSim ref elemSize = do
 
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
-execMirStmt stmt s = withBackend ctx $ \bak ->
+execMirStmt stmt s = withStateBackend s $ \bak ->
   case stmt of
        MirNewRef tp ->
             readOnly s $ newMirRefIO sym halloc tp
@@ -2714,7 +2829,7 @@ readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym ->
     OverrideSim m sym MIR rtp args ret (RegValue sym tp)
 readMirRefSim tpr ref =
-   ovrWithBackend $ \bak ->
+  ovrWithBackend $ \bak ->
    do s <- get
       let gs = s ^. stateTree.actFrame.gpGlobals
       let iTypes = ctxIntrinsicTypes $ s ^. stateContext

@@ -7,6 +7,9 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   ./libs/core/src/panic.rs:62:9: 62:73 !./libs/bytes.rs:201:9: 202:49: error: in bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
 [Crux]   panicking::panic_fmt, called from bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
+[Crux]   Context:
+[Crux]     ./libs/core/src/panic.rs:62:9: 62:73 !./libs/bytes.rs:201:9: 202:49: bytes/<DISAMB>::{impl#4}[0]::put_slice[0]
+[Crux]     test/symb_eval/bytes/put_overflow.rs:9:5: 9:69: put_overflow/<DISAMB>::f[0]
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

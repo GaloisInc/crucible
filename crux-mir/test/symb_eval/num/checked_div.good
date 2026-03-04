@@ -7,12 +7,21 @@ failures:
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/num/checked_div.rs:3:5: 3:10: error: in checked_div/<DISAMB>::div_signed[0]
 [Crux]   attempt to compute `copy _1 / copy _2`, which would overflow
+[Crux]   Context:
+[Crux]     test/symb_eval/num/checked_div.rs:3:5: 3:10: checked_div/<DISAMB>::div_signed[0]
+[Crux]     test/symb_eval/num/checked_div.rs:14:17: 14:37: checked_div/<DISAMB>::crux_test[0]
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/num/checked_div.rs:3:5: 3:10: error: in checked_div/<DISAMB>::div_signed[0]
 [Crux]   attempt to divide `copy _1` by zero
+[Crux]   Context:
+[Crux]     test/symb_eval/num/checked_div.rs:3:5: 3:10: checked_div/<DISAMB>::div_signed[0]
+[Crux]     test/symb_eval/num/checked_div.rs:17:17: 17:34: checked_div/<DISAMB>::crux_test[0]
 [Crux] Found counterexample for verification goal
 [Crux]   test/symb_eval/num/checked_div.rs:8:5: 8:10: error: in checked_div/<DISAMB>::div_unsigned[0]
 [Crux]   attempt to divide `copy _1` by zero
+[Crux]   Context:
+[Crux]     test/symb_eval/num/checked_div.rs:8:5: 8:10: checked_div/<DISAMB>::div_unsigned[0]
+[Crux]     test/symb_eval/num/checked_div.rs:20:17: 20:35: checked_div/<DISAMB>::crux_test[0]
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:

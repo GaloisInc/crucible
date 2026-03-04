@@ -16,12 +16,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Lang.Crucible.Simulator.SimError (
     SimErrorReason(..)
-  , SimError(..)
+  , SimError(.., SimError)
+  , ProgramStack(..)
+  , mkSimError
+  , simErrorReason
+  , simErrorLoc
+  , simErrorContext
   , simErrorReasonMsg
   , simErrorDetailsMsg
   , ppSimError
+  , ppProgramStack
   ) where
 
 import GHC.Stack (CallStack)
@@ -31,6 +38,7 @@ import Data.String
 import Prettyprinter
 
 import What4.ProgramLoc
+
 
 ------------------------------------------------------------------------
 -- SimError
@@ -49,11 +57,21 @@ data SimErrorReason
       -- ^ A loop iteration count, or similar resource limit,
       --   was exceeded.
 
-data SimError
-   = SimError
-   { simErrorLoc :: !ProgramLoc
-   , simErrorReason :: !SimErrorReason
-   }
+data SimError 
+   = SimErrorWithContext !ProgramLoc !SimErrorReason !(Maybe ProgramStack)
+ 
+-- | This pattern synonym constructs SimErrors without a program stack context when used 
+-- as an expression and ignores the program stack when used as a pattern.  It exists
+-- because SimError did not used to have a `ProgramStack`, and there are many usages
+-- in the code of the previous constructor which is approximated by this pattern.
+--
+-- Using SimErrorWithContext should be preferred.
+pattern SimError :: ProgramLoc -> SimErrorReason -> SimError
+pattern SimError { simErrorLoc, simErrorReason } <- SimErrorWithContext simErrorLoc simErrorReason _
+  where SimError loc reason = SimErrorWithContext loc reason Nothing
+
+simErrorContext :: SimError -> Maybe ProgramStack
+simErrorContext (SimErrorWithContext _ _ c) = c
 
 simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
@@ -66,6 +84,9 @@ simErrorDetailsMsg :: SimErrorReason -> String
 simErrorDetailsMsg (AssertFailureSimError _ msg) = msg
 simErrorDetailsMsg (Unsupported stk _) = show stk
 simErrorDetailsMsg _ = ""
+
+mkSimError :: ProgramLoc -> SimErrorReason -> Maybe ProgramStack -> SimError
+mkSimError loc reason mbCtx = SimErrorWithContext loc reason mbCtx
 
 instance IsString SimErrorReason where
   fromString = GenericSimError
@@ -80,13 +101,38 @@ ppSimError :: SimError -> Doc ann
 ppSimError er =
   vcat $ [ pretty (plSourceLoc loc) <> pretty ": error: in" <+> pretty (plFunction loc)
          , pretty (simErrorReasonMsg rsn)
-         ] ++ if null details
-              then []
-              else [ pretty "Details:"
-                   , indent 2 (vcat (pretty <$> lines details))
-                   ]
+         ] ++ (if null details
+               then []
+               else [ pretty "Details:"
+                    , indent 2 (vcat (pretty <$> lines details))
+                    ])
+          ++ (case simErrorContext er of
+                Nothing -> []
+                Just (ProgramStack _ []) -> []
+                Just ctx -> [ pretty "Context:"
+                            , indent 2 (ppProgramStack ctx)
+                            ])
  where loc = simErrorLoc er
        details = simErrorDetailsMsg rsn
-       rsn = simErrorReason er
+       rsn = simErrorReason er          
+
+-- | Representation of the program stack for providing dynamic
+-- context for SimErrors
+data ProgramStack = ProgramStack 
+  { -- | Number of calling frames omitted in the stack trace
+    psFrameOmitCount :: Int
+    -- | The visible part of the stack strace
+  , psFrames :: [ProgramLoc]
+  }
+
+ppProgramStack :: ProgramStack -> Doc ann
+ppProgramStack (ProgramStack omittedCount frames) = vcat ((ppLoc <$> frames) ++ omitLine)
+  where
+    omitLine =
+      if omittedCount <= 0
+        then []
+        else [ pretty "..."  <+> pretty omittedCount <+> pretty "calling frames omitted" ]
+    ppLoc l = pretty (plSourceLoc l) <> pretty ":" <+> pretty (plFunction l)
 
 instance Exception SimError
+

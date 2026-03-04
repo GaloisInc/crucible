@@ -1,0 +1,7 @@
+(defun @test () (Vector Integer)
+   (start block:
+      (let x (the (Vector Integer) (vector)))
+      (let y (the (Vector Integer) (vector)))
+      (return (if #t x y))))
+
+At test-data/ux/if-non-base-fp.cbl:6:13, expected an atom or conditional where branches have base or floating point type, but got VectorRepr IntegerRepr but got (if #t x y)

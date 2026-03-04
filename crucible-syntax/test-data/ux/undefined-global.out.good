@@ -1,0 +1,4 @@
+(defun @main () Unit
+   (start block: (set-global! @undefined-global #t) (return ())))
+
+At test-data/ux/undefined-global.cbl:4:18, expected name of global variable but got @undefined-global

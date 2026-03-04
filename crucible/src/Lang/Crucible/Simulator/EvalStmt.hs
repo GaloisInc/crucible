@@ -48,7 +48,7 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad (foldM, when)
 import           Control.Monad.IO.Class (MonadIO(..))
-import           Control.Monad.Reader (ReaderT(..), withReaderT)
+import           Control.Monad.Reader (ReaderT(..), withReaderT, ask)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
@@ -115,9 +115,8 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r.
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) IO (RegValue sym tp)
 evalExpr verb (App a) = ReaderT $ \s ->
   do let iteFns = s ^. stateIntrinsicTypes
-     let simCtx = s ^. stateContext
      let logFn = evalLogFn verb s
-     r <- withBackend simCtx $ \bak ->
+     r <- withStateBackend s $ \bak ->
             evalApp bak iteFns logFn
               (extensionEval (extensionImpl (s ^. stateContext)) bak iteFns logFn s)
               (\r -> runReaderT (evalReg r) s)
@@ -207,7 +206,9 @@ stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   StmtSeq ext blocks r ctx' {- ^ Remaining statements in the block -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepStmt verb stmt rest =
-  do ctx <- view stateContext
+
+  do st <- ask
+     ctx <- view stateContext
      let sym = ctx ^. ctxSymInterface
      let iTypes = ctxIntrinsicTypes ctx
      globals <- view (stateTree.actFrame.gpGlobals)
@@ -217,7 +218,7 @@ stepStmt verb stmt rest =
            ExecCont p sym ext rtp' f a
          continueWith f = withReaderT f (checkConsTerm verb)
 
-     withBackend ctx $ \bak ->
+     withStateBackend st $ \bak ->
        case stmt of
          NewRefCell tpr x ->
            do let halloc = simHandleAllocator ctx
@@ -402,8 +403,8 @@ stepTerm _ (TailCall fnExpr _types arg_exprs) =
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
-     simCtx <- view stateContext
-     withBackend simCtx $ \bak -> liftIO $
+     st <- ask
+     withStateBackend st $ \bak -> liftIO $
        case asString msg' of
          Just (UnicodeLiteral txt) ->
                      addFailedAssertion bak

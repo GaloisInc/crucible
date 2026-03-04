@@ -1,0 +1,4 @@
+(defun @test () Unit
+   (start block: (let x (bv-and)) (return ())))
+
+At test-data/ux/bv-and-ambiguous.cbl:4:12, expected ambiguous width or an atom but got (bv-and)

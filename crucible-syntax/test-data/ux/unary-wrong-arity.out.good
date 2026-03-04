@@ -1,0 +1,3 @@
+(defun @test () Bool (start block: (return (not #t #f))))
+
+At test-data/ux/unary-wrong-arity.cbl:4:13, expected empty expression () but got (#f)

@@ -9,6 +9,6 @@ Prove:
   Details:
     Expected function handle of type FunctionHandleRepr [] UnitRepr
     for call to function malloc
-    but found calling handle of type FunctionHandleRepr [IntrinsicRepr LLVM_pointer [BVRepr 64]] (IntrinsicRepr LLVM_pointer [BVRepr 64])
+    but found calling handle of type FunctionHandleRepr [BVRepr 64] (IntrinsicRepr LLVM_pointer [BVRepr 64])
   false
 COUNTEREXAMPLE

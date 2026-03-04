@@ -1,0 +1,3 @@
+(defun @test () Integer (start block: (return (+ 1 #t))))
+
+At test-data/ux/binary-type-mismatch.cbl:4:13, expected an atom or matching types (IntegerRepr /= BoolRepr) but got (+ 1 #t)

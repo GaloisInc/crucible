@@ -1,0 +1,4 @@
+(defun @test () (FP Double)
+   (start block: (return (ubv-to-fp Double rne #t))))
+
+At test-data/ux/ubv-to-fp-non-bv.cbl:4:35, expected bitvector value but got #t

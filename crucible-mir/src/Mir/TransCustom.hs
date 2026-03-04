@@ -687,12 +687,12 @@ drop_in_place_dyn =
     ( ["core", "ptr", "drop_in_place"],
       \case
         Substs [TyDynamic traitName'] ->
-            Just $ CustomOp $ \_argTys args -> case args of
-              [MirExp selfTy selfExpr] -> do
+            Just $ CustomOp $ \argTys args -> case (argTys, args) of
+              ([selfTy], [MirExp selfTpr selfExpr]) -> do
                 col <- use $ cs . collection
-                let argTys = Ctx.empty
+                let argTprs = Ctx.empty
                 let argExprs = Ctx.empty
-                let retTy = MirAggregateRepr
+                let retTpr = MirAggregateRepr
 
                 -- We expect `mir-json` to have placed this trait object's drop
                 -- method at index 0, unless the trait object lacks a principal
@@ -717,11 +717,12 @@ drop_in_place_dyn =
                         traitName'
                         dropMethodIndex
                         selfTy
+                        selfTpr
                         selfExpr
-                        argTys
+                        argTprs
                         argExprs
-                        retTy
-                pure (MirExp retTy callExpr)
+                        retTpr
+                pure (MirExp retTpr callExpr)
               _ -> mirFail $ "bad arguments for core::ptr::drop_in_place: " ++ show args
         Substs [_] ->
             -- We weren't provided a `dyn`/`TyDynamic`, so we don't provide an
@@ -1898,7 +1899,7 @@ bv_leading_zeros =
 
 -- fn allocate<T>(len: usize) -> *mut T
 allocate :: (ExplodedDefId, CustomRHS)
-allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
+allocate = (["core", "crucible", "alloc", "allocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirAggregate` of length `len`, and
@@ -1917,7 +1918,7 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
     _ -> Nothing)
 
 allocate_zeroed :: (ExplodedDefId, CustomRHS)
-allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
+allocate_zeroed = (["core", "crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr len] -> do
             Some elemTpr <- tyToReprM elemTy
@@ -1938,7 +1939,7 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
-reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
+reallocate = (["core", "crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             elemSize <- tySizeM elemTy
@@ -2411,7 +2412,8 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
 
       -- Process receiver.  We expect the receiver argument to have the form
       -- `*ptr`, and we extract the `ptr` to work with directly.
-      dynTraitName <- case typeOf opRecv of
+      let recvTy = typeOf opRecv
+      dynTraitName <- case recvTy of
         TyDynamic tn -> return tn
         ty -> mirFail $ "callOnceVirtShimDef: expected first arg to be TyDynamic, "
           ++ "but got " ++ show ty
@@ -2472,6 +2474,7 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         col
         dynTraitName
         methodIdx
+        (TyRawPtr recvTy Immut)
         recvTpr
         recv
         argCtx

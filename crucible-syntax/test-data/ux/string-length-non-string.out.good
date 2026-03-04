@@ -1,0 +1,4 @@
+(defun @test () Integer
+   (start block: (return (string-length #t))))
+
+At test-data/ux/string-length-non-string.cbl:4:28, expected string expression but got #t

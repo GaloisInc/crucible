@@ -1,0 +1,4 @@
+(defun @test () Unit
+   (start block: (let x (inj 0 42)) (return ())))
+
+At test-data/ux/inj-no-context.cbl:4:12, expected an atom but got (inj 0 42)

@@ -87,11 +87,14 @@ module Lang.Crucible.Simulator
     -- ** SimContext record
   , IsSymInterfaceProof
   , SimContext(..)
+  , ExceptionContextConfig(..)
   , initSimContext
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
   , profilingMetrics
+  , exceptionContextConfig
+  , parseExceptionContextConfig
 
     -- * SimState
   , SimState

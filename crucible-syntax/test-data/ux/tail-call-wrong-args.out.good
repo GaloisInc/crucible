@@ -1,0 +1,5 @@
+(declare @other ((x Integer)) Unit)
+
+(defun @test () Unit (start block: (tail-call @other #t)))
+
+At test-data/ux/tail-call-wrong-args.cbl:6:23, expected a IntegerRepr rather than a BoolRepr but got #t

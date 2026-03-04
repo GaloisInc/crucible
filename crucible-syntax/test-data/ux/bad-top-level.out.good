@@ -1,0 +1,5 @@
+(bad-keyword)
+
+Unknown top-level form at test-data/ux/bad-top-level.cbl:3:1
+Expected one of: defun, declare, defglobal, extern, but got:
+  (bad-keyword)

@@ -1,0 +1,5 @@
+(declare @other () Integer)
+
+(defun @test () Bool (start block: (tail-call @other)))
+
+At test-data/ux/tail-call-wrong-return.cbl:6:5, expected function atom and arguments but got (@other)

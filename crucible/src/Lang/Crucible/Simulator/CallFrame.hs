@@ -58,6 +58,7 @@ module Lang.Crucible.Simulator.CallFrame
   , fromCallFrame
   , fromReturnFrame
   , frameFunctionName
+  , frameStackLoc
   ) where
 
 import           Control.Lens
@@ -66,7 +67,7 @@ import qualified Data.Parameterized.Context as Ctx
 
 import           What4.FunctionName
 import           What4.Interface ( Pred )
-import           What4.ProgramLoc ( ProgramLoc )
+import           What4.ProgramLoc ( ProgramLoc, mkProgramLoc, Position(..) )
 
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
@@ -328,3 +329,11 @@ frameFunctionName = to $ \case
   OF f -> f ^. override
   MF f -> case frameHandle f of SomeHandle h -> handleName h
   RF n _ -> n
+
+-- | Get a location for a stack frame, or Nothing if this is a return frame
+frameStackLoc :: (SimFrame sym ext f a) -> Maybe ProgramLoc
+frameStackLoc frame =
+    case frame of
+      sf@(OF _) -> Just $ mkProgramLoc (sf ^. frameFunctionName) InternalPos
+      (MF f) -> Just $ frameProgramLoc f
+      (RF _ _) -> Nothing

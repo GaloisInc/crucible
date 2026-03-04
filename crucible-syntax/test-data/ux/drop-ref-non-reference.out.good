@@ -1,0 +1,7 @@
+(defun @test () Unit
+   (start block:
+      (let x (the Integer 42))
+      (drop-ref! x)
+      (return ())))
+
+At test-data/ux/drop-ref-non-reference.cbl:5:16, expected expression with reference type but got x

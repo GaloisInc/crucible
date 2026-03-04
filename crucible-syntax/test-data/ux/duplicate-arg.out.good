@@ -1,0 +1,4 @@
+(defun @foo ((x Integer) (y Bool) (x Integer)) Unit
+   (start block: (return ())))
+
+Duplicate atom `x` at test-data/ux/duplicate-arg.cbl:2:35

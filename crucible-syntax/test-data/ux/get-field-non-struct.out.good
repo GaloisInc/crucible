@@ -1,0 +1,6 @@
+(defun @test () Integer
+   (start block:
+      (let x (the Integer 42))
+      (return (get-field 0 x))))
+
+At test-data/ux/get-field-non-struct.cbl:5:13, expected struct type (got IntegerRepr) but got ()

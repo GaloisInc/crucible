@@ -4,6 +4,8 @@ This release supports [version
 9](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#9) of
 `mir-json`'s schema.
 
+* Stack traces are now included in many failure/errors - the maximum number of
+  such errors is configurable
 * Fix a translation error when translating constant slice raw pointers.
 * Add an intrinsic for [`align_of_val`](https://doc.rust-lang.org/std/intrinsics/fn.align_of_val.html),
   which computes the alignment of a value in bytes. This works for all sized types
@@ -11,6 +13,10 @@ This release supports [version
 * Extend the override for the `atomic_xchg` intrinsic to support storing
   pointer values in addition to integer values.
 * Support translating constant trait object values.
+* Support calling `dyn Trait` methods that have `Box`, `Rc`, `Arc`, or `Pin`
+  receivers, plus most uses of `#[feature(arbitrary_self_types)]`.
+* Add the `mirRef_peelFieldIO` and `mirRef_peelJustIO` functions in
+  `Mir.Intrinsics`. These are only used by SAW at the moment.
 
 # 0.6 -- 2026-01-29
 

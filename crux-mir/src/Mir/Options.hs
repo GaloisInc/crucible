@@ -33,6 +33,7 @@ data MIROptions = MIROptions
     -- the purposes of the `crux-mir-comp` test suite; there's no user-facing
     -- flag to set it.
     , mirJsonArgs     :: Seq String
+    , contextLimit    :: Maybe Text
     }
 
 defaultMirOptions :: MIROptions
@@ -48,6 +49,7 @@ defaultMirOptions = MIROptions
     , cargoTestFile = Nothing
     , defaultRlibsDir = "rlibs"
     , mirJsonArgs = Seq.empty
+    , contextLimit = Nothing
     }
 
 mirConfig :: Config MIROptions
@@ -95,5 +97,9 @@ mirConfig = Config
             "pass an argument to mir-json (can be repeated)"
             (GetOpt.ReqArg "ARG" $ \v opts ->
                 Right opts { mirJsonArgs = mirJsonArgs opts Seq.|> v })
+
+        , GetOpt.Option [] ["exception-context"]
+            "number of simulation frames to include when printing exceptions - `none` for no context, `nolimit` for no limit"
+            (GetOpt.ReqArg "LIMIT" $ \v opts -> Right opts { contextLimit = Just $ Text.pack v} )
         ]
     }

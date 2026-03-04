@@ -24,6 +24,7 @@ module Lang.Crucible.LLVM.Intrinsics
 , LLVMOverride(..)
 
 , register_llvm_overrides
+, register_specific_llvm_overrides
 , register_llvm_overrides_
 , llvmDeclToFunHandleRepr
 , declare_overrides
@@ -53,6 +54,8 @@ import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import qualified Lang.Crucible.LLVM.Intrinsics.Cast as Cast
+import qualified Lang.Crucible.LLVM.Intrinsics.Declare as Decl
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
@@ -65,9 +68,22 @@ llvmIntrinsicTypes =
    MapF.insert (knownSymbol :: SymbolRepr "LLVM_pointer") IntrinsicMuxFn $
    MapF.empty
 
--- | Match two sets of 'OverrideTemplate's against the @declare@s and @define@s
+-- | Match two sets of 'OverrideTemplate's against the @Declare@s and @Define@s
 -- in a 'L.Module', registering all the overrides that apply and returning them
--- as a list.
+-- as a list.  There are internal pre-determined overrides that will be applied,
+-- as well as any additional overrides supplied by the user (internal overrides
+-- will supercede user overrides).
+--
+-- The "define" overrides are applied to *both* the @Define@s and @Declare@s
+-- elements found within a module.
+--
+-- The "declare" overrides are applied only to the @Declare@s found within a
+-- module.  The intent is that these overrides should only apply to @Declare@s,
+-- whereas the "define" overrides should apply to any matching symbol in the LLVM
+-- @Module@.
+--
+-- If both lists specify an override that matches a declare, the declare override
+-- takes precedence over the define override.
 register_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
   , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
@@ -80,7 +96,37 @@ register_llvm_overrides ::
 register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
   do defOvs <- register_llvm_define_overrides llvmModule defineOvrs llvmctx
      declOvs <- register_llvm_declare_overrides llvmModule declareOvrs llvmctx
-     pure (defOvs,  declOvs)
+     pure (defOvs, declOvs)
+
+
+-- | Match a set of 'OverrideTemplate's against a provided set of definitions and
+-- declarations, registering all the overrides that apply and returning them as a
+-- pair of lists: the registered definition overrides and the registered
+-- declaration overrides.
+--
+-- This is an alternative entrypoint for registering overrides.  The
+-- functionality here is largely the same as 'register_llvm_overrides' except the
+-- list of declares and defines are provided manually by the caller instead of
+-- being extracted from the LLVM @Module@.
+register_specific_llvm_overrides ::
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  HasPtrWidth wptr =>
+  wptr ~ ArchWidth arch =>
+  (?intrinsicsOpts :: IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
+  [L.Define] ->
+  [L.Declare] ->
+  [OverrideTemplate p sym LLVM arch] {- ^ Additional \"define\" overrides -} ->
+  [OverrideTemplate p sym LLVM arch] {- ^ Additional \"declare\" overrides -} ->
+  LLVMContext arch ->
+  OverrideSim p sym LLVM rtp l a ( [SomeLLVMOverride p sym LLVM] -- ^ def overrides
+                                 , [SomeLLVMOverride p sym LLVM] -- ^ decl overrides
+                                 )
+register_specific_llvm_overrides defs decls addlDefOvrs addlDeclOvrs llvmctx =
+  (,)
+  <$> register_overrides (declareFromDefine <$> defs) addlDefOvrs llvmctx
+  <*> register_overrides decls addlDeclOvrs llvmctx
 
 -- | Filter the initial list of templates to only those that could
 -- possibly match the given declaration based on straightforward,
@@ -91,10 +137,11 @@ register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
 -- and the structure of C++ demangled names to extract more information.
 filterTemplates ::
   [OverrideTemplate p sym ext arch] ->
-  L.Declare ->
+  Decl.SomeDeclare ->
   [OverrideTemplate p sym ext arch]
-filterTemplates ts decl = filter (matches nm . overrideTemplateMatcher) ts
- where L.Symbol nm = L.decName decl
+filterTemplates ts (Decl.SomeDeclare decl) =
+  filter (matches nm . overrideTemplateMatcher) ts
+  where L.Symbol nm = Decl.decName decl
 
 -- | Match a set of 'OverrideTemplate's against a single 'L.Declare',
 -- registering all the overrides that apply and returning them as a list.
@@ -104,16 +151,17 @@ match_llvm_overrides ::
   -- | Overrides to attempt to match against this declaration
   [OverrideTemplate p sym ext arch] ->
   -- | Declaration of the function that might get overridden
-  L.Declare ->
+  Decl.SomeDeclare ->
   OverrideSim p sym ext rtp l a [SomeLLVMOverride p sym ext]
-match_llvm_overrides llvmctx acts decl =
+match_llvm_overrides llvmctx acts someDecl =
   llvmPtrWidth llvmctx $ \wptr -> withPtrWidth wptr $ do
-    let acts' = filterTemplates acts decl
-    let L.Symbol nm = L.decName decl
+    let acts' = filterTemplates acts someDecl
+    Decl.SomeDeclare decl <- pure someDecl
+    let L.Symbol nm = Decl.decName decl
     let declnm = either (const Nothing) Just $ ABI.demangleName nm
     mbOvs <-
       forM (map overrideTemplateAction acts') $ \(MakeOverride act) ->
-        case act decl declnm llvmctx of
+        case act someDecl declnm llvmctx of
           Nothing -> pure Nothing
           Just sov@(SomeLLVMOverride ov) -> do
             register_llvm_override ov decl llvmctx
@@ -128,30 +176,32 @@ register_llvm_overrides_ ::
   -- | Overrides to attempt to match against these declarations
   [OverrideTemplate p sym ext arch] ->
   -- | Declarations of the functions that might get overridden
-  [L.Declare] ->
+  [Decl.SomeDeclare] ->
   OverrideSim p sym ext rtp l a [SomeLLVMOverride p sym ext]
 register_llvm_overrides_ llvmctx acts decls =
   concat <$> forM decls (\decl -> match_llvm_overrides llvmctx acts decl)
 
 -- | Match a set of 'OverrideTemplate's against all the @declare@s and @define@s
 -- in a 'L.Module', registering all the overrides that apply and returning them
--- as a list.
+-- as a list.  This should apply the override regardless of whether the override
+-- applies to a @Define@ or a @Declare@.
 --
 -- Registers a default set of overrides, in addition to the ones passed as an
 -- argument.
 register_llvm_define_overrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   -- | Additional (non-default) @define@ overrides
   [OverrideTemplate p sym LLVM arch] ->
   LLVMContext arch ->
   OverrideSim p sym LLVM rtp l a [SomeLLVMOverride p sym LLVM]
 register_llvm_define_overrides llvmModule addlOvrs llvmctx =
-  let ?lc = llvmctx^.llvmTypeCtx in
-  register_llvm_overrides_ llvmctx (addlOvrs ++ define_overrides) $
-     (allModuleDeclares llvmModule)
+  let ?lc = llvmctx^.llvmTypeCtx
+  in register_overrides (allModuleDeclares llvmModule) (addlOvrs ++ define_overrides)
+     llvmctx
 
--- | Match a set of 'OverrideTemplate's against all the @declare@s in a
+-- | Match a set of 'OverrideTemplate's against all the @Declare@s in a
 -- 'L.Module', registering all the overrides that apply and returning them as
 -- a list.
 --
@@ -167,8 +217,22 @@ register_llvm_declare_overrides ::
   OverrideSim p sym LLVM rtp l a [SomeLLVMOverride p sym LLVM]
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx
-  in register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) $
-       L.modDeclares llvmModule
+  in register_overrides (L.modDeclares llvmModule) (addlOvrs ++ declare_overrides)
+     llvmctx
+
+register_overrides ::
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
+  [L.Declare] ->
+  -- | Additional (non-default) @declare@ overrides
+  [OverrideTemplate p sym LLVM arch] ->
+  LLVMContext arch ->
+  OverrideSim p sym LLVM rtp l a [SomeLLVMOverride p sym LLVM]
+register_overrides llvmDecls ovrs llvmctx = do
+  let ?lc = llvmctx^.llvmTypeCtx
+  decls <- Decl.fromLLVMWithWarnings llvmDecls
+  let ovs = map Cast.lowerOverrideTemplate ovrs
+  register_llvm_overrides_ llvmctx ovs decls
 
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
@@ -181,6 +245,7 @@ declare_overrides =
   , map (\(SomeLLVMOverride ov) -> basic_llvm_override ov) LLVM.basic_llvm_overrides
   , map (\(pfx, LLVM.Poly1LLVMOverride ov) -> polymorphic1_llvm_override pfx ov) LLVM.poly1_llvm_overrides
   , map (\(pfx, LLVM.Poly1VecLLVMOverride ov) -> polymorphic1_vec_llvm_override pfx ov) LLVM.poly1_vec_llvm_overrides
+  , map (\(pfx, LLVM.PolyCmpLLVMOverride ov) -> polymorphic_cmp_llvm_override pfx ov) LLVM.poly_cmp_llvm_overrides
 
   -- C++ standard library functions
   , [ Libcxx.register_cpp_override Libcxx.endlOverride ]
