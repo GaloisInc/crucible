@@ -1,0 +1,5 @@
+(defun @test () Integer
+   (start block: (let x #t) (output dest: x))
+   (defblock (dest: y Integer) (return y)))
+
+At test-data/ux/output-wrong-type.cbl:5:19, expected a IntegerRepr rather than a BoolRepr but got x
