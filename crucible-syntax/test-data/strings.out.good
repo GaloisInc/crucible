@@ -4,6 +4,9 @@
       (let y "\\")
       (let q "\"")
       (let w "\t\n ")
+      (let e (string-empty Unicode))
+      (let c (string-concat x y))
+      (let n (string-length x))
       (return x)))
 
 test-str
@@ -16,6 +19,12 @@ test-str
   $2 = stringLit("\"")
   % 8:12
   $3 = stringLit("\t\n ")
-  % 9:5
+  % 9:12
+  $4 = stringEmpty(UnicodeRepr)
+  % 10:12
+  $5 = stringConcat(UnicodeRepr, $0, $1)
+  % 11:12
+  $6 = stringLength($0)
+  % 12:5
   return $0
   % no postdom

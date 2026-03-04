@@ -1,0 +1,36 @@
+(defun @seq-test ((x Integer)) (Sequence Integer)
+   (start go:
+      (let s0 (seq-nil Integer))
+      (let s1 (seq-cons x s0))
+      (let s2 (seq-cons x s1))
+      (let s3 (seq-append s1 s2))
+      (let e (seq-nil? s0))
+      (let n (seq-length s3))
+      (let h (seq-head s3))
+      (let t (seq-tail s3))
+      (let u (seq-uncons s3))
+      (return s3)))
+
+seq-test
+%0
+  % 5:13
+  $1 = sequenceNil(IntegerRepr)
+  % 6:13
+  $2 = sequenceCons(IntegerRepr, $0, $1)
+  % 7:13
+  $3 = sequenceCons(IntegerRepr, $0, $2)
+  % 8:13
+  $4 = sequenceAppend(IntegerRepr, $2, $3)
+  % 9:13
+  $5 = sequenceIsNil(IntegerRepr, $1)
+  % 10:13
+  $6 = sequenceLength(IntegerRepr, $4)
+  % 11:13
+  $7 = sequenceHead(IntegerRepr, $4)
+  % 12:13
+  $8 = sequenceTail(IntegerRepr, $4)
+  % 13:13
+  $9 = sequenceUncons(IntegerRepr, $4)
+  % 14:5
+  return $4
+  % no postdom
