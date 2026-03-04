@@ -1,0 +1,8 @@
+(defun @test () Integer
+   (start block:
+      (let x (the (Variant Integer) (inj 0 (the Integer 1))))
+      (case x a: b:))
+   (defblock (a: v Integer) (return v))
+   (defblock (b: w Integer) (return v)))
+
+At test-data/ux/case-too-many-labels.cbl:5:5, expected empty expression () but got (a:)
