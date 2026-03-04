@@ -100,13 +100,13 @@ registerModuleFn handleWarning mtrans sym =
 --   'registerLazyModuleFn' for a description.
 registerLazyModule ::
    (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
-   (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling traslation warnings -} ->
+   (LLVMTranslationWarning -> IO ()) {- ^ A callback for handling translation warnings -} ->
    ModuleTranslation arch ->
    OverrideSim p sym LLVM rtp l a ()
 registerLazyModule handleWarning mtrans =
    mapM_ (registerLazyModuleFn handleWarning mtrans) (map (L.decName.fst) (mtrans ^. modTransDefs))
 
--- | Lazily register the named function that is defnied in the given module
+-- | Lazily register the named function that is defined in the given module
 --   translation. This will delay actually translating the function until it
 --   is called. This done by first installing a bootstrapping override that
 --   will peform the actual translation when first invoked, and then will backpatch
