@@ -1343,6 +1343,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirRef_PeelIndex ::
      !(f MirReferenceType) ->
      MirStmt f (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType))
+  DebugPrintMirRef ::
+     !(f (StringType Unicode)) ->
+     !(f MirReferenceType) ->
+     MirStmt f UnitType
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -1480,6 +1484,7 @@ instance TypeApp MirStmt where
     MirRef_OffsetWrap _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
     MirRef_PeelIndex _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
+    DebugPrintMirRef _ _ -> UnitRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -1515,6 +1520,7 @@ instance PrettyApp MirStmt where
     MirRef_OffsetWrap p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
     MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
     MirRef_PeelIndex p -> "mirRef_peelIndex" <+> pp p
+    DebugPrintMirRef s p -> "debugPrintMirRef" <+> pp s <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -2604,6 +2610,9 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes r1 r2
        MirRef_PeelIndex (regValue -> ref) -> do
          readOnly s $ mirRef_peelIndexIO bak iTypes ref
+       DebugPrintMirRef (regValue -> desc) (regValue -> ref) -> do
+         readOnly s $ putStrLn $ "debugPrintMirRef (" ++ show (printSymExpr desc)
+           ++ "): " ++ show ref
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)

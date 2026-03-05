@@ -84,12 +84,14 @@ import           Data.Parameterized.NatRepr
 
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified Lang.Crucible.Types as C
+import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Panic as P
 import qualified Lang.Crucible.Syntax as S
 
+import           What4.Interface (StringLiteral(..))
 
 
 import           Mir.DefId
@@ -700,6 +702,15 @@ mirRef_peelIndex ::
 mirRef_peelIndex ref = do
     pair <- G.extensionStmt $ MirRef_PeelIndex ref
     return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
+
+debugPrintMirRef ::
+  String ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret ()
+debugPrintMirRef desc ref = do
+    let descExpr = R.App $ E.StringLit $ UnicodeLiteral $ Text.pack desc
+    void $ G.extensionStmt $ DebugPrintMirRef descExpr ref
+
 
 -----------------------------------------------------------------------
 
