@@ -2269,7 +2269,8 @@ initFnState colState transCtxt =
             _labelMap   = Map.empty,
             _customOps  = ?customOps,
             _assertFalseOnError = ?assertFalseOnError,
-            _transInfo  = mempty
+            _transInfo  = mempty,
+            _failHandler = FailError
          }
 
 
@@ -3100,7 +3101,7 @@ transVirtCall :: forall h.
 transVirtCall colState intrName' methName dynTraitName methIndex
   | Just methMH <- Map.lookup intrName' (colState ^. handleMap)
   , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH = do
-      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of 
+      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of
         Right x -> return x
         Left _ -> die ["method handle has no arguments"]
       let retTpr = FH.handleReturnType methFH
@@ -3266,14 +3267,31 @@ transStatics colState halloc = do
       initializeStatic static =
         let staticName = static ^. sName in
         case Map.lookup staticName sm of
-          Just (StaticVar g) ->
-            let repr = G.globalType g in
+          Just (StaticVar g) -> do
+            let repr = G.globalType g
+
+            -- TODO RGS: Document what is going on here
+            successLbl <- G.newLambdaLabel' repr
+            failLbl <- G.newLabel
+            continueLbl <- G.newLabel
+
+            failHandler .= FailReturnNothing failLbl
+
+            G.defineLambdaBlock successLbl $ \val -> do
+              G.writeGlobal g val
+              failHandler .= FailError
+              G.jump continueLbl
+            G.defineBlock failLbl $ do
+              failHandler .= FailError
+              G.jump continueLbl
+
             if |  Just constval <- static ^. sConstVal
                -> do let constty = static ^. sTy
                      Some tpr <- tyToReprM constty
                      MirExp constty' constval' <- transConstVal constty (Some tpr) constval
                      case testEquality repr constty' of
-                       Just Refl -> G.writeGlobal g constval'
+                       Just Refl ->
+                         G.continue continueLbl $ G.jumpToLambda successLbl constval'
                        Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
                                        ++ ", expected " ++ show repr ++ ", got " ++ show constty'
 
@@ -3284,7 +3302,7 @@ transStatics colState halloc = do
                        ) of
                     (Just Refl, Just Refl) -> do
                       val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
-                      G.writeGlobal g val
+                      G.continue continueLbl $ G.jumpToLambda successLbl val
 
                     _ -> error $ "BUG: invalid type for initializer function " ++ fmt staticName
 

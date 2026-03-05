@@ -160,7 +160,8 @@ data FnState (s :: Type)
               _cs         :: !CollectionState,
               _customOps  :: !CustomOpMap,
               _assertFalseOnError :: !Bool,
-              _transInfo  :: !FnTransInfo
+              _transInfo  :: !FnTransInfo,
+              _failHandler :: !(FnFailHandler s)
             }
 
 -- | The current translation context
@@ -197,6 +198,13 @@ data CollectionState
       _collection     :: !Collection
       }
 
+-- | TODO RGS: Docs
+data FnFailHandler (s :: Type) where
+  FailError ::
+    FnFailHandler s
+  FailReturnNothing ::
+    !(R.Label s) ->
+    FnFailHandler s
 
 ---------------------------------------------------------------------------
 -- ** Custom operations
@@ -501,6 +509,14 @@ findDefId edid = do
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
+  handler <- use failHandler
+  case handler of
+    FailError -> mirError str
+    FailReturnNothing lbl -> G.jump lbl
+
+-- | TODO RGS: Docs
+mirError :: String -> MirGenerator h s ret a
+mirError str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
   transCtxt <- use transContext
