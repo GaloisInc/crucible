@@ -25,16 +25,12 @@ UX_SKIP=(
   show-unsupported
 )
 
-# These crucible-cli tests are skipped for the following reasons:
-#   multi-file       — reference functions/globals defined in other files
-#                      (assumption-state, debug, override-*, conc-bool, mjrty)
-#   bare nothing/seq-nil — need explicit type annotations, e.g. (the (Maybe T) nothing)
-#                      (from-maybe, seq-test*)
+# These crucible-cli tests are skipped because they reference overrides that are
+# not modeled in the Redex spec.
 CLI_SKIP=(
   assumption-state
   conc-bool
   debug
-  from-maybe
   mjrty
   override-nondet-test-0
   override-nondet-test-1
@@ -42,12 +38,16 @@ CLI_SKIP=(
   override-nondet-test-neither
   override-test
   override-test2
-  seq-test1
-  seq-test2
-  seq-test3
 )
 
 ok=true
+pos_pass=0
+pos_fail=0
+neg_pass=0
+neg_fail=0
+cli_pass=0
+cli_fail=0
+cli_skip=0
 
 in_list() {
   local needle=$1; shift
@@ -57,14 +57,18 @@ in_list() {
   return 1
 }
 
-# --- Positive tests (should all pass) ---
+echo "=== Positive tests (test-data/*.cbl) ==="
 for f in ../test-data/*.cbl; do
-  if ! racket check.rkt "$f"; then
+  if racket check.rkt "$f"; then
+    pos_pass=$((pos_pass + 1))
+  else
     ok=false
+    pos_fail=$((pos_fail + 1))
   fi
 done
 
-# --- Negative tests (should all fail) ---
+echo ""
+echo "=== Negative tests (test-data/ux/*.cbl) ==="
 for f in ../test-data/ux/*.cbl; do
   base=$(basename "$f" .cbl)
   if in_list "$base" "${UX_SKIP[@]}"; then continue; fi
@@ -72,17 +76,40 @@ for f in ../test-data/ux/*.cbl; do
   if racket check.rkt "$f" 2>/dev/null | grep -q "OK"; then
     echo "SHOULD FAIL but passed: $f"
     ok=false
+    neg_fail=$((neg_fail + 1))
+  else
+    neg_pass=$((neg_pass + 1))
   fi
 done
 
-# --- crucible-cli tests (should all pass) ---
+echo ""
+echo "=== crucible-cli tests ==="
 for f in ../../crucible-cli/test-data/**/*.cbl; do
   base=$(basename "$f" .cbl)
-  if in_list "$base" "${CLI_SKIP[@]}"; then continue; fi
+  if in_list "$base" "${CLI_SKIP[@]}"; then
+    cli_skip=$((cli_skip + 1))
+    continue
+  fi
 
-  if ! racket check.rkt "$f"; then
+  if racket check.rkt "$f"; then
+    cli_pass=$((cli_pass + 1))
+  else
     ok=false
+    cli_fail=$((cli_fail + 1))
   fi
 done
 
-$ok
+echo ""
+echo "=== Summary ==="
+echo "Positive tests:  $pos_pass passed, $pos_fail failed"
+echo "Negative tests:  $neg_pass passed (correctly failed), $neg_fail failed (incorrectly passed)"
+echo "CLI tests:       $cli_pass passed, $cli_fail failed, $cli_skip skipped"
+echo ""
+
+if $ok; then
+  echo "✓ All tests passed"
+  exit 0
+else
+  echo "✗ Some tests failed"
+  exit 1
+fi

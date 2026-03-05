@@ -172,14 +172,18 @@
 (define (fuzz-redex-round-trip attempts size)
   (printf "Fuzzing Redex parser round-trip (~a attempts, max size ~a)...\n"
           attempts size)
+  (define passed 0)
   (redex-check crucible-syntax prog_0
     (let* ([ast     (term prog_0)]
            [surface (unparse-prog ast)]
            [reparsed (parse-forms surface)])
+      (set! passed (add1 passed))
+      (when (= 0 (modulo passed 100))
+        (printf "  ...~a tests passed\n" passed))
       (equal? reparsed ast))
     #:attempts attempts
     #:attempt-size (lambda (n) (min n size)))
-  (printf "  Redex round-trip: ok\n"))
+  (printf "  Redex round-trip: ok (~a tests)\n" passed))
 
 ;; Mode 2: Generate .cbl files for external testing
 (define (generate-cbl-files dir count size)
@@ -189,7 +193,9 @@
     (define ast (generate-term crucible-syntax prog_0 (min i size)))
     (define surface (unparse-prog ast))
     (define path (build-path dir (format "fuzz-~a.cbl" i)))
-    (write-cbl-file path surface))
+    (write-cbl-file path surface)
+    (when (and (> i 0) (= 0 (modulo (add1 i) 100)))
+      (printf "  ...~a files written\n" (add1 i))))
   (printf "  wrote ~a files\n" count))
 
 ;; Mode 3: Generate programs and check type statistics
@@ -214,7 +220,11 @@
           (set! well-typed-count (add1 well-typed-count))
           (write-cbl-file path surface)
           (set! well-typed-files (cons path well-typed-files)))
-        (set! non-well-typed-count (add1 non-well-typed-count))))
+        (set! non-well-typed-count (add1 non-well-typed-count)))
+
+    (when (and (> i 0) (= 0 (modulo (add1 i) 100)))
+      (printf "  ...~a/~a programs processed (~a well-typed)\n"
+              (add1 i) count well-typed-count)))
 
   (printf "\nType-checking results:\n")
   (printf "  Well-typed programs:     ~a (~a%)\n"
@@ -228,6 +238,7 @@
   (when crucible-bin
     (printf "\nTesting parser on well-typed programs...\n")
     (define check-path (build-path (current-directory) "check.rkt"))
+    (define tested 0)
     (for ([path (in-list (reverse well-typed-files))])
       (define result
         (with-handlers ([exn:fail? (lambda (e)
@@ -245,7 +256,11 @@
             (set! parse-ok (add1 parse-ok))
             (begin
               (printf "  PARSE FAIL: ~a\n  Output: ~a\n" path result)
-              (set! parse-fail (add1 parse-fail))))))
+              (set! parse-fail (add1 parse-fail)))))
+      (set! tested (add1 tested))
+      (when (and (> tested 0) (= 0 (modulo tested 100)))
+        (printf "  ...~a/~a programs tested (~a ok, ~a failed)\n"
+                tested (length well-typed-files) parse-ok parse-fail)))
     (printf "\nParser test results (well-typed programs only):\n")
     (printf "  Parse OK:   ~a\n" parse-ok)
     (printf "  Parse FAIL: ~a\n" parse-fail)

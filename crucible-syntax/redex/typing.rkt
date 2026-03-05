@@ -6,7 +6,7 @@
          racket/string
          "grammar.rkt")
 
-(provide expr-type stmt-ok term-ok
+(provide expr-synth expr-check stmt-ok term-ok
          stmts-ok block-ok blocks-ok defun-ok funs-ok prog-ok
          lookup fun-lookup reg-lookup global-lookup
          numeric? fp-width nth no-duplicates? label-env fun-env global-env)
@@ -136,11 +136,10 @@
   (for/and ([r (in-list regs)])
     (string-prefix? (symbol->string r) "$")))
 
-;; Check all expressions in `es` have type `ty`
-(define (check-all-type F G R V es ty)
+;; Check all expressions in `es` against type `ty` (checking mode)
+(define (check-all-check F G R V es ty)
   (for/and ([e (in-list es)])
-    (member ty (judgment-holds
-               (expr-type ,F ,G ,R ,V ,e ty_out) ty_out))))
+    (judgment-holds (expr-check ,F ,G ,R ,V ,e ,ty))))
 
 ;; Check case labels match variant types
 (define (check-case-labels L labels variant-types)
@@ -150,327 +149,352 @@
          (equal? (param-label-type L lbl) ty))))
 
 ;; --------------------------------------------------------------
-;; Expression typing
+;; Expression typing (bidirectional)
+
+;; Synthesis mode: infer type from expression
 (define-judgment-form crucible-syntax
-  #:mode (expr-type I I I I I O)
-  #:contract (expr-type F G R V e ty)
+  #:mode (expr-synth I I I I I O)
+  #:contract (expr-synth F G R V e ty)
 
   ;; unit
-  [(expr-type F G R V unit-val Unit)]
+  [(expr-synth F G R V unit-val Unit)]
 
   ;; booleans
-  [(expr-type F G R V #t Bool)]
-  [(expr-type F G R V #f Bool)]
+  [(expr-synth F G R V #t Bool)]
+  [(expr-synth F G R V #f Bool)]
 
   ;; integer literals → Integer
-  [(expr-type F G R V number Integer)
+  [(expr-synth F G R V number Integer)
    (where #t ,(exact-integer? (term number)))]
 
   ;; non-negative integer literals → Nat
-  [(expr-type F G R V number Nat)
+  [(expr-synth F G R V number Nat)
    (where #t ,(and (exact-integer? (term number))
                    (>= (term number) 0)))]
 
   ;; exact numeric literals → Real
-  [(expr-type F G R V number Real)
+  [(expr-synth F G R V number Real)
    (where #t ,(exact? (term number)))]
 
   ;; string literals
-  [(expr-type F G R V string (String Unicode))
+  [(expr-synth F G R V string (String Unicode))
    (where #t ,(string? (term string)))]
 
   ;; variable
-  [(expr-type F G R V x ty)
+  [(expr-synth F G R V x ty)
    (lookup V x ty)]
 
   ;; type ascription
-  [(expr-type F G R V (the ty e) ty)
-   (expr-type F G R V e ty)]
+  [(expr-synth F G R V (the ty e) ty)
+   (expr-check F G R V e ty)]
 
   ;; --- Arithmetic (variadic 2+, polymorphic numeric) ---
-  [(expr-type F G R V (numeric-varop e_1 e_2 e_rest ...) ty)
-   (expr-type F G R V e_1 ty)
-   (expr-type F G R V e_2 ty)
+  [(expr-synth F G R V (numeric-varop e_1 e_2 e_rest ...) ty)
+   (expr-synth F G R V e_1 ty)
+   (expr-check F G R V e_2 ty)
    (side-condition
-    ,(check-all-type (term F) (term G) (term R)
-                     (term V) (term (e_rest ...)) (term ty)))
+    ,(check-all-check (term F) (term G) (term R)
+                      (term V) (term (e_rest ...)) (term ty)))
    (where #t (numeric? ty))]
 
   ;; --- Arithmetic (binary, polymorphic numeric) ---
-  [(expr-type F G R V (numeric-binop e_1 e_2) ty)
-   (expr-type F G R V e_1 ty)
-   (expr-type F G R V e_2 ty)
+  [(expr-synth F G R V (numeric-binop e_1 e_2) ty)
+   (expr-synth F G R V e_1 ty)
+   (expr-check F G R V e_2 ty)
    (where #t (numeric? ty))]
 
   ;; --- Numeric comparisons → Bool ---
-  [(expr-type F G R V (numeric-cmpop e_1 e_2) Bool)
-   (expr-type F G R V e_1 ty)
-   (expr-type F G R V e_2 ty)
+  [(expr-synth F G R V (numeric-cmpop e_1 e_2) Bool)
+   (expr-synth F G R V e_1 ty)
+   (expr-check F G R V e_2 ty)
    (where #t (numeric? ty))]
 
   ;; equality (fully polymorphic)
-  [(expr-type F G R V (equal? e_1 e_2) Bool)
-   (expr-type F G R V e_1 ty)
-   (expr-type F G R V e_2 ty)]
+  [(expr-synth F G R V (equal? e_1 e_2) Bool)
+   (expr-synth F G R V e_1 ty)
+   (expr-check F G R V e_2 ty)]
 
   ;; --- Unary numeric ---
-  [(expr-type F G R V (numeric-unop e) ty)
-   (expr-type F G R V e ty)
+  [(expr-synth F G R V (numeric-unop e) ty)
+   (expr-synth F G R V e ty)
    (where #t (numeric? ty))]
 
   ;; --- Boolean ops (variadic 2+) ---
-  [(expr-type F G R V (bool-varop e_1 e_2 e_rest ...) Bool)
-   (expr-type F G R V e_1 Bool)
-   (expr-type F G R V e_2 Bool)
+  [(expr-synth F G R V (bool-varop e_1 e_2 e_rest ...) Bool)
+   (expr-check F G R V e_1 Bool)
+   (expr-check F G R V e_2 Bool)
    (side-condition
-    ,(check-all-type (term F) (term G) (term R)
-                     (term V) (term (e_rest ...)) 'Bool))]
+    ,(check-all-check (term F) (term G) (term R)
+                      (term V) (term (e_rest ...)) 'Bool))]
 
-  [(expr-type F G R V (not e_1) Bool)
-   (expr-type F G R V e_1 Bool)]
+  [(expr-synth F G R V (not e_1) Bool)
+   (expr-check F G R V e_1 Bool)]
 
   ;; integer?
-  [(expr-type F G R V (integer? e) Bool)
-   (expr-type F G R V e Real)]
+  [(expr-synth F G R V (integer? e) Bool)
+   (expr-check F G R V e Real)]
 
   ;; conditional
-  [(expr-type F G R V (if e_c e_t e_f) ty)
-   (expr-type F G R V e_c Bool)
-   (expr-type F G R V e_t ty)
-   (expr-type F G R V e_f ty)]
+  [(expr-synth F G R V (if e_c e_t e_f) ty)
+   (expr-check F G R V e_c Bool)
+   (expr-synth F G R V e_t ty)
+   (expr-check F G R V e_f ty)]
 
   ;; --- Function call & reference ---
 
-  [(expr-type F G R V (funcall fname e ...) ty_ret)
+  [(expr-synth F G R V (funcall fname e ...) ty_ret)
    (fun-lookup F fname (ty_arg ...) ty_ret)
-   (expr-type F G R V e ty_arg) ...]
+   (expr-check F G R V e ty_arg) ...]
 
-  [(expr-type F G R V (funcall fname e ...) ty_ret)
+  [(expr-synth F G R V (funcall fname e ...) ty_ret)
    (lookup V fname (-> ty_arg ... ty_ret))
-   (expr-type F G R V e ty_arg) ...]
+   (expr-check F G R V e ty_arg) ...]
 
-  [(expr-type F G R V (fun-ref fname) (-> ty_arg ... ty_ret))
+  [(expr-synth F G R V (fun-ref fname) (-> ty_arg ... ty_ret))
    (fun-lookup F fname (ty_arg ...) ty_ret)]
 
   ;; --- String ops ---
 
-  [(expr-type F G R V (string-concat e_1 e_2) (String Unicode))
-   (expr-type F G R V e_1 (String Unicode))
-   (expr-type F G R V e_2 (String Unicode))]
+  [(expr-synth F G R V (string-concat e_1 e_2) (String Unicode))
+   (expr-check F G R V e_1 (String Unicode))
+   (expr-check F G R V e_2 (String Unicode))]
 
-  [(expr-type F G R V (show e) (String Unicode))
-   (expr-type F G R V e ty)]
+  [(expr-synth F G R V (show e) (String Unicode))
+   (expr-synth F G R V e ty)]
 
-  [(expr-type F G R V (fresh ty) ty)]
+  [(expr-synth F G R V (fresh ty) ty)]
 
-  [(expr-type F G R V (string-empty enc) (String enc))]
+  [(expr-synth F G R V (string-empty enc) (String enc))]
 
-  [(expr-type F G R V (string-length e) Nat)
-   (expr-type F G R V e (String enc))]
+  [(expr-synth F G R V (string-length e) Nat)
+   (expr-synth F G R V e (String enc))]
 
   ;; --- Register & global ---
 
-  [(expr-type F G R V (reg-ref reg) ty)
+  [(expr-synth F G R V (reg-ref reg) ty)
    (reg-lookup R reg ty)]
 
-  [(expr-type F G R V (global-ref gname) ty)
+  [(expr-synth F G R V (global-ref gname) ty)
    (global-lookup G gname ty)]
 
   ;; --- Any ---
 
-  [(expr-type F G R V (to-any e) Any)
-   (expr-type F G R V e ty)]
+  [(expr-synth F G R V (to-any e) Any)
+   (expr-synth F G R V e ty)]
 
-  [(expr-type F G R V (from-any ty e) (Maybe ty))
-   (expr-type F G R V e Any)]
+  [(expr-synth F G R V (from-any ty e) (Maybe ty))
+   (expr-check F G R V e Any)]
 
   ;; --- Maybe ---
 
-  [(expr-type F G R V (nothing ty) (Maybe ty))]
+  [(expr-synth F G R V (nothing ty) (Maybe ty))]
 
-  [(expr-type F G R V (just e) (Maybe ty))
-   (expr-type F G R V e ty)]
+  [(expr-synth F G R V (just e) (Maybe ty))
+   (expr-synth F G R V e ty)]
 
-  [(expr-type F G R V (from-just e_1 e_2) ty)
-   (expr-type F G R V e_1 (Maybe ty))
-   (expr-type F G R V e_2 (String Unicode))]
+  [(expr-synth F G R V (from-just e_1 e_2) ty)
+   (expr-synth F G R V e_1 (Maybe ty))
+   (expr-check F G R V e_2 (String Unicode))]
 
   ;; --- Bitvector ---
 
   ;; literal
-  [(expr-type F G R V (bv number_w number_v) (Bitvector number_w))
+  [(expr-synth F G R V (bv number_w number_v) (Bitvector number_w))
    (where #t ,(and (exact-integer? (term number_w))
                    (> (term number_w) 0)))]
 
   ;; variadic bitwise ops (2+)
-  [(expr-type F G R V (bv-varop e_1 e_2 e_rest ...) (Bitvector number))
-   (expr-type F G R V e_1 (Bitvector number))
-   (expr-type F G R V e_2 (Bitvector number))
+  [(expr-synth F G R V (bv-varop e_1 e_2 e_rest ...) (Bitvector number))
+   (expr-synth F G R V e_1 (Bitvector number))
+   (expr-check F G R V e_2 (Bitvector number))
    (side-condition
-    ,(check-all-type
+    ,(check-all-check
       (term F) (term G) (term R) (term V)
       (term (e_rest ...)) (term (Bitvector number))))]
 
   ;; binary same-width ops
-  [(expr-type F G R V (bv-binop e_1 e_2) (Bitvector number))
-   (expr-type F G R V e_1 (Bitvector number))
-   (expr-type F G R V e_2 (Bitvector number))]
+  [(expr-synth F G R V (bv-binop e_1 e_2) (Bitvector number))
+   (expr-synth F G R V e_1 (Bitvector number))
+   (expr-check F G R V e_2 (Bitvector number))]
 
   ;; binary predicates → Bool
-  [(expr-type F G R V (bv-predop e_1 e_2) Bool)
-   (expr-type F G R V e_1 (Bitvector number))
-   (expr-type F G R V e_2 (Bitvector number))]
+  [(expr-synth F G R V (bv-predop e_1 e_2) Bool)
+   (expr-synth F G R V e_1 (Bitvector number))
+   (expr-check F G R V e_2 (Bitvector number))]
 
   ;; bv-not (unary)
-  [(expr-type F G R V (bv-not e) (Bitvector number))
-   (expr-type F G R V e (Bitvector number))]
+  [(expr-synth F G R V (bv-not e) (Bitvector number))
+   (expr-synth F G R V e (Bitvector number))]
 
   ;; bool-to-bv
-  [(expr-type F G R V (bool-to-bv number e) (Bitvector number))
-   (expr-type F G R V e Bool)]
+  [(expr-synth F G R V (bool-to-bv number e) (Bitvector number))
+   (expr-check F G R V e Bool)]
 
   ;; extend (target must be larger)
-  [(expr-type F G R V (bv-extop number_n e) (Bitvector number_n))
-   (expr-type F G R V e (Bitvector number_m))
+  [(expr-synth F G R V (bv-extop number_n e) (Bitvector number_n))
+   (expr-synth F G R V e (Bitvector number_m))
    (where #t ,(> (term number_n) (term number_m)))]
 
   ;; concat
-  [(expr-type F G R V (bv-concat e_1 e_2) (Bitvector number_sum))
-   (expr-type F G R V e_1 (Bitvector number_1))
-   (expr-type F G R V e_2 (Bitvector number_2))
+  [(expr-synth F G R V (bv-concat e_1 e_2) (Bitvector number_sum))
+   (expr-synth F G R V e_1 (Bitvector number_1))
+   (expr-synth F G R V e_2 (Bitvector number_2))
    (where number_sum ,(+ (term number_1) (term number_2)))]
 
   ;; truncate (target must be smaller)
-  [(expr-type F G R V (bv-trunc number_n e) (Bitvector number_n))
-   (expr-type F G R V e (Bitvector number_m))
+  [(expr-synth F G R V (bv-trunc number_n e) (Bitvector number_n))
+   (expr-synth F G R V e (Bitvector number_m))
    (where #t ,(< (term number_n) (term number_m)))]
 
   ;; select (offset + width must fit in source)
-  [(expr-type F G R V
+  [(expr-synth F G R V
      (bv-select number_off number_w e) (Bitvector number_w))
-   (expr-type F G R V e (Bitvector number_m))
+   (expr-synth F G R V e (Bitvector number_m))
    (where #t ,(<= (+ (term number_off) (term number_w))
                    (term number_m)))]
 
   ;; bv-nonzero
-  [(expr-type F G R V (bv-nonzero e) Bool)
-   (expr-type F G R V e (Bitvector number))]
+  [(expr-synth F G R V (bv-nonzero e) Bool)
+   (expr-synth F G R V e (Bitvector number))]
 
   ;; --- Floating point ---
 
-  [(expr-type F G R V (binary-to-fp fp-prec e) (FP fp-prec))
-   (expr-type F G R V e (Bitvector number))]
+  [(expr-synth F G R V (binary-to-fp fp-prec e) (FP fp-prec))
+   (expr-synth F G R V e (Bitvector number))]
 
-  [(expr-type F G R V (fp-to-binary e) (Bitvector number_w))
-   (expr-type F G R V e (FP fp-prec))
+  [(expr-synth F G R V (fp-to-binary e) (Bitvector number_w))
+   (expr-synth F G R V e (FP fp-prec))
    (where number_w (fp-width fp-prec))]
 
   ;; BV → FP conversions
-  [(expr-type F G R V (fp-from-bvop fp-prec rm e) (FP fp-prec))
-   (expr-type F G R V e (Bitvector number))]
+  [(expr-synth F G R V (fp-from-bvop fp-prec rm e) (FP fp-prec))
+   (expr-synth F G R V e (Bitvector number))]
 
   ;; FP → BV conversions
-  [(expr-type F G R V (fp-to-bvop number rm e) (Bitvector number))
-   (expr-type F G R V e (FP fp-prec))]
+  [(expr-synth F G R V (fp-to-bvop number rm e) (Bitvector number))
+   (expr-synth F G R V e (FP fp-prec))]
 
-  [(expr-type F G R V (fp-to-real e) Real)
-   (expr-type F G R V e (FP fp-prec))]
+  [(expr-synth F G R V (fp-to-real e) Real)
+   (expr-synth F G R V e (FP fp-prec))]
 
-  [(expr-type F G R V (real-to-fp fp-prec rm e) (FP fp-prec))
-   (expr-type F G R V e Real)]
+  [(expr-synth F G R V (real-to-fp fp-prec rm e) (FP fp-prec))
+   (expr-check F G R V e Real)]
 
   ;; --- Reference ---
 
-  [(expr-type F G R V (ref e) (Ref ty))
-   (expr-type F G R V e ty)]
+  [(expr-synth F G R V (ref e) (Ref ty))
+   (expr-synth F G R V e ty)]
 
-  [(expr-type F G R V (deref e) ty)
-   (expr-type F G R V e (Ref ty))]
+  [(expr-synth F G R V (deref e) ty)
+   (expr-synth F G R V e (Ref ty))]
 
   ;; --- Struct ---
 
-  [(expr-type F G R V (struct e ...) (Struct ty ...))
-   (expr-type F G R V e ty) ...]
+  [(expr-synth F G R V (struct e ...) (Struct ty ...))
+   (expr-synth F G R V e ty) ...]
 
-  [(expr-type F G R V (get-field number e) ty_n)
-   (expr-type F G R V e (Struct ty ...))
+  [(expr-synth F G R V (get-field number e) ty_n)
+   (expr-synth F G R V e (Struct ty ...))
    (where ty_n (nth (ty ...) number))]
 
-  [(expr-type F G R V (set-field e_1 number e_2) (Struct ty ...))
-   (expr-type F G R V e_1 (Struct ty ...))
+  [(expr-synth F G R V (set-field e_1 number e_2) (Struct ty ...))
+   (expr-synth F G R V e_1 (Struct ty ...))
    (where ty_n (nth (ty ...) number))
-   (expr-type F G R V e_2 ty_n)]
+   (expr-check F G R V e_2 ty_n)]
 
   ;; --- Variant ---
 
-  [(expr-type F G R V (inj ty_var number e) ty_var)
+  [(expr-synth F G R V (inj ty_var number e) ty_var)
    (where (Variant ty ...) ty_var)
    (where ty_n (nth (ty ...) number))
-   (expr-type F G R V e ty_n)]
+   (expr-check F G R V e ty_n)]
 
-  [(expr-type F G R V (proj number e) (Maybe ty_n))
-   (expr-type F G R V e (Variant ty ...))
+  [(expr-synth F G R V (proj number e) (Maybe ty_n))
+   (expr-synth F G R V e (Variant ty ...))
    (where ty_n (nth (ty ...) number))]
 
   ;; --- Vector ---
 
-  [(expr-type F G R V (empty-vector ty) (Vector ty))]
+  [(expr-synth F G R V (empty-vector ty) (Vector ty))]
 
-  [(expr-type F G R V (vector e_1 e_rest ...) (Vector ty))
-   (expr-type F G R V e_1 ty)
+  [(expr-synth F G R V (vector e_1 e_rest ...) (Vector ty))
+   (expr-synth F G R V e_1 ty)
    (side-condition
-    ,(check-all-type (term F) (term G) (term R)
-                     (term V) (term (e_rest ...)) (term ty)))]
+    ,(check-all-check (term F) (term G) (term R)
+                      (term V) (term (e_rest ...)) (term ty)))]
 
-  [(expr-type F G R V (vector-replicate e_1 e_2) (Vector ty))
-   (expr-type F G R V e_1 Nat)
-   (expr-type F G R V e_2 ty)]
+  [(expr-synth F G R V (vector-replicate e_1 e_2) (Vector ty))
+   (expr-check F G R V e_1 Nat)
+   (expr-synth F G R V e_2 ty)]
 
-  [(expr-type F G R V (vector-empty? e) Bool)
-   (expr-type F G R V e (Vector ty))]
+  [(expr-synth F G R V (vector-empty? e) Bool)
+   (expr-synth F G R V e (Vector ty))]
 
-  [(expr-type F G R V (vector-size e) Nat)
-   (expr-type F G R V e (Vector ty))]
+  [(expr-synth F G R V (vector-size e) Nat)
+   (expr-synth F G R V e (Vector ty))]
 
-  [(expr-type F G R V (vector-get e_1 e_2) ty)
-   (expr-type F G R V e_1 (Vector ty))
-   (expr-type F G R V e_2 Nat)]
+  [(expr-synth F G R V (vector-get e_1 e_2) ty)
+   (expr-synth F G R V e_1 (Vector ty))
+   (expr-check F G R V e_2 Nat)]
 
-  [(expr-type F G R V (vector-set e_1 e_2 e_3) (Vector ty))
-   (expr-type F G R V e_1 (Vector ty))
-   (expr-type F G R V e_2 Nat)
-   (expr-type F G R V e_3 ty)]
+  [(expr-synth F G R V (vector-set e_1 e_2 e_3) (Vector ty))
+   (expr-synth F G R V e_1 (Vector ty))
+   (expr-check F G R V e_2 Nat)
+   (expr-check F G R V e_3 ty)]
 
-  [(expr-type F G R V (vector-cons e_1 e_2) (Vector ty))
-   (expr-type F G R V e_1 ty)
-   (expr-type F G R V e_2 (Vector ty))]
+  [(expr-synth F G R V (vector-cons e_1 e_2) (Vector ty))
+   (expr-synth F G R V e_1 ty)
+   (expr-check F G R V e_2 (Vector ty))]
 
   ;; --- Sequence ---
 
-  [(expr-type F G R V (seq-nil ty) (Sequence ty))]
+  [(expr-synth F G R V (seq-nil ty) (Sequence ty))]
 
-  [(expr-type F G R V (seq-cons e_1 e_2) (Sequence ty))
-   (expr-type F G R V e_1 ty)
-   (expr-type F G R V e_2 (Sequence ty))]
+  [(expr-synth F G R V (seq-cons e_1 e_2) (Sequence ty))
+   (expr-synth F G R V e_1 ty)
+   (expr-check F G R V e_2 (Sequence ty))]
 
-  [(expr-type F G R V (seq-append e_1 e_2) (Sequence ty))
-   (expr-type F G R V e_1 (Sequence ty))
-   (expr-type F G R V e_2 (Sequence ty))]
+  [(expr-synth F G R V (seq-append e_1 e_2) (Sequence ty))
+   (expr-synth F G R V e_1 (Sequence ty))
+   (expr-check F G R V e_2 (Sequence ty))]
 
-  [(expr-type F G R V (seq-nil? e) Bool)
-   (expr-type F G R V e (Sequence ty))]
+  [(expr-synth F G R V (seq-nil? e) Bool)
+   (expr-synth F G R V e (Sequence ty))]
 
-  [(expr-type F G R V (seq-length e) Nat)
-   (expr-type F G R V e (Sequence ty))]
+  [(expr-synth F G R V (seq-length e) Nat)
+   (expr-synth F G R V e (Sequence ty))]
 
-  [(expr-type F G R V (seq-head e) ty)
-   (expr-type F G R V e (Sequence ty))]
+  [(expr-synth F G R V (seq-head e) (Maybe ty))
+   (expr-synth F G R V e (Sequence ty))]
 
-  [(expr-type F G R V (seq-tail e) (Sequence ty))
-   (expr-type F G R V e (Sequence ty))]
+  [(expr-synth F G R V (seq-tail e) (Maybe (Sequence ty)))
+   (expr-synth F G R V e (Sequence ty))]
 
-  [(expr-type F G R V (seq-uncons e) (Maybe (Struct ty (Sequence ty))))
-   (expr-type F G R V e (Sequence ty))])
+  [(expr-synth F G R V (seq-uncons e) (Maybe (Struct ty (Sequence ty))))
+   (expr-synth F G R V e (Sequence ty))])
+
+;; --------------------------------------------------------------
+;; Checking mode: verify expression against expected type
+(define-judgment-form crucible-syntax
+  #:mode (expr-check I I I I I I)
+  #:contract (expr-check F G R V e ty)
+
+  ;; Bare empty constructors work when checking against the right type
+  [(expr-check F G R V nothing (Maybe ty))]
+
+  [(expr-check F G R V seq-nil (Sequence ty))]
+
+  [(expr-check F G R V empty-vector (Vector ty))]
+
+  ;; Type ascription in checking mode
+  [(expr-check F G R V (the ty e) ty)
+   (expr-check F G R V e ty)]
+
+  ;; Subsumption: can always check by synthesizing and verifying match
+  ;; This must be LAST to allow more specific rules to match first
+  [(expr-check F G R V e ty)
+   (expr-synth F G R V e ty)])
+
 
 ;; --------------------------------------------------------------
 ;; Statement typing (extends V)
@@ -482,53 +506,53 @@
   [(stmt-ok F L G R
      ((x_prev ty_prev) ...) (let x e) ((x ty) (x_prev ty_prev) ...))
    (side-condition ,(not (member (term x) (term (x_prev ...)))))
-   (expr-type F G R ((x_prev ty_prev) ...) e ty)]
+   (expr-synth F G R ((x_prev ty_prev) ...) e ty)]
 
   ;; print (V unchanged)
   [(stmt-ok F L G R V (print e) V)
-   (expr-type F G R V e ty)]
+   (expr-synth F G R V e ty)]
 
   ;; println (V unchanged, String only)
   [(stmt-ok F L G R V (println e) V)
-   (expr-type F G R V e (String Unicode))]
+   (expr-check F G R V e (String Unicode))]
 
   ;; funcall as statement (V unchanged, result discarded)
   [(stmt-ok F L G R V (funcall fname e ...) V)
    (fun-lookup F fname (ty_arg ...) ty_ret)
-   (expr-type F G R V e ty_arg) ...]
+   (expr-check F G R V e ty_arg) ...]
 
   [(stmt-ok F L G R V (funcall fname e ...) V)
    (lookup V fname (-> ty_arg ... ty_ret))
-   (expr-type F G R V e ty_arg) ...]
+   (expr-check F G R V e ty_arg) ...]
 
   ;; set-register! (V unchanged)
   [(stmt-ok F L G R V (set-register! reg e) V)
    (reg-lookup R reg ty)
-   (expr-type F G R V e ty)]
+   (expr-check F G R V e ty)]
 
   ;; set-global! (V unchanged)
   [(stmt-ok F L G R V (set-global! gname e) V)
    (global-lookup G gname ty)
-   (expr-type F G R V e ty)]
+   (expr-check F G R V e ty)]
 
   ;; assert! (Bool × String, V unchanged)
   [(stmt-ok F L G R V (assert! e_cond e_msg) V)
-   (expr-type F G R V e_cond Bool)
-   (expr-type F G R V e_msg (String Unicode))]
+   (expr-check F G R V e_cond Bool)
+   (expr-check F G R V e_msg (String Unicode))]
 
   ;; assume! (Bool × String, V unchanged)
   [(stmt-ok F L G R V (assume! e_cond e_msg) V)
-   (expr-type F G R V e_cond Bool)
-   (expr-type F G R V e_msg (String Unicode))]
+   (expr-check F G R V e_cond Bool)
+   (expr-check F G R V e_msg (String Unicode))]
 
   ;; set-ref! (V unchanged)
   [(stmt-ok F L G R V (set-ref! e_ref e_val) V)
-   (expr-type F G R V e_ref (Ref ty))
-   (expr-type F G R V e_val ty)]
+   (expr-synth F G R V e_ref (Ref ty))
+   (expr-check F G R V e_val ty)]
 
   ;; drop-ref! (V unchanged)
   [(stmt-ok F L G R V (drop-ref! e) V)
-   (expr-type F G R V e (Ref ty))]
+   (expr-synth F G R V e (Ref ty))]
 
   ;; breakpoint (V unchanged, just check label is string)
   [(stmt-ok F L G R V (breakpoint string any) V)
@@ -542,7 +566,7 @@
 
   ;; return
   [(term-ok F L G R V ty_ret (return e))
-   (expr-type F G R V e ty_ret)]
+   (expr-check F G R V e ty_ret)]
 
   ;; jump
   [(term-ok F L G R V ty_ret (jump label))
@@ -550,40 +574,40 @@
 
   ;; branch
   [(term-ok F L G R V ty_ret (branch e label_1 label_2))
-   (expr-type F G R V e Bool)
+   (expr-check F G R V e Bool)
    (where #t ,(label-in-lambda? (term L) (term label_1)))
    (where #t ,(label-in-lambda? (term L) (term label_2)))]
 
   ;; error
   [(term-ok F L G R V ty_ret (error e))
-   (expr-type F G R V e (String Unicode))]
+   (expr-check F G R V e (String Unicode))]
 
   ;; tail-call (direct function name)
   [(term-ok F L G R V ty_ret (tail-call fname e ...))
    (fun-lookup F fname (ty_arg ...) ty_ret)
-   (expr-type F G R V e ty_arg) ...]
+   (expr-check F G R V e ty_arg) ...]
 
   ;; tail-call (variable with function type)
   [(term-ok F L G R V ty_ret (tail-call fname e ...))
    (lookup V fname (-> ty_arg ... ty_ret))
-   (expr-type F G R V e ty_arg) ...]
+   (expr-check F G R V e ty_arg) ...]
 
   ;; output (jump to parameterized block)
   [(term-ok F L G R V ty_ret (output label e))
    (where ty_p ,(param-label-type (term L) (term label)))
-   (expr-type F G R V e ty_p)]
+   (expr-check F G R V e ty_p)]
 
   ;; maybe-branch
   [(term-ok F L G R V ty_ret
      (maybe-branch e label_j label_n))
-   (expr-type F G R V e (Maybe ty_p))
    (where ty_p
      ,(param-label-type (term L) (term label_j)))
+   (expr-check F G R V e (Maybe ty_p))
    (where #t ,(label-in-lambda? (term L) (term label_n)))]
 
   ;; case (variant dispatch)
   [(term-ok F L G R V ty_ret (case e label ...))
-   (expr-type F G R V e (Variant ty_v ...))
+   (expr-synth F G R V e (Variant ty_v ...))
    (where #t
      ,(check-case-labels
        (term L) (term (label ...)) (term (ty_v ...))))])

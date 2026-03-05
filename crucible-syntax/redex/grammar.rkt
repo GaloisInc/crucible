@@ -77,7 +77,7 @@
      ;; Any
      (to-any e) (from-any ty e)
      ;; Maybe
-     (nothing ty) (just e) (from-just e e)
+     nothing (nothing ty) (just e) (from-just e e)
      ;; Bitvector
      (bv number number)
      (bv-varop e e e ...)
@@ -101,13 +101,13 @@
      ;; Variant
      (inj ty number e) (proj number e)
      ;; Vector
-     (vector e ...) (empty-vector ty)
+     (vector e ...) empty-vector (empty-vector ty)
      (vector-replicate e e)
      (vector-empty? e) (vector-size e)
      (vector-get e e) (vector-set e e e)
      (vector-cons e e)
      ;; Sequence
-     (seq-nil ty)
+     seq-nil (seq-nil ty)
      (seq-cons e e) (seq-append e e)
      (seq-nil? e) (seq-length e)
      (seq-head e) (seq-tail e) (seq-uncons e))

@@ -161,13 +161,9 @@
        ;; Special: push variant type into inj
        [`(the ,ty (inj ,n ,inner))
         `(the ,ty (inj ,ty ,n ,(transform-expr inner)))]
-       ;; Special: annotate empty constructors with element type
+       ;; Special: (vector) with no args → (empty-vector ty)
        [`(the (Vector ,ety) (vector))
         `(the (Vector ,ety) (empty-vector ,ety))]
-       [`(the (Maybe ,ety) ,(or 'nothing '(nothing)))
-        `(the (Maybe ,ety) (nothing ,ety))]
-       [`(the (Sequence ,ety) ,(or 'seq-nil '(seq-nil)))
-        `(the (Sequence ,ety) (seq-nil ,ety))]
        ;; Schema-driven generic case
        [_ (define schema (hash-ref expr-schemas head #f))
           (if schema
