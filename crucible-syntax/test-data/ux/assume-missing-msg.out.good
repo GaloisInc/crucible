@@ -1,0 +1,3 @@
+(defun @test () Unit (start block: (assume! #f) (return ())))
+
+At test-data/ux/assume-missing-msg.cbl:2:1, expected bad syntax but got ((start block: (assume! #f) (return ())))

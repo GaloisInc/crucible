@@ -1,0 +1,14 @@
+(defun @test ((b Bool)) Unit
+   (start here: (assume! b "assumption") (return ())))
+
+test
+%0
+  % 3:16
+  $1 = stringLit("assumption")
+  % 3:5
+  assume($0, $1)
+  % 4:13
+  $2 = emptyApp()
+  % 4:5
+  return $2
+  % no postdom
