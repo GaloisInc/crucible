@@ -1,7 +1,10 @@
 # next
 
-* Add `withStateBackend` and additional infrastructure for including stack 
+* Add `withStateBackend` and additional infrastructure for including stack
   traces in `SimError` and `IsSymBackend`
+* The CVC4 SMT solver is no longer supported. As such,
+  `Lang.Crucible.Backend.Online` no longer defines `CVC4OnlineBackend` or
+  `withCVC4OnlineBackend`.
 
 # 0.9 -- 2026-01-29
 

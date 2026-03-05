@@ -87,7 +87,6 @@ install_solvers() {
   export PATH=$BIN:$PATH
   echo "$BIN" >> "$GITHUB_PATH"
   is_exe   "$BIN" z3 && \
-    is_exe "$BIN" cvc4 && \
     is_exe "$BIN" cvc5 && \
     is_exe "$BIN" boolector && \
     is_exe "$BIN" bitwuzla && \

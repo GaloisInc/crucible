@@ -172,16 +172,6 @@ getSTPVersion =
       getVer (Left full) = full
   in mkVC "stp" . getVer <$> readProcessVersion "stp"
 
-getCVC4Version :: IO VersionCheck
-getCVC4Version =
-  let getVer (Right inp) =
-        -- example inp: "This is CVC4 version 1.8\ncompiled ..."
-        case words inp of
-          "This":"is":"CVC4":"version":verNum:_ -> verNum
-          _ -> "?"
-      getVer (Left full) = full
-  in mkVC "cvc4" . getVer <$> readProcessVersion "cvc4"
-
 getCVC5Version :: IO VersionCheck
 getCVC5Version =
   let getVer (Right inp) =
@@ -384,7 +374,6 @@ mkTest sweet _ expct =
       "z3" -> getZ3Version
       "yices" -> getYicesVersion
       "stp" -> getSTPVersion
-      "cvc4" -> getCVC4Version
       "cvc5" -> getCVC5Version
       "boolector" -> getBoolectorVersion
       "bitwuzla" -> getBitwuzlaVersion

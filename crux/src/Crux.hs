@@ -83,7 +83,6 @@ import           What4.Interface (IsExprBuilder, getConfiguration)
 import           What4.Protocol.Online (OnlineSolver)
 import qualified What4.Solver as WS
 import           What4.Solver.Bitwuzla (bitwuzlaTimeout)
-import           What4.Solver.CVC4 (cvc4Timeout)
 import           What4.Solver.CVC5 (cvc5Timeout)
 import           What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
 import           What4.Solver.Z3 (z3Timeout)
@@ -375,7 +374,6 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
     "default" ->
       case selectedSolver of
         CCS.Yices -> withOnlineBackendFM WE.FloatRealRepr
-        CCS.CVC4 -> withOnlineBackendFM WE.FloatRealRepr
         CCS.CVC5 -> withOnlineBackendFM WE.FloatRealRepr
         CCS.STP -> withOnlineBackendFM WE.FloatRealRepr
         CCS.Z3 -> withOnlineBackendFM WE.FloatIEEERepr
@@ -414,11 +412,6 @@ withSelectedOnlineBackend' cruxOpts selectedSolver sym k =
        symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
        case goalTimeout cruxOpts of
          Just s -> symCfg sym yicesGoalTimeout (floor s)
-         Nothing -> return ()
-       k bak
-     CCS.CVC4 -> withCVC4OnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
-       case goalTimeout cruxOpts of
-         Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
          Nothing -> return ()
        k bak
      CCS.CVC5 -> withCVC5OnlineBackend sym unsatCoreFeat extraFeatures $ \bak -> do
@@ -573,7 +566,6 @@ withSolverAdapter solverOff k =
     CCS.Boolector -> k WS.boolectorAdapter
     CCS.DReal -> k WS.drealAdapter
     CCS.RME -> k rmeAdapter
-    CCS.SolverOnline CCS.CVC4 -> k WS.cvc4Adapter
     CCS.SolverOnline CCS.CVC5 -> k WS.cvc5Adapter
     CCS.SolverOnline CCS.STP -> k WS.stpAdapter
     CCS.SolverOnline CCS.Yices -> k WS.yicesAdapter

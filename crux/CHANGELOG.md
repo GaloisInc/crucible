@@ -1,5 +1,9 @@
 # next
 
+* The CVC4 SMT solver is no longer supported. As such, the `CVC4` data
+  constructor in `SolverOnline` has been removed, and `crux`'s `--solver`
+  command-line option no longer accepts `cvc4` as a valid option.
+
 # 0.9 -- 2026-01-29
 
 # 0.8 -- 2025-11-09
