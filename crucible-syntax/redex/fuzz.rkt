@@ -17,6 +17,7 @@
          racket/pretty
          racket/system
          racket/file
+         racket/format
          "grammar.rkt"
          "parse.rkt"
          "typing.rkt")
@@ -234,38 +235,34 @@
           non-well-typed-count
           (exact->inexact (* 100 (/ non-well-typed-count count))))
 
-  ;; Test parser on well-typed programs if crucible-bin is provided
+  ;; Test Haskell parser on well-typed programs if crucible binary provided
   (when crucible-bin
-    (printf "\nTesting parser on well-typed programs...\n")
-    (define check-path (build-path (current-directory) "check.rkt"))
+    (printf "\nTesting Haskell parser on well-typed programs...\n")
     (define tested 0)
     (for ([path (in-list (reverse well-typed-files))])
-      (define result
+      (define success
         (with-handlers ([exn:fail? (lambda (e)
                           (printf "  PARSE FAIL: ~a (exception: ~a)\n"
                                   path (exn-message e))
                           (set! parse-fail (add1 parse-fail))
                           #f)])
-          (with-output-to-string
-            (lambda ()
-              (system (format "racket '~a' '~a' 2>&1"
-                             (path->string check-path)
-                             (path->string path)))))))
-      (when result
-        (if (string-contains? result "OK")
-            (set! parse-ok (add1 parse-ok))
-            (begin
-              (printf "  PARSE FAIL: ~a\n  Output: ~a\n" path result)
-              (set! parse-fail (add1 parse-fail)))))
+          (system (format "'~a' '~a' 2>&1 > /dev/null"
+                         crucible-bin
+                         (path->string path)))))
+      (if success
+          (set! parse-ok (add1 parse-ok))
+          (begin
+            (printf "  PARSE FAIL: ~a\n" path)
+            (set! parse-fail (add1 parse-fail))))
       (set! tested (add1 tested))
       (when (and (> tested 0) (= 0 (modulo tested 100)))
         (printf "  ...~a/~a programs tested (~a ok, ~a failed)\n"
                 tested (length well-typed-files) parse-ok parse-fail)))
-    (printf "\nParser test results (well-typed programs only):\n")
+    (printf "\nHaskell parser test results (well-typed programs only):\n")
     (printf "  Parse OK:   ~a\n" parse-ok)
     (printf "  Parse FAIL: ~a\n" parse-fail)
     (when (> parse-fail 0)
-      (printf "\nWARNING: ~a well-typed programs failed to parse!\n" parse-fail))))
+      (printf "\nWARNING: ~a well-typed programs failed to parse in Haskell!\n" parse-fail))))
 
 ;; ================================================================
 ;; CLI
@@ -288,21 +285,51 @@
     (set! max-size (string->number s))]
    [("-w" "--write") dir "Write generated .cbl files to DIR"
     (set! write-dir dir)]
-   [("-c" "--crucible") bin "Path to crucible binary (runs 'crucible check')"
+   [("--crucible") bin "Path to crucible binary for parser validation"
     (set! crucible-bin bin)]
    [("--count") c "Number of .cbl files to generate [100]"
     (set! count (string->number c))]
    [("--type-stats") "Generate programs and report type-checking statistics"
     (set! type-stats #t)])
 
-  (fuzz-redex-round-trip attempts max-size)
-
+  ;; Print configuration
+  (printf "========================================\n")
+  (printf "Crucible Syntax Fuzzer\n")
+  (printf "========================================\n")
+  (printf "Configuration:\n")
+  (printf "  Round-trip tests: ~a\n" attempts)
+  (printf "  Max size:         ~a\n" max-size)
+  (when (or type-stats crucible-bin)
+    (printf "  Programs:         ~a\n" count)
+    (printf "  Type-check:       ~a\n" (if type-stats "yes" "no"))
+    (when crucible-bin
+      (printf "  Crucible binary:  ~a\n" crucible-bin)))
   (when write-dir
-    (generate-cbl-files write-dir count max-size))
+    (printf "  Output dir:       ~a\n" write-dir))
+  (printf "========================================\n\n")
 
-  (when (or crucible-bin type-stats)
-    (fuzz-crucible-check (if crucible-bin crucible-bin #f)
-      (or write-dir (make-temporary-file "fuzz-~a" 'directory))
-      count max-size))
+  (define start-time (current-inexact-milliseconds))
+  (define all-ok #t)
 
-  (printf "Done.\n"))
+  (with-handlers ([exn:fail? (lambda (e)
+                               (printf "\n❌ Fuzzer failed: ~a\n" (exn-message e))
+                               (set! all-ok #f))])
+    (fuzz-redex-round-trip attempts max-size)
+
+    (when write-dir
+      (generate-cbl-files write-dir count max-size))
+
+    (when (or crucible-bin type-stats)
+      (fuzz-crucible-check crucible-bin
+        (or write-dir (make-temporary-file "fuzz-~a" 'directory))
+        count max-size)))
+
+  (define elapsed-sec (/ (- (current-inexact-milliseconds) start-time) 1000.0))
+  (printf "\n========================================\n")
+  (printf "Completed in ~a seconds\n" (~r elapsed-sec #:precision 1))
+  (if all-ok
+      (printf "✅ All checks passed!\n")
+      (printf "❌ Some checks failed\n"))
+  (printf "========================================\n")
+
+  (exit (if all-ok 0 1)))

@@ -34,18 +34,26 @@ racket check.rkt path/to/program.cbl
 ### Run the fuzzer
 
 ```bash
-# Quick test
-./run-fuzzer.sh -c 100 -s 5
+# Quick test (100 attempts, size 3)
+racket fuzz.rkt -n 100 -s 3
 
-# Full fuzzer run (5000 programs, size 15)
-./run-fuzzer.sh
+# Full fuzzer run with type-checking (1000 attempts, generate 5000 programs, size 15)
+racket fuzz.rkt -n 1000 -s 15 --count 5000 --type-stats
 
-# Save generated programs
-./run-fuzzer.sh -c 1000 -s 10 -o ./output-dir
+# Save generated programs to directory
+racket fuzz.rkt -n 500 -s 10 --count 1000 --type-stats --write ./output-dir
 
-# Options
-./run-fuzzer.sh --help
+# With Haskell parser validation (if crucible-syntax binary is available)
+racket fuzz.rkt -n 500 -s 10 --count 1000 --type-stats --crucible path/to/crucible-syntax
 ```
+
+Options:
+- `-n, --attempts N` - Number of round-trip tests (default: 1000)
+- `-s, --size N` - Maximum term size (default: 5)
+- `--count N` - Number of programs to generate (default: 100)
+- `--type-stats` - Generate and type-check programs
+- `--write DIR` - Save generated .cbl files to directory
+- `--crucible PATH` - Test Haskell parser on well-typed programs using crucible-syntax executable
 
 ### Generate documentation
 

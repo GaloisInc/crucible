@@ -17,6 +17,9 @@ jobs:
   redex-check:
     runs-on: ubuntu-24.04
     name: Redex type-checker
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v6
 

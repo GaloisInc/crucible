@@ -141,6 +141,13 @@
   (for/and ([e (in-list es)])
     (judgment-holds (expr-check ,F ,G ,R ,V ,e ,ty))))
 
+;; Check expressions against corresponding types (zipped)
+(define (check-args F G R V es tys)
+  (and (= (length es) (length tys))
+       (for/and ([e (in-list es)]
+                 [ty (in-list tys)])
+         (judgment-holds (expr-check ,F ,G ,R ,V ,e ,ty)))))
+
 ;; Check case labels match variant types
 (define (check-case-labels L labels variant-types)
   (and (= (length labels) (length variant-types))
@@ -244,11 +251,13 @@
 
   [(expr-synth F G R V (funcall fname e ...) ty_ret)
    (fun-lookup F fname (ty_arg ...) ty_ret)
-   (expr-check F G R V e ty_arg) ...]
+   (side-condition ,(check-args (term F) (term G) (term R) (term V)
+                                (term (e ...)) (term (ty_arg ...))))]
 
   [(expr-synth F G R V (funcall fname e ...) ty_ret)
    (lookup V fname (-> ty_arg ... ty_ret))
-   (expr-check F G R V e ty_arg) ...]
+   (side-condition ,(check-args (term F) (term G) (term R) (term V)
+                                (term (e ...)) (term (ty_arg ...))))]
 
   [(expr-synth F G R V (fun-ref fname) (-> ty_arg ... ty_ret))
    (fun-lookup F fname (ty_arg ...) ty_ret)]
@@ -519,11 +528,13 @@
   ;; funcall as statement (V unchanged, result discarded)
   [(stmt-ok F L G R V (funcall fname e ...) V)
    (fun-lookup F fname (ty_arg ...) ty_ret)
-   (expr-check F G R V e ty_arg) ...]
+   (side-condition ,(check-args (term F) (term G) (term R) (term V)
+                                (term (e ...)) (term (ty_arg ...))))]
 
   [(stmt-ok F L G R V (funcall fname e ...) V)
    (lookup V fname (-> ty_arg ... ty_ret))
-   (expr-check F G R V e ty_arg) ...]
+   (side-condition ,(check-args (term F) (term G) (term R) (term V)
+                                (term (e ...)) (term (ty_arg ...))))]
 
   ;; set-register! (V unchanged)
   [(stmt-ok F L G R V (set-register! reg e) V)
@@ -585,12 +596,14 @@
   ;; tail-call (direct function name)
   [(term-ok F L G R V ty_ret (tail-call fname e ...))
    (fun-lookup F fname (ty_arg ...) ty_ret)
-   (expr-check F G R V e ty_arg) ...]
+   (side-condition ,(check-args (term F) (term G) (term R) (term V)
+                                (term (e ...)) (term (ty_arg ...))))]
 
   ;; tail-call (variable with function type)
   [(term-ok F L G R V ty_ret (tail-call fname e ...))
    (lookup V fname (-> ty_arg ... ty_ret))
-   (expr-check F G R V e ty_arg) ...]
+   (side-condition ,(check-args (term F) (term G) (term R) (term V)
+                                (term (e ...)) (term (ty_arg ...))))]
 
   ;; output (jump to parameterized block)
   [(term-ok F L G R V ty_ret (output label e))
