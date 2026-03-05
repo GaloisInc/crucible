@@ -67,9 +67,6 @@ module Lang.Crucible.Backend.Online
     -- ** Boolector
   , BoolectorOnlineBackend
   , withBoolectorOnlineBackend
-    -- ** CVC4
-  , CVC4OnlineBackend
-  , withCVC4OnlineBackend
     -- ** CVC5
   , CVC5OnlineBackend
   , withCVC5OnlineBackend
@@ -104,7 +101,6 @@ import           What4.Protocol.SMTLib2 as SMT2
 import           What4.SatResult
 import qualified What4.Solver.Bitwuzla as Bitwuzla
 import qualified What4.Solver.Boolector as Boolector
-import qualified What4.Solver.CVC4 as CVC4
 import qualified What4.Solver.CVC5 as CVC5
 import qualified What4.Solver.STP as STP
 import qualified What4.Solver.Yices as Yices
@@ -559,26 +555,6 @@ withBoolectorOnlineBackend sym unsatFeat action =
   let feat = (SMT2.defaultFeatures Boolector.Boolector .|. unsatFeaturesToProblemFeatures unsatFeat) in
   withOnlineBackend sym feat $ \bak -> do
     liftIO $ tryExtendConfig Boolector.boolectorOptions (getConfiguration sym)
-    action bak
-
-type CVC4OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC4.CVC4) scope st fs
-
--- | Do something with a CVC4 online backend.
---   The backend is only valid in the continuation.
---
---   The CVC4 configuration options will be automatically
---   installed into the backend configuration object.
-withCVC4OnlineBackend ::
-  (MonadIO m, MonadMask m) =>
-  B.ExprBuilder scope st fs ->
-  UnsatFeatures ->
-  ProblemFeatures ->
-  (CVC4OnlineBackend scope st fs -> m a) ->
-  m a
-withCVC4OnlineBackend sym unsatFeat extraFeatures action =
-  let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
-  withOnlineBackend sym feat $ \bak -> do
-    liftIO $ tryExtendConfig CVC4.cvc4Options (getConfiguration sym)
     action bak
 
 type CVC5OnlineBackend scope st fs = OnlineBackend (SMT2.Writer CVC5.CVC5) scope st fs

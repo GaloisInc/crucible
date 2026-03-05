@@ -318,7 +318,7 @@ cruxOptions = Config
             section "floating-point" stringSpec "default"
             (pack $ "Select floating point representation,"
              ++ " i.e. one of [real|ieee|uninterpreted|default]. "
-             ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
+             ++ "Default representation is solver specific: yices=>real, z3=>ieee.")
 
           hashConsing <-
             section "hash-consing" yesOrNoSpec False
@@ -530,7 +530,7 @@ cruxOptions = Config
       , Option "f" ["floating-point"]
         ("Select floating point representation,"
          ++ " i.e. one of [real|ieee|uninterpreted|default]. "
-         ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
+         ++ "Default representation is solver specific: yices=>real, z3=>ieee.")
         $ ReqArg "FPREP" $ \v opts -> Right opts { floatMode = map toLower v }
 
       , Option [] ["debug"]
