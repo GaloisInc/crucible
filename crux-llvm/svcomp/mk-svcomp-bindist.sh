@@ -40,7 +40,6 @@ bundle_crux_llvm_svcomp_files() {
 
   # SV-COMP–specific requirements begin
   ## SMT solvers
-  cp "$(which cvc4)"       dist/bin/
   cp "$(which yices)"      dist/bin/
   cp "$(which yices-smt2)" dist/bin/
   cp "$(which z3)"         dist/bin/
