@@ -75,7 +75,7 @@ import           Control.Monad
 import           Control.Monad.ST
 import           Lens.Micro ((^.), to)
 import           Lens.Micro.GHC (at)
-import           Lens.Micro.Mtl (use)
+import           Lens.Micro.Mtl ((.=), use)
 import           Lens.Micro.TH (makeLenses)
 
 import           Prettyprinter
@@ -163,7 +163,8 @@ data FnState (s :: Type)
               _cs         :: !CollectionState,
               _customOps  :: !CustomOpMap,
               _assertFalseOnError :: !Bool,
-              _transInfo  :: !FnTransInfo
+              _transInfo  :: !FnTransInfo,
+              _failHandler :: !(FnFailHandler s)
             }
 
 -- | The current translation context
@@ -174,6 +175,17 @@ data FnTransContext
     -- ^ We are translating the initializer for static values.
   | ShimContext
     -- ^ We are generating a shim function of some kind.
+
+-- | How translation should behave when failure occurs (i.e., when 'mirFail' is
+-- called).
+data FnFailHandler (s :: Type)
+  = FailError
+    -- ^ Error out immediately with a translation error. (The default
+    -- behavior.)
+  | FailContinue !(R.Label s)
+    -- ^ Don't error out immediately, but instead jump to the specified block
+    -- label. At present, this is only used when translating static items.
+    -- See Note [Translating unsupported static items] in Mir.Trans.
 
 -- | State about the entire collection used for the translation
 data CollectionState
@@ -504,6 +516,17 @@ findDefId edid = do
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
+  handler <- use failHandler
+  case handler of
+    FailError -> mirError str
+    FailContinue continueLbl -> do
+      -- See Note [Translating unsupported static items] in Mir.Trans.
+      failHandler .= FailError
+      G.jump continueLbl
+
+-- | Error out immediately with a translation error.
+mirError :: String -> MirGenerator h s ret a
+mirError str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
   transCtxt <- use transContext

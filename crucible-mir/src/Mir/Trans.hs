@@ -2489,7 +2489,8 @@ initFnState colState transCtxt =
             _labelMap   = Map.empty,
             _customOps  = ?customOps,
             _assertFalseOnError = ?assertFalseOnError,
-            _transInfo  = mempty
+            _transInfo  = mempty,
+            _failHandler = FailError
          }
 
 
@@ -3385,13 +3386,6 @@ transCollection col halloc = do
 
 -- | Produce a crucible CFG that initializes the global variables for the static
 -- part of the crate.
---
--- Note that while static items' definitions can depend on other static items,
--- this function does not currently translate static items in a way that
--- respects dependency order in general. (See #1108.) We do make a limited
--- effort to minimize the chances of static items being translated in the wrong
--- order, however. See the comments near @constValStatics@/@nonConstValStatics@
--- below.
 transStatics ::
   (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool) =>
   CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
@@ -3405,17 +3399,35 @@ transStatics colState halloc = do
             let repr = G.globalType g
                 constval = static ^. sConstVal
                 constty = static ^. sTy
+
             Some tpr <- tyToReprM constty
             case constval of
-              -- If the initializer is unsupported, leave it uninitialized
+              -- If the initializer is unsupported, leave it uninitialized.
+              -- See part (1) of Note [Translating unsupported static items].
               ConstUnsupported -> pure ()
+              -- Otherwise, attempt to translate the initializer, but if a
+              -- translation error occurs, then simply jump to the next static
+              -- item's translation.
+              -- See part (2) of Note [Translating unsupported static items].
               _ ->
                 do
-                  MirExp constty' constval' <- transConstVal constty (Some tpr) constval
-                  case testEquality repr constty' of
-                    Just Refl -> G.writeGlobal g constval'
-                    Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
-                                    ++ ", expected " ++ show repr ++ ", got " ++ show constty'
+                  transLbl <- G.newLabel
+                  continueLbl <- G.newLabel
+                  failHandler .= FailContinue continueLbl
+
+                  G.defineBlock transLbl $ do
+                    MirExp constty' constval' <-
+                      transConstVal constty (Some tpr) constval
+                    case testEquality repr constty' of
+                      Just Refl -> do
+                        G.writeGlobal g constval'
+                        failHandler .= FailError
+                        G.jump continueLbl
+                      Nothing -> error $
+                           "BUG: invalid type for constant initializer " ++ fmt staticName
+                        ++ ", expected " ++ show repr ++ ", got " ++ show constty'
+
+                  G.continue continueLbl $ G.jump transLbl
 
           Nothing -> error $ "BUG: cannot find global for " ++ fmt staticName
 
@@ -3436,6 +3448,78 @@ transStatics colState halloc = do
         Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
 
   return init_cfg
+
+{-
+Note [Translating unsupported static items]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+At present, we cannot support all static items that one might encounter in
+Rust. There are two ways in which a static item can be considered
+"unsupported":
+
+1. mir-json doesn't know how to render it to JSON, so it simply renders a value
+   of "unsupported" for that item.
+
+2. mir-json does know how to render it to JSON, but crucible-mir fails when
+   attempting to translate it (i.e., it calls the mirFail function).
+
+In either case, we want to ensure that crucible-mir fails gracefully when it
+encounters an unsupported static item. Due to the way crucible-mir works, it
+translates all static items before starting simulation, so if crucible-mir
+fails outright when translating a static item, then we won't be able to
+simulate anything! This would be especially frustrating if the static item that
+caused the translation failure is never actually used during simulation, which
+is often the case.
+
+Here is how we fail gracefully on each type of unsupported static:
+
+1. If we encounter ConstUnsupported (the crucible-mir counterpart to mir-json's
+   "unsupported"), then simply do nothing and move on to the next static item.
+
+2. Otherwise, attempt to translate the static item's constant value. If
+   translation fails and invokes mirFail, however, do not abort immediately
+   with a translation error. Instead, stop translating the constant value and
+   jump to the next constant's translation.
+
+Part (2) is trickier to implement, as we need to parameterize the behavior of
+mirFail depending on whether we are translating a static item's constant value
+or not. To do so:
+
+* We add a FnFailHandler field to FnState, which is carried throughout
+  translation. By default, the FnFailHandler is FailError, which indicates
+  that mirFail should abort immediately.
+
+* When we are about to translate a static item's constant value, we change the
+  current FnFailHandler to FailContinue, where FailContinue contains a fresh
+  basic block label (the "continue label"). The continue label's basic block
+  denotes the rest of static item translation. That is, jumping to the continue
+  label will simulate the next static item's constant value (or, if this is the
+  last static item, this will start simulating the crux::test entrypoints).
+
+* Create another fresh basic block label (the "translation label"). The
+  translation label's basic block contains the translation of the constant
+  value.
+
+* If the translation label's basic block translates successfully, then it will
+  write the translated constant to the static item's global variable, change
+  the FnFailHandler back to FailError (in case this is the last static item),
+  and jump to the continue label.
+
+* If the translation label's basic block does not translate successfully (i.e.,
+  it calls mirFail), then change the FnFailHandler back to FailError and jump
+  to the continue label. (Note that this is almost the same as what happens if
+  translation is successful, except that we don't write anything to the static
+  item's global variable).
+
+The end result is that if we encounter any sort of issue when translating a
+static item, then crucible-mir will still proceed with simulation. As long as
+the affected static item is never accessed during simulation, then crucible-mir
+will succeed (assuming it doesn't error for other reasons). Note that if the
+static item /is/ accessed during simulation, then crucible-mir currently gives
+a rather confusing error message, as crucible-mir will simply report that it
+attempted to read an uninitialized global variable. See
+https://github.com/GaloisInc/crucible/issues/1891 for how this error message
+might be improved.
+-}
 
 ------------------------------------------------------------------------------------------------
 
