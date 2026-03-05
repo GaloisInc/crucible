@@ -711,6 +711,15 @@ debugPrintMirRef desc ref = do
     let descExpr = R.App $ E.StringLit $ UnicodeLiteral $ Text.pack desc
     void $ G.extensionStmt $ DebugPrintMirRef descExpr ref
 
+debugPrintMirPlace ::
+  String ->
+  MirPlace s ->
+  MirGenerator h s ret ()
+debugPrintMirPlace desc (MirPlace tpr ref meta) = do
+    let desc' = desc ++ "; with place tpr = " ++ show tpr
+          ++ ", meta = " ++ show meta
+    debugPrintMirRef desc' ref
+
 
 -----------------------------------------------------------------------
 
