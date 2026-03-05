@@ -2488,7 +2488,8 @@ initFnState colState transCtxt =
             _labelMap   = Map.empty,
             _customOps  = ?customOps,
             _assertFalseOnError = ?assertFalseOnError,
-            _transInfo  = mempty
+            _transInfo  = mempty,
+            _failHandler = FailError
          }
 
 
@@ -3404,10 +3405,27 @@ transStatics colState halloc = do
             let repr = G.globalType g
                 constval = static ^. sConstVal
                 constty = static ^. sTy
+
+            -- TODO RGS: Document what is going on here
+            successLbl <- G.newLambdaLabel' repr
+            failLbl <- G.newLabel
+            continueLbl <- G.newLabel
+
+            failHandler .= FailReturnNothing failLbl
+
+            G.defineLambdaBlock successLbl $ \val -> do
+              G.writeGlobal g val
+              failHandler .= FailError
+              G.jump continueLbl
+            G.defineBlock failLbl $ do
+              failHandler .= FailError
+              G.jump continueLbl
+
             Some tpr <- tyToReprM constty
             MirExp constty' constval' <- transConstVal constty (Some tpr) constval
             case testEquality repr constty' of
-              Just Refl -> G.writeGlobal g constval'
+              Just Refl ->
+                G.continue continueLbl $ G.jumpToLambda successLbl constval'
               Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
                               ++ ", expected " ++ show repr ++ ", got " ++ show constty'
 
