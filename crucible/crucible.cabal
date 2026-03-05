@@ -16,7 +16,7 @@ Description:
   a variety of SAT and SMT solvers, including Z3, CVC4, Yices, STP, and dReal.
   .
   For an overview of Crucible please have a look at "Lang.Crucible.README"
-  
+
 extra-doc-files: CHANGELOG.md
 
 source-repository head
@@ -140,7 +140,7 @@ common bldflags
       -Werror=badly-staged-types
       -Werror=data-kinds-tc
       -Werror=incomplete-record-selectors
-              
+
   if impl(ghc < 9.12)
     ghc-options:
       -Werror=compat-unqualified-imports
