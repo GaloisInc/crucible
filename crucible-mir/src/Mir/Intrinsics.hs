@@ -1567,6 +1567,16 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirRef_PeelIndex ::
      !(f MirReferenceType) ->
      MirStmt f (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType))
+  -- | Given a pointer to an element, return a pointer to an array constructed
+  -- by viewing the next @chunkSize * numChunks@ elements as an array of
+  -- arrays.
+  MirRef_AggregateAsChunks ::
+     -- | Size in bytes of each chunk
+     !(f UsizeType) ->
+     -- | Number of chunks to produce
+     !(f UsizeType) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
   DebugPrintMirRef ::
      !(f (StringType Unicode)) ->
      !(f MirReferenceType) ->
@@ -1708,6 +1718,7 @@ instance TypeApp MirStmt where
     MirRef_OffsetWrap _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
     MirRef_PeelIndex _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
+    MirRef_AggregateAsChunks _ _ _ -> MirReferenceRepr
     DebugPrintMirRef _ _ -> UnitRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
@@ -1744,6 +1755,7 @@ instance PrettyApp MirStmt where
     MirRef_OffsetWrap p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
     MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
     MirRef_PeelIndex p -> "mirRef_peelIndex" <+> pp p
+    MirRef_AggregateAsChunks chunkSize numChunks p -> "mirRef_aggregateAsChunks" <+> pp chunkSize <+> pp numChunks <+> pp p
     DebugPrintMirRef s p -> "debugPrintMirRef" <+> pp s <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
@@ -2849,6 +2861,43 @@ mirRef_indexAndLenSim ref = do
        let iTypes = ctxIntrinsicTypes $ s ^. stateContext
        liftIO $ mirRef_indexAndLenIO bak gs iTypes ref
 
+mirRef_aggregateAsChunksLeaf ::
+    IsSymInterface sym =>
+    RegValue sym UsizeType ->
+    RegValue sym UsizeType ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym
+        (MirReference _tpr root (AgElem_RefPath offSym _sz _tpr' path)) = do
+    chunkSize <- requireConcrete "chunk size" chunkSizeSym
+    numChunks <- requireConcrete "number of chunks" numChunksSym
+    off <- requireConcrete "slice offset within parent array" offSym
+    return $ MirReference MirAggregateRepr root
+      (AggregateAsChunks_RefPath off chunkSize numChunks path)
+  where
+    requireConcrete desc symExp =
+      case asBV symExp of
+        Just bv -> return $ fromIntegral $ BV.asUnsigned bv
+        Nothing -> leafAbort $ GenericSimError $
+          "aggregateAsChunks requires " ++ desc ++ " to be concrete"
+mirRef_aggregateAsChunksLeaf _ _ (MirReference _ _ _) =
+    leafAbort $ Unsupported callStack $
+        "aggregateAsChunks requires a pointer to an aggregate element (AgElem_RefPath)"
+mirRef_aggregateAsChunksLeaf _ _ _ = do
+    leafAbort $ Unsupported callStack $
+        "cannot perform aggregateAsChunks on invalid pointer"
+
+mirRef_aggregateAsChunksIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    RegValue sym UsizeType ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_aggregateAsChunksIO bak iTypes chunkSizeSym numChunksSym ref =
+    modifyRefMuxIO bak iTypes (mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym) ref
+
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s = withStateBackend s $ \bak ->
@@ -2896,6 +2945,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes r1 r2
        MirRef_PeelIndex (regValue -> ref) -> do
          readOnly s $ mirRef_peelIndexIO bak iTypes ref
+       MirRef_AggregateAsChunks (regValue -> chunkSize) (regValue -> numChunks) (regValue -> ref) -> do
+         readOnly s $ mirRef_aggregateAsChunksIO bak iTypes chunkSize numChunks ref
        DebugPrintMirRef (regValue -> desc) (regValue -> ref) -> do
          readOnly s $ putStrLn $ "debugPrintMirRef (" ++ show (printSymExpr desc)
            ++ "): " ++ show ref
