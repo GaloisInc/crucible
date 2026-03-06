@@ -598,6 +598,10 @@ evalBinOp bop mat me1 me2 =
             M.BitOr -> return (MirExp C.BoolRepr (S.app $ E.Or e1 e2), noOverflow)
             M.Beq -> return (MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2), noOverflow)
             M.Ne  -> return (MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2), noOverflow)
+            M.Gt  -> return (MirExp C.BoolRepr (S.app (E.And e1 (S.app (E.Not e2)))), noOverflow)
+            M.Ge  -> return (MirExp C.BoolRepr (S.app (E.Or  e1 (S.app (E.Not e2)))), noOverflow)
+            M.Lt  -> return (MirExp C.BoolRepr (S.app (E.And (S.app (E.Not e1)) e2)), noOverflow)
+            M.Le  -> return (MirExp C.BoolRepr (S.app (E.Or  (S.app (E.Not e1)) e2)), noOverflow)
             _ -> mirFail $ "No translation for bool binop: " ++ fmt bop
       (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
           case bop of
