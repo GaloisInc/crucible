@@ -138,6 +138,9 @@ library
     Lang.Crucible.Syntax.ParsedProgram
     Lang.Crucible.Syntax.Prog
 
+  other-modules:
+    Lang.Crucible.Syntax.Parser
+
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
 
