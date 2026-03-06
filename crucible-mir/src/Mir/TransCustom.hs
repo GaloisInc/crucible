@@ -1502,11 +1502,8 @@ slice_as_chunks_cast_hook_common mut = (["core", "slice", "{impl}", hookLoc, "cr
               [MirExp MirReferenceRepr elemPtr, MirExp UsizeRepr numChunks])
               | m == mut -> do
                 let chunkSize = R.App $ usizeLit $ fromIntegral n
-                debugPrintMirRef "as_chunks input" elemPtr
                 arrayOfChunksPtr <- mirRef_aggregateAsChunks chunkSize numChunks elemPtr
-                debugPrintMirRef "as_chunks array of chunks" arrayOfChunksPtr
                 firstChunkPtr <- subindexRef MirAggregateRepr arrayOfChunksPtr (R.App $ usizeLit 0)
-                debugPrintMirRef "as_chunks first chunk" firstChunkPtr
                 pure (MirExp MirReferenceRepr firstChunkPtr)
             _ -> mirFail $ "bad monomorphization of "
                 ++ Text.unpack hookLoc ++ "::crucible_cast_hook: "
