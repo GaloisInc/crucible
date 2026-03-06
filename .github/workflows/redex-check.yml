@@ -1,0 +1,32 @@
+name: redex-check
+on:
+  push:
+    branches: [master, "release-**"]
+    paths:
+      - "crucible-syntax/redex/**"
+      - "crucible-syntax/test-data/**"
+      - ".github/workflows/redex-check.yml"
+  pull_request:
+    paths:
+      - "crucible-syntax/redex/**"
+      - "crucible-syntax/test-data/**"
+      - ".github/workflows/redex-check.yml"
+  workflow_dispatch:
+
+jobs:
+  redex-check:
+    runs-on: ubuntu-24.04
+    name: Redex type-checker
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Racket
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y racket
+
+      - name: Run test suite
+        run: crucible-syntax/redex/test-suite.sh

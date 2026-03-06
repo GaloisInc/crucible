@@ -1,0 +1,115 @@
+name: redex-fuzzer
+
+on:
+  pull_request:
+    paths:
+      - "crucible-syntax/redex/**"
+      - ".github/workflows/redex-fuzzer.yml"
+  schedule:
+    # Run nightly at 2:00 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      count:
+        description: 'Number of programs to generate'
+        required: false
+        default: '200'
+      size:
+        description: 'Maximum program size'
+        required: false
+        default: '15'
+
+jobs:
+  fuzzer:
+    runs-on: ubuntu-24.04
+    name: Redex Parser Fuzzer
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Install Racket
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y racket
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.10.2'
+          cabal-version: '3.10'
+
+      - name: Build crucible-syntax executable
+        working-directory: crucible-syntax
+        run: |
+          cabal update
+          cabal build exe:crucible-syntax
+          CRUCIBLE_BIN=$(cabal list-bin exe:crucible-syntax)
+          echo "CRUCIBLE_BIN=$CRUCIBLE_BIN" >> $GITHUB_ENV
+
+      - name: Run fuzzer with type-checking
+        id: fuzzer
+        working-directory: crucible-syntax/redex
+        run: |
+          set -o pipefail
+          COUNT=${{ github.event.inputs.count || '5000' }}
+          SIZE=${{ github.event.inputs.size || '15' }}
+
+          # Run the fuzzer and capture output (stdbuf ensures incremental output)
+          stdbuf -oL racket fuzz.rkt -n 1000 -s "$SIZE" --count "$COUNT" --type-stats --crucible "$CRUCIBLE_BIN" | tee fuzzer-output.txt
+
+          # Extract statistics
+          WELL_TYPED=$(grep "Well-typed programs:" fuzzer-output.txt | grep -oP '\d+(?= \()' || echo "0")
+          NON_WELL_TYPED=$(grep "Non-well-typed programs:" fuzzer-output.txt | grep -oP '\d+(?= \()' || echo "0")
+          PARSE_OK=$(grep "Parse OK:" fuzzer-output.txt | grep -oP '\d+' || echo "0")
+          PARSE_FAIL=$(grep "Parse FAIL:" fuzzer-output.txt | grep -oP '\d+' || echo "0")
+
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
+          echo "well_typed=$WELL_TYPED" >> $GITHUB_OUTPUT
+          echo "non_well_typed=$NON_WELL_TYPED" >> $GITHUB_OUTPUT
+          echo "parse_ok=$PARSE_OK" >> $GITHUB_OUTPUT
+          echo "parse_fail=$PARSE_FAIL" >> $GITHUB_OUTPUT
+
+          # Fail if any parser failures
+          if [ "$PARSE_FAIL" -gt 0 ]; then
+            echo "ERROR: $PARSE_FAIL well-typed programs failed to parse!"
+            exit 1
+          fi
+
+      - name: Create summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Fuzzer Results
+
+          ### Configuration
+          - **Programs generated:** ${{ steps.fuzzer.outputs.count }}
+          - **Maximum program size:** ${{ steps.fuzzer.outputs.size }}
+
+          ### Type-checking Results
+          | Category | Count | Percentage |
+          |----------|-------|------------|
+          | Well-typed programs | ${{ steps.fuzzer.outputs.well_typed }} | ${{ steps.fuzzer.outputs.well_typed }}/${{ steps.fuzzer.outputs.count }} |
+          | Non-well-typed programs | ${{ steps.fuzzer.outputs.non_well_typed }} | ${{ steps.fuzzer.outputs.non_well_typed }}/${{ steps.fuzzer.outputs.count }} |
+
+          ### Parser Test Results (Well-typed Programs Only)
+          | Result | Count |
+          |--------|-------|
+          | ✅ Parse OK | ${{ steps.fuzzer.outputs.parse_ok }} |
+          | ❌ Parse FAIL | ${{ steps.fuzzer.outputs.parse_fail }} |
+
+          ${{ steps.fuzzer.outputs.parse_fail > 0 && '⚠️ **Warning:** Some well-typed programs failed to parse!' || '✅ **Success:** All well-typed programs parsed correctly!' }}
+          EOF
+
+      - name: Upload fuzzer output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzzer-output
+          path: crucible-syntax/redex/fuzzer-output.txt
+          retention-days: 30
