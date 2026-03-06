@@ -1308,7 +1308,7 @@ mirAggregate_fromChunks sym offsetMap chunkedAg@(MirAggregate chunkedTotalSize _
           ++ " (from " ++ show off2 ++ ")"
 
   let combinedTotalSize = offsetMap chunkedTotalSize
-  ms <- forM chunkParts $ \(off, sz, outerPred, totalSize, m) -> do
+  ms <- forM chunkParts $ \(off, _sz, outerPred, totalSize, m) -> do
     -- TODO: hardcoded size=1 (uncomment this once we use proper sizes for
     -- arrays)
     --when (totalSize /= sz) $ panic "mirAggregate_fromChunks"
@@ -2458,8 +2458,8 @@ refPathOverlaps sym path1 path2 = do
         pEq <- go rrp1 rrp2
         liftIO $ andPred sym overlaps pEq
 
-    go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 p1 `RrpCons` rrp1)
-          (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 p2 `RrpCons` rrp2)
+    go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 _ `RrpCons` rrp1)
+          (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` rrp2)
       | (off1, chunkSize1, numChunks1) == (off2, chunkSize2, numChunks2) = do
         -- Conversions match exactly.  We can recurse on `rrp1` and `rrp2`
         -- since they'll both be applied to the same shape of aggregate.
@@ -2476,8 +2476,8 @@ refPathOverlaps sym path1 path2 = do
         -- Conversion regions don't overlap at all.
         return $ falsePred sym
     -- `AggregateAsChunks_RefPath` overlaps with some `AgElem_RefPath` paths.
-    go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 p1 `RrpCons` rrp1)
-          (AgElem_RefPath off2 sz2 tpr2 p2 `RrpCons` rrp2) = do
+    go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 _ `RrpCons` _)
+          (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` _) = do
       let end1 = off1 + (chunkSize1 * numChunks1)
       szBv2 <- bvSizeLit sz2
       end2 <- liftIO $ bvAdd sym off2 szBv2
@@ -2491,8 +2491,8 @@ refPathOverlaps sym path1 path2 = do
       -- path may also overlap, and return true without considering `rrp1` and
       -- `rrp2`.
       return overlaps
-    go (AgElem_RefPath off1 sz1 tpr1 p1 `RrpCons` rrp1)
-          (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 p2 `RrpCons` rrp2) = do
+    go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` _)
+          (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` _) = do
       let end2 = off2 + (chunkSize2 * numChunks2)
       szBv1 <- bvSizeLit sz1
       end1 <- liftIO $ bvAdd sym off1 szBv1
