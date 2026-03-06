@@ -52,7 +52,6 @@ import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
 import           Control.Monad.Except
-import           Control.Monad.IO.Class
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
