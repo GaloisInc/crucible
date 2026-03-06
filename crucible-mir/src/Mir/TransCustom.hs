@@ -1919,7 +1919,7 @@ bv_leading_zeros =
 
 -- fn allocate<T>(len: usize) -> *mut T
 allocate :: (ExplodedDefId, CustomRHS)
-allocate = (["core", "crucible", "alloc", "allocate"], \substs -> case substs of
+allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirAggregate` of length `len`, and
@@ -1936,7 +1936,7 @@ allocate = (["core", "crucible", "alloc", "allocate"], \substs -> case substs of
     _ -> Nothing)
 
 allocate_zeroed :: (ExplodedDefId, CustomRHS)
-allocate_zeroed = (["core", "crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
+allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr len] -> do
             Some tpr <- tyToReprM t
@@ -1957,7 +1957,7 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
-reallocate = (["core", "crucible", "alloc", "reallocate"], \substs -> case substs of
+reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newSz ] -> do
             (agPtr, idx) <- mirRef_peelIndex ptr
