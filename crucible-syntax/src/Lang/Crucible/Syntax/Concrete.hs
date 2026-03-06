@@ -1387,41 +1387,44 @@ stxGlobals = stxProgState . progGlobals
 stxExterns :: Simple Lens (SyntaxState s) (Map GlobalName (Some GlobalVar))
 stxExterns = stxProgState . progExterns
 
-newtype CFGParser s ret a =
-  CFGParser { runCFGParser :: (?returnType :: TypeRepr ret)
-                           => ExceptT (ExprErr s)
-                                (StateT (SyntaxState s) IO)
-                                a
-            }
+newtype Parser s a =
+  Parser { runParser :: ExceptT (ExprErr s)
+                         (StateT (SyntaxState s) IO)
+                         a
+         }
   deriving (Functor)
 
-instance Applicative (CFGParser s ret) where
-  pure x = CFGParser (pure x)
-  (CFGParser f) <*> (CFGParser x) = CFGParser (f <*> x)
+instance Applicative (Parser s) where
+  pure x = Parser (pure x)
+  (Parser f) <*> (Parser x) = Parser (f <*> x)
 
-instance Alternative (CFGParser s ret) where
-  empty = CFGParser $ throwError $ TrivialErr InternalPos
-  (CFGParser x) <|> (CFGParser y) = CFGParser (x <|> y)
+instance Alternative (Parser s) where
+  empty = Parser $ throwError $ TrivialErr InternalPos
+  (Parser x) <|> (Parser y) = Parser (x <|> y)
 
-instance Semigroup (CFGParser s ret a) where
+instance Semigroup (Parser s a) where
   (<>) = (<|>)
 
-instance Monoid (CFGParser s ret a) where
+instance Monoid (Parser s a) where
   mempty = empty
 
-instance Monad (CFGParser s ret) where
-  (CFGParser m) >>= f = CFGParser $ m >>= \a -> runCFGParser (f a)
+instance Monad (Parser s) where
+  (Parser m) >>= f = Parser $ m >>= \a -> runParser (f a)
 
-instance MonadError (ExprErr s) (CFGParser s ret) where
-  throwError e = CFGParser $ throwError e
-  catchError m h = CFGParser $ catchError (runCFGParser m) (\e -> runCFGParser $ h e)
+instance MonadError (ExprErr s) (Parser s) where
+  throwError e = Parser $ throwError e
+  catchError m h = Parser $ catchError (runParser m) (\e -> runParser $ h e)
 
-instance MonadState (SyntaxState s) (CFGParser s ret) where
-  get = CFGParser get
-  put s = CFGParser $ put s
+instance MonadState (SyntaxState s) (Parser s) where
+  get = Parser get
+  put s = Parser $ put s
 
-instance MonadIO (CFGParser s ret) where
-  liftIO io = CFGParser $ lift $ lift io
+instance MonadIO (Parser s) where
+  liftIO io = Parser $ lift $ lift io
+
+instance MonadPlus (Parser s) where
+  mzero = empty
+  mplus = (<|>)
 
 
 freshId :: (MonadState (SyntaxState s) m, MonadIO m) => m (Nonce s tp)
@@ -2025,7 +2028,7 @@ functionHeader' =
 
 functionHeader :: (?parserHooks :: ParserHooks ext)
                => AST s
-               -> TopParser s (FunctionHeader, FunctionSource s)
+               -> Parser s (FunctionHeader, FunctionSource s)
 functionHeader defun =
   do ((fnName, Some theArgs, Some ret, loc), src) <- liftSyntaxParse functionHeader' defun
      ha <- use $ stxProgState  . progHandleAlloc
@@ -2043,7 +2046,7 @@ functionHeader defun =
 
 global :: (?parserHooks :: ParserHooks ext)
        => AST s
-       -> TopParser s (Some GlobalVar)
+       -> Parser s (Some GlobalVar)
 global stx =
   do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary DefGlobal globalName isType)) stx
      ha <- use $ stxProgState  . progHandleAlloc
@@ -2055,7 +2058,7 @@ global stx =
 -- | Parse a forward declaration.
 declare :: (?parserHooks :: ParserHooks ext)
         => AST t
-        -> TopParser s FunctionHeader
+        -> Parser s FunctionHeader
 declare stx =
   do ((fnName, (Some theArgs, (Some ret, ()))), loc) <-
        liftSyntaxParse (do r <- followedBy (kw Declare) $
@@ -2075,7 +2078,7 @@ declare stx =
 -- | Parse an extern.
 extern :: (?parserHooks :: ParserHooks ext)
        => AST s
-       -> TopParser s (Some GlobalVar)
+       -> Parser s (Some GlobalVar)
 extern stx =
   do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary Extern globalName isType)) stx
      ha <- use $ stxProgState  . progHandleAlloc
@@ -2086,7 +2089,7 @@ extern stx =
 
 topLevel :: (?parserHooks :: ParserHooks ext)
          => AST s
-         -> TopParser s (Maybe (FunctionHeader, FunctionSource s))
+         -> Parser s (Maybe (FunctionHeader, FunctionSource s))
 topLevel ast =
   case ast of
     L (A (Kw Defun):_) -> Just <$> functionHeader ast
@@ -2170,48 +2173,9 @@ eval _   (EReg loc reg)   = freshAtom loc (ReadReg reg)
 eval _   (EGlob loc glob) = freshAtom loc (ReadGlobal glob)
 eval loc (EDeref eloc e)  = freshAtom loc . ReadRef =<< eval eloc e
 
-newtype TopParser s a =
-  TopParser { runTopParser :: ExceptT (ExprErr s)
-                                (StateT (SyntaxState s) IO)
-                                a
-            }
-  deriving (Functor)
-
-top :: NonceGenerator IO s -> HandleAllocator -> [(SomeHandle,Position)] -> TopParser s a -> IO (Either (ExprErr s) a)
-top ng ha builtIns (TopParser (ExceptT (StateT act))) =
+top :: NonceGenerator IO s -> HandleAllocator -> [(SomeHandle,Position)] -> Parser s a -> IO (Either (ExprErr s) a)
+top ng ha builtIns (Parser (ExceptT (StateT act))) =
   fst <$> act (initSyntaxState ng (initProgState builtIns ha))
-
-instance Applicative (TopParser s) where
-  pure x = TopParser (pure x)
-  (TopParser f) <*> (TopParser x) = TopParser (f <*> x)
-
-instance Alternative (TopParser s) where
-  empty = TopParser $ throwError (TrivialErr InternalPos)
-  (TopParser x) <|> (TopParser y) = TopParser (x <|> y)
-
-instance MonadPlus (TopParser s) where
-  mzero = empty
-  mplus = (<|>)
-
-instance Semigroup (TopParser s a) where
-  (<>) = (<|>)
-
-instance Monoid (TopParser s a) where
-  mempty = empty
-
-instance Monad (TopParser s) where
-  (TopParser m) >>= f = TopParser $ m >>= runTopParser . f
-
-instance MonadError (ExprErr s) (TopParser s) where
-  throwError = TopParser . throwError
-  catchError m h = TopParser $ catchError (runTopParser m) (runTopParser . h)
-
-instance MonadState (SyntaxState s) (TopParser s) where
-  get = TopParser get
-  put = TopParser . put
-
-instance MonadIO (TopParser s) where
-  liftIO = TopParser . lift . lift
 
 
 initParser :: forall s m ext
@@ -2242,21 +2206,20 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
 cfgs :: ( IsSyntaxExtension ext
         , ?parserHooks :: ParserHooks ext )
      => [AST s]
-     -> TopParser s [AnyCFG ext]
+     -> Parser s [AnyCFG ext]
 cfgs = fmap parsedProgCFGs <$> prog
 
 prog :: ( TraverseExt ext
         , IsSyntaxExtension ext
         , ?parserHooks :: ParserHooks ext )
      => [AST s]
-     -> TopParser s (ParsedProgram ext)
+     -> Parser s (ParsedProgram ext)
 prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      cs <- forM headers $
        \(hdr@(FunctionHeader _ _ ret handle _), src@(FunctionSource _ body)) ->
          do initParser hdr src
             args <- toList <$> use stxAtoms
-            let ?returnType = ret
             st <- get
             (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
             put st'
