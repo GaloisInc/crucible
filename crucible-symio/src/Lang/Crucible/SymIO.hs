@@ -57,6 +57,8 @@ module Lang.Crucible.SymIO
   , initFS
   , openFile
   , openFile'
+  , openFileWithFlags
+  , openFileWithFlags'
   , readByte
   , readByte'
   , writeByte
@@ -82,12 +84,13 @@ import           GHC.TypeNats
 import           GHC.Stack
 
 import           Control.Arrow ( first )
+import           Control.Monad ( when )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
 import qualified Control.Monad.State as CMS
 import qualified Control.Monad.Trans as CMT
 
 import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
+import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Traversable as DT
 import qualified Data.Map as Map
 import qualified Data.BitVector.Sized as BV
@@ -316,6 +319,68 @@ openFile' fsVar ident = openFile fsVar ident $ \case
           ("openFile': Invalid file identifier: " ++ show (W4.printSymExpr ident))
   Right fhdl -> return fhdl
 
+-- | Open a file with optional creation, truncation, and append positioning
+-- If the file doesn't exist and O_CREAT is specified, creates an empty file
+openFileWithFlags ::
+  (IsSymInterface sym, 1 <= wptr) =>
+  GlobalVar (FileSystemType wptr) ->
+  FileIdent sym ->
+  Bool -> -- ^ O_CREAT: Create file if it doesn't exist
+  Bool -> -- ^ O_TRUNC: Truncate existing file to zero length
+  Bool -> -- ^ O_APPEND: Position file pointer at end
+  (forall args'. Either FileIdentError (FileHandle sym wptr) -> C.OverrideSim p sym arch r args' ret a) ->
+  C.OverrideSim p sym arch r args ret a
+openFileWithFlags fsVar ident doCreate doTrunc doAppend cont =
+  runFileMIdentCont fsVar ident
+    (\case
+      Left FileNotFound ->
+        if doCreate
+        then do
+          -- File doesn't exist, create it
+          file <- runFileM fsVar $ createNewFile ident
+          -- Open the newly created file
+          fhdl <- runFileM fsVar $ openResolvedFile file
+          cont (Right fhdl)
+        else cont (Left FileNotFound)
+      Right fhdl -> do
+        -- File exists, apply truncation/positioning
+        when doTrunc $ runFileM fsVar $ do
+          (FilePointer file _, _) <- readHandle fhdl
+          truncateFile file
+        when doAppend $ runFileM fsVar $ do
+          sz <- getFileSize fhdl
+          (FilePointer file _, _) <- readHandle fhdl
+          setHandle fhdl (FilePointer file sz)
+        cont (Right fhdl)
+    )
+    (\ident' -> do
+      file <- resolveFileIdent ident'
+      when doTrunc $ truncateFile file
+      fhdl <- openResolvedFile file
+      when doAppend $ do
+        sz <- getFileSize fhdl
+        (FilePointer file _, _) <- readHandle fhdl
+        setHandle fhdl (FilePointer file sz)
+      return fhdl
+    )
+
+-- | Partial version of 'openFileWithFlags' that asserts success
+openFileWithFlags' ::
+  (IsSymInterface sym, 1 <= wptr) =>
+  GlobalVar (FileSystemType wptr) ->
+  FileIdent sym ->
+  Bool -> Bool -> Bool ->
+  C.OverrideSim p sym arch r args ret (FileHandle sym wptr)
+openFileWithFlags' fsVar ident doCreate doTrunc doAppend =
+  openFileWithFlags fsVar ident doCreate doTrunc doAppend $ \case
+    Left FileNotFound ->
+      C.ovrWithBackend $ \bak ->
+        liftIO $ addFailedAssertion bak $
+          AssertFailureSimError
+            "Could not open or create file."
+            ("openFileWithFlags': Invalid file identifier: " ++ show (W4.printSymExpr ident))
+    Right fhdl -> return fhdl
+
 -- | Write a single byte to the given 'FileHandle' and increment it
 writeByte ::
   forall p sym arch r args ret wptr a.
@@ -492,7 +557,7 @@ isFileIdentValid fvar ident = runFileM fvar $ do
   m <- CMS.gets fsFileNames
   case W4.asString ident of
     Just (W4.Char8Literal i')
-      | Right str <- Text.decodeUtf8' i'
+      | Right str <- TextEncoding.decodeUtf8' i'
       -> case Map.lookup str m of
       Just _ -> return $ W4.truePred sym
       Nothing -> return $ W4.falsePred sym
@@ -610,6 +675,72 @@ runFileMIdentCont fvar ident cont f = do
 getSym :: FileM p arch r args ret sym wptr sym
 getSym = liftOV C.getSymInterface
 
+-- | Compute the next available file index
+-- Files use integer indices 0,1,2 for stdin/stdout/stderr
+-- New files start at index 3 and increment from there
+computeNextFileIndex ::
+  forall sym wptr p arch r args ret.
+  FileM p arch r args ret sym wptr (W4.SymInteger sym)
+computeNextFileIndex = do
+  sym <- getSym
+  m <- CMS.gets fsFileNames
+  let existingFiles = Map.elems m
+      concreteIndices = [idx | PE _ (File _ fileIdx) <- existingFiles,
+                               Just idx <- [W4.asInteger fileIdx]]
+      maxIdx = if null concreteIndices then 2 else maximum concreteIndices
+  liftIO $ W4.intLit sym (maxIdx + 1)
+
+-- | Create a new empty file with the given identifier
+-- Only supports concrete filenames (symbolic filenames return error)
+createNewFile ::
+  forall sym wptr p arch r args ret.
+  FileIdent sym ->
+  FileM p arch r args ret sym wptr (File sym wptr)
+createNewFile ident = do
+  sym <- getSym
+  repr <- getPtrSz
+
+  -- Get the next file index
+  nextIdx <- computeNextFileIndex
+
+  -- Create the new File
+  let newFile = File repr nextIdx
+
+  -- Add to fsFileNames map (only concrete paths supported)
+  case W4.asString ident of
+    Just (W4.Char8Literal identBytes)
+      | Right path <- TextEncoding.decodeUtf8' identBytes -> do
+          CMS.modify' $ \fs -> fs {
+            fsFileNames = Map.insert path (justPartExpr sym newFile) (fsFileNames fs)
+          }
+    _ -> withBackend $ \bak ->
+          liftIO $ addFailedAssertion bak $
+            Unsupported callStack "Symbolic filenames not supported in createNewFile"
+
+  -- Initialize size to 0
+  szArray <- CMS.gets fsFileSizes
+  zero <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 0)
+  szArray' <- liftIO $ CA.writeSingle sym (Ctx.empty Ctx.:> nextIdx) zero szArray
+  CMS.modify' $ \fs -> fs { fsFileSizes = szArray' }
+
+  return newFile
+
+-- | Truncate a file to zero length
+truncateFile ::
+  forall sym wptr p arch r args ret.
+  File sym wptr ->
+  FileM p arch r args ret sym wptr ()
+truncateFile (File repr fileid) = do
+  sym <- getSym
+
+  -- Set file size to 0
+  szArray <- CMS.gets fsFileSizes
+  zero <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 0)
+  szArray' <- liftIO $ CA.writeSingle sym (Ctx.empty Ctx.:> fileid) zero szArray
+  CMS.modify' $ \fs -> fs { fsFileSizes = szArray' }
+
+  -- Note: Old data remains in fsSymData but is inaccessible (reads check size first)
+
 withBackend ::
   (forall bak. IsSymBackend sym bak => bak -> FileM p arch r args ret sym wptr a) ->
   FileM p arch r args ret sym wptr a
@@ -673,7 +804,7 @@ resolveFileIdent ident = do
   withBackend $ \bak ->
     case W4.asString ident of
       Just (W4.Char8Literal i')
-        | Right str <- Text.decodeUtf8' i'
+        | Right str <- TextEncoding.decodeUtf8' i'
         -> case Map.lookup str m of
         Just n -> liftIO $ readPartExpr bak n missingErr
         Nothing -> liftIO $ addFailedAssertion bak missingErr

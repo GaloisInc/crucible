@@ -57,6 +57,8 @@ module Lang.Crucible.LLVM.SymIO
   , symio_overrides
   , openFile
   , callOpenFile
+  , creatFile
+  , callCreatFile
   , closeFile
   , callCloseFile
   , readFileHandle
@@ -71,8 +73,10 @@ module Lang.Crucible.LLVM.SymIO
 
 import           Control.Monad ( forM, foldM, when )
 import           Control.Monad.IO.Class (liftIO)
+import           Data.Bits ((.&.))
 import qualified Data.BitVector.Sized as BVS
 import qualified Data.ByteString as BS
+import           Data.Word (Word)
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Foldable as F
 import qualified Data.Map as Map
@@ -112,6 +116,43 @@ import qualified What4.Interface as W4
 import qualified What4.Partial as W4P
 
 import qualified Lang.Crucible.SymIO as SymIO
+
+-- | POSIX open flags
+data OpenFlags = OpenFlags
+  { ofCreate :: Bool      -- ^ O_CREAT (0x40)
+  , ofTrunc :: Bool       -- ^ O_TRUNC (0x200)
+  , ofAppend :: Bool      -- ^ O_APPEND (0x400)
+  , ofAccessMode :: Word  -- ^ O_RDONLY/O_WRONLY/O_RDWR (0x0/0x1/0x2)
+  }
+  deriving (Show, Eq)
+
+-- | Parse concrete flag value into OpenFlags structure
+-- Common flag values from fcntl.h:
+--   O_RDONLY: 0x0000, O_WRONLY: 0x0001, O_RDWR: 0x0002
+--   O_CREAT:  0x0040, O_TRUNC:  0x0200, O_APPEND: 0x0400
+parseOpenFlags :: BVS.BV 32 -> OpenFlags
+parseOpenFlags flagsBV =
+  let flags = BVS.asUnsigned flagsBV
+      testBit bit = (flags .&. bit) /= 0
+  in OpenFlags
+       { ofCreate = testBit 0x40
+       , ofTrunc = testBit 0x200
+       , ofAppend = testBit 0x400
+       , ofAccessMode = fromIntegral (flags .&. 0x3)
+       }
+
+-- | Extract concrete flags from symbolic bitvector or fail
+extractConcreteFlags ::
+  (IsSymInterface sym) =>
+  sym ->
+  W4.SymBV sym 32 ->
+  OverrideSim p sym ext rtp args ret (Maybe OpenFlags)
+extractConcreteFlags sym flagsSym =
+  case W4.asBV flagsSym of
+    Just concFlags -> return $ Just (parseOpenFlags concFlags)
+    Nothing -> do
+      -- Symbolic flags not yet supported
+      return Nothing
 
 -- | A representation of the filesystem for the LLVM frontend
 --
@@ -408,7 +449,7 @@ openFile
            (BVType 32)
 openFile fsVars =
   [llvmOvr| i32 @open( i8*, i32 ) |]
-  -- TODO add mode support by making this a varargs function
+  -- Note: mode parameter support could be added by making this a varargs function
   (\memOps args -> uncurryAssignment (callOpenFile memOps fsVars) args)
 
 callOpenFile ::
@@ -418,11 +459,57 @@ callOpenFile ::
   RegEntry sym (LLVMPointerType wptr) ->
   RegEntry sym (BVType 32) ->
   OverrideSim p sym ext rtp args ret (RegValue sym (BVType 32))
-callOpenFile memOps fsVars filename_ptr _flags =
-  do fileIdent <- loadFileIdent memOps (regValue filename_ptr)
-     SymIO.openFile (llvmFileSystem fsVars) fileIdent $ \case
-       Left SymIO.FileNotFound -> returnIOError32
-       Right fileHandle -> allocateFileDescriptor fsVars fileHandle
+callOpenFile memOps fsVars filename_ptr flags = do
+  sym <- getSymInterface
+  fileIdent <- loadFileIdent memOps (regValue filename_ptr)
+
+  -- Parse concrete flags
+  mOpenFlags <- extractConcreteFlags sym (regValue flags)
+
+  case mOpenFlags of
+    Nothing -> returnIOError32  -- Symbolic flags not supported
+    Just openFlags ->
+      SymIO.openFileWithFlags (llvmFileSystem fsVars) fileIdent
+        (ofCreate openFlags)
+        (ofTrunc openFlags)
+        (ofAppend openFlags)
+        $ \case
+          Left SymIO.FileNotFound -> returnIOError32
+          Right fileHandle -> allocateFileDescriptor fsVars fileHandle
+
+-- | Override for POSIX creat(pathname, mode) function
+-- Equivalent to open(pathname, O_CREAT|O_WRONLY|O_TRUNC, mode)
+-- Note: mode parameter is currently ignored (file permissions not modeled)
+creatFile
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions)
+  => LLVMFileSystem wptr
+  -> LLVMOverride p sym ext
+           (EmptyCtx ::> LLVMPointerType wptr
+                     ::> BVType 32)
+           (BVType 32)
+creatFile fsVars =
+  [llvmOvr| i32 @creat( i8*, i32 ) |]
+  (\memOps args -> uncurryAssignment (callCreatFile memOps fsVars) args)
+
+callCreatFile ::
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?memOpts :: MemOptions) =>
+  GlobalVar Mem ->
+  LLVMFileSystem wptr ->
+  RegEntry sym (LLVMPointerType wptr) ->
+  RegEntry sym (BVType 32) ->
+  OverrideSim p sym ext rtp args ret (RegValue sym (BVType 32))
+callCreatFile memOps fsVars filename_ptr _mode = do
+  -- creat(pathname, mode) ≡ open(pathname, O_CREAT|O_WRONLY|O_TRUNC, mode)
+  -- Mode parameter ignored (file permissions not modeled yet)
+  fileIdent <- loadFileIdent memOps (regValue filename_ptr)
+
+  SymIO.openFileWithFlags (llvmFileSystem fsVars) fileIdent
+    True   -- O_CREAT: Create if doesn't exist
+    True   -- O_TRUNC: Truncate to zero length
+    False  -- Not O_APPEND
+    $ \case
+      Left SymIO.FileNotFound -> returnIOError32
+      Right fileHandle -> allocateFileDescriptor fsVars fileHandle
 
 closeFile
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
@@ -561,6 +648,7 @@ symio_overrides
   -> [OverrideTemplate p sym ext arch]
 symio_overrides fs =
   [ basic_llvm_override $ openFile fs
+  , basic_llvm_override $ creatFile fs
   , basic_llvm_override $ closeFile fs
   , basic_llvm_override $ readFileHandle fs
   , basic_llvm_override $ writeFileHandle fs
