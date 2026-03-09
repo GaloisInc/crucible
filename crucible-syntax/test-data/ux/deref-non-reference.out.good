@@ -1,4 +1,4 @@
 (defun @test () Integer
    (start block: (let x (the Integer 42)) (return (deref x))))
 
-At test-data/ux/deref-non-reference.cbl:5:13, expected an atom or reference type (provided a IntegerRepr) but got (deref x)
+At test-data/ux/deref-non-reference.cbl:5:13, expected reference type (provided a IntegerRepr) but got (deref x)

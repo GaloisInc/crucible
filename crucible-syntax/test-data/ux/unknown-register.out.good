@@ -2,4 +2,4 @@
    (registers)
    (start block: (let x $reg) (return ())))
 
-At test-data/ux/unknown-register.cbl:5:12, expected Boolean literal or Crucible atom literal or function name literal or integer literal or name of global variable or rational number literal or string literal but got $reg
+At test-data/ux/unknown-register.cbl:5:12, expected known register name but got $reg
