@@ -1,0 +1,15 @@
+(defun @main ((x Integer)) (Maybe Integer)
+   (start go:
+      (let a (to-any x))
+      (let b (from-any Integer a))
+      (return b)))
+
+main
+%0
+  % 3:12
+  $1 = packAny(IntegerRepr, $0)
+  % 4:12
+  $2 = unpackAny(IntegerRepr, $1)
+  % 5:5
+  return $2
+  % no postdom

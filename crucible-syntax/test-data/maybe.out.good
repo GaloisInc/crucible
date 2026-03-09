@@ -1,0 +1,20 @@
+(defun @main ((x Integer)) (Maybe Integer)
+   (start go:
+      (let n (the (Maybe Integer) nothing))
+      (let j (just x))
+      (let v (from-just j "not nothing"))
+      (return n)))
+
+main
+%0
+  % 3:12
+  $1 = nothingValue(IntegerRepr)
+  % 4:12
+  $2 = justValue(IntegerRepr, $0)
+  % 5:12
+  $3 = stringLit("not nothing")
+  % 5:12
+  $4 = fromJustValue(IntegerRepr, $2, $3)
+  % 6:5
+  return $1
+  % no postdom

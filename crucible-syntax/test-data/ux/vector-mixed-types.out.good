@@ -1,0 +1,6 @@
+(defun @test () (Vector Integer)
+   (start block:
+      (let v (the (Vector Integer) (vector (the Integer 1) #t)))
+      (return v)))
+
+At test-data/ux/vector-mixed-types.cbl:4:34, expected an atom or matching types (IntegerRepr /= BoolRepr) but got (vector (the Integer 1) #t)

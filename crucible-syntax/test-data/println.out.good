@@ -1,0 +1,16 @@
+(defun @test ((s (String Unicode))) Unit
+   (start here: (println s) (return ())))
+
+test
+%0
+  % 3:14
+  $1 = stringLit("\n")
+  % 3:14
+  $2 = stringConcat(UnicodeRepr, $0, $1)
+  % 3:14
+  print($2)
+  % 4:13
+  $3 = emptyApp()
+  % 4:5
+  return $3
+  % no postdom
