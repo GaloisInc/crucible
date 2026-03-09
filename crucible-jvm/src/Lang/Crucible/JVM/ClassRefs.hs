@@ -29,7 +29,7 @@ instance ClassRefs a => ClassRefs (Maybe a) where
   classRefs = maybe mempty classRefs
 
 instance ClassRefs a => ClassRefs [a] where
-  classRefs = foldMap classRefs
+  classRefs = Set.unions . map classRefs
 
 --
 instance ClassRefs J.ClassName where
