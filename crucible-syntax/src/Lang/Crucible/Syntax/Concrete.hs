@@ -563,22 +563,22 @@ synthExpr typeHint = do
         BVSBorrow_ -> compareBV BVSBorrow_ BVSBorrow
         Slt -> compareBV Slt BVSlt
         Sle -> compareBV Sle BVSle
-        BV -> bvExpr
-        BVConcat_ -> bvExpr
-        BVSelect_ -> bvExpr
-        BVTrunc_ -> bvExpr
-        BVZext_ -> bvExpr
-        BVSext_ -> bvExpr
-        BoolToBV_ -> bvExpr
-        BVAnd_ -> bvExpr
-        BVOr_ -> bvExpr
-        BVXor_ -> bvExpr
-        Sdiv -> bvExpr
-        Smod -> bvExpr
-        BVShl_ -> bvExpr
-        BVLshr_ -> bvExpr
-        BVAshr_ -> bvExpr
-        BVNot_ -> bvExpr
+        BV -> bvLit
+        BVConcat_ -> bvConcat
+        BVSelect_ -> bvSelect
+        BVTrunc_ -> bvTrunc
+        BVZext_ -> bvZext
+        BVSext_ -> bvSext
+        BoolToBV_ -> boolToBV
+        BVAnd_ -> naryBVOp BVAnd_ BVAnd 1
+        BVOr_ -> naryBVOp BVOr_ BVOr 0
+        BVXor_ -> naryBVOp BVXor_ BVXor 0
+        Sdiv -> binaryBVOp Sdiv BVSdiv
+        Smod -> binaryBVOp Smod BVSrem
+        BVShl_ -> binaryBVOp BVShl_ BVShl
+        BVLshr_ -> binaryBVOp BVLshr_ BVLshr
+        BVAshr_ -> binaryBVOp BVAshr_ BVAshr
+        BVNot_ -> unaryBVOp BVNot_ BVNot
         _ -> empty
 
     nonKwExpr :: Syntax Atomic -> m (SomeExpr ext s)
@@ -659,12 +659,6 @@ synthExpr typeHint = do
       where
       go x [] = return $ SomeE BoolRepr x
       go x (y:ys) = go (EApp $ f x y) ys
-
-    bvExpr :: m (SomeExpr ext s)
-    bvExpr =
-      do let nathint = case typeHint of Just (Some (BVRepr w)) -> NatHint w; _ -> NoHint
-         SomeBVExpr w x <- synthBV nathint
-         return $ SomeE (BVRepr w) x
 
     intp =
       do e <- unary Integerp (check RealValRepr)
@@ -1193,95 +1187,56 @@ synthExpr typeHint = do
              return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowValue bt e
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
-
-buildStruct :: [Pair TypeRepr (E ext s)] -> SomeExpr ext s
-buildStruct = loop Ctx.Empty Ctx.Empty
-  where
-    loop :: Ctx.Assignment TypeRepr ctx -> Ctx.Assignment (E ext s) ctx -> [Pair TypeRepr (E ext s)] -> SomeExpr ext s
-    loop tps vs [] = SomeE (StructRepr tps) (EApp (MkStruct tps vs))
-    loop tps vs (Pair tp x:xs) = loop (tps Ctx.:> tp) (vs Ctx.:> x) xs
-
-data NatHint
-  = NoHint
-  | forall w. (1 <= w) => NatHint (NatRepr w)
-
-synthBV :: forall m s ext.
-  ( MonadReader (SyntaxState s) m
-  , MonadSyntax Atomic m
-  , ?parserHooks :: ParserHooks ext ) =>
-  NatHint ->
-  m (SomeBVExpr ext s)
-synthBV widthHint = do
-  mkw <- peekKeyword
-  case mkw of
-    Nothing -> empty
-    Just k  -> case k of
-      BV        -> bvLit
-      BVConcat_ -> bvConcat
-      BVSelect_ -> bvSelect
-      BVTrunc_  -> bvTrunc
-      BVZext_   -> bvZext
-      BVSext_   -> bvSext
-      BoolToBV_ -> boolToBV
-      BVAnd_    -> naryBV BVAnd_ BVAnd 1
-      BVOr_     -> naryBV BVOr_ BVOr 0
-      BVXor_    -> naryBV BVXor_ BVXor 0
-      Sdiv      -> binaryBV Sdiv BVSdiv
-      Smod      -> binaryBV Smod BVSrem
-      BVShl_    -> binaryBV BVShl_ BVShl
-      BVLshr_   -> binaryBV BVLshr_ BVLshr
-      BVAshr_   -> binaryBV BVAshr_ BVAshr
-      Negate    -> unaryBV Negate BVNeg
-      BVNot_    -> unaryBV BVNot_ BVNot
-      _         -> empty
-
- where
+    -- Helper for parsing bitvector subterms
     bvSubterm :: NatHint -> m (SomeBVExpr ext s)
     bvSubterm hint =
       do let newhint = case hint of
                          NatHint w -> Just (Some (BVRepr w))
-                         _ -> Nothing
+                         NoHint -> Nothing
          (Pair t x) <- forceSynth =<< synthExpr newhint
          case t of
            BVRepr w -> return (SomeBVExpr w x)
            _ -> later $ describe "bitvector expression" $ empty
 
-    bvLit :: m (SomeBVExpr ext s)
+    bvLit :: m (SomeExpr ext s)
     bvLit =
       describe "bitvector literal" $
       do (BoundedNat w, i) <- binary BV posNat int
-         return $ SomeBVExpr w $ EApp $ BVLit w (BV.mkBV w i)
+         return $ SomeE (BVRepr w) $ EApp $ BVLit w (BV.mkBV w i)
 
-    unaryBV :: Keyword
+    unaryBVOp :: Keyword
           -> (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> App ext (E ext s) (BVType w))
-          -> m (SomeBVExpr ext s)
-    unaryBV k f =
-      do SomeBVExpr wx x <- unary k (bvSubterm widthHint)
-         return $ SomeBVExpr wx $ EApp $ f wx x
+          -> m (SomeExpr ext s)
+    unaryBVOp k f =
+      do let widthHint = case typeHint of Just (Some (BVRepr w)) -> NatHint w; _ -> NoHint
+         SomeBVExpr wx x <- unary k (bvSubterm widthHint)
+         return $ SomeE (BVRepr wx) $ EApp $ f wx x
 
-    binaryBV :: Keyword
+    binaryBVOp :: Keyword
           -> (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> E ext s (BVType w) -> App ext (E ext s) (BVType w))
-          -> m (SomeBVExpr ext s)
-    binaryBV k f =
-      do (SomeBVExpr wx x, SomeBVExpr wy y) <- binary k (bvSubterm widthHint) (bvSubterm widthHint)
+          -> m (SomeExpr ext s)
+    binaryBVOp k f =
+      do let widthHint = case typeHint of Just (Some (BVRepr w)) -> NatHint w; _ -> NoHint
+         (SomeBVExpr wx x, SomeBVExpr wy y) <- binary k (bvSubterm widthHint) (bvSubterm widthHint)
          case testEquality wx wy of
-           Just Refl -> return $ SomeBVExpr wx $ EApp $ f wx x y
+           Just Refl -> return $ SomeE (BVRepr wx) $ EApp $ f wx x y
            Nothing -> later $
              describe ("bitwise expression arguments with matching widths (" <>
                        T.pack (show wx) <> " /= " <> T.pack (show wy) <> ")")
                       empty
 
-    naryBV :: Keyword
+    naryBVOp :: Keyword
           -> (forall w. (1 <= w) => NatRepr w -> E ext s (BVType w) -> E ext s (BVType w) -> App ext (E ext s) (BVType w))
           -> Integer
-          -> m (SomeBVExpr ext s)
-    naryBV k f u =
-      do args <- kw k `followedBy` rep (later (bvSubterm widthHint))
+          -> m (SomeExpr ext s)
+    naryBVOp k f u =
+      do let widthHint = case typeHint of Just (Some (BVRepr w)) -> NatHint w; _ -> NoHint
+         args <- kw k `followedBy` rep (later (bvSubterm widthHint))
          case args of
            [] -> case widthHint of
-                   NoHint    -> later $ describe "ambiguous width" empty
-                   NatHint w -> return $ SomeBVExpr w $ EApp $ BVLit w (BV.mkBV w u)
-           (SomeBVExpr wx x:xs) -> SomeBVExpr wx <$> go wx x xs
+                   NoHint -> later $ describe "ambiguous width" empty
+                   NatHint w -> return $ SomeE (BVRepr w) $ EApp $ BVLit w (BV.mkBV w u)
+           (SomeBVExpr wx x:xs) -> SomeE (BVRepr wx) <$> go wx x xs
 
      where
      go :: forall w. NatRepr w -> E ext s (BVType w) -> [SomeBVExpr ext s] -> m (E ext s (BVType w))
@@ -1294,45 +1249,58 @@ synthBV widthHint = do
                         T.pack (show wx) <> " /= " <> T.pack (show wy) <> ")")
                        empty
 
-    boolToBV :: m (SomeBVExpr ext s)
+    boolToBV :: m (SomeExpr ext s)
     boolToBV =
       do (BoundedNat w, x) <- binary BoolToBV_ posNat (check BoolRepr)
-         return $ SomeBVExpr w $ EApp $ BoolToBV w x
+         return $ SomeE (BVRepr w) $ EApp $ BoolToBV w x
 
-    bvSelect :: m (SomeBVExpr ext s)
+    bvSelect :: m (SomeExpr ext s)
     bvSelect =
       do (Some idx, (BoundedNat len, (SomeBVExpr w x, ()))) <-
              followedBy (kw BVSelect_) (commit *> cons natRepr (cons posNat (cons (bvSubterm NoHint) emptyList)))
          case testLeq (addNat idx len) w of
-           Just LeqProof -> return $ SomeBVExpr len $ EApp $ BVSelect idx len w x
+           Just LeqProof -> return $ SomeE (BVRepr len) $ EApp $ BVSelect idx len w x
            _ -> later $ describe ("valid bitvector select") $ empty
 
-    bvConcat :: m (SomeBVExpr ext s)
+    bvConcat :: m (SomeExpr ext s)
     bvConcat =
       do (SomeBVExpr wx x, SomeBVExpr wy y) <- binary BVConcat_ (bvSubterm NoHint) (bvSubterm NoHint)
          withLeqProof (leqAdd (leqProof (knownNat @1) wx) wy) $
-           return $ SomeBVExpr (addNat wx wy) (EApp $ BVConcat wx wy x y)
+           return $ SomeE (BVRepr (addNat wx wy)) (EApp $ BVConcat wx wy x y)
 
-    bvTrunc :: m (SomeBVExpr ext s)
+    bvTrunc :: m (SomeExpr ext s)
     bvTrunc =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVTrunc_ posNat (bvSubterm NoHint)
          case testLeq (incNat r) w of
-           Just LeqProof -> return $ SomeBVExpr r (EApp $ BVTrunc r w x)
+           Just LeqProof -> return $ SomeE (BVRepr r) (EApp $ BVTrunc r w x)
            _ -> later $ describe "valid bitvector truncation" $ empty
 
-    bvZext :: m (SomeBVExpr ext s)
+    bvZext :: m (SomeExpr ext s)
     bvZext =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVZext_ posNat (bvSubterm NoHint)
          case testLeq (incNat w) r of
-           Just LeqProof -> return $ SomeBVExpr r (EApp $ BVZext r w x)
+           Just LeqProof -> return $ SomeE (BVRepr r) (EApp $ BVZext r w x)
            _ -> later $ describe "valid zero extension" $ empty
 
-    bvSext :: m (SomeBVExpr ext s)
+    bvSext :: m (SomeExpr ext s)
     bvSext =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVSext_ posNat (bvSubterm NoHint)
          case testLeq (incNat w) r of
-           Just LeqProof -> return $ SomeBVExpr r (EApp $ BVSext r w x)
-           _ -> later $ describe "valid zero extension" $ empty
+           Just LeqProof -> return $ SomeE (BVRepr r) (EApp $ BVSext r w x)
+           _ -> later $ describe "valid sign extension" $ empty
+
+
+buildStruct :: [Pair TypeRepr (E ext s)] -> SomeExpr ext s
+buildStruct = loop Ctx.Empty Ctx.Empty
+  where
+    loop :: Ctx.Assignment TypeRepr ctx -> Ctx.Assignment (E ext s) ctx -> [Pair TypeRepr (E ext s)] -> SomeExpr ext s
+    loop tps vs [] = SomeE (StructRepr tps) (EApp (MkStruct tps vs))
+    loop tps vs (Pair tp x:xs) = loop (tps Ctx.:> tp) (vs Ctx.:> x) xs
+
+-- Helper type for bitvector width hints that preserves the 1 <= w constraint
+data NatHint
+  = NoHint
+  | forall w. (1 <= w) => NatHint (NatRepr w)
 
 
 check :: forall m t s ext
