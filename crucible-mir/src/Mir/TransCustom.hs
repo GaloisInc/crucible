@@ -140,6 +140,8 @@ customOpDefs = Map.fromList $ [
                          , array_from_ref
                          , slice_from_ref
                          , slice_from_mut
+                         , slice_as_chunks_cast_hook
+                         , slice_as_chunks_mut_cast_hook
 
                          , vector_new
                          , vector_replicate
@@ -1152,7 +1154,7 @@ discriminant_value = (["core","intrinsics", "discriminant_value"],
       case (opTys,ops) of
         ([TyRef ty@(TyAdt nm _ _) Immut], [eRef]) -> do
             adt <- findAdt nm
-            e <- derefExp ty eRef >>= readPlace
+            e <- derefExp ty eRef >>= readPlace ty
             MirExp tp' e' <- enumDiscriminant adt e
             case testEquality tp' IsizeRepr of
               Just Refl ->
@@ -1489,6 +1491,34 @@ slice_from_ref = slice_from Immut
 
 slice_from_mut ::  (ExplodedDefId, CustomRHS)
 slice_from_mut = slice_from Mut
+
+slice_as_chunks_cast_hook_common :: Mutability -> (ExplodedDefId, CustomRHS)
+slice_as_chunks_cast_hook_common mut = (["core", "slice", "{impl}", hookLoc, "crucible_cast_hook"],
+    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
+        fn <- findFn fnName
+        -- Expected signature: fn(*const T) -> *const [T; N]
+        case (fn ^. fsig . fsreturn_ty, ops) of
+            (TyRawPtr (TyArray _elemTy n) m,
+              [MirExp MirReferenceRepr elemPtr, MirExp UsizeRepr numChunks])
+              | m == mut -> do
+                let chunkSize = R.App $ usizeLit $ fromIntegral n
+                arrayOfChunksPtr <- mirRef_aggregateAsChunks chunkSize numChunks elemPtr
+                firstChunkPtr <- subindexRef MirAggregateRepr arrayOfChunksPtr (R.App $ usizeLit 0)
+                pure (MirExp MirReferenceRepr firstChunkPtr)
+            _ -> mirFail $ "bad monomorphization of "
+                ++ Text.unpack hookLoc ++ "::crucible_cast_hook: "
+                ++ show (fnName, fn ^. fsig, ops)
+    )
+    where
+        hookLoc = case mut of
+            Immut -> "as_chunks_unchecked"
+            Mut -> "as_chunks_unchecked_mut"
+
+slice_as_chunks_cast_hook :: (ExplodedDefId, CustomRHS)
+slice_as_chunks_cast_hook = slice_as_chunks_cast_hook_common Immut
+
+slice_as_chunks_mut_cast_hook :: (ExplodedDefId, CustomRHS)
+slice_as_chunks_mut_cast_hook = slice_as_chunks_cast_hook_common Mut
 
 intrinsics_offset :: (ExplodedDefId, CustomRHS)
 intrinsics_offset = (["core", "intrinsics", "offset"], ptr_offset_impl)
@@ -1886,7 +1916,7 @@ bv_leading_zeros =
 
 -- fn allocate<T>(len: usize) -> *mut T
 allocate :: (ExplodedDefId, CustomRHS)
-allocate = (["core", "crucible", "alloc", "allocate"], \substs -> case substs of
+allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirAggregate` of length `len`, and
@@ -1903,7 +1933,7 @@ allocate = (["core", "crucible", "alloc", "allocate"], \substs -> case substs of
     _ -> Nothing)
 
 allocate_zeroed :: (ExplodedDefId, CustomRHS)
-allocate_zeroed = (["core", "crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
+allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr len] -> do
             Some tpr <- tyToReprM t
@@ -1924,7 +1954,7 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
-reallocate = (["core", "crucible", "alloc", "reallocate"], \substs -> case substs of
+reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [_t] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newSz ] -> do
             (agPtr, idx) <- mirRef_peelIndex ptr
@@ -2313,7 +2343,7 @@ cloneShimNoFields what parts
     case (opTys, ops) of
       ([TyRef ty _], [eRef]) -> do
         e <- derefExp ty eRef
-        readPlace e
+        readPlace ty e
       _ -> mirFail $ "cloneShimNoFields: expected exactly one argument, but got " ++ show (opTys, ops)
   | otherwise = CustomOp $ \_ _ -> mirFail $
     "expected no clone functions in " ++ what ++ " clone shim, but got " ++ show parts
