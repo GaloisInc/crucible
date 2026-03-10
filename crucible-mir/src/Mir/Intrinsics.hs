@@ -1151,6 +1151,13 @@ resizeMirAggregate (MirAggregate totalSize m) newSize
       (\off (MirAggregateEntry sz _ _) -> fromIntegral off + sz <= newSize)
       m
 
+-- | Split a `MirAggregate` in two at a given offset.  The first output
+-- contains all the entries below the split point, and the second contains all
+-- the entries above.  Offsets in the second output are shifted downward, so an
+-- entry at @off@ in the input will be at offset zero in the second output.
+--
+-- Returns `Left` if any entry spans the split point, or if the split point is
+-- out of range.
 mirAggregate_split ::
   Word ->
   MirAggregate sym ->
@@ -1181,6 +1188,13 @@ mirAggregate_split off (MirAggregate totalSize m) = do
             Nothing -> after
       in (before, after')
 
+-- | Split a `MirAggregate` into three parts: the part below @off1@, the part
+-- between @off1@ and @off2@, and the part above @off2@.  Offsets in the upper
+-- parts are shifted down, so entries at @0@/@off1@/@off2@ in the input will
+-- each be at offset zero in their respective outputs.
+--
+-- Returns `Left` if either offset is out of bounds, if @off1 > off2@, or if an
+-- entry in the input aggregate spans across either of the two split points.
 mirAggregate_split3 ::
   Word ->
   Word ->
@@ -1276,6 +1290,21 @@ mirAggregate_fromChunks ::
   IO (Either String (MirAggregate sym))
 mirAggregate_fromChunks sym offsetMap chunkedAg@(MirAggregate chunkedTotalSize _) = runExceptT $ do
   let chunkedEntries = mirAggregate_entries sym chunkedAg
+  -- For each initialized chunk, we collect:
+  -- 1. The offset of the chunk within the outer aggregate
+  -- 2. The "outer size" of the chunk, meaning the size of its entry within the
+  --    outer aggregate
+  -- 3. The predicate under which the chunk is initialized (each chunk, like
+  --    any aggregate entry, may be conditionally uninitialized)
+  -- 4. The "inner size" of the chunk, which is the total size of the aggregate
+  --    representing the chunk itself
+  -- 5. The map of offsets and entries within the aggrgegate.
+  --
+  -- TODO: hardcoded size=1: Currently the outer size is always 1, and the
+  -- inner size is the number of entries within the chunk.  Once we track
+  -- proper sizes/layouts for arrays, the inner and outer sizes will be
+  -- identical (both measuring the size of the chunk in bytes), and we can
+  -- remove one of the two from this list.
   chunkParts <- do
     let f :: MonadError String m => (Word, MirAggregateEntry sym) ->
           m (Maybe (Word, Word, Pred sym, Word, IntMap (MirAggregateEntry sym)))
@@ -1570,12 +1599,19 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   -- by viewing the next @chunkSize * numChunks@ elements as an array of
   -- arrays.
   MirRef_AggregateAsChunks ::
-     -- | Size in bytes of each chunk
+     -- | Size in bytes of each chunk (must be concrete)
      !(f UsizeType) ->
-     -- | Number of chunks to produce
+     -- | Number of chunks to produce (must be concrete)
      !(f UsizeType) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
+  -- | Print the internal representation of a `MirReference` for debugging.
+  -- This is similar to the behavior of @crucible::dump_rv@, but it's easier to
+  -- call an intrinsic from inside `Mir.Trans` / `Mir.TransCustom` cases than
+  -- it is to call a Rust function.
+  --
+  -- This could likely be expanded to accept all `RegValue`s (not just
+  -- `MirReferenceType`) in the future if needed.
   DebugPrintMirRef ::
      !(f (StringType Unicode)) ->
      !(f MirReferenceType) ->
