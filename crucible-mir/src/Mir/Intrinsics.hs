@@ -1237,7 +1237,7 @@ mirAggregate_toChunks sym off chunkSize numChunks ag = do
   let outerSize = 1
   entries <- forM (init [0 .. numChunks]) $ \i -> do
     chunk <- mirAggregate_chunk (off + i * chunkSize) chunkSize ag
-    return $ (fromIntegral $ i * outerSize,
+    return (fromIntegral $ i * outerSize,
       MirAggregateEntry outerSize MirAggregateRepr (justPartExpr sym chunk))
   return $ MirAggregate (numChunks * outerSize) (IntMap.fromAscList entries)
 
@@ -2485,11 +2485,10 @@ refPathOverlaps sym path1 path2 = do
       endBv1 <- bvSizeLit end1
       overlapsPart1 <- liftIO $ bvUlt sym offBv1 end2
       overlapsPart2 <- liftIO $ bvUlt sym off2 endBv1
-      overlaps <- liftIO $ andPred sym overlapsPart1 overlapsPart2
       -- If the two regions overlap, conservatively assume that the rest of the
       -- path may also overlap, and return true without considering `rrp1` and
       -- `rrp2`.
-      return overlaps
+      liftIO $ andPred sym overlapsPart1 overlapsPart2
     go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` _)
           (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` _) = do
       let end2 = off2 + (chunkSize2 * numChunks2)
@@ -2500,11 +2499,10 @@ refPathOverlaps sym path1 path2 = do
       endBv2 <- bvSizeLit end2
       overlapsPart1 <- liftIO $ bvUlt sym off1 endBv2
       overlapsPart2 <- liftIO $ bvUlt sym offBv2 end1
-      overlaps <- liftIO $ andPred sym overlapsPart1 overlapsPart2
       -- If the two regions overlap, conservatively assume that the rest of the
       -- path may also overlap, and return true without considering `rrp1` and
       -- `rrp2`.
-      return overlaps
+      liftIO $ andPred sym overlapsPart1 overlapsPart2
     -- Any other cases involving `AggregateAsChunks_RefPath` we conservatively
     -- assume may overlap.
     go (AggregateAsChunks_RefPath {} `RrpCons` _) _ = return $ truePred sym
