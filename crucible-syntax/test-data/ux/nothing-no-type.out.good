@@ -1,4 +1,4 @@
 (defun @test () Unit
    (start block: (let x (nothing)) (return ())))
 
-At test-data/ux/nothing-no-type.cbl:4:12, expected an atom but got (nothing)
+At test-data/ux/nothing-no-type.cbl:4:12, expected expression but got (nothing)

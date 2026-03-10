@@ -1,3 +1,3 @@
 (defun @test () Bool (start block: (return (bv-nonzero #t))))
 
-At test-data/ux/bv-nonzero-non-bv.cbl:4:13, expected an atom or bitvector argument but got (bv-nonzero #t)
+At test-data/ux/bv-nonzero-non-bv.cbl:4:13, expected bitvector argument but got (bv-nonzero #t)

@@ -1,4 +1,4 @@
 (defun @main () Unit
    (start block: (let result @foo) (return ())))
 
-At test-data/ux/unknown-function.cbl:4:17, expected Boolean literal or Crucible atom literal or integer literal or name of global variable or rational number literal or register name or string literal but got @foo
+At test-data/ux/unknown-function.cbl:4:17, expected known function name but got @foo
