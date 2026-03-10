@@ -752,8 +752,8 @@ mirAgTypedCandidates tpr (MirAggregate _ m) =
         Nothing -> Nothing)
     (IntMap.toAscList m)
 
-wordLit :: IsSymInterface sym => sym -> Word -> IO (RegValue sym UsizeType)
-wordLit sym o = bvLit sym knownNat (BV.mkBV knownNat (fromIntegral o))
+wordLit :: (IsSymInterface sym, MonadIO m) => sym -> Word -> m (RegValue sym UsizeType)
+wordLit sym o = liftIO $ bvLit sym knownNat (BV.mkBV knownNat (fromIntegral o))
 
 -- | Lift @iteFn@ from type @tp@ to type @MaybeType tp@.
 liftIteFnMaybe ::
@@ -2439,8 +2439,8 @@ refPathOverlaps sym path1 path2 = do
         liftIO $ andPred sym rrpEq idxEq
     go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` rrp1)
         (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2) = do
-        szBv1 <- bvSizeLit sz1
-        szBv2 <- bvSizeLit sz2
+        szBv1 <- wordLit sym sz1
+        szBv2 <- wordLit sym sz2
         offSz1 <- liftIO $ bvAdd sym off1 szBv1
         offSz2 <- liftIO $ bvAdd sym off2 szBv2
         -- FIXME: is this math correct?
@@ -2478,11 +2478,11 @@ refPathOverlaps sym path1 path2 = do
     go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 _ `RrpCons` _rrp1)
           (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` _rrp2) = do
       let end1 = off1 + (chunkSize1 * numChunks1)
-      szBv2 <- bvSizeLit sz2
+      szBv2 <- wordLit sym sz2
       end2 <- liftIO $ bvAdd sym off2 szBv2
       -- Check `off1 < end2 && off2 < end1`
-      offBv1 <- bvSizeLit off1
-      endBv1 <- bvSizeLit end1
+      offBv1 <- wordLit sym off1
+      endBv1 <- wordLit sym end1
       overlapsPart1 <- liftIO $ bvUlt sym offBv1 end2
       overlapsPart2 <- liftIO $ bvUlt sym off2 endBv1
       -- If the two regions overlap, conservatively assume that the rest of the
@@ -2492,11 +2492,11 @@ refPathOverlaps sym path1 path2 = do
     go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` _rrp1)
           (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` _rrp2) = do
       let end2 = off2 + (chunkSize2 * numChunks2)
-      szBv1 <- bvSizeLit sz1
+      szBv1 <- wordLit sym sz1
       end1 <- liftIO $ bvAdd sym off1 szBv1
       -- Check `off1 < end2 && off2 < end1`
-      offBv2 <- bvSizeLit off2
-      endBv2 <- bvSizeLit end2
+      offBv2 <- wordLit sym off2
+      endBv2 <- wordLit sym end2
       overlapsPart1 <- liftIO $ bvUlt sym off1 endBv2
       overlapsPart2 <- liftIO $ bvUlt sym offBv2 end1
       -- If the two regions overlap, conservatively assume that the rest of the
@@ -2514,10 +2514,6 @@ refPathOverlaps sym path1 path2 = do
     go (VectorIndex_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (ArrayIndex_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (AgElem_RefPath {} `RrpCons` _) _ = return $ falsePred sym
-
-    sizeWidth = knownNat @SizeBits
-    bvSizeLit :: Word -> MuxLeafT sym IO (SymBV sym SizeBits)
-    bvSizeLit = liftIO . bvLit sym sizeWidth . BV.mkBV sizeWidth . toInteger
 
 -- | Check whether the memory accessible through `ref1` overlaps the memory
 -- accessible through `ref2`.
