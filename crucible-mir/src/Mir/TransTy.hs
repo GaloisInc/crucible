@@ -1099,12 +1099,21 @@ tySizedness col ty =
       case col ^? M.adts . ix adtName of
         Nothing -> error $ "tySizedness: unknown ADT: " <> show adtName
         Just adt -> adtSizedness col adt
+    M.TyArray elemTy len ->
+      case tySizedness col elemTy of
+        Unsized -> error $ "tySizedness: unsized array element type: " <> show elemTy
+        Sized elemSize -> Sized (elemSize * fromIntegral len)
     _ ->
       -- This stanza on its own would be sufficient to implement `tySizedness`,
-      -- but a version so implemented would fail on types that didn't actually
-      -- appear in the crate/dependency tree used to generate this `Collection`.
-      -- Discriminating on shape first means that we can correctly say that
-      -- `[T]` is unsized, even if `[T]` isn't actually evinced in the MIR.
+      -- but a version so implemented would fail on any types that didn't
+      -- actually appear in the crate/dependency tree used to generate this
+      -- `Collection`. Discriminating on shape first means that we can correctly
+      -- say that e.g. `[T]` is unsized, even if `[T]` isn't actually evinced in
+      -- the MIR.
+      --
+      -- Any additional special cases should be succinct and obviously correct.
+      -- If in doubt, it's generally safer to look up type layout in `M.layouts`
+      -- than to implement new size-determining logic.
       case (col ^. M.layouts) Map.!? ty of
         Nothing -> error $ "tySizedness: unknown type: " <> show ty
         Just Nothing -> Unsized
