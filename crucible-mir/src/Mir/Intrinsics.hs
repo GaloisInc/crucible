@@ -3247,17 +3247,19 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
         let sym = backendGetSym bak
         (beforeAg, midAg, afterAg) <-
           case mirAggregate_split3 off (off + chunkSize * numChunks) ag of
-            Left err -> leafAbort $ Unsupported callStack $ "mirAggregate_split3: " ++ err
+            Left err -> die $ "mirAggregate_split3: " ++ err
             Right x -> return x
         chunkedAg <- case mirAggregate_toChunks sym 0 chunkSize numChunks midAg of
-          Left err -> leafAbort $ Unsupported callStack $ "mirAggregate_toChunks: " ++ err
+          Left err -> die $ "mirAggregate_toChunks: " ++ err
           Right x -> return x
         chunkedAg' <- adj chunkedAg
         midAg' <- liftIO (mirAggregate_fromChunks sym (* chunkSize) chunkedAg') >>= \case
-          Left err -> leafAbort $ Unsupported callStack $ "mirAggregate_fromChunks: " ++ err
+          Left err -> die $ "mirAggregate_fromChunks: " ++ err
           Right x -> return x
         let ag' = (beforeAg `mirAggregate_concat` midAg') `mirAggregate_concat` afterAg
         return ag'
+  where
+    die msg = leafAbort $ Unsupported callStack $ "adjustRefPath: " ++ msg
 
 readRefPath ::
   (IsSymBackend sym bak) =>
@@ -3294,9 +3296,11 @@ readRefPath bak iTypes v = \case
     let sym = backendGetSym bak
     ag <- readRefPath bak iTypes v path
     chunkedAg <- case mirAggregate_toChunks sym off chunkSize numChunks ag of
-      Left err -> leafAbort $ Unsupported callStack $ "mirAggregate_toChunks: " ++ err
+      Left err -> die $ "mirAggregate_toChunks: " ++ err
       Right x -> return x
     return chunkedAg
+  where
+    die msg = leafAbort $ Unsupported callStack $ "readRefPath: " ++ msg
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
