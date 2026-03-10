@@ -2475,8 +2475,8 @@ refPathOverlaps sym path1 path2 = do
         -- Conversion regions don't overlap at all.
         return $ falsePred sym
     -- `AggregateAsChunks_RefPath` overlaps with some `AgElem_RefPath` paths.
-    go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 _ `RrpCons` _)
-          (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` _) = do
+    go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 _ `RrpCons` _rrp1)
+          (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` _rrp2) = do
       let end1 = off1 + (chunkSize1 * numChunks1)
       szBv2 <- bvSizeLit sz2
       end2 <- liftIO $ bvAdd sym off2 szBv2
@@ -2489,8 +2489,8 @@ refPathOverlaps sym path1 path2 = do
       -- path may also overlap, and return true without considering `rrp1` and
       -- `rrp2`.
       liftIO $ andPred sym overlapsPart1 overlapsPart2
-    go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` _)
-          (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` _) = do
+    go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` _rrp1)
+          (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` _rrp2) = do
       let end2 = off2 + (chunkSize2 * numChunks2)
       szBv1 <- bvSizeLit sz1
       end1 <- liftIO $ bvAdd sym off1 szBv1
