@@ -781,14 +781,14 @@ agNoValueAtSymbolicOffsetSimError sz =
     "no value at offset <symbolic>, in aggregate of size " ++ show sz
 
 readMirAggregateWithSymOffset ::
-  forall sym bak tp.
-  IsSymBackend sym bak =>
+  forall sym bak m tp.
+  MonadAssert sym bak m =>
   bak ->
   (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   RegValue sym UsizeType ->
   TypeRepr tp ->
   MirAggregate sym ->
-  MuxLeafT sym IO (RegValue sym tp)
+  MuxLeafT sym m (RegValue sym tp)
 readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       case IntMap.lookup off' m of
@@ -903,12 +903,12 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
 -- Precondition: the candidate spans are sorted in ascending order by
 -- starting offset.
 offsetInSpans ::
-  forall sym.
-  IsSymInterface sym =>
+  forall sym m.
+  (IsSymInterface sym, MonadIO m) =>
   sym ->
   RegValue sym UsizeType ->
   [(Word, Word)] ->
-  MuxLeafT sym IO (SymExpr sym BaseBoolType)
+  MuxLeafT sym m (SymExpr sym BaseBoolType)
 offsetInSpans sym off spans = liftIO $ do
   -- Consider this struct:
   -- ```rs
@@ -1382,12 +1382,12 @@ pattern UsizeArrayRepr btp <-
 
 
 leafIndexVectorWithSymIndex ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     (Pred sym -> a -> a -> IO a) ->
     V.Vector a ->
     RegValue sym UsizeType ->
-    MuxLeafT sym IO a
+    MuxLeafT sym m a
 leafIndexVectorWithSymIndex bak iteFn v i
   | Just i' <- asBV i = case v V.!? fromIntegral (BV.asUnsigned i') of
         Just x -> return x
@@ -1837,11 +1837,11 @@ newConstMirRef :: IsSymInterface sym =>
 newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
     MirReference tpr (Const_RefRoot tpr v) Empty_RefPath
 
-readRefRoot :: (IsSymBackend sym bak) =>
+readRefRoot :: (MonadAssert sym bak m) =>
     bak ->
     SymGlobalState sym ->
     MirReferenceRoot sym tp ->
-    MuxLeafT sym IO (RegValue sym tp)
+    MuxLeafT sym m (RegValue sym tp)
 readRefRoot bak gs (RefCell_RefRoot rc) =
     leafReadPartExpr bak (lookupRef rc gs) readBeforeWriteMsg
 readRefRoot _bak gs (GlobalVar_RefRoot gv) =
@@ -1921,13 +1921,13 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
 readMirRefLeaf ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     TypeRepr tp ->
     MirReference sym ->
-    MuxLeafT sym IO (RegValue sym tp)
+    MuxLeafT sym m (RegValue sym tp)
 readMirRefLeaf bak gs iTypes tpr ref =
   typedLeafOp "read" tpr ref $ \root path -> do
     v <- readRefRoot bak gs root
@@ -2731,12 +2731,12 @@ mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux
             (muxRegForType sym iTypes (MaybeRepr IsizeRepr)) r1 r2
 
 mirRef_peelIndexLeaf ::
-    IsSymBackend sym bak =>
+    MonadAssert sym bak m =>
     bak ->
     -- | The size of the element, in bytes
     Word ->
     MirReference sym ->
-    MuxLeafT sym IO
+    MuxLeafT sym m
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
 mirRef_peelIndexLeaf bak _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
     let sym = backendGetSym bak
@@ -2765,15 +2765,15 @@ mirRef_peelIndexLeaf _bak _elemSize _ = do
     leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
 
-mirRef_peelIndexIO ::
-    IsSymBackend sym bak =>
+mirRef_peelIndexMA ::
+    MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
     -- | The size of the element, in bytes
     Word ->
-    IO (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) elemSize =
+    m (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
+mirRef_peelIndexMA bak iTypes (MirReferenceMux ref) elemSize =
     let sym = backendGetSym bak
         tpr' = StructRepr (Empty :> MirReferenceRepr :> IsizeRepr) in
     readFancyMuxTree' bak (mirRef_peelIndexLeaf bak elemSize)
@@ -2792,12 +2792,12 @@ mirRef_peelIndexIO bak iTypes (MirReferenceMux ref) elemSize =
 -- 'MaybeRepr', you will need to peel off the 'Just_RefPath' first with the
 -- @mirRef_peelJust@ family of functions.
 mirRef_peelFieldLeaf ::
-    IsSymInterface sym =>
+    (IsSymInterface sym, MonadIO m) =>
     sym ->
     CtxRepr ctx {-^ The expected struct type -} ->
     Index ctx tp {-^ The expected field index -} ->
     MirReference sym {-^ The field pointer -} ->
-    MuxLeafT sym IO (MirReferenceMux sym)
+    MuxLeafT sym m (MirReferenceMux sym)
 mirRef_peelFieldLeaf sym fieldReprs idx (MirReference _tpr root path) =
     case path of
       Field_RefPath fieldReprs' path' idx'
@@ -2816,15 +2816,15 @@ mirRef_peelFieldLeaf _ _ _ _ =
     leafAbort $ Unsupported callStack $
       "cannot perform peelField on invalid pointer"
 
-mirRef_peelFieldIO ::
-    IsSymBackend sym bak =>
+mirRef_peelFieldMA ::
+    MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
     CtxRepr ctx ->
     Index ctx tp ->
     MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_peelFieldIO bak iTypes fieldReprs idx (MirReferenceMux ref) =
+    m (MirReferenceMux sym)
+mirRef_peelFieldMA bak iTypes fieldReprs idx (MirReferenceMux ref) =
     let sym = backendGetSym bak in
     readFancyMuxTree' bak (mirRef_peelFieldLeaf sym fieldReprs idx)
         (muxRegForType sym iTypes MirReferenceRepr) ref
@@ -2835,11 +2835,11 @@ mirRef_peelFieldIO bak iTypes fieldReprs idx (MirReferenceMux ref) =
 -- If the outermost path segment isn't 'Just_RefPath', this operation raises an
 -- error.
 mirRef_peelJustLeaf ::
-    IsSymInterface sym =>
+    (IsSymInterface sym, MonadIO m) =>
     sym ->
     TypeRepr tp {-^ The type inside the @MaybeType@ -} ->
     MirReference sym ->
-    MuxLeafT sym IO (MirReferenceMux sym)
+    MuxLeafT sym m (MirReferenceMux sym)
 mirRef_peelJustLeaf sym tpr ref =
   typedLeafOp "peelJust" tpr ref $ \root path ->
     case path of
@@ -2850,14 +2850,14 @@ mirRef_peelJustLeaf sym tpr ref =
         leafAbort $ Unsupported callStack $
           "peelJust not implemented for this RefPath kind"
 
-mirRef_peelJustIO ::
-    IsSymBackend sym bak =>
+mirRef_peelJustMA ::
+    MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
     TypeRepr tp ->
     MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_peelJustIO bak iTypes tpr (MirReferenceMux ref) =
+    m (MirReferenceMux sym)
+mirRef_peelJustMA bak iTypes tpr (MirReferenceMux ref) =
     let sym = backendGetSym bak in
     readFancyMuxTree' bak (mirRef_peelJustLeaf sym tpr)
         (muxRegForType sym iTypes MirReferenceRepr) ref
@@ -3020,7 +3020,7 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
             return (mkRef r, s)
 
        MirReadRef tpr (regValue -> ref) ->
-         readOnly s $ readMirRefIO bak gs iTypes tpr ref
+         readOnly s $ readMirRefMA bak gs iTypes tpr ref
        MirWriteRef tpr (regValue -> ref) (regValue -> x) ->
          writeOnly s $ writeMirRefIO bak gs iTypes tpr ref x
        MirDropRef (regValue -> ref) ->
@@ -3046,7 +3046,7 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
        MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) elemSize ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes elemSize r1 r2
        MirRef_PeelIndex (regValue -> ref) elemSize -> do
-         readOnly s $ mirRef_peelIndexIO bak iTypes ref elemSize
+         readOnly s $ mirRef_peelIndexMA bak iTypes ref elemSize
        MirRef_AggregateAsChunks (regValue -> chunkSize) (regValue -> numChunks) (regValue -> ref) -> do
          readOnly s $ mirRef_aggregateAsChunksIO bak iTypes chunkSize numChunks ref
        DebugPrintMirRef (regValue -> desc) (regValue -> ref) -> do
@@ -3142,17 +3142,17 @@ readRefMuxSim tpr' f ref =
   ovrWithBackend $ \bak -> do
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ readRefMuxIO bak iTypes tpr' f ref
+    liftIO $ readRefMuxMA bak iTypes tpr' f ref
 
-readRefMuxIO ::
-    IsSymBackend sym bak =>
+readRefMuxMA ::
+    MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
     TypeRepr tp' ->
-    (MirReference sym -> MuxLeafT sym IO (RegValue sym tp')) ->
+    (MirReference sym -> MuxLeafT sym m (RegValue sym tp')) ->
     MirReferenceMux sym ->
-    IO (RegValue sym tp')
-readRefMuxIO bak iTypes tpr' f (MirReferenceMux ref) =
+    m (RegValue sym tp')
+readRefMuxMA bak iTypes tpr' f (MirReferenceMux ref) =
     readFancyMuxTree' bak f (muxRegForType (backendGetSym bak) iTypes tpr') ref
 
 modifyRefMuxSim :: IsSymInterface sym =>
@@ -3184,18 +3184,18 @@ readMirRefSim tpr ref =
    do s <- get
       let gs = s ^. stateTree.actFrame.gpGlobals
       let iTypes = ctxIntrinsicTypes $ s ^. stateContext
-      liftIO $ readMirRefIO bak gs iTypes tpr ref
+      liftIO $ readMirRefMA bak gs iTypes tpr ref
 
-readMirRefIO ::
-    IsSymBackend sym bak =>
+readMirRefMA ::
+    MonadAssert sym bak m =>
     bak ->
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     TypeRepr tp ->
     MirReferenceMux sym ->
-    IO (RegValue sym tp)
-readMirRefIO bak gs iTypes tpr ref =
-    readRefMuxIO bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr) ref
+    m (RegValue sym tp)
+readMirRefMA bak gs iTypes tpr ref =
+    readRefMuxMA bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr) ref
 
 writeMirRefSim ::
     IsSymInterface sym =>
@@ -3395,12 +3395,12 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
     die msg = leafAbort $ Unsupported callStack $ "adjustRefPath: " ++ msg
 
 readRefPath ::
-  (IsSymBackend sym bak) =>
+  (MonadAssert sym bak m) =>
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
   MirReferencePath sym tp tp' ->
-  MuxLeafT sym IO (RegValue sym tp')
+  MuxLeafT sym m (RegValue sym tp')
 readRefPath bak iTypes v = \case
   Empty_RefPath -> return v
   Field_RefPath _ctx path fld ->
