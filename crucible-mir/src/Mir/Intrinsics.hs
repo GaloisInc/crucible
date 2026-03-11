@@ -1329,7 +1329,7 @@ mirAggregate_fromChunks sym chunkedAg@(MirAggregate chunkedTotalSize _) = runExc
 
   -- Check for disjointness.  `chunkParts` is sorted by starting offset, so we
   -- can just compare pairs of consecutive elements.
-  forM_ (zip chunkParts (tail chunkParts)) $
+  forM_ (zip chunkParts (Prelude.drop 1 chunkParts)) $
     \((off1, sz1, _, _), (off2, sz2, _, _)) -> do
       when (off1 > off2 || off2 - off1 < sz1) $ panic "mirAggregate_fromChunks"
         [ "overlapping chunks"
