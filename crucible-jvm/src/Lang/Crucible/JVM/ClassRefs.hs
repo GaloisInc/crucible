@@ -29,7 +29,11 @@ instance ClassRefs a => ClassRefs (Maybe a) where
   classRefs = maybe mempty classRefs
 
 instance ClassRefs a => ClassRefs [a] where
-  classRefs = foldMap classRefs
+  classRefs = Set.unions . map classRefs
+  -- NOTE: This is a performance-critical function that may be called
+  -- a large number of times.
+  -- Benchmarking shows that this version with 'Set.unions' consumes
+  -- less time and memory than a similar definition with 'foldMap'.
 
 --
 instance ClassRefs J.ClassName where

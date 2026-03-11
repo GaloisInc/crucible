@@ -1,4 +1,4 @@
 (defun @test () (Bitvector 8)
    (start block: (let x (bv 16 42)) (return (zero-extend 8 x))))
 
-At test-data/ux/bv-zext-invalid.cbl:5:13, expected an atom or valid zero extension but got (zero-extend 8 x)
+At test-data/ux/bv-zext-invalid.cbl:5:13, expected valid zero extension but got (zero-extend 8 x)

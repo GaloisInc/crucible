@@ -4,4 +4,4 @@
       (let y (bv 16 100))
       (return (bv-and x y))))
 
-At test-data/ux/bv-width-mismatch.cbl:6:13, expected an atom or bitwise expression arguments with matching widths (8 /= 16) but got (bv-and x y)
+At test-data/ux/bv-width-mismatch.cbl:6:13, expected bitwise expression arguments with matching widths (8 /= 16) but got (bv-and x y)

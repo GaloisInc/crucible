@@ -371,6 +371,8 @@ regEval bak baseEval = go
         ArrayIndex_RefPath btpr <$> goMirReferencePath p <*> go UsizeRepr idx
     goMirReferencePath (AgElem_RefPath off sz tpr p) =
         AgElem_RefPath <$> go UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
+    goMirReferencePath (AggregateAsChunks_RefPath off chunkSize numChunks p) =
+        AggregateAsChunks_RefPath off chunkSize numChunks <$> goMirReferencePath p
 
     goMirAggregateEntry ::
         MirAggregateEntry sym ->
