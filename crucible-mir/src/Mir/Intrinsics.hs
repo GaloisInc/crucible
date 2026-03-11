@@ -1334,9 +1334,7 @@ mirAggregate_fromChunks sym chunkedAg@(MirAggregate chunkedTotalSize _) = runExc
       when (off1 > off2 || off2 - off1 < sz1) $ panic "mirAggregate_fromChunks"
         [ "overlapping chunks"
         , "at " ++ show off1 ++ " .. " ++ show (off1 + sz1)
-          ++ " (from " ++ show off1 ++ ")"
         , "and " ++ show off2 ++ " .. " ++ show (off2 + sz2)
-          ++ " (from " ++ show off2 ++ ")"
         ]
 
   ms <- forM chunkParts $ \(off, sz, outerPred, m) -> do
