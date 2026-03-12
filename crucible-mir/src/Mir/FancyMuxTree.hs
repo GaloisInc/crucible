@@ -299,14 +299,14 @@ foldZipFancyMuxTree bak f z tx ty =
 
 -- | Map `f` over the potential values of the `FancyMuxTree`.  If `f` aborts,
 -- then the input value will not have a corresponding entry in the output.
-mapFancyMuxTree :: (IsSymBackend sym bak, OrdSkel b) =>
+mapFancyMuxTree :: (MonadAssert sym bak m, OrdSkel b) =>
     bak -> (Pred sym -> b -> b -> IO b) ->
-    (a -> MuxLeafT sym IO b) -> FancyMuxTree sym a -> IO (FancyMuxTree sym b)
+    (a -> MuxLeafT sym m b) -> FancyMuxTree sym a -> m (FancyMuxTree sym b)
 mapFancyMuxTree bak mux f t = do
     let sym = backendGetSym bak
     ys <- Maybe.catMaybes <$>
         mapM (\(x,p) -> runMuxLeafMA bak (f x >>= \y -> return (y, p)) p) (viewFancyMuxTree t)
-    buildFancyMuxTree sym mux ys
+    liftIO $ buildFancyMuxTree sym mux ys
 
 collapseFancyMuxTree :: MonadAssert sym bak m =>
     bak -> (Pred sym -> a -> a -> IO a) -> FancyMuxTree sym a -> m (Maybe a)

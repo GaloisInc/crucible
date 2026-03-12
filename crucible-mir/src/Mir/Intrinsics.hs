@@ -2036,7 +2036,7 @@ subfieldMirRefIO ::
     Index ctx tp ->
     IO (MirReferenceMux sym)
 subfieldMirRefIO bak iTypes ctx ref idx =
-    modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
+    modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
 
 subfieldMirRef_UntypedIO ::
     IsSymBackend sym bak =>
@@ -2047,7 +2047,7 @@ subfieldMirRef_UntypedIO ::
     Maybe (Some TypeRepr) ->
     IO (MirReferenceMux sym)
 subfieldMirRef_UntypedIO bak iTypes ref fieldNum expectedTy =
-    modifyRefMuxIO bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum expectedTy) ref
+    modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum expectedTy) ref
 
 subvariantMirRefLeaf ::
     TypeRepr discrTp ->
@@ -2070,7 +2070,7 @@ subvariantMirRefIO ::
     Index variantsCtx tp ->
     IO (MirReferenceMux sym)
 subvariantMirRefIO bak iTypes tp ctx ref idx =
-    modifyRefMuxIO bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
+    modifyRefMuxMA bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
 
 subindexMirRefLeaf ::
     IsSymInterface sym =>
@@ -2114,7 +2114,7 @@ subjustMirRefIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
-    modifyRefMuxIO bak iTypes (subjustMirRefLeaf tpr) ref
+    modifyRefMuxMA bak iTypes (subjustMirRefLeaf tpr) ref
 
 mirRef_agElemLeaf ::
     RegValue sym UsizeType ->
@@ -2136,7 +2136,7 @@ mirRef_agElemIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 mirRef_agElemIO bak iTypes off sz tpr ref =
-    modifyRefMuxIO bak iTypes (mirRef_agElemLeaf off sz tpr) ref
+    modifyRefMuxMA bak iTypes (mirRef_agElemLeaf off sz tpr) ref
 
 
 refRootEq ::
@@ -2594,14 +2594,14 @@ mirRef_overlapsIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
 
 
 mirRef_offsetLeaf ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     MirReference sym ->
     -- | The number of elements by which to offset
     RegValue sym IsizeType ->
     -- | The size of each element, in bytes
     Word ->
-    MuxLeafT sym IO (MirReference sym)
+    MuxLeafT sym m (MirReference sym)
 -- TODO: `offset` has a number of preconditions that we should check here:
 -- * addition must not overflow
 -- * resulting pointer must be in-bounds for the allocation
@@ -2609,14 +2609,14 @@ mirRef_offsetLeaf ::
 mirRef_offsetLeaf = mirRef_offsetWrapLeaf
 
 mirRef_offsetWrapLeaf ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     MirReference sym ->
     -- | The number of elements by which to offset
     RegValue sym IsizeType ->
     -- | The size of each element, in bytes
     Word ->
-    MuxLeafT sym IO (MirReference sym)
+    MuxLeafT sym m (MirReference sym)
 mirRef_offsetWrapLeaf bak (MirReference tpr root (VectorIndex_RefPath tpr' path idx)) numElems  _elemSize = do
     let sym = backendGetSym bak
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
@@ -2998,7 +2998,7 @@ mirRef_aggregateAsChunksIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 mirRef_aggregateAsChunksIO bak iTypes chunkSizeSym numChunksSym ref =
-    modifyRefMuxIO bak iTypes (mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym) ref
+    modifyRefMuxMA bak iTypes (mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym) ref
 
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
@@ -3040,7 +3040,7 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset (regValue -> ref) (regValue -> off) elemSize ->
-         readOnly s $ mirRef_offsetIO bak iTypes ref off elemSize
+         readOnly s $ mirRef_offsetMA bak iTypes ref off elemSize
        MirRef_OffsetWrap (regValue -> ref) (regValue -> off) elemSize ->
          readOnly s $ mirRef_offsetWrapIO bak iTypes ref off elemSize
        MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) elemSize ->
@@ -3163,16 +3163,16 @@ modifyRefMuxSim f ref =
   ovrWithBackend $ \bak -> do
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ modifyRefMuxIO bak iTypes f ref
+    liftIO $ modifyRefMuxMA bak iTypes f ref
 
-modifyRefMuxIO ::
-    IsSymBackend sym bak =>
+modifyRefMuxMA ::
+    MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
-    (MirReference sym -> MuxLeafT sym IO (MirReference sym)) ->
+    (MirReference sym -> MuxLeafT sym m (MirReference sym)) ->
     MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-modifyRefMuxIO bak iTypes f (MirReferenceMux ref) = do
+    m (MirReferenceMux sym)
+modifyRefMuxMA bak iTypes f (MirReferenceMux ref) = do
     let sym = backendGetSym bak
     MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
 
@@ -3250,7 +3250,7 @@ subindexMirRefIO ::
     Word ->
     IO (MirReferenceMux sym)
 subindexMirRefIO bak iTypes tpr ref x elemSize =
-    modifyRefMuxIO bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
+    modifyRefMuxMA bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
 
 mirRef_offsetSim ::
     IsSymInterface sym =>
@@ -3264,8 +3264,8 @@ mirRef_offsetSim ref off elemSize =
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
 
-mirRef_offsetIO ::
-    IsSymBackend sym bak =>
+mirRef_offsetMA ::
+    MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
@@ -3273,9 +3273,9 @@ mirRef_offsetIO ::
     RegValue sym IsizeType ->
     -- | The size of each element, in bytes
     Word ->
-    IO (MirReferenceMux sym)
-mirRef_offsetIO bak iTypes ref off elemSize =
-    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
+    m (MirReferenceMux sym)
+mirRef_offsetMA bak iTypes ref off elemSize =
+    modifyRefMuxMA bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
 
 mirRef_offsetWrapSim ::
     IsSymInterface sym =>
@@ -3300,7 +3300,7 @@ mirRef_offsetWrapIO ::
     Word ->
     IO (MirReferenceMux sym)
 mirRef_offsetWrapIO bak iTypes ref off elemSize =
-    modifyRefMuxIO bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
+    modifyRefMuxMA bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
 
 
 writeRefPath ::
