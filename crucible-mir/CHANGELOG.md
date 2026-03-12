@@ -15,8 +15,17 @@ This release supports [version
 * Support translating constant trait object values.
 * Support calling `dyn Trait` methods that have `Box`, `Rc`, `Arc`, or `Pin`
   receivers, plus most uses of `#[feature(arbitrary_self_types)]`.
-* Add the `mirRef_peelFieldIO` and `mirRef_peelJustIO` functions in
+* Generalize some functions in `Mir.Intrinsics` and `Mir.FancyMuxTree` to work
+  over a new monad typeclass `Mir.FancyMuxTree.MonadAssert`, which defines the
+  behavior of assertions and failures. There should be no change in behavior
+  when used in the `IO` monad, but now it is possible to define alternative
+  interpretations for other monads as well (the primary use case for this is in
+  SAW). Functions whose names ended in `IO` which are now generalized to work
+  with any `MonadAssert m` are correspondingly renamed to end in `MA`.
+* Add the `mirRef_peelFieldMA` and `mirRef_peelJustMA` functions in
   `Mir.Intrinsics`. These are only used by SAW at the moment.
+* Remove `Mir.FancyMuxTree.runMuxLeafIO'`, which does not seem to be used
+  anywhere.
 
 # 0.6 -- 2026-01-29
 
