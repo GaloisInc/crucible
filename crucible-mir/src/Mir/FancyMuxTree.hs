@@ -211,9 +211,9 @@ runMuxLeafMA bak f p =
 
 -- | Run a MuxLeafT sub-computation under a more restrictive predicate.  If `f`
 -- aborts, this function will `leafAssert` the negation of `p`.
-subMuxLeafIO :: MonadAssert sym bak m =>
+subMuxLeafMA :: MonadAssert sym bak m =>
     bak -> MuxLeafT sym m a -> Pred sym -> MuxLeafT sym m (Maybe a)
-subMuxLeafIO bak f p = do
+subMuxLeafMA bak f p = do
     let sym = backendGetSym bak
     q <- leafPredicate
     pq <- liftIO $ andPred sym p q

@@ -865,7 +865,7 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
 
       xs <- forM candidates $ \(o, _w, rvPart) -> do
         hit <- liftIO $ bvEq sym off =<< offsetLit o
-        mRvPart' <- subMuxLeafIO bak (f' rvPart) hit
+        mRvPart' <- subMuxLeafMA bak (f' rvPart) hit
         rvPart'' <- case mRvPart' of
           Just rvPart' -> liftIO $ iteFn' hit rvPart' rvPart
           Nothing -> return rvPart
@@ -1442,7 +1442,7 @@ leafAdjustVectorWithSymIndex bak iteFn v i adj
         -- replicated `N` times, in the form `assert (i == j -> p)`.  Currently
         -- this seems okay because the number of asserts will be linear, except
         -- in the case of nested arrays, which are uncommon.
-        mx' <- subMuxLeafIO bak (adj x) hit
+        mx' <- subMuxLeafMA bak (adj x) hit
         case mx' of
             Just x' -> liftIO $ iteFn hit x' x
             Nothing -> return x
