@@ -85,8 +85,8 @@ import           What4.Partial
 -- Unlike with MuxTree, it is not guaranteed that the `Pred`s of a FancyMuxTree
 -- cover all possibilities.  However, the process of constructing such a
 -- partial FancyMuxTree will assert as a side effect that the "missing" cases
--- do not occur.  This is handled in runMuxLeafIO: if the MuxLeafT computation
--- aborts, then runMuxLeafIO asserts that the leaf is not active before
+-- do not occur.  This is handled in runMuxLeafMA: if the MuxLeafT computation
+-- aborts, then runMuxLeafMA asserts that the leaf is not active before
 -- returning Nothing.
 newtype FancyMuxTree sym a = FancyMuxTree (Map (Skeleton a) (a, Pred sym))
 
