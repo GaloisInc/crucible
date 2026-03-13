@@ -17,7 +17,7 @@ to the `LICENSE` file. Some binary distributions of `crux-llvm` come bundled
 with external compilers and SMT solvers:
 
 * `clang` and `llvm-link` (Apache v2.0 licensed)
-* CVC4 (BSD-3 licensed)
+* CVC5 (BSD-3 licensed)
 * Yices (GPLv3 licensed)
 * Z3 (MIT licensed)
 
@@ -48,7 +48,7 @@ software:
 
 We have tested `crux-llvm` most heavily with GHC 9.4, GHC 9.6, GHC 9.8,
 and `cabal` version 3.10. We recommend Yices 2.6.x, and Z3
-4.8.x. Technically, only one of Yices or Z3 is required, and CVC4 is
+4.8.x. Technically, only one of Yices or Z3 is required, and CVC5 is
 also supported. However, in practice, having both tends to be
 convenient. Finally, LLVM versions from 3.6 through 21 are likely to
 work well, and any failures with versions in that range should be
@@ -281,7 +281,7 @@ In addition, the following flags can optionally be provided:
 * `--floating-point=FPREP`, `-f FPREP`: Select the floating point
   representation to use. The value of `FPREP` can be one of `real`,
   `ieee`, `uninterpreted`, or `default`. Default representation is
-  solver specific: `real` for CVC4 and Yices, and `ieee` for Z3.
+  solver specific: `real` for CVC5 and Yices, and `ieee` for Z3.
 
 * `--iteration-bound=N`, `-i N`: Set a bound on the number of times a
   single loop can iterate. This can also make it more likely to get at
@@ -304,7 +304,7 @@ In addition, the following flags can optionally be provided:
 
 * `--solver=NAME`, `-s NAME`: Use the given SMT solver to discharge
   proof obligations. Valid values for `NAME` are `bitwuzla`, `boolector`,
-  `cvc4`, `cvc5`, `yices`, and `z3`.
+  `cvc5`, `yices`, and `z3`.
 
 * `--timeout=N`, `-t N`: Set the timeout for the first phase of analysis
   (symbolic execution) which happens before sending the main goals to an

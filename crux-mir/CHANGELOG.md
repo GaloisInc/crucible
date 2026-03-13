@@ -4,6 +4,9 @@ This release supports [version
 9](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#9) of
 `mir-json`'s schema.
 
+* The CVC4 SMT solver is no longer supported. As such, the `--solver`
+  command-line option no longer accepts `cvc4` as a valid option.
+
 # 0.12 -- 2026-01-29
 
 This release supports [version
