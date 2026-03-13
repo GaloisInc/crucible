@@ -1,0 +1,5 @@
+-- Include crucible-syntax and its direct dependencies from the workspace
+packages:
+  .
+  ../crucible/
+  ../dependencies/what4/what4/

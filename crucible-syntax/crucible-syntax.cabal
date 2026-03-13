@@ -164,3 +164,13 @@ test-suite crucible-syntax-tests
     text,
     what4
 
+executable crucible-syntax
+  import: shared
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    crucible,
+    crucible-syntax,
+    text
+
