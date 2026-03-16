@@ -299,7 +299,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           tags: ${{ matrix.image }}:${{ steps.common-tag.outputs.common-tag }}
@@ -313,7 +313,7 @@ jobs:
             type=registry,ref=${{ matrix.cache }}:${{ steps.common-tag.outputs.common-tag }}
 
       - name: Cache image build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         continue-on-error: true  # Tolerate cache upload failures - this should be handled better
         with:
           context: .
