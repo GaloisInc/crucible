@@ -597,6 +597,15 @@ data ExecutionFeatureResult p sym ext rtp where
   ExecutionFeatureNewState ::
      ExecState p sym ext rtp -> ExecutionFeatureResult p sym ext rtp
 
+instance Semigroup (ExecutionFeatureResult p sym ext rtp) where
+  ExecutionFeatureNewState s <> _ = ExecutionFeatureNewState s
+  _ <> ExecutionFeatureNewState s = ExecutionFeatureNewState s
+  ExecutionFeatureModifiedState s <> _ = ExecutionFeatureModifiedState s
+  _ <> ExecutionFeatureModifiedState s = ExecutionFeatureModifiedState s
+  ExecutionFeatureNoChange <> ExecutionFeatureNoChange = ExecutionFeatureNoChange
+
+instance Monoid (ExecutionFeatureResult p sym ext rtp) where
+  mempty = ExecutionFeatureNoChange
 
 -- | An execution feature represents a computation that is allowed to intercept
 --   the processing of execution states to perform additional processing at
