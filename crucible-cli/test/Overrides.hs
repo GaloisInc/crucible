@@ -24,18 +24,13 @@ import qualified Prettyprinter.Render.Text as PP
 import Data.Parameterized.Context hiding (view)
 import qualified Data.Parameterized.Map as MapF
 
-import qualified Prettyprinter as PP
-import qualified Prettyprinter.Render.Text as PP
-
 import qualified What4.Concretize as WC
 import What4.Expr.Builder
 import What4.Interface
 import What4.ProgramLoc
 import qualified What4.Protocol.Online as WPO
-import qualified What4.ProblemFeatures as WPF
 import What4.Solver (LogData(..), defaultLogData)
 import What4.Solver.Z3 (z3Adapter)
-import qualified What4.Solver.Z3 as Z3
 
 import Lang.Crucible.Backend
 import qualified Lang.Crucible.Backend as CB
@@ -232,6 +227,29 @@ printAssumptionState _proxy = do
     state <- getBackendState bak
     render (ppAssumptionState (Just sym) state)
 
+-- | Helper, not exported
+proveChecker :: CB.ProofConsumer sym t All
+proveChecker = CB.ProofConsumer $ \_ r ->
+  case r of
+    CB.Proved {} -> pure (All True)
+    CB.Disproved {} -> pure (All False)
+    CB.Unknown {} -> pure (All False)
+
+-- | Helper, not exported
+proveObligationsAndReturnBool ::
+  IsSymBackend sym bak =>
+  bak ->
+  IO All ->
+  OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
+proveObligationsAndReturnBool bak proveAction = do
+  let sym = backendGetSym bak
+  allProvedAll <- liftIO proveAction
+  liftIO $ clearProofObligations bak
+  let allProved = getAll allProvedAll
+  if allProved
+    then return (truePred sym)
+    else return (falsePred sym)
+
 -- | Prove all outstanding proof obligations using an offline prover and return Bool
 proveOffline ::
   ( IsSymInterface sym
@@ -240,22 +258,13 @@ proveOffline ::
   proxy sym ->
   OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
 proveOffline _proxy =
-  ovrWithBackend $ \bak -> do
-    let sym = backendGetSym bak
-    allProvedAll <- liftIO $ do
+  ovrWithBackend $ \bak ->
+    proveObligationsAndReturnBool bak $ do
+      let sym = backendGetSym bak
       let logData = defaultLogData { logCallbackVerbose = \_ _ -> return ()
                                    , logReason = "assertion proof" }
-      let checker = CB.ProofConsumer $ \_ r ->
-            case r of
-              CB.Proved {} -> pure (All True)
-              CB.Disproved {} -> pure (All False)
-              CB.Unknown {} -> pure (All False)
       let onTimeout _ = pure (All False)
-      proveObligationsOfflineWith sym bak logData checker onTimeout
-    let allProved = getAll allProvedAll
-    if allProved
-      then return (truePred sym)
-      else return (falsePred sym)
+      proveObligationsOfflineWith sym bak logData proveChecker onTimeout
 
 -- | Prove all outstanding proof obligations using an online prover and return Bool
 proveOnline ::
@@ -267,20 +276,10 @@ proveOnline ::
   bak ->
   proxy sym ->
   OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
-proveOnline bak _proxy = do
-  let sym = backendGetSym bak
-  allProvedAll <- liftIO $ do
+proveOnline bak _proxy =
+  proveObligationsAndReturnBool bak $
     CBO.withSolverProcess bak (pure (All False)) $ \sp -> do
+      let sym = backendGetSym bak
       let prover = CB.onlineProver sym sp
       let strat = CB.ProofStrategy prover CB.keepGoing
-      let checker = CB.ProofConsumer $ \_ r ->
-            case r of
-              CB.Proved {} -> pure (All True)
-              CB.Disproved {} -> pure (All False)
-              CB.Unknown {} -> pure (All False)
-      CB.proveCurrentObligations bak strat checker
-  liftIO $ clearProofObligations bak
-  let allProved = getAll allProvedAll
-  if allProved
-    then return (truePred sym)
-    else return (falsePred sym)
+      CB.proveCurrentObligations bak strat proveChecker
