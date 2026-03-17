@@ -16,7 +16,6 @@ import qualified Lang.Crucible.Simulator as C
 import Lang.Crucible.CLI (SimulateProgramHooks(..), defaultSimulateProgramHooks)
 
 import Lang.Crucible.Syntax.Concrete (ParserHooks)
-import Lang.Crucible.Syntax.Overrides (setupOverrides)
 
 import Mir.Intrinsics (MIR)
 import qualified Mir.Intrinsics as Mir
@@ -39,7 +38,6 @@ withMirHooks k = do
               let addIntrinsicTypes types ctx =
                     ctx { C.ctxIntrinsicTypes = MapF.union (C.ctxIntrinsicTypes ctx) types }
               C.stateContext Lens.%= addIntrinsicTypes Mir.mirIntrinsicTypes
-          , setupOverridesHook = setupOverrides
           }
   let ext _ = pure Mir.mirExtImpl
   k ext simulationHooks

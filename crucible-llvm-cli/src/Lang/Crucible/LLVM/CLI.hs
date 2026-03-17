@@ -33,7 +33,6 @@ import qualified Lang.Crucible.Simulator as C
 import Lang.Crucible.CLI (SimulateProgramHooks(..), defaultSimulateProgramHooks)
 
 import Lang.Crucible.Syntax.Concrete (ParserHooks)
-import Lang.Crucible.Syntax.Overrides (setupOverrides)
 
 import Lang.Crucible.LLVM (llvmExtensionImpl)
 import Lang.Crucible.LLVM.DataLayout (EndianForm(LittleEndian), defaultDataLayout)
@@ -118,7 +117,6 @@ withLlvmHooks k = do
               let fwdDecs' = Map.filterWithKey (\nm _ -> nm `List.notElem` otherOvs) fwdDecs
               _ <- registerLLVMOverrides bak llvmCtx fwdDecs'
               return ()
-          , setupOverridesHook = setupOverrides
           }
   let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
               in pure (llvmExtensionImpl Mem.defaultMemOptions)

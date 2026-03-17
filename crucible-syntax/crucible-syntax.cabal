@@ -132,7 +132,6 @@ library
     Lang.Crucible.Syntax.Atoms
     Lang.Crucible.Syntax.Concrete
     Lang.Crucible.Syntax.SExpr
-    Lang.Crucible.Syntax.Overrides
     Lang.Crucible.Syntax.ExprParse
     Lang.Crucible.Syntax.Monad
     Lang.Crucible.Syntax.ParsedProgram
