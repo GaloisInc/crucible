@@ -177,7 +177,10 @@ nondetBranchesTest _proxy =
 
 -- | Common helper for proving obligations with an offline prover
 proveObligationsOfflineWith ::
-  (IsSymBackend sym bak, sym ~ (ExprBuilder t st fs), Monoid a) =>
+  ( IsSymBackend sym bak
+  , sym ~ ExprBuilder t st fs
+  , Monoid a
+  ) =>
   sym ->
   bak ->
   LogData ->
@@ -230,7 +233,10 @@ printAssumptionState _proxy = do
     render (ppAssumptionState (Just sym) state)
 
 -- | Prove all outstanding proof obligations using an offline prover and return Bool
-proveOffline :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+proveOffline ::
+  ( IsSymInterface sym
+  , sym ~ ExprBuilder t st fs
+  ) =>
   proxy sym ->
   OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
 proveOffline _proxy =
@@ -254,7 +260,7 @@ proveOffline _proxy =
 -- | Prove all outstanding proof obligations using an online prover and return Bool
 proveOnline ::
   ( IsSymInterface sym
-  , sym ~ (ExprBuilder t st fs)
+  , sym ~ ExprBuilder t st fs
   , bak ~ CBO.OnlineBackend solver t st fs
   , WPO.OnlineSolver solver
   ) =>

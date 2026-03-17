@@ -111,19 +111,21 @@ consumeGoals onAssumption onGoal onConj = go
 consumeGoalsWithAssumptions ::
   forall asmp goal a.
   Monoid asmp =>
-  -- | Consume a 'Prove'
+  -- | What to do at 'Assuming' nodes (e.g., call proverAssume)
+  (asmp -> a -> a) ->
+  -- | Consume a 'Prove' with accumulated assumptions
   (asmp -> goal -> a) ->
   -- | Consume a 'ProveConj'
   (a -> a -> a) ->
   CB.Goals asmp goal ->
   a
-consumeGoalsWithAssumptions onGoal onConj goals =
+consumeGoalsWithAssumptions onAssumption onGoal onConj goals =
   Reader.runReader (go goals) mempty
   where
   go :: CB.Goals asmp goal -> Reader.Reader asmp a
   go =
     consumeGoals
-      (\asmp gl -> Reader.local (<> asmp) gl)
+      (\asmp gl -> onAssumption asmp <$> Reader.local (<> asmp) gl)
       (\gl -> Reader.asks (\asmps -> onGoal asmps gl))
       (\g1 g2 -> onConj <$> g1 <*> g2)
 
@@ -353,13 +355,17 @@ onlineProve ::
   W4SMT.SMTReadWriter solver =>
   (sym ~ WE.ExprBuilder t st fs) =>
   W4.IsSymExprBuilder sym =>
+  sym ->
   WPO.SolverProcess t solver ->
   Assumptions sym ->
   CB.Assertion sym ->
   ProofConsumer sym t r ->
   m (SubgoalResult r)
-onlineProve sProc asmps goal (ProofConsumer k) =
-  liftIO $ WPO.checkSatisfiableWithModel sProc "prove" (goal ^. CB.labeledPred) $ \r ->
+onlineProve sym sProc asmps goal (ProofConsumer k) = liftIO $ do
+  let goalPred = goal ^. CB.labeledPred
+  notGoal <- W4.notPred sym goalPred
+  -- Note: assumptions are established via proverAssume before this is called
+  WPO.checkSatisfiableWithModel sProc "prove" notGoal $ \r ->
     let r' =
           case r of
             W4R.Sat gfn -> Disproved gfn Nothing
@@ -404,7 +410,7 @@ onlineProver ::
   Prover sym m t r
 onlineProver sym sProc =
   Prover
-  { proverProve = onlineProve sProc
+  { proverProve = onlineProve sym sProc
   , proverAssume = onlineAssume sym sProc
   }
 
@@ -421,6 +427,7 @@ proveGoals ::
 proveGoals (ProofStrategy prover (Combiner comb)) goals k =
   fmap subgoalResult $
     consumeGoalsWithAssumptions
+      (proverAssume prover)
       (\asmps gl -> proverProve prover asmps gl k)
       comb
       goals
